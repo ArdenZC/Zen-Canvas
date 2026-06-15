@@ -3,16 +3,21 @@ import {
   AlertTriangle,
   Archive,
   CheckCircle2,
+  ChevronRight,
+  Clock3,
+  FileSearch,
   Files,
+  FolderOpen,
   FolderSearch,
   Languages,
-  LayoutDashboard,
   ListChecks,
+  LockKeyhole,
   Play,
   Plus,
   RefreshCw,
+  Search,
   Settings,
-  Shield,
+  ShieldCheck,
   SlidersHorizontal
 } from "lucide-react";
 import type {
@@ -23,10 +28,11 @@ import type {
   OperationPreview,
   Rule
 } from "./types/domain";
-import { formatBytes, formatDate, percent } from "./utils/format";
 import { type Language, makeTranslator } from "./i18n";
+import { formatBytes, formatDate, percent } from "./utils/format";
 
 type View = "dashboard" | "files" | "rules" | "preview" | "operations" | "settings";
+type Translator = ReturnType<typeof makeTranslator>;
 
 const demoFiles = createDemoFiles();
 const demoSnapshot: AppSnapshot = {
@@ -37,14 +43,10 @@ const demoSnapshot: AppSnapshot = {
     largeFiles: 0,
     sensitiveFiles: demoFiles.filter((file) => file.risk_level === "Sensitive").length,
     needsConfirmation: demoFiles.filter((file) => file.requires_confirmation).length,
-    byType: Object.fromEntries(
-      Object.entries(
-        demoFiles.reduce<Record<string, number>>((acc, file) => {
-          acc[file.file_type] = (acc[file.file_type] ?? 0) + 1;
-          return acc;
-        }, {})
-      )
-    ),
+    byType: demoFiles.reduce<Record<string, number>>((acc, file) => {
+      acc[file.file_type] = (acc[file.file_type] ?? 0) + 1;
+      return acc;
+    }, {}),
     byLifecycle: demoFiles.reduce<Record<string, number>>((acc, file) => {
       acc[file.lifecycle] = (acc[file.lifecycle] ?? 0) + 1;
       return acc;
@@ -58,17 +60,22 @@ const demoSnapshot: AppSnapshot = {
 };
 
 export function App() {
-  const [language, setLanguage] = useState<Language>("zh");
+  const [language, setLanguageState] = useState<Language>(() => preferredLanguage());
   const t = useMemo(() => makeTranslator(language), [language]);
   const [view, setView] = useState<View>("dashboard");
   const [snapshot, setSnapshot] = useState<AppSnapshot>(demoSnapshot);
-  const [query, setQuery] = useState<FileQuery>({ fileType: "All", purpose: "All", riskLevel: "All" });
+  const [query, setQuery] = useState<FileQuery>({
+    fileType: "All",
+    purpose: "All",
+    riskLevel: "All",
+    sortBy: "modified_at",
+    sortDirection: "desc"
+  });
   const [selectedFileId, setSelectedFileId] = useState<string>(demoFiles[0]?.id ?? "");
   const [selectedOperationIds, setSelectedOperationIds] = useState<Set<string>>(new Set());
   const [isScanning, setIsScanning] = useState(false);
   const [status, setStatus] = useState("");
   const [selectedFolders, setSelectedFolders] = useState<string[]>([]);
-  const [showGuide, setShowGuide] = useState(true);
 
   const hasNativeApi = typeof window.fileManager !== "undefined";
 
@@ -83,24 +90,39 @@ export function App() {
   }, [hasNativeApi]);
 
   const filteredFiles = useMemo(() => filterFiles(snapshot.files, query), [snapshot.files, query]);
-  const selectedFile = snapshot.files.find((file) => file.id === selectedFileId) ?? filteredFiles[0];
+  const selectedFile =
+    snapshot.files.find((file) => file.id === selectedFileId) ?? filteredFiles[0] ?? snapshot.files[0];
   const previews = useMemo(() => createOperationPreviews(snapshot.files), [snapshot.files]);
+  const reviewFiles = useMemo(
+    () => snapshot.files.filter((file) => file.requires_confirmation).slice(0, 5),
+    [snapshot.files]
+  );
+
+  function setLanguage(next: Language) {
+    setLanguageState(next);
+    window.localStorage.setItem("fma-language", next);
+  }
+
+  async function refreshSnapshot() {
+    if (!hasNativeApi) return;
+    const next = await window.fileManager.getSnapshot();
+    setSnapshot(next);
+    setSelectedFileId(next.files[0]?.id ?? "");
+  }
 
   async function handleScan() {
     setIsScanning(true);
     try {
       if (hasNativeApi) {
         await window.fileManager.scanDefaults();
-        const next = await window.fileManager.getSnapshot();
-        setSnapshot(next);
-        setSelectedFileId(next.files[0]?.id ?? "");
-        setStatus(`${t("success")}: ${next.files.length}`);
+        await refreshSnapshot();
+        setStatus(t("success"));
       } else {
         setSnapshot(demoSnapshot);
         setStatus(t("demoMode"));
       }
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
+      setStatus(readableError(error));
     } finally {
       setIsScanning(false);
     }
@@ -115,11 +137,11 @@ export function App() {
           setStatus(t("noFolderSelected"));
           return;
         }
-        const next = await window.fileManager.getSnapshot();
         setSelectedFolders(result.selectedPaths);
+        const next = await window.fileManager.getSnapshot();
         setSnapshot(next);
         setSelectedFileId(next.files[0]?.id ?? "");
-        setStatus(`${t("success")}: ${result.selectedPaths.length} folder(s), ${next.files.length} files`);
+        setStatus(`${t("success")}: ${result.selectedPaths.length} / ${next.files.length}`);
       } else {
         const sampleFolders = ["C:/Users/example/Downloads", "C:/Users/example/Desktop"];
         setSelectedFolders(sampleFolders);
@@ -127,7 +149,7 @@ export function App() {
         setStatus(t("folderChooserUnavailable"));
       }
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
+      setStatus(readableError(error));
     } finally {
       setIsScanning(false);
     }
@@ -148,14 +170,13 @@ export function App() {
     if (!operations.length) return;
     if (hasNativeApi) {
       await window.fileManager.executeOperations({ operations });
-      const next = await window.fileManager.getSnapshot();
-      setSnapshot(next);
+      await refreshSnapshot();
     }
     setSelectedOperationIds(new Set());
   }
 
   const nav = [
-    { id: "dashboard" as const, label: t("dashboard"), icon: LayoutDashboard },
+    { id: "dashboard" as const, label: t("dashboard"), icon: FolderSearch },
     { id: "files" as const, label: t("files"), icon: Files },
     { id: "rules" as const, label: t("rules"), icon: SlidersHorizontal },
     { id: "preview" as const, label: t("preview"), icon: ListChecks },
@@ -165,32 +186,36 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <aside className="rail" aria-label="Primary">
         <div className="brand">
-          <div className="brand-mark"><FolderSearch size={22} /></div>
+          <div className="brand-mark" aria-hidden="true">
+            <FolderOpen size={21} />
+          </div>
           <div>
-            <div className="brand-title">{t("appName")}</div>
-            <div className="brand-subtitle">{t("appSubtitle")}</div>
+            <strong>{t("appName")}</strong>
+            <span>{t("productEdition")}</span>
           </div>
         </div>
+
         <nav className="nav-list">
           {nav.map((item) => (
             <button
               key={item.id}
               className={`nav-item ${view === item.id ? "active" : ""}`}
-              aria-label={item.label}
               onClick={() => setView(item.id)}
+              aria-label={item.label}
             >
               <item.icon size={18} />
               <span>{item.label}</span>
             </button>
           ))}
         </nav>
-        <div className="privacy-panel">
-          <Shield size={18} />
+
+        <div className="rail-foot">
+          <LockKeyhole size={17} />
           <div>
-            <strong>{t("localOnly")}</strong>
-            <span>{t("scanRoots")}</span>
+            <strong>{t("privateByDefault")}</strong>
+            <span>{t("privacyLine")}</span>
           </div>
         </div>
       </aside>
@@ -198,16 +223,22 @@ export function App() {
       <main className="workspace">
         <header className="topbar">
           <div>
+            <span className="eyebrow">{t("friendlyMode")}</span>
             <h1>{nav.find((item) => item.id === view)?.label}</h1>
-            <p>{snapshot.stats.lastScannedAt ? `${t("lastScan")}: ${formatDate(snapshot.stats.lastScannedAt)}` : t("demoMode")}</p>
+            <p>
+              {snapshot.stats.lastScannedAt
+                ? `${t("lastScan")}: ${formatDate(snapshot.stats.lastScannedAt)}`
+                : t("demoMode")}
+            </p>
           </div>
           <div className="topbar-actions">
-            <button className="ghost-button" onClick={() => setLanguage(language === "zh" ? "en" : "zh")}>
-              <Languages size={17} /> {language === "zh" ? "EN" : "中文"}
+            <button className="icon-button text-action" onClick={() => setLanguage(language === "zh" ? "en" : "zh")}>
+              <Languages size={18} />
+              <span>{language === "zh" ? "EN" : "中文"}</span>
             </button>
-            <button className="primary-button" onClick={handleScan} disabled={isScanning}>
-              <RefreshCw size={17} className={isScanning ? "spin" : ""} />
-              {isScanning ? t("scanning") : t("scan")}
+            <button className="icon-button primary-action" onClick={handleChooseFolders} disabled={isScanning}>
+              <FolderSearch size={18} />
+              <span>{t("chooseFolders")}</span>
             </button>
           </div>
         </header>
@@ -215,17 +246,17 @@ export function App() {
         {status && <div className="status-line">{status}</div>}
 
         {view === "dashboard" && (
-          <Dashboard
+          <HomeView
             snapshot={snapshot}
             t={t}
             selectedFile={selectedFile}
+            reviewFiles={reviewFiles}
+            previews={previews}
             setView={setView}
             chooseFolders={handleChooseFolders}
             scanCommon={handleScan}
             isScanning={isScanning}
             selectedFolders={selectedFolders}
-            showGuide={showGuide}
-            setShowGuide={setShowGuide}
           />
         )}
         {view === "files" && (
@@ -255,135 +286,188 @@ export function App() {
   );
 }
 
-function Dashboard({
+function HomeView({
   snapshot,
   selectedFile,
+  reviewFiles,
+  previews,
   setView,
   t,
   chooseFolders,
   scanCommon,
   isScanning,
-  selectedFolders,
-  showGuide,
-  setShowGuide
+  selectedFolders
 }: {
   snapshot: AppSnapshot;
   selectedFile?: FileRecord;
+  reviewFiles: FileRecord[];
+  previews: OperationPreview[];
   setView: (view: View) => void;
   chooseFolders: () => Promise<void>;
   scanCommon: () => Promise<void>;
   isScanning: boolean;
   selectedFolders: string[];
-  showGuide: boolean;
-  setShowGuide: (value: boolean) => void;
-  t: ReturnType<typeof makeTranslator>;
+  t: Translator;
 }) {
   const metrics = [
     { label: t("totalFiles"), value: snapshot.stats.totalFiles.toLocaleString(), icon: Files },
     { label: t("totalSize"), value: formatBytes(snapshot.stats.totalSize), icon: Archive },
-    { label: t("sensitive"), value: snapshot.stats.sensitiveFiles.toString(), icon: Shield },
-    { label: t("needsReview"), value: snapshot.stats.needsConfirmation.toString(), icon: ListChecks }
+    { label: t("needsReview"), value: snapshot.stats.needsConfirmation.toString(), icon: AlertTriangle },
+    { label: t("sensitive"), value: snapshot.stats.sensitiveFiles.toString(), icon: ShieldCheck }
   ];
+
   return (
-    <div className="grid dashboard-grid friendly-dashboard">
-      <section className="hero-panel">
-        <div className="hero-copy">
-          <span className="mode-pill">{t("friendlyMode")}</span>
+    <div className="home-layout">
+      <section className="scan-studio">
+        <div className="scan-copy">
+          <span className="promise"><ShieldCheck size={16} /> {t("primaryPromise")}</span>
           <h2>{t("folderPickerTitle")}</h2>
           <p>{t("folderPickerSubtitle")}</p>
-          <div className="hero-actions">
-            <button className="primary-button large" onClick={chooseFolders} disabled={isScanning}>
-              <FolderSearch size={19} />
-              {t("chooseFolders")}
+          <div className="scan-actions">
+            <button className="primary-command" onClick={chooseFolders} disabled={isScanning}>
+              <FolderSearch size={20} />
+              <span>{isScanning ? t("scanning") : t("chooseFoldersLong")}</span>
             </button>
-            <button className="ghost-button large" onClick={scanCommon} disabled={isScanning}>
+            <button className="secondary-command" onClick={scanCommon} disabled={isScanning}>
               <RefreshCw size={18} className={isScanning ? "spin" : ""} />
-              {t("scanCommon")}
+              <span>{t("scanCommon")}</span>
             </button>
           </div>
         </div>
-        <div className="folder-stack">
-          <strong>{t("selectedFolders")}</strong>
-          {(selectedFolders.length ? selectedFolders : [t("noFolderSelected")]).map((folder) => (
-            <code key={folder}>{folder}</code>
-          ))}
+
+        <div className="flow-card" aria-label={t("guidedStart")}>
+          <FlowStep icon={FolderOpen} title={t("stepChoose")} body={t("stepChooseDesc")} />
+          <FlowStep icon={FileSearch} title={t("stepScan")} body={t("stepScanDesc")} />
+          <FlowStep icon={CheckCircle2} title={t("stepReview")} body={t("stepReviewDesc")} />
         </div>
       </section>
 
-      {showGuide && (
-        <section className="panel guide-panel">
-          <div className="section-heading">
-            <h2>{t("guidedStart")}</h2>
-            <button className="text-button" onClick={() => setShowGuide(false)}>{t("hideTutorial")}</button>
-          </div>
-          <div className="guide-steps">
-            <GuideStep number="1" title={t("stepChoose")} body={t("stepChooseDesc")} />
-            <GuideStep number="2" title={t("stepScan")} body={t("stepScanDesc")} />
-            <GuideStep number="3" title={t("stepReview")} body={t("stepReviewDesc")} />
-          </div>
-        </section>
-      )}
-
-      {!showGuide && (
-        <button className="show-guide-button" onClick={() => setShowGuide(true)}>{t("showTutorial")}</button>
-      )}
-
-      <section className="panel metrics-panel compact">
+      <section className="summary-strip" aria-label={t("quickSummary")}>
         {metrics.map((metric) => (
-          <div className="metric" key={metric.label}>
-            <metric.icon size={18} />
+          <div className="summary-item" key={metric.label}>
+            <metric.icon size={17} />
             <span>{metric.label}</span>
             <strong>{metric.value}</strong>
           </div>
         ))}
       </section>
 
-      <section className="panel next-step-panel">
+      <section className="panel review-panel">
         <div className="section-heading">
           <div>
-            <h2>{t("primarySuggestion")}</h2>
+            <h2>{t("reviewQueue")}</h2>
+            <p>{t("confidenceHint")}</p>
+          </div>
+          <button
+            className="text-link"
+            aria-label={`${t("reviewQueue")} ${t("openPreview")}`}
+            onClick={() => setView("preview")}
+          >
+            {t("openPreview")} <ChevronRight size={16} />
+          </button>
+        </div>
+        {reviewFiles.length ? (
+          <div className="review-list">
+            {reviewFiles.map((file) => (
+              <button className="file-row-button" key={file.id} onClick={() => setView("files")}>
+                <div>
+                  <strong>{file.name}</strong>
+                  <span>{file.purpose} / {file.lifecycle}</span>
+                </div>
+                <RiskBadge risk={file.risk_level} t={t} />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state">{t("reviewQueueEmpty")}</div>
+        )}
+      </section>
+
+      <section className="panel safety-panel">
+        <h2>{t("compactSafety")}</h2>
+        <SafetyItem icon={LockKeyhole} title={t("localOnly")} body={t("privacyLine")} />
+        <SafetyItem icon={ListChecks} title={t("previewRequired")} body={t("previewRequiredDesc")} />
+        <SafetyItem icon={AlertTriangle} title={t("noDelete")} body={t("noDeleteDesc")} />
+      </section>
+
+      <section className="panel plan-panel">
+        <div className="section-heading">
+          <div>
+            <h2>{t("suggestedPlan")}</h2>
             <p>{t("previewBeforeExecute")}</p>
           </div>
-          <button className="text-button" onClick={() => setView("preview")}>{t("openPreview")}</button>
+          <span className="count-pill">{previews.length}</span>
         </div>
-        <div className="suggestion-strip">
-          <div><strong>{snapshot.stats.needsConfirmation}</strong><span>{t("needsReview")}</span></div>
-          <div><strong>{snapshot.stats.duplicateFiles}</strong><span>{t("duplicates")}</span></div>
-          <div><strong>{snapshot.stats.largeFiles}</strong><span>{t("largeFiles")}</span></div>
+        <div className="plan-actions">
+          <button className="primary-action full" onClick={() => setView("preview")}>
+            <ListChecks size={18} />
+            <span>{t("openPreview")}</span>
+          </button>
+          <button className="text-action full" onClick={() => setView("rules")}>
+            <SlidersHorizontal size={18} />
+            <span>{t("openRuleBuilder")}</span>
+          </button>
         </div>
       </section>
 
       <section className="panel strategy-panel">
         <div className="section-heading">
-          <h2>{t("strategy")}</h2>
-          <button className="text-button" onClick={() => setView("rules")}>{t("customRules")}</button>
+          <div>
+            <h2>{t("strategy")}</h2>
+            <p>{t("safeModeDesc")}</p>
+          </div>
         </div>
-        <div className="strategy-cards">
-          <div className="strategy-card selected">
-            <CheckCircle2 size={18} />
-            <strong>{t("builtInRules")}</strong>
-            <span>{t("builtInDesc")}</span>
-          </div>
-          <div className="strategy-card">
-            <Plus size={18} />
-            <strong>{t("customRules")}</strong>
-            <span>{t("customDesc")}</span>
-          </div>
+        <div className="segmented">
+          <button className="active">{t("builtInRules")}</button>
+          <button onClick={() => setView("rules")}>{t("customRules")}</button>
+        </div>
+        <div className="strategy-copy">
+          <p>{t("builtInDesc")}</p>
+          <p>{t("customDesc")}</p>
         </div>
       </section>
-      <ChartPanel title={t("lifecycle")} data={snapshot.stats.byLifecycle} />
-      <ChartPanel title={t("typeMix")} data={snapshot.stats.byType} />
+
       <Inspector file={selectedFile} t={t} />
     </div>
   );
 }
 
-function GuideStep({ number, title, body }: { number: string; title: string; body: string }) {
+function FlowStep({
+  icon: Icon,
+  title,
+  body
+}: {
+  icon: typeof FolderOpen;
+  title: string;
+  body: string;
+}) {
   return (
-    <div className="guide-step">
-      <span>{number}</span>
-      <strong>{title}</strong>
-      <p>{body}</p>
+    <div className="flow-step">
+      <Icon size={18} />
+      <div>
+        <strong>{title}</strong>
+        <span>{body}</span>
+      </div>
+    </div>
+  );
+}
+
+function SafetyItem({
+  icon: Icon,
+  title,
+  body
+}: {
+  icon: typeof LockKeyhole;
+  title: string;
+  body: string;
+}) {
+  return (
+    <div className="safety-item">
+      <Icon size={17} />
+      <div>
+        <strong>{title}</strong>
+        <span>{body}</span>
+      </div>
     </div>
   );
 }
@@ -401,22 +485,35 @@ function FilesView({
   query: FileQuery;
   setQuery: (query: FileQuery) => void;
   setSelectedFileId: (id: string) => void;
-  t: ReturnType<typeof makeTranslator>;
+  t: Translator;
 }) {
   return (
-    <div className="split-view">
+    <div className="content-layout">
       <section className="panel table-panel">
         <div className="toolbar">
-          <input
-            className="search-input"
-            placeholder={t("search")}
-            value={query.search ?? ""}
-            onChange={(event) => setQuery({ ...query, search: event.target.value })}
-          />
-          <select value={query.fileType ?? "All"} onChange={(event) => setQuery({ ...query, fileType: event.target.value as FileQuery["fileType"] })}>
+          <label className="search-control">
+            <Search size={16} />
+            <input
+              placeholder={t("search")}
+              value={query.search ?? ""}
+              onChange={(event) => setQuery({ ...query, search: event.target.value })}
+            />
+          </label>
+          <select
+            value={query.fileType ?? "All"}
+            onChange={(event) => setQuery({ ...query, fileType: event.target.value as FileQuery["fileType"] })}
+          >
             {["All", "Document", "Image", "Video", "Code", "Installer", "ArchivePackage", "Other"].map((item) => (
               <option key={item}>{item}</option>
             ))}
+          </select>
+          <select
+            value={query.sortBy ?? "modified_at"}
+            onChange={(event) => setQuery({ ...query, sortBy: event.target.value as FileQuery["sortBy"] })}
+          >
+            <option value="modified_at">{t("newest")}</option>
+            <option value="size">{t("biggest")}</option>
+            <option value="confidence">{t("strongest")}</option>
           </select>
           <label className="check-control">
             <input
@@ -424,7 +521,7 @@ function FilesView({
               checked={Boolean(query.onlyNeedsConfirmation)}
               onChange={(event) => setQuery({ ...query, onlyNeedsConfirmation: event.target.checked })}
             />
-            {t("needsReview")}
+            {t("filterNeedsReview")}
           </label>
         </div>
         <FileTable files={files} onSelect={setSelectedFileId} selectedId={selectedFile?.id} t={t} />
@@ -443,7 +540,7 @@ function FileTable({
   files: FileRecord[];
   selectedId?: string;
   onSelect: (id: string) => void;
-  t: ReturnType<typeof makeTranslator>;
+  t: Translator;
 }) {
   return (
     <div className="table-wrap">
@@ -463,11 +560,11 @@ function FileTable({
             <tr key={file.id} className={selectedId === file.id ? "selected-row" : ""} onClick={() => onSelect(file.id)}>
               <td>
                 <strong>{file.name}</strong>
-                <span>{formatBytes(file.size)} · {file.file_type}</span>
+                <span>{formatBytes(file.size)} / {file.file_type}</span>
               </td>
               <td>{file.purpose}</td>
               <td><span className="token">{file.lifecycle}</span></td>
-              <td><RiskBadge risk={file.risk_level} /></td>
+              <td><RiskBadge risk={file.risk_level} t={t} /></td>
               <td>{file.suggested_action}</td>
               <td>{percent(file.confidence)}</td>
             </tr>
@@ -485,7 +582,7 @@ function RulesView({
 }: {
   rules: Rule[];
   onSave: (rule: Rule) => Promise<void>;
-  t: ReturnType<typeof makeTranslator>;
+  t: Translator;
 }) {
   const [name, setName] = useState("Screenshots to Inbox");
   const [field, setField] = useState("name");
@@ -532,9 +629,14 @@ function RulesView({
   }
 
   return (
-    <div className="split-view">
+    <div className="content-layout">
       <section className="panel rule-builder">
-        <h2>{t("ruleBuilder")}</h2>
+        <div className="section-heading">
+          <div>
+            <h2>{t("ruleBuilder")}</h2>
+            <p>{t("customDesc")}</p>
+          </div>
+        </div>
         <div className="form-grid">
           <label>{t("ruleName")}<input value={name} onChange={(event) => setName(event.target.value)} /></label>
           <label>{t("field")}<select value={field} onChange={(event) => setField(event.target.value)}>
@@ -552,14 +654,16 @@ function RulesView({
           </select></label>
           <label>{t("weight")}<input type="number" value={weight} onChange={(event) => setWeight(Number(event.target.value))} /></label>
         </div>
-        <button className="primary-button" onClick={submit}><Plus size={17} />{t("saveRule")}</button>
+        <button className="primary-action" onClick={submit}><Plus size={17} />{t("saveRule")}</button>
       </section>
+
       <section className="panel rules-list">
+        <h2>{t("strategy")}</h2>
         {rules.map((rule) => (
           <div className="rule-row" key={rule.id}>
             <div>
               <strong>{rule.name}</strong>
-              <span>{rule.source} · weight {rule.weight} · priority {rule.priority}</span>
+              <span>{rule.source} / weight {rule.weight} / priority {rule.priority}</span>
             </div>
             <span className={`source ${rule.source}`}>{rule.source}</span>
           </div>
@@ -580,7 +684,7 @@ function PreviewView({
   selectedIds: Set<string>;
   setSelectedIds: (ids: Set<string>) => void;
   executeSelected: () => Promise<void>;
-  t: ReturnType<typeof makeTranslator>;
+  t: Translator;
 }) {
   function toggle(id: string) {
     const next = new Set(selectedIds);
@@ -593,17 +697,26 @@ function PreviewView({
     <section className="panel table-panel">
       <div className="section-heading">
         <div>
-          <h2>{t("preview")}</h2>
+          <h2>{t("suggestedPlan")}</h2>
           <p>{t("previewBeforeExecute")}</p>
         </div>
-        <button className="primary-button" onClick={executeSelected} disabled={!selectedIds.size}>
-          <Play size={17} /> {t("executeSelected")}
+        <button className="primary-action" onClick={executeSelected} disabled={!selectedIds.size}>
+          <Play size={17} /> {t("executeSelected")} / {selectedIds.size} {t("selected")}
         </button>
       </div>
-      {!previews.length ? <div className="empty">{t("noOperations")}</div> : (
+      {!previews.length ? <div className="empty-state">{t("noOperations")}</div> : (
         <div className="table-wrap">
           <table>
-            <thead><tr><th></th><th>{t("action")}</th><th>{t("sourcePath")}</th><th>{t("targetPath")}</th><th>{t("risk")}</th><th>{t("confidence")}</th></tr></thead>
+            <thead>
+              <tr>
+                <th></th>
+                <th>{t("action")}</th>
+                <th>{t("sourcePath")}</th>
+                <th>{t("targetPath")}</th>
+                <th>{t("newName")}</th>
+                <th>{t("confidence")}</th>
+              </tr>
+            </thead>
             <tbody>
               {previews.map((preview) => (
                 <tr key={preview.id}>
@@ -611,7 +724,7 @@ function PreviewView({
                   <td>{preview.operation_type}</td>
                   <td className="path-cell">{preview.source_path}</td>
                   <td className="path-cell">{preview.target_path}</td>
-                  <td><RiskBadge risk={preview.risk_level} /></td>
+                  <td>{preview.new_name}</td>
                   <td>{percent(preview.confidence)}</td>
                 </tr>
               ))}
@@ -623,14 +736,24 @@ function PreviewView({
   );
 }
 
-function OperationsView({ snapshot, t }: { snapshot: AppSnapshot; t: ReturnType<typeof makeTranslator> }) {
+function OperationsView({ snapshot, t }: { snapshot: AppSnapshot; t: Translator }) {
+  if (!snapshot.operations.length) {
+    return <section className="panel"><div className="empty-state">{t("noOperationHistory")}</div></section>;
+  }
+
   return (
     <section className="panel rules-list">
+      <div className="section-heading">
+        <div>
+          <h2>{t("operationHistory")}</h2>
+          <p>{t("previewBeforeExecute")}</p>
+        </div>
+      </div>
       {snapshot.operations.map((operation) => (
         <div className="rule-row" key={operation.id}>
           <div>
-            <strong>{operation.operation_type} · {operation.status}</strong>
-            <span>{operation.source_path} → {operation.target_path}</span>
+            <strong>{operation.operation_type} / {t(operation.status)}</strong>
+            <span>{operation.source_path} / {operation.target_path}</span>
             {operation.error_message && <span>{operation.error_message}</span>}
           </div>
           <span className={`source ${operation.status}`}>{t(operation.status)}</span>
@@ -647,49 +770,45 @@ function SettingsView({
 }: {
   language: Language;
   setLanguage: (language: Language) => void;
-  t: ReturnType<typeof makeTranslator>;
+  t: Translator;
 }) {
   return (
     <section className="panel settings-panel">
-      <h2>{t("settings")}</h2>
-      <label className="setting-row">
+      <div className="section-heading">
+        <div>
+          <h2>{t("settings")}</h2>
+          <p>{t("languageDesc")}</p>
+        </div>
+      </div>
+      <div className="setting-row">
         <span>{t("language")}</span>
-        <select value={language} onChange={(event) => setLanguage(event.target.value as Language)}>
-          <option value="zh">中文</option>
-          <option value="en">English</option>
-        </select>
-      </label>
+        <div className="segmented compact">
+          <button className={language === "zh" ? "active" : ""} onClick={() => setLanguage("zh")}>中文</button>
+          <button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>English</button>
+        </div>
+      </div>
+      <div className="setting-row">
+        <span>{t("releaseReady")}</span>
+        <strong>{t("releaseReadyDesc")}</strong>
+      </div>
       <div className="setting-row">
         <span>{t("localOnly")}</span>
-        <strong>{t("scanRoots")}</strong>
+        <strong>{t("privacyLine")}</strong>
       </div>
     </section>
   );
 }
 
-function ChartPanel({ title, data }: { title: string; data: Record<string, number> }) {
-  const max = Math.max(1, ...Object.values(data));
-  return (
-    <section className="panel chart-panel">
-      <h2>{title}</h2>
-      {Object.entries(data).map(([key, value]) => (
-        <div className="bar-row" key={key}>
-          <span>{key}</span>
-          <div><i style={{ width: `${(value / max) * 100}%` }} /></div>
-          <strong>{value}</strong>
-        </div>
-      ))}
-    </section>
-  );
-}
-
-function Inspector({ file, t }: { file?: FileRecord; t: ReturnType<typeof makeTranslator> }) {
+function Inspector({ file, t }: { file?: FileRecord; t: Translator }) {
   if (!file) return null;
   return (
     <aside className="panel inspector">
       <div className="section-heading">
-        <h2>{t("reason")}</h2>
-        <RiskBadge risk={file.risk_level} />
+        <div>
+          <h2>{t("recentSignals")}</h2>
+          <p>{t("reason")}</p>
+        </div>
+        <RiskBadge risk={file.risk_level} t={t} />
       </div>
       <h3>{file.name}</h3>
       <div className="inspector-grid">
@@ -702,7 +821,7 @@ function Inspector({ file, t }: { file?: FileRecord; t: ReturnType<typeof makeTr
         <strong>{t("matchedRules")}</strong>
         <p>{file.matched_rules.join(", ") || "-"}</p>
         <strong>{t("reason")}</strong>
-        <p>{file.classification_reason}</p>
+        <p>{file.classification_reason || "-"}</p>
       </div>
       <div className="path-list">
         <span>{t("sourcePath")}</span>
@@ -714,17 +833,33 @@ function Inspector({ file, t }: { file?: FileRecord; t: ReturnType<typeof makeTr
   );
 }
 
-function RiskBadge({ risk }: { risk: string }) {
-  return <span className={`risk ${risk.toLowerCase()}`}>{risk}</span>;
+function RiskBadge({ risk, t }: { risk: string; t: Translator }) {
+  const label =
+    risk === "Normal" ? t("normal") :
+    risk === "Sensitive" ? t("sensitiveLabel") :
+    risk === "System" ? t("system") :
+    t("unknown");
+  return <span className={`risk ${risk.toLowerCase()}`}>{label}</span>;
 }
 
 function filterFiles(files: FileRecord[], query: FileQuery): FileRecord[] {
   const search = query.search?.toLowerCase().trim();
-  return files.filter((file) => {
+  const filtered = files.filter((file) => {
     if (search && !`${file.name} ${file.path} ${file.context}`.toLowerCase().includes(search)) return false;
     if (query.fileType && query.fileType !== "All" && file.file_type !== query.fileType) return false;
+    if (query.purpose && query.purpose !== "All" && file.purpose !== query.purpose) return false;
+    if (query.riskLevel && query.riskLevel !== "All" && file.risk_level !== query.riskLevel) return false;
     if (query.onlyNeedsConfirmation && !file.requires_confirmation) return false;
     return true;
+  });
+
+  const sortBy = query.sortBy ?? "modified_at";
+  const direction = query.sortDirection === "asc" ? 1 : -1;
+  return [...filtered].sort((a, b) => {
+    const left = a[sortBy];
+    const right = b[sortBy];
+    if (typeof left === "number" && typeof right === "number") return (left - right) * direction;
+    return String(left).localeCompare(String(right)) * direction;
   });
 }
 
@@ -733,12 +868,12 @@ function createOperationPreviews(files: FileRecord[]): OperationPreview[] {
     .filter((file) => ["Move", "Rename", "MoveAndRename", "Archive"].includes(file.suggested_action))
     .filter((file) => file.risk_level !== "Sensitive")
     .map((file) => {
-      const isRename = file.suggested_name && file.suggested_name !== file.name;
-      const isMove = Boolean(file.suggested_target_path);
       const newName = file.suggested_name || file.name;
-      const targetPath = file.suggested_target_path
-        ? `${file.suggested_target_path.replace(/[\\/]+$/, "")}/${newName}`
-        : `${file.directory.replace(/[\\/]+$/, "")}/${newName}`;
+      const targetDirectory =
+        file.suggested_target_path || (file.suggested_action === "Rename" ? file.directory : "");
+      const targetPath = targetDirectory ? joinPathLike(targetDirectory, newName) : file.path;
+      const isMove = Boolean(targetDirectory) && normalizePathLike(targetDirectory) !== normalizePathLike(file.directory);
+      const isRename = newName !== file.name;
       const operationType: OperationPreview["operation_type"] =
         isMove && isRename ? "move_rename" : isMove ? "move" : "rename";
       return {
@@ -756,7 +891,7 @@ function createOperationPreviews(files: FileRecord[]): OperationPreview[] {
         reason: file.classification_reason
       };
     })
-    .filter((preview) => preview.source_path !== preview.target_path);
+    .filter((preview) => normalizePathLike(preview.source_path) !== normalizePathLike(preview.target_path));
 }
 
 function createDemoFiles(): FileRecord[] {
@@ -907,6 +1042,24 @@ function demoRule(
     created_at: now,
     updated_at: now
   };
+}
+
+function joinPathLike(directory: string, name: string): string {
+  const separator = directory.includes("\\") ? "\\" : "/";
+  return `${directory.replace(/[\\/]+$/, "")}${separator}${name}`;
+}
+
+function normalizePathLike(value: string): string {
+  return value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+function preferredLanguage(): Language {
+  if (typeof window === "undefined") return "zh";
+  return window.localStorage.getItem("fma-language") === "en" ? "en" : "zh";
+}
+
+function readableError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function localId(prefix: string): string {

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { ExecuteOperationResult, FileRecord, OperationLog, OperationPreview } from "../types/domain.js";
 import { nowIso, randomId } from "./id.js";
+import { validateOperationPreview } from "./operationGuards.js";
 
 export async function executeOperations(
   files: FileRecord[],
@@ -20,12 +21,17 @@ export async function executeOperations(
       continue;
     }
 
-    if (operation.risk_level === "Sensitive") {
-      logs.push(makeLog(operation, "skipped", "Sensitive files are not executed in MVP", createdAt));
+    const validationError = validateOperationPreview(file, operation);
+    if (validationError) {
+      logs.push(makeLog(operation, "skipped", validationError, createdAt));
       continue;
     }
 
     try {
+      if (await pathExists(operation.target_path)) {
+        logs.push(makeLog(operation, "failed", "Target path already exists", createdAt));
+        continue;
+      }
       await fs.mkdir(path.dirname(operation.target_path), { recursive: true });
       await fs.rename(operation.source_path, operation.target_path);
       const nextFile = {
@@ -73,3 +79,13 @@ function readableError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.stat(targetPath);
+    return true;
+  } catch (error) {
+    const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+    if (code === "ENOENT") return false;
+    throw error;
+  }
+}

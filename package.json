@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "A local-first personal file lifecycle management assistant.",
+  "author": "Startlan",
   "type": "module",
   "main": "dist-electron/electron/main.js",
   "scripts": {
@@ -11,25 +12,117 @@
     "dev:electron": "wait-on tcp:5173 && tsc -p tsconfig.electron.json && electron .",
     "build": "tsc -p tsconfig.json && vite build && tsc -p tsconfig.electron.json",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.electron.json"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.electron.json",
+    "security:audit": "npm audit --audit-level=high",
+    "verify": "npm run typecheck && npm test && npm run build && npm run security:audit",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder --win nsis --x64 --ia32 --arm64",
+    "dist:mac": "npm run build && electron-builder --mac dmg zip --x64 --arm64",
+    "dist:linux": "npm run build && electron-builder --linux AppImage deb rpm --x64 --arm64"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^5.0.0",
-    "electron": "^37.2.6",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "sql.js": "^1.12.0"
   },
   "devDependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "concurrently": "^9.1.0",
+    "concurrently": "^10.0.3",
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.8.3",
-    "vite": "^7.0.0",
-    "vitest": "^3.2.4",
+    "vite": "^8.0.16",
+    "vitest": "^4.1.8",
     "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.startlan.filemanagerassistant",
+    "productName": "File Manager Assistant",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist-packages"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "ia32",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "ia32",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "linux": {
+      "category": "Utility",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ]
+    }
   }
 }
-

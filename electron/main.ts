@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
 import path from "node:path";
 import { Database } from "../src/core/database.js";
 import { scanDefaultRoots, scanRoots } from "../src/core/fileScanner.js";
@@ -22,7 +22,19 @@ async function createWindow() {
     webPreferences: {
       preload: path.join(app.getAppPath(), "dist-electron/electron/preload.js"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false
+    }
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    const expectedDevUrl = isDev && url.startsWith("http://127.0.0.1:5173");
+    const expectedFileUrl = !isDev && url.startsWith("file://");
+    if (!expectedDevUrl && !expectedFileUrl) {
+      event.preventDefault();
     }
   });
 
@@ -48,7 +60,7 @@ function registerIpc() {
   ipcMain.handle("scan:chooseFolders", async () => {
     const dialogOptions: Electron.OpenDialogOptions = {
       title: "Choose folders to scan",
-      properties: ["openDirectory", "multiSelections", "createDirectory"]
+      properties: ["openDirectory", "multiSelections"]
     };
     const selected = mainWindow
       ? await dialog.showOpenDialog(mainWindow, dialogOptions)
@@ -102,11 +114,17 @@ function registerIpc() {
   });
 
   ipcMain.handle("shell:revealPath", async (_event, targetPath: string) => {
+    if (!targetPath || !path.isAbsolute(targetPath)) return false;
     await shell.showItemInFolder(targetPath);
+    return true;
   });
 }
 
 app.whenReady().then(async () => {
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+
   db = await Database.open(app.getPath("userData"));
   registerIpc();
   await createWindow();
