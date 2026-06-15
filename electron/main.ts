@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
 import { Database } from "../src/core/database.js";
-import { scanDefaultRoots } from "../src/core/fileScanner.js";
+import { scanDefaultRoots, scanRoots } from "../src/core/fileScanner.js";
 import { executeOperations } from "../src/core/operationExecutor.js";
 import { applyAllRulesToFiles } from "../src/core/ruleEngine.js";
 import type { ExecuteOperationRequest, FileQuery, Rule } from "../src/types/domain.js";
@@ -43,6 +43,34 @@ function registerIpc() {
     db.upsertFiles(classified);
     db.upsertScanRoots(result.roots);
     return { ...result, files: classified };
+  });
+
+  ipcMain.handle("scan:chooseFolders", async () => {
+    const dialogOptions: Electron.OpenDialogOptions = {
+      title: "Choose folders to scan",
+      properties: ["openDirectory", "multiSelections", "createDirectory"]
+    };
+    const selected = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions);
+
+    if (selected.canceled || selected.filePaths.length === 0) {
+      return {
+        canceled: true,
+        selectedPaths: [],
+        roots: [],
+        files: [],
+        skipped: [],
+        scannedAt: new Date().toISOString()
+      };
+    }
+
+    const result = await scanRoots(selected.filePaths);
+    const rules = db.getRules();
+    const classified = applyAllRulesToFiles(result.files, rules);
+    db.upsertFiles(classified);
+    db.upsertScanRoots(result.roots);
+    return { ...result, files: classified, canceled: false, selectedPaths: selected.filePaths };
   });
 
   ipcMain.handle("files:query", async (_event, query: FileQuery) => db.queryFiles(query));
@@ -95,4 +123,3 @@ app.on("window-all-closed", () => {
     app.quit();
   }
 });
-

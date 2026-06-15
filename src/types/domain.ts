@@ -213,6 +213,11 @@ export interface ScanResult {
   scannedAt: string;
 }
 
+export interface FolderScanResult extends ScanResult {
+  canceled: boolean;
+  selectedPaths: string[];
+}
+
 export interface AppSnapshot {
   stats: DashboardStats;
   files: FileRecord[];
@@ -220,4 +225,3 @@ export interface AppSnapshot {
   operations: OperationLog[];
   scanRoots: ScanRoot[];
 }
-

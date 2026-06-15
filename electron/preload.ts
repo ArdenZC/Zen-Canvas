@@ -3,6 +3,7 @@ import type {
   AppSnapshot,
   ExecuteOperationRequest,
   FileQuery,
+  FolderScanResult,
   Rule,
   ScanResult
 } from "../src/types/domain.js";
@@ -10,6 +11,7 @@ import type {
 const api = {
   getSnapshot: (): Promise<AppSnapshot> => ipcRenderer.invoke("app:getSnapshot"),
   scanDefaults: (): Promise<ScanResult> => ipcRenderer.invoke("scan:defaults"),
+  chooseAndScanFolders: (): Promise<FolderScanResult> => ipcRenderer.invoke("scan:chooseFolders"),
   queryFiles: (query: FileQuery) => ipcRenderer.invoke("files:query", query),
   saveRule: (rule: Rule) => ipcRenderer.invoke("rules:save", rule),
   deleteRule: (id: string) => ipcRenderer.invoke("rules:delete", id),
@@ -22,4 +24,3 @@ const api = {
 contextBridge.exposeInMainWorld("fileManager", api);
 
 export type FileManagerApi = typeof api;
-

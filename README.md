@@ -10,8 +10,16 @@
 - Scientific classification fields: `file_type`, `purpose`, `lifecycle`, `context`, `risk_level`, `suggested_action`.
 - Built-in rules plus user custom rule builder.
 - Bilingual UI: 中文 / English.
-- iOS-inspired light interface with local-first workflow.
+- Apple Liquid Glass / iOS-inspired light interface with a simpler guided workflow.
 - Execution safety: move and rename require preview; delete is not executed in MVP.
+
+## How To Scan A Folder
+
+1. Start the app.
+2. On Dashboard, click `选择文件夹并扫描` / `Choose folders and scan`.
+3. Pick one or more folders in the system folder picker.
+4. Review file health, classification reasons, and suggested actions.
+5. Open `整理预览` / `Plan Preview` before applying any move or rename operation.
 
 ## Commands
 
@@ -29,4 +37,3 @@ npm run build
 - Sensitive files are classified for review and excluded from executable previews.
 - Delete suggestions are not executed in this MVP.
 - Move and rename operations are logged in `operation_logs`.
-

@@ -19,6 +19,7 @@ import type {
   AppSnapshot,
   FileQuery,
   FileRecord,
+  FolderScanResult,
   OperationPreview,
   Rule
 } from "./types/domain";
@@ -66,6 +67,8 @@ export function App() {
   const [selectedOperationIds, setSelectedOperationIds] = useState<Set<string>>(new Set());
   const [isScanning, setIsScanning] = useState(false);
   const [status, setStatus] = useState("");
+  const [selectedFolders, setSelectedFolders] = useState<string[]>([]);
+  const [showGuide, setShowGuide] = useState(true);
 
   const hasNativeApi = typeof window.fileManager !== "undefined";
 
@@ -95,6 +98,33 @@ export function App() {
       } else {
         setSnapshot(demoSnapshot);
         setStatus(t("demoMode"));
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsScanning(false);
+    }
+  }
+
+  async function handleChooseFolders() {
+    setIsScanning(true);
+    try {
+      if (hasNativeApi) {
+        const result: FolderScanResult = await window.fileManager.chooseAndScanFolders();
+        if (result.canceled) {
+          setStatus(t("noFolderSelected"));
+          return;
+        }
+        const next = await window.fileManager.getSnapshot();
+        setSelectedFolders(result.selectedPaths);
+        setSnapshot(next);
+        setSelectedFileId(next.files[0]?.id ?? "");
+        setStatus(`${t("success")}: ${result.selectedPaths.length} folder(s), ${next.files.length} files`);
+      } else {
+        const sampleFolders = ["C:/Users/example/Downloads", "C:/Users/example/Desktop"];
+        setSelectedFolders(sampleFolders);
+        setSnapshot(demoSnapshot);
+        setStatus(t("folderChooserUnavailable"));
       }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
@@ -185,7 +215,18 @@ export function App() {
         {status && <div className="status-line">{status}</div>}
 
         {view === "dashboard" && (
-          <Dashboard snapshot={snapshot} t={t} selectedFile={selectedFile} setView={setView} />
+          <Dashboard
+            snapshot={snapshot}
+            t={t}
+            selectedFile={selectedFile}
+            setView={setView}
+            chooseFolders={handleChooseFolders}
+            scanCommon={handleScan}
+            isScanning={isScanning}
+            selectedFolders={selectedFolders}
+            showGuide={showGuide}
+            setShowGuide={setShowGuide}
+          />
         )}
         {view === "files" && (
           <FilesView
@@ -218,23 +259,76 @@ function Dashboard({
   snapshot,
   selectedFile,
   setView,
-  t
+  t,
+  chooseFolders,
+  scanCommon,
+  isScanning,
+  selectedFolders,
+  showGuide,
+  setShowGuide
 }: {
   snapshot: AppSnapshot;
   selectedFile?: FileRecord;
   setView: (view: View) => void;
+  chooseFolders: () => Promise<void>;
+  scanCommon: () => Promise<void>;
+  isScanning: boolean;
+  selectedFolders: string[];
+  showGuide: boolean;
+  setShowGuide: (value: boolean) => void;
   t: ReturnType<typeof makeTranslator>;
 }) {
   const metrics = [
     { label: t("totalFiles"), value: snapshot.stats.totalFiles.toLocaleString(), icon: Files },
     { label: t("totalSize"), value: formatBytes(snapshot.stats.totalSize), icon: Archive },
-    { label: t("duplicates"), value: snapshot.stats.duplicateFiles.toString(), icon: AlertTriangle },
     { label: t("sensitive"), value: snapshot.stats.sensitiveFiles.toString(), icon: Shield },
     { label: t("needsReview"), value: snapshot.stats.needsConfirmation.toString(), icon: ListChecks }
   ];
   return (
-    <div className="grid dashboard-grid">
-      <section className="panel metrics-panel">
+    <div className="grid dashboard-grid friendly-dashboard">
+      <section className="hero-panel">
+        <div className="hero-copy">
+          <span className="mode-pill">{t("friendlyMode")}</span>
+          <h2>{t("folderPickerTitle")}</h2>
+          <p>{t("folderPickerSubtitle")}</p>
+          <div className="hero-actions">
+            <button className="primary-button large" onClick={chooseFolders} disabled={isScanning}>
+              <FolderSearch size={19} />
+              {t("chooseFolders")}
+            </button>
+            <button className="ghost-button large" onClick={scanCommon} disabled={isScanning}>
+              <RefreshCw size={18} className={isScanning ? "spin" : ""} />
+              {t("scanCommon")}
+            </button>
+          </div>
+        </div>
+        <div className="folder-stack">
+          <strong>{t("selectedFolders")}</strong>
+          {(selectedFolders.length ? selectedFolders : [t("noFolderSelected")]).map((folder) => (
+            <code key={folder}>{folder}</code>
+          ))}
+        </div>
+      </section>
+
+      {showGuide && (
+        <section className="panel guide-panel">
+          <div className="section-heading">
+            <h2>{t("guidedStart")}</h2>
+            <button className="text-button" onClick={() => setShowGuide(false)}>{t("hideTutorial")}</button>
+          </div>
+          <div className="guide-steps">
+            <GuideStep number="1" title={t("stepChoose")} body={t("stepChooseDesc")} />
+            <GuideStep number="2" title={t("stepScan")} body={t("stepScanDesc")} />
+            <GuideStep number="3" title={t("stepReview")} body={t("stepReviewDesc")} />
+          </div>
+        </section>
+      )}
+
+      {!showGuide && (
+        <button className="show-guide-button" onClick={() => setShowGuide(true)}>{t("showTutorial")}</button>
+      )}
+
+      <section className="panel metrics-panel compact">
         {metrics.map((metric) => (
           <div className="metric" key={metric.label}>
             <metric.icon size={18} />
@@ -243,6 +337,22 @@ function Dashboard({
           </div>
         ))}
       </section>
+
+      <section className="panel next-step-panel">
+        <div className="section-heading">
+          <div>
+            <h2>{t("primarySuggestion")}</h2>
+            <p>{t("previewBeforeExecute")}</p>
+          </div>
+          <button className="text-button" onClick={() => setView("preview")}>{t("openPreview")}</button>
+        </div>
+        <div className="suggestion-strip">
+          <div><strong>{snapshot.stats.needsConfirmation}</strong><span>{t("needsReview")}</span></div>
+          <div><strong>{snapshot.stats.duplicateFiles}</strong><span>{t("duplicates")}</span></div>
+          <div><strong>{snapshot.stats.largeFiles}</strong><span>{t("largeFiles")}</span></div>
+        </div>
+      </section>
+
       <section className="panel strategy-panel">
         <div className="section-heading">
           <h2>{t("strategy")}</h2>
@@ -264,6 +374,16 @@ function Dashboard({
       <ChartPanel title={t("lifecycle")} data={snapshot.stats.byLifecycle} />
       <ChartPanel title={t("typeMix")} data={snapshot.stats.byType} />
       <Inspector file={selectedFile} t={t} />
+    </div>
+  );
+}
+
+function GuideStep({ number, title, body }: { number: string; title: string; body: string }) {
+  return (
+    <div className="guide-step">
+      <span>{number}</span>
+      <strong>{title}</strong>
+      <p>{body}</p>
     </div>
   );
 }
