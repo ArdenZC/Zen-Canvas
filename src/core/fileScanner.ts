@@ -10,12 +10,62 @@ import { nowIso, stableId } from "./id.js";
 const ignoredDirectoryNames = new Set([
   "node_modules",
   ".git",
+  ".hg",
+  ".svn",
+  ".next",
+  ".nuxt",
+  ".turbo",
+  ".cache",
+  ".gradle",
+  ".idea",
+  ".vscode",
+  ".venv",
+  "__pycache__",
   "appdata",
+  "build",
+  "coverage",
+  "dist",
+  "env",
   "library",
+  "out",
   "system32",
+  "target",
+  "venv",
   "$recycle.bin",
   "windows"
 ]);
+
+const projectMarkerFiles = new Set([
+  "package.json",
+  "pnpm-lock.yaml",
+  "package-lock.json",
+  "yarn.lock",
+  "bun.lockb",
+  "tsconfig.json",
+  "vite.config.js",
+  "vite.config.mjs",
+  "vite.config.ts",
+  "next.config.js",
+  "next.config.mjs",
+  "pyproject.toml",
+  "requirements.txt",
+  "poetry.lock",
+  "pipfile",
+  "cargo.toml",
+  "go.mod",
+  "pom.xml",
+  "build.gradle",
+  "settings.gradle",
+  "gradlew",
+  "pubspec.yaml",
+  "composer.json",
+  "gemfile",
+  "makefile",
+  "cmakelists.txt",
+  "docker-compose.yml"
+]);
+
+const projectMarkerExtensions = [".sln", ".csproj", ".fsproj", ".vbproj", ".xcodeproj", ".xcworkspace"];
 
 const maxFilesPerScan = 5000;
 const maxDepth = 6;
@@ -80,6 +130,16 @@ async function scanDirectory(
     return;
   }
 
+  if (isProjectRoot(entries)) {
+    try {
+      await addProjectFolderRecord(directory, files, scannedAt);
+      skipped.push({ path: directory, reason: "Project folder summarized; internal files skipped" });
+    } catch (error) {
+      skipped.push({ path: directory, reason: readableError(error) });
+    }
+    return;
+  }
+
   for (const entry of entries) {
     if (files.length >= maxFilesPerScan) return;
     const fullPath = path.join(directory, entry.name);
@@ -129,6 +189,57 @@ async function scanDirectory(
       skipped.push({ path: fullPath, reason: readableError(error) });
     }
   }
+}
+
+async function addProjectFolderRecord(directory: string, files: FileRecord[], scannedAt: string) {
+  if (files.some((file) => file.path === directory)) return;
+  const stat = await fs.stat(directory);
+  const name = path.basename(directory);
+  const parent = path.dirname(directory);
+  files.push({
+    id: stableId(directory),
+    name,
+    path: directory,
+    directory: parent,
+    extension: "folder",
+    size: 0,
+    file_type: "Other",
+    purpose: "Project",
+    lifecycle: "Active",
+    context: "Project Folder",
+    risk_level: "Normal",
+    hash: null,
+    created_at: stat.birthtime.toISOString(),
+    modified_at: stat.mtime.toISOString(),
+    scanned_at: scannedAt,
+    last_seen_at: scannedAt,
+    is_hidden: name.startsWith("."),
+    is_deleted: false,
+    is_duplicate: false,
+    suggested_action: "Review",
+    suggested_target_path: "",
+    suggested_name: name,
+    confidence: 0.86,
+    classification_reason: "Detected project root; internal files are summarized to avoid moving configured environments",
+    matched_rules: ["Project folder boundary"],
+    requires_confirmation: true,
+    dispatch_zone: "CoreAssets",
+    recommended_folder: "Projects",
+    dispatch_reason: "Project environments should be organized at the folder boundary",
+    next_action: "Review project folder placement only",
+    indexed_at: scannedAt,
+    source_id: stableId(findSourceRoot(directory)),
+    is_stale: false
+  });
+}
+
+function isProjectRoot(entries: Dirent<string>[]) {
+  return entries.some((entry) => {
+    const name = entry.name.toLowerCase();
+    if (entry.isFile() && projectMarkerFiles.has(name)) return true;
+    if (entry.isFile() && projectMarkerExtensions.some((extension) => name.endsWith(extension))) return true;
+    return entry.isDirectory() && [".git", ".hg", ".svn"].includes(name);
+  });
 }
 
 async function fillDuplicateHashes(files: FileRecord[]) {

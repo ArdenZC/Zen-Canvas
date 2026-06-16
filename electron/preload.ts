@@ -45,6 +45,12 @@ const api = {
     ipcRenderer.invoke("search:setHotkey", accelerator),
   showSearch: (): Promise<boolean> => ipcRenderer.invoke("search:show"),
   hideSearch: (): Promise<boolean> => ipcRenderer.invoke("search:hide"),
+  getBackgroundResident: (): Promise<boolean> => ipcRenderer.invoke("settings:getBackgroundResident"),
+  setBackgroundResident: (enabled: boolean): Promise<boolean> =>
+    ipcRenderer.invoke("settings:setBackgroundResident", enabled),
+  getLaunchAtLogin: (): Promise<boolean> => ipcRenderer.invoke("settings:getLaunchAtLogin"),
+  setLaunchAtLogin: (enabled: boolean): Promise<boolean> =>
+    ipcRenderer.invoke("settings:setLaunchAtLogin", enabled),
   revealPath: (path: string) => ipcRenderer.invoke("shell:revealPath", path),
   windowControl: (action: "minimize" | "maximize" | "close") =>
     ipcRenderer.invoke("app:windowControl", action),

@@ -8,96 +8,92 @@
 
 <div align="center">
   <a href="README_en.md">
-    <img src="[https://img.shields.io/badge/](https://img.shields.io/badge/)🌐_Switch_To_English_Edition-0f172a?style=for-the-badge&logoColor=white" alt="English Edition" />
+    <img src="https://img.shields.io/badge/Switch_To_English_Edition-0f172a?style=for-the-badge" alt="English Edition" />
   </a>
 </div>
 
 <div align="center">
-  <img src="[https://img.shields.io/badge/Electron-3178C6?style=for-the-badge&logo=electron&logoColor=white](https://img.shields.io/badge/Electron-3178C6?style=for-the-badge&logo=electron&logoColor=white)" alt="Electron" />
-  <img src="[https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black](https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black)" alt="React" />
-  <img src="[https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)" alt="TypeScript" />
-  <img src="[https://img.shields.io/badge/SQLite_FTS5-003B57?style=for-the-badge&logo=sqlite&logoColor=white](https://img.shields.io/badge/SQLite_FTS5-003B57?style=for-the-badge&logo=sqlite&logoColor=white)" alt="SQLite" />
+  <img src="https://img.shields.io/badge/Electron-3178C6?style=for-the-badge&logo=electron&logoColor=white" alt="Electron" />
+  <img src="https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React" />
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/SQLite_FTS5-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite FTS5" />
 </div>
 
 ---
 
-## 🌌 简介
+## 简介
 
-> **本地优先 (Local-First) 的桌面个人文件生命周期管家。**
-> 它不是传统资源管理器的粗暴替代者，也不是冷冰冰的文件批量分类脚本，而是一个将「全盘扫描 ➔ 智能理解 ➔ 方案预览 ➔ 安全操作 ➔ 时光机回滚」完美串联的安全闭环。
+> **本地优先的个人文件生命周期管理助手。**
+> Zen Canvas 不替代系统资源管理器，也不是简单文件分类器；它把空间扫描、快速索引、智能解释、整理预览、安全执行和恢复记录串成一个可控闭环。
 
-### 🎨 极致空间美学
-* **全息雷达析构**：主视窗搭载动态 Conic-Gradient 雷达扫描仪与数据可视化 Metrics，以物理直觉呈现当前工作区的净化状态。
-* **VisionOS 材质粒子**：全局采用重度模糊高饱和毛玻璃与三轨道漫反射漂移光斑，完美自适应系统深浅双轨主题。
-* **Spotlight 极速全局检索**：常驻顶部中央，通过 `Ctrl/Cmd + K` 唤起。搭载高性能本地 FTS5 引擎，实现 **10万级别** 文件检索 `<100ms` 的极致性能。
+## 核心体验
 
----
+- **空间扫描**：支持扫描用户空间或选择指定文件夹；项目目录会被识别为父级项目资产，默认不深入移动内部工程文件。
+- **顶部搜索**：常驻顶部中央，Windows 使用 `Ctrl + K`，macOS 使用 `⌘ K`；主窗口关闭时可唤起独立毛玻璃搜索框。
+- **智能整理**：用“正在使用 / 可归档 / 隐私敏感 / 临时清理”四区解释文件去向，不直接执行真实操作。
+- **文件库**：用于查看扫描结果、状态筛选和分类原因；具体找文件优先使用顶部搜索。
+- **预览执行**：按主文件夹和子文件夹展示整理方案，所有移动、重命名、移动加重命名都必须先确认。
+- **自动规则**：内置规则不可删除，用户规则可长期生效；高级构建器默认折叠。
+- **恢复记录**：只恢复 Zen Canvas 自己执行过的操作，默认按批次保留 15 天。
 
-## 🔮 核心工作流与四区分配模型 (The Dispatching Framework)
+## 搜索能力
 
-Zen Canvas 拒绝直接对您的原始文件进行破坏性修改。扫描后，系统将依据业务属性、生命阶段和潜在风险，将文件流转到以下四个**物理分拣域 (Dispatch Zones)**：
+- 本地 SQLite + FTS5 索引，不依赖 Everything、Spotlight 或系统搜索服务。
+- 支持文件名、路径、空格分词和扩展名过滤。
+- 排序结合相关性、最近修改、最近打开和路径深度。
+- 结果支持打开文件、系统定位、进入文件库详情。
+- 专用性能测试覆盖 10 万条模拟索引，查询目标 `<100ms`。
 
-| 📂 分拣区域 (Zones) | 💎 覆盖资产类型 (Purpose) | 🛡️ 安全处理策略 (Safety Boundary) |
-| :--- | :--- | :--- |
-| **核心资产 (Core Assets)** | 项目文档、学习教程、当前工作代码 | 智能归置到对应的规范业务目录下，保留工作热度。 |
-| **沉寂归档 (Quiet Archive)** | 历史发票、超期参考资料、往期备份 | 建议一键转移至 `Archive` 冷数据冰川，降低当前工作区噪音。 |
-| **隐私保险箱 (Privacy Vault)** | 护照扫描、身份证件、含有敏感隐私词文件 | **绝对只提供整理建议**，默认不进行任何实际物理移动或重命名。 |
-| **临时清理 (Cleanup Lane)** | 超期安装包 (`.dmg`/`.exe`)、临时桌面截图 | 归类到垃圾清理待办。MVP 阶段**不执行删除动作**，仅供确认。 |
+## 安全边界
 
----
+- 启动不自动扫描，扫描只建立索引和建议。
+- MVP 不执行删除；删除只作为建议。
+- 敏感文件只显示建议和原因，不生成默认可执行勾选。
+- 冲突、低置信、规则接近项默认进入待确认队列。
+- 执行层会再次校验操作类型、绝对路径、安全文件名、源路径一致性、系统目录和覆盖冲突。
+- Electron 启用 `contextIsolation`、禁用 `nodeIntegration`、启用 sandbox，并拒绝异常导航、弹窗和权限请求。
 
-## ⚙️ 极简本地架构 (Architecture)
+## 技术架构
 
 ```text
-                     ┌────────────────────────────────────────┐
-                     │          React 19 Rendering UI         │
-                     │  (Glacier Light & Deep Sea Dark Mode)  │
-                     └───────────────────┬────────────────────┘
-                                         │ IPC Invoke (Secure Context)
-                                         ▼
-                     ┌────────────────────────────────────────┐
-                     │          Preload.ts (Sandbox)          │
-                     └───────────────────┬────────────────────┘
-                                         │ Electron IPC Channel
-                                         ▼
-                     ┌────────────────────────────────────────┐
-                     │      Electron 42 Main Process (Node)   │
-                     └──────┬──────────────────────────┬──────┘
-                            │                          │
-                            ▼                          ▼
-               ┌────────────────────────┐  ┌────────────────────────┐
-               │    Local SQLite WAL    │  │  Chokidar File Watcher │
-               │   (FTS5 Search Index)  │  │ (Stale Source Tracker) │
-               └────────────────────────┘  └────────────────────────┘
+React 19 UI
+  -> Secure Preload IPC
+    -> Electron Main Process
+      -> SQLite WAL + FTS5
+      -> Chokidar stale-source watcher
+      -> guarded move / rename executor
+```
 
----
-💻 快速开始 (Development)
-在开始前，请确保您的本地开发环境已经安装了 Node.js (>= 22)。
+## 开发
 
-Bash
-# 1. 克隆并进入仓库
-git clone https://github.com/ArdenZC/file-manager-assistant.git
-cd file-manager-assistant
-
-# 2. 安装本地原生依赖 (自动触发 better-sqlite3 二进制编译)
+```bash
 npm install
-
-# 3. 启动双进程开发热更新环境 (Electron + Vite)
 npm run dev
+npm run typecheck
+npm test
+npm run test:performance
+npm run build
+npm run security:audit
+```
 
-# 4. 执行严苛的单元测试与10万级 FTS 性能测试
+完整发布前验证：
+
+```bash
 npm run verify
-🚀 自动化构建与发行
-GitHub Actions 工作流（.github/workflows/release-build.yml）已完全打通。当向远程推送以 v* 开头的 Tag 时，将全自动触发云端双端构建：
+```
 
-Bash
-# 全维质量校验
-npm run typecheck        # TypeScript 静态检查
-npm test                 # 逻辑单元测试
-npm run test:performance # 性能跑分测试
+## 打包与发布
 
-# 本地打包 Windows 安装包
-npm run dist:win         # 生成 NSIS 安装程序及绿色版 ZIP
+本项目发布 Windows 和 macOS 未签名公开版，后续预留签名配置。
 
-# 本地打包 macOS 安装包
-npm run dist:mac         # 生成 DMG 磁盘镜像及压缩包
+```bash
+npm run dist:win
+npm run dist:mac
+```
+
+发布目标：
+
+- Windows: NSIS + zip, `x64` / `ia32` / `arm64`
+- macOS: dmg + zip, `x64` / `arm64`
+
+GitHub Actions 工作流 `.github/workflows/release-build.yml` 会在 `v*` tag 推送时构建软件包，并挂载到 GitHub Release。

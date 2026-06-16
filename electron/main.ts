@@ -10,6 +10,7 @@ import { applyAllRulesToFiles } from "../src/core/ruleEngine.js";
 import type { ExecuteOperationRequest, FileQuery, Rule, SearchQuery, SearchSource } from "../src/types/domain.js";
 
 let mainWindow: BrowserWindow | null = null;
+let searchWindow: BrowserWindow | null = null;
 let db: Database;
 let searchWatcher: ReturnType<typeof watch> | null = null;
 let registeredSearchHotkey = "CommandOrControl+K";
@@ -62,6 +63,57 @@ async function createWindow() {
   });
 }
 
+async function createSearchWindow() {
+  if (searchWindow && !searchWindow.isDestroyed()) {
+    searchWindow.show();
+    searchWindow.focus();
+    searchWindow.webContents.send("command:open");
+    return;
+  }
+
+  searchWindow = new BrowserWindow({
+    width: 700,
+    height: 110,
+    minWidth: 520,
+    minHeight: 96,
+    title: "Zen Canvas Search",
+    frame: false,
+    resizable: false,
+    movable: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    transparent: true,
+    backgroundColor: "#00000000",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false
+    }
+  });
+
+  searchWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  searchWindow.on("closed", () => {
+    searchWindow = null;
+  });
+  searchWindow.on("blur", () => {
+    searchWindow?.hide();
+  });
+
+  if (isDev) {
+    await searchWindow.loadURL("http://127.0.0.1:5173?mode=search");
+  } else {
+    await searchWindow.loadFile(path.join(__dirname, "../../dist/index.html"), {
+      query: { mode: "search" }
+    });
+  }
+
+  searchWindow.show();
+  searchWindow.focus();
+}
+
 function registerIpc() {
   ipcMain.handle("app:getSnapshot", async () => db.getSnapshot());
 
@@ -70,7 +122,7 @@ function registerIpc() {
     const rules = db.getRules();
     const classified = applyAllRulesToFiles(result.files, rules);
     db.upsertScanRoots(result.roots);
-    db.upsertFiles(classified);
+    db.replaceFilesForRoots(result.roots, classified);
     await refreshSearchWatcher();
     return { ...result, files: classified };
   });
@@ -99,7 +151,7 @@ function registerIpc() {
     const rules = db.getRules();
     const classified = applyAllRulesToFiles(result.files, rules);
     db.upsertScanRoots(result.roots);
-    db.upsertFiles(classified);
+    db.replaceFilesForRoots(result.roots, classified);
     await refreshSearchWatcher();
     return { ...result, files: classified, canceled: false, selectedPaths: selected.filePaths };
   });
@@ -148,8 +200,26 @@ function registerIpc() {
   });
 
   ipcMain.handle("search:hide", async () => {
+    searchWindow?.hide();
     mainWindow?.webContents.send("command:hide");
     return true;
+  });
+
+  ipcMain.handle("settings:getBackgroundResident", async () => db.getSetting("backgroundResident") === "true");
+
+  ipcMain.handle("settings:setBackgroundResident", async (_event, enabled: boolean) => {
+    db.setSetting("backgroundResident", enabled ? "true" : "false");
+    return enabled;
+  });
+
+  ipcMain.handle("settings:getLaunchAtLogin", async () => app.getLoginItemSettings().openAtLogin);
+
+  ipcMain.handle("settings:setLaunchAtLogin", async (_event, enabled: boolean) => {
+    app.setLoginItemSettings({
+      openAtLogin: Boolean(enabled),
+      openAsHidden: true
+    });
+    return app.getLoginItemSettings().openAtLogin;
   });
 
   ipcMain.handle("rules:save", async (_event, rule: Rule) => {
@@ -218,14 +288,14 @@ function registerIpc() {
 }
 
 async function showSearch() {
-  if (!mainWindow) {
-    await createWindow();
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send("command:open");
+    return;
   }
-  if (!mainWindow) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
-  mainWindow.webContents.send("command:open");
+  await createSearchWindow();
 }
 
 function registerSearchHotkey(accelerator: string): boolean {
@@ -300,5 +370,6 @@ app.on("window-all-closed", () => {
 app.on("will-quit", () => {
   isQuitting = true;
   globalShortcut.unregisterAll();
+  searchWindow?.destroy();
   void searchWatcher?.close();
 });

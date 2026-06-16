@@ -1,106 +1,99 @@
-Zen Canvas
+# Zen Canvas
 
-🌌 Introduction
+<div align="center">
+  <img src="docs/banner_en.svg" width="100%" alt="Zen Canvas Banner" />
+</div>
 
-A local-first file lifecycle assistant for personal desktops.
-It is not a raw file explorer replacement, nor a cold command-line classifier. It seamlessly connects workspace scanning, indexing, cognitive understanding, secure previews, and rollback logs into a completely safe local loop.
+<br />
 
-🎨 Spatial Aesthetics & Glassmorphism
+<div align="center">
+  <a href="README.md">
+    <img src="https://img.shields.io/badge/切换到中文版本-0f172a?style=for-the-badge" alt="中文版本" />
+  </a>
+</div>
 
-Holographic Radar Decoupling: The main scanner dashboard houses a dynamic Conic-Gradient scanner and metrics to visually diagnose clutter ratio with raw physical feedback.
+<div align="center">
+  <img src="https://img.shields.io/badge/Electron-3178C6?style=for-the-badge&logo=electron&logoColor=white" alt="Electron" />
+  <img src="https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React" />
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/SQLite_FTS5-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite FTS5" />
+</div>
 
-Apple VisionOS Material: The workspace uses heavily blurred, high-saturation glass structures and a 3-track moving drift ambient lighting system, adapting flawlessly to dark/light themes.
+---
 
-Spotlight-grade Search Bar: Floating at the top-center of the app, instantly summoned via Ctrl/Cmd + K. Fueled by a native SQLite FTS5 engine, offering 100k-level query matching in <100ms.
+## Introduction
 
-🔮 Core Dispatched Zones
+> **A local-first personal file lifecycle assistant.**
+> Zen Canvas is not a file explorer replacement or a simple classifier. It connects scanning, fast indexing, explainable organization, safe preview execution, and restore records into one controlled local workflow.
 
-Zen Canvas automatically distributes suggestions into four tailored logical areas:
+## Core Experience
 
-📂 Dispatch Zone
+- **Space Scan**: scan user space or selected folders. Project directories are summarized as parent project assets, so configured engineering environments are not casually moved.
+- **Top Search**: stays centered in the title bar. Use `Ctrl + K` on Windows and `⌘ K` on macOS; when the main window is closed, the shortcut opens a standalone frosted search box.
+- **Smart Organize**: explains suggested destinations through four clear zones: In Use, Archive Ready, Private, and Cleanup.
+- **File Library**: browse scan results, status filters, and classification reasons. Use top search for finding a specific file.
+- **Preview Execute**: groups plans by main folders and subfolders. Every move, rename, or combined action must be confirmed first.
+- **Auto Rules**: built-in rules are stable; user rules can apply globally. The advanced builder stays folded by default.
+- **Restore Records**: only restores operations executed by Zen Canvas, grouped by batch and kept for 15 days by default.
 
-💎 Targeted Asset Type
+## Search
 
-🛡️ Safety & Execution Strategy
+- Local SQLite + FTS5 indexing, with no dependency on Everything, Spotlight, or OS search backends.
+- Supports filename search, path search, tokenized terms, and extension filters.
+- Ranking combines relevance, recent modification, recent opens, and path depth.
+- Results can open files, reveal them in the system file manager, or open File Library details.
+- Dedicated 100k simulated-index performance test targets `<100ms` query latency.
 
-Core Assets
+## Safety
 
-Active projects, study notes, career portfolios
+- The app does not scan automatically on launch. Scanning only creates an index and suggestions.
+- Deletion is suggestion-only in the MVP.
+- Sensitive files show advice and reasons, but are not selected for execution.
+- Conflicts, low-confidence items, and close rule scores enter manual confirmation by default.
+- The execution layer revalidates operation type, absolute paths, safe filenames, source-path consistency, protected system targets, and overwrite conflicts.
+- Electron uses `contextIsolation`, disables `nodeIntegration`, enables sandboxing, and blocks unexpected navigation, popups, and permission prompts.
 
-Structured and routed to active working directories.
+## Architecture
 
-Quiet Archive
+```text
+React 19 UI
+  -> Secure Preload IPC
+    -> Electron Main Process
+      -> SQLite WAL + FTS5
+      -> Chokidar stale-source watcher
+      -> guarded move / rename executor
+```
 
-Historical invoices, receipts, old backup zip files
+## Development
 
-Suggested to be relocated to the Archive Glacier.
-
-Privacy Vault
-
-Passport scans, ID documents, credential files
-
-Advice-only in this version. Safe bounds forbid automatic moving.
-
-Cleanup Lane
-
-Expired installers (.exe/.dmg), stray screenshots
-
-Grouped into the disposable queue. No deletion execution in MVP.
-
-⚙️ Architecture
-
-                     ┌────────────────────────────────────────┐
-                     │          React 19 Rendering UI         │
-                     │  (Glacier Light & Deep Sea Dark Mode)  │
-                     └───────────────────┬────────────────────┘
-                                         │ IPC Invoke (Secure Context)
-                                         ▼
-                     ┌────────────────────────────────────────┐
-                     │          Preload.ts (Sandbox)          │
-                     └───────────────────┬────────────────────┘
-                                         │ Electron IPC Channel
-                                         ▼
-                     ┌────────────────────────────────────────┐
-                     │      Electron 42 Main Process (Node)   │
-                     └──────┬──────────────────────────┬──────┘
-                            │                          │
-                            ▼                          ▼
-               ┌────────────────────────┐  ┌────────────────────────┐
-               │    Local SQLite WAL    │  │  Chokidar File Watcher │
-               │   (FTS5 Search Index)  │  │ (Stale Source Tracker) │
-               └────────────────────────┘  └────────────────────────┘
-
-
-💻 Quick Start
-
-Make sure you have Node.js (>= 22) installed on your machine.
-
-# Clone the repository
-git clone [https://github.com/ArdenZC/file-manager-assistant.git](https://github.com/ArdenZC/file-manager-assistant.git)
-cd file-manager-assistant
-
-# Install dependencies (recompiles better-sqlite3 binaries locally)
+```bash
 npm install
-
-# Start concurrently Vite & Electron Dev Server
 npm run dev
+npm run typecheck
+npm test
+npm run test:performance
+npm run build
+npm run security:audit
+```
 
-# Run typechecks, unit tests, and performance benchmark suite
+Full release verification:
+
+```bash
 npm run verify
+```
 
+## Packaging
 
-🛠️ Packaging & Release
+Zen Canvas currently ships unsigned public builds for Windows and macOS. Signing hooks are reserved for later.
 
-The built-in GitHub Actions CI/CD pipeline (release-build.yml) takes care of generating unsigned portable artifacts on v* tag pushes:
+```bash
+npm run dist:win
+npm run dist:mac
+```
 
-# High quality verification
-npm run typecheck       # TypeScript static analysis
-npm test                # Logical unit testing
-npm run test:performance # Search benchmarking
+Release targets:
 
+- Windows: NSIS + zip, `x64` / `ia32` / `arm64`
+- macOS: dmg + zip, `x64` / `arm64`
 
-Build commands for specific targets:
-
-Windows Target: NSIS installer + portable ZIP (x64, ia32, arm64) via npm run dist:win
-
-macOS Target: DMG disk image + ZIP (x64, arm64) via npm run dist:mac
+The `.github/workflows/release-build.yml` workflow builds release packages for `v*` tags and attaches them to GitHub Releases.

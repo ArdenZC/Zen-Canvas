@@ -2,18 +2,16 @@ import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import {
   Archive,
   Check,
-  ChevronRight,
   Clock3,
-  Command,
   File,
-  Files,
-  FolderOpen,
+  Folder,
   FolderSearch,
   Languages,
   LayoutGrid,
   ListChecks,
   LockKeyhole,
   Minus,
+  Monitor,
   Moon,
   Play,
   Plus,
@@ -24,7 +22,6 @@ import {
   Settings,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   Square,
   Sun,
   X
@@ -45,7 +42,7 @@ import { type Language, makeTranslator } from "./i18n";
 import { formatBytes, formatDate, percent } from "./utils/format";
 
 type View = "scanner" | "organize" | "library" | "preview" | "rules" | "restore" | "settings";
-type ThemeMode = "light" | "dark";
+type ThemeMode = "system" | "light" | "dark";
 type Translator = ReturnType<typeof makeTranslator>;
 
 const demoFiles = createDemoFiles();
@@ -95,6 +92,7 @@ const demoSnapshot: AppSnapshot = {
 export function App() {
   const [language, setLanguageState] = useState<Language>(() => preferredLanguage());
   const [theme, setThemeState] = useState<ThemeMode>(() => preferredTheme());
+  const [systemDark, setSystemDark] = useState(() => prefersDarkScheme());
   const t = useMemo(() => makeTranslator(language), [language]);
   const [view, setView] = useState<View>("scanner");
   const [snapshot, setSnapshot] = useState<AppSnapshot>(demoSnapshot);
@@ -116,12 +114,24 @@ export function App() {
   const fileManager = window.fileManager;
   const platform = fileManager?.platform ?? detectBrowserPlatform();
   const isWindows = platform === "win32";
+  const hotkeyLabel = platform === "darwin" ? "⌘ K" : "Ctrl K";
   const hasNativeApi = typeof fileManager !== "undefined";
+  const isSearchMode = new URLSearchParams(window.location.search).get("mode") === "search";
+  const effectiveTheme: Exclude<ThemeMode, "system"> = theme === "system" ? (systemDark ? "dark" : "light") : theme;
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
+    const mediaQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!mediaQuery) return;
+    const handleChange = (event: MediaQueryListEvent) => setSystemDark(event.matches);
+    setSystemDark(mediaQuery.matches);
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", effectiveTheme === "dark");
     window.localStorage.setItem("zc-theme", theme);
-  }, [theme]);
+  }, [effectiveTheme, theme]);
 
   useEffect(() => {
     if (!fileManager) return;
@@ -164,6 +174,10 @@ export function App() {
   }, [isCommandOpen]);
 
   useEffect(() => {
+    if (isSearchMode) setIsCommandOpen(true);
+  }, [isSearchMode]);
+
+  useEffect(() => {
     setSelectedOperationIds(
       new Set(displayPreviews.filter((preview) => preview.selected_by_default).map((preview) => preview.id))
     );
@@ -177,10 +191,6 @@ export function App() {
   const displayPreviews = useMemo(
     () => previews.map((preview) => applyPreviewNameOverride(preview, previewNameOverrides[preview.id])),
     [previewNameOverrides, previews]
-  );
-  const reviewFiles = useMemo(
-    () => snapshot.files.filter((file) => file.requires_confirmation).slice(0, 6),
-    [snapshot.files]
   );
   const previewActionCount = displayPreviews.filter((preview) => preview.status === "pending").length;
 
@@ -218,8 +228,9 @@ export function App() {
         await refreshSnapshot();
         setStatus(t("success"));
       } else {
+        await delay(1200);
         setSnapshot(demoSnapshot);
-        setStatus(t("demoMode"));
+        setStatus("");
       }
     } catch (error) {
       setStatus(readableError(error));
@@ -243,6 +254,7 @@ export function App() {
         setSelectedFileId(next.files[0]?.id ?? "");
         setStatus(`${t("success")}: ${result.selectedPaths.length} / ${next.files.length}`);
       } else {
+        await delay(900);
         const sampleFolders = ["C:/Users/example/Downloads", "C:/Users/example/Desktop"];
         setSelectedFolders(sampleFolders);
         setSnapshot(demoSnapshot);
@@ -280,10 +292,39 @@ export function App() {
   }
 
   const activeLabel = nav.find((item) => item.id === view)?.label ?? t("spaceScan");
+  const scannerLastScanLabel = snapshot.stats.lastScannedAt ? formatDate(snapshot.stats.lastScannedAt) : t("notScannedYet");
+  const headingDescription =
+    view === "scanner"
+      ? `${t("lastScan")}: ${scannerLastScanLabel}`
+      : snapshot.stats.lastScannedAt
+        ? `${t("lastScan")}: ${formatDate(snapshot.stats.lastScannedAt)}`
+        : t("demoMode");
+
+  if (isSearchMode) {
+    return (
+      <div className="zen-app search-window">
+        <AmbientMesh />
+        {isCommandOpen && (
+          <CommandModal
+            inputRef={commandInputRef}
+            files={snapshot.files}
+            setView={setView}
+            setSelectedFileId={setSelectedFileId}
+            onClose={() => {
+              setIsCommandOpen(false);
+              void fileManager?.hideSearch?.();
+            }}
+            t={t}
+            standalone
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="zen-app">
-      <div className="ambient-layer" aria-hidden="true" />
+      <AmbientMesh />
 
       <header className={`native-titlebar ${isWindows ? "is-windows" : "is-macos"}`}>
         <div className="titlebar-left">
@@ -305,6 +346,7 @@ export function App() {
             <TitlebarTools
               language={language}
               theme={theme}
+              effectiveTheme={effectiveTheme}
               setLanguage={setLanguage}
               setTheme={setTheme}
             />
@@ -315,10 +357,7 @@ export function App() {
           <button className="spotlight-trigger" onClick={() => setIsCommandOpen(true)}>
             <Search size={15} />
             <span>{t("globalSearch")}</span>
-            <kbd>
-              {isWindows ? <span>Ctrl</span> : <Command size={12} />}
-              <span>K</span>
-            </kbd>
+            <kbd>{hotkeyLabel}</kbd>
           </button>
         </div>
 
@@ -327,6 +366,7 @@ export function App() {
             <TitlebarTools
               language={language}
               theme={theme}
+              effectiveTheme={effectiveTheme}
               setLanguage={setLanguage}
               setTheme={setTheme}
             />
@@ -383,22 +423,20 @@ export function App() {
           <div className="view-heading">
             <div>
               <h1>{activeLabel}</h1>
-              <p>
-                {snapshot.stats.lastScannedAt
-                  ? `${t("lastScan")}: ${formatDate(snapshot.stats.lastScannedAt)}`
-                  : t("demoMode")}
-              </p>
+              <p>{headingDescription}</p>
             </div>
-            <div className="view-heading-actions">
-              <button className="glass-button" onClick={handleChooseFolders} disabled={isScanning}>
-                <FolderSearch size={17} />
-                <span>{t("chooseFolders")}</span>
-              </button>
-              <button className="glass-button primary" onClick={handleScan} disabled={isScanning}>
-                <RefreshCw size={17} className={isScanning ? "spin" : ""} />
-                <span>{t("scanCommon")}</span>
-              </button>
-            </div>
+            {view !== "scanner" && (
+              <div className="view-heading-actions">
+                <button className="glass-button" onClick={handleChooseFolders} disabled={isScanning}>
+                  <FolderSearch size={17} />
+                  <span>{t("chooseFolders")}</span>
+                </button>
+                <button className="glass-button primary" onClick={handleScan} disabled={isScanning}>
+                  <RefreshCw size={17} className={isScanning ? "spin" : ""} />
+                  <span>{t("scanCommon")}</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {status && <div className="system-toast">{status}</div>}
@@ -411,15 +449,12 @@ export function App() {
                 isScanning={isScanning}
                 chooseFolders={handleChooseFolders}
                 scanCommon={handleScan}
-                setView={setView}
                 t={t}
               />
             )}
             {view === "organize" && (
               <HubView
                 files={snapshot.files}
-                reviewFiles={reviewFiles}
-                previews={displayPreviews}
                 setView={setView}
                 t={t}
               />
@@ -455,6 +490,7 @@ export function App() {
                 setLanguage={setLanguage}
                 theme={theme}
                 setTheme={setTheme}
+                platform={platform}
                 snapshot={snapshot}
                 setSnapshot={setSnapshot}
                 hasNativeApi={hasNativeApi}
@@ -488,21 +524,33 @@ function ZenMark() {
   );
 }
 
+function AmbientMesh() {
+  return (
+    <div className="ambient-mesh" aria-hidden="true">
+      <div className="orb orb-1" />
+      <div className="orb orb-2" />
+      <div className="orb orb-3" />
+    </div>
+  );
+}
+
 function TitlebarTools({
   language,
   theme,
+  effectiveTheme,
   setLanguage,
   setTheme
 }: {
   language: Language;
   theme: ThemeMode;
+  effectiveTheme: Exclude<ThemeMode, "system">;
   setLanguage: (language: Language) => void;
   setTheme: (theme: ThemeMode) => void;
 }) {
   return (
     <div className="titlebar-tools">
-      <button className="round-tool" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
-        {theme === "dark" ? <Moon size={17} /> : <Sun size={17} />}
+      <button className="round-tool" onClick={() => setTheme(effectiveTheme === "dark" ? "light" : "dark")}>
+        {theme === "system" ? <Monitor size={17} /> : effectiveTheme === "dark" ? <Moon size={17} /> : <Sun size={17} />}
       </button>
       <button className="lang-toggle" onClick={() => setLanguage(language === "zh" ? "en" : "zh")}>
         <Languages size={16} />
@@ -518,7 +566,6 @@ function ScannerView({
   isScanning,
   chooseFolders,
   scanCommon,
-  setView,
   t
 }: {
   snapshot: AppSnapshot;
@@ -526,60 +573,48 @@ function ScannerView({
   isScanning: boolean;
   chooseFolders: () => Promise<void>;
   scanCommon: () => Promise<void>;
-  setView: (view: View) => void;
   t: Translator;
 }) {
-  const scannedRatio = Math.min(100, Math.max(12, snapshot.stats.totalFiles * 7));
+  const clutterItems = snapshot.stats.needsConfirmation + snapshot.stats.duplicateFiles + snapshot.stats.largeFiles;
+  const clutterRatio = snapshot.stats.totalFiles ? Math.min(1, clutterItems / snapshot.stats.totalFiles) : 0;
+  const scopeLabel = selectedFolders.length
+    ? selectedFolders.length === 1
+      ? selectedFolders[0]
+      : `${selectedFolders.length} ${t("foldersSelected")}`
+    : t("userSpaceHint");
   const metrics = [
-    { label: t("totalFiles"), value: snapshot.stats.totalFiles.toLocaleString(), tone: "blue" },
-    { label: t("totalSize"), value: formatBytes(snapshot.stats.totalSize), tone: "green" },
-    { label: t("needsReview"), value: snapshot.stats.needsConfirmation.toString(), tone: "red" },
-    { label: t("sensitive"), value: snapshot.stats.sensitiveFiles.toString(), tone: "purple" }
+    { label: t("files"), value: snapshot.stats.totalFiles.toLocaleString(), tone: "blue" },
+    { label: t("clutterRatio"), value: percent(clutterRatio), tone: "red" }
   ];
+  const analysedSize = splitDisplaySize(formatBytes(snapshot.stats.totalSize));
 
   return (
-    <div className="scanner-grid page-enter">
-      <section className="scanner-hero glass-panel">
-        <div className="scanner-copy">
-          <div className="quiet-chip">
-            <ShieldCheck size={15} />
-            <span>{t("primaryPromise")}</span>
-          </div>
-          <h2>{t("folderPickerTitle")}</h2>
-          <p>{t("folderPickerSubtitle")}</p>
-          <div className="hero-actions">
-            <button className="primary-command" onClick={chooseFolders} disabled={isScanning}>
-              <FolderSearch size={20} />
-              <span>{isScanning ? t("scanning") : t("chooseFoldersLong")}</span>
-            </button>
-            <button className="secondary-command" onClick={scanCommon} disabled={isScanning}>
-              <RefreshCw size={18} className={isScanning ? "spin" : ""} />
-              <span>{t("scanCommon")}</span>
-            </button>
-          </div>
-        </div>
-
-        <div className={`radar-card ${isScanning ? "is-scanning" : ""}`}>
-          <div className="radar-ring" style={{ "--progress": `${scannedRatio}%` } as CSSProperties}>
-            <div className="radar-core">
+    <div className="scanner-stage scanner-demo-stage page-enter">
+      <section className="scanner-demo-radar-wrap">
+        <div className={`radar-chart ${isScanning ? "is-running scanner-glow" : ""}`}>
+          <div className="radar-inner">
               {isScanning ? (
-                <>
-                  <Radar size={36} />
-                  <strong>{t("scanning")}</strong>
-                </>
+                <div className="scanner-pulse-state">
+                  <span>{t("scanning")}...</span>
+                </div>
               ) : (
                 <>
-                  <span>{t("totalAnalysed")}</span>
-                  <strong>{formatBytes(snapshot.stats.totalSize)}</strong>
-                  <em>{t("ready")}</em>
+                  <span className="scanner-kicker">Total Analysed</span>
+                  <strong className="scanner-total">
+                    {analysedSize.value}
+                    <span>{analysedSize.unit}</span>
+                  </strong>
+                  <div className="scanner-ready-pill">
+                    <i />
+                    <span>Ready</span>
+                  </div>
                 </>
               )}
-            </div>
           </div>
         </div>
       </section>
 
-      <section className="metric-strip">
+      <section className="metric-strip scanner-demo-metrics">
         {metrics.map((metric) => (
           <div className={`metric-card ${metric.tone}`} key={metric.label}>
             <span>{metric.label}</span>
@@ -588,117 +623,109 @@ function ScannerView({
         ))}
       </section>
 
-      <section className="glass-panel tutorial-card">
-        <SectionTitle title={t("guidedStart")} body={t("guidedStartDesc")} />
-        <div className="tutorial-steps">
-          <FlowStep index="01" title={t("stepChoose")} body={t("stepChooseDesc")} />
-          <FlowStep index="02" title={t("stepScan")} body={t("stepScanDesc")} />
-          <FlowStep index="03" title={t("stepReview")} body={t("stepReviewDesc")} />
-        </div>
+      <section className="scanner-actions scanner-demo-actions">
+        <button className="glass-button scanner-demo-primary" onClick={scanCommon} disabled={isScanning}>
+          <RefreshCw size={18} />
+          <span>{isScanning ? t("scanning") : "全盘智能析构"}</span>
+        </button>
+        <button className="glass-button scanner-demo-secondary" onClick={chooseFolders} disabled={isScanning}>
+          <FolderSearch size={18} />
+          <span>分析 ~/Downloads</span>
+        </button>
       </section>
 
-      <section className="glass-panel folders-card">
-        <SectionTitle title={t("selectedFolders")} body={t("selectedFoldersDesc")} />
-        <div className="folder-list">
-          {(selectedFolders.length ? selectedFolders : [t("noFolderSelected")]).map((folder) => (
-            <div className="folder-pill" key={folder}>
-              <FolderOpen size={15} />
-              <span>{folder}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="glass-panel strategy-card">
-        <SectionTitle title={t("strategy")} body={t("safeModeDesc")} />
-        <div className="segmented">
-          <button className="active">{t("builtInRules")}</button>
-          <button onClick={() => setView("rules")}>{t("customRules")}</button>
-        </div>
-        <p>{t("builtInDesc")}</p>
-        <p>{t("customDesc")}</p>
-      </section>
+      <p className="scanner-scope-text">{scopeLabel}</p>
     </div>
   );
 }
 
 function HubView({
   files,
-  reviewFiles,
-  previews,
   setView,
   t
 }: {
   files: FileRecord[];
-  reviewFiles: FileRecord[];
-  previews: OperationPreview[];
   setView: (view: View) => void;
   t: Translator;
 }) {
-  const inboxFiles = files.slice(0, 5);
-  const categories = [
-    { label: t("coreAssets"), value: files.filter((file) => (file.dispatch_zone ?? "CoreAssets") === "CoreAssets").length },
-    { label: t("archiveBox"), value: files.filter((file) => file.dispatch_zone === "QuietArchive").length },
-    { label: t("privacyVault"), value: files.filter((file) => file.dispatch_zone === "PrivacyVault" || file.risk_level === "Sensitive").length },
-    { label: t("cleanupLane"), value: files.filter((file) => file.dispatch_zone === "CleanupLane").length }
+  const [sortedIds, setSortedIds] = useState<Set<string>>(new Set());
+  const [isSorting, setIsSorting] = useState(false);
+  const visibleFiles = files.slice(0, 80);
+  const sortedFiles = visibleFiles.filter((file) => sortedIds.has(file.id));
+  const pendingFiles = visibleFiles.filter((file) => !sortedIds.has(file.id));
+  const buckets = [
+    { key: "CoreAssets", label: t("coreAssets"), description: t("coreAssetsDesc"), tone: "blue" },
+    { key: "QuietArchive", label: t("archiveBox"), description: t("archiveBoxDesc"), tone: "purple" },
+    { key: "CleanupLane", label: t("cleanupLane"), description: t("cleanupLaneDesc"), tone: "slate" },
+    { key: "PrivacyVault", label: t("privacyVault"), description: t("privacyVaultDesc"), tone: "red" }
   ];
+
+  function fileBucket(file: FileRecord) {
+    if (file.risk_level === "Sensitive") return "PrivacyVault";
+    return file.dispatch_zone ?? "CoreAssets";
+  }
+
+  function runDispatch() {
+    if (isSorting || sortedIds.size === visibleFiles.length) {
+      setView("preview");
+      return;
+    }
+    setIsSorting(true);
+    visibleFiles.forEach((file, index) => {
+      window.setTimeout(() => {
+        setSortedIds((current) => new Set(current).add(file.id));
+        if (index === visibleFiles.length - 1) setIsSorting(false);
+      }, Math.min(index * 24, 640));
+    });
+  }
 
   return (
     <div className="hub-layout page-enter">
-      <section className="glass-panel inbox-column">
-        <SectionTitle title={t("inboxStack")} body={t("inboxStackDesc")} />
-        <div className="file-stack">
-          {inboxFiles.map((file, index) => (
-            <FileCard key={file.id} file={file} index={index} t={t} />
-          ))}
+      <section className="glass-panel hub-inbox">
+        <div className="hub-panel-head">
+          <h2>{t("inboxStack")}</h2>
+          <span>{pendingFiles.length} {t("items")}</span>
         </div>
-      </section>
-
-      <section className="dispatch-core glass-panel">
-        <div className="dispatch-orbit">
-          <Sparkles size={34} />
-          <strong>{previews.length}</strong>
-          <span>{t("suggestedPlan")}</span>
-        </div>
-        <p>{t("dispatchDesc")}</p>
-        <div className="dispatch-actions">
-          <button className="primary-command" onClick={() => setView("preview")}>
-            <ListChecks size={18} />
-            <span>{t("openPreview")}</span>
-          </button>
-          <button className="secondary-command" onClick={() => setView("rules")}>
-            <SlidersHorizontal size={18} />
-            <span>{t("openRuleBuilder")}</span>
-          </button>
-        </div>
-      </section>
-
-      <section className="glass-panel target-column">
-        <SectionTitle title={t("targetBoxes")} body={t("targetBoxesDesc")} />
-        <div className="target-list">
-          {categories.map((category) => (
-            <div className="target-box" key={category.label}>
-              <span>{category.label}</span>
-              <strong>{category.value}</strong>
+        <div className="hub-inbox-list">
+          {pendingFiles.length ? pendingFiles.map((file, index) => (
+            <FileCard key={file.id} file={file} index={index} t={t} compact />
+          )) : (
+            <div className="hub-empty">
+              <Check size={24} />
+              <span>{t("dispatchClear")}</span>
             </div>
-          ))}
+          )}
         </div>
+        <button className="hub-dispatch-button" onClick={runDispatch} disabled={isSorting}>
+          {isSorting ? t("dispatching") : sortedIds.size === visibleFiles.length ? t("openPreview") : t("runDispatch")}
+        </button>
       </section>
 
-      <section className="glass-panel review-dock">
-        <SectionTitle title={t("reviewQueue")} body={t("confidenceHint")} />
-        {reviewFiles.length ? (
-          <div className="review-list">
-            {reviewFiles.map((file) => (
-              <button className="review-row" key={file.id} onClick={() => setView("library")}>
-                <span>{file.name}</span>
-                <RiskBadge risk={file.risk_level} t={t} />
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="empty-state compact">{t("reviewQueueEmpty")}</div>
-        )}
+      <section className="hub-target-grid">
+        {buckets.map((bucket) => {
+          const bucketFiles = sortedFiles.filter((file) => fileBucket(file) === bucket.key);
+          return (
+            <div className={`glass-panel target-bucket ${bucket.tone} ${bucketFiles.length ? "has-files" : ""}`} key={bucket.key}>
+              <div className="bucket-head">
+                <div>
+                  <h3>{bucket.label}</h3>
+                  <small>{bucket.description}</small>
+                </div>
+                <span>{bucketFiles.length}</span>
+              </div>
+              <div className="bucket-dropzone">
+                {bucketFiles.length ? bucketFiles.map((file) => (
+                  <button className="bucket-file item-pop" key={file.id} onClick={() => setView("preview")}>
+                    <File size={15} />
+                    <span>{file.name}</span>
+                  </button>
+                )) : (
+                  <span>{t("waitingFlow")}</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </section>
     </div>
   );
@@ -719,46 +746,81 @@ function VaultView({
   setSelectedFileId: (id: string) => void;
   t: Translator;
 }) {
+  const filters = [
+    {
+      key: "all",
+      label: t("libraryAllFiles"),
+      description: t("libraryAllFilesDesc"),
+      query: { purpose: "All", lifecycle: "All", riskLevel: "All", onlyNeedsConfirmation: false }
+    },
+    {
+      key: "active",
+      label: t("libraryActiveFiles"),
+      description: t("libraryActiveFilesDesc"),
+      query: { purpose: "All", lifecycle: "Active", riskLevel: "All", onlyNeedsConfirmation: false }
+    },
+    {
+      key: "archive",
+      label: t("libraryArchiveFiles"),
+      description: t("libraryArchiveFilesDesc"),
+      query: { purpose: "All", lifecycle: "Archive", riskLevel: "All", onlyNeedsConfirmation: false }
+    },
+    {
+      key: "review",
+      label: t("libraryReviewFiles"),
+      description: t("libraryReviewFilesDesc"),
+      query: { purpose: "All", lifecycle: "All", riskLevel: "All", onlyNeedsConfirmation: true }
+    }
+  ];
+  const activeFilterKey = query.onlyNeedsConfirmation
+    ? "review"
+    : query.lifecycle === "Active"
+      ? "active"
+      : query.lifecycle === "Archive"
+        ? "archive"
+        : "all";
+
   return (
     <div className="vault-layout page-enter">
-      <section className="glass-panel vault-table-panel">
-        <div className="toolbar">
-          <label className="search-control">
-            <Search size={16} />
-            <input
-              placeholder={t("search")}
-              value={query.search ?? ""}
-              onChange={(event) => setQuery({ ...query, search: event.target.value })}
-            />
-          </label>
-          <select
-            value={query.fileType ?? "All"}
-            onChange={(event) => setQuery({ ...query, fileType: event.target.value as FileQuery["fileType"] })}
+      <div className="vault-chip-row">
+        {filters.map((filter) => (
+          <button
+            key={filter.label}
+            className={activeFilterKey === filter.key ? "active" : ""}
+            onClick={() => setQuery({ ...filter.query, search: "" } as FileQuery)}
           >
-            {["All", "Document", "Image", "Video", "Code", "Installer", "ArchivePackage", "Other"].map((item) => (
-              <option key={item}>{item}</option>
-            ))}
-          </select>
-          <select
-            value={query.sortBy ?? "modified_at"}
-            onChange={(event) => setQuery({ ...query, sortBy: event.target.value as FileQuery["sortBy"] })}
+            {filter.label}
+          </button>
+        ))}
+      </div>
+      <div className="vault-filter-guide">
+        {filters.map((filter) => (
+          <span className={activeFilterKey === filter.key ? "active" : ""} key={`${filter.key}-description`}>
+            <strong>{filter.label}</strong>
+            {filter.description}
+          </span>
+        ))}
+      </div>
+      <p className="vault-helper">{t("libraryIntro")}</p>
+      <section className="vault-grid">
+        {files.map((file) => (
+          <button
+            key={file.id}
+            className={`asset-card glass-panel ${selectedFile?.id === file.id ? "selected" : ""}`}
+            onClick={() => setSelectedFileId(file.id)}
           >
-            <option value="modified_at">{t("newest")}</option>
-            <option value="size">{t("biggest")}</option>
-            <option value="confidence">{t("strongest")}</option>
-          </select>
-          <label className="check-control">
-            <input
-              type="checkbox"
-              checked={Boolean(query.onlyNeedsConfirmation)}
-              onChange={(event) => setQuery({ ...query, onlyNeedsConfirmation: event.target.checked })}
-            />
-            {t("filterNeedsReview")}
-          </label>
-        </div>
-        <FileTable files={files} onSelect={setSelectedFileId} selectedId={selectedFile?.id} t={t} />
+            <div className={`asset-icon ${file.risk_level === "Sensitive" ? "red" : file.lifecycle === "Archive" ? "purple" : "blue"}`}>
+              <File size={24} />
+            </div>
+            <h3>{file.name}</h3>
+            <div className="asset-meta">
+              <span>{file.lifecycle}</span>
+              <strong>{formatBytes(file.size)}</strong>
+            </div>
+            <small>{file.purpose}</small>
+          </button>
+        ))}
       </section>
-      <Inspector file={selectedFile} t={t} />
     </div>
   );
 }
@@ -788,6 +850,7 @@ function TimelineView({
     else next.add(id);
     setSelectedIds(next);
   }
+  const groups = groupOperationPreviews(previews, t);
 
   return (
     <div className="timeline-layout page-enter">
@@ -805,31 +868,74 @@ function TimelineView({
         {!previews.length ? (
           <div className="empty-state">{t("noOperations")}</div>
         ) : (
-          <div className="preview-list">
-            {previews.map((preview) => (
-              <label className="preview-row" key={preview.id}>
-                <input
-                  type="checkbox"
-                  disabled={preview.is_executable === false}
-                  checked={selectedIds.has(preview.id)}
-                  onChange={() => toggle(preview.id)}
-                />
-                <div>
-                  <strong>{preview.old_name}</strong>
-                  <span>{preview.source_path}</span>
-                  <span>{preview.target_path}</span>
-                  <input
-                    className="inline-name-input"
-                    value={preview.new_name}
-                    disabled={!preview.editable_new_name || preview.is_executable === false}
-                    onChange={(event) => onRenamePreview(preview.id, event.target.value)}
-                    aria-label={t("newFileName")}
-                  />
-                  {preview.blocking_reason && <small>{preview.blocking_reason}</small>}
-                </div>
-                <em>{percent(preview.confidence)}</em>
-              </label>
-            ))}
+          <div className="preview-folder-grid">
+            {groups.map((group) => {
+              const executable = group.items.filter((item) => item.is_executable !== false);
+              const allSelected = executable.length > 0 && executable.every((item) => selectedIds.has(item.id));
+              return (
+                <section className="preview-folder-card preview-main-folder-card" key={group.key}>
+                  <label className="preview-folder-head">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      onChange={() => {
+                        const next = new Set(selectedIds);
+                        const shouldSelect = !allSelected;
+                        executable.forEach((item) => {
+                          if (shouldSelect) next.add(item.id);
+                          else next.delete(item.id);
+                        });
+                        setSelectedIds(next);
+                      }}
+                    />
+                    <Folder size={20} />
+                    <div>
+                      <strong>{group.name}</strong>
+                      <span>{group.path}</span>
+                    </div>
+                    <em>{group.items.length}</em>
+                  </label>
+                  <div className="preview-subfolder-list">
+                    {group.subgroups.map((subgroup) => (
+                      <section className="preview-subfolder" key={`${group.key}-${subgroup.key}`}>
+                        <div className="preview-subfolder-head">
+                          <Folder size={16} />
+                          <div>
+                            <strong>{subgroup.name}</strong>
+                            <span>{subgroup.path}</span>
+                          </div>
+                          <em>{subgroup.items.length}</em>
+                        </div>
+                        <div className="preview-folder-files compact">
+                          {subgroup.items.map((preview) => (
+                            <div className="preview-file-row" key={preview.id}>
+                              <input
+                                type="checkbox"
+                                disabled={preview.is_executable === false}
+                                checked={selectedIds.has(preview.id)}
+                                onChange={() => toggle(preview.id)}
+                              />
+                              <File size={15} />
+                              <div>
+                                <strong>{preview.old_name}</strong>
+                                <span>{preview.operation_type} / {percent(preview.confidence)}</span>
+                                <input
+                                  className="inline-name-input"
+                                  value={preview.new_name}
+                                  disabled={!preview.editable_new_name || preview.is_executable === false}
+                                  onChange={(event) => onRenamePreview(preview.id, event.target.value)}
+                                  aria-label={t("newFileName")}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
           </div>
         )}
       </section>
@@ -845,7 +951,8 @@ function TimelineView({
                 <RotateCcw size={16} />
                 <div>
                   <strong>{operation.operation_type} / {t(operation.status)}</strong>
-                  <span>{operation.source_path}</span>
+                  <span className="path-before">{operation.source_path}</span>
+                  <span className="path-after">{operation.target_path}</span>
                 </div>
               </div>
             ))}
@@ -979,6 +1086,9 @@ function RulesView({
                 <span>{rule.source} / weight {rule.weight} / priority {rule.priority}</span>
               </div>
               <span className={`source ${rule.source}`}>{rule.source}</span>
+              <span className={`toggle-switch ${rule.enabled ? "on" : ""}`} aria-hidden="true">
+                <i />
+              </span>
             </div>
           ))}
         </div>
@@ -1089,6 +1199,7 @@ function SettingsView({
   setLanguage,
   theme,
   setTheme,
+  platform,
   snapshot,
   setSnapshot,
   hasNativeApi,
@@ -1098,15 +1209,19 @@ function SettingsView({
   setLanguage: (language: Language) => void;
   theme: ThemeMode;
   setTheme: (theme: ThemeMode) => void;
+  platform: NodeJS.Platform | "browser";
   snapshot: AppSnapshot;
   setSnapshot: (snapshot: AppSnapshot) => void;
   hasNativeApi: boolean;
   t: Translator;
 }) {
   const [sources, setSources] = useState<SearchSource[]>(snapshot.searchSources);
-  const [hotkey, setHotkey] = useState("CommandOrControl+K");
+  const [hotkey, setHotkey] = useState(defaultPlatformAccelerator(platform));
+  const [backgroundResident, setBackgroundResident] = useState(false);
+  const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState("");
   const fileManager = window.fileManager;
+  const platformHotkeyLabel = platform === "darwin" ? "⌘ K" : "Ctrl K";
 
   useEffect(() => {
     setSources(snapshot.searchSources);
@@ -1114,9 +1229,11 @@ function SettingsView({
 
   useEffect(() => {
     if (!fileManager) return;
-    fileManager.getSearchHotkey().then(setHotkey).catch(() => undefined);
+    fileManager.getSearchHotkey().then((next) => setHotkey(platformAcceleratorForInput(next, platform))).catch(() => undefined);
     fileManager.getSearchSources().then(setSources).catch(() => undefined);
-  }, [fileManager]);
+    fileManager.getBackgroundResident?.().then(setBackgroundResident).catch(() => undefined);
+    fileManager.getLaunchAtLogin?.().then(setLaunchAtLogin).catch(() => undefined);
+  }, [fileManager, platform]);
 
   async function toggleSource(id: string) {
     const next = sources.map((source) => source.id === id ? { ...source, enabled: !source.enabled } : source);
@@ -1133,9 +1250,9 @@ function SettingsView({
       setSettingsStatus(t("desktopOnlySetting"));
       return;
     }
-    const result = await fileManager.setSearchHotkey(hotkey);
+    const result = await fileManager.setSearchHotkey(acceleratorForElectron(hotkey));
     setSettingsStatus(result.ok ? t("hotkeySaved") : t("hotkeyConflict"));
-    setHotkey(result.hotkey);
+    setHotkey(platformAcceleratorForInput(result.hotkey, platform));
   }
 
   async function rebuildIndex() {
@@ -1146,6 +1263,26 @@ function SettingsView({
     await fileManager.rebuildSearchIndex();
     setSnapshot(await fileManager.getSnapshot());
     setSettingsStatus(t("indexRebuilt"));
+  }
+
+  async function toggleBackgroundResident() {
+    if (!fileManager?.setBackgroundResident) {
+      setSettingsStatus(t("desktopOnlySetting"));
+      return;
+    }
+    const next = await fileManager.setBackgroundResident(!backgroundResident);
+    setBackgroundResident(next);
+    setSettingsStatus(t("settingSaved"));
+  }
+
+  async function toggleLaunchAtLogin() {
+    if (!fileManager?.setLaunchAtLogin) {
+      setSettingsStatus(t("desktopOnlySetting"));
+      return;
+    }
+    const next = await fileManager.setLaunchAtLogin(!launchAtLogin);
+    setLaunchAtLogin(next);
+    setSettingsStatus(t("settingSaved"));
   }
 
   return (
@@ -1171,12 +1308,15 @@ function SettingsView({
             <strong>{t("appearance")}</strong>
             <span>{t("appearanceDesc")}</span>
           </div>
-          <div className="segmented compact">
+          <div className="segmented compact tri">
             <button className={theme === "light" ? "active" : ""} onClick={() => setTheme("light")}>
               {t("lightTheme")}
             </button>
             <button className={theme === "dark" ? "active" : ""} onClick={() => setTheme("dark")}>
               {t("darkTheme")}
+            </button>
+            <button className={theme === "system" ? "active" : ""} onClick={() => setTheme("system")}>
+              {t("systemTheme")}
             </button>
           </div>
         </div>
@@ -1193,7 +1333,7 @@ function SettingsView({
         <div className="setting-row">
           <div>
             <strong>{t("searchHotkey")}</strong>
-            <span>{t("searchHotkeyDesc")}</span>
+            <span>{t("searchHotkeyDesc")} <b className="platform-hotkey">{platformHotkeyLabel}</b></span>
           </div>
           <div className="inline-setting-control">
             <input value={hotkey} onChange={(event) => setHotkey(event.target.value)} />
@@ -1227,7 +1367,20 @@ function SettingsView({
             <strong>{t("backgroundResident")}</strong>
             <span>{t("backgroundResidentDesc")}</span>
           </div>
-          <div className="toggle-pill">{t("optional")}</div>
+          <button className={`switch-control ${backgroundResident ? "on" : ""}`} onClick={toggleBackgroundResident}>
+            <i />
+            <span>{backgroundResident ? t("enabled") : t("disabled")}</span>
+          </button>
+        </div>
+        <div className="setting-row">
+          <div>
+            <strong>{t("launchAtLogin")}</strong>
+            <span>{t("launchAtLoginDesc")}</span>
+          </div>
+          <button className={`switch-control ${launchAtLogin ? "on" : ""}`} onClick={toggleLaunchAtLogin}>
+            <i />
+            <span>{launchAtLogin ? t("enabled") : t("disabled")}</span>
+          </button>
         </div>
         <details className="advanced-settings">
           <summary>{t("advancedSettings")}</summary>
@@ -1264,7 +1417,8 @@ function CommandModal({
   setView,
   setSelectedFileId,
   onClose,
-  t
+  t,
+  standalone = false
 }: {
   inputRef: React.RefObject<HTMLInputElement | null>;
   files: FileRecord[];
@@ -1272,6 +1426,7 @@ function CommandModal({
   setSelectedFileId: (id: string) => void;
   onClose: () => void;
   t: Translator;
+  standalone?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const [nativeResults, setNativeResults] = useState<SearchResult[]>([]);
@@ -1321,9 +1476,9 @@ function CommandModal({
   }
 
   return (
-    <div className="command-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <div className={`command-backdrop ${standalone ? "standalone" : ""}`} onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <div
-        className="command-modal"
+        className={`command-modal ${standalone ? "standalone-modal" : ""}`}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown") {
             event.preventDefault();
@@ -1352,42 +1507,29 @@ function CommandModal({
             <X size={16} />
           </button>
         </div>
-        <div className="command-section">
-          <span>{t("quickCommands")}</span>
-          <button onClick={() => go("scanner")}>
-            <Radar size={17} />
-            {t("spaceScan")}
-          </button>
-          <button onClick={() => go("preview")}>
-            <ListChecks size={17} />
-            {t("openPreview")}
-          </button>
-          <button onClick={() => go("rules")}>
-            <SlidersHorizontal size={17} />
-            {t("openRuleBuilder")}
-          </button>
-        </div>
-        <div className="command-section">
-          <span>{t("bestMatches")}</span>
-          {results.map(({ file }, index) => (
-            <button
-              key={file.id}
-              className={index === activeIndex ? "active-result" : ""}
-              onClick={() => openFile(file)}
-            >
-              <File size={17} />
-              <div>
-                <strong>{file.name}</strong>
-                <small>{file.path}</small>
-              </div>
-              <em>{file.extension || file.file_type}</em>
-              <span className="result-actions">
-                <b onClick={(event) => { event.stopPropagation(); void revealFile(file); }}>{t("reveal")}</b>
-                <b onClick={(event) => { event.stopPropagation(); showDetails(file); }}>{t("details")}</b>
-              </span>
-            </button>
-          ))}
-        </div>
+        {!standalone && (
+          <div className="command-section">
+            <span>{t("bestMatches")}</span>
+            {results.map(({ file }, index) => (
+              <button
+                key={file.id}
+                className={index === activeIndex ? "active-result" : ""}
+                onClick={() => openFile(file)}
+              >
+                <File size={17} />
+                <div>
+                  <strong>{file.name}</strong>
+                  <small>{file.path}</small>
+                </div>
+                <em className="result-dimension">{file.purpose}</em>
+                <span className="result-actions">
+                  <b onClick={(event) => { event.stopPropagation(); void revealFile(file); }}>{t("reveal")}</b>
+                  <b onClick={(event) => { event.stopPropagation(); showDetails(file); }}>{t("details")}</b>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1404,21 +1546,9 @@ function SectionTitle({ title, body }: { title: string; body: string }) {
   );
 }
 
-function FlowStep({ index, title, body }: { index: string; title: string; body: string }) {
+function FileCard({ file, index, t, compact = false }: { file: FileRecord; index: number; t: Translator; compact?: boolean }) {
   return (
-    <div className="flow-step">
-      <span>{index}</span>
-      <div>
-        <strong>{title}</strong>
-        <em>{body}</em>
-      </div>
-    </div>
-  );
-}
-
-function FileCard({ file, index, t }: { file: FileRecord; index: number; t: Translator }) {
-  return (
-    <div className="stack-card" style={{ "--delay": `${index * 70}ms` } as CSSProperties}>
+    <div className={`stack-card ${compact ? "compact" : ""}`} style={{ "--delay": `${index * 70}ms` } as CSSProperties}>
       <div className="file-glyph">
         <File size={18} />
       </div>
@@ -1428,83 +1558,6 @@ function FileCard({ file, index, t }: { file: FileRecord; index: number; t: Tran
       </div>
       <RiskBadge risk={file.risk_level} t={t} />
     </div>
-  );
-}
-
-function FileTable({
-  files,
-  selectedId,
-  onSelect,
-  t
-}: {
-  files: FileRecord[];
-  selectedId?: string;
-  onSelect: (id: string) => void;
-  t: Translator;
-}) {
-  return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>{t("files")}</th>
-            <th>{t("purpose")}</th>
-            <th>{t("lifecycle")}</th>
-            <th>{t("risk")}</th>
-            <th>{t("action")}</th>
-            <th>{t("confidence")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {files.map((file) => (
-            <tr key={file.id} className={selectedId === file.id ? "selected-row" : ""} onClick={() => onSelect(file.id)}>
-              <td>
-                <strong>{file.name}</strong>
-                <span>{formatBytes(file.size)} / {file.file_type}</span>
-              </td>
-              <td>{file.purpose}</td>
-              <td><span className="token">{file.lifecycle}</span></td>
-              <td><RiskBadge risk={file.risk_level} t={t} /></td>
-              <td>{file.suggested_action}</td>
-              <td>{percent(file.confidence)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function Inspector({ file, t }: { file?: FileRecord; t: Translator }) {
-  if (!file) return null;
-  return (
-    <aside className="glass-panel inspector">
-      <div className="inspector-head">
-        <div>
-          <span>{t("recentSignals")}</span>
-          <h2>{file.name}</h2>
-        </div>
-        <RiskBadge risk={file.risk_level} t={t} />
-      </div>
-      <div className="inspector-grid">
-        <span>{t("purpose")}</span><strong>{file.purpose}</strong>
-        <span>{t("lifecycle")}</span><strong>{file.lifecycle}</strong>
-        <span>{t("confidence")}</span><strong>{percent(file.confidence)}</strong>
-        <span>{t("action")}</span><strong>{file.suggested_action}</strong>
-      </div>
-      <div className="explain-box">
-        <strong>{t("matchedRules")}</strong>
-        <p>{file.matched_rules.join(", ") || "-"}</p>
-        <strong>{t("reason")}</strong>
-        <p>{file.classification_reason || "-"}</p>
-      </div>
-      <div className="path-list">
-        <span>{t("sourcePath")}</span>
-        <code>{file.path}</code>
-        <span>{t("targetPath")}</span>
-        <code>{file.suggested_target_path || "-"}</code>
-      </div>
-    </aside>
   );
 }
 
@@ -1523,6 +1576,7 @@ function filterFiles(files: FileRecord[], query: FileQuery): FileRecord[] {
     if (search && !`${file.name} ${file.path} ${file.context}`.toLowerCase().includes(search)) return false;
     if (query.fileType && query.fileType !== "All" && file.file_type !== query.fileType) return false;
     if (query.purpose && query.purpose !== "All" && file.purpose !== query.purpose) return false;
+    if (query.lifecycle && query.lifecycle !== "All" && file.lifecycle !== query.lifecycle) return false;
     if (query.riskLevel && query.riskLevel !== "All" && file.risk_level !== query.riskLevel) return false;
     if (query.onlyNeedsConfirmation && !file.requires_confirmation) return false;
     return true;
@@ -1536,6 +1590,114 @@ function filterFiles(files: FileRecord[], query: FileQuery): FileRecord[] {
     if (typeof left === "number" && typeof right === "number") return (left - right) * direction;
     return String(left).localeCompare(String(right)) * direction;
   });
+}
+
+function splitDisplaySize(label: string) {
+  const [value, ...unitParts] = label.split(" ");
+  return {
+    value: value || label,
+    unit: unitParts.join(" ")
+  };
+}
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+}
+
+function groupOperationPreviews(previews: OperationPreview[], t: Translator) {
+  const groups = new Map<string, { path: string; items: OperationPreview[]; subgroups: Map<string, { path: string; items: OperationPreview[] }> }>();
+  for (const preview of previews) {
+    const directory = pathDirLike(preview.target_path);
+    const relativeParts = relativeZenCanvasParts(directory);
+    const firstSegment = relativeParts[0] ?? folderNameLike(directory);
+    const mainKey = canonicalPreviewMainKey(firstSegment);
+    const subgroupParts = isCanonicalPreviewMain(firstSegment) ? relativeParts.slice(1) : relativeParts;
+    const subgroupKey = subgroupParts.length ? subgroupParts.join("/") : "__root__";
+    const mainPath = `ZenCanvas/${mainKey}`;
+    const subgroupPath = subgroupKey === "__root__" ? directory : `ZenCanvas/${mainKey}/${subgroupKey}`;
+    const group = groups.get(mainKey) ?? {
+      path: mainPath,
+      items: [],
+      subgroups: new Map<string, { path: string; items: OperationPreview[] }>()
+    };
+    group.items.push(preview);
+    const subgroup = group.subgroups.get(subgroupKey) ?? { path: subgroupPath, items: [] };
+    subgroup.items.push(preview);
+    group.subgroups.set(subgroupKey, subgroup);
+    groups.set(mainKey, group);
+  }
+  return [...groups.entries()].map(([key, group]) => ({
+    key,
+    path: group.path,
+    name: previewMainFolderLabel(key, t),
+    items: group.items,
+    subgroups: [...group.subgroups.entries()].map(([subKey, subgroup]) => ({
+      key: subKey,
+      path: subgroup.path,
+      name: subKey === "__root__" ? t("previewRootFiles") : prettyFolderName(subKey),
+      items: subgroup.items
+    }))
+  }));
+}
+
+function relativeZenCanvasParts(directory: string): string[] {
+  const parts = directory.replace(/\\/g, "/").split("/").filter(Boolean);
+  const zenIndex = parts.findIndex((part) => part.toLowerCase() === "zencanvas");
+  if (zenIndex >= 0) return parts.slice(zenIndex + 1);
+  return [folderNameLike(directory)];
+}
+
+function canonicalPreviewMainKey(segment: string): string {
+  if (isCanonicalPreviewMain(segment)) return segment;
+  const normalized = segment.toLowerCase().replace(/^\d+_/, "");
+  if (["career", "finance", "study", "work", "personal", "media", "project", "projects", "identity"].includes(normalized)) {
+    return "20_Areas";
+  }
+  if (normalized.includes("archive") || normalized.includes("reference")) return "40_Archive";
+  if (
+    normalized.includes("temporary") ||
+    normalized.includes("temp") ||
+    normalized.includes("installer") ||
+    normalized.includes("download") ||
+    normalized.includes("screenshot")
+  ) {
+    return "90_Temporary";
+  }
+  if (normalized.includes("inbox")) return "00_Inbox";
+  return "20_Areas";
+}
+
+function isCanonicalPreviewMain(segment: string): boolean {
+  const normalized = segment.toLowerCase();
+  return normalized.startsWith("00_") || normalized.startsWith("20_") || normalized.startsWith("40_") || normalized.startsWith("90_");
+}
+
+function previewMainFolderLabel(key: string, t: Translator): string {
+  const normalized = key.toLowerCase();
+  if (normalized.startsWith("00_") || normalized.includes("inbox")) return t("previewInboxFolder");
+  if (normalized.startsWith("20_") || normalized.includes("areas")) return t("previewAreasFolder");
+  if (normalized.startsWith("40_") || normalized.includes("archive")) return t("previewArchiveFolder");
+  if (normalized.startsWith("90_") || normalized.includes("temporary")) return t("previewTemporaryFolder");
+  return prettyFolderName(key);
+}
+
+function prettyFolderName(value: string): string {
+  return value
+    .split("/")
+    .map((part) => part.replace(/^\d+_/, "").replace(/[_-]+/g, " "))
+    .join(" / ");
+}
+
+function defaultPlatformAccelerator(platform: NodeJS.Platform | "browser"): string {
+  return platform === "darwin" ? "Command+K" : "Control+K";
+}
+
+function platformAcceleratorForInput(accelerator: string, platform: NodeJS.Platform | "browser"): string {
+  return accelerator.replace(/CommandOrControl/gi, platform === "darwin" ? "Command" : "Control");
+}
+
+function acceleratorForElectron(accelerator: string): string {
+  return accelerator.trim().replace(/^Ctrl\+/i, "Control+");
 }
 
 function createOperationPreviews(files: FileRecord[]): OperationPreview[] {
@@ -1764,6 +1926,12 @@ function pathDirLike(filePath: string): string {
   return index > 0 ? normalized.slice(0, index) : normalized;
 }
 
+function folderNameLike(folderPath: string): string {
+  const normalized = folderPath.replace(/[\\/]+$/, "");
+  const index = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  return index >= 0 ? normalized.slice(index + 1) || normalized : normalized;
+}
+
 function normalizePathLike(value: string): string {
   return value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
@@ -1778,8 +1946,13 @@ function preferredLanguage(): Language {
 function preferredTheme(): ThemeMode {
   if (typeof window === "undefined") return "light";
   const stored = window.localStorage.getItem("zc-theme");
-  if (stored === "light" || stored === "dark") return stored;
-  return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light";
+  if (stored === "light" || stored === "dark" || stored === "system") return stored;
+  return "system";
+}
+
+function prefersDarkScheme(): boolean {
+  if (typeof window === "undefined") return false;
+  return Boolean(window.matchMedia?.("(prefers-color-scheme: dark)")?.matches);
 }
 
 function detectBrowserPlatform(): NodeJS.Platform | "browser" {

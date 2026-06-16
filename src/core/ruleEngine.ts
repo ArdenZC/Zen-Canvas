@@ -85,6 +85,16 @@ export const builtInRules: Rule[] = [
     target_template: "90_Temporary/Installers",
     context: "Installer"
   }),
+  makeSystemRule("system_project_folder", "Project folder boundary", 55, 86, "OR", [
+    condition("extension", "equals", "folder")
+  ], {
+    purpose: "Project",
+    lifecycle: "Active",
+    risk_level: "Normal",
+    suggested_action: "Review",
+    target_template: "20_Areas/Projects",
+    context: "Project Folder"
+  }),
   makeSystemRule("system_inbox_downloads", "Downloads and desktop inbox", 50, 62, "OR", [
     condition("directory", "contains", "downloads"),
     condition("directory", "contains", "desktop")
@@ -163,6 +173,18 @@ export function classifyFile(file: FileRecord, userRules: Rule[] = []): FileReco
 function classifyBuiltIn(file: FileRecord): RuleAction & { confidence: number } {
   const haystack = `${file.name} ${file.path}`.toLowerCase();
   const ageDays = daysSince(file.modified_at);
+
+  if (file.extension === "folder" && file.context === "Project Folder") {
+    return {
+      purpose: "Project",
+      lifecycle: "Active",
+      risk_level: "Normal",
+      suggested_action: "Review",
+      target_template: "20_Areas/Projects",
+      context: "Project Folder",
+      confidence: 0.86
+    };
+  }
 
   if (identityWords.some((word) => haystack.includes(word))) {
     return {

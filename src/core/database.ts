@@ -147,6 +147,42 @@ export class Database {
     transaction(files);
   }
 
+  replaceFilesForRoots(roots: ScanRoot[], files: FileRecord[]) {
+    const rootPaths = roots.map((root) => root.path).filter(Boolean);
+    if (rootPaths.length) {
+      const selectIds = this.db.prepare(`
+        SELECT id
+        FROM files
+        WHERE is_deleted = 0
+          AND (path = @root OR path LIKE @prefix ESCAPE '!')
+      `);
+      const markDeleted = this.db.prepare(`
+        UPDATE files
+        SET is_deleted = 1, is_stale = 1, last_seen_at = @now
+        WHERE id = @id
+      `);
+      const deleteFts = this.db.prepare("DELETE FROM files_fts WHERE id = @id");
+      const now = nowIso();
+      const transaction = this.db.transaction((pathsToReplace: string[]) => {
+        for (const rootPath of pathsToReplace) {
+          const normalizedRoot = path.resolve(rootPath);
+          const rootWithSeparator = normalizedRoot.endsWith(path.sep) ? normalizedRoot : `${normalizedRoot}${path.sep}`;
+          const rows = selectIds.all({
+            root: normalizedRoot,
+            prefix: `${escapeSqlLike(rootWithSeparator)}%`
+          }) as Row[];
+          for (const row of rows) {
+            const id = String(row.id);
+            markDeleted.run({ id, now });
+            deleteFts.run({ id });
+          }
+        }
+      });
+      transaction(rootPaths);
+    }
+    this.upsertFiles(files);
+  }
+
   getAllFiles(): FileRecord[] {
     return this.selectFiles("SELECT * FROM files WHERE is_deleted = 0 ORDER BY modified_at DESC");
   }
@@ -936,6 +972,10 @@ function buildFtsExpression(tokens: string[]): string {
 
 function escapeLike(value: string): string {
   return value.replace(/[%_]/g, (char) => `\\${char}`);
+}
+
+function escapeSqlLike(value: string): string {
+  return value.replace(/[!%_]/g, (char) => `!${char}`);
 }
 
 function sourceIdForPath(directory: string): string {
