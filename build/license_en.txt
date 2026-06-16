@@ -1,4 +1,4 @@
-﻿Zen Canvas End User Notice
+Zen Canvas End User Notice
 
 Zen Canvas is a local-first personal file lifecycle assistant.
 

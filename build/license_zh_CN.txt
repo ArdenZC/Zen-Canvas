@@ -1,4 +1,4 @@
-﻿Zen Canvas 终端用户说明
+Zen Canvas 终端用户说明
 
 Zen Canvas 是一个本地优先的个人文件生命周期管理助手。
 
