@@ -138,7 +138,7 @@
       "background": "build/dmg-background.png",
       "icon": "build/icon.icns",
       "license": {
-        "en": "build/license_en.txt",
+        "en_US": "build/license_en.txt",
         "zh_CN": "build/license_zh_CN.txt"
       },
       "iconSize": 96,
