@@ -24,8 +24,8 @@ const maxHashBytes = 512 * 1024 * 1024;
 export async function scanDefaultRoots(): Promise<ScanResult> {
   const home = os.homedir();
   const rootNames = process.platform === "darwin"
-    ? ["Desktop", "Downloads", "Documents"]
-    : ["Desktop", "Downloads", "Documents"];
+    ? ["Desktop", "Downloads", "Documents", "Pictures", "Movies", "Music"]
+    : ["Desktop", "Downloads", "Documents", "Pictures", "Videos", "Music"];
   const rootPaths = rootNames.map((name) => path.join(home, name));
   return scanRoots(rootPaths);
 }
@@ -120,7 +120,10 @@ async function scanDirectory(
         confidence: 0,
         classification_reason: "",
         matched_rules: [],
-        requires_confirmation: false
+        requires_confirmation: false,
+        indexed_at: scannedAt,
+        source_id: stableId(findSourceRoot(directory)),
+        is_stale: false
       });
     } catch (error) {
       skipped.push({ path: fullPath, reason: readableError(error) });
@@ -160,6 +163,13 @@ function hashFile(filePath: string): Promise<string> {
 function shouldSkipDirectory(directory: string): boolean {
   const parts = directory.toLowerCase().split(/[\\/]+/);
   return parts.some((part) => ignoredDirectoryNames.has(part));
+}
+
+function findSourceRoot(directory: string): string {
+  const home = os.homedir();
+  const relative = path.relative(home, directory);
+  const firstPart = relative.split(/[\\/]+/).filter(Boolean)[0];
+  return firstPart ? path.join(home, firstPart) : directory;
 }
 
 function readableError(error: unknown): string {

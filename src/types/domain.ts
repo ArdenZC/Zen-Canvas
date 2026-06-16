@@ -44,6 +44,10 @@ export type SuggestedAction =
   | "Review"
   | "DeleteCandidate";
 
+export type DispatchZone = "CoreAssets" | "QuietArchive" | "PrivacyVault" | "CleanupLane";
+export type SearchSourceType = "user_space" | "folder" | "cloud" | "external";
+export type RestoreStatus = "not_restored" | "restored" | "failed" | "unavailable";
+
 export interface FileRecord {
   id: string;
   name: string;
@@ -71,6 +75,17 @@ export interface FileRecord {
   classification_reason: string;
   matched_rules: string[];
   requires_confirmation: boolean;
+  dispatch_zone?: DispatchZone;
+  recommended_folder?: string;
+  folder_reuse_candidate?: string;
+  folder_rename_suggestion?: string;
+  dispatch_reason?: string;
+  next_action?: string;
+  last_opened_at?: string | null;
+  open_count?: number;
+  indexed_at?: string;
+  source_id?: string;
+  is_stale?: boolean;
 }
 
 export interface ScanRoot {
@@ -182,10 +197,16 @@ export interface OperationPreview {
   confidence: number;
   requires_confirmation: boolean;
   reason: string;
+  selected_by_default?: boolean;
+  is_executable?: boolean;
+  blocking_reason?: string;
+  editable_new_name?: boolean;
+  batch_id?: string;
 }
 
 export interface OperationLog {
   id: string;
+  batch_id: string;
   operation_type: string;
   source_path: string;
   target_path: string;
@@ -195,6 +216,14 @@ export interface OperationLog {
   error_message: string | null;
   created_at: string;
   can_undo: boolean;
+  path_before: string;
+  path_after: string;
+  name_before: string;
+  name_after: string;
+  can_restore: boolean;
+  restored_at: string | null;
+  restore_status: RestoreStatus;
+  restore_error: string | null;
 }
 
 export interface ExecuteOperationRequest {
@@ -204,6 +233,75 @@ export interface ExecuteOperationRequest {
 export interface ExecuteOperationResult {
   logs: OperationLog[];
   updatedFiles: FileRecord[];
+  batch_id: string;
+}
+
+export interface SearchSource {
+  id: string;
+  label: string;
+  path: string;
+  type: SearchSourceType;
+  enabled: boolean;
+  is_stale: boolean;
+  indexed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SearchIndexState {
+  total_files: number;
+  indexed_files: number;
+  last_indexed_at: string | null;
+  stale_sources: number;
+}
+
+export interface SearchQuery {
+  query: string;
+  limit?: number;
+  sourceIds?: string[];
+}
+
+export interface SearchResult {
+  file: FileRecord;
+  score: number;
+  matched_text: string;
+}
+
+export interface RestoreBatch {
+  batch_id: string;
+  created_at: string;
+  total: number;
+  success: number;
+  failed: number;
+  skipped: number;
+  restorable: number;
+  restored: number;
+  expires_at: string;
+}
+
+export interface RestorePreviewItem {
+  log_id: string;
+  batch_id: string;
+  operation_type: string;
+  current_path: string;
+  restore_path: string;
+  old_name: string;
+  new_name: string;
+  can_restore: boolean;
+  blocking_reason: string | null;
+}
+
+export interface RestorePreview {
+  batch_id: string;
+  items: RestorePreviewItem[];
+}
+
+export interface RestoreBatchResult {
+  batch_id: string;
+  restored: number;
+  failed: number;
+  skipped: number;
+  items: RestorePreviewItem[];
 }
 
 export interface ScanResult {
@@ -224,4 +322,6 @@ export interface AppSnapshot {
   rules: Rule[];
   operations: OperationLog[];
   scanRoots: ScanRoot[];
+  searchSources: SearchSource[];
+  searchIndex: SearchIndexState;
 }

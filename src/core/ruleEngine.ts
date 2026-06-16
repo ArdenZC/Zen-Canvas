@@ -2,6 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import type {
   FileRecord,
+  DispatchZone,
   Lifecycle,
   Purpose,
   RiskLevel,
@@ -117,12 +118,24 @@ export function classifyFile(file: FileRecord, userRules: Rule[] = []): FileReco
   const matchedRules = candidates.map((candidate) => candidate.rule.name);
   const confidence = top ? Math.min(0.98, Math.max(0.35, top.score / 100)) : builtin.confidence;
   const riskLevel: RiskLevel = action.risk_level ?? builtin.risk_level ?? "Unknown";
+  const suggestedAction = safeAction(action.suggested_action ?? file.suggested_action, riskLevel);
+  const targetPath = buildTargetPath(file, action.target_template);
+  const suggestedName = buildSuggestedName(file, action.rename_template);
+  const dispatch = buildDispatchModel({
+    ...file,
+    purpose: action.purpose ?? file.purpose,
+    lifecycle: action.lifecycle ?? file.lifecycle,
+    risk_level: riskLevel,
+    suggested_action: suggestedAction,
+    suggested_target_path: targetPath,
+    suggested_name: suggestedName
+  });
   const requiresConfirmation =
     riskLevel === "Sensitive" ||
     hasConflict ||
     confidence < 0.65 ||
-    action.suggested_action === "Review" ||
-    action.suggested_action === "DeleteCandidate";
+    suggestedAction === "Review" ||
+    suggestedAction === "DeleteCandidate";
 
   return {
     ...file,
@@ -130,13 +143,19 @@ export function classifyFile(file: FileRecord, userRules: Rule[] = []): FileReco
     lifecycle: action.lifecycle ?? file.lifecycle,
     context: action.context ?? file.context,
     risk_level: riskLevel,
-    suggested_action: safeAction(action.suggested_action ?? file.suggested_action, riskLevel),
-    suggested_target_path: buildTargetPath(file, action.target_template),
-    suggested_name: buildSuggestedName(file, action.rename_template),
+    suggested_action: suggestedAction,
+    suggested_target_path: targetPath,
+    suggested_name: suggestedName,
     confidence,
     classification_reason: buildReason(file, matchedRules, hasConflict, action),
     matched_rules: matchedRules,
     requires_confirmation: requiresConfirmation,
+    dispatch_zone: dispatch.dispatch_zone,
+    recommended_folder: dispatch.recommended_folder,
+    folder_reuse_candidate: dispatch.folder_reuse_candidate,
+    folder_rename_suggestion: dispatch.folder_rename_suggestion,
+    dispatch_reason: dispatch.dispatch_reason,
+    next_action: dispatch.next_action,
     last_seen_at: nowIso()
   };
 }
@@ -310,7 +329,7 @@ function buildTargetPath(file: FileRecord, template?: string): string {
   if (!template) return "";
   const year = new Date(file.modified_at).getFullYear().toString();
   const resolved = template.replace("{year}", year).replace("{type}", file.file_type);
-  return path.join(os.homedir(), "FileAssistant", resolved);
+  return path.join(file.directory, "ZenCanvas", resolved);
 }
 
 function buildSuggestedName(file: FileRecord, template?: string): string {
@@ -353,6 +372,67 @@ function isInboxDirectory(directory: string): boolean {
 function extractStudyContext(name: string): string {
   const course = name.match(/\b[A-Z]{2,5}\d{3,5}\b/i);
   return course ? course[0].toUpperCase() : "Study";
+}
+
+function buildDispatchModel(file: Pick<
+  FileRecord,
+  "directory" | "purpose" | "lifecycle" | "risk_level" | "suggested_action" | "suggested_target_path" | "suggested_name" | "file_type"
+>): {
+  dispatch_zone: DispatchZone;
+  recommended_folder: string;
+  folder_reuse_candidate?: string;
+  folder_rename_suggestion?: string;
+  dispatch_reason: string;
+  next_action: string;
+} {
+  const dispatch_zone = chooseDispatchZone(file);
+  const purposeFolder = normalizePurposeFolder(file.purpose);
+  const zoneFolder = dispatch_zone === "CoreAssets"
+    ? "Core Assets"
+    : dispatch_zone === "QuietArchive"
+      ? "Archive"
+      : dispatch_zone === "PrivacyVault"
+        ? "Privacy Vault"
+        : "Temporary";
+  const recommended_folder = file.suggested_target_path || path.join(file.directory, zoneFolder, purposeFolder);
+  const folder_rename_suggestion = file.purpose === "Unknown" ? undefined : undefined;
+  return {
+    dispatch_zone,
+    recommended_folder,
+    folder_rename_suggestion,
+    dispatch_reason: `${dispatch_zone} selected from ${file.purpose}/${file.lifecycle}/${file.risk_level}`,
+    next_action: file.risk_level === "Sensitive"
+      ? "Review only"
+      : file.suggested_action === "Keep"
+        ? "Keep in place"
+        : "Send to preview"
+  };
+}
+
+function chooseDispatchZone(file: Pick<FileRecord, "purpose" | "lifecycle" | "risk_level" | "suggested_action" | "file_type">): DispatchZone {
+  if (file.risk_level === "Sensitive" || file.lifecycle === "Sensitive" || file.purpose === "Identity") {
+    return "PrivacyVault";
+  }
+  if (
+    file.lifecycle === "Disposable" ||
+    file.lifecycle === "Duplicate" ||
+    file.purpose === "Temporary" ||
+    file.purpose === "Installer" ||
+    file.file_type === "Installer" ||
+    file.suggested_action === "DeleteCandidate"
+  ) {
+    return "CleanupLane";
+  }
+  if (file.lifecycle === "Archive") {
+    return "QuietArchive";
+  }
+  return "CoreAssets";
+}
+
+function normalizePurposeFolder(purpose: Purpose): string {
+  const allowed: Purpose[] = ["Career", "Finance", "Study", "Media", "Project", "Temporary", "Archive"];
+  if (allowed.includes(purpose)) return purpose === "Project" ? "Projects" : purpose;
+  return "Reference";
 }
 
 function daysSince(dateIso: string): number {

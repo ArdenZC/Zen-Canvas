@@ -9,6 +9,7 @@ export async function executeOperations(
   operations: OperationPreview[]
 ): Promise<ExecuteOperationResult> {
   const logs: OperationLog[] = [];
+  const batchId = randomId("batch");
   const byId = new Map(files.map((file) => [file.id, file]));
   const updatedFiles: FileRecord[] = [];
 
@@ -17,19 +18,19 @@ export async function executeOperations(
     const file = byId.get(operation.fileId);
 
     if (!file) {
-      logs.push(makeLog(operation, "failed", "File record no longer exists", createdAt));
+      logs.push(makeLog(operation, batchId, "failed", "File record no longer exists", createdAt));
       continue;
     }
 
     const validationError = validateOperationPreview(file, operation);
     if (validationError) {
-      logs.push(makeLog(operation, "skipped", validationError, createdAt));
+      logs.push(makeLog(operation, batchId, "skipped", validationError, createdAt));
       continue;
     }
 
     try {
       if (await pathExists(operation.target_path)) {
-        logs.push(makeLog(operation, "failed", "Target path already exists", createdAt));
+        logs.push(makeLog(operation, batchId, "failed", "Target path already exists", createdAt));
         continue;
       }
       await fs.mkdir(path.dirname(operation.target_path), { recursive: true });
@@ -46,23 +47,26 @@ export async function executeOperations(
         last_seen_at: createdAt
       };
       updatedFiles.push(nextFile);
-      logs.push(makeLog(operation, "success", null, createdAt));
+      logs.push(makeLog(operation, batchId, "success", null, createdAt));
     } catch (error) {
-      logs.push(makeLog(operation, "failed", readableError(error), createdAt));
+      logs.push(makeLog(operation, batchId, "failed", readableError(error), createdAt));
     }
   }
 
-  return { logs, updatedFiles };
+  return { logs, updatedFiles, batch_id: batchId };
 }
 
 function makeLog(
   operation: OperationPreview,
+  batchId: string,
   status: OperationLog["status"],
   error: string | null,
   createdAt: string
 ): OperationLog {
+  const success = status === "success";
   return {
     id: randomId("log"),
+    batch_id: batchId,
     operation_type: operation.operation_type,
     source_path: operation.source_path,
     target_path: operation.target_path,
@@ -71,7 +75,15 @@ function makeLog(
     status,
     error_message: error,
     created_at: createdAt,
-    can_undo: status === "success"
+    can_undo: success,
+    path_before: operation.source_path,
+    path_after: operation.target_path,
+    name_before: operation.old_name,
+    name_after: operation.new_name,
+    can_restore: success,
+    restored_at: null,
+    restore_status: success ? "not_restored" : "unavailable",
+    restore_error: error
   };
 }
 

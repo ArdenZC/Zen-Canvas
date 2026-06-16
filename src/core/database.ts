@@ -1,40 +1,47 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import initSqlJs, { type Database as SqlDatabase, type SqlJsStatic } from "sql.js";
+import BetterSqlite3, { type Database as SqliteDatabase } from "better-sqlite3";
 import type {
   AppSnapshot,
   DashboardStats,
   FileQuery,
   FileRecord,
   OperationLog,
+  RestoreBatch,
+  RestoreStatus,
   Rule,
-  ScanRoot
+  ScanRoot,
+  SearchIndexState,
+  SearchQuery,
+  SearchResult,
+  SearchSource
 } from "../types/domain.js";
+import { nowIso, stableId } from "./id.js";
 import { builtInRules } from "./ruleEngine.js";
+
+type Row = Record<string, unknown>;
 
 export class Database {
   private constructor(
-    private readonly sql: SqlJsStatic,
-    private readonly db: SqlDatabase,
+    private readonly db: SqliteDatabase,
     private readonly dbPath: string
   ) {}
 
   static async open(userDataPath: string): Promise<Database> {
     await fs.mkdir(userDataPath, { recursive: true });
-    const sql = await initSqlJs();
-    const dbPath = path.join(userDataPath, "file-manager-assistant.sqlite");
-    let db: SqlDatabase;
-    try {
-      const buffer = await fs.readFile(dbPath);
-      db = new sql.Database(buffer);
-    } catch {
-      db = new sql.Database();
-    }
-    const database = new Database(sql, db, dbPath);
+    const dbPath = path.join(userDataPath, "zen-canvas.sqlite");
+    const db = new BetterSqlite3(dbPath);
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
+    const database = new Database(db, dbPath);
     database.migrate();
     database.ensureSystemRules();
-    await database.persist();
+    database.pruneOperationLogs(15);
     return database;
+  }
+
+  close() {
+    this.db.close();
   }
 
   getSnapshot(): AppSnapshot {
@@ -44,66 +51,236 @@ export class Database {
       files,
       rules: this.getRules(),
       operations: this.getOperationLogs(),
-      scanRoots: this.getScanRoots()
+      scanRoots: this.getScanRoots(),
+      searchSources: this.getSearchSources(),
+      searchIndex: this.getSearchIndexState()
     };
   }
 
   upsertFiles(files: FileRecord[]) {
+    if (!files.length) return;
     const insert = this.db.prepare(`
-      INSERT OR REPLACE INTO files (
+      INSERT INTO files (
         id, name, path, directory, extension, size, file_type, purpose, lifecycle, context,
         risk_level, hash, created_at, modified_at, scanned_at, last_seen_at, is_hidden,
         is_deleted, is_duplicate, suggested_action, suggested_target_path, suggested_name,
-        confidence, classification_reason, matched_rules, requires_confirmation
+        confidence, classification_reason, matched_rules, requires_confirmation,
+        dispatch_zone, recommended_folder, folder_reuse_candidate, folder_rename_suggestion,
+        dispatch_reason, next_action, last_opened_at, open_count, indexed_at, source_id, is_stale
       ) VALUES (
-        $id, $name, $path, $directory, $extension, $size, $file_type, $purpose, $lifecycle, $context,
-        $risk_level, $hash, $created_at, $modified_at, $scanned_at, $last_seen_at, $is_hidden,
-        $is_deleted, $is_duplicate, $suggested_action, $suggested_target_path, $suggested_name,
-        $confidence, $classification_reason, $matched_rules, $requires_confirmation
+        @id, @name, @path, @directory, @extension, @size, @file_type, @purpose, @lifecycle, @context,
+        @risk_level, @hash, @created_at, @modified_at, @scanned_at, @last_seen_at, @is_hidden,
+        @is_deleted, @is_duplicate, @suggested_action, @suggested_target_path, @suggested_name,
+        @confidence, @classification_reason, @matched_rules, @requires_confirmation,
+        @dispatch_zone, @recommended_folder, @folder_reuse_candidate, @folder_rename_suggestion,
+        @dispatch_reason, @next_action, @last_opened_at, @open_count, @indexed_at, @source_id, @is_stale
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        path = excluded.path,
+        directory = excluded.directory,
+        extension = excluded.extension,
+        size = excluded.size,
+        file_type = excluded.file_type,
+        purpose = excluded.purpose,
+        lifecycle = excluded.lifecycle,
+        context = excluded.context,
+        risk_level = excluded.risk_level,
+        hash = excluded.hash,
+        created_at = excluded.created_at,
+        modified_at = excluded.modified_at,
+        scanned_at = excluded.scanned_at,
+        last_seen_at = excluded.last_seen_at,
+        is_hidden = excluded.is_hidden,
+        is_deleted = excluded.is_deleted,
+        is_duplicate = excluded.is_duplicate,
+        suggested_action = excluded.suggested_action,
+        suggested_target_path = excluded.suggested_target_path,
+        suggested_name = excluded.suggested_name,
+        confidence = excluded.confidence,
+        classification_reason = excluded.classification_reason,
+        matched_rules = excluded.matched_rules,
+        requires_confirmation = excluded.requires_confirmation,
+        dispatch_zone = excluded.dispatch_zone,
+        recommended_folder = excluded.recommended_folder,
+        folder_reuse_candidate = excluded.folder_reuse_candidate,
+        folder_rename_suggestion = excluded.folder_rename_suggestion,
+        dispatch_reason = excluded.dispatch_reason,
+        next_action = excluded.next_action,
+        indexed_at = excluded.indexed_at,
+        source_id = excluded.source_id,
+        is_stale = excluded.is_stale
+    `);
+    const deleteFts = this.db.prepare("DELETE FROM files_fts WHERE id = ?");
+    const clearFts = this.db.prepare("DELETE FROM files_fts");
+    const insertFts = this.db.prepare(`
+      INSERT INTO files_fts (
+        id, name, path, extension, file_type, purpose, lifecycle, context, classification_reason
+      ) VALUES (
+        @id, @name, @path, @extension, @file_type, @purpose, @lifecycle, @context, @classification_reason
       )
     `);
-    this.db.run("BEGIN TRANSACTION");
-    for (const file of files) {
-      insert.run(serializeFile(file));
-    }
-    insert.free();
-    this.db.run("COMMIT");
-    void this.persist();
+
+    const sources = this.getSearchSources();
+    const ftsRows = this.db.prepare("SELECT COUNT(*) AS count FROM files_fts").get() as Row;
+    const resetFtsForBatch = files.length > 10_000 || Number(ftsRows.count ?? 0) === 0;
+    const transaction = this.db.transaction((items: FileRecord[]) => {
+      if (resetFtsForBatch) {
+        clearFts.run();
+      }
+      for (const file of items) {
+        const sourceId = findSourceIdForFile(file, sources);
+        const serialized = serializeFile({
+          ...file,
+          source_id: sourceId ?? file.source_id,
+          indexed_at: file.indexed_at ?? nowIso(),
+          open_count: file.open_count ?? 0,
+          is_stale: file.is_stale ?? false
+        });
+        insert.run(serialized);
+        if (!resetFtsForBatch) {
+          deleteFts.run(file.id);
+        }
+        insertFts.run(serialized);
+      }
+    });
+    transaction(files);
   }
 
   getAllFiles(): FileRecord[] {
     return this.selectFiles("SELECT * FROM files WHERE is_deleted = 0 ORDER BY modified_at DESC");
   }
 
-  queryFiles(query: FileQuery): FileRecord[] {
-    const files = this.getAllFiles();
-    const search = query.search?.trim().toLowerCase();
-    const filtered = files.filter((file) => {
-      if (search && !`${file.name} ${file.path} ${file.context}`.toLowerCase().includes(search)) {
-        return false;
-      }
-      if (query.fileType && query.fileType !== "All" && file.file_type !== query.fileType) return false;
-      if (query.purpose && query.purpose !== "All" && file.purpose !== query.purpose) return false;
-      if (query.lifecycle && query.lifecycle !== "All" && file.lifecycle !== query.lifecycle) return false;
-      if (query.riskLevel && query.riskLevel !== "All" && file.risk_level !== query.riskLevel) return false;
-      if (query.sourceDirectory && !file.directory.includes(query.sourceDirectory)) return false;
-      if (query.onlyActionable && file.suggested_action === "Keep") return false;
-      if (query.onlyNeedsConfirmation && !file.requires_confirmation) return false;
-      return true;
-    });
+  getFileById(id: string): FileRecord | null {
+    const row = this.db.prepare("SELECT * FROM files WHERE id = ? LIMIT 1").get(id) as Row | undefined;
+    return row ? deserializeFile(row) : null;
+  }
 
-    const sortBy = query.sortBy ?? "modified_at";
-    const direction = query.sortDirection === "asc" ? 1 : -1;
-    return filtered.sort((a, b) => {
-      const left = a[sortBy];
-      const right = b[sortBy];
-      if (typeof left === "number" && typeof right === "number") return (left - right) * direction;
-      return String(left).localeCompare(String(right)) * direction;
-    });
+  queryFiles(query: FileQuery): FileRecord[] {
+    const clauses = ["is_deleted = 0"];
+    const params: Record<string, unknown> = {};
+    const search = query.search?.trim();
+
+    if (search) {
+      clauses.push("(name LIKE @search OR path LIKE @search OR context LIKE @search)");
+      params.search = `%${escapeLike(search)}%`;
+    }
+    if (query.fileType && query.fileType !== "All") {
+      clauses.push("file_type = @fileType");
+      params.fileType = query.fileType;
+    }
+    if (query.purpose && query.purpose !== "All") {
+      clauses.push("purpose = @purpose");
+      params.purpose = query.purpose;
+    }
+    if (query.lifecycle && query.lifecycle !== "All") {
+      clauses.push("lifecycle = @lifecycle");
+      params.lifecycle = query.lifecycle;
+    }
+    if (query.riskLevel && query.riskLevel !== "All") {
+      clauses.push("risk_level = @riskLevel");
+      params.riskLevel = query.riskLevel;
+    }
+    if (query.sourceDirectory) {
+      clauses.push("directory LIKE @sourceDirectory");
+      params.sourceDirectory = `%${escapeLike(query.sourceDirectory)}%`;
+    }
+    if (query.onlyActionable) {
+      clauses.push("suggested_action != 'Keep'");
+    }
+    if (query.onlyNeedsConfirmation) {
+      clauses.push("requires_confirmation = 1");
+    }
+
+    const allowedSort = new Set(["name", "size", "modified_at", "confidence"]);
+    const sortBy = allowedSort.has(query.sortBy ?? "") ? query.sortBy : "modified_at";
+    const direction = query.sortDirection === "asc" ? "ASC" : "DESC";
+    return this.selectFiles(
+      `SELECT * FROM files WHERE ${clauses.join(" AND ")} ORDER BY ${sortBy} ${direction} LIMIT 1000`,
+      params
+    );
+  }
+
+  searchFiles(query: SearchQuery): SearchResult[] {
+    const raw = query.query.trim();
+    const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
+    const parsed = parseSearch(raw);
+    const sourceIds = query.sourceIds?.filter(Boolean) ?? [];
+    const sourceFilter = sourceIds.length
+      ? ` AND f.source_id IN (${sourceIds.map((_, index) => `@source${index}`).join(", ")})`
+      : "";
+    const sourceParams = Object.fromEntries(sourceIds.map((sourceId, index) => [`source${index}`, sourceId]));
+
+    if (!raw) {
+      const rows = this.db.prepare(`
+        SELECT f.*, 0 AS score, f.name AS matched_text
+        FROM files f
+        WHERE f.is_deleted = 0${sourceFilter}
+        ORDER BY f.last_opened_at DESC NULLS LAST, f.modified_at DESC, length(f.path) ASC
+        LIMIT @limit
+      `).all({ limit, ...sourceParams }) as Row[];
+      return rows.map((row) => ({ file: deserializeFile(row), score: 0, matched_text: String(row.matched_text) }));
+    }
+
+    const extensionClause = parsed.extension ? " AND f.extension = @extension" : "";
+    const ftsExpression = buildFtsExpression(parsed.tokens);
+    if (ftsExpression) {
+      try {
+        const rows = this.db.prepare(`
+          SELECT f.*, bm25(files_fts) AS score, files_fts.name AS matched_text
+          FROM files_fts
+          JOIN files f ON f.id = files_fts.id
+          WHERE files_fts MATCH @fts
+            AND f.is_deleted = 0
+            ${extensionClause}
+            ${sourceFilter}
+          ORDER BY score ASC, f.open_count DESC, f.modified_at DESC, length(f.path) ASC
+          LIMIT @limit
+        `).all({
+          fts: ftsExpression,
+          extension: parsed.extension,
+          limit,
+          ...sourceParams
+        }) as Row[];
+        return rows.map((row) => ({
+          file: deserializeFile(row),
+          score: Number(row.score),
+          matched_text: String(row.matched_text)
+        }));
+      } catch {
+        // Fall back to LIKE below if user input cannot be represented as valid FTS syntax.
+      }
+    }
+
+    const likeClauses = parsed.tokens.length
+      ? parsed.tokens.map((_, index) => `(f.name LIKE @like${index} OR f.path LIKE @like${index})`).join(" AND ")
+      : "(f.name LIKE @raw OR f.path LIKE @raw)";
+    const likeParams = parsed.tokens.length
+      ? Object.fromEntries(parsed.tokens.map((token, index) => [`like${index}`, `%${escapeLike(token)}%`]))
+      : { raw: `%${escapeLike(raw)}%` };
+    const rows = this.db.prepare(`
+      SELECT f.*, 10 AS score, f.name AS matched_text
+      FROM files f
+      WHERE f.is_deleted = 0
+        AND ${likeClauses}
+        ${extensionClause}
+        ${sourceFilter}
+      ORDER BY f.open_count DESC, f.modified_at DESC, length(f.path) ASC
+      LIMIT @limit
+    `).all({ ...likeParams, extension: parsed.extension, limit, ...sourceParams }) as Row[];
+    return rows.map((row) => ({ file: deserializeFile(row), score: Number(row.score), matched_text: String(row.matched_text) }));
+  }
+
+  recordFileOpened(fileId: string) {
+    this.db.prepare(`
+      UPDATE files
+      SET last_opened_at = @now, open_count = COALESCE(open_count, 0) + 1
+      WHERE id = @fileId
+    `).run({ now: nowIso(), fileId });
   }
 
   getRules(): Rule[] {
-    const rows = this.execRows("SELECT * FROM rules ORDER BY source ASC, priority DESC, updated_at DESC");
+    const rows = this.db.prepare("SELECT * FROM rules ORDER BY source ASC, priority DESC, updated_at DESC").all() as Row[];
     return rows.map((row) => ({
       id: String(row.id),
       name: String(row.name),
@@ -120,56 +297,70 @@ export class Database {
   }
 
   saveRule(rule: Rule) {
-    const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO rules (
+    this.db.prepare(`
+      INSERT INTO rules (
         id, name, source, enabled, priority, weight, root_operator, condition_json, action_json, created_at, updated_at
       ) VALUES (
-        $id, $name, $source, $enabled, $priority, $weight, $root_operator, $condition_json, $action_json, $created_at, $updated_at
+        @id, @name, @source, @enabled, @priority, @weight, @root_operator, @condition_json, @action_json, @created_at, @updated_at
       )
-    `);
-    stmt.run({
-      $id: rule.id,
-      $name: rule.name,
-      $source: rule.source,
-      $enabled: rule.enabled ? 1 : 0,
-      $priority: rule.priority,
-      $weight: rule.weight,
-      $root_operator: rule.root_operator,
-      $condition_json: JSON.stringify(rule.groups),
-      $action_json: JSON.stringify(rule.action),
-      $created_at: rule.created_at,
-      $updated_at: rule.updated_at
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        source = excluded.source,
+        enabled = excluded.enabled,
+        priority = excluded.priority,
+        weight = excluded.weight,
+        root_operator = excluded.root_operator,
+        condition_json = excluded.condition_json,
+        action_json = excluded.action_json,
+        updated_at = excluded.updated_at
+    `).run({
+      id: rule.id,
+      name: rule.name,
+      source: rule.source,
+      enabled: rule.enabled ? 1 : 0,
+      priority: rule.priority,
+      weight: rule.weight,
+      root_operator: rule.root_operator,
+      condition_json: JSON.stringify(rule.groups),
+      action_json: JSON.stringify(rule.action),
+      created_at: rule.created_at,
+      updated_at: rule.updated_at
     });
-    stmt.free();
-    void this.persist();
   }
 
   deleteRule(id: string) {
-    this.db.run("DELETE FROM rules WHERE id = $id AND source != 'system'", { $id: id });
-    void this.persist();
+    this.db.prepare("DELETE FROM rules WHERE id = @id AND source != 'system'").run({ id });
   }
 
   upsertScanRoots(roots: ScanRoot[]) {
+    if (!roots.length) return;
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO scan_roots (id, path, platform, enabled, last_scanned_at, created_at)
-      VALUES ($id, $path, $platform, $enabled, $last_scanned_at, $created_at)
+      INSERT INTO scan_roots (id, path, platform, enabled, last_scanned_at, created_at)
+      VALUES (@id, @path, @platform, @enabled, @last_scanned_at, @created_at)
+      ON CONFLICT(id) DO UPDATE SET
+        path = excluded.path,
+        platform = excluded.platform,
+        enabled = excluded.enabled,
+        last_scanned_at = excluded.last_scanned_at
     `);
-    for (const root of roots) {
-      stmt.run({
-        $id: root.id,
-        $path: root.path,
-        $platform: root.platform,
-        $enabled: root.enabled ? 1 : 0,
-        $last_scanned_at: root.last_scanned_at,
-        $created_at: root.created_at
-      });
-    }
-    stmt.free();
-    void this.persist();
+    const insert = this.db.transaction((items: ScanRoot[]) => {
+      for (const root of items) {
+        stmt.run({
+          id: root.id,
+          path: root.path,
+          platform: root.platform,
+          enabled: root.enabled ? 1 : 0,
+          last_scanned_at: root.last_scanned_at,
+          created_at: root.created_at
+        });
+        this.upsertSearchSourceForRoot(root.path, root.path, "folder", true);
+      }
+    });
+    insert(roots);
   }
 
   getScanRoots(): ScanRoot[] {
-    return this.execRows("SELECT * FROM scan_roots ORDER BY path").map((row) => ({
+    return (this.db.prepare("SELECT * FROM scan_roots ORDER BY path").all() as Row[]).map((row) => ({
       id: String(row.id),
       path: String(row.path),
       platform: String(row.platform),
@@ -179,62 +370,220 @@ export class Database {
     }));
   }
 
-  addOperationLogs(logs: OperationLog[]) {
+  upsertSearchSourceForRoot(
+    sourcePath: string,
+    label = path.basename(sourcePath) || sourcePath,
+    type: SearchSource["type"] = "folder",
+    enabled = true
+  ) {
+    const now = nowIso();
+    this.db.prepare(`
+      INSERT INTO search_sources (id, label, path, type, enabled, is_stale, indexed_at, created_at, updated_at)
+      VALUES (@id, @label, @path, @type, @enabled, 0, @indexed_at, @created_at, @updated_at)
+      ON CONFLICT(id) DO UPDATE SET
+        label = excluded.label,
+        path = excluded.path,
+        type = excluded.type,
+        enabled = excluded.enabled,
+        is_stale = 0,
+        indexed_at = excluded.indexed_at,
+        updated_at = excluded.updated_at
+    `).run({
+      id: stableId(sourcePath),
+      label,
+      path: sourcePath,
+      type,
+      enabled: enabled ? 1 : 0,
+      indexed_at: now,
+      created_at: now,
+      updated_at: now
+    });
+  }
+
+  getSearchSources(): SearchSource[] {
+    const rows = this.db.prepare("SELECT * FROM search_sources ORDER BY type, label").all() as Row[];
+    return rows.map(deserializeSearchSource);
+  }
+
+  updateSearchSources(sources: SearchSource[]) {
+    const now = nowIso();
     const stmt = this.db.prepare(`
-      INSERT INTO operation_logs (
-        id, operation_type, source_path, target_path, old_name, new_name, status, error_message, created_at, can_undo
+      INSERT INTO search_sources (id, label, path, type, enabled, is_stale, indexed_at, created_at, updated_at)
+      VALUES (@id, @label, @path, @type, @enabled, @is_stale, @indexed_at, @created_at, @updated_at)
+      ON CONFLICT(id) DO UPDATE SET
+        label = excluded.label,
+        path = excluded.path,
+        type = excluded.type,
+        enabled = excluded.enabled,
+        is_stale = excluded.is_stale,
+        indexed_at = excluded.indexed_at,
+        updated_at = excluded.updated_at
+    `);
+    const update = this.db.transaction((items: SearchSource[]) => {
+      for (const source of items) {
+        stmt.run({
+          id: source.id || stableId(source.path),
+          label: source.label,
+          path: source.path,
+          type: source.type,
+          enabled: source.enabled ? 1 : 0,
+          is_stale: source.is_stale ? 1 : 0,
+          indexed_at: source.indexed_at,
+          created_at: source.created_at || now,
+          updated_at: now
+        });
+      }
+    });
+    update(sources);
+  }
+
+  markSearchSourceStaleByPath(changedPath: string) {
+    const source = this.getSearchSources()
+      .filter((item) => item.enabled)
+      .sort((a, b) => b.path.length - a.path.length)
+      .find((item) => isSameOrInside(changedPath, item.path));
+    if (!source) return;
+    this.db.prepare("UPDATE search_sources SET is_stale = 1, updated_at = @now WHERE id = @id")
+      .run({ now: nowIso(), id: source.id });
+  }
+
+  rebuildSearchIndex() {
+    const now = nowIso();
+    const files = this.getAllFiles();
+    const deleteFts = this.db.prepare("DELETE FROM files_fts");
+    const insertFts = this.db.prepare(`
+      INSERT INTO files_fts (
+        id, name, path, extension, file_type, purpose, lifecycle, context, classification_reason
       ) VALUES (
-        $id, $operation_type, $source_path, $target_path, $old_name, $new_name, $status, $error_message, $created_at, $can_undo
+        @id, @name, @path, @extension, @file_type, @purpose, @lifecycle, @context, @classification_reason
       )
     `);
-    for (const log of logs) {
-      stmt.run({
-        $id: log.id,
-        $operation_type: log.operation_type,
-        $source_path: log.source_path,
-        $target_path: log.target_path,
-        $old_name: log.old_name,
-        $new_name: log.new_name,
-        $status: log.status,
-        $error_message: log.error_message,
-        $created_at: log.created_at,
-        $can_undo: log.can_undo ? 1 : 0
-      });
-    }
-    stmt.free();
-    void this.persist();
+    const transaction = this.db.transaction((items: FileRecord[]) => {
+      deleteFts.run();
+      for (const file of items) {
+        insertFts.run(serializeFile(file));
+      }
+      this.db.prepare("UPDATE files SET indexed_at = @now, is_stale = 0").run({ now });
+      this.db.prepare("UPDATE search_sources SET indexed_at = @now, is_stale = 0, updated_at = @now").run({ now });
+    });
+    transaction(files);
+    return this.getSearchIndexState();
+  }
+
+  getSearchIndexState(): SearchIndexState {
+    const row = this.db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM files WHERE is_deleted = 0) AS total_files,
+        (SELECT COUNT(*) FROM files_fts) AS indexed_files,
+        (SELECT MAX(indexed_at) FROM files) AS last_indexed_at,
+        (SELECT COUNT(*) FROM search_sources WHERE is_stale = 1) AS stale_sources
+    `).get() as Row;
+    return {
+      total_files: Number(row.total_files ?? 0),
+      indexed_files: Number(row.indexed_files ?? 0),
+      last_indexed_at: row.last_indexed_at ? String(row.last_indexed_at) : null,
+      stale_sources: Number(row.stale_sources ?? 0)
+    };
+  }
+
+  getSetting(key: string): string | null {
+    const row = this.db.prepare("SELECT value FROM app_settings WHERE key = ? LIMIT 1").get(key) as Row | undefined;
+    return row ? String(row.value) : null;
+  }
+
+  setSetting(key: string, value: string) {
+    this.db.prepare(`
+      INSERT INTO app_settings (key, value, updated_at)
+      VALUES (@key, @value, @updated_at)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).run({ key, value, updated_at: nowIso() });
+  }
+
+  addOperationLogs(logs: OperationLog[]) {
+    if (!logs.length) return;
+    const stmt = this.db.prepare(`
+      INSERT INTO operation_logs (
+        id, batch_id, operation_type, source_path, target_path, old_name, new_name,
+        status, error_message, created_at, can_undo, path_before, path_after,
+        name_before, name_after, can_restore, restored_at, restore_status, restore_error
+      ) VALUES (
+        @id, @batch_id, @operation_type, @source_path, @target_path, @old_name, @new_name,
+        @status, @error_message, @created_at, @can_undo, @path_before, @path_after,
+        @name_before, @name_after, @can_restore, @restored_at, @restore_status, @restore_error
+      )
+    `);
+    const insert = this.db.transaction((items: OperationLog[]) => {
+      for (const log of items) stmt.run(serializeOperationLog(log));
+    });
+    insert(logs);
   }
 
   getOperationLogs(): OperationLog[] {
-    return this.execRows("SELECT * FROM operation_logs ORDER BY created_at DESC LIMIT 200").map((row) => ({
-      id: String(row.id),
-      operation_type: String(row.operation_type),
-      source_path: String(row.source_path),
-      target_path: String(row.target_path),
-      old_name: String(row.old_name),
-      new_name: String(row.new_name),
-      status: row.status as OperationLog["status"],
-      error_message: row.error_message ? String(row.error_message) : null,
-      created_at: String(row.created_at),
-      can_undo: Boolean(row.can_undo)
-    }));
+    return (this.db.prepare("SELECT * FROM operation_logs ORDER BY created_at DESC LIMIT 300").all() as Row[])
+      .map(deserializeOperationLog);
   }
 
-  private selectFiles(sql: string): FileRecord[] {
-    return this.execRows(sql).map(deserializeFile);
+  getOperationLogsByBatch(batchId: string): OperationLog[] {
+    return (this.db.prepare("SELECT * FROM operation_logs WHERE batch_id = @batchId ORDER BY created_at ASC").all({ batchId }) as Row[])
+      .map(deserializeOperationLog);
   }
 
-  private execRows(sql: string): Array<Record<string, unknown>> {
-    const result = this.db.exec(sql);
-    if (!result.length) return [];
-    const table = result[0];
-    return table.values.map((values) =>
-      Object.fromEntries(table.columns.map((column, index) => [column, values[index]]))
-    );
+  getRestoreBatches(retentionDays = 15): RestoreBatch[] {
+    const minCreatedAt = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
+    const rows = this.db.prepare(`
+      SELECT
+        batch_id,
+        MIN(created_at) AS created_at,
+        COUNT(*) AS total,
+        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+        SUM(CASE WHEN status = 'skipped' THEN 1 ELSE 0 END) AS skipped,
+        SUM(CASE WHEN can_restore = 1 AND restore_status = 'not_restored' THEN 1 ELSE 0 END) AS restorable,
+        SUM(CASE WHEN restore_status = 'restored' THEN 1 ELSE 0 END) AS restored
+      FROM operation_logs
+      WHERE created_at >= @minCreatedAt
+      GROUP BY batch_id
+      ORDER BY created_at DESC
+      LIMIT 50
+    `).all({ minCreatedAt }) as Row[];
+    return rows.map((row) => {
+      const createdAt = String(row.created_at);
+      return {
+        batch_id: String(row.batch_id),
+        created_at: createdAt,
+        total: Number(row.total ?? 0),
+        success: Number(row.success ?? 0),
+        failed: Number(row.failed ?? 0),
+        skipped: Number(row.skipped ?? 0),
+        restorable: Number(row.restorable ?? 0),
+        restored: Number(row.restored ?? 0),
+        expires_at: new Date(new Date(createdAt).getTime() + retentionDays * 86_400_000).toISOString()
+      };
+    });
+  }
+
+  markRestoreResult(logId: string, status: RestoreStatus, error: string | null) {
+    this.db.prepare(`
+      UPDATE operation_logs
+      SET restore_status = @status,
+          restored_at = CASE WHEN @status = 'restored' THEN @now ELSE restored_at END,
+          restore_error = @error
+      WHERE id = @logId
+    `).run({ logId, status, error, now: nowIso() });
+  }
+
+  pruneOperationLogs(retentionDays = 15) {
+    const threshold = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
+    this.db.prepare("DELETE FROM operation_logs WHERE created_at < @threshold AND restore_status != 'not_restored'")
+      .run({ threshold });
+  }
+
+  private selectFiles(sql: string, params: Record<string, unknown> = {}): FileRecord[] {
+    return (this.db.prepare(sql).all(params) as Row[]).map(deserializeFile);
   }
 
   private migrate() {
-    this.db.run(`
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS files (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -299,7 +648,93 @@ export class Database {
         created_at TEXT NOT NULL,
         can_undo INTEGER NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS search_sources (
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        path TEXT NOT NULL,
+        type TEXT NOT NULL,
+        enabled INTEGER NOT NULL,
+        is_stale INTEGER NOT NULL,
+        indexed_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS files_fts USING fts5(
+        id UNINDEXED,
+        name,
+        path,
+        extension,
+        file_type,
+        purpose,
+        lifecycle,
+        context,
+        classification_reason,
+        tokenize = 'unicode61'
+      );
     `);
+
+    this.addMissingColumns("files", {
+      dispatch_zone: "TEXT",
+      recommended_folder: "TEXT",
+      folder_reuse_candidate: "TEXT",
+      folder_rename_suggestion: "TEXT",
+      dispatch_reason: "TEXT",
+      next_action: "TEXT",
+      last_opened_at: "TEXT",
+      open_count: "INTEGER NOT NULL DEFAULT 0",
+      indexed_at: "TEXT",
+      source_id: "TEXT",
+      is_stale: "INTEGER NOT NULL DEFAULT 0"
+    });
+    this.addMissingColumns("operation_logs", {
+      batch_id: "TEXT NOT NULL DEFAULT 'legacy'",
+      path_before: "TEXT NOT NULL DEFAULT ''",
+      path_after: "TEXT NOT NULL DEFAULT ''",
+      name_before: "TEXT NOT NULL DEFAULT ''",
+      name_after: "TEXT NOT NULL DEFAULT ''",
+      can_restore: "INTEGER NOT NULL DEFAULT 0",
+      restored_at: "TEXT",
+      restore_status: "TEXT NOT NULL DEFAULT 'not_restored'",
+      restore_error: "TEXT"
+    });
+    this.addMissingColumns("search_sources", {
+      is_stale: "INTEGER NOT NULL DEFAULT 0",
+      indexed_at: "TEXT",
+      updated_at: "TEXT NOT NULL DEFAULT ''"
+    });
+
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);
+      CREATE INDEX IF NOT EXISTS idx_files_name ON files(name);
+      CREATE INDEX IF NOT EXISTS idx_files_extension ON files(extension);
+      CREATE INDEX IF NOT EXISTS idx_files_modified ON files(modified_at);
+      CREATE INDEX IF NOT EXISTS idx_files_source ON files(source_id);
+      CREATE INDEX IF NOT EXISTS idx_operation_logs_batch ON operation_logs(batch_id);
+      CREATE INDEX IF NOT EXISTS idx_search_sources_path ON search_sources(path);
+    `);
+
+    const ftsCount = this.db.prepare("SELECT COUNT(*) AS count FROM files_fts").get() as Row;
+    const fileCount = this.db.prepare("SELECT COUNT(*) AS count FROM files").get() as Row;
+    if (Number(ftsCount.count ?? 0) === 0 && Number(fileCount.count ?? 0) > 0) {
+      this.rebuildSearchIndex();
+    }
+  }
+
+  private addMissingColumns(table: string, columns: Record<string, string>) {
+    const existing = new Set((this.db.prepare(`PRAGMA table_info(${table})`).all() as Row[]).map((row) => String(row.name)));
+    for (const [column, definition] of Object.entries(columns)) {
+      if (!existing.has(column)) {
+        this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+      }
+    }
   }
 
   private ensureSystemRules() {
@@ -307,45 +742,51 @@ export class Database {
       this.saveRule(rule);
     }
   }
-
-  private async persist() {
-    const data = this.db.export();
-    await fs.writeFile(this.dbPath, data);
-  }
 }
 
 function serializeFile(file: FileRecord): Record<string, unknown> {
   return {
-    $id: file.id,
-    $name: file.name,
-    $path: file.path,
-    $directory: file.directory,
-    $extension: file.extension,
-    $size: file.size,
-    $file_type: file.file_type,
-    $purpose: file.purpose,
-    $lifecycle: file.lifecycle,
-    $context: file.context,
-    $risk_level: file.risk_level,
-    $hash: file.hash,
-    $created_at: file.created_at,
-    $modified_at: file.modified_at,
-    $scanned_at: file.scanned_at,
-    $last_seen_at: file.last_seen_at,
-    $is_hidden: file.is_hidden ? 1 : 0,
-    $is_deleted: file.is_deleted ? 1 : 0,
-    $is_duplicate: file.is_duplicate ? 1 : 0,
-    $suggested_action: file.suggested_action,
-    $suggested_target_path: file.suggested_target_path,
-    $suggested_name: file.suggested_name,
-    $confidence: file.confidence,
-    $classification_reason: file.classification_reason,
-    $matched_rules: JSON.stringify(file.matched_rules),
-    $requires_confirmation: file.requires_confirmation ? 1 : 0
+    id: file.id,
+    name: file.name,
+    path: file.path,
+    directory: file.directory,
+    extension: file.extension,
+    size: file.size,
+    file_type: file.file_type,
+    purpose: file.purpose,
+    lifecycle: file.lifecycle,
+    context: file.context,
+    risk_level: file.risk_level,
+    hash: file.hash,
+    created_at: file.created_at,
+    modified_at: file.modified_at,
+    scanned_at: file.scanned_at,
+    last_seen_at: file.last_seen_at,
+    is_hidden: file.is_hidden ? 1 : 0,
+    is_deleted: file.is_deleted ? 1 : 0,
+    is_duplicate: file.is_duplicate ? 1 : 0,
+    suggested_action: file.suggested_action,
+    suggested_target_path: file.suggested_target_path,
+    suggested_name: file.suggested_name,
+    confidence: file.confidence,
+    classification_reason: file.classification_reason,
+    matched_rules: JSON.stringify(file.matched_rules),
+    requires_confirmation: file.requires_confirmation ? 1 : 0,
+    dispatch_zone: file.dispatch_zone ?? null,
+    recommended_folder: file.recommended_folder ?? null,
+    folder_reuse_candidate: file.folder_reuse_candidate ?? null,
+    folder_rename_suggestion: file.folder_rename_suggestion ?? null,
+    dispatch_reason: file.dispatch_reason ?? null,
+    next_action: file.next_action ?? null,
+    last_opened_at: file.last_opened_at ?? null,
+    open_count: file.open_count ?? 0,
+    indexed_at: file.indexed_at ?? nowIso(),
+    source_id: file.source_id ?? sourceIdForPath(file.directory),
+    is_stale: file.is_stale ? 1 : 0
   };
 }
 
-function deserializeFile(row: Record<string, unknown>): FileRecord {
+function deserializeFile(row: Row): FileRecord {
   return {
     id: String(row.id),
     name: String(row.name),
@@ -356,7 +797,7 @@ function deserializeFile(row: Record<string, unknown>): FileRecord {
     file_type: row.file_type as FileRecord["file_type"],
     purpose: row.purpose as FileRecord["purpose"],
     lifecycle: row.lifecycle as FileRecord["lifecycle"],
-    context: String(row.context),
+    context: String(row.context ?? ""),
     risk_level: row.risk_level as FileRecord["risk_level"],
     hash: row.hash ? String(row.hash) : null,
     created_at: String(row.created_at),
@@ -367,12 +808,85 @@ function deserializeFile(row: Record<string, unknown>): FileRecord {
     is_deleted: Boolean(row.is_deleted),
     is_duplicate: Boolean(row.is_duplicate),
     suggested_action: row.suggested_action as FileRecord["suggested_action"],
-    suggested_target_path: String(row.suggested_target_path),
-    suggested_name: String(row.suggested_name),
-    confidence: Number(row.confidence),
-    classification_reason: String(row.classification_reason),
-    matched_rules: JSON.parse(String(row.matched_rules || "[]")),
-    requires_confirmation: Boolean(row.requires_confirmation)
+    suggested_target_path: String(row.suggested_target_path ?? ""),
+    suggested_name: String(row.suggested_name ?? row.name),
+    confidence: Number(row.confidence ?? 0),
+    classification_reason: String(row.classification_reason ?? ""),
+    matched_rules: JSON.parse(String(row.matched_rules || "[]")) as string[],
+    requires_confirmation: Boolean(row.requires_confirmation),
+    dispatch_zone: row.dispatch_zone ? row.dispatch_zone as FileRecord["dispatch_zone"] : undefined,
+    recommended_folder: row.recommended_folder ? String(row.recommended_folder) : undefined,
+    folder_reuse_candidate: row.folder_reuse_candidate ? String(row.folder_reuse_candidate) : undefined,
+    folder_rename_suggestion: row.folder_rename_suggestion ? String(row.folder_rename_suggestion) : undefined,
+    dispatch_reason: row.dispatch_reason ? String(row.dispatch_reason) : undefined,
+    next_action: row.next_action ? String(row.next_action) : undefined,
+    last_opened_at: row.last_opened_at ? String(row.last_opened_at) : null,
+    open_count: Number(row.open_count ?? 0),
+    indexed_at: row.indexed_at ? String(row.indexed_at) : undefined,
+    source_id: row.source_id ? String(row.source_id) : undefined,
+    is_stale: Boolean(row.is_stale)
+  };
+}
+
+function serializeOperationLog(log: OperationLog): Record<string, unknown> {
+  return {
+    id: log.id,
+    batch_id: log.batch_id,
+    operation_type: log.operation_type,
+    source_path: log.source_path,
+    target_path: log.target_path,
+    old_name: log.old_name,
+    new_name: log.new_name,
+    status: log.status,
+    error_message: log.error_message,
+    created_at: log.created_at,
+    can_undo: log.can_undo ? 1 : 0,
+    path_before: log.path_before,
+    path_after: log.path_after,
+    name_before: log.name_before,
+    name_after: log.name_after,
+    can_restore: log.can_restore ? 1 : 0,
+    restored_at: log.restored_at,
+    restore_status: log.restore_status,
+    restore_error: log.restore_error
+  };
+}
+
+function deserializeOperationLog(row: Row): OperationLog {
+  return {
+    id: String(row.id),
+    batch_id: String(row.batch_id ?? "legacy"),
+    operation_type: String(row.operation_type),
+    source_path: String(row.source_path),
+    target_path: String(row.target_path),
+    old_name: String(row.old_name),
+    new_name: String(row.new_name),
+    status: row.status as OperationLog["status"],
+    error_message: row.error_message ? String(row.error_message) : null,
+    created_at: String(row.created_at),
+    can_undo: Boolean(row.can_undo),
+    path_before: String(row.path_before || row.source_path),
+    path_after: String(row.path_after || row.target_path),
+    name_before: String(row.name_before || row.old_name),
+    name_after: String(row.name_after || row.new_name),
+    can_restore: Boolean(row.can_restore),
+    restored_at: row.restored_at ? String(row.restored_at) : null,
+    restore_status: (row.restore_status || "not_restored") as RestoreStatus,
+    restore_error: row.restore_error ? String(row.restore_error) : null
+  };
+}
+
+function deserializeSearchSource(row: Row): SearchSource {
+  return {
+    id: String(row.id),
+    label: String(row.label),
+    path: String(row.path),
+    type: row.type as SearchSource["type"],
+    enabled: Boolean(row.enabled),
+    is_stale: Boolean(row.is_stale),
+    indexed_at: row.indexed_at ? String(row.indexed_at) : null,
+    created_at: String(row.created_at),
+    updated_at: String(row.updated_at || row.created_at)
   };
 }
 
@@ -395,3 +909,47 @@ function buildStats(files: FileRecord[]): DashboardStats {
   return stats;
 }
 
+function parseSearch(input: string): { tokens: string[]; extension: string | null } {
+  const rawTokens = input.split(/\s+/).map((token) => token.trim()).filter(Boolean);
+  let extension: string | null = null;
+  const tokens: string[] = [];
+  for (const token of rawTokens) {
+    const extMatch = token.match(/^ext:(.+)$/i);
+    if (extMatch) {
+      extension = extMatch[1].replace(/^\./, "").toLowerCase();
+    } else if (token.startsWith(".") && token.length > 1) {
+      extension = token.slice(1).toLowerCase();
+    } else {
+      tokens.push(token);
+    }
+  }
+  return { tokens, extension };
+}
+
+function buildFtsExpression(tokens: string[]): string {
+  return tokens
+    .map((token) => token.replace(/["*]/g, "").trim())
+    .filter(Boolean)
+    .map((token) => `"${token}"*`)
+    .join(" AND ");
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[%_]/g, (char) => `\\${char}`);
+}
+
+function sourceIdForPath(directory: string): string {
+  return stableId(directory);
+}
+
+function findSourceIdForFile(file: FileRecord, sources: SearchSource[]): string | null {
+  const matched = sources
+    .filter((source) => isSameOrInside(file.path, source.path))
+    .sort((a, b) => b.path.length - a.path.length)[0];
+  return matched?.id ?? null;
+}
+
+function isSameOrInside(childPath: string, parentPath: string): boolean {
+  const relative = path.relative(path.resolve(parentPath), path.resolve(childPath));
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}

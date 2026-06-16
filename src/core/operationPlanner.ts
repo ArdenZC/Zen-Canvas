@@ -7,7 +7,6 @@ export function createOperationPreviews(files: FileRecord[]): OperationPreview[]
     .filter((file) =>
       ["Move", "Rename", "MoveAndRename", "Archive"].includes(file.suggested_action)
     )
-    .filter((file) => file.risk_level !== "Sensitive")
     .map((file) => {
       const targetDirectory =
         file.suggested_target_path || (file.suggested_action === "Rename" ? file.directory : "");
@@ -17,6 +16,9 @@ export function createOperationPreviews(files: FileRecord[]): OperationPreview[]
       const isRename = newName !== file.name;
       const operationType: OperationPreview["operation_type"] =
         isMove && isRename ? "move_rename" : isMove ? "move" : "rename";
+      const isSensitive = file.risk_level === "Sensitive";
+      const isLowConfidence = file.confidence < 0.7;
+      const requiresConfirmation = file.requires_confirmation || isLowConfidence;
       return {
         id: randomId("op"),
         fileId: file.id,
@@ -28,8 +30,12 @@ export function createOperationPreviews(files: FileRecord[]): OperationPreview[]
         status: "pending" as const,
         risk_level: file.risk_level,
         confidence: file.confidence,
-        requires_confirmation: file.requires_confirmation,
-        reason: file.classification_reason
+        requires_confirmation: requiresConfirmation,
+        reason: file.classification_reason,
+        selected_by_default: !isSensitive && !requiresConfirmation,
+        is_executable: !isSensitive,
+        blocking_reason: isSensitive ? "Sensitive files are advice-only in this version" : undefined,
+        editable_new_name: true
       };
     })
     .filter((operation) => operation.source_path !== operation.target_path);

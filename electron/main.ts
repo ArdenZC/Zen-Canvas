@@ -1,13 +1,18 @@
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, session, shell } from "electron";
 import path from "node:path";
+import { watch } from "chokidar";
 import { Database } from "../src/core/database.js";
 import { scanDefaultRoots, scanRoots } from "../src/core/fileScanner.js";
 import { executeOperations } from "../src/core/operationExecutor.js";
+import { createRestorePreview, restoreBatch } from "../src/core/restoreExecutor.js";
 import { applyAllRulesToFiles } from "../src/core/ruleEngine.js";
-import type { ExecuteOperationRequest, FileQuery, Rule } from "../src/types/domain.js";
+import type { ExecuteOperationRequest, FileQuery, Rule, SearchQuery, SearchSource } from "../src/types/domain.js";
 
 let mainWindow: BrowserWindow | null = null;
 let db: Database;
+let searchWatcher: ReturnType<typeof watch> | null = null;
+let registeredSearchHotkey = "CommandOrControl+K";
+let isQuitting = false;
 
 const isDev = process.env.VITE_DEV_SERVER_URL || process.env.NODE_ENV === "development";
 
@@ -17,8 +22,10 @@ async function createWindow() {
     height: 900,
     minWidth: 1080,
     minHeight: 720,
-    title: "File Manager Assistant",
-    backgroundColor: "#f6f8fb",
+    title: "Zen Canvas",
+    backgroundColor: "#0a0f1a",
+    frame: process.platform === "darwin",
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
       preload: path.join(app.getAppPath(), "dist-electron/electron/preload.js"),
       contextIsolation: true,
@@ -43,6 +50,14 @@ async function createWindow() {
   } else {
     await mainWindow.loadFile(path.join(app.getAppPath(), "dist/index.html"));
   }
+
+  mainWindow.on("close", (event) => {
+    if (isQuitting || process.platform === "darwin") return;
+    if (db.getSetting("backgroundResident") === "true") {
+      event.preventDefault();
+      mainWindow?.hide();
+    }
+  });
 }
 
 function registerIpc() {
@@ -52,8 +67,9 @@ function registerIpc() {
     const result = await scanDefaultRoots();
     const rules = db.getRules();
     const classified = applyAllRulesToFiles(result.files, rules);
-    db.upsertFiles(classified);
     db.upsertScanRoots(result.roots);
+    db.upsertFiles(classified);
+    await refreshSearchWatcher();
     return { ...result, files: classified };
   });
 
@@ -80,12 +96,59 @@ function registerIpc() {
     const result = await scanRoots(selected.filePaths);
     const rules = db.getRules();
     const classified = applyAllRulesToFiles(result.files, rules);
-    db.upsertFiles(classified);
     db.upsertScanRoots(result.roots);
+    db.upsertFiles(classified);
+    await refreshSearchWatcher();
     return { ...result, files: classified, canceled: false, selectedPaths: selected.filePaths };
   });
 
   ipcMain.handle("files:query", async (_event, query: FileQuery) => db.queryFiles(query));
+
+  ipcMain.handle("search:query", async (_event, query: SearchQuery) => db.searchFiles(query));
+
+  ipcMain.handle("search:openResult", async (_event, fileId: string) => {
+    const file = db.getFileById(fileId);
+    if (!file || !path.isAbsolute(file.path)) return { ok: false, error: "File not found" };
+    db.recordFileOpened(file.id);
+    const error = await shell.openPath(file.path);
+    return error ? { ok: false, error } : { ok: true };
+  });
+
+  ipcMain.handle("search:revealResult", async (_event, fileId: string) => {
+    const file = db.getFileById(fileId);
+    if (!file || !path.isAbsolute(file.path)) return { ok: false, error: "File not found" };
+    db.recordFileOpened(file.id);
+    shell.showItemInFolder(file.path);
+    return { ok: true };
+  });
+
+  ipcMain.handle("search:getSources", async () => db.getSearchSources());
+
+  ipcMain.handle("search:updateSources", async (_event, sources: SearchSource[]) => {
+    db.updateSearchSources(sources);
+    await refreshSearchWatcher();
+    return db.getSearchSources();
+  });
+
+  ipcMain.handle("search:rebuildIndex", async () => db.rebuildSearchIndex());
+
+  ipcMain.handle("search:getHotkey", async () => db.getSetting("searchHotkey") ?? registeredSearchHotkey);
+
+  ipcMain.handle("search:setHotkey", async (_event, accelerator: string) => {
+    const ok = registerSearchHotkey(accelerator);
+    if (ok) db.setSetting("searchHotkey", accelerator);
+    return { ok, hotkey: registeredSearchHotkey };
+  });
+
+  ipcMain.handle("search:show", async () => {
+    await showSearch();
+    return true;
+  });
+
+  ipcMain.handle("search:hide", async () => {
+    mainWindow?.webContents.send("command:hide");
+    return true;
+  });
 
   ipcMain.handle("rules:save", async (_event, rule: Rule) => {
     db.saveRule(rule);
@@ -113,11 +176,93 @@ function registerIpc() {
     return result;
   });
 
+  ipcMain.handle("operations:restoreBatches", async () => db.getRestoreBatches(15));
+
+  ipcMain.handle("operations:restorePreview", async (_event, batchId: string) => {
+    const logs = db.getOperationLogsByBatch(batchId);
+    return createRestorePreview(logs);
+  });
+
+  ipcMain.handle("operations:restoreBatch", async (_event, batchId: string) => {
+    const logs = db.getOperationLogsByBatch(batchId);
+    const result = await restoreBatch(logs);
+    for (const item of result.items) {
+      if (item.blocking_reason === "Restored") {
+        db.markRestoreResult(item.log_id, "restored", null);
+      } else if (item.blocking_reason && item.blocking_reason !== "Already restored") {
+        db.markRestoreResult(item.log_id, item.can_restore ? "not_restored" : "failed", item.blocking_reason);
+      }
+    }
+    return result;
+  });
+
   ipcMain.handle("shell:revealPath", async (_event, targetPath: string) => {
     if (!targetPath || !path.isAbsolute(targetPath)) return false;
     await shell.showItemInFolder(targetPath);
     return true;
   });
+
+  ipcMain.handle("app:windowControl", (event, action: "minimize" | "maximize" | "close") => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window) return false;
+    if (action === "minimize") window.minimize();
+    if (action === "maximize") {
+      if (window.isMaximized()) window.unmaximize();
+      else window.maximize();
+    }
+    if (action === "close") window.close();
+    return true;
+  });
+}
+
+async function showSearch() {
+  if (!mainWindow) {
+    await createWindow();
+  }
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.webContents.send("command:open");
+}
+
+function registerSearchHotkey(accelerator: string): boolean {
+  const normalized = accelerator.trim() || "CommandOrControl+K";
+  if (registeredSearchHotkey) {
+    globalShortcut.unregister(registeredSearchHotkey);
+  }
+  const ok = globalShortcut.register(normalized, () => {
+    void showSearch();
+  });
+  if (ok) {
+    registeredSearchHotkey = normalized;
+    return true;
+  }
+  globalShortcut.register(registeredSearchHotkey, () => {
+    void showSearch();
+  });
+  return false;
+}
+
+async function refreshSearchWatcher() {
+  await searchWatcher?.close();
+  searchWatcher = null;
+  const sources = db.getSearchSources().filter((source) => source.enabled);
+  const paths = sources.map((source) => source.path);
+  if (!paths.length) return;
+  searchWatcher = watch(paths, {
+    ignoreInitial: true,
+    depth: 8,
+    ignored: /(^|[\\/])(\.git|node_modules|AppData|Library|System32|\$Recycle\.Bin)([\\/]|$)/i
+  });
+  const markStale = (changedPath: string) => {
+    db.markSearchSourceStaleByPath(changedPath);
+    mainWindow?.webContents.send("search:stale", db.getSearchIndexState());
+  };
+  searchWatcher.on("add", markStale);
+  searchWatcher.on("change", markStale);
+  searchWatcher.on("unlink", markStale);
+  searchWatcher.on("unlinkDir", markStale);
 }
 
 app.whenReady().then(async () => {
@@ -128,6 +273,8 @@ app.whenReady().then(async () => {
   db = await Database.open(app.getPath("userData"));
   registerIpc();
   await createWindow();
+  registerSearchHotkey(db.getSetting("searchHotkey") ?? "CommandOrControl+K");
+  await refreshSearchWatcher();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -137,7 +284,13 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
+  if (process.platform !== "darwin" && db?.getSetting("backgroundResident") !== "true") {
     app.quit();
   }
+});
+
+app.on("will-quit", () => {
+  isQuitting = true;
+  globalShortcut.unregisterAll();
+  void searchWatcher?.close();
 });

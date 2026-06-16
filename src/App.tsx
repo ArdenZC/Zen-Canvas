@@ -1,24 +1,31 @@
-import { useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle,
   Archive,
-  CheckCircle2,
+  Check,
   ChevronRight,
   Clock3,
-  FileSearch,
+  Command,
+  File,
   Files,
   FolderOpen,
   FolderSearch,
   Languages,
+  LayoutGrid,
   ListChecks,
   LockKeyhole,
+  Moon,
   Play,
   Plus,
+  Radar,
   RefreshCw,
+  RotateCcw,
   Search,
   Settings,
   ShieldCheck,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Sparkles,
+  Sun,
+  X
 } from "lucide-react";
 import type {
   AppSnapshot,
@@ -26,12 +33,17 @@ import type {
   FileRecord,
   FolderScanResult,
   OperationPreview,
-  Rule
+  RestoreBatch,
+  RestorePreview,
+  Rule,
+  SearchResult,
+  SearchSource
 } from "./types/domain";
 import { type Language, makeTranslator } from "./i18n";
 import { formatBytes, formatDate, percent } from "./utils/format";
 
-type View = "dashboard" | "files" | "rules" | "preview" | "operations" | "settings";
+type View = "scanner" | "organize" | "library" | "preview" | "rules" | "restore" | "settings";
+type ThemeMode = "light" | "dark";
 type Translator = ReturnType<typeof makeTranslator>;
 
 const demoFiles = createDemoFiles();
@@ -40,7 +52,7 @@ const demoSnapshot: AppSnapshot = {
     totalFiles: demoFiles.length,
     totalSize: demoFiles.reduce((sum, file) => sum + file.size, 0),
     duplicateFiles: demoFiles.filter((file) => file.is_duplicate).length,
-    largeFiles: 0,
+    largeFiles: 1,
     sensitiveFiles: demoFiles.filter((file) => file.risk_level === "Sensitive").length,
     needsConfirmation: demoFiles.filter((file) => file.requires_confirmation).length,
     byType: demoFiles.reduce<Record<string, number>>((acc, file) => {
@@ -56,13 +68,33 @@ const demoSnapshot: AppSnapshot = {
   files: demoFiles,
   rules: createDemoRules(),
   operations: [],
-  scanRoots: []
+  scanRoots: [],
+  searchSources: [
+    {
+      id: "demo-source",
+      label: "Downloads",
+      path: "C:/Users/example/Downloads",
+      type: "user_space",
+      enabled: true,
+      is_stale: false,
+      indexed_at: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+  ],
+  searchIndex: {
+    total_files: demoFiles.length,
+    indexed_files: demoFiles.length,
+    last_indexed_at: null,
+    stale_sources: 0
+  }
 };
 
 export function App() {
   const [language, setLanguageState] = useState<Language>(() => preferredLanguage());
+  const [theme, setThemeState] = useState<ThemeMode>(() => preferredTheme());
   const t = useMemo(() => makeTranslator(language), [language]);
-  const [view, setView] = useState<View>("dashboard");
+  const [view, setView] = useState<View>("scanner");
   const [snapshot, setSnapshot] = useState<AppSnapshot>(demoSnapshot);
   const [query, setQuery] = useState<FileQuery>({
     fileType: "All",
@@ -76,8 +108,15 @@ export function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [status, setStatus] = useState("");
   const [selectedFolders, setSelectedFolders] = useState<string[]>([]);
-
+  const [isCommandOpen, setIsCommandOpen] = useState(false);
+  const [previewNameOverrides, setPreviewNameOverrides] = useState<Record<string, string>>({});
+  const commandInputRef = useRef<HTMLInputElement | null>(null);
   const hasNativeApi = typeof window.fileManager !== "undefined";
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    window.localStorage.setItem("zc-theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     if (!hasNativeApi) return;
@@ -89,18 +128,74 @@ export function App() {
     });
   }, [hasNativeApi]);
 
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setIsCommandOpen(true);
+      }
+      if (event.key === "Escape") {
+        setIsCommandOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = window.fileManager?.onCommandOpen?.(() => setIsCommandOpen(true));
+    return () => unsubscribe?.();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = window.fileManager?.onCommandHide?.(() => setIsCommandOpen(false));
+    return () => unsubscribe?.();
+  }, []);
+
+  useEffect(() => {
+    if (isCommandOpen) {
+      window.setTimeout(() => commandInputRef.current?.focus(), 40);
+    }
+  }, [isCommandOpen]);
+
+  useEffect(() => {
+    setSelectedOperationIds(
+      new Set(displayPreviews.filter((preview) => preview.selected_by_default).map((preview) => preview.id))
+    );
+    setPreviewNameOverrides({});
+  }, [snapshot.files]);
+
   const filteredFiles = useMemo(() => filterFiles(snapshot.files, query), [snapshot.files, query]);
   const selectedFile =
     snapshot.files.find((file) => file.id === selectedFileId) ?? filteredFiles[0] ?? snapshot.files[0];
   const previews = useMemo(() => createOperationPreviews(snapshot.files), [snapshot.files]);
+  const displayPreviews = useMemo(
+    () => previews.map((preview) => applyPreviewNameOverride(preview, previewNameOverrides[preview.id])),
+    [previewNameOverrides, previews]
+  );
   const reviewFiles = useMemo(
-    () => snapshot.files.filter((file) => file.requires_confirmation).slice(0, 5),
+    () => snapshot.files.filter((file) => file.requires_confirmation).slice(0, 6),
     [snapshot.files]
   );
+  const previewActionCount = displayPreviews.filter((preview) => preview.status === "pending").length;
+
+  const nav = [
+    { id: "scanner" as const, label: t("spaceScan"), icon: Radar },
+    { id: "organize" as const, label: t("smartDispatch"), icon: LayoutGrid },
+    { id: "library" as const, label: t("fileLibrary"), icon: Archive },
+    { id: "preview" as const, label: t("previewExecute"), icon: ListChecks },
+    { id: "rules" as const, label: t("ruleEngine"), icon: SlidersHorizontal },
+    { id: "restore" as const, label: t("restoreRecords"), icon: Clock3 },
+    { id: "settings" as const, label: t("settings"), icon: Settings }
+  ];
 
   function setLanguage(next: Language) {
     setLanguageState(next);
-    window.localStorage.setItem("fma-language", next);
+    window.localStorage.setItem("zc-language", next);
+  }
+
+  function setTheme(next: ThemeMode) {
+    setThemeState(next);
   }
 
   async function refreshSnapshot() {
@@ -166,7 +261,7 @@ export function App() {
   }
 
   async function executeSelected() {
-    const operations = previews.filter((preview) => selectedOperationIds.has(preview.id));
+    const operations = displayPreviews.filter((preview) => selectedOperationIds.has(preview.id) && preview.is_executable !== false);
     if (!operations.length) return;
     if (hasNativeApi) {
       await window.fileManager.executeOperations({ operations });
@@ -175,155 +270,228 @@ export function App() {
     setSelectedOperationIds(new Set());
   }
 
-  const nav = [
-    { id: "dashboard" as const, label: t("dashboard"), icon: FolderSearch },
-    { id: "files" as const, label: t("files"), icon: Files },
-    { id: "rules" as const, label: t("rules"), icon: SlidersHorizontal },
-    { id: "preview" as const, label: t("preview"), icon: ListChecks },
-    { id: "operations" as const, label: t("operations"), icon: Archive },
-    { id: "settings" as const, label: t("settings"), icon: Settings }
-  ];
+  function handleWindowAction(action: "minimize" | "maximize" | "close") {
+    void window.fileManager?.windowControl?.(action);
+  }
+
+  const activeLabel = nav.find((item) => item.id === view)?.label ?? t("spaceScan");
 
   return (
-    <div className="app-shell">
-      <aside className="rail" aria-label="Primary">
-        <div className="brand">
-          <div className="brand-mark" aria-hidden="true">
-            <FolderOpen size={21} />
-          </div>
-          <div>
-            <strong>{t("appName")}</strong>
-            <span>{t("productEdition")}</span>
-          </div>
+    <div className="zen-app">
+      <div className="ambient-layer" aria-hidden="true" />
+
+      <header className="native-titlebar">
+        <div className="window-controls" aria-label="Window controls">
+          <button className="traffic-dot red" onClick={() => handleWindowAction("close")} aria-label={t("close")} />
+          <button
+            className="traffic-dot yellow"
+            onClick={() => handleWindowAction("minimize")}
+            aria-label={t("minimize")}
+          />
+          <button
+            className="traffic-dot green"
+            onClick={() => handleWindowAction("maximize")}
+            aria-label={t("maximize")}
+          />
         </div>
 
-        <nav className="nav-list">
-          {nav.map((item) => (
-            <button
-              key={item.id}
-              className={`nav-item ${view === item.id ? "active" : ""}`}
-              onClick={() => setView(item.id)}
-              aria-label={item.label}
-            >
-              <item.icon size={18} />
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
+        <button className="spotlight-trigger" onClick={() => setIsCommandOpen(true)}>
+          <Search size={15} />
+          <span>{t("globalSearch")}</span>
+          <kbd>
+            <Command size={12} />K
+          </kbd>
+        </button>
 
-        <div className="rail-foot">
-          <LockKeyhole size={17} />
-          <div>
-            <strong>{t("privateByDefault")}</strong>
-            <span>{t("privacyLine")}</span>
-          </div>
+        <div className="titlebar-actions">
+          <button className="round-tool" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+            {theme === "dark" ? <Moon size={17} /> : <Sun size={17} />}
+          </button>
+          <button className="lang-toggle" onClick={() => setLanguage(language === "zh" ? "en" : "zh")}>
+            <Languages size={16} />
+            <span>{language === "zh" ? "EN" : "中文"}</span>
+          </button>
         </div>
-      </aside>
+      </header>
 
-      <main className="workspace">
-        <header className="topbar">
-          <div>
-            <span className="eyebrow">{t("friendlyMode")}</span>
-            <h1>{nav.find((item) => item.id === view)?.label}</h1>
-            <p>
-              {snapshot.stats.lastScannedAt
-                ? `${t("lastScan")}: ${formatDate(snapshot.stats.lastScannedAt)}`
-                : t("demoMode")}
-            </p>
+      <div className="zen-shell">
+        <aside className="zen-sidebar">
+          <div className="brand-block">
+            <ZenMark />
+            <div>
+              <strong>{t("appName")}</strong>
+              <span>{t("appSubtitle")}</span>
+            </div>
           </div>
-          <div className="topbar-actions">
-            <button className="icon-button text-action" onClick={() => setLanguage(language === "zh" ? "en" : "zh")}>
-              <Languages size={18} />
-              <span>{language === "zh" ? "EN" : "中文"}</span>
-            </button>
-            <button className="icon-button primary-action" onClick={handleChooseFolders} disabled={isScanning}>
-              <FolderSearch size={18} />
-              <span>{t("chooseFolders")}</span>
-            </button>
+
+          <nav className="zen-nav">
+            {nav.map((item, index) => (
+              <button
+                key={item.id}
+                className={`zen-nav-item ${view === item.id ? "active" : ""} ${index === 4 ? "with-divider" : ""}`}
+                onClick={() => setView(item.id)}
+              >
+                <item.icon size={18} />
+                <span>{item.label}</span>
+                {item.id === "preview" && previewActionCount > 0 && <em>{previewActionCount}</em>}
+              </button>
+            ))}
+          </nav>
+
+          <div className="privacy-card">
+            <LockKeyhole size={18} />
+            <div>
+              <strong>{t("privateByDefault")}</strong>
+              <span>{t("privacyLine")}</span>
+            </div>
           </div>
-        </header>
+        </aside>
 
-        {status && <div className="status-line">{status}</div>}
+        <main className="zen-workspace">
+          <div className="view-heading">
+            <div>
+              <h1>{activeLabel}</h1>
+              <p>
+                {snapshot.stats.lastScannedAt
+                  ? `${t("lastScan")}: ${formatDate(snapshot.stats.lastScannedAt)}`
+                  : t("demoMode")}
+              </p>
+            </div>
+            <div className="view-heading-actions">
+              <button className="glass-button" onClick={handleChooseFolders} disabled={isScanning}>
+                <FolderSearch size={17} />
+                <span>{t("chooseFolders")}</span>
+              </button>
+              <button className="glass-button primary" onClick={handleScan} disabled={isScanning}>
+                <RefreshCw size={17} className={isScanning ? "spin" : ""} />
+                <span>{t("scanCommon")}</span>
+              </button>
+            </div>
+          </div>
 
-        {view === "dashboard" && (
-          <HomeView
-            snapshot={snapshot}
-            t={t}
-            selectedFile={selectedFile}
-            reviewFiles={reviewFiles}
-            previews={previews}
-            setView={setView}
-            chooseFolders={handleChooseFolders}
-            scanCommon={handleScan}
-            isScanning={isScanning}
-            selectedFolders={selectedFolders}
-          />
-        )}
-        {view === "files" && (
-          <FilesView
-            files={filteredFiles}
-            selectedFile={selectedFile}
-            query={query}
-            setQuery={setQuery}
-            setSelectedFileId={setSelectedFileId}
-            t={t}
-          />
-        )}
-        {view === "rules" && <RulesView rules={snapshot.rules} onSave={saveRule} t={t} />}
-        {view === "preview" && (
-          <PreviewView
-            previews={previews}
-            selectedIds={selectedOperationIds}
-            setSelectedIds={setSelectedOperationIds}
-            executeSelected={executeSelected}
-            t={t}
-          />
-        )}
-        {view === "operations" && <OperationsView snapshot={snapshot} t={t} />}
-        {view === "settings" && <SettingsView language={language} setLanguage={setLanguage} t={t} />}
-      </main>
+          {status && <div className="system-toast">{status}</div>}
+
+          <div className="view-stage">
+            {view === "scanner" && (
+              <ScannerView
+                snapshot={snapshot}
+                selectedFolders={selectedFolders}
+                isScanning={isScanning}
+                chooseFolders={handleChooseFolders}
+                scanCommon={handleScan}
+                setView={setView}
+                t={t}
+              />
+            )}
+            {view === "organize" && (
+              <HubView
+                files={snapshot.files}
+                reviewFiles={reviewFiles}
+                previews={displayPreviews}
+                setView={setView}
+                t={t}
+              />
+            )}
+            {view === "library" && (
+              <VaultView
+                files={filteredFiles}
+                selectedFile={selectedFile}
+                query={query}
+                setQuery={setQuery}
+                setSelectedFileId={setSelectedFileId}
+                t={t}
+              />
+            )}
+            {view === "preview" && (
+              <TimelineView
+                snapshot={snapshot}
+                previews={displayPreviews}
+                selectedIds={selectedOperationIds}
+                setSelectedIds={setSelectedOperationIds}
+                onRenamePreview={(id, name) =>
+                  setPreviewNameOverrides((current) => ({ ...current, [id]: name }))
+                }
+                executeSelected={executeSelected}
+                t={t}
+              />
+            )}
+            {view === "rules" && <RulesView rules={snapshot.rules} onSave={saveRule} t={t} />}
+            {view === "restore" && <RestoreView hasNativeApi={hasNativeApi} t={t} />}
+            {view === "settings" && (
+              <SettingsView
+                language={language}
+                setLanguage={setLanguage}
+                theme={theme}
+                setTheme={setTheme}
+                snapshot={snapshot}
+                setSnapshot={setSnapshot}
+                hasNativeApi={hasNativeApi}
+                t={t}
+              />
+            )}
+          </div>
+        </main>
+      </div>
+
+      {isCommandOpen && (
+        <CommandModal
+          inputRef={commandInputRef}
+          files={snapshot.files}
+          setView={setView}
+          setSelectedFileId={setSelectedFileId}
+          onClose={() => setIsCommandOpen(false)}
+          t={t}
+        />
+      )}
     </div>
   );
 }
 
-function HomeView({
+function ZenMark() {
+  return (
+    <div className="zen-mark" aria-hidden="true">
+      <span className="zen-orb" />
+      <span className="zen-glass" />
+    </div>
+  );
+}
+
+function ScannerView({
   snapshot,
-  selectedFile,
-  reviewFiles,
-  previews,
-  setView,
-  t,
+  selectedFolders,
+  isScanning,
   chooseFolders,
   scanCommon,
-  isScanning,
-  selectedFolders
+  setView,
+  t
 }: {
   snapshot: AppSnapshot;
-  selectedFile?: FileRecord;
-  reviewFiles: FileRecord[];
-  previews: OperationPreview[];
-  setView: (view: View) => void;
+  selectedFolders: string[];
+  isScanning: boolean;
   chooseFolders: () => Promise<void>;
   scanCommon: () => Promise<void>;
-  isScanning: boolean;
-  selectedFolders: string[];
+  setView: (view: View) => void;
   t: Translator;
 }) {
+  const scannedRatio = Math.min(100, Math.max(12, snapshot.stats.totalFiles * 7));
   const metrics = [
-    { label: t("totalFiles"), value: snapshot.stats.totalFiles.toLocaleString(), icon: Files },
-    { label: t("totalSize"), value: formatBytes(snapshot.stats.totalSize), icon: Archive },
-    { label: t("needsReview"), value: snapshot.stats.needsConfirmation.toString(), icon: AlertTriangle },
-    { label: t("sensitive"), value: snapshot.stats.sensitiveFiles.toString(), icon: ShieldCheck }
+    { label: t("totalFiles"), value: snapshot.stats.totalFiles.toLocaleString(), tone: "blue" },
+    { label: t("totalSize"), value: formatBytes(snapshot.stats.totalSize), tone: "green" },
+    { label: t("needsReview"), value: snapshot.stats.needsConfirmation.toString(), tone: "red" },
+    { label: t("sensitive"), value: snapshot.stats.sensitiveFiles.toString(), tone: "purple" }
   ];
 
   return (
-    <div className="home-layout">
-      <section className="scan-studio">
-        <div className="scan-copy">
-          <span className="promise"><ShieldCheck size={16} /> {t("primaryPromise")}</span>
+    <div className="scanner-grid page-enter">
+      <section className="scanner-hero glass-panel">
+        <div className="scanner-copy">
+          <div className="quiet-chip">
+            <ShieldCheck size={15} />
+            <span>{t("primaryPromise")}</span>
+          </div>
           <h2>{t("folderPickerTitle")}</h2>
           <p>{t("folderPickerSubtitle")}</p>
-          <div className="scan-actions">
+          <div className="hero-actions">
             <button className="primary-command" onClick={chooseFolders} disabled={isScanning}>
               <FolderSearch size={20} />
               <span>{isScanning ? t("scanning") : t("chooseFoldersLong")}</span>
@@ -335,144 +503,152 @@ function HomeView({
           </div>
         </div>
 
-        <div className="flow-card" aria-label={t("guidedStart")}>
-          <FlowStep icon={FolderOpen} title={t("stepChoose")} body={t("stepChooseDesc")} />
-          <FlowStep icon={FileSearch} title={t("stepScan")} body={t("stepScanDesc")} />
-          <FlowStep icon={CheckCircle2} title={t("stepReview")} body={t("stepReviewDesc")} />
+        <div className={`radar-card ${isScanning ? "is-scanning" : ""}`}>
+          <div className="radar-ring" style={{ "--progress": `${scannedRatio}%` } as CSSProperties}>
+            <div className="radar-core">
+              {isScanning ? (
+                <>
+                  <Radar size={36} />
+                  <strong>{t("scanning")}</strong>
+                </>
+              ) : (
+                <>
+                  <span>{t("totalAnalysed")}</span>
+                  <strong>{formatBytes(snapshot.stats.totalSize)}</strong>
+                  <em>{t("ready")}</em>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="summary-strip" aria-label={t("quickSummary")}>
+      <section className="metric-strip">
         {metrics.map((metric) => (
-          <div className="summary-item" key={metric.label}>
-            <metric.icon size={17} />
+          <div className={`metric-card ${metric.tone}`} key={metric.label}>
             <span>{metric.label}</span>
             <strong>{metric.value}</strong>
           </div>
         ))}
       </section>
 
-      <section className="panel review-panel">
-        <div className="section-heading">
-          <div>
-            <h2>{t("reviewQueue")}</h2>
-            <p>{t("confidenceHint")}</p>
-          </div>
-          <button
-            className="text-link"
-            aria-label={`${t("reviewQueue")} ${t("openPreview")}`}
-            onClick={() => setView("preview")}
-          >
-            {t("openPreview")} <ChevronRight size={16} />
-          </button>
+      <section className="glass-panel tutorial-card">
+        <SectionTitle title={t("guidedStart")} body={t("guidedStartDesc")} />
+        <div className="tutorial-steps">
+          <FlowStep index="01" title={t("stepChoose")} body={t("stepChooseDesc")} />
+          <FlowStep index="02" title={t("stepScan")} body={t("stepScanDesc")} />
+          <FlowStep index="03" title={t("stepReview")} body={t("stepReviewDesc")} />
         </div>
-        {reviewFiles.length ? (
-          <div className="review-list">
-            {reviewFiles.map((file) => (
-              <button className="file-row-button" key={file.id} onClick={() => setView("files")}>
-                <div>
-                  <strong>{file.name}</strong>
-                  <span>{file.purpose} / {file.lifecycle}</span>
-                </div>
-                <RiskBadge risk={file.risk_level} t={t} />
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="empty-state">{t("reviewQueueEmpty")}</div>
-        )}
       </section>
 
-      <section className="panel safety-panel">
-        <h2>{t("compactSafety")}</h2>
-        <SafetyItem icon={LockKeyhole} title={t("localOnly")} body={t("privacyLine")} />
-        <SafetyItem icon={ListChecks} title={t("previewRequired")} body={t("previewRequiredDesc")} />
-        <SafetyItem icon={AlertTriangle} title={t("noDelete")} body={t("noDeleteDesc")} />
+      <section className="glass-panel folders-card">
+        <SectionTitle title={t("selectedFolders")} body={t("selectedFoldersDesc")} />
+        <div className="folder-list">
+          {(selectedFolders.length ? selectedFolders : [t("noFolderSelected")]).map((folder) => (
+            <div className="folder-pill" key={folder}>
+              <FolderOpen size={15} />
+              <span>{folder}</span>
+            </div>
+          ))}
+        </div>
       </section>
 
-      <section className="panel plan-panel">
-        <div className="section-heading">
-          <div>
-            <h2>{t("suggestedPlan")}</h2>
-            <p>{t("previewBeforeExecute")}</p>
-          </div>
-          <span className="count-pill">{previews.length}</span>
+      <section className="glass-panel strategy-card">
+        <SectionTitle title={t("strategy")} body={t("safeModeDesc")} />
+        <div className="segmented">
+          <button className="active">{t("builtInRules")}</button>
+          <button onClick={() => setView("rules")}>{t("customRules")}</button>
         </div>
-        <div className="plan-actions">
-          <button className="primary-action full" onClick={() => setView("preview")}>
+        <p>{t("builtInDesc")}</p>
+        <p>{t("customDesc")}</p>
+      </section>
+    </div>
+  );
+}
+
+function HubView({
+  files,
+  reviewFiles,
+  previews,
+  setView,
+  t
+}: {
+  files: FileRecord[];
+  reviewFiles: FileRecord[];
+  previews: OperationPreview[];
+  setView: (view: View) => void;
+  t: Translator;
+}) {
+  const inboxFiles = files.slice(0, 5);
+  const categories = [
+    { label: t("coreAssets"), value: files.filter((file) => (file.dispatch_zone ?? "CoreAssets") === "CoreAssets").length },
+    { label: t("archiveBox"), value: files.filter((file) => file.dispatch_zone === "QuietArchive").length },
+    { label: t("privacyVault"), value: files.filter((file) => file.dispatch_zone === "PrivacyVault" || file.risk_level === "Sensitive").length },
+    { label: t("cleanupLane"), value: files.filter((file) => file.dispatch_zone === "CleanupLane").length }
+  ];
+
+  return (
+    <div className="hub-layout page-enter">
+      <section className="glass-panel inbox-column">
+        <SectionTitle title={t("inboxStack")} body={t("inboxStackDesc")} />
+        <div className="file-stack">
+          {inboxFiles.map((file, index) => (
+            <FileCard key={file.id} file={file} index={index} t={t} />
+          ))}
+        </div>
+      </section>
+
+      <section className="dispatch-core glass-panel">
+        <div className="dispatch-orbit">
+          <Sparkles size={34} />
+          <strong>{previews.length}</strong>
+          <span>{t("suggestedPlan")}</span>
+        </div>
+        <p>{t("dispatchDesc")}</p>
+        <div className="dispatch-actions">
+          <button className="primary-command" onClick={() => setView("preview")}>
             <ListChecks size={18} />
             <span>{t("openPreview")}</span>
           </button>
-          <button className="text-action full" onClick={() => setView("rules")}>
+          <button className="secondary-command" onClick={() => setView("rules")}>
             <SlidersHorizontal size={18} />
             <span>{t("openRuleBuilder")}</span>
           </button>
         </div>
       </section>
 
-      <section className="panel strategy-panel">
-        <div className="section-heading">
-          <div>
-            <h2>{t("strategy")}</h2>
-            <p>{t("safeModeDesc")}</p>
-          </div>
-        </div>
-        <div className="segmented">
-          <button className="active">{t("builtInRules")}</button>
-          <button onClick={() => setView("rules")}>{t("customRules")}</button>
-        </div>
-        <div className="strategy-copy">
-          <p>{t("builtInDesc")}</p>
-          <p>{t("customDesc")}</p>
+      <section className="glass-panel target-column">
+        <SectionTitle title={t("targetBoxes")} body={t("targetBoxesDesc")} />
+        <div className="target-list">
+          {categories.map((category) => (
+            <div className="target-box" key={category.label}>
+              <span>{category.label}</span>
+              <strong>{category.value}</strong>
+            </div>
+          ))}
         </div>
       </section>
 
-      <Inspector file={selectedFile} t={t} />
+      <section className="glass-panel review-dock">
+        <SectionTitle title={t("reviewQueue")} body={t("confidenceHint")} />
+        {reviewFiles.length ? (
+          <div className="review-list">
+            {reviewFiles.map((file) => (
+              <button className="review-row" key={file.id} onClick={() => setView("library")}>
+                <span>{file.name}</span>
+                <RiskBadge risk={file.risk_level} t={t} />
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state compact">{t("reviewQueueEmpty")}</div>
+        )}
+      </section>
     </div>
   );
 }
 
-function FlowStep({
-  icon: Icon,
-  title,
-  body
-}: {
-  icon: typeof FolderOpen;
-  title: string;
-  body: string;
-}) {
-  return (
-    <div className="flow-step">
-      <Icon size={18} />
-      <div>
-        <strong>{title}</strong>
-        <span>{body}</span>
-      </div>
-    </div>
-  );
-}
-
-function SafetyItem({
-  icon: Icon,
-  title,
-  body
-}: {
-  icon: typeof LockKeyhole;
-  title: string;
-  body: string;
-}) {
-  return (
-    <div className="safety-item">
-      <Icon size={17} />
-      <div>
-        <strong>{title}</strong>
-        <span>{body}</span>
-      </div>
-    </div>
-  );
-}
-
-function FilesView({
+function VaultView({
   files,
   selectedFile,
   query,
@@ -488,8 +664,8 @@ function FilesView({
   t: Translator;
 }) {
   return (
-    <div className="content-layout">
-      <section className="panel table-panel">
+    <div className="vault-layout page-enter">
+      <section className="glass-panel vault-table-panel">
         <div className="toolbar">
           <label className="search-control">
             <Search size={16} />
@@ -531,46 +707,95 @@ function FilesView({
   );
 }
 
-function FileTable({
-  files,
-  selectedId,
-  onSelect,
+function TimelineView({
+  snapshot,
+  previews,
+  selectedIds,
+  setSelectedIds,
+  onRenamePreview,
+  executeSelected,
   t
 }: {
-  files: FileRecord[];
-  selectedId?: string;
-  onSelect: (id: string) => void;
+  snapshot: AppSnapshot;
+  previews: OperationPreview[];
+  selectedIds: Set<string>;
+  setSelectedIds: (ids: Set<string>) => void;
+  onRenamePreview: (id: string, name: string) => void;
+  executeSelected: () => Promise<void>;
   t: Translator;
 }) {
+  function toggle(id: string) {
+    const preview = previews.find((item) => item.id === id);
+    if (!preview || preview.is_executable === false) return;
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  }
+
   return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>{t("files")}</th>
-            <th>{t("purpose")}</th>
-            <th>{t("lifecycle")}</th>
-            <th>{t("risk")}</th>
-            <th>{t("action")}</th>
-            <th>{t("confidence")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {files.map((file) => (
-            <tr key={file.id} className={selectedId === file.id ? "selected-row" : ""} onClick={() => onSelect(file.id)}>
-              <td>
-                <strong>{file.name}</strong>
-                <span>{formatBytes(file.size)} / {file.file_type}</span>
-              </td>
-              <td>{file.purpose}</td>
-              <td><span className="token">{file.lifecycle}</span></td>
-              <td><RiskBadge risk={file.risk_level} t={t} /></td>
-              <td>{file.suggested_action}</td>
-              <td>{percent(file.confidence)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="timeline-layout page-enter">
+      <section className="glass-panel preview-panel">
+        <div className="section-title action-title">
+          <div>
+            <h2>{t("suggestedPlan")}</h2>
+            <p>{t("previewBeforeExecute")}</p>
+          </div>
+          <button className="glass-button primary" onClick={executeSelected} disabled={!selectedIds.size}>
+            <Play size={16} />
+            <span>{t("executeSelected")} / {selectedIds.size}</span>
+          </button>
+        </div>
+        {!previews.length ? (
+          <div className="empty-state">{t("noOperations")}</div>
+        ) : (
+          <div className="preview-list">
+            {previews.map((preview) => (
+              <label className="preview-row" key={preview.id}>
+                <input
+                  type="checkbox"
+                  disabled={preview.is_executable === false}
+                  checked={selectedIds.has(preview.id)}
+                  onChange={() => toggle(preview.id)}
+                />
+                <div>
+                  <strong>{preview.old_name}</strong>
+                  <span>{preview.source_path}</span>
+                  <span>{preview.target_path}</span>
+                  <input
+                    className="inline-name-input"
+                    value={preview.new_name}
+                    disabled={!preview.editable_new_name || preview.is_executable === false}
+                    onChange={(event) => onRenamePreview(preview.id, event.target.value)}
+                    aria-label={t("newFileName")}
+                  />
+                  {preview.blocking_reason && <small>{preview.blocking_reason}</small>}
+                </div>
+                <em>{percent(preview.confidence)}</em>
+              </label>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="glass-panel operation-log-panel">
+        <SectionTitle title={t("operationHistory")} body={t("timeMachineDesc")} />
+        {!snapshot.operations.length ? (
+          <div className="empty-state compact">{t("noOperationHistory")}</div>
+        ) : (
+          <div className="operation-list">
+            {snapshot.operations.map((operation) => (
+              <div className="operation-row" key={operation.id}>
+                <RotateCcw size={16} />
+                <div>
+                  <strong>{operation.operation_type} / {t(operation.status)}</strong>
+                  <span>{operation.source_path}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }
@@ -629,188 +854,579 @@ function RulesView({
   }
 
   return (
-    <div className="content-layout">
-      <section className="panel rule-builder">
-        <div className="section-heading">
-          <div>
-            <h2>{t("ruleBuilder")}</h2>
-            <p>{t("customDesc")}</p>
-          </div>
+    <div className="rules-layout page-enter">
+      <section className="glass-panel rule-builder">
+        <SectionTitle title={t("ruleBuilder")} body={t("customDesc")} />
+        <div className="rule-sentence">
+          <span>{t("whenFile")}</span>
+          <strong>{field}</strong>
+          <strong>{operator}</strong>
+          <input value={value} onChange={(event) => setValue(event.target.value)} />
+          <span>{t("thenSendTo")}</span>
+          <strong>{purpose}</strong>
         </div>
         <div className="form-grid">
-          <label>{t("ruleName")}<input value={name} onChange={(event) => setName(event.target.value)} /></label>
-          <label>{t("field")}<select value={field} onChange={(event) => setField(event.target.value)}>
-            {["name", "extension", "file_type", "path", "directory", "size", "modified_at", "risk_level"].map((item) => <option key={item}>{item}</option>)}
-          </select></label>
-          <label>{t("operator")}<select value={operator} onChange={(event) => setOperator(event.target.value)}>
-            {["contains", "equals", "startsWith", "endsWith", "greaterThan", "lessThan", "olderThanDays", "newerThanDays"].map((item) => <option key={item}>{item}</option>)}
-          </select></label>
-          <label>{t("value")}<input value={value} onChange={(event) => setValue(event.target.value)} /></label>
-          <label>{t("purpose")}<select value={purpose} onChange={(event) => setPurpose(event.target.value)}>
-            {["Temporary", "Career", "Finance", "Study", "Project", "Personal", "Media", "Unknown"].map((item) => <option key={item}>{item}</option>)}
-          </select></label>
-          <label>{t("lifecycle")}<select value={lifecycle} onChange={(event) => setLifecycle(event.target.value)}>
-            {["Inbox", "Active", "Reference", "Archive", "Disposable", "Sensitive"].map((item) => <option key={item}>{item}</option>)}
-          </select></label>
-          <label>{t("weight")}<input type="number" value={weight} onChange={(event) => setWeight(Number(event.target.value))} /></label>
+          <label>
+            {t("ruleName")}
+            <input value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <label>
+            {t("field")}
+            <select value={field} onChange={(event) => setField(event.target.value)}>
+              {["name", "extension", "file_type", "path", "directory", "size", "modified_at", "risk_level"].map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {t("operator")}
+            <select value={operator} onChange={(event) => setOperator(event.target.value)}>
+              {["contains", "equals", "startsWith", "endsWith", "greaterThan", "lessThan", "olderThanDays", "newerThanDays"].map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {t("purpose")}
+            <select value={purpose} onChange={(event) => setPurpose(event.target.value)}>
+              {["Temporary", "Career", "Finance", "Study", "Project", "Personal", "Media", "Unknown"].map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {t("lifecycle")}
+            <select value={lifecycle} onChange={(event) => setLifecycle(event.target.value)}>
+              {["Inbox", "Active", "Reference", "Archive", "Disposable", "Sensitive"].map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            {t("weight")}
+            <input type="number" value={weight} onChange={(event) => setWeight(Number(event.target.value))} />
+          </label>
         </div>
-        <button className="primary-action" onClick={submit}><Plus size={17} />{t("saveRule")}</button>
+        <button className="primary-command compact-command" onClick={submit}>
+          <Plus size={17} />
+          {t("saveRule")}
+        </button>
       </section>
 
-      <section className="panel rules-list">
-        <h2>{t("strategy")}</h2>
-        {rules.map((rule) => (
-          <div className="rule-row" key={rule.id}>
-            <div>
-              <strong>{rule.name}</strong>
-              <span>{rule.source} / weight {rule.weight} / priority {rule.priority}</span>
+      <section className="glass-panel rules-list-panel">
+        <SectionTitle title={t("strategy")} body={t("ruleLayerDesc")} />
+        <div className="rule-list">
+          {rules.map((rule) => (
+            <div className="rule-row" key={rule.id}>
+              <div>
+                <strong>{rule.name}</strong>
+                <span>{rule.source} / weight {rule.weight} / priority {rule.priority}</span>
+              </div>
+              <span className={`source ${rule.source}`}>{rule.source}</span>
             </div>
-            <span className={`source ${rule.source}`}>{rule.source}</span>
-          </div>
-        ))}
+          ))}
+        </div>
       </section>
     </div>
   );
 }
 
-function PreviewView({
-  previews,
-  selectedIds,
-  setSelectedIds,
-  executeSelected,
-  t
-}: {
-  previews: OperationPreview[];
-  selectedIds: Set<string>;
-  setSelectedIds: (ids: Set<string>) => void;
-  executeSelected: () => Promise<void>;
-  t: Translator;
-}) {
-  function toggle(id: string) {
-    const next = new Set(selectedIds);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelectedIds(next);
+function RestoreView({ hasNativeApi, t }: { hasNativeApi: boolean; t: Translator }) {
+  const [batches, setBatches] = useState<RestoreBatch[]>([]);
+  const [selectedBatch, setSelectedBatch] = useState("");
+  const [preview, setPreview] = useState<RestorePreview | null>(null);
+  const [restoreStatus, setRestoreStatus] = useState("");
+
+  useEffect(() => {
+    if (!hasNativeApi) return;
+    window.fileManager.getRestoreBatches().then((next) => {
+      setBatches(next);
+      setSelectedBatch(next[0]?.batch_id ?? "");
+    }).catch(() => undefined);
+  }, [hasNativeApi]);
+
+  useEffect(() => {
+    if (!hasNativeApi || !selectedBatch) {
+      setPreview(null);
+      return;
+    }
+    window.fileManager.getRestorePreview(selectedBatch).then(setPreview).catch(() => setPreview(null));
+  }, [hasNativeApi, selectedBatch]);
+
+  async function restoreSelectedBatch() {
+    if (!hasNativeApi || !selectedBatch) return;
+    const result = await window.fileManager.restoreBatch(selectedBatch);
+    setRestoreStatus(`${t("restored")}: ${result.restored}, ${t("failed")}: ${result.failed}, ${t("skipped")}: ${result.skipped}`);
+    const next = await window.fileManager.getRestoreBatches();
+    setBatches(next);
+    setPreview(await window.fileManager.getRestorePreview(selectedBatch));
   }
 
   return (
-    <section className="panel table-panel">
-      <div className="section-heading">
-        <div>
-          <h2>{t("suggestedPlan")}</h2>
-          <p>{t("previewBeforeExecute")}</p>
-        </div>
-        <button className="primary-action" onClick={executeSelected} disabled={!selectedIds.size}>
-          <Play size={17} /> {t("executeSelected")} / {selectedIds.size} {t("selected")}
-        </button>
-      </div>
-      {!previews.length ? <div className="empty-state">{t("noOperations")}</div> : (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th></th>
-                <th>{t("action")}</th>
-                <th>{t("sourcePath")}</th>
-                <th>{t("targetPath")}</th>
-                <th>{t("newName")}</th>
-                <th>{t("confidence")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {previews.map((preview) => (
-                <tr key={preview.id}>
-                  <td><input type="checkbox" checked={selectedIds.has(preview.id)} onChange={() => toggle(preview.id)} /></td>
-                  <td>{preview.operation_type}</td>
-                  <td className="path-cell">{preview.source_path}</td>
-                  <td className="path-cell">{preview.target_path}</td>
-                  <td>{preview.new_name}</td>
-                  <td>{percent(preview.confidence)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function OperationsView({ snapshot, t }: { snapshot: AppSnapshot; t: Translator }) {
-  if (!snapshot.operations.length) {
-    return <section className="panel"><div className="empty-state">{t("noOperationHistory")}</div></section>;
-  }
-
-  return (
-    <section className="panel rules-list">
-      <div className="section-heading">
-        <div>
-          <h2>{t("operationHistory")}</h2>
-          <p>{t("previewBeforeExecute")}</p>
-        </div>
-      </div>
-      {snapshot.operations.map((operation) => (
-        <div className="rule-row" key={operation.id}>
-          <div>
-            <strong>{operation.operation_type} / {t(operation.status)}</strong>
-            <span>{operation.source_path} / {operation.target_path}</span>
-            {operation.error_message && <span>{operation.error_message}</span>}
+    <div className="restore-layout page-enter">
+      <section className="glass-panel restore-batches">
+        <SectionTitle title={t("restoreRecords")} body={t("restoreDesc")} />
+        {!batches.length ? (
+          <div className="empty-state">{hasNativeApi ? t("noRestoreRecords") : t("desktopOnlySetting")}</div>
+        ) : (
+          <div className="operation-list">
+            {batches.map((batch) => (
+              <button
+                className={`operation-row selectable ${selectedBatch === batch.batch_id ? "selected-row" : ""}`}
+                key={batch.batch_id}
+                onClick={() => setSelectedBatch(batch.batch_id)}
+              >
+                <RotateCcw size={16} />
+                <div>
+                  <strong>{batch.batch_id}</strong>
+                  <span>
+                    {formatDate(batch.created_at)} / {batch.restorable} {t("restorable")} / {t("expires")}: {formatDate(batch.expires_at)}
+                  </span>
+                </div>
+              </button>
+            ))}
           </div>
-          <span className={`source ${operation.status}`}>{t(operation.status)}</span>
+        )}
+      </section>
+
+      <section className="glass-panel restore-preview">
+        <div className="section-title action-title">
+          <div>
+            <h2>{t("restorePreview")}</h2>
+            <p>{t("restorePreviewDesc")}</p>
+          </div>
+          <button
+            className="glass-button primary"
+            onClick={restoreSelectedBatch}
+            disabled={!preview?.items.some((item) => item.can_restore)}
+          >
+            <RotateCcw size={16} />
+            {t("restoreBatch")}
+          </button>
         </div>
-      ))}
-    </section>
+        {restoreStatus && <div className="system-toast inline">{restoreStatus}</div>}
+        {!preview?.items.length ? (
+          <div className="empty-state compact">{t("noRestorePreview")}</div>
+        ) : (
+          <div className="preview-list">
+            {preview.items.map((item) => (
+              <div className="preview-row restore-item" key={item.log_id}>
+                <span className={`status-dot ${item.can_restore ? "ok" : "blocked"}`} />
+                <div>
+                  <strong>{item.new_name} {"->"} {item.old_name}</strong>
+                  <span>{item.current_path}</span>
+                  <span>{item.restore_path}</span>
+                  {item.blocking_reason && <small>{item.blocking_reason}</small>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 
 function SettingsView({
   language,
   setLanguage,
+  theme,
+  setTheme,
+  snapshot,
+  setSnapshot,
+  hasNativeApi,
   t
 }: {
   language: Language;
   setLanguage: (language: Language) => void;
+  theme: ThemeMode;
+  setTheme: (theme: ThemeMode) => void;
+  snapshot: AppSnapshot;
+  setSnapshot: (snapshot: AppSnapshot) => void;
+  hasNativeApi: boolean;
+  t: Translator;
+}) {
+  const [sources, setSources] = useState<SearchSource[]>(snapshot.searchSources);
+  const [hotkey, setHotkey] = useState("CommandOrControl+K");
+  const [settingsStatus, setSettingsStatus] = useState("");
+
+  useEffect(() => {
+    setSources(snapshot.searchSources);
+  }, [snapshot.searchSources]);
+
+  useEffect(() => {
+    if (!hasNativeApi) return;
+    window.fileManager.getSearchHotkey().then(setHotkey).catch(() => undefined);
+    window.fileManager.getSearchSources().then(setSources).catch(() => undefined);
+  }, [hasNativeApi]);
+
+  async function toggleSource(id: string) {
+    const next = sources.map((source) => source.id === id ? { ...source, enabled: !source.enabled } : source);
+    setSources(next);
+    if (hasNativeApi) {
+      const saved = await window.fileManager.updateSearchSources(next);
+      setSources(saved);
+      setSnapshot(await window.fileManager.getSnapshot());
+    }
+  }
+
+  async function saveHotkey() {
+    if (!hasNativeApi) {
+      setSettingsStatus(t("desktopOnlySetting"));
+      return;
+    }
+    const result = await window.fileManager.setSearchHotkey(hotkey);
+    setSettingsStatus(result.ok ? t("hotkeySaved") : t("hotkeyConflict"));
+    setHotkey(result.hotkey);
+  }
+
+  async function rebuildIndex() {
+    if (!hasNativeApi) {
+      setSettingsStatus(t("desktopOnlySetting"));
+      return;
+    }
+    await window.fileManager.rebuildSearchIndex();
+    setSnapshot(await window.fileManager.getSnapshot());
+    setSettingsStatus(t("indexRebuilt"));
+  }
+
+  return (
+    <div className="settings-layout page-enter">
+      <section className="glass-panel settings-panel">
+        <SectionTitle title={t("settings")} body={t("settingsDesc")} />
+        <div className="setting-row">
+          <div>
+            <strong>{t("language")}</strong>
+            <span>{t("languageDesc")}</span>
+          </div>
+          <div className="segmented compact">
+            <button className={language === "zh" ? "active" : ""} onClick={() => setLanguage("zh")}>
+              中文
+            </button>
+            <button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>
+              English
+            </button>
+          </div>
+        </div>
+        <div className="setting-row">
+          <div>
+            <strong>{t("appearance")}</strong>
+            <span>{t("appearanceDesc")}</span>
+          </div>
+          <div className="segmented compact">
+            <button className={theme === "light" ? "active" : ""} onClick={() => setTheme("light")}>
+              {t("lightTheme")}
+            </button>
+            <button className={theme === "dark" ? "active" : ""} onClick={() => setTheme("dark")}>
+              {t("darkTheme")}
+            </button>
+          </div>
+        </div>
+        <div className="setting-row">
+          <div>
+            <strong>{t("folderNaming")}</strong>
+            <span>{t("folderNamingDesc")}</span>
+          </div>
+          <div className="segmented compact">
+            <button className="active">Career</button>
+            <button>{t("chineseFolderNames")}</button>
+          </div>
+        </div>
+        <div className="setting-row">
+          <div>
+            <strong>{t("searchHotkey")}</strong>
+            <span>{t("searchHotkeyDesc")}</span>
+          </div>
+          <div className="inline-setting-control">
+            <input value={hotkey} onChange={(event) => setHotkey(event.target.value)} />
+            <button className="glass-button" onClick={saveHotkey}>{t("save")}</button>
+          </div>
+        </div>
+        <div className="setting-row vertical">
+          <div>
+            <strong>{t("searchSources")}</strong>
+            <span>{t("searchSourcesDesc")}</span>
+          </div>
+          <div className="source-toggle-list">
+            {(sources.length ? sources : demoSnapshot.searchSources).map((source) => (
+              <label className="source-toggle" key={source.id}>
+                <input type="checkbox" checked={source.enabled} onChange={() => toggleSource(source.id)} />
+                <div>
+                  <strong>{source.label}</strong>
+                  <span>{source.path}</span>
+                </div>
+                {source.is_stale && <em>{t("staleIndex")}</em>}
+              </label>
+            ))}
+          </div>
+          <button className="glass-button" onClick={rebuildIndex}>
+            <RefreshCw size={16} />
+            {t("rebuildIndex")}
+          </button>
+        </div>
+        <div className="setting-row">
+          <div>
+            <strong>{t("backgroundResident")}</strong>
+            <span>{t("backgroundResidentDesc")}</span>
+          </div>
+          <div className="toggle-pill">{t("optional")}</div>
+        </div>
+        <details className="advanced-settings">
+          <summary>{t("advancedSettings")}</summary>
+          <div className="setting-row">
+            <div>
+              <strong>{t("excludedDirs")}</strong>
+              <span>node_modules, .git, AppData, Library, System32</span>
+            </div>
+          </div>
+          <div className="setting-row">
+            <div>
+              <strong>{t("logRetention")}</strong>
+              <span>{t("logRetentionDesc")}</span>
+            </div>
+            <strong>15 {t("days")}</strong>
+          </div>
+        </details>
+        {settingsStatus && <div className="system-toast inline">{settingsStatus}</div>}
+        <div className="setting-row">
+          <div>
+            <strong>{t("localOnly")}</strong>
+            <span>{t("privacyLine")}</span>
+          </div>
+          <ShieldCheck size={19} />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function CommandModal({
+  inputRef,
+  files,
+  setView,
+  setSelectedFileId,
+  onClose,
+  t
+}: {
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  files: FileRecord[];
+  setView: (view: View) => void;
+  setSelectedFileId: (id: string) => void;
+  onClose: () => void;
+  t: Translator;
+}) {
+  const [search, setSearch] = useState("");
+  const [nativeResults, setNativeResults] = useState<SearchResult[]>([]);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const hasNativeApi = typeof window.fileManager !== "undefined";
+  const fallbackResults: SearchResult[] = files
+    .filter((file) => `${file.name} ${file.path} ${file.purpose}`.toLowerCase().includes(search.toLowerCase()))
+    .slice(0, 8)
+    .map((file) => ({ file, score: 10, matched_text: file.name }));
+  const results = hasNativeApi ? nativeResults : fallbackResults;
+
+  useEffect(() => {
+    if (!hasNativeApi) return;
+    const timer = window.setTimeout(() => {
+      window.fileManager.searchQuery({ query: search, limit: 12 })
+        .then((next) => {
+          setNativeResults(next);
+          setActiveIndex(0);
+        })
+        .catch(() => setNativeResults([]));
+    }, 40);
+    return () => window.clearTimeout(timer);
+  }, [hasNativeApi, search]);
+
+  async function openFile(file: FileRecord) {
+    if (hasNativeApi) {
+      await window.fileManager.openSearchResult(file.id);
+    }
+    onClose();
+  }
+
+  async function revealFile(file: FileRecord) {
+    if (hasNativeApi) {
+      await window.fileManager.revealSearchResult(file.id);
+    }
+  }
+
+  function go(next: View) {
+    setView(next);
+    onClose();
+  }
+
+  function showDetails(file: FileRecord) {
+    setSelectedFileId(file.id);
+    go("library");
+  }
+
+  return (
+    <div className="command-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div
+        className="command-modal"
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setActiveIndex((index) => Math.min(index + 1, results.length - 1));
+          }
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setActiveIndex((index) => Math.max(index - 1, 0));
+          }
+          if (event.key === "Enter" && results[activeIndex]) {
+            event.preventDefault();
+            void openFile(results[activeIndex].file);
+          }
+          if (event.key === "Escape") onClose();
+        }}
+      >
+        <div className="command-input-row">
+          <Search size={20} />
+          <input
+            ref={inputRef}
+            value={search}
+            placeholder={t("commandPlaceholder")}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <button onClick={onClose} aria-label={t("close")}>
+            <X size={16} />
+          </button>
+        </div>
+        <div className="command-section">
+          <span>{t("quickCommands")}</span>
+          <button onClick={() => go("scanner")}>
+            <Radar size={17} />
+            {t("spaceScan")}
+          </button>
+          <button onClick={() => go("preview")}>
+            <ListChecks size={17} />
+            {t("openPreview")}
+          </button>
+          <button onClick={() => go("rules")}>
+            <SlidersHorizontal size={17} />
+            {t("openRuleBuilder")}
+          </button>
+        </div>
+        <div className="command-section">
+          <span>{t("bestMatches")}</span>
+          {results.map(({ file }, index) => (
+            <button
+              key={file.id}
+              className={index === activeIndex ? "active-result" : ""}
+              onClick={() => openFile(file)}
+            >
+              <File size={17} />
+              <div>
+                <strong>{file.name}</strong>
+                <small>{file.path}</small>
+              </div>
+              <em>{file.extension || file.file_type}</em>
+              <span className="result-actions">
+                <b onClick={(event) => { event.stopPropagation(); void revealFile(file); }}>{t("reveal")}</b>
+                <b onClick={(event) => { event.stopPropagation(); showDetails(file); }}>{t("details")}</b>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SectionTitle({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="section-title">
+      <div>
+        <h2>{title}</h2>
+        <p>{body}</p>
+      </div>
+    </div>
+  );
+}
+
+function FlowStep({ index, title, body }: { index: string; title: string; body: string }) {
+  return (
+    <div className="flow-step">
+      <span>{index}</span>
+      <div>
+        <strong>{title}</strong>
+        <em>{body}</em>
+      </div>
+    </div>
+  );
+}
+
+function FileCard({ file, index, t }: { file: FileRecord; index: number; t: Translator }) {
+  return (
+    <div className="stack-card" style={{ "--delay": `${index * 70}ms` } as CSSProperties}>
+      <div className="file-glyph">
+        <File size={18} />
+      </div>
+      <div>
+        <strong>{file.name}</strong>
+        <span>{file.purpose} / {file.lifecycle}</span>
+      </div>
+      <RiskBadge risk={file.risk_level} t={t} />
+    </div>
+  );
+}
+
+function FileTable({
+  files,
+  selectedId,
+  onSelect,
+  t
+}: {
+  files: FileRecord[];
+  selectedId?: string;
+  onSelect: (id: string) => void;
   t: Translator;
 }) {
   return (
-    <section className="panel settings-panel">
-      <div className="section-heading">
-        <div>
-          <h2>{t("settings")}</h2>
-          <p>{t("languageDesc")}</p>
-        </div>
-      </div>
-      <div className="setting-row">
-        <span>{t("language")}</span>
-        <div className="segmented compact">
-          <button className={language === "zh" ? "active" : ""} onClick={() => setLanguage("zh")}>中文</button>
-          <button className={language === "en" ? "active" : ""} onClick={() => setLanguage("en")}>English</button>
-        </div>
-      </div>
-      <div className="setting-row">
-        <span>{t("releaseReady")}</span>
-        <strong>{t("releaseReadyDesc")}</strong>
-      </div>
-      <div className="setting-row">
-        <span>{t("localOnly")}</span>
-        <strong>{t("privacyLine")}</strong>
-      </div>
-    </section>
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>{t("files")}</th>
+            <th>{t("purpose")}</th>
+            <th>{t("lifecycle")}</th>
+            <th>{t("risk")}</th>
+            <th>{t("action")}</th>
+            <th>{t("confidence")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {files.map((file) => (
+            <tr key={file.id} className={selectedId === file.id ? "selected-row" : ""} onClick={() => onSelect(file.id)}>
+              <td>
+                <strong>{file.name}</strong>
+                <span>{formatBytes(file.size)} / {file.file_type}</span>
+              </td>
+              <td>{file.purpose}</td>
+              <td><span className="token">{file.lifecycle}</span></td>
+              <td><RiskBadge risk={file.risk_level} t={t} /></td>
+              <td>{file.suggested_action}</td>
+              <td>{percent(file.confidence)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
 function Inspector({ file, t }: { file?: FileRecord; t: Translator }) {
   if (!file) return null;
   return (
-    <aside className="panel inspector">
-      <div className="section-heading">
+    <aside className="glass-panel inspector">
+      <div className="inspector-head">
         <div>
-          <h2>{t("recentSignals")}</h2>
-          <p>{t("reason")}</p>
+          <span>{t("recentSignals")}</span>
+          <h2>{file.name}</h2>
         </div>
         <RiskBadge risk={file.risk_level} t={t} />
       </div>
-      <h3>{file.name}</h3>
       <div className="inspector-grid">
         <span>{t("purpose")}</span><strong>{file.purpose}</strong>
         <span>{t("lifecycle")}</span><strong>{file.lifecycle}</strong>
@@ -876,6 +1492,7 @@ function createOperationPreviews(files: FileRecord[]): OperationPreview[] {
       const isRename = newName !== file.name;
       const operationType: OperationPreview["operation_type"] =
         isMove && isRename ? "move_rename" : isMove ? "move" : "rename";
+      const requiresConfirmation = file.requires_confirmation || file.confidence < 0.7;
       return {
         id: localId("op"),
         fileId: file.id,
@@ -887,11 +1504,28 @@ function createOperationPreviews(files: FileRecord[]): OperationPreview[] {
         status: "pending" as const,
         risk_level: file.risk_level,
         confidence: file.confidence,
-        requires_confirmation: file.requires_confirmation,
-        reason: file.classification_reason
+        requires_confirmation: requiresConfirmation,
+        reason: file.classification_reason,
+        selected_by_default: !requiresConfirmation,
+        is_executable: true,
+        editable_new_name: true
       };
     })
     .filter((preview) => normalizePathLike(preview.source_path) !== normalizePathLike(preview.target_path));
+}
+
+function applyPreviewNameOverride(preview: OperationPreview, name?: string): OperationPreview {
+  const trimmed = name?.trim();
+  if (!trimmed || trimmed === preview.new_name) return preview;
+  const directory = pathDirLike(preview.target_path);
+  return {
+    ...preview,
+    new_name: trimmed,
+    target_path: joinPathLike(directory, trimmed),
+    operation_type: normalizePathLike(directory) === normalizePathLike(pathDirLike(preview.source_path))
+      ? "rename"
+      : "move_rename"
+  };
 }
 
 function createDemoFiles(): FileRecord[] {
@@ -985,13 +1619,29 @@ function createDemoFiles(): FileRecord[] {
       is_duplicate: false,
       suggested_action: file.suggested_action,
       suggested_target_path:
-        file.suggested_action === "Move" ? `C:/Users/example/FileAssistant/${file.purpose}` : "",
+        file.suggested_action === "Move" ? `C:/Users/example/ZenCanvas/${file.purpose}` : "",
       suggested_name:
         file.suggested_action === "Rename" ? "screenshot_20260615_001.png" : file.name,
       confidence: file.confidence,
       classification_reason: file.classification_reason,
       matched_rules: [file.classification_reason.replace("; sensitive files require manual confirmation", "")],
-      requires_confirmation: file.risk_level === "Sensitive" || file.suggested_action === "Review"
+      requires_confirmation: file.risk_level === "Sensitive" || file.suggested_action === "Review",
+      dispatch_zone:
+        file.risk_level === "Sensitive"
+          ? "PrivacyVault"
+          : file.lifecycle === "Archive"
+            ? "QuietArchive"
+            : file.lifecycle === "Disposable"
+              ? "CleanupLane"
+              : "CoreAssets",
+      recommended_folder: `C:/Users/example/Downloads/ZenCanvas/${file.purpose}`,
+      dispatch_reason: `${file.purpose}/${file.lifecycle}/${file.risk_level}`,
+      next_action: file.risk_level === "Sensitive" ? "Review only" : "Send to preview",
+      indexed_at: now,
+      source_id: "demo-source",
+      is_stale: false,
+      open_count: 0,
+      last_opened_at: null
     };
   });
 }
@@ -1049,13 +1699,28 @@ function joinPathLike(directory: string, name: string): string {
   return `${directory.replace(/[\\/]+$/, "")}${separator}${name}`;
 }
 
+function pathDirLike(filePath: string): string {
+  const normalized = filePath.replace(/[\\/]+$/, "");
+  const index = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  return index > 0 ? normalized.slice(0, index) : normalized;
+}
+
 function normalizePathLike(value: string): string {
   return value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
 function preferredLanguage(): Language {
   if (typeof window === "undefined") return "zh";
-  return window.localStorage.getItem("fma-language") === "en" ? "en" : "zh";
+  return window.localStorage.getItem("zc-language") === "en" || window.localStorage.getItem("fma-language") === "en"
+    ? "en"
+    : "zh";
+}
+
+function preferredTheme(): ThemeMode {
+  if (typeof window === "undefined") return "light";
+  const stored = window.localStorage.getItem("zc-theme");
+  if (stored === "light" || stored === "dark") return stored;
+  return window.matchMedia?.("(prefers-color-scheme: dark)")?.matches ? "dark" : "light";
 }
 
 function readableError(error: unknown): string {

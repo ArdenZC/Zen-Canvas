@@ -1,53 +1,48 @@
-# File Manager Assistant
+# Zen Canvas
+
+**A local-first file lifecycle assistant with a Spotlight-grade search surface.**
 
 [中文](#中文) | [English](#english)
 
 ## 中文
 
-File Manager Assistant 是一个本地优先的个人文件生命周期管理助手。它不是简单按扩展名分类文件，而是扫描文件后生成用途、生命周期、场景、风险等级、建议动作和目标路径，并在用户确认后执行移动或重命名。
+Zen Canvas 是一个面向个人电脑的文件生命周期管理助手。它不是资源管理器替代品，也不是简单文件分类器，而是把扫描、索引、解释、整理预览、执行日志和恢复记录串成一个安全闭环。
 
-### 适合解决的问题
+产品体验采用玻璃质感、空间背景、雷达扫描和顶部常驻 Spotlight 搜索。第一屏直接进入可操作的工作区，普通用户只需要选择扫描范围、查看建议、确认执行；高级用户可以再进入规则和设置。
 
-- 下载目录、桌面和文档目录长期堆积，难以判断哪些文件还需要保留。
-- 简单文件分类器只能按类型移动，无法解释“为什么这样整理”。
-- 敏感文件、财务文件、证件扫描件需要更谨慎的处理方式。
-- 希望先看到整理方案，再决定是否真的移动或重命名文件。
+### 核心体验
 
-### MVP 功能
+- **顶部快速搜索**：常驻顶部中央，`Ctrl/Cmd + K` 打开 Spotlight 式弹窗。
+- **空间扫描**：扫描用户空间全盘或选择指定文件夹，不扫描系统根目录。
+- **智能整理**：用四区模型解释文件去向：核心资产、沉寂归档、隐私保险箱、临时清理。
+- **文件库**：查看搜索结果详情、筛选元数据和解释原因，不直接移动文件。
+- **预览执行**：所有移动、重命名、移动加重命名都必须先进入预览。
+- **自动规则**：内置规则稳定运行，用户规则可长期生效，高级构建器默认折叠。
+- **恢复记录**：只恢复 Zen Canvas 自己执行过的操作，默认按批次保留 15 天。
 
-- Electron + React + TypeScript 桌面应用。
-- SQLite 本地索引，数据默认保存在本机。
-- 支持选择任意文件夹扫描，也支持扫描 Desktop / Downloads / Documents。
-- 识别 `file_type`、`purpose`、`lifecycle`、`context`、`risk_level`、`suggested_action`、`suggested_target_path`、`confidence` 和 `classification_reason`。
-- 内置规则 + 用户自定义规则 + 本次扫描临时规则的数据结构。
-- 高级规则构建器：字段、条件、动作、权重和启用状态。
-- 整理方案预览：显示原路径、目标路径、原文件名、新文件名、风险和置信度。
-- 用户确认后执行移动、重命名、移动加重命名。
-- 操作写入 `operation_logs`。
-- 中英双语界面。
+### 搜索能力
 
-### 安全模型
+- 本地 SQLite + FTS5 索引，不依赖 Everything、Spotlight 或系统搜索服务。
+- 支持文件名、路径、空格分词和 `ext:pdf` 这类扩展名过滤。
+- 排序结合相关性、最近修改、最近打开和路径深度。
+- 结果支持打开文件、在系统文件管理器中定位、进入文件库详情。
+- 专用性能测试覆盖 10 万条模拟索引，查询目标 `<100ms`。
 
-- 扫描只建立索引和建议，不会自动改变文件。
+### 安全边界
+
+- 启动不自动扫描，扫描只建立索引和建议。
 - MVP 不执行删除；删除只作为建议。
-- 敏感文件不会生成可直接执行的操作。
-- 执行层会再次校验操作，防止前端被绕过：
-  - 拒绝敏感文件。
-  - 拒绝非 MVP 支持的操作类型。
-  - 拒绝相对路径、路径穿越和不安全文件名。
-  - 拒绝源路径与索引记录不一致的操作。
-  - 拒绝系统目录目标路径。
-  - 拒绝覆盖已存在目标文件。
-- Electron 主进程启用 `contextIsolation`、禁用 `nodeIntegration`、启用 sandbox，并拒绝非预期导航、新窗口和权限请求。
+- 敏感文件只显示建议和原因，不生成默认可执行勾选。
+- 冲突、低置信、规则接近项默认进入待确认队列。
+- 执行层会再次校验操作类型、绝对路径、安全文件名、源路径一致性、系统目录和覆盖冲突。
+- Electron 启用 `contextIsolation`、禁用 `nodeIntegration`、启用 sandbox，并拒绝异常导航、弹窗和权限请求。
 
-### 如何扫描文件夹
+### 技术栈
 
-1. 启动应用。
-2. 在工作台点击 `选择文件夹`。
-3. 选择一个或多个文件夹。
-4. 查看识别结果、命中规则和整理建议。
-5. 打开 `预览`，确认目标路径和新文件名。
-6. 只执行你选中的整理方案。
+- Electron + React + TypeScript
+- `better-sqlite3` + SQLite WAL + FTS5
+- Vite + Vitest
+- electron-builder
 
 ### 开发命令
 
@@ -56,114 +51,103 @@ npm install
 npm run dev
 npm run typecheck
 npm test
+npm run test:performance
 npm run build
 npm run security:audit
+```
+
+完整发布前验证：
+
+```bash
 npm run verify
 ```
 
-### 打包发行
+### 打包与发布
 
-本项目使用 `electron-builder`。
+本项目只发布 Windows 和 macOS 未签名公开版，后续预留签名配置。
 
 ```bash
 npm run dist:win
 npm run dist:mac
-npm run dist:linux
 ```
 
-支持的发行目标：
+发布目标：
 
 - Windows: NSIS + zip, `x64` / `ia32` / `arm64`
 - macOS: dmg + zip, `x64` / `arm64`
-- Linux: AppImage + deb + rpm, `x64` / `arm64`
 
-macOS 和 Linux 的可靠发行包应在对应系统或 GitHub Actions runner 中构建。仓库包含 `.github/workflows/release-build.yml`，可以通过手动触发或推送 `v*` tag 生成全平台产物。
-
-### 当前测试覆盖
-
-- 规则分类：简历、发票、护照扫描、安装包、用户规则覆盖、冲突确认、敏感文件不执行。
-- 扫描器：普通文件扫描、隐藏目录跳过、系统/依赖目录跳过、缺失目录记录、重复文件 hash。
-- 执行安全：安全重命名、敏感文件拒绝、伪造源路径拒绝、相对路径拒绝、不安全文件名拒绝、未知操作类型拒绝、目标文件存在拒绝、系统目录拒绝。
+GitHub Actions 工作流 `.github/workflows/release-build.yml` 会在 `v*` tag 推送时构建两个系统的软件包，并自动挂载到 GitHub Release。
 
 ## English
 
-File Manager Assistant is a local-first personal file lifecycle management assistant. It does not simply sort files by extension. It scans files, explains purpose, lifecycle, context, risk, suggested action, target path, and confidence, then applies move or rename actions only after user confirmation.
+Zen Canvas is a personal file lifecycle assistant for local desktops. It is not a file explorer replacement and not a simple classifier. It connects scanning, indexing, explanation, preview execution, operation logs, and restore records into one safe workflow.
 
-### Problems It Solves
+The product language uses glass surfaces, spatial depth, radar scanning, and a persistent Spotlight-style search bar. The first screen is a real workspace: choose a scan scope, review suggestions, confirm changes. Advanced users can move into rules and settings.
 
-- Downloads, Desktop, and Documents folders become hard to reason about over time.
-- Extension-only file sorters cannot explain why a file should move.
-- Sensitive, finance, and identity files need conservative handling.
-- Users should see an organizing plan before real file operations happen.
+### Core Experience
 
-### MVP Features
+- **Top Search**: centered global search, opened with `Ctrl/Cmd + K`.
+- **Space Scan**: scan the user space or selected folders, never system roots.
+- **Smart Organize**: explains files through four zones: Core Assets, Quiet Archive, Privacy Vault, Cleanup Lane.
+- **File Library**: inspect details, filters, and reasons without direct file changes.
+- **Preview Execute**: every move, rename, or move plus rename action must be previewed first.
+- **Auto Rules**: built-in rules stay stable, user rules apply globally, advanced builder is folded by default.
+- **Restore Records**: restores only operations executed by Zen Canvas, grouped by batch for 15 days by default.
 
-- Electron + React + TypeScript desktop app.
-- Local SQLite index stored on the device.
-- Choose any folder to scan, or scan Desktop / Downloads / Documents.
-- Classifies `file_type`, `purpose`, `lifecycle`, `context`, `risk_level`, `suggested_action`, `suggested_target_path`, `confidence`, and `classification_reason`.
-- Built-in rules, user rules, and session-rule-ready data model.
-- Advanced rule builder with fields, conditions, actions, weights, and enabled state.
-- Plan preview with source path, target path, original name, new name, risk, and confidence.
-- Confirmed move, rename, and move plus rename operations.
-- Operation history in `operation_logs`.
-- Bilingual UI: 中文 / English.
+### Search
 
-### Safety Model
+- Local SQLite + FTS5 index. No dependency on Everything, Spotlight, or OS search backends.
+- Filename, path, tokenized search, and `ext:pdf` style extension filters.
+- Ranking combines relevance, recent modification, recent opens, and path depth.
+- Results can open files, reveal files in the system file manager, or open details in File Library.
+- Dedicated 100k simulated-index performance test targets `<100ms` query latency.
 
-- Scanning only indexes files and creates suggestions.
-- Deletion is not executed in the MVP.
-- Sensitive files are excluded from directly executable operations.
-- The execution layer validates every operation again:
-  - Blocks sensitive files.
-  - Blocks unsupported operation types.
-  - Blocks relative paths, path traversal, and unsafe file names.
-  - Blocks operations whose source path no longer matches the indexed file.
-  - Blocks protected system targets.
-  - Blocks overwriting existing target files.
-- The Electron main process uses `contextIsolation`, disables `nodeIntegration`, enables sandboxing, and rejects unexpected navigation, new windows, and permission prompts.
+### Safety
 
-### How To Scan A Folder
+- The app does not scan automatically on launch. Scanning only creates an index and suggestions.
+- Deletion is suggestion-only in the MVP.
+- Sensitive files show advice and reasons, but are not selected for execution.
+- Conflicts, low-confidence items, and close rule scores enter manual confirmation by default.
+- The execution layer revalidates operation type, absolute paths, safe filenames, source-path consistency, protected system targets, and overwrite conflicts.
+- Electron uses `contextIsolation`, disables `nodeIntegration`, enables sandboxing, and blocks unexpected navigation, popups, and permission prompts.
 
-1. Start the app.
-2. On Home, click `Choose Folder`.
-3. Pick one or more folders.
-4. Review classification results, matched rules, and suggestions.
-5. Open `Preview` to confirm target paths and new names.
-6. Execute only the selected plan items.
+### Stack
 
-### Development Commands
+- Electron + React + TypeScript
+- `better-sqlite3` + SQLite WAL + FTS5
+- Vite + Vitest
+- electron-builder
+
+### Development
 
 ```bash
 npm install
 npm run dev
 npm run typecheck
 npm test
+npm run test:performance
 npm run build
 npm run security:audit
+```
+
+Full release verification:
+
+```bash
 npm run verify
 ```
 
-### Release Packaging
+### Packaging And Release
 
-This project uses `electron-builder`.
+Zen Canvas currently ships unsigned public builds for Windows and macOS. Signing configuration is reserved for later.
 
 ```bash
 npm run dist:win
 npm run dist:mac
-npm run dist:linux
 ```
 
-Release targets:
+Targets:
 
 - Windows: NSIS + zip, `x64` / `ia32` / `arm64`
 - macOS: dmg + zip, `x64` / `arm64`
-- Linux: AppImage + deb + rpm, `x64` / `arm64`
 
-macOS and Linux packages should be built on their matching operating systems or GitHub Actions runners. The repository includes `.github/workflows/release-build.yml`, which builds all platform artifacts when manually triggered or when a `v*` tag is pushed.
-
-### Current Test Coverage
-
-- Rule classification: resumes, invoices, passport scans, installers, user override rules, conflict review, sensitive-file execution exclusion.
-- Scanner: regular file scanning, hidden directory skipping, system/dependency directory skipping, missing root logging, duplicate hash detection.
-- Execution safety: safe rename, sensitive-file rejection, forged source rejection, relative path rejection, unsafe name rejection, unknown operation rejection, existing target rejection, protected system target rejection.
+The GitHub Actions workflow `.github/workflows/release-build.yml` builds both platforms on `v*` tags and attaches the installers to the GitHub Release.
