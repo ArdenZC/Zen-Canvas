@@ -1,32 +1,3 @@
-<circle cx="200" cy="130" r="140" fill="#1e3a8a" opacity="0.25" filter="url(#glow)" />
-<circle cx="650" cy="150" r="100" fill="#4c1d95" opacity="0.2" filter="url(#glow)" />
-
-<path d="M-100 130 C 200 50, 400 210, 900 130" fill="none" stroke="rgba(255, 255, 255, 0.05)" stroke-width="2" />
-<path d="M-100 150 C 150 210, 450 50, 900 150" fill="none" stroke="rgba(255, 255, 255, 0.03)" stroke-width="1.5" />
-
-<g transform="translate(110, 130)">
-  <circle cx="25" cy="-25" r="38" fill="url(#orbGradient)" filter="url(#glow)" opacity="0.9" />
-  <rect x="-45" y="-15" width="64" height="64" rx="18" fill="url(#glassGradient)" stroke="rgba(255, 255, 255, 0.25)" stroke-width="1.5" filter="url(#glass-blur)" />
-  <rect x="-44" y="-14" width="62" height="62" rx="17" fill="none" stroke="rgba(255, 255, 255, 0.1)" stroke-width="1" />
-</g>
-
-<!-- Localized Text for Chinese -->
-<text x="240" y="115" font-family="'Inter', -apple-system, sans-serif" font-size="44" font-weight="700" fill="url(#textGradient)" letter-spacing="-1">Zen Canvas</text>
-<text x="242" y="152" font-family="'Inter', -apple-system, sans-serif" font-size="16" font-weight="500" fill="#34C759" letter-spacing="4">个人数字资产管家</text>
-<text x="242" y="180" font-family="'Inter', -apple-system, sans-serif" font-size="13" font-weight="400" fill="#64748B" letter-spacing="0.5">基于 SQLite FTS5 与 Electron 的本地优先文件生命周期管理器</text>
-
-<g transform="translate(242, 205)" font-family="'Inter', -apple-system, sans-serif" font-size="10" font-weight="700" letter-spacing="1">
-  <rect x="0" y="0" width="75" height="20" rx="6" fill="rgba(59, 130, 246, 0.15)" stroke="rgba(59, 130, 246, 0.3)" stroke-width="1"/>
-  <text x="12" y="13" fill="#60A5FA">ELECTRON</text>
-
-  <rect x="85" y="0" width="55" height="20" rx="6" fill="rgba(52, 199, 89, 0.12)" stroke="rgba(52, 199, 89, 0.25)" stroke-width="1"/>
-  <text x="98" y="13" fill="#86EFAC">REACT</text>
-
-  <rect x="150" y="0" width="55" height="20" rx="6" fill="rgba(245, 158, 11, 0.12)" stroke="rgba(245, 158, 11, 0.25)" stroke-width="1"/>
-  <text x="165" y="13" fill="#FCD34D">SQLITE</text>
-</g>
-
-
 🌌 Zen Canvas
 
 本地优先 (Local-First) 的桌面个人文件生命周期管家。
@@ -118,7 +89,7 @@ npm run verify
 
 🚀 自动化构建与发行
 
-GitHub Actions 工作流（.github/workflows/release-build.yml）已完全打通。当向远程推送以 v* 开头的 Tag 时，将全自动触发云端双端构建：
+GitHub Actions 工作流（.github/workflows/release-build.yml）已完全打通。当向远程推送以 v* 开头的 Tag时，将全自动触发云端双端构建：
 
 # 全维质量校验
 npm run typecheck       # TypeScript 静态检查
