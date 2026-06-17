@@ -5610,3 +5610,42 @@ kbd {
 .command-input-row input {
   font-weight: 300;
 }
+
+html.search-window-root,
+html.search-window-root body,
+body.search-window-root,
+body.search-window-root #root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  overflow: hidden;
+  background: transparent !important;
+}
+
+html.search-window-root .zen-app.search-window {
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent !important;
+  transition: none;
+}
+
+html.search-window-root .zen-app.search-window .ambient-mesh {
+  display: none;
+}
+
+html.search-window-root .command-backdrop.standalone {
+  width: 100vw;
+  height: 100vh;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  background: transparent !important;
+  animation: none;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}

@@ -121,6 +121,15 @@ export function App() {
   const effectiveTheme: Exclude<ThemeMode, "system"> = theme === "system" ? (systemDark ? "dark" : "light") : theme;
 
   useEffect(() => {
+    document.documentElement.classList.toggle("search-window-root", isSearchMode);
+    document.body.classList.toggle("search-window-root", isSearchMode);
+    return () => {
+      document.documentElement.classList.remove("search-window-root");
+      document.body.classList.remove("search-window-root");
+    };
+  }, [isSearchMode]);
+
+  useEffect(() => {
     const mediaQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
     if (!mediaQuery) return;
     const handleChange = (event: MediaQueryListEvent) => setSystemDark(event.matches);
@@ -304,7 +313,6 @@ export function App() {
   if (isSearchMode) {
     return (
       <div className="zen-app search-window">
-        <AmbientMesh />
         {isCommandOpen && (
           <CommandModal
             inputRef={commandInputRef}
