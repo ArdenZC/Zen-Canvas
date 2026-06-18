@@ -64,6 +64,11 @@ describe("rule engine classification", () => {
     expect(result.context).toBe("ResumeRefresh");
   });
 
+  it("localizes suggested target folders when Chinese naming is enabled", () => {
+    const result = classifyFile(makeFile("resume_2026.pdf"), [], { folderNamingLanguage: "zh" });
+    expect(result.suggested_target_path).toContain(`ZenCanvas${path.sep}20_分类${path.sep}职业发展`);
+  });
+
   it("routes close scoring conflicts into confirmation", () => {
     const ruleA = makeRule("A", "Project", 80, 80);
     const ruleB = makeRule("B", "Work", 80, 78);
@@ -132,4 +137,3 @@ function makeRule(name: string, purpose: "Project" | "Work", priority: number, w
     updated_at: new Date().toISOString()
   };
 }
-

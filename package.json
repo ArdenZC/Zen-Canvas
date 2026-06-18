@@ -1,6 +1,6 @@
 {
   "name": "zen-canvas",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "A local-first personal digital asset steward.",
   "author": "Startlan",
@@ -60,6 +60,7 @@
       "dist/**/*",
       "dist-electron/**/*",
       "build/icon.png",
+      "build/icon-dark.png",
       "package.json"
     ],
     "asar": true,

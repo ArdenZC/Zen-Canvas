@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, session, shell } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, screen, session, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { watch } from "chokidar";
@@ -7,7 +7,15 @@ import { scanDefaultRoots, scanRoots } from "../src/core/fileScanner.js";
 import { executeOperations } from "../src/core/operationExecutor.js";
 import { createRestorePreview, restoreBatch } from "../src/core/restoreExecutor.js";
 import { applyAllRulesToFiles } from "../src/core/ruleEngine.js";
-import type { ExecuteOperationRequest, FileQuery, Rule, SearchQuery, SearchSource } from "../src/types/domain.js";
+import type {
+  CloseBehavior,
+  ExecuteOperationRequest,
+  FileQuery,
+  FolderNamingLanguage,
+  Rule,
+  SearchQuery,
+  SearchSource
+} from "../src/types/domain.js";
 
 let mainWindow: BrowserWindow | null = null;
 let searchWindow: BrowserWindow | null = null;
@@ -19,8 +27,12 @@ let isQuitting = false;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev: boolean = Boolean(process.env.VITE_DEV_SERVER_URL) || process.env.NODE_ENV === "development";
 const appIconPath = path.join(__dirname, "../../build/icon.png");
-const searchCompactSize = { width: 700, height: 110 };
-const searchExpandedSize = { width: 760, height: 520 };
+const appDarkIconPath = path.join(__dirname, "../../build/icon-dark.png");
+const searchWindowSize = { width: 760, height: 520 };
+
+function currentAppIconPath() {
+  return nativeTheme.shouldUseDarkColors ? appDarkIconPath : appIconPath;
+}
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
@@ -29,7 +41,7 @@ async function createWindow() {
     minWidth: 1080,
     minHeight: 720,
     title: "Zen Canvas",
-    icon: process.platform === "darwin" ? undefined : appIconPath,
+    icon: process.platform === "darwin" ? undefined : currentAppIconPath(),
     backgroundColor: "#0a0f1a",
     frame: process.platform === "darwin",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
@@ -60,16 +72,58 @@ async function createWindow() {
 
   mainWindow.on("close", (event) => {
     if (isQuitting || process.platform === "darwin") return;
-    if (db.getSetting("backgroundResident") === "true") {
-      event.preventDefault();
+    const closeBehavior = getCloseBehavior();
+    if (closeBehavior === "quit") return;
+    event.preventDefault();
+    if (closeBehavior === "minimize" || db.getSetting("backgroundResident") === "true") {
       mainWindow?.hide();
+      return;
     }
+    mainWindow?.webContents.send("app:close-requested");
   });
+}
+
+function hideMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.hide();
+  }
+}
+
+function getCloseBehavior(): CloseBehavior {
+  const value = db?.getSetting("closeBehavior");
+  return value === "minimize" || value === "quit" ? value : "ask";
+}
+
+function getFolderNamingLanguage(): FolderNamingLanguage {
+  return db?.getFolderNamingLanguage() ?? "en";
+}
+
+function applyClassification(files: Parameters<typeof applyAllRulesToFiles>[0], rules: Rule[]) {
+  return applyAllRulesToFiles(files, rules, { folderNamingLanguage: getFolderNamingLanguage() });
+}
+
+function positionSearchWindow() {
+  if (!searchWindow || searchWindow.isDestroyed()) return;
+  const cursorPoint = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(cursorPoint);
+  const { x, y, width, height } = display.workArea;
+  const targetX = Math.round(x + (width - searchWindowSize.width) / 2);
+  const targetY = Math.round(y + Math.max(32, height * 0.16));
+  searchWindow.setPosition(targetX, targetY, false);
+}
+
+function refreshWindowIcons() {
+  if (process.platform === "darwin") return;
+  const icon = currentAppIconPath();
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.setIcon(icon);
+  }
 }
 
 async function createSearchWindow() {
   if (searchWindow && !searchWindow.isDestroyed()) {
-    setSearchWindowExpanded(false);
+    positionSearchWindow();
     searchWindow.show();
     searchWindow.focus();
     searchWindow.webContents.send("command:open");
@@ -77,8 +131,8 @@ async function createSearchWindow() {
   }
 
   searchWindow = new BrowserWindow({
-    width: searchCompactSize.width,
-    height: searchCompactSize.height,
+    width: searchWindowSize.width,
+    height: searchWindowSize.height,
     minWidth: 520,
     minHeight: 96,
     title: "Zen Canvas Search",
@@ -89,7 +143,7 @@ async function createSearchWindow() {
     skipTaskbar: true,
     transparent: true,
     hasShadow: false,
-    icon: process.platform === "darwin" ? undefined : appIconPath,
+    icon: process.platform === "darwin" ? undefined : currentAppIconPath(),
     backgroundColor: "#00000000",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
@@ -106,7 +160,6 @@ async function createSearchWindow() {
     searchWindow = null;
   });
   searchWindow.on("blur", () => {
-    setSearchWindowExpanded(false);
     searchWindow?.hide();
   });
 
@@ -118,6 +171,7 @@ async function createSearchWindow() {
     });
   }
 
+  positionSearchWindow();
   searchWindow.show();
   searchWindow.focus();
 }
@@ -128,9 +182,10 @@ function registerIpc() {
   ipcMain.handle("scan:defaults", async () => {
     const result = await scanDefaultRoots();
     const rules = db.getRules();
-    const classified = applyAllRulesToFiles(result.files, rules);
+    const classified = applyClassification(result.files, rules);
     db.upsertScanRoots(result.roots);
     db.replaceFilesForRoots(result.roots, classified);
+    db.rebuildSearchIndex();
     await refreshSearchWatcher();
     return { ...result, files: classified };
   });
@@ -157,9 +212,10 @@ function registerIpc() {
 
     const result = await scanRoots(selected.filePaths);
     const rules = db.getRules();
-    const classified = applyAllRulesToFiles(result.files, rules);
+    const classified = applyClassification(result.files, rules);
     db.upsertScanRoots(result.roots);
     db.replaceFilesForRoots(result.roots, classified);
+    db.rebuildSearchIndex();
     await refreshSearchWatcher();
     return { ...result, files: classified, canceled: false, selectedPaths: selected.filePaths };
   });
@@ -208,14 +264,8 @@ function registerIpc() {
   });
 
   ipcMain.handle("search:hide", async () => {
-    setSearchWindowExpanded(false);
     searchWindow?.hide();
     mainWindow?.webContents.send("command:hide");
-    return true;
-  });
-
-  ipcMain.handle("search:setExpanded", async (_event, expanded: boolean) => {
-    setSearchWindowExpanded(Boolean(expanded));
     return true;
   });
 
@@ -236,6 +286,22 @@ function registerIpc() {
     return app.getLoginItemSettings().openAtLogin;
   });
 
+  ipcMain.handle("settings:getCloseBehavior", async () => getCloseBehavior());
+
+  ipcMain.handle("settings:setCloseBehavior", async (_event, behavior: CloseBehavior) => {
+    const normalized: CloseBehavior = behavior === "minimize" || behavior === "quit" ? behavior : "ask";
+    db.setSetting("closeBehavior", normalized);
+    return normalized;
+  });
+
+  ipcMain.handle("settings:getFolderNamingLanguage", async () => getFolderNamingLanguage());
+
+  ipcMain.handle("settings:setFolderNamingLanguage", async (_event, language: FolderNamingLanguage) => {
+    const normalized: FolderNamingLanguage = language === "zh" ? "zh" : "en";
+    db.setSetting("folderNamingLanguage", normalized);
+    return normalized;
+  });
+
   ipcMain.handle("rules:save", async (_event, rule: Rule) => {
     db.saveRule(rule);
     return db.getRules();
@@ -249,7 +315,7 @@ function registerIpc() {
   ipcMain.handle("rules:reapply", async () => {
     const files = db.getAllFiles();
     const rules = db.getRules();
-    const classified = applyAllRulesToFiles(files, rules);
+    const classified = applyClassification(files, rules);
     db.upsertFiles(classified);
     return db.getSnapshot();
   });
@@ -262,7 +328,7 @@ function registerIpc() {
     return result;
   });
 
-  ipcMain.handle("operations:restoreBatches", async () => db.getRestoreBatches(15));
+  ipcMain.handle("operations:restoreBatches", async () => db.getRestoreBatches(60));
 
   ipcMain.handle("operations:restorePreview", async (_event, batchId: string) => {
     const logs = db.getOperationLogsByBatch(batchId);
@@ -301,6 +367,16 @@ function registerIpc() {
     if (action === "close") window.close();
     return true;
   });
+
+  ipcMain.handle("app:performClose", async (_event, action: "minimize" | "quit") => {
+    if (action === "minimize") {
+      hideMainWindow();
+      return true;
+    }
+    isQuitting = true;
+    app.quit();
+    return true;
+  });
 }
 
 async function showSearch() {
@@ -312,15 +388,6 @@ async function showSearch() {
     return;
   }
   await createSearchWindow();
-}
-
-function setSearchWindowExpanded(expanded: boolean) {
-  if (!searchWindow || searchWindow.isDestroyed()) return;
-  const size = expanded ? searchExpandedSize : searchCompactSize;
-  const [currentWidth, currentHeight] = searchWindow.getSize();
-  if (currentWidth === size.width && currentHeight === size.height) return;
-  searchWindow.setSize(size.width, size.height);
-  searchWindow.center();
 }
 
 function registerSearchHotkey(accelerator: string): boolean {
@@ -355,7 +422,8 @@ async function refreshSearchWatcher() {
   searchWatcher = watch(paths, {
     ignoreInitial: true,
     depth: 8,
-    ignored: /(^|[\\/])(\.git|node_modules|AppData|Library|System32|\$Recycle\.Bin)([\\/]|$)/i
+    ignorePermissionErrors: true,
+    ignored: (targetPath) => shouldIgnoreWatchPath(String(targetPath))
   });
   const markStale = (changedPath: string) => {
     db.markSearchSourceStaleByPath(changedPath);
@@ -365,6 +433,12 @@ async function refreshSearchWatcher() {
   searchWatcher.on("change", markStale);
   searchWatcher.on("unlink", markStale);
   searchWatcher.on("unlinkDir", markStale);
+  searchWatcher.on("error", () => undefined);
+}
+
+function shouldIgnoreWatchPath(targetPath: string): boolean {
+  return /(^|[\\/])(\.git|node_modules|AppData|Application Data|Library|System32|Windows|WindowsApps|ProgramData|System Volume Information|\$Recycle\.Bin)([\\/]|$)/i
+    .test(targetPath);
 }
 
 app.whenReady().then(async () => {
@@ -376,6 +450,8 @@ app.whenReady().then(async () => {
     db = await Database.open(app.getPath("userData"));
     registerIpc();
     await createWindow();
+    refreshWindowIcons();
+    nativeTheme.on("updated", refreshWindowIcons);
     registerSearchHotkey(db.getSetting("searchHotkey") ?? "CommandOrControl+K");
     await refreshSearchWatcher();
 

@@ -117,7 +117,7 @@ const zh = {
   restored: "已恢复",
   restorable: "可恢复",
   expires: "过期",
-  restoreDesc: "只恢复 Zen Canvas 执行过的移动、重命名或组合操作，默认保留 15 天。",
+  restoreDesc: "只恢复 Zen Canvas 执行过的移动、重命名或组合操作，默认保留 60 天。",
   noRestoreRecords: "暂无可恢复批次",
   restorePreview: "恢复预览",
   restorePreviewDesc: "恢复前会检查当前路径和原路径冲突，可恢复项会先执行，失败项记录原因。",
@@ -165,8 +165,17 @@ const zh = {
   advancedSettings: "高级设置",
   excludedDirs: "排除目录",
   logRetention: "日志保留",
-  logRetentionDesc: "恢复能力默认只保留最近 15 天日志。",
+  logRetentionDesc: "恢复能力默认保留最近 60 天日志。",
   days: "天",
+  closeBehavior: "关闭按钮行为",
+  closeBehaviorDesc: "点击右上角关闭时，选择每次询问、最小化到后台或直接退出。",
+  askEveryTime: "每次询问",
+  closeChoiceTitle: "关闭 Zen Canvas？",
+  closeChoiceDesc: "你可以最小化到后台以保留全局搜索，也可以直接退出应用。",
+  doNotAskAgain: "以后不再提醒",
+  minimizeToTray: "最小化到后台",
+  quitApp: "直接退出",
+  cancel: "取消",
   desktopOnlySetting: "该设置只在桌面应用中可用",
   releaseReady: "发行检查",
   releaseReadyDesc: "测试、构建和安全审计通过后再打包。",
@@ -194,7 +203,11 @@ const zh = {
   normal: "正常",
   sensitiveLabel: "敏感",
   unknown: "未知",
-  system: "系统"
+  system: "系统",
+  diskUsageInScope: "已扫描 {size}，所在磁盘容量 {disk}",
+  previewMainFolders: "主文件夹",
+  executableItems: "可执行项",
+  blockedItems: "需确认项"
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
@@ -314,7 +327,7 @@ const en: Record<keyof typeof zh, string> = {
   restored: "Restored",
   restorable: "restorable",
   expires: "expires",
-  restoreDesc: "Only moves, renames, and combined operations executed by Zen Canvas can be restored. Logs are kept for 15 days by default.",
+  restoreDesc: "Only moves, renames, and combined operations executed by Zen Canvas can be restored. Logs are kept for 60 days by default.",
   noRestoreRecords: "No restore batches yet",
   restorePreview: "Restore Preview",
   restorePreviewDesc: "Zen Canvas checks the current path and original-path conflicts before restoring. Restorable items run first and failures are logged.",
@@ -362,8 +375,17 @@ const en: Record<keyof typeof zh, string> = {
   advancedSettings: "Advanced settings",
   excludedDirs: "Excluded directories",
   logRetention: "Log retention",
-  logRetentionDesc: "Restore capability keeps the latest 15 days of logs by default.",
+  logRetentionDesc: "Restore capability keeps the latest 60 days of logs by default.",
   days: "days",
+  closeBehavior: "Close button behavior",
+  closeBehaviorDesc: "Choose whether the top-right close button asks, minimizes to background, or quits.",
+  askEveryTime: "Ask every time",
+  closeChoiceTitle: "Close Zen Canvas?",
+  closeChoiceDesc: "Minimize to background to keep global search, or quit the app completely.",
+  doNotAskAgain: "Do not ask again",
+  minimizeToTray: "Minimize to background",
+  quitApp: "Quit app",
+  cancel: "Cancel",
   desktopOnlySetting: "This setting is only available in the desktop app.",
   releaseReady: "Release check",
   releaseReadyDesc: "Package only after tests, build, and security audit pass.",
@@ -391,7 +413,11 @@ const en: Record<keyof typeof zh, string> = {
   normal: "Normal",
   sensitiveLabel: "Sensitive",
   unknown: "Unknown",
-  system: "System"
+  system: "System",
+  diskUsageInScope: "Scanned {size} across {disk} of disk capacity",
+  previewMainFolders: "Main folders",
+  executableItems: "Executable",
+  blockedItems: "Needs review"
 };
 
 const dict = { zh, en } as const;

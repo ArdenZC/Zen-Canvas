@@ -52,4 +52,32 @@ describe("file scanner", () => {
     expect(duplicates).toHaveLength(2);
     expect(new Set(duplicates.map((file) => file.hash)).size).toBe(1);
   });
+
+  it("summarizes complete project folders instead of indexing internal files", async () => {
+    const projectDir = path.join(tempDir, "client-app");
+    await fs.mkdir(path.join(projectDir, "src"), { recursive: true });
+    await fs.writeFile(path.join(projectDir, "package.json"), "{}");
+    await fs.writeFile(path.join(projectDir, "src", "index.ts"), "console.log('skip internal')");
+
+    const result = await scanRoots([tempDir]);
+    const projectRecord = result.files.find((file) => file.path === projectDir);
+
+    expect(projectRecord?.context).toBe("Project Folder");
+    expect(result.files.some((file) => file.name === "index.ts")).toBe(false);
+    expect(result.roots[0].summarized_count).toBe(1);
+  });
+
+  it("skips low-value generated files", async () => {
+    await fs.writeFile(path.join(tempDir, "useful.pdf"), "visible");
+    await fs.writeFile(path.join(tempDir, "debug.log"), "noise");
+    await fs.writeFile(path.join(tempDir, "desktop.ini"), "metadata");
+
+    const result = await scanRoots([tempDir]);
+    const names = result.files.map((file) => file.name);
+
+    expect(names).toContain("useful.pdf");
+    expect(names).not.toContain("debug.log");
+    expect(names).not.toContain("desktop.ini");
+    expect(result.roots[0].skipped_count).toBeGreaterThanOrEqual(2);
+  });
 });

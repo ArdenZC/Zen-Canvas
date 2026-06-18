@@ -47,6 +47,8 @@ export type SuggestedAction =
 export type DispatchZone = "CoreAssets" | "QuietArchive" | "PrivacyVault" | "CleanupLane";
 export type SearchSourceType = "user_space" | "folder" | "cloud" | "external";
 export type RestoreStatus = "not_restored" | "restored" | "failed" | "unavailable";
+export type FolderNamingLanguage = "en" | "zh";
+export type CloseBehavior = "ask" | "minimize" | "quit";
 
 export interface FileRecord {
   id: string;
@@ -95,6 +97,12 @@ export interface ScanRoot {
   enabled: boolean;
   last_scanned_at: string | null;
   created_at: string;
+  disk_total_size?: number | null;
+  disk_free_size?: number | null;
+  scanned_size?: number;
+  indexed_file_count?: number;
+  skipped_count?: number;
+  summarized_count?: number;
 }
 
 export type RuleSource = "system" | "user" | "session";
@@ -175,6 +183,9 @@ export interface FileQuery {
 export interface DashboardStats {
   totalFiles: number;
   totalSize: number;
+  diskTotalSize: number;
+  diskFreeSize: number;
+  diskUsageRatio: number;
   duplicateFiles: number;
   largeFiles: number;
   sensitiveFiles: number;

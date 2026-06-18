@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Database } from "../src/core/database";
-import type { FileRecord, ScanRoot } from "../src/types/domain";
+import type { FileRecord, OperationLog, ScanRoot } from "../src/types/domain";
 
 let tempDir = "";
 let database: Database | null = null;
@@ -57,6 +57,43 @@ describe("SQLite FTS search database", () => {
     expect(db.getSearchIndexState().stale_sources).toBe(1);
     expect(db.rebuildSearchIndex().stale_sources).toBe(0);
   });
+
+  it("keeps scan root disk metrics in snapshots", () => {
+    const root = path.join(tempDir, "Downloads");
+    const db = expectDatabase();
+    db.upsertScanRoots([{
+      ...makeRoot(root),
+      disk_total_size: 1000,
+      disk_free_size: 750,
+      scanned_size: 100,
+      indexed_file_count: 1,
+      skipped_count: 2,
+      summarized_count: 1
+    }]);
+    db.upsertFiles([makeFile(path.join(root, "resume_2026.pdf"), "Career")]);
+
+    const snapshot = db.getSnapshot();
+    expect(snapshot.scanRoots[0].disk_total_size).toBe(1000);
+    expect(snapshot.scanRoots[0].skipped_count).toBe(2);
+    expect(snapshot.stats.diskUsageRatio).toBeGreaterThan(0);
+  });
+
+  it("prunes operation logs after the retention window", () => {
+    const db = expectDatabase();
+    const oldDate = new Date(Date.now() - 61 * 86_400_000).toISOString();
+    const recentDate = new Date(Date.now() - 10 * 86_400_000).toISOString();
+
+    db.addOperationLogs([
+      makeLog("old-restorable", oldDate, "not_restored"),
+      makeLog("old-restored", oldDate, "restored"),
+      makeLog("recent", recentDate, "not_restored")
+    ]);
+
+    db.pruneOperationLogs(60);
+
+    const remaining = db.getOperationLogs().map((log) => log.id);
+    expect(remaining).toEqual(["recent"]);
+  });
 });
 
 function expectDatabase(): Database {
@@ -105,5 +142,31 @@ function makeFile(filePath: string, purpose: FileRecord["purpose"]): FileRecord 
     classification_reason: "test",
     matched_rules: ["test"],
     requires_confirmation: false
+  };
+}
+
+function makeLog(id: string, createdAt: string, restoreStatus: OperationLog["restore_status"]): OperationLog {
+  const source = path.join(tempDir, `${id}-source.pdf`);
+  const target = path.join(tempDir, `${id}-target.pdf`);
+  return {
+    id,
+    batch_id: "batch-retention",
+    operation_type: "move",
+    source_path: source,
+    target_path: target,
+    old_name: path.basename(source),
+    new_name: path.basename(target),
+    status: "success",
+    error_message: null,
+    created_at: createdAt,
+    can_undo: true,
+    path_before: source,
+    path_after: target,
+    name_before: path.basename(source),
+    name_after: path.basename(target),
+    can_restore: true,
+    restored_at: restoreStatus === "restored" ? createdAt : null,
+    restore_status: restoreStatus,
+    restore_error: null
   };
 }

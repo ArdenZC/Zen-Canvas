@@ -1,8 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   AppSnapshot,
+  CloseBehavior,
   ExecuteOperationRequest,
   FileQuery,
+  FolderNamingLanguage,
   FolderScanResult,
   RestoreBatch,
   RestoreBatchResult,
@@ -51,9 +53,18 @@ const api = {
   getLaunchAtLogin: (): Promise<boolean> => ipcRenderer.invoke("settings:getLaunchAtLogin"),
   setLaunchAtLogin: (enabled: boolean): Promise<boolean> =>
     ipcRenderer.invoke("settings:setLaunchAtLogin", enabled),
+  getCloseBehavior: (): Promise<CloseBehavior> => ipcRenderer.invoke("settings:getCloseBehavior"),
+  setCloseBehavior: (behavior: CloseBehavior): Promise<CloseBehavior> =>
+    ipcRenderer.invoke("settings:setCloseBehavior", behavior),
+  getFolderNamingLanguage: (): Promise<FolderNamingLanguage> =>
+    ipcRenderer.invoke("settings:getFolderNamingLanguage"),
+  setFolderNamingLanguage: (language: FolderNamingLanguage): Promise<FolderNamingLanguage> =>
+    ipcRenderer.invoke("settings:setFolderNamingLanguage", language),
   revealPath: (path: string) => ipcRenderer.invoke("shell:revealPath", path),
   windowControl: (action: "minimize" | "maximize" | "close") =>
     ipcRenderer.invoke("app:windowControl", action),
+  performClose: (action: "minimize" | "quit"): Promise<boolean> =>
+    ipcRenderer.invoke("app:performClose", action),
   onCommandOpen: (callback: () => void) => {
     const listener = () => callback();
     ipcRenderer.on("command:open", listener);
@@ -66,6 +77,13 @@ const api = {
     ipcRenderer.on("command:hide", listener);
     return () => {
       ipcRenderer.removeListener("command:hide", listener);
+    };
+  },
+  onCloseRequested: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on("app:close-requested", listener);
+    return () => {
+      ipcRenderer.removeListener("app:close-requested", listener);
     };
   },
   onSearchStale: (callback: (state: SearchIndexState) => void) => {

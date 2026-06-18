@@ -9,6 +9,9 @@ import { nowIso, stableId } from "./id.js";
 
 const ignoredDirectoryNames = new Set([
   "node_modules",
+  "vendor",
+  "vendors",
+  "packages",
   ".git",
   ".hg",
   ".svn",
@@ -16,22 +19,46 @@ const ignoredDirectoryNames = new Set([
   ".nuxt",
   ".turbo",
   ".cache",
+  ".parcel-cache",
+  ".pytest_cache",
+  ".mypy_cache",
+  ".ruff_cache",
+  ".tox",
+  ".yarn",
+  ".pnpm-store",
   ".gradle",
   ".idea",
   ".vscode",
+  ".vs",
   ".venv",
+  ".virtualenv",
   "__pycache__",
+  "__macosx",
   "appdata",
+  "application data",
+  "application support",
   "build",
+  "bin",
   "coverage",
+  "debug",
   "dist",
   "env",
+  "logs",
+  "obj",
   "library",
   "out",
+  "program files",
+  "program files (x86)",
+  "programdata",
+  "release",
   "system32",
   "target",
+  "temp",
+  "tmp",
   "venv",
+  "windowsapps",
   "$recycle.bin",
+  "system volume information",
   "windows"
 ]);
 
@@ -65,11 +92,81 @@ const projectMarkerFiles = new Set([
   "docker-compose.yml"
 ]);
 
-const projectMarkerExtensions = [".sln", ".csproj", ".fsproj", ".vbproj", ".xcodeproj", ".xcworkspace"];
+const projectMarkerExtensions = [
+  ".aep",
+  ".blend",
+  ".csproj",
+  ".fsproj",
+  ".logicx",
+  ".prproj",
+  ".sln",
+  ".uproject",
+  ".vbproj",
+  ".xcodeproj",
+  ".xcworkspace"
+];
+
+const projectMarkerDirectoryGroups = [
+  ["assets", "projectsettings"],
+  ["content", "config"],
+  ["source", "config"],
+  ["footage", "renders"],
+  ["media", "exports"],
+  ["raw", "exports"]
+];
+
+const packageDirectoryExtensions = [
+  ".app",
+  ".band",
+  ".fcpxbundle",
+  ".imovielibrary",
+  ".logicx",
+  ".photoslibrary",
+  ".xcodeproj",
+  ".xcworkspace"
+];
+
+const ignoredFileNames = new Set([
+  ".ds_store",
+  "desktop.ini",
+  "thumbs.db",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "bun.lockb"
+]);
+
+const ignoredFileExtensions = new Set([
+  ".bak",
+  ".cache",
+  ".class",
+  ".dll",
+  ".dmp",
+  ".dylib",
+  ".ilk",
+  ".ini",
+  ".lib",
+  ".lock",
+  ".log",
+  ".map",
+  ".o",
+  ".obj",
+  ".pdb",
+  ".pyc",
+  ".so",
+  ".swp",
+  ".sys",
+  ".tmp"
+]);
 
 const maxFilesPerScan = 5000;
 const maxDepth = 6;
-const maxHashBytes = 512 * 1024 * 1024;
+const maxHashBytes = 64 * 1024 * 1024;
+
+interface ScanCounters {
+  skipped: number;
+  summarized: number;
+}
 
 export async function scanDefaultRoots(): Promise<ScanResult> {
   const home = os.homedir();
@@ -93,7 +190,13 @@ export async function scanRoots(rootPaths: string[]): Promise<ScanResult> {
       platform: process.platform,
       enabled: true,
       last_scanned_at: scannedAt,
-      created_at: scannedAt
+      created_at: scannedAt,
+      disk_total_size: null,
+      disk_free_size: null,
+      scanned_size: 0,
+      indexed_file_count: 0,
+      skipped_count: 0,
+      summarized_count: 0
     };
     roots.push(root);
 
@@ -103,9 +206,20 @@ export async function scanRoots(rootPaths: string[]): Promise<ScanResult> {
         skipped.push({ path: rootPath, reason: "Not a directory" });
         continue;
       }
-      await scanDirectory(rootPath, files, skipped, scannedAt, 0);
+      const diskInfo = await getDiskInfo(rootPath);
+      root.disk_total_size = diskInfo.total;
+      root.disk_free_size = diskInfo.free;
+      const beforeCount = files.length;
+      const counters: ScanCounters = { skipped: 0, summarized: 0 };
+      await scanDirectory(rootPath, files, skipped, scannedAt, 0, counters);
+      const rootFiles = files.slice(beforeCount);
+      root.scanned_size = rootFiles.reduce((sum, file) => sum + file.size, 0);
+      root.indexed_file_count = rootFiles.length;
+      root.skipped_count = counters.skipped;
+      root.summarized_count = counters.summarized;
     } catch (error) {
       skipped.push({ path: rootPath, reason: readableError(error) });
+      root.skipped_count = (root.skipped_count ?? 0) + 1;
     }
   }
 
@@ -118,24 +232,35 @@ async function scanDirectory(
   files: FileRecord[],
   skipped: ScanResult["skipped"],
   scannedAt: string,
-  depth: number
+  depth: number,
+  counters: ScanCounters
 ) {
-  if (files.length >= maxFilesPerScan || depth > maxDepth || shouldSkipDirectory(directory)) return;
+  if (files.length >= maxFilesPerScan) return;
+  if (depth > maxDepth) {
+    recordSkipped(skipped, counters, directory, "Depth limit reached");
+    return;
+  }
+  const directorySkipReason = getDirectorySkipReason(directory);
+  if (directorySkipReason) {
+    recordSkipped(skipped, counters, directory, directorySkipReason);
+    return;
+  }
 
   let entries: Dirent<string>[];
   try {
     entries = await fs.readdir(directory, { withFileTypes: true, encoding: "utf8" }) as Dirent<string>[];
   } catch (error) {
-    skipped.push({ path: directory, reason: readableError(error) });
+    recordSkipped(skipped, counters, directory, readableError(error));
     return;
   }
 
-  if (isProjectRoot(entries)) {
+  if (isProjectRoot(entries) || isPackageDirectory(directory)) {
     try {
       await addProjectFolderRecord(directory, files, scannedAt);
-      skipped.push({ path: directory, reason: "Project folder summarized; internal files skipped" });
+      counters.summarized += 1;
+      recordSkipped(skipped, counters, directory, "Complete project/package summarized; internal files skipped");
     } catch (error) {
-      skipped.push({ path: directory, reason: readableError(error) });
+      recordSkipped(skipped, counters, directory, readableError(error));
     }
     return;
   }
@@ -144,12 +269,19 @@ async function scanDirectory(
     if (files.length >= maxFilesPerScan) return;
     const fullPath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (!entry.name.startsWith(".")) {
-        await scanDirectory(fullPath, files, skipped, scannedAt, depth + 1);
+      if (entry.name.startsWith(".")) {
+        recordSkipped(skipped, counters, fullPath, "Hidden directory skipped");
+      } else {
+        await scanDirectory(fullPath, files, skipped, scannedAt, depth + 1, counters);
       }
       continue;
     }
     if (!entry.isFile()) continue;
+    const fileSkipReason = getFileSkipReason(entry.name);
+    if (fileSkipReason) {
+      recordSkipped(skipped, counters, fullPath, fileSkipReason);
+      continue;
+    }
 
     try {
       const stat = await fs.stat(fullPath);
@@ -186,7 +318,7 @@ async function scanDirectory(
         is_stale: false
       });
     } catch (error) {
-      skipped.push({ path: fullPath, reason: readableError(error) });
+      recordSkipped(skipped, counters, fullPath, readableError(error));
     }
   }
 }
@@ -234,12 +366,21 @@ async function addProjectFolderRecord(directory: string, files: FileRecord[], sc
 }
 
 function isProjectRoot(entries: Dirent<string>[]) {
+  const names = new Set(entries.map((entry) => entry.name.toLowerCase()));
+  if (projectMarkerDirectoryGroups.some((group) => group.every((name) => names.has(name)))) {
+    return true;
+  }
   return entries.some((entry) => {
     const name = entry.name.toLowerCase();
     if (entry.isFile() && projectMarkerFiles.has(name)) return true;
     if (entry.isFile() && projectMarkerExtensions.some((extension) => name.endsWith(extension))) return true;
     return entry.isDirectory() && [".git", ".hg", ".svn"].includes(name);
   });
+}
+
+function isPackageDirectory(directory: string): boolean {
+  const lower = directory.toLowerCase();
+  return packageDirectoryExtensions.some((extension) => lower.endsWith(extension));
 }
 
 async function fillDuplicateHashes(files: FileRecord[]) {
@@ -271,9 +412,43 @@ function hashFile(filePath: string): Promise<string> {
   });
 }
 
-function shouldSkipDirectory(directory: string): boolean {
+function getDirectorySkipReason(directory: string): string | null {
   const parts = directory.toLowerCase().split(/[\\/]+/);
-  return parts.some((part) => ignoredDirectoryNames.has(part));
+  const matched = parts.find((part) => ignoredDirectoryNames.has(part));
+  return matched ? `Managed/system directory skipped: ${matched}` : null;
+}
+
+function getFileSkipReason(name: string): string | null {
+  const lowerName = name.toLowerCase();
+  if (ignoredFileNames.has(lowerName)) return "Metadata/lock file skipped";
+  const extension = path.extname(lowerName);
+  if (ignoredFileExtensions.has(extension)) return `Low-value generated file skipped: ${extension}`;
+  return null;
+}
+
+function recordSkipped(
+  skipped: ScanResult["skipped"],
+  counters: ScanCounters,
+  filePath: string,
+  reason: string
+) {
+  counters.skipped += 1;
+  if (skipped.length < 500) {
+    skipped.push({ path: filePath, reason });
+  }
+}
+
+async function getDiskInfo(targetPath: string): Promise<{ total: number | null; free: number | null }> {
+  try {
+    const stats = await fs.statfs(targetPath);
+    const blockSize = Number(stats.bsize);
+    return {
+      total: Number(stats.blocks) * blockSize,
+      free: Number(stats.bavail) * blockSize
+    };
+  } catch {
+    return { total: null, free: null };
+  }
 }
 
 function findSourceRoot(directory: string): string {

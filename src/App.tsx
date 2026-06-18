@@ -29,9 +29,12 @@ import {
 } from "lucide-react";
 import type {
   AppSnapshot,
+  CloseBehavior,
   FileQuery,
   FileRecord,
+  FolderNamingLanguage,
   FolderScanResult,
+  OperationLog,
   OperationPreview,
   RestoreBatch,
   RestorePreview,
@@ -51,6 +54,9 @@ const demoSnapshot: AppSnapshot = {
   stats: {
     totalFiles: demoFiles.length,
     totalSize: demoFiles.reduce((sum, file) => sum + file.size, 0),
+    diskTotalSize: 512 * 1024 * 1024 * 1024,
+    diskFreeSize: 384 * 1024 * 1024 * 1024,
+    diskUsageRatio: demoFiles.reduce((sum, file) => sum + file.size, 0) / (512 * 1024 * 1024 * 1024),
     duplicateFiles: demoFiles.filter((file) => file.is_duplicate).length,
     largeFiles: 1,
     sensitiveFiles: demoFiles.filter((file) => file.risk_level === "Sensitive").length,
@@ -110,8 +116,11 @@ export function App() {
   const [status, setStatus] = useState("");
   const [selectedFolders, setSelectedFolders] = useState<string[]>([]);
   const [isCommandOpen, setIsCommandOpen] = useState(false);
+  const [isCloseChoiceOpen, setIsCloseChoiceOpen] = useState(false);
+  const [closeBehavior, setCloseBehaviorState] = useState<CloseBehavior>("ask");
   const [previewNameOverrides, setPreviewNameOverrides] = useState<Record<string, string>>({});
   const commandInputRef = useRef<HTMLInputElement | null>(null);
+  const closeBehaviorRef = useRef<CloseBehavior>("ask");
   const fileManager = window.fileManager;
   const platform = fileManager?.platform ?? detectBrowserPlatform();
   const isWindows = platform === "win32";
@@ -159,10 +168,8 @@ export function App() {
   useEffect(() => {
     if (!fileManager) return;
     fileManager.getSnapshot().then((next) => {
-      if (next.files.length) {
-        setSnapshot(next);
-        setSelectedFileId(next.files[0]?.id ?? "");
-      }
+      setSnapshot(next);
+      if (next.files.length) setSelectedFileId(next.files[0]?.id ?? "");
     });
   }, [fileManager]);
 
@@ -191,6 +198,27 @@ export function App() {
 
   useEffect(() => {
     const unsubscribe = fileManager?.onCommandHide?.(() => setIsCommandOpen(false));
+    return () => unsubscribe?.();
+  }, [fileManager]);
+
+  useEffect(() => {
+    closeBehaviorRef.current = closeBehavior;
+  }, [closeBehavior]);
+
+  useEffect(() => {
+    if (!fileManager) return;
+    fileManager.getCloseBehavior?.().then(setCloseBehaviorState).catch(() => undefined);
+  }, [fileManager]);
+
+  useEffect(() => {
+    const unsubscribe = fileManager?.onCloseRequested?.(() => {
+      const behavior = closeBehaviorRef.current;
+      if (behavior === "ask") {
+        setIsCloseChoiceOpen(true);
+        return;
+      }
+      void fileManager.performClose?.(behavior === "quit" ? "quit" : "minimize");
+    });
     return () => unsubscribe?.();
   }, [fileManager]);
 
@@ -242,6 +270,13 @@ export function App() {
 
   function setTheme(next: ThemeMode) {
     setThemeState(next);
+  }
+
+  async function setCloseBehavior(next: CloseBehavior) {
+    setCloseBehaviorState(next);
+    if (fileManager?.setCloseBehavior) {
+      setCloseBehaviorState(await fileManager.setCloseBehavior(next));
+    }
   }
 
   async function refreshSnapshot() {
@@ -319,7 +354,32 @@ export function App() {
   }
 
   function handleWindowAction(action: "minimize" | "maximize" | "close") {
+    if (action === "close") {
+      requestClose();
+      return;
+    }
     void fileManager?.windowControl?.(action);
+  }
+
+  function requestClose() {
+    const behavior = closeBehaviorRef.current;
+    if (!fileManager?.performClose) {
+      void fileManager?.windowControl?.("close");
+      return;
+    }
+    if (behavior === "ask") {
+      setIsCloseChoiceOpen(true);
+      return;
+    }
+    void fileManager.performClose(behavior === "quit" ? "quit" : "minimize");
+  }
+
+  async function resolveCloseChoice(action: "minimize" | "quit", remember: boolean) {
+    if (remember) {
+      await setCloseBehavior(action);
+    }
+    setIsCloseChoiceOpen(false);
+    await fileManager?.performClose?.(action);
   }
 
   const activeLabel = nav.find((item) => item.id === view)?.label ?? t("spaceScan");
@@ -502,7 +562,6 @@ export function App() {
             )}
             {view === "preview" && (
               <TimelineView
-                snapshot={snapshot}
                 previews={displayPreviews}
                 selectedIds={selectedOperationIds}
                 setSelectedIds={setSelectedOperationIds}
@@ -525,6 +584,8 @@ export function App() {
                 snapshot={snapshot}
                 setSnapshot={setSnapshot}
                 hasNativeApi={hasNativeApi}
+                closeBehavior={closeBehavior}
+                setCloseBehavior={setCloseBehavior}
                 t={t}
               />
             )}
@@ -541,6 +602,13 @@ export function App() {
           onClose={() => setIsCommandOpen(false)}
           platform={platform}
           t={t}
+        />
+      )}
+      {isCloseChoiceOpen && (
+        <CloseChoiceDialog
+          t={t}
+          onCancel={() => setIsCloseChoiceOpen(false)}
+          onChoose={resolveCloseChoice}
         />
       )}
     </div>
@@ -592,6 +660,53 @@ function TitlebarTools({
   );
 }
 
+function CloseChoiceDialog({
+  t,
+  onCancel,
+  onChoose
+}: {
+  t: Translator;
+  onCancel: () => void;
+  onChoose: (action: "minimize" | "quit", remember: boolean) => Promise<void>;
+}) {
+  const [remember, setRemember] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState<"minimize" | "quit" | null>(null);
+
+  async function choose(action: "minimize" | "quit") {
+    setIsSubmitting(action);
+    await onChoose(action, remember);
+  }
+
+  return (
+    <div className="choice-backdrop" role="dialog" aria-modal="true">
+      <section className="choice-dialog glass-panel">
+        <div className="choice-icon">
+          <ZenMark />
+        </div>
+        <div>
+          <h2>{t("closeChoiceTitle")}</h2>
+          <p>{t("closeChoiceDesc")}</p>
+        </div>
+        <label className="remember-choice">
+          <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
+          <span>{t("doNotAskAgain")}</span>
+        </label>
+        <div className="choice-actions">
+          <button className="glass-button" onClick={onCancel} disabled={isSubmitting !== null}>
+            {t("cancel")}
+          </button>
+          <button className="glass-button" onClick={() => void choose("quit")} disabled={isSubmitting !== null}>
+            {t("quitApp")}
+          </button>
+          <button className="glass-button primary" onClick={() => void choose("minimize")} disabled={isSubmitting !== null}>
+            {t("minimizeToTray")}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function ScannerView({
   snapshot,
   selectedFolders,
@@ -609,6 +724,7 @@ function ScannerView({
 }) {
   const clutterItems = snapshot.stats.needsConfirmation + snapshot.stats.duplicateFiles + snapshot.stats.largeFiles;
   const clutterRatio = snapshot.stats.totalFiles ? Math.min(1, clutterItems / snapshot.stats.totalFiles) : 0;
+  const diskUsageRatio = snapshot.stats.diskUsageRatio ?? 0;
   const scopeLabel = selectedFolders.length
     ? selectedFolders.length === 1
       ? selectedFolders[0]
@@ -623,7 +739,10 @@ function ScannerView({
   return (
     <div className="scanner-stage scanner-demo-stage page-enter">
       <section className="scanner-demo-radar-wrap">
-        <div className={`radar-chart ${isScanning ? "is-running scanner-glow" : ""}`}>
+        <div
+          className={`radar-chart ${isScanning ? "is-running scanner-glow" : ""}`}
+          style={{ "--scan-percent": `${Math.round(diskUsageRatio * 100)}%` } as CSSProperties}
+        >
           <div className="radar-inner">
               {isScanning ? (
                 <div className="scanner-pulse-state">
@@ -638,7 +757,7 @@ function ScannerView({
                   </strong>
                   <div className="scanner-ready-pill">
                     <i />
-                    <span>Ready</span>
+                    <span>{percent(diskUsageRatio)}</span>
                   </div>
                 </>
               )}
@@ -667,6 +786,9 @@ function ScannerView({
       </section>
 
       <p className="scanner-scope-text">{scopeLabel}</p>
+      <p className="scanner-scope-text scanner-detail-text">
+        {t("diskUsageInScope").replace("{size}", formatBytes(snapshot.stats.totalSize)).replace("{disk}", formatBytes(snapshot.stats.diskTotalSize))}
+      </p>
     </div>
   );
 }
@@ -682,7 +804,12 @@ function HubView({
 }) {
   const [sortedIds, setSortedIds] = useState<Set<string>>(new Set());
   const [isSorting, setIsSorting] = useState(false);
-  const visibleFiles = files.slice(0, 80);
+  const actionableFiles = files.filter((file) =>
+    file.suggested_action !== "Keep" ||
+    file.requires_confirmation ||
+    file.context === "Project Folder"
+  );
+  const visibleFiles = (actionableFiles.length ? actionableFiles : files).slice(0, 80);
   const sortedFiles = visibleFiles.filter((file) => sortedIds.has(file.id));
   const pendingFiles = visibleFiles.filter((file) => !sortedIds.has(file.id));
   const buckets = [
@@ -691,6 +818,10 @@ function HubView({
     { key: "CleanupLane", label: t("cleanupLane"), description: t("cleanupLaneDesc"), tone: "slate" },
     { key: "PrivacyVault", label: t("privacyVault"), description: t("privacyVaultDesc"), tone: "red" }
   ];
+
+  useEffect(() => {
+    setSortedIds(new Set());
+  }, [files]);
 
   function fileBucket(file: FileRecord) {
     if (file.risk_level === "Sensitive") return "PrivacyVault";
@@ -858,7 +989,6 @@ function VaultView({
 }
 
 function TimelineView({
-  snapshot,
   previews,
   selectedIds,
   setSelectedIds,
@@ -866,7 +996,6 @@ function TimelineView({
   executeSelected,
   t
 }: {
-  snapshot: AppSnapshot;
   previews: OperationPreview[];
   selectedIds: Set<string>;
   setSelectedIds: (ids: Set<string>) => void;
@@ -883,6 +1012,8 @@ function TimelineView({
     setSelectedIds(next);
   }
   const groups = groupOperationPreviews(previews, t);
+  const executableCount = previews.filter((preview) => preview.is_executable !== false).length;
+  const blockedCount = previews.length - executableCount;
 
   return (
     <div className="timeline-layout page-enter">
@@ -896,6 +1027,11 @@ function TimelineView({
             <Play size={16} />
             <span>{t("executeSelected")} / {selectedIds.size}</span>
           </button>
+        </div>
+        <div className="preview-summary-strip">
+          <span>{t("previewMainFolders")}: <strong>{groups.length}</strong></span>
+          <span>{t("executableItems")}: <strong>{executableCount}</strong></span>
+          <span>{t("blockedItems")}: <strong>{blockedCount}</strong></span>
         </div>
         {!previews.length ? (
           <div className="empty-state">{t("noOperations")}</div>
@@ -951,6 +1087,8 @@ function TimelineView({
                               <div>
                                 <strong>{preview.old_name}</strong>
                                 <span>{preview.operation_type} / {percent(preview.confidence)}</span>
+                                <code className="preview-path-line" title={preview.source_path}>{preview.source_path}</code>
+                                <code className="preview-path-line target" title={preview.target_path}>{preview.target_path}</code>
                                 <input
                                   className="inline-name-input"
                                   value={preview.new_name}
@@ -968,26 +1106,6 @@ function TimelineView({
                 </section>
               );
             })}
-          </div>
-        )}
-      </section>
-
-      <section className="glass-panel operation-log-panel">
-        <SectionTitle title={t("operationHistory")} body={t("timeMachineDesc")} />
-        {!snapshot.operations.length ? (
-          <div className="empty-state compact">{t("noOperationHistory")}</div>
-        ) : (
-          <div className="operation-list">
-            {snapshot.operations.map((operation) => (
-              <div className="operation-row" key={operation.id}>
-                <RotateCcw size={16} />
-                <div>
-                  <strong>{operation.operation_type} / {t(operation.status)}</strong>
-                  <span className="path-before">{operation.source_path}</span>
-                  <span className="path-after">{operation.target_path}</span>
-                </div>
-              </div>
-            ))}
           </div>
         )}
       </section>
@@ -1131,6 +1249,7 @@ function RulesView({
 
 function RestoreView({ hasNativeApi, t }: { hasNativeApi: boolean; t: Translator }) {
   const [batches, setBatches] = useState<RestoreBatch[]>([]);
+  const [operationLogs, setOperationLogs] = useState<OperationLog[]>([]);
   const [selectedBatch, setSelectedBatch] = useState("");
   const [preview, setPreview] = useState<RestorePreview | null>(null);
   const [restoreStatus, setRestoreStatus] = useState("");
@@ -1142,6 +1261,7 @@ function RestoreView({ hasNativeApi, t }: { hasNativeApi: boolean; t: Translator
       setBatches(next);
       setSelectedBatch(next[0]?.batch_id ?? "");
     }).catch(() => undefined);
+    fileManager.getSnapshot().then((snapshot) => setOperationLogs(snapshot.operations)).catch(() => undefined);
   }, [fileManager]);
 
   useEffect(() => {
@@ -1158,6 +1278,7 @@ function RestoreView({ hasNativeApi, t }: { hasNativeApi: boolean; t: Translator
     setRestoreStatus(`${t("restored")}: ${result.restored}, ${t("failed")}: ${result.failed}, ${t("skipped")}: ${result.skipped}`);
     const next = await fileManager.getRestoreBatches();
     setBatches(next);
+    setOperationLogs((await fileManager.getSnapshot()).operations);
     setPreview(await fileManager.getRestorePreview(selectedBatch));
   }
 
@@ -1183,6 +1304,24 @@ function RestoreView({ hasNativeApi, t }: { hasNativeApi: boolean; t: Translator
                   </span>
                 </div>
               </button>
+            ))}
+          </div>
+        )}
+        <div className="restore-log-divider" />
+        <SectionTitle title={t("operationHistory")} body={t("timeMachineDesc")} />
+        {!operationLogs.length ? (
+          <div className="empty-state compact">{t("noOperationHistory")}</div>
+        ) : (
+          <div className="operation-list restore-operation-log">
+            {operationLogs.slice(0, 80).map((operation) => (
+              <div className="operation-row" key={operation.id}>
+                <RotateCcw size={16} />
+                <div>
+                  <strong>{operation.operation_type} / {t(operation.status)}</strong>
+                  <span className="path-before" title={operation.source_path}>{operation.source_path}</span>
+                  <span className="path-after" title={operation.target_path}>{operation.target_path}</span>
+                </div>
+              </div>
             ))}
           </div>
         )}
@@ -1235,6 +1374,8 @@ function SettingsView({
   snapshot,
   setSnapshot,
   hasNativeApi,
+  closeBehavior,
+  setCloseBehavior,
   t
 }: {
   language: Language;
@@ -1245,12 +1386,15 @@ function SettingsView({
   snapshot: AppSnapshot;
   setSnapshot: (snapshot: AppSnapshot) => void;
   hasNativeApi: boolean;
+  closeBehavior: CloseBehavior;
+  setCloseBehavior: (behavior: CloseBehavior) => Promise<void>;
   t: Translator;
 }) {
   const [sources, setSources] = useState<SearchSource[]>(snapshot.searchSources);
   const [hotkey, setHotkey] = useState(defaultPlatformAccelerator(platform));
   const [backgroundResident, setBackgroundResident] = useState(false);
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
+  const [folderNamingLanguage, setFolderNamingLanguageState] = useState<FolderNamingLanguage>("en");
   const [settingsStatus, setSettingsStatus] = useState("");
   const fileManager = window.fileManager;
   const platformHotkeyLabel = platform === "darwin" ? "⌘ K" : "Ctrl K";
@@ -1265,6 +1409,7 @@ function SettingsView({
     fileManager.getSearchSources().then(setSources).catch(() => undefined);
     fileManager.getBackgroundResident?.().then(setBackgroundResident).catch(() => undefined);
     fileManager.getLaunchAtLogin?.().then(setLaunchAtLogin).catch(() => undefined);
+    fileManager.getFolderNamingLanguage?.().then(setFolderNamingLanguageState).catch(() => undefined);
   }, [fileManager, platform]);
 
   async function toggleSource(id: string) {
@@ -1317,6 +1462,24 @@ function SettingsView({
     setSettingsStatus(t("settingSaved"));
   }
 
+  async function updateFolderNamingLanguage(next: FolderNamingLanguage) {
+    setFolderNamingLanguageState(next);
+    if (!fileManager?.setFolderNamingLanguage) {
+      setSettingsStatus(t("desktopOnlySetting"));
+      return;
+    }
+    const saved = await fileManager.setFolderNamingLanguage(next);
+    setFolderNamingLanguageState(saved);
+    await fileManager.reapplyRules();
+    setSnapshot(await fileManager.getSnapshot());
+    setSettingsStatus(t("settingSaved"));
+  }
+
+  async function updateCloseBehavior(next: CloseBehavior) {
+    await setCloseBehavior(next);
+    setSettingsStatus(t("settingSaved"));
+  }
+
   return (
     <div className="settings-layout page-enter">
       <section className="glass-panel settings-panel">
@@ -1358,8 +1521,29 @@ function SettingsView({
             <span>{t("folderNamingDesc")}</span>
           </div>
           <div className="segmented compact">
-            <button className="active">Career</button>
-            <button>{t("chineseFolderNames")}</button>
+            <button className={folderNamingLanguage === "en" ? "active" : ""} onClick={() => void updateFolderNamingLanguage("en")}>
+              Career
+            </button>
+            <button className={folderNamingLanguage === "zh" ? "active" : ""} onClick={() => void updateFolderNamingLanguage("zh")}>
+              {t("chineseFolderNames")}
+            </button>
+          </div>
+        </div>
+        <div className="setting-row">
+          <div>
+            <strong>{t("closeBehavior")}</strong>
+            <span>{t("closeBehaviorDesc")}</span>
+          </div>
+          <div className="segmented compact tri">
+            <button className={closeBehavior === "ask" ? "active" : ""} onClick={() => void updateCloseBehavior("ask")}>
+              {t("askEveryTime")}
+            </button>
+            <button className={closeBehavior === "minimize" ? "active" : ""} onClick={() => void updateCloseBehavior("minimize")}>
+              {t("minimize")}
+            </button>
+            <button className={closeBehavior === "quit" ? "active" : ""} onClick={() => void updateCloseBehavior("quit")}>
+              {t("quitApp")}
+            </button>
           </div>
         </div>
         <div className="setting-row">
@@ -1427,7 +1611,7 @@ function SettingsView({
               <strong>{t("logRetention")}</strong>
               <span>{t("logRetentionDesc")}</span>
             </div>
-            <strong>15 {t("days")}</strong>
+            <strong>60 {t("days")}</strong>
           </div>
         </details>
         {settingsStatus && <div className="system-toast inline">{settingsStatus}</div>}
@@ -1464,17 +1648,32 @@ function CommandModal({
 }) {
   const [search, setSearch] = useState("");
   const [nativeResults, setNativeResults] = useState<SearchResult[]>([]);
+  const [nativeQueryState, setNativeQueryState] = useState<{
+    query: string;
+    status: "idle" | "pending" | "done" | "failed";
+  }>({ query: "", status: "idle" });
   const [activeIndex, setActiveIndex] = useState(0);
   const fileManager = window.fileManager;
   const hasNativeApi = typeof fileManager !== "undefined";
   void setView;
   void setSelectedFileId;
   const trimmedSearch = search.trim();
-  const fallbackResults: SearchResult[] = files
-    .filter((file) => `${file.name} ${file.path} ${file.purpose}`.toLowerCase().includes(search.toLowerCase()))
-    .slice(0, 8)
-    .map((file) => ({ file, score: 10, matched_text: file.name }));
-  const results = trimmedSearch ? (hasNativeApi ? nativeResults : fallbackResults) : [];
+  const nativeFinishedForQuery =
+    nativeQueryState.query === trimmedSearch &&
+    (nativeQueryState.status === "done" || nativeQueryState.status === "failed");
+  const currentNativeResults =
+    nativeQueryState.query === trimmedSearch && nativeQueryState.status === "done" ? nativeResults : [];
+  const shouldUseSnapshotFallback =
+    trimmedSearch.length > 0 &&
+    (!hasNativeApi || (nativeFinishedForQuery && (nativeQueryState.status === "failed" || nativeResults.length === 0)));
+  const fallbackResults = useMemo(
+    () => (shouldUseSnapshotFallback ? findSearchSnapshotMatches(files, trimmedSearch, 12) : []),
+    [files, shouldUseSnapshotFallback, trimmedSearch]
+  );
+  const results = useMemo(
+    () => (trimmedSearch ? mergeSearchResults(hasNativeApi ? currentNativeResults : [], fallbackResults, 12) : []),
+    [currentNativeResults, fallbackResults, hasNativeApi, trimmedSearch]
+  );
   const showResults = trimmedSearch.length > 0 && results.length > 0;
   const locateKey = platform === "darwin" ? "⌥↵" : "Alt↵";
 
@@ -1482,31 +1681,31 @@ function CommandModal({
     if (!fileManager) return;
     if (!trimmedSearch) {
       setNativeResults([]);
+      setNativeQueryState({ query: "", status: "idle" });
       setActiveIndex(0);
       return;
     }
+    setNativeQueryState({ query: trimmedSearch, status: "pending" });
+    let cancelled = false;
     const timer = window.setTimeout(() => {
       fileManager.searchQuery({ query: trimmedSearch, limit: 12 })
         .then((next) => {
+          if (cancelled) return;
           setNativeResults(next);
+          setNativeQueryState({ query: trimmedSearch, status: "done" });
           setActiveIndex(0);
         })
-        .catch(() => setNativeResults([]));
+        .catch(() => {
+          if (cancelled) return;
+          setNativeResults([]);
+          setNativeQueryState({ query: trimmedSearch, status: "failed" });
+        });
     }, 40);
-    return () => window.clearTimeout(timer);
-  }, [fileManager, trimmedSearch]);
-
-  useEffect(() => {
-    if (!standalone || !fileManager?.setSearchExpanded) return;
-    void fileManager.setSearchExpanded(showResults);
-  }, [fileManager, showResults, standalone]);
-
-  useEffect(() => {
-    if (!standalone || !fileManager?.setSearchExpanded) return;
     return () => {
-      void fileManager.setSearchExpanded(false);
+      cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [fileManager, standalone]);
+  }, [fileManager, trimmedSearch]);
 
   async function openFile(file: FileRecord) {
     if (fileManager) {
@@ -1622,6 +1821,40 @@ function CommandModal({
       </div>
     </div>
   );
+}
+
+function findSearchSnapshotMatches(files: FileRecord[], query: string, limit: number) {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return [];
+  const results: SearchResult[] = [];
+  for (const file of files) {
+    const haystack = [
+      file.name,
+      file.path,
+      file.directory,
+      file.extension,
+      file.file_type,
+      file.purpose,
+      file.lifecycle,
+      file.context
+    ].join(" ").toLowerCase();
+    if (!terms.every((term) => haystack.includes(term))) continue;
+    results.push({ file, score: 10, matched_text: file.name });
+    if (results.length >= limit) break;
+  }
+  return results;
+}
+
+function mergeSearchResults(primary: SearchResult[], fallback: SearchResult[], limit: number) {
+  const seen = new Set<string>();
+  const merged: SearchResult[] = [];
+  for (const result of [...primary, ...fallback]) {
+    if (seen.has(result.file.id)) continue;
+    seen.add(result.file.id);
+    merged.push(result);
+    if (merged.length >= limit) break;
+  }
+  return merged;
 }
 
 function HighlightText({ text, highlight }: { text: string; highlight: string }) {

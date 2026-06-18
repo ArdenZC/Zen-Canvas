@@ -6,6 +6,7 @@ import type {
   DashboardStats,
   FileQuery,
   FileRecord,
+  FolderNamingLanguage,
   OperationLog,
   RestoreBatch,
   RestoreStatus,
@@ -36,7 +37,7 @@ export class Database {
     const database = new Database(db, dbPath);
     database.migrate();
     database.ensureSystemRules();
-    database.pruneOperationLogs(15);
+    database.pruneOperationLogs(60);
     return database;
   }
 
@@ -46,12 +47,13 @@ export class Database {
 
   getSnapshot(): AppSnapshot {
     const files = this.getAllFiles();
+    const scanRoots = this.getScanRoots();
     return {
-      stats: buildStats(files),
+      stats: buildStats(files, scanRoots),
       files,
       rules: this.getRules(),
       operations: this.getOperationLogs(),
-      scanRoots: this.getScanRoots(),
+      scanRoots,
       searchSources: this.getSearchSources(),
       searchIndex: this.getSearchIndexState()
     };
@@ -371,13 +373,25 @@ export class Database {
   upsertScanRoots(roots: ScanRoot[]) {
     if (!roots.length) return;
     const stmt = this.db.prepare(`
-      INSERT INTO scan_roots (id, path, platform, enabled, last_scanned_at, created_at)
-      VALUES (@id, @path, @platform, @enabled, @last_scanned_at, @created_at)
+      INSERT INTO scan_roots (
+        id, path, platform, enabled, last_scanned_at, created_at,
+        disk_total_size, disk_free_size, scanned_size, indexed_file_count, skipped_count, summarized_count
+      )
+      VALUES (
+        @id, @path, @platform, @enabled, @last_scanned_at, @created_at,
+        @disk_total_size, @disk_free_size, @scanned_size, @indexed_file_count, @skipped_count, @summarized_count
+      )
       ON CONFLICT(id) DO UPDATE SET
         path = excluded.path,
         platform = excluded.platform,
         enabled = excluded.enabled,
-        last_scanned_at = excluded.last_scanned_at
+        last_scanned_at = excluded.last_scanned_at,
+        disk_total_size = excluded.disk_total_size,
+        disk_free_size = excluded.disk_free_size,
+        scanned_size = excluded.scanned_size,
+        indexed_file_count = excluded.indexed_file_count,
+        skipped_count = excluded.skipped_count,
+        summarized_count = excluded.summarized_count
     `);
     const insert = this.db.transaction((items: ScanRoot[]) => {
       for (const root of items) {
@@ -387,7 +401,13 @@ export class Database {
           platform: root.platform,
           enabled: root.enabled ? 1 : 0,
           last_scanned_at: root.last_scanned_at,
-          created_at: root.created_at
+          created_at: root.created_at,
+          disk_total_size: root.disk_total_size ?? null,
+          disk_free_size: root.disk_free_size ?? null,
+          scanned_size: root.scanned_size ?? 0,
+          indexed_file_count: root.indexed_file_count ?? 0,
+          skipped_count: root.skipped_count ?? 0,
+          summarized_count: root.summarized_count ?? 0
         });
         this.upsertSearchSourceForRoot(root.path, root.path, "folder", true);
       }
@@ -402,7 +422,13 @@ export class Database {
       platform: String(row.platform),
       enabled: Boolean(row.enabled),
       last_scanned_at: row.last_scanned_at ? String(row.last_scanned_at) : null,
-      created_at: String(row.created_at)
+      created_at: String(row.created_at),
+      disk_total_size: row.disk_total_size == null ? null : Number(row.disk_total_size),
+      disk_free_size: row.disk_free_size == null ? null : Number(row.disk_free_size),
+      scanned_size: Number(row.scanned_size ?? 0),
+      indexed_file_count: Number(row.indexed_file_count ?? 0),
+      skipped_count: Number(row.skipped_count ?? 0),
+      summarized_count: Number(row.summarized_count ?? 0)
     }));
   }
 
@@ -535,6 +561,10 @@ export class Database {
     `).run({ key, value, updated_at: nowIso() });
   }
 
+  getFolderNamingLanguage(): FolderNamingLanguage {
+    return this.getSetting("folderNamingLanguage") === "zh" ? "zh" : "en";
+  }
+
   addOperationLogs(logs: OperationLog[]) {
     if (!logs.length) return;
     const stmt = this.db.prepare(`
@@ -564,7 +594,7 @@ export class Database {
       .map(deserializeOperationLog);
   }
 
-  getRestoreBatches(retentionDays = 15): RestoreBatch[] {
+  getRestoreBatches(retentionDays = 60): RestoreBatch[] {
     const minCreatedAt = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
     const rows = this.db.prepare(`
       SELECT
@@ -608,9 +638,9 @@ export class Database {
     `).run({ logId, status, error, now: nowIso() });
   }
 
-  pruneOperationLogs(retentionDays = 15) {
+  pruneOperationLogs(retentionDays = 60) {
     const threshold = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
-    this.db.prepare("DELETE FROM operation_logs WHERE created_at < @threshold AND restore_status != 'not_restored'")
+    this.db.prepare("DELETE FROM operation_logs WHERE created_at < @threshold")
       .run({ threshold });
   }
 
@@ -655,7 +685,13 @@ export class Database {
         platform TEXT NOT NULL,
         enabled INTEGER NOT NULL,
         last_scanned_at TEXT,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        disk_total_size INTEGER,
+        disk_free_size INTEGER,
+        scanned_size INTEGER NOT NULL DEFAULT 0,
+        indexed_file_count INTEGER NOT NULL DEFAULT 0,
+        skipped_count INTEGER NOT NULL DEFAULT 0,
+        summarized_count INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS rules (
@@ -745,6 +781,14 @@ export class Database {
       is_stale: "INTEGER NOT NULL DEFAULT 0",
       indexed_at: "TEXT",
       updated_at: "TEXT NOT NULL DEFAULT ''"
+    });
+    this.addMissingColumns("scan_roots", {
+      disk_total_size: "INTEGER",
+      disk_free_size: "INTEGER",
+      scanned_size: "INTEGER NOT NULL DEFAULT 0",
+      indexed_file_count: "INTEGER NOT NULL DEFAULT 0",
+      skipped_count: "INTEGER NOT NULL DEFAULT 0",
+      summarized_count: "INTEGER NOT NULL DEFAULT 0"
     });
 
     this.db.exec(`
@@ -926,10 +970,16 @@ function deserializeSearchSource(row: Row): SearchSource {
   };
 }
 
-function buildStats(files: FileRecord[]): DashboardStats {
+function buildStats(files: FileRecord[], scanRoots: ScanRoot[]): DashboardStats {
+  const diskTotalSize = sumUniqueRootDiskMetric(scanRoots, "disk_total_size");
+  const diskFreeSize = sumUniqueRootDiskMetric(scanRoots, "disk_free_size");
+  const totalSize = files.reduce((sum, file) => sum + file.size, 0);
   const stats: DashboardStats = {
     totalFiles: files.length,
-    totalSize: files.reduce((sum, file) => sum + file.size, 0),
+    totalSize,
+    diskTotalSize,
+    diskFreeSize,
+    diskUsageRatio: diskTotalSize > 0 ? Math.min(1, totalSize / diskTotalSize) : 0,
     duplicateFiles: files.filter((file) => file.is_duplicate).length,
     largeFiles: files.filter((file) => file.size > 1024 * 1024 * 1024).length,
     sensitiveFiles: files.filter((file) => file.risk_level === "Sensitive").length,
@@ -943,6 +993,25 @@ function buildStats(files: FileRecord[]): DashboardStats {
     stats.byLifecycle[file.lifecycle] = (stats.byLifecycle[file.lifecycle] ?? 0) + 1;
   }
   return stats;
+}
+
+function sumUniqueRootDiskMetric(scanRoots: ScanRoot[], metric: "disk_total_size" | "disk_free_size"): number {
+  const seenVolumes = new Set<string>();
+  let total = 0;
+  for (const root of scanRoots) {
+    const value = Number(root[metric] ?? 0);
+    if (!value) continue;
+    const volume = volumeKeyForPath(root.path);
+    if (seenVolumes.has(volume)) continue;
+    seenVolumes.add(volume);
+    total += value;
+  }
+  return total;
+}
+
+function volumeKeyForPath(targetPath: string): string {
+  const parsed = path.parse(path.resolve(targetPath));
+  return parsed.root.toLowerCase() || targetPath.toLowerCase();
 }
 
 function parseSearch(input: string): { tokens: string[]; extension: string | null } {

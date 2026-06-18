@@ -3,6 +3,7 @@ import path from "node:path";
 import type {
   FileRecord,
   DispatchZone,
+  FolderNamingLanguage,
   Lifecycle,
   Purpose,
   RiskLevel,
@@ -13,6 +14,10 @@ import type {
   SuggestedAction
 } from "../types/domain.js";
 import { nowIso } from "./id.js";
+
+interface ClassificationOptions {
+  folderNamingLanguage?: FolderNamingLanguage;
+}
 
 const careerWords = ["resume", "cv", "cover letter", "portfolio", "interview"];
 const financeWords = ["invoice", "receipt", "bill", "tax", "payment", "bank", "paypal"];
@@ -108,12 +113,20 @@ export const builtInRules: Rule[] = [
   })
 ];
 
-export function applyAllRulesToFiles(files: FileRecord[], userRules: Rule[] = []): FileRecord[] {
+export function applyAllRulesToFiles(
+  files: FileRecord[],
+  userRules: Rule[] = [],
+  options: ClassificationOptions = {}
+): FileRecord[] {
   const enabledUserRules = userRules.filter((rule) => rule.enabled);
-  return markDuplicates(files).map((file) => classifyFile(file, enabledUserRules));
+  return markDuplicates(files).map((file) => classifyFile(file, enabledUserRules, options));
 }
 
-export function classifyFile(file: FileRecord, userRules: Rule[] = []): FileRecord {
+export function classifyFile(
+  file: FileRecord,
+  userRules: Rule[] = [],
+  options: ClassificationOptions = {}
+): FileRecord {
   const builtin = classifyBuiltIn(file);
   const candidates = [...builtInRules, ...userRules]
     .filter((rule) => rule.enabled)
@@ -129,7 +142,7 @@ export function classifyFile(file: FileRecord, userRules: Rule[] = []): FileReco
   const confidence = top ? Math.min(0.98, Math.max(0.35, top.score / 100)) : builtin.confidence;
   const riskLevel: RiskLevel = action.risk_level ?? builtin.risk_level ?? "Unknown";
   const suggestedAction = safeAction(action.suggested_action ?? file.suggested_action, riskLevel);
-  const targetPath = buildTargetPath(file, action.target_template);
+  const targetPath = buildTargetPath(file, action.target_template, options.folderNamingLanguage ?? "en");
   const suggestedName = buildSuggestedName(file, action.rename_template);
   const dispatch = buildDispatchModel({
     ...file,
@@ -347,11 +360,41 @@ function safeAction(action: SuggestedAction, riskLevel: RiskLevel): SuggestedAct
   return action;
 }
 
-function buildTargetPath(file: FileRecord, template?: string): string {
+function buildTargetPath(file: FileRecord, template?: string, namingLanguage: FolderNamingLanguage = "en"): string {
   if (!template) return "";
   const year = new Date(file.modified_at).getFullYear().toString();
-  const resolved = template.replace("{year}", year).replace("{type}", file.file_type);
+  const resolved = localizeTargetTemplate(
+    template.replace("{year}", year).replace("{type}", file.file_type),
+    namingLanguage
+  );
   return path.join(file.directory, "ZenCanvas", resolved);
+}
+
+function localizeTargetTemplate(template: string, namingLanguage: FolderNamingLanguage): string {
+  if (namingLanguage !== "zh") return template;
+  const zhSegments: Record<string, string> = {
+    "00_Inbox": "00_待整理",
+    "20_Areas": "20_分类",
+    "40_Archive": "40_归档",
+    "90_Temporary": "90_临时",
+    Archive: "归档",
+    Career: "职业发展",
+    Finance: "财务",
+    Identity: "身份资料",
+    Installers: "安装包",
+    Media: "媒体",
+    Personal: "个人",
+    Projects: "项目",
+    Reference: "参考资料",
+    Screenshots: "截图",
+    Study: "学习",
+    Temporary: "临时"
+  };
+  return template
+    .split(/[\\/]+/)
+    .filter(Boolean)
+    .map((segment) => zhSegments[segment] ?? segment)
+    .join(path.sep);
 }
 
 function buildSuggestedName(file: FileRecord, template?: string): string {
