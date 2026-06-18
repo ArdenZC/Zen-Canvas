@@ -4,7 +4,7 @@
   "private": true,
   "description": "A local-first personal digital asset steward.",
   "author": "Startlan",
-  "homepage": "https://github.com/ArdenZC/file-manager-assistant",
+  "homepage": "https://github.com/ArdenZC/Zen-Canvas",
   "copyright": "Copyright © 2026 Startlan",
   "type": "module",
   "main": "dist-electron/electron/main.js",
