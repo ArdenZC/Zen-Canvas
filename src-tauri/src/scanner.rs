@@ -1,3 +1,4 @@
+use crate::db::{Database, DbError, InsertFileRequest};
 use jwalk::WalkDir;
 use serde::Serialize;
 use std::{
@@ -9,7 +10,7 @@ use std::{
     },
     time::{Instant, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Runtime, State};
 use thiserror::Error;
 
 const BATCH_SIZE: usize = 1_000;
@@ -33,6 +34,8 @@ enum ScanError {
     },
     #[error("event emit failed: {0}")]
     Emit(#[from] tauri::Error),
+    #[error("database insert failed: {0}")]
+    Database(#[from] DbError),
     #[error("scan task failed: {0}")]
     Join(String),
 }
@@ -96,14 +99,25 @@ struct ScanCounters {
 }
 
 #[tauri::command]
-pub async fn scan_directory<R: Runtime>(app: AppHandle<R>, path: String) -> Result<ScanSummary, String> {
-    tauri::async_runtime::spawn_blocking(move || scan_directory_blocking(app, PathBuf::from(path)))
-        .await
-        .map_err(|error| ScanError::Join(error.to_string()).to_string())?
-        .map_err(|error| error.to_string())
+pub async fn scan_directory<R: Runtime>(
+    app: AppHandle<R>,
+    db: State<'_, Database>,
+    path: String,
+) -> Result<ScanSummary, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        scan_directory_blocking(app, db, PathBuf::from(path))
+    })
+    .await
+    .map_err(|error| ScanError::Join(error.to_string()).to_string())?
+    .map_err(|error| error.to_string())
 }
 
-fn scan_directory_blocking<R: Runtime>(app: AppHandle<R>, root: PathBuf) -> Result<ScanSummary, ScanError> {
+fn scan_directory_blocking<R: Runtime>(
+    app: AppHandle<R>,
+    db: Database,
+    root: PathBuf,
+) -> Result<ScanSummary, ScanError> {
     validate_root(&root)?;
 
     let started_at = Instant::now();
@@ -171,6 +185,7 @@ fn scan_directory_blocking<R: Runtime>(app: AppHandle<R>, root: PathBuf) -> Resu
         if batch.len() >= BATCH_SIZE {
             emit_batch(
                 &app,
+                &db,
                 &root_label,
                 &mut batch,
                 &mut batch_index,
@@ -184,6 +199,7 @@ fn scan_directory_blocking<R: Runtime>(app: AppHandle<R>, root: PathBuf) -> Resu
     if !batch.is_empty() {
         emit_batch(
             &app,
+            &db,
             &root_label,
             &mut batch,
             &mut batch_index,
@@ -205,6 +221,7 @@ fn scan_directory_blocking<R: Runtime>(app: AppHandle<R>, root: PathBuf) -> Resu
 
 fn emit_batch(
     app: &AppHandle<impl Runtime>,
+    db: &Database,
     root: &str,
     batch: &mut Vec<ScannedEntry>,
     batch_index: &mut u64,
@@ -214,6 +231,12 @@ fn emit_batch(
 ) -> Result<(), ScanError> {
     let progress = progress_payload(root, counters, skipped, started_at);
     let entries = std::mem::take(batch);
+    db.insert_files(
+        &entries
+            .iter()
+            .map(scanned_entry_to_insert_request)
+            .collect::<Vec<_>>(),
+    )?;
 
     app.emit(
         SCAN_BATCH_EVENT,
@@ -231,7 +254,24 @@ fn emit_batch(
     Ok(())
 }
 
-fn emit_scan_error(app: &AppHandle<impl Runtime>, root: &str, error: ScanError) -> Result<(), ScanError> {
+fn scanned_entry_to_insert_request(entry: &ScannedEntry) -> InsertFileRequest {
+    InsertFileRequest {
+        id: entry.path.clone(),
+        path: entry.path.clone(),
+        name: entry.name.clone(),
+        extension: entry.extension.clone(),
+        size: i64::try_from(entry.size).unwrap_or(i64::MAX),
+        mtime: entry.mtime,
+        is_dir: entry.is_dir,
+        state_code: i64::from(entry.state_code),
+    }
+}
+
+fn emit_scan_error(
+    app: &AppHandle<impl Runtime>,
+    root: &str,
+    error: ScanError,
+) -> Result<(), ScanError> {
     let (path, message) = match error {
         ScanError::Io { path, source } => (path, source.to_string()),
         other => (root.to_string(), other.to_string()),
@@ -248,7 +288,11 @@ fn emit_scan_error(app: &AppHandle<impl Runtime>, root: &str, error: ScanError) 
     Ok(())
 }
 
-fn entry_to_payload(path: &Path, file_name: &OsStr, is_dir: bool) -> Result<ScannedEntry, ScanError> {
+fn entry_to_payload(
+    path: &Path,
+    file_name: &OsStr,
+    is_dir: bool,
+) -> Result<ScannedEntry, ScanError> {
     let metadata = std::fs::symlink_metadata(path).map_err(|source| ScanError::Io {
         path: normalize_path(path),
         source,

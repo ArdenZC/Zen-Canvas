@@ -1,9 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
-  AppSnapshot,
+  DashboardStats,
   ExecuteOperationRequest,
   ExecuteOperationResult,
+  FileQueryResult,
   FileRecord,
   OperationPreview
 } from "../types/domain";
@@ -37,6 +38,18 @@ export interface ScanBatchPayload {
 
 export type ScanSummary = ScanProgressPayload;
 
+export interface TauriSearchFileResult {
+  id: string;
+  path: string;
+  name: string;
+  extension: string;
+  size: number;
+  mtime: number;
+  isDir: boolean;
+  stateCode: number;
+  rank: number;
+}
+
 type EventHandler<T> = (payload: T, event: Event<T>) => void;
 
 async function invokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -48,8 +61,21 @@ function listenTo<T>(eventName: string, handler: EventHandler<T>): Promise<Unlis
 }
 
 export const tauriApi = {
-  fetchDatabase(): Promise<AppSnapshot> {
-    return invokeCommand<AppSnapshot>("fetch_database");
+  getPagedFiles(limit = 50, offset = 0, query?: string): Promise<FileQueryResult> {
+    const normalizedQuery = query?.trim();
+    return invokeCommand<FileQueryResult>("get_paged_files", {
+      limit,
+      offset,
+      query: normalizedQuery ? normalizedQuery : null
+    });
+  },
+
+  getStatsSummary(): Promise<DashboardStats> {
+    return invokeCommand<DashboardStats>("get_stats_summary");
+  },
+
+  searchFiles(query: string, limit = 12): Promise<TauriSearchFileResult[]> {
+    return invokeCommand<TauriSearchFileResult[]>("search_files", { query, limit });
   },
 
   startScan(path: string): Promise<ScanSummary> {

@@ -7,162 +7,31 @@
   "homepage": "https://github.com/ArdenZC/Zen-Canvas",
   "copyright": "Copyright © 2026 Startlan",
   "type": "module",
-  "main": "dist-electron/electron/main.js",
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron\"",
-    "dev:renderer": "vite --host 127.0.0.1",
-    "dev:electron": "wait-on tcp:5173 && tsc -p tsconfig.electron.json && electron .",
-    "build": "tsc -p tsconfig.json && vite build && tsc -p tsconfig.electron.json",
+    "dev": "tauri dev --features desktop-runtime",
+    "build": "tauri build --features desktop-runtime",
     "test": "vitest run",
     "test:performance": "node scripts/runPerformanceTest.mjs",
-    "rebuild:native": "npm rebuild better-sqlite3",
-    "rebuild:electron": "node scripts/rebuildElectronNative.mjs",
-    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.electron.json",
+    "typecheck": "tsc -p tsconfig.json",
     "security:audit": "npm audit --audit-level=high",
     "verify": "npm run typecheck && npm test && npm run test:performance && npm run build && npm run security:audit",
-    "assets:brand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generateBrandAssets.ps1",
-    "dist": "npm run build && npm run rebuild:electron && electron-builder --win nsis zip --mac dmg zip --publish never",
-    "dist:win": "npm run build && npm run rebuild:electron && electron-builder --win nsis zip --x64 --ia32 --arm64 --publish never",
-    "postdist:win": "npm run rebuild:native",
-    "dist:mac": "npm run build && npm run rebuild:electron && electron-builder --mac dmg zip --x64 --arm64 --publish never",
-    "postdist:mac": "npm run rebuild:native"
+    "assets:brand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generateBrandAssets.ps1"
   },
   "dependencies": {
-    "@tanstack/react-virtual": "^3.14.3",
     "@tauri-apps/api": "^2.11.1",
-    "better-sqlite3": "^12.11.1",
-    "chokidar": "^5.0.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
+    "@tauri-apps/cli": "^2.11.2",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^5.0.0",
-    "concurrently": "^10.0.3",
-    "electron": "^42.4.0",
-    "electron-builder": "^26.15.3",
     "typescript": "^5.8.3",
     "vite": "^8.0.16",
-    "vitest": "^4.1.8",
-    "wait-on": "^8.0.3"
-  },
-  "build": {
-    "appId": "com.startlan.zencanvas",
-    "productName": "Zen Canvas",
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
-    "directories": {
-      "output": "dist-packages",
-      "buildResources": "build"
-    },
-    "files": [
-      "dist/**/*",
-      "dist-electron/**/*",
-      "build/icon.png",
-      "build/icon-dark.png",
-      "package.json"
-    ],
-    "asar": true,
-    "asarUnpack": [
-      "**/*.node",
-      "**/node_modules/better-sqlite3/**"
-    ],
-    "npmRebuild": true,
-    "win": {
-      "icon": "build/icon.ico",
-      "legalTrademarks": "Zen Canvas",
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64",
-            "ia32",
-            "arm64"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "x64",
-            "ia32",
-            "arm64"
-          ]
-        }
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
-      "deleteAppDataOnUninstall": false,
-      "installerIcon": "build/installerIcon.ico",
-      "uninstallerIcon": "build/uninstallerIcon.ico",
-      "installerHeader": "build/installerHeader.bmp",
-      "installerHeaderIcon": "build/installerHeaderIcon.ico",
-      "installerSidebar": "build/installerSidebar.bmp",
-      "uninstallerSidebar": "build/uninstallerSidebar.bmp",
-      "installerLanguages": [
-        "en_US",
-        "zh_CN"
-      ],
-      "multiLanguageInstaller": true,
-      "displayLanguageSelector": true,
-      "menuCategory": "Zen Canvas",
-      "createDesktopShortcut": "always",
-      "createStartMenuShortcut": true,
-      "shortcutName": "Zen Canvas",
-      "uninstallDisplayName": "Zen Canvas"
-    },
-    "mac": {
-      "icon": "build/icon.icns",
-      "category": "public.app-category.productivity",
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ]
-    },
-    "dmg": {
-      "title": "Zen Canvas ${version}",
-      "background": "build/dmg-background.png",
-      "icon": "build/icon.icns",
-      "license": {
-        "en_US": "build/license_en.txt",
-        "zh_CN": "build/license_zh_CN.txt"
-      },
-      "iconSize": 96,
-      "window": {
-        "width": 640,
-        "height": 420
-      },
-      "contents": [
-        {
-          "x": 206,
-          "y": 272,
-          "type": "file"
-        },
-        {
-          "x": 434,
-          "y": 272,
-          "type": "link",
-          "path": "/Applications"
-        }
-      ]
-    }
+    "vitest": "^4.1.8"
   }
 }

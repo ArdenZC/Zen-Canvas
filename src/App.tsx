@@ -15,29 +15,26 @@ import {
   Square,
   X
 } from "lucide-react";
-import type {
-  CloseBehavior,
-  FileQuery,
-  FileQueryResult,
-  FileRecord,
-  FolderScanResult,
-  Rule,
-  ScanProgress
-} from "./types/domain";
-import { makeTranslator } from "./i18n";
-import { formatDate } from "./utils/format";
+import { tauriApi } from "./api/tauriApi";
 import { CommandModal } from "./components/CommandModal";
 import { AmbientMesh, CloseChoiceDialog, TitlebarTools, ZenMark } from "./components/ShellChrome";
-import { demoFilePage, demoFiles, demoSnapshot } from "./mocks/demoData";
+import { makeTranslator } from "./i18n";
+import { useScanProgress } from "./hooks/useScanProgress";
 import { useAppStore } from "./store/useAppStore";
+import type {
+  CloseBehavior,
+  DashboardStats,
+  FileQueryResult,
+  FileRecord,
+  OperationPreview,
+  Rule
+} from "./types/domain";
 import type { ThemeMode } from "./types/ui";
+import { formatDate } from "./utils/format";
 import {
   applyPreviewNameOverride,
   createOperationPreviews,
-  delay,
   detectBrowserPlatform,
-  fileBelongsToRoots,
-  filterFiles,
   preferredLanguage,
   preferredTheme,
   prefersDarkScheme,
@@ -53,6 +50,30 @@ import {
   VaultView
 } from "./views/AppViews";
 
+const PAGE_SIZE = 50;
+
+const emptyStats: DashboardStats = {
+  totalFiles: 0,
+  totalSize: 0,
+  diskTotalSize: 0,
+  diskFreeSize: 0,
+  diskUsageRatio: 0,
+  duplicateFiles: 0,
+  largeFiles: 0,
+  sensitiveFiles: 0,
+  needsConfirmation: 0,
+  byType: {},
+  byLifecycle: {},
+  lastScannedAt: null
+};
+
+const emptyPage: FileQueryResult = {
+  files: [],
+  total: 0,
+  limit: PAGE_SIZE,
+  offset: 0
+};
+
 export function App() {
   const language = useAppStore((state) => state.language);
   const setLanguage = useAppStore((state) => state.setLanguage);
@@ -60,89 +81,60 @@ export function App() {
   const setTheme = useAppStore((state) => state.setTheme);
   const view = useAppStore((state) => state.view);
   const setView = useAppStore((state) => state.setView);
-  const snapshot = useAppStore((state) => state.snapshot);
-  const setSnapshot = useAppStore((state) => state.setSnapshot);
+  const searchQuery = useAppStore((state) => state.searchQuery);
+  const setSearchQuery = useAppStore((state) => state.setSearchQuery);
   const [systemDark, setSystemDark] = useState(() => prefersDarkScheme());
-  const t = useMemo(() => makeTranslator(language), [language]);
-  const [libraryPage, setLibraryPage] = useState<FileQueryResult>(demoFilePage);
-  const [scopeFiles, setScopeFiles] = useState<FileRecord[]>(demoFiles);
-  const [query, setQuery] = useState<FileQuery>({
-    fileType: "All",
-    purpose: "All",
-    riskLevel: "All",
-    sortBy: "modified_at",
-    sortDirection: "desc"
-  });
-  const [selectedFileId, setSelectedFileId] = useState<string>(demoFiles[0]?.id ?? "");
+  const [stats, setStats] = useState<DashboardStats>(emptyStats);
+  const [libraryPage, setLibraryPage] = useState<FileQueryResult>(emptyPage);
+  const [selectedFileId, setSelectedFileId] = useState("");
+  const [selectedFolders, setSelectedFolders] = useState<string[]>([]);
+  const [rules, setRules] = useState<Rule[]>([]);
   const [selectedOperationIds, setSelectedOperationIds] = useState<Set<string>>(new Set());
+  const [previewNameOverrides, setPreviewNameOverrides] = useState<Record<string, string>>({});
   const [isScanning, setIsScanning] = useState(false);
   const [status, setStatus] = useState("");
-  const [selectedFolders, setSelectedFolders] = useState<string[]>([]);
-  const [activeScanRootPaths, setActiveScanRootPaths] = useState<string[]>([]);
-  const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
-  const [isLibraryLoading, setIsLibraryLoading] = useState(false);
   const [isCommandOpen, setIsCommandOpen] = useState(false);
   const [isCloseChoiceOpen, setIsCloseChoiceOpen] = useState(false);
-  const [closeBehavior, setCloseBehaviorState] = useState<CloseBehavior>("ask");
-  const [previewNameOverrides, setPreviewNameOverrides] = useState<Record<string, string>>({});
+  const [closeBehavior, setCloseBehaviorState] = useState<CloseBehavior>(() => {
+    const saved = window.localStorage.getItem("zc-close-behavior");
+    return saved === "minimize" || saved === "quit" || saved === "ask" ? saved : "ask";
+  });
   const commandInputRef = useRef<HTMLInputElement | null>(null);
-  const closeBehaviorRef = useRef<CloseBehavior>("ask");
-  const libraryRequestIdRef = useRef(0);
-  const scopeRequestIdRef = useRef(0);
-  const fileManager = window.fileManager;
-  const platform = fileManager?.platform ?? detectBrowserPlatform();
+  const closeBehaviorRef = useRef(closeBehavior);
+  const platform = detectBrowserPlatform();
   const isWindows = platform === "win32";
-  const hotkeyLabel = platform === "darwin" ? "⌘ K" : "Ctrl K";
-  const hasNativeApi = typeof fileManager !== "undefined";
   const isSearchMode = new URLSearchParams(window.location.search).get("mode") === "search";
   const effectiveTheme: Exclude<ThemeMode, "system"> = theme === "system" ? (systemDark ? "dark" : "light") : theme;
-  const libraryLimit = 50;
+  const hotkeyLabel = platform === "darwin" ? "⌘ K" : "Ctrl K";
+  const t = useMemo(() => makeTranslator(language), [language]);
 
-  const loadLibraryPage = useCallback(async (nextQuery: FileQuery, append = false, offset = 0) => {
-    const requestId = ++libraryRequestIdRef.current;
-    if (!fileManager) {
-      const files = filterFiles(demoFiles, nextQuery);
-      const nextFiles = files.slice(offset, offset + libraryLimit);
-      setLibraryPage((current) => ({
-        files: append ? [...current.files, ...nextFiles] : files.slice(0, libraryLimit),
-        total: files.length,
-        limit: libraryLimit,
-        offset
-      }));
-      return;
-    }
-    setIsLibraryLoading(true);
+  const loadStats = useCallback(async () => {
     try {
-      const page = await fileManager.queryFiles({ ...nextQuery, limit: libraryLimit, offset });
-      if (requestId !== libraryRequestIdRef.current) return;
-      setLibraryPage((current) => append
-        ? { ...page, files: [...current.files, ...page.files], offset: 0 }
-        : page
-      );
-      const firstFile = page.files[0];
-      if (!append && firstFile) setSelectedFileId(firstFile.id);
-    } finally {
-      if (requestId === libraryRequestIdRef.current) setIsLibraryLoading(false);
+      setStats(await tauriApi.getStatsSummary());
+    } catch {
+      setStats(emptyStats);
     }
-  }, [fileManager, libraryLimit]);
+  }, []);
 
-  const loadScopedFiles = useCallback(async (roots: string[]) => {
-    const requestId = ++scopeRequestIdRef.current;
-    if (!fileManager) {
-      const files = roots.length ? demoFiles.filter((file) => fileBelongsToRoots(file, roots)) : demoFiles;
-      setScopeFiles(files);
-      return;
+  const loadFirstPage = useCallback(async () => {
+    try {
+      const page = await tauriApi.getPagedFiles(PAGE_SIZE, 0, searchQuery);
+      setLibraryPage(page);
+      setSelectedFileId((current) => current || page.files[0]?.id || "");
+    } catch (error) {
+      setLibraryPage(emptyPage);
+      setStatus(readableError(error));
     }
-    const page = await fileManager.queryFiles({
-      roots,
-      limit: 5000,
-      offset: 0,
-      sortBy: "modified_at",
-      sortDirection: "desc"
-    });
-    if (requestId !== scopeRequestIdRef.current) return;
-    setScopeFiles(page.files);
-  }, [fileManager]);
+  }, [searchQuery]);
+
+  const scanState = useScanProgress({
+    onBatch: () => {
+      void loadStats();
+    },
+    onComplete: () => {
+      void Promise.all([loadStats(), loadFirstPage()]);
+    }
+  });
 
   useEffect(() => {
     document.documentElement.classList.toggle("search-window-root", isSearchMode);
@@ -169,38 +161,23 @@ export function App() {
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
-      if (!event.key || event.key === "zc-theme") {
-        setTheme(preferredTheme());
-      }
+      if (!event.key || event.key === "zc-theme") setTheme(preferredTheme());
       if (!event.key || event.key === "zc-language" || event.key === "fma-language") {
         setLanguage(preferredLanguage());
       }
     };
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
-  }, []);
+  }, [setLanguage, setTheme]);
 
   useEffect(() => {
-    if (!fileManager) return;
-    fileManager.getSnapshot().then((next) => {
-      setSnapshot(next);
-      const roots = next.scanRoots.map((root) => root.path);
-      setActiveScanRootPaths(roots);
-      void loadScopedFiles(roots);
-      if (next.files.length) setSelectedFileId(next.files[0]?.id ?? "");
-    });
-  }, [fileManager, loadScopedFiles]);
+    void tauriApi.initDatabase().catch(() => undefined);
+    void Promise.all([loadStats(), loadFirstPage()]);
+  }, [loadFirstPage, loadStats]);
 
   useEffect(() => {
-    void loadLibraryPage(query, false, 0);
-  }, [loadLibraryPage, query]);
-
-  useEffect(() => {
-    const unsubscribe = fileManager?.onScanProgress?.((progress) => {
-      setScanProgress(progress);
-    });
-    return () => unsubscribe?.();
-  }, [fileManager]);
+    closeBehaviorRef.current = closeBehavior;
+  }, [closeBehavior]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -208,53 +185,14 @@ export function App() {
         event.preventDefault();
         setIsCommandOpen(true);
       }
-      if (event.key === "Escape") {
-        setIsCommandOpen(false);
-      }
+      if (event.key === "Escape") setIsCommandOpen(false);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
   useEffect(() => {
-    const unsubscribe = fileManager?.onCommandOpen?.(() => {
-      setTheme(preferredTheme());
-      setLanguage(preferredLanguage());
-      setIsCommandOpen(true);
-    });
-    return () => unsubscribe?.();
-  }, [fileManager, setLanguage, setTheme]);
-
-  useEffect(() => {
-    const unsubscribe = fileManager?.onCommandHide?.(() => setIsCommandOpen(false));
-    return () => unsubscribe?.();
-  }, [fileManager]);
-
-  useEffect(() => {
-    closeBehaviorRef.current = closeBehavior;
-  }, [closeBehavior]);
-
-  useEffect(() => {
-    if (!fileManager) return;
-    fileManager.getCloseBehavior?.().then(setCloseBehaviorState).catch(() => undefined);
-  }, [fileManager]);
-
-  useEffect(() => {
-    const unsubscribe = fileManager?.onCloseRequested?.(() => {
-      const behavior = closeBehaviorRef.current;
-      if (behavior === "ask") {
-        setIsCloseChoiceOpen(true);
-        return;
-      }
-      void fileManager.performClose?.(behavior === "quit" ? "quit" : "minimize");
-    });
-    return () => unsubscribe?.();
-  }, [fileManager]);
-
-  useEffect(() => {
-    if (isCommandOpen) {
-      window.setTimeout(() => commandInputRef.current?.focus(), 40);
-    }
+    if (isCommandOpen) window.setTimeout(() => commandInputRef.current?.focus(), 40);
   }, [isCommandOpen]);
 
   useEffect(() => {
@@ -265,16 +203,9 @@ export function App() {
     }
   }, [isSearchMode, setLanguage, setTheme]);
 
-  const scopedFiles = scopeFiles;
-  const filteredFiles = libraryPage.files;
-  const selectedFile =
-    filteredFiles.find((file) => file.id === selectedFileId) ??
-    scopedFiles.find((file) => file.id === selectedFileId) ??
-    snapshot.files.find((file) => file.id === selectedFileId) ??
-    filteredFiles[0] ??
-    scopedFiles[0] ??
-    snapshot.files[0];
-  const previews = useMemo(() => createOperationPreviews(scopedFiles), [scopedFiles]);
+  const files = libraryPage.files;
+  const selectedFile = files.find((file) => file.id === selectedFileId) ?? files[0];
+  const previews = useMemo(() => createOperationPreviews(files), [files]);
   const displayPreviews = useMemo(
     () => previews.map((preview) => applyPreviewNameOverride(preview, previewNameOverrides[preview.id])),
     [previewNameOverrides, previews]
@@ -299,160 +230,93 @@ export function App() {
   ];
 
   async function setCloseBehavior(next: CloseBehavior) {
+    window.localStorage.setItem("zc-close-behavior", next);
     setCloseBehaviorState(next);
-    if (fileManager?.setCloseBehavior) {
-      setCloseBehaviorState(await fileManager.setCloseBehavior(next));
-    }
   }
 
-  async function refreshSnapshot() {
-    if (!fileManager) return;
-    const next = await fileManager.getSnapshot();
-    setSnapshot(next);
-    const roots = activeScanRootPaths.length ? activeScanRootPaths : next.scanRoots.map((root) => root.path);
-    await Promise.all([
-      loadScopedFiles(roots),
-      loadLibraryPage(query, false, 0)
-    ]);
-    setSelectedFileId((current) => current || next.files[0]?.id || "");
+  function askForScanPath() {
+    return window.prompt(t("folderPickerTitle"), selectedFolders[0] ?? "")?.trim() ?? "";
+  }
+
+  async function scanPath(path: string) {
+    if (!path) {
+      setStatus(t("noFolderSelected"));
+      return;
+    }
+    setSelectedFolders([path]);
+    setIsScanning(true);
+    setStatus("");
+    scanState.reset();
+    try {
+      const summary = await scanState.startScan(path);
+      await Promise.all([loadStats(), loadFirstPage()]);
+      setStatus(`${t("success")}: ${summary.files.toLocaleString()} ${t("files")}`);
+    } catch (error) {
+      setStatus(readableError(error));
+    } finally {
+      setIsScanning(false);
+    }
   }
 
   async function handleScan() {
-    setIsScanning(true);
-    setScanProgress(null);
-    try {
-      if (fileManager) {
-        const result = await fileManager.scanDefaults();
-        if (result.canceled) {
-          setStatus(t("scanCanceled"));
-          return;
-        }
-        const roots = result.roots.map((root) => root.path);
-        setActiveScanRootPaths(result.roots.map((root) => root.path));
-        setSelectedFolders(result.roots.map((root) => root.path));
-        const next = await fileManager.getSnapshot();
-        setSnapshot(next);
-        await Promise.all([
-          loadLibraryPage(query, false, 0),
-          loadScopedFiles(roots)
-        ]);
-        setStatus(`${t("success")}: ${result.files.length}`);
-      } else {
-        await delay(1200);
-        setSnapshot(demoSnapshot);
-        setScopeFiles(demoFiles);
-        setStatus("");
-      }
-    } catch (error) {
-      setStatus(readableError(error));
-    } finally {
-      setIsScanning(false);
-    }
+    await scanPath(selectedFolders[0] || askForScanPath());
   }
 
   async function handleChooseFolders() {
-    setIsScanning(true);
-    setScanProgress(null);
-    try {
-      if (fileManager) {
-        const result: FolderScanResult = await fileManager.chooseAndScanFolders();
-        if (result.canceled) {
-          setStatus(result.selectedPaths.length ? t("scanCanceled") : t("noFolderSelected"));
-          return;
-        }
-        setSelectedFolders(result.selectedPaths);
-        const roots = result.roots.map((root) => root.path);
-        setActiveScanRootPaths(roots);
-        const next = await fileManager.getSnapshot();
-        setSnapshot(next);
-        await Promise.all([
-          loadScopedFiles(roots),
-          loadLibraryPage(query, false, 0)
-        ]);
-        setStatus(`${t("success")}: ${result.selectedPaths.length} / ${result.files.length}`);
-      } else {
-        await delay(900);
-        const sampleFolders = ["C:/Users/example/Downloads", "C:/Users/example/Desktop"];
-        setSelectedFolders(sampleFolders);
-        setSnapshot(demoSnapshot);
-        setScopeFiles(demoFiles);
-        setStatus(t("folderChooserUnavailable"));
-      }
-    } catch (error) {
-      setStatus(readableError(error));
-    } finally {
-      setIsScanning(false);
-    }
-  }
-
-  async function saveRule(rule: Rule) {
-    if (fileManager) {
-      await fileManager.saveRule(rule);
-      const next = await fileManager.reapplyRules();
-      setSnapshot(next);
-      await Promise.all([
-        loadScopedFiles(activeScanRootPaths),
-        loadLibraryPage(query, false, 0)
-      ]);
-    } else {
-      setSnapshot((current) => ({ ...current, rules: [...current.rules, rule] }));
-    }
-  }
-
-  async function executeSelected() {
-    const operations = displayPreviews.filter((preview) => selectedOperationIds.has(preview.id) && preview.is_executable !== false);
-    if (!operations.length) return;
-    if (fileManager) {
-      await fileManager.executeOperations({ operations });
-      await refreshSnapshot();
-    } else {
-      await loadLibraryPage(query, false, 0);
-    }
-    setSelectedOperationIds(new Set());
+    await scanPath(askForScanPath());
   }
 
   async function cancelScan() {
-    await fileManager?.cancelScan?.();
     setStatus(t("scanCanceling"));
   }
 
-  function handleWindowAction(action: "minimize" | "maximize" | "close") {
-    if (action === "close") {
-      requestClose();
-      return;
+  async function saveRule(rule: Rule) {
+    setRules((current) => [...current, rule]);
+  }
+
+  async function executeSelected() {
+    const operations = displayPreviews.filter((preview) =>
+      selectedOperationIds.has(preview.id) && preview.is_executable !== false
+    );
+    if (!operations.length) return;
+    try {
+      await tauriApi.executeMoves(operations as OperationPreview[]);
+      setSelectedOperationIds(new Set());
+      await Promise.all([loadStats(), loadFirstPage()]);
+      setStatus(t("success"));
+    } catch (error) {
+      setStatus(readableError(error));
     }
-    void fileManager?.windowControl?.(action);
+  }
+
+  function handleWindowAction(action: "minimize" | "maximize" | "close") {
+    if (action === "close") requestClose();
   }
 
   function requestClose() {
     const behavior = closeBehaviorRef.current;
-    if (!fileManager?.performClose) {
-      void fileManager?.windowControl?.("close");
-      return;
-    }
     if (behavior === "ask") {
       setIsCloseChoiceOpen(true);
       return;
     }
-    void fileManager.performClose(behavior === "quit" ? "quit" : "minimize");
+    if (behavior === "quit") window.close();
+    setIsCloseChoiceOpen(false);
   }
 
   async function resolveCloseChoice(action: "minimize" | "quit", remember: boolean) {
-    if (remember) {
-      await setCloseBehavior(action);
-    }
+    if (remember) await setCloseBehavior(action);
     setIsCloseChoiceOpen(false);
-    await fileManager?.performClose?.(action);
+    if (action === "quit") window.close();
   }
 
   const activeLabel = nav.find((item) => item.id === view)?.label ?? t("spaceScan");
-  const scannerLastScanLabel = snapshot.stats.lastScannedAt ? formatDate(snapshot.stats.lastScannedAt) : t("notScannedYet");
+  const scannerLastScanLabel = stats.lastScannedAt ? formatDate(stats.lastScannedAt) : t("notScannedYet");
   const headingDescription =
     view === "scanner"
       ? `${t("lastScan")}: ${scannerLastScanLabel}`
-      : snapshot.stats.lastScannedAt
-        ? `${t("lastScan")}: ${formatDate(snapshot.stats.lastScannedAt)}`
-        : t("demoMode");
+      : stats.lastScannedAt
+        ? `${t("lastScan")}: ${formatDate(stats.lastScannedAt)}`
+        : t("notScannedYet");
 
   if (isSearchMode) {
     return (
@@ -460,13 +324,9 @@ export function App() {
         {isCommandOpen && (
           <CommandModal
             inputRef={commandInputRef}
-            files={snapshot.files}
             setView={setView}
             setSelectedFileId={setSelectedFileId}
-            onClose={() => {
-              setIsCommandOpen(false);
-              void fileManager?.hideSearch?.();
-            }}
+            onClose={() => setIsCommandOpen(false)}
             platform={platform}
             t={t}
             standalone
@@ -485,16 +345,8 @@ export function App() {
           {!isWindows ? (
             <div className="window-controls" aria-label="Window controls">
               <button className="traffic-dot red" onClick={() => handleWindowAction("close")} aria-label={t("close")} />
-              <button
-                className="traffic-dot yellow"
-                onClick={() => handleWindowAction("minimize")}
-                aria-label={t("minimize")}
-              />
-              <button
-                className="traffic-dot green"
-                onClick={() => handleWindowAction("maximize")}
-                aria-label={t("maximize")}
-              />
+              <button className="traffic-dot yellow" onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")} />
+              <button className="traffic-dot green" onClick={() => handleWindowAction("maximize")} aria-label={t("maximize")} />
             </div>
           ) : (
             <TitlebarTools
@@ -598,34 +450,27 @@ export function App() {
           <div className="view-stage">
             {view === "scanner" && (
               <ScannerView
-                snapshot={snapshot}
-                files={scopedFiles}
-                activeRootPaths={activeScanRootPaths}
+                stats={stats}
+                files={files}
                 selectedFolders={selectedFolders}
                 isScanning={isScanning}
-                scanProgress={scanProgress}
+                scanProgress={scanState.progress}
                 chooseFolders={handleChooseFolders}
                 scanCommon={handleScan}
                 cancelScan={cancelScan}
                 t={t}
               />
             )}
-            {view === "organize" && (
-              <HubView
-                files={scopedFiles}
-                setView={setView}
-                t={t}
-              />
-            )}
+            {view === "organize" && <HubView files={files} setView={setView} t={t} />}
             {view === "library" && (
               <VaultView
                 page={libraryPage}
+                setPage={setLibraryPage}
                 selectedFile={selectedFile}
-                query={query}
-                setQuery={setQuery}
+                searchQuery={searchQuery}
+                setSearchQuery={setSearchQuery}
                 setSelectedFileId={setSelectedFileId}
-                isLoading={isLibraryLoading}
-                onLoadMore={() => loadLibraryPage(query, true, libraryPage.files.length)}
+                onRefreshStats={loadStats}
                 t={t}
               />
             )}
@@ -641,8 +486,8 @@ export function App() {
                 t={t}
               />
             )}
-            {view === "rules" && <RulesView rules={snapshot.rules} onSave={saveRule} t={t} />}
-            {view === "restore" && <RestoreView hasNativeApi={hasNativeApi} t={t} />}
+            {view === "rules" && <RulesView rules={rules} onSave={saveRule} t={t} />}
+            {view === "restore" && <RestoreView t={t} />}
             {view === "settings" && (
               <SettingsView
                 language={language}
@@ -650,9 +495,6 @@ export function App() {
                 theme={theme}
                 setTheme={setTheme}
                 platform={platform}
-                snapshot={snapshot}
-                setSnapshot={setSnapshot}
-                hasNativeApi={hasNativeApi}
                 closeBehavior={closeBehavior}
                 setCloseBehavior={setCloseBehavior}
                 t={t}
@@ -665,7 +507,6 @@ export function App() {
       {isCommandOpen && (
         <CommandModal
           inputRef={commandInputRef}
-          files={snapshot.files}
           setView={setView}
           setSelectedFileId={setSelectedFileId}
           onClose={() => setIsCommandOpen(false)}

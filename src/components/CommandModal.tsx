@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import { ChevronRight, File, Search, X } from "lucide-react";
-import type { FileRecord, SearchResult } from "../types/domain";
+import { tauriApi } from "../api/tauriApi";
+import type { FileRecord } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 
 export function CommandModal({
   inputRef,
-  files,
   setView,
   setSelectedFileId,
   onClose,
@@ -14,7 +14,6 @@ export function CommandModal({
   standalone = false
 }: {
   inputRef: RefObject<HTMLInputElement | null>;
-  files: FileRecord[];
   setView: (view: View) => void;
   setSelectedFileId: (id: string) => void;
   onClose: () => void;
@@ -23,77 +22,50 @@ export function CommandModal({
   standalone?: boolean;
 }) {
   const [search, setSearch] = useState("");
-  const [nativeResults, setNativeResults] = useState<SearchResult[]>([]);
-  const [nativeQueryState, setNativeQueryState] = useState<{
-    query: string;
-    status: "idle" | "pending" | "done" | "failed";
-  }>({ query: "", status: "idle" });
+  const [results, setResults] = useState<FileRecord[]>([]);
+  const [queryState, setQueryState] = useState<"idle" | "pending" | "done" | "failed">("idle");
   const [activeIndex, setActiveIndex] = useState(0);
-  const fileManager = window.fileManager;
-  const hasNativeApi = typeof fileManager !== "undefined";
-  void setView;
-  void setSelectedFileId;
   const trimmedSearch = search.trim();
-  const nativeFinishedForQuery =
-    nativeQueryState.query === trimmedSearch &&
-    (nativeQueryState.status === "done" || nativeQueryState.status === "failed");
-  const currentNativeResults =
-    nativeQueryState.query === trimmedSearch && nativeQueryState.status === "done" ? nativeResults : [];
-  const shouldUseSnapshotFallback =
-    trimmedSearch.length > 0 &&
-    (!hasNativeApi || (nativeFinishedForQuery && (nativeQueryState.status === "failed" || nativeResults.length === 0)));
-  const fallbackResults = useMemo(
-    () => (shouldUseSnapshotFallback ? findSearchSnapshotMatches(files, trimmedSearch, 12) : []),
-    [files, shouldUseSnapshotFallback, trimmedSearch]
-  );
-  const results = useMemo(
-    () => (trimmedSearch ? mergeSearchResults(hasNativeApi ? currentNativeResults : [], fallbackResults, 12) : []),
-    [currentNativeResults, fallbackResults, hasNativeApi, trimmedSearch]
-  );
   const showResults = trimmedSearch.length > 0 && results.length > 0;
   const locateKey = platform === "darwin" ? "⌥↵" : "Alt↵";
 
   useEffect(() => {
-    if (!fileManager) return;
     if (!trimmedSearch) {
-      setNativeResults([]);
-      setNativeQueryState({ query: "", status: "idle" });
+      setResults([]);
+      setQueryState("idle");
       setActiveIndex(0);
       return;
     }
-    setNativeQueryState({ query: trimmedSearch, status: "pending" });
+
     let cancelled = false;
+    setQueryState("pending");
     const timer = window.setTimeout(() => {
-      fileManager.searchQuery({ query: trimmedSearch, limit: 12 })
-        .then((next) => {
+      tauriApi.getPagedFiles(12, 0, trimmedSearch)
+        .then((page) => {
           if (cancelled) return;
-          setNativeResults(next);
-          setNativeQueryState({ query: trimmedSearch, status: "done" });
+          setResults(page.files);
+          setQueryState("done");
           setActiveIndex(0);
         })
         .catch(() => {
           if (cancelled) return;
-          setNativeResults([]);
-          setNativeQueryState({ query: trimmedSearch, status: "failed" });
+          setResults([]);
+          setQueryState("failed");
         });
-    }, 40);
+    }, 50);
+
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [fileManager, trimmedSearch]);
+  }, [trimmedSearch]);
 
-  async function openFile(file: FileRecord) {
-    if (fileManager) {
-      await fileManager.openSearchResult(file.id);
-    }
+  const visibleResults = useMemo(() => results.slice(0, 12), [results]);
+
+  function chooseFile(file: FileRecord) {
+    setSelectedFileId(file.id);
+    setView("library");
     onClose();
-  }
-
-  async function revealFile(file: FileRecord) {
-    if (fileManager) {
-      await fileManager.revealSearchResult(file.id);
-    }
   }
 
   function clearSearch() {
@@ -119,16 +91,15 @@ export function CommandModal({
           }
           if (event.key === "ArrowDown") {
             event.preventDefault();
-            setActiveIndex((index) => Math.min(index + 1, results.length - 1));
+            setActiveIndex((index) => Math.min(index + 1, visibleResults.length - 1));
           }
           if (event.key === "ArrowUp") {
             event.preventDefault();
             setActiveIndex((index) => Math.max(index - 1, 0));
           }
-          if (event.key === "Enter" && results[activeIndex]) {
+          if (event.key === "Enter" && visibleResults[activeIndex]) {
             event.preventDefault();
-            if (event.altKey) void revealFile(results[activeIndex].file);
-            else void openFile(results[activeIndex].file);
+            chooseFile(visibleResults[activeIndex]);
           }
           if (event.key === "Escape") onClose();
         }}
@@ -154,14 +125,14 @@ export function CommandModal({
             <div className="command-results">
               <div className="command-section-label">{t("smartMatches")}</div>
               <div className="command-result-stack">
-                {results.map(({ file }, index) => {
+                {visibleResults.map((file, index) => {
                   const tone = getResultTone(file);
                   const extension = file.extension ? file.extension.replace(".", "").toUpperCase() : file.file_type;
                   return (
                     <button
                       key={file.id}
                       className={`result-item-card ${index === activeIndex ? "active-row" : ""}`}
-                      onClick={() => openFile(file)}
+                      onClick={() => chooseFile(file)}
                       onMouseEnter={() => setActiveIndex(index)}
                     >
                       <span className={`result-main-icon ${tone}`}>
@@ -185,7 +156,7 @@ export function CommandModal({
               </div>
             </div>
             <div className="command-action-bar">
-              <span>{t("matchesFound").replace("{count}", String(results.length))}</span>
+              <span>{t("matchesFound").replace("{count}", String(visibleResults.length))}</span>
               <div>
                 <span><kbd>↵</kbd>{t("openResult")}</span>
                 <span><kbd>{locateKey}</kbd>{t("revealPhysical")}</span>
@@ -194,43 +165,14 @@ export function CommandModal({
             </div>
           </div>
         )}
+        {trimmedSearch && queryState === "done" && !results.length && (
+          <div className="command-results-panel">
+            <div className="empty-state compact">{t("noOperations")}</div>
+          </div>
+        )}
       </div>
     </div>
   );
-}
-
-function findSearchSnapshotMatches(files: FileRecord[], query: string, limit: number) {
-  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (!terms.length) return [];
-  const results: SearchResult[] = [];
-  for (const file of files) {
-    const haystack = [
-      file.name,
-      file.path,
-      file.directory,
-      file.extension,
-      file.file_type,
-      file.purpose,
-      file.lifecycle,
-      file.context
-    ].join(" ").toLowerCase();
-    if (!terms.every((term) => haystack.includes(term))) continue;
-    results.push({ file, score: 10, matched_text: file.name });
-    if (results.length >= limit) break;
-  }
-  return results;
-}
-
-function mergeSearchResults(primary: SearchResult[], fallback: SearchResult[], limit: number) {
-  const seen = new Set<string>();
-  const merged: SearchResult[] = [];
-  for (const result of [...primary, ...fallback]) {
-    if (seen.has(result.file.id)) continue;
-    seen.add(result.file.id);
-    merged.push(result);
-    if (merged.length >= limit) break;
-  }
-  return merged;
 }
 
 function HighlightText({ text, highlight }: { text: string; highlight: string }) {

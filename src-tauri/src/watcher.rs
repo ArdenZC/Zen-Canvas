@@ -54,7 +54,10 @@ pub struct WatcherErrorEvent {
     pub message: String,
 }
 
-pub fn setup_file_watcher<R: Runtime>(app: AppHandle<R>, paths: Vec<PathBuf>) -> Result<(), String> {
+pub fn setup_file_watcher<R: Runtime>(
+    app: AppHandle<R>,
+    paths: Vec<PathBuf>,
+) -> Result<(), String> {
     setup_file_watcher_inner(app, paths).map_err(|error| error.to_string())
 }
 
@@ -63,7 +66,10 @@ fn setup_file_watcher_inner<R: Runtime>(
     paths: Vec<PathBuf>,
 ) -> Result<(), WatcherError> {
     let roots = normalize_watch_roots(paths)?;
-    let root_labels = roots.iter().map(|path| normalize_path(path)).collect::<Vec<_>>();
+    let root_labels = roots
+        .iter()
+        .map(|path| normalize_path(path))
+        .collect::<Vec<_>>();
     let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
 
     let mut watcher = recommended_watcher(move |event| {
@@ -167,7 +173,8 @@ fn normalize_watch_roots(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>, WatcherErr
 }
 
 fn is_ignored_path(path: &Path) -> bool {
-    path.components().any(|component| should_skip_component(component.as_os_str()))
+    path.components()
+        .any(|component| should_skip_component(component.as_os_str()))
 }
 
 fn should_skip_component(name: &OsStr) -> bool {

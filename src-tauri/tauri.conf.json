@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Zen Canvas",
+  "version": "0.1.2",
+  "identifier": "com.startlan.zencanvas",
+  "build": {
+    "beforeDevCommand": "vite --host 127.0.0.1",
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeBuildCommand": "vite build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Zen Canvas",
+        "width": 1280,
+        "height": 860,
+        "minWidth": 980,
+        "minHeight": 680,
+        "transparent": true,
+        "decorations": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "dmg"],
+    "icon": [
+      "../build/icon.png",
+      "../build/icon.ico",
+      "../build/icon.icns"
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "../build/installerIcon.ico",
+        "installMode": "perMachine",
+        "displayLanguageSelector": true
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
+  }
+}

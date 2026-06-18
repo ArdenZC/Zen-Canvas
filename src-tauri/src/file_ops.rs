@@ -116,7 +116,9 @@ pub fn execute_moves(request: ExecuteMovesRequest) -> Result<ExecuteMovesResult,
         .operations
         .iter()
         .enumerate()
-        .map(|(index, operation)| execute_preview_operation(&batch_id, &created_at, index, operation))
+        .map(|(index, operation)| {
+            execute_preview_operation(&batch_id, &created_at, index, operation)
+        })
         .collect::<Vec<_>>();
 
     Ok(ExecuteMovesResult {
@@ -294,8 +296,7 @@ fn validate_safe_file_name(name: &str) -> Result<(), String> {
             .to_ascii_lowercase();
         let reserved = [
             "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7",
-            "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8",
-            "lpt9",
+            "com8", "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
         ];
         if reserved.contains(&stem.as_str())
             || trimmed
