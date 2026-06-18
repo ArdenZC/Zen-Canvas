@@ -6049,3 +6049,138 @@ html.search-window-root .command-backdrop.standalone {
   gap: 10px;
   flex-wrap: wrap;
 }
+
+.segmented.compact.quad {
+  width: min(420px, 100%);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.pill-check-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.pill-check-grid button {
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.38);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+  font-weight: 650;
+  transition: transform 0.22s var(--ease-spring), background 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease;
+}
+
+.pill-check-grid button:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.68);
+  border-color: rgba(255, 255, 255, 0.72);
+}
+
+.pill-check-grid button.active {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.44);
+  background: linear-gradient(135deg, rgba(0, 122, 255, 0.92), rgba(16, 185, 129, 0.82));
+  box-shadow: 0 14px 30px -18px rgba(0, 122, 255, 0.62), inset 0 1px 1px rgba(255, 255, 255, 0.48);
+}
+
+.dark .pill-check-grid button {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.dark .pill-check-grid button:hover {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.vault-count-line {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.vault-load-more {
+  width: fit-content;
+  margin: 4px auto 0;
+}
+
+.restore-preview-list {
+  display: grid;
+  gap: 10px;
+}
+
+.restore-preview-card {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+  padding: 12px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.72);
+}
+
+.dark .restore-preview-card {
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+}
+
+.restore-preview-card.ok {
+  border-color: rgba(52, 199, 89, 0.22);
+}
+
+.restore-preview-card.blocked {
+  border-color: rgba(255, 149, 0, 0.22);
+}
+
+.restore-preview-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.restore-preview-status strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.restore-preview-body {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.restore-preview-body > strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.restore-path-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-family: "SF Mono", Consolas, monospace;
+  font-size: 11px;
+}
+
+.restore-path-pair span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.restore-preview-body small {
+  color: var(--danger);
+  font-size: 12px;
+}

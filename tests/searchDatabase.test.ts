@@ -94,6 +94,25 @@ describe("SQLite FTS search database", () => {
     const remaining = db.getOperationLogs().map((log) => log.id);
     expect(remaining).toEqual(["recent"]);
   });
+
+  it("uses 30 days as the default restore retention setting", () => {
+    const db = expectDatabase();
+    const oldDate = new Date(Date.now() - 31 * 86_400_000).toISOString();
+    const recentDate = new Date(Date.now() - 29 * 86_400_000).toISOString();
+
+    db.addOperationLogs([
+      makeLog("old-default", oldDate, "not_restored"),
+      makeLog("recent-default", recentDate, "not_restored")
+    ]);
+
+    db.pruneOperationLogs();
+
+    expect(db.getRestoreRetentionDays()).toBe(30);
+    expect(db.getOperationLogs().map((log) => log.id)).toEqual(["recent-default"]);
+
+    db.setSetting("restoreRetentionDays", "90");
+    expect(db.getRestoreRetentionDays()).toBe(90);
+  });
 });
 
 function expectDatabase(): Database {

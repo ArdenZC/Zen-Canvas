@@ -30,6 +30,7 @@ import {
 import type {
   AppSnapshot,
   CloseBehavior,
+  DefaultScanFolder,
   FileQuery,
   FileRecord,
   FolderNamingLanguage,
@@ -38,6 +39,7 @@ import type {
   OperationPreview,
   RestoreBatch,
   RestorePreview,
+  RestoreRetentionDays,
   Rule,
   SearchResult,
   SearchSource
@@ -115,6 +117,7 @@ export function App() {
   const [isScanning, setIsScanning] = useState(false);
   const [status, setStatus] = useState("");
   const [selectedFolders, setSelectedFolders] = useState<string[]>([]);
+  const [activeScanRootPaths, setActiveScanRootPaths] = useState<string[]>([]);
   const [isCommandOpen, setIsCommandOpen] = useState(false);
   const [isCloseChoiceOpen, setIsCloseChoiceOpen] = useState(false);
   const [closeBehavior, setCloseBehaviorState] = useState<CloseBehavior>("ask");
@@ -169,6 +172,7 @@ export function App() {
     if (!fileManager) return;
     fileManager.getSnapshot().then((next) => {
       setSnapshot(next);
+      setActiveScanRootPaths(next.scanRoots.map((root) => root.path));
       if (next.files.length) setSelectedFileId(next.files[0]?.id ?? "");
     });
   }, [fileManager]);
@@ -236,22 +240,26 @@ export function App() {
     }
   }, [isSearchMode]);
 
-  useEffect(() => {
-    setSelectedOperationIds(
-      new Set(displayPreviews.filter((preview) => preview.selected_by_default).map((preview) => preview.id))
-    );
-    setPreviewNameOverrides({});
-  }, [snapshot.files]);
-
+  const scopedFiles = useMemo(
+    () => activeScanRootPaths.length ? snapshot.files.filter((file) => fileBelongsToRoots(file, activeScanRootPaths)) : snapshot.files,
+    [activeScanRootPaths, snapshot.files]
+  );
   const filteredFiles = useMemo(() => filterFiles(snapshot.files, query), [snapshot.files, query]);
   const selectedFile =
     snapshot.files.find((file) => file.id === selectedFileId) ?? filteredFiles[0] ?? snapshot.files[0];
-  const previews = useMemo(() => createOperationPreviews(snapshot.files), [snapshot.files]);
+  const previews = useMemo(() => createOperationPreviews(scopedFiles), [scopedFiles]);
   const displayPreviews = useMemo(
     () => previews.map((preview) => applyPreviewNameOverride(preview, previewNameOverrides[preview.id])),
     [previewNameOverrides, previews]
   );
   const previewActionCount = displayPreviews.filter((preview) => preview.status === "pending").length;
+
+  useEffect(() => {
+    setSelectedOperationIds(
+      new Set(previews.filter((preview) => preview.selected_by_default).map((preview) => preview.id))
+    );
+    setPreviewNameOverrides({});
+  }, [previews]);
 
   const nav = [
     { id: "scanner" as const, label: t("spaceScan"), icon: Radar },
@@ -290,7 +298,9 @@ export function App() {
     setIsScanning(true);
     try {
       if (fileManager) {
-        await fileManager.scanDefaults();
+        const result = await fileManager.scanDefaults();
+        setActiveScanRootPaths(result.roots.map((root) => root.path));
+        setSelectedFolders(result.roots.map((root) => root.path));
         await refreshSnapshot();
         setStatus(t("success"));
       } else {
@@ -315,6 +325,7 @@ export function App() {
           return;
         }
         setSelectedFolders(result.selectedPaths);
+        setActiveScanRootPaths(result.roots.map((root) => root.path));
         const next = await fileManager.getSnapshot();
         setSnapshot(next);
         setSelectedFileId(next.files[0]?.id ?? "");
@@ -545,7 +556,7 @@ export function App() {
             )}
             {view === "organize" && (
               <HubView
-                files={snapshot.files}
+                files={scopedFiles}
                 setView={setView}
                 t={t}
               />
@@ -909,6 +920,8 @@ function VaultView({
   setSelectedFileId: (id: string) => void;
   t: Translator;
 }) {
+  const pageSize = 50;
+  const [visibleCount, setVisibleCount] = useState(pageSize);
   const filters = [
     {
       key: "all",
@@ -942,6 +955,12 @@ function VaultView({
       : query.lifecycle === "Archive"
         ? "archive"
         : "all";
+  const visibleFiles = useMemo(() => files.slice(0, visibleCount), [files, visibleCount]);
+  const remainingCount = Math.max(0, files.length - visibleFiles.length);
+
+  useEffect(() => {
+    setVisibleCount(pageSize);
+  }, [activeFilterKey, files.length]);
 
   return (
     <div className="vault-layout page-enter">
@@ -965,8 +984,11 @@ function VaultView({
         ))}
       </div>
       <p className="vault-helper">{t("libraryIntro")}</p>
+      <div className="vault-count-line">
+        <span>{t("libraryShowing").replace("{visible}", String(visibleFiles.length)).replace("{total}", String(files.length))}</span>
+      </div>
       <section className="vault-grid">
-        {files.map((file) => (
+        {visibleFiles.map((file) => (
           <button
             key={file.id}
             className={`asset-card glass-panel ${selectedFile?.id === file.id ? "selected" : ""}`}
@@ -984,6 +1006,12 @@ function VaultView({
           </button>
         ))}
       </section>
+      {remainingCount > 0 && (
+        <button className="glass-button vault-load-more" onClick={() => setVisibleCount((count) => count + pageSize)}>
+          <Plus size={16} />
+          {t("loadMoreFiles").replace("{count}", String(Math.min(pageSize, remainingCount)))}
+        </button>
+      )}
     </div>
   );
 }
@@ -1346,14 +1374,20 @@ function RestoreView({ hasNativeApi, t }: { hasNativeApi: boolean; t: Translator
         {!preview?.items.length ? (
           <div className="empty-state compact">{t("noRestorePreview")}</div>
         ) : (
-          <div className="preview-list">
+          <div className="restore-preview-list">
             {preview.items.map((item) => (
-              <div className="preview-row restore-item" key={item.log_id}>
-                <span className={`status-dot ${item.can_restore ? "ok" : "blocked"}`} />
-                <div>
+              <div className={`restore-preview-card ${item.can_restore ? "ok" : "blocked"}`} key={item.log_id}>
+                <div className="restore-preview-status">
+                  <span className={`status-dot ${item.can_restore ? "ok" : "blocked"}`} />
+                  <strong>{item.can_restore ? t("restorable") : t("needsReview")}</strong>
+                </div>
+                <div className="restore-preview-body">
                   <strong>{item.new_name} {"->"} {item.old_name}</strong>
-                  <span>{item.current_path}</span>
-                  <span>{item.restore_path}</span>
+                  <div className="restore-path-pair">
+                    <span title={item.current_path}>{item.current_path}</span>
+                    <ChevronRight size={15} />
+                    <span title={item.restore_path}>{item.restore_path}</span>
+                  </div>
                   {item.blocking_reason && <small>{item.blocking_reason}</small>}
                 </div>
               </div>
@@ -1395,6 +1429,8 @@ function SettingsView({
   const [backgroundResident, setBackgroundResident] = useState(false);
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [folderNamingLanguage, setFolderNamingLanguageState] = useState<FolderNamingLanguage>("en");
+  const [defaultScanFolders, setDefaultScanFoldersState] = useState<DefaultScanFolder[]>(["Desktop", "Downloads", "Documents"]);
+  const [restoreRetentionDays, setRestoreRetentionDaysState] = useState<RestoreRetentionDays>(30);
   const [settingsStatus, setSettingsStatus] = useState("");
   const fileManager = window.fileManager;
   const platformHotkeyLabel = platform === "darwin" ? "⌘ K" : "Ctrl K";
@@ -1410,6 +1446,8 @@ function SettingsView({
     fileManager.getBackgroundResident?.().then(setBackgroundResident).catch(() => undefined);
     fileManager.getLaunchAtLogin?.().then(setLaunchAtLogin).catch(() => undefined);
     fileManager.getFolderNamingLanguage?.().then(setFolderNamingLanguageState).catch(() => undefined);
+    fileManager.getDefaultScanFolders?.().then(setDefaultScanFoldersState).catch(() => undefined);
+    fileManager.getRestoreRetentionDays?.().then(setRestoreRetentionDaysState).catch(() => undefined);
   }, [fileManager, platform]);
 
   async function toggleSource(id: string) {
@@ -1480,6 +1518,30 @@ function SettingsView({
     setSettingsStatus(t("settingSaved"));
   }
 
+  async function toggleDefaultScanFolder(folder: DefaultScanFolder) {
+    const next = defaultScanFolders.includes(folder)
+      ? defaultScanFolders.filter((item) => item !== folder)
+      : [...defaultScanFolders, folder];
+    const normalized = next.length ? next : [folder];
+    setDefaultScanFoldersState(normalized);
+    if (!fileManager?.setDefaultScanFolders) {
+      setSettingsStatus(t("desktopOnlySetting"));
+      return;
+    }
+    setDefaultScanFoldersState(await fileManager.setDefaultScanFolders(normalized));
+    setSettingsStatus(t("settingSaved"));
+  }
+
+  async function updateRestoreRetentionDays(days: RestoreRetentionDays) {
+    setRestoreRetentionDaysState(days);
+    if (!fileManager?.setRestoreRetentionDays) {
+      setSettingsStatus(t("desktopOnlySetting"));
+      return;
+    }
+    setRestoreRetentionDaysState(await fileManager.setRestoreRetentionDays(days));
+    setSettingsStatus(t("settingSaved"));
+  }
+
   return (
     <div className="settings-layout page-enter">
       <section className="glass-panel settings-panel">
@@ -1527,6 +1589,23 @@ function SettingsView({
             <button className={folderNamingLanguage === "zh" ? "active" : ""} onClick={() => void updateFolderNamingLanguage("zh")}>
               {t("chineseFolderNames")}
             </button>
+          </div>
+        </div>
+        <div className="setting-row vertical">
+          <div>
+            <strong>{t("defaultScanFolders")}</strong>
+            <span>{t("defaultScanFoldersDesc")}</span>
+          </div>
+          <div className="pill-check-grid">
+            {(["Desktop", "Downloads", "Documents"] as DefaultScanFolder[]).map((folder) => (
+              <button
+                className={defaultScanFolders.includes(folder) ? "active" : ""}
+                key={folder}
+                onClick={() => void toggleDefaultScanFolder(folder)}
+              >
+                {folder}
+              </button>
+            ))}
           </div>
         </div>
         <div className="setting-row">
@@ -1611,7 +1690,17 @@ function SettingsView({
               <strong>{t("logRetention")}</strong>
               <span>{t("logRetentionDesc")}</span>
             </div>
-            <strong>60 {t("days")}</strong>
+            <div className="segmented compact quad">
+              {([15, 30, 60, 90] as RestoreRetentionDays[]).map((days) => (
+                <button
+                  className={restoreRetentionDays === days ? "active" : ""}
+                  key={days}
+                  onClick={() => void updateRestoreRetentionDays(days)}
+                >
+                  {days} {t("days")}
+                </button>
+              ))}
+            </div>
           </div>
         </details>
         {settingsStatus && <div className="system-toast inline">{settingsStatus}</div>}
@@ -2272,6 +2361,14 @@ function folderNameLike(folderPath: string): string {
 
 function normalizePathLike(value: string): string {
   return value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+function fileBelongsToRoots(file: FileRecord, roots: string[]): boolean {
+  const filePath = normalizePathLike(file.path);
+  return roots.some((root) => {
+    const normalizedRoot = normalizePathLike(root);
+    return filePath === normalizedRoot || filePath.startsWith(`${normalizedRoot}/`);
+  });
 }
 
 function preferredLanguage(): Language {

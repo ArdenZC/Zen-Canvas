@@ -34,7 +34,7 @@
 - **File Library**: browse scan results, status filters, and classification reasons. Use top search for finding a specific file.
 - **Preview Execute**: groups plans by main folders and subfolders. Every move, rename, or combined action must be confirmed first.
 - **Auto Rules**: built-in rules are stable; user rules can apply globally. The advanced builder stays folded by default.
-- **Restore Records**: only restores operations executed by Zen Canvas, grouped by batch and kept for 60 days by default.
+- **Restore Records**: only restores operations executed by Zen Canvas, grouped by batch and kept for 30 days by default, configurable to 15 / 60 / 90 days.
 
 ## Search
 

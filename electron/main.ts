@@ -1,17 +1,20 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, screen, session, shell } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeTheme, screen, session, shell, Tray } from "electron";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { watch } from "chokidar";
 import { Database } from "../src/core/database.js";
-import { scanDefaultRoots, scanRoots } from "../src/core/fileScanner.js";
+import { scanRoots } from "../src/core/fileScanner.js";
 import { executeOperations } from "../src/core/operationExecutor.js";
 import { createRestorePreview, restoreBatch } from "../src/core/restoreExecutor.js";
 import { applyAllRulesToFiles } from "../src/core/ruleEngine.js";
 import type {
   CloseBehavior,
+  DefaultScanFolder,
   ExecuteOperationRequest,
   FileQuery,
   FolderNamingLanguage,
+  RestoreRetentionDays,
   Rule,
   SearchQuery,
   SearchSource
@@ -19,16 +22,19 @@ import type {
 
 let mainWindow: BrowserWindow | null = null;
 let searchWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
 let db: Database;
 let searchWatcher: ReturnType<typeof watch> | null = null;
 let registeredSearchHotkey = "CommandOrControl+K";
 let isQuitting = false;
+let suppressSearchStaleUntil = 0;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev: boolean = Boolean(process.env.VITE_DEV_SERVER_URL) || process.env.NODE_ENV === "development";
 const appIconPath = path.join(__dirname, "../../build/icon.png");
 const appDarkIconPath = path.join(__dirname, "../../build/icon-dark.png");
 const searchWindowSize = { width: 760, height: 520 };
+const defaultScanFolderOptions: DefaultScanFolder[] = ["Desktop", "Downloads", "Documents"];
 
 function currentAppIconPath() {
   return nativeTheme.shouldUseDarkColors ? appDarkIconPath : appIconPath;
@@ -81,6 +87,12 @@ async function createWindow() {
     }
     mainWindow?.webContents.send("app:close-requested");
   });
+
+  mainWindow.on("minimize" as never, (event: Electron.Event) => {
+    if (process.platform !== "win32" || isQuitting) return;
+    event.preventDefault();
+    hideMainWindow();
+  });
 }
 
 function hideMainWindow() {
@@ -88,6 +100,35 @@ function hideMainWindow() {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.hide();
   }
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    void createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function createTray() {
+  if (process.platform === "darwin" || tray) return;
+  tray = new Tray(currentAppIconPath());
+  tray.setToolTip("Zen Canvas");
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: "打开 Zen Canvas", click: showMainWindow },
+    { label: "搜索文件", click: () => void showSearch() },
+    { type: "separator" },
+    {
+      label: "退出",
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      }
+    }
+  ]));
+  tray.on("click", showMainWindow);
 }
 
 function getCloseBehavior(): CloseBehavior {
@@ -101,6 +142,44 @@ function getFolderNamingLanguage(): FolderNamingLanguage {
 
 function applyClassification(files: Parameters<typeof applyAllRulesToFiles>[0], rules: Rule[]) {
   return applyAllRulesToFiles(files, rules, { folderNamingLanguage: getFolderNamingLanguage() });
+}
+
+function getDefaultScanFolders(): DefaultScanFolder[] {
+  const raw = db?.getSetting("defaultScanFolders");
+  if (!raw) return defaultScanFolderOptions;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return defaultScanFolderOptions;
+    const valid = parsed.filter((item): item is DefaultScanFolder =>
+      defaultScanFolderOptions.includes(item as DefaultScanFolder)
+    );
+    return valid.length ? valid : defaultScanFolderOptions;
+  } catch {
+    return defaultScanFolderOptions;
+  }
+}
+
+function normalizeDefaultScanFolders(folders: DefaultScanFolder[]): DefaultScanFolder[] {
+  const seen = new Set<DefaultScanFolder>();
+  for (const folder of folders) {
+    if (defaultScanFolderOptions.includes(folder)) seen.add(folder);
+  }
+  return seen.size ? [...seen] : defaultScanFolderOptions;
+}
+
+function getDefaultScanPaths(): string[] {
+  const home = os.homedir();
+  return getDefaultScanFolders().map((folder) => path.join(home, folder));
+}
+
+function normalizeRestoreRetentionDays(days: number): RestoreRetentionDays {
+  return days === 15 || days === 60 || days === 90 ? days : 30;
+}
+
+function rebuildSearchIndexClean() {
+  const state = db.rebuildSearchIndex();
+  suppressSearchStaleUntil = Date.now() + 3000;
+  return state;
 }
 
 function positionSearchWindow() {
@@ -119,6 +198,7 @@ function refreshWindowIcons() {
   for (const window of BrowserWindow.getAllWindows()) {
     window.setIcon(icon);
   }
+  tray?.setImage(icon);
 }
 
 async function createSearchWindow() {
@@ -180,12 +260,12 @@ function registerIpc() {
   ipcMain.handle("app:getSnapshot", async () => db.getSnapshot());
 
   ipcMain.handle("scan:defaults", async () => {
-    const result = await scanDefaultRoots();
+    const result = await scanRoots(getDefaultScanPaths());
     const rules = db.getRules();
     const classified = applyClassification(result.files, rules);
     db.upsertScanRoots(result.roots);
     db.replaceFilesForRoots(result.roots, classified);
-    db.rebuildSearchIndex();
+    rebuildSearchIndexClean();
     await refreshSearchWatcher();
     return { ...result, files: classified };
   });
@@ -215,7 +295,7 @@ function registerIpc() {
     const classified = applyClassification(result.files, rules);
     db.upsertScanRoots(result.roots);
     db.replaceFilesForRoots(result.roots, classified);
-    db.rebuildSearchIndex();
+    rebuildSearchIndexClean();
     await refreshSearchWatcher();
     return { ...result, files: classified, canceled: false, selectedPaths: selected.filePaths };
   });
@@ -248,7 +328,7 @@ function registerIpc() {
     return db.getSearchSources();
   });
 
-  ipcMain.handle("search:rebuildIndex", async () => db.rebuildSearchIndex());
+  ipcMain.handle("search:rebuildIndex", async () => rebuildSearchIndexClean());
 
   ipcMain.handle("search:getHotkey", async () => db.getSetting("searchHotkey") ?? registeredSearchHotkey);
 
@@ -302,6 +382,23 @@ function registerIpc() {
     return normalized;
   });
 
+  ipcMain.handle("settings:getDefaultScanFolders", async () => getDefaultScanFolders());
+
+  ipcMain.handle("settings:setDefaultScanFolders", async (_event, folders: DefaultScanFolder[]) => {
+    const normalized = normalizeDefaultScanFolders(folders);
+    db.setSetting("defaultScanFolders", JSON.stringify(normalized));
+    return normalized;
+  });
+
+  ipcMain.handle("settings:getRestoreRetentionDays", async () => db.getRestoreRetentionDays());
+
+  ipcMain.handle("settings:setRestoreRetentionDays", async (_event, days: number) => {
+    const normalized = normalizeRestoreRetentionDays(days);
+    db.setSetting("restoreRetentionDays", String(normalized));
+    db.pruneOperationLogs(normalized);
+    return normalized;
+  });
+
   ipcMain.handle("rules:save", async (_event, rule: Rule) => {
     db.saveRule(rule);
     return db.getRules();
@@ -328,7 +425,7 @@ function registerIpc() {
     return result;
   });
 
-  ipcMain.handle("operations:restoreBatches", async () => db.getRestoreBatches(60));
+  ipcMain.handle("operations:restoreBatches", async () => db.getRestoreBatches());
 
   ipcMain.handle("operations:restorePreview", async (_event, batchId: string) => {
     const logs = db.getOperationLogsByBatch(batchId);
@@ -426,6 +523,7 @@ async function refreshSearchWatcher() {
     ignored: (targetPath) => shouldIgnoreWatchPath(String(targetPath))
   });
   const markStale = (changedPath: string) => {
+    if (Date.now() < suppressSearchStaleUntil) return;
     db.markSearchSourceStaleByPath(changedPath);
     mainWindow?.webContents.send("search:stale", db.getSearchIndexState());
   };
@@ -450,6 +548,7 @@ app.whenReady().then(async () => {
     db = await Database.open(app.getPath("userData"));
     registerIpc();
     await createWindow();
+    createTray();
     refreshWindowIcons();
     nativeTheme.on("updated", refreshWindowIcons);
     registerSearchHotkey(db.getSetting("searchHotkey") ?? "CommandOrControl+K");
@@ -478,4 +577,5 @@ app.on("will-quit", () => {
   globalShortcut.unregisterAll();
   searchWindow?.destroy();
   void searchWatcher?.close();
+  tray?.destroy();
 });

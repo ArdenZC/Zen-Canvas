@@ -49,6 +49,8 @@ export type SearchSourceType = "user_space" | "folder" | "cloud" | "external";
 export type RestoreStatus = "not_restored" | "restored" | "failed" | "unavailable";
 export type FolderNamingLanguage = "en" | "zh";
 export type CloseBehavior = "ask" | "minimize" | "quit";
+export type DefaultScanFolder = "Desktop" | "Downloads" | "Documents";
+export type RestoreRetentionDays = 15 | 30 | 60 | 90;
 
 export interface FileRecord {
   id: string;

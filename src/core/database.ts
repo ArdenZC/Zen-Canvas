@@ -9,6 +9,7 @@ import type {
   FolderNamingLanguage,
   OperationLog,
   RestoreBatch,
+  RestoreRetentionDays,
   RestoreStatus,
   Rule,
   ScanRoot,
@@ -37,7 +38,7 @@ export class Database {
     const database = new Database(db, dbPath);
     database.migrate();
     database.ensureSystemRules();
-    database.pruneOperationLogs(60);
+    database.pruneOperationLogs(database.getRestoreRetentionDays());
     return database;
   }
 
@@ -565,6 +566,11 @@ export class Database {
     return this.getSetting("folderNamingLanguage") === "zh" ? "zh" : "en";
   }
 
+  getRestoreRetentionDays(): RestoreRetentionDays {
+    const value = Number(this.getSetting("restoreRetentionDays") ?? 30);
+    return value === 15 || value === 60 || value === 90 ? value : 30;
+  }
+
   addOperationLogs(logs: OperationLog[]) {
     if (!logs.length) return;
     const stmt = this.db.prepare(`
@@ -594,7 +600,7 @@ export class Database {
       .map(deserializeOperationLog);
   }
 
-  getRestoreBatches(retentionDays = 60): RestoreBatch[] {
+  getRestoreBatches(retentionDays = this.getRestoreRetentionDays()): RestoreBatch[] {
     const minCreatedAt = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
     const rows = this.db.prepare(`
       SELECT
@@ -638,7 +644,7 @@ export class Database {
     `).run({ logId, status, error, now: nowIso() });
   }
 
-  pruneOperationLogs(retentionDays = 60) {
+  pruneOperationLogs(retentionDays = this.getRestoreRetentionDays()) {
     const threshold = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
     this.db.prepare("DELETE FROM operation_logs WHERE created_at < @threshold")
       .run({ threshold });

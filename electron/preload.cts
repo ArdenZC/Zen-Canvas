@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   AppSnapshot,
   CloseBehavior,
+  DefaultScanFolder,
   ExecuteOperationRequest,
   FileQuery,
   FolderNamingLanguage,
@@ -9,6 +10,7 @@ import type {
   RestoreBatch,
   RestoreBatchResult,
   RestorePreview,
+  RestoreRetentionDays,
   Rule,
   ScanResult,
   SearchIndexState,
@@ -60,6 +62,14 @@ const api = {
     ipcRenderer.invoke("settings:getFolderNamingLanguage"),
   setFolderNamingLanguage: (language: FolderNamingLanguage): Promise<FolderNamingLanguage> =>
     ipcRenderer.invoke("settings:setFolderNamingLanguage", language),
+  getDefaultScanFolders: (): Promise<DefaultScanFolder[]> =>
+    ipcRenderer.invoke("settings:getDefaultScanFolders"),
+  setDefaultScanFolders: (folders: DefaultScanFolder[]): Promise<DefaultScanFolder[]> =>
+    ipcRenderer.invoke("settings:setDefaultScanFolders", folders),
+  getRestoreRetentionDays: (): Promise<RestoreRetentionDays> =>
+    ipcRenderer.invoke("settings:getRestoreRetentionDays"),
+  setRestoreRetentionDays: (days: RestoreRetentionDays): Promise<RestoreRetentionDays> =>
+    ipcRenderer.invoke("settings:setRestoreRetentionDays", days),
   revealPath: (path: string) => ipcRenderer.invoke("shell:revealPath", path),
   windowControl: (action: "minimize" | "maximize" | "close") =>
     ipcRenderer.invoke("app:windowControl", action),
