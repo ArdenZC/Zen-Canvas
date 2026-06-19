@@ -322,7 +322,11 @@ impl Database {
                 "#,
             )?;
 
-            for path in paths.iter().map(|path| path.trim()).filter(|path| !path.is_empty()) {
+            for path in paths
+                .iter()
+                .map(|path| path.trim())
+                .filter(|path| !path.is_empty())
+            {
                 let path = trim_trailing_path_separators(path);
                 if path.is_empty() {
                     continue;
@@ -331,11 +335,7 @@ impl Database {
                 let escaped_path = escape_like_pattern(path);
                 let slash_descendants = format!("{escaped_path}/%");
                 let backslash_descendants = format!("{escaped_path}\\%");
-                removed += stmt.execute(params![
-                    path,
-                    slash_descendants,
-                    backslash_descendants
-                ])?;
+                removed += stmt.execute(params![path, slash_descendants, backslash_descendants])?;
             }
         }
         tx.commit()?;
@@ -659,10 +659,7 @@ pub fn insert_file(db: State<'_, Database>, file: InsertFileRequest) -> Result<(
 }
 
 #[tauri::command]
-pub fn remove_files_by_paths(
-    db: State<'_, Database>,
-    paths: Vec<String>,
-) -> Result<usize, String> {
+pub fn remove_files_by_paths(db: State<'_, Database>, paths: Vec<String>) -> Result<usize, String> {
     db.remove_files_by_paths(&paths).map_err(command_error)
 }
 
