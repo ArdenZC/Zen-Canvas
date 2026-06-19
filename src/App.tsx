@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Archive,
   Clock3,
@@ -24,14 +23,10 @@ import { makeTranslator } from "./i18n";
 import { useDebounce } from "./hooks/useDebounce";
 import { useOperationQueue } from "./hooks/useOperationQueue";
 import { useScanManager } from "./hooks/useScanManager";
+import { useWindowBehavior } from "./hooks/useWindowBehavior";
 import { useAppStore } from "./store/useAppStore";
 import { useRulesStore } from "./store/useRulesStore";
-import type {
-  CloseBehavior,
-  DashboardStats,
-  FileQueryResult,
-  Rule
-} from "./types/domain";
+import type { DashboardStats, FileQueryResult, Rule } from "./types/domain";
 import type { ThemeMode } from "./types/ui";
 import { formatDate } from "./utils/format";
 import {
@@ -95,13 +90,15 @@ export function App() {
   const [selectedFileId, setSelectedFileId] = useState("");
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [isCommandOpen, setIsCommandOpen] = useState(false);
-  const [isCloseChoiceOpen, setIsCloseChoiceOpen] = useState(false);
-  const [closeBehavior, setCloseBehaviorState] = useState<CloseBehavior>(() => {
-    const saved = window.localStorage.getItem("zc-close-behavior");
-    return saved === "minimize" || saved === "quit" || saved === "ask" ? saved : "ask";
-  });
   const commandInputRef = useRef<HTMLInputElement | null>(null);
-  const closeBehaviorRef = useRef(closeBehavior);
+  const {
+    closeBehavior,
+    setCloseBehavior,
+    isCloseChoiceOpen,
+    handleWindowAction,
+    resolveCloseChoice,
+    onCancelCloseChoice
+  } = useWindowBehavior();
   const platform = detectBrowserPlatform();
   const isWindows = platform === "win32";
   const effectiveTheme: Exclude<ThemeMode, "system"> = theme === "system" ? (systemDark ? "dark" : "light") : theme;
@@ -179,10 +176,6 @@ export function App() {
   }, [loadFirstPage, loadStats]);
 
   useEffect(() => {
-    closeBehaviorRef.current = closeBehavior;
-  }, [closeBehavior]);
-
-  useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -236,11 +229,6 @@ export function App() {
     { id: "settings" as const, label: t("settings"), icon: Settings }
   ];
 
-  async function setCloseBehavior(next: CloseBehavior) {
-    window.localStorage.setItem("zc-close-behavior", next);
-    setCloseBehaviorState(next);
-  }
-
   async function saveRule(rule: Rule) {
     addRule(rule);
   }
@@ -255,38 +243,6 @@ export function App() {
       showError(readableError(error));
       throw error;
     }
-  }
-
-  async function handleWindowAction(action: "minimize" | "maximize" | "close") {
-    const win = getCurrentWindow();
-    if (action === "minimize") {
-      await win.minimize();
-    } else if (action === "maximize") {
-      const isMax = await win.isMaximized();
-      if (isMax) {
-        await win.unmaximize();
-      } else {
-        await win.maximize();
-      }
-    } else {
-      requestClose();
-    }
-  }
-
-  function requestClose() {
-    const behavior = closeBehaviorRef.current;
-    if (behavior === "ask") {
-      setIsCloseChoiceOpen(true);
-      return;
-    }
-    if (behavior === "quit") getCurrentWindow().close();
-    setIsCloseChoiceOpen(false);
-  }
-
-  async function resolveCloseChoice(action: "minimize" | "quit", remember: boolean) {
-    if (remember) await setCloseBehavior(action);
-    setIsCloseChoiceOpen(false);
-    if (action === "quit") getCurrentWindow().close();
   }
 
   const activeLabel = nav.find((item) => item.id === view)?.label ?? t("spaceScan");
@@ -505,7 +461,7 @@ export function App() {
       {isCloseChoiceOpen && (
         <CloseChoiceDialog
           t={t}
-          onCancel={() => setIsCloseChoiceOpen(false)}
+          onCancel={onCancelCloseChoice}
           onChoose={resolveCloseChoice}
         />
       )}
