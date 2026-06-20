@@ -343,6 +343,80 @@ impl Database {
         Ok(removed)
     }
 
+    pub fn update_file_after_successful_operation(
+        &self,
+        file_id: &str,
+        source_path: &str,
+        target_path: &str,
+        new_name: &str,
+    ) -> Result<bool, DbError> {
+        let target = PathBuf::from(target_path);
+        let metadata = fs::metadata(&target)?;
+        let normalized_target = normalize_path_for_db(&target);
+        let name = resolved_file_name(target_path, new_name);
+        let extension = extension_from_file_name(&name);
+        let size = if metadata.is_file() {
+            i64::try_from(metadata.len()).unwrap_or(i64::MAX)
+        } else {
+            0
+        };
+        let mtime = metadata
+            .modified()
+            .ok()
+            .and_then(system_time_to_unix_seconds)
+            .unwrap_or_else(current_unix_seconds);
+        let is_dir = metadata.is_dir();
+        let lookup_candidates = path_lookup_candidates(file_id, source_path);
+        let target_candidates = path_lookup_candidates(target_path, &normalized_target);
+
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        let current_id = find_file_row_id(&tx, &lookup_candidates)?;
+        let Some(current_id) = current_id else {
+            tx.commit()?;
+            return Ok(false);
+        };
+
+        for candidate in target_candidates {
+            tx.execute(
+                r#"
+                DELETE FROM files
+                WHERE (id = ?1 OR path = ?1)
+                  AND id <> ?2
+                "#,
+                params![candidate, current_id],
+            )?;
+        }
+
+        let updated = tx.execute(
+            r#"
+            UPDATE files
+            SET id = ?1,
+                path = ?1,
+                name = ?2,
+                extension = ?3,
+                size = ?4,
+                mtime = ?5,
+                is_dir = ?6,
+                suggested_action = 'Keep',
+                requires_confirmation = 0
+            WHERE id = ?7
+            "#,
+            params![
+                normalized_target,
+                name,
+                extension,
+                size,
+                mtime,
+                bool_to_i64(is_dir),
+                current_id
+            ],
+        )?;
+
+        tx.commit()?;
+        Ok(updated > 0)
+    }
+
     pub fn execute_rules_on_inbox(
         &self,
         rules: Vec<Rule>,
@@ -1159,6 +1233,92 @@ fn bool_to_i64(value: bool) -> i64 {
     } else {
         0
     }
+}
+
+fn path_lookup_candidates(first: &str, second: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+    for value in [first, second] {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        push_unique(&mut candidates, trimmed.to_string());
+        push_unique(&mut candidates, normalize_path_text(trimmed));
+    }
+    candidates
+}
+
+fn push_unique(values: &mut Vec<String>, value: String) {
+    if !values.iter().any(|item| item == &value) {
+        values.push(value);
+    }
+}
+
+fn normalize_path_for_db(path: &Path) -> String {
+    normalize_path_text(&path.to_string_lossy())
+}
+
+fn normalize_path_text(path: &str) -> String {
+    let normalized = path.replace('\\', "/");
+    if let Some(stripped) = normalized.strip_prefix("//?/UNC/") {
+        return format!("//{stripped}");
+    }
+    if let Some(stripped) = normalized.strip_prefix("//?/") {
+        return stripped.to_string();
+    }
+    normalized
+}
+
+fn resolved_file_name(target_path: &str, new_name: &str) -> String {
+    let trimmed = new_name.trim();
+    if !trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+
+    target_path
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .filter(|value| !value.is_empty())
+        .unwrap_or(target_path)
+        .to_string()
+}
+
+fn extension_from_file_name(name: &str) -> String {
+    Path::new(name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn find_file_row_id(conn: &Connection, candidates: &[String]) -> Result<Option<String>, DbError> {
+    for candidate in candidates {
+        let found = conn
+            .query_row(
+                "SELECT id FROM files WHERE id = ?1 OR path = ?1 LIMIT 1",
+                params![candidate],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if found.is_some() {
+            return Ok(found);
+        }
+    }
+    Ok(None)
+}
+
+fn system_time_to_unix_seconds(time: SystemTime) -> Option<i64> {
+    time.duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| i64::try_from(duration.as_secs()).ok())
+}
+
+fn current_unix_seconds() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| i64::try_from(duration.as_secs()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
 }
 
 fn parse_operation_timestamp(value: &str) -> i64 {
