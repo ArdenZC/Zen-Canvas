@@ -4,10 +4,10 @@ use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::HashMap,
     fs,
-    hash::{Hash, Hasher},
     path::{Path, PathBuf},
     sync::OnceLock,
     time::{SystemTime, UNIX_EPOCH},
@@ -1485,11 +1485,14 @@ fn rule_version_for_rules(rules: &[Rule]) -> Result<String, DbError> {
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| left.id.cmp(&right.id))
             .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.source.cmp(&right.source))
     });
     let payload = serde_json::to_string(&stable_rules)?;
-    let mut hasher = DefaultHasher::new();
-    payload.hash(&mut hasher);
-    Ok(format!("{:016x}", hasher.finish()))
+    let digest = Sha256::digest(payload.as_bytes());
+    Ok(digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>())
 }
 
 fn should_classify_file(row: &IndexedFileRow, rule_version: &str) -> bool {
@@ -3182,6 +3185,44 @@ mod tests {
         assert!(!fingerprint.1.is_empty());
         assert_eq!(fingerprint.2, 1_900_000_000);
         assert_eq!(fingerprint.3, 4_096);
+    }
+
+    #[test]
+    fn rule_version_is_stable_for_same_rules() {
+        let rules = vec![
+            name_contains_rule("special-rule-a", "Special A", "Project"),
+            name_contains_rule("special-rule-b", "Special B", "Career"),
+        ];
+
+        let first = rule_version_for_rules(&rules).expect("first version");
+        let second = rule_version_for_rules(&rules).expect("second version");
+
+        assert_eq!(first, second);
+        assert_eq!(first.len(), 64);
+        assert!(first.chars().all(|character| character.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn rule_version_ignores_user_rule_order() {
+        let rule_a = name_contains_rule("special-rule-a", "Special A", "Project");
+        let rule_b = name_contains_rule("special-rule-b", "Special B", "Career");
+
+        let first =
+            rule_version_for_rules(&[rule_a.clone(), rule_b.clone()]).expect("first version");
+        let second = rule_version_for_rules(&[rule_b, rule_a]).expect("second version");
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn rule_version_changes_when_rule_content_changes() {
+        let mut changed_rule = name_contains_rule("special-rule-a", "Special A", "Project");
+        let original = rule_version_for_rules(&[changed_rule.clone()]).expect("original version");
+
+        changed_rule.weight = 50.0;
+        let changed = rule_version_for_rules(&[changed_rule]).expect("changed version");
+
+        assert_ne!(original, changed);
     }
 
     #[test]

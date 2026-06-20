@@ -25,6 +25,7 @@ r2d2_sqlite = { version = "0.34.0", features = ["bundled"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
 sysinfo = "0.32"
 tauri = { version = "2", default-features = false, features = [] }
 tauri-plugin-dialog = "2.7.1"
