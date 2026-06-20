@@ -65,7 +65,9 @@ export function useOperationQueue({
     try {
       const summary = await tauriApi.executeRulesOnInbox(rules);
       await onRefreshData();
-      onSuccess(`${t("success")}: ${summary.updated.toLocaleString()} / ${summary.scanned.toLocaleString()}`);
+      onSuccess(
+        `${t("success")}: ${summary.updated.toLocaleString()} / ${summary.scanned.toLocaleString()} (${t("skipped")}: ${summary.skipped.toLocaleString()})`
+      );
       return summary;
     } catch (error) {
       onError(readableError(error));

@@ -5,8 +5,9 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
-    collections::HashMap,
+    collections::{hash_map::DefaultHasher, HashMap},
     fs,
+    hash::{Hash, Hasher},
     path::{Path, PathBuf},
     sync::OnceLock,
     time::{SystemTime, UNIX_EPOCH},
@@ -59,12 +60,16 @@ struct IndexedFileRow {
     requires_confirmation: bool,
     is_stale: bool,
     last_seen_at: i64,
+    last_classified_at: i64,
+    classified_rule_version: String,
+    last_classified_mtime: i64,
+    last_classified_size: i64,
 }
 
 const CLASSIFY_BATCH_SIZE: usize = 500;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 5;
+const CURRENT_SCHEMA_VERSION: i32 = 6;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -157,7 +162,7 @@ pub struct StatsSummary {
     pub last_scanned_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Rule {
     pub id: String,
     pub name: String,
@@ -181,7 +186,7 @@ pub struct Rule {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RuleConditionGroup {
     pub id: String,
     #[serde(default = "default_and")]
@@ -190,7 +195,7 @@ pub struct RuleConditionGroup {
     pub conditions: Vec<RuleCondition>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RuleCondition {
     pub id: String,
     pub field: String,
@@ -198,7 +203,7 @@ pub struct RuleCondition {
     pub value: Value,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RuleAction {
     #[serde(default)]
     pub purpose: Option<String>,
@@ -221,6 +226,7 @@ pub struct RuleAction {
 pub struct RuleExecutionSummary {
     pub scanned: i64,
     pub updated: i64,
+    pub skipped: i64,
     pub needs_confirmation: i64,
 }
 
@@ -477,6 +483,7 @@ impl Database {
         rules: Vec<Rule>,
     ) -> Result<RuleExecutionSummary, DbError> {
         let all_rules = active_rules(rules);
+        let rule_version = rule_version_for_rules(&all_rules)?;
         let read_conn = self.conn()?;
         let mut write_conn = self.conn()?;
         let mut stmt = read_conn.prepare(
@@ -484,7 +491,9 @@ impl Database {
                 SELECT id, path, name, extension, size, mtime, ctime, is_dir, state_code,
                        file_type, purpose, lifecycle, context, risk_level, suggested_action,
                        suggested_target_path, suggested_name, confidence, classification_reason,
-                       matched_rules, requires_confirmation, is_stale, last_seen_at
+                       matched_rules, requires_confirmation, is_stale, last_seen_at,
+                       last_classified_at, classified_rule_version, last_classified_mtime,
+                       last_classified_size
                 FROM files
                 WHERE lifecycle = 'Inbox'
                   AND is_stale = 0
@@ -495,16 +504,27 @@ impl Database {
 
         let mut scanned = 0_i64;
         let mut updated = 0_i64;
+        let mut skipped = 0_i64;
         let mut needs_confirmation = 0_i64;
         let mut batch = Vec::with_capacity(CLASSIFY_BATCH_SIZE);
 
         while let Some(row) = rows.next()? {
-            batch.push(indexed_file_from_row(row)?);
+            let row = indexed_file_from_row(row)?;
             scanned += 1;
+            if !should_classify_file(&row, &rule_version) {
+                skipped += 1;
+                continue;
+            }
+
+            batch.push(row);
 
             if batch.len() == CLASSIFY_BATCH_SIZE {
-                let batch_summary =
-                    execute_classification_batch(&mut write_conn, &batch, &all_rules)?;
+                let batch_summary = execute_classification_batch(
+                    &mut write_conn,
+                    &batch,
+                    &all_rules,
+                    &rule_version,
+                )?;
                 updated += batch_summary.updated;
                 needs_confirmation += batch_summary.needs_confirmation;
                 batch.clear();
@@ -512,7 +532,8 @@ impl Database {
         }
 
         if !batch.is_empty() {
-            let batch_summary = execute_classification_batch(&mut write_conn, &batch, &all_rules)?;
+            let batch_summary =
+                execute_classification_batch(&mut write_conn, &batch, &all_rules, &rule_version)?;
             updated += batch_summary.updated;
             needs_confirmation += batch_summary.needs_confirmation;
         }
@@ -520,6 +541,7 @@ impl Database {
         Ok(RuleExecutionSummary {
             scanned,
             updated,
+            skipped,
             needs_confirmation,
         })
     }
@@ -534,11 +556,13 @@ impl Database {
             return Ok(RuleExecutionSummary {
                 scanned: 0,
                 updated: 0,
+                skipped: 0,
                 needs_confirmation: 0,
             });
         }
 
         let all_rules = active_rules(rules);
+        let rule_version = rule_version_for_rules(&all_rules)?;
         let placeholders = std::iter::repeat("?")
             .take(target_paths.len())
             .collect::<Vec<_>>()
@@ -548,7 +572,9 @@ impl Database {
             SELECT id, path, name, extension, size, mtime, ctime, is_dir, state_code,
                    file_type, purpose, lifecycle, context, risk_level, suggested_action,
                    suggested_target_path, suggested_name, confidence, classification_reason,
-                   matched_rules, requires_confirmation, is_stale, last_seen_at
+                   matched_rules, requires_confirmation, is_stale, last_seen_at,
+                   last_classified_at, classified_rule_version, last_classified_mtime,
+                   last_classified_size
             FROM files
             WHERE lifecycle = 'Inbox'
               AND is_stale = 0
@@ -563,16 +589,27 @@ impl Database {
 
         let mut scanned = 0_i64;
         let mut updated = 0_i64;
+        let mut skipped = 0_i64;
         let mut needs_confirmation = 0_i64;
         let mut batch = Vec::with_capacity(CLASSIFY_BATCH_SIZE);
 
         for row in rows {
-            batch.push(row?);
+            let row = row?;
             scanned += 1;
+            if !should_classify_file(&row, &rule_version) {
+                skipped += 1;
+                continue;
+            }
+
+            batch.push(row);
 
             if batch.len() == CLASSIFY_BATCH_SIZE {
-                let batch_summary =
-                    execute_classification_batch(&mut write_conn, &batch, &all_rules)?;
+                let batch_summary = execute_classification_batch(
+                    &mut write_conn,
+                    &batch,
+                    &all_rules,
+                    &rule_version,
+                )?;
                 updated += batch_summary.updated;
                 needs_confirmation += batch_summary.needs_confirmation;
                 batch.clear();
@@ -580,7 +617,8 @@ impl Database {
         }
 
         if !batch.is_empty() {
-            let batch_summary = execute_classification_batch(&mut write_conn, &batch, &all_rules)?;
+            let batch_summary =
+                execute_classification_batch(&mut write_conn, &batch, &all_rules, &rule_version)?;
             updated += batch_summary.updated;
             needs_confirmation += batch_summary.needs_confirmation;
         }
@@ -588,6 +626,7 @@ impl Database {
         Ok(RuleExecutionSummary {
             scanned,
             updated,
+            skipped,
             needs_confirmation,
         })
     }
@@ -690,6 +729,10 @@ impl Database {
                     f.requires_confirmation,
                     f.is_stale,
                     f.last_seen_at,
+                    f.last_classified_at,
+                    f.classified_rule_version,
+                    f.last_classified_mtime,
+                    f.last_classified_size,
                     bm25(files_fts, 6.0, 1.5) AS rank
                 FROM files_fts
                 JOIN files AS f ON f.rowid = files_fts.rowid
@@ -723,7 +766,9 @@ impl Database {
             SELECT id, path, name, extension, size, mtime, ctime, is_dir, state_code,
                    file_type, purpose, lifecycle, context, risk_level, suggested_action,
                    suggested_target_path, suggested_name, confidence, classification_reason,
-                   matched_rules, requires_confirmation, is_stale, last_seen_at
+                   matched_rules, requires_confirmation, is_stale, last_seen_at,
+                   last_classified_at, classified_rule_version, last_classified_mtime,
+                   last_classified_size
             FROM files
             WHERE is_stale = 0
             ORDER BY mtime DESC, name COLLATE NOCASE ASC
@@ -1295,6 +1340,25 @@ fn migrate(conn: &Connection) -> Result<(), DbError> {
         )?;
         set_schema_version(conn, 5)?;
     }
+    if version < 6 {
+        execute_column_migrations(
+            conn,
+            &[
+                "ALTER TABLE files ADD COLUMN last_classified_at INTEGER NOT NULL DEFAULT 0;",
+                "ALTER TABLE files ADD COLUMN classified_rule_version TEXT NOT NULL DEFAULT '';",
+                "ALTER TABLE files ADD COLUMN last_classified_mtime INTEGER NOT NULL DEFAULT 0;",
+                "ALTER TABLE files ADD COLUMN last_classified_size INTEGER NOT NULL DEFAULT 0;",
+            ],
+        )?;
+        conn.execute_batch(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_files_classified_version ON files(classified_rule_version);
+            CREATE INDEX IF NOT EXISTS idx_files_last_classified_at ON files(last_classified_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_files_classification_fingerprint ON files(last_classified_mtime, last_classified_size);
+            "#,
+        )?;
+        set_schema_version(conn, 6)?;
+    }
     Ok(())
 }
 
@@ -1411,6 +1475,28 @@ fn active_rules(rules: Vec<Rule>) -> Vec<Rule> {
         .into_iter()
         .chain(rules.into_iter().filter(|rule| rule.enabled))
         .collect()
+}
+
+fn rule_version_for_rules(rules: &[Rule]) -> Result<String, DbError> {
+    let mut stable_rules = rules.to_vec();
+    stable_rules.sort_by(|left, right| {
+        left.priority
+            .partial_cmp(&right.priority)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.id.cmp(&right.id))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    let payload = serde_json::to_string(&stable_rules)?;
+    let mut hasher = DefaultHasher::new();
+    payload.hash(&mut hasher);
+    Ok(format!("{:016x}", hasher.finish()))
+}
+
+fn should_classify_file(row: &IndexedFileRow, rule_version: &str) -> bool {
+    row.last_classified_at == 0
+        || row.classified_rule_version != rule_version
+        || row.last_classified_mtime != row.mtime
+        || row.last_classified_size != row.size
 }
 
 fn classification_path_candidates(paths: &[String], limit: usize) -> Vec<String> {
@@ -1649,6 +1735,10 @@ fn indexed_file_from_row(row: &Row<'_>) -> rusqlite::Result<IndexedFileRow> {
         requires_confirmation: row.get::<_, i64>(20)? != 0,
         is_stale: row.get::<_, i64>(21)? != 0,
         last_seen_at: row.get(22)?,
+        last_classified_at: row.get(23)?,
+        classified_rule_version: row.get(24)?,
+        last_classified_mtime: row.get(25)?,
+        last_classified_size: row.get(26)?,
     })
 }
 
@@ -1761,9 +1851,11 @@ fn execute_classification_batch(
     conn: &mut Connection,
     batch: &[IndexedFileRow],
     all_rules: &[Rule],
+    rule_version: &str,
 ) -> Result<RuleExecutionSummary, DbError> {
     let mut updated = 0_i64;
     let mut needs_confirmation = 0_i64;
+    let classified_at = current_unix_seconds();
     let tx = conn.transaction()?;
     {
         let mut stmt = tx.prepare(
@@ -1780,7 +1872,11 @@ fn execute_classification_batch(
                     confidence = ?10,
                     classification_reason = ?11,
                     matched_rules = ?12,
-                    requires_confirmation = ?13
+                    requires_confirmation = ?13,
+                    last_classified_at = ?14,
+                    classified_rule_version = ?15,
+                    last_classified_mtime = ?16,
+                    last_classified_size = ?17
                 WHERE id = ?1
                 "#,
         )?;
@@ -1803,7 +1899,11 @@ fn execute_classification_batch(
                 classification.confidence,
                 classification.classification_reason,
                 classification.matched_rules,
-                bool_to_i64(classification.requires_confirmation)
+                bool_to_i64(classification.requires_confirmation),
+                classified_at,
+                rule_version,
+                row.mtime,
+                row.size
             ])?;
             updated += 1;
         }
@@ -1813,6 +1913,7 @@ fn execute_classification_batch(
     Ok(RuleExecutionSummary {
         scanned: batch.len() as i64,
         updated,
+        skipped: 0,
         needs_confirmation,
     })
 }
@@ -2964,6 +3065,126 @@ mod tests {
     }
 
     #[test]
+    fn execute_rules_on_inbox_skips_unchanged_files() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file(&db, "file-plain", "plain.tmp", "tmp", 2_048, 1_900_000_000);
+
+        let first = db.execute_rules_on_inbox(Vec::new()).expect("first rules");
+        let second = db.execute_rules_on_inbox(Vec::new()).expect("second rules");
+
+        assert_eq!(first.scanned, 1);
+        assert_eq!(first.updated, 1);
+        assert_eq!(first.skipped, 0);
+        assert_eq!(second.scanned, 1);
+        assert_eq!(second.updated, 0);
+        assert_eq!(second.skipped, 1);
+    }
+
+    #[test]
+    fn execute_rules_on_inbox_reclassifies_when_rule_changes() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file(
+            &db,
+            "file-special",
+            "special_project.txt",
+            "txt",
+            2_048,
+            1_900_000_000,
+        );
+
+        let first = db
+            .execute_rules_on_inbox(vec![name_contains_rule(
+                "special-rule-a",
+                "Special A",
+                "Project",
+            )])
+            .expect("first rules");
+        let first_fingerprint =
+            classification_fingerprint(&db, "/test/virtual/documents/special_project.txt")
+                .expect("first fingerprint");
+        let second = db
+            .execute_rules_on_inbox(vec![name_contains_rule(
+                "special-rule-b",
+                "Special B",
+                "Career",
+            )])
+            .expect("second rules");
+        let second_fingerprint =
+            classification_fingerprint(&db, "/test/virtual/documents/special_project.txt")
+                .expect("second fingerprint");
+
+        assert_eq!(first.updated, 1);
+        assert_eq!(second.scanned, 1);
+        assert_eq!(second.updated, 1);
+        assert_eq!(second.skipped, 0);
+        assert_ne!(first_fingerprint.1, second_fingerprint.1);
+    }
+
+    #[test]
+    fn execute_rules_on_inbox_reclassifies_when_file_mtime_changes() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file(&db, "file-plain", "plain.tmp", "tmp", 2_048, 1_900_000_000);
+
+        db.execute_rules_on_inbox(Vec::new()).expect("first rules");
+        set_file_mtime(&db, "/test/virtual/documents/plain.tmp", 1_900_000_100);
+        let second = db.execute_rules_on_inbox(Vec::new()).expect("second rules");
+        let fingerprint = classification_fingerprint(&db, "/test/virtual/documents/plain.tmp")
+            .expect("fingerprint");
+
+        assert_eq!(second.scanned, 1);
+        assert_eq!(second.updated, 1);
+        assert_eq!(second.skipped, 0);
+        assert_eq!(fingerprint.2, 1_900_000_100);
+    }
+
+    #[test]
+    fn execute_rules_on_inbox_reclassifies_when_file_size_changes() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file(&db, "file-plain", "plain.tmp", "tmp", 2_048, 1_900_000_000);
+
+        db.execute_rules_on_inbox(Vec::new()).expect("first rules");
+        set_file_size(&db, "/test/virtual/documents/plain.tmp", 4_096);
+        let second = db.execute_rules_on_inbox(Vec::new()).expect("second rules");
+        let fingerprint = classification_fingerprint(&db, "/test/virtual/documents/plain.tmp")
+            .expect("fingerprint");
+
+        assert_eq!(second.scanned, 1);
+        assert_eq!(second.updated, 1);
+        assert_eq!(second.skipped, 0);
+        assert_eq!(fingerprint.3, 4_096);
+    }
+
+    #[test]
+    fn execute_rules_for_paths_sets_classification_fingerprint() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file(
+            &db,
+            "file-target",
+            "target.tmp",
+            "tmp",
+            4_096,
+            1_900_000_000,
+        );
+
+        let summary = db
+            .execute_rules_for_paths(
+                &["/test/virtual/documents/target.tmp".to_string()],
+                Vec::new(),
+            )
+            .expect("targeted rules");
+        let fingerprint = classification_fingerprint(&db, "/test/virtual/documents/target.tmp")
+            .expect("fingerprint");
+
+        assert_eq!(summary.scanned, 1);
+        assert_eq!(summary.updated, 1);
+        assert_eq!(summary.skipped, 0);
+        assert!(fingerprint.0 > 0);
+        assert!(!fingerprint.1.is_empty());
+        assert_eq!(fingerprint.2, 1_900_000_000);
+        assert_eq!(fingerprint.3, 4_096);
+    }
+
+    #[test]
     fn upsert_files_by_paths_inserts_new_file() {
         let db = Database::open(test_db_path()).expect("open test database");
         let root = test_dir();
@@ -3462,6 +3683,82 @@ mod tests {
             params![path, lifecycle],
         )
         .expect("set lifecycle");
+    }
+
+    fn set_file_mtime(db: &Database, path: &str, mtime: i64) {
+        let conn = Connection::open(db.path()).expect("open migrated database");
+        conn.execute(
+            "UPDATE files SET mtime = ?2 WHERE path = ?1",
+            params![path, mtime],
+        )
+        .expect("set mtime");
+    }
+
+    fn set_file_size(db: &Database, path: &str, size: i64) {
+        let conn = Connection::open(db.path()).expect("open migrated database");
+        conn.execute(
+            "UPDATE files SET size = ?2 WHERE path = ?1",
+            params![path, size],
+        )
+        .expect("set size");
+    }
+
+    fn classification_fingerprint(db: &Database, path: &str) -> Option<(i64, String, i64, i64)> {
+        let conn = Connection::open(db.path()).expect("open migrated database");
+        conn.query_row(
+            r#"
+            SELECT last_classified_at,
+                   classified_rule_version,
+                   last_classified_mtime,
+                   last_classified_size
+            FROM files
+            WHERE path = ?1
+            "#,
+            params![path],
+            |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
+        )
+        .optional()
+        .expect("classification fingerprint")
+    }
+
+    fn name_contains_rule(id: &str, name: &str, purpose: &str) -> Rule {
+        Rule {
+            id: id.to_string(),
+            name: name.to_string(),
+            source: "user".to_string(),
+            enabled: true,
+            priority: 200.0,
+            weight: 100.0,
+            root_operator: "OR".to_string(),
+            groups: vec![RuleConditionGroup {
+                id: format!("{id}-group"),
+                operator: "AND".to_string(),
+                conditions: vec![RuleCondition {
+                    id: format!("{id}-condition"),
+                    field: "name".to_string(),
+                    operator: "contains".to_string(),
+                    value: Value::String("special".to_string()),
+                }],
+            }],
+            action: RuleAction {
+                purpose: Some(purpose.to_string()),
+                lifecycle: Some("Inbox".to_string()),
+                context: Some("D1 Test".to_string()),
+                risk_level: Some("Normal".to_string()),
+                suggested_action: Some("Keep".to_string()),
+                target_template: None,
+                rename_template: None,
+            },
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
     }
 
     fn test_db_path() -> PathBuf {

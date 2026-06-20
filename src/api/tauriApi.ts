@@ -44,6 +44,7 @@ export type ScanSummary = ScanProgressPayload;
 export interface RuleExecutionSummary {
   scanned: number;
   updated: number;
+  skipped: number;
   needsConfirmation: number;
 }
 
