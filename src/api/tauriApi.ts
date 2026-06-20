@@ -132,6 +132,12 @@ export const tauriApi = {
     return invokeCommand<number>("remove_files_by_paths", { paths });
   },
 
+  // Backed by the legacy remove_files_by_paths command; the backend now marks
+  // records stale instead of deleting index rows.
+  markFilesStaleByPaths(paths: string[]): Promise<number> {
+    return invokeCommand<number>("remove_files_by_paths", { paths });
+  },
+
   onScanProgress(handler: EventHandler<ScanProgressPayload>): Promise<UnlistenFn> {
     return listenTo("scan-progress", handler);
   },

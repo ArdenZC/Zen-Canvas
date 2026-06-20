@@ -47,7 +47,7 @@ export function useFsWatcher({ onRefreshData, onError }: FsWatcherOptions) {
 
       queue = queue
         .then(async () => {
-          const affected = await tauriApi.removeFilesByPaths(paths);
+          const affected = await tauriApi.markFilesStaleByPaths(paths);
           if (affected > 0 && !disposed) {
             await onRefreshData();
           }

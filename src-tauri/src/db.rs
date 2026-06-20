@@ -57,12 +57,14 @@ struct IndexedFileRow {
     classification_reason: String,
     matched_rules: String,
     requires_confirmation: bool,
+    is_stale: bool,
+    last_seen_at: i64,
 }
 
 const CLASSIFY_BATCH_SIZE: usize = 500;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 4;
+const CURRENT_SCHEMA_VERSION: i32 = 5;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -257,15 +259,17 @@ impl Database {
             return Ok(());
         }
 
+        let last_seen_at = current_unix_seconds();
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
         {
             let mut stmt = tx.prepare(
                 r#"
             INSERT INTO files (
-                id, path, name, extension, size, mtime, ctime, is_dir, state_code, file_type, suggested_name
+                id, path, name, extension, size, mtime, ctime, is_dir, state_code,
+                file_type, suggested_name, is_stale, last_seen_at
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 0, ?12)
             ON CONFLICT(id) DO UPDATE SET
                 path = excluded.path,
                 name = excluded.name,
@@ -280,7 +284,9 @@ impl Database {
                     WHEN files.suggested_name = '' OR files.suggested_name = files.name
                     THEN excluded.suggested_name
                     ELSE files.suggested_name
-                END
+                END,
+                is_stale = 0,
+                last_seen_at = excluded.last_seen_at
             "#,
             )?;
 
@@ -297,7 +303,8 @@ impl Database {
                     bool_to_i64(file.is_dir),
                     file.state_code,
                     file_type,
-                    file.name
+                    file.name,
+                    last_seen_at
                 ])?;
             }
         }
@@ -305,6 +312,8 @@ impl Database {
         Ok(())
     }
 
+    /// Compatibility command path for watcher removals: mark matching files stale instead of
+    /// deleting rows, so transient file-system events do not destroy index history.
     pub fn remove_files_by_paths(&self, paths: &[String]) -> Result<usize, DbError> {
         if paths.is_empty() {
             return Ok(0);
@@ -316,10 +325,14 @@ impl Database {
         {
             let mut stmt = tx.prepare(
                 r#"
-                DELETE FROM files
-                WHERE path = ?1
-                   OR path LIKE ?2 ESCAPE '~'
-                   OR path LIKE ?3 ESCAPE '~'
+                UPDATE files
+                SET is_stale = 1
+                WHERE is_stale = 0
+                  AND (
+                    path = ?1
+                    OR path LIKE ?2 ESCAPE '~'
+                    OR path LIKE ?3 ESCAPE '~'
+                  )
                 "#,
             )?;
 
@@ -333,10 +346,14 @@ impl Database {
                     continue;
                 }
 
-                let escaped_path = escape_like_pattern(path);
-                let slash_descendants = format!("{escaped_path}/%");
-                let backslash_descendants = format!("{escaped_path}\\%");
-                removed += stmt.execute(params![path, slash_descendants, backslash_descendants])?;
+                let normalized_path = normalize_path_text(path);
+                for candidate in path_lookup_candidates(path, &normalized_path) {
+                    let escaped_path = escape_like_pattern(&candidate);
+                    let slash_descendants = format!("{escaped_path}/%");
+                    let backslash_descendants = format!("{escaped_path}\\%");
+                    removed +=
+                        stmt.execute(params![candidate, slash_descendants, backslash_descendants])?;
+                }
             }
         }
         tx.commit()?;
@@ -430,8 +447,10 @@ impl Database {
                 mtime = ?5,
                 is_dir = ?6,
                 suggested_action = 'Keep',
-                requires_confirmation = 0
-            WHERE id = ?7
+                requires_confirmation = 0,
+                is_stale = 0,
+                last_seen_at = ?7
+            WHERE id = ?8
             "#,
             params![
                 normalized_target,
@@ -440,6 +459,7 @@ impl Database {
                 size,
                 mtime,
                 bool_to_i64(is_dir),
+                current_unix_seconds(),
                 current_id
             ],
         )?;
@@ -463,9 +483,10 @@ impl Database {
                 SELECT id, path, name, extension, size, mtime, ctime, is_dir, state_code,
                        file_type, purpose, lifecycle, context, risk_level, suggested_action,
                        suggested_target_path, suggested_name, confidence, classification_reason,
-                       matched_rules, requires_confirmation
+                       matched_rules, requires_confirmation, is_stale, last_seen_at
                 FROM files
                 WHERE lifecycle = 'Inbox'
+                  AND is_stale = 0
                 ORDER BY mtime DESC, name COLLATE NOCASE ASC
                 "#,
         )?;
@@ -528,6 +549,7 @@ impl Database {
             FROM files_fts
             JOIN files AS f ON f.rowid = files_fts.rowid
             WHERE files_fts MATCH ?1
+              AND f.is_stale = 0
             ORDER BY rank ASC, f.mtime DESC, length(f.path) ASC
             LIMIT ?2
             "#,
@@ -563,7 +585,13 @@ impl Database {
 
         if let Some(fts_query) = query.and_then(build_fts_query) {
             let total = conn.query_row(
-                "SELECT COUNT(*) FROM files_fts WHERE files_fts MATCH ?1",
+                r#"
+                SELECT COUNT(*)
+                FROM files_fts
+                JOIN files AS f ON f.rowid = files_fts.rowid
+                WHERE files_fts MATCH ?1
+                  AND f.is_stale = 0
+                "#,
                 params![fts_query],
                 |row| row.get(0),
             )?;
@@ -591,10 +619,13 @@ impl Database {
                     f.classification_reason,
                     f.matched_rules,
                     f.requires_confirmation,
+                    f.is_stale,
+                    f.last_seen_at,
                     bm25(files_fts, 6.0, 1.5) AS rank
                 FROM files_fts
                 JOIN files AS f ON f.rowid = files_fts.rowid
                 WHERE files_fts MATCH ?1
+                  AND f.is_stale = 0
                 ORDER BY rank ASC, f.mtime DESC, length(f.path) ASC
                 LIMIT ?2 OFFSET ?3
                 "#,
@@ -615,14 +646,17 @@ impl Database {
             });
         }
 
-        let total = conn.query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))?;
+        let total = conn.query_row("SELECT COUNT(*) FROM files WHERE is_stale = 0", [], |row| {
+            row.get(0)
+        })?;
         let mut stmt = conn.prepare(
             r#"
             SELECT id, path, name, extension, size, mtime, ctime, is_dir, state_code,
                    file_type, purpose, lifecycle, context, risk_level, suggested_action,
                    suggested_target_path, suggested_name, confidence, classification_reason,
-                   matched_rules, requires_confirmation
+                   matched_rules, requires_confirmation, is_stale, last_seen_at
             FROM files
+            WHERE is_stale = 0
             ORDER BY mtime DESC, name COLLATE NOCASE ASC
             LIMIT ?1 OFFSET ?2
             "#,
@@ -664,6 +698,7 @@ impl Database {
                 COUNT(*)        FILTER (WHERE is_dir = 0 AND requires_confirmation = 1),
                 MAX(mtime)
             FROM files
+            WHERE is_stale = 0
             "#,
             [],
             |row| {
@@ -682,6 +717,7 @@ impl Database {
             r#"
             SELECT file_type, extension, is_dir, COUNT(*)
             FROM files
+            WHERE is_stale = 0
             GROUP BY file_type, extension, is_dir
             "#,
         )?;
@@ -709,6 +745,7 @@ impl Database {
             SELECT lifecycle, COUNT(*)
             FROM files
             WHERE is_dir = 0
+              AND is_stale = 0
             GROUP BY lifecycle
             "#,
         )?;
@@ -1155,6 +1192,22 @@ fn migrate(conn: &Connection) -> Result<(), DbError> {
         )?;
         set_schema_version(conn, 4)?;
     }
+    if version < 5 {
+        execute_column_migrations(
+            conn,
+            &[
+                "ALTER TABLE files ADD COLUMN is_stale INTEGER NOT NULL DEFAULT 0;",
+                "ALTER TABLE files ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0;",
+            ],
+        )?;
+        conn.execute_batch(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_files_is_stale ON files(is_stale);
+            CREATE INDEX IF NOT EXISTS idx_files_last_seen_at ON files(last_seen_at DESC);
+            "#,
+        )?;
+        set_schema_version(conn, 5)?;
+    }
     Ok(())
 }
 
@@ -1393,6 +1446,8 @@ fn indexed_file_from_row(row: &Row<'_>) -> rusqlite::Result<IndexedFileRow> {
         classification_reason: row.get(18)?,
         matched_rules: row.get(19)?,
         requires_confirmation: row.get::<_, i64>(20)? != 0,
+        is_stale: row.get::<_, i64>(21)? != 0,
+        last_seen_at: row.get(22)?,
     })
 }
 
@@ -1425,6 +1480,11 @@ fn operation_log_from_row(row: &Row<'_>) -> rusqlite::Result<OperationLogDto> {
 fn file_record_from_indexed(row: IndexedFileRow, now: &str) -> FileRecordDto {
     let created_at = unix_seconds_to_iso(if row.ctime == 0 { row.mtime } else { row.ctime });
     let modified_at = unix_seconds_to_iso(row.mtime);
+    let last_seen_at = unix_seconds_to_iso(if row.last_seen_at == 0 {
+        row.mtime
+    } else {
+        row.last_seen_at
+    });
     let file_type = normalized_file_type(&row);
     let matched_rules = serde_json::from_str::<Vec<String>>(&row.matched_rules).unwrap_or_default();
 
@@ -1444,7 +1504,7 @@ fn file_record_from_indexed(row: IndexedFileRow, now: &str) -> FileRecordDto {
         created_at,
         modified_at,
         scanned_at: now.to_string(),
-        last_seen_at: now.to_string(),
+        last_seen_at,
         is_hidden: row.name.starts_with('.'),
         is_deleted: false,
         is_duplicate: false,
@@ -1463,7 +1523,7 @@ fn file_record_from_indexed(row: IndexedFileRow, now: &str) -> FileRecordDto {
         open_count: 0,
         indexed_at: now.to_string(),
         source_id: None,
-        is_stale: false,
+        is_stale: row.is_stale,
         state_code: row.state_code,
     }
 }
@@ -2411,7 +2471,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_files_by_paths_deletes_exact_paths_descendants_and_fts_rows() {
+    fn remove_files_by_paths_marks_file_stale() {
         let db = Database::open(test_db_path()).expect("open test database");
         db.insert_file(InsertFileRequest {
             id: "dir-project".to_string(),
@@ -2460,6 +2520,128 @@ mod tests {
         assert_eq!(page.total, 1);
         assert_eq!(page.files[0].id, "file-survivor");
         assert!(ghost_search.is_empty());
+        assert_eq!(
+            stale_state(&db, "/test/virtual/documents/project"),
+            Some((true, true))
+        );
+        assert_eq!(
+            stale_state(&db, "/test/virtual/documents/project/ghost-report.pdf"),
+            Some((true, true))
+        );
+    }
+
+    #[test]
+    fn insert_files_revives_stale_file() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file(
+            &db,
+            "file-report",
+            "report.pdf",
+            "pdf",
+            2_048,
+            1_900_000_000,
+        );
+        db.remove_files_by_paths(&["/test/virtual/documents/report.pdf".to_string()])
+            .expect("mark stale");
+        assert_eq!(
+            stale_state(&db, "/test/virtual/documents/report.pdf"),
+            Some((true, true))
+        );
+
+        insert_test_file(
+            &db,
+            "file-report",
+            "report.pdf",
+            "pdf",
+            4_096,
+            1_900_000_100,
+        );
+        let page = db.get_paged_files(Some(10), Some(0), None).expect("page");
+
+        assert_eq!(page.total, 1);
+        assert_eq!(page.files[0].id, "file-report");
+        assert_eq!(page.files[0].size, 4_096);
+        assert_eq!(
+            stale_state(&db, "/test/virtual/documents/report.pdf"),
+            Some((false, true))
+        );
+    }
+
+    #[test]
+    fn search_files_excludes_stale_files() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file(
+            &db,
+            "file-report",
+            "report.txt",
+            "txt",
+            2_048,
+            1_900_000_000,
+        );
+
+        let before = db.search_files("report", Some(10)).expect("search before");
+        db.remove_files_by_paths(&["/test/virtual/documents/report.txt".to_string()])
+            .expect("mark stale");
+        let after = db.search_files("report", Some(10)).expect("search after");
+
+        assert_eq!(before.len(), 1);
+        assert!(after.is_empty());
+        assert_eq!(
+            stale_state(&db, "/test/virtual/documents/report.txt"),
+            Some((true, true))
+        );
+    }
+
+    #[test]
+    fn stats_excludes_stale_files() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file(
+            &db,
+            "file-report",
+            "report.pdf",
+            "pdf",
+            2_048,
+            1_900_000_000,
+        );
+
+        let before = db.get_stats_summary().expect("stats before");
+        db.remove_files_by_paths(&["/test/virtual/documents/report.pdf".to_string()])
+            .expect("mark stale");
+        let after = db.get_stats_summary().expect("stats after");
+
+        assert_eq!(before.total_files, 1);
+        assert_eq!(before.total_size, 2_048);
+        assert_eq!(after.total_files, 0);
+        assert_eq!(after.total_size, 0);
+        assert_eq!(
+            stale_state(&db, "/test/virtual/documents/report.pdf"),
+            Some((true, true))
+        );
+    }
+
+    #[test]
+    fn execute_rules_ignores_stale_files() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file(
+            &db,
+            "file-resume-stale",
+            "resume_2026.pdf",
+            "pdf",
+            2_048,
+            1_900_000_000,
+        );
+        db.remove_files_by_paths(&["/test/virtual/documents/resume_2026.pdf".to_string()])
+            .expect("mark stale");
+
+        let summary = db
+            .execute_rules_on_inbox(Vec::new())
+            .expect("execute rules");
+        let row = file_classification(&db, "/test/virtual/documents/resume_2026.pdf")
+            .expect("stale file still exists");
+
+        assert_eq!(summary.scanned, 0);
+        assert_eq!(summary.updated, 0);
+        assert_eq!(row, ("Unknown".to_string(), "Inbox".to_string(), true));
     }
 
     #[test]
@@ -2829,6 +3011,34 @@ mod tests {
             |row| row.get(0),
         )
         .expect("operation batch status")
+    }
+
+    fn stale_state(db: &Database, path: &str) -> Option<(bool, bool)> {
+        let conn = Connection::open(db.path()).expect("open migrated database");
+        conn.query_row(
+            "SELECT is_stale, last_seen_at FROM files WHERE path = ?1",
+            params![path],
+            |row| Ok((row.get::<_, i64>(0)? != 0, row.get::<_, i64>(1)? > 0)),
+        )
+        .optional()
+        .expect("stale state")
+    }
+
+    fn file_classification(db: &Database, path: &str) -> Option<(String, String, bool)> {
+        let conn = Connection::open(db.path()).expect("open migrated database");
+        conn.query_row(
+            "SELECT purpose, lifecycle, is_stale FROM files WHERE path = ?1",
+            params![path],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)? != 0,
+                ))
+            },
+        )
+        .optional()
+        .expect("file classification")
     }
 
     fn test_db_path() -> PathBuf {
