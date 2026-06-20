@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Rule } from "../types/domain";
+import { mergeSystemAndUserRules, setRuleEnabled } from "./rulePersistence";
 
 const RULES_STORAGE_KEY = "zc-user-rules";
 
@@ -8,6 +9,10 @@ interface RulesStore {
   addRule: (rule: Rule) => void;
   removeRule: (id: string) => void;
   updateRule: (rule: Rule) => void;
+  upsertRule: (rule: Rule) => void;
+  setRuleEnabled: (id: string, enabled: boolean, updatedAt?: string) => void;
+  hydrateUserRulesFromSQLite: (sqliteRules: Rule[], replaceUserRuleIds?: string[]) => void;
+  replaceUserRules: (userRules: Rule[]) => void;
   loadRules: () => void;
 }
 
@@ -54,6 +59,33 @@ export const useRulesStore = create<RulesStore>((set) => {
     updateRule: (rule) =>
       set((state) => {
         const rules = state.rules.map((current) => (current.id === rule.id ? rule : current));
+        writeStoredRules(rules);
+        return { rules };
+      }),
+    upsertRule: (rule) =>
+      set((state) => {
+        const exists = state.rules.some((current) => current.id === rule.id);
+        const rules = exists
+          ? state.rules.map((current) => (current.id === rule.id ? rule : current))
+          : [...state.rules, rule];
+        writeStoredRules(rules);
+        return { rules };
+      }),
+    setRuleEnabled: (id, enabled, updatedAt) =>
+      set((state) => {
+        const rules = setRuleEnabled(state.rules, id, enabled, updatedAt);
+        writeStoredRules(rules);
+        return { rules };
+      }),
+    hydrateUserRulesFromSQLite: (sqliteRules, replaceUserRuleIds) =>
+      set((state) => {
+        const rules = mergeSystemAndUserRules(state.rules, sqliteRules, replaceUserRuleIds);
+        writeStoredRules(rules);
+        return { rules };
+      }),
+    replaceUserRules: (userRules) =>
+      set((state) => {
+        const rules = mergeSystemAndUserRules(state.rules, userRules);
         writeStoredRules(rules);
         return { rules };
       }),

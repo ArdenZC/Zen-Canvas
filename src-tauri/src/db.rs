@@ -71,7 +71,7 @@ const OPTIMIZE_AFTER_UPSERT_THRESHOLD: usize = 500;
 pub const SEARCH_INDEX_OPTIMIZED_EVENT: &str = "search-index-optimized";
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 6;
+const CURRENT_SCHEMA_VERSION: i32 = 7;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -953,6 +953,95 @@ impl Database {
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
     }
 
+    pub fn get_user_rules(&self) -> Result<Vec<Rule>, DbError> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT
+                id,
+                name,
+                source,
+                enabled,
+                priority,
+                weight,
+                root_operator,
+                groups_json,
+                action_json,
+                created_at,
+                updated_at
+            FROM rules
+            WHERE source = 'user'
+            ORDER BY priority DESC, updated_at DESC, name COLLATE NOCASE ASC
+            "#,
+        )?;
+        let rows = stmt.query_map([], rule_from_row)?;
+        let mut rules = Vec::new();
+        for row in rows {
+            rules.push(rule_from_sql_row(row?)?);
+        }
+
+        Ok(rules)
+    }
+
+    pub fn save_user_rule(&self, rule: Rule) -> Result<Rule, DbError> {
+        let mut rule = rule;
+        rule.source = "user".to_string();
+        let now = current_timestamp_iso();
+        if rule.created_at.trim().is_empty() {
+            rule.created_at =
+                existing_rule_created_at(self, &rule.id)?.unwrap_or_else(|| now.clone());
+        }
+        if rule.updated_at.trim().is_empty() {
+            rule.updated_at = now;
+        }
+        let groups_json = serde_json::to_string(&rule.groups)?;
+        let action_json = serde_json::to_string(&rule.action)?;
+        let rule_id = rule.id.clone();
+        let conn = self.conn()?;
+        conn.execute(
+            r#"
+            INSERT INTO rules (
+                id,
+                name,
+                source,
+                enabled,
+                priority,
+                weight,
+                root_operator,
+                groups_json,
+                action_json,
+                created_at,
+                updated_at
+            )
+            VALUES (?1, ?2, 'user', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                source = 'user',
+                enabled = excluded.enabled,
+                priority = excluded.priority,
+                weight = excluded.weight,
+                root_operator = excluded.root_operator,
+                groups_json = excluded.groups_json,
+                action_json = excluded.action_json,
+                updated_at = excluded.updated_at
+            "#,
+            params![
+                rule.id,
+                rule.name,
+                bool_to_i64(rule.enabled),
+                rule.priority,
+                rule.weight,
+                rule.root_operator,
+                groups_json,
+                action_json,
+                rule.created_at,
+                rule.updated_at
+            ],
+        )?;
+
+        get_user_rule_by_id(self, &rule_id)
+    }
+
     pub fn save_operation_logs(
         &self,
         batch_id: &str,
@@ -1162,6 +1251,16 @@ pub fn get_operation_logs(
     limit: Option<u32>,
 ) -> Result<Vec<OperationLogDto>, String> {
     db.get_operation_logs(limit).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn get_user_rules(db: State<'_, Database>) -> Result<Vec<Rule>, String> {
+    db.get_user_rules().map_err(command_error)
+}
+
+#[tauri::command]
+pub fn save_user_rule(db: State<'_, Database>, rule: Rule) -> Result<Rule, String> {
+    db.save_user_rule(rule).map_err(command_error)
 }
 
 #[tauri::command]
@@ -1385,6 +1484,29 @@ fn migrate(conn: &Connection) -> Result<(), DbError> {
             "#,
         )?;
         set_schema_version(conn, 6)?;
+    }
+    if version < 7 {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS rules (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'user',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                priority REAL NOT NULL DEFAULT 0,
+                weight REAL NOT NULL DEFAULT 0,
+                root_operator TEXT NOT NULL DEFAULT 'AND',
+                groups_json TEXT NOT NULL DEFAULT '[]',
+                action_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_rules_source ON rules(source);
+            CREATE INDEX IF NOT EXISTS idx_rules_enabled ON rules(enabled);
+            CREATE INDEX IF NOT EXISTS idx_rules_priority ON rules(priority DESC);
+            "#,
+        )?;
+        set_schema_version(conn, 7)?;
     }
     Ok(())
 }
@@ -1850,6 +1972,89 @@ fn operation_log_from_row(row: &Row<'_>) -> rusqlite::Result<OperationLogDto> {
         restore_status: row.get(17)?,
         restore_error: row.get(18)?,
     })
+}
+
+struct RuleSqlRow {
+    id: String,
+    name: String,
+    source: String,
+    enabled: bool,
+    priority: f64,
+    weight: f64,
+    root_operator: String,
+    groups_json: String,
+    action_json: String,
+    created_at: String,
+    updated_at: String,
+}
+
+fn rule_from_row(row: &Row<'_>) -> rusqlite::Result<RuleSqlRow> {
+    Ok(RuleSqlRow {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        source: row.get(2)?,
+        enabled: row.get::<_, i64>(3)? != 0,
+        priority: row.get(4)?,
+        weight: row.get(5)?,
+        root_operator: row.get(6)?,
+        groups_json: row.get(7)?,
+        action_json: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
+    })
+}
+
+fn rule_from_sql_row(row: RuleSqlRow) -> Result<Rule, DbError> {
+    Ok(Rule {
+        id: row.id,
+        name: row.name,
+        source: row.source,
+        enabled: row.enabled,
+        priority: row.priority,
+        weight: row.weight,
+        root_operator: row.root_operator,
+        groups: serde_json::from_str::<Vec<RuleConditionGroup>>(&row.groups_json)?,
+        action: serde_json::from_str::<RuleAction>(&row.action_json)?,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    })
+}
+
+fn existing_rule_created_at(db: &Database, id: &str) -> Result<Option<String>, DbError> {
+    let conn = db.conn()?;
+    conn.query_row(
+        "SELECT created_at FROM rules WHERE id = ?1",
+        params![id],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(DbError::from)
+}
+
+fn get_user_rule_by_id(db: &Database, id: &str) -> Result<Rule, DbError> {
+    let conn = db.conn()?;
+    let row = conn.query_row(
+        r#"
+        SELECT
+            id,
+            name,
+            source,
+            enabled,
+            priority,
+            weight,
+            root_operator,
+            groups_json,
+            action_json,
+            created_at,
+            updated_at
+        FROM rules
+        WHERE id = ?1
+          AND source = 'user'
+        "#,
+        params![id],
+        rule_from_row,
+    )?;
+    rule_from_sql_row(row)
 }
 
 fn file_record_from_indexed(row: IndexedFileRow, now: &str) -> FileRecordDto {
@@ -3339,6 +3544,83 @@ mod tests {
     }
 
     #[test]
+    fn save_user_rule_round_trips_rule() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let rule = user_rule_for_persistence("rule-round-trip", "Round Trip", 300.0);
+
+        let saved = db.save_user_rule(rule.clone()).expect("save user rule");
+        let rules = db.get_user_rules().expect("get user rules");
+
+        assert_eq!(saved.id, rule.id);
+        assert_eq!(saved.source, "user");
+        assert_eq!(rules.len(), 1);
+        assert_rule_matches(&rules[0], &saved);
+        assert_eq!(rules[0].groups.len(), 1);
+        assert_eq!(rules[0].groups[0].operator, "AND");
+        assert_eq!(rules[0].groups[0].conditions[0].field, "extension");
+        assert_eq!(
+            rules[0].groups[0].conditions[0].value,
+            Value::String("pdf".to_string())
+        );
+        assert_eq!(rules[0].action.lifecycle.as_deref(), Some("Archive"));
+        assert_eq!(
+            rules[0].action.target_template.as_deref(),
+            Some("{home}/Archive")
+        );
+    }
+
+    #[test]
+    fn save_user_rule_forces_source_user() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let mut rule = user_rule_for_persistence("rule-source", "Source", 200.0);
+        rule.source = "system".to_string();
+
+        let saved = db.save_user_rule(rule).expect("save user rule");
+        let rules = db.get_user_rules().expect("get user rules");
+
+        assert_eq!(saved.source, "user");
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].source, "user");
+    }
+
+    #[test]
+    fn save_user_rule_updates_existing_rule() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let mut rule = user_rule_for_persistence("rule-update", "Before", 100.0);
+        db.save_user_rule(rule.clone()).expect("save initial rule");
+
+        rule.name = "After".to_string();
+        rule.enabled = false;
+        rule.action.lifecycle = Some("TrashReview".to_string());
+        let saved = db.save_user_rule(rule.clone()).expect("update rule");
+        let rules = db.get_user_rules().expect("get user rules");
+
+        assert_eq!(rules.len(), 1);
+        assert_eq!(saved.name, "After");
+        assert!(!rules[0].enabled);
+        assert_eq!(rules[0].action.lifecycle.as_deref(), Some("TrashReview"));
+    }
+
+    #[test]
+    fn get_user_rules_orders_by_priority() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        db.save_user_rule(user_rule_for_persistence("rule-low", "Low", 10.0))
+            .expect("save low rule");
+        db.save_user_rule(user_rule_for_persistence("rule-high", "High", 900.0))
+            .expect("save high rule");
+        db.save_user_rule(user_rule_for_persistence("rule-mid", "Mid", 100.0))
+            .expect("save mid rule");
+
+        let rules = db.get_user_rules().expect("get user rules");
+        let ids = rules
+            .iter()
+            .map(|rule| rule.id.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["rule-high", "rule-mid", "rule-low"]);
+    }
+
+    #[test]
     fn upsert_files_by_paths_inserts_new_file() {
         let db = Database::open(test_db_path()).expect("open test database");
         let root = test_dir();
@@ -3932,6 +4214,59 @@ mod tests {
             created_at: String::new(),
             updated_at: String::new(),
         }
+    }
+
+    fn user_rule_for_persistence(id: &str, name: &str, priority: f64) -> Rule {
+        Rule {
+            id: id.to_string(),
+            name: name.to_string(),
+            source: "user".to_string(),
+            enabled: true,
+            priority,
+            weight: 42.5,
+            root_operator: "AND".to_string(),
+            groups: vec![RuleConditionGroup {
+                id: format!("{id}-group"),
+                operator: "AND".to_string(),
+                conditions: vec![RuleCondition {
+                    id: format!("{id}-condition"),
+                    field: "extension".to_string(),
+                    operator: "equals".to_string(),
+                    value: Value::String("pdf".to_string()),
+                }],
+            }],
+            action: RuleAction {
+                purpose: Some("Document".to_string()),
+                lifecycle: Some("Archive".to_string()),
+                context: Some("Persistence Test".to_string()),
+                risk_level: Some("Normal".to_string()),
+                suggested_action: Some("Move".to_string()),
+                target_template: Some("{home}/Archive".to_string()),
+                rename_template: Some("{name}".to_string()),
+            },
+            created_at: String::new(),
+            updated_at: String::new(),
+        }
+    }
+
+    fn assert_rule_matches(actual: &Rule, expected: &Rule) {
+        assert_eq!(actual.id, expected.id);
+        assert_eq!(actual.name, expected.name);
+        assert_eq!(actual.source, "user");
+        assert_eq!(actual.enabled, expected.enabled);
+        assert_eq!(actual.priority, expected.priority);
+        assert_eq!(actual.weight, expected.weight);
+        assert_eq!(actual.root_operator, expected.root_operator);
+        assert_eq!(
+            serde_json::to_value(&actual.groups).expect("actual groups json"),
+            serde_json::to_value(&expected.groups).expect("expected groups json")
+        );
+        assert_eq!(
+            serde_json::to_value(&actual.action).expect("actual action json"),
+            serde_json::to_value(&expected.action).expect("expected action json")
+        );
+        assert!(!actual.created_at.is_empty());
+        assert!(!actual.updated_at.is_empty());
     }
 
     fn test_db_path() -> PathBuf {

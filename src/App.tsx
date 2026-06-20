@@ -7,10 +7,12 @@ import { useDebounce } from "./hooks/useDebounce";
 import { useFileLibrary } from "./hooks/useFileLibrary";
 import { useFsWatcher } from "./hooks/useFsWatcher";
 import { useOperationQueue } from "./hooks/useOperationQueue";
+import { useRulePersistence } from "./hooks/useRulePersistence";
 import { useScanManager } from "./hooks/useScanManager";
 import { useWindowBehavior } from "./hooks/useWindowBehavior";
 import { useAppStore } from "./store/useAppStore";
 import { useRulesStore } from "./store/useRulesStore";
+import { persistRuleEnabledToggle } from "./store/rulePersistence";
 import type { Rule } from "./types/domain";
 import { readableError } from "./utils/viewHelpers";
 
@@ -24,7 +26,8 @@ export function App() {
   const searchQuery = useAppStore((state) => state.searchQuery);
   const setSearchQuery = useAppStore((state) => state.setSearchQuery);
   const rules = useRulesStore((state) => state.rules);
-  const addRule = useRulesStore((state) => state.addRule);
+  const upsertRule = useRulesStore((state) => state.upsertRule);
+  const hydrateUserRulesFromSQLite = useRulesStore((state) => state.hydrateUserRulesFromSQLite);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [databaseError, setDatabaseError] = useState("");
   const [isDatabaseReady, setIsDatabaseReady] = useState(false);
@@ -67,6 +70,12 @@ export function App() {
   useEffect(() => {
     if (isDatabaseReady) void refresh();
   }, [isDatabaseReady, refresh]);
+  useRulePersistence({
+    isDatabaseReady,
+    rules,
+    hydrateUserRulesFromSQLite,
+    onError: showError
+  });
   useFsWatcher({ onRefreshData: refresh, onError: showError, rules });
 
   const appChrome = useAppChrome({ theme, setTheme, setLanguage });
@@ -95,7 +104,26 @@ export function App() {
     onSuccess: showSuccess
   });
 
-  const saveRule = useCallback(async (rule: Rule) => addRule(rule), [addRule]);
+  const saveRule = useCallback(async (rule: Rule) => {
+    try {
+      const savedRule = await tauriApi.saveUserRule(rule);
+      upsertRule(savedRule);
+    } catch (error) {
+      upsertRule(rule);
+      showError(`规则已保存到本地缓存，但同步 SQLite 失败：${readableError(error)}`);
+    }
+  }, [showError, upsertRule]);
+  const toggleRuleEnabled = useCallback(async (rule: Rule, enabled: boolean) => {
+    await persistRuleEnabledToggle({
+      rule,
+      enabled,
+      saveUserRule: tauriApi.saveUserRule,
+      upsertRule,
+      onSyncError: (error) => {
+        showError(`规则已更新到本地缓存，但同步 SQLite 失败：${readableError(error)}`);
+      }
+    });
+  }, [showError, upsertRule]);
 
   if (databaseError) {
     return <DatabaseUnavailableState message={databaseError} toast={toast} />;
@@ -122,6 +150,7 @@ export function App() {
       files={files}
       rules={rules}
       saveRule={saveRule}
+      toggleRuleEnabled={toggleRuleEnabled}
       toast={toast}
       closeBehavior={closeBehavior}
       setCloseBehavior={setCloseBehavior}

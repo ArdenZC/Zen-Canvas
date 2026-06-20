@@ -76,6 +76,7 @@ interface AppShellProps {
   files: FileRecord[];
   rules: Rule[];
   saveRule: (rule: Rule) => Promise<void>;
+  toggleRuleEnabled: (rule: Rule, enabled: boolean) => Promise<void>;
   runDispatch: () => Promise<RuleExecutionSummary>;
   selectedFolders: string[];
   isScanning: boolean;
@@ -316,7 +317,16 @@ function AppViewContent(props: AppShellProps) {
       />
     );
   }
-  if (props.view === "rules") return <RulesView rules={props.rules} onSave={props.saveRule} t={props.t} />;
+  if (props.view === "rules") {
+    return (
+      <RulesView
+        rules={props.rules}
+        onSave={props.saveRule}
+        onToggleRuleEnabled={props.toggleRuleEnabled}
+        t={props.t}
+      />
+    );
+  }
   if (props.view === "restore") return <RestoreView logs={props.operationLogs} onRestore={props.restoreOperationLogs} t={props.t} />;
   return (
     <SettingsView

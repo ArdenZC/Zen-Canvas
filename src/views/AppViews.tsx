@@ -91,7 +91,7 @@ function segmentButton(active: boolean): string {
 
 function toggleSwitch(on: boolean): string {
   return cn(
-    "relative h-7 w-12 rounded-full border border-[var(--line)] bg-slate-300/50 transition dark:bg-white/10 [&_i]:absolute [&_i]:left-1 [&_i]:top-1 [&_i]:h-5 [&_i]:w-5 [&_i]:rounded-full [&_i]:bg-white [&_i]:shadow-sm [&_i]:transition",
+    "relative h-7 w-12 rounded-full border border-[var(--line)] bg-slate-300/50 transition disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white/10 [&_i]:absolute [&_i]:left-1 [&_i]:top-1 [&_i]:h-5 [&_i]:w-5 [&_i]:rounded-full [&_i]:bg-white [&_i]:shadow-sm [&_i]:transition",
     on && "bg-blue-500 [&_i]:translate-x-5"
   );
 }
@@ -896,7 +896,17 @@ const PreviewFileRow = memo(function PreviewFileRow({
   );
 });
 
-export function RulesView({ rules, onSave, t }: { rules: Rule[]; onSave: (rule: Rule) => Promise<void>; t: Translator }) {
+export function RulesView({
+  rules,
+  onSave,
+  onToggleRuleEnabled,
+  t
+}: {
+  rules: Rule[];
+  onSave: (rule: Rule) => Promise<void>;
+  onToggleRuleEnabled?: (rule: Rule, enabled: boolean) => Promise<void> | void;
+  t: Translator;
+}) {
   const [name, setName] = useState("Screenshots to Inbox");
   const [field, setField] = useState("name");
   const [operator, setOperator] = useState("contains");
@@ -965,13 +975,21 @@ export function RulesView({ rules, onSave, t }: { rules: Rule[]; onSave: (rule: 
 
       <section className={cn(panelSurface, "overflow-hidden")}>
         <SectionTitle title={t("strategy")} body={t("ruleLayerDesc")} />
-        <VirtualRuleList rules={rules} />
+        <VirtualRuleList rules={rules} onToggleRuleEnabled={onToggleRuleEnabled} t={t} />
       </section>
     </div>
   );
 }
 
-function VirtualRuleList({ rules }: { rules: Rule[] }) {
+function VirtualRuleList({
+  rules,
+  onToggleRuleEnabled,
+  t
+}: {
+  rules: Rule[];
+  onToggleRuleEnabled?: (rule: Rule, enabled: boolean) => Promise<void> | void;
+  t: Translator;
+}) {
   const parentRef = useRef<HTMLDivElement | null>(null);
   const shouldVirtualize = shouldVirtualizeList(rules.length);
   const rowVirtualizer = useVirtualizer({
@@ -985,7 +1003,7 @@ function VirtualRuleList({ rules }: { rules: Rule[] }) {
     return (
       <motion.div className="grid gap-2" variants={listMotion} initial="hidden" animate="show">
         {rules.map((rule) => (
-          <RuleRow key={rule.id} rule={rule} />
+          <RuleRow key={rule.id} rule={rule} onToggleEnabled={onToggleRuleEnabled} t={t} />
         ))}
       </motion.div>
     );
@@ -1005,7 +1023,7 @@ function VirtualRuleList({ rules }: { rules: Rule[] }) {
                 transform: `translateY(${virtualRow.start}px)`
               }}
             >
-              <RuleRow rule={rule} />
+              <RuleRow rule={rule} onToggleEnabled={onToggleRuleEnabled} t={t} />
             </div>
           );
         })}
@@ -1014,7 +1032,22 @@ function VirtualRuleList({ rules }: { rules: Rule[] }) {
   );
 }
 
-const RuleRow = memo(function RuleRow({ rule }: { rule: Rule }) {
+const RuleRow = memo(function RuleRow({
+  rule,
+  onToggleEnabled,
+  t
+}: {
+  rule: Rule;
+  onToggleEnabled?: (rule: Rule, enabled: boolean) => Promise<void> | void;
+  t: Translator;
+}) {
+  const canToggle = rule.source === "user" && Boolean(onToggleEnabled);
+  const toggleLabel = canToggle
+    ? rule.enabled
+      ? t("disableRule")
+      : t("enableRule")
+    : t("systemRuleLocked");
+
   return (
     <motion.div className={cn(compactRowSurface, "grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3")} layout variants={itemMotion}>
       <div>
@@ -1022,7 +1055,21 @@ const RuleRow = memo(function RuleRow({ rule }: { rule: Rule }) {
         <span className="block text-xs text-[var(--muted)]">{rule.source} / weight {rule.weight} / priority {rule.priority}</span>
       </div>
       <span className={sourceBadge(rule.source)}>{rule.source}</span>
-      <span className={toggleSwitch(rule.enabled)} aria-hidden="true"><i /></span>
+      <button
+        type="button"
+        className={toggleSwitch(rule.enabled)}
+        disabled={!canToggle}
+        aria-pressed={rule.enabled}
+        aria-label={toggleLabel}
+        title={toggleLabel}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (!canToggle) return;
+          void onToggleEnabled?.(rule, !rule.enabled);
+        }}
+      >
+        <i />
+      </button>
     </motion.div>
   );
 });
