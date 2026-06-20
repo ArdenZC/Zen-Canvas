@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { Rule } from "../types/domain";
-import { mergeSystemAndUserRules, setRuleEnabled } from "./rulePersistence";
+import { mergeSystemAndUserRules, removeUserRule, setRuleEnabled } from "./rulePersistence";
 
 const RULES_STORAGE_KEY = "zc-user-rules";
 
@@ -11,6 +11,7 @@ interface RulesStore {
   updateRule: (rule: Rule) => void;
   upsertRule: (rule: Rule) => void;
   setRuleEnabled: (id: string, enabled: boolean, updatedAt?: string) => void;
+  removeUserRule: (id: string) => void;
   hydrateUserRulesFromSQLite: (sqliteRules: Rule[], replaceUserRuleIds?: string[]) => void;
   replaceUserRules: (userRules: Rule[]) => void;
   loadRules: () => void;
@@ -74,6 +75,12 @@ export const useRulesStore = create<RulesStore>((set) => {
     setRuleEnabled: (id, enabled, updatedAt) =>
       set((state) => {
         const rules = setRuleEnabled(state.rules, id, enabled, updatedAt);
+        writeStoredRules(rules);
+        return { rules };
+      }),
+    removeUserRule: (id) =>
+      set((state) => {
+        const rules = removeUserRule(state.rules, id);
         writeStoredRules(rules);
         return { rules };
       }),

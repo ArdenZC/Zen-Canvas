@@ -2,6 +2,8 @@ import type { Rule } from "../types/domain";
 
 export type SaveUserRule = (rule: Rule) => Promise<Rule>;
 export type UpsertRule = (rule: Rule) => void;
+export type DeleteUserRule = (id: string) => Promise<boolean>;
+export type RemoveRule = (id: string) => void;
 
 interface PersistRuleEnabledToggleOptions {
   rule: Rule;
@@ -10,6 +12,14 @@ interface PersistRuleEnabledToggleOptions {
   upsertRule: UpsertRule;
   onSyncError?: (error: unknown, fallbackRule: Rule) => void;
   nowIso?: () => string;
+}
+
+interface PersistUserRuleDeleteOptions {
+  rule: Rule;
+  deleteUserRule: DeleteUserRule;
+  removeRule: RemoveRule;
+  onNotDeleted?: (rule: Rule) => void;
+  onSyncError?: (error: unknown, rule: Rule) => void;
 }
 
 export function userRulesFrom(rules: Rule[]): Rule[] {
@@ -93,5 +103,36 @@ export async function persistRuleEnabledToggle({
   } catch (error) {
     upsertRule(nextRule);
     onSyncError?.(error, nextRule);
+  }
+}
+
+export function removeUserRule(rules: Rule[], id: string): Rule[] {
+  return rules.filter((rule) => rule.id !== id || rule.source !== "user");
+}
+
+export async function persistUserRuleDelete({
+  rule,
+  deleteUserRule,
+  removeRule,
+  onNotDeleted,
+  onSyncError
+}: PersistUserRuleDeleteOptions): Promise<boolean> {
+  if (rule.source !== "user") {
+    onNotDeleted?.(rule);
+    return false;
+  }
+
+  try {
+    const deleted = await deleteUserRule(rule.id);
+    if (!deleted) {
+      onNotDeleted?.(rule);
+      return false;
+    }
+
+    removeRule(rule.id);
+    return true;
+  } catch (error) {
+    onSyncError?.(error, rule);
+    return false;
   }
 }

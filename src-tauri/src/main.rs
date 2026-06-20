@@ -41,6 +41,7 @@ fn main() {
             zen_canvas_tauri::db::get_operation_logs,
             zen_canvas_tauri::db::get_user_rules,
             zen_canvas_tauri::db::save_user_rule,
+            zen_canvas_tauri::db::delete_user_rule,
             zen_canvas_tauri::db::execute_rules_on_inbox,
             zen_canvas_tauri::db::execute_rules_for_paths,
             zen_canvas_tauri::scanner::scan_directory,

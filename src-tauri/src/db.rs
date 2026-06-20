@@ -1042,6 +1042,20 @@ impl Database {
         get_user_rule_by_id(self, &rule_id)
     }
 
+    pub fn delete_user_rule(&self, id: &str) -> Result<bool, DbError> {
+        let id = id.trim();
+        if id.is_empty() {
+            return Ok(false);
+        }
+
+        let conn = self.conn()?;
+        let deleted = conn.execute(
+            "DELETE FROM rules WHERE id = ?1 AND source = 'user'",
+            params![id],
+        )?;
+        Ok(deleted > 0)
+    }
+
     pub fn save_operation_logs(
         &self,
         batch_id: &str,
@@ -1261,6 +1275,11 @@ pub fn get_user_rules(db: State<'_, Database>) -> Result<Vec<Rule>, String> {
 #[tauri::command]
 pub fn save_user_rule(db: State<'_, Database>, rule: Rule) -> Result<Rule, String> {
     db.save_user_rule(rule).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn delete_user_rule(db: State<'_, Database>, id: String) -> Result<bool, String> {
+    db.delete_user_rule(&id).map_err(command_error)
 }
 
 #[tauri::command]
@@ -3621,6 +3640,46 @@ mod tests {
     }
 
     #[test]
+    fn delete_user_rule_removes_user_rule() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        db.save_user_rule(user_rule_for_persistence("rule-delete", "Delete", 100.0))
+            .expect("save user rule");
+
+        let deleted = db
+            .delete_user_rule("rule-delete")
+            .expect("delete user rule");
+        let rules = db.get_user_rules().expect("get user rules");
+
+        assert!(deleted);
+        assert!(rules.iter().all(|rule| rule.id != "rule-delete"));
+    }
+
+    #[test]
+    fn delete_user_rule_ignores_missing_rule() {
+        let db = Database::open(test_db_path()).expect("open test database");
+
+        let deleted = db
+            .delete_user_rule("missing-rule")
+            .expect("delete missing rule");
+
+        assert!(!deleted);
+    }
+
+    #[test]
+    fn delete_user_rule_does_not_delete_non_user_rule() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_system_rule_row(&db, "system-rule");
+
+        let deleted = db
+            .delete_user_rule("system-rule")
+            .expect("delete system rule");
+        let source = rule_source_by_id(&db, "system-rule").expect("system rule row");
+
+        assert!(!deleted);
+        assert_eq!(source, "system");
+    }
+
+    #[test]
     fn upsert_files_by_paths_inserts_new_file() {
         let db = Database::open(test_db_path()).expect("open test database");
         let root = test_dir();
@@ -4267,6 +4326,41 @@ mod tests {
         );
         assert!(!actual.created_at.is_empty());
         assert!(!actual.updated_at.is_empty());
+    }
+
+    fn insert_system_rule_row(db: &Database, id: &str) {
+        let conn = Connection::open(db.path()).expect("open migrated database");
+        conn.execute(
+            r#"
+            INSERT INTO rules (
+                id,
+                name,
+                source,
+                enabled,
+                priority,
+                weight,
+                root_operator,
+                groups_json,
+                action_json,
+                created_at,
+                updated_at
+            )
+            VALUES (?1, 'System Rule', 'system', 1, 1000, 100, 'AND', '[]', '{}', '2026-06-21T00:00:00Z', '2026-06-21T00:00:00Z')
+            "#,
+            params![id],
+        )
+        .expect("insert system rule row");
+    }
+
+    fn rule_source_by_id(db: &Database, id: &str) -> Option<String> {
+        let conn = Connection::open(db.path()).expect("open migrated database");
+        conn.query_row(
+            "SELECT source FROM rules WHERE id = ?1",
+            params![id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .expect("rule source")
     }
 
     fn test_db_path() -> PathBuf {

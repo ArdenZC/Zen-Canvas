@@ -4,6 +4,8 @@ import {
   mergeSystemAndUserRules,
   migrateLocalUserRulesToSQLite,
   persistRuleEnabledToggle,
+  persistUserRuleDelete,
+  removeUserRule,
   setRuleEnabled
 } from "../src/store/rulePersistence";
 
@@ -77,6 +79,37 @@ describe("rule persistence helpers", () => {
       enabled: false,
       updated_at: "2026-06-21T03:00:00Z"
     });
+    expect(onSyncError).toHaveBeenCalledOnce();
+  });
+
+  it("removes user rules only", () => {
+    const user = rule("user-rule", "User", "user");
+    const system = rule("system-rule", "System", "system");
+
+    const removedUser = removeUserRule([user, system], "user-rule");
+    const removedSystem = removeUserRule([user, system], "system-rule");
+
+    expect(removedUser.map((item) => item.id)).toEqual(["system-rule"]);
+    expect(removedSystem.map((item) => item.id)).toEqual(["user-rule", "system-rule"]);
+  });
+
+  it("does not remove local rule when SQLite delete fails", async () => {
+    const user = rule("user-rule", "User", "user");
+    const deleteUserRule = vi.fn(async () => {
+      throw new Error("sqlite offline");
+    });
+    const removeRule = vi.fn();
+    const onSyncError = vi.fn();
+
+    await persistUserRuleDelete({
+      rule: user,
+      deleteUserRule,
+      removeRule,
+      onSyncError
+    });
+
+    expect(deleteUserRule).toHaveBeenCalledWith("user-rule");
+    expect(removeRule).not.toHaveBeenCalled();
     expect(onSyncError).toHaveBeenCalledOnce();
   });
 });

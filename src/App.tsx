@@ -12,7 +12,7 @@ import { useScanManager } from "./hooks/useScanManager";
 import { useWindowBehavior } from "./hooks/useWindowBehavior";
 import { useAppStore } from "./store/useAppStore";
 import { useRulesStore } from "./store/useRulesStore";
-import { persistRuleEnabledToggle } from "./store/rulePersistence";
+import { persistRuleEnabledToggle, persistUserRuleDelete } from "./store/rulePersistence";
 import type { Rule } from "./types/domain";
 import { readableError } from "./utils/viewHelpers";
 
@@ -27,6 +27,7 @@ export function App() {
   const setSearchQuery = useAppStore((state) => state.setSearchQuery);
   const rules = useRulesStore((state) => state.rules);
   const upsertRule = useRulesStore((state) => state.upsertRule);
+  const removeUserRule = useRulesStore((state) => state.removeUserRule);
   const hydrateUserRulesFromSQLite = useRulesStore((state) => state.hydrateUserRulesFromSQLite);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" | "info" } | null>(null);
   const [databaseError, setDatabaseError] = useState("");
@@ -124,6 +125,27 @@ export function App() {
       }
     });
   }, [showError, upsertRule]);
+  const deleteRule = useCallback(async (rule: Rule) => {
+    if (rule.source !== "user") {
+      showError(t("systemRuleCannotDelete"));
+      return;
+    }
+
+    const deleted = await persistUserRuleDelete({
+      rule,
+      deleteUserRule: tauriApi.deleteUserRule,
+      removeRule: removeUserRule,
+      onNotDeleted: () => {
+        showError("规则不存在或不是用户规则");
+      },
+      onSyncError: (error) => {
+        showError(`${t("ruleDeleteFailed")}：${readableError(error)}`);
+      }
+    });
+    if (deleted) {
+      showSuccess(t("ruleDeleted"));
+    }
+  }, [removeUserRule, showError, showSuccess, t]);
 
   if (databaseError) {
     return <DatabaseUnavailableState message={databaseError} toast={toast} />;
@@ -151,6 +173,7 @@ export function App() {
       rules={rules}
       saveRule={saveRule}
       toggleRuleEnabled={toggleRuleEnabled}
+      deleteRule={deleteRule}
       toast={toast}
       closeBehavior={closeBehavior}
       setCloseBehavior={setCloseBehavior}

@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion, type Variants } from "motion/react";
-import { Check, ChevronRight, File, Folder, FolderSearch, Play, Plus, RefreshCw, RotateCcw, Search, X } from "lucide-react";
+import { Check, ChevronRight, File, Folder, FolderSearch, Play, Plus, RefreshCw, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { tauriApi, type RuleExecutionSummary, type ScanProgressPayload } from "../api/tauriApi";
 import type { Language } from "../i18n";
 import type {
@@ -900,11 +900,13 @@ export function RulesView({
   rules,
   onSave,
   onToggleRuleEnabled,
+  onDeleteRule,
   t
 }: {
   rules: Rule[];
   onSave: (rule: Rule) => Promise<void>;
   onToggleRuleEnabled?: (rule: Rule, enabled: boolean) => Promise<void> | void;
+  onDeleteRule?: (rule: Rule) => Promise<void> | void;
   t: Translator;
 }) {
   const [name, setName] = useState("Screenshots to Inbox");
@@ -975,7 +977,12 @@ export function RulesView({
 
       <section className={cn(panelSurface, "overflow-hidden")}>
         <SectionTitle title={t("strategy")} body={t("ruleLayerDesc")} />
-        <VirtualRuleList rules={rules} onToggleRuleEnabled={onToggleRuleEnabled} t={t} />
+        <VirtualRuleList
+          rules={rules}
+          onToggleRuleEnabled={onToggleRuleEnabled}
+          onDeleteRule={onDeleteRule}
+          t={t}
+        />
       </section>
     </div>
   );
@@ -984,10 +991,12 @@ export function RulesView({
 function VirtualRuleList({
   rules,
   onToggleRuleEnabled,
+  onDeleteRule,
   t
 }: {
   rules: Rule[];
   onToggleRuleEnabled?: (rule: Rule, enabled: boolean) => Promise<void> | void;
+  onDeleteRule?: (rule: Rule) => Promise<void> | void;
   t: Translator;
 }) {
   const parentRef = useRef<HTMLDivElement | null>(null);
@@ -1003,7 +1012,13 @@ function VirtualRuleList({
     return (
       <motion.div className="grid gap-2" variants={listMotion} initial="hidden" animate="show">
         {rules.map((rule) => (
-          <RuleRow key={rule.id} rule={rule} onToggleEnabled={onToggleRuleEnabled} t={t} />
+          <RuleRow
+            key={rule.id}
+            rule={rule}
+            onToggleEnabled={onToggleRuleEnabled}
+            onDeleteRule={onDeleteRule}
+            t={t}
+          />
         ))}
       </motion.div>
     );
@@ -1023,7 +1038,12 @@ function VirtualRuleList({
                 transform: `translateY(${virtualRow.start}px)`
               }}
             >
-              <RuleRow rule={rule} onToggleEnabled={onToggleRuleEnabled} t={t} />
+              <RuleRow
+                rule={rule}
+                onToggleEnabled={onToggleRuleEnabled}
+                onDeleteRule={onDeleteRule}
+                t={t}
+              />
             </div>
           );
         })}
@@ -1035,21 +1055,25 @@ function VirtualRuleList({
 const RuleRow = memo(function RuleRow({
   rule,
   onToggleEnabled,
+  onDeleteRule,
   t
 }: {
   rule: Rule;
   onToggleEnabled?: (rule: Rule, enabled: boolean) => Promise<void> | void;
+  onDeleteRule?: (rule: Rule) => Promise<void> | void;
   t: Translator;
 }) {
   const canToggle = rule.source === "user" && Boolean(onToggleEnabled);
+  const canDelete = rule.source === "user" && Boolean(onDeleteRule);
   const toggleLabel = canToggle
     ? rule.enabled
       ? t("disableRule")
       : t("enableRule")
     : t("systemRuleLocked");
+  const deleteLabel = canDelete ? t("deleteRule") : t("systemRuleCannotDelete");
 
   return (
-    <motion.div className={cn(compactRowSurface, "grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3")} layout variants={itemMotion}>
+    <motion.div className={cn(compactRowSurface, "grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-3")} layout variants={itemMotion}>
       <div>
         <strong className="block truncate text-sm">{rule.name}</strong>
         <span className="block text-xs text-[var(--muted)]">{rule.source} / weight {rule.weight} / priority {rule.priority}</span>
@@ -1069,6 +1093,20 @@ const RuleRow = memo(function RuleRow({
         }}
       >
         <i />
+      </button>
+      <button
+        type="button"
+        className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] text-[var(--muted)] transition hover:border-red-400/60 hover:bg-red-500/10 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[var(--line)] disabled:hover:bg-transparent disabled:hover:text-[var(--muted)] dark:hover:text-red-300"
+        disabled={!canDelete}
+        aria-label={deleteLabel}
+        title={deleteLabel}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (!canDelete || !window.confirm(t("confirmDeleteRule"))) return;
+          void onDeleteRule?.(rule);
+        }}
+      >
+        <Trash2 size={15} />
       </button>
     </motion.div>
   );

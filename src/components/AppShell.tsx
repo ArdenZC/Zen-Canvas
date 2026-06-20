@@ -77,6 +77,7 @@ interface AppShellProps {
   rules: Rule[];
   saveRule: (rule: Rule) => Promise<void>;
   toggleRuleEnabled: (rule: Rule, enabled: boolean) => Promise<void>;
+  deleteRule: (rule: Rule) => Promise<void>;
   runDispatch: () => Promise<RuleExecutionSummary>;
   selectedFolders: string[];
   isScanning: boolean;
@@ -323,6 +324,7 @@ function AppViewContent(props: AppShellProps) {
         rules={props.rules}
         onSave={props.saveRule}
         onToggleRuleEnabled={props.toggleRuleEnabled}
+        onDeleteRule={props.deleteRule}
         t={props.t}
       />
     );

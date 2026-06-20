@@ -129,6 +129,10 @@ export const tauriApi = {
     return invokeCommand<Rule>("save_user_rule", { rule });
   },
 
+  deleteUserRule(id: string): Promise<boolean> {
+    return invokeCommand<boolean>("delete_user_rule", { id });
+  },
+
   initDatabase(): Promise<void> {
     return invokeCommand<void>("init_db");
   },
