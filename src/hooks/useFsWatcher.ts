@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { tauriApi } from "../api/tauriApi";
+import type { Rule } from "../types/domain";
 import { readableError } from "../utils/viewHelpers";
 import {
   classifyFsWatchEvent,
@@ -12,11 +13,14 @@ import {
 interface FsWatcherOptions {
   onRefreshData: () => Promise<void>;
   onError?: (message: string) => void;
+  rules?: Rule[];
 }
 
 const WATCHER_FLUSH_DELAY_MS = 500;
+const WATCHER_CLASSIFY_LIMIT = 500;
+const EMPTY_RULES: Rule[] = [];
 
-export function useFsWatcher({ onRefreshData, onError }: FsWatcherOptions) {
+export function useFsWatcher({ onRefreshData, onError, rules = EMPTY_RULES }: FsWatcherOptions) {
   useEffect(() => {
     let disposed = false;
     let queue = Promise.resolve();
@@ -35,8 +39,23 @@ export function useFsWatcher({ onRefreshData, onError }: FsWatcherOptions) {
           if (snapshot.stale.length > 0) {
             changed = (await tauriApi.markFilesStaleByPaths(snapshot.stale)) > 0 || changed;
           }
+          let upserted = 0;
           if (snapshot.upsert.length > 0) {
-            changed = (await tauriApi.upsertFilesByPaths(snapshot.upsert)) > 0 || changed;
+            upserted = await tauriApi.upsertFilesByPaths(snapshot.upsert);
+            changed = upserted > 0 || changed;
+          }
+          if (upserted > 0 && snapshot.upsert.length > 0) {
+            try {
+              const summary = await tauriApi.executeRulesForPaths(
+                snapshot.upsert.slice(0, WATCHER_CLASSIFY_LIMIT),
+                rules
+              );
+              changed = summary.updated > 0 || changed;
+            } catch (error) {
+              if (!disposed) {
+                onError?.(readableError(error));
+              }
+            }
           }
           if (changed && !disposed) {
             await onRefreshData();
@@ -86,5 +105,5 @@ export function useFsWatcher({ onRefreshData, onError }: FsWatcherOptions) {
       }
       void unlistenPromise.then((unlisten) => unlisten());
     };
-  }, [onError, onRefreshData]);
+  }, [onError, onRefreshData, rules]);
 }

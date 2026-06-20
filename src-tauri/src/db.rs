@@ -1,7 +1,7 @@
 use crate::file_ops::OperationLogDto;
 use r2d2::{Pool, PooledConnection};
 use r2d2_sqlite::SqliteConnectionManager;
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -476,10 +476,7 @@ impl Database {
         &self,
         rules: Vec<Rule>,
     ) -> Result<RuleExecutionSummary, DbError> {
-        let all_rules: Vec<Rule> = built_in_rules()
-            .into_iter()
-            .chain(rules.into_iter().filter(|rule| rule.enabled))
-            .collect();
+        let all_rules = active_rules(rules);
         let read_conn = self.conn()?;
         let mut write_conn = self.conn()?;
         let mut stmt = read_conn.prepare(
@@ -503,6 +500,74 @@ impl Database {
 
         while let Some(row) = rows.next()? {
             batch.push(indexed_file_from_row(row)?);
+            scanned += 1;
+
+            if batch.len() == CLASSIFY_BATCH_SIZE {
+                let batch_summary =
+                    execute_classification_batch(&mut write_conn, &batch, &all_rules)?;
+                updated += batch_summary.updated;
+                needs_confirmation += batch_summary.needs_confirmation;
+                batch.clear();
+            }
+        }
+
+        if !batch.is_empty() {
+            let batch_summary = execute_classification_batch(&mut write_conn, &batch, &all_rules)?;
+            updated += batch_summary.updated;
+            needs_confirmation += batch_summary.needs_confirmation;
+        }
+
+        Ok(RuleExecutionSummary {
+            scanned,
+            updated,
+            needs_confirmation,
+        })
+    }
+
+    pub fn execute_rules_for_paths(
+        &self,
+        paths: &[String],
+        rules: Vec<Rule>,
+    ) -> Result<RuleExecutionSummary, DbError> {
+        let target_paths = classification_path_candidates(paths, 500);
+        if target_paths.is_empty() {
+            return Ok(RuleExecutionSummary {
+                scanned: 0,
+                updated: 0,
+                needs_confirmation: 0,
+            });
+        }
+
+        let all_rules = active_rules(rules);
+        let placeholders = std::iter::repeat("?")
+            .take(target_paths.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            r#"
+            SELECT id, path, name, extension, size, mtime, ctime, is_dir, state_code,
+                   file_type, purpose, lifecycle, context, risk_level, suggested_action,
+                   suggested_target_path, suggested_name, confidence, classification_reason,
+                   matched_rules, requires_confirmation, is_stale, last_seen_at
+            FROM files
+            WHERE lifecycle = 'Inbox'
+              AND is_stale = 0
+              AND path IN ({placeholders})
+            ORDER BY mtime DESC, name COLLATE NOCASE ASC
+            "#
+        );
+        let read_conn = self.conn()?;
+        let mut write_conn = self.conn()?;
+        let mut stmt = read_conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(target_paths.iter()), indexed_file_from_row)?;
+
+        let mut scanned = 0_i64;
+        let mut updated = 0_i64;
+        let mut needs_confirmation = 0_i64;
+        let mut batch = Vec::with_capacity(CLASSIFY_BATCH_SIZE);
+
+        for row in rows {
+            batch.push(row?);
             scanned += 1;
 
             if batch.len() == CLASSIFY_BATCH_SIZE {
@@ -1039,6 +1104,19 @@ pub async fn execute_rules_on_inbox(
         .map_err(command_error)
 }
 
+#[tauri::command]
+pub async fn execute_rules_for_paths(
+    db: State<'_, Database>,
+    paths: Vec<String>,
+    rules: Vec<Rule>,
+) -> Result<RuleExecutionSummary, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || db.execute_rules_for_paths(&paths, rules))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(command_error)
+}
+
 fn configure_connection(conn: &mut Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         r#"
@@ -1326,6 +1404,35 @@ fn bool_to_i64(value: bool) -> i64 {
     } else {
         0
     }
+}
+
+fn active_rules(rules: Vec<Rule>) -> Vec<Rule> {
+    built_in_rules()
+        .into_iter()
+        .chain(rules.into_iter().filter(|rule| rule.enabled))
+        .collect()
+}
+
+fn classification_path_candidates(paths: &[String], limit: usize) -> Vec<String> {
+    let mut candidates = Vec::new();
+    for path in paths
+        .iter()
+        .map(|path| path.trim())
+        .filter(|path| !path.is_empty())
+    {
+        let path = trim_trailing_path_separators(path);
+        if path.is_empty() {
+            continue;
+        }
+        let normalized_path = normalize_path_text(path);
+        for candidate in path_lookup_candidates(path, &normalized_path) {
+            push_unique(&mut candidates, candidate);
+            if candidates.len() >= limit {
+                return candidates;
+            }
+        }
+    }
+    candidates
 }
 
 fn path_lookup_candidates(first: &str, second: &str) -> Vec<String> {
@@ -2743,6 +2850,120 @@ mod tests {
     }
 
     #[test]
+    fn execute_rules_for_paths_classifies_only_target_paths() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file(
+            &db,
+            "file-resume-target",
+            "resume_2026.pdf",
+            "pdf",
+            2_048,
+            1_900_000_000,
+        );
+        insert_test_file(
+            &db,
+            "file-invoice-untouched",
+            "invoice_apple.pdf",
+            "pdf",
+            2_048,
+            1_900_000_001,
+        );
+
+        let summary = db
+            .execute_rules_for_paths(
+                &["/test/virtual/documents/resume_2026.pdf".to_string()],
+                Vec::new(),
+            )
+            .expect("execute targeted rules");
+        let target = file_classification(&db, "/test/virtual/documents/resume_2026.pdf")
+            .expect("target file");
+        let untouched = file_classification(&db, "/test/virtual/documents/invoice_apple.pdf")
+            .expect("untouched file");
+
+        assert_eq!(summary.scanned, 1);
+        assert_eq!(summary.updated, 1);
+        assert_eq!(
+            target,
+            ("Career".to_string(), "Reference".to_string(), false)
+        );
+        assert_eq!(
+            untouched,
+            ("Unknown".to_string(), "Inbox".to_string(), false)
+        );
+    }
+
+    #[test]
+    fn execute_rules_for_paths_ignores_missing_paths() {
+        let db = Database::open(test_db_path()).expect("open test database");
+
+        let summary = db
+            .execute_rules_for_paths(
+                &["/test/virtual/documents/missing.pdf".to_string()],
+                Vec::new(),
+            )
+            .expect("execute targeted rules");
+
+        assert_eq!(summary.scanned, 0);
+        assert_eq!(summary.updated, 0);
+        assert_eq!(summary.needs_confirmation, 0);
+    }
+
+    #[test]
+    fn execute_rules_for_paths_ignores_stale_files() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file(
+            &db,
+            "file-resume-stale-target",
+            "resume_2026.pdf",
+            "pdf",
+            2_048,
+            1_900_000_000,
+        );
+        db.remove_files_by_paths(&["/test/virtual/documents/resume_2026.pdf".to_string()])
+            .expect("mark stale");
+
+        let summary = db
+            .execute_rules_for_paths(
+                &["/test/virtual/documents/resume_2026.pdf".to_string()],
+                Vec::new(),
+            )
+            .expect("execute targeted rules");
+        let row = file_classification(&db, "/test/virtual/documents/resume_2026.pdf")
+            .expect("stale file still exists");
+
+        assert_eq!(summary.scanned, 0);
+        assert_eq!(summary.updated, 0);
+        assert_eq!(row, ("Unknown".to_string(), "Inbox".to_string(), true));
+    }
+
+    #[test]
+    fn execute_rules_for_paths_ignores_non_inbox_files() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file(
+            &db,
+            "file-resume-archive",
+            "resume_2026.pdf",
+            "pdf",
+            2_048,
+            1_900_000_000,
+        );
+        set_file_lifecycle(&db, "/test/virtual/documents/resume_2026.pdf", "Archive");
+
+        let summary = db
+            .execute_rules_for_paths(
+                &["/test/virtual/documents/resume_2026.pdf".to_string()],
+                Vec::new(),
+            )
+            .expect("execute targeted rules");
+        let row = file_classification(&db, "/test/virtual/documents/resume_2026.pdf")
+            .expect("archive file");
+
+        assert_eq!(summary.scanned, 0);
+        assert_eq!(summary.updated, 0);
+        assert_eq!(row, ("Unknown".to_string(), "Archive".to_string(), false));
+    }
+
+    #[test]
     fn upsert_files_by_paths_inserts_new_file() {
         let db = Database::open(test_db_path()).expect("open test database");
         let root = test_dir();
@@ -3232,6 +3453,15 @@ mod tests {
         )
         .optional()
         .expect("file classification")
+    }
+
+    fn set_file_lifecycle(db: &Database, path: &str, lifecycle: &str) {
+        let conn = Connection::open(db.path()).expect("open migrated database");
+        conn.execute(
+            "UPDATE files SET lifecycle = ?2 WHERE path = ?1",
+            params![path, lifecycle],
+        )
+        .expect("set lifecycle");
     }
 
     fn test_db_path() -> PathBuf {

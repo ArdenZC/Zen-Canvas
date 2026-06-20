@@ -116,6 +116,10 @@ export const tauriApi = {
     return invokeCommand<RuleExecutionSummary>("execute_rules_on_inbox", { rules });
   },
 
+  executeRulesForPaths(paths: string[], rules: Rule[]): Promise<RuleExecutionSummary> {
+    return invokeCommand<RuleExecutionSummary>("execute_rules_for_paths", { paths, rules });
+  },
+
   initDatabase(): Promise<void> {
     return invokeCommand<void>("init_db");
   },

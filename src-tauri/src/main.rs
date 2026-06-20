@@ -40,6 +40,7 @@ fn main() {
             zen_canvas_tauri::db::get_stats_summary,
             zen_canvas_tauri::db::get_operation_logs,
             zen_canvas_tauri::db::execute_rules_on_inbox,
+            zen_canvas_tauri::db::execute_rules_for_paths,
             zen_canvas_tauri::scanner::scan_directory,
             zen_canvas_tauri::scanner::cancel_scan,
             zen_canvas_tauri::file_ops::move_file,

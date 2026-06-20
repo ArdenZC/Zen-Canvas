@@ -67,7 +67,7 @@ export function App() {
   useEffect(() => {
     if (isDatabaseReady) void refresh();
   }, [isDatabaseReady, refresh]);
-  useFsWatcher({ onRefreshData: refresh, onError: showError });
+  useFsWatcher({ onRefreshData: refresh, onError: showError, rules });
 
   const appChrome = useAppChrome({ theme, setTheme, setLanguage });
   const {
