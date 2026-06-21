@@ -23,10 +23,13 @@ import type { Language } from "../i18n";
 import type {
   CloseBehavior,
   DashboardStats,
+  DefaultScanFolder,
   FileQueryResult,
   FileRecord,
+  FolderNamingLanguage,
   OperationLog,
   OperationPreview,
+  RestoreRetentionDays,
   Rule
 } from "../types/domain";
 import type { ThemeMode, Translator, View } from "../types/ui";
@@ -102,7 +105,13 @@ interface AppShellProps {
   hotkeyLabel: string;
   isSearchMode: boolean;
   closeBehavior: CloseBehavior;
-  setCloseBehavior: (next: CloseBehavior) => Promise<void>;
+  setCloseBehavior: (next: CloseBehavior) => Promise<boolean>;
+  folderNamingLanguage: FolderNamingLanguage;
+  setFolderNamingLanguage: (next: FolderNamingLanguage) => Promise<boolean>;
+  defaultScanFolders: DefaultScanFolder[];
+  setDefaultScanFolders: (next: DefaultScanFolder[]) => Promise<boolean>;
+  restoreRetentionDays: RestoreRetentionDays;
+  setRestoreRetentionDays: (next: RestoreRetentionDays) => Promise<boolean>;
   launchAtLogin: boolean;
   setLaunchAtLogin: (next: boolean) => Promise<boolean>;
   isCloseChoiceOpen: boolean;
@@ -341,6 +350,12 @@ function AppViewContent(props: AppShellProps) {
       platform={props.platform}
       closeBehavior={props.closeBehavior}
       setCloseBehavior={props.setCloseBehavior}
+      folderNamingLanguage={props.folderNamingLanguage}
+      setFolderNamingLanguage={props.setFolderNamingLanguage}
+      defaultScanFolders={props.defaultScanFolders}
+      setDefaultScanFolders={props.setDefaultScanFolders}
+      restoreRetentionDays={props.restoreRetentionDays}
+      setRestoreRetentionDays={props.setRestoreRetentionDays}
       launchAtLogin={props.launchAtLogin}
       setLaunchAtLogin={props.setLaunchAtLogin}
       t={props.t}

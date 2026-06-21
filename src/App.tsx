@@ -14,7 +14,13 @@ import { useWindowBehavior } from "./hooks/useWindowBehavior";
 import { useAppStore } from "./store/useAppStore";
 import { useRulesStore } from "./store/useRulesStore";
 import { persistRuleEnabledToggle, persistUserRuleDelete } from "./store/rulePersistence";
-import type { Rule } from "./types/domain";
+import type {
+  CloseBehavior,
+  DefaultScanFolder,
+  FolderNamingLanguage,
+  RestoreRetentionDays,
+  Rule
+} from "./types/domain";
 import { readableError } from "./utils/viewHelpers";
 
 export function App() {
@@ -96,8 +102,30 @@ export function App() {
 
   const appChrome = useAppChrome({ theme, setTheme, setLanguage });
   const setCloseBehavior = useCallback(
-    async (next: typeof appSettings.closeBehavior) => {
-      await updateSettings({ closeBehavior: next });
+    async (next: CloseBehavior) => {
+      const savedSettings = await updateSettings({ closeBehavior: next });
+      return savedSettings.closeBehavior === next;
+    },
+    [updateSettings]
+  );
+  const setFolderNamingLanguage = useCallback(
+    async (next: FolderNamingLanguage) => {
+      const savedSettings = await updateSettings({ folderNamingLanguage: next });
+      return savedSettings.folderNamingLanguage === next;
+    },
+    [updateSettings]
+  );
+  const setDefaultScanFolders = useCallback(
+    async (next: DefaultScanFolder[]) => {
+      const savedSettings = await updateSettings({ defaultScanFolders: next });
+      return arraysEqual(savedSettings.defaultScanFolders, next);
+    },
+    [updateSettings]
+  );
+  const setRestoreRetentionDays = useCallback(
+    async (next: RestoreRetentionDays) => {
+      const savedSettings = await updateSettings({ restoreRetentionDays: next });
+      return savedSettings.restoreRetentionDays === next;
     },
     [updateSettings]
   );
@@ -207,6 +235,12 @@ export function App() {
       toast={toast}
       closeBehavior={closeBehavior}
       setCloseBehavior={setCloseBehavior}
+      folderNamingLanguage={appSettings.folderNamingLanguage}
+      setFolderNamingLanguage={setFolderNamingLanguage}
+      defaultScanFolders={appSettings.defaultScanFolders}
+      setDefaultScanFolders={setDefaultScanFolders}
+      restoreRetentionDays={appSettings.restoreRetentionDays}
+      setRestoreRetentionDays={setRestoreRetentionDays}
       launchAtLogin={appSettings.launchAtLogin}
       setLaunchAtLogin={setLaunchAtLogin}
       isCloseChoiceOpen={isCloseChoiceOpen}
@@ -217,6 +251,10 @@ export function App() {
       t={t}
     />
   );
+}
+
+function arraysEqual(left: readonly string[], right: readonly string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 function DatabaseUnavailableState({

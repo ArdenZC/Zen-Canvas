@@ -5,7 +5,7 @@ import type { CloseBehavior } from "../types/ui";
 
 interface UseWindowBehaviorOptions {
   closeBehavior: CloseBehavior;
-  setCloseBehavior: (next: CloseBehavior) => Promise<void>;
+  setCloseBehavior: (next: CloseBehavior) => Promise<boolean>;
 }
 
 export async function hideToBackground() {
@@ -44,7 +44,7 @@ export function useWindowBehavior({
 
   const setCloseBehavior = useCallback(
     async (next: CloseBehavior) => {
-      await persistCloseBehavior(next);
+      return persistCloseBehavior(next);
     },
     [persistCloseBehavior]
   );

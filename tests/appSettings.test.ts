@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_APP_SETTINGS, mergeAppSettings } from "../src/hooks/useAppSettings";
+import {
+  DEFAULT_APP_SETTINGS,
+  mergeAppSettings,
+  nextDefaultScanFolders
+} from "../src/hooks/useAppSettings";
 
 describe("app settings helpers", () => {
   it("matches the backend default settings shape", () => {
@@ -28,5 +32,11 @@ describe("app settings helpers", () => {
       launchAtLogin: false
     });
     expect(previous.defaultScanFolders).toEqual(["Desktop", "Downloads", "Documents"]);
+  });
+
+  it("toggles default scan folders while keeping at least one selected", () => {
+    expect(nextDefaultScanFolders(["Desktop", "Downloads"], "Downloads")).toEqual(["Desktop"]);
+    expect(nextDefaultScanFolders(["Desktop"], "Desktop")).toEqual(["Desktop"]);
+    expect(nextDefaultScanFolders(["Desktop"], "Documents")).toEqual(["Desktop", "Documents"]);
   });
 });

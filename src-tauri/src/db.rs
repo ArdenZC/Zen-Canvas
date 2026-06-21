@@ -500,6 +500,18 @@ impl Database {
         &self,
         rules: Vec<Rule>,
     ) -> Result<RuleExecutionSummary, DbError> {
+        let settings = crate::settings::get_app_settings(self)?;
+        self.execute_rules_on_inbox_with_folder_naming_language(
+            rules,
+            &settings.folder_naming_language,
+        )
+    }
+
+    fn execute_rules_on_inbox_with_folder_naming_language(
+        &self,
+        rules: Vec<Rule>,
+        folder_naming_language: &str,
+    ) -> Result<RuleExecutionSummary, DbError> {
         let all_rules = active_rules(rules);
         let rule_version = rule_version_for_rules(&all_rules)?;
         let read_conn = self.conn()?;
@@ -542,6 +554,7 @@ impl Database {
                     &batch,
                     &all_rules,
                     &rule_version,
+                    folder_naming_language,
                 )?;
                 updated += batch_summary.updated;
                 needs_confirmation += batch_summary.needs_confirmation;
@@ -550,8 +563,13 @@ impl Database {
         }
 
         if !batch.is_empty() {
-            let batch_summary =
-                execute_classification_batch(&mut write_conn, &batch, &all_rules, &rule_version)?;
+            let batch_summary = execute_classification_batch(
+                &mut write_conn,
+                &batch,
+                &all_rules,
+                &rule_version,
+                folder_naming_language,
+            )?;
             updated += batch_summary.updated;
             needs_confirmation += batch_summary.needs_confirmation;
         }
@@ -568,6 +586,20 @@ impl Database {
         &self,
         paths: &[String],
         rules: Vec<Rule>,
+    ) -> Result<RuleExecutionSummary, DbError> {
+        let settings = crate::settings::get_app_settings(self)?;
+        self.execute_rules_for_paths_with_folder_naming_language(
+            paths,
+            rules,
+            &settings.folder_naming_language,
+        )
+    }
+
+    fn execute_rules_for_paths_with_folder_naming_language(
+        &self,
+        paths: &[String],
+        rules: Vec<Rule>,
+        folder_naming_language: &str,
     ) -> Result<RuleExecutionSummary, DbError> {
         let target_paths = classification_path_candidates(paths, 500);
         if target_paths.is_empty() {
@@ -627,6 +659,7 @@ impl Database {
                     &batch,
                     &all_rules,
                     &rule_version,
+                    folder_naming_language,
                 )?;
                 updated += batch_summary.updated;
                 needs_confirmation += batch_summary.needs_confirmation;
@@ -635,8 +668,13 @@ impl Database {
         }
 
         if !batch.is_empty() {
-            let batch_summary =
-                execute_classification_batch(&mut write_conn, &batch, &all_rules, &rule_version)?;
+            let batch_summary = execute_classification_batch(
+                &mut write_conn,
+                &batch,
+                &all_rules,
+                &rule_version,
+                folder_naming_language,
+            )?;
             updated += batch_summary.updated;
             needs_confirmation += batch_summary.needs_confirmation;
         }
@@ -2208,6 +2246,7 @@ fn execute_classification_batch(
     batch: &[IndexedFileRow],
     all_rules: &[Rule],
     rule_version: &str,
+    folder_naming_language: &str,
 ) -> Result<RuleExecutionSummary, DbError> {
     let mut updated = 0_i64;
     let mut needs_confirmation = 0_i64;
@@ -2238,7 +2277,7 @@ fn execute_classification_batch(
         )?;
 
         for row in batch {
-            let classification = classify_indexed_file(row, all_rules)?;
+            let classification = classify_indexed_file(row, all_rules, folder_naming_language)?;
             if classification.requires_confirmation {
                 needs_confirmation += 1;
             }
@@ -2277,6 +2316,7 @@ fn execute_classification_batch(
 fn classify_indexed_file(
     row: &IndexedFileRow,
     all_rules: &[Rule],
+    folder_naming_language: &str,
 ) -> Result<ClassificationUpdate, DbError> {
     let file_type = normalized_file_type(row);
     let builtin = classify_builtin(row, &file_type);
@@ -2331,8 +2371,12 @@ fn classify_indexed_file(
             .unwrap_or_else(|| default_if_empty(&row.suggested_action, "Keep")),
         &risk_level,
     );
-    let suggested_target_path =
-        build_target_path(row, &file_type, action.target_template.as_deref());
+    let suggested_target_path = build_target_path(
+        row,
+        &file_type,
+        action.target_template.as_deref(),
+        folder_naming_language,
+    );
     let suggested_name = build_suggested_name(row, action.rename_template.as_deref());
     let requires_confirmation = risk_level == "Sensitive"
         || has_conflict
@@ -2837,7 +2881,30 @@ fn build_classification_reason(
     parts.join("; ")
 }
 
-fn build_target_path(row: &IndexedFileRow, file_type: &str, template: Option<&str>) -> String {
+fn translate_template(template: &str, language: &str) -> String {
+    if language != "zh" {
+        return template.to_string();
+    }
+
+    template
+        .replace("00_Inbox", "00_收件箱")
+        .replace("20_Areas", "20_领域")
+        .replace("40_Archive", "40_归档")
+        .replace("90_Temporary", "90_临时")
+        .replace("Personal/Identity", "个人/证件")
+        .replace("Career", "职业")
+        .replace("Finance", "财务")
+        .replace("Study", "学业")
+        .replace("Projects", "项目")
+        .replace("Installers", "安装包")
+}
+
+fn build_target_path(
+    row: &IndexedFileRow,
+    file_type: &str,
+    template: Option<&str>,
+    folder_naming_language: &str,
+) -> String {
     let Some(template) = template.filter(|value| !value.is_empty()) else {
         return String::new();
     };
@@ -2845,7 +2912,8 @@ fn build_target_path(row: &IndexedFileRow, file_type: &str, template: Option<&st
         .get(0..4)
         .unwrap_or("1970")
         .to_string();
-    let resolved = template
+    let translated_template = translate_template(template, folder_naming_language);
+    let resolved = translated_template
         .replace("{year}", &year)
         .replace("{type}", file_type);
     let mut target = PathBuf::from(parent_directory(&row.path));
@@ -3101,6 +3169,58 @@ mod tests {
         path::Path,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    use crate::settings::{save_app_settings, AppSettings};
+
+    #[test]
+    fn translate_template_uses_chinese_folder_segments() {
+        assert_eq!(
+            translate_template("20_Areas/Personal/Identity", "zh"),
+            "20_领域/个人/证件"
+        );
+        assert_eq!(
+            translate_template("40_Archive/{year}/Study", "zh"),
+            "40_归档/{year}/学业"
+        );
+        assert_eq!(
+            translate_template("90_Temporary/Installers", "zh"),
+            "90_临时/安装包"
+        );
+        assert_eq!(
+            translate_template("20_Areas/Projects", "en"),
+            "20_Areas/Projects"
+        );
+    }
+
+    #[test]
+    fn execute_rules_on_inbox_uses_persisted_chinese_folder_naming_for_new_classifications() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let mut settings = AppSettings::default();
+        settings.folder_naming_language = "zh".to_string();
+        save_app_settings(&db, &settings).expect("save app settings");
+        insert_test_file(
+            &db,
+            "file-resume-zh",
+            "resume_2026.pdf",
+            "pdf",
+            2_048,
+            1_900_000_000,
+        );
+
+        db.execute_rules_on_inbox(Vec::new())
+            .expect("execute rules");
+        let page = db.get_paged_files(Some(10), Some(0), None).expect("page");
+        let file = page
+            .files
+            .iter()
+            .find(|file| file.id == "file-resume-zh")
+            .expect("classified file");
+
+        assert!(file.suggested_target_path.contains("20_领域"));
+        assert!(file.suggested_target_path.contains("职业"));
+        assert!(!file.suggested_target_path.contains("20_Areas"));
+        assert!(!file.suggested_target_path.contains("Career"));
+    }
 
     #[test]
     fn get_paged_files_returns_limit_and_offset() {

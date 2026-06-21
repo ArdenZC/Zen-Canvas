@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion, type Variants } from "motion/react";
 import { Check, ChevronRight, File, Folder, FolderSearch, Play, Plus, RefreshCw, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { tauriApi, type RuleExecutionSummary, type ScanProgressPayload } from "../api/tauriApi";
+import { nextDefaultScanFolders } from "../hooks/useAppSettings";
 import type { Language } from "../i18n";
 import type {
   CloseBehavior,
@@ -1329,6 +1330,12 @@ export function SettingsView({
   platform,
   closeBehavior,
   setCloseBehavior,
+  folderNamingLanguage,
+  setFolderNamingLanguage,
+  defaultScanFolders,
+  setDefaultScanFolders,
+  restoreRetentionDays,
+  setRestoreRetentionDays,
   launchAtLogin,
   setLaunchAtLogin,
   t
@@ -1339,21 +1346,32 @@ export function SettingsView({
   setTheme: (theme: ThemeMode) => void;
   platform: NodeJS.Platform | "browser";
   closeBehavior: CloseBehavior;
-  setCloseBehavior: (behavior: CloseBehavior) => Promise<void>;
+  setCloseBehavior: (behavior: CloseBehavior) => Promise<boolean>;
+  folderNamingLanguage: FolderNamingLanguage;
+  setFolderNamingLanguage: (language: FolderNamingLanguage) => Promise<boolean>;
+  defaultScanFolders: DefaultScanFolder[];
+  setDefaultScanFolders: (folders: DefaultScanFolder[]) => Promise<boolean>;
+  restoreRetentionDays: RestoreRetentionDays;
+  setRestoreRetentionDays: (days: RestoreRetentionDays) => Promise<boolean>;
   launchAtLogin: boolean;
   setLaunchAtLogin: (enabled: boolean) => Promise<boolean>;
   t: Translator;
 }) {
-  const [hotkey, setHotkey] = useState(defaultPlatformAccelerator(platform));
-  const [backgroundResident, setBackgroundResident] = useState(false);
-  const [folderNamingLanguage, setFolderNamingLanguageState] = useState<FolderNamingLanguage>("en");
-  const [defaultScanFolders, setDefaultScanFoldersState] = useState<DefaultScanFolder[]>(["Desktop", "Downloads", "Documents"]);
-  const [restoreRetentionDays, setRestoreRetentionDaysState] = useState<RestoreRetentionDays>(30);
+  const hotkey = defaultPlatformAccelerator(platform);
   const [settingsStatus, setSettingsStatus] = useState("");
 
   async function updateCloseBehavior(next: CloseBehavior) {
-    await setCloseBehavior(next);
-    setSettingsStatus(t("settingSaved"));
+    const saved = await setCloseBehavior(next);
+    if (saved) {
+      setSettingsStatus(t("settingSaved"));
+    }
+  }
+
+  async function updateFolderNamingLanguage(next: FolderNamingLanguage) {
+    const saved = await setFolderNamingLanguage(next);
+    if (saved) {
+      setSettingsStatus(t("settingSaved"));
+    }
   }
 
   async function updateLaunchAtLogin(next: boolean) {
@@ -1363,12 +1381,18 @@ export function SettingsView({
     }
   }
 
-  function toggleDefaultScanFolder(folder: DefaultScanFolder) {
-    const next = defaultScanFolders.includes(folder)
-      ? defaultScanFolders.filter((item) => item !== folder)
-      : [...defaultScanFolders, folder];
-    setDefaultScanFoldersState(next.length ? next : [folder]);
-    setSettingsStatus(t("settingSaved"));
+  async function toggleDefaultScanFolder(folder: DefaultScanFolder) {
+    const saved = await setDefaultScanFolders(nextDefaultScanFolders(defaultScanFolders, folder));
+    if (saved) {
+      setSettingsStatus(`${t("settingSaved")} · ${t("defaultScanFoldersRestartHint")}`);
+    }
+  }
+
+  async function updateRestoreRetentionDays(next: RestoreRetentionDays) {
+    const saved = await setRestoreRetentionDays(next);
+    if (saved) {
+      setSettingsStatus(t("settingSaved"));
+    }
   }
 
   return (
@@ -1394,30 +1418,24 @@ export function SettingsView({
         <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
           <div><strong className="block text-sm">{t("folderNaming")}</strong><span className={mutedText}>{t("folderNamingDesc")}</span></div>
           <div className={segmented}>
-            <button className={segmentButton(folderNamingLanguage === "en")} onClick={() => setFolderNamingLanguageState("en")}>Career</button>
-            <button className={segmentButton(folderNamingLanguage === "zh")} onClick={() => setFolderNamingLanguageState("zh")}>{t("chineseFolderNames")}</button>
+            <button className={segmentButton(folderNamingLanguage === "en")} onClick={() => void updateFolderNamingLanguage("en")}>{t("englishFolderNames")}</button>
+            <button className={segmentButton(folderNamingLanguage === "zh")} onClick={() => void updateFolderNamingLanguage("zh")}>{t("chineseFolderNames")}</button>
           </div>
         </div>
         <div className="grid gap-3 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
           <div><strong className="block text-sm">{t("defaultScanFolders")}</strong><span className={mutedText}>{t("defaultScanFoldersDesc")}</span></div>
           <div className="flex flex-wrap gap-2">
             {(["Desktop", "Downloads", "Documents"] as DefaultScanFolder[]).map((folder) => (
-              <button className={segmentButton(defaultScanFolders.includes(folder))} key={folder} onClick={() => toggleDefaultScanFolder(folder)}>
+              <button className={segmentButton(defaultScanFolders.includes(folder))} key={folder} onClick={() => void toggleDefaultScanFolder(folder)}>
                 {folder}
               </button>
             ))}
           </div>
+          <span className={quietText}>{t("defaultScanFoldersRestartHint")}</span>
         </div>
         <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
-          <div><strong className="block text-sm">{t("searchHotkey")}</strong><span className={mutedText}>{t("searchHotkeyDesc")}: {platform === "darwin" ? "⌘ K" : "Ctrl K"}</span></div>
-          <div className="flex items-center gap-2">
-            <input className={cn(inputSurface, "w-28")} value={hotkey} onChange={(event) => setHotkey(event.target.value)} />
-            <button className={glassButton} onClick={() => setSettingsStatus(t("hotkeySaved"))}>{t("save")}</button>
-          </div>
-        </div>
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
-          <div><strong className="block text-sm">{t("backgroundResident")}</strong><span className={mutedText}>{t("backgroundResidentDesc")}</span></div>
-          <button className={toggleSwitch(backgroundResident)} onClick={() => setBackgroundResident((value) => !value)}><i /></button>
+          <div><strong className="block text-sm">{t("searchHotkey")}</strong><span className={mutedText}>{t("searchHotkeyDesc")}</span></div>
+          <span className="rounded-xl border border-[var(--line)] bg-white/25 px-3 py-1.5 text-sm font-medium text-[var(--ink)] dark:bg-white/5">{hotkey}</span>
         </div>
         <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
           <div><strong className="block text-sm">{t("launchAtLogin")}</strong><span className={mutedText}>{t("launchAtLoginDesc")}</span></div>
@@ -1435,7 +1453,7 @@ export function SettingsView({
           <div><strong className="block text-sm">{t("logRetention")}</strong><span className={mutedText}>{t("logRetentionDesc")}</span></div>
           <div className={segmented}>
             {([15, 30, 60, 90] as RestoreRetentionDays[]).map((days) => (
-              <button className={segmentButton(restoreRetentionDays === days)} key={days} onClick={() => setRestoreRetentionDaysState(days)}>
+              <button className={segmentButton(restoreRetentionDays === days)} key={days} onClick={() => void updateRestoreRetentionDays(days)}>
                 {days} {t("days")}
               </button>
             ))}

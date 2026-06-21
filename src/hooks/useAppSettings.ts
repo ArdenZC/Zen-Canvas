@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { tauriApi } from "../api/tauriApi";
-import type { AppSettings } from "../types/domain";
+import type { AppSettings, DefaultScanFolder } from "../types/domain";
 import { readableError } from "../utils/viewHelpers";
 
 const defaultFormatSettingsError = (error: unknown) => readableError(error);
@@ -28,6 +28,18 @@ export function mergeAppSettings(
     ...settings,
     ...partial
   };
+}
+
+export function nextDefaultScanFolders(
+  current: DefaultScanFolder[],
+  folder: DefaultScanFolder
+): DefaultScanFolder[] {
+  if (current.includes(folder)) {
+    const next = current.filter((item) => item !== folder);
+    return next.length ? next : [folder];
+  }
+
+  return [...current, folder];
 }
 
 export function useAppSettings({
