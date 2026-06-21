@@ -1,79 +1,11 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { motion } from "motion/react";
-import { Check, ChevronRight, File, Folder, FolderOpen, Play, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
-import { tauriApi, type OperationProgressPayload } from "../api/tauriApi";
-import { nextDefaultScanFolders } from "../hooks/useAppSettings";
-import type { Language } from "../i18n";
-import type {
-  CloseBehavior,
-  DefaultScanFolder,
-  FileQueryResult,
-  FileRecord,
-  FolderNamingLanguage,
-  OperationLog,
-  OperationPreview,
-  RestoreRetentionDays,
-  Lifecycle,
-  Purpose,
-  Rule,
-  RuleCondition,
-  RuleConditionGroup,
-  RuleOperator
-} from "../types/domain";
-import type { ThemeMode, Translator, View } from "../types/ui";
-import { formatBytes, percent } from "../utils/format";
-import {
-  compactPath,
-  defaultPlatformAccelerator,
-  localId,
-  nowIso
-} from "../utils/viewHelpers";
-import { shouldVirtualizeList } from "../utils/virtualization";
-import { OperationProgressPanel } from "./timeline/TimelineView";
-import { revealFileFromCard } from "./shared/cardActions";
-import {
-  compactRowSurface,
-  formGrid,
-  itemMotion,
-  listMotion,
-  mutedText,
-  pageSurface,
-  panelSurface,
-  quietText,
-  rowSurface,
-  segmented,
-  segmentButton,
-  SectionTitle,
-  sourceBadge,
-  toggleSwitch
-} from "./shared/ui";
-import {
-  cn,
-  emptyState,
-  glassButton,
-  glassButtonPrimary,
-  inputSurface,
-  sectionTitle,
-  selectSurface,
-  statusToast,
-  toneClasses,
-  virtualList,
-  virtualRow as virtualRowClass,
-  virtualSpacer
-} from "../utils/tw";
-
-export { ScannerView } from "./scanner/ScannerView";
-
-export { HubView } from "./hub/HubView";
-
-export { VaultView } from "./vault/VaultView";
-
-export { TimelineView } from "./timeline/TimelineView";
-
-export { RulesView } from "./rules/RulesView";
-
-export { RestoreView } from "./restore/RestoreView";
+import { useState } from "react";
+import { nextDefaultScanFolders } from "../../hooks/useAppSettings";
+import type { Language } from "../../i18n";
+import type { CloseBehavior, DefaultScanFolder, FolderNamingLanguage, RestoreRetentionDays } from "../../types/domain";
+import type { ThemeMode, Translator } from "../../types/ui";
+import { defaultPlatformAccelerator } from "../../utils/viewHelpers";
+import { cn, statusToast } from "../../utils/tw";
+import { mutedText, pageSurface, panelSurface, quietText, segmented, segmentButton, sourceBadge, toggleSwitch, SectionTitle } from "../shared/ui";
 
 export function SettingsView({
   language,

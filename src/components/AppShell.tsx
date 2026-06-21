@@ -44,7 +44,7 @@ import {
   SettingsView,
   TimelineView,
   VaultView
-} from "../views/AppViews";
+} from "../views";
 
 const appRoot =
   "relative h-screen min-h-[720px] min-w-[1080px] overflow-hidden bg-[var(--bg)] text-[var(--ink)]";
