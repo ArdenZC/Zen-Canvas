@@ -103,6 +103,8 @@ interface AppShellProps {
   isSearchMode: boolean;
   closeBehavior: CloseBehavior;
   setCloseBehavior: (next: CloseBehavior) => Promise<void>;
+  launchAtLogin: boolean;
+  setLaunchAtLogin: (next: boolean) => Promise<boolean>;
   isCloseChoiceOpen: boolean;
   handleWindowAction: (action: "minimize" | "maximize" | "close") => Promise<void>;
   resolveCloseChoice: (action: "minimize" | "quit", remember: boolean) => Promise<void>;
@@ -339,6 +341,8 @@ function AppViewContent(props: AppShellProps) {
       platform={props.platform}
       closeBehavior={props.closeBehavior}
       setCloseBehavior={props.setCloseBehavior}
+      launchAtLogin={props.launchAtLogin}
+      setLaunchAtLogin={props.setLaunchAtLogin}
       t={props.t}
     />
   );

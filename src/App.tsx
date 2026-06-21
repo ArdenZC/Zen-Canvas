@@ -101,6 +101,13 @@ export function App() {
     },
     [updateSettings]
   );
+  const setLaunchAtLogin = useCallback(
+    async (next: boolean) => {
+      const savedSettings = await updateSettings({ launchAtLogin: next });
+      return savedSettings.launchAtLogin === next;
+    },
+    [updateSettings]
+  );
   const {
     closeBehavior,
     isCloseChoiceOpen,
@@ -200,6 +207,8 @@ export function App() {
       toast={toast}
       closeBehavior={closeBehavior}
       setCloseBehavior={setCloseBehavior}
+      launchAtLogin={appSettings.launchAtLogin}
+      setLaunchAtLogin={setLaunchAtLogin}
       isCloseChoiceOpen={isCloseChoiceOpen}
       onCancelCloseChoice={onCancelCloseChoice}
       handleWindowAction={handleWindowAction}

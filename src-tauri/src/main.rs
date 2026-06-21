@@ -4,17 +4,36 @@ use std::{
 };
 
 use tauri::Manager;
+use tauri_plugin_autostart::ManagerExt;
 use zen_canvas_tauri::{open_database, settings, ScanCancellationToken};
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
+            zen_canvas_tauri::app_control::setup_tray(app)
+                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
             let db = open_database(&app.handle())
                 .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
             app.manage(db.clone());
             let app_settings = settings::get_app_settings(&db)
                 .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+            let launch_at_login = app.autolaunch();
+            let app_settings = match settings::sync_launch_at_login_from_system(
+                &db,
+                &app_settings,
+                &*launch_at_login,
+            ) {
+                Ok(synced_settings) => synced_settings,
+                Err(error) => {
+                    eprintln!("Launch at login sync failed (non-fatal): {error}");
+                    app_settings
+                }
+            };
             db.prune_operation_logs(app_settings.restore_retention_days)
                 .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
             app.manage(ScanCancellationToken(Arc::new(AtomicBool::new(false))));

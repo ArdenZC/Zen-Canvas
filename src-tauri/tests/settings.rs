@@ -5,7 +5,10 @@ use std::{
 };
 use zen_canvas_tauri::{
     db::Database,
-    settings::{get_app_settings, save_app_settings, AppSettings, APP_SETTINGS_KEY},
+    settings::{
+        get_app_settings, save_app_settings, save_app_settings_with_launch_at_login,
+        sync_launch_at_login_from_system, AppSettings, LaunchAtLoginController, APP_SETTINGS_KEY,
+    },
 };
 
 #[test]
@@ -122,6 +125,68 @@ fn prune_operation_logs_removes_expired_logs_and_orphan_batches() {
     assert_eq!(batch_ids, vec!["batch-recent"]);
 }
 
+#[test]
+fn save_settings_with_launch_at_login_enables_autostart_before_persisting() {
+    let db = Database::open(test_db_path()).expect("open test database");
+    let controller = RecordingLaunchAtLoginController::new(false);
+    let mut settings = AppSettings::default();
+    settings.launch_at_login = true;
+
+    save_app_settings_with_launch_at_login(&db, &settings, &controller).expect("save settings");
+    let loaded = get_app_settings(&db).expect("load settings");
+
+    assert!(loaded.launch_at_login);
+    assert_eq!(controller.calls(), vec!["enable"]);
+}
+
+#[test]
+fn save_settings_with_launch_at_login_disables_autostart_before_persisting() {
+    let db = Database::open(test_db_path()).expect("open test database");
+    let controller = RecordingLaunchAtLoginController::new(true);
+    let mut settings = AppSettings::default();
+    settings.launch_at_login = true;
+    save_app_settings(&db, &settings).expect("save enabled settings");
+    settings.launch_at_login = false;
+
+    save_app_settings_with_launch_at_login(&db, &settings, &controller).expect("save settings");
+    let loaded = get_app_settings(&db).expect("load settings");
+
+    assert!(!loaded.launch_at_login);
+    assert_eq!(controller.calls(), vec!["disable"]);
+}
+
+#[test]
+fn save_settings_with_launch_at_login_does_not_persist_when_autostart_sync_fails() {
+    let db = Database::open(test_db_path()).expect("open test database");
+    let controller = RecordingLaunchAtLoginController::new(false).fail_enable();
+    let mut settings = AppSettings::default();
+    settings.launch_at_login = true;
+
+    let result = save_app_settings_with_launch_at_login(&db, &settings, &controller);
+    let loaded = get_app_settings(&db).expect("load settings");
+
+    assert!(result.is_err());
+    assert!(!loaded.launch_at_login);
+    assert_eq!(controller.calls(), vec!["enable"]);
+}
+
+#[test]
+fn startup_launch_at_login_sync_uses_system_truth() {
+    let db = Database::open(test_db_path()).expect("open test database");
+    let controller = RecordingLaunchAtLoginController::new(false);
+    let mut settings = AppSettings::default();
+    settings.launch_at_login = true;
+    save_app_settings(&db, &settings).expect("save stale settings");
+
+    let synced =
+        sync_launch_at_login_from_system(&db, &settings, &controller).expect("sync settings");
+    let loaded = get_app_settings(&db).expect("load settings");
+
+    assert!(!synced.launch_at_login);
+    assert!(!loaded.launch_at_login);
+    assert_eq!(controller.calls(), vec!["is_enabled"]);
+}
+
 fn create_schema_7_database(path: &Path) {
     let conn = Connection::open(path).expect("open schema 7 database");
     conn.execute_batch(
@@ -194,6 +259,53 @@ fn current_timestamp_ms() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| i64::try_from(duration.as_millis()).expect("timestamp fits i64"))
         .expect("clock")
+}
+
+#[derive(Default)]
+struct RecordingLaunchAtLoginController {
+    enabled: bool,
+    fail_enable: bool,
+    calls: std::cell::RefCell<Vec<&'static str>>,
+}
+
+impl RecordingLaunchAtLoginController {
+    fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            fail_enable: false,
+            calls: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+
+    fn fail_enable(mut self) -> Self {
+        self.fail_enable = true;
+        self
+    }
+
+    fn calls(&self) -> Vec<&'static str> {
+        self.calls.borrow().clone()
+    }
+}
+
+impl LaunchAtLoginController for RecordingLaunchAtLoginController {
+    fn enable(&self) -> Result<(), String> {
+        self.calls.borrow_mut().push("enable");
+        if self.fail_enable {
+            Err("enable failed".to_string())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn disable(&self) -> Result<(), String> {
+        self.calls.borrow_mut().push("disable");
+        Ok(())
+    }
+
+    fn is_enabled(&self) -> Result<bool, String> {
+        self.calls.borrow_mut().push("is_enabled");
+        Ok(self.enabled)
+    }
 }
 
 fn test_db_path() -> PathBuf {

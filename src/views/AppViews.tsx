@@ -1329,6 +1329,8 @@ export function SettingsView({
   platform,
   closeBehavior,
   setCloseBehavior,
+  launchAtLogin,
+  setLaunchAtLogin,
   t
 }: {
   language: Language;
@@ -1338,11 +1340,12 @@ export function SettingsView({
   platform: NodeJS.Platform | "browser";
   closeBehavior: CloseBehavior;
   setCloseBehavior: (behavior: CloseBehavior) => Promise<void>;
+  launchAtLogin: boolean;
+  setLaunchAtLogin: (enabled: boolean) => Promise<boolean>;
   t: Translator;
 }) {
   const [hotkey, setHotkey] = useState(defaultPlatformAccelerator(platform));
   const [backgroundResident, setBackgroundResident] = useState(false);
-  const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [folderNamingLanguage, setFolderNamingLanguageState] = useState<FolderNamingLanguage>("en");
   const [defaultScanFolders, setDefaultScanFoldersState] = useState<DefaultScanFolder[]>(["Desktop", "Downloads", "Documents"]);
   const [restoreRetentionDays, setRestoreRetentionDaysState] = useState<RestoreRetentionDays>(30);
@@ -1351,6 +1354,13 @@ export function SettingsView({
   async function updateCloseBehavior(next: CloseBehavior) {
     await setCloseBehavior(next);
     setSettingsStatus(t("settingSaved"));
+  }
+
+  async function updateLaunchAtLogin(next: boolean) {
+    const saved = await setLaunchAtLogin(next);
+    if (saved) {
+      setSettingsStatus(t("settingSaved"));
+    }
   }
 
   function toggleDefaultScanFolder(folder: DefaultScanFolder) {
@@ -1411,7 +1421,7 @@ export function SettingsView({
         </div>
         <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
           <div><strong className="block text-sm">{t("launchAtLogin")}</strong><span className={mutedText}>{t("launchAtLoginDesc")}</span></div>
-          <button className={toggleSwitch(launchAtLogin)} onClick={() => setLaunchAtLogin((value) => !value)}><i /></button>
+          <button className={toggleSwitch(launchAtLogin)} onClick={() => void updateLaunchAtLogin(!launchAtLogin)}><i /></button>
         </div>
         <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
           <div><strong className="block text-sm">{t("closeBehavior")}</strong><span className={mutedText}>{t("closeBehaviorDesc")}</span></div>
