@@ -19,15 +19,17 @@ fn main() {
             None,
         ))
         .setup(|app| {
+            let db = open_database(&app.handle())
+                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+            app.manage(db.clone());
+            app.manage(ScanCancellationToken(Arc::new(AtomicBool::new(false))));
+            app.manage(OperationCancellationToken(Arc::new(AtomicBool::new(false))));
             zen_canvas_tauri::app_control::setup_tray(app)
                 .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
             zen_canvas_tauri::app_control::setup_search_window(app)
                 .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
             zen_canvas_tauri::app_control::setup_global_search_shortcut(app)
                 .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
-            let db = open_database(&app.handle())
-                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
-            app.manage(db.clone());
             let app_settings = settings::get_app_settings(&db)
                 .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
             let launch_at_login = app.autolaunch();
@@ -44,8 +46,6 @@ fn main() {
             };
             db.prune_operation_logs(app_settings.restore_retention_days)
                 .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
-            app.manage(ScanCancellationToken(Arc::new(AtomicBool::new(false))));
-            app.manage(OperationCancellationToken(Arc::new(AtomicBool::new(false))));
             // 构建默认监听路径：用户主目录下设置启用的个人文件夹
             let home = dirs::home_dir();
             let watch_paths: Vec<std::path::PathBuf> =
