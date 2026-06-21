@@ -58,6 +58,8 @@ struct IndexedFileRow {
     classification_reason: String,
     matched_rules: String,
     requires_confirmation: bool,
+    content_hash: String,
+    is_duplicate: bool,
     is_stale: bool,
     last_seen_at: i64,
     last_classified_at: i64,
@@ -71,7 +73,7 @@ const OPTIMIZE_AFTER_UPSERT_THRESHOLD: usize = 500;
 pub const SEARCH_INDEX_OPTIMIZED_EVENT: &str = "search-index-optimized";
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 8;
+const CURRENT_SCHEMA_VERSION: i32 = 9;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -302,6 +304,13 @@ impl Database {
                     THEN excluded.suggested_name
                     ELSE files.suggested_name
                 END,
+                content_hash = CASE
+                    WHEN files.size != excluded.size
+                      OR files.mtime != excluded.mtime
+                      OR files.is_dir != excluded.is_dir
+                    THEN ''
+                    ELSE files.content_hash
+                END,
                 is_stale = 0,
                 last_seen_at = excluded.last_seen_at
             "#,
@@ -518,16 +527,29 @@ impl Database {
         let mut write_conn = self.conn()?;
         let mut stmt = read_conn.prepare(
             r#"
-                SELECT id, path, name, extension, size, mtime, ctime, is_dir, state_code,
-                       file_type, purpose, lifecycle, context, risk_level, suggested_action,
-                       suggested_target_path, suggested_name, confidence, classification_reason,
-                       matched_rules, requires_confirmation, is_stale, last_seen_at,
-                       last_classified_at, classified_rule_version, last_classified_mtime,
-                       last_classified_size
-                FROM files
-                WHERE lifecycle = 'Inbox'
-                  AND is_stale = 0
-                ORDER BY mtime DESC, name COLLATE NOCASE ASC
+                WITH dup_groups AS (
+                    SELECT size, content_hash
+                    FROM files
+                    WHERE is_dir = 0
+                      AND is_stale = 0
+                      AND content_hash <> ''
+                    GROUP BY size, content_hash
+                    HAVING COUNT(*) > 1
+                )
+                SELECT f.id, f.path, f.name, f.extension, f.size, f.mtime, f.ctime, f.is_dir, f.state_code,
+                       f.file_type, f.purpose, f.lifecycle, f.context, f.risk_level, f.suggested_action,
+                       f.suggested_target_path, f.suggested_name, f.confidence, f.classification_reason,
+                       f.matched_rules, f.requires_confirmation, f.content_hash,
+                       (dg.content_hash IS NOT NULL) AS is_duplicate,
+                       f.is_stale, f.last_seen_at, f.last_classified_at, f.classified_rule_version,
+                       f.last_classified_mtime, f.last_classified_size
+                FROM files AS f
+                LEFT JOIN dup_groups AS dg
+                  ON dg.size = f.size
+                 AND dg.content_hash = f.content_hash
+                WHERE f.lifecycle = 'Inbox'
+                  AND f.is_stale = 0
+                ORDER BY f.mtime DESC, f.name COLLATE NOCASE ASC
                 "#,
         )?;
         let mut rows = stmt.query([])?;
@@ -619,17 +641,30 @@ impl Database {
             .join(", ");
         let sql = format!(
             r#"
-            SELECT id, path, name, extension, size, mtime, ctime, is_dir, state_code,
-                   file_type, purpose, lifecycle, context, risk_level, suggested_action,
-                   suggested_target_path, suggested_name, confidence, classification_reason,
-                   matched_rules, requires_confirmation, is_stale, last_seen_at,
-                   last_classified_at, classified_rule_version, last_classified_mtime,
-                   last_classified_size
-            FROM files
-            WHERE lifecycle = 'Inbox'
-              AND is_stale = 0
-              AND path IN ({placeholders})
-            ORDER BY mtime DESC, name COLLATE NOCASE ASC
+            WITH dup_groups AS (
+                SELECT size, content_hash
+                FROM files
+                WHERE is_dir = 0
+                  AND is_stale = 0
+                  AND content_hash <> ''
+                GROUP BY size, content_hash
+                HAVING COUNT(*) > 1
+            )
+            SELECT f.id, f.path, f.name, f.extension, f.size, f.mtime, f.ctime, f.is_dir, f.state_code,
+                   f.file_type, f.purpose, f.lifecycle, f.context, f.risk_level, f.suggested_action,
+                   f.suggested_target_path, f.suggested_name, f.confidence, f.classification_reason,
+                   f.matched_rules, f.requires_confirmation, f.content_hash,
+                   (dg.content_hash IS NOT NULL) AS is_duplicate,
+                   f.is_stale, f.last_seen_at, f.last_classified_at, f.classified_rule_version,
+                   f.last_classified_mtime, f.last_classified_size
+            FROM files AS f
+            LEFT JOIN dup_groups AS dg
+              ON dg.size = f.size
+             AND dg.content_hash = f.content_hash
+            WHERE f.lifecycle = 'Inbox'
+              AND f.is_stale = 0
+              AND f.path IN ({placeholders})
+            ORDER BY f.mtime DESC, f.name COLLATE NOCASE ASC
             "#
         );
         let read_conn = self.conn()?;
@@ -761,6 +796,15 @@ impl Database {
             )?;
             let mut stmt = conn.prepare(
                 r#"
+                WITH dup_groups AS (
+                    SELECT size, content_hash
+                    FROM files
+                    WHERE is_dir = 0
+                      AND is_stale = 0
+                      AND content_hash <> ''
+                    GROUP BY size, content_hash
+                    HAVING COUNT(*) > 1
+                )
                 SELECT
                     f.id,
                     f.path,
@@ -783,6 +827,8 @@ impl Database {
                     f.classification_reason,
                     f.matched_rules,
                     f.requires_confirmation,
+                    f.content_hash,
+                    (dg.content_hash IS NOT NULL) AS is_duplicate,
                     f.is_stale,
                     f.last_seen_at,
                     f.last_classified_at,
@@ -792,6 +838,9 @@ impl Database {
                     bm25(files_fts, 6.0, 1.5) AS rank
                 FROM files_fts
                 JOIN files AS f ON f.rowid = files_fts.rowid
+                LEFT JOIN dup_groups AS dg
+                  ON dg.size = f.size
+                 AND dg.content_hash = f.content_hash
                 WHERE files_fts MATCH ?1
                   AND f.is_stale = 0
                 ORDER BY rank ASC, f.mtime DESC, length(f.path) ASC
@@ -819,15 +868,28 @@ impl Database {
         })?;
         let mut stmt = conn.prepare(
             r#"
-            SELECT id, path, name, extension, size, mtime, ctime, is_dir, state_code,
-                   file_type, purpose, lifecycle, context, risk_level, suggested_action,
-                   suggested_target_path, suggested_name, confidence, classification_reason,
-                   matched_rules, requires_confirmation, is_stale, last_seen_at,
-                   last_classified_at, classified_rule_version, last_classified_mtime,
-                   last_classified_size
-            FROM files
-            WHERE is_stale = 0
-            ORDER BY mtime DESC, name COLLATE NOCASE ASC
+            WITH dup_groups AS (
+                SELECT size, content_hash
+                FROM files
+                WHERE is_dir = 0
+                  AND is_stale = 0
+                  AND content_hash <> ''
+                GROUP BY size, content_hash
+                HAVING COUNT(*) > 1
+            )
+            SELECT f.id, f.path, f.name, f.extension, f.size, f.mtime, f.ctime, f.is_dir, f.state_code,
+                   f.file_type, f.purpose, f.lifecycle, f.context, f.risk_level, f.suggested_action,
+                   f.suggested_target_path, f.suggested_name, f.confidence, f.classification_reason,
+                   f.matched_rules, f.requires_confirmation, f.content_hash,
+                   (dg.content_hash IS NOT NULL) AS is_duplicate,
+                   f.is_stale, f.last_seen_at, f.last_classified_at, f.classified_rule_version,
+                   f.last_classified_mtime, f.last_classified_size
+            FROM files AS f
+            LEFT JOIN dup_groups AS dg
+              ON dg.size = f.size
+             AND dg.content_hash = f.content_hash
+            WHERE f.is_stale = 0
+            ORDER BY f.mtime DESC, f.name COLLATE NOCASE ASC
             LIMIT ?1 OFFSET ?2
             "#,
         )?;
@@ -856,19 +918,33 @@ impl Database {
             large_files,
             sensitive_files,
             needs_confirmation,
+            duplicate_files,
             last_mtime,
-        ): (i64, i64, i64, i64, i64, Option<i64>) = conn.query_row(
+        ): (i64, i64, i64, i64, i64, i64, Option<i64>) = conn.query_row(
             r#"
+            WITH dup_groups AS (
+                SELECT size, content_hash
+                FROM files
+                WHERE is_dir = 0
+                  AND is_stale = 0
+                  AND content_hash <> ''
+                GROUP BY size, content_hash
+                HAVING COUNT(*) > 1
+            )
             SELECT
-                COUNT(*)        FILTER (WHERE is_dir = 0),
-                COALESCE(SUM(size) FILTER (WHERE is_dir = 0), 0),
-                COUNT(*)        FILTER (WHERE is_dir = 0 AND size >= 104857600),
-                COUNT(*)        FILTER (WHERE is_dir = 0
-                                  AND (risk_level = 'Sensitive' OR lifecycle = 'Sensitive')),
-                COUNT(*)        FILTER (WHERE is_dir = 0 AND requires_confirmation = 1),
-                MAX(mtime)
-            FROM files
-            WHERE is_stale = 0
+                COUNT(*)        FILTER (WHERE f.is_dir = 0),
+                COALESCE(SUM(f.size) FILTER (WHERE f.is_dir = 0), 0),
+                COUNT(*)        FILTER (WHERE f.is_dir = 0 AND f.size >= 104857600),
+                COUNT(*)        FILTER (WHERE f.is_dir = 0
+                                  AND (f.risk_level = 'Sensitive' OR f.lifecycle = 'Sensitive')),
+                COUNT(*)        FILTER (WHERE f.is_dir = 0 AND f.requires_confirmation = 1),
+                COUNT(*)        FILTER (WHERE f.is_dir = 0 AND dg.content_hash IS NOT NULL),
+                MAX(f.mtime)
+            FROM files AS f
+            LEFT JOIN dup_groups AS dg
+              ON dg.size = f.size
+             AND dg.content_hash = f.content_hash
+            WHERE f.is_stale = 0
             "#,
             [],
             |row| {
@@ -878,7 +954,8 @@ impl Database {
                     row.get(2)?,
                     row.get(3)?,
                     row.get(4)?,
-                    row.get::<_, Option<i64>>(5)?,
+                    row.get(5)?,
+                    row.get::<_, Option<i64>>(6)?,
                 ))
             },
         )?;
@@ -946,7 +1023,7 @@ impl Database {
             disk_total_size: disk_total as i64,
             disk_free_size: disk_free as i64,
             disk_usage_ratio,
-            duplicate_files: 0,
+            duplicate_files,
             large_files,
             sensitive_files,
             needs_confirmation,
@@ -1613,6 +1690,20 @@ fn migrate(conn: &Connection) -> Result<(), DbError> {
         )?;
         set_schema_version(conn, 8)?;
     }
+    if version < 9 {
+        execute_column_migrations(
+            conn,
+            &["ALTER TABLE files ADD COLUMN content_hash TEXT NOT NULL DEFAULT '';"],
+        )?;
+        conn.execute_batch(
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_files_dedupe
+            ON files(size, content_hash)
+            WHERE is_dir = 0 AND size > 0;
+            "#,
+        )?;
+        set_schema_version(conn, 9)?;
+    }
     Ok(())
 }
 
@@ -2044,12 +2135,14 @@ fn indexed_file_from_row(row: &Row<'_>) -> rusqlite::Result<IndexedFileRow> {
         classification_reason: row.get(18)?,
         matched_rules: row.get(19)?,
         requires_confirmation: row.get::<_, i64>(20)? != 0,
-        is_stale: row.get::<_, i64>(21)? != 0,
-        last_seen_at: row.get(22)?,
-        last_classified_at: row.get(23)?,
-        classified_rule_version: row.get(24)?,
-        last_classified_mtime: row.get(25)?,
-        last_classified_size: row.get(26)?,
+        content_hash: row.get(21)?,
+        is_duplicate: row.get::<_, i64>(22)? != 0,
+        is_stale: row.get::<_, i64>(23)? != 0,
+        last_seen_at: row.get(24)?,
+        last_classified_at: row.get(25)?,
+        classified_rule_version: row.get(26)?,
+        last_classified_mtime: row.get(27)?,
+        last_classified_size: row.get(28)?,
     })
 }
 
@@ -2185,14 +2278,14 @@ fn file_record_from_indexed(row: IndexedFileRow, now: &str) -> FileRecordDto {
         lifecycle: row.lifecycle,
         context: row.context,
         risk_level: row.risk_level,
-        hash: None,
+        hash: (!row.content_hash.is_empty()).then_some(row.content_hash.clone()),
         created_at,
         modified_at,
         scanned_at: now.to_string(),
         last_seen_at,
         is_hidden: row.name.starts_with('.'),
         is_deleted: false,
-        is_duplicate: false,
+        is_duplicate: row.is_duplicate,
         suggested_action: row.suggested_action,
         suggested_target_path: row.suggested_target_path,
         suggested_name: if row.suggested_name.is_empty() {
@@ -2815,7 +2908,7 @@ fn condition_value(field: &str, row: &IndexedFileRow, file_type: &str) -> String
         "directory" => parent_directory(&row.path),
         "size" => row.size.to_string(),
         "modified_at" => unix_seconds_to_iso(row.mtime),
-        "is_duplicate" => "false".to_string(),
+        "is_duplicate" => row.is_duplicate.to_string(),
         "risk_level" => row.risk_level.clone(),
         _ => String::new(),
     }

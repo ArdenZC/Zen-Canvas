@@ -30,7 +30,7 @@ fn new_database_creates_default_app_settings_row() {
         .expect("default app settings row");
     let settings: AppSettings = serde_json::from_str(&value).expect("deserialize settings");
 
-    assert_eq!(version, 8);
+    assert_eq!(version, 9);
     assert_eq!(settings.close_behavior, "ask");
     assert_eq!(settings.folder_naming_language, "en");
     assert_eq!(
@@ -70,7 +70,7 @@ fn schema_7_database_migrates_to_settings_without_losing_existing_rows() {
         .expect("legacy rule");
     let default_settings = get_app_settings(&db).expect("default settings");
 
-    assert_eq!(version, 8);
+    assert_eq!(version, 9);
     assert_eq!(file_name, "legacy.pdf");
     assert_eq!(rule_name, "Legacy Rule");
     assert_eq!(
@@ -193,9 +193,35 @@ fn create_schema_7_database(path: &Path) {
         r#"
         CREATE TABLE files (
             id TEXT PRIMARY KEY,
-            name TEXT NOT NULL
+            path TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            extension TEXT NOT NULL DEFAULT '',
+            size INTEGER NOT NULL DEFAULT 0,
+            mtime INTEGER NOT NULL DEFAULT 0,
+            is_dir INTEGER NOT NULL DEFAULT 0 CHECK (is_dir IN (0, 1)),
+            state_code INTEGER NOT NULL DEFAULT 0,
+            file_type TEXT NOT NULL DEFAULT 'Other',
+            purpose TEXT NOT NULL DEFAULT 'Unknown',
+            lifecycle TEXT NOT NULL DEFAULT 'Inbox',
+            context TEXT NOT NULL DEFAULT '',
+            risk_level TEXT NOT NULL DEFAULT 'Normal',
+            suggested_action TEXT NOT NULL DEFAULT 'Keep',
+            suggested_target_path TEXT NOT NULL DEFAULT '',
+            suggested_name TEXT NOT NULL DEFAULT '',
+            confidence REAL NOT NULL DEFAULT 0.5,
+            classification_reason TEXT NOT NULL DEFAULT 'Indexed by Zen Canvas Tauri backend.',
+            matched_rules TEXT NOT NULL DEFAULT '[]',
+            requires_confirmation INTEGER NOT NULL DEFAULT 0,
+            ctime INTEGER NOT NULL DEFAULT 0,
+            is_stale INTEGER NOT NULL DEFAULT 0,
+            last_seen_at INTEGER NOT NULL DEFAULT 0,
+            last_classified_at INTEGER NOT NULL DEFAULT 0,
+            classified_rule_version TEXT NOT NULL DEFAULT '',
+            last_classified_mtime INTEGER NOT NULL DEFAULT 0,
+            last_classified_size INTEGER NOT NULL DEFAULT 0
         );
-        INSERT INTO files (id, name) VALUES ('file-legacy', 'legacy.pdf');
+        INSERT INTO files (id, path, name, extension, size)
+        VALUES ('file-legacy', '/legacy/legacy.pdf', 'legacy.pdf', 'pdf', 2048);
         CREATE TABLE rules (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL

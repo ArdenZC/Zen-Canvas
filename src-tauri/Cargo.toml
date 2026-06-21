@@ -23,6 +23,7 @@ desktop-runtime = [
 ]
 
 [dependencies]
+blake3 = "1"
 dirs = "5"
 jwalk = "0.8.1"
 notify = "8"

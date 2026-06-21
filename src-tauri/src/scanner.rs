@@ -1,6 +1,7 @@
 use crate::db::{
     emit_search_index_optimized, run_search_index_optimize, Database, DbError, InsertFileRequest,
 };
+use crate::dedupe::spawn_duplicate_detection;
 use crate::path_filter::is_ignored_dir_name;
 use jwalk::{ClientState, DirEntry, WalkDir};
 use serde::Serialize;
@@ -235,8 +236,25 @@ fn scan_directory_blocking<R: Runtime>(
         skipped.load(Ordering::Relaxed),
         started_at,
     );
-    app.emit(SCAN_COMPLETE_EVENT, summary.clone())?;
+    let app_for_dedupe = app.clone();
+    let db_for_dedupe = db.clone();
+    emit_scan_complete_then_schedule_dedupe(
+        || {
+            app.emit(SCAN_COMPLETE_EVENT, summary.clone())?;
+            Ok(())
+        },
+        || spawn_duplicate_detection(app_for_dedupe, db_for_dedupe),
+    )?;
     Ok(summary)
+}
+
+fn emit_scan_complete_then_schedule_dedupe(
+    emit_complete: impl FnOnce() -> Result<(), ScanError>,
+    schedule_dedupe: impl FnOnce(),
+) -> Result<(), ScanError> {
+    emit_complete()?;
+    schedule_dedupe();
+    Ok(())
 }
 
 struct BatchEmitContext<'a, R: Runtime> {
@@ -470,6 +488,22 @@ mod tests {
         }
 
         assert!(buffer.should_flush(started_at + Duration::from_millis(1)));
+    }
+
+    #[test]
+    fn scan_completion_emits_complete_before_scheduling_dedupe() {
+        let events = std::cell::RefCell::new(Vec::new());
+
+        emit_scan_complete_then_schedule_dedupe(
+            || {
+                events.borrow_mut().push("scan-complete");
+                Ok(())
+            },
+            || events.borrow_mut().push("dedupe-started"),
+        )
+        .expect("finish scan");
+
+        assert_eq!(*events.borrow(), vec!["scan-complete", "dedupe-started"]);
     }
 
     fn test_scanned_entry(index: usize) -> ScannedEntry {

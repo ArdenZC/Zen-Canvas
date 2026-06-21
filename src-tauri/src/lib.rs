@@ -1,5 +1,6 @@
 pub mod app_control;
 pub mod db;
+pub mod dedupe;
 pub mod file_ops;
 pub mod path_filter;
 pub mod scanner;
