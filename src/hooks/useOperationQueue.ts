@@ -166,9 +166,9 @@ export function useOperationQueue({
     }
   }, [onError]);
 
-  function onRenamePreview(id: string, name: string) {
+  const onRenamePreview = useCallback((id: string, name: string) => {
     setPreviewNameOverrides((current) => ({ ...current, [id]: name }));
-  }
+  }, []);
 
   return {
     operationLogs,
