@@ -149,7 +149,6 @@ export function App() {
   });
   const scanManager = useScanManager({
     t,
-    loadStats,
     onRefreshData: refresh,
     onError: showError,
     onSuccess: showSuccess

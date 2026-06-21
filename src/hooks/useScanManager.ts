@@ -1,43 +1,40 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { tauriApi } from "../api/tauriApi";
 import type { Translator } from "../types/ui";
 import { readableError } from "../utils/viewHelpers";
-import { useScanProgress } from "./useScanProgress";
+import { useScanProgress, type UseScanProgressOptions } from "./useScanProgress";
 
 export interface ScanManagerOptions {
   t: Translator;
-  loadStats: () => Promise<void>;
   onRefreshData: () => Promise<void>;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
 }
 
+export function createScanProgressOptions(
+  onRefreshData: () => Promise<void>
+): UseScanProgressOptions {
+  return {
+    onComplete: () => {
+      void onRefreshData();
+    }
+  };
+}
+
 export function useScanManager({
   t,
-  loadStats,
   onRefreshData,
   onError,
   onSuccess
 }: ScanManagerOptions) {
   const [selectedFolders, setSelectedFolders] = useState<string[]>([]);
   const [isScanning, setIsScanning] = useState(false);
-  const lastScanStatsRefreshRef = useRef(0);
-
-  const refreshStatsDuringScan = useCallback(() => {
-    const now = Date.now();
-    if (now - lastScanStatsRefreshRef.current < 1000) return;
-    lastScanStatsRefreshRef.current = now;
-    void loadStats();
-  }, [loadStats]);
-
-  const scanState = useScanProgress({
-    onBatch: refreshStatsDuringScan,
-    onComplete: () => {
-      lastScanStatsRefreshRef.current = 0;
-      void onRefreshData();
-    }
-  });
+  const scanProgressOptions = useMemo(
+    () => createScanProgressOptions(onRefreshData),
+    [onRefreshData]
+  );
+  const scanState = useScanProgress(scanProgressOptions);
   const { startScan, reset } = scanState;
 
   const askForScanPath = useCallback(
@@ -66,7 +63,6 @@ export function useScanManager({
       reset();
       try {
         const summary = await startScan(path);
-        await onRefreshData();
         onSuccess(`${t("success")}: ${summary.files.toLocaleString()} ${t("files")}`);
       } catch (error) {
         onError(readableError(error));
@@ -74,7 +70,7 @@ export function useScanManager({
         setIsScanning(false);
       }
     },
-    [onError, onRefreshData, onSuccess, reset, startScan, t]
+    [onError, onSuccess, reset, startScan, t]
   );
 
   const handleScan = useCallback(async () => {
