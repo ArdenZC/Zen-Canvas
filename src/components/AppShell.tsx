@@ -15,7 +15,7 @@ import {
   Square,
   X
 } from "lucide-react";
-import type { RuleExecutionSummary, ScanProgressPayload } from "../api/tauriApi";
+import type { OperationProgressPayload, RuleExecutionSummary, ScanProgressPayload } from "../api/tauriApi";
 import { CommandModal } from "./CommandModal";
 import { ViewErrorBoundary } from "./ErrorBoundary";
 import { AmbientMesh, CloseChoiceDialog, TitlebarTools, ZenMark } from "./ShellChrome";
@@ -93,8 +93,11 @@ interface AppShellProps {
   setSelectedOperationIds: Dispatch<SetStateAction<Set<string>>>;
   displayPreviews: OperationPreview[];
   previewActionCount: number;
+  operationProgress: OperationProgressPayload | null;
+  isOperationCanceling: boolean;
   executeSelected: () => Promise<void>;
   restoreOperationLogs: (logs: OperationLog[]) => Promise<void>;
+  cancelOperations: () => Promise<void>;
   onRenamePreview: (id: string, name: string) => void;
   toast: { message: string; type: "success" | "error" | "info" } | null;
   commandInputRef: RefObject<HTMLInputElement | null>;
@@ -325,6 +328,9 @@ function AppViewContent(props: AppShellProps) {
         setSelectedIds={props.setSelectedOperationIds}
         onRenamePreview={props.onRenamePreview}
         executeSelected={props.executeSelected}
+        operationProgress={props.operationProgress}
+        isOperationCanceling={props.isOperationCanceling}
+        cancelOperations={props.cancelOperations}
         t={props.t}
       />
     );
@@ -340,7 +346,18 @@ function AppViewContent(props: AppShellProps) {
       />
     );
   }
-  if (props.view === "restore") return <RestoreView logs={props.operationLogs} onRestore={props.restoreOperationLogs} t={props.t} />;
+  if (props.view === "restore") {
+    return (
+      <RestoreView
+        logs={props.operationLogs}
+        onRestore={props.restoreOperationLogs}
+        operationProgress={props.operationProgress}
+        isOperationCanceling={props.isOperationCanceling}
+        cancelOperations={props.cancelOperations}
+        t={props.t}
+      />
+    );
+  }
   return (
     <SettingsView
       language={props.language}

@@ -6,10 +6,18 @@ use std::{
     io,
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
-    time::{SystemTime, UNIX_EPOCH},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tauri::{command, State};
+use tauri::{command, AppHandle, Emitter, Runtime, State};
 use thiserror::Error;
+
+pub const OPERATION_PROGRESS_EVENT: &str = "operation-progress";
+const OPERATION_PROGRESS_BATCH_SIZE: u64 = 10;
+const OPERATION_PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(200);
 
 #[derive(Debug, Error)]
 enum FileOpError {
@@ -106,6 +114,47 @@ pub struct RestoreMovesResult {
     pub failed: usize,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct OperationProgressPayload {
+    pub kind: String,
+    pub batch_id: String,
+    pub processed: u64,
+    pub total: u64,
+    pub current_path: String,
+}
+
+#[derive(Clone, Default)]
+pub struct OperationCancellationToken(pub Arc<AtomicBool>);
+
+pub trait OperationProgressEmitter {
+    fn emit_progress(&self, payload: OperationProgressPayload);
+}
+
+struct NoopOperationProgressEmitter;
+
+impl OperationProgressEmitter for NoopOperationProgressEmitter {
+    fn emit_progress(&self, _payload: OperationProgressPayload) {}
+}
+
+struct TauriOperationProgressEmitter<R: Runtime> {
+    app: AppHandle<R>,
+}
+
+impl<R: Runtime> TauriOperationProgressEmitter<R> {
+    fn new(app: AppHandle<R>) -> Self {
+        Self { app }
+    }
+}
+
+impl<R: Runtime> OperationProgressEmitter for TauriOperationProgressEmitter<R> {
+    fn emit_progress(&self, payload: OperationProgressPayload) {
+        if let Err(error) = self.app.emit(OPERATION_PROGRESS_EVENT, payload) {
+            eprintln!("Operation progress event failed: {error}");
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RevealCommand {
     program: &'static str,
@@ -129,19 +178,48 @@ pub fn move_file(source_path: String, target_path: String) -> Result<FileOperati
 }
 
 #[command]
-pub fn execute_moves(
+pub async fn execute_moves<R: Runtime>(
+    app: AppHandle<R>,
     db: State<'_, Database>,
+    cancel: State<'_, OperationCancellationToken>,
     request: ExecuteMovesRequest,
 ) -> Result<ExecuteMovesResult, String> {
-    execute_moves_with_persistence(db.inner(), request)
+    let db = db.inner().clone();
+    cancel.0.store(false, Ordering::Relaxed);
+    let cancel_flag = Arc::clone(&cancel.0);
+    tauri::async_runtime::spawn_blocking(move || {
+        let emitter = TauriOperationProgressEmitter::new(app);
+        execute_moves_with_persistence_with_progress(&db, request, cancel_flag, &emitter)
+    })
+    .await
+    .map_err(|error| format!("operation task failed: {error}"))?
+}
+
+#[command]
+pub fn cancel_operations(cancel: State<'_, OperationCancellationToken>) {
+    cancel.0.store(true, Ordering::Relaxed);
 }
 
 pub fn execute_moves_with_persistence(
     db: &Database,
     request: ExecuteMovesRequest,
 ) -> Result<ExecuteMovesResult, String> {
+    execute_moves_with_persistence_with_progress(
+        db,
+        request,
+        Arc::new(AtomicBool::new(false)),
+        &NoopOperationProgressEmitter,
+    )
+}
+
+fn execute_moves_with_persistence_with_progress(
+    db: &Database,
+    request: ExecuteMovesRequest,
+    cancel_flag: Arc<AtomicBool>,
+    emitter: &impl OperationProgressEmitter,
+) -> Result<ExecuteMovesResult, String> {
     let operations = request.operations.clone();
-    let mut result = execute_moves_core(request);
+    let mut result = execute_moves_core_with_progress(request, cancel_flag, emitter);
 
     for (operation, log) in operations.iter().zip(result.logs.iter_mut()) {
         if log.status != "success" {
@@ -166,16 +244,34 @@ pub fn execute_moves_with_persistence(
 }
 
 pub fn execute_moves_core(request: ExecuteMovesRequest) -> ExecuteMovesResult {
+    execute_moves_core_with_progress(
+        request,
+        Arc::new(AtomicBool::new(false)),
+        &NoopOperationProgressEmitter,
+    )
+}
+
+pub fn execute_moves_core_with_progress(
+    request: ExecuteMovesRequest,
+    cancel_flag: Arc<AtomicBool>,
+    emitter: &impl OperationProgressEmitter,
+) -> ExecuteMovesResult {
     let batch_id = format!("batch-{}", current_timestamp_ms());
     let created_at = current_timestamp_ms().to_string();
-    let logs = request
-        .operations
-        .iter()
-        .enumerate()
-        .map(|(index, operation)| {
+    let total = request.operations.len() as u64;
+    let mut progress = OperationProgressBuffer::new("execute", batch_id.clone(), total);
+    let mut logs = Vec::with_capacity(request.operations.len());
+
+    for (index, operation) in request.operations.iter().enumerate() {
+        let log = if is_operation_cancelled(&cancel_flag) {
+            make_canceled_operation_log(&batch_id, &created_at, index, operation)
+        } else {
             execute_preview_operation(&batch_id, &created_at, index, operation)
-        })
-        .collect::<Vec<_>>();
+        };
+        let current_path = operation.source_path.clone();
+        logs.push(log);
+        progress.record(emitter, (index + 1) as u64, current_path);
+    }
 
     ExecuteMovesResult {
         logs,
@@ -269,18 +365,42 @@ fn execute_preview_operation(
 }
 
 #[command]
-pub fn restore_moves(
+pub async fn restore_moves<R: Runtime>(
+    app: AppHandle<R>,
     db: State<'_, Database>,
+    cancel: State<'_, OperationCancellationToken>,
     request: RestoreMovesRequest,
 ) -> Result<RestoreMovesResult, String> {
-    restore_moves_with_persistence(db.inner(), request)
+    let db = db.inner().clone();
+    cancel.0.store(false, Ordering::Relaxed);
+    let cancel_flag = Arc::clone(&cancel.0);
+    tauri::async_runtime::spawn_blocking(move || {
+        let emitter = TauriOperationProgressEmitter::new(app);
+        restore_moves_with_persistence_with_progress(&db, request, cancel_flag, &emitter)
+    })
+    .await
+    .map_err(|error| format!("restore task failed: {error}"))?
 }
 
 pub fn restore_moves_with_persistence(
     db: &Database,
     request: RestoreMovesRequest,
 ) -> Result<RestoreMovesResult, String> {
-    let result = restore_moves_core(request);
+    restore_moves_with_persistence_with_progress(
+        db,
+        request,
+        Arc::new(AtomicBool::new(false)),
+        &NoopOperationProgressEmitter,
+    )
+}
+
+fn restore_moves_with_persistence_with_progress(
+    db: &Database,
+    request: RestoreMovesRequest,
+    cancel_flag: Arc<AtomicBool>,
+    emitter: &impl OperationProgressEmitter,
+) -> Result<RestoreMovesResult, String> {
+    let result = restore_moves_core_with_progress(request, cancel_flag, emitter);
     for log in result
         .logs
         .iter()
@@ -299,27 +419,63 @@ pub fn restore_moves_with_persistence(
 }
 
 pub fn restore_moves_core(request: RestoreMovesRequest) -> RestoreMovesResult {
+    restore_moves_core_with_progress(
+        request,
+        Arc::new(AtomicBool::new(false)),
+        &NoopOperationProgressEmitter,
+    )
+}
+
+pub fn restore_moves_core_with_progress(
+    request: RestoreMovesRequest,
+    cancel_flag: Arc<AtomicBool>,
+    emitter: &impl OperationProgressEmitter,
+) -> RestoreMovesResult {
     let mut restored = 0_usize;
     let mut failed = 0_usize;
-    let logs = request
-        .logs
-        .iter()
-        .map(|log| {
-            let result = restore_operation_log(log);
-            if result.restore_status == "restored" {
-                restored += 1;
-            } else if result.restore_status == "failed" {
-                failed += 1;
-            }
-            result
-        })
-        .collect::<Vec<_>>();
+    let batch_id = restore_progress_batch_id(&request.logs);
+    let total = request.logs.len() as u64;
+    let mut progress = OperationProgressBuffer::new("restore", batch_id, total);
+    let mut logs = Vec::with_capacity(request.logs.len());
+
+    for (index, log) in request.logs.iter().enumerate() {
+        let result = if is_operation_cancelled(&cancel_flag) {
+            mark_restore_canceled(log)
+        } else {
+            restore_operation_log(log)
+        };
+        if result.restore_status == "restored" {
+            restored += 1;
+        } else if result.restore_status == "failed" {
+            failed += 1;
+        }
+        let current_path = log.path_after.clone();
+        logs.push(result);
+        progress.record(emitter, (index + 1) as u64, current_path);
+    }
 
     RestoreMovesResult {
         logs,
         restored,
         failed,
     }
+}
+
+fn make_canceled_operation_log(
+    batch_id: &str,
+    created_at: &str,
+    index: usize,
+    operation: &OperationPreviewRequest,
+) -> OperationLogDto {
+    make_operation_log(
+        batch_id,
+        created_at,
+        index,
+        operation,
+        "skipped",
+        None,
+        operation.target_path.clone(),
+    )
 }
 
 fn make_operation_log(
@@ -408,6 +564,13 @@ fn mark_restore_failed(log: &OperationLogDto, error: impl Into<String>) -> Opera
     failed
 }
 
+fn mark_restore_canceled(log: &OperationLogDto) -> OperationLogDto {
+    let mut canceled = log.clone();
+    canceled.restore_status = "canceled".to_string();
+    canceled.restore_error = None;
+    canceled
+}
+
 fn mark_restore_unavailable(log: &OperationLogDto, reason: impl Into<String>) -> OperationLogDto {
     let mut unavailable = log.clone();
     unavailable.can_undo = false;
@@ -415,6 +578,60 @@ fn mark_restore_unavailable(log: &OperationLogDto, reason: impl Into<String>) ->
     unavailable.restore_status = "unavailable".to_string();
     unavailable.restore_error = Some(reason.into());
     unavailable
+}
+
+fn restore_progress_batch_id(logs: &[OperationLogDto]) -> String {
+    logs.first()
+        .map(|log| log.batch_id.clone())
+        .unwrap_or_else(|| format!("restore-{}", current_timestamp_ms()))
+}
+
+fn is_operation_cancelled(cancel_flag: &Arc<AtomicBool>) -> bool {
+    cancel_flag.load(Ordering::Relaxed)
+}
+
+struct OperationProgressBuffer {
+    kind: &'static str,
+    batch_id: String,
+    total: u64,
+    last_emit_at: Instant,
+    processed_since_emit: u64,
+}
+
+impl OperationProgressBuffer {
+    fn new(kind: &'static str, batch_id: String, total: u64) -> Self {
+        Self {
+            kind,
+            batch_id,
+            total,
+            last_emit_at: Instant::now(),
+            processed_since_emit: 0,
+        }
+    }
+
+    fn record(
+        &mut self,
+        emitter: &impl OperationProgressEmitter,
+        processed: u64,
+        current_path: String,
+    ) {
+        self.processed_since_emit += 1;
+        let now = Instant::now();
+        if processed == self.total
+            || self.processed_since_emit >= OPERATION_PROGRESS_BATCH_SIZE
+            || now.duration_since(self.last_emit_at) >= OPERATION_PROGRESS_EMIT_INTERVAL
+        {
+            emitter.emit_progress(OperationProgressPayload {
+                kind: self.kind.to_string(),
+                batch_id: self.batch_id.clone(),
+                processed,
+                total: self.total,
+                current_path,
+            });
+            self.last_emit_at = now;
+            self.processed_since_emit = 0;
+        }
+    }
 }
 
 fn validate_source_path(path: &Path) -> Result<PathBuf, String> {
@@ -685,6 +902,10 @@ mod tests {
     use crate::db::{Database, InsertFileRequest};
     use std::{
         fs,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -719,6 +940,59 @@ mod tests {
         assert_eq!(result.logs[0].status, "success");
         assert_eq!(result.logs[0].operation_type, "move");
         assert_eq!(result.updated_files.len(), 0);
+    }
+
+    #[test]
+    fn execute_moves_core_marks_remaining_operations_skipped_when_cancelled() {
+        let root = test_dir();
+        let source_dir = root.join("source");
+        let target_dir = root.join("target");
+        fs::create_dir_all(&source_dir).expect("source dir");
+        fs::create_dir_all(&target_dir).expect("target dir");
+        let operations = (0..11)
+            .map(|index| {
+                let source = source_dir.join(format!("sample-{index}.txt"));
+                let target = target_dir.join(format!("sample-{index}.txt"));
+                fs::write(&source, "hello").expect("write source");
+                preview_operation(index, &source, &target)
+            })
+            .collect::<Vec<_>>();
+        let cancelled_source = PathBuf::from(&operations[10].source_path);
+        let cancelled_target = PathBuf::from(&operations[10].target_path);
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let progress =
+            RecordingOperationProgressEmitter::cancel_after(10, Arc::clone(&cancel_flag));
+
+        let result = execute_moves_core_with_progress(
+            ExecuteMovesRequest { operations },
+            Arc::clone(&cancel_flag),
+            &progress,
+        );
+
+        assert_eq!(
+            result
+                .logs
+                .iter()
+                .filter(|log| log.status == "success")
+                .count(),
+            10
+        );
+        assert_eq!(
+            result
+                .logs
+                .iter()
+                .filter(|log| log.status == "skipped")
+                .count(),
+            1
+        );
+        assert!(cancelled_source.exists());
+        assert!(!cancelled_target.exists());
+        assert!(result.logs[10].error_message.is_none());
+        assert_eq!(
+            progress.events().last().map(|event| event.processed),
+            Some(11)
+        );
+        assert_eq!(progress.events().last().map(|event| event.total), Some(11));
     }
 
     #[test]
@@ -758,6 +1032,48 @@ mod tests {
         assert_eq!(restored.logs[0].restore_status, "restored");
         assert!(!restored.logs[0].can_restore);
         assert!(restored.logs[0].restored_at.is_some());
+    }
+
+    #[test]
+    fn restore_moves_core_marks_remaining_logs_canceled_when_cancelled() {
+        let root = test_dir();
+        let source_dir = root.join("source");
+        let target_dir = root.join("target");
+        fs::create_dir_all(&source_dir).expect("source dir");
+        fs::create_dir_all(&target_dir).expect("target dir");
+        let operations = (0..11)
+            .map(|index| {
+                let source = source_dir.join(format!("restore-{index}.txt"));
+                let target = target_dir.join(format!("restore-{index}.txt"));
+                fs::write(&source, "hello").expect("write source");
+                preview_operation(index, &source, &target)
+            })
+            .collect::<Vec<_>>();
+        let executed = execute_moves_core(ExecuteMovesRequest { operations });
+        let canceled_log = executed.logs[10].clone();
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let progress =
+            RecordingOperationProgressEmitter::cancel_after(10, Arc::clone(&cancel_flag));
+
+        let restored = restore_moves_core_with_progress(
+            RestoreMovesRequest {
+                logs: executed.logs.clone(),
+            },
+            Arc::clone(&cancel_flag),
+            &progress,
+        );
+
+        assert_eq!(restored.restored, 10);
+        assert_eq!(restored.failed, 0);
+        assert_eq!(restored.logs[10].restore_status, "canceled");
+        assert!(restored.logs[10].restore_error.is_none());
+        assert!(!PathBuf::from(canceled_log.path_before).exists());
+        assert!(PathBuf::from(canceled_log.path_after).exists());
+        assert_eq!(
+            progress.events().last().map(|event| event.processed),
+            Some(11)
+        );
+        assert_eq!(progress.events().last().map(|event| event.total), Some(11));
     }
 
     #[test]
@@ -1249,5 +1565,52 @@ mod tests {
             state_code: 0,
         })
         .expect("insert indexed file");
+    }
+
+    fn preview_operation(index: usize, source: &Path, target: &Path) -> OperationPreviewRequest {
+        let name = source
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("sample.txt")
+            .to_string();
+        OperationPreviewRequest {
+            id: format!("op-{index}"),
+            file_id: source.to_string_lossy().into_owned(),
+            operation_type: "move".to_string(),
+            source_path: source.to_string_lossy().into_owned(),
+            target_path: target.to_string_lossy().into_owned(),
+            old_name: name.clone(),
+            new_name: name,
+            is_executable: Some(true),
+        }
+    }
+
+    struct RecordingOperationProgressEmitter {
+        events: std::cell::RefCell<Vec<OperationProgressPayload>>,
+        cancel_after: u64,
+        cancel_flag: Arc<AtomicBool>,
+    }
+
+    impl RecordingOperationProgressEmitter {
+        fn cancel_after(cancel_after: u64, cancel_flag: Arc<AtomicBool>) -> Self {
+            Self {
+                events: std::cell::RefCell::new(Vec::new()),
+                cancel_after,
+                cancel_flag,
+            }
+        }
+
+        fn events(&self) -> Vec<OperationProgressPayload> {
+            self.events.borrow().clone()
+        }
+    }
+
+    impl OperationProgressEmitter for RecordingOperationProgressEmitter {
+        fn emit_progress(&self, payload: OperationProgressPayload) {
+            if payload.processed >= self.cancel_after {
+                self.cancel_flag.store(true, Ordering::Relaxed);
+            }
+            self.events.borrow_mut().push(payload);
+        }
     }
 }

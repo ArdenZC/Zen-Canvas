@@ -5,7 +5,9 @@ use std::{
 
 use tauri::Manager;
 use tauri_plugin_autostart::ManagerExt;
-use zen_canvas_tauri::{open_database, settings, ScanCancellationToken};
+use zen_canvas_tauri::{
+    open_database, settings, OperationCancellationToken, ScanCancellationToken,
+};
 
 fn main() {
     tauri::Builder::default()
@@ -37,6 +39,7 @@ fn main() {
             db.prune_operation_logs(app_settings.restore_retention_days)
                 .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
             app.manage(ScanCancellationToken(Arc::new(AtomicBool::new(false))));
+            app.manage(OperationCancellationToken(Arc::new(AtomicBool::new(false))));
             // 构建默认监听路径：用户主目录下设置启用的个人文件夹
             let home = dirs::home_dir();
             let watch_paths: Vec<std::path::PathBuf> =
@@ -79,7 +82,8 @@ fn main() {
             zen_canvas_tauri::file_ops::rename_file,
             zen_canvas_tauri::file_ops::reveal_in_folder,
             zen_canvas_tauri::file_ops::execute_moves,
-            zen_canvas_tauri::file_ops::restore_moves
+            zen_canvas_tauri::file_ops::restore_moves,
+            zen_canvas_tauri::file_ops::cancel_operations
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Zen Canvas");

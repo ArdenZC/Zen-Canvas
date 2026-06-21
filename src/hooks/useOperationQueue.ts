@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { tauriApi } from "../api/tauriApi";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { tauriApi, type OperationProgressPayload } from "../api/tauriApi";
 import type { FileRecord, OperationLog, OperationPreview, Rule } from "../types/domain";
 import type { Translator } from "../types/ui";
 import { applyPreviewNameOverride, createOperationPreviews, readableError } from "../utils/viewHelpers";
@@ -26,6 +26,9 @@ export function useOperationQueue({
   const [operationLogs, setOperationLogs] = useState<OperationLog[]>([]);
   const [selectedOperationIds, setSelectedOperationIds] = useState<Set<string>>(new Set());
   const [previewNameOverrides, setPreviewNameOverrides] = useState<Record<string, string>>({});
+  const [operationProgress, setOperationProgress] = useState<OperationProgressPayload | null>(null);
+  const [isOperationCanceling, setIsOperationCanceling] = useState(false);
+  const activeOperationKindRef = useRef<OperationProgressPayload["kind"] | null>(null);
 
   const previews = useMemo(() => createOperationPreviews(files), [files]);
   const displayPreviews = useMemo(
@@ -61,6 +64,26 @@ export function useOperationQueue({
     setPreviewNameOverrides({});
   }, [previews]);
 
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+
+    void tauriApi.onOperationProgress((payload) => {
+      if (activeOperationKindRef.current !== payload.kind) return;
+      setOperationProgress(payload);
+    }).then((dispose) => {
+      if (cancelled) dispose();
+      else unlisten = dispose;
+    }).catch((error) => {
+      if (!cancelled) onError(readableError(error));
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [onError]);
+
   const runDispatch = useCallback(async () => {
     try {
       const summary = await tauriApi.executeRulesOnInbox(rules);
@@ -80,29 +103,68 @@ export function useOperationQueue({
       (preview) => selectedOperationIds.has(preview.id) && preview.is_executable !== false
     );
     if (!operations.length) return;
+    activeOperationKindRef.current = "execute";
+    setIsOperationCanceling(false);
+    setOperationProgress({
+      kind: "execute",
+      batchId: "",
+      processed: 0,
+      total: operations.length,
+      currentPath: operations[0]?.source_path ?? ""
+    });
     try {
       const result = await tauriApi.executeMoves(operations as OperationPreview[]);
       setOperationLogs((current) => [...result.logs, ...current].slice(0, MAX_LOGS));
       setSelectedOperationIds(new Set());
       await onRefreshData();
-      onSuccess(t("success"));
+      const canceled = result.logs.some((log) => log.status === "skipped");
+      onSuccess(canceled ? t("operationCanceled") : t("success"));
     } catch (error) {
       onError(readableError(error));
+    } finally {
+      activeOperationKindRef.current = null;
+      setIsOperationCanceling(false);
+      setOperationProgress(null);
     }
   }, [displayPreviews, onError, onRefreshData, onSuccess, selectedOperationIds, t]);
 
   const restoreOperationLogs = useCallback(async (logs: OperationLog[]) => {
     if (!logs.length) return;
+    activeOperationKindRef.current = "restore";
+    setIsOperationCanceling(false);
+    setOperationProgress({
+      kind: "restore",
+      batchId: logs[0]?.batch_id ?? "",
+      processed: 0,
+      total: logs.length,
+      currentPath: logs[0]?.path_after ?? ""
+    });
     try {
       const result = await tauriApi.restoreMoves(logs);
       const updatedById = new Map(result.logs.map((log) => [log.id, log]));
       setOperationLogs((current) => current.map((log) => updatedById.get(log.id) ?? log));
       await onRefreshData();
-      onSuccess(`${t("restored")}: ${result.restored.toLocaleString()}`);
+      const canceled = result.logs.some((log) => log.restore_status === "canceled");
+      onSuccess(canceled ? t("operationCanceled") : `${t("restored")}: ${result.restored.toLocaleString()}`);
     } catch (error) {
       onError(readableError(error));
+    } finally {
+      activeOperationKindRef.current = null;
+      setIsOperationCanceling(false);
+      setOperationProgress(null);
     }
   }, [onError, onRefreshData, onSuccess, t]);
+
+  const cancelOperations = useCallback(async () => {
+    if (!activeOperationKindRef.current) return;
+    setIsOperationCanceling(true);
+    try {
+      await tauriApi.cancelOperations();
+    } catch (error) {
+      setIsOperationCanceling(false);
+      onError(readableError(error));
+    }
+  }, [onError]);
 
   function onRenamePreview(id: string, name: string) {
     setPreviewNameOverrides((current) => ({ ...current, [id]: name }));
@@ -114,9 +176,12 @@ export function useOperationQueue({
     setSelectedOperationIds,
     displayPreviews,
     previewActionCount,
+    operationProgress,
+    isOperationCanceling,
     runDispatch,
     executeSelected,
     restoreOperationLogs,
+    cancelOperations,
     onRenamePreview
   };
 }

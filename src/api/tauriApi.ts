@@ -42,6 +42,14 @@ export interface ScanBatchPayload {
 
 export type ScanSummary = ScanProgressPayload;
 
+export interface OperationProgressPayload {
+  kind: "execute" | "restore";
+  batchId: string;
+  processed: number;
+  total: number;
+  currentPath: string;
+}
+
 export interface RuleExecutionSummary {
   scanned: number;
   updated: number;
@@ -104,6 +112,10 @@ export const tauriApi = {
 
   restoreMoves(logs: OperationLog[]): Promise<RestoreMovesResult> {
     return invokeCommand<RestoreMovesResult>("restore_moves", { request: { logs } });
+  },
+
+  cancelOperations(): Promise<void> {
+    return invokeCommand<void>("cancel_operations");
   },
 
   getOperationLogs(limit = 500): Promise<OperationLog[]> {
@@ -186,6 +198,10 @@ export const tauriApi = {
 
   onScanError(handler: EventHandler<{ root: string; path: string; message: string }>): Promise<UnlistenFn> {
     return listenTo("scan-error", handler);
+  },
+
+  onOperationProgress(handler: EventHandler<OperationProgressPayload>): Promise<UnlistenFn> {
+    return listenTo("operation-progress", handler);
   }
 };
 

@@ -19,9 +19,9 @@ pub use db::{
     PagedFilesResult, Rule, RuleExecutionSummary, StatsSummary,
 };
 pub use file_ops::{
-    execute_moves, move_file, rename_file, restore_moves, ExecuteMovesRequest, ExecuteMovesResult,
-    FileOperationResult, OperationLogDto, OperationPreviewRequest, RestoreMovesRequest,
-    RestoreMovesResult,
+    cancel_operations, execute_moves, move_file, rename_file, restore_moves, ExecuteMovesRequest,
+    ExecuteMovesResult, FileOperationResult, OperationCancellationToken, OperationLogDto,
+    OperationPreviewRequest, OperationProgressPayload, RestoreMovesRequest, RestoreMovesResult,
 };
 pub use scanner::{
     cancel_scan, scan_directory, ScanBatchPayload, ScanCancellationToken, ScanProgressPayload,

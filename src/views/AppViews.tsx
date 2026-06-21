@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProper
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion, type Variants } from "motion/react";
 import { Check, ChevronRight, File, Folder, FolderSearch, Play, Plus, RefreshCw, RotateCcw, Search, Trash2, X } from "lucide-react";
-import { tauriApi, type RuleExecutionSummary, type ScanProgressPayload } from "../api/tauriApi";
+import { tauriApi, type OperationProgressPayload, type RuleExecutionSummary, type ScanProgressPayload } from "../api/tauriApi";
 import { nextDefaultScanFolders } from "../hooks/useAppSettings";
 import type { Language } from "../i18n";
 import type {
@@ -689,6 +689,9 @@ export function TimelineView({
   setSelectedIds,
   onRenamePreview,
   executeSelected,
+  operationProgress,
+  isOperationCanceling,
+  cancelOperations,
   t
 }: {
   previews: OperationPreview[];
@@ -696,6 +699,9 @@ export function TimelineView({
   setSelectedIds: (ids: Set<string>) => void;
   onRenamePreview: (id: string, name: string) => void;
   executeSelected: () => Promise<void>;
+  operationProgress: OperationProgressPayload | null;
+  isOperationCanceling: boolean;
+  cancelOperations: () => Promise<void>;
   t: Translator;
 }) {
   function toggle(id: string) {
@@ -710,6 +716,8 @@ export function TimelineView({
   const groups = groupOperationPreviews(previews, t);
   const executableCount = previews.filter((preview) => preview.is_executable !== false).length;
   const blockedCount = previews.length - executableCount;
+  const executeProgress = operationProgress?.kind === "execute" ? operationProgress : null;
+  const isExecuting = Boolean(executeProgress);
 
   return (
     <div className={pageSurface}>
@@ -719,9 +727,9 @@ export function TimelineView({
             <h2>{t("suggestedPlan")}</h2>
             <p>{t("previewBeforeExecute")}</p>
           </div>
-          <button className={glassButtonPrimary} onClick={executeSelected} disabled={!selectedIds.size}>
+          <button className={glassButtonPrimary} onClick={executeSelected} disabled={!selectedIds.size || isExecuting}>
             <Play size={16} />
-            <span>{t("executeSelected")} / {selectedIds.size}</span>
+            <span>{isExecuting ? t("executingOperations") : t("executeSelected")} / {selectedIds.size}</span>
           </button>
         </div>
         <div className="mb-4 grid gap-2 text-sm text-[var(--muted)] sm:grid-cols-3">
@@ -729,6 +737,14 @@ export function TimelineView({
           <span>{t("executableItems")}: <strong>{executableCount}</strong></span>
           <span>{t("blockedItems")}: <strong>{blockedCount}</strong></span>
         </div>
+        {executeProgress && (
+          <OperationProgressPanel
+            progress={executeProgress}
+            isCanceling={isOperationCanceling}
+            onCancel={cancelOperations}
+            t={t}
+          />
+        )}
         {!previews.length ? (
           <div className={emptyState}>{t("noOperations")}</div>
         ) : (
@@ -1116,17 +1132,24 @@ const RuleRow = memo(function RuleRow({
 export function RestoreView({
   logs,
   onRestore,
+  operationProgress,
+  isOperationCanceling,
+  cancelOperations,
   t
 }: {
   logs: OperationLog[];
   onRestore: (logs: OperationLog[]) => Promise<void>;
+  operationProgress: OperationProgressPayload | null;
+  isOperationCanceling: boolean;
+  cancelOperations: () => Promise<void>;
   t: Translator;
 }) {
   const [selectedBatchId, setSelectedBatchId] = useState("");
-  const [isRestoring, setIsRestoring] = useState(false);
   const batches = useMemo(() => groupOperationLogs(logs), [logs]);
   const selectedBatch = batches.find((batch) => batch.batchId === selectedBatchId) ?? batches[0];
   const restorableLogs = selectedBatch?.logs.filter(isRestorableLog) ?? [];
+  const restoreProgress = operationProgress?.kind === "restore" ? operationProgress : null;
+  const isRestoring = Boolean(restoreProgress);
   const historyLogs = useMemo(
     () => [...logs].sort((a, b) => logTimeValue(b.created_at) - logTimeValue(a.created_at)).slice(0, 8),
     [logs]
@@ -1144,12 +1167,7 @@ export function RestoreView({
 
   async function restoreSelectedBatch() {
     if (!restorableLogs.length || isRestoring) return;
-    setIsRestoring(true);
-    try {
-      await onRestore(restorableLogs);
-    } finally {
-      setIsRestoring(false);
-    }
+    await onRestore(restorableLogs);
   }
 
   return (
@@ -1218,6 +1236,14 @@ export function RestoreView({
             {isRestoring ? t("restoring") : t("restoreBatch")}
           </button>
         </div>
+        {restoreProgress && (
+          <OperationProgressPanel
+            progress={restoreProgress}
+            isCanceling={isOperationCanceling}
+            onCancel={cancelOperations}
+            t={t}
+          />
+        )}
         {selectedBatch ? (
           <div className="grid gap-2">
             {selectedBatch.logs.map((log) => {
@@ -1292,13 +1318,14 @@ function isRestorableLog(log: OperationLog): boolean {
   return (
     log.status === "success" &&
     log.can_restore &&
-    (log.restore_status === "not_restored" || log.restore_status === "failed")
+    (log.restore_status === "not_restored" || log.restore_status === "failed" || log.restore_status === "canceled")
   );
 }
 
 function restoreStatusLabel(log: OperationLog, t: Translator): string {
   if (log.restore_status === "restored") return t("restored");
   if (log.restore_status === "failed") return t("failed");
+  if (log.restore_status === "canceled") return t("operationCanceled");
   if (isRestorableLog(log)) return t("restorable");
   if (log.status === "skipped") return t("skipped");
   return t("unavailable");
@@ -1512,6 +1539,49 @@ function FileCard({
       </span>
       <em className={cn("rounded-full border px-2 py-1 text-xs not-italic", toneClasses(file.risk_level === "Sensitive" ? "red" : "green"))}>{file.risk_level === "Sensitive" ? t("sensitiveLabel") : t("normal")}</em>
     </motion.button>
+  );
+}
+
+function OperationProgressPanel({
+  progress,
+  isCanceling,
+  onCancel,
+  t
+}: {
+  progress: OperationProgressPayload;
+  isCanceling: boolean;
+  onCancel: () => Promise<void>;
+  t: Translator;
+}) {
+  const ratio = progress.total > 0 ? Math.min(1, progress.processed / progress.total) : 0;
+  const currentPath = progress.currentPath ? compactPath(progress.currentPath, 56) : "-";
+  const line = t("operationProgressLine")
+    .replace("{processed}", progress.processed.toLocaleString())
+    .replace("{total}", progress.total.toLocaleString())
+    .replace("{path}", currentPath);
+
+  return (
+    <div className={cn(rowSurface, "mb-4 grid gap-3 p-4")}>
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <strong>{progress.kind === "restore" ? t("restoring") : t("executingOperations")}</strong>
+        <span className="text-[var(--muted)]">
+          {progress.processed.toLocaleString()} / {progress.total.toLocaleString()}
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-white/50 dark:bg-white/10">
+        <div
+          className="h-full rounded-full bg-blue-500 transition-[width]"
+          style={{ width: `${Math.round(ratio * 100)}%` }}
+        />
+      </div>
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <small className="min-w-0 truncate text-xs text-[var(--muted)]">{line}</small>
+        <button className={glassButton} onClick={onCancel} disabled={isCanceling}>
+          <X size={15} />
+          <span>{isCanceling ? t("operationCanceling") : t("cancel")}</span>
+        </button>
+      </div>
+    </div>
   );
 }
 
