@@ -1,6 +1,4 @@
 use crate::file_ops::OperationLogDto;
-use r2d2::{Pool, PooledConnection};
-use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 #[cfg(test)]
 use serde_json::Value;
@@ -15,19 +13,14 @@ use tauri::{AppHandle, Emitter, Runtime, State};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 mod classification;
+mod connection;
 mod schema;
 mod types;
 pub(crate) use classification::normalized_file_type;
 #[cfg(test)]
 pub(crate) use classification::{rule_version_for_rules, translate_template};
-pub(crate) use schema::migrate;
+pub use connection::Database;
 pub use types::*;
-
-#[derive(Clone)]
-pub struct Database {
-    path: PathBuf,
-    pool: Pool<SqliteConnectionManager>,
-}
 
 const CLASSIFY_BATCH_SIZE: usize = 500;
 const OPTIMIZE_AFTER_UPSERT_THRESHOLD: usize = 500;
@@ -37,31 +30,6 @@ const CLASSIFICATION_STATUS_UNCLASSIFIED: &str = "unclassified";
 const CLASSIFICATION_STATUS_CLASSIFIED: &str = "classified";
 
 impl Database {
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, DbError> {
-        let path = path.as_ref().to_path_buf();
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let manager = SqliteConnectionManager::file(&path).with_init(configure_connection);
-        let pool = Pool::builder().max_size(8).build(manager)?;
-        {
-            let conn = pool.get()?;
-            migrate(&conn)?;
-        }
-
-        Ok(Self { path, pool })
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
-    pub fn init(&self) -> Result<(), DbError> {
-        let conn = self.conn()?;
-        migrate(&conn)
-    }
-
     pub fn insert_file(&self, file: InsertFileRequest) -> Result<(), DbError> {
         self.insert_files(&[file])
     }
@@ -919,10 +887,6 @@ impl Database {
         tx.commit()?;
         Ok(())
     }
-
-    pub(crate) fn conn(&self) -> Result<PooledConnection<SqliteConnectionManager>, DbError> {
-        self.pool.get().map_err(DbError::from)
-    }
 }
 
 #[tauri::command]
@@ -1025,15 +989,6 @@ pub async fn execute_rules_for_paths(
         .await
         .map_err(|error| error.to_string())?
         .map_err(command_error)
-}
-
-fn configure_connection(conn: &mut Connection) -> rusqlite::Result<()> {
-    conn.pragma_update(None, "journal_mode", "WAL")?;
-    conn.pragma_update(None, "synchronous", "NORMAL")?;
-    conn.pragma_update(None, "foreign_keys", "ON")?;
-    conn.pragma_update(None, "temp_store", "MEMORY")?;
-    conn.busy_timeout(std::time::Duration::from_secs(5))?;
-    Ok(())
 }
 
 fn trim_trailing_path_separators(path: &str) -> &str {
