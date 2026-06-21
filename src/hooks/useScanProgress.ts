@@ -33,6 +33,10 @@ const initialState: UseScanProgressState = {
 
 const MAX_RETAINED_ENTRIES = 5_000;
 
+export function shouldIncludeScanEntries(options: UseScanProgressOptions): boolean {
+  return options.keepEntries === true;
+}
+
 export function useScanProgress(options: UseScanProgressOptions = {}) {
   const optionsRef = useRef(options);
   const [state, setState] = useState<UseScanProgressState>(initialState);
@@ -126,7 +130,7 @@ export function useScanProgress(options: UseScanProgressOptions = {}) {
       entries: [],
       error: null
     });
-    return tauriApi.startScan(path);
+    return tauriApi.startScan(path, shouldIncludeScanEntries(optionsRef.current));
   }, []);
 
   const reset = useCallback(() => {

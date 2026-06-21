@@ -97,8 +97,8 @@ export const tauriApi = {
     return invokeCommand<TauriSearchFileResult[]>("search_files", { query, limit });
   },
 
-  startScan(path: string): Promise<ScanSummary> {
-    return invokeCommand<ScanSummary>("scan_directory", { path });
+  startScan(path: string, includeEntries = false): Promise<ScanSummary> {
+    return invokeCommand<ScanSummary>("scan_directory", { path, includeEntries });
   },
 
   cancelScan(): Promise<void> {

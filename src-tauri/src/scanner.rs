@@ -113,12 +113,13 @@ pub async fn scan_directory<R: Runtime>(
     db: State<'_, Database>,
     cancel: State<'_, ScanCancellationToken>,
     path: String,
+    include_entries: bool,
 ) -> Result<ScanSummary, String> {
     let db = db.inner().clone();
     cancel.0.store(false, Ordering::Relaxed);
     let cancel_flag = Arc::clone(&cancel.0);
     tauri::async_runtime::spawn_blocking(move || {
-        scan_directory_blocking(app, db, PathBuf::from(path), cancel_flag)
+        scan_directory_blocking(app, db, PathBuf::from(path), cancel_flag, include_entries)
     })
     .await
     .map_err(|error| ScanError::Join(error.to_string()).to_string())?
@@ -135,6 +136,7 @@ fn scan_directory_blocking<R: Runtime>(
     db: Database,
     root: PathBuf,
     cancel_flag: Arc<AtomicBool>,
+    include_entries: bool,
 ) -> Result<ScanSummary, ScanError> {
     validate_root(&root)?;
 
@@ -209,6 +211,7 @@ fn scan_directory_blocking<R: Runtime>(
                 root: &root_label,
                 counters: &counters,
                 started_at,
+                include_entries,
             };
             batch.flush(&context, skipped.load(Ordering::Relaxed))?;
         }
@@ -221,6 +224,7 @@ fn scan_directory_blocking<R: Runtime>(
             root: &root_label,
             counters: &counters,
             started_at,
+            include_entries,
         };
         batch.flush(&context, skipped.load(Ordering::Relaxed))?;
     }
@@ -263,6 +267,7 @@ struct BatchEmitContext<'a, R: Runtime> {
     root: &'a str,
     counters: &'a ScanCounters,
     started_at: Instant,
+    include_entries: bool,
 }
 
 struct ScanBatchBuffer {
@@ -319,12 +324,13 @@ impl ScanBatchBuffer {
 
         context.app.emit(
             SCAN_BATCH_EVENT,
-            ScanBatchPayload {
-                root: context.root.to_string(),
-                batch_index: self.batch_index,
+            scan_batch_payload(
+                context.root,
+                self.batch_index,
                 entries,
-                progress: progress.clone(),
-            },
+                progress.clone(),
+                context.include_entries,
+            ),
         )?;
         context.app.emit(SCAN_PROGRESS_EVENT, progress)?;
 
@@ -332,6 +338,21 @@ impl ScanBatchBuffer {
         self.last_emit_at = Instant::now();
         self.entries.reserve(SCAN_BATCH_SIZE);
         Ok(())
+    }
+}
+
+fn scan_batch_payload(
+    root: &str,
+    batch_index: u64,
+    entries: Vec<ScannedEntry>,
+    progress: ScanProgressPayload,
+    include_entries: bool,
+) -> ScanBatchPayload {
+    ScanBatchPayload {
+        root: root.to_string(),
+        batch_index,
+        entries: if include_entries { entries } else { Vec::new() },
+        progress,
     }
 }
 
@@ -491,6 +512,37 @@ mod tests {
     }
 
     #[test]
+    fn scan_batch_payload_omits_entries_when_not_requested() {
+        let payload = scan_batch_payload(
+            "/tmp/root",
+            2,
+            vec![test_scanned_entry(1), test_scanned_entry(2)],
+            test_scan_progress(),
+            false,
+        );
+
+        assert_eq!(payload.root, "/tmp/root");
+        assert_eq!(payload.batch_index, 2);
+        assert_eq!(payload.progress.scanned, 2);
+        assert!(payload.entries.is_empty());
+    }
+
+    #[test]
+    fn scan_batch_payload_includes_entries_when_requested() {
+        let payload = scan_batch_payload(
+            "/tmp/root",
+            3,
+            vec![test_scanned_entry(1), test_scanned_entry(2)],
+            test_scan_progress(),
+            true,
+        );
+
+        assert_eq!(payload.root, "/tmp/root");
+        assert_eq!(payload.batch_index, 3);
+        assert_eq!(payload.entries.len(), 2);
+    }
+
+    #[test]
     fn scan_completion_emits_complete_before_scheduling_dedupe() {
         let events = std::cell::RefCell::new(Vec::new());
 
@@ -516,6 +568,18 @@ mod tests {
             ctime: 0,
             is_dir: false,
             state_code: 0,
+        }
+    }
+
+    fn test_scan_progress() -> ScanProgressPayload {
+        ScanProgressPayload {
+            root: "/tmp/root".to_string(),
+            scanned: 2,
+            files: 2,
+            directories: 0,
+            skipped: 0,
+            errors: 0,
+            elapsed_ms: 100,
         }
     }
 }
