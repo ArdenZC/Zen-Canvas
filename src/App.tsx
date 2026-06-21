@@ -22,6 +22,7 @@ import type {
   Rule
 } from "./types/domain";
 import { readableError } from "./utils/viewHelpers";
+import { applySearchNavigation } from "./utils/searchNavigation";
 
 export function App() {
   const language = useAppStore((state) => state.language);
@@ -101,6 +102,25 @@ export function App() {
   useFsWatcher({ onRefreshData: refresh, onError: showError, rules });
 
   const appChrome = useAppChrome({ theme, setTheme, setLanguage });
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void tauriApi.onSearchNavigate((payload) => {
+      applySearchNavigation(payload, setView, setSelectedFileId);
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    }).catch((error) => {
+      if (!disposed) showError(readableError(error));
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [setSelectedFileId, setView, showError]);
+
   const setCloseBehavior = useCallback(
     async (next: CloseBehavior) => {
       const savedSettings = await updateSettings({ closeBehavior: next });

@@ -3,6 +3,7 @@ import type { Language } from "../i18n";
 import type { ThemeMode } from "../types/ui";
 import {
   detectBrowserPlatform,
+  defaultPlatformAccelerator,
   preferredLanguage,
   preferredTheme,
   prefersDarkScheme
@@ -23,7 +24,7 @@ export function useAppChrome({ theme, setTheme, setLanguage }: UseAppChromeOptio
   const platform = detectBrowserPlatform();
   const isWindows = platform === "win32";
   const effectiveTheme: Exclude<ThemeMode, "system"> = theme === "system" ? (systemDark ? "dark" : "light") : theme;
-  const hotkeyLabel = platform === "darwin" ? "⌘ K" : "Ctrl K";
+  const hotkeyLabel = defaultPlatformAccelerator(platform);
 
   useEffect(() => {
     document.documentElement.classList.toggle("search-window-root", IS_SEARCH_MODE);
@@ -74,6 +75,16 @@ export function useAppChrome({ theme, setTheme, setLanguage }: UseAppChromeOptio
   useEffect(() => {
     if (isCommandOpen) window.setTimeout(() => commandInputRef.current?.focus(), 40);
   }, [isCommandOpen]);
+
+  useEffect(() => {
+    if (!IS_SEARCH_MODE) return;
+    const focusSearchInput = () => {
+      setIsCommandOpen(true);
+      window.setTimeout(() => commandInputRef.current?.focus(), 40);
+    };
+    window.addEventListener("focus", focusSearchInput);
+    return () => window.removeEventListener("focus", focusSearchInput);
+  }, []);
 
   useEffect(() => {
     if (IS_SEARCH_MODE) {

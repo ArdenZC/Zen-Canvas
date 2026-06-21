@@ -127,15 +127,7 @@ export function prettyFolderName(value: string): string {
 }
 
 export function defaultPlatformAccelerator(platform: NodeJS.Platform | "browser"): string {
-  return platform === "darwin" ? "Command+K" : "Control+K";
-}
-
-export function platformAcceleratorForInput(accelerator: string, platform: NodeJS.Platform | "browser"): string {
-  return accelerator.replace(/CommandOrControl/gi, platform === "darwin" ? "Command" : "Control");
-}
-
-export function acceleratorForElectron(accelerator: string): string {
-  return accelerator.trim().replace(/^Ctrl\+/i, "Control+");
+  return platform === "darwin" ? "⌘⇧Space" : "Ctrl+Shift+Space";
 }
 
 export function createOperationPreviews(files: FileRecord[]): OperationPreview[] {

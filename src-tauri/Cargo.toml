@@ -37,6 +37,7 @@ sysinfo = "0.32"
 tauri = { version = "2", default-features = false, features = [] }
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-dialog = "2.7.1"
+tauri-plugin-global-shortcut = "2"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting"] }
 

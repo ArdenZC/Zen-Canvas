@@ -19,6 +19,10 @@ fn main() {
         .setup(|app| {
             zen_canvas_tauri::app_control::setup_tray(app)
                 .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+            zen_canvas_tauri::app_control::setup_search_window(app)
+                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+            zen_canvas_tauri::app_control::setup_global_search_shortcut(app)
+                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
             let db = open_database(&app.handle())
                 .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
             app.manage(db.clone());
@@ -76,6 +80,7 @@ fn main() {
             zen_canvas_tauri::settings::get_settings,
             zen_canvas_tauri::settings::save_settings,
             zen_canvas_tauri::app_control::quit_app,
+            zen_canvas_tauri::app_control::activate_search_result,
             zen_canvas_tauri::scanner::scan_directory,
             zen_canvas_tauri::scanner::cancel_scan,
             zen_canvas_tauri::file_ops::move_file,

@@ -110,5 +110,5 @@ textarea:focus-visible {
 
 .search-window-root {
   min-width: 420px;
-  min-height: 420px;
+  min-height: 360px;
 }

@@ -1,3 +1,4 @@
+use serde::Serialize;
 use tauri::{AppHandle, Runtime};
 
 #[cfg(feature = "desktop-runtime")]
@@ -5,8 +6,10 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    App, Manager,
+    App, Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
 };
+#[cfg(feature = "desktop-runtime")]
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 #[cfg(feature = "desktop-runtime")]
 const TRAY_SHOW_MAIN_WINDOW_ID: &str = "show-main-window";
@@ -14,6 +17,35 @@ const TRAY_SHOW_MAIN_WINDOW_ID: &str = "show-main-window";
 const TRAY_QUIT_APP_ID: &str = "quit-app";
 #[cfg(feature = "desktop-runtime")]
 const TRAY_ICON_BYTES: &[u8] = include_bytes!("../../build/icon.png");
+#[cfg(feature = "desktop-runtime")]
+const MAIN_WINDOW_LABEL: &str = "main";
+#[cfg(feature = "desktop-runtime")]
+const SEARCH_WINDOW_LABEL: &str = "search";
+const SEARCH_WINDOW_URL: &str = "index.html?mode=search";
+#[cfg(feature = "desktop-runtime")]
+const SEARCH_WINDOW_WIDTH: f64 = 640.0;
+#[cfg(feature = "desktop-runtime")]
+const SEARCH_WINDOW_HEIGHT: f64 = 360.0;
+pub const SEARCH_GLOBAL_SHORTCUT: &str = "CmdOrCtrl+Shift+Space";
+#[cfg(feature = "desktop-runtime")]
+const SEARCH_NAVIGATE_EVENT: &str = "search-navigate";
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchNavigatePayload {
+    pub view: String,
+    pub file_id: Option<String>,
+}
+
+impl SearchNavigatePayload {
+    pub fn new(view: String, file_id: Option<String>) -> Self {
+        Self { view, file_id }
+    }
+}
+
+pub fn search_window_url() -> &'static str {
+    SEARCH_WINDOW_URL
+}
 
 pub fn exit_app<R: Runtime>(app: &AppHandle<R>) {
     app.exit(0);
@@ -26,9 +58,114 @@ pub fn quit_app<R: Runtime>(app: AppHandle<R>) {
 
 #[cfg(feature = "desktop-runtime")]
 pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         window.show()?;
         window.set_focus()?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn activate_search_result<R: Runtime>(
+    app: AppHandle<R>,
+    view: String,
+    file_id: Option<String>,
+) -> Result<(), String> {
+    let payload = SearchNavigatePayload::new(view, file_id);
+    activate_search_result_payload(&app, payload).map_err(|error| error.to_string())
+}
+
+#[cfg(feature = "desktop-runtime")]
+fn activate_search_result_payload<R: Runtime>(
+    app: &AppHandle<R>,
+    payload: SearchNavigatePayload,
+) -> tauri::Result<()> {
+    show_main_window(app)?;
+    app.emit_to(MAIN_WINDOW_LABEL, SEARCH_NAVIGATE_EVENT, payload)?;
+    hide_search_window(app)?;
+    Ok(())
+}
+
+#[cfg(not(feature = "desktop-runtime"))]
+fn activate_search_result_payload<R: Runtime>(
+    _app: &AppHandle<R>,
+    _payload: SearchNavigatePayload,
+) -> tauri::Result<()> {
+    Ok(())
+}
+
+#[cfg(feature = "desktop-runtime")]
+pub fn setup_search_window(app: &mut App) -> tauri::Result<()> {
+    if app.get_webview_window(SEARCH_WINDOW_LABEL).is_some() {
+        return Ok(());
+    }
+
+    WebviewWindowBuilder::new(
+        app,
+        SEARCH_WINDOW_LABEL,
+        WebviewUrl::App(search_window_url().into()),
+    )
+    .title("Zen Canvas Search")
+    .inner_size(SEARCH_WINDOW_WIDTH, SEARCH_WINDOW_HEIGHT)
+    .decorations(false)
+    .resizable(false)
+    .skip_taskbar(true)
+    .always_on_top(true)
+    .visible(false)
+    .center()
+    .build()?;
+    Ok(())
+}
+
+#[cfg(feature = "desktop-runtime")]
+pub fn setup_global_search_shortcut(app: &mut App) -> Result<(), String> {
+    let shortcut = global_search_shortcut()?;
+    let shortcut_for_handler = shortcut.clone();
+    app.handle()
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(move |app, shortcut, event| {
+                    if shortcut == &shortcut_for_handler && event.state() == ShortcutState::Pressed
+                    {
+                        if let Err(error) = toggle_search_window(app) {
+                            eprintln!("Toggle search window from global shortcut failed: {error}");
+                        }
+                    }
+                })
+                .build(),
+        )
+        .map_err(|error| error.to_string())?;
+    app.global_shortcut()
+        .register(shortcut)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+#[cfg(feature = "desktop-runtime")]
+fn global_search_shortcut() -> Result<Shortcut, String> {
+    SEARCH_GLOBAL_SHORTCUT
+        .parse::<Shortcut>()
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(feature = "desktop-runtime")]
+pub fn toggle_search_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window(SEARCH_WINDOW_LABEL) {
+        if window.is_visible()? {
+            window.hide()?;
+        } else {
+            window.center()?;
+            window.show()?;
+            window.set_focus()?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "desktop-runtime")]
+pub fn hide_search_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window(SEARCH_WINDOW_LABEL) {
+        window.hide()?;
     }
     Ok(())
 }
@@ -74,4 +211,34 @@ pub fn setup_tray(app: &mut App) -> tauri::Result<()> {
         })
         .build(app)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn global_search_shortcut_matches_documented_accelerator() {
+        assert_eq!(SEARCH_GLOBAL_SHORTCUT, "CmdOrCtrl+Shift+Space");
+    }
+
+    #[cfg(feature = "desktop-runtime")]
+    #[test]
+    fn global_search_shortcut_parses_for_registration() {
+        assert!(global_search_shortcut().is_ok());
+    }
+
+    #[test]
+    fn search_window_url_targets_standalone_search_mode() {
+        assert_eq!(search_window_url(), "index.html?mode=search");
+    }
+
+    #[test]
+    fn search_navigation_payload_serializes_camel_case_file_id() {
+        let payload = SearchNavigatePayload::new("library".to_string(), Some("file-1".to_string()));
+        let value = serde_json::to_value(payload).expect("serialize search navigation payload");
+
+        assert_eq!(value["view"], "library");
+        assert_eq!(value["fileId"], "file-1");
+    }
 }

@@ -19,6 +19,7 @@ import type { OperationProgressPayload, RuleExecutionSummary, ScanProgressPayloa
 import { CommandModal } from "./CommandModal";
 import { ViewErrorBoundary } from "./ErrorBoundary";
 import { AmbientMesh, CloseChoiceDialog, TitlebarTools, ZenMark } from "./ShellChrome";
+import { hideToBackground } from "../hooks/useWindowBehavior";
 import type { Language } from "../i18n";
 import type {
   CloseBehavior,
@@ -47,6 +48,8 @@ import {
 
 const appRoot =
   "relative h-screen min-h-[720px] min-w-[1080px] overflow-hidden bg-[var(--bg)] text-[var(--ink)]";
+const searchWindowRoot =
+  "relative h-screen w-screen overflow-hidden bg-[var(--bg)] text-[var(--ink)]";
 const titlebar =
   "relative z-30 grid h-12 grid-cols-[260px_1fr_260px] items-center border-b border-[var(--line-dark)] bg-[var(--surface-soft)] px-4 backdrop-blur-2xl [-webkit-app-region:drag]";
 const noDrag = "[-webkit-app-region:no-drag]";
@@ -183,19 +186,28 @@ export function AppShell(props: AppShellProps) {
 
 function SearchWindow(props: AppShellProps) {
   return (
-    <div className={cn(appRoot, "flex items-center justify-center")}>
-      {props.isCommandOpen && <CommandLauncher {...props} standalone />}
+    <div className={cn(searchWindowRoot, "flex items-center justify-center")}>
+      <CommandLauncher {...props} standalone />
     </div>
   );
 }
 
 function CommandLauncher(props: AppShellProps & { standalone?: boolean }) {
+  function closeCommand() {
+    props.setIsCommandOpen(false);
+    if (props.standalone) {
+      void hideToBackground().catch((error) => {
+        console.error("Failed to hide search window.", error);
+      });
+    }
+  }
+
   return (
     <CommandModal
       inputRef={props.commandInputRef}
       setView={props.setView}
       setSelectedFileId={props.setSelectedFileId}
-      onClose={() => props.setIsCommandOpen(false)}
+      onClose={closeCommand}
       platform={props.platform}
       t={props.t}
       standalone={props.standalone}

@@ -12,6 +12,8 @@ import type {
   RestoreMovesResult,
   Rule
 } from "../types/domain";
+import type { View } from "../types/ui";
+import type { SearchNavigatePayload } from "../utils/searchNavigation";
 
 export interface ScannedEntry {
   path: string;
@@ -158,6 +160,10 @@ export const tauriApi = {
     return invokeCommand<void>("quit_app");
   },
 
+  activateSearchResult(view: View, fileId: string | null): Promise<void> {
+    return invokeCommand<void>("activate_search_result", { view, fileId });
+  },
+
   initDatabase(): Promise<void> {
     return invokeCommand<void>("init_db");
   },
@@ -202,6 +208,10 @@ export const tauriApi = {
 
   onOperationProgress(handler: EventHandler<OperationProgressPayload>): Promise<UnlistenFn> {
     return listenTo("operation-progress", handler);
+  },
+
+  onSearchNavigate(handler: EventHandler<SearchNavigatePayload>): Promise<UnlistenFn> {
+    return listenTo("search-navigate", handler);
   }
 };
 

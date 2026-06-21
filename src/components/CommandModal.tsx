@@ -5,6 +5,33 @@ import type { FileRecord } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { cn, emptyState, toneClasses } from "../utils/tw";
 
+export async function activateCommandNavigation({
+  standalone,
+  view,
+  fileId,
+  setView,
+  setSelectedFileId,
+  onClose,
+  activateSearchResult = tauriApi.activateSearchResult
+}: {
+  standalone: boolean;
+  view: View;
+  fileId: string | null;
+  setView: (view: View) => void;
+  setSelectedFileId: (id: string) => void;
+  onClose: () => void;
+  activateSearchResult?: (view: View, fileId: string | null) => Promise<void>;
+}) {
+  if (standalone) {
+    await activateSearchResult(view, fileId);
+    return;
+  }
+
+  if (fileId) setSelectedFileId(fileId);
+  setView(view);
+  onClose();
+}
+
 export function CommandModal({
   inputRef,
   setView,
@@ -63,10 +90,19 @@ export function CommandModal({
 
   const visibleResults = useMemo(() => results.slice(0, 12), [results]);
 
-  function chooseFile(file: FileRecord) {
-    setSelectedFileId(file.id);
-    setView("library");
-    onClose();
+  async function chooseFile(file: FileRecord) {
+    try {
+      await activateCommandNavigation({
+        standalone,
+        view: "library",
+        fileId: file.id,
+        setView,
+        setSelectedFileId,
+        onClose
+      });
+    } catch (error) {
+      console.error("Failed to activate search result.", error);
+    }
   }
 
   async function revealFile(file: FileRecord) {
@@ -77,9 +113,19 @@ export function CommandModal({
     }
   }
 
-  function openSortingPreview() {
-    setView("preview");
-    onClose();
+  async function openSortingPreview() {
+    try {
+      await activateCommandNavigation({
+        standalone,
+        view: "preview",
+        fileId: null,
+        setView,
+        setSelectedFileId,
+        onClose
+      });
+    } catch (error) {
+      console.error("Failed to activate search result.", error);
+    }
   }
 
   function clearSearch() {
@@ -129,11 +175,11 @@ export function CommandModal({
           }
           if (event.key === "Enter" && visibleResults[activeIndex]) {
             event.preventDefault();
-            chooseFile(visibleResults[activeIndex]);
+            void chooseFile(visibleResults[activeIndex]);
           }
           if (event.key === "Tab") {
             event.preventDefault();
-            openSortingPreview();
+            void openSortingPreview();
           }
           if (event.key === "Escape") onClose();
         }}
@@ -170,7 +216,7 @@ export function CommandModal({
                         "grid grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl px-3 py-3 text-left transition",
                         index === activeIndex ? "bg-white/60 shadow-sm dark:bg-white/10" : "hover:bg-white/30 dark:hover:bg-white/10"
                       )}
-                      onClick={() => chooseFile(file)}
+                      onClick={() => void chooseFile(file)}
                       onMouseEnter={() => setActiveIndex(index)}
                     >
                       <span className={cn("grid h-10 w-10 place-items-center rounded-xl border", toneClasses(tone))}>
