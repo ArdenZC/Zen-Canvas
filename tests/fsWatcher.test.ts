@@ -16,10 +16,9 @@ describe("fs watcher event routing", () => {
     expect(classifyFsWatchEvent({ event_type: "changed", path: "a.txt" })).toBe("upsert");
   });
 
-  it("routes path-only events to upsert unless remove flags are present", () => {
-    const event: FsWatchEvent = { paths: ["a.txt"] };
-
-    expect(classifyFsWatchEvent(event)).toBe("upsert");
+  it("ignores read-only and unknown events", () => {
+    expect(classifyFsWatchEvent({ eventType: "accessed", paths: ["a.txt"] })).toBe("ignore");
+    expect(classifyFsWatchEvent({ eventType: "other", paths: ["a.txt"] })).toBe("ignore");
   });
 
   it("lets upsert win when the same path appears in both queues", () => {

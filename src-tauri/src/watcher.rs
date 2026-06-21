@@ -136,6 +136,10 @@ fn run_watcher_loop(
 }
 
 fn event_to_payload(event: Event) -> Option<FileWatchEvent> {
+    if matches!(event.kind, EventKind::Access(_)) {
+        return None;
+    }
+
     let paths = event
         .paths
         .into_iter()
@@ -157,6 +161,7 @@ fn event_to_payload(event: Event) -> Option<FileWatchEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use notify::event::{AccessKind, EventAttributes};
 
     #[test]
     fn watch_paths_follow_default_scan_folder_settings() {
@@ -185,6 +190,17 @@ mod tests {
         let paths = watch_paths_from_default_scan_folders(Some(home.as_path()), &folders);
 
         assert_eq!(paths, vec![home.join("Downloads")]);
+    }
+
+    #[test]
+    fn event_to_payload_ignores_access_events() {
+        let event = Event {
+            kind: EventKind::Access(AccessKind::Read),
+            paths: vec![PathBuf::from("/Users/zen/Documents/report.pdf")],
+            attrs: EventAttributes::new(),
+        };
+
+        assert!(event_to_payload(event).is_none());
     }
 }
 

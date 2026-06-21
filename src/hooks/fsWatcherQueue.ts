@@ -18,7 +18,7 @@ export interface WatcherQueueSnapshot {
 export function classifyFsWatchEvent(payload: FsWatchEvent): FsWatchEventAction {
   if (isRemoveEvent(payload)) return "stale";
   if (isUpsertEvent(payload)) return "upsert";
-  return eventPaths(payload).length > 0 ? "upsert" : "ignore";
+  return "ignore";
 }
 
 export function eventPaths(payload: FsWatchEvent): string[] {
@@ -52,7 +52,7 @@ function isUpsertEvent(payload: FsWatchEvent): boolean {
   const eventType = eventTypeText(payload);
   return (
     eventType.includes("create") ||
-    eventType.includes("modify") ||
+    eventType.includes("modif") ||
     eventType.includes("rename") ||
     eventType.includes("change")
   );
