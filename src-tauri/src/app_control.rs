@@ -100,21 +100,25 @@ pub fn setup_search_window(app: &mut App) -> tauri::Result<()> {
         return Ok(());
     }
 
-    WebviewWindowBuilder::new(
+    let builder = WebviewWindowBuilder::new(
         app,
         SEARCH_WINDOW_LABEL,
         WebviewUrl::App(search_window_url().into()),
     )
     .title("Zen Canvas Search")
     .inner_size(SEARCH_WINDOW_WIDTH, SEARCH_WINDOW_HEIGHT)
-    .decorations(false)
-    .transparent(true)
-    .resizable(false)
-    .skip_taskbar(true)
-    .always_on_top(true)
-    .visible(false)
-    .center()
-    .build()?;
+    .decorations(false);
+
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    let builder = builder.transparent(true);
+
+    builder
+        .resizable(false)
+        .skip_taskbar(true)
+        .always_on_top(true)
+        .visible(false)
+        .center()
+        .build()?;
     Ok(())
 }
 
