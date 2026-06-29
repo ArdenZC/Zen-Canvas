@@ -69,12 +69,6 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     formatSaveError: formatSettingsSaveError
   });
   const { settings: appSettings, isLoadingSettings, updateSettings } = appSettingsState;
-  useFsWatcher({ onRefreshData: refreshCurrentQuery, onError: showError, rules });
-
-  useEffect(() => {
-    useScanManagerStore.getState().setDefaultScanRoots(appSettings.defaultScanFolders);
-  }, [appSettings.defaultScanFolders]);
-
   const appChrome = useAppChrome({
     theme,
     setTheme,
@@ -91,8 +85,16 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     hotkeyLabel,
     isSearchMode
   } = appChrome;
+  useFsWatcher({ onRefreshData: refreshCurrentQuery, onError: showError, rules, enabled: !isSearchMode });
 
   useEffect(() => {
+    if (isSearchMode) return;
+    useScanManagerStore.getState().setDefaultScanRoots(appSettings.defaultScanFolders);
+  }, [appSettings.defaultScanFolders, isSearchMode]);
+
+  useEffect(() => {
+    if (isSearchMode) return;
+
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
@@ -109,9 +111,11 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
       disposed = true;
       unlisten?.();
     };
-  }, [setView, showError]);
+  }, [isSearchMode, setView, showError]);
 
   useEffect(() => {
+    if (isSearchMode) return;
+
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
@@ -128,7 +132,7 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
       disposed = true;
       unlisten?.();
     };
-  }, [showError]);
+  }, [isSearchMode, showError]);
 
   const setCloseBehavior = useCallback(
     async (next: CloseBehavior) => {
@@ -332,7 +336,7 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
 
   return (
     <ChromeProvider value={chromeContextValue}>
-      <StoreRuntimeBootstrapper />
+      <StoreRuntimeBootstrapper enabled={!isSearchMode} />
       <SettingsProvider value={settingsContextValue}>
         <RulesProvider value={rulesContextValue}>{children}</RulesProvider>
       </SettingsProvider>
@@ -340,15 +344,17 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   );
 }
 
-function StoreRuntimeBootstrapper() {
+function StoreRuntimeBootstrapper({ enabled }: { enabled: boolean }) {
   const initializeScanListeners = useScanManagerStore((state) => state.initializeScanListeners);
   const initializeOperationQueue = useOperationQueueStore((state) => state.initializeOperationQueue);
 
   useEffect(() => {
+    if (!enabled) return;
+
     void useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
     void initializeScanListeners();
     void initializeOperationQueue();
-  }, [initializeOperationQueue, initializeScanListeners]);
+  }, [enabled, initializeOperationQueue, initializeScanListeners]);
 
   return null;
 }

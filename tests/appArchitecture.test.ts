@@ -70,6 +70,34 @@ describe("app render architecture", () => {
     expect(bootstrapper).not.toContain("syncPreviews(files)");
   });
 
+  it("does not register main-window runtime side effects in search mode", () => {
+    const runtimeProviders = read("src/components/AppRuntimeProviders.tsx");
+    const fsWatcher = read("src/hooks/useFsWatcher.ts");
+    const bootstrapper = runtimeProviders.slice(
+      runtimeProviders.indexOf("function StoreRuntimeBootstrapper"),
+      runtimeProviders.indexOf("function arraysEqual")
+    );
+    const searchNavigateIndex = runtimeProviders.indexOf("tauriApi.onSearchNavigate");
+    const hotkeyFailureIndex = runtimeProviders.indexOf("tauriApi.onGlobalHotkeyRegistrationFailed");
+    const searchNavigateHandler = runtimeProviders.slice(
+      runtimeProviders.lastIndexOf("useEffect", searchNavigateIndex),
+      hotkeyFailureIndex
+    );
+    const hotkeyFailureHandler = runtimeProviders.slice(
+      runtimeProviders.lastIndexOf("useEffect", hotkeyFailureIndex),
+      runtimeProviders.indexOf("const setCloseBehavior")
+    );
+
+    expect(fsWatcher).toContain("enabled?: boolean");
+    expect(runtimeProviders).toContain("useFsWatcher({");
+    expect(runtimeProviders).toContain("enabled: !isSearchMode");
+    expect(runtimeProviders).toContain("<StoreRuntimeBootstrapper enabled={!isSearchMode} />");
+    expect(bootstrapper).toContain("enabled: boolean");
+    expect(bootstrapper).toContain("if (!enabled) return");
+    expect(searchNavigateHandler).toContain("if (isSearchMode) return");
+    expect(hotkeyFailureHandler).toContain("if (isSearchMode) return");
+  });
+
   it("reapplies changed rules only from an explicit RulesView action", () => {
     const rulesView = read("src/views/rules/RulesView.tsx");
     const runtimeProviders = read("src/components/AppRuntimeProviders.tsx");

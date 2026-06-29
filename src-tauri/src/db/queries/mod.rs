@@ -1,4 +1,5 @@
 use super::*;
+use crate::path_filter::is_ignored_dir_name;
 use rusqlite::{params, types::Value as SqlValue, Connection, OptionalExtension, Row};
 use std::{
     fs,
@@ -13,6 +14,8 @@ pub(crate) mod operations;
 pub(crate) mod rules_repo;
 
 use rules_repo::current_timestamp_iso;
+
+pub(crate) const WATCHER_DEEP_UPSERT_ENTRY_LIMIT: usize = 5000;
 
 pub(crate) fn trim_trailing_path_separators(path: &str) -> &str {
     let mut end = path.len();
@@ -280,23 +283,7 @@ pub fn upsert_files_by_paths_for_db(db: &Database, paths: &[String]) -> Result<u
             continue;
         }
 
-        let path_buf = PathBuf::from(path);
-        let metadata = match fs::metadata(&path_buf) {
-            Ok(metadata) => metadata,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(DbError::Io(error)),
-        };
-        let normalized_path = normalize_path_for_db(&path_buf);
-        if seen.iter().any(|value| value == &normalized_path) {
-            continue;
-        }
-        push_unique(&mut seen, normalized_path.clone());
-
-        files.push(insert_request_from_metadata(
-            normalized_path,
-            &path_buf,
-            &metadata,
-        ));
+        collect_upsert_requests_for_path(PathBuf::from(path), &mut files, &mut seen)?;
     }
 
     let upserted = files.len();
@@ -304,6 +291,68 @@ pub fn upsert_files_by_paths_for_db(db: &Database, paths: &[String]) -> Result<u
         db.insert_files(&files)?;
     }
     Ok(upserted)
+}
+
+fn collect_upsert_requests_for_path(
+    path: PathBuf,
+    files: &mut Vec<InsertFileRequest>,
+    seen: &mut Vec<String>,
+) -> Result<(), DbError> {
+    let mut stack = vec![path];
+
+    while let Some(path_buf) = stack.pop() {
+        if files.len() >= WATCHER_DEEP_UPSERT_ENTRY_LIMIT {
+            eprintln!(
+                "Watcher deep upsert reached entry limit ({WATCHER_DEEP_UPSERT_ENTRY_LIMIT}); remaining entries were skipped."
+            );
+            break;
+        }
+
+        let metadata = match fs::symlink_metadata(&path_buf) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(DbError::Io(error)),
+        };
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+
+        let normalized_path = normalize_path_for_db(&path_buf);
+        if seen.iter().any(|value| value == &normalized_path) {
+            continue;
+        }
+        push_unique(seen, normalized_path.clone());
+
+        files.push(insert_request_from_metadata(
+            normalized_path,
+            &path_buf,
+            &metadata,
+        ));
+
+        if !metadata.is_dir() {
+            continue;
+        }
+
+        let entries = match fs::read_dir(&path_buf) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(DbError::Io(error)),
+        };
+
+        for entry in entries {
+            let entry = entry.map_err(DbError::Io)?;
+            let file_type = entry.file_type().map_err(DbError::Io)?;
+            if file_type.is_symlink() {
+                continue;
+            }
+            if file_type.is_dir() && is_ignored_dir_name(&entry.file_name()) {
+                continue;
+            }
+            stack.push(entry.path());
+        }
+    }
+
+    Ok(())
 }
 
 pub(crate) fn upsert_files_by_paths_with_optional_optimize(

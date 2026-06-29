@@ -99,8 +99,6 @@ pub struct OperationLogDto {
 #[derive(Debug, Clone, Serialize)]
 pub struct ExecuteMovesResult {
     pub logs: Vec<OperationLogDto>,
-    #[serde(rename = "updatedFiles")]
-    pub updated_files: Vec<serde_json::Value>,
     pub batch_id: String,
 }
 
@@ -275,11 +273,7 @@ pub fn execute_moves_core_with_progress(
         progress.record(emitter, (index + 1) as u64, current_path);
     }
 
-    ExecuteMovesResult {
-        logs,
-        updated_files: Vec::new(),
-        batch_id,
-    }
+    ExecuteMovesResult { logs, batch_id }
 }
 
 #[command]
@@ -763,48 +757,99 @@ fn move_file_no_overwrite(source: &Path, target: &Path) -> Result<(), String> {
         return Err(FileOpError::TargetExists.to_string());
     }
 
-    match fs::hard_link(source, target) {
-        Ok(()) => {
-            if let Err(error) = fs::remove_file(source) {
-                let _ = fs::remove_file(target);
-                return Err(FileOpError::Io(error).to_string());
-            }
-            Ok(())
+    match fs::rename(source, target) {
+        Ok(()) => Ok(()),
+        Err(rename_error) if rename_error.kind() == io::ErrorKind::AlreadyExists => {
+            Err(FileOpError::TargetExists.to_string())
         }
-        Err(link_error) if should_copy_fallback(&link_error) => copy_then_delete(source, target),
+        Err(rename_error) if should_copy_fallback(&rename_error) => {
+            copy_then_delete_via_temp(source, target)
+        }
         Err(error) => Err(FileOpError::Io(error).to_string()),
     }
 }
 
-fn copy_then_delete(source: &Path, target: &Path) -> Result<(), String> {
+fn copy_then_delete_via_temp(source: &Path, target: &Path) -> Result<(), String> {
+    if target.exists() {
+        return Err(FileOpError::TargetExists.to_string());
+    }
+
+    let tmp = temp_path_for_target(target)?;
+    let mut target_committed = false;
+
+    let result = (|| {
+        copy_file_to_temp(source, &tmp)?;
+        if target.exists() {
+            return Err(FileOpError::TargetExists.to_string());
+        }
+        fs::rename(&tmp, target).map_err(|error| FileOpError::Io(error).to_string())?;
+        target_committed = true;
+        fs::remove_file(source).map_err(|error| FileOpError::Io(error).to_string())?;
+        Ok(())
+    })();
+
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+        if target_committed && source.exists() {
+            let _ = fs::remove_file(target);
+        }
+    }
+
+    result
+}
+
+fn copy_file_to_temp(source: &Path, tmp: &Path) -> Result<(), String> {
     let mut reader = fs::File::open(source).map_err(|error| FileOpError::Io(error).to_string())?;
     let mut writer = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(target)
-        .map_err(|error| {
-            if target.exists() {
-                FileOpError::TargetExists.to_string()
-            } else {
-                FileOpError::Io(error).to_string()
-            }
-        })?;
+        .open(tmp)
+        .map_err(|error| FileOpError::Io(error).to_string())?;
 
     if let Err(error) = io::copy(&mut reader, &mut writer) {
-        let _ = fs::remove_file(target);
+        let _ = fs::remove_file(tmp);
         return Err(FileOpError::Io(error).to_string());
     }
     if let Err(error) = writer.sync_all() {
-        let _ = fs::remove_file(target);
+        let _ = fs::remove_file(tmp);
         return Err(FileOpError::Io(error).to_string());
     }
+    drop(writer);
 
-    if let Err(error) = fs::remove_file(source) {
-        let _ = fs::remove_file(target);
-        return Err(FileOpError::Io(error).to_string());
+    if let Ok(permissions) = fs::metadata(source).map(|metadata| metadata.permissions()) {
+        if let Err(error) = fs::set_permissions(tmp, permissions) {
+            let _ = fs::remove_file(tmp);
+            return Err(FileOpError::Io(error).to_string());
+        }
     }
 
     Ok(())
+}
+
+fn temp_path_for_target(target: &Path) -> Result<PathBuf, String> {
+    let parent = target
+        .parent()
+        .ok_or(FileOpError::TargetParentMissing)
+        .map_err(|error| error.to_string())?;
+    let name = target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or(FileOpError::UnsafeFileName)
+        .map_err(|error| error.to_string())?;
+    let timestamp = current_timestamp_ms();
+
+    for attempt in 0..100 {
+        let candidate = parent.join(format!(".{name}.zencanvas-tmp-{timestamp}-{attempt}"));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(FileOpError::Io(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not allocate a temporary move target",
+    ))
+    .to_string())
 }
 
 fn should_copy_fallback(error: &io::Error) -> bool {
@@ -983,7 +1028,18 @@ mod tests {
         assert_eq!(result.logs.len(), 1);
         assert_eq!(result.logs[0].status, "success");
         assert_eq!(result.logs[0].operation_type, "move");
-        assert_eq!(result.updated_files.len(), 0);
+    }
+
+    #[test]
+    fn execute_moves_result_does_not_serialize_unused_updated_files_contract() {
+        let result = execute_moves_core(ExecuteMovesRequest {
+            operations: Vec::new(),
+        });
+        let json = serde_json::to_value(&result).expect("serialize result");
+
+        assert!(json.get("logs").is_some());
+        assert!(json.get("batch_id").is_some());
+        assert!(json.get("updatedFiles").is_none());
     }
 
     #[test]
@@ -1061,6 +1117,33 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("Target file already exists"));
+    }
+
+    #[test]
+    fn copy_fallback_writes_through_temp_file_then_removes_source() {
+        let root = test_dir();
+        let source = root.join("source.txt");
+        let target = root.join("target.txt");
+        fs::write(&source, "fallback content").expect("write source");
+
+        copy_then_delete_via_temp(&source, &target).expect("copy fallback");
+
+        assert!(!source.exists());
+        assert_eq!(
+            fs::read_to_string(&target).expect("read target"),
+            "fallback content"
+        );
+        let temp_entries = fs::read_dir(&root)
+            .expect("read root")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .contains(".zencanvas-tmp-")
+            })
+            .count();
+        assert_eq!(temp_entries, 0);
     }
 
     #[test]

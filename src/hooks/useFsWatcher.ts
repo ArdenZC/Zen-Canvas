@@ -14,14 +14,22 @@ interface FsWatcherOptions {
   onRefreshData: () => Promise<void>;
   onError?: (message: string) => void;
   rules?: Rule[];
+  enabled?: boolean;
 }
 
 const WATCHER_FLUSH_DELAY_MS = 500;
 const WATCHER_CLASSIFY_LIMIT = 500;
 const EMPTY_RULES: Rule[] = [];
 
-export function useFsWatcher({ onRefreshData, onError, rules = EMPTY_RULES }: FsWatcherOptions) {
+export function useFsWatcher({
+  onRefreshData,
+  onError,
+  rules = EMPTY_RULES,
+  enabled = true
+}: FsWatcherOptions) {
   useEffect(() => {
+    if (!enabled) return;
+
     let disposed = false;
     let queue = Promise.resolve();
     let flushTimer: ReturnType<typeof setTimeout> | undefined;
@@ -118,5 +126,5 @@ export function useFsWatcher({ onRefreshData, onError, rules = EMPTY_RULES }: Fs
       }
       void unlistenPromise.then((unlisten) => unlisten());
     };
-  }, [onError, onRefreshData, rules]);
+  }, [enabled, onError, onRefreshData, rules]);
 }

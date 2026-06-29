@@ -135,6 +135,49 @@ impl Database {
         Ok(removed)
     }
 
+    pub fn mark_missing_files_stale_after_scan(
+        &self,
+        root: &str,
+        scan_started_at: i64,
+    ) -> Result<usize, DbError> {
+        let root = trim_trailing_path_separators(root.trim());
+        if root.is_empty() {
+            return Ok(0);
+        }
+
+        let normalized_root = normalize_path_text(root);
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        let mut marked = 0;
+        {
+            let mut stmt = tx.prepare(
+                r#"
+                UPDATE files
+                SET is_stale = 1
+                WHERE is_stale = 0
+                  AND last_seen_at < ?1
+                  AND (
+                    path = ?2
+                    OR path LIKE ?3 ESCAPE '~'
+                    OR path LIKE ?4 ESCAPE '~'
+                  )
+                "#,
+            )?;
+
+            for candidate in path_lookup_candidates(root, &normalized_root) {
+                let escaped_path = escape_like_pattern(&candidate);
+                marked += stmt.execute(params![
+                    scan_started_at,
+                    candidate,
+                    descendant_like_pattern(&escaped_path, '/'),
+                    descendant_like_pattern(&escaped_path, '\\')
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(marked)
+    }
+
     pub fn upsert_files_by_paths(&self, paths: &[String]) -> Result<usize, DbError> {
         upsert_files_by_paths_with_optional_optimize(self, paths)
     }

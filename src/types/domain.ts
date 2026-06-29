@@ -308,7 +308,6 @@ export interface ExecuteOperationRequest {
 
 export interface ExecuteOperationResult {
   logs: OperationLog[];
-  updatedFiles: FileRecord[];
   batch_id: string;
 }
 
