@@ -113,8 +113,22 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
           set((state) => ({
             scanState: {
               ...state.scanState,
-              status: "error",
-              error: payload.message
+              status: state.scanState.status === "idle" ? "scanning" : state.scanState.status,
+              progress: state.scanState.progress
+                ? {
+                    ...state.scanState.progress,
+                    errors: state.scanState.progress.errors + 1
+                  }
+                : {
+                    root: payload.root,
+                    scanned: 0,
+                    files: 0,
+                    directories: 0,
+                    skipped: 0,
+                    errors: 1,
+                    elapsedMs: 0
+                  },
+              error: null
             }
           }));
         })
@@ -160,7 +174,15 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
       await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
       useAppStore.getState().showSuccess(`${t("success")}: ${totalFiles.toLocaleString()} ${t("files")}`);
     } catch (error) {
-      useAppStore.getState().showError(readableError(error));
+      const message = readableError(error);
+      set((state) => ({
+        scanState: {
+          ...state.scanState,
+          status: "error",
+          error: message
+        }
+      }));
+      useAppStore.getState().showError(message);
     } finally {
       set({ isScanning: false });
     }

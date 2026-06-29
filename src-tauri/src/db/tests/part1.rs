@@ -721,6 +721,71 @@
     }
 
     #[test]
+    fn mark_missing_files_stale_after_scan_marks_only_old_entries_under_root() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file_at_path(
+            &db,
+            "active-report",
+            "/test/virtual/documents/project/active-report.txt",
+            "active-report.txt",
+            "txt",
+            100,
+            1_900_000_010,
+        );
+        insert_test_file_at_path(
+            &db,
+            "ghost-report",
+            "/test/virtual/documents/project/ghost-report.txt",
+            "ghost-report.txt",
+            "txt",
+            100,
+            1_900_000_000,
+        );
+        insert_test_file_at_path(
+            &db,
+            "sibling-report",
+            "/test/virtual/documents/project-other/sibling-report.txt",
+            "sibling-report.txt",
+            "txt",
+            100,
+            1_900_000_000,
+        );
+        let conn = Connection::open(db.path()).expect("open migrated database");
+        conn.execute(
+            "UPDATE files SET last_seen_at = 300 WHERE id = 'active-report'",
+            [],
+        )
+        .expect("set active last_seen_at");
+        conn.execute(
+            "UPDATE files SET last_seen_at = 100 WHERE id IN ('ghost-report', 'sibling-report')",
+            [],
+        )
+        .expect("set stale candidates last_seen_at");
+
+        let marked = db
+            .mark_missing_files_stale_after_scan("/test/virtual/documents/project", 200)
+            .expect("mark missing stale");
+        let page = db.get_paged_files(Some(10), Some(0), None).expect("page");
+        let ghost_search = db.search_files("ghost-report", Some(10)).expect("search");
+
+        assert_eq!(marked, 1);
+        assert!(ghost_search.is_empty());
+        assert_eq!(
+            stale_state(&db, "/test/virtual/documents/project/active-report.txt"),
+            Some((false, true))
+        );
+        assert_eq!(
+            stale_state(&db, "/test/virtual/documents/project/ghost-report.txt"),
+            Some((true, true))
+        );
+        assert_eq!(
+            stale_state(&db, "/test/virtual/documents/project-other/sibling-report.txt"),
+            Some((false, true))
+        );
+        assert_eq!(page.total, 2);
+    }
+
+    #[test]
     fn insert_files_revives_stale_file() {
         let db = Database::open(test_db_path()).expect("open test database");
         insert_test_file(

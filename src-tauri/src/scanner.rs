@@ -1,5 +1,6 @@
 use crate::db::{
-    emit_search_index_optimized, run_search_index_optimize, Database, DbError, InsertFileRequest,
+    current_unix_seconds, emit_search_index_optimized, run_search_index_optimize, Database,
+    DbError, InsertFileRequest,
 };
 use crate::dedupe::spawn_duplicate_detection;
 use crate::path_filter::is_ignored_dir_name;
@@ -141,6 +142,7 @@ fn scan_directory_blocking<R: Runtime>(
     validate_root(&root)?;
 
     let started_at = Instant::now();
+    let scan_started_at = current_unix_seconds();
     let root_label = normalize_path(&root);
     let skipped = Arc::new(AtomicU64::new(0));
     let skipped_for_filter = Arc::clone(&skipped);
@@ -217,6 +219,8 @@ fn scan_directory_blocking<R: Runtime>(
         }
     }
 
+    let cancelled = is_scan_cancelled(&cancel_flag);
+
     if !batch.is_empty() {
         let context = BatchEmitContext {
             app: &app,
@@ -227,6 +231,10 @@ fn scan_directory_blocking<R: Runtime>(
             include_entries,
         };
         batch.flush(&context, skipped.load(Ordering::Relaxed))?;
+    }
+
+    if should_run_stale_cleanup(cancelled) {
+        db.mark_missing_files_stale_after_scan(&root_label, scan_started_at)?;
     }
 
     if batch.flushed_batches() > 0 {
@@ -465,6 +473,10 @@ fn is_scan_cancelled(cancel_flag: &AtomicBool) -> bool {
     cancel_flag.load(Ordering::Relaxed)
 }
 
+fn should_run_stale_cleanup(cancelled: bool) -> bool {
+    !cancelled
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -484,6 +496,12 @@ mod tests {
         let cancel_flag = AtomicBool::new(true);
 
         assert!(is_scan_cancelled(&cancel_flag));
+    }
+
+    #[test]
+    fn stale_cleanup_runs_only_for_completed_scans() {
+        assert!(should_run_stale_cleanup(false));
+        assert!(!should_run_stale_cleanup(true));
     }
 
     #[test]
