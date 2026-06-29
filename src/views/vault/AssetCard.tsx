@@ -36,10 +36,10 @@ export const AssetCard = memo(function AssetCard({
     <motion.div
       className={cn(
         panelSurface,
-        "group relative grid min-h-52 cursor-pointer gap-3 p-4 text-left transition hover:-translate-y-0.5 hover:bg-white/40 dark:hover:bg-white/10",
-        isSelected && "ring-2 ring-blue-400/60"
+        "group relative grid min-h-52 cursor-pointer gap-3 p-4 text-left transition-[background,border-color,box-shadow] hover:border-blue-400/24 hover:bg-white/34 dark:hover:bg-white/10",
+        isSelected && "border-blue-400/38 bg-blue-500/8 shadow-[inset_0_1px_0_rgba(255,255,255,0.34),0_0_0_3px_rgba(59,130,246,0.07)]"
       )}
-      layout
+      layout={false}
       variants={itemMotion}
       role="button"
       tabIndex={0}
@@ -48,7 +48,7 @@ export const AssetCard = memo(function AssetCard({
     >
       <button
         type="button"
-        className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] bg-white/70 text-[var(--muted)] opacity-0 shadow-sm transition hover:border-blue-400/60 hover:bg-blue-500/10 hover:text-blue-600 focus:opacity-100 group-hover:opacity-100 dark:bg-slate-900/70 dark:hover:text-blue-300"
+        className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] bg-white/70 text-[var(--muted)] opacity-0 shadow-sm transition-[background,border-color,color,opacity] hover:border-blue-400/50 hover:bg-blue-500/10 hover:text-blue-600 focus:opacity-100 group-hover:opacity-100 dark:bg-slate-900/70 dark:hover:text-blue-300"
         aria-label={t("revealPhysical")}
         title={t("revealPhysical")}
         onClick={(event) => {

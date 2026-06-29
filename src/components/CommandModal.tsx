@@ -6,6 +6,9 @@ import type { Translator, View } from "../types/ui";
 import { cn, emptyState, toneClasses } from "../utils/tw";
 import { readableError } from "../utils/viewHelpers";
 
+const keyBadge =
+  "rounded-md border border-[var(--line-dark)] bg-white/32 px-1.5 py-0.5 text-[11px] font-medium text-[var(--quiet)] dark:bg-white/5";
+
 export async function activateCommandNavigation({
   standalone,
   view,
@@ -170,16 +173,16 @@ export function CommandModal({
     <div
       className={cn(
         standalone
-          ? "relative z-10 flex h-full w-full items-start justify-center p-6"
-          : "fixed inset-0 z-40 flex items-start justify-center bg-slate-950/25 px-6 pt-20 backdrop-blur-lg"
+          ? "relative z-10 flex h-full w-full items-center justify-center p-5"
+          : "fixed inset-0 z-40 flex items-start justify-center bg-slate-950/22 px-6 pt-20 backdrop-blur-lg"
       )}
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
       <div
         className={cn(
-          "w-full max-w-3xl overflow-hidden border border-[var(--line)] bg-[linear-gradient(135deg,var(--surface-strong),var(--surface-soft))] shadow-[var(--shadow-cmd)] backdrop-blur-3xl transition-all",
-          standalone && "mt-12",
-          showResults ? "rounded-3xl" : "rounded-[2rem]"
+          "w-full max-w-3xl overflow-hidden border border-[var(--line)] bg-[linear-gradient(135deg,var(--surface-strong),var(--surface-soft))] shadow-[var(--shadow-cmd)] backdrop-blur-3xl transition-[border-radius,background,box-shadow]",
+          standalone && "mb-8 max-w-[720px]",
+          showResults ? "rounded-[1.75rem]" : "rounded-[2rem]"
         )}
         onKeyDown={(event) => {
           if ((event.metaKey && event.key === "Backspace") || (event.ctrlKey && event.key === "Backspace")) {
@@ -210,7 +213,7 @@ export function CommandModal({
           if (event.key === "Escape") onClose();
         }}
       >
-        <div className={cn("flex h-16 items-center gap-3 px-5", showResults && "border-b border-[var(--line-dark)]")}>
+        <div className={cn("flex h-[60px] min-h-[60px] items-center gap-3 px-5", showResults && "border-b border-[var(--line-dark)]")}>
           <Search className="text-blue-500" size={20} strokeWidth={2.2} />
           <input
             ref={inputRef}
@@ -222,14 +225,14 @@ export function CommandModal({
             placeholder={t("commandPlaceholder")}
             onChange={(event) => setSearch(event.target.value)}
             onClick={() => inputRef.current?.focus()}
-            className="h-full min-w-0 flex-1 bg-transparent text-base text-[var(--ink)] outline-none placeholder:text-[var(--quiet)]"
+            className="h-full min-w-0 flex-1 bg-transparent text-[15px] text-[var(--ink)] outline-none placeholder:text-[var(--quiet)]"
           />
           {search && (
-            <button className="grid h-8 w-8 place-items-center rounded-full text-[var(--muted)] transition hover:bg-white/50 hover:text-[var(--ink)] dark:hover:bg-white/10" onClick={clearSearch} aria-label={t("clearSearch")}>
+            <button className="grid h-8 w-8 place-items-center rounded-full text-[var(--muted)] transition-[background,color] hover:bg-white/46 hover:text-[var(--ink)] dark:hover:bg-white/10" onClick={clearSearch} aria-label={t("clearSearch")}>
               <X size={16} strokeWidth={2.5} />
             </button>
           )}
-          <kbd className="rounded-md border border-[var(--line-dark)] px-2 py-1 text-[11px] text-[var(--quiet)]">ESC</kbd>
+          <kbd className={cn(keyBadge, "px-2 py-1")}>ESC</kbd>
         </div>
         {searchScopeLabel && (
           <div className="border-t border-[var(--line-dark)] px-5 py-2 text-xs text-[var(--muted)]">
@@ -251,8 +254,10 @@ export function CommandModal({
                       role="option"
                       aria-selected={index === activeIndex}
                       className={cn(
-                        "grid grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl px-3 py-3 text-left transition",
-                        index === activeIndex ? "bg-white/60 shadow-sm dark:bg-white/10" : "hover:bg-white/30 dark:hover:bg-white/10"
+                        "grid min-h-[66px] grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border px-3 py-3 text-left transition-[background,border-color,box-shadow,color]",
+                        index === activeIndex
+                          ? "border-blue-400/30 bg-white/62 shadow-[inset_0_1px_0_rgba(255,255,255,0.60),0_0_0_3px_rgba(59,130,246,0.08)] dark:bg-white/10"
+                          : "border-transparent hover:bg-white/30 dark:hover:bg-white/10"
                       )}
                       onClick={() => void chooseFile(file)}
                       onMouseEnter={() => setActiveIndex(index)}
@@ -279,10 +284,10 @@ export function CommandModal({
             </div>
             <div className="flex items-center justify-between gap-4 border-t border-[var(--line-dark)] px-5 py-3 text-xs text-[var(--muted)]">
               <span>{t("matchesFound").replace("{count}", String(visibleResults.length))}</span>
-              <div className="flex items-center gap-3">
-                <span><kbd className="mr-1 rounded border border-[var(--line-dark)] px-1.5 py-0.5">↵</kbd>{t("openResult")}</span>
-                <span><kbd className="mr-1 rounded border border-[var(--line-dark)] px-1.5 py-0.5">{locateKey}</kbd>{t("revealPhysical")}</span>
-                <span><kbd className="mr-1 rounded border border-[var(--line-dark)] px-1.5 py-0.5">⇥</kbd>{t("sortingAdvice")}</span>
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <span className="inline-flex items-center gap-1"><kbd className={keyBadge}>↵</kbd>{t("openResult")}</span>
+                <span className="inline-flex items-center gap-1"><kbd className={keyBadge}>{locateKey}</kbd>{t("revealPhysical")}</span>
+                <span className="inline-flex items-center gap-1"><kbd className={keyBadge}>⇥</kbd>{t("sortingAdvice")}</span>
               </div>
             </div>
           </div>

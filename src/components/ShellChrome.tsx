@@ -16,9 +16,8 @@ export function ZenMark() {
 export function AmbientMesh() {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
-      <div className="absolute -left-32 -top-28 h-80 w-80 rounded-full bg-blue-400/20 blur-3xl" />
-      <div className="absolute right-0 top-1/4 h-96 w-96 rounded-full bg-emerald-300/10 blur-3xl" />
-      <div className="absolute bottom-[-18rem] left-1/3 h-[32rem] w-[32rem] rounded-full bg-violet-400/10 blur-3xl" />
+      <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(59,130,246,0.08),transparent_30%,rgba(16,185,129,0.05)_58%,transparent_84%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.34),transparent_18%,transparent_76%,rgba(15,23,42,0.05))] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.05),transparent_28%,rgba(0,0,0,0.18))]" />
     </div>
   );
 }

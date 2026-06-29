@@ -5,7 +5,7 @@ import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
 import { formatBytes, percent } from "../../utils/format";
 import { compactPath, libraryScopeLabel, splitDisplaySize } from "../../utils/viewHelpers";
-import { cn, glassButton, glassButtonPrimary } from "../../utils/tw";
+import { cn, glassButton, glassButtonPrimary, glassButtonWarning } from "../../utils/tw";
 import { pageSurface, panelSurface, quietText } from "../shared/ui";
 
 export function ScannerView() {
@@ -20,6 +20,7 @@ export function ScannerView() {
   const handleScan = useScanManagerStore((state) => state.handleScan);
   const cancelScan = useScanManagerStore((state) => state.cancelScan);
   const scanProgress = scanState.progress;
+  const warningCount = scanProgress?.errors ?? 0;
   const scopedTotalSize = stats.totalSize;
   const diskUsageRatio = stats.diskTotalSize > 0 ? Math.min(1, stats.totalSize / stats.diskTotalSize) : 0;
   const clutterItems = files.filter((file) => file.requires_confirmation || file.is_duplicate || file.size > 1024 * 1024 * 1024).length;
@@ -78,7 +79,7 @@ export function ScannerView() {
           <span>{isScanning ? t("scanning") : t("scanCommon")}</span>
         </button>
         {isScanning ? (
-          <button className={glassButton} onClick={cancelScan}>
+          <button className={glassButtonWarning} onClick={cancelScan}>
             <X size={18} />
             <span>{t("cancelScan")}</span>
           </button>
@@ -99,6 +100,11 @@ export function ScannerView() {
               .replace("{path}", compactPath(scanProgress.root))
           : t("diskUsageInScope").replace("{size}", formatBytes(scopedTotalSize)).replace("{disk}", formatBytes(stats.diskTotalSize))}
       </p>
+      {!isScanning && warningCount > 0 && (
+        <div className="max-w-xl rounded-xl border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">
+          {t("scanWarnings").replace("{count}", warningCount.toLocaleString())}
+        </div>
+      )}
     </div>
   );
 }

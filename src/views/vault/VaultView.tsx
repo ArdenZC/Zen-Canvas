@@ -92,7 +92,7 @@ export function VaultView() {
 
   return (
     <div className={cn(pageSurface, "space-y-4")}>
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--line)] bg-white/25 px-3 py-2 text-sm dark:bg-white/5">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-md)] border border-[var(--line)] bg-white/18 px-3 py-2 text-sm dark:bg-white/5">
         <span className="min-w-0 text-[var(--muted)]">
           {t("currentScope")}: <strong className="text-[var(--ink)]">{scopeText}</strong>
         </span>
@@ -126,7 +126,7 @@ export function VaultView() {
         </div>
       ) : (
         <>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {filters.map((filter) => (
           <button
             key={filter.label}
@@ -136,22 +136,11 @@ export function VaultView() {
             {filter.label}
           </button>
         ))}
+        <span className="min-w-52 flex-1 text-xs text-[var(--muted)]">
+          {filters.find((filter) => filter.key === libraryFilter)?.description}
+        </span>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        {filters.map((filter) => (
-          <span
-            className={cn(
-              "rounded-2xl border border-[var(--line)] bg-white/25 p-3 text-sm text-[var(--muted)] dark:bg-white/5",
-              libraryFilter === filter.key && "border-blue-400/50 bg-blue-500/10 text-[var(--ink)]"
-            )}
-            key={`${filter.key}-description`}
-          >
-            <strong className="mb-1 block text-[var(--ink)]">{filter.label}</strong>
-            {filter.description}
-          </span>
-        ))}
-      </div>
-      <p className={mutedText}>{t("libraryIntro")}</p>
+      <p className={cn(mutedText, "leading-relaxed")}>{t("libraryIntro")}</p>
       <label className={cn(inputSurface, "flex items-center gap-2 px-3")}>
         <Search size={16} />
         <input
@@ -244,7 +233,7 @@ function VirtualAssetGrid({
   }
 
   return (
-    <section ref={parentRef} className={cn("h-[calc(100vh-330px)] min-h-80", virtualList)}>
+    <section ref={parentRef} className={cn("h-[calc(100vh-292px)] min-h-80", virtualList)}>
       <div className={virtualSpacer} style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
           const start = virtualRow.index * columns;

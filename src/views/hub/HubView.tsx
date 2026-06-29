@@ -117,7 +117,6 @@ export function HubView() {
         </div>
         <VirtualFileCardList files={pendingFiles} onError={onError} t={t} />
         <motion.button
-          whileTap={{ scale: 0.985 }}
           className={cn(glassButtonPrimary, "w-full")}
           onClick={dispatchFiles}
           disabled={isDispatching}
@@ -132,7 +131,7 @@ export function HubView() {
           const bucketFiles = bucketedFiles[bucket.key];
           return (
             <motion.div
-              className={cn(panelSurface, "flex min-h-[240px] flex-col gap-3", bucketFiles.length > 0 && "ring-1 ring-blue-400/20")}
+              className={cn(panelSurface, "flex min-h-[240px] flex-col gap-3", bucketFiles.length > 0 && "border-blue-400/22 bg-blue-500/6")}
               key={bucket.key}
               variants={itemMotion}
               layout
@@ -285,7 +284,7 @@ function BucketFileButton({
 }) {
   return (
     <motion.button
-      className={cn(compactRowSurface, "flex w-full items-center gap-2 overflow-hidden text-sm hover:bg-white/50 dark:hover:bg-white/10")}
+      className={cn(compactRowSurface, "flex w-full items-center gap-2 overflow-hidden text-sm hover:border-blue-400/24 hover:bg-white/40 dark:hover:bg-white/10")}
       layout={!disableAnimation}
       variants={disableAnimation ? undefined : itemMotion}
       initial={disableAnimation ? false : undefined}
@@ -321,7 +320,7 @@ function FileCard({
     <motion.div
       className={cn(
         rowSurface,
-        "group grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 hover:bg-white/50 dark:hover:bg-white/10",
+        "group grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 hover:border-blue-400/24 hover:bg-white/40 dark:hover:bg-white/10",
         compact ? "p-3" : "p-4"
       )}
       layout={!disableAnimation}
@@ -337,7 +336,7 @@ function FileCard({
       </span>
       <button
         type="button"
-        className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] bg-white/60 text-[var(--muted)] opacity-0 shadow-sm transition hover:border-blue-400/60 hover:bg-blue-500/10 hover:text-blue-600 focus:opacity-100 group-hover:opacity-100 dark:bg-slate-900/60 dark:hover:text-blue-300"
+        className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] bg-white/60 text-[var(--muted)] opacity-0 shadow-sm transition-[background,border-color,color,opacity] hover:border-blue-400/50 hover:bg-blue-500/10 hover:text-blue-600 focus:opacity-100 group-hover:opacity-100 dark:bg-slate-900/60 dark:hover:text-blue-300"
         aria-label={t("revealPhysical")}
         title={t("revealPhysical")}
         onClick={(event) => {

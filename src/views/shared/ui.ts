@@ -13,22 +13,21 @@ export const listMotion: Variants = {
 };
 
 export const itemMotion: Variants = {
-  hidden: { opacity: 0, y: 14, scale: 0.985, filter: "blur(3px)" },
+  hidden: { opacity: 0, y: 10, filter: "blur(2px)" },
   show: {
     opacity: 1,
     y: 0,
-    scale: 1,
     filter: "blur(0px)",
-    transition: { type: "spring", stiffness: 280, damping: 26 }
+    transition: { type: "spring", stiffness: 260, damping: 28 }
   }
 };
 
-export const pageSurface = "h-full min-h-0 overflow-auto pr-1";
+export const pageSurface = "h-full min-h-0 overflow-auto overscroll-contain pr-1";
 export const panelSurface = cn(glassPanel, "min-h-0 p-5");
 export const rowSurface =
-  "rounded-2xl border border-[var(--line)] bg-white/30 p-3 text-left shadow-sm transition dark:bg-white/5";
+  "rounded-[var(--radius-md)] border border-[var(--line)] bg-white/24 p-3 text-left shadow-sm transition-[background,border-color,box-shadow,color] dark:bg-white/5";
 export const compactRowSurface =
-  "rounded-xl border border-[var(--line)] bg-white/30 px-3 py-2 text-left transition dark:bg-white/5";
+  "rounded-xl border border-[var(--line)] bg-white/24 px-3 py-2 text-left transition-[background,border-color,box-shadow,color] dark:bg-white/5";
 export const mutedText = "text-sm text-[var(--muted)]";
 export const quietText = "text-xs text-[var(--quiet)]";
 export const formGrid = "grid grid-cols-2 gap-3 [&_label]:grid [&_label]:gap-1.5 [&_label]:text-sm [&_label]:font-medium [&_label]:text-[var(--muted)]";
@@ -36,8 +35,8 @@ export const segmented = "inline-flex items-center gap-1 rounded-xl border borde
 
 export function segmentButton(active: boolean): string {
   return cn(
-    "rounded-lg px-3 py-1.5 text-sm text-[var(--muted)] transition hover:bg-white/50 hover:text-[var(--ink)] dark:hover:bg-white/10",
-    active && "bg-blue-500 text-white shadow-sm hover:bg-blue-500 hover:text-white"
+    "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:bg-white/48 hover:text-[var(--ink)] dark:hover:bg-white/10",
+    active && "bg-blue-500/90 text-white shadow-sm hover:bg-blue-500 hover:text-white"
   );
 }
 

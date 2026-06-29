@@ -21,7 +21,16 @@ export const PreviewFileRow = memo(function PreviewFileRow({
   t: Translator;
 }) {
   return (
-    <motion.div className={cn(compactRowSurface, "grid grid-cols-[auto_auto_minmax(0,1fr)] items-start gap-3")} layout variants={itemMotion}>
+    <motion.div
+      className={cn(
+        compactRowSurface,
+        "grid grid-cols-[auto_auto_minmax(0,1fr)] items-start gap-3",
+        isSelected && "border-blue-400/28 bg-blue-500/7",
+        preview.is_executable === false && "border-red-400/24 bg-red-500/7"
+      )}
+      layout={false}
+      variants={itemMotion}
+    >
       <input
         type="checkbox"
         disabled={preview.is_executable === false}
@@ -49,8 +58,8 @@ export const PreviewFileRow = memo(function PreviewFileRow({
             </span>
           )}
         </div>
-        <code className="mt-1 block truncate rounded bg-slate-500/10 px-2 py-1 text-[11px] text-[var(--muted)]" title={preview.source_path}>{preview.source_path}</code>
-        <code className="mt-1 block truncate rounded bg-blue-500/10 px-2 py-1 text-[11px] text-blue-600 dark:text-blue-300" title={preview.target_path}>{preview.target_path}</code>
+        <code className="mt-1 block truncate rounded-lg bg-slate-500/10 px-2 py-1 text-[11px] text-[var(--muted)]" title={preview.source_path}>{preview.source_path}</code>
+        <code className="mt-1 block truncate rounded-lg bg-blue-500/8 px-2 py-1 text-[11px] text-blue-600 dark:text-blue-300" title={preview.target_path}>{preview.target_path}</code>
         <input
           className={cn(inputSurface, "mt-2 w-full")}
           value={preview.new_name}

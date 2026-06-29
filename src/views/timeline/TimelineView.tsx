@@ -10,7 +10,7 @@ import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { groupOperationPreviews, compactPath, libraryScopeLabel } from "../../utils/viewHelpers";
 import { shouldVirtualizeList } from "../../utils/virtualization";
-import { cn, emptyState, glassButton, glassButtonPrimary, sectionTitle, virtualList, virtualRow as virtualRowClass, virtualSpacer } from "../../utils/tw";
+import { cn, emptyState, glassButton, glassButtonPrimary, glassButtonWarning, sectionTitle, virtualList, virtualRow as virtualRowClass, virtualSpacer } from "../../utils/tw";
 import { listMotion, pageSurface, panelSurface, rowSurface } from "../shared/ui";
 import { PreviewFileRow } from "./PreviewFileRow";
 
@@ -67,21 +67,21 @@ export function TimelineView() {
           </button>
         </div>
         <div className="mb-4 grid gap-2 text-sm text-[var(--muted)] sm:grid-cols-5">
-          <span>{t("previewScopeItems")}: <strong>{coveredTotal.toLocaleString()}</strong></span>
-          <span>{t("previewMainFolders")}: <strong>{groups.length}</strong></span>
-          <span>{t("executableItems")}: <strong>{executableCount}</strong></span>
-          <span>{t("blockedItems")}: <strong>{blockedCount}</strong></span>
-          <span>{t("confirmationItems")}: <strong>{confirmationCount}</strong></span>
+          <span className="rounded-xl border border-[var(--line)] bg-white/18 px-3 py-2 dark:bg-white/5">{t("previewScopeItems")}: <strong className="text-[var(--ink)]">{coveredTotal.toLocaleString()}</strong></span>
+          <span className="rounded-xl border border-[var(--line)] bg-white/18 px-3 py-2 dark:bg-white/5">{t("previewMainFolders")}: <strong className="text-[var(--ink)]">{groups.length}</strong></span>
+          <span className="rounded-xl border border-[var(--line)] bg-white/18 px-3 py-2 dark:bg-white/5">{t("executableItems")}: <strong className="text-[var(--ink)]">{executableCount}</strong></span>
+          <span className="rounded-xl border border-[var(--line)] bg-white/18 px-3 py-2 dark:bg-white/5">{t("blockedItems")}: <strong className="text-[var(--ink)]">{blockedCount}</strong></span>
+          <span className="rounded-xl border border-[var(--line)] bg-white/18 px-3 py-2 dark:bg-white/5">{t("confirmationItems")}: <strong className="text-[var(--ink)]">{confirmationCount}</strong></span>
         </div>
         {previewTruncated && (
-          <div className="mb-4 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">
+          <div className="mb-4 rounded-xl border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">
             {t("previewTruncatedWarning")
               .replace("{limit}", previewLimit.toLocaleString())
               .replace("{total}", coveredTotal.toLocaleString())}
           </div>
         )}
         {autoCreateParentCount > 0 && (
-          <div className="mb-4 rounded-lg border border-blue-400/40 bg-blue-500/10 px-3 py-2 text-sm text-blue-700 dark:text-blue-200">
+          <div className="mb-4 rounded-xl border border-blue-400/30 bg-blue-500/8 px-3 py-2 text-sm text-blue-700 dark:text-blue-200">
             {t("autoCreateFolderHint").replace("{count}", autoCreateParentCount.toLocaleString())}
           </div>
         )}
@@ -138,7 +138,7 @@ export function TimelineView() {
                   </label>
                   <div className="grid gap-3">
                     {group.subgroups.map((subgroup) => (
-                      <section className="rounded-2xl border border-[var(--line-dark)] bg-white/20 p-3 dark:bg-white/5" key={`${group.key}-${subgroup.key}`}>
+                      <section className="rounded-[var(--radius-md)] border border-[var(--line-dark)] bg-white/14 p-3 dark:bg-white/5" key={`${group.key}-${subgroup.key}`}>
                         <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 pb-2">
                           <Folder size={16} />
                           <div>
@@ -274,7 +274,7 @@ export function OperationProgressPanel({
       </div>
       <div className="flex min-w-0 items-center justify-between gap-3">
         <small className="min-w-0 truncate text-xs text-[var(--muted)]">{line}</small>
-        <button className={glassButton} onClick={onCancel} disabled={isCanceling}>
+        <button className={glassButtonWarning} onClick={onCancel} disabled={isCanceling}>
           <X size={15} />
           <span>{isCanceling ? t("operationCanceling") : t("cancel")}</span>
         </button>

@@ -22,8 +22,8 @@ import type {
   SearchScopeMode
 } from "../../types/domain";
 import { acceleratorFromKeyboardEvent, formatHotkeyLabel, isValidSearchHotkey } from "../../utils/hotkeys";
-import { cn, statusToast } from "../../utils/tw";
-import { mutedText, pageSurface, panelSurface, quietText, segmented, segmentButton, sourceBadge, toggleSwitch, SectionTitle } from "../shared/ui";
+import { cn, glassButtonDanger, statusToast } from "../../utils/tw";
+import { compactRowSurface, mutedText, pageSurface, panelSurface, quietText, rowSurface, segmented, segmentButton, sourceBadge, toggleSwitch, SectionTitle } from "../shared/ui";
 
 export function SettingsView() {
   const {
@@ -206,14 +206,14 @@ export function SettingsView() {
       <section className={cn(panelSurface, "overflow-auto")}>
         <SectionTitle title={t("settings")} body={t("settingsDesc")} />
         <div className="grid gap-3">
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
+        <div className={cn(rowSurface, "flex items-center justify-between gap-4")}>
           <div><strong className="block text-sm">{t("language")}</strong><span className={mutedText}>{t("languageDesc")}</span></div>
           <div className={segmented}>
             <button className={segmentButton(language === "zh")} onClick={() => setLanguage("zh")}>中文</button>
             <button className={segmentButton(language === "en")} onClick={() => setLanguage("en")}>English</button>
           </div>
         </div>
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
+        <div className={cn(rowSurface, "flex items-center justify-between gap-4")}>
           <div><strong className="block text-sm">{t("appearance")}</strong><span className={mutedText}>{t("appearanceDesc")}</span></div>
           <div className={segmented}>
             <button className={segmentButton(theme === "light")} onClick={() => setTheme("light")}>{t("lightTheme")}</button>
@@ -221,14 +221,14 @@ export function SettingsView() {
             <button className={segmentButton(theme === "system")} onClick={() => setTheme("system")}>{t("systemTheme")}</button>
           </div>
         </div>
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
+        <div className={cn(rowSurface, "flex items-center justify-between gap-4")}>
           <div><strong className="block text-sm">{t("folderNaming")}</strong><span className={mutedText}>{t("folderNamingDesc")}</span></div>
           <div className={segmented}>
             <button className={segmentButton(folderNamingLanguage === "en")} onClick={() => void updateFolderNamingLanguage("en")}>{t("englishFolderNames")}</button>
             <button className={segmentButton(folderNamingLanguage === "zh")} onClick={() => void updateFolderNamingLanguage("zh")}>{t("chineseFolderNames")}</button>
           </div>
         </div>
-        <div className="grid gap-3 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
+        <div className={cn(rowSurface, "grid gap-3")}>
           <div className="flex items-start justify-between gap-3">
             <div><strong className="block text-sm">{t("defaultScanFolders")}</strong><span className={mutedText}>{t("defaultScanFoldersDesc")}</span></div>
             <button className={segmentButton(false)} onClick={() => void addDefaultScanFolder()}>
@@ -238,7 +238,7 @@ export function SettingsView() {
           </div>
           <div className="grid gap-2">
             {defaultScanFolders.length ? defaultScanFolders.map((root) => (
-              <div key={root.id} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2 rounded-xl border border-[var(--line-dark)] bg-white/20 px-3 py-2 dark:bg-white/5">
+              <div key={root.id} className={cn(compactRowSurface, "grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-2")}>
                 <div className="min-w-0 text-left">
                   <strong className="block truncate text-sm">{root.label}</strong>
                   <span className="block truncate text-xs text-[var(--muted)]">{root.path}</span>
@@ -248,7 +248,7 @@ export function SettingsView() {
                   <Play size={14} />
                   <span>{t("scanNow")}</span>
                 </button>
-                <button className={segmentButton(false)} onClick={() => void deleteScanRoot(root)} title={t("deleteScanFolder")}>
+                <button className={glassButtonDanger} onClick={() => void deleteScanRoot(root)} title={t("deleteScanFolder")}>
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -258,7 +258,7 @@ export function SettingsView() {
           </div>
           <span className={quietText}>{t("defaultScanFoldersRestartHint")}</span>
         </div>
-        <div className="grid gap-3 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
+        <div className={cn(rowSurface, "grid gap-3")}>
           <div className="flex items-center justify-between gap-4">
             <div><strong className="block text-sm">{t("searchHotkey")}</strong><span className={mutedText}>{t("searchHotkeyDesc")}</span></div>
             <span className="rounded-xl border border-[var(--line)] bg-white/25 px-3 py-1.5 text-sm font-medium text-[var(--ink)] dark:bg-white/5">{hotkey}</span>
@@ -289,7 +289,7 @@ export function SettingsView() {
           )}
           <span className={quietText}>{globalHotkeyError ? t("hotkeyConflictHint") : t("hotkeyActiveHint")}</span>
         </div>
-        <div className="grid gap-3 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
+        <div className={cn(rowSurface, "grid gap-3")}>
           <div className="flex items-start justify-between gap-3">
             <div><strong className="block text-sm">{t("searchScopeSettings")}</strong><span className={mutedText}>{t("searchScopeSettingsDesc")}</span></div>
             <div className={segmented}>
@@ -307,13 +307,13 @@ export function SettingsView() {
                 </button>
               </div>
               {customSearchRoots.length ? customSearchRoots.map((root) => (
-                <div key={root.id} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-xl border border-[var(--line-dark)] bg-white/20 px-3 py-2 dark:bg-white/5">
+                <div key={root.id} className={cn(compactRowSurface, "grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2")}>
                   <div className="min-w-0 text-left">
                     <strong className="block truncate text-sm">{root.label}</strong>
                     <span className="block truncate text-xs text-[var(--muted)]">{root.path}</span>
                   </div>
                   <button className={toggleSwitch(root.enabled)} onClick={() => void setSearchRootEnabled(root, !root.enabled)} aria-label={root.enabled ? t("disableSearchFolder") : t("enableSearchFolder")}><i /></button>
-                  <button className={segmentButton(false)} onClick={() => void deleteSearchRoot(root)} title={t("deleteSearchFolder")}>
+                  <button className={glassButtonDanger} onClick={() => void deleteSearchRoot(root)} title={t("deleteSearchFolder")}>
                     <Trash2 size={14} />
                   </button>
                 </div>
@@ -324,11 +324,11 @@ export function SettingsView() {
           )}
           <span className={quietText}>{t("searchScopeDoesNotChangeLibrary")}</span>
         </div>
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
+        <div className={cn(rowSurface, "flex items-center justify-between gap-4")}>
           <div><strong className="block text-sm">{t("launchAtLogin")}</strong><span className={mutedText}>{t("launchAtLoginDesc")}</span></div>
           <button className={toggleSwitch(launchAtLogin)} onClick={() => void updateLaunchAtLogin(!launchAtLogin)}><i /></button>
         </div>
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
+        <div className={cn(rowSurface, "flex items-center justify-between gap-4")}>
           <div><strong className="block text-sm">{t("closeBehavior")}</strong><span className={mutedText}>{t("closeBehaviorDesc")}</span></div>
           <div className={segmented}>
             <button className={segmentButton(closeBehavior === "ask")} onClick={() => void updateCloseBehavior("ask")}>{t("askEveryTime")}</button>
@@ -336,7 +336,7 @@ export function SettingsView() {
             <button className={segmentButton(closeBehavior === "quit")} onClick={() => void updateCloseBehavior("quit")}>{t("quitApp")}</button>
           </div>
         </div>
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
+        <div className={cn(rowSurface, "flex items-center justify-between gap-4")}>
           <div><strong className="block text-sm">{t("logRetention")}</strong><span className={mutedText}>{t("logRetentionDesc")}</span></div>
           <div className={segmented}>
             {([15, 30, 60, 90] as RestoreRetentionDays[]).map((days) => (
@@ -353,11 +353,11 @@ export function SettingsView() {
       <section className={panelSurface}>
         <SectionTitle title={t("releaseReady")} body={t("releaseReadyDesc")} />
         <div className="grid gap-3">
-        <div className="flex items-center justify-between gap-4 rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
+        <div className={cn(rowSurface, "flex items-center justify-between gap-4")}>
           <div><strong className="block text-sm">{t("searchSources")}</strong><span className={mutedText}>{t("searchSourcesDesc")}</span></div>
           <span className={sourceBadge("user_space")}>{t("localOnly")}</span>
         </div>
-        <div className="rounded-2xl border border-[var(--line)] bg-white/20 p-3 dark:bg-white/5">
+        <div className={rowSurface}>
           <div><strong className="block text-sm">{t("excludedDirs")}</strong><span className={mutedText}>node_modules, .git, target, dist, build</span></div>
         </div>
         </div>

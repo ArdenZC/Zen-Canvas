@@ -41,22 +41,22 @@ import {
 } from "../views";
 
 const appRoot =
-  "relative h-screen min-h-[720px] min-w-[1080px] overflow-hidden bg-[var(--bg)] text-[var(--ink)]";
+  "relative h-screen min-h-[680px] min-w-[980px] overflow-hidden bg-[var(--bg)] text-[var(--ink)]";
 const searchWindowRoot =
   "relative h-screen w-screen overflow-hidden bg-transparent text-[var(--ink)]";
 const titlebar =
-  "relative z-30 grid h-12 grid-cols-[260px_1fr_260px] items-center border-b border-[var(--line-dark)] bg-[var(--surface-soft)] px-4 backdrop-blur-2xl [-webkit-app-region:drag]";
+  "relative z-30 grid h-12 grid-cols-[minmax(208px,240px)_1fr_minmax(208px,240px)] items-center border-b border-[var(--line-dark)] bg-[var(--surface-soft)] px-4 backdrop-blur-2xl [-webkit-app-region:drag]";
 const noDrag = "[-webkit-app-region:no-drag]";
 const spotlightButton =
-  "mx-auto inline-flex h-8 min-w-80 items-center justify-between gap-3 rounded-full border border-[var(--line-dark)] bg-white/40 px-3 text-xs text-[var(--muted)] shadow-sm transition hover:bg-white/70 dark:bg-white/5 dark:hover:bg-white/10 [&_kbd]:rounded-md [&_kbd]:border [&_kbd]:border-[var(--line-dark)] [&_kbd]:px-1.5 [&_kbd]:py-0.5 [&_kbd]:text-[11px] [&_kbd]:text-[var(--quiet)]";
-const workspaceShell = "relative z-10 grid h-[calc(100vh-48px)] grid-cols-[260px_minmax(0,1fr)]";
+  "mx-auto inline-flex h-8 min-w-72 max-w-[420px] items-center justify-between gap-3 rounded-full border border-[var(--line-dark)] bg-white/34 px-3 text-xs text-[var(--muted)] shadow-sm transition-[background,border-color,box-shadow,color] hover:border-blue-400/30 hover:bg-white/62 hover:shadow-[0_0_0_3px_rgba(59,130,246,0.08)] dark:bg-white/5 dark:hover:bg-white/10 [&_kbd]:rounded-md [&_kbd]:border [&_kbd]:border-[var(--line-dark)] [&_kbd]:bg-white/28 [&_kbd]:px-1.5 [&_kbd]:py-0.5 [&_kbd]:text-[11px] [&_kbd]:font-medium [&_kbd]:text-[var(--quiet)] dark:[&_kbd]:bg-white/5";
+const workspaceShell = "relative z-10 grid h-[calc(100vh-48px)] grid-cols-[minmax(220px,248px)_minmax(0,1fr)]";
 const sidebarClass =
-  "flex min-h-0 flex-col gap-5 border-r border-[var(--line-dark)] bg-[var(--surface-soft)] px-5 py-6 backdrop-blur-2xl";
+  "flex min-h-0 flex-col gap-5 border-r border-[var(--line-dark)] bg-[var(--surface-soft)] px-4 py-5 backdrop-blur-2xl";
 const navItemBase =
-  "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-[var(--muted)] transition hover:bg-white/40 hover:text-[var(--ink)] dark:hover:bg-white/10";
-const navItemActive = "bg-blue-500/10 text-[var(--ink)] shadow-sm";
-const workspaceClass = "min-w-0 overflow-hidden px-6 py-5";
-const viewStageClass = "h-[calc(100vh-170px)] overflow-hidden";
+  "flex min-h-10 w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:bg-white/34 hover:text-[var(--ink)] dark:hover:bg-white/10";
+const navItemActive = "border-blue-400/24 bg-blue-500/9 text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]";
+const workspaceClass = "min-w-0 overflow-hidden px-5 py-5";
+const viewStageClass = "h-[calc(100vh-166px)] overflow-hidden";
 
 export function AppShell() {
   const {
