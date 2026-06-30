@@ -56,12 +56,6 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     [showError, t]
   );
 
-  useRulePersistence({
-    isDatabaseReady: true,
-    rules,
-    hydrateUserRulesFromSQLite,
-    onError: showError
-  });
   const appSettingsState = useAppSettings({
     isDatabaseReady: true,
     onError: showError,
@@ -85,6 +79,13 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     hotkeyLabel,
     isSearchMode
   } = appChrome;
+  useRulePersistence({
+    enabled: !isSearchMode,
+    isDatabaseReady: true,
+    rules,
+    hydrateUserRulesFromSQLite,
+    onError: showError
+  });
   useFsWatcher({ onRefreshData: refreshCurrentQuery, onError: showError, rules, enabled: !isSearchMode });
 
   useEffect(() => {

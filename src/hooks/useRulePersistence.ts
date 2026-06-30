@@ -5,6 +5,7 @@ import type { Rule } from "../types/domain";
 import { readableError } from "../utils/viewHelpers";
 
 interface UseRulePersistenceOptions {
+  enabled?: boolean;
   isDatabaseReady: boolean;
   rules: Rule[];
   hydrateUserRulesFromSQLite: (sqliteRules: Rule[], replaceUserRuleIds?: string[]) => void;
@@ -12,6 +13,7 @@ interface UseRulePersistenceOptions {
 }
 
 export function useRulePersistence({
+  enabled = true,
   isDatabaseReady,
   rules,
   hydrateUserRulesFromSQLite,
@@ -20,7 +22,7 @@ export function useRulePersistence({
   const hasHydrated = useRef(false);
 
   useEffect(() => {
-    if (!isDatabaseReady || hasHydrated.current) return;
+    if (!enabled || !isDatabaseReady || hasHydrated.current) return;
 
     hasHydrated.current = true;
     let cancelled = false;
@@ -56,5 +58,5 @@ export function useRulePersistence({
     return () => {
       cancelled = true;
     };
-  }, [hydrateUserRulesFromSQLite, isDatabaseReady, onError, rules]);
+  }, [enabled, hydrateUserRulesFromSQLite, isDatabaseReady, onError, rules]);
 }

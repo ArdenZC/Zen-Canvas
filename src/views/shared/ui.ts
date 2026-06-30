@@ -31,7 +31,7 @@ export const compactRowSurface =
 export const mutedText = "text-sm text-[var(--muted)]";
 export const quietText = "text-xs text-[var(--quiet)]";
 export const formGrid = "grid grid-cols-2 gap-3 [&_label]:grid [&_label]:gap-1.5 [&_label]:text-sm [&_label]:font-medium [&_label]:text-[var(--muted)]";
-export const segmented = "inline-flex items-center gap-1 rounded-xl border border-[var(--line)] bg-white/25 p-1 dark:bg-white/5";
+export const segmented = "inline-flex max-w-full flex-wrap items-center gap-1 rounded-xl border border-[var(--line)] bg-white/25 p-1 dark:bg-white/5";
 
 export function segmentButton(active: boolean): string {
   return cn(

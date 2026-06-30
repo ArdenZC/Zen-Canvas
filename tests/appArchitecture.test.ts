@@ -98,6 +98,25 @@ describe("app render architecture", () => {
     expect(hotkeyFailureHandler).toContain("if (isSearchMode) return");
   });
 
+  it("gates rule persistence in search mode", () => {
+    const runtimeProviders = read("src/components/AppRuntimeProviders.tsx");
+    const rulePersistence = read("src/hooks/useRulePersistence.ts");
+    const useRulePersistenceCall = runtimeProviders.slice(
+      runtimeProviders.indexOf("useRulePersistence({"),
+      runtimeProviders.indexOf("useFsWatcher({")
+    );
+    const rulePersistenceEffect = rulePersistence.slice(
+      rulePersistence.indexOf("useEffect(() => {"),
+      rulePersistence.indexOf("async function hydrateRules")
+    );
+
+    expect(rulePersistence).toContain("enabled?: boolean");
+    expect(rulePersistence).toContain("enabled = true");
+    expect(rulePersistenceEffect).toContain("if (!enabled || !isDatabaseReady || hasHydrated.current) return");
+    expect(useRulePersistenceCall).toContain("enabled: !isSearchMode");
+    expect(useRulePersistenceCall).toContain("hydrateUserRulesFromSQLite");
+  });
+
   it("reapplies changed rules only from an explicit RulesView action", () => {
     const rulesView = read("src/views/rules/RulesView.tsx");
     const runtimeProviders = read("src/components/AppRuntimeProviders.tsx");

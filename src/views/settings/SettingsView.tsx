@@ -25,6 +25,10 @@ import { acceleratorFromKeyboardEvent, formatHotkeyLabel, isValidSearchHotkey } 
 import { cn, glassButton, glassButtonDanger, statusToast } from "../../utils/tw";
 import { compactRowSurface, mutedText, pageSurface, panelSurface, quietText, rowSurface, segmented, segmentButton, sourceBadge, toggleSwitch, SectionTitle } from "../shared/ui";
 
+const settingChoiceRow = cn(rowSurface, "grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center");
+const settingChoiceHeader = "grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start";
+const settingSegmented = cn(segmented, "justify-start md:justify-end");
+
 export function SettingsView() {
   const {
     language,
@@ -206,24 +210,24 @@ export function SettingsView() {
       <section className={cn(panelSurface, "overflow-auto")}>
         <SectionTitle title={t("settings")} body={t("settingsDesc")} />
         <div className="grid gap-3">
-        <div className={cn(rowSurface, "flex items-center justify-between gap-4")}>
+        <div className={settingChoiceRow}>
           <div><strong className="block text-sm">{t("language")}</strong><span className={mutedText}>{t("languageDesc")}</span></div>
-          <div className={segmented}>
+          <div className={settingSegmented}>
             <button className={segmentButton(language === "zh")} onClick={() => setLanguage("zh")}>中文</button>
             <button className={segmentButton(language === "en")} onClick={() => setLanguage("en")}>English</button>
           </div>
         </div>
-        <div className={cn(rowSurface, "flex items-center justify-between gap-4")}>
+        <div className={settingChoiceRow}>
           <div><strong className="block text-sm">{t("appearance")}</strong><span className={mutedText}>{t("appearanceDesc")}</span></div>
-          <div className={segmented}>
+          <div className={settingSegmented}>
             <button className={segmentButton(theme === "light")} onClick={() => setTheme("light")}>{t("lightTheme")}</button>
             <button className={segmentButton(theme === "dark")} onClick={() => setTheme("dark")}>{t("darkTheme")}</button>
             <button className={segmentButton(theme === "system")} onClick={() => setTheme("system")}>{t("systemTheme")}</button>
           </div>
         </div>
-        <div className={cn(rowSurface, "flex items-center justify-between gap-4")}>
+        <div className={settingChoiceRow}>
           <div><strong className="block text-sm">{t("folderNaming")}</strong><span className={mutedText}>{t("folderNamingDesc")}</span></div>
-          <div className={segmented}>
+          <div className={settingSegmented}>
             <button className={segmentButton(folderNamingLanguage === "en")} onClick={() => void updateFolderNamingLanguage("en")}>{t("englishFolderNames")}</button>
             <button className={segmentButton(folderNamingLanguage === "zh")} onClick={() => void updateFolderNamingLanguage("zh")}>{t("chineseFolderNames")}</button>
           </div>
@@ -290,9 +294,9 @@ export function SettingsView() {
           <span className={quietText}>{globalHotkeyError ? t("hotkeyConflictHint") : t("hotkeyActiveHint")}</span>
         </div>
         <div className={cn(rowSurface, "grid gap-3")}>
-          <div className="flex items-start justify-between gap-3">
+          <div className={settingChoiceHeader}>
             <div><strong className="block text-sm">{t("searchScopeSettings")}</strong><span className={mutedText}>{t("searchScopeSettingsDesc")}</span></div>
-            <div className={segmented}>
+            <div className={settingSegmented}>
               <button className={segmentButton(searchScopeMode === "all")} onClick={() => void updateSearchScopeMode("all")}>{t("searchScopeAllIndexed")}</button>
               <button className={segmentButton(searchScopeMode === "current_scan")} onClick={() => void updateSearchScopeMode("current_scan")}>{t("searchScopeCurrentScan")}</button>
               <button className={segmentButton(searchScopeMode === "custom_roots")} onClick={() => void updateSearchScopeMode("custom_roots")}>{t("searchScopeCustomRoots")}</button>
@@ -328,17 +332,17 @@ export function SettingsView() {
           <div><strong className="block text-sm">{t("launchAtLogin")}</strong><span className={mutedText}>{t("launchAtLoginDesc")}</span></div>
           <button className={toggleSwitch(launchAtLogin)} onClick={() => void updateLaunchAtLogin(!launchAtLogin)}><i /></button>
         </div>
-        <div className={cn(rowSurface, "flex items-center justify-between gap-4")}>
+        <div className={settingChoiceRow}>
           <div><strong className="block text-sm">{t("closeBehavior")}</strong><span className={mutedText}>{t("closeBehaviorDesc")}</span></div>
-          <div className={segmented}>
+          <div className={settingSegmented}>
             <button className={segmentButton(closeBehavior === "ask")} onClick={() => void updateCloseBehavior("ask")}>{t("askEveryTime")}</button>
             <button className={segmentButton(closeBehavior === "minimize")} onClick={() => void updateCloseBehavior("minimize")}>{t("minimizeToTray")}</button>
             <button className={segmentButton(closeBehavior === "quit")} onClick={() => void updateCloseBehavior("quit")}>{t("quitApp")}</button>
           </div>
         </div>
-        <div className={cn(rowSurface, "flex items-center justify-between gap-4")}>
+        <div className={settingChoiceRow}>
           <div><strong className="block text-sm">{t("logRetention")}</strong><span className={mutedText}>{t("logRetentionDesc")}</span></div>
-          <div className={segmented}>
+          <div className={settingSegmented}>
             {([15, 30, 60, 90] as RestoreRetentionDays[]).map((days) => (
               <button className={segmentButton(restoreRetentionDays === days)} key={days} onClick={() => void updateRestoreRetentionDays(days)}>
                 {days} {t("days")}

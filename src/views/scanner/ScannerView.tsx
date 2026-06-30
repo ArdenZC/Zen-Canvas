@@ -56,9 +56,11 @@ export function ScannerView() {
                   <span className="rounded-full border border-[var(--line)] bg-white/32 px-2 py-1 dark:bg-white/5">
                     {t("skipped")}: {(scanProgress?.skipped ?? 0).toLocaleString()}
                   </span>
-                  <span className="col-span-2 rounded-full border border-amber-400/25 bg-amber-500/10 px-2 py-1 text-amber-700 dark:text-amber-200">
-                    {t("scanWarnings").replace("{count}", warningCount.toLocaleString())}
-                  </span>
+                  {warningCount > 0 && (
+                    <span className="col-span-2 rounded-full border border-amber-400/25 bg-amber-500/10 px-2 py-1 text-amber-700 dark:text-amber-200">
+                      {t("scanWarnings").replace("{count}", warningCount.toLocaleString())}
+                    </span>
+                  )}
                 </div>
               </div>
             ) : (
