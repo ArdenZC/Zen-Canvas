@@ -8,6 +8,7 @@ const apiMocks = vi.hoisted(() => ({
   onScanProgress: vi.fn(),
   onScanBatch: vi.fn(),
   onScanComplete: vi.fn(),
+  onScanCanceled: vi.fn(),
   onScanError: vi.fn(),
   dialogOpen: vi.fn()
 }));
@@ -23,6 +24,7 @@ vi.mock("../src/api/tauriApi", () => ({
     onScanProgress: apiMocks.onScanProgress,
     onScanBatch: apiMocks.onScanBatch,
     onScanComplete: apiMocks.onScanComplete,
+    onScanCanceled: apiMocks.onScanCanceled,
     onScanError: apiMocks.onScanError
   }
 }));
@@ -34,6 +36,7 @@ describe("listener registration guards", () => {
     apiMocks.onScanProgress.mockReset().mockResolvedValue(() => {});
     apiMocks.onScanBatch.mockReset().mockResolvedValue(() => {});
     apiMocks.onScanComplete.mockReset().mockResolvedValue(() => {});
+    apiMocks.onScanCanceled.mockReset().mockResolvedValue(() => {});
     apiMocks.onScanError.mockReset().mockResolvedValue(() => {});
 
     useOperationQueueStore.setState({
@@ -83,6 +86,7 @@ describe("listener registration guards", () => {
     expect(apiMocks.onScanProgress).toHaveBeenCalledTimes(1);
     expect(apiMocks.onScanBatch).toHaveBeenCalledTimes(1);
     expect(apiMocks.onScanComplete).toHaveBeenCalledTimes(1);
+    expect(apiMocks.onScanCanceled).toHaveBeenCalledTimes(1);
     expect(apiMocks.onScanError).toHaveBeenCalledTimes(1);
 
     pendingScanProgress.resolve(() => {});

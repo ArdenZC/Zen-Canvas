@@ -61,7 +61,31 @@ describe("scan manager progress callbacks", () => {
     expect(scanPaths.indexOf("if (scanJobCanceled) break"))
       .toBeLessThan(scanPaths.indexOf("tauriApi.startScan(path, false)"));
     expect(cancelScan).toContain("scanJobCanceled = true");
+    expect(cancelScan).toContain("isCancelingScan: true");
+    expect(cancelScan).not.toContain("isScanning: false");
     expect(cancelScan).toContain('status: "canceled"');
+  });
+
+  it("keeps scanning locked while cancellation is still settling", () => {
+    const storeSource = readFileSync(
+      resolve("src/store/useScanManagerStore.ts"),
+      "utf8"
+    );
+    const scanPaths = storeSource.slice(
+      storeSource.indexOf("scanPaths: async"),
+      storeSource.indexOf("handleScan: async")
+    );
+    const finallyBlock = scanPaths.slice(
+      scanPaths.indexOf("finally"),
+      scanPaths.length
+    );
+
+    expect(storeSource).toContain("isCancelingScan: boolean");
+    expect(scanPaths).toContain("if (get().isScanning) return");
+    expect(scanPaths.indexOf("if (get().isScanning) return"))
+      .toBeLessThan(scanPaths.indexOf("scanJobCanceled = false"));
+    expect(finallyBlock).toContain("isScanning: false");
+    expect(finallyBlock).toContain("isCancelingScan: false");
   });
 
   it("reports canceled scans without showing a success file count or refreshing unscanned roots", () => {

@@ -37,6 +37,7 @@ export interface ScanManagerStore {
   selectedFolders: string[];
   defaultScanRoots: ScanRootSetting[];
   isScanning: boolean;
+  isCancelingScan: boolean;
   scanState: ScanStateData;
   listenersRegistered: boolean;
   registrationPromise: Promise<void> | null;
@@ -72,6 +73,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
   selectedFolders: [],
   defaultScanRoots: [],
   isScanning: false,
+  isCancelingScan: false,
   scanState: initialScanState,
   listenersRegistered: false,
   registrationPromise: null,
@@ -109,6 +111,16 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
               scanState: {
                 ...state.scanState,
                 status: scanJobCanceled ? "canceled" : "completed",
+                progress: summary,
+                error: null
+              }
+            }));
+          }),
+          tauriApi.onScanCanceled((summary: ScanSummary) => {
+            set((state) => ({
+              scanState: {
+                ...state.scanState,
+                status: "canceled",
                 progress: summary,
                 error: null
               }
@@ -155,11 +167,13 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
     return promise;
   },
   setDefaultScanRoots: (roots) => set({ defaultScanRoots: roots }),
-  reset: () => set({ scanState: initialScanState }),
+  reset: () => set({ scanState: initialScanState, isCancelingScan: false }),
   scanPath: async (path) => {
     await get().scanPaths([path]);
   },
   scanPaths: async (paths) => {
+    if (get().isScanning) return;
+
     const t = currentT();
     const scanRoots = paths.map((path) => path.trim()).filter(Boolean);
     if (!scanRoots.length) {
@@ -171,6 +185,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
     set({
       selectedFolders: scanRoots,
       isScanning: true,
+      isCancelingScan: false,
       scanState: initialScanState
     });
 
@@ -215,7 +230,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
       }));
       useAppStore.getState().showError(message);
     } finally {
-      set({ isScanning: false });
+      set({ isScanning: false, isCancelingScan: false });
     }
   },
   handleScan: async () => {
@@ -237,15 +252,30 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
     }
   },
   cancelScan: async () => {
+    if (!get().isScanning || get().isCancelingScan) return;
     scanJobCanceled = true;
     set((state) => ({
-      isScanning: false,
+      isCancelingScan: true,
       scanState: {
         ...state.scanState,
         status: "canceled",
         error: null
       }
     }));
-    await tauriApi.cancelScan();
+    try {
+      await tauriApi.cancelScan();
+    } catch (error) {
+      scanJobCanceled = false;
+      const message = readableError(error);
+      set((state) => ({
+        isCancelingScan: false,
+        scanState: {
+          ...state.scanState,
+          status: "scanning",
+          error: message
+        }
+      }));
+      useAppStore.getState().showError(message);
+    }
   }
 }));

@@ -153,6 +153,92 @@
     }
 
     #[test]
+    fn execute_rules_for_scope_uses_global_duplicate_flags() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file_at_path(
+            &db,
+            "duplicate-root-a",
+            "/tmp/root-a/shared-copy.txt",
+            "shared-copy.txt",
+            "txt",
+            2_048,
+            1_900_000_000,
+        );
+        insert_test_file_at_path(
+            &db,
+            "duplicate-root-b",
+            "/tmp/root-b/shared-copy.txt",
+            "shared-copy.txt",
+            "txt",
+            2_048,
+            1_900_000_001,
+        );
+        let conn = Connection::open(db.path()).expect("open migrated database");
+        conn.execute(
+            r#"
+            UPDATE files
+            SET content_hash = 'same-global-content'
+            WHERE id IN ('duplicate-root-a', 'duplicate-root-b')
+            "#,
+            [],
+        )
+        .expect("set duplicate content hash");
+        let duplicate_rule = Rule {
+            id: "global-duplicate-rule".to_string(),
+            name: "Global Duplicate Rule".to_string(),
+            source: "user".to_string(),
+            enabled: true,
+            priority: 500.0,
+            weight: 100.0,
+            root_operator: "AND".to_string(),
+            groups: vec![RuleConditionGroup {
+                id: "global-duplicate-rule-group".to_string(),
+                operator: "AND".to_string(),
+                conditions: vec![RuleCondition {
+                    id: "global-duplicate-rule-condition".to_string(),
+                    field: "is_duplicate".to_string(),
+                    operator: "equals".to_string(),
+                    value: Value::String("true".to_string()),
+                }],
+            }],
+            action: RuleAction {
+                purpose: Some("Duplicate Review".to_string()),
+                lifecycle: Some("Inbox".to_string()),
+                context: Some("D1 Duplicate".to_string()),
+                risk_level: Some("Normal".to_string()),
+                suggested_action: Some("Review".to_string()),
+                target_template: None,
+                rename_template: None,
+            },
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+
+        let summary = db
+            .execute_rules_for_scope_with_mode(
+                &LibraryScope::Roots {
+                    roots: vec!["/tmp/root-a".to_string()],
+                },
+                vec![duplicate_rule],
+                RuleExecutionMode::AllChangedOrRuleChanged,
+            )
+            .expect("execute scoped rules");
+        let root_a = file_classification(&db, "/tmp/root-a/shared-copy.txt").expect("root a file");
+        let root_b = file_classification(&db, "/tmp/root-b/shared-copy.txt").expect("root b file");
+
+        assert_eq!(summary.scanned, 1);
+        assert_eq!(summary.updated, 1);
+        assert_eq!(
+            root_a,
+            ("Duplicate Review".to_string(), "Inbox".to_string(), false)
+        );
+        assert_eq!(
+            root_b,
+            ("Unknown".to_string(), "Inbox".to_string(), false)
+        );
+    }
+
+    #[test]
     fn execute_rules_for_scope_inbox_only_skips_already_classified_files() {
         let db = Database::open(test_db_path()).expect("open test database");
         insert_test_file_at_path(

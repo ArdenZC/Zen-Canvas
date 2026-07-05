@@ -326,8 +326,10 @@ impl Database {
             {},
             dup_groups AS (
                 SELECT size, content_hash
-                FROM scoped_files
+                FROM files
                 WHERE is_dir = 0
+                  AND is_stale = 0
+                  AND size > 0
                   AND content_hash <> ''
                 GROUP BY size, content_hash
                 HAVING COUNT(*) > 1
@@ -433,8 +435,10 @@ impl Database {
                     {},
                     dup_groups AS (
                         SELECT size, content_hash
-                        FROM scoped_files
+                        FROM files
                         WHERE is_dir = 0
+                          AND is_stale = 0
+                          AND size > 0
                           AND content_hash <> ''
                         GROUP BY size, content_hash
                         HAVING COUNT(*) > 1
@@ -480,8 +484,10 @@ impl Database {
                 {},
                 dup_groups AS (
                     SELECT size, content_hash
-                    FROM scoped_files
+                    FROM files
                     WHERE is_dir = 0
+                      AND is_stale = 0
+                      AND size > 0
                       AND content_hash <> ''
                     GROUP BY size, content_hash
                     HAVING COUNT(*) > 1
@@ -562,8 +568,10 @@ impl Database {
                 WITH {},
                 dup_groups AS (
                     SELECT size, content_hash
-                    FROM scoped_files
+                    FROM files
                     WHERE is_dir = 0
+                      AND is_stale = 0
+                      AND size > 0
                       AND content_hash <> ''
                     GROUP BY size, content_hash
                     HAVING COUNT(*) > 1
@@ -590,8 +598,10 @@ impl Database {
             WITH {},
             dup_groups AS (
                 SELECT size, content_hash
-                FROM scoped_files
+                FROM files
                 WHERE is_dir = 0
+                  AND is_stale = 0
+                  AND size > 0
                   AND content_hash <> ''
                 GROUP BY size, content_hash
                 HAVING COUNT(*) > 1
@@ -724,8 +734,10 @@ impl Database {
             WITH {},
             dup_groups AS (
                 SELECT size, content_hash
-                FROM scoped_files
+                FROM files
                 WHERE is_dir = 0
+                  AND is_stale = 0
+                  AND size > 0
                   AND content_hash <> ''
                 GROUP BY size, content_hash
                 HAVING COUNT(*) > 1
@@ -788,8 +800,10 @@ impl Database {
             WITH {},
             dup_groups AS (
                 SELECT size, content_hash
-                FROM scoped_files
+                FROM files
                 WHERE is_dir = 0
+                  AND is_stale = 0
+                  AND size > 0
                   AND content_hash <> ''
                 GROUP BY size, content_hash
                 HAVING COUNT(*) > 1
@@ -990,8 +1004,10 @@ fn duplicate_filter_cte(clause: Option<&str>) -> &'static str {
     r#",
             dup_groups AS (
                 SELECT size, content_hash
-                FROM scoped_files
+                FROM files
                 WHERE is_dir = 0
+                  AND is_stale = 0
+                  AND size > 0
                   AND content_hash <> ''
                 GROUP BY size, content_hash
                 HAVING COUNT(*) > 1

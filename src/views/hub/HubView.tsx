@@ -24,6 +24,11 @@ const HUB_BUCKET_KEYS = ["CoreAssets", "QuietArchive", "CleanupLane", "PrivacyVa
 
 export type HubBucketKey = typeof HUB_BUCKET_KEYS[number];
 export type HubBucketGroups = Record<HubBucketKey, FileRecord[]>;
+export interface HubFileModel {
+  pendingFiles: FileRecord[];
+  bucketedFiles: HubBucketGroups;
+  classifiedCount: number;
+}
 
 function createEmptyHubBucketGroups(): HubBucketGroups {
   return {
@@ -48,6 +53,23 @@ export function groupFilesByHubBucket(files: readonly FileRecord[]): HubBucketGr
   }, createEmptyHubBucketGroups());
 }
 
+export function deriveHubFileModel(files: readonly FileRecord[]): HubFileModel {
+  const pendingFiles: FileRecord[] = [];
+  const bucketedFiles = createEmptyHubBucketGroups();
+  let classifiedCount = 0;
+
+  for (const file of files) {
+    if (isRuleClassified(file)) {
+      classifiedCount += 1;
+      bucketedFiles[getHubBucketKey(file)].push(file);
+    } else {
+      pendingFiles.push(file);
+    }
+  }
+
+  return { pendingFiles, bucketedFiles, classifiedCount };
+}
+
 export function HubView() {
   const { t, setView, onError } = useChromeContext();
   const files = useFileLibraryStore((state) => state.organizeQueue);
@@ -60,16 +82,14 @@ export function HubView() {
   const { rules } = useRulesContext();
   const runDispatch = useOperationQueueStore((state) => state.runDispatch);
   const [isDispatching, setIsDispatching] = useState(false);
-  const activeRuleCount = useMemo(() => rules.filter((rule) => rule.enabled).length, [rules]);
-  const sortedFiles = useMemo(() => files.filter(isRuleClassified), [files]);
-  const pendingFiles = useMemo(() => files.filter((file) => !isRuleClassified(file)), [files]);
+  const activeRuleCount = useMemo(() => countActiveRules(rules), [rules]);
+  const { pendingFiles, bucketedFiles } = useMemo(() => deriveHubFileModel(files), [files]);
   const buckets = useMemo(() => [
     { key: "CoreAssets" as const, label: t("coreAssets"), description: t("coreAssetsDesc"), tone: "blue" },
     { key: "QuietArchive" as const, label: t("archiveBox"), description: t("archiveBoxDesc"), tone: "purple" },
     { key: "CleanupLane" as const, label: t("cleanupLane"), description: t("cleanupLaneDesc"), tone: "slate" },
     { key: "PrivacyVault" as const, label: t("privacyVault"), description: t("privacyVaultDesc"), tone: "red" }
   ] satisfies Array<{ key: HubBucketKey; label: string; description: string; tone: string }>, [t]);
-  const bucketedFiles = useMemo(() => groupFilesByHubBucket(sortedFiles), [sortedFiles]);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
   const isEmptyCurrentScanScope = scope.kind === "current_scan" && scope.roots.length === 0;
 
@@ -342,6 +362,14 @@ function BucketFileButton({
 
 function isRuleClassified(file: FileRecord): boolean {
   return file.classification_status === "classified";
+}
+
+function countActiveRules(rules: readonly { enabled: boolean }[]): number {
+  let count = 0;
+  for (const rule of rules) {
+    if (rule.enabled) count += 1;
+  }
+  return count;
 }
 
 function FileCard({

@@ -3,7 +3,6 @@ use rusqlite::params;
 use serde::Serialize;
 use std::{
     fs::File,
-    io::{BufReader, Read},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -15,7 +14,6 @@ pub const DEDUPE_COMPLETE_EVENT: &str = "dedupe-complete";
 
 const DEDUPE_BATCH_SIZE: usize = 500;
 const DEDUPE_EMIT_INTERVAL: Duration = Duration::from_millis(200);
-const HASH_BUFFER_SIZE: usize = 1024 * 1024;
 
 #[derive(Debug, Error)]
 pub enum DedupeError {
@@ -225,24 +223,17 @@ pub fn spawn_duplicate_detection<R: Runtime>(app: AppHandle<R>, db: Database) {
 }
 
 fn hash_file_blake3(path: &Path) -> Result<String, DedupeError> {
-    let file = File::open(path).map_err(|source| DedupeError::Io {
+    let mut file = File::open(path).map_err(|source| DedupeError::Io {
         path: path.to_string_lossy().into_owned(),
         source,
     })?;
-    let mut reader = BufReader::new(file);
     let mut hasher = blake3::Hasher::new();
-    let mut buffer = vec![0_u8; HASH_BUFFER_SIZE];
-
-    loop {
-        let read = reader.read(&mut buffer).map_err(|source| DedupeError::Io {
+    hasher
+        .update_reader(&mut file)
+        .map_err(|source| DedupeError::Io {
             path: path.to_string_lossy().into_owned(),
             source,
         })?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
 
     Ok(hasher.finalize().to_hex().to_string())
 }
@@ -328,6 +319,7 @@ fn duplicate_file_count(db: &Database) -> Result<i64, DedupeError> {
             FROM files
             WHERE is_dir = 0
               AND is_stale = 0
+              AND size > 0
               AND content_hash <> ''
             GROUP BY size, content_hash
             HAVING COUNT(*) > 1

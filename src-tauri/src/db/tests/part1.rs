@@ -614,6 +614,67 @@
     }
 
     #[test]
+    fn duplicate_flags_are_global_even_when_view_scope_is_limited() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file_at_path(
+            &db,
+            "duplicate-root-a",
+            "/tmp/root-a/shared-copy.txt",
+            "shared-copy.txt",
+            "txt",
+            2_048,
+            1_900_000_000,
+        );
+        insert_test_file_at_path(
+            &db,
+            "duplicate-root-b",
+            "/tmp/root-b/shared-copy.txt",
+            "shared-copy.txt",
+            "txt",
+            2_048,
+            1_900_000_001,
+        );
+        let conn = Connection::open(db.path()).expect("open migrated database");
+        conn.execute(
+            r#"
+            UPDATE files
+            SET content_hash = 'same-global-content'
+            WHERE id IN ('duplicate-root-a', 'duplicate-root-b')
+            "#,
+            [],
+        )
+        .expect("set duplicate content hash");
+        let root_a_scope = LibraryScope::Roots {
+            roots: vec!["/tmp/root-a".to_string()],
+        };
+
+        let root_a_page = db
+            .get_paged_files_in_scope_with_filter(Some(10), Some(0), None, &root_a_scope, None)
+            .expect("root a page");
+        let root_a_duplicate_filter = db
+            .get_paged_files_in_scope_with_filter(
+                Some(10),
+                Some(0),
+                None,
+                &root_a_scope,
+                Some(&FileLibraryFilter {
+                    library_filter: Some(LibraryFilter::Duplicate),
+                }),
+            )
+            .expect("root a duplicate page");
+        let root_a_stats = db
+            .get_stats_summary_in_scope(&root_a_scope)
+            .expect("root a stats");
+
+        assert_eq!(root_a_page.total, 1);
+        assert_eq!(root_a_page.files[0].id, "duplicate-root-a");
+        assert!(root_a_page.files[0].is_duplicate);
+        assert_eq!(root_a_duplicate_filter.total, 1);
+        assert_eq!(root_a_duplicate_filter.files[0].id, "duplicate-root-a");
+        assert_eq!(root_a_stats.duplicate_files, 1);
+    }
+
+    #[test]
     fn get_operation_previews_for_scope_uses_full_scope_not_first_page() {
         let db = Database::open(test_db_path()).expect("open test database");
         for index in 0..60 {

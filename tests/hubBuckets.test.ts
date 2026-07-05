@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { FileRecord } from "../src/types/domain";
-import { groupFilesByHubBucket } from "../src/views/hub/HubView";
+import { deriveHubFileModel, groupFilesByHubBucket } from "../src/views/hub/HubView";
 
 describe("HubView file buckets", () => {
   it("groups classified files into the same bucket rules used by HubView", () => {
@@ -18,6 +18,24 @@ describe("HubView file buckets", () => {
     expect(grouped.QuietArchive.map((item) => item.id)).toEqual(["archive"]);
     expect(grouped.CleanupLane.map((item) => item.id)).toEqual(["cleanup", "delete"]);
     expect(grouped.PrivacyVault.map((item) => item.id)).toEqual(["privacy"]);
+  });
+
+  it("derives pending and bucketed hub files in one pass", () => {
+    const files = [
+      file({ id: "pending", name: "pending.pdf", classification_status: "unclassified" }),
+      file({ id: "core", name: "core.pdf" }),
+      file({ id: "archive", name: "archive.zip", lifecycle: "Archive" }),
+      file({ id: "cleanup", name: "cleanup.tmp", suggested_action: "Review" })
+    ];
+
+    const model = deriveHubFileModel(files);
+
+    expect(model.pendingFiles.map((item) => item.id)).toEqual(["pending"]);
+    expect(model.bucketedFiles.CoreAssets.map((item) => item.id)).toEqual(["core"]);
+    expect(model.bucketedFiles.QuietArchive.map((item) => item.id)).toEqual(["archive"]);
+    expect(model.bucketedFiles.CleanupLane.map((item) => item.id)).toEqual(["cleanup"]);
+    expect(model.bucketedFiles.PrivacyVault).toEqual([]);
+    expect(model.classifiedCount).toBe(3);
   });
 });
 

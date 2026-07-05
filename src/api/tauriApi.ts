@@ -254,6 +254,10 @@ export const tauriApi = {
     return listenTo("scan-complete", handler);
   },
 
+  onScanCanceled(handler: EventHandler<ScanSummary>): Promise<UnlistenFn> {
+    return listenTo("scan-canceled", handler);
+  },
+
   onScanError(handler: EventHandler<{ root: string; path: string; message: string }>): Promise<UnlistenFn> {
     return listenTo("scan-error", handler);
   },

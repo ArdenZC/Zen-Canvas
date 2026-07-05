@@ -24,6 +24,7 @@ const SCAN_STARTED_EVENT: &str = "scan-started";
 const SCAN_BATCH_EVENT: &str = "scan-batch";
 const SCAN_PROGRESS_EVENT: &str = "scan-progress";
 const SCAN_COMPLETE_EVENT: &str = "scan-complete";
+const SCAN_CANCELED_EVENT: &str = "scan-canceled";
 const SCAN_ERROR_EVENT: &str = "scan-error";
 
 #[derive(Debug, Error)]
@@ -240,22 +241,33 @@ fn scan_directory_blocking<R: Runtime>(
         db.mark_missing_files_stale_after_scan(&root_label, scan_started_at)?;
     }
 
-    if batch.flushed_batches() > 0 {
-        let report = run_search_index_optimize("scan_complete", &db);
-        emit_search_index_optimized(&app, &report);
-    }
-
     let summary = progress_payload(
         &root_label,
         &counters,
         skipped.load(Ordering::Relaxed),
         started_at,
     );
+
+    if cancelled {
+        app.emit(SCAN_CANCELED_EVENT, summary.clone())?;
+        return Ok(summary);
+    }
+
+    if batch.flushed_batches() > 0 {
+        let report = run_search_index_optimize("scan_complete", &db);
+        emit_search_index_optimized(&app, &report);
+    }
+
     let app_for_dedupe = app.clone();
     let db_for_dedupe = db.clone();
-    emit_scan_complete_then_schedule_dedupe(
+    emit_scan_finished(
+        false,
         || {
             app.emit(SCAN_COMPLETE_EVENT, summary.clone())?;
+            Ok(())
+        },
+        || {
+            app.emit(SCAN_CANCELED_EVENT, summary.clone())?;
             Ok(())
         },
         || spawn_duplicate_detection(app_for_dedupe, db_for_dedupe),
@@ -263,10 +275,17 @@ fn scan_directory_blocking<R: Runtime>(
     Ok(summary)
 }
 
-fn emit_scan_complete_then_schedule_dedupe(
+fn emit_scan_finished(
+    cancelled: bool,
     emit_complete: impl FnOnce() -> Result<(), ScanError>,
+    emit_canceled: impl FnOnce() -> Result<(), ScanError>,
     schedule_dedupe: impl FnOnce(),
 ) -> Result<(), ScanError> {
+    if cancelled {
+        emit_canceled()?;
+        return Ok(());
+    }
+
     emit_complete()?;
     schedule_dedupe();
     Ok(())
@@ -576,9 +595,14 @@ mod tests {
     fn scan_completion_emits_complete_before_scheduling_dedupe() {
         let events = std::cell::RefCell::new(Vec::new());
 
-        emit_scan_complete_then_schedule_dedupe(
+        emit_scan_finished(
+            false,
             || {
                 events.borrow_mut().push("scan-complete");
+                Ok(())
+            },
+            || {
+                events.borrow_mut().push("scan-canceled");
                 Ok(())
             },
             || events.borrow_mut().push("dedupe-started"),
@@ -586,6 +610,27 @@ mod tests {
         .expect("finish scan");
 
         assert_eq!(*events.borrow(), vec!["scan-complete", "dedupe-started"]);
+    }
+
+    #[test]
+    fn canceled_scan_emits_canceled_without_scheduling_dedupe() {
+        let events = std::cell::RefCell::new(Vec::new());
+
+        emit_scan_finished(
+            true,
+            || {
+                events.borrow_mut().push("scan-complete");
+                Ok(())
+            },
+            || {
+                events.borrow_mut().push("scan-canceled");
+                Ok(())
+            },
+            || events.borrow_mut().push("dedupe-started"),
+        )
+        .expect("finish canceled scan");
+
+        assert_eq!(*events.borrow(), vec!["scan-canceled"]);
     }
 
     fn test_scanned_entry(index: usize) -> ScannedEntry {

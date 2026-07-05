@@ -16,6 +16,7 @@ export function ScannerView() {
   const files = useFileLibraryStore((state) => state.libraryPage.files);
   const selectedFolders = useScanManagerStore((state) => state.selectedFolders);
   const isScanning = useScanManagerStore((state) => state.isScanning);
+  const isCancelingScan = useScanManagerStore((state) => state.isCancelingScan);
   const scanStatus = useScanManagerStore((state) => state.scanState.status);
   const handleChooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
   const handleScan = useScanManagerStore((state) => state.handleScan);
@@ -81,9 +82,9 @@ export function ScannerView() {
           <span>{isScanning ? t("scanning") : t("scanCommon")}</span>
         </button>
         {isScanning ? (
-          <button className={glassButtonWarning} onClick={cancelScan}>
+          <button className={glassButtonWarning} onClick={cancelScan} disabled={isCancelingScan}>
             <X size={18} />
-            <span>{t("cancelScan")}</span>
+            <span>{isCancelingScan ? t("scanCanceling") : t("cancelScan")}</span>
           </button>
         ) : (
           <button className={glassButton} onClick={handleChooseFolders}>
