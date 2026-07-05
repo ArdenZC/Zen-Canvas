@@ -50,6 +50,7 @@ fn configure_connection(conn: &mut Connection) -> rusqlite::Result<()> {
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.pragma_update(None, "temp_store", "MEMORY")?;
+    conn.pragma_update(None, "mmap_size", 3_000_000_000_i64)?;
     conn.busy_timeout(std::time::Duration::from_secs(5))?;
     Ok(())
 }

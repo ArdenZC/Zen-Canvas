@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { FolderSearch, RefreshCw, X } from "lucide-react";
+import type { ScanProgressPayload } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
@@ -15,12 +16,10 @@ export function ScannerView() {
   const files = useFileLibraryStore((state) => state.libraryPage.files);
   const selectedFolders = useScanManagerStore((state) => state.selectedFolders);
   const isScanning = useScanManagerStore((state) => state.isScanning);
-  const scanState = useScanManagerStore((state) => state.scanState);
+  const scanStatus = useScanManagerStore((state) => state.scanState.status);
   const handleChooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
   const handleScan = useScanManagerStore((state) => state.handleScan);
   const cancelScan = useScanManagerStore((state) => state.cancelScan);
-  const scanProgress = scanState.progress;
-  const warningCount = scanProgress?.errors ?? 0;
   const scopedTotalSize = stats.totalSize;
   // 注意：此处计算的是"已索引数据占磁盘总容量的比例"（扫描覆盖率），
   // 与后端 StatsSummary.diskUsageRatio（真实磁盘占用率 = 1 - 可用/总）含义不同，
@@ -47,25 +46,7 @@ export function ScannerView() {
         >
           <div className="grid h-full w-full place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] p-8 backdrop-blur-3xl">
             {isScanning ? (
-              <div className="grid gap-4 text-center">
-                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600 dark:text-blue-300">{t("scanning")}</span>
-                <strong className="text-4xl font-semibold text-[var(--ink)]">
-                  {(scanProgress?.files ?? 0).toLocaleString()}
-                </strong>
-                <div className="grid grid-cols-2 gap-2 text-xs text-[var(--muted)]">
-                  <span className="rounded-full border border-[var(--line)] bg-white/32 px-2 py-1 dark:bg-white/5">
-                    {t("files")}
-                  </span>
-                  <span className="rounded-full border border-[var(--line)] bg-white/32 px-2 py-1 dark:bg-white/5">
-                    {t("skipped")}: {(scanProgress?.skipped ?? 0).toLocaleString()}
-                  </span>
-                  {warningCount > 0 && (
-                    <span className="col-span-2 rounded-full border border-amber-400/25 bg-amber-500/10 px-2 py-1 text-amber-700 dark:text-amber-200">
-                      {t("scanWarnings").replace("{count}", warningCount.toLocaleString())}
-                    </span>
-                  )}
-                </div>
-              </div>
+              <ScanProgressDial />
             ) : (
               <>
                 <span className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--quiet)]">{t("totalAnalysed")}</span>
@@ -113,19 +94,79 @@ export function ScannerView() {
       </section>
 
       <p className="max-w-xl text-sm font-medium text-[var(--ink)]">{scopeLabel}</p>
-      <p className="max-w-2xl text-sm text-[var(--muted)]">
-        {isScanning && scanProgress
-          ? t("scanProgressLine")
-              .replace("{files}", scanProgress.files.toLocaleString())
-              .replace("{skipped}", scanProgress.skipped.toLocaleString())
-              .replace("{path}", compactPath(scanProgress.root))
-          : t("diskUsageInScope").replace("{size}", formatBytes(scopedTotalSize)).replace("{disk}", formatBytes(stats.diskTotalSize))}
-      </p>
-      {!isScanning && warningCount > 0 && (
-        <div className="max-w-xl rounded-xl border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">
-          {t("scanWarnings").replace("{count}", warningCount.toLocaleString())}
-        </div>
+      {isScanning ? (
+        <ScanProgressLine />
+      ) : (
+        <>
+          <p className="max-w-2xl text-sm text-[var(--muted)]">
+            {scanStatus === "canceled"
+              ? t("scanCanceled")
+              : t("diskUsageInScope").replace("{size}", formatBytes(scopedTotalSize)).replace("{disk}", formatBytes(stats.diskTotalSize))}
+          </p>
+          <ScanWarningBanner />
+        </>
       )}
+    </div>
+  );
+}
+
+function useScanProgress(): ScanProgressPayload | null {
+  return useScanManagerStore((state) => state.scanState.progress);
+}
+
+function ScanProgressDial() {
+  const { t } = useChromeContext();
+  const scanProgress = useScanProgress();
+  const warningCount = scanProgress?.errors ?? 0;
+
+  return (
+    <div className="grid gap-4 text-center">
+      <span className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600 dark:text-blue-300">{t("scanning")}</span>
+      <strong className="text-4xl font-semibold text-[var(--ink)]">
+        {(scanProgress?.files ?? 0).toLocaleString()}
+      </strong>
+      <div className="grid grid-cols-2 gap-2 text-xs text-[var(--muted)]">
+        <span className="rounded-full border border-[var(--line)] bg-white/32 px-2 py-1 dark:bg-white/5">
+          {t("files")}
+        </span>
+        <span className="rounded-full border border-[var(--line)] bg-white/32 px-2 py-1 dark:bg-white/5">
+          {t("skipped")}: {(scanProgress?.skipped ?? 0).toLocaleString()}
+        </span>
+        {warningCount > 0 && (
+          <span className="col-span-2 rounded-full border border-amber-400/25 bg-amber-500/10 px-2 py-1 text-amber-700 dark:text-amber-200">
+            {t("scanWarnings").replace("{count}", warningCount.toLocaleString())}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ScanProgressLine() {
+  const { t } = useChromeContext();
+  const scanProgress = useScanProgress();
+
+  return (
+    <p className="max-w-2xl text-sm text-[var(--muted)]">
+      {scanProgress
+        ? t("scanProgressLine")
+            .replace("{files}", scanProgress.files.toLocaleString())
+            .replace("{skipped}", scanProgress.skipped.toLocaleString())
+            .replace("{path}", compactPath(scanProgress.root))
+        : t("scanning")}
+    </p>
+  );
+}
+
+function ScanWarningBanner() {
+  const { t } = useChromeContext();
+  const warningCount = useScanProgress()?.errors ?? 0;
+
+  if (warningCount <= 0) return null;
+
+  return (
+    <div className="max-w-xl rounded-xl border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">
+      {t("scanWarnings").replace("{count}", warningCount.toLocaleString())}
     </div>
   );
 }

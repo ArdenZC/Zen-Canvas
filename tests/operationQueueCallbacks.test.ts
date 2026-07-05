@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LibraryScope, OperationPreview } from "../src/types/domain";
-import { useOperationQueueStore } from "../src/store/useOperationQueueStore";
+import { operationNeedsCleanupConfirmation, useOperationQueueStore } from "../src/store/useOperationQueueStore";
 import { useFileLibraryStore } from "../src/store/useFileLibraryStore";
 import { useRulesStore } from "../src/store/useRulesStore";
 
@@ -64,6 +64,8 @@ describe("operation queue store callbacks", () => {
     });
     apiMocks.getOperationLogs.mockReset().mockResolvedValue([]);
     apiMocks.onOperationProgress.mockReset().mockResolvedValue(() => {});
+    apiMocks.executeMoves.mockReset().mockResolvedValue({ logs: [], batchId: "batch-test" });
+    vi.unstubAllGlobals();
     useOperationQueueStore.setState({
       previewNameOverrides: {},
       previews: [],
@@ -158,5 +160,41 @@ describe("operation queue store callbacks", () => {
       new Set(["first", "second", "third"])
     );
     expect(useOperationQueueStore.getState().previewTruncated).toBe(false);
+  });
+
+  it("does not execute duplicate or cleanup previews until the user confirms", async () => {
+    const duplicate = {
+      ...preview("duplicate", true),
+      is_duplicate: true,
+      suggested_action: "Move" as const
+    };
+    useOperationQueueStore.setState({
+      displayPreviews: [duplicate],
+      selectedOperationIds: new Set([duplicate.id])
+    });
+    vi.stubGlobal("confirm", vi.fn(() => false));
+
+    await useOperationQueueStore.getState().executeSelected();
+
+    expect(operationNeedsCleanupConfirmation(duplicate)).toBe(true);
+    expect(globalThis.confirm).toHaveBeenCalledOnce();
+    expect(apiMocks.executeMoves).not.toHaveBeenCalled();
+  });
+
+  it("executes duplicate or cleanup previews after the user confirms", async () => {
+    const cleanup = {
+      ...preview("cleanup", true),
+      suggested_action: "DeleteCandidate" as const
+    };
+    useOperationQueueStore.setState({
+      displayPreviews: [cleanup],
+      selectedOperationIds: new Set([cleanup.id])
+    });
+    vi.stubGlobal("confirm", vi.fn(() => true));
+
+    await useOperationQueueStore.getState().executeSelected();
+
+    expect(globalThis.confirm).toHaveBeenCalledOnce();
+    expect(apiMocks.executeMoves).toHaveBeenCalledWith([cleanup]);
   });
 });

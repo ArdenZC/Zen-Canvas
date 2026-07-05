@@ -261,6 +261,8 @@ export interface OperationPreview {
   risk_level: RiskLevel;
   confidence: number;
   requires_confirmation: boolean;
+  suggested_action?: SuggestedAction;
+  is_duplicate?: boolean;
   reason: string;
   selected_by_default?: boolean;
   is_executable?: boolean;

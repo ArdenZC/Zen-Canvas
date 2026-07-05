@@ -15,7 +15,7 @@ pub const DEDUPE_COMPLETE_EVENT: &str = "dedupe-complete";
 
 const DEDUPE_BATCH_SIZE: usize = 500;
 const DEDUPE_EMIT_INTERVAL: Duration = Duration::from_millis(200);
-const HASH_BUFFER_SIZE: usize = 64 * 1024;
+const HASH_BUFFER_SIZE: usize = 1024 * 1024;
 
 #[derive(Debug, Error)]
 pub enum DedupeError {

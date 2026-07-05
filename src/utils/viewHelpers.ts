@@ -164,6 +164,8 @@ export function createOperationPreviews(files: FileRecord[]): OperationPreview[]
         risk_level: file.risk_level,
         confidence: file.confidence,
         requires_confirmation: requiresConfirmation,
+        suggested_action: file.suggested_action,
+        is_duplicate: file.is_duplicate,
         reason: file.classification_reason,
         selected_by_default: !requiresConfirmation,
         is_executable: true,

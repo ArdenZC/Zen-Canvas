@@ -179,7 +179,7 @@ fn scan_directory_blocking<R: Runtime>(
 
         match entry_result {
             Ok(entry) => match entry_to_payload(&entry) {
-                Ok(payload) => {
+                Ok(Some(payload)) => {
                     counters.scanned += 1;
                     if payload.is_dir {
                         counters.directories += 1;
@@ -187,6 +187,9 @@ fn scan_directory_blocking<R: Runtime>(
                         counters.files += 1;
                     }
                     batch.push(payload);
+                }
+                Ok(None) => {
+                    skipped.fetch_add(1, Ordering::Relaxed);
                 }
                 Err(error) => {
                     counters.errors += 1;
@@ -323,6 +326,8 @@ impl ScanBatchBuffer {
         let progress =
             progress_payload(context.root, context.counters, skipped, context.started_at);
         let entries = std::mem::take(&mut self.entries);
+        // insert_files wraps only this bounded batch in a transaction, keeping scan writes short
+        // enough for WAL readers to continue querying while the background scan runs.
         context.db.insert_files(
             &entries
                 .iter()
@@ -399,8 +404,14 @@ fn emit_scan_error(
     Ok(())
 }
 
-fn entry_to_payload<C: ClientState>(entry: &DirEntry<C>) -> Result<ScannedEntry, ScanError> {
+fn entry_to_payload<C: ClientState>(
+    entry: &DirEntry<C>,
+) -> Result<Option<ScannedEntry>, ScanError> {
     let path = entry.path();
+    if entry.file_type().is_symlink() {
+        return Ok(None);
+    }
+
     let is_dir = entry.file_type().is_dir();
     let metadata = entry.metadata().map_err(|source| ScanError::Metadata {
         path: normalize_path(&path),
@@ -408,7 +419,7 @@ fn entry_to_payload<C: ClientState>(entry: &DirEntry<C>) -> Result<ScannedEntry,
     })?;
     let mtime = modified_unix_seconds(&metadata);
 
-    Ok(ScannedEntry {
+    Ok(Some(ScannedEntry {
         path: normalize_path(&path),
         name: entry.file_name().to_string_lossy().into_owned(),
         extension: path
@@ -426,7 +437,7 @@ fn entry_to_payload<C: ClientState>(entry: &DirEntry<C>) -> Result<ScannedEntry,
             .unwrap_or(mtime),
         is_dir,
         state_code: 0,
-    })
+    }))
 }
 
 fn progress_payload(

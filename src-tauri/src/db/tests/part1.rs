@@ -168,6 +168,33 @@
     }
 
     #[test]
+    fn pooled_connections_use_performance_pragmas() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let conn = db.conn().expect("get pooled connection");
+
+        let journal_mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .expect("journal mode");
+        let synchronous: i64 = conn
+            .query_row("PRAGMA synchronous", [], |row| row.get(0))
+            .expect("synchronous mode");
+        let temp_store: i64 = conn
+            .query_row("PRAGMA temp_store", [], |row| row.get(0))
+            .expect("temp store");
+        let mmap_size: i64 = conn
+            .query_row("PRAGMA mmap_size", [], |row| row.get(0))
+            .expect("mmap size");
+
+        assert_eq!(journal_mode.to_ascii_lowercase(), "wal");
+        assert_eq!(synchronous, 1);
+        assert_eq!(temp_store, 2);
+        assert!(
+            (2_000_000_000..=3_000_000_000).contains(&mmap_size),
+            "expected a large mmap_size up to the requested 3GB, got {mmap_size}"
+        );
+    }
+
+    #[test]
     fn get_paged_files_filters_by_library_scope_roots() {
         let db = Database::open(test_db_path()).expect("open test database");
         insert_test_file_at_path(

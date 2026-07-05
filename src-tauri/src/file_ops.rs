@@ -661,6 +661,9 @@ fn validate_target_path_with_parent_policy(
     if !path.is_absolute() {
         return Err(FileOpError::RelativePath.to_string());
     }
+    if path.to_string_lossy().contains('\0') {
+        return Err(FileOpError::UnsafePathTraversal.to_string());
+    }
     if path
         .components()
         .any(|component| component == Component::ParentDir)
@@ -692,6 +695,7 @@ fn validate_target_path_with_parent_policy(
     let parent = parent
         .canonicalize()
         .map_err(|_| FileOpError::TargetParentMissing.to_string())?;
+    ensure_not_protected(&parent)?;
 
     Ok(parent.join(name))
 }
@@ -721,8 +725,10 @@ fn validate_safe_file_name(name: &str) -> Result<(), String> {
     if trimmed.is_empty()
         || trimmed == "."
         || trimmed == ".."
+        || trimmed.contains("..")
         || trimmed.ends_with('.')
         || trimmed.ends_with(' ')
+        || trimmed.contains('\0')
         || trimmed.contains('/')
         || trimmed.contains('\\')
         || trimmed.chars().any(|ch| ch.is_control())
@@ -966,7 +972,12 @@ fn build_reveal_command(path: &Path) -> Result<RevealCommand, String> {
 }
 
 fn normalize_for_compare(path: &Path) -> String {
-    let value = normalize_path(path).trim_end_matches('/').to_string();
+    let value = normalize_path(path);
+    let value = value
+        .strip_prefix("//?/")
+        .unwrap_or(&value)
+        .trim_end_matches('/')
+        .to_string();
     if cfg!(windows) {
         value.to_ascii_lowercase()
     } else {
@@ -1144,6 +1155,54 @@ mod tests {
             })
             .count();
         assert_eq!(temp_entries, 0);
+    }
+
+    #[test]
+    fn validate_safe_file_name_rejects_traversal_separators_and_nul() {
+        for name in [
+            "..",
+            "../escape.txt",
+            "..\\escape.txt",
+            "safe..looking.txt",
+            "nested/name.txt",
+            "nested\\name.txt",
+            "nul\0name.txt",
+        ] {
+            assert!(
+                validate_safe_file_name(name).is_err(),
+                "expected unsafe file name to be rejected: {name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_target_path_rejects_traversal_and_nul() {
+        let root = test_dir();
+        fs::create_dir_all(&root).expect("root dir");
+
+        for target in [
+            root.join("..").join("escape.txt"),
+            root.join("safe..looking.txt"),
+            root.join("nul\0name.txt"),
+        ] {
+            assert!(
+                validate_target_path_with_parent_policy(&target, true).is_err(),
+                "expected unsafe target path to be rejected: {target:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_target_path_rejects_protected_parent() {
+        let Some(protected_root) = protected_roots().into_iter().find(|root| root.exists()) else {
+            return;
+        };
+        let target = protected_root.join("zencanvas-should-not-write.txt");
+
+        let error = validate_target_path_with_parent_policy(&target, false)
+            .expect_err("protected parent should be rejected");
+
+        assert!(error.contains("protected system location"));
     }
 
     #[test]

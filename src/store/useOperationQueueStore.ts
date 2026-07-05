@@ -65,6 +65,12 @@ function defaultSelectedPreviewIds(previews: OperationPreview[]) {
   );
 }
 
+export function operationNeedsCleanupConfirmation(preview: OperationPreview): boolean {
+  return preview.is_duplicate === true
+    || preview.suggested_action === "DeleteCandidate"
+    || preview.suggested_action === "Review";
+}
+
 export function mergeOperationLogs(persisted: OperationLog[], current: OperationLog[]): OperationLog[] {
   const seen = new Set<string>();
   const merged: OperationLog[] = [];
@@ -225,6 +231,14 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       (preview) => selectedOperationIds.has(preview.id) && preview.is_executable !== false
     );
     if (!operations.length) return;
+
+    const cleanupConfirmationCount = operations.filter(operationNeedsCleanupConfirmation).length;
+    if (cleanupConfirmationCount > 0) {
+      const confirmed = globalThis.confirm?.(
+        t("confirmCleanupDispatch").replace("{count}", cleanupConfirmationCount.toLocaleString())
+      ) ?? false;
+      if (!confirmed) return;
+    }
 
     set({
       activeOperationKind: "execute",

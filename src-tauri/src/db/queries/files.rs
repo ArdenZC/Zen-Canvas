@@ -1074,6 +1074,8 @@ fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPrevie
         risk_level: row.risk_level,
         confidence: row.confidence,
         requires_confirmation,
+        suggested_action: row.suggested_action,
+        is_duplicate: row.is_duplicate,
         reason: row.classification_reason,
         selected_by_default: Some(is_executable && !requires_confirmation),
         is_executable: Some(is_executable),

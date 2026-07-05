@@ -138,6 +138,8 @@ pub struct OperationPreviewDto {
     pub risk_level: String,
     pub confidence: f64,
     pub requires_confirmation: bool,
+    pub suggested_action: String,
+    pub is_duplicate: bool,
     pub reason: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected_by_default: Option<bool>,

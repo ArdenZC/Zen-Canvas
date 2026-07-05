@@ -41,6 +41,7 @@ export function RulesView() {
   const [weight, setWeight] = useState(76);
   const [isReapplyingRules, setIsReapplyingRules] = useState(false);
   const [reapplyStatus, setReapplyStatus] = useState("");
+  const reapplyLockedRef = useRef(false);
 
   function updateGroupOperator(groupId: string, nextOperator: RuleOperator) {
     setGroups((current) =>
@@ -104,10 +105,12 @@ export function RulesView() {
       weight,
       now
     }));
+    await maybeReapplyRulesAfterChange();
   }
 
   async function reapplyRulesToCurrentScope() {
-    if (isReapplyingRules) return;
+    if (reapplyLockedRef.current) return;
+    reapplyLockedRef.current = true;
     setIsReapplyingRules(true);
     setReapplyStatus("");
 
@@ -125,8 +128,24 @@ export function RulesView() {
     } catch (error) {
       onError(readableError(error));
     } finally {
+      reapplyLockedRef.current = false;
       setIsReapplyingRules(false);
     }
+  }
+
+  async function maybeReapplyRulesAfterChange() {
+    if (reapplyLockedRef.current || !window.confirm(t("confirmReapplyRules"))) return;
+    await reapplyRulesToCurrentScope();
+  }
+
+  async function handleToggleRuleEnabled(rule: Rule, enabled: boolean) {
+    await onToggleRuleEnabled?.(rule, enabled);
+    await maybeReapplyRulesAfterChange();
+  }
+
+  async function handleDeleteRule(rule: Rule) {
+    await onDeleteRule?.(rule);
+    await maybeReapplyRulesAfterChange();
   }
 
   return (
@@ -260,8 +279,8 @@ export function RulesView() {
         </div>
         <VirtualRuleList
           rules={rules}
-          onToggleRuleEnabled={onToggleRuleEnabled}
-          onDeleteRule={onDeleteRule}
+          onToggleRuleEnabled={handleToggleRuleEnabled}
+          onDeleteRule={handleDeleteRule}
           t={t}
         />
       </section>

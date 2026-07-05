@@ -325,14 +325,16 @@ function BucketFileButton({
 }) {
   return (
     <motion.button
-      className={cn(compactRowSurface, "flex w-full items-center gap-2 overflow-hidden text-sm hover:border-blue-400/24 hover:bg-white/40 dark:hover:bg-white/10")}
+      className={cn(compactRowSurface, "flex h-12 min-h-12 w-full items-center gap-2 overflow-hidden text-sm hover:border-blue-400/24 hover:bg-white/40 dark:hover:bg-white/10")}
       layout={!disableAnimation}
       variants={disableAnimation ? undefined : itemMotion}
       initial={disableAnimation ? false : undefined}
       animate={disableAnimation ? false : undefined}
       onClick={() => setView("preview")}
     >
-      <File size={15} />
+      <span className="grid h-5 w-5 shrink-0 place-items-center">
+        <File size={15} />
+      </span>
       <span className="truncate">{file.name}</span>
     </motion.button>
   );
@@ -362,6 +364,7 @@ function FileCard({
       className={cn(
         rowSurface,
         "group grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 hover:border-blue-400/24 hover:bg-white/40 dark:hover:bg-white/10",
+        compact && "h-[82px] min-h-[82px]",
         compact ? "p-3" : "p-4"
       )}
       layout={!disableAnimation}
@@ -370,7 +373,9 @@ function FileCard({
       animate={disableAnimation ? false : undefined}
       style={{ "--delay": `${Math.min(index * 18, 320)}ms` } as CSSProperties}
     >
-      <File size={18} />
+      <span className="grid h-6 w-6 shrink-0 place-items-center">
+        <File size={18} />
+      </span>
       <span className="min-w-0">
         <strong className="block truncate text-sm">{file.name}</strong>
         <small className="block text-xs text-[var(--muted)]">{file.purpose} / {formatBytes(file.size)}</small>
