@@ -40,7 +40,7 @@ fn schema_migration_adds_classification_status_and_preserves_existing_state() {
         )
         .expect("classified status");
 
-    assert_eq!(version, 11);
+    assert_eq!(version, 12);
     assert_eq!(status_type, "TEXT");
     assert_eq!(status_notnull, 1);
     assert_eq!(unclassified_status, "unclassified");

@@ -168,6 +168,133 @@
     }
 
     #[test]
+    fn schema_12_migrates_v11_non_trigram_fts_and_restores_triggers() {
+        let path = test_db_path();
+        {
+            let db = Database::open(&path).expect("open current database");
+            insert_test_file(
+                &db,
+                "file-cn-report",
+                "项目报告2026_final.pdf",
+                "pdf",
+                2_048,
+                1_900_000_000,
+            );
+        }
+        {
+            let conn = Connection::open(&path).expect("open database to simulate v11");
+            conn.execute_batch(
+                r#"
+                DROP TRIGGER IF EXISTS files_ai;
+                DROP TRIGGER IF EXISTS files_ad;
+                DROP TRIGGER IF EXISTS files_au;
+                DROP TABLE IF EXISTS files_fts;
+
+                CREATE VIRTUAL TABLE files_fts USING fts5(
+                    name,
+                    path,
+                    content='files',
+                    content_rowid='rowid'
+                );
+                INSERT INTO files_fts(files_fts) VALUES('rebuild');
+
+                CREATE TRIGGER files_ai AFTER INSERT ON files BEGIN
+                    INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
+                END;
+                CREATE TRIGGER files_ad AFTER DELETE ON files BEGIN
+                    INSERT INTO files_fts(files_fts, rowid, name, path)
+                    VALUES('delete', old.rowid, old.name, old.path);
+                END;
+                CREATE TRIGGER files_au AFTER UPDATE ON files BEGIN
+                    INSERT INTO files_fts(files_fts, rowid, name, path)
+                    VALUES('delete', old.rowid, old.name, old.path);
+                    INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
+                END;
+
+                PRAGMA user_version = 11;
+                "#,
+            )
+            .expect("simulate v11 non-trigram fts");
+        }
+
+        let db = Database::open(&path).expect("migrate v11 database");
+        let conn = Connection::open(&path).expect("inspect migrated database");
+        let fts_sql: String = conn
+            .query_row(
+                "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'files_fts'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("fts definition");
+        let trigger_count: i64 = conn
+            .query_row(
+                r#"
+                SELECT COUNT(*)
+                FROM sqlite_schema
+                WHERE type = 'trigger'
+                  AND name IN ('files_ai', 'files_ad', 'files_au')
+                "#,
+                [],
+                |row| row.get(0),
+            )
+            .expect("trigger count");
+
+        assert!(fts_sql.to_ascii_lowercase().contains("tokenize='trigram'"));
+        assert_eq!(trigger_count, 3);
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                .expect("schema version"),
+            12
+        );
+        assert_eq!(
+            db.search_files("报告2026", Some(10))
+                .expect("search migrated trigram")
+                .len(),
+            1
+        );
+
+        insert_test_file(
+            &db,
+            "file-cn-contract",
+            "新增合同2026.pdf",
+            "pdf",
+            2_048,
+            1_900_000_001,
+        );
+        assert_eq!(
+            db.search_files("合同2026", Some(10))
+                .expect("search inserted fts")
+                .len(),
+            1
+        );
+
+        conn.execute(
+            r#"
+            UPDATE files
+            SET name = '更新合同2026.pdf',
+                path = '/test/virtual/documents/更新合同2026.pdf'
+            WHERE id = 'file-cn-contract'
+            "#,
+            [],
+        )
+        .expect("update file row");
+        assert_eq!(
+            db.search_files("更新合同", Some(10))
+                .expect("search updated fts")
+                .len(),
+            1
+        );
+
+        conn.execute("DELETE FROM files WHERE id = 'file-cn-contract'", [])
+            .expect("delete file row");
+        assert!(
+            db.search_files("更新合同", Some(10))
+                .expect("search deleted fts")
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn pooled_connections_use_performance_pragmas() {
         let db = Database::open(test_db_path()).expect("open test database");
         let conn = db.conn().expect("get pooled connection");
@@ -685,6 +812,32 @@
         assert_eq!(stats.total_size, 2_048);
         assert_eq!(stats.by_type.get("Document"), Some(&1));
         assert_eq!(stats.by_lifecycle.get("Inbox"), Some(&1));
+    }
+
+    #[test]
+    fn stats_summary_failure_rolls_back_transaction_state() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        {
+            let conn = db.conn().expect("get connection");
+            conn.execute_batch("ALTER TABLE files RENAME TO files_broken")
+                .expect("break stats query");
+        }
+
+        let error = db
+            .get_stats_summary_in_scope(&LibraryScope::All)
+            .expect_err("stats should fail against broken schema");
+        assert!(
+            error.to_string().contains("files"),
+            "unexpected stats error: {error}"
+        );
+
+        let conn = db.conn().expect("get pooled connection after failed stats");
+        assert!(
+            conn.is_autocommit(),
+            "failed stats query left the pooled SQLite connection inside a transaction"
+        );
+        conn.execute_batch("BEGIN IMMEDIATE; ROLLBACK;")
+            .expect("connection accepts a new transaction after failed stats");
     }
 
     #[test]

@@ -80,9 +80,9 @@ body {
   color: var(--ink);
 }
 
-html.search-window-page,
-html.search-window-page body,
-html.search-window-page #root {
+html.search-window-root,
+html.search-window-root body,
+html.search-window-root #root {
   min-width: 0;
   min-height: 0;
   background: transparent;
@@ -116,7 +116,7 @@ textarea:focus-visible {
   background: rgba(0, 122, 255, 0.22);
 }
 
-.search-window-root {
+body.search-window-root {
   min-width: 420px;
   min-height: 320px;
 }

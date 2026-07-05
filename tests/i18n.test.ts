@@ -7,4 +7,12 @@ describe("makeTranslator", () => {
 
     expect(t("missing.translation" as Parameters<typeof t>[0])).toBe("missing.translation");
   });
+
+  it("describes scanner disk size as a reference capacity, not real disk usage", () => {
+    const zh = makeTranslator("zh");
+    const en = makeTranslator("en");
+
+    expect(zh("diskUsageInScope")).toContain("参考磁盘");
+    expect(en("diskUsageInScope").toLowerCase()).toContain("reference disk");
+  });
 });

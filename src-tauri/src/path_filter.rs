@@ -34,7 +34,6 @@ fn skip_dir_names() -> &'static HashSet<&'static str> {
             "pods",
             "deriveddata",
             "appdata",
-            "library",
             "system volume information",
             "$recycle.bin",
             "windows",

@@ -38,7 +38,7 @@ fn current_schema_retains_content_hash_and_dedupe_index() {
         )
         .expect("dedupe index");
 
-    assert_eq!(version, 11);
+    assert_eq!(version, 12);
     assert_eq!(content_hash_type, "TEXT");
     assert_eq!(content_hash_notnull, 1);
     assert!(index_sql.contains("files(size, content_hash)"));

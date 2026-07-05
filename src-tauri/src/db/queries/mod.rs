@@ -1,6 +1,7 @@
 use super::*;
 use crate::path_filter::is_ignored_dir_name;
 use rusqlite::{params, types::Value as SqlValue, Connection, OptionalExtension, Row};
+use serde::Serialize;
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -16,6 +17,20 @@ pub(crate) mod rules_repo;
 use rules_repo::current_timestamp_iso;
 
 pub(crate) const WATCHER_DEEP_UPSERT_ENTRY_LIMIT: usize = 5000;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatcherUpsertWarning {
+    pub message: String,
+    pub path: Option<String>,
+    pub limit: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct WatcherUpsertResult {
+    pub upserted: usize,
+    pub warnings: Vec<WatcherUpsertWarning>,
+}
 
 pub(crate) fn trim_trailing_path_separators(path: &str) -> &str {
     let mut end = path.len();
@@ -270,8 +285,16 @@ pub(crate) fn current_unix_seconds() -> i64 {
 }
 
 pub fn upsert_files_by_paths_for_db(db: &Database, paths: &[String]) -> Result<usize, DbError> {
+    Ok(upsert_files_by_paths_for_db_with_warnings(db, paths)?.upserted)
+}
+
+pub fn upsert_files_by_paths_for_db_with_warnings(
+    db: &Database,
+    paths: &[String],
+) -> Result<WatcherUpsertResult, DbError> {
     let mut files = Vec::new();
     let mut seen = Vec::new();
+    let mut warnings = Vec::new();
 
     for raw_path in paths
         .iter()
@@ -283,28 +306,43 @@ pub fn upsert_files_by_paths_for_db(db: &Database, paths: &[String]) -> Result<u
             continue;
         }
 
-        collect_upsert_requests_for_path(PathBuf::from(path), &mut files, &mut seen)?;
+        collect_upsert_requests_for_path(
+            PathBuf::from(path),
+            &mut files,
+            &mut seen,
+            &mut warnings,
+            WATCHER_DEEP_UPSERT_ENTRY_LIMIT,
+        )?;
     }
 
     let upserted = files.len();
     if upserted > 0 {
         db.insert_files(&files)?;
     }
-    Ok(upserted)
+    Ok(WatcherUpsertResult { upserted, warnings })
 }
 
 fn collect_upsert_requests_for_path(
     path: PathBuf,
     files: &mut Vec<InsertFileRequest>,
     seen: &mut Vec<String>,
+    warnings: &mut Vec<WatcherUpsertWarning>,
+    limit: usize,
 ) -> Result<(), DbError> {
     let mut stack = vec![path];
 
     while let Some(path_buf) = stack.pop() {
-        if files.len() >= WATCHER_DEEP_UPSERT_ENTRY_LIMIT {
-            eprintln!(
-                "Watcher deep upsert reached entry limit ({WATCHER_DEEP_UPSERT_ENTRY_LIMIT}); remaining entries were skipped."
+        if files.len() >= limit {
+            let path = normalize_path_for_db(&path_buf);
+            let message = format!(
+                "This directory has too many entries; only part of the directory was indexed. Run a full scan manually. Limit: {limit}."
             );
+            eprintln!("{message}");
+            warnings.push(WatcherUpsertWarning {
+                message,
+                path: Some(path),
+                limit,
+            });
             break;
         }
 
@@ -575,4 +613,49 @@ pub(crate) fn unix_seconds_to_iso(seconds: i64) -> String {
         .ok()
         .and_then(|time| time.format(&Rfc3339).ok())
         .unwrap_or_else(current_timestamp_iso)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    #[test]
+    fn collect_upsert_requests_reports_warning_when_deep_directory_limit_is_reached() {
+        let root = test_dir("watcher-large-upsert");
+        fs::write(root.join("one.txt"), "1").expect("write one");
+        fs::write(root.join("two.txt"), "2").expect("write two");
+        fs::write(root.join("three.txt"), "3").expect("write three");
+
+        let mut files = Vec::new();
+        let mut seen = Vec::new();
+        let mut warnings = Vec::new();
+
+        collect_upsert_requests_for_path(root.clone(), &mut files, &mut seen, &mut warnings, 2)
+            .expect("collect upsert requests");
+
+        assert_eq!(files.len(), 2);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].limit, 2);
+        assert!(warnings[0]
+            .message
+            .contains("only part of the directory was indexed"));
+        assert!(warnings[0]
+            .path
+            .as_deref()
+            .is_some_and(|path| !path.is_empty()));
+    }
+
+    fn test_dir(prefix: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("zen-canvas-{prefix}-{nonce}"));
+        fs::create_dir_all(&dir).expect("create test dir");
+        dir
+    }
 }

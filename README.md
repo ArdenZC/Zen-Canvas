@@ -31,12 +31,12 @@
 
 ## 核心体验
 
-- **空间扫描**：支持扫描用户空间或通过 Tauri 系统目录选择器选择指定文件夹；项目目录会被识别为父级项目资产，默认不深入移动内部工程文件。
+- **空间扫描**：支持扫描用户空间或通过 Tauri 系统目录选择器选择指定文件夹；项目目录会被识别为父级项目资产，默认不深入移动内部工程文件。扫描页当前展示的磁盘容量是参考值，后续会按扫描根目录所在磁盘统计。
 - **顶部搜索**：常驻顶部中央，Windows 使用 `Ctrl + K`，macOS 使用 `⌘ K`；主窗口关闭时可唤起独立毛玻璃搜索框。
 - **智能整理**：用“正在使用 / 可归档 / 隐私敏感 / 临时清理”四区解释文件去向，不直接执行真实操作。
 - **文件库**：用于查看扫描结果、状态筛选和分类原因；具体找文件优先使用顶部搜索。
 - **预览执行**：按主文件夹和子文件夹展示整理方案，所有移动、重命名、移动加重命名都必须先确认。
-- **自动规则**：内置规则与用户规则共同参与分类；用户规则由前端规则 store 管理，后续计划迁移到 SQLite。
+- **自动规则**：内置规则与用户规则共同参与分类；用户规则已持久化到 SQLite，Zustand 只作为运行时状态。
 - **恢复记录**：只恢复 Zen Canvas 自己执行过的操作；operation logs 持久化在 SQLite 中，前端默认加载最近操作记录，后续会补充按天保留与自动清理策略。
 
 ## 搜索能力
@@ -55,6 +55,7 @@
 - create / modify / rename / change 事件会 debounce 后批量 upsert；重新出现的文件会 revive stale 记录。
 - watcher upsert 后只对受影响 paths 调用 `execute_rules_for_paths` 做轻量分类，不触发全库规则重跑。
 - 大批 watcher upsert 达到阈值时会触发 search index optimize；失败只记录 warning，不影响 upsert。
+- watcher 深度索引目录达到安全上限时会提示用户手动运行完整扫描，避免把部分更新误认为完整索引。
 
 ## 操作日志与恢复
 
@@ -65,20 +66,23 @@
 
 ## 规则分类
 
-- 分类使用内置规则 + 用户规则；用户规则当前由前端规则 store 管理，尚未迁移到 SQLite。
+- 分类使用内置规则 + 用户规则；用户规则持久化在 SQLite rules 表中，Zustand 只负责当前会话的运行时状态和 UI 交互。
 - `rule_version` 使用稳定 hash，不依赖 `DefaultHasher`。
 - `files` 表保存分类指纹：`last_classified_at`、`classified_rule_version`、`last_classified_mtime`、`last_classified_size`。
 - `execute_rules_on_inbox` 只处理 `lifecycle = Inbox` 且 `is_stale = 0` 的文件，并跳过 rule version、mtime、size 都未变化的记录。
 - `RuleExecutionSummary` 会返回 `skipped`，便于区分已扫描候选和实际重分类数量。
+- 后续规则能力会优先补充版本管理、导入导出、冲突检测和更细的规则审计。
 
 ## 安全边界
 
 - 启动不自动扫描，扫描只建立索引和建议。
 - MVP 不执行删除；删除只作为建议。
+- 默认跳过部分系统目录和明显生成目录，例如 `.git`、`node_modules`、`.venv`、`__pycache__`、`dist`、`build`、`target`、`coverage`、`vendor`、`Windows`、`Program Files`、`System Volume Information`。
 - 敏感文件只显示建议和原因，不生成默认可执行勾选。
 - 冲突、低置信、规则接近项默认进入待确认队列。
 - Tauri command 层会再次校验移动、重命名和恢复操作的类型、绝对路径、安全文件名、源路径一致性、系统目录和覆盖冲突。
 - watcher 删除事件只标记 stale，不直接破坏索引历史。
+- watcher 对超大目录可能只做部分增量索引并提示手动完整扫描。
 - execute / restore 后会同步更新 `files` 表和 FTS。
 - search index optimize 失败只记录 warning，不会让扫描或 upsert 失败。
 - Tauri CSP 已配置；前端不直接访问文件系统，扫描、索引、移动、重命名和恢复都在 Rust command 层处理。

@@ -779,10 +779,10 @@ impl Database {
         &self,
         scope: &LibraryScope,
     ) -> Result<StatsSummary, DbError> {
-        let conn = self.conn()?;
+        let mut conn = self.conn()?;
         let scoped = scoped_files_sql(Some(scope));
         // 一次事务内完成所有聚合，保证快照一致性
-        conn.execute_batch("BEGIN DEFERRED")?;
+        let tx = conn.transaction()?;
         let totals_sql = format!(
             r#"
             WITH {},
@@ -819,7 +819,7 @@ impl Database {
             duplicate_files,
             last_mtime,
         ): (i64, i64, i64, i64, i64, i64, Option<i64>) =
-            conn.query_row(&totals_sql, params_from_iter(scoped.params.iter()), |row| {
+            tx.query_row(&totals_sql, params_from_iter(scoped.params.iter()), |row| {
                 Ok((
                     row.get(0)?,
                     row.get(1)?,
@@ -840,7 +840,7 @@ impl Database {
             "#,
             scoped.cte
         );
-        let mut stmt = conn.prepare(&type_sql)?;
+        let mut stmt = tx.prepare(&type_sql)?;
         let type_rows = stmt.query_map(params_from_iter(scoped.params.iter()), |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -870,7 +870,7 @@ impl Database {
             "#,
             scoped.cte
         );
-        let mut stmt = conn.prepare(&lifecycle_sql)?;
+        let mut stmt = tx.prepare(&lifecycle_sql)?;
         let lifecycle_rows = stmt.query_map(params_from_iter(scoped.params.iter()), |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
         })?;
@@ -879,7 +879,7 @@ impl Database {
             by_lifecycle.insert(lifecycle, count);
         }
         drop(stmt);
-        conn.execute_batch("COMMIT")?;
+        tx.commit()?;
         let disks = Disks::new_with_refreshed_list();
         let (disk_total, disk_free) = disks
             .iter()

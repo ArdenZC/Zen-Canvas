@@ -31,12 +31,12 @@
 
 ## Core Experience
 
-- **Space Scan**: scan user space or selected folders through the Tauri system directory picker. Project directories are summarized as parent project assets, so configured engineering environments are not casually moved.
+- **Space Scan**: scan user space or selected folders through the Tauri system directory picker. Project directories are summarized as parent project assets, so configured engineering environments are not casually moved. The scanner's disk capacity is currently a reference value; a later version will report capacity by each scan root's disk.
 - **Top Search**: stays centered in the title bar. Use `Ctrl + K` on Windows and `⌘ K` on macOS; when the main window is closed, the shortcut opens a standalone frosted search box.
 - **Smart Organize**: explains suggested destinations through four clear zones: In Use, Archive Ready, Private, and Cleanup.
 - **File Library**: browse scan results, status filters, and classification reasons. Use top search for finding a specific file.
 - **Preview Execute**: groups plans by main folders and subfolders. Every move, rename, or combined action must be confirmed first.
-- **Auto Rules**: built-in and user rules both participate in classification. User rules are currently managed by the frontend rule store and are planned for SQLite migration.
+- **Auto Rules**: built-in and user rules both participate in classification. User rules are persisted in SQLite, while Zustand only holds runtime UI state.
 - **Restore Records**: only restores operations executed by Zen Canvas. Operation logs are persisted in SQLite, and the frontend loads recent operation records by default; day-based retention and automatic cleanup are planned later.
 
 ## Search
@@ -55,6 +55,7 @@
 - Create / modify / rename / change events are debounced and batch-upserted. Files that reappear can revive stale records.
 - After watcher upserts, Zen Canvas runs `execute_rules_for_paths` only for affected paths instead of re-running rules over the full library.
 - Large watcher upserts trigger search index optimize at the existing threshold. Optimize failures only log warnings and do not fail the upsert.
+- When watcher deep indexing reaches its safety limit for a large directory, the UI warns the user to run a full manual scan so a partial update is not mistaken for complete indexing.
 
 ## Operation Logs And Restore
 
@@ -65,20 +66,23 @@
 
 ## Rule Classification
 
-- Classification uses built-in rules plus user rules. User rules are currently managed by the frontend rule store and have not moved to SQLite yet.
+- Classification uses built-in rules plus user rules. User rules are persisted in the SQLite rules table; Zustand only manages current-session runtime state and UI interactions.
 - `rule_version` uses a stable hash and no longer relies on `DefaultHasher`.
 - The `files` table stores classification fingerprints: `last_classified_at`, `classified_rule_version`, `last_classified_mtime`, and `last_classified_size`.
 - `execute_rules_on_inbox` only considers files where `lifecycle = Inbox` and `is_stale = 0`, and skips records whose rule version, mtime, and size have not changed.
 - `RuleExecutionSummary` includes `skipped`, making candidate scans and real reclassifications visible separately.
+- Planned rule work now focuses on versioning, import/export, conflict detection, and finer rule auditability.
 
 ## Safety
 
 - The app does not scan automatically on launch. Scanning only creates an index and suggestions.
 - Deletion is suggestion-only in the MVP.
+- Zen Canvas skips selected system and generated directories by default, including `.git`, `node_modules`, `.venv`, `__pycache__`, `dist`, `build`, `target`, `coverage`, `vendor`, `Windows`, `Program Files`, and `System Volume Information`.
 - Sensitive files show advice and reasons, but are not selected for execution.
 - Conflicts, low-confidence items, and close rule scores enter manual confirmation by default.
 - The Tauri command layer revalidates move, rename, and restore operation type, absolute paths, safe filenames, source-path consistency, protected system targets, and overwrite conflicts.
 - Watcher delete events only mark stale records and do not directly destroy index history.
+- Watcher updates for very large directories may be partial and can prompt the user to run a full manual scan.
 - Execute / restore updates the `files` table and FTS after successful file operations.
 - Search index optimize failures only log warnings and do not fail scans or upserts.
 - Tauri CSP is configured. The frontend does not access the file system directly; scanning, indexing, moving, renaming, and restore are handled in Rust commands.

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     env,
     fs::{self, OpenOptions},
-    io,
+    io::{self, Read, Write},
     path::{Component, Path, PathBuf},
     process::Command as ProcessCommand,
     sync::{
@@ -18,6 +18,7 @@ use thiserror::Error;
 pub const OPERATION_PROGRESS_EVENT: &str = "operation-progress";
 const OPERATION_PROGRESS_BATCH_SIZE: u64 = 10;
 const OPERATION_PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(200);
+const COPY_BUFFER_SIZE: usize = 1024 * 1024;
 
 #[derive(Debug, Error)]
 enum FileOpError {
@@ -37,6 +38,8 @@ enum FileOpError {
     ProtectedPath(String),
     #[error("Target path contains unsafe parent traversal.")]
     UnsafePathTraversal,
+    #[error("Operation canceled.")]
+    OperationCanceled,
     #[error("File operation failed: {0}")]
     Io(#[from] io::Error),
 }
@@ -266,7 +269,13 @@ pub fn execute_moves_core_with_progress(
         let log = if is_operation_cancelled(&cancel_flag) {
             make_canceled_operation_log(&batch_id, &created_at, index, operation)
         } else {
-            execute_preview_operation(&batch_id, &created_at, index, operation)
+            execute_preview_operation(
+                &batch_id,
+                &created_at,
+                index,
+                operation,
+                Some(cancel_flag.as_ref()),
+            )
         };
         let current_path = operation.source_path.clone();
         logs.push(log);
@@ -321,16 +330,18 @@ fn execute_preview_operation(
     created_at: &str,
     index: usize,
     operation: &OperationPreviewRequest,
+    cancel_flag: Option<&AtomicBool>,
 ) -> OperationLogDto {
     let status = if operation.is_executable == Some(false) {
         Err("Operation is not executable.".to_string())
     } else {
         match operation.operation_type.as_str() {
             "rename" => rename_file(operation.source_path.clone(), operation.new_name.clone()),
-            "move" | "move_rename" => move_file_with_parent_policy(
+            "move" | "move_rename" => move_file_with_parent_policy_with_cancel(
                 operation.source_path.clone(),
                 operation.target_path.clone(),
                 true,
+                cancel_flag,
             ),
             other => Err(format!("Unsupported operation type: {other}")),
         }
@@ -345,6 +356,15 @@ fn execute_preview_operation(
             "success",
             None,
             result.target_path,
+        ),
+        Err(error) if is_operation_cancelled_error(&error) => make_operation_log(
+            batch_id,
+            created_at,
+            index,
+            operation,
+            "skipped",
+            None,
+            operation.target_path.clone(),
         ),
         Err(error) => make_operation_log(
             batch_id,
@@ -440,7 +460,7 @@ pub fn restore_moves_core_with_progress(
         let result = if is_operation_cancelled(&cancel_flag) {
             mark_restore_canceled(log)
         } else {
-            restore_operation_log(log)
+            restore_operation_log(log, Some(cancel_flag.as_ref()))
         };
         if result.restore_status == "restored" {
             restored += 1;
@@ -516,7 +536,10 @@ fn append_operation_log_error(log: &mut OperationLogDto, message: String) {
     });
 }
 
-fn restore_operation_log(log: &OperationLogDto) -> OperationLogDto {
+fn restore_operation_log(
+    log: &OperationLogDto,
+    cancel_flag: Option<&AtomicBool>,
+) -> OperationLogDto {
     if log.status != "success" {
         return mark_restore_unavailable(log, "Only successful operations can be restored.");
     }
@@ -542,7 +565,10 @@ fn restore_operation_log(log: &OperationLogDto) -> OperationLogDto {
     if let Err(error) = ensure_not_protected(&target) {
         return mark_restore_failed(log, error);
     }
-    if let Err(error) = move_file_no_overwrite(&source, &target) {
+    if let Err(error) = move_file_no_overwrite_with_cancel(&source, &target, cancel_flag) {
+        if is_operation_cancelled_error(&error) {
+            return mark_restore_canceled(log);
+        }
         return mark_restore_failed(log, error);
     }
 
@@ -586,6 +612,16 @@ fn restore_progress_batch_id(logs: &[OperationLogDto]) -> String {
 
 fn is_operation_cancelled(cancel_flag: &Arc<AtomicBool>) -> bool {
     cancel_flag.load(Ordering::Relaxed)
+}
+
+fn is_operation_cancelled_ref(cancel_flag: Option<&AtomicBool>) -> bool {
+    cancel_flag
+        .map(|flag| flag.load(Ordering::Relaxed))
+        .unwrap_or(false)
+}
+
+fn is_operation_cancelled_error(error: &str) -> bool {
+    error == FileOpError::OperationCanceled.to_string()
 }
 
 struct OperationProgressBuffer {
@@ -700,10 +736,11 @@ fn validate_target_path_with_parent_policy(
     Ok(parent.join(name))
 }
 
-fn move_file_with_parent_policy(
+fn move_file_with_parent_policy_with_cancel(
     source_path: String,
     target_path: String,
     allow_create_parent: bool,
+    cancel_flag: Option<&AtomicBool>,
 ) -> Result<FileOperationResult, String> {
     let source = validate_source_path(&PathBuf::from(source_path))?;
     let target =
@@ -711,7 +748,7 @@ fn move_file_with_parent_policy(
 
     ensure_not_protected(&source)?;
     ensure_not_protected(&target)?;
-    move_file_no_overwrite(&source, &target)?;
+    move_file_no_overwrite_with_cancel(&source, &target, cancel_flag)?;
 
     Ok(FileOperationResult {
         operation: "move".to_string(),
@@ -759,8 +796,19 @@ fn validate_safe_file_name(name: &str) -> Result<(), String> {
 }
 
 fn move_file_no_overwrite(source: &Path, target: &Path) -> Result<(), String> {
+    move_file_no_overwrite_with_cancel(source, target, None)
+}
+
+fn move_file_no_overwrite_with_cancel(
+    source: &Path,
+    target: &Path,
+    cancel_flag: Option<&AtomicBool>,
+) -> Result<(), String> {
     if target.exists() {
         return Err(FileOpError::TargetExists.to_string());
+    }
+    if is_operation_cancelled_ref(cancel_flag) {
+        return Err(FileOpError::OperationCanceled.to_string());
     }
 
     match fs::rename(source, target) {
@@ -769,22 +817,32 @@ fn move_file_no_overwrite(source: &Path, target: &Path) -> Result<(), String> {
             Err(FileOpError::TargetExists.to_string())
         }
         Err(rename_error) if should_copy_fallback(&rename_error) => {
-            copy_then_delete_via_temp(source, target)
+            copy_then_delete_via_temp_with_cancel(source, target, cancel_flag)
         }
         Err(error) => Err(FileOpError::Io(error).to_string()),
     }
 }
 
-fn copy_then_delete_via_temp(source: &Path, target: &Path) -> Result<(), String> {
+fn copy_then_delete_via_temp_with_cancel(
+    source: &Path,
+    target: &Path,
+    cancel_flag: Option<&AtomicBool>,
+) -> Result<(), String> {
     if target.exists() {
         return Err(FileOpError::TargetExists.to_string());
+    }
+    if is_operation_cancelled_ref(cancel_flag) {
+        return Err(FileOpError::OperationCanceled.to_string());
     }
 
     let tmp = temp_path_for_target(target)?;
     let mut target_committed = false;
 
     let result = (|| {
-        copy_file_to_temp(source, &tmp)?;
+        copy_file_to_temp_with_cancel(source, &tmp, cancel_flag)?;
+        if is_operation_cancelled_ref(cancel_flag) {
+            return Err(FileOpError::OperationCanceled.to_string());
+        }
         if target.exists() {
             return Err(FileOpError::TargetExists.to_string());
         }
@@ -804,7 +862,11 @@ fn copy_then_delete_via_temp(source: &Path, target: &Path) -> Result<(), String>
     result
 }
 
-fn copy_file_to_temp(source: &Path, tmp: &Path) -> Result<(), String> {
+fn copy_file_to_temp_with_cancel(
+    source: &Path,
+    tmp: &Path,
+    cancel_flag: Option<&AtomicBool>,
+) -> Result<(), String> {
     let mut reader = fs::File::open(source).map_err(|error| FileOpError::Io(error).to_string())?;
     let mut writer = OpenOptions::new()
         .write(true)
@@ -812,9 +874,14 @@ fn copy_file_to_temp(source: &Path, tmp: &Path) -> Result<(), String> {
         .open(tmp)
         .map_err(|error| FileOpError::Io(error).to_string())?;
 
-    if let Err(error) = io::copy(&mut reader, &mut writer) {
+    if let Err(error) = copy_stream_to_temp(&mut reader, &mut writer, cancel_flag, COPY_BUFFER_SIZE)
+    {
         let _ = fs::remove_file(tmp);
-        return Err(FileOpError::Io(error).to_string());
+        return Err(error);
+    }
+    if is_operation_cancelled_ref(cancel_flag) {
+        let _ = fs::remove_file(tmp);
+        return Err(FileOpError::OperationCanceled.to_string());
     }
     if let Err(error) = writer.sync_all() {
         let _ = fs::remove_file(tmp);
@@ -830,6 +897,38 @@ fn copy_file_to_temp(source: &Path, tmp: &Path) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn copy_stream_to_temp<R: Read, W: Write>(
+    reader: &mut R,
+    writer: &mut W,
+    cancel_flag: Option<&AtomicBool>,
+    buffer_size: usize,
+) -> Result<u64, String> {
+    let mut buffer = vec![0; buffer_size.max(1)];
+    let mut copied = 0_u64;
+
+    loop {
+        if is_operation_cancelled_ref(cancel_flag) {
+            return Err(FileOpError::OperationCanceled.to_string());
+        }
+
+        let bytes_read = reader
+            .read(&mut buffer)
+            .map_err(|error| FileOpError::Io(error).to_string())?;
+        if bytes_read == 0 {
+            return Ok(copied);
+        }
+
+        writer
+            .write_all(&buffer[..bytes_read])
+            .map_err(|error| FileOpError::Io(error).to_string())?;
+        copied += bytes_read as u64;
+
+        if is_operation_cancelled_ref(cancel_flag) {
+            return Err(FileOpError::OperationCanceled.to_string());
+        }
+    }
 }
 
 fn temp_path_for_target(target: &Path) -> Result<PathBuf, String> {
@@ -1137,13 +1236,58 @@ mod tests {
         let target = root.join("target.txt");
         fs::write(&source, "fallback content").expect("write source");
 
-        copy_then_delete_via_temp(&source, &target).expect("copy fallback");
+        copy_then_delete_via_temp_with_cancel(&source, &target, None).expect("copy fallback");
 
         assert!(!source.exists());
         assert_eq!(
             fs::read_to_string(&target).expect("read target"),
             "fallback content"
         );
+        let temp_entries = fs::read_dir(&root)
+            .expect("read root")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .contains(".zencanvas-tmp-")
+            })
+            .count();
+        assert_eq!(temp_entries, 0);
+    }
+
+    #[test]
+    fn copy_stream_stops_after_chunk_when_cancelled() {
+        let cancel_flag = AtomicBool::new(false);
+        let content = b"abcdefghijkl";
+        let mut reader = CancelAfterFirstRead::new(&content[..], &cancel_flag);
+        let mut writer = Vec::new();
+
+        let error = copy_stream_to_temp(&mut reader, &mut writer, Some(&cancel_flag), 4)
+            .expect_err("copy should stop after cancellation");
+
+        assert_eq!(error, FileOpError::OperationCanceled.to_string());
+        assert!(writer.len() < content.len());
+        assert_eq!(writer, b"abcd");
+    }
+
+    #[test]
+    fn copy_fallback_cancel_keeps_source_and_removes_temp() {
+        let root = test_dir();
+        let source = root.join("source.txt");
+        let target = root.join("target.txt");
+        fs::write(&source, "fallback content").expect("write source");
+        let cancel_flag = Arc::new(AtomicBool::new(true));
+
+        let error = copy_then_delete_via_temp_with_cancel(&source, &target, Some(&cancel_flag))
+            .expect_err("copy fallback should stop when canceled");
+
+        assert_eq!(error, FileOpError::OperationCanceled.to_string());
+        assert_eq!(
+            fs::read_to_string(&source).expect("source remains readable"),
+            "fallback content"
+        );
+        assert!(!target.exists());
         let temp_entries = fs::read_dir(&root)
             .expect("read root")
             .filter_map(Result::ok)
@@ -1256,6 +1400,26 @@ mod tests {
             Some(11)
         );
         assert_eq!(progress.events().last().map(|event| event.total), Some(11));
+    }
+
+    #[test]
+    fn execute_preview_operation_marks_move_cancellation_as_skipped() {
+        let root = test_dir();
+        let source = root.join("source.txt");
+        let target = root.join("target.txt");
+        fs::write(&source, "hello").expect("write source");
+        let cancel_flag = AtomicBool::new(true);
+        let operation = preview_operation(1, &source, &target);
+
+        let log =
+            execute_preview_operation("batch-cancel", "123", 0, &operation, Some(&cancel_flag));
+
+        assert_eq!(log.status, "skipped");
+        assert!(log.error_message.is_none());
+        assert!(!log.can_undo);
+        assert!(!log.can_restore);
+        assert!(source.exists());
+        assert!(!target.exists());
     }
 
     #[test]
@@ -1874,6 +2038,33 @@ mod tests {
                 self.cancel_flag.store(true, Ordering::Relaxed);
             }
             self.events.borrow_mut().push(payload);
+        }
+    }
+
+    struct CancelAfterFirstRead<'a, R> {
+        inner: R,
+        cancel_flag: &'a AtomicBool,
+        reads: usize,
+    }
+
+    impl<'a, R> CancelAfterFirstRead<'a, R> {
+        fn new(inner: R, cancel_flag: &'a AtomicBool) -> Self {
+            Self {
+                inner,
+                cancel_flag,
+                reads: 0,
+            }
+        }
+    }
+
+    impl<R: Read> Read for CancelAfterFirstRead<'_, R> {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let bytes_read = self.inner.read(buf)?;
+            if bytes_read > 0 && self.reads == 0 {
+                self.cancel_flag.store(true, Ordering::Relaxed);
+            }
+            self.reads += 1;
+            Ok(bytes_read)
         }
     }
 }

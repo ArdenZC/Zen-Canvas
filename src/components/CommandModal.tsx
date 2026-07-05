@@ -37,6 +37,15 @@ export async function activateCommandNavigation({
   onClose();
 }
 
+export function isSortingPreviewShortcut(
+  event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">
+) {
+  if (!event.ctrlKey && !event.metaKey) return false;
+  if (event.altKey || event.shiftKey) return false;
+  const key = event.key.toLowerCase();
+  return key === "enter" || key === "p";
+}
+
 export function CommandModal({
   inputRef,
   setView,
@@ -71,6 +80,7 @@ export function CommandModal({
   const showResults = trimmedSearch.length > 0 && results.length > 0;
   const activeResultId = showResults ? `command-result-${activeIndex}` : undefined;
   const locateKey = platform === "darwin" ? "⌥↵" : "Alt↵";
+  const sortingPreviewKey = platform === "darwin" ? "⌘↵ / ⌘P" : "Ctrl↵ / Ctrl P";
 
   useEffect(() => {
     if (!trimmedSearch) {
@@ -203,13 +213,14 @@ export function CommandModal({
             void revealFile(visibleResults[activeIndex]);
             return;
           }
+          if (isSortingPreviewShortcut(event)) {
+            event.preventDefault();
+            void openSortingPreview();
+            return;
+          }
           if (event.key === "Enter" && visibleResults[activeIndex]) {
             event.preventDefault();
             void chooseFile(visibleResults[activeIndex]);
-          }
-          if (event.key === "Tab") {
-            event.preventDefault();
-            void openSortingPreview();
           }
           if (event.key === "Escape") onClose();
         }}
@@ -284,7 +295,7 @@ export function CommandModal({
               <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
                 <ShortcutHint badge="↵" label={t("openResult")} />
                 <ShortcutHint badge={locateKey} label={t("revealPhysical")} />
-                <ShortcutHint badge="⇥" label={t("sortingAdvice")} />
+                <ShortcutHint badge={sortingPreviewKey} label={t("sortingAdvice")} />
               </div>
             </div>
           </div>

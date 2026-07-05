@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { tauriApi } from "../api/tauriApi";
+import { makeTranslator } from "../i18n";
+import { useAppStore } from "../store/useAppStore";
 import type { Rule } from "../types/domain";
 import { readableError } from "../utils/viewHelpers";
 import {
@@ -15,6 +17,12 @@ interface FsWatcherOptions {
   onError?: (message: string) => void;
   rules?: Rule[];
   enabled?: boolean;
+}
+
+interface FsWatcherWarningEvent {
+  message: string;
+  path?: string | null;
+  limit?: number | null;
 }
 
 const WATCHER_FLUSH_DELAY_MS = 500;
@@ -124,6 +132,10 @@ export function useFsWatcher({
       }
       scheduleFlush();
     });
+    const warningUnlistenPromise = listen<FsWatcherWarningEvent>("fs-watcher-warning", (event) => {
+      if (!event.payload || disposed) return;
+      onError?.(watcherPartialIndexWarningMessage());
+    });
 
     return () => {
       disposed = true;
@@ -131,6 +143,11 @@ export function useFsWatcher({
         clearTimeout(flushTimer);
       }
       void unlistenPromise.then((unlisten) => unlisten());
+      void warningUnlistenPromise.then((unlisten) => unlisten());
     };
   }, [enabled, onError, onRefreshData]);
+}
+
+function watcherPartialIndexWarningMessage() {
+  return makeTranslator(useAppStore.getState().language)("fsWatcherPartialIndexWarning");
 }

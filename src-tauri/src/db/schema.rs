@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 11;
+const CURRENT_SCHEMA_VERSION: i32 = 12;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -89,22 +89,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             "#,
         )?;
         ensure_trigram_fts(conn)?;
-        conn.execute_batch(
-            r#"
-            CREATE TRIGGER IF NOT EXISTS files_ai AFTER INSERT ON files BEGIN
-                INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
-            END;
-            CREATE TRIGGER IF NOT EXISTS files_ad AFTER DELETE ON files BEGIN
-                INSERT INTO files_fts(files_fts, rowid, name, path)
-                VALUES('delete', old.rowid, old.name, old.path);
-            END;
-            CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE ON files BEGIN
-                INSERT INTO files_fts(files_fts, rowid, name, path)
-                VALUES('delete', old.rowid, old.name, old.path);
-                INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
-            END;
-            "#,
-        )?;
+        ensure_fts_triggers(conn)?;
         set_schema_version(conn, 2)?;
     }
     if version < 3 {
@@ -288,6 +273,11 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         )?;
         set_schema_version(conn, 11)?;
     }
+    if version < 12 {
+        ensure_trigram_fts(conn)?;
+        ensure_fts_triggers(conn)?;
+        set_schema_version(conn, 12)?;
+    }
     Ok(())
 }
 
@@ -336,6 +326,26 @@ fn ensure_trigram_fts(conn: &Connection) -> Result<(), DbError> {
         );
 
         INSERT INTO files_fts(files_fts) VALUES('rebuild');
+        "#,
+    )?;
+    Ok(())
+}
+
+fn ensure_fts_triggers(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        r#"
+        CREATE TRIGGER IF NOT EXISTS files_ai AFTER INSERT ON files BEGIN
+            INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
+        END;
+        CREATE TRIGGER IF NOT EXISTS files_ad AFTER DELETE ON files BEGIN
+            INSERT INTO files_fts(files_fts, rowid, name, path)
+            VALUES('delete', old.rowid, old.name, old.path);
+        END;
+        CREATE TRIGGER IF NOT EXISTS files_au AFTER UPDATE ON files BEGIN
+            INSERT INTO files_fts(files_fts, rowid, name, path)
+            VALUES('delete', old.rowid, old.name, old.path);
+            INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
+        END;
         "#,
     )?;
     Ok(())

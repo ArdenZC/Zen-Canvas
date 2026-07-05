@@ -15,7 +15,7 @@ import { readableError } from "../utils/viewHelpers";
 import { useAppStore } from "./useAppStore";
 import { useFileLibraryStore } from "./useFileLibraryStore";
 
-export type ScanStatus = "idle" | "scanning" | "completed" | "error";
+export type ScanStatus = "idle" | "scanning" | "completed" | "canceled" | "error";
 
 export interface ScanStateData {
   status: ScanStatus;
@@ -30,6 +30,8 @@ const initialScanState: ScanStateData = {
   entries: [],
   error: null
 };
+
+let scanJobCanceled = false;
 
 export interface ScanManagerStore {
   selectedFolders: string[];
@@ -86,7 +88,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
             set((state) => ({
               scanState: {
                 ...state.scanState,
-                status: "scanning",
+                status: scanJobCanceled ? "canceled" : "scanning",
                 progress,
                 error: null
               }
@@ -96,7 +98,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
             set((state) => ({
               scanState: {
                 ...state.scanState,
-                status: "scanning",
+                status: scanJobCanceled ? "canceled" : "scanning",
                 progress: batch.progress,
                 error: null
               }
@@ -106,7 +108,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
             set((state) => ({
               scanState: {
                 ...state.scanState,
-                status: "completed",
+                status: scanJobCanceled ? "canceled" : "completed",
                 progress: summary,
                 error: null
               }
@@ -165,6 +167,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
       return;
     }
 
+    scanJobCanceled = false;
     set({
       selectedFolders: scanRoots,
       isScanning: true,
@@ -173,11 +176,32 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
 
     try {
       let totalFiles = 0;
+      const completedScanRoots: string[] = [];
       for (const path of scanRoots) {
+        if (scanJobCanceled) break;
         const summary = await tauriApi.startScan(path, false);
+        if (scanJobCanceled) break;
         totalFiles += summary.files;
+        completedScanRoots.push(path);
       }
-      useFileLibraryStore.getState().setCurrentScanScope(scanRoots);
+
+      if (scanJobCanceled) {
+        set((state) => ({
+          scanState: {
+            ...state.scanState,
+            status: "canceled",
+            error: null
+          }
+        }));
+        if (completedScanRoots.length) {
+          useFileLibraryStore.getState().setCurrentScanScope(completedScanRoots);
+          await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
+        }
+        useAppStore.getState().showSuccess(t("scanCanceled"));
+        return;
+      }
+
+      useFileLibraryStore.getState().setCurrentScanScope(completedScanRoots);
       await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
       useAppStore.getState().showSuccess(`${t("success")}: ${totalFiles.toLocaleString()} ${t("files")}`);
     } catch (error) {
@@ -213,7 +237,15 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
     }
   },
   cancelScan: async () => {
+    scanJobCanceled = true;
+    set((state) => ({
+      isScanning: false,
+      scanState: {
+        ...state.scanState,
+        status: "canceled",
+        error: null
+      }
+    }));
     await tauriApi.cancelScan();
-    set({ isScanning: false });
   }
 }));

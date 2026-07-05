@@ -163,7 +163,7 @@ describe("fs watcher hook registration", () => {
 
     renderWatcher({ onRefreshData, rules: secondRules });
 
-    expect(apiMocks.listen).toHaveBeenCalledTimes(1);
+    expect(apiMocks.listen).toHaveBeenCalledTimes(2);
 
     vi.advanceTimersByTime(500);
     await flushPromises();
@@ -178,27 +178,53 @@ describe("fs watcher hook registration", () => {
 
     renderWatcher({ onRefreshData, rules: [rule("first")] });
 
-    expect(apiMocks.listen).toHaveBeenCalledTimes(1);
+    expect(apiMocks.listen).toHaveBeenCalledTimes(2);
     expect(apiMocks.listen).toHaveBeenCalledWith("fs-event", expect.any(Function));
+    expect(apiMocks.listen).toHaveBeenCalledWith("fs-watcher-warning", expect.any(Function));
 
     renderWatcher({ onRefreshData, rules: [rule("second")] });
 
-    expect(apiMocks.listen).toHaveBeenCalledTimes(1);
+    expect(apiMocks.listen).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows watcher partial-index warnings to the user", () => {
+    const onRefreshData = vi.fn(async () => {});
+    const onError = vi.fn();
+
+    renderWatcher({ onRefreshData, onError, rules: [] });
+
+    const warningHandler = apiMocks.listen.mock.calls.find(([eventName]) => eventName === "fs-watcher-warning")?.[1] as
+      | ((event: { payload: { message: string; path?: string; limit?: number } }) => void)
+      | undefined;
+
+    expect(warningHandler).toBeTypeOf("function");
+
+    warningHandler?.({
+      payload: {
+        message: "Watcher deep upsert reached entry limit",
+        path: "F:/Large",
+        limit: 5000
+      }
+    });
+
+    expect(onError).toHaveBeenCalledWith("该目录项目过多，仅部分更新，请手动运行完整扫描。");
   });
 });
 
 function renderWatcher({
   enabled = true,
   onRefreshData,
+  onError,
   rules
 }: {
   enabled?: boolean;
   onRefreshData: () => Promise<void>;
+  onError?: (message: string) => void;
   rules: Rule[];
 }) {
   reactMock.refIndex = 0;
   reactMock.effectIndex = 0;
-  useFsWatcher({ enabled, onRefreshData, rules });
+  useFsWatcher({ enabled, onRefreshData, onError, rules });
 }
 
 function rule(id: string): Rule {

@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   DEFAULT_SEARCH_HOTKEY,
   acceleratorFromKeyboardEvent,
@@ -54,5 +56,22 @@ describe("search hotkeys", () => {
     expect(acceleratorFromKeyboardEvent(keyEvent({ key: "k", metaKey: true }), "darwin")).toBe("CmdOrCtrl+K");
     expect(acceleratorFromKeyboardEvent(keyEvent({ key: "Escape" }), "win32")).toBeNull();
     expect(acceleratorFromKeyboardEvent(keyEvent({ key: "k" }), "win32")).toBeNull();
+  });
+
+  it("registers a new global hotkey before saving it to settings", () => {
+    const runtimeProvidersSource = readFileSync(
+      resolve("src/components/AppRuntimeProviders.tsx"),
+      "utf8"
+    );
+    const setSearchHotkey = runtimeProvidersSource.slice(
+      runtimeProvidersSource.indexOf("const setSearchHotkey = useCallback"),
+      runtimeProvidersSource.indexOf("const setSearchScopeMode = useCallback")
+    );
+
+    expect(setSearchHotkey.indexOf("tauriApi.registerGlobalSearchHotkey(next)"))
+      .toBeLessThan(setSearchHotkey.indexOf("updateSettings({ searchHotkey: next })"));
+    expect(setSearchHotkey).toContain("if (!status.registered)");
+    expect(setSearchHotkey).toContain("return false");
+    expect(setSearchHotkey).toContain("return savedSettings.searchHotkey === next");
   });
 });

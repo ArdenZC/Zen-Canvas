@@ -499,6 +499,7 @@ mod tests {
         assert!(is_ignored_dir_name(OsStr::new("node_modules.cache")));
         assert!(is_ignored_dir_name(OsStr::new(".git-worktree")));
         assert!(is_ignored_dir_name(OsStr::new("System Volume Information")));
+        assert!(!is_ignored_dir_name(OsStr::new("Library")));
         assert!(!is_ignored_dir_name(OsStr::new("client-documents")));
     }
 

@@ -55,6 +55,13 @@ pub struct GlobalHotkeyStatus {
     pub error: Option<String>,
 }
 
+#[cfg(any(feature = "desktop-runtime", test))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HotkeyRollbackResult {
+    returned_status: GlobalHotkeyStatus,
+    state_status: GlobalHotkeyStatus,
+}
+
 #[derive(Debug, Default)]
 pub struct GlobalHotkeyStatusState {
     status: Mutex<Option<GlobalHotkeyStatus>>,
@@ -202,10 +209,18 @@ fn register_global_search_shortcut<R: Runtime>(
     accelerator: &str,
 ) -> GlobalHotkeyStatus {
     let accelerator = global_search_accelerator(accelerator).to_string();
+    let previous_status = status_state.get();
+    if let Some(previous) = previous_status
+        .as_ref()
+        .filter(|status| status.registered && status.accelerator == accelerator)
+    {
+        return previous.clone();
+    }
     let shortcut = match global_search_shortcut(&accelerator) {
         Ok(shortcut) => shortcut,
         Err(error) => {
-            let message = format!("Global search hotkey registration failed for {accelerator}: {error}");
+            let message =
+                format!("Global search hotkey registration failed for {accelerator}: {error}");
             eprintln!("{message}");
             emit_global_hotkey_error(app, message.clone());
             let status = GlobalHotkeyStatus {
@@ -213,22 +228,45 @@ fn register_global_search_shortcut<R: Runtime>(
                 registered: false,
                 error: Some(message),
             };
-            status_state.set(status.clone());
             return status;
         }
     };
 
-    if let Err(error) = app.global_shortcut().unregister_all() {
-        let message = format!("Global search hotkey reset failed for {accelerator}: {error}");
-        eprintln!("{message}");
-        emit_global_hotkey_error(app, message.clone());
-        let status = GlobalHotkeyStatus {
-            accelerator,
-            registered: false,
-            error: Some(message),
-        };
-        status_state.set(status.clone());
-        return status;
+    if let Some(previous) = previous_status.as_ref().filter(|status| status.registered) {
+        if previous.accelerator != accelerator {
+            match global_search_shortcut(&previous.accelerator) {
+                Ok(previous_shortcut) => {
+                    if let Err(error) = app.global_shortcut().unregister(previous_shortcut) {
+                        let rollback = hotkey_registration_failure_with_rollback(
+                            accelerator,
+                            format!("Global search hotkey reset failed: {error}"),
+                            previous_status,
+                            None,
+                        );
+                        if let Some(message) = rollback.returned_status.error.clone() {
+                            eprintln!("{message}");
+                            emit_global_hotkey_error(app, message);
+                        }
+                        status_state.set(rollback.state_status.clone());
+                        return rollback.returned_status;
+                    }
+                }
+                Err(error) => {
+                    let message = format!(
+                        "Previous global search hotkey could not be parsed for rollback: {error}"
+                    );
+                    eprintln!("{message}");
+                    emit_global_hotkey_error(app, message.clone());
+                    let status = GlobalHotkeyStatus {
+                        accelerator,
+                        registered: false,
+                        error: Some(message),
+                    };
+                    status_state.set(status.clone());
+                    return status;
+                }
+            }
+        }
     }
 
     let status = match app.global_shortcut().register(shortcut) {
@@ -238,18 +276,95 @@ fn register_global_search_shortcut<R: Runtime>(
             error: None,
         },
         Err(error) => {
-            let message = format!("Global search hotkey registration failed for {accelerator}: {error}");
-            eprintln!("{message}");
-            emit_global_hotkey_error(app, message.clone());
-            GlobalHotkeyStatus {
+            let previous_for_restore = previous_status
+                .clone()
+                .filter(|status| status.registered && status.accelerator != accelerator);
+            let restore_error =
+                restore_previous_global_hotkey(app, previous_for_restore.as_ref()).err();
+            let rollback = hotkey_registration_failure_with_rollback(
                 accelerator,
-                registered: false,
-                error: Some(message),
+                error.to_string(),
+                previous_for_restore,
+                restore_error,
+            );
+            if let Some(message) = rollback.returned_status.error.clone() {
+                eprintln!("{message}");
+                emit_global_hotkey_error(app, message);
             }
+            status_state.set(rollback.state_status.clone());
+            return rollback.returned_status;
         }
     };
     status_state.set(status.clone());
     status
+}
+
+#[cfg(feature = "desktop-runtime")]
+fn restore_previous_global_hotkey<R: Runtime>(
+    app: &AppHandle<R>,
+    previous_status: Option<&GlobalHotkeyStatus>,
+) -> Result<(), String> {
+    let Some(previous) = previous_status else {
+        return Ok(());
+    };
+    let previous_shortcut = global_search_shortcut(&previous.accelerator)?;
+    app.global_shortcut()
+        .register(previous_shortcut)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(any(feature = "desktop-runtime", test))]
+fn hotkey_registration_failure_with_rollback(
+    requested_accelerator: String,
+    registration_error: String,
+    previous_status: Option<GlobalHotkeyStatus>,
+    restore_error: Option<String>,
+) -> HotkeyRollbackResult {
+    let base_message = format!(
+        "Global search hotkey registration failed for {requested_accelerator}: {registration_error}"
+    );
+
+    match (previous_status, restore_error) {
+        (Some(previous), None) if previous.registered => {
+            let returned_status = GlobalHotkeyStatus {
+                accelerator: requested_accelerator,
+                registered: false,
+                error: Some(format!(
+                    "{base_message}; restored previous hotkey {}",
+                    previous.accelerator
+                )),
+            };
+            HotkeyRollbackResult {
+                returned_status,
+                state_status: previous,
+            }
+        }
+        (Some(previous), Some(restore_error)) if previous.registered => {
+            let returned_status = GlobalHotkeyStatus {
+                accelerator: requested_accelerator,
+                registered: false,
+                error: Some(format!(
+                    "{base_message}; restore previous hotkey failed for {}: {restore_error}",
+                    previous.accelerator
+                )),
+            };
+            HotkeyRollbackResult {
+                returned_status: returned_status.clone(),
+                state_status: returned_status,
+            }
+        }
+        _ => {
+            let returned_status = GlobalHotkeyStatus {
+                accelerator: requested_accelerator,
+                registered: false,
+                error: Some(base_message),
+            };
+            HotkeyRollbackResult {
+                returned_status: returned_status.clone(),
+                state_status: returned_status,
+            }
+        }
+    }
 }
 
 #[cfg(not(feature = "desktop-runtime"))]
@@ -385,5 +500,57 @@ mod tests {
 
         assert_eq!(value["view"], "library");
         assert_eq!(value["fileId"], "file-1");
+    }
+
+    #[test]
+    fn hotkey_registration_failure_restores_previous_status_when_fallback_succeeds() {
+        let previous = GlobalHotkeyStatus {
+            accelerator: "CmdOrCtrl+K".to_string(),
+            registered: true,
+            error: None,
+        };
+
+        let rollback = hotkey_registration_failure_with_rollback(
+            "Alt+Space".to_string(),
+            "shortcut already registered".to_string(),
+            Some(previous.clone()),
+            None,
+        );
+
+        assert!(!rollback.returned_status.registered);
+        assert_eq!(rollback.returned_status.accelerator, "Alt+Space");
+        assert!(rollback
+            .returned_status
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("restored previous hotkey CmdOrCtrl+K"));
+        assert_eq!(rollback.state_status, previous);
+    }
+
+    #[test]
+    fn hotkey_registration_failure_keeps_failure_status_when_fallback_fails() {
+        let previous = GlobalHotkeyStatus {
+            accelerator: "CmdOrCtrl+K".to_string(),
+            registered: true,
+            error: None,
+        };
+
+        let rollback = hotkey_registration_failure_with_rollback(
+            "Alt+Space".to_string(),
+            "shortcut already registered".to_string(),
+            Some(previous),
+            Some("restore failed".to_string()),
+        );
+
+        assert!(!rollback.returned_status.registered);
+        assert_eq!(rollback.returned_status.accelerator, "Alt+Space");
+        assert!(rollback
+            .returned_status
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("restore previous hotkey failed"));
+        assert_eq!(rollback.state_status, rollback.returned_status);
     }
 }

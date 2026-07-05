@@ -18,6 +18,7 @@ pub(crate) use queries::{
 pub(crate) use queries::{build_fts_query, upsert_files_by_paths_with_optional_optimize};
 pub use queries::{
     emit_search_index_optimized, run_search_index_optimize, upsert_files_by_paths_for_db,
+    upsert_files_by_paths_for_db_with_warnings, WatcherUpsertWarning,
 };
 pub use types::*;
 

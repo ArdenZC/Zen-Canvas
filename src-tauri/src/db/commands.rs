@@ -1,6 +1,8 @@
 use super::*;
 use crate::file_ops::OperationLogDto;
-use tauri::{AppHandle, Runtime, State};
+use tauri::{AppHandle, Emitter, Runtime, State};
+
+const FS_WATCHER_WARNING_EVENT: &str = "fs-watcher-warning";
 
 #[tauri::command]
 pub fn init_db(db: State<'_, Database>) -> Result<(), String> {
@@ -24,7 +26,11 @@ pub fn upsert_files_by_paths<R: Runtime>(
     paths: Vec<String>,
 ) -> Result<usize, String> {
     let db = db.inner();
-    let upserted = upsert_files_by_paths_for_db(db, &paths).map_err(command_error)?;
+    let result = upsert_files_by_paths_for_db_with_warnings(db, &paths).map_err(command_error)?;
+    for warning in &result.warnings {
+        emit_fs_watcher_warning(&app, warning);
+    }
+    let upserted = result.upserted;
     if let Some(report) = optimize_search_index_after_bulk_upsert(db, upserted) {
         emit_search_index_optimized(&app, &report);
     }
@@ -156,4 +162,10 @@ pub async fn execute_rules_for_scope(
 
 fn command_error(error: DbError) -> String {
     error.to_string()
+}
+
+fn emit_fs_watcher_warning<R: Runtime>(app: &AppHandle<R>, warning: &WatcherUpsertWarning) {
+    if let Err(error) = app.emit(FS_WATCHER_WARNING_EVENT, warning) {
+        eprintln!("Failed to emit {FS_WATCHER_WARNING_EVENT}: {error}");
+    }
 }

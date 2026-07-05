@@ -172,19 +172,24 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   );
   const setSearchHotkey = useCallback(
     async (next: string) => {
-      const savedSettings = await updateSettings({ searchHotkey: next });
-      const saved = savedSettings.searchHotkey === next;
-      if (saved) {
-        try {
-          const status = await tauriApi.registerGlobalSearchHotkey(next);
-          useAppStore.getState().setGlobalHotkeyError(status.error ?? "");
-        } catch (error) {
-          useAppStore.getState().setGlobalHotkeyError(readableError(error));
+      try {
+        const status = await tauriApi.registerGlobalSearchHotkey(next);
+        useAppStore.getState().setGlobalHotkeyError(status.error ?? "");
+        if (!status.registered) {
+          if (status.error) showError(status.error);
+          return false;
         }
+      } catch (error) {
+        const message = readableError(error);
+        useAppStore.getState().setGlobalHotkeyError(message);
+        showError(message);
+        return false;
       }
-      return saved;
+
+      const savedSettings = await updateSettings({ searchHotkey: next });
+      return savedSettings.searchHotkey === next;
     },
-    [updateSettings]
+    [showError, updateSettings]
   );
   const setSearchScopeMode = useCallback(
     async (next: SearchScopeMode) => {
