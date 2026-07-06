@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion } from "motion/react";
-import { Check, File, FolderOpen, FolderSearch, Layers } from "lucide-react";
+import { File, FolderOpen, FolderSearch, Layers, ShieldCheck } from "lucide-react";
 import {
   useChromeContext,
   useRulesContext
@@ -11,15 +11,32 @@ import { useOperationQueueStore } from "../../store/useOperationQueueStore";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
 import type { FileRecord } from "../../types/domain";
 import type { Translator, View } from "../../types/ui";
-import { formatBytes } from "../../utils/format";
-import { libraryScopeLabel } from "../../utils/viewHelpers";
+import { formatBytes, formatDate } from "../../utils/format";
+import { compactPath, libraryScopeLabel } from "../../utils/viewHelpers";
 import { shouldVirtualizeList } from "../../utils/virtualization";
-import { cn, emptyState, glassButton, glassButtonPrimary, toneClasses, virtualList, virtualRow as virtualRowClass, virtualSpacer } from "../../utils/tw";
+import { buttonSecondary, cn, glassButtonPrimary, virtualList, virtualRow as virtualRowClass, virtualSpacer } from "../../utils/tw";
 import { revealFileFromCard } from "../shared/cardActions";
-import { compactRowSurface, itemMotion, listMotion, mutedText, panelSurface, rowSurface } from "../shared/ui";
+import {
+  MetricCard,
+  NoticeBanner,
+  StateBlock,
+  ToneBadge,
+  compactInteractiveRow,
+  contentPanel,
+  inlineActions,
+  interactiveRow,
+  itemMotion,
+  listMotion,
+  metadataText,
+  pageFrame,
+  quietText,
+  sectionDescription,
+  sectionHeading,
+  softPanel
+} from "../shared/ui";
 
-const HUB_FILE_ROW_HEIGHT = 82;
-const BUCKET_FILE_ROW_HEIGHT = 48;
+const HUB_FILE_ROW_HEIGHT = 96;
+const BUCKET_FILE_ROW_HEIGHT = 58;
 const HUB_BUCKET_KEYS = ["CoreAssets", "QuietArchive", "CleanupLane", "PrivacyVault"] as const;
 
 export type HubBucketKey = typeof HUB_BUCKET_KEYS[number];
@@ -29,6 +46,8 @@ export interface HubFileModel {
   bucketedFiles: HubBucketGroups;
   classifiedCount: number;
 }
+
+type HubTone = "blue" | "green" | "amber" | "red" | "slate" | "purple";
 
 function createEmptyHubBucketGroups(): HubBucketGroups {
   return {
@@ -83,13 +102,13 @@ export function HubView() {
   const runDispatch = useOperationQueueStore((state) => state.runDispatch);
   const [isDispatching, setIsDispatching] = useState(false);
   const activeRuleCount = useMemo(() => countActiveRules(rules), [rules]);
-  const { pendingFiles, bucketedFiles } = useMemo(() => deriveHubFileModel(files), [files]);
+  const { pendingFiles, bucketedFiles, classifiedCount } = useMemo(() => deriveHubFileModel(files), [files]);
   const buckets = useMemo(() => [
     { key: "CoreAssets" as const, label: t("coreAssets"), description: t("coreAssetsDesc"), tone: "blue" },
     { key: "QuietArchive" as const, label: t("archiveBox"), description: t("archiveBoxDesc"), tone: "purple" },
     { key: "CleanupLane" as const, label: t("cleanupLane"), description: t("cleanupLaneDesc"), tone: "slate" },
     { key: "PrivacyVault" as const, label: t("privacyVault"), description: t("privacyVaultDesc"), tone: "red" }
-  ] satisfies Array<{ key: HubBucketKey; label: string; description: string; tone: string }>, [t]);
+  ] satisfies Array<{ key: HubBucketKey; label: string; description: string; tone: HubTone }>, [t]);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
   const isEmptyCurrentScanScope = scope.kind === "current_scan" && scope.roots.length === 0;
 
@@ -114,76 +133,105 @@ export function HubView() {
 
   if (isEmptyCurrentScanScope) {
     return (
-      <div className={cn(panelSurface, "grid h-full place-items-center")}>
-        <div className={cn(emptyState, "grid min-h-72 w-full place-items-center gap-4 px-6 text-center")}>
-          <div>
-            <strong className="block text-base text-[var(--ink)]">{t("noOrganizeScopeTitle")}</strong>
-            <span className="mt-2 block max-w-xl text-sm text-[var(--muted)]">{t("noOrganizeScopeDesc")}</span>
-          </div>
-          <div className="flex flex-wrap justify-center gap-2">
+      <div className={cn(pageFrame, "gap-4")}>
+        <StateBlock
+          tone="info"
+          title={t("noOrganizeScopeTitle")}
+          description={t("noOrganizeScopeDesc")}
+          primaryAction={
             <button className={glassButtonPrimary} onClick={() => void handleChooseFolders()}>
               <FolderSearch size={16} />
               <span>{t("chooseFolderScan")}</span>
             </button>
-            <button className={glassButton} onClick={() => setScope({ kind: "all" })}>
+          }
+          secondaryAction={
+            <button className={buttonSecondary} onClick={() => setScope({ kind: "all" })}>
               <Layers size={16} />
               <span>{t("viewAllIndexedFiles")}</span>
             </button>
-          </div>
-        </div>
+          }
+        />
+        <NoticeBanner tone="info" title={t("scannerSafetyTitle")}>
+          {t("hubSafetyHint")}
+        </NoticeBanner>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-      {organizeQueueTruncated && (
-        <div className="rounded-lg border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm font-medium text-amber-800 dark:text-amber-200">
-          {t("organizeQueueTruncatedWarning")}
-        </div>
-      )}
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto xl:grid-cols-[minmax(300px,0.8fr)_minmax(0,1.4fr)] xl:overflow-hidden">
-        <section className={cn(panelSurface, "flex flex-col gap-4 overflow-hidden")}>
-        <div className="flex items-center justify-between gap-3">
+    <div className={cn(pageFrame, "gap-4")}>
+      <section className={cn(contentPanel, "grid gap-4 p-4")}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold">{t("inboxStack")}</h2>
-            <p className="truncate text-xs text-[var(--muted)]">{t("currentOrganizeScope")}: {scopeText}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className={sectionHeading}>{t("hubWorkbenchTitle")}</h2>
+              <ToneBadge tone="info">{t("currentOrganizeScope")}: {scopeText}</ToneBadge>
+            </div>
+            <p className={sectionDescription}>{t("hubWorkbenchDesc")}</p>
           </div>
-          <span className={mutedText}>{pendingFiles.length} {t("items")}</span>
+          <div className={cn(softPanel, "flex items-start gap-2 px-3 py-2 text-sm")}>
+            <ShieldCheck size={16} className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-300" />
+            <span className="max-w-sm leading-6 text-[var(--muted)]">{t("hubSafetyHint")}</span>
+          </div>
         </div>
-        <VirtualFileCardList files={pendingFiles} isLoading={isLoadingOrganizeQueue} onError={onError} t={t} />
-        <motion.button
-          className={cn(glassButtonPrimary, "w-full")}
-          onClick={dispatchFiles}
-          disabled={isDispatching}
-          title={`${activeRuleCount} active rules`}
-        >
-          {isDispatching ? t("dispatching") : t("runDispatch")}
-        </motion.button>
+      </section>
+
+      <section className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-3">
+        <MetricCard label={t("inboxStack")} value={pendingFiles.length.toLocaleString()} hint={t("hubPendingStatus")} tone="amber" />
+        <MetricCard label={t("suggestedPlan")} value={classifiedCount.toLocaleString()} hint={t("hubSuggestionStatus")} tone="blue" />
+        <MetricCard label={t("builtInRules")} value={activeRuleCount.toLocaleString()} hint={t("safeModeDesc")} tone="slate" />
+      </section>
+
+      {organizeQueueTruncated && (
+        <NoticeBanner tone="warning">
+          {t("organizeQueueTruncatedWarning")}
+        </NoticeBanner>
+      )}
+
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto xl:grid-cols-[minmax(320px,0.82fr)_minmax(0,1.35fr)] xl:overflow-hidden">
+        <section className={cn(contentPanel, "flex min-h-[420px] flex-col gap-4 overflow-hidden p-4")}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className={sectionHeading}>{t("inboxStack")}</h2>
+              <p className={cn(metadataText, "mt-1")}>{t("hubPendingDesc")}</p>
+            </div>
+            <ToneBadge tone="warning">{pendingFiles.length.toLocaleString()} {t("items")}</ToneBadge>
+          </div>
+          <VirtualFileCardList files={pendingFiles} isLoading={isLoadingOrganizeQueue} onError={onError} t={t} />
+          <div className={cn(softPanel, "grid gap-3 p-3")}>
+            <div className={inlineActions}>
+              <motion.button
+                className={glassButtonPrimary}
+                onClick={dispatchFiles}
+                disabled={isDispatching || isLoadingOrganizeQueue}
+                title={`${activeRuleCount} active rules`}
+              >
+                {isDispatching ? t("dispatching") : t("runDispatch")}
+              </motion.button>
+              <span className={metadataText}>{t("hubSafetyHint")}</span>
+            </div>
+          </div>
         </section>
 
-        <motion.section className="grid min-h-0 grid-cols-1 gap-4 overflow-auto pr-1 xl:grid-cols-2" variants={listMotion} initial="hidden" animate="show">
-        {buckets.map((bucket) => {
-          const bucketFiles = bucketedFiles[bucket.key];
-          return (
-            <motion.div
-              className={cn(panelSurface, "flex min-h-[240px] flex-col gap-3", bucketFiles.length > 0 && "border-blue-400/22 bg-blue-500/6")}
-              key={bucket.key}
-              variants={itemMotion}
-              layout
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-base font-semibold">{bucket.label}</h3>
-                  <small className={mutedText}>{bucket.description}</small>
-                </div>
-                <span className={cn("rounded-full border px-2 py-1 text-xs font-semibold", toneClasses(bucket.tone))}>{bucketFiles.length}</span>
-              </div>
-              <VirtualBucketFileList files={bucketFiles} isLoading={isLoadingOrganizeQueue} loadingLabel={t("loading")} setView={setView} waitingLabel={t("waitingFlow")} />
-            </motion.div>
-          );
-        })}
-        </motion.section>
+        <div className="grid min-h-0 content-start gap-3 overflow-auto pr-1">
+          {!isLoadingOrganizeQueue && classifiedCount === 0 && (
+            <NoticeBanner tone="info" title={t("hubNoBucketedTitle")}>
+              {t("hubNoBucketedDesc")}
+            </NoticeBanner>
+          )}
+          <motion.section className="grid min-h-0 grid-cols-1 gap-4 xl:grid-cols-2" variants={listMotion} initial="hidden" animate="show">
+            {buckets.map((bucket) => (
+              <BucketCard
+                bucket={bucket}
+                files={bucketedFiles[bucket.key]}
+                isLoading={isLoadingOrganizeQueue}
+                key={bucket.key}
+                setView={setView}
+                t={t}
+              />
+            ))}
+          </motion.section>
+        </div>
       </div>
     </div>
   );
@@ -212,9 +260,7 @@ function VirtualFileCardList({
   if (isLoading) {
     return (
       <div className="min-h-0 flex-1">
-        <div className={cn(emptyState, "h-full")}>
-          <span>{t("loading")}</span>
-        </div>
+        <StateBlock tone="info" title={t("hubLoadingQueue")} description={t("hubPendingDesc")} />
       </div>
     );
   }
@@ -222,10 +268,7 @@ function VirtualFileCardList({
   if (!files.length) {
     return (
       <div className="min-h-0 flex-1">
-        <div className={cn(emptyState, "h-full")}>
-          <Check size={24} />
-          <span>{t("dispatchClear")}</span>
-        </div>
+        <StateBlock tone="neutral" title={t("hubNoPendingTitle")} description={t("hubNoPendingDesc")} />
       </div>
     );
   }
@@ -263,18 +306,48 @@ function VirtualFileCardList({
   );
 }
 
+function BucketCard({
+  bucket,
+  files,
+  isLoading,
+  setView,
+  t
+}: {
+  bucket: { key: HubBucketKey; label: string; description: string; tone: HubTone };
+  files: FileRecord[];
+  isLoading: boolean;
+  setView: (view: View) => void;
+  t: Translator;
+}) {
+  return (
+    <motion.article
+      className={cn(contentPanel, "flex min-h-[250px] flex-col gap-3 p-4")}
+      variants={itemMotion}
+      layout
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold text-[var(--ink)]">{bucket.label}</h3>
+          <p className={cn(quietText, "mt-1")}>{bucket.description}</p>
+        </div>
+        <ToneBadge tone={bucket.tone}>{files.length.toLocaleString()}</ToneBadge>
+      </div>
+      <p className={metadataText}>{t("hubBucketSuggestionHint")}</p>
+      <VirtualBucketFileList files={files} isLoading={isLoading} setView={setView} t={t} />
+    </motion.article>
+  );
+}
+
 function VirtualBucketFileList({
   files,
   isLoading,
-  loadingLabel,
   setView,
-  waitingLabel
+  t
 }: {
   files: FileRecord[];
   isLoading: boolean;
-  loadingLabel: string;
   setView: (view: View) => void;
-  waitingLabel: string;
+  t: Translator;
 }) {
   const parentRef = useRef<HTMLDivElement | null>(null);
   const shouldVirtualize = shouldVirtualizeList(files.length);
@@ -286,26 +359,18 @@ function VirtualBucketFileList({
   });
 
   if (isLoading) {
-    return (
-      <div className={cn(emptyState, "min-h-32")}>
-        <span>{loadingLabel}</span>
-      </div>
-    );
+    return <StateBlock tone="info" title={t("hubLoadingQueue")} />;
   }
 
   if (!files.length) {
-    return (
-      <div className={cn(emptyState, "min-h-32")}>
-        <span>{waitingLabel}</span>
-      </div>
-    );
+    return <StateBlock tone="neutral" title={t("hubEmptyBucket")} description={t("hubBucketSuggestionHint")} />;
   }
 
   if (!shouldVirtualize) {
     return (
       <motion.div className="grid gap-2" variants={listMotion} initial="hidden" animate="show">
         {files.map((file) => (
-          <BucketFileButton file={file} key={file.id} setView={setView} />
+          <BucketFileButton file={file} key={file.id} setView={setView} t={t} />
         ))}
       </motion.div>
     );
@@ -325,7 +390,7 @@ function VirtualBucketFileList({
                 transform: `translateY(${virtualRow.start}px)`
               }}
             >
-              <BucketFileButton file={file} setView={setView} disableAnimation />
+              <BucketFileButton file={file} setView={setView} t={t} disableAnimation />
             </div>
           );
         })}
@@ -337,25 +402,31 @@ function VirtualBucketFileList({
 function BucketFileButton({
   file,
   setView,
+  t,
   disableAnimation = false
 }: {
   file: FileRecord;
   setView: (view: View) => void;
+  t: Translator;
   disableAnimation?: boolean;
 }) {
   return (
     <motion.button
-      className={cn(compactRowSurface, "flex h-12 min-h-12 w-full items-center gap-2 overflow-hidden text-sm hover:border-blue-400/24 hover:bg-white/40 dark:hover:bg-white/10")}
+      className={cn(compactInteractiveRow(), "grid h-[58px] min-h-[58px] w-full grid-cols-[auto_minmax(0,1fr)] items-center gap-2 overflow-hidden text-sm")}
       layout={!disableAnimation}
       variants={disableAnimation ? undefined : itemMotion}
       initial={disableAnimation ? false : undefined}
       animate={disableAnimation ? false : undefined}
       onClick={() => setView("preview")}
+      aria-label={`${file.name} · ${t("hubSuggestionStatus")}`}
     >
-      <span className="grid h-5 w-5 shrink-0 place-items-center">
+      <span className="grid h-6 w-6 shrink-0 place-items-center text-[var(--muted)]">
         <File size={15} />
       </span>
-      <span className="truncate">{file.name}</span>
+      <span className="min-w-0 text-left">
+        <span className="block truncate font-medium text-[var(--ink)]">{file.name}</span>
+        <span className="block truncate text-xs text-[var(--muted)]">{compactPath(file.path, 46)}</span>
+      </span>
     </motion.button>
   );
 }
@@ -390,9 +461,9 @@ function FileCard({
   return (
     <motion.div
       className={cn(
-        rowSurface,
-        "group grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 hover:border-blue-400/24 hover:bg-white/40 dark:hover:bg-white/10",
-        compact && "h-[82px] min-h-[82px]",
+        interactiveRow(),
+        "group grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3",
+        compact && "h-24 min-h-24",
         compact ? "p-3" : "p-4"
       )}
       layout={!disableAnimation}
@@ -401,16 +472,19 @@ function FileCard({
       animate={disableAnimation ? false : undefined}
       style={{ "--delay": `${Math.min(index * 18, 320)}ms` } as CSSProperties}
     >
-      <span className="grid h-6 w-6 shrink-0 place-items-center">
-        <File size={18} />
+      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-xl border border-[var(--line)] bg-white/28 text-[var(--muted)] dark:bg-white/5">
+        <File size={17} />
       </span>
       <span className="min-w-0">
-        <strong className="block truncate text-sm">{file.name}</strong>
-        <small className="block text-xs text-[var(--muted)]">{file.purpose} / {formatBytes(file.size)}</small>
+        <strong className="block truncate text-sm text-[var(--ink)]">{file.name}</strong>
+        <small className="mt-1 block truncate text-xs text-[var(--muted)]">{compactPath(file.path, 58)}</small>
+        <span className={cn(quietText, "mt-1 block")}>
+          {file.file_type} / {formatBytes(file.size)} / {formatDate(file.modified_at)}
+        </span>
       </span>
       <button
         type="button"
-        className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] bg-white/60 text-[var(--muted)] opacity-0 shadow-sm transition-[background,border-color,color,opacity] hover:border-blue-400/50 hover:bg-blue-500/10 hover:text-blue-600 focus:opacity-100 group-hover:opacity-100 dark:bg-slate-900/60 dark:hover:text-blue-300"
+        className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] bg-white/42 text-[var(--muted)] opacity-0 shadow-sm transition-[background,border-color,color,opacity] hover:border-blue-400/50 hover:bg-blue-500/10 hover:text-blue-600 focus:opacity-100 group-hover:opacity-100 dark:bg-slate-900/60 dark:hover:text-blue-300"
         aria-label={t("revealPhysical")}
         title={t("revealPhysical")}
         onClick={(event) => {
@@ -423,7 +497,7 @@ function FileCard({
       >
         <FolderOpen size={15} />
       </button>
-      <em className={cn("rounded-full border px-2 py-1 text-xs not-italic", toneClasses(file.risk_level === "Sensitive" ? "red" : "green"))}>{file.risk_level === "Sensitive" ? t("sensitiveLabel") : t("normal")}</em>
+      <ToneBadge tone="warning">{t("hubPendingStatus")}</ToneBadge>
     </motion.div>
   );
 }

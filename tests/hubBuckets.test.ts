@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import type { FileRecord } from "../src/types/domain";
 import { deriveHubFileModel, groupFilesByHubBucket } from "../src/views/hub/HubView";
 
@@ -36,6 +38,25 @@ describe("HubView file buckets", () => {
     expect(model.bucketedFiles.CleanupLane.map((item) => item.id)).toEqual(["cleanup"]);
     expect(model.bucketedFiles.PrivacyVault).toEqual([]);
     expect(model.classifiedCount).toBe(3);
+  });
+
+  it("keeps Smart Dispatch framed as a non-destructive review workbench", () => {
+    const hubView = fs.readFileSync(path.join(process.cwd(), "src/views/hub/HubView.tsx"), "utf8");
+
+    expect(hubView).toContain("pageFrame");
+    expect(hubView).toContain("contentPanel");
+    expect(hubView).toContain("softPanel");
+    expect(hubView).toContain("MetricCard");
+    expect(hubView).toContain("StateBlock");
+    expect(hubView).toContain("NoticeBanner");
+    expect(hubView).toContain("ToneBadge");
+    expect(hubView).toContain("interactiveRow");
+    expect(hubView).toContain('t("hubSafetyHint")');
+    expect(hubView).toContain('t("hubPendingDesc")');
+    expect(hubView).toContain('t("hubBucketSuggestionHint")');
+    expect(hubView).toContain('t("hubEmptyBucket")');
+    expect(hubView).not.toContain("emptyState");
+    expect(hubView).not.toContain("toneClasses");
   });
 });
 

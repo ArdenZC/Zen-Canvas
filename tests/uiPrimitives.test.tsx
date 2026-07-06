@@ -94,6 +94,8 @@ describe("shared UI primitives", () => {
     expect(markup).toContain("Needs review");
     expect(markup).toContain("Nothing scanned");
     expect(markup).toContain("1,204");
+    expect(markup).toContain("bg-blue-500");
+    expect(markup).not.toContain("text-blue-600");
     expect(markup).toContain("aria-label=\"Reveal\"");
   });
 });

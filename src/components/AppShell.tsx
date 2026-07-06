@@ -30,7 +30,7 @@ import type { Translator, View } from "../types/ui";
 import { formatDate } from "../utils/format";
 import { cn, glassButton, glassButtonPrimary, statusToast, toastTone } from "../utils/tw";
 import { compactPath, libraryScopeLabel, readableError } from "../utils/viewHelpers";
-import { PageHeader, inlineActions, pageBody, pageFrame, softPanel } from "../views/shared/ui";
+import { PageHeader, inlineActions, pageFrame, softPanel, viewStage } from "../views/shared/ui";
 import {
   HubView,
   RestoreView,
@@ -57,7 +57,7 @@ const navItemBase =
   "flex min-h-10 w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:bg-white/34 hover:text-[var(--ink)] dark:hover:bg-white/10";
 const navItemActive = "border-blue-400/24 bg-blue-500/9 text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]";
 const workspaceClass = "flex min-h-0 min-w-0 flex-col overflow-hidden px-5 py-5";
-const viewStageClass = cn(pageBody, "overflow-hidden pr-0");
+const viewStageClass = viewStage;
 const windowsControlButton =
   "grid h-8 w-10 place-items-center text-[var(--muted)] transition-[background,color] hover:bg-white/34 hover:text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-500/45 dark:hover:bg-white/8";
 const windowsCloseButton =
@@ -206,7 +206,7 @@ function commandSearchScopeEmptyMessage(settings: AppSettings, currentLibrarySco
 }
 
 function ChromeTools() {
-  const { language, theme, effectiveTheme, setLanguage, setTheme } = useChromeContext();
+  const { language, theme, effectiveTheme, setLanguage, setTheme, t } = useChromeContext();
 
   return (
     <TitlebarTools
@@ -215,6 +215,7 @@ function ChromeTools() {
       effectiveTheme={effectiveTheme}
       setLanguage={setLanguage}
       setTheme={setTheme}
+      t={t}
     />
   );
 }
@@ -277,6 +278,7 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
                 key={item.id}
                 className={cn(navItemBase, view === item.id && navItemActive)}
                 onClick={() => setView(item.id)}
+                aria-current={view === item.id ? "page" : undefined}
               >
                 <item.icon size={18} />
                 <span>{item.label}</span>

@@ -136,8 +136,9 @@ describe("app render architecture", () => {
 
     expect(appShell).toContain("PageHeader");
     expect(appShell).toContain("pageFrame");
-    expect(appShell).toContain("pageBody");
+    expect(appShell).toContain("viewStage");
     expect(appShell).not.toContain("h-[calc(");
+    expect(appShell).not.toContain("cn(pageBody");
     expect(scanner).toContain("PageHeader");
     expect(scanner).toContain("MetricCard");
     expect(scanner).toContain("NoticeBanner");
@@ -169,6 +170,7 @@ describe("app render architecture", () => {
     expect(appShell).toContain('id: "workspace"');
     expect(appShell).toContain('id: "system"');
     expect(appShell).not.toContain("index === 4");
+    expect(appShell).toContain('aria-current={view === item.id ? "page" : undefined}');
     expect(appShell).toContain("function viewDescription");
     expect(appShell).toContain('case "rules"');
     expect(appShell).toContain('case "restore"');
@@ -188,6 +190,9 @@ describe("app render architecture", () => {
     expect(appShell).toContain("h-6 w-6");
     expect(appShell).toContain("softPanel");
     expect(shellChrome).toContain("titlebarToolButton");
+    expect(shellChrome).toContain("aria-label={themeLabel}");
+    expect(shellChrome).toContain("title={themeLabel}");
+    expect(shellChrome).toContain('t("lightTheme")');
     expect(shellChrome).toContain("[-webkit-app-region:no-drag]");
   });
 });

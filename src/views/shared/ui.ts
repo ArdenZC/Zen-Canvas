@@ -48,6 +48,7 @@ export const pageHeader = "mb-4 flex shrink-0 items-start justify-between gap-4"
 export const pageHeaderText = "min-w-0";
 export const pageHeaderActions = "flex shrink-0 flex-wrap items-center justify-end gap-2";
 export const pageBody = "min-h-0 flex-1 overflow-auto overscroll-contain pr-1";
+export const viewStage = "min-h-0 flex-1 overflow-hidden";
 export const pageSurface = "h-full min-h-0 overflow-auto overscroll-contain pr-1";
 export const splitLayout = "grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto xl:overflow-hidden";
 export const cardGrid = "grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3";
@@ -216,13 +217,30 @@ export function MetricCard({
   hint?: string;
   tone?: "blue" | "green" | "amber" | "red" | "slate" | "purple";
 }) {
+  const accentClass = metricAccent(tone);
+
   return createElement(
     "div",
-    { className: cn(contentPanel, "p-4", toneClasses(tone)) },
-    createElement("span", { className: metricLabel }, label),
+    { className: cn(contentPanel, "relative overflow-hidden p-4") },
+    createElement("span", { className: cn("absolute inset-x-0 top-0 h-px", accentClass.line) }),
+    createElement(
+      "div",
+      { className: "flex items-center gap-2" },
+      createElement("span", { className: cn("h-2 w-2 rounded-full", accentClass.dot), "aria-hidden": "true" }),
+      createElement("span", { className: metricLabel }, label)
+    ),
     createElement("strong", { className: cn(metricValue, "mt-1 block") }, value),
     hint ? createElement("span", { className: cn(quietText, "mt-1 block") }, hint) : null
   );
+}
+
+function metricAccent(tone: "blue" | "green" | "amber" | "red" | "slate" | "purple") {
+  if (tone === "green") return { dot: "bg-emerald-500", line: "bg-emerald-400/45" };
+  if (tone === "amber") return { dot: "bg-amber-500", line: "bg-amber-400/45" };
+  if (tone === "red") return { dot: "bg-red-500", line: "bg-red-400/45" };
+  if (tone === "slate") return { dot: "bg-slate-400", line: "bg-slate-400/35" };
+  if (tone === "purple") return { dot: "bg-violet-500", line: "bg-violet-400/45" };
+  return { dot: "bg-blue-500", line: "bg-blue-400/45" };
 }
 
 export function ToneBadge({ tone = "info", children }: { tone?: BadgeTone; children: ReactNode }) {

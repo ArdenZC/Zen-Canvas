@@ -18,6 +18,7 @@ import type {
 } from "../types/domain";
 import type { View } from "../types/ui";
 import type { SearchNavigatePayload } from "../utils/searchNavigation";
+import { isBrowserMockEnabled, mockInvokeCommand } from "./browserMockApi";
 
 export interface ScannedEntry {
   path: string;
@@ -88,11 +89,25 @@ export interface TauriSearchFileResult {
 type EventHandler<T> = (payload: T, event: Event<T>) => void;
 
 async function invokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
-  return invoke<T>(command, args);
+  try {
+    return await invoke<T>(command, args);
+  } catch (error) {
+    if (isBrowserMockEnabled()) {
+      return mockInvokeCommand<T>(command, args);
+    }
+    throw error;
+  }
 }
 
-function listenTo<T>(eventName: string, handler: EventHandler<T>): Promise<UnlistenFn> {
-  return listen<T>(eventName, (event) => handler(event.payload, event));
+async function listenTo<T>(eventName: string, handler: EventHandler<T>): Promise<UnlistenFn> {
+  try {
+    return await listen<T>(eventName, (event) => handler(event.payload, event));
+  } catch (error) {
+    if (isBrowserMockEnabled()) {
+      return () => undefined;
+    }
+    throw error;
+  }
 }
 
 export const tauriApi = {

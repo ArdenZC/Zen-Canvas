@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion } from "motion/react";
 import { FolderSearch, Layers, Plus, Search } from "lucide-react";
@@ -8,15 +8,26 @@ import { useDebounce } from "../../hooks/useDebounce";
 import { useAppStore } from "../../store/useAppStore";
 import { LIBRARY_PAGE_SIZE, useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
-import type { FileRecord, LibraryFilter } from "../../types/domain";
+import type { FileRecord, LibraryFilter, LibraryScope } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { libraryScopeLabel } from "../../utils/viewHelpers";
 import { shouldTriggerLoadMore, shouldVirtualizeList } from "../../utils/virtualization";
-import { cn, emptyState, glassButton, glassButtonPrimary, inputSurface, statusToast, virtualList, virtualSpacer } from "../../utils/tw";
-import { listMotion, mutedText, pageSurface, segmentButton } from "../shared/ui";
+import { buttonSecondary, buttonSubtle, cn, glassButtonPrimary, inputSurface, virtualList, virtualSpacer } from "../../utils/tw";
+import {
+  NoticeBanner,
+  StateBlock,
+  ToneBadge,
+  inlineActions,
+  listMotion,
+  metadataText,
+  pageFrame,
+  quietText,
+  scopeBarSurface,
+  toolbarSurface
+} from "../shared/ui";
 import { AssetCard } from "./AssetCard";
 
-const ASSET_GRID_ROW_HEIGHT = 234;
+const ASSET_GRID_ROW_HEIGHT = 246;
 
 export function VaultView() {
   const { onError, t } = useChromeContext();
@@ -25,8 +36,8 @@ export function VaultView() {
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const page = useFileLibraryStore((state) => state.libraryPage);
   const scope = useFileLibraryStore((state) => state.scope);
+  const stats = useFileLibraryStore((state) => state.stats);
   const selectedFileId = useFileLibraryStore((state) => state.selectedFileId);
-  const selectedFile = page.files.find((file) => file.id === selectedFileId) ?? page.files[0];
   const setScope = useFileLibraryStore((state) => state.setScope);
   const setPage = useFileLibraryStore((state) => state.setLibraryPage);
   const setSelectedFileId = useFileLibraryStore((state) => state.setSelectedFileId);
@@ -81,108 +92,216 @@ export function VaultView() {
     return () => observer.disconnect();
   }, [hasMore, isLoading, loadMore]);
 
-  const filters = [
-    { key: "all", label: t("libraryAllFiles"), description: t("libraryAllFilesDesc") },
-    { key: "active", label: t("libraryActiveFiles"), description: t("libraryActiveFilesDesc") },
-    { key: "archive", label: t("libraryArchiveFiles"), description: t("libraryArchiveFilesDesc") },
-    { key: "review", label: t("libraryReviewFiles"), description: t("libraryReviewFilesDesc") },
-    { key: "duplicate", label: t("libraryDuplicateFiles"), description: t("libraryDuplicateFilesDesc") },
-    { key: "sensitive", label: t("librarySensitiveFiles"), description: t("librarySensitiveFilesDesc") }
-  ] satisfies Array<{ key: LibraryFilter; label: string; description: string }>;
+  const filters = useMemo(() => [
+    { key: "all", label: t("libraryAllFiles"), description: t("libraryAllFilesDesc"), tone: "slate" },
+    { key: "active", label: t("libraryActiveFiles"), description: t("libraryActiveFilesDesc"), tone: "green" },
+    { key: "archive", label: t("libraryArchiveFiles"), description: t("libraryArchiveFilesDesc"), tone: "purple" },
+    { key: "review", label: t("libraryReviewFiles"), description: t("libraryReviewFilesDesc"), tone: "amber" },
+    { key: "duplicate", label: t("libraryDuplicateFiles"), description: t("libraryDuplicateFilesDesc"), tone: "amber" },
+    { key: "sensitive", label: t("librarySensitiveFiles"), description: t("librarySensitiveFilesDesc"), tone: "red" }
+  ] satisfies Array<{ key: LibraryFilter; label: string; description: string; tone: "blue" | "green" | "amber" | "red" | "slate" | "purple" }>, [t]);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
   const scopedSearchPlaceholder = scope.kind === "all" ? t("librarySearchPlaceholder") : t("librarySearchPlaceholderScoped");
   const isEmptyCurrentScanScope = scope.kind === "current_scan" && scope.roots.length === 0;
   const activeFilterLabel = filters.find((filter) => filter.key === libraryFilter)?.label ?? t("libraryFilterAll");
+  const activeFilterDescription = filters.find((filter) => filter.key === libraryFilter)?.description ?? "";
+  const libraryState = resolveLibraryState({
+    error,
+    isEmptyCurrentScanScope,
+    isLoading,
+    lastScannedAt: stats.lastScannedAt,
+    libraryFilter,
+    pageTotal: page.total,
+    scope,
+    searchQuery
+  });
 
   return (
-    <div className={cn(pageSurface, "space-y-4")}>
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-md)] border border-[var(--line)] bg-white/18 px-3 py-2 text-sm dark:bg-white/5">
-        <span className="min-w-0 text-[var(--muted)]">
-          {t("currentScope")}: <strong className="text-[var(--ink)]">{scopeText}</strong>
-        </span>
-        <div className="flex flex-wrap items-center gap-2">
-          <button className={glassButton} onClick={() => setScope({ kind: "all" })} disabled={scope.kind === "all"}>
+    <div className={cn(pageFrame, "gap-4")}>
+      <section data-section="scope bar" className={cn(scopeBarSurface, "flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-3")}>
+        <div className="min-w-0">
+          <span className={quietText}>{t("currentScope")}</span>
+          <strong className="mt-1 block truncate text-sm text-[var(--ink)]">{scopeText}</strong>
+        </div>
+        <div className={inlineActions}>
+          <button className={buttonSecondary} onClick={() => setScope({ kind: "all" })} disabled={scope.kind === "all"}>
             <Layers size={16} />
             <span>{t("viewAllIndexedFiles")}</span>
           </button>
-          <button className={glassButton} onClick={() => void handleChooseFolders()}>
+          <button className={buttonSecondary} onClick={() => void handleChooseFolders()}>
             <FolderSearch size={16} />
             <span>{t("switchScanDirectory")}</span>
           </button>
         </div>
-      </div>
-      {isEmptyCurrentScanScope ? (
-        <div className={cn(emptyState, "grid min-h-72 place-items-center gap-4 px-6 text-center")}>
-          <div>
-            <strong className="block text-base text-[var(--ink)]">{t("noCurrentScanTitle")}</strong>
-            <span className="mt-2 block max-w-xl text-sm text-[var(--muted)]">{t("noCurrentScanDesc")}</span>
-          </div>
-          <div className="flex flex-wrap justify-center gap-2">
-            <button className={glassButtonPrimary} onClick={() => void handleChooseFolders()}>
-              <FolderSearch size={16} />
-              <span>{t("chooseFolderScan")}</span>
+      </section>
+
+      <section className={cn(toolbarSurface, "grid shrink-0 gap-3 px-4 py-3")}>
+        <label data-section="search bar" className={cn(inputSurface, "flex items-center gap-2 px-3")}>
+          <Search size={16} className="text-[var(--muted)]" />
+          <input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder={scopedSearchPlaceholder}
+            className="min-w-0 flex-1 bg-transparent outline-none"
+            aria-label={t("search")}
+          />
+        </label>
+        <div data-section="filter toolbar" className="flex flex-wrap items-center gap-2">
+          {filters.map((filter) => (
+            <button
+              key={filter.key}
+              className={filterPillClass(libraryFilter === filter.key)}
+              onClick={() => setLibraryFilter(filter.key)}
+              aria-pressed={libraryFilter === filter.key}
+              title={filter.description}
+            >
+              <ToneBadge tone={filter.tone}>{filter.label}</ToneBadge>
             </button>
-            <button className={glassButton} onClick={() => setScope({ kind: "all" })}>
-              <Layers size={16} />
-              <span>{t("viewAllIndexedFiles")}</span>
-            </button>
-          </div>
+          ))}
         </div>
-      ) : (
-        <>
-      <div className="flex flex-wrap items-center gap-2">
-        {filters.map((filter) => (
-          <button
-            key={filter.label}
-            className={segmentButton(libraryFilter === filter.key)}
-            onClick={() => setLibraryFilter(filter.key)}
-          >
-            {filter.label}
-          </button>
-        ))}
-        <span className="min-w-52 flex-1 text-xs text-[var(--muted)]">
-          {filters.find((filter) => filter.key === libraryFilter)?.description}
-        </span>
-      </div>
-      <p className={cn(mutedText, "leading-relaxed")}>{t("libraryIntro")}</p>
-      <label className={cn(inputSurface, "flex items-center gap-2 px-3")}>
-        <Search size={16} />
-        <input
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder={scopedSearchPlaceholder}
-          className="min-w-0 flex-1 bg-transparent outline-none"
+        <div data-section="result count" className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <span className={metadataText}>
+            {t("libraryShowing").replace("{visible}", String(page.files.length)).replace("{total}", String(page.total))}
+            {" / "}
+            {t("currentLibraryFilter")}: <strong className="text-[var(--ink)]">{activeFilterLabel}</strong>
+          </span>
+          <span className={metadataText}>{isLoading ? t("libraryLoadingResults") : activeFilterDescription}</span>
+        </div>
+      </section>
+
+      <NoticeBanner tone="info">{t("libraryScopeHint")}</NoticeBanner>
+
+      {libraryState ? (
+        <StateBlock
+          tone={libraryState.tone}
+          title={libraryState.title}
+          description={libraryState.description}
+          primaryAction={libraryState.primaryAction}
+          secondaryAction={libraryState.secondaryAction}
         />
-      </label>
-      <div className="flex items-center justify-between gap-3 text-sm text-[var(--muted)]">
-        <span>
-          {t("libraryShowing").replace("{visible}", String(page.files.length)).replace("{total}", String(page.total))}
-          {" · "}
-          {t("currentLibraryFilter")}: <strong className="text-[var(--ink)]">{activeFilterLabel}</strong>
-        </span>
-        {isLoading && <em className="not-italic">{t("loading")}</em>}
-      </div>
-      {error && <div className={cn(statusToast, "mt-0")}>{error}</div>}
-      <VirtualAssetGrid
-        files={page.files}
-        hasMore={hasMore}
-        isLoading={isLoading}
-        onLoadMore={loadMore}
-        onError={onError}
-        selectedFileId={selectedFile?.id}
-        setSelectedFileId={setSelectedFileId}
-        t={t}
-      />
-      <div ref={sentinelRef} className="h-1" />
-      {hasMore && (
-        <button className={cn(glassButton, "mx-auto flex")} onClick={loadMore} disabled={isLoading}>
-          <Plus size={16} />
-          {t("loadMoreFiles").replace("{count}", String(Math.min(page.limit, page.total - page.files.length)))}
-        </button>
-      )}
-        </>
+      ) : (
+        <div className="min-h-0 flex-1">
+          <VirtualAssetGrid
+            files={page.files}
+            hasMore={hasMore}
+            isLoading={isLoading}
+            onLoadMore={loadMore}
+            onError={onError}
+            selectedFileId={selectedFileId}
+            setSelectedFileId={setSelectedFileId}
+            t={t}
+          />
+          <div ref={sentinelRef} className="h-1" />
+          {hasMore && (
+            <button className={cn(buttonSecondary, "mx-auto mt-3 flex")} onClick={loadMore} disabled={isLoading}>
+              <Plus size={16} />
+              {t("loadMoreFiles").replace("{count}", String(Math.min(page.limit, page.total - page.files.length)))}
+            </button>
+          )}
+        </div>
       )}
     </div>
+  );
+
+  function resolveLibraryState({
+    error,
+    isEmptyCurrentScanScope,
+    isLoading,
+    lastScannedAt,
+    libraryFilter,
+    pageTotal,
+    scope,
+    searchQuery
+  }: {
+    error: string;
+    isEmptyCurrentScanScope: boolean;
+    isLoading: boolean;
+    lastScannedAt: string | null;
+    libraryFilter: LibraryFilter;
+    pageTotal: number;
+    scope: LibraryScope;
+    searchQuery: string;
+  }) {
+    if (error) {
+      return {
+        tone: "error" as const,
+        title: t("libraryLoadFailedTitle"),
+        description: error
+      };
+    }
+    if (isLoading && pageTotal === 0) {
+      return {
+        tone: "info" as const,
+        title: t("libraryLoadingResults"),
+        description: t("libraryScopeHint")
+      };
+    }
+    if (isEmptyCurrentScanScope) {
+      return {
+        tone: "info" as const,
+        title: t("noCurrentScanTitle"),
+        description: t("noCurrentScanDesc"),
+        primaryAction: (
+          <button className={glassButtonPrimary} onClick={() => void handleChooseFolders()}>
+            <FolderSearch size={16} />
+            <span>{t("chooseFolderScan")}</span>
+          </button>
+        ),
+        secondaryAction: (
+          <button className={buttonSecondary} onClick={() => setScope({ kind: "all" })}>
+            <Layers size={16} />
+            <span>{t("viewAllIndexedFiles")}</span>
+          </button>
+        )
+      };
+    }
+    if (pageTotal > 0) return null;
+    if (searchQuery.trim()) {
+      return {
+        tone: "neutral" as const,
+        title: t("libraryNoSearchTitle"),
+        description: t("libraryNoSearchDesc")
+      };
+    }
+    if (libraryFilter !== "all") {
+      return {
+        tone: "neutral" as const,
+        title: t("libraryNoFilterTitle"),
+        description: t("libraryNoFilterDesc")
+      };
+    }
+    if (!lastScannedAt && scope.kind === "all") {
+      return {
+        tone: "info" as const,
+        title: t("libraryNoScanTitle"),
+        description: t("libraryNoScanDesc"),
+        primaryAction: (
+          <button className={glassButtonPrimary} onClick={() => void handleChooseFolders()}>
+            <FolderSearch size={16} />
+            <span>{t("chooseFolderScan")}</span>
+          </button>
+        )
+      };
+    }
+    return {
+      tone: "neutral" as const,
+      title: t("libraryNoScopeFilesTitle"),
+      description: t("libraryNoScopeFilesDesc"),
+      secondaryAction: (
+        <button className={buttonSecondary} onClick={() => setScope({ kind: "all" })}>
+          <Layers size={16} />
+          <span>{t("viewAllIndexedFiles")}</span>
+        </button>
+      )
+    };
+  }
+}
+
+function filterPillClass(active: boolean) {
+  return cn(
+    buttonSubtle,
+    "min-h-8 rounded-full px-1.5 py-1 text-xs",
+    active && "border-blue-400/45 bg-blue-500/12 text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.4)]"
   );
 }
 
@@ -222,7 +341,7 @@ function VirtualAssetGrid({
     if (!node || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(([entry]) => {
       const width = entry.contentRect.width;
-      const nextColumns = Math.max(1, Math.min(4, Math.floor(width / 220)));
+      const nextColumns = Math.max(1, Math.min(4, Math.floor(width / 230)));
       setColumns(nextColumns || 1);
     });
     observer.observe(node);
@@ -237,7 +356,7 @@ function VirtualAssetGrid({
 
   if (!shouldVirtualize) {
     return (
-      <motion.section className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3" variants={listMotion} initial="hidden" animate="show">
+      <motion.section className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3" variants={listMotion} initial="hidden" animate="show">
         {files.map((file) => (
           <AssetCard
             file={file}
@@ -253,7 +372,7 @@ function VirtualAssetGrid({
   }
 
   return (
-    <section ref={parentRef} className={cn("h-[calc(100vh-292px)] min-h-80", virtualList)}>
+    <section ref={parentRef} className={cn("min-h-80 flex-1", virtualList)}>
       <div className={virtualSpacer} style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
         {rowVirtualizer.getVirtualItems().map((virtualRow) => {
           const start = virtualRow.index * columns;
@@ -285,4 +404,3 @@ function VirtualAssetGrid({
     </section>
   );
 }
-

@@ -163,10 +163,6 @@ function StatusNotice({ visualState, error, warningCount }: { visualState: Scann
     return <NoticeBanner tone="warning">{t("scanWarnings").replace("{count}", warningCount.toLocaleString())}</NoticeBanner>;
   }
 
-  if (visualState === "completed") {
-    return <NoticeBanner tone="success" title={t("scannerStatusCompleted")}>{t("scannerReferenceDiskHint")}</NoticeBanner>;
-  }
-
   return null;
 }
 

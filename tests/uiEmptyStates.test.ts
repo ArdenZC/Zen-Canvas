@@ -61,6 +61,32 @@ describe("ui empty and command states", () => {
     expect(vault).toContain("activeFilterLabel");
   });
 
+  it("frames the file library as a scoped local asset browser", () => {
+    const vault = read("src/views/vault/VaultView.tsx");
+    const assetCard = read("src/views/vault/AssetCard.tsx");
+    const t = makeTranslator("zh");
+
+    expect(t("libraryNoScanTitle")).toBe("还没有索引文件");
+    expect(t("libraryNoScopeFilesTitle")).toBe("当前范围没有文件");
+    expect(t("libraryNoSearchTitle")).toBe("没有找到匹配文件");
+    expect(t("libraryNoFilterTitle")).toBe("当前筛选没有结果");
+    expect(vault).toContain("scope bar");
+    expect(vault).toContain("filter toolbar");
+    expect(vault).toContain("search bar");
+    expect(vault).toContain("result count");
+    expect(vault).toContain("StateBlock");
+    expect(vault).toContain("NoticeBanner");
+    expect(vault).toContain("ToneBadge");
+    expect(vault).toContain("aria-pressed={libraryFilter === filter.key}");
+    expect(vault).not.toContain("emptyState");
+    expect(vault).not.toContain("h-[calc(");
+    expect(assetCard).toContain("ToneBadge");
+    expect(assetCard).toContain("compactPath(file.path");
+    expect(assetCard).toContain('title={t("revealPhysical")}');
+    expect(assetCard).toContain('aria-label={t("revealPhysical")}');
+    expect(assetCard).not.toContain("toneClasses");
+  });
+
   it("shows a guided empty preview state with navigation actions", () => {
     const timeline = read("src/views/timeline/TimelineView.tsx");
     const t = makeTranslator("zh");

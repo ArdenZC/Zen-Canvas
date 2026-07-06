@@ -72,4 +72,22 @@ describe("tauriApi", () => {
       accelerator: "Alt+Space"
     });
   });
+
+  it("falls back to browser mock data when the Tauri runtime is unavailable in dev", async () => {
+    apiMocks.invoke.mockRejectedValueOnce(new Error("Cannot read properties of undefined (reading 'invoke')"));
+
+    const result = await tauriApi.getPagedFiles(50, 0, "report", { kind: "all" });
+
+    expect(result.files.length).toBeGreaterThan(0);
+    expect(result.files[0].name).toContain("report");
+  });
+
+  it("returns a noop listener when the Tauri event runtime is unavailable in dev", async () => {
+    const { listen } = await import("@tauri-apps/api/event");
+    vi.mocked(listen).mockRejectedValueOnce(new Error("Cannot read properties of undefined (reading 'listen')"));
+
+    const dispose = await tauriApi.onSearchNavigate(() => undefined);
+
+    expect(dispose()).toBeUndefined();
+  });
 });

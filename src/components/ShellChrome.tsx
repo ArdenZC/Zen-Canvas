@@ -32,19 +32,25 @@ export function TitlebarTools({
   theme,
   effectiveTheme,
   setLanguage,
-  setTheme
+  setTheme,
+  t
 }: {
   language: Language;
   theme: ThemeMode;
   effectiveTheme: Exclude<ThemeMode, "system">;
   setLanguage: (language: Language) => void;
   setTheme: (theme: ThemeMode) => void;
+  t: Translator;
 }) {
+  const themeLabel = effectiveTheme === "dark" ? t("lightTheme") : t("darkTheme");
+
   return (
     <div className="flex items-center gap-2 [-webkit-app-region:no-drag]">
       <button
         className={titlebarToolButton}
         onClick={() => setTheme(effectiveTheme === "dark" ? "light" : "dark")}
+        aria-label={themeLabel}
+        title={themeLabel}
       >
         {theme === "system" ? <Monitor size={17} /> : effectiveTheme === "dark" ? <Moon size={17} /> : <Sun size={17} />}
       </button>
