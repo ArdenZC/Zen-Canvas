@@ -260,14 +260,9 @@ fn scan_directory_blocking<R: Runtime>(
 
     let app_for_dedupe = app.clone();
     let db_for_dedupe = db.clone();
-    emit_scan_finished(
-        false,
+    emit_scan_complete_then_schedule_dedupe(
         || {
             app.emit(SCAN_COMPLETE_EVENT, summary.clone())?;
-            Ok(())
-        },
-        || {
-            app.emit(SCAN_CANCELED_EVENT, summary.clone())?;
             Ok(())
         },
         || spawn_duplicate_detection(app_for_dedupe, db_for_dedupe),
@@ -275,17 +270,10 @@ fn scan_directory_blocking<R: Runtime>(
     Ok(summary)
 }
 
-fn emit_scan_finished(
-    cancelled: bool,
+fn emit_scan_complete_then_schedule_dedupe(
     emit_complete: impl FnOnce() -> Result<(), ScanError>,
-    emit_canceled: impl FnOnce() -> Result<(), ScanError>,
     schedule_dedupe: impl FnOnce(),
 ) -> Result<(), ScanError> {
-    if cancelled {
-        emit_canceled()?;
-        return Ok(());
-    }
-
     emit_complete()?;
     schedule_dedupe();
     Ok(())
@@ -595,14 +583,9 @@ mod tests {
     fn scan_completion_emits_complete_before_scheduling_dedupe() {
         let events = std::cell::RefCell::new(Vec::new());
 
-        emit_scan_finished(
-            false,
+        emit_scan_complete_then_schedule_dedupe(
             || {
                 events.borrow_mut().push("scan-complete");
-                Ok(())
-            },
-            || {
-                events.borrow_mut().push("scan-canceled");
                 Ok(())
             },
             || events.borrow_mut().push("dedupe-started"),
@@ -610,27 +593,6 @@ mod tests {
         .expect("finish scan");
 
         assert_eq!(*events.borrow(), vec!["scan-complete", "dedupe-started"]);
-    }
-
-    #[test]
-    fn canceled_scan_emits_canceled_without_scheduling_dedupe() {
-        let events = std::cell::RefCell::new(Vec::new());
-
-        emit_scan_finished(
-            true,
-            || {
-                events.borrow_mut().push("scan-complete");
-                Ok(())
-            },
-            || {
-                events.borrow_mut().push("scan-canceled");
-                Ok(())
-            },
-            || events.borrow_mut().push("dedupe-started"),
-        )
-        .expect("finish canceled scan");
-
-        assert_eq!(*events.borrow(), vec!["scan-canceled"]);
     }
 
     fn test_scanned_entry(index: usize) -> ScannedEntry {

@@ -115,6 +115,45 @@ fn unique_file_sizes_do_not_trigger_hash_calculation() {
     assert_eq!(hasher.calls, 0);
 }
 
+#[test]
+fn duplicate_detection_hashes_new_file_when_matching_size_already_has_hash() {
+    let dir = test_dir("dedupe-incremental");
+    let db = Database::open(dir.join("db.sqlite3")).expect("open test database");
+    let bytes = b"already-hashed";
+    let existing = write_indexed_file(&db, &dir, "existing.txt", bytes, 20);
+    let new_file = write_indexed_file(&db, &dir, "new.txt", bytes, 21);
+    let existing_hash = blake3::hash(bytes).to_hex().to_string();
+    let conn = Connection::open(db.path()).expect("open database connection");
+    conn.execute(
+        "UPDATE files SET content_hash = ?1 WHERE path = ?2",
+        (&existing_hash, existing.to_string_lossy().to_string()),
+    )
+    .expect("seed existing hash");
+
+    let summary =
+        run_duplicate_detection(&db, &NoopDedupeEventEmitter).expect("run duplicate detection");
+    let page = db.get_paged_files(Some(10), Some(0), None).expect("page");
+    let files = page
+        .files
+        .iter()
+        .map(|file| (file.path.clone(), file))
+        .collect::<HashMap<_, _>>();
+    let existing = files
+        .get(&existing.to_string_lossy().to_string())
+        .expect("existing file");
+    let new_file = files
+        .get(&new_file.to_string_lossy().to_string())
+        .expect("new file");
+
+    assert_eq!(summary.candidate_files, 1);
+    assert_eq!(summary.hashed_files, 1);
+    assert_eq!(summary.duplicate_files, 2);
+    assert_eq!(existing.hash.as_deref(), Some(existing_hash.as_str()));
+    assert_eq!(new_file.hash.as_deref(), Some(existing_hash.as_str()));
+    assert!(existing.is_duplicate);
+    assert!(new_file.is_duplicate);
+}
+
 #[derive(Default)]
 struct CountingHasher {
     calls: usize,

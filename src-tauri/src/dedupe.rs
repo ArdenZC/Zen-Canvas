@@ -242,14 +242,16 @@ fn candidate_sizes(db: &Database) -> Result<Vec<CandidateSize>, DedupeError> {
     let conn = db.conn()?;
     let mut stmt = conn.prepare(
         r#"
-        SELECT size, COUNT(*)
+        SELECT
+          size,
+          COUNT(*) FILTER (WHERE content_hash = '') AS empty_hash_count
         FROM files
         WHERE is_dir = 0
           AND is_stale = 0
           AND size > 0
-          AND content_hash = ''
         GROUP BY size
         HAVING COUNT(*) > 1
+           AND COUNT(*) FILTER (WHERE content_hash = '') > 0
         ORDER BY size ASC
         "#,
     )?;
