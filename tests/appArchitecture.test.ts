@@ -129,4 +129,65 @@ describe("app render architecture", () => {
     expect(rulesView).toContain('"all_changed_or_rule_changed"');
     expect(saveRule).not.toContain("executeRulesForScope");
   });
+
+  it("uses shared UI primitives for the shell frame and scanner entry experience", () => {
+    const appShell = read("src/components/AppShell.tsx");
+    const scanner = read("src/views/scanner/ScannerView.tsx");
+
+    expect(appShell).toContain("PageHeader");
+    expect(appShell).toContain("pageFrame");
+    expect(appShell).toContain("pageBody");
+    expect(appShell).not.toContain("h-[calc(");
+    expect(scanner).toContain("PageHeader");
+    expect(scanner).toContain("MetricCard");
+    expect(scanner).toContain("NoticeBanner");
+    expect(scanner).toContain("StateBlock");
+  });
+
+  it("keeps scanner state-driven with clear metrics and safety guidance", () => {
+    const scanner = read("src/views/scanner/ScannerView.tsx");
+
+    expect(scanner).toContain("type ScannerVisualState");
+    expect(scanner).toContain("function scannerVisualState");
+    expect(scanner).toContain('return "canceling"');
+    expect(scanner).toContain('return "completed"');
+    expect(scanner).toContain('return "error"');
+    expect(scanner).toContain("scanState.error");
+    expect(scanner).toContain('t("scannerStartTitle")');
+    expect(scanner).toContain('t("scannerLocalIndexSafety")');
+    expect(scanner).toContain('t("totalAnalysed")');
+    expect(scanner).toContain('t("needsReview")');
+    expect(scanner).toContain('t("scannerReferenceDisk")');
+    expect(scanner).toContain('tone={visualState === "canceling" ? "amber"');
+    expect(scanner).toContain('NoticeBanner tone="error"');
+  });
+
+  it("keeps shell navigation grouped explicitly and page descriptions view-specific", () => {
+    const appShell = read("src/components/AppShell.tsx");
+
+    expect(appShell).toContain("function navGroups");
+    expect(appShell).toContain('id: "workspace"');
+    expect(appShell).toContain('id: "system"');
+    expect(appShell).not.toContain("index === 4");
+    expect(appShell).toContain("function viewDescription");
+    expect(appShell).toContain('case "rules"');
+    expect(appShell).toContain('case "restore"');
+    expect(appShell).toContain('case "settings"');
+    expect(appShell).toContain("previewActionCount");
+  });
+
+  it("keeps titlebar controls draggable-safe and gives mac controls large hit targets", () => {
+    const appShell = read("src/components/AppShell.tsx");
+    const shellChrome = read("src/components/ShellChrome.tsx");
+
+    expect(appShell).toContain("spotlightButton");
+    expect(appShell).toContain("noDrag");
+    expect(appShell).toContain("windowsControlButton");
+    expect(appShell).toContain("windowsCloseButton");
+    expect(appShell).toContain("h-8 w-10");
+    expect(appShell).toContain("h-6 w-6");
+    expect(appShell).toContain("softPanel");
+    expect(shellChrome).toContain("titlebarToolButton");
+    expect(shellChrome).toContain("[-webkit-app-region:no-drag]");
+  });
 });

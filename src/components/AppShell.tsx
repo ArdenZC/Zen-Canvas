@@ -25,11 +25,12 @@ import { useAppStore } from "../store/useAppStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { useScanManagerStore } from "../store/useScanManagerStore";
-import type { AppSettings, LibraryScope } from "../types/domain";
+import type { AppSettings, DashboardStats, LibraryScope } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { formatDate } from "../utils/format";
 import { cn, glassButton, glassButtonPrimary, statusToast, toastTone } from "../utils/tw";
 import { compactPath, libraryScopeLabel, readableError } from "../utils/viewHelpers";
+import { PageHeader, inlineActions, pageBody, pageFrame, softPanel } from "../views/shared/ui";
 import {
   HubView,
   RestoreView,
@@ -41,22 +42,31 @@ import {
 } from "../views";
 
 const appRoot =
-  "relative h-screen min-h-[680px] min-w-[980px] overflow-hidden bg-[var(--bg)] text-[var(--ink)]";
+  cn(pageFrame, "relative h-screen min-h-[680px] min-w-[980px] bg-[var(--bg)] text-[var(--ink)]");
 const searchWindowRoot =
   "relative h-screen w-screen overflow-hidden bg-transparent text-[var(--ink)]";
 const titlebar =
   "relative z-30 grid h-12 grid-cols-[minmax(208px,240px)_1fr_minmax(208px,240px)] items-center border-b border-[var(--line-dark)] bg-[var(--surface-soft)] px-4 backdrop-blur-2xl [-webkit-app-region:drag]";
 const noDrag = "[-webkit-app-region:no-drag]";
 const spotlightButton =
-  "mx-auto inline-flex h-8 min-w-72 max-w-[420px] items-center justify-between gap-3 rounded-full border border-[var(--line-dark)] bg-white/34 px-3 text-xs text-[var(--muted)] shadow-sm transition-[background,border-color,box-shadow,color] hover:border-blue-400/30 hover:bg-white/62 hover:shadow-[0_0_0_3px_rgba(59,130,246,0.08)] dark:bg-white/5 dark:hover:bg-white/10 [&_kbd]:rounded-md [&_kbd]:border [&_kbd]:border-[var(--line-dark)] [&_kbd]:bg-white/28 [&_kbd]:px-1.5 [&_kbd]:py-0.5 [&_kbd]:text-[11px] [&_kbd]:font-medium [&_kbd]:text-[var(--quiet)] dark:[&_kbd]:bg-white/5";
-const workspaceShell = "relative z-10 grid h-[calc(100vh-48px)] grid-cols-[minmax(220px,248px)_minmax(0,1fr)]";
+  "mx-auto grid h-8 w-[min(42vw,420px)] min-w-64 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-full border border-[var(--line-dark)] bg-white/30 px-3 text-xs text-[var(--muted)] shadow-sm transition-[background,border-color,box-shadow,color] hover:border-blue-400/24 hover:bg-white/46 hover:shadow-[0_0_0_3px_rgba(59,130,246,0.055)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/50 dark:bg-white/5 dark:hover:bg-white/9 [&_kbd]:rounded-md [&_kbd]:border [&_kbd]:border-[var(--line-dark)] [&_kbd]:bg-white/24 [&_kbd]:px-1.5 [&_kbd]:py-0.5 [&_kbd]:text-[11px] [&_kbd]:font-medium [&_kbd]:text-[var(--quiet)] dark:[&_kbd]:bg-white/5";
+const workspaceShell = "relative z-10 grid min-h-0 flex-1 grid-cols-[minmax(220px,248px)_minmax(0,1fr)]";
 const sidebarClass =
   "flex min-h-0 flex-col gap-5 border-r border-[var(--line-dark)] bg-[var(--surface-soft)] px-4 py-5 backdrop-blur-2xl";
 const navItemBase =
   "flex min-h-10 w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:bg-white/34 hover:text-[var(--ink)] dark:hover:bg-white/10";
 const navItemActive = "border-blue-400/24 bg-blue-500/9 text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]";
-const workspaceClass = "min-w-0 overflow-hidden px-5 py-5";
-const viewStageClass = "h-[calc(100vh-166px)] overflow-hidden";
+const workspaceClass = "flex min-h-0 min-w-0 flex-col overflow-hidden px-5 py-5";
+const viewStageClass = cn(pageBody, "overflow-hidden pr-0");
+const windowsControlButton =
+  "grid h-8 w-10 place-items-center text-[var(--muted)] transition-[background,color] hover:bg-white/34 hover:text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-500/45 dark:hover:bg-white/8";
+const windowsCloseButton =
+  "grid h-8 w-10 place-items-center text-[var(--muted)] transition-[background,color] hover:bg-red-500/85 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-red-400/60";
+const macControlButton = "grid h-6 w-6 place-items-center rounded-full";
+const navGroupTitle = "px-3 pt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--quiet)]";
+
+type NavItem = { id: View; label: string; icon: typeof Radar };
+type NavGroup = { id: "workspace" | "system"; label: string; items: NavItem[] };
 
 export function AppShell() {
   const {
@@ -72,18 +82,15 @@ export function AppShell() {
     t
   } = useChromeContext();
   const stats = useFileLibraryStore((state) => state.stats);
+  const scope = useFileLibraryStore((state) => state.scope);
+  const previewActionCount = useOperationQueueStore((state) => state.previewActionCount);
 
   if (isSearchMode) return <SearchWindow />;
 
-  const nav = navItems(t);
-  const activeLabel = nav.find((item) => item.id === view)?.label ?? t("spaceScan");
-  const scannerLastScanLabel = stats.lastScannedAt ? formatDate(stats.lastScannedAt) : t("notScannedYet");
-  const headingDescription =
-    view === "scanner"
-      ? `${t("lastScan")}: ${scannerLastScanLabel}`
-      : stats.lastScannedAt
-        ? `${t("lastScan")}: ${formatDate(stats.lastScannedAt)}`
-        : t("notScannedYet");
+  const groups = navGroups(t);
+  const activeLabel = groups.flatMap((group) => group.items).find((item) => item.id === view)?.label ?? t("spaceScan");
+  const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
+  const headingDescription = viewDescription(view, stats, scopeText, previewActionCount, t);
 
   return (
     <div className={appRoot}>
@@ -94,8 +101,8 @@ export function AppShell() {
         </div>
         <div className="flex items-center justify-center">
           <button className={cn(spotlightButton, noDrag)} onClick={() => setIsCommandOpen(true)}>
-            <Search size={15} />
-            <span>{t("globalSearch")}</span>
+            <Search size={15} className="text-blue-500/85" />
+            <span className="min-w-0 truncate text-left">{t("globalSearch")}</span>
             <kbd>{hotkeyLabel}</kbd>
           </button>
         </div>
@@ -104,7 +111,7 @@ export function AppShell() {
         </div>
       </header>
       <div className={workspaceShell}>
-        <Sidebar nav={nav} />
+        <Sidebar groups={groups} />
         <main className={workspaceClass}>
           <ViewHeading activeLabel={activeLabel} headingDescription={headingDescription} />
           <ToastContainer />
@@ -216,10 +223,16 @@ function MacWindowControls() {
   const { handleWindowAction, t } = useChromeContext();
 
   return (
-    <div className={cn("flex items-center gap-2", noDrag)} aria-label="Window controls">
-      <button className="h-3 w-3 rounded-full bg-red-500 shadow-sm" onClick={() => handleWindowAction("close")} aria-label={t("close")} />
-      <button className="h-3 w-3 rounded-full bg-amber-400 shadow-sm" onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")} />
-      <button className="h-3 w-3 rounded-full bg-emerald-500 shadow-sm" onClick={() => handleWindowAction("maximize")} aria-label={t("maximize")} />
+    <div className={cn("flex items-center gap-1", noDrag)} aria-label="Window controls">
+      <button className={macControlButton} onClick={() => handleWindowAction("close")} aria-label={t("close")}>
+        <span className="h-3 w-3 rounded-full bg-red-500 shadow-sm" />
+      </button>
+      <button className={macControlButton} onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")}>
+        <span className="h-3 w-3 rounded-full bg-amber-400 shadow-sm" />
+      </button>
+      <button className={macControlButton} onClick={() => handleWindowAction("maximize")} aria-label={t("maximize")}>
+        <span className="h-3 w-3 rounded-full bg-emerald-500 shadow-sm" />
+      </button>
     </div>
   );
 }
@@ -229,20 +242,20 @@ function WindowsControls() {
 
   return (
     <div className={cn("flex items-center overflow-hidden rounded-lg border border-[var(--line-dark)] bg-white/30 dark:bg-white/5", noDrag)} aria-label="Window controls">
-      <button className="grid h-8 w-10 place-items-center text-[var(--muted)] transition hover:bg-white/50 hover:text-[var(--ink)] dark:hover:bg-white/10" onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")}>
+      <button className={windowsControlButton} onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")}>
         <Minus size={15} strokeWidth={1.6} />
       </button>
-      <button className="grid h-8 w-10 place-items-center text-[var(--muted)] transition hover:bg-white/50 hover:text-[var(--ink)] dark:hover:bg-white/10" onClick={() => handleWindowAction("maximize")} aria-label={t("maximize")}>
+      <button className={windowsControlButton} onClick={() => handleWindowAction("maximize")} aria-label={t("maximize")}>
         <Square size={12} strokeWidth={1.6} />
       </button>
-      <button className="grid h-8 w-10 place-items-center text-[var(--muted)] transition hover:bg-red-500 hover:text-white" onClick={() => handleWindowAction("close")} aria-label={t("close")}>
+      <button className={windowsCloseButton} onClick={() => handleWindowAction("close")} aria-label={t("close")}>
         <X size={16} strokeWidth={1.6} />
       </button>
     </div>
   );
 }
 
-function Sidebar({ nav }: { nav: ReturnType<typeof navItems> }) {
+function Sidebar({ groups }: { groups: NavGroup[] }) {
   const { view, setView, t } = useChromeContext();
   const previewActionCount = useOperationQueueStore((state) => state.previewActionCount);
 
@@ -255,28 +268,33 @@ function Sidebar({ nav }: { nav: ReturnType<typeof navItems> }) {
           <span className="block text-xs text-[var(--muted)]">{t("appSubtitle")}</span>
         </div>
       </div>
-      <nav className="flex flex-1 flex-col gap-1">
-        {nav.map((item, index) => (
-          <button
-            key={item.id}
-            className={cn(navItemBase, view === item.id && navItemActive, index === 4 && "mt-3 border-t border-[var(--line-dark)] pt-4")}
-            onClick={() => setView(item.id)}
-          >
-            <item.icon size={18} />
-            <span>{item.label}</span>
-            {item.id === "preview" && previewActionCount > 0 && (
-              <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500/10 px-1 text-[11px] font-medium text-red-600 dark:text-red-300" aria-label={`${previewActionCount} pending`}>
-                {previewActionCount}
-              </span>
-            )}
-          </button>
+      <nav className="flex flex-1 flex-col gap-3">
+        {groups.map((group) => (
+          <section className="grid gap-1 border-t border-[var(--line-dark)] pt-3 first:border-t-0 first:pt-0" key={group.id}>
+            <span className={navGroupTitle}>{group.label}</span>
+            {group.items.map((item) => (
+              <button
+                key={item.id}
+                className={cn(navItemBase, view === item.id && navItemActive)}
+                onClick={() => setView(item.id)}
+              >
+                <item.icon size={18} />
+                <span>{item.label}</span>
+                {item.id === "preview" && previewActionCount > 0 && (
+                  <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500/10 px-1 text-[11px] font-medium text-red-600 dark:text-red-300" aria-label={`${previewActionCount} pending`}>
+                    {previewActionCount}
+                  </span>
+                )}
+              </button>
+            ))}
+          </section>
         ))}
       </nav>
-      <div className="mt-auto flex items-start gap-3 rounded-2xl border border-[var(--line-dark)] bg-white/30 p-3 text-sm dark:bg-white/5">
-        <LockKeyhole size={18} />
+      <div className={cn(softPanel, "mt-auto flex items-start gap-3 p-3 text-sm")}>
+        <LockKeyhole size={17} className="mt-0.5 text-blue-500/75" />
         <div>
-          <strong className="block text-[var(--ink)]">{t("privateByDefault")}</strong>
-          <span className="block text-xs text-[var(--muted)]">{t("privacyLine")}</span>
+          <strong className="block text-sm text-[var(--ink)]">{t("localOnly")}</strong>
+          <span className="block text-xs leading-5 text-[var(--muted)]">{t("privacyLine")}</span>
         </div>
       </div>
     </aside>
@@ -295,14 +313,14 @@ function ViewHeading({
   const handleChooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
   const handleScan = useScanManagerStore((state) => state.handleScan);
 
+  if (view === "scanner") return null;
+
   return (
-    <div className="mb-4 flex items-center justify-between gap-4">
-      <div>
-        <h1 className="m-0 text-2xl font-semibold">{activeLabel}</h1>
-        <p className="mt-1 text-sm text-[var(--muted)]">{headingDescription}</p>
-      </div>
-      {view !== "scanner" && (
-        <div className="flex items-center gap-2">
+    <PageHeader
+      title={activeLabel}
+      description={headingDescription}
+      actions={
+        <div className={inlineActions}>
           <button className={glassButton} onClick={handleChooseFolders} disabled={isScanning}>
             <FolderSearch size={17} />
             <span>{t("chooseFolders")}</span>
@@ -312,8 +330,8 @@ function ViewHeading({
             <span>{t("scanCommon")}</span>
           </button>
         </div>
-      )}
-    </div>
+      }
+    />
   );
 }
 
@@ -341,14 +359,53 @@ function AppViewContent() {
   return <SettingsView />;
 }
 
-function navItems(t: Translator) {
+function viewDescription(
+  view: View,
+  stats: DashboardStats,
+  scopeText: string,
+  previewActionCount: number,
+  t: Translator
+): string {
+  switch (view) {
+    case "scanner":
+      return `${t("lastScan")}: ${stats.lastScannedAt ? formatDate(stats.lastScannedAt) : t("notScannedYet")}`;
+    case "organize":
+      return `${t("currentOrganizeScope")}: ${scopeText} · ${t("viewDescOrganize")}`;
+    case "library":
+      return `${t("currentScope")}: ${scopeText} · ${stats.totalFiles.toLocaleString()} ${t("files")}`;
+    case "preview":
+      return previewActionCount > 0
+        ? `${previewActionCount.toLocaleString()} ${t("items")} · ${t("viewDescPreview")}`
+        : t("viewDescPreview");
+    case "rules":
+      return t("viewDescRules");
+    case "restore":
+      return t("viewDescRestore");
+    case "settings":
+      return t("viewDescSettings");
+  }
+}
+
+function navGroups(t: Translator): NavGroup[] {
   return [
-    { id: "scanner" as const, label: t("spaceScan"), icon: Radar },
-    { id: "organize" as const, label: t("smartDispatch"), icon: LayoutGrid },
-    { id: "library" as const, label: t("fileLibrary"), icon: Archive },
-    { id: "preview" as const, label: t("previewExecute"), icon: ListChecks },
-    { id: "rules" as const, label: t("ruleEngine"), icon: SlidersHorizontal },
-    { id: "restore" as const, label: t("restoreRecords"), icon: Clock3 },
-    { id: "settings" as const, label: t("settings"), icon: Settings }
-  ] satisfies Array<{ id: View; label: string; icon: typeof Radar }>;
+    {
+      id: "workspace",
+      label: t("navWorkspace"),
+      items: [
+        { id: "scanner", label: t("spaceScan"), icon: Radar },
+        { id: "organize", label: t("smartDispatch"), icon: LayoutGrid },
+        { id: "library", label: t("fileLibrary"), icon: Archive },
+        { id: "preview", label: t("previewExecute"), icon: ListChecks }
+      ]
+    },
+    {
+      id: "system",
+      label: t("navSystem"),
+      items: [
+        { id: "rules", label: t("ruleEngine"), icon: SlidersHorizontal },
+        { id: "restore", label: t("restoreRecords"), icon: Clock3 },
+        { id: "settings", label: t("settings"), icon: Settings }
+      ]
+    }
+  ];
 }

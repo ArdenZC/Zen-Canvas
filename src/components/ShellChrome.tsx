@@ -4,6 +4,11 @@ import type { Language } from "../i18n";
 import type { ThemeMode, Translator } from "../types/ui";
 import { cn, glassButton, glassButtonPrimary, glassPanel } from "../utils/tw";
 
+const titlebarToolButton =
+  "grid h-8 w-8 place-items-center rounded-full border border-[var(--line-dark)] bg-white/32 text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:border-blue-400/20 hover:bg-white/48 hover:text-[var(--ink)] hover:shadow-[0_0_0_3px_rgba(59,130,246,0.045)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/45 dark:bg-white/5 dark:hover:bg-white/9";
+const titlebarPillButton =
+  "inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--line-dark)] bg-white/32 px-3 text-xs font-medium text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:border-blue-400/20 hover:bg-white/48 hover:text-[var(--ink)] hover:shadow-[0_0_0_3px_rgba(59,130,246,0.045)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/45 dark:bg-white/5 dark:hover:bg-white/9";
+
 export function ZenMark() {
   return (
     <div className="relative h-9 w-9 shrink-0" aria-hidden="true">
@@ -38,13 +43,13 @@ export function TitlebarTools({
   return (
     <div className="flex items-center gap-2 [-webkit-app-region:no-drag]">
       <button
-        className="grid h-8 w-8 place-items-center rounded-full border border-[var(--line-dark)] bg-white/40 text-[var(--muted)] transition hover:bg-white/70 hover:text-[var(--ink)] dark:bg-white/5 dark:hover:bg-white/10"
+        className={titlebarToolButton}
         onClick={() => setTheme(effectiveTheme === "dark" ? "light" : "dark")}
       >
         {theme === "system" ? <Monitor size={17} /> : effectiveTheme === "dark" ? <Moon size={17} /> : <Sun size={17} />}
       </button>
       <button
-        className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--line-dark)] bg-white/40 px-3 text-xs font-medium text-[var(--muted)] transition hover:bg-white/70 hover:text-[var(--ink)] dark:bg-white/5 dark:hover:bg-white/10"
+        className={titlebarPillButton}
         onClick={() => setLanguage(language === "zh" ? "en" : "zh")}
       >
         <Languages size={16} />
