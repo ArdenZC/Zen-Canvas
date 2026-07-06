@@ -341,7 +341,7 @@ function VirtualAssetGrid({
     if (!node || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(([entry]) => {
       const width = entry.contentRect.width;
-      const nextColumns = Math.max(1, Math.min(4, Math.floor(width / 230)));
+      const nextColumns = Math.max(1, Math.min(4, Math.floor(width / 260)));
       setColumns(nextColumns || 1);
     });
     observer.observe(node);
@@ -356,7 +356,7 @@ function VirtualAssetGrid({
 
   if (!shouldVirtualize) {
     return (
-      <motion.section className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3" variants={listMotion} initial="hidden" animate="show">
+      <motion.section className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3" variants={listMotion} initial="hidden" animate="show">
         {files.map((file) => (
           <AssetCard
             file={file}

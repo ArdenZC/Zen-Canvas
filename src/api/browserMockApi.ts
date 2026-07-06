@@ -193,10 +193,15 @@ export function isBrowserMockEnabled(): boolean {
 
 function hasTauriRuntime(): boolean {
   const candidate = globalThis as typeof globalThis & {
-    __TAURI_INTERNALS__?: unknown;
+    __TAURI_INTERNALS__?: { transformCallback?: unknown; invoke?: unknown };
     __TAURI__?: unknown;
   };
-  return Boolean(candidate.__TAURI_INTERNALS__ || candidate.__TAURI__);
+  return Boolean(
+    candidate.__TAURI__
+      || (candidate.__TAURI_INTERNALS__
+        && typeof candidate.__TAURI_INTERNALS__.transformCallback === "function"
+        && typeof candidate.__TAURI_INTERNALS__.invoke === "function")
+  );
 }
 
 function isLocalBrowserPreview(): boolean {

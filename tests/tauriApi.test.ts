@@ -16,6 +16,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 describe("tauriApi", () => {
   beforeEach(() => {
+    delete (globalThis as typeof globalThis & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
     apiMocks.invoke.mockReset().mockResolvedValue({
       files: [],
       total: 0,
@@ -75,6 +76,16 @@ describe("tauriApi", () => {
 
   it("falls back to browser mock data when the Tauri runtime is unavailable in dev", async () => {
     apiMocks.invoke.mockRejectedValueOnce(new Error("Cannot read properties of undefined (reading 'invoke')"));
+
+    const result = await tauriApi.getPagedFiles(50, 0, "report", { kind: "all" });
+
+    expect(result.files.length).toBeGreaterThan(0);
+    expect(result.files[0].name).toContain("report");
+  });
+
+  it("treats partial Tauri internals as unavailable in browser preview", async () => {
+    (globalThis as typeof globalThis & { __TAURI_INTERNALS__?: { transformCallback?: unknown } }).__TAURI_INTERNALS__ = {};
+    apiMocks.invoke.mockRejectedValueOnce(new Error("Cannot read properties of undefined (reading 'transformCallback')"));
 
     const result = await tauriApi.getPagedFiles(50, 0, "report", { kind: "all" });
 

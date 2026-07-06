@@ -5,7 +5,8 @@ import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { percent } from "../../utils/format";
 import { cn, inputSurface } from "../../utils/tw";
-import { compactRowSurface, itemMotion } from "../shared/ui";
+import { compactPath } from "../../utils/viewHelpers";
+import { ToneBadge, compactInteractiveRow, itemMotion } from "../shared/ui";
 
 export const PreviewFileRow = memo(function PreviewFileRow({
   preview,
@@ -20,50 +21,59 @@ export const PreviewFileRow = memo(function PreviewFileRow({
   onRenamePreview: (id: string, name: string) => void;
   t: Translator;
 }) {
+  const blocked = preview.is_executable === false;
+
   return (
     <motion.div
       className={cn(
-        compactRowSurface,
-        "grid grid-cols-[auto_auto_minmax(0,1fr)] items-start gap-3",
-        isSelected && "border-blue-400/28 bg-blue-500/7",
-        preview.is_executable === false && "border-red-400/24 bg-red-500/7"
+        compactInteractiveRow({ selected: isSelected, disabled: blocked }),
+        "grid grid-cols-[auto_auto_minmax(0,1fr)] items-start gap-3"
       )}
       layout={false}
       variants={itemMotion}
     >
       <input
         type="checkbox"
-        disabled={preview.is_executable === false}
+        disabled={blocked}
         checked={isSelected}
         onChange={() => toggle(preview.id)}
       />
       <File size={15} />
       <div className="min-w-0">
-        <strong className="block truncate text-sm">{preview.old_name}</strong>
-        <span className="block text-xs text-[var(--muted)]">{preview.operation_type} / {percent(preview.confidence)}</span>
-        <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
-          {preview.requires_confirmation && (
-            <span className="rounded-full border border-amber-400/50 bg-amber-500/10 px-2 py-0.5 text-amber-700 dark:text-amber-200">
-              {t("confirmationItems")}
+        <div className="grid gap-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+          <div className="min-w-0">
+            <strong className="block truncate text-sm">{preview.old_name}</strong>
+            <span className="block text-xs text-[var(--muted)]">
+              {operationLabel(preview.operation_type, t)} / {percent(preview.confidence)}
             </span>
+          </div>
+          <ToneBadge tone={blocked ? "danger" : "success"}>
+            {blocked ? t("operationBlocked") : t("operationExecutable")}
+          </ToneBadge>
+        </div>
+
+        <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
+          <ToneBadge tone={riskTone(preview.risk_level)}>{preview.risk_level}</ToneBadge>
+          {preview.requires_confirmation && (
+            <ToneBadge tone="warning">{t("operationNeedsConfirmation")}</ToneBadge>
           )}
           {preview.blocking_reason && (
-            <span className="rounded-full border border-red-400/50 bg-red-500/10 px-2 py-0.5 text-red-700 dark:text-red-200">
-              {preview.blocking_reason}
-            </span>
+            <ToneBadge tone="danger">{preview.blocking_reason}</ToneBadge>
           )}
           {preview.will_create_parent && (
-            <span className="rounded-full border border-blue-400/50 bg-blue-500/10 px-2 py-0.5 text-blue-700 dark:text-blue-200">
-              {t("autoCreateFolders")}
-            </span>
+            <ToneBadge tone="info">{t("operationCreatesParent")}</ToneBadge>
           )}
         </div>
-        <code className="mt-1 block truncate rounded-lg bg-slate-500/10 px-2 py-1 text-[11px] text-[var(--muted)]" title={preview.source_path}>{preview.source_path}</code>
-        <code className="mt-1 block truncate rounded-lg bg-blue-500/8 px-2 py-1 text-[11px] text-blue-600 dark:text-blue-300" title={preview.target_path}>{preview.target_path}</code>
+
+        <div className="mt-2 grid min-w-0 gap-2 lg:grid-cols-2">
+          <PathBlock label={t("sourcePath")} path={preview.source_path} tone="source" />
+          <PathBlock label={t("targetPath")} path={preview.target_path} tone="target" />
+        </div>
+
         <input
           className={cn(inputSurface, "mt-2 w-full")}
           value={preview.new_name}
-          disabled={!preview.editable_new_name || preview.is_executable === false}
+          disabled={!preview.editable_new_name || blocked}
           onChange={(event) => onRenamePreview(preview.id, event.target.value)}
           aria-label={t("newFileName")}
         />
@@ -72,3 +82,34 @@ export const PreviewFileRow = memo(function PreviewFileRow({
   );
 });
 
+function PathBlock({ label, path, tone }: { label: string; path: string; tone: "source" | "target" }) {
+  return (
+    <div
+      className={cn(
+        "min-w-0 rounded-lg border px-2 py-1.5",
+        tone === "source"
+          ? "border-slate-400/20 bg-slate-500/8"
+          : "border-blue-400/24 bg-blue-500/8"
+      )}
+      title={path}
+    >
+      <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--quiet)]">{label}</span>
+      <code className="block min-w-0 break-all text-[11px] leading-5 text-[var(--muted)]">
+        {compactPath(path, 78)}
+      </code>
+    </div>
+  );
+}
+
+function operationLabel(operation: OperationPreview["operation_type"], t: Translator): string {
+  if (operation === "rename") return t("operationRename");
+  if (operation === "move_rename") return t("operationMoveRename");
+  return t("operationMove");
+}
+
+function riskTone(risk: OperationPreview["risk_level"]): "info" | "success" | "warning" | "danger" | "slate" {
+  if (risk === "Sensitive") return "danger";
+  if (risk === "System") return "warning";
+  if (risk === "Normal") return "success";
+  return "slate";
+}

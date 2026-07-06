@@ -12,7 +12,7 @@ describe("makeTranslator", () => {
     const zh = makeTranslator("zh");
     const en = makeTranslator("en");
 
-    expect(zh("diskUsageInScope")).toContain("参考磁盘");
-    expect(en("diskUsageInScope").toLowerCase()).toContain("reference disk");
+    expect(zh("diskUsageInScope")).toContain("磁盘容量参考值");
+    expect(en("diskUsageInScope").toLowerCase()).toContain("reference capacity");
   });
 });

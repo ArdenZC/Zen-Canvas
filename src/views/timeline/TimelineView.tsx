@@ -10,8 +10,22 @@ import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { groupOperationPreviews, compactPath, libraryScopeLabel } from "../../utils/viewHelpers";
 import { shouldVirtualizeList } from "../../utils/virtualization";
-import { cn, emptyState, glassButton, glassButtonPrimary, glassButtonWarning, sectionTitle, virtualList, virtualRow as virtualRowClass, virtualSpacer } from "../../utils/tw";
-import { listMotion, pageSurface, panelSurface, rowSurface } from "../shared/ui";
+import { cn, glassButton, glassButtonPrimary, glassButtonWarning, virtualList, virtualRow as virtualRowClass, virtualSpacer } from "../../utils/tw";
+import {
+  MetricCard,
+  NoticeBanner,
+  StateBlock,
+  cardGrid,
+  contentPanel,
+  interactiveRow,
+  listMotion,
+  pageFrame,
+  pageSurface,
+  panelSurface,
+  sectionDescription,
+  sectionHeading,
+  softPanel
+} from "../shared/ui";
 import { PreviewFileRow } from "./PreviewFileRow";
 
 const PREVIEW_ROW_HEIGHT = 156;
@@ -51,39 +65,48 @@ export function TimelineView() {
   const isExecuting = Boolean(executeProgress);
   const scopeText = libraryScopeLabel(previewScope ?? scope, t("allIndexedFiles"), t("noFolderSelected"));
   const coveredTotal = previewTotal || previews.length;
+  const selectedCount = selectedIds.size;
+  const executeButtonLabel = t("executeSelectedWithCount").replace("{count}", selectedCount.toLocaleString());
 
   return (
-    <div className={pageSurface}>
+    <div className={pageFrame}>
       <section className={panelSurface}>
-        <div className={cn(sectionTitle, "items-center")}>
-          <div>
-            <h2>{t("suggestedPlan")}</h2>
-            <p>{t("previewBeforeExecute")}</p>
-            <p className="truncate text-xs text-[var(--muted)]">{t("currentOrganizeScope")}: {scopeText}</p>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className={sectionHeading}>{t("suggestedPlan")}</h2>
+            <p className={sectionDescription}>{t("previewBeforeExecute")}</p>
+            <p className="mt-2 truncate text-xs text-[var(--muted)]">{t("currentOrganizeScope")}: {scopeText}</p>
           </div>
-          <button className={glassButtonPrimary} onClick={executeSelected} disabled={!selectedIds.size || isExecuting}>
+          <button className={glassButtonPrimary} onClick={executeSelected} disabled={!selectedCount || isExecuting}>
             <Play size={16} />
-            <span>{isExecuting ? t("executingOperations") : t("executeSelected")} / {selectedIds.size}</span>
+            <span>{isExecuting ? t("executingOperations") : executeButtonLabel}</span>
           </button>
         </div>
-        <div className="mb-4 grid grid-cols-2 gap-2 text-sm text-[var(--muted)] md:grid-cols-3 xl:grid-cols-5">
-          <MetricChip label={t("previewScopeItems")} value={coveredTotal.toLocaleString()} />
-          <MetricChip label={t("previewMainFolders")} value={groups.length} />
-          <MetricChip label={t("executableItems")} value={executableCount} />
-          <MetricChip label={t("blockedItems")} value={blockedCount} />
-          <MetricChip label={t("confirmationItems")} value={confirmationCount} />
+
+        <div className="mb-4 grid gap-3">
+          <NoticeBanner tone="warning" title={t("previewSafetyTitle")}>
+            {t("previewNoOverwriteDelete")}
+          </NoticeBanner>
+          <div className={cardGrid}>
+            <MetricCard label={t("previewTotalSuggestions")} value={coveredTotal.toLocaleString()} tone="blue" />
+            <MetricCard label={t("selectedOperations")} value={selectedCount.toLocaleString()} tone="green" />
+            <MetricCard label={t("executableItems")} value={executableCount.toLocaleString()} tone="green" />
+            <MetricCard label={t("blockedItems")} value={blockedCount.toLocaleString()} tone="red" />
+            <MetricCard label={t("confirmationItems")} value={confirmationCount.toLocaleString()} tone="amber" />
+            <MetricCard label={t("autoCreateFolders")} value={autoCreateParentCount.toLocaleString()} tone="purple" />
+          </div>
         </div>
         {previewTruncated && (
-          <div className="mb-4 rounded-xl border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200">
+          <NoticeBanner tone="warning">
             {t("previewTruncatedWarning")
               .replace("{limit}", previewLimit.toLocaleString())
               .replace("{total}", coveredTotal.toLocaleString())}
-          </div>
+          </NoticeBanner>
         )}
         {autoCreateParentCount > 0 && (
-          <div className="mb-4 rounded-xl border border-blue-400/30 bg-blue-500/8 px-3 py-2 text-sm text-blue-700 dark:text-blue-200">
+          <NoticeBanner tone="info">
             {t("autoCreateFolderHint").replace("{count}", autoCreateParentCount.toLocaleString())}
-          </div>
+          </NoticeBanner>
         )}
         {executeProgress && (
           <OperationProgressPanel
@@ -94,31 +117,35 @@ export function TimelineView() {
           />
         )}
         {!previews.length ? (
-          <div className={cn(emptyState, "grid min-h-48 place-items-center gap-4 px-6 text-center")}>
-            <div>
-              <strong className="block text-base text-[var(--ink)]">{t("previewEmptyTitle")}</strong>
-              <span className="mt-2 block max-w-xl text-sm text-[var(--muted)]">{t("previewEmptyDesc")}</span>
-            </div>
-            <div className="flex flex-wrap justify-center gap-2">
+          <StateBlock
+            title={t("previewEmptyTitle")}
+            description={t("previewEmptyDesc")}
+            primaryAction={(
               <button className={glassButtonPrimary} onClick={() => setView("organize")}>
                 {t("goSmartDispatch")}
               </button>
+            )}
+            secondaryAction={(
               <button className={glassButton} onClick={() => setView("rules")}>
                 {t("goRuleEngine")}
               </button>
-            </div>
-          </div>
+            )}
+          />
         ) : (
-          <div className="grid gap-4">
+          <div className={cn(pageSurface, "grid gap-4")}>
             {groups.map((group) => {
               const executable = group.items.filter((item) => item.is_executable !== false);
               const allSelected = executable.length > 0 && executable.every((item) => selectedIds.has(item.id));
+              const selectedInGroup = executable.filter((item) => selectedIds.has(item.id)).length;
+              const groupDisabledDescriptionId = `group-disabled-${group.key}`;
               return (
-                <section className={cn(rowSurface, "grid gap-3 p-4")} key={group.key}>
-                  <label className="grid cursor-pointer grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-3">
+                <section className={cn(interactiveRow({ disabled: executable.length === 0 }), "grid gap-3 p-4")} key={group.key}>
+                  <label className={cn("grid grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-3", executable.length > 0 && "cursor-pointer")}>
                     <input
                       type="checkbox"
                       checked={allSelected}
+                      disabled={executable.length === 0}
+                      aria-describedby={executable.length === 0 ? groupDisabledDescriptionId : undefined}
                       onChange={() => {
                         const next = new Set(selectedIds);
                         const shouldSelect = !allSelected;
@@ -134,11 +161,18 @@ export function TimelineView() {
                       <strong className="block text-sm">{group.name}</strong>
                       <span className="block truncate text-xs text-[var(--muted)]">{group.path}</span>
                     </div>
-                    <em className="rounded-full border border-[var(--line)] px-2 py-1 text-xs not-italic text-[var(--muted)]">{group.items.length}</em>
+                    <em className="rounded-full border border-[var(--line)] px-2 py-1 text-xs not-italic text-[var(--muted)]">
+                      {selectedInGroup.toLocaleString()} / {executable.length.toLocaleString()}
+                    </em>
                   </label>
+                  {executable.length === 0 && (
+                    <p id={groupDisabledDescriptionId} className="text-xs text-[var(--muted)]">
+                      {t("groupNoExecutableItems")}
+                    </p>
+                  )}
                   <div className="grid gap-3">
                     {group.subgroups.map((subgroup) => (
-                      <section className="rounded-[var(--radius-md)] border border-[var(--line-dark)] bg-white/14 p-3 dark:bg-white/5" key={`${group.key}-${subgroup.key}`}>
+                      <section className={cn(softPanel, "p-3")} key={`${group.key}-${subgroup.key}`}>
                         <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 pb-2">
                           <Folder size={16} />
                           <div>
@@ -169,14 +203,6 @@ export function TimelineView() {
         )}
       </section>
     </div>
-  );
-}
-
-function MetricChip({ label, value }: { label: string; value: string | number }) {
-  return (
-    <span className="rounded-xl border border-[var(--line)] bg-white/18 px-3 py-2 dark:bg-white/5">
-      {label}: <strong className="text-[var(--ink)]">{value}</strong>
-    </span>
   );
 }
 
@@ -267,9 +293,9 @@ export function OperationProgressPanel({
     .replace("{path}", currentPath);
 
   return (
-    <div className={cn(rowSurface, "mb-4 grid gap-3 p-4")}>
+    <div className={cn(contentPanel, "mb-4 grid gap-3 p-4")}>
       <div className="flex items-center justify-between gap-3 text-sm">
-        <strong>{progress.kind === "restore" ? t("restoring") : t("executingOperations")}</strong>
+        <strong>{progress.kind === "restore" ? t("restoring") : t("operationProgressTitle")}</strong>
         <span className="text-[var(--muted)]">
           {progress.processed.toLocaleString()} / {progress.total.toLocaleString()}
         </span>
@@ -281,7 +307,7 @@ export function OperationProgressPanel({
         />
       </div>
       <div className="flex min-w-0 items-center justify-between gap-3">
-        <small className="min-w-0 truncate text-xs text-[var(--muted)]">{line}</small>
+        <small className="min-w-0 truncate text-xs text-[var(--muted)]" title={progress.currentPath ?? undefined}>{line}</small>
         <button className={glassButtonWarning} onClick={onCancel} disabled={isCanceling}>
           <X size={15} />
           <span>{isCanceling ? t("operationCanceling") : t("cancel")}</span>

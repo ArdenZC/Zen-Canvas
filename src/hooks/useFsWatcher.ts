@@ -1,5 +1,4 @@
 import { useEffect, useRef } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { tauriApi } from "../api/tauriApi";
 import { makeTranslator } from "../i18n";
 import { useAppStore } from "../store/useAppStore";
@@ -116,8 +115,7 @@ export function useFsWatcher({
       }, WATCHER_FLUSH_DELAY_MS);
     };
 
-    const unlistenPromise = listen<FsWatchEvent>("fs-event", (event) => {
-      const payload = event.payload;
+    const unlistenPromise = tauriApi.onFsEvent<FsWatchEvent>((payload) => {
       if (!payload) return;
 
       const snapshot = watcherQueueSnapshotFromEvent(payload);
@@ -133,8 +131,8 @@ export function useFsWatcher({
       }
       scheduleFlush();
     });
-    const warningUnlistenPromise = listen<FsWatcherWarningEvent>("fs-watcher-warning", (event) => {
-      if (!event.payload || disposed) return;
+    const warningUnlistenPromise = tauriApi.onFsWatcherWarning<FsWatcherWarningEvent>((payload) => {
+      if (!payload || disposed) return;
       onError?.(watcherPartialIndexWarningMessage());
     });
 

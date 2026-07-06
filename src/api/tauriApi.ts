@@ -287,6 +287,14 @@ export const tauriApi = {
 
   onGlobalHotkeyRegistrationFailed(handler: EventHandler<GlobalHotkeyErrorPayload>): Promise<UnlistenFn> {
     return listenTo("global-hotkey-registration-failed", handler);
+  },
+
+  onFsEvent<T>(handler: EventHandler<T>): Promise<UnlistenFn> {
+    return listenTo("fs-event", handler);
+  },
+
+  onFsWatcherWarning<T>(handler: EventHandler<T>): Promise<UnlistenFn> {
+    return listenTo("fs-watcher-warning", handler);
   }
 };
 

@@ -55,7 +55,10 @@ vi.mock("../src/api/tauriApi", () => ({
   tauriApi: {
     markFilesStaleByPaths: apiMocks.markFilesStaleByPaths,
     upsertFilesByPaths: apiMocks.upsertFilesByPaths,
-    executeRulesForPaths: apiMocks.executeRulesForPaths
+    executeRulesForPaths: apiMocks.executeRulesForPaths,
+    onFsEvent: (handler: (payload: FsWatchEvent) => void) => apiMocks.listen("fs-event", handler),
+    onFsWatcherWarning: (handler: (payload: { message: string; path?: string; limit?: number }) => void) =>
+      apiMocks.listen("fs-watcher-warning", handler)
   }
 }));
 
@@ -158,8 +161,8 @@ describe("fs watcher hook registration", () => {
 
     renderWatcher({ onRefreshData, rules: firstRules });
 
-    const handler = apiMocks.listen.mock.calls[0][1] as (event: { payload: FsWatchEvent }) => void;
-    handler({ payload: { eventType: "created", paths: ["F:/Projects/new.txt"] } });
+    const handler = apiMocks.listen.mock.calls[0][1] as (payload: FsWatchEvent) => void;
+    handler({ eventType: "created", paths: ["F:/Projects/new.txt"] });
 
     renderWatcher({ onRefreshData, rules: secondRules });
 
@@ -192,9 +195,9 @@ describe("fs watcher hook registration", () => {
 
     renderWatcher({ onRefreshData, rules: [] });
 
-    const handler = apiMocks.listen.mock.calls[0][1] as (event: { payload: FsWatchEvent }) => void;
-    handler({ payload: { eventType: "created", paths: ["F:/Projects/shared.txt"] } });
-    handler({ payload: { eventType: "deleted", paths: ["F:/Projects/shared.txt"] } });
+    const handler = apiMocks.listen.mock.calls[0][1] as (payload: FsWatchEvent) => void;
+    handler({ eventType: "created", paths: ["F:/Projects/shared.txt"] });
+    handler({ eventType: "deleted", paths: ["F:/Projects/shared.txt"] });
 
     vi.advanceTimersByTime(500);
     await flushPromises();
@@ -211,17 +214,15 @@ describe("fs watcher hook registration", () => {
     renderWatcher({ onRefreshData, onError, rules: [] });
 
     const warningHandler = apiMocks.listen.mock.calls.find(([eventName]) => eventName === "fs-watcher-warning")?.[1] as
-      | ((event: { payload: { message: string; path?: string; limit?: number } }) => void)
+      | ((payload: { message: string; path?: string; limit?: number }) => void)
       | undefined;
 
     expect(warningHandler).toBeTypeOf("function");
 
     warningHandler?.({
-      payload: {
-        message: "Watcher deep upsert reached entry limit",
-        path: "F:/Large",
-        limit: 5000
-      }
+      message: "Watcher deep upsert reached entry limit",
+      path: "F:/Large",
+      limit: 5000
     });
 
     expect(onError).toHaveBeenCalledWith("该目录项目过多，仅部分更新，请手动运行完整扫描。");

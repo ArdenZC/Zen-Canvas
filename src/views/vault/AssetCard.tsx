@@ -37,7 +37,7 @@ export const AssetCard = memo(function AssetCard({
     <motion.div
       className={cn(
         contentPanel,
-        "group relative grid min-h-56 cursor-pointer content-start gap-3 p-4 text-left transition-[background,border-color,box-shadow,color]",
+        "group relative grid min-h-56 cursor-pointer content-start gap-3 overflow-hidden p-4 text-left transition-[background,border-color,box-shadow,color]",
         "hover:border-blue-400/28 hover:bg-white/40 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.42)] dark:hover:bg-white/10",
         isSelected && "border-blue-400/60 bg-blue-500/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.46),0_0_0_3px_rgba(59,130,246,0.09)]"
       )}
@@ -69,7 +69,7 @@ export const AssetCard = memo(function AssetCard({
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-[var(--line)] bg-white/24 text-[var(--muted)] dark:bg-white/5">
           <File size={23} />
         </span>
-        <div className="min-w-0">
+        <div className="min-w-0 max-w-full">
           <h3 className="line-clamp-2 text-base font-semibold leading-5 text-[var(--ink)]" title={file.name}>{file.name}</h3>
           <p className={cn(quietText, "mt-1 truncate")} title={file.path}>{compactPath(file.path, 62)}</p>
         </div>

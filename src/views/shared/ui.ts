@@ -2,11 +2,14 @@ import { createElement, type ButtonHTMLAttributes, type ReactNode } from "react"
 import type { Variants } from "motion/react";
 import {
   appPanel as appPanelClass,
+  buttonSecondary,
   buttonIcon,
   cn,
   contentPanel,
   dangerSurface,
   elevatedPanel,
+  glassButtonDanger,
+  glassButtonPrimary,
   infoSurface,
   sectionTitle,
   softPanel as softPanelClass,
@@ -17,22 +20,22 @@ import {
 } from "../../utils/tw";
 
 export const listMotion: Variants = {
-  hidden: {},
-  show: {
-    transition: {
-      staggerChildren: 0.035,
-      delayChildren: 0.03
-    }
-  }
-};
-
-export const itemMotion: Variants = {
-  hidden: { opacity: 0, y: 10, filter: "blur(2px)" },
+  hidden: { opacity: 0, y: 8, filter: "blur(2px)" },
   show: {
     opacity: 1,
     y: 0,
     filter: "blur(0px)",
-    transition: { type: "spring", stiffness: 260, damping: 28 }
+    transition: { duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }
+  }
+};
+
+export const itemMotion: Variants = {
+  hidden: { opacity: 0, y: 8, filter: "blur(2px)" },
+  show: {
+    opacity: 1,
+    y: 0,
+    filter: "blur(0px)",
+    transition: { duration: 0.16, ease: [0.2, 0.8, 0.2, 1] }
   }
 };
 
@@ -263,6 +266,161 @@ export function IconButton({
       className: cn(buttonIcon, className)
     },
     children
+  );
+}
+
+export function ConfirmDialog({
+  open,
+  tone = "warning",
+  title,
+  description,
+  confirmLabel,
+  cancelLabel,
+  isProcessing = false,
+  onConfirm,
+  onCancel
+}: {
+  open: boolean;
+  tone?: "warning" | "danger";
+  title: string;
+  description?: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  isProcessing?: boolean;
+  onConfirm: () => void | Promise<void>;
+  onCancel: () => void;
+}) {
+  if (!open) return null;
+
+  return createElement(
+    "div",
+    { className: "fixed inset-0 z-50 grid place-items-center bg-slate-950/28 p-4 backdrop-blur-sm" },
+    createElement(
+      "div",
+      {
+        className: cn(elevatedPanel, "grid w-full max-w-md gap-4 p-5"),
+        role: "alertdialog",
+        "aria-modal": "true",
+        "aria-labelledby": "confirm-dialog-title",
+        "aria-describedby": description ? "confirm-dialog-description" : undefined
+      },
+      createElement(
+        "div",
+        null,
+        createElement("h2", { id: "confirm-dialog-title", className: sectionHeading }, title),
+        description
+          ? createElement("p", { id: "confirm-dialog-description", className: sectionDescription }, description)
+          : null
+      ),
+      createElement(
+        "div",
+        { className: "flex flex-wrap justify-end gap-2" },
+        createElement(
+          "button",
+          { type: "button", className: buttonSecondary, onClick: onCancel, disabled: isProcessing },
+          cancelLabel
+        ),
+        createElement(
+          "button",
+          {
+            type: "button",
+            className: tone === "danger" ? glassButtonDanger : glassButtonPrimary,
+            onClick: onConfirm,
+            disabled: isProcessing
+          },
+          confirmLabel
+        )
+      )
+    )
+  );
+}
+
+export function ControlGroup({
+  title,
+  description,
+  children
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return createElement(
+    "section",
+    { className: formSection },
+    createElement(
+      "div",
+      null,
+      createElement("h2", { className: sectionHeading }, title),
+      description ? createElement("p", { className: sectionDescription }, description) : null
+    ),
+    children
+  );
+}
+
+export function SwitchField({
+  label,
+  description,
+  checked,
+  onChange,
+  disabled = false
+}: {
+  label: string;
+  description?: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+}) {
+  return createElement(
+    "div",
+    { className: formRow },
+    createElement(
+      "div",
+      null,
+      createElement("strong", { className: "block text-sm text-[var(--ink)]" }, label),
+      description ? createElement("span", { className: metadataText }, description) : null
+    ),
+    createElement(
+      "button",
+      {
+        type: "button",
+        className: toggleSwitch(checked),
+        disabled,
+        "aria-pressed": checked,
+        "aria-label": label,
+        onClick: () => onChange(!checked)
+      },
+      createElement("i")
+    )
+  );
+}
+
+export function SegmentedControl<T extends string>({
+  value,
+  options,
+  ariaLabel,
+  onChange
+}: {
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  ariaLabel: string;
+  onChange: (value: T) => void;
+}) {
+  return createElement(
+    "div",
+    { className: cn(segmented, "justify-start md:justify-end"), role: "group", "aria-label": ariaLabel },
+    ...options.map((option) =>
+      createElement(
+        "button",
+        {
+          key: option.value,
+          type: "button",
+          className: segmentButton(value === option.value),
+          "aria-pressed": value === option.value,
+          onClick: () => onChange(option.value)
+        },
+        option.label
+      )
+    )
   );
 }
 
