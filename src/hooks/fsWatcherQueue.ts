@@ -36,9 +36,9 @@ export function mergeWatcherQueues(
   staleQueue: Set<string>,
   upsertQueue: Set<string>
 ): WatcherQueueSnapshot {
-  const upsert = Array.from(upsertQueue);
-  const upsertSet = new Set(upsert);
-  const stale = Array.from(staleQueue).filter((path) => !upsertSet.has(path));
+  const stale = Array.from(staleQueue);
+  const staleSet = new Set(stale);
+  const upsert = Array.from(upsertQueue).filter((path) => !staleSet.has(path));
 
   return { stale, upsert };
 }
@@ -52,14 +52,10 @@ export function takeWatcherQueueBatch(
   const stale: string[] = [];
   const upsert: string[] = [];
 
-  for (const path of upsertQueue) {
-    staleQueue.delete(path);
-  }
-
   const initialUpsertLimit = Math.ceil(boundedLimit / 2);
-  takeFromQueue(upsertQueue, upsert, initialUpsertLimit);
+  takeUpsertFromQueue(upsertQueue, staleQueue, upsert, initialUpsertLimit);
   takeFromQueue(staleQueue, stale, boundedLimit - upsert.length);
-  takeFromQueue(upsertQueue, upsert, boundedLimit - stale.length - upsert.length);
+  takeUpsertFromQueue(upsertQueue, staleQueue, upsert, boundedLimit - stale.length - upsert.length);
 
   return { stale, upsert };
 }
@@ -121,6 +117,25 @@ function takeFromQueue(queue: Set<string>, target: string[], count: number) {
   for (const path of queue) {
     target.push(path);
     queue.delete(path);
+    taken += 1;
+    if (taken >= count) return;
+  }
+}
+
+function takeUpsertFromQueue(
+  upsertQueue: Set<string>,
+  staleQueue: Set<string>,
+  target: string[],
+  count: number
+) {
+  if (count <= 0) return;
+  let taken = 0;
+  for (const path of upsertQueue) {
+    upsertQueue.delete(path);
+    if (staleQueue.has(path)) {
+      continue;
+    }
+    target.push(path);
     taken += 1;
     if (taken >= count) return;
   }

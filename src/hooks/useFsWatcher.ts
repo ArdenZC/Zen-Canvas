@@ -125,6 +125,7 @@ export function useFsWatcher({
 
       for (const path of snapshot.stale) {
         staleQueue.add(path);
+        upsertQueue.delete(path);
       }
       for (const path of snapshot.upsert) {
         upsertQueue.add(path);

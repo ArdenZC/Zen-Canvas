@@ -75,11 +75,11 @@ describe("fs watcher event routing", () => {
     expect(classifyFsWatchEvent({ eventType: "other", paths: ["a.txt"] })).toBe("ignore");
   });
 
-  it("lets upsert win when the same path appears in both queues", () => {
+  it("lets stale win when the same path appears in both queues", () => {
     const merged = mergeWatcherQueues(new Set(["a.txt", "stale.txt"]), new Set(["a.txt"]));
 
-    expect(merged.stale).toEqual(["stale.txt"]);
-    expect(merged.upsert).toEqual(["a.txt"]);
+    expect(merged.stale).toEqual(["a.txt", "stale.txt"]);
+    expect(merged.upsert).toEqual([]);
   });
 
   it("routes rename old paths stale and new paths upsert", () => {
@@ -115,16 +115,16 @@ describe("fs watcher event routing", () => {
 
     expect(first).toEqual({
       stale: ["stale-1.txt"],
-      upsert: ["upsert-1.txt", "shared.txt"]
+      upsert: ["upsert-1.txt", "upsert-2.txt"]
     });
-    expect(Array.from(staleQueue)).toEqual(["stale-2.txt"]);
-    expect(Array.from(upsertQueue)).toEqual(["upsert-2.txt"]);
+    expect(Array.from(staleQueue)).toEqual(["shared.txt", "stale-2.txt"]);
+    expect(upsertQueue.size).toBe(0);
 
     const second = takeWatcherQueueBatch(staleQueue, upsertQueue, 3);
 
     expect(second).toEqual({
-      stale: ["stale-2.txt"],
-      upsert: ["upsert-2.txt"]
+      stale: ["shared.txt", "stale-2.txt"],
+      upsert: []
     });
     expect(staleQueue.size).toBe(0);
     expect(upsertQueue.size).toBe(0);
@@ -185,6 +185,23 @@ describe("fs watcher hook registration", () => {
     renderWatcher({ onRefreshData, rules: [rule("second")] });
 
     expect(apiMocks.listen).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes a queued upsert when a stale event arrives for the same path", async () => {
+    const onRefreshData = vi.fn(async () => {});
+
+    renderWatcher({ onRefreshData, rules: [] });
+
+    const handler = apiMocks.listen.mock.calls[0][1] as (event: { payload: FsWatchEvent }) => void;
+    handler({ payload: { eventType: "created", paths: ["F:/Projects/shared.txt"] } });
+    handler({ payload: { eventType: "deleted", paths: ["F:/Projects/shared.txt"] } });
+
+    vi.advanceTimersByTime(500);
+    await flushPromises();
+
+    expect(apiMocks.markFilesStaleByPaths).toHaveBeenCalledWith(["F:/Projects/shared.txt"]);
+    expect(apiMocks.upsertFilesByPaths).not.toHaveBeenCalled();
+    expect(apiMocks.executeRulesForPaths).not.toHaveBeenCalled();
   });
 
   it("shows watcher partial-index warnings to the user", () => {

@@ -13,7 +13,6 @@ export function ScannerView() {
   const { t } = useChromeContext();
   const scope = useFileLibraryStore((state) => state.scope);
   const stats = useFileLibraryStore((state) => state.stats);
-  const files = useFileLibraryStore((state) => state.libraryPage.files);
   const selectedFolders = useScanManagerStore((state) => state.selectedFolders);
   const isScanning = useScanManagerStore((state) => state.isScanning);
   const isCancelingScan = useScanManagerStore((state) => state.isCancelingScan);
@@ -26,8 +25,8 @@ export function ScannerView() {
   // 与后端 StatsSummary.diskUsageRatio（真实磁盘占用率 = 1 - 可用/总）含义不同，
   // 命名相似但语义不同，此处刻意使用本地计算值。
   const scannedDiskCoverageRatio = stats.diskTotalSize > 0 ? Math.min(1, stats.totalSize / stats.diskTotalSize) : 0;
-  const clutterItems = files.filter((file) => file.requires_confirmation || file.is_duplicate || file.size > 1024 * 1024 * 1024).length;
-  const clutterRatio = files.length ? Math.min(1, clutterItems / files.length) : 0;
+  const clutterItems = stats.duplicateFiles + stats.largeFiles + stats.needsConfirmation;
+  const clutterRatio = stats.totalFiles > 0 ? Math.min(1, clutterItems / stats.totalFiles) : 0;
   const scopeLabel = libraryScopeLabel(scope, t("allIndexedFiles"), selectedFolders[0] ?? t("userSpaceHint"));
   const analysedSize = splitDisplaySize(formatBytes(scopedTotalSize));
 
