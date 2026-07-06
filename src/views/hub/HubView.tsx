@@ -17,6 +17,7 @@ import { shouldVirtualizeList } from "../../utils/virtualization";
 import { buttonSecondary, cn, glassButtonPrimary, virtualList, virtualRow as virtualRowClass, virtualSpacer } from "../../utils/tw";
 import { revealFileFromCard } from "../shared/cardActions";
 import {
+  IconButton,
   MetricCard,
   NoticeBanner,
   StateBlock,
@@ -482,9 +483,9 @@ function FileCard({
           {file.file_type} / {formatBytes(file.size)} / {formatDate(file.modified_at)}
         </span>
       </span>
-      <button
+      <IconButton
         type="button"
-        className="grid h-8 w-8 place-items-center rounded-lg border border-[var(--line)] bg-white/42 text-[var(--muted)] opacity-0 shadow-sm transition-[background,border-color,color,opacity] hover:border-blue-400/50 hover:bg-blue-500/10 hover:text-blue-600 focus:opacity-100 group-hover:opacity-100 dark:bg-slate-900/60 dark:hover:text-blue-300"
+        className="opacity-0 transition-[background,border-color,color,opacity] focus:opacity-100 group-hover:opacity-100"
         aria-label={t("revealPhysical")}
         title={t("revealPhysical")}
         onClick={(event) => {
@@ -496,7 +497,7 @@ function FileCard({
         }}
       >
         <FolderOpen size={15} />
-      </button>
+      </IconButton>
       <ToneBadge tone="warning">{t("hubPendingStatus")}</ToneBadge>
     </motion.div>
   );

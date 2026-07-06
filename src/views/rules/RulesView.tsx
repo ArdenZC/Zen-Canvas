@@ -215,7 +215,13 @@ export function RulesView() {
                 <span>{t("rootOperator")}</span>
                 <div className={segmented} role="group" aria-label={t("rootOperator")}>
                   {RULE_LOGIC_OPTIONS.map((item) => (
-                    <button key={item} type="button" className={segmentButton(rootOperator === item)} onClick={() => setRootOperator(item)}>
+                    <button
+                      key={item}
+                      type="button"
+                      className={segmentButton(rootOperator === item)}
+                      aria-pressed={rootOperator === item}
+                      onClick={() => setRootOperator(item)}
+                    >
                       {item}
                     </button>
                   ))}
@@ -239,7 +245,13 @@ export function RulesView() {
                       <span className={quietText}>{t("groupOperator")}</span>
                       <div className={segmented} role="group" aria-label={`${t("ruleGroup")} ${groupIndex + 1} ${t("groupOperator")}`}>
                         {RULE_LOGIC_OPTIONS.map((item) => (
-                          <button key={item} type="button" className={segmentButton(group.operator === item)} onClick={() => updateGroupOperator(group.id, item)}>
+                          <button
+                            key={item}
+                            type="button"
+                            className={segmentButton(group.operator === item)}
+                            aria-pressed={group.operator === item}
+                            onClick={() => updateGroupOperator(group.id, item)}
+                          >
                             {item}
                           </button>
                         ))}

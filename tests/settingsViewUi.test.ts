@@ -47,6 +47,8 @@ describe("settings view UI", () => {
     expect(t("hotkeyCaptureCurrent")).toBe("当前按键");
     expect(t("settingsSavedInline")).toBe("已保存");
     expect(t("developerReleaseDesc")).toContain("开发用途");
+    expect(t("confirmDeleteScanFolderTitle")).toBe("删除这个扫描目录？");
+    expect(t("confirmDeleteSearchFolderTitle")).toBe("删除这个搜索目录？");
 
     expect(settingsView).toContain("recordingHotkeyPreview");
     expect(settingsView).toContain("NoticeBanner");
@@ -56,6 +58,11 @@ describe("settings view UI", () => {
     expect(settingsView).toContain('title={t("deleteScanFolder")}');
     expect(settingsView).toContain('aria-label={t("deleteSearchFolder")}');
     expect(settingsView).toContain('title={t("deleteSearchFolder")}');
+    expect(settingsView).toContain("ConfirmDialog");
+    expect(settingsView).toContain("folderDeleteConfirm");
+    expect(settingsView).toContain("aria-pressed={searchHotkey === accelerator}");
+    expect(settingsView).toContain('t("confirmDeleteScanFolderDesc")');
+    expect(settingsView).toContain('t("confirmDeleteSearchFolderDesc")');
     expect(settingsView).toContain("<details");
     expect(settingsView).toContain("setTimeout");
   });

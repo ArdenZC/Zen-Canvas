@@ -37,6 +37,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
         disabled={blocked}
         checked={isSelected}
         onChange={() => toggle(preview.id)}
+        aria-label={`${t("selectOperation")} · ${preview.old_name}`}
       />
       <File size={15} />
       <div className="min-w-0">

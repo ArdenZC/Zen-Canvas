@@ -25,6 +25,7 @@ import { acceleratorFromKeyboardEvent, formatHotkeyLabel, isValidSearchHotkey } 
 import { compactPath } from "../../utils/viewHelpers";
 import { buttonIconDanger, buttonSecondary, cn, glassButton, inputSurface } from "../../utils/tw";
 import {
+  ConfirmDialog,
   ControlGroup,
   NoticeBanner,
   SegmentedControl,
@@ -43,6 +44,9 @@ import {
 } from "../shared/ui";
 
 type StatusTone = "success" | "warning";
+type FolderDeleteConfirmState =
+  | { kind: "scan"; root: ScanRootSetting }
+  | { kind: "search"; root: SearchRootSetting };
 
 export function SettingsView() {
   const {
@@ -81,6 +85,8 @@ export function SettingsView() {
   const [settingsStatusTone, setSettingsStatusTone] = useState<StatusTone>("success");
   const [isRecordingHotkey, setIsRecordingHotkey] = useState(false);
   const [recordingHotkeyPreview, setRecordingHotkeyPreview] = useState("");
+  const [folderDeleteConfirm, setFolderDeleteConfirm] = useState<FolderDeleteConfirmState | null>(null);
+  const [isDeletingFolderConfig, setIsDeletingFolderConfig] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -193,6 +199,21 @@ export function SettingsView() {
     }
   }
 
+  async function confirmFolderDelete() {
+    if (!folderDeleteConfirm || isDeletingFolderConfig) return;
+    setIsDeletingFolderConfig(true);
+    try {
+      if (folderDeleteConfirm.kind === "scan") {
+        await deleteScanRoot(folderDeleteConfirm.root);
+      } else {
+        await deleteSearchRoot(folderDeleteConfirm.root);
+      }
+      setFolderDeleteConfirm(null);
+    } finally {
+      setIsDeletingFolderConfig(false);
+    }
+  }
+
   async function scanRootNow(root: ScanRootSetting) {
     await scanPath(root.path);
   }
@@ -237,6 +258,7 @@ export function SettingsView() {
   }
 
   return (
+    <>
     <div className={cn(pageSurface, "grid gap-4 overflow-auto")}>
       <section className={cn(panelSurface, "grid gap-4")}>
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -314,7 +336,7 @@ export function SettingsView() {
                       <Play size={14} />
                       <span>{t("scanNow")}</span>
                     </button>
-                    <button className={buttonIconDanger} onClick={() => void deleteScanRoot(root)} title={t("deleteScanFolder")} aria-label={t("deleteScanFolder")}>
+                    <button className={buttonIconDanger} onClick={() => setFolderDeleteConfirm({ kind: "scan", root })} title={t("deleteScanFolder")} aria-label={t("deleteScanFolder")}>
                       <Trash2 size={14} />
                     </button>
                   </div>
@@ -367,6 +389,7 @@ export function SettingsView() {
               <button
                 className={cn(glassButton, searchHotkey === accelerator && "border-blue-400/50 bg-blue-500/10 text-blue-700 dark:text-blue-200")}
                 key={accelerator}
+                aria-pressed={searchHotkey === accelerator}
                 onClick={() => void updateSearchHotkey(accelerator)}
               >
                 {formatHotkeyLabel(accelerator, platform)}
@@ -403,7 +426,7 @@ export function SettingsView() {
                     </div>
                     <div className="flex flex-wrap items-center justify-end gap-2">
                       <button className={toggleButtonClass(root.enabled)} onClick={() => void setSearchRootEnabled(root, !root.enabled)} aria-label={root.enabled ? t("disableSearchFolder") : t("enableSearchFolder")} aria-pressed={root.enabled}><i /></button>
-                      <button className={buttonIconDanger} onClick={() => void deleteSearchRoot(root)} title={t("deleteSearchFolder")} aria-label={t("deleteSearchFolder")}>
+                      <button className={buttonIconDanger} onClick={() => setFolderDeleteConfirm({ kind: "search", root })} title={t("deleteSearchFolder")} aria-label={t("deleteSearchFolder")}>
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -477,6 +500,22 @@ export function SettingsView() {
         </details>
       </section>
     </div>
+    <ConfirmDialog
+      open={Boolean(folderDeleteConfirm)}
+      tone="warning"
+      title={folderDeleteConfirm?.kind === "scan" ? t("confirmDeleteScanFolderTitle") : t("confirmDeleteSearchFolderTitle")}
+      description={
+        folderDeleteConfirm
+          ? (folderDeleteConfirm.kind === "scan" ? t("confirmDeleteScanFolderDesc") : t("confirmDeleteSearchFolderDesc")).replace("{path}", folderDeleteConfirm.root.path)
+          : undefined
+      }
+      confirmLabel={folderDeleteConfirm?.kind === "scan" ? t("deleteScanFolder") : t("deleteSearchFolder")}
+      cancelLabel={t("cancel")}
+      isProcessing={isDeletingFolderConfig}
+      onCancel={() => setFolderDeleteConfirm(null)}
+      onConfirm={confirmFolderDelete}
+    />
+    </>
   );
 }
 

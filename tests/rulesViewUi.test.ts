@@ -53,6 +53,8 @@ describe("rules view UI", () => {
     expect(rulesView).toContain("expectedResultText");
     expect(rulesView).toContain("buttonIconDanger");
     expect(rulesView).toContain('aria-label={t("deleteCondition")}');
+    expect(rulesView).toContain("aria-pressed={rootOperator === item}");
+    expect(rulesView).toContain("aria-pressed={group.operator === item}");
     expect(rulesView).toContain("NoticeBanner");
     expect(rulesView).toContain("buttonSecondary");
     expect(rulesView).toContain("glassButtonWarning");

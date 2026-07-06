@@ -50,6 +50,7 @@ describe("preview execute safety UI", () => {
     expect(t("operationBlocked")).toBe("已阻止");
     expect(t("operationExecutable")).toBe("可执行");
     expect(t("operationNeedsConfirmation")).toBe("需确认");
+    expect(t("selectOperation")).toBe("选择操作");
 
     expect(row).toContain("ToneBadge");
     expect(row).toContain("compactInteractiveRow");
@@ -62,6 +63,7 @@ describe("preview execute safety UI", () => {
     expect(row).toContain('t("operationBlocked")');
     expect(row).toContain('t("operationExecutable")');
     expect(row).toContain('t("operationNeedsConfirmation")');
+    expect(row).toContain('aria-label={`${t("selectOperation")} · ${preview.old_name}`}');
     expect(row).toContain("minmax(0,1fr)");
     expect(row).not.toContain("truncate rounded-lg");
   });

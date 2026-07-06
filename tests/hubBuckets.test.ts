@@ -50,6 +50,7 @@ describe("HubView file buckets", () => {
     expect(hubView).toContain("StateBlock");
     expect(hubView).toContain("NoticeBanner");
     expect(hubView).toContain("ToneBadge");
+    expect(hubView).toContain("IconButton");
     expect(hubView).toContain("interactiveRow");
     expect(hubView).toContain('t("hubSafetyHint")');
     expect(hubView).toContain('t("hubPendingDesc")');
