@@ -25,7 +25,6 @@ import {
   panelSurface,
   quietText,
   segmented,
-  segmentButton,
   softPanel,
   toggleSwitch,
   SectionTitle
@@ -196,11 +195,11 @@ export function RulesView() {
 
   return (
     <>
-      <div className={cn(pageSurface, "grid grid-cols-1 gap-4 overflow-auto xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.1fr)] xl:overflow-hidden")}>
-        <section className={cn(panelSurface, "grid gap-4")}>
+      <div className={cn(pageSurface, "mx-auto grid w-full max-w-[1180px] grid-cols-1 gap-4 overflow-auto 2xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.1fr)] 2xl:overflow-hidden")}>
+        <section id="rule-builder" className={cn(panelSurface, "grid gap-3")}>
           <SectionTitle title={t("ruleBuilder")} body={t("customDesc")} />
 
-          <section className={cn(contentPanel, "grid gap-3 p-4")}>
+          <section className={cn(contentPanel, "grid gap-3 p-3")}>
             <SectionTitle title={t("ruleBasicInfo")} body={t("ruleLayerDesc")} />
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span>{t("whenFile")}</span>
@@ -213,12 +212,12 @@ export function RulesView() {
               <label>{t("ruleName")}<input className={inputSurface} value={name} onChange={(event) => setName(event.target.value)} /></label>
               <div className="grid gap-1.5 text-sm font-medium text-[var(--muted)]">
                 <span>{t("rootOperator")}</span>
-                <div className={segmented} role="group" aria-label={t("rootOperator")}>
+                <div className={ruleSegmentedClass} role="group" aria-label={t("rootOperator")}>
                   {RULE_LOGIC_OPTIONS.map((item) => (
                     <button
                       key={item}
                       type="button"
-                      className={segmentButton(rootOperator === item)}
+                      className={ruleSegmentButton(rootOperator === item)}
                       aria-pressed={rootOperator === item}
                       onClick={() => setRootOperator(item)}
                     >
@@ -231,7 +230,7 @@ export function RulesView() {
             </div>
           </section>
 
-          <section className={cn(contentPanel, "grid gap-3 p-4")}>
+          <section className={cn(contentPanel, "grid gap-3 p-3")}>
             <SectionTitle title={t("ruleConditions")} body={t("safeModeDesc")} />
             <div className="grid gap-3">
               {groups.map((group, groupIndex) => (
@@ -243,12 +242,12 @@ export function RulesView() {
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={quietText}>{t("groupOperator")}</span>
-                      <div className={segmented} role="group" aria-label={`${t("ruleGroup")} ${groupIndex + 1} ${t("groupOperator")}`}>
+                      <div className={ruleSegmentedClass} role="group" aria-label={`${t("ruleGroup")} ${groupIndex + 1} ${t("groupOperator")}`}>
                         {RULE_LOGIC_OPTIONS.map((item) => (
                           <button
                             key={item}
                             type="button"
-                            className={segmentButton(group.operator === item)}
+                            className={ruleSegmentButton(group.operator === item)}
                             aria-pressed={group.operator === item}
                             onClick={() => updateGroupOperator(group.id, item)}
                           >
@@ -319,7 +318,7 @@ export function RulesView() {
             </div>
           </section>
 
-          <section className={cn(contentPanel, "grid gap-3 p-4")}>
+          <section className={cn(contentPanel, "grid gap-3 p-3")}>
             <SectionTitle title={t("ruleActions")} body={t("thenSendTo")} />
             <div className={formGrid}>
               <label>{t("purpose")}<select className={selectSurface} value={purpose} onChange={(event) => setPurpose(event.target.value as Purpose)}>{RULE_PURPOSE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
@@ -340,9 +339,9 @@ export function RulesView() {
           </button>
         </section>
 
-        <section className={cn(panelSurface, "grid min-h-0 gap-4 overflow-hidden")}>
+        <section className={cn(panelSurface, "grid min-h-0 gap-3 overflow-hidden")}>
           <SectionTitle title={t("strategy")} body={t("ruleLayerDesc")} />
-          <div className={cn(softPanel, "grid gap-3 p-4")}>
+          <div className={cn(softPanel, "grid gap-3 p-3")}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <strong className="block text-sm">{t("reapplyRules")}</strong>
@@ -366,6 +365,7 @@ export function RulesView() {
               title={t("systemRuleTemplates")}
               description={t("systemRuleTemplatesDesc")}
               emptyTitle={t("systemRuleTemplates")}
+              emptyDescription={t("systemRulesEmptyDesc")}
               rules={systemRules}
               t={t}
             />
@@ -373,6 +373,8 @@ export function RulesView() {
               title={t("userRules")}
               description={t("userRulesDesc")}
               emptyTitle={t("userRules")}
+              emptyDescription={t("userRulesEmptyDesc")}
+              emptyActionLabel={t("createFirstRule")}
               rules={userRules}
               onToggleRuleEnabled={handleToggleRuleEnabled}
               onRequestDeleteRule={(rule) => setConfirmState({ kind: "deleteRule", rule })}
@@ -401,6 +403,8 @@ function RuleSection({
   title,
   description,
   emptyTitle,
+  emptyDescription,
+  emptyActionLabel,
   rules,
   onToggleRuleEnabled,
   onRequestDeleteRule,
@@ -409,13 +413,15 @@ function RuleSection({
   title: string;
   description: string;
   emptyTitle: string;
+  emptyDescription?: string;
+  emptyActionLabel?: string;
   rules: Rule[];
   onToggleRuleEnabled?: (rule: Rule, enabled: boolean) => Promise<void> | void;
   onRequestDeleteRule?: (rule: Rule) => void;
   t: Translator;
 }) {
   return (
-    <section className={cn(contentPanel, "grid gap-3 p-4")}>
+    <section className={cn(contentPanel, "grid gap-3 p-3")}>
       <div>
         <h3 className="m-0 text-base font-semibold text-[var(--ink)]">{title}</h3>
         <p className={quietText}>{description}</p>
@@ -428,7 +434,17 @@ function RuleSection({
           t={t}
         />
       ) : (
-        <StateBlock title={emptyTitle} description={description} />
+        <StateBlock
+          title={emptyTitle}
+          description={emptyDescription ?? description}
+          density="compact"
+          primaryAction={emptyActionLabel ? (
+            <a className={buttonSecondary} href="#rule-builder">
+              <Plus size={15} />
+              {emptyActionLabel}
+            </a>
+          ) : undefined}
+        />
       )}
     </section>
   );
@@ -524,7 +540,7 @@ const RuleRow = memo(function RuleRow({
     <motion.div
       className={cn(
         compactInteractiveRow({ disabled: rule.source === "system" }),
-        "grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-3"
+        "grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-3"
       )}
       layout
       variants={itemMotion}
@@ -574,4 +590,16 @@ const RuleRow = memo(function RuleRow({
     </motion.div>
   );
 });
+
+const ruleSegmentedClass = cn(
+  segmented,
+  "bg-[var(--surface-soft)] p-0.5"
+);
+
+function ruleSegmentButton(active: boolean): string {
+  return cn(
+    "inline-flex min-h-8 items-center justify-center rounded-lg px-3 py-1.5 text-sm font-medium text-[var(--muted)] transition-[background,border-color,color,box-shadow] hover:bg-[var(--surface)] hover:text-[var(--ink)]",
+    active && "bg-blue-500/12 text-[var(--ink)] shadow-[inset_0_0_0_1px_rgba(59,130,246,0.18)]"
+  );
+}
 

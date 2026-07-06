@@ -75,12 +75,14 @@ describe("ui empty and command states", () => {
     expect(vault).toContain("search bar");
     expect(vault).toContain("result count");
     expect(vault).toContain("StateBlock");
-    expect(vault).toContain("NoticeBanner");
-    expect(vault).toContain("ToneBadge");
+    expect(vault).toContain("filterDotClass");
+    expect(vault).not.toContain("NoticeBanner");
+    expect(vault).not.toContain("ToneBadge");
     expect(vault).toContain("aria-pressed={libraryFilter === filter.key}");
     expect(vault).not.toContain("emptyState");
     expect(vault).not.toContain("h-[calc(");
-    expect(assetCard).toContain("ToneBadge");
+    expect(assetCard).toContain("miniBadgeClass");
+    expect(assetCard).not.toContain("ToneBadge");
     expect(assetCard).toContain("compactPath(file.path");
     expect(assetCard).toContain('title={t("revealPhysical")}');
     expect(assetCard).toContain('aria-label={t("revealPhysical")}');

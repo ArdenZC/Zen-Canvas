@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { File, FolderOpen, FolderSearch, Layers, ShieldCheck } from "lucide-react";
 import {
@@ -13,12 +12,10 @@ import type { FileRecord } from "../../types/domain";
 import type { Translator, View } from "../../types/ui";
 import { formatBytes, formatDate } from "../../utils/format";
 import { compactPath, libraryScopeLabel } from "../../utils/viewHelpers";
-import { shouldVirtualizeList } from "../../utils/virtualization";
-import { buttonSecondary, cn, glassButtonPrimary, virtualList, virtualRow as virtualRowClass, virtualSpacer } from "../../utils/tw";
+import { buttonSecondary, cn, glassButtonPrimary } from "../../utils/tw";
 import { revealFileFromCard } from "../shared/cardActions";
 import {
   IconButton,
-  MetricCard,
   NoticeBanner,
   StateBlock,
   ToneBadge,
@@ -36,9 +33,9 @@ import {
   softPanel
 } from "../shared/ui";
 
-const HUB_FILE_ROW_HEIGHT = 96;
-const BUCKET_FILE_ROW_HEIGHT = 58;
 const HUB_BUCKET_KEYS = ["CoreAssets", "QuietArchive", "CleanupLane", "PrivacyVault"] as const;
+const HUB_PENDING_PREVIEW_LIMIT = 6;
+const HUB_BUCKET_PREVIEW_LIMIT = 4;
 
 export type HubBucketKey = typeof HUB_BUCKET_KEYS[number];
 export type HubBucketGroups = Record<HubBucketKey, FileRecord[]>;
@@ -134,11 +131,12 @@ export function HubView() {
 
   if (isEmptyCurrentScanScope) {
     return (
-      <div className={cn(pageFrame, "gap-4")}>
+      <div className={cn(pageFrame, "gap-3 overflow-auto pr-1")}>
         <StateBlock
           tone="info"
           title={t("noOrganizeScopeTitle")}
           description={t("noOrganizeScopeDesc")}
+          density="compact"
           primaryAction={
             <button className={glassButtonPrimary} onClick={() => void handleChooseFolders()}>
               <FolderSearch size={16} />
@@ -160,8 +158,8 @@ export function HubView() {
   }
 
   return (
-    <div className={cn(pageFrame, "gap-4")}>
-      <section className={cn(contentPanel, "grid gap-4 p-4")}>
+    <div className={cn(pageFrame, "gap-3 overflow-auto pr-1")}>
+      <section className={cn(contentPanel, "grid gap-3 p-4")}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -170,17 +168,17 @@ export function HubView() {
             </div>
             <p className={sectionDescription}>{t("hubWorkbenchDesc")}</p>
           </div>
-          <div className={cn(softPanel, "flex items-start gap-2 px-3 py-2 text-sm")}>
+          <div className={cn(softPanel, "flex max-w-md items-start gap-2 px-3 py-2 text-sm")}>
             <ShieldCheck size={16} className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-300" />
-            <span className="max-w-sm leading-6 text-[var(--muted)]">{t("hubSafetyHint")}</span>
+            <span className="leading-6 text-[var(--muted)]">{t("hubSafetyHint")}</span>
           </div>
         </div>
       </section>
 
-      <section className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-3">
-        <MetricCard label={t("inboxStack")} value={pendingFiles.length.toLocaleString()} hint={t("hubPendingStatus")} tone="amber" />
-        <MetricCard label={t("suggestedPlan")} value={classifiedCount.toLocaleString()} hint={t("hubSuggestionStatus")} tone="blue" />
-        <MetricCard label={t("builtInRules")} value={activeRuleCount.toLocaleString()} hint={t("safeModeDesc")} tone="slate" />
+      <section className={cn(contentPanel, "grid gap-2 p-3 sm:grid-cols-3")}>
+        <SummaryChip label={t("inboxStack")} value={pendingFiles.length.toLocaleString()} hint={t("hubPendingStatus")} />
+        <SummaryChip label={t("suggestedPlan")} value={classifiedCount.toLocaleString()} hint={t("hubSuggestionStatus")} />
+        <SummaryChip label={t("builtInRules")} value={activeRuleCount.toLocaleString()} hint={t("safeModeDesc")} />
       </section>
 
       {organizeQueueTruncated && (
@@ -189,8 +187,8 @@ export function HubView() {
         </NoticeBanner>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto xl:grid-cols-[minmax(320px,0.82fr)_minmax(0,1.35fr)] xl:overflow-hidden">
-        <section className={cn(contentPanel, "flex min-h-[420px] flex-col gap-4 overflow-hidden p-4")}>
+      <div className="grid grid-cols-1 items-start gap-3 xl:grid-cols-[minmax(320px,0.82fr)_minmax(0,1.35fr)]">
+        <section className={cn(contentPanel, "grid gap-3 p-4")}>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 className={sectionHeading}>{t("inboxStack")}</h2>
@@ -198,7 +196,7 @@ export function HubView() {
             </div>
             <ToneBadge tone="warning">{pendingFiles.length.toLocaleString()} {t("items")}</ToneBadge>
           </div>
-          <VirtualFileCardList files={pendingFiles} isLoading={isLoadingOrganizeQueue} onError={onError} t={t} />
+          <FileCardList files={pendingFiles} isLoading={isLoadingOrganizeQueue} onError={onError} t={t} />
           <div className={cn(softPanel, "grid gap-3 p-3")}>
             <div className={inlineActions}>
               <motion.button
@@ -214,13 +212,13 @@ export function HubView() {
           </div>
         </section>
 
-        <div className="grid min-h-0 content-start gap-3 overflow-auto pr-1">
+        <div className="grid content-start gap-3">
           {!isLoadingOrganizeQueue && classifiedCount === 0 && (
             <NoticeBanner tone="info" title={t("hubNoBucketedTitle")}>
               {t("hubNoBucketedDesc")}
             </NoticeBanner>
           )}
-          <motion.section className="grid min-h-0 grid-cols-1 gap-4 xl:grid-cols-2" variants={listMotion} initial="hidden" animate="show">
+          <motion.section className="grid grid-cols-1 items-start gap-3 xl:grid-cols-2" variants={listMotion} initial="hidden" animate="show">
             {buckets.map((bucket) => (
               <BucketCard
                 bucket={bucket}
@@ -238,7 +236,17 @@ export function HubView() {
   );
 }
 
-function VirtualFileCardList({
+function SummaryChip({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 rounded-xl border border-[var(--line-dark)] bg-[var(--surface-soft)] px-3 py-2">
+      <strong className="text-xl font-semibold tabular-nums text-[var(--ink)]">{value}</strong>
+      <span className="min-w-0 truncate text-sm font-medium text-[var(--ink)]">{label}</span>
+      <span className={cn(quietText, "col-start-2 truncate")}>{hint}</span>
+    </div>
+  );
+}
+
+function FileCardList({
   files,
   isLoading,
   onError,
@@ -249,61 +257,28 @@ function VirtualFileCardList({
   onError: (message: string) => void;
   t: Translator;
 }) {
-  const parentRef = useRef<HTMLDivElement | null>(null);
-  const shouldVirtualize = shouldVirtualizeList(files.length);
-  const rowVirtualizer = useVirtualizer({
-    count: files.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => HUB_FILE_ROW_HEIGHT,
-    overscan: 8
-  });
-
   if (isLoading) {
     return (
-      <div className="min-h-0 flex-1">
-        <StateBlock tone="info" title={t("hubLoadingQueue")} description={t("hubPendingDesc")} />
-      </div>
+      <StateBlock tone="info" title={t("hubLoadingQueue")} description={t("hubPendingDesc")} density="compact" />
     );
   }
 
   if (!files.length) {
     return (
-      <div className="min-h-0 flex-1">
-        <StateBlock tone="neutral" title={t("hubNoPendingTitle")} description={t("hubNoPendingDesc")} />
-      </div>
+      <StateBlock tone="neutral" title={t("hubNoPendingTitle")} description={t("hubNoPendingDesc")} density="compact" />
     );
   }
 
-  if (!shouldVirtualize) {
-    return (
-      <motion.div className="grid min-h-0 flex-1 gap-3 overflow-auto pr-1" variants={listMotion} initial="hidden" animate="show">
-        {files.map((file, index) => (
-          <FileCard key={file.id} file={file} index={index} onError={onError} t={t} compact />
-        ))}
-      </motion.div>
-    );
-  }
+  const visibleFiles = files.slice(0, HUB_PENDING_PREVIEW_LIMIT);
+  const remaining = files.length - visibleFiles.length;
 
   return (
-    <div ref={parentRef} className={cn("min-h-0 flex-1", virtualList)}>
-      <div className={virtualSpacer} style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
-        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-          const file = files[virtualRow.index];
-          return (
-            <div
-              className={virtualRowClass}
-              key={file.id}
-              style={{
-                height: `${virtualRow.size}px`,
-                transform: `translateY(${virtualRow.start}px)`
-              }}
-            >
-              <FileCard file={file} index={virtualRow.index} onError={onError} t={t} compact disableAnimation />
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <motion.div className="grid gap-2" variants={listMotion} initial="hidden" animate="show">
+      {visibleFiles.map((file, index) => (
+        <FileCard key={file.id} file={file} index={index} onError={onError} t={t} compact />
+      ))}
+      {remaining > 0 && <span className={cn(quietText, "px-1")}>+{remaining.toLocaleString()} {t("items")}</span>}
+    </motion.div>
   );
 }
 
@@ -322,9 +297,8 @@ function BucketCard({
 }) {
   return (
     <motion.article
-      className={cn(contentPanel, "flex min-h-[250px] flex-col gap-3 p-4")}
+      className={cn(contentPanel, "grid gap-3 p-4")}
       variants={itemMotion}
-      layout
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -333,13 +307,12 @@ function BucketCard({
         </div>
         <ToneBadge tone={bucket.tone}>{files.length.toLocaleString()}</ToneBadge>
       </div>
-      <p className={metadataText}>{t("hubBucketSuggestionHint")}</p>
-      <VirtualBucketFileList files={files} isLoading={isLoading} setView={setView} t={t} />
+      <BucketFileList files={files} isLoading={isLoading} setView={setView} t={t} />
     </motion.article>
   );
 }
 
-function VirtualBucketFileList({
+function BucketFileList({
   files,
   isLoading,
   setView,
@@ -350,53 +323,28 @@ function VirtualBucketFileList({
   setView: (view: View) => void;
   t: Translator;
 }) {
-  const parentRef = useRef<HTMLDivElement | null>(null);
-  const shouldVirtualize = shouldVirtualizeList(files.length);
-  const rowVirtualizer = useVirtualizer({
-    count: files.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => BUCKET_FILE_ROW_HEIGHT,
-    overscan: 8
-  });
-
   if (isLoading) {
-    return <StateBlock tone="info" title={t("hubLoadingQueue")} />;
+    return <StateBlock tone="info" title={t("hubLoadingQueue")} density="compact" />;
   }
 
   if (!files.length) {
-    return <StateBlock tone="neutral" title={t("hubEmptyBucket")} description={t("hubBucketSuggestionHint")} />;
+    return <StateBlock tone="neutral" title={t("hubEmptyBucket")} description={t("hubBucketSuggestionHint")} density="compact" />;
   }
 
-  if (!shouldVirtualize) {
-    return (
-      <motion.div className="grid gap-2" variants={listMotion} initial="hidden" animate="show">
-        {files.map((file) => (
-          <BucketFileButton file={file} key={file.id} setView={setView} t={t} />
-        ))}
-      </motion.div>
-    );
-  }
+  const visibleFiles = files.slice(0, HUB_BUCKET_PREVIEW_LIMIT);
+  const remaining = files.length - visibleFiles.length;
 
   return (
-    <div ref={parentRef} className={cn("min-h-32", virtualList)}>
-      <div className={virtualSpacer} style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
-        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-          const file = files[virtualRow.index];
-          return (
-            <div
-              className={virtualRowClass}
-              key={file.id}
-              style={{
-                height: `${virtualRow.size}px`,
-                transform: `translateY(${virtualRow.start}px)`
-              }}
-            >
-              <BucketFileButton file={file} setView={setView} t={t} disableAnimation />
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <motion.div className="grid max-h-64 gap-2 overflow-auto pr-1" variants={listMotion} initial="hidden" animate="show">
+      {visibleFiles.map((file) => (
+        <BucketFileButton file={file} key={file.id} setView={setView} t={t} />
+      ))}
+      {remaining > 0 && (
+        <button className={cn(buttonSecondary, "min-h-8 justify-self-start px-3 py-1.5 text-xs")} onClick={() => setView("preview")}>
+          +{remaining.toLocaleString()} {t("items")}
+        </button>
+      )}
+    </motion.div>
   );
 }
 
@@ -471,7 +419,6 @@ function FileCard({
       variants={disableAnimation ? undefined : itemMotion}
       initial={disableAnimation ? false : undefined}
       animate={disableAnimation ? false : undefined}
-      style={{ "--delay": `${Math.min(index * 18, 320)}ms` } as CSSProperties}
     >
       <span className="grid h-7 w-7 shrink-0 place-items-center rounded-xl border border-[var(--line)] bg-white/28 text-[var(--muted)] dark:bg-white/5">
         <File size={17} />

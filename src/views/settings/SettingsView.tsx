@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderPlus, Keyboard, Play, Trash2 } from "lucide-react";
 import { tauriApi } from "../../api/tauriApi";
@@ -40,6 +40,7 @@ import {
   panelSurface,
   quietText,
   softPanel,
+  toggleSwitch,
   SectionTitle
 } from "../shared/ui";
 
@@ -87,6 +88,7 @@ export function SettingsView() {
   const [recordingHotkeyPreview, setRecordingHotkeyPreview] = useState("");
   const [folderDeleteConfirm, setFolderDeleteConfirm] = useState<FolderDeleteConfirmState | null>(null);
   const [isDeletingFolderConfig, setIsDeletingFolderConfig] = useState(false);
+  const hotkeyCaptureRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -107,6 +109,18 @@ export function SettingsView() {
     const timer = setTimeout(() => setSettingsStatus(""), settingsStatusTone === "success" ? 2400 : 5200);
     return () => clearTimeout(timer);
   }, [settingsStatus, settingsStatusTone]);
+
+  useEffect(() => {
+    if (!isRecordingHotkey) return;
+    hotkeyCaptureRef.current?.focus();
+
+    function handleWindowKeyDown(event: globalThis.KeyboardEvent) {
+      recordHotkeyFromEvent(event);
+    }
+
+    window.addEventListener("keydown", handleWindowKeyDown);
+    return () => window.removeEventListener("keydown", handleWindowKeyDown);
+  }, [isRecordingHotkey, hotkey, platform]);
 
   function showStatus(message: string, tone: StatusTone = "success") {
     setSettingsStatus(message);
@@ -239,7 +253,7 @@ export function SettingsView() {
     }
   }
 
-  function handleHotkeyRecording(event: KeyboardEvent<HTMLDivElement>) {
+  function recordHotkeyFromEvent(event: globalThis.KeyboardEvent) {
     event.preventDefault();
     event.stopPropagation();
     if (event.key === "Escape") {
@@ -248,7 +262,7 @@ export function SettingsView() {
       return;
     }
 
-    const accelerator = acceleratorFromKeyboardEvent(event.nativeEvent, platform);
+    const accelerator = acceleratorFromKeyboardEvent(event, platform);
     setRecordingHotkeyPreview(accelerator ? formatHotkeyLabel(accelerator, platform) : event.key);
     if (!accelerator) {
       showStatus(t("hotkeyInvalid"), "warning");
@@ -259,8 +273,8 @@ export function SettingsView() {
 
   return (
     <>
-    <div className={cn(pageSurface, "grid gap-4 overflow-auto")}>
-      <section className={cn(panelSurface, "grid gap-4")}>
+    <div className={cn(pageSurface, "overflow-auto")}>
+      <section className={cn(panelSurface, "mx-auto grid w-full max-w-[1180px] gap-4")}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <SectionTitle title={t("settings")} body={t("settingsDesc")} />
           {settingsStatus && settingsStatusTone === "success" ? (
@@ -324,15 +338,15 @@ export function SettingsView() {
           </div>
           <div className="grid gap-2">
             {defaultScanFolders.length ? defaultScanFolders.map((root) => (
-              <div key={root.id} className={compactInteractiveRow()}>
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+              <div key={root.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
+                <div className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_auto] md:items-center">
                   <div className="min-w-0 text-left">
                     <strong className="block truncate text-sm">{root.label}</strong>
-                    <span className="block truncate text-xs text-[var(--muted)]" title={root.path}>{compactPath(root.path, 72)}</span>
+                    <span className="block truncate text-xs leading-5 text-[var(--muted)]" title={root.path}>{compactPath(root.path, 72)}</span>
                   </div>
-                  <div className="flex flex-wrap items-center justify-end gap-2">
-                    <button className={toggleButtonClass(root.enabled)} onClick={() => void setScanRootEnabled(root, !root.enabled)} aria-label={root.enabled ? t("disableScanFolder") : t("enableScanFolder")} aria-pressed={root.enabled}><i /></button>
-                    <button className={buttonSecondary} onClick={() => void scanRootNow(root)} title={t("scanNow")}>
+                  <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+                    <button className={toggleSwitch(root.enabled)} onClick={() => void setScanRootEnabled(root, !root.enabled)} aria-label={root.enabled ? t("disableScanFolder") : t("enableScanFolder")} aria-pressed={root.enabled}><i /></button>
+                    <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void scanRootNow(root)} title={t("scanNow")}>
                       <Play size={14} />
                       <span>{t("scanNow")}</span>
                     </button>
@@ -370,12 +384,13 @@ export function SettingsView() {
           {isRecordingHotkey && (
             <NoticeBanner tone="info" title={t("hotkeyCaptureTitle")}>
               <div
-                className="mt-2 grid gap-2 rounded-xl border border-dashed border-blue-400/50 bg-blue-500/8 px-3 py-3 outline-none"
+                ref={hotkeyCaptureRef}
+                className="mt-2 grid gap-2 rounded-xl border border-blue-400/50 bg-blue-500/8 px-3 py-3 outline-none focus-visible:shadow-[0_0_0_3px_rgba(59,130,246,0.16)]"
                 tabIndex={0}
-                onKeyDown={handleHotkeyRecording}
               >
                 <span>{t("recordingHotkey")}</span>
                 <span className={quietText}>{t("hotkeyCaptureCurrent")}: {recordingHotkeyPreview || hotkey}</span>
+                <span className={quietText}>Esc: {t("cancel")}</span>
               </div>
             </NoticeBanner>
           )}
@@ -418,14 +433,14 @@ export function SettingsView() {
                 </button>
               </div>
               {customSearchRoots.length ? customSearchRoots.map((root) => (
-                <div key={root.id} className={compactInteractiveRow()}>
-                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                <div key={root.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
+                  <div className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_auto] md:items-center">
                     <div className="min-w-0 text-left">
                       <strong className="block truncate text-sm">{root.label}</strong>
-                      <span className="block truncate text-xs text-[var(--muted)]" title={root.path}>{compactPath(root.path, 72)}</span>
+                      <span className="block truncate text-xs leading-5 text-[var(--muted)]" title={root.path}>{compactPath(root.path, 72)}</span>
                     </div>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      <button className={toggleButtonClass(root.enabled)} onClick={() => void setSearchRootEnabled(root, !root.enabled)} aria-label={root.enabled ? t("disableSearchFolder") : t("enableSearchFolder")} aria-pressed={root.enabled}><i /></button>
+                    <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+                      <button className={toggleSwitch(root.enabled)} onClick={() => void setSearchRootEnabled(root, !root.enabled)} aria-label={root.enabled ? t("disableSearchFolder") : t("enableSearchFolder")} aria-pressed={root.enabled}><i /></button>
                       <button className={buttonIconDanger} onClick={() => setFolderDeleteConfirm({ kind: "search", root })} title={t("deleteSearchFolder")} aria-label={t("deleteSearchFolder")}>
                         <Trash2 size={14} />
                       </button>
@@ -516,12 +531,5 @@ export function SettingsView() {
       onConfirm={confirmFolderDelete}
     />
     </>
-  );
-}
-
-function toggleButtonClass(enabled: boolean) {
-  return cn(
-    "relative h-7 w-12 rounded-full border border-[var(--line)] bg-slate-300/50 transition disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white/10 [&_i]:absolute [&_i]:left-1 [&_i]:top-1 [&_i]:h-5 [&_i]:w-5 [&_i]:rounded-full [&_i]:bg-white [&_i]:shadow-sm [&_i]:transition",
-    enabled && "bg-blue-500 [&_i]:translate-x-5"
   );
 }

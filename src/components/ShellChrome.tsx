@@ -5,15 +5,17 @@ import type { ThemeMode, Translator } from "../types/ui";
 import { cn, glassButton, glassButtonPrimary, glassPanel } from "../utils/tw";
 
 const titlebarToolButton =
-  "grid h-8 w-8 place-items-center rounded-full border border-[var(--line-dark)] bg-white/32 text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:border-blue-400/20 hover:bg-white/48 hover:text-[var(--ink)] hover:shadow-[0_0_0_3px_rgba(59,130,246,0.045)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/45 dark:bg-white/5 dark:hover:bg-white/9";
+  "grid h-8 w-8 place-items-center rounded-full border border-[var(--line-dark)] bg-[var(--surface-soft)] text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:border-blue-400/25 hover:bg-[var(--surface-strong)] hover:text-[var(--ink)] hover:shadow-[0_0_0_3px_rgba(59,130,246,0.055)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/45";
 const titlebarPillButton =
-  "inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--line-dark)] bg-white/32 px-3 text-xs font-medium text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:border-blue-400/20 hover:bg-white/48 hover:text-[var(--ink)] hover:shadow-[0_0_0_3px_rgba(59,130,246,0.045)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/45 dark:bg-white/5 dark:hover:bg-white/9";
+  "inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--line-dark)] bg-[var(--surface-soft)] px-3 text-xs font-medium text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:border-blue-400/25 hover:bg-[var(--surface-strong)] hover:text-[var(--ink)] hover:shadow-[0_0_0_3px_rgba(59,130,246,0.055)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/45";
 
 export function ZenMark() {
   return (
     <div className="relative h-9 w-9 shrink-0" aria-hidden="true">
-      <span className="absolute inset-0 rounded-2xl bg-blue-500 shadow-lg shadow-blue-500/20" />
-      <span className="absolute inset-1 rounded-xl border border-white/70 bg-white/40 backdrop-blur-md dark:border-white/20 dark:bg-white/10" />
+      <span className="absolute inset-0 rounded-[15px] bg-gradient-to-br from-blue-400 via-blue-500 to-blue-700 shadow-lg shadow-blue-500/22" />
+      <span className="absolute inset-[3px] rounded-xl border border-white/70 bg-slate-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.86)] dark:border-blue-300/18 dark:bg-slate-950" />
+      <span className="absolute inset-[9px] rounded-md border border-blue-500/45 bg-blue-500/12 dark:border-blue-300/45 dark:bg-blue-400/14" />
+      <span className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-600 shadow-[0_0_0_3px_rgba(37,99,235,0.16)] dark:bg-blue-300" />
     </div>
   );
 }
@@ -42,17 +44,18 @@ export function TitlebarTools({
   setTheme: (theme: ThemeMode) => void;
   t: Translator;
 }) {
-  const themeLabel = effectiveTheme === "dark" ? t("lightTheme") : t("darkTheme");
+  const nextTheme = nextThemeMode(theme);
+  const themeLabel = themeToggleLabel(language, theme, nextTheme, t);
 
   return (
     <div className="flex items-center gap-2 [-webkit-app-region:no-drag]">
       <button
         className={titlebarToolButton}
-        onClick={() => setTheme(effectiveTheme === "dark" ? "light" : "dark")}
+        onClick={() => setTheme(nextTheme)}
         aria-label={themeLabel}
         title={themeLabel}
       >
-        {theme === "system" ? <Monitor size={17} /> : effectiveTheme === "dark" ? <Moon size={17} /> : <Sun size={17} />}
+        {themeIcon(theme)}
       </button>
       <button
         className={titlebarPillButton}
@@ -63,6 +66,29 @@ export function TitlebarTools({
       </button>
     </div>
   );
+}
+
+function nextThemeMode(theme: ThemeMode): ThemeMode {
+  if (theme === "system") return "light";
+  if (theme === "light") return "dark";
+  return "system";
+}
+
+function themeIcon(theme: ThemeMode) {
+  if (theme === "system") return <Monitor size={17} />;
+  if (theme === "light") return <Sun size={17} />;
+  return <Moon size={17} />;
+}
+
+function themeToggleLabel(language: Language, current: ThemeMode, next: ThemeMode, t: Translator) {
+  const labelFor = (mode: ThemeMode) => {
+    if (mode === "system") return t("systemTheme");
+    if (mode === "light") return t("lightTheme");
+    return t("darkTheme");
+  };
+
+  if (language === "zh") return `当前：${labelFor(current)}，点击切换到${labelFor(next)}`;
+  return `Current: ${labelFor(current)}. Click to switch to ${labelFor(next)}.`;
 }
 
 export function CloseChoiceDialog({

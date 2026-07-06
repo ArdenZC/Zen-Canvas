@@ -46,20 +46,20 @@ const appRoot =
 const searchWindowRoot =
   "relative h-screen w-screen overflow-hidden bg-transparent text-[var(--ink)]";
 const titlebar =
-  "relative z-30 grid h-12 grid-cols-[minmax(208px,240px)_1fr_minmax(208px,240px)] items-center border-b border-[var(--line-dark)] bg-[var(--surface-soft)] px-4 backdrop-blur-2xl [-webkit-app-region:drag]";
+  "relative z-30 grid h-12 grid-cols-[minmax(208px,240px)_1fr_minmax(208px,240px)] items-center border-b border-[var(--line-dark)] bg-[var(--surface)] px-4 backdrop-blur-xl [-webkit-app-region:drag]";
 const noDrag = "[-webkit-app-region:no-drag]";
 const spotlightButton =
-  "mx-auto grid h-8 w-[min(42vw,420px)] min-w-64 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-full border border-[var(--line-dark)] bg-white/30 px-3 text-xs text-[var(--muted)] shadow-sm transition-[background,border-color,box-shadow,color] hover:border-blue-400/24 hover:bg-white/46 hover:shadow-[0_0_0_3px_rgba(59,130,246,0.055)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/50 dark:bg-white/5 dark:hover:bg-white/9 [&_kbd]:rounded-md [&_kbd]:border [&_kbd]:border-[var(--line-dark)] [&_kbd]:bg-white/24 [&_kbd]:px-1.5 [&_kbd]:py-0.5 [&_kbd]:text-[11px] [&_kbd]:font-medium [&_kbd]:text-[var(--quiet)] dark:[&_kbd]:bg-white/5";
+  "mx-auto grid h-8 w-[min(42vw,420px)] min-w-64 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-full border border-[var(--line-dark)] bg-[var(--surface-soft)] px-3 text-xs text-[var(--muted)] shadow-sm transition-[background,border-color,box-shadow,color] hover:border-blue-400/24 hover:bg-[var(--surface-strong)] hover:shadow-[0_0_0_3px_rgba(59,130,246,0.055)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/50 [&_kbd]:rounded-md [&_kbd]:border [&_kbd]:border-[var(--line-dark)] [&_kbd]:bg-[var(--surface-soft)] [&_kbd]:px-1.5 [&_kbd]:py-0.5 [&_kbd]:text-[11px] [&_kbd]:font-medium [&_kbd]:text-[var(--quiet)]";
 const workspaceShell = "relative z-10 grid min-h-0 flex-1 grid-cols-[minmax(220px,248px)_minmax(0,1fr)]";
 const sidebarClass =
-  "flex min-h-0 flex-col gap-5 border-r border-[var(--line-dark)] bg-[var(--surface-soft)] px-4 py-5 backdrop-blur-2xl";
+  "flex min-h-0 flex-col gap-5 border-r border-[var(--line-dark)] bg-[var(--surface)] px-4 py-5 backdrop-blur-xl";
 const navItemBase =
-  "flex min-h-10 w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:bg-white/34 hover:text-[var(--ink)] dark:hover:bg-white/10";
+  "flex min-h-10 w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:bg-[var(--surface-soft)] hover:text-[var(--ink)] dark:hover:bg-slate-700/70";
 const navItemActive = "border-blue-400/24 bg-blue-500/9 text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]";
 const workspaceClass = "flex min-h-0 min-w-0 flex-col overflow-hidden px-5 py-5";
 const viewStageClass = viewStage;
 const windowsControlButton =
-  "grid h-8 w-10 place-items-center text-[var(--muted)] transition-[background,color] hover:bg-white/34 hover:text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-500/45 dark:hover:bg-white/8";
+  "grid h-8 w-10 place-items-center text-[var(--muted)] transition-[background,color] hover:bg-[var(--surface-soft)] hover:text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-500/45";
 const windowsCloseButton =
   "grid h-8 w-10 place-items-center text-[var(--muted)] transition-[background,color] hover:bg-red-500/85 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-red-400/60";
 const macControlButton = "grid h-6 w-6 place-items-center rounded-full";
@@ -242,7 +242,7 @@ function WindowsControls() {
   const { handleWindowAction, t } = useChromeContext();
 
   return (
-    <div className={cn("flex items-center overflow-hidden rounded-lg border border-[var(--line-dark)] bg-white/30 dark:bg-white/5", noDrag)} aria-label="Window controls">
+    <div className={cn("flex items-center overflow-hidden rounded-lg border border-[var(--line-dark)] bg-[var(--surface-soft)]", noDrag)} aria-label="Window controls">
       <button className={windowsControlButton} onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")}>
         <Minus size={15} strokeWidth={1.6} />
       </button>
@@ -342,8 +342,16 @@ function ToastContainer() {
 
   if (!toast) return null;
 
+  if (toast.type === "success") {
+    return (
+      <div className="fixed right-5 top-16 z-50 max-w-sm rounded-full border border-emerald-400/25 bg-[var(--surface-strong)] px-3 py-2 text-xs font-medium text-emerald-700 shadow-[var(--shadow)] backdrop-blur-xl dark:text-emerald-200" role="status">
+        {toast.message}
+      </div>
+    );
+  }
+
   return (
-    <div className={cn(statusToast, toastTone(toast.type))}>
+    <div className={cn(statusToast, toastTone(toast.type))} role={toast.type === "error" ? "alert" : "status"}>
       {toast.message}
     </div>
   );

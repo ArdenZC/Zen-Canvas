@@ -8,10 +8,10 @@ import { compactPath, readableError } from "../utils/viewHelpers";
 import { IconButton, StateBlock, ToneBadge, quietText } from "../views/shared/ui";
 
 const keyBadge =
-  "rounded-md border border-[var(--line-dark)] bg-white/28 px-1.5 py-0.5 text-[11px] font-medium text-[var(--quiet)] shadow-sm dark:bg-white/5";
+  "rounded-md border border-[var(--line-dark)] bg-[var(--surface-soft)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--quiet)] shadow-sm";
 const commandHintText = "text-[11px] leading-tight text-[var(--quiet)]";
 const commandShell =
-  "w-full max-w-[720px] overflow-hidden border border-white/42 bg-[linear-gradient(145deg,var(--surface-strong),var(--surface-soft))] shadow-[0_22px_70px_rgba(15,23,42,0.18),0_1px_0_rgba(255,255,255,0.45)_inset] backdrop-blur-3xl transition-[border-radius,background,box-shadow] dark:border-white/10 dark:shadow-[0_24px_78px_rgba(0,0,0,0.42),0_1px_0_rgba(255,255,255,0.08)_inset]";
+  "w-full max-w-[720px] overflow-hidden border border-[var(--line)] bg-[rgba(248,250,252,0.94)] shadow-[0_24px_76px_rgba(15,23,42,0.24),0_1px_0_rgba(255,255,255,0.72)_inset] backdrop-blur-xl transition-[border-radius,background,box-shadow] dark:border-slate-700/80 dark:bg-[rgba(15,23,42,0.96)] dark:shadow-[0_28px_86px_rgba(0,0,0,0.74),0_1px_0_rgba(255,255,255,0.08)_inset]";
 const commandShortcutHints = "flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1";
 
 export async function activateCommandNavigation({
@@ -80,6 +80,7 @@ export function CommandModal({
   const [queryState, setQueryState] = useState<"idle" | "pending" | "done" | "failed">("idle");
   const [commandError, setCommandError] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [inputFocused, setInputFocused] = useState(false);
   const trimmedSearch = search.trim();
   const showResults = trimmedSearch.length > 0 && results.length > 0;
   const activeResultId = showResults ? `command-result-${activeIndex}` : undefined;
@@ -210,7 +211,7 @@ export function CommandModal({
     <div
       className={cn(
         standalone
-          ? "relative z-10 flex h-full w-full items-start justify-center bg-transparent px-5 pt-[10vh]"
+          ? "relative z-10 flex h-full w-full items-start justify-center bg-transparent px-5 pt-[9vh]"
           : "fixed inset-0 z-40 flex items-start justify-center bg-slate-950/20 px-5 pt-[12vh] backdrop-blur-lg"
       )}
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
@@ -255,7 +256,13 @@ export function CommandModal({
           if (event.key === "Escape") onClose();
         }}
       >
-        <div className={cn("flex h-[60px] min-h-[60px] items-center gap-3 px-5", (showResults || shouldShowStateBlock || searchScopeLabel) && "border-b border-[var(--line-dark)]")}>
+        <div
+          className={cn(
+            "flex h-[60px] min-h-[60px] items-center gap-3 border border-transparent px-5 transition-[border-color,box-shadow]",
+            inputFocused && "border-blue-400/35 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.08),0_0_0_3px_rgba(59,130,246,0.08)]",
+            (showResults || shouldShowStateBlock || searchScopeLabel) && "border-b-[var(--line-dark)]"
+          )}
+        >
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-blue-400/22 bg-blue-500/10 text-blue-600 dark:text-blue-300">
             <Search size={18} strokeWidth={2.2} />
           </span>
@@ -269,7 +276,9 @@ export function CommandModal({
             placeholder={t("commandPlaceholder")}
             onChange={(event) => setSearch(event.target.value)}
             onClick={() => inputRef.current?.focus()}
-            className="h-full min-w-0 flex-1 bg-transparent text-[15px] text-[var(--ink)] outline-none placeholder:text-[var(--quiet)]"
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
+            className="command-input h-full min-w-0 flex-1 bg-transparent text-[15px] text-[var(--ink)] outline-none placeholder:text-[var(--quiet)] focus-visible:outline-none"
           />
           {search && (
             <IconButton
@@ -309,8 +318,8 @@ export function CommandModal({
                       className={cn(
                         "grid min-h-[74px] grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border px-3 py-3 text-left transition-[background,border-color,box-shadow,color]",
                         index === activeIndex
-                          ? "border-blue-400/36 bg-white/62 shadow-[inset_0_1px_0_rgba(255,255,255,0.60),inset_0_0_0_1px_rgba(59,130,246,0.08),0_0_0_3px_rgba(59,130,246,0.08)] dark:bg-white/10"
-                          : "border-transparent hover:bg-white/30 dark:hover:bg-white/10"
+                          ? "border-blue-400/36 bg-blue-500/9 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.08),0_0_0_3px_rgba(59,130,246,0.08)]"
+                          : "border-transparent hover:bg-[var(--surface-soft)] dark:hover:bg-slate-800/90"
                       )}
                       onClick={() => void chooseFile(file)}
                       onMouseEnter={() => setActiveIndex(index)}
@@ -354,6 +363,7 @@ export function CommandModal({
               tone={queryState === "failed" ? "error" : queryState === "pending" ? "info" : isScopedEmpty ? "warning" : "neutral"}
               title={statusTitle}
               description={statusDescription}
+              density="compact"
             />
           </div>
         )}
