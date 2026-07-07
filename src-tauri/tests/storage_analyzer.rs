@@ -7,7 +7,8 @@ use std::{
 use zen_canvas_tauri::storage_analyzer::{
     analyze_storage_roots_for_test, classify_candidate_for_test,
     cleanup_preview_items_for_candidates, default_scan_roots_for_test,
-    is_forbidden_storage_path_for_test, preview_cleanup_operations_for_candidates,
+    is_forbidden_storage_path_for_test, move_cleanup_candidates_to_trash_for_candidates,
+    preview_cleanup_operations_for_candidates, validate_cleanup_roots_for_test,
     CleanupActionKind, CleanupTier, StorageCandidate,
 };
 
@@ -61,6 +62,50 @@ fn default_storage_cleanup_roots_do_not_scan_entire_appdata_or_program_files() {
     assert!(!roots
         .iter()
         .any(|path| path.ends_with("/program files (x86)")));
+}
+
+#[test]
+fn storage_cleanup_scan_requires_explicit_user_roots() {
+    let result = validate_cleanup_roots_for_test(Vec::new());
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn storage_cleanup_scan_only_uses_user_selected_roots() {
+    let selected_root = test_dir();
+    let other_root = test_dir();
+    let selected_cache = selected_root.join("project").join("node_modules");
+    let other_cache = other_root.join("project").join("node_modules");
+    write_file(&selected_cache.join("package").join("index.js"), 128);
+    write_file(&other_cache.join("package").join("index.js"), 128);
+
+    let analysis = analyze_storage_roots_for_test(vec![selected_root.clone()], Vec::new())
+        .expect("analyze selected root");
+
+    assert!(analysis
+        .candidates
+        .iter()
+        .any(|candidate| candidate.path == selected_cache.to_string_lossy().replace('\\', "/")));
+    assert!(!analysis
+        .candidates
+        .iter()
+        .any(|candidate| candidate.path == other_cache.to_string_lossy().replace('\\', "/")));
+}
+
+#[test]
+fn storage_cleanup_scan_rejects_protected_system_roots() {
+    let result = validate_cleanup_roots_for_test(vec!["C:/Windows/System32".to_string()]);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn storage_cleanup_scan_accepts_user_selected_temp_directory() {
+    let root = test_dir();
+    let result = validate_cleanup_roots_for_test(vec![root.to_string_lossy().into_owned()]);
+
+    assert!(result.is_ok());
 }
 
 #[test]
@@ -269,6 +314,68 @@ fn cleanup_operation_preview_rejects_system_and_app_data_paths() {
 
     assert!(preview.previews.is_empty());
     assert_eq!(preview.total, 0);
+}
+
+#[test]
+fn move_cleanup_candidates_to_trash_only_allows_safe_latest_candidates() {
+    let root = test_dir();
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    let review = classify_candidate_for_test(&root.join("Downloads").join("movie.mp4"), 128);
+    let caution = classify_candidate_for_test(&PathBuf::from("C:/Program Files/Example"), 128);
+
+    let result = move_cleanup_candidates_to_trash_for_candidates(
+        vec![
+            safe.id.clone(),
+            review.id.clone(),
+            caution.id.clone(),
+            "missing-id".to_string(),
+        ],
+        &[safe.clone(), review, caution],
+        None,
+    )
+    .expect("move cleanup candidates to trash");
+
+    assert_eq!(result.moved, 1);
+    assert_eq!(result.skipped, 3);
+    assert_eq!(result.failed, 0);
+    assert!(result.logs.iter().any(|log| log.status == "success"
+        && log.path == safe.path
+        && log.message.contains("system trash")));
+    assert!(!safe_path.exists());
+}
+
+#[test]
+fn move_cleanup_candidates_to_trash_revalidates_execution_forbidden_paths() {
+    let root = test_dir();
+    let app_data = root.join("Zen Canvas");
+    let app_data_child = app_data.join("cache");
+    write_file(&app_data_child.join("owned.txt"), 64);
+    let forged = StorageCandidate {
+        id: "forged-app-data".to_string(),
+        path: app_data_child.to_string_lossy().replace('\\', "/"),
+        name: "cache".to_string(),
+        size: 64,
+        tier: CleanupTier::Safe,
+        category: "Forged".to_string(),
+        reason: "Client supplied".to_string(),
+        suggested_action: CleanupActionKind::MoveToTrash,
+        risk_note: None,
+        trash_allowed: true,
+        selected_by_default: true,
+    };
+
+    let result = move_cleanup_candidates_to_trash_for_candidates(
+        vec![forged.id.clone()],
+        &[forged],
+        Some(&app_data),
+    )
+    .expect("move cleanup candidates to trash");
+
+    assert_eq!(result.moved, 0);
+    assert_eq!(result.skipped, 1);
+    assert!(app_data_child.exists());
 }
 
 fn test_dir() -> PathBuf {

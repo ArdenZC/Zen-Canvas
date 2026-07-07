@@ -441,6 +441,13 @@ export function SettingsView() {
           <div className={formRow}>
             <div>
               <strong className="block text-sm">{t("settingsOrganizeRoot")}</strong>
+              <span className={metadataText}>
+                {organizeRootMode === "current_folder"
+                  ? t("organizeRootCurrentDesc")
+                  : organizeRootMode === "zen_canvas_folder"
+                    ? t("organizeRootZenCanvasDesc")
+                    : t("organizeRootCustomDesc")}
+              </span>
               <span className={metadataText}>{t("organizePreviewStillRequired")}</span>
             </div>
             <SegmentedControl

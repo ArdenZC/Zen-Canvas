@@ -102,7 +102,8 @@ fn main() {
             zen_canvas_tauri::storage_analyzer::scan_storage_cleanup,
             zen_canvas_tauri::storage_analyzer::reveal_storage_candidate,
             zen_canvas_tauri::storage_analyzer::preview_cleanup_candidates,
-            zen_canvas_tauri::storage_analyzer::preview_cleanup_operations
+            zen_canvas_tauri::storage_analyzer::preview_cleanup_operations,
+            zen_canvas_tauri::storage_analyzer::move_cleanup_candidates_to_trash
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Zen Canvas");

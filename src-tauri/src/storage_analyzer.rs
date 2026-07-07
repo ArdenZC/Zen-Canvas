@@ -20,6 +20,7 @@ pub struct StorageAnalysis {
     pub review_estimate: u64,
     pub candidates: Vec<StorageCandidate>,
     pub denied_paths: Vec<String>,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -71,6 +72,23 @@ pub struct CleanupPreviewItem {
     pub blocking_reason: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct CleanupExecutionResult {
+    pub moved: usize,
+    pub skipped: usize,
+    pub failed: usize,
+    pub logs: Vec<CleanupExecutionLog>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CleanupExecutionLog {
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+    pub status: String,
+    pub message: String,
+}
+
 #[derive(Default)]
 pub struct StorageCleanupState {
     latest_candidates: Mutex<HashMap<String, StorageCandidate>>,
@@ -103,12 +121,14 @@ impl StorageCleanupState {
 
 #[tauri::command]
 pub async fn scan_storage_cleanup<R: Runtime>(
+    roots: Vec<String>,
     app: AppHandle<R>,
     state: State<'_, StorageCleanupState>,
 ) -> Result<StorageAnalysis, String> {
     let app_data_dir = app.path().app_data_dir().ok();
+    let roots = validate_cleanup_roots(roots)?;
     let analysis = tauri::async_runtime::spawn_blocking(move || {
-        analyze_storage_roots(default_scan_roots(), app_data_dir.into_iter().collect())
+        analyze_storage_roots(roots, app_data_dir.into_iter().collect())
     })
     .await
     .map_err(|error| format!("storage cleanup scan task failed: {error}"))??;
@@ -142,11 +162,26 @@ pub fn preview_cleanup_operations<R: Runtime>(
     preview_cleanup_operations_for_candidates(ids, &candidates, app_data_dir.as_deref())
 }
 
+#[tauri::command]
+pub fn move_cleanup_candidates_to_trash<R: Runtime>(
+    ids: Vec<String>,
+    app: AppHandle<R>,
+    state: State<'_, StorageCleanupState>,
+) -> Result<CleanupExecutionResult, String> {
+    let app_data_dir = app.path().app_data_dir().ok();
+    let candidates = state.candidates_by_id(&ids)?;
+    move_cleanup_candidates_to_trash_for_candidates(ids, &candidates, app_data_dir.as_deref())
+}
+
 pub fn analyze_storage_roots_for_test(
     roots: Vec<PathBuf>,
     excluded_paths: Vec<PathBuf>,
 ) -> Result<StorageAnalysis, String> {
     analyze_storage_roots(roots, excluded_paths)
+}
+
+pub fn validate_cleanup_roots_for_test(roots: Vec<String>) -> Result<Vec<PathBuf>, String> {
+    validate_cleanup_roots(roots)
 }
 
 pub fn classify_candidate_for_test(path: &Path, size: u64) -> StorageCandidate {
@@ -155,6 +190,78 @@ pub fn classify_candidate_for_test(path: &Path, size: u64) -> StorageCandidate {
 
 pub fn default_scan_roots_for_test() -> Vec<PathBuf> {
     default_scan_roots()
+}
+
+pub fn move_cleanup_candidates_to_trash_for_candidates(
+    ids: Vec<String>,
+    candidates: &[StorageCandidate],
+    app_data_dir: Option<&Path>,
+) -> Result<CleanupExecutionResult, String> {
+    let by_id = candidates
+        .iter()
+        .map(|candidate| (candidate.id.as_str(), candidate))
+        .collect::<HashMap<_, _>>();
+    let mut result = CleanupExecutionResult {
+        moved: 0,
+        skipped: 0,
+        failed: 0,
+        logs: Vec::new(),
+    };
+
+    for id in ids {
+        let Some(candidate) = by_id.get(id.as_str()) else {
+            result.skipped += 1;
+            result.logs.push(CleanupExecutionLog {
+                path: String::new(),
+                name: id,
+                size: 0,
+                status: "skipped".to_string(),
+                message: "Candidate id was not found in the latest storage cleanup scan."
+                    .to_string(),
+            });
+            continue;
+        };
+
+        let path = Path::new(&candidate.path);
+        if !cleanup_candidate_can_enter_operation_preview(candidate, app_data_dir) {
+            result.skipped += 1;
+            result.logs.push(CleanupExecutionLog {
+                path: candidate.path.clone(),
+                name: candidate.name.clone(),
+                size: candidate.size,
+                status: "skipped".to_string(),
+                message: "Only safe recycle-bin cleanup candidates from the latest scan can be moved."
+                    .to_string(),
+            });
+            continue;
+        }
+
+        match trash::delete(path) {
+            Ok(()) => {
+                result.moved += 1;
+                result.logs.push(CleanupExecutionLog {
+                    path: candidate.path.clone(),
+                    name: candidate.name.clone(),
+                    size: candidate.size,
+                    status: "success".to_string(),
+                    message: "Moved to the system trash. Restore it from the system trash if needed."
+                        .to_string(),
+                });
+            }
+            Err(error) => {
+                result.failed += 1;
+                result.logs.push(CleanupExecutionLog {
+                    path: candidate.path.clone(),
+                    name: candidate.name.clone(),
+                    size: candidate.size,
+                    status: "failed".to_string(),
+                    message: format!("Failed to move to system trash: {error}"),
+                });
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 pub fn is_forbidden_storage_path_for_test(path: &Path) -> bool {
@@ -287,12 +394,19 @@ fn analyze_storage_roots(
         excluded_paths,
         candidates: Vec::new(),
         denied_paths: Vec::new(),
+        warnings: Vec::new(),
     };
     let mut total_size = 0_u64;
 
     for root in roots {
         if root.as_os_str().is_empty() {
             continue;
+        }
+        if is_drive_root(&root) {
+            context.warnings.push(format!(
+                "{} may take longer because it is a whole disk root.",
+                normalize_path(&root)
+            ));
         }
         if is_forbidden_storage_path(&root, &context.excluded_paths) {
             context.denied_paths.push(normalize_path(&root));
@@ -332,6 +446,7 @@ fn analyze_storage_roots(
         review_estimate,
         candidates: context.candidates,
         denied_paths: context.denied_paths,
+        warnings: context.warnings,
     })
 }
 
@@ -339,6 +454,47 @@ struct ScanContext {
     excluded_paths: Vec<PathBuf>,
     candidates: Vec<StorageCandidate>,
     denied_paths: Vec<String>,
+    warnings: Vec<String>,
+}
+
+fn validate_cleanup_roots(roots: Vec<String>) -> Result<Vec<PathBuf>, String> {
+    if roots.is_empty() {
+        return Err("Choose a disk or folder before scanning storage cleanup.".to_string());
+    }
+
+    let mut validated = roots
+        .into_iter()
+        .map(|root| root.trim().to_string())
+        .filter(|root| !root.is_empty())
+        .map(PathBuf::from)
+        .map(|root| {
+            if !root.is_absolute() {
+                return Err(format!(
+                    "Cleanup scope must be an absolute path: {}",
+                    normalize_path(&root)
+                ));
+            }
+            if is_forbidden_storage_path(&root, &[]) {
+                return Err(format!(
+                    "Cleanup scope is protected and cannot be scanned: {}",
+                    normalize_path(&root)
+                ));
+            }
+            if !root.exists() {
+                return Err(format!(
+                    "Cleanup scope does not exist: {}",
+                    normalize_path(&root)
+                ));
+            }
+            Ok(root)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    dedupe_paths(&mut validated);
+    if validated.is_empty() {
+        return Err("Choose a disk or folder before scanning storage cleanup.".to_string());
+    }
+    Ok(validated)
 }
 
 fn scan_path_size(path: &Path, context: &mut ScanContext) -> u64 {
@@ -678,6 +834,13 @@ fn is_appdata_core_path_text(lower: &str) -> bool {
 
 fn is_temp_path(lower: &str) -> bool {
     lower.contains("/appdata/local/temp/") || lower.ends_with("/appdata/local/temp")
+}
+
+fn is_drive_root(path: &Path) -> bool {
+    let normalized = normalize_path(path);
+    let trimmed = normalized.trim_end_matches('/');
+    let bytes = trimmed.as_bytes();
+    bytes.len() == 2 && bytes[1] == b':' && bytes[0].is_ascii_alphabetic()
 }
 
 fn is_generated_dir_name(path: &Path) -> bool {

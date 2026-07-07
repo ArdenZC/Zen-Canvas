@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AppSettings,
+  CleanupExecutionResult,
   CleanupPreviewItem,
   DashboardStats,
   ExecuteOperationRequest,
@@ -181,8 +182,8 @@ export const tauriApi = {
     return invokeCommand<void>("reveal_in_folder", { path });
   },
 
-  scanStorageCleanup(): Promise<StorageAnalysis> {
-    return invokeCommand<StorageAnalysis>("scan_storage_cleanup");
+  scanStorageCleanup(roots: string[]): Promise<StorageAnalysis> {
+    return invokeCommand<StorageAnalysis>("scan_storage_cleanup", { roots });
   },
 
   revealStorageCandidate(path: string): Promise<void> {
@@ -195,6 +196,10 @@ export const tauriApi = {
 
   previewCleanupOperations(ids: string[]): Promise<OperationPreviewResult> {
     return invokeCommand<OperationPreviewResult>("preview_cleanup_operations", { ids });
+  },
+
+  moveCleanupCandidatesToTrash(ids: string[]): Promise<CleanupExecutionResult> {
+    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_trash", { ids });
   },
 
   executeRulesOnInbox(rules: Rule[]): Promise<RuleExecutionSummary> {

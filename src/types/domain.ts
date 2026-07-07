@@ -310,6 +310,7 @@ export interface StorageAnalysis {
   review_estimate: number;
   candidates: StorageCandidate[];
   denied_paths: string[];
+  warnings?: string[];
 }
 
 export interface CleanupPreviewItem {
@@ -327,6 +328,21 @@ export interface CleanupPreviewItem {
   requires_confirmation: boolean;
   is_executable: boolean;
   blocking_reason: string | null;
+}
+
+export interface CleanupExecutionLog {
+  path: string;
+  name: string;
+  size: number;
+  status: "success" | "skipped" | "failed" | string;
+  message: string;
+}
+
+export interface CleanupExecutionResult {
+  moved: number;
+  skipped: number;
+  failed: number;
+  logs: CleanupExecutionLog[];
 }
 
 export interface OperationLog {

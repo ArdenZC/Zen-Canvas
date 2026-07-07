@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  CleanupExecutionResult,
   CleanupPreviewItem,
   DashboardStats,
   ExecuteOperationResult,
@@ -149,6 +150,8 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockOperationPreviews(args) as T;
     case "scan_storage_cleanup":
       return mockStorageAnalysis() as T;
+    case "move_cleanup_candidates_to_trash":
+      return mockCleanupExecutionResult(args) as T;
     case "preview_cleanup_candidates":
       return mockCleanupPreviewCandidates(args) as T;
     case "preview_cleanup_operations":
@@ -381,7 +384,37 @@ function mockStorageAnalysis(): StorageAnalysis {
       .filter((candidate) => candidate.tier === "Review")
       .reduce((sum, candidate) => sum + candidate.size, 0),
     candidates,
-    denied_paths: []
+    denied_paths: [],
+    warnings: []
+  };
+}
+
+function mockCleanupExecutionResult(args?: Record<string, unknown>): CleanupExecutionResult {
+  const ids = new Set(Array.isArray(args?.ids) ? args.ids.map(String) : []);
+  const logs = mockStorageAnalysis()
+    .candidates
+    .filter((candidate) => ids.has(candidate.id))
+    .map((candidate) => {
+      const allowed =
+        candidate.tier === "Safe" &&
+        candidate.trash_allowed &&
+        candidate.suggested_action === "MoveToTrash";
+      return {
+        path: candidate.path,
+        name: candidate.name,
+        size: candidate.size,
+        status: allowed ? "success" : "skipped",
+        message: allowed
+          ? "Moved to the system trash. Restore it from the system trash if needed."
+          : "Only safe cleanup candidates can be moved."
+      };
+    });
+
+  return {
+    moved: logs.filter((log) => log.status === "success").length,
+    skipped: logs.filter((log) => log.status === "skipped").length,
+    failed: 0,
+    logs
   };
 }
 
