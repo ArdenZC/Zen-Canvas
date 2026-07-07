@@ -48,6 +48,8 @@ export type SuggestedAction =
 export type DispatchZone = "CoreAssets" | "QuietArchive" | "PrivacyVault" | "CleanupLane";
 export type SearchSourceType = "user_space" | "folder" | "cloud" | "external";
 export type RestoreStatus = "not_restored" | "restored" | "failed" | "unavailable" | "canceled";
+export type CleanupTier = "Safe" | "Review" | "Caution";
+export type CleanupActionKind = "MoveToTrash" | "Reveal" | "UninstallAdvice" | "AppInternalCleanup" | "None";
 export type ClassificationStatus = "unclassified" | "classified";
 export type FolderNamingLanguage = "en" | "zh";
 export type CloseBehavior = "ask" | "minimize" | "quit";
@@ -285,6 +287,45 @@ export interface OperationPreviewResult {
   offset: number;
   truncated: boolean;
   hasMore: boolean;
+}
+
+export interface StorageCandidate {
+  id: string;
+  path: string;
+  name: string;
+  size: number;
+  tier: CleanupTier;
+  category: string;
+  reason: string;
+  suggested_action: CleanupActionKind;
+  risk_note: string | null;
+  trash_allowed: boolean;
+  selected_by_default: boolean;
+}
+
+export interface StorageAnalysis {
+  total_size: number;
+  reclaimable_estimate: number;
+  review_estimate: number;
+  candidates: StorageCandidate[];
+  denied_paths: string[];
+}
+
+export interface CleanupPreviewItem {
+  id: string;
+  candidate_id: string;
+  path: string;
+  name: string;
+  size: number;
+  tier: CleanupTier;
+  category: string;
+  reason: string;
+  operation_type: "move_to_trash_preview";
+  target_path: string;
+  status: "pending" | "success" | "failed" | "skipped";
+  requires_confirmation: boolean;
+  is_executable: boolean;
+  blocking_reason: string | null;
 }
 
 export interface OperationLog {

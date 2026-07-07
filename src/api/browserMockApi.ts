@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  CleanupPreviewItem,
   DashboardStats,
   ExecuteOperationResult,
   FileLibraryFilters,
@@ -11,7 +12,8 @@ import type {
   OperationPreviewResult,
   RestoreMovesResult,
   Rule,
-  RuleExecutionMode
+  RuleExecutionMode,
+  StorageAnalysis
 } from "../types/domain";
 import type { View } from "../types/ui";
 import { DEFAULT_SEARCH_HOTKEY } from "../utils/hotkeys";
@@ -115,6 +117,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "cancel_scan":
     case "cancel_operations":
     case "reveal_in_folder":
+    case "reveal_storage_candidate":
     case "quit_app":
     case "activate_search_result":
     case "resize_search_window":
@@ -144,6 +147,10 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return [] satisfies OperationLog[] as T;
     case "get_operation_previews_for_scope":
       return mockOperationPreviews(args) as T;
+    case "scan_storage_cleanup":
+      return mockStorageAnalysis() as T;
+    case "preview_cleanup_candidates":
+      return mockCleanupPreviewCandidates(args) as T;
     case "execute_rules_on_inbox":
     case "execute_rules_for_paths":
     case "execute_rules_for_scope":
@@ -305,6 +312,99 @@ function mockOperationPreviews(args?: Record<string, unknown>): OperationPreview
     truncated: false,
     hasMore: offset + limit < previews.length
   };
+}
+
+function mockStorageAnalysis(): StorageAnalysis {
+  const candidates = [
+    {
+      id: "storage-safe-node-modules",
+      path: "C:/Users/Zen/Projects/demo/node_modules",
+      name: "node_modules",
+      size: 1_850_000_000,
+      tier: "Safe",
+      category: "Regenerable development output",
+      reason: "Build output or dependency cache can usually be recreated.",
+      suggested_action: "MoveToTrash",
+      risk_note: "Review project context first: dependency folders can contain linked packages or local patches.",
+      trash_allowed: true,
+      selected_by_default: true
+    },
+    {
+      id: "storage-safe-build",
+      path: "C:/Users/Zen/Projects/demo/build",
+      name: "build",
+      size: 640_000_000,
+      tier: "Safe",
+      category: "Regenerable development output",
+      reason: "Build output can usually be recreated.",
+      suggested_action: "MoveToTrash",
+      risk_note: "Confirm this is generated output before adding it to the cleanup list.",
+      trash_allowed: true,
+      selected_by_default: false
+    },
+    {
+      id: "storage-review-download",
+      path: "C:/Users/Zen/Downloads/course-video.mp4",
+      name: "course-video.mp4",
+      size: 780_000_000,
+      tier: "Review",
+      category: "Downloads",
+      reason: "User-owned content needs review before cleanup.",
+      suggested_action: "Reveal",
+      risk_note: "Open the location and review it manually.",
+      trash_allowed: false,
+      selected_by_default: false
+    },
+    {
+      id: "storage-caution-app",
+      path: "C:/Program Files/Example",
+      name: "Example",
+      size: 2_400_000_000,
+      tier: "Caution",
+      category: "Application",
+      reason: "Use the app uninstaller instead of deleting files directly.",
+      suggested_action: "UninstallAdvice",
+      risk_note: "Manual deletion can leave services and shared components behind.",
+      trash_allowed: false,
+      selected_by_default: false
+    }
+  ] satisfies StorageAnalysis["candidates"];
+
+  return {
+    total_size: candidates.reduce((sum, candidate) => sum + candidate.size, 0),
+    reclaimable_estimate: candidates
+      .filter((candidate) => candidate.tier === "Safe" && candidate.trash_allowed)
+      .reduce((sum, candidate) => sum + candidate.size, 0),
+    review_estimate: candidates
+      .filter((candidate) => candidate.tier === "Review")
+      .reduce((sum, candidate) => sum + candidate.size, 0),
+    candidates,
+    denied_paths: []
+  };
+}
+
+function mockCleanupPreviewCandidates(args?: Record<string, unknown>): CleanupPreviewItem[] {
+  const ids = new Set(Array.isArray(args?.ids) ? args.ids.map(String) : []);
+  return mockStorageAnalysis()
+    .candidates
+    .filter((candidate) => ids.has(candidate.id))
+    .filter((candidate) => candidate.tier === "Safe" && candidate.trash_allowed)
+    .map((candidate) => ({
+      id: `cleanup-preview-${candidate.id}`,
+      candidate_id: candidate.id,
+      path: candidate.path,
+      name: candidate.name,
+      size: candidate.size,
+      tier: candidate.tier,
+      category: candidate.category,
+      reason: candidate.reason,
+      operation_type: "move_to_trash_preview",
+      target_path: "Recycle Bin",
+      status: "pending",
+      requires_confirmation: true,
+      is_executable: false,
+      blocking_reason: "Browser mock preview only"
+    }));
 }
 
 function mockSettings(settings?: AppSettings): AppSettings {

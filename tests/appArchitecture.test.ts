@@ -174,9 +174,13 @@ describe("app render architecture", () => {
     expect(appShell).toContain("function navGroups");
     expect(appShell).toContain('id: "workspace"');
     expect(appShell).toContain('id: "system"');
+    expect(appShell.indexOf('id: "scanner"')).toBeLessThan(appShell.indexOf('id: "cleanup"'));
+    expect(appShell.indexOf('id: "cleanup"')).toBeLessThan(appShell.indexOf('id: "organize"'));
+    expect(appShell).toContain('label: t("storageCleanup")');
     expect(appShell).not.toContain("index === 4");
     expect(appShell).toContain('aria-current={view === item.id ? "page" : undefined}');
     expect(appShell).toContain("function viewDescription");
+    expect(appShell).toContain('case "cleanup"');
     expect(appShell).toContain('case "rules"');
     expect(appShell).toContain('case "restore"');
     expect(appShell).toContain('case "settings"');

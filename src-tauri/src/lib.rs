@@ -5,6 +5,7 @@ pub mod file_ops;
 pub mod path_filter;
 pub mod scanner;
 pub mod settings;
+pub mod storage_analyzer;
 pub mod watcher;
 
 use db::Database;
@@ -34,6 +35,10 @@ pub use scanner::{
 };
 pub use settings::{
     get_app_settings, get_settings, save_app_settings, save_settings, AppSettings, OrganizeRootMode,
+};
+pub use storage_analyzer::{
+    preview_cleanup_candidates, reveal_storage_candidate, scan_storage_cleanup, CleanupActionKind,
+    CleanupPreviewItem, CleanupTier, StorageAnalysis, StorageCandidate, StorageCleanupState,
 };
 pub use watcher::{
     setup_file_watcher, FileWatchEvent, FileWatcherManager, WatcherErrorEvent, WatcherReadyEvent,
