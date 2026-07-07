@@ -12,7 +12,7 @@ use std::{
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tauri::{command, AppHandle, Emitter, Runtime, State};
+use tauri::{command, AppHandle, Emitter, Manager, Runtime, State};
 use thiserror::Error;
 
 pub const OPERATION_PROGRESS_EVENT: &str = "operation-progress";
@@ -40,6 +40,8 @@ enum FileOpError {
     UnsafePathTraversal,
     #[error("Operation canceled.")]
     OperationCanceled,
+    #[error("Move to trash failed: {0}")]
+    Trash(String),
     #[error("File operation failed: {0}")]
     Io(#[from] io::Error),
 }
@@ -188,11 +190,18 @@ pub async fn execute_moves<R: Runtime>(
     request: ExecuteMovesRequest,
 ) -> Result<ExecuteMovesResult, String> {
     let db = db.inner().clone();
+    let app_data_dir = app.path().app_data_dir().ok();
     cancel.0.store(false, Ordering::Relaxed);
     let cancel_flag = Arc::clone(&cancel.0);
     tauri::async_runtime::spawn_blocking(move || {
         let emitter = TauriOperationProgressEmitter::new(app);
-        execute_moves_with_persistence_with_progress(&db, request, cancel_flag, &emitter)
+        execute_moves_with_persistence_with_progress_and_app_data(
+            &db,
+            request,
+            cancel_flag,
+            &emitter,
+            app_data_dir,
+        )
     })
     .await
     .map_err(|error| format!("operation task failed: {error}"))?
@@ -221,11 +230,31 @@ fn execute_moves_with_persistence_with_progress(
     cancel_flag: Arc<AtomicBool>,
     emitter: &impl OperationProgressEmitter,
 ) -> Result<ExecuteMovesResult, String> {
+    execute_moves_with_persistence_with_progress_and_app_data(
+        db,
+        request,
+        cancel_flag,
+        emitter,
+        None,
+    )
+}
+
+fn execute_moves_with_persistence_with_progress_and_app_data(
+    db: &Database,
+    request: ExecuteMovesRequest,
+    cancel_flag: Arc<AtomicBool>,
+    emitter: &impl OperationProgressEmitter,
+    app_data_dir: Option<PathBuf>,
+) -> Result<ExecuteMovesResult, String> {
     let operations = request.operations.clone();
-    let mut result = execute_moves_core_with_progress(request, cancel_flag, emitter);
+    let mut result =
+        execute_moves_core_with_progress_and_app_data(request, cancel_flag, emitter, app_data_dir);
 
     for (operation, log) in operations.iter().zip(result.logs.iter_mut()) {
         if log.status != "success" {
+            continue;
+        }
+        if operation.operation_type == "move_to_trash" {
             continue;
         }
 
@@ -259,6 +288,15 @@ pub fn execute_moves_core_with_progress(
     cancel_flag: Arc<AtomicBool>,
     emitter: &impl OperationProgressEmitter,
 ) -> ExecuteMovesResult {
+    execute_moves_core_with_progress_and_app_data(request, cancel_flag, emitter, None)
+}
+
+fn execute_moves_core_with_progress_and_app_data(
+    request: ExecuteMovesRequest,
+    cancel_flag: Arc<AtomicBool>,
+    emitter: &impl OperationProgressEmitter,
+    app_data_dir: Option<PathBuf>,
+) -> ExecuteMovesResult {
     let batch_id = format!("batch-{}", current_timestamp_ms());
     let created_at = current_timestamp_ms().to_string();
     let total = request.operations.len() as u64;
@@ -269,12 +307,13 @@ pub fn execute_moves_core_with_progress(
         let log = if is_operation_cancelled(&cancel_flag) {
             make_canceled_operation_log(&batch_id, &created_at, index, operation)
         } else {
-            execute_preview_operation(
+            execute_preview_operation_with_app_data(
                 &batch_id,
                 &created_at,
                 index,
                 operation,
                 Some(cancel_flag.as_ref()),
+                app_data_dir.as_deref(),
             )
         };
         let current_path = operation.source_path.clone();
@@ -325,12 +364,31 @@ pub fn rename_file(source_path: String, new_name: String) -> Result<FileOperatio
     })
 }
 
+#[cfg(test)]
 fn execute_preview_operation(
     batch_id: &str,
     created_at: &str,
     index: usize,
     operation: &OperationPreviewRequest,
     cancel_flag: Option<&AtomicBool>,
+) -> OperationLogDto {
+    execute_preview_operation_with_app_data(
+        batch_id,
+        created_at,
+        index,
+        operation,
+        cancel_flag,
+        None,
+    )
+}
+
+fn execute_preview_operation_with_app_data(
+    batch_id: &str,
+    created_at: &str,
+    index: usize,
+    operation: &OperationPreviewRequest,
+    cancel_flag: Option<&AtomicBool>,
+    app_data_dir: Option<&Path>,
 ) -> OperationLogDto {
     let status = if operation.is_executable == Some(false) {
         Err("Operation is not executable.".to_string())
@@ -343,6 +401,9 @@ fn execute_preview_operation(
                 true,
                 cancel_flag,
             ),
+            "move_to_trash" => {
+                move_to_trash_with_safety(operation.source_path.clone(), app_data_dir)
+            }
             other => Err(format!("Unsupported operation type: {other}")),
         }
     };
@@ -506,6 +567,18 @@ fn make_operation_log(
     actual_target_path: String,
 ) -> OperationLogDto {
     let success = status == "success";
+    let trash_operation = operation.operation_type == "move_to_trash";
+    let can_restore = success && !trash_operation;
+    let restore_status = if trash_operation && success {
+        "unavailable"
+    } else {
+        "not_restored"
+    };
+    let restore_error = if trash_operation && success {
+        Some("Restore from system trash.".to_string())
+    } else {
+        None
+    };
     OperationLogDto {
         id: format!("{batch_id}-{index}-{}", operation.id),
         batch_id: batch_id.to_string(),
@@ -517,15 +590,15 @@ fn make_operation_log(
         status: status.to_string(),
         error_message,
         created_at: created_at.to_string(),
-        can_undo: success,
+        can_undo: can_restore,
         path_before: operation.source_path.clone(),
         path_after: actual_target_path,
         name_before: operation.old_name.clone(),
         name_after: operation.new_name.clone(),
-        can_restore: success,
+        can_restore,
         restored_at: None,
-        restore_status: "not_restored".to_string(),
-        restore_error: None,
+        restore_status: restore_status.to_string(),
+        restore_error,
     }
 }
 
@@ -540,6 +613,9 @@ fn restore_operation_log(
     log: &OperationLogDto,
     cancel_flag: Option<&AtomicBool>,
 ) -> OperationLogDto {
+    if log.operation_type == "move_to_trash" {
+        return mark_restore_unavailable(log, "Restore from system trash.");
+    }
     if log.status != "success" {
         return mark_restore_unavailable(log, "Only successful operations can be restored.");
     }
@@ -755,6 +831,58 @@ fn move_file_with_parent_policy_with_cancel(
         source_path: normalize_path(&source),
         target_path: normalize_path(&target),
     })
+}
+
+fn move_to_trash_with_safety(
+    source_path: String,
+    app_data_dir: Option<&Path>,
+) -> Result<FileOperationResult, String> {
+    let source = validate_cleanup_trash_source(&PathBuf::from(source_path), app_data_dir)?;
+    trash::delete(&source).map_err(|error| FileOpError::Trash(error.to_string()).to_string())?;
+
+    Ok(FileOperationResult {
+        operation: "move_to_trash".to_string(),
+        source_path: normalize_path(&source),
+        target_path: "Recycle Bin".to_string(),
+    })
+}
+
+fn validate_cleanup_trash_source(
+    path: &Path,
+    app_data_dir: Option<&Path>,
+) -> Result<PathBuf, String> {
+    if path.as_os_str().is_empty()
+        || path.to_string_lossy().contains('\0')
+        || path.to_string_lossy().contains('*')
+        || path.to_string_lossy().contains('?')
+        || path
+            .components()
+            .any(|component| component == Component::ParentDir)
+        || path.parent().is_none()
+        || path.file_name().is_none()
+    {
+        return Err(FileOpError::UnsafePathTraversal.to_string());
+    }
+    if !path.is_absolute() {
+        return Err(FileOpError::RelativePath.to_string());
+    }
+    if !path.exists() {
+        return Err(FileOpError::SourceMissing.to_string());
+    }
+    if fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(FileOpError::ProtectedPath(normalize_path(path)).to_string());
+    }
+
+    let source = path
+        .canonicalize()
+        .map_err(|error| FileOpError::Io(error).to_string())?;
+    if crate::storage_analyzer::is_cleanup_execution_forbidden(&source, app_data_dir) {
+        return Err(FileOpError::ProtectedPath(normalize_path(&source)).to_string());
+    }
+    Ok(source)
 }
 
 fn validate_safe_file_name(name: &str) -> Result<(), String> {
@@ -1403,6 +1531,143 @@ mod tests {
     }
 
     #[test]
+    fn execute_moves_core_supports_move_to_trash_success_path() {
+        let root = test_dir();
+        let source = root.join("trash-me.txt");
+        fs::write(&source, "temporary").expect("write source");
+
+        let result = execute_moves_core(ExecuteMovesRequest {
+            operations: vec![OperationPreviewRequest {
+                id: "trash-preview".to_string(),
+                file_id: source.to_string_lossy().into_owned(),
+                operation_type: "move_to_trash".to_string(),
+                source_path: source.to_string_lossy().into_owned(),
+                target_path: "Recycle Bin".to_string(),
+                old_name: "trash-me.txt".to_string(),
+                new_name: "trash-me.txt".to_string(),
+                is_executable: Some(true),
+            }],
+        });
+
+        assert_eq!(
+            result.logs[0].status, "success",
+            "{:?}",
+            result.logs[0].error_message
+        );
+        assert_eq!(result.logs[0].operation_type, "move_to_trash");
+        assert_eq!(result.logs[0].target_path, "Recycle Bin");
+        assert!(!source.exists());
+        assert!(!result.logs[0].can_restore);
+        assert_eq!(result.logs[0].restore_status, "unavailable");
+    }
+
+    #[test]
+    fn execute_moves_core_refuses_dangerous_move_to_trash_paths() {
+        let result = execute_moves_core(ExecuteMovesRequest {
+            operations: vec![OperationPreviewRequest {
+                id: "trash-system".to_string(),
+                file_id: "C:/Windows/System32".to_string(),
+                operation_type: "move_to_trash".to_string(),
+                source_path: "C:/Windows/System32".to_string(),
+                target_path: "Recycle Bin".to_string(),
+                old_name: "System32".to_string(),
+                new_name: "System32".to_string(),
+                is_executable: Some(true),
+            }],
+        });
+
+        assert_eq!(result.logs[0].status, "failed");
+        assert!(result.logs[0]
+            .error_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("protected"));
+    }
+
+    #[test]
+    fn execute_moves_core_does_not_trash_when_operation_is_blocked() {
+        let root = test_dir();
+        let source = root.join("blocked.txt");
+        fs::write(&source, "keep").expect("write source");
+
+        let result = execute_moves_core(ExecuteMovesRequest {
+            operations: vec![OperationPreviewRequest {
+                id: "trash-blocked".to_string(),
+                file_id: source.to_string_lossy().into_owned(),
+                operation_type: "move_to_trash".to_string(),
+                source_path: source.to_string_lossy().into_owned(),
+                target_path: "Recycle Bin".to_string(),
+                old_name: "blocked.txt".to_string(),
+                new_name: "blocked.txt".to_string(),
+                is_executable: Some(false),
+            }],
+        });
+
+        assert_eq!(result.logs[0].status, "skipped");
+        assert!(source.exists());
+    }
+
+    #[test]
+    fn cleanup_execution_forbidden_rejects_empty_root_and_symlink() {
+        assert!(crate::storage_analyzer::is_cleanup_execution_forbidden(
+            Path::new(""),
+            None
+        ));
+        assert!(crate::storage_analyzer::is_cleanup_execution_forbidden(
+            Path::new("C:/"),
+            None
+        ));
+
+        let root = test_dir();
+        let target = root.join("target.txt");
+        let link = root.join("link.txt");
+        fs::write(&target, "target").expect("write target");
+        if create_file_symlink_for_test(&target, &link).is_ok() {
+            assert!(crate::storage_analyzer::is_cleanup_execution_forbidden(
+                &link, None
+            ));
+        }
+    }
+
+    #[test]
+    fn restore_moves_core_does_not_restore_move_to_trash_logs() {
+        let root = test_dir();
+        let source = root.join("already-trashed.txt");
+        let log = OperationLogDto {
+            id: "trash-log".to_string(),
+            batch_id: "trash-batch".to_string(),
+            operation_type: "move_to_trash".to_string(),
+            source_path: source.to_string_lossy().into_owned(),
+            target_path: "Recycle Bin".to_string(),
+            old_name: "already-trashed.txt".to_string(),
+            new_name: "already-trashed.txt".to_string(),
+            status: "success".to_string(),
+            error_message: None,
+            created_at: "1".to_string(),
+            can_undo: false,
+            path_before: source.to_string_lossy().into_owned(),
+            path_after: "Recycle Bin".to_string(),
+            name_before: "already-trashed.txt".to_string(),
+            name_after: "already-trashed.txt".to_string(),
+            can_restore: false,
+            restored_at: None,
+            restore_status: "unavailable".to_string(),
+            restore_error: Some("Restore from system trash".to_string()),
+        };
+
+        let restored = restore_moves_core(RestoreMovesRequest { logs: vec![log] });
+
+        assert_eq!(restored.restored, 0);
+        assert_eq!(restored.failed, 0);
+        assert_eq!(restored.logs[0].restore_status, "unavailable");
+        assert!(restored.logs[0]
+            .restore_error
+            .as_deref()
+            .unwrap_or("")
+            .contains("system trash"));
+    }
+
+    #[test]
     fn execute_preview_operation_marks_move_cancellation_as_skipped() {
         let root = test_dir();
         let source = root.join("source.txt");
@@ -2009,6 +2274,17 @@ mod tests {
             old_name: name.clone(),
             new_name: name,
             is_executable: Some(true),
+        }
+    }
+
+    fn create_file_symlink_for_test(target: &Path, link: &Path) -> io::Result<()> {
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_file(target, link)
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link)
         }
     }
 

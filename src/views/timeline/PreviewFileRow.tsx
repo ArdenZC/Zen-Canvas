@@ -22,6 +22,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
   t: Translator;
 }) {
   const blocked = preview.is_executable === false;
+  const trashOperation = preview.operation_type === "move_to_trash";
 
   return (
     <motion.div
@@ -61,23 +62,28 @@ export const PreviewFileRow = memo(function PreviewFileRow({
           {preview.blocking_reason && (
             <ToneBadge tone="danger">{preview.blocking_reason}</ToneBadge>
           )}
-          {preview.will_create_parent && (
+          {!trashOperation && preview.will_create_parent && (
             <ToneBadge tone="info">{t("operationCreatesParent")}</ToneBadge>
           )}
         </div>
+        {trashOperation && (
+          <p className="mt-2 text-xs text-[var(--muted)]">{t("operationMoveToTrashRisk")}</p>
+        )}
 
         <div className="mt-2 grid min-w-0 gap-2 xl:grid-cols-2">
           <PathBlock label={t("sourcePath")} path={preview.source_path} tone="source" />
           <PathBlock label={t("targetPath")} path={preview.target_path} tone="target" />
         </div>
 
-        <input
-          className={cn(inputSurface, "mt-2 w-full")}
-          value={preview.new_name}
-          disabled={!preview.editable_new_name || blocked}
-          onChange={(event) => onRenamePreview(preview.id, event.target.value)}
-          aria-label={t("newFileName")}
-        />
+        {!trashOperation && (
+          <input
+            className={cn(inputSurface, "mt-2 w-full")}
+            value={preview.new_name}
+            disabled={!preview.editable_new_name || blocked}
+            onChange={(event) => onRenamePreview(preview.id, event.target.value)}
+            aria-label={t("newFileName")}
+          />
+        )}
       </div>
     </motion.div>
   );
@@ -104,6 +110,7 @@ function PathBlock({ label, path, tone }: { label: string; path: string; tone: "
 }
 
 function operationLabel(operation: OperationPreview["operation_type"], t: Translator): string {
+  if (operation === "move_to_trash") return t("operationMoveToTrash");
   if (operation === "rename") return t("operationRename");
   if (operation === "move_rename") return t("operationMoveRename");
   return t("operationMove");

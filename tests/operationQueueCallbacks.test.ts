@@ -3,6 +3,7 @@ import type { LibraryScope, OperationPreview } from "../src/types/domain";
 import { operationNeedsCleanupConfirmation, useOperationQueueStore } from "../src/store/useOperationQueueStore";
 import { useFileLibraryStore } from "../src/store/useFileLibraryStore";
 import { useRulesStore } from "../src/store/useRulesStore";
+import { useAppStore } from "../src/store/useAppStore";
 
 const apiMocks = vi.hoisted(() => ({
   executeRulesForScope: vi.fn(),
@@ -80,6 +81,7 @@ describe("operation queue store callbacks", () => {
       previewHasMore: false
     });
     useRulesStore.setState({ rules: [] });
+    useAppStore.setState({ language: "en" });
     useFileLibraryStore.setState({
       scope: { kind: "current_scan", roots: [] },
       refresh: vi.fn(async () => {})
@@ -196,5 +198,28 @@ describe("operation queue store callbacks", () => {
 
     expect(globalThis.confirm).toHaveBeenCalledOnce();
     expect(apiMocks.executeMoves).toHaveBeenCalledWith([cleanup]);
+  });
+
+  it("requires trash-specific confirmation for move_to_trash previews", async () => {
+    const trash = {
+      ...preview("trash", true),
+      operation_type: "move_to_trash" as const,
+      target_path: "Recycle Bin",
+      requires_confirmation: true,
+      suggested_action: "DeleteCandidate" as const,
+      editable_new_name: false,
+      will_create_parent: false
+    };
+    useOperationQueueStore.setState({
+      displayPreviews: [trash],
+      selectedOperationIds: new Set([trash.id])
+    });
+    vi.stubGlobal("confirm", vi.fn(() => true));
+
+    await useOperationQueueStore.getState().executeSelected();
+
+    expect(operationNeedsCleanupConfirmation(trash)).toBe(true);
+    expect(globalThis.confirm).toHaveBeenCalledWith(expect.stringContaining("Move selected items to trash?"));
+    expect(apiMocks.executeMoves).toHaveBeenCalledWith([trash]);
   });
 });

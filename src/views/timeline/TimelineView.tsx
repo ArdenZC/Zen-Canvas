@@ -54,7 +54,9 @@ export function TimelineView() {
   const executableCount = previews.filter((preview) => preview.is_executable !== false).length;
   const blockedCount = previews.length - executableCount;
   const confirmationCount = previews.filter((preview) => preview.requires_confirmation).length;
-  const autoCreateParentCount = previews.filter((preview) => preview.will_create_parent).length;
+  const autoCreateParentCount = previews.filter(
+    (preview) => preview.operation_type !== "move_to_trash" && preview.will_create_parent
+  ).length;
   const executeProgress = operationProgress?.kind === "execute" ? operationProgress : null;
   const isExecuting = Boolean(executeProgress);
   const scopeText = libraryScopeLabel(previewScope ?? scope, t("allIndexedFiles"), t("noFolderSelected"));
@@ -81,6 +83,11 @@ export function TimelineView() {
           <NoticeBanner tone="warning" title={t("previewSafetyTitle")}>
             {t("previewNoOverwriteDelete")}
           </NoticeBanner>
+          {previews.some((preview) => preview.operation_type === "move_to_trash") && (
+            <NoticeBanner tone="warning">
+              {t("previewCleanupTrashSafety")}
+            </NoticeBanner>
+          )}
           <div className={cardGrid}>
             <MetricCard label={t("previewTotalSuggestions")} value={coveredTotal.toLocaleString()} tone="blue" />
             <MetricCard label={t("selectedOperations")} value={selectedCount.toLocaleString()} tone="green" />

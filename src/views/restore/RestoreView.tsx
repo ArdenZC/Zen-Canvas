@@ -134,6 +134,9 @@ export function RestoreView() {
                       <ChevronRight size={14} />
                       <span title={log.path_before}>{compactPath(log.path_before, 48)}</span>
                     </div>
+                    {log.operation_type === "move_to_trash" && (
+                      <small className="mt-2 block text-xs text-[var(--muted)]">{t("restoreFromSystemTrash")}</small>
+                    )}
                     {(log.restore_error || log.error_message) && (
                       <small className="mt-2 block text-xs text-red-500">{log.restore_error || log.error_message}</small>
                     )}
@@ -190,6 +193,7 @@ function groupOperationLogs(logs: OperationLog[]): OperationLogBatch[] {
 
 function isRestorableLog(log: OperationLog): boolean {
   return (
+    log.operation_type !== "move_to_trash" &&
     log.status === "success" &&
     log.can_restore &&
     (log.restore_status === "not_restored" || log.restore_status === "failed" || log.restore_status === "canceled")
@@ -197,6 +201,7 @@ function isRestorableLog(log: OperationLog): boolean {
 }
 
 function restoreStatusLabel(log: OperationLog, t: Translator): string {
+  if (log.operation_type === "move_to_trash") return t("restoreFromSystemTrash");
   if (log.restore_status === "restored") return t("restored");
   if (log.restore_status === "failed") return t("failed");
   if (log.restore_status === "canceled") return t("operationCanceled");

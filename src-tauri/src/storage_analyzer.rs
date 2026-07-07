@@ -1,3 +1,4 @@
+use crate::db::{OperationPreviewDto, OperationPreviewScopeResult};
 use serde::Serialize;
 use std::{
     collections::{hash_map::DefaultHasher, HashMap, HashSet},
@@ -130,6 +131,17 @@ pub fn preview_cleanup_candidates(
     cleanup_preview_items_for_candidates(ids, &candidates)
 }
 
+#[tauri::command]
+pub fn preview_cleanup_operations<R: Runtime>(
+    ids: Vec<String>,
+    app: AppHandle<R>,
+    state: State<'_, StorageCleanupState>,
+) -> Result<OperationPreviewScopeResult, String> {
+    let app_data_dir = app.path().app_data_dir().ok();
+    let candidates = state.candidates_by_id(&ids)?;
+    preview_cleanup_operations_for_candidates(ids, &candidates, app_data_dir.as_deref())
+}
+
 pub fn analyze_storage_roots_for_test(
     roots: Vec<PathBuf>,
     excluded_paths: Vec<PathBuf>,
@@ -149,6 +161,46 @@ pub fn is_forbidden_storage_path_for_test(path: &Path) -> bool {
     is_forbidden_storage_path(path, &[])
 }
 
+pub fn is_cleanup_execution_forbidden(path: &Path, app_data_dir: Option<&Path>) -> bool {
+    if path.as_os_str().is_empty() {
+        return true;
+    }
+    let lower = normalize_for_compare(path);
+    if lower.contains('\0') || lower.contains('*') || lower.contains('?') {
+        return true;
+    }
+    if path
+        .components()
+        .any(|component| component == std::path::Component::ParentDir)
+    {
+        return true;
+    }
+    if path.parent().is_none() || path.file_name().is_none() {
+        return true;
+    }
+    if fs::symlink_metadata(path)
+        .map(|metadata| metadata.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    app_data_dir
+        .map(|dir| is_same_or_child(&lower, &normalize_for_compare(dir)))
+        .unwrap_or(false)
+        || is_forbidden_storage_path(path, &[])
+        || is_program_files_path_text(&lower)
+        || is_appdata_core_path_text(&lower)
+        || is_browser_profile_path(&lower)
+        || is_chat_database_path(&lower, &extension)
+        || is_database_extension(&extension)
+}
+
 pub fn cleanup_preview_items_for_candidates(
     ids: Vec<String>,
     candidates: &[StorageCandidate],
@@ -165,6 +217,66 @@ pub fn cleanup_preview_items_for_candidates(
         })
         .map(cleanup_preview_item)
         .collect())
+}
+
+pub fn preview_cleanup_operations_for_candidates(
+    ids: Vec<String>,
+    candidates: &[StorageCandidate],
+    app_data_dir: Option<&Path>,
+) -> Result<OperationPreviewScopeResult, String> {
+    let requested: HashSet<&str> = ids.iter().map(String::as_str).collect();
+    let previews = candidates
+        .iter()
+        .filter(|candidate| requested.contains(candidate.id.as_str()))
+        .filter(|candidate| cleanup_candidate_can_enter_operation_preview(candidate, app_data_dir))
+        .map(cleanup_operation_preview)
+        .collect::<Vec<_>>();
+
+    Ok(OperationPreviewScopeResult {
+        total: previews.len() as i64,
+        limit: previews.len() as u32,
+        offset: 0,
+        truncated: false,
+        has_more: false,
+        previews,
+    })
+}
+
+fn cleanup_candidate_can_enter_operation_preview(
+    candidate: &StorageCandidate,
+    app_data_dir: Option<&Path>,
+) -> bool {
+    let path = Path::new(&candidate.path);
+    candidate.tier == CleanupTier::Safe
+        && candidate.trash_allowed
+        && candidate.suggested_action == CleanupActionKind::MoveToTrash
+        && path.exists()
+        && !is_cleanup_execution_forbidden(path, app_data_dir)
+}
+
+fn cleanup_operation_preview(candidate: &StorageCandidate) -> OperationPreviewDto {
+    OperationPreviewDto {
+        id: format!("cleanup-trash-{}", candidate.id),
+        file_id: candidate.id.clone(),
+        operation_type: "move_to_trash".to_string(),
+        source_path: candidate.path.clone(),
+        target_path: "Recycle Bin".to_string(),
+        old_name: candidate.name.clone(),
+        new_name: candidate.name.clone(),
+        status: "pending".to_string(),
+        risk_level: "Normal".to_string(),
+        confidence: 1.0,
+        requires_confirmation: true,
+        suggested_action: "DeleteCandidate".to_string(),
+        is_duplicate: false,
+        reason: candidate.reason.clone(),
+        selected_by_default: Some(true),
+        is_executable: Some(true),
+        blocking_reason: None,
+        editable_new_name: Some(false),
+        target_parent_exists: Some(true),
+        will_create_parent: Some(false),
+    }
 }
 
 fn analyze_storage_roots(
@@ -557,6 +669,13 @@ fn is_appdata_path(lower: &str) -> bool {
     lower.contains("/appdata/local/") || lower.contains("/appdata/roaming/")
 }
 
+fn is_appdata_core_path_text(lower: &str) -> bool {
+    lower.ends_with("/appdata")
+        || lower.ends_with("/appdata/local")
+        || lower.ends_with("/appdata/roaming")
+        || lower.ends_with("/appdata/locallow")
+}
+
 fn is_temp_path(lower: &str) -> bool {
     lower.contains("/appdata/local/temp/") || lower.ends_with("/appdata/local/temp")
 }
@@ -694,6 +813,7 @@ fn normalize_for_compare(path: &Path) -> String {
 fn normalize_compare_text(value: &str) -> String {
     let value = value
         .strip_prefix("//?/")
+        .or_else(|| value.strip_prefix("//?/"))
         .unwrap_or(value)
         .trim_end_matches('/')
         .replace('\\', "/");

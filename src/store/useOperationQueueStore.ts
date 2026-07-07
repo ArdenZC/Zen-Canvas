@@ -66,7 +66,8 @@ function defaultSelectedPreviewIds(previews: OperationPreview[]) {
 }
 
 export function operationNeedsCleanupConfirmation(preview: OperationPreview): boolean {
-  return preview.is_duplicate === true
+  return preview.operation_type === "move_to_trash"
+    || preview.is_duplicate === true
     || preview.suggested_action === "DeleteCandidate"
     || preview.suggested_action === "Review";
 }
@@ -232,7 +233,17 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
     );
     if (!operations.length) return;
 
-    const cleanupConfirmationCount = operations.filter(operationNeedsCleanupConfirmation).length;
+    const trashConfirmationCount = operations.filter((operation) => operation.operation_type === "move_to_trash").length;
+    if (trashConfirmationCount > 0) {
+      const confirmed = globalThis.confirm?.(
+        `${t("confirmMoveToTrashTitle")}\n\n${t("confirmMoveToTrashDesc")}`
+      ) ?? false;
+      if (!confirmed) return;
+    }
+
+    const cleanupConfirmationCount = operations
+      .filter((operation) => operation.operation_type !== "move_to_trash")
+      .filter(operationNeedsCleanupConfirmation).length;
     if (cleanupConfirmationCount > 0) {
       const confirmed = globalThis.confirm?.(
         t("confirmCleanupDispatch").replace("{count}", cleanupConfirmationCount.toLocaleString())

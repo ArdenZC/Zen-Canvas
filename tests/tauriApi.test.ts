@@ -56,12 +56,16 @@ describe("tauriApi", () => {
     await tauriApi.scanStorageCleanup();
     await tauriApi.revealStorageCandidate("F:/Downloads/big.zip");
     await tauriApi.previewCleanupCandidates(["storage-safe-1"]);
+    await tauriApi.previewCleanupOperations(["storage-safe-1"]);
 
     expect(apiMocks.invoke).toHaveBeenNthCalledWith(1, "scan_storage_cleanup", undefined);
     expect(apiMocks.invoke).toHaveBeenNthCalledWith(2, "reveal_storage_candidate", {
       path: "F:/Downloads/big.zip"
     });
     expect(apiMocks.invoke).toHaveBeenNthCalledWith(3, "preview_cleanup_candidates", {
+      ids: ["storage-safe-1"]
+    });
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(4, "preview_cleanup_operations", {
       ids: ["storage-safe-1"]
     });
   });

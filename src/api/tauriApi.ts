@@ -193,6 +193,10 @@ export const tauriApi = {
     return invokeCommand<CleanupPreviewItem[]>("preview_cleanup_candidates", { ids });
   },
 
+  previewCleanupOperations(ids: string[]): Promise<OperationPreviewResult> {
+    return invokeCommand<OperationPreviewResult>("preview_cleanup_operations", { ids });
+  },
+
   executeRulesOnInbox(rules: Rule[]): Promise<RuleExecutionSummary> {
     return invokeCommand<RuleExecutionSummary>("execute_rules_on_inbox", { rules });
   },

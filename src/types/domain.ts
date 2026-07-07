@@ -50,6 +50,7 @@ export type SearchSourceType = "user_space" | "folder" | "cloud" | "external";
 export type RestoreStatus = "not_restored" | "restored" | "failed" | "unavailable" | "canceled";
 export type CleanupTier = "Safe" | "Review" | "Caution";
 export type CleanupActionKind = "MoveToTrash" | "Reveal" | "UninstallAdvice" | "AppInternalCleanup" | "None";
+export type OperationType = "move" | "rename" | "move_rename" | "move_to_trash";
 export type ClassificationStatus = "unclassified" | "classified";
 export type FolderNamingLanguage = "en" | "zh";
 export type CloseBehavior = "ask" | "minimize" | "quit";
@@ -259,7 +260,7 @@ export interface OperationPreview {
   id: string;
   fileId: string;
   file_id?: string;
-  operation_type: "move" | "rename" | "move_rename";
+  operation_type: OperationType;
   source_path: string;
   target_path: string;
   old_name: string;

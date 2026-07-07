@@ -151,6 +151,8 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockStorageAnalysis() as T;
     case "preview_cleanup_candidates":
       return mockCleanupPreviewCandidates(args) as T;
+    case "preview_cleanup_operations":
+      return mockCleanupPreviewOperations(args) as T;
     case "execute_rules_on_inbox":
     case "execute_rules_for_paths":
     case "execute_rules_for_scope":
@@ -405,6 +407,44 @@ function mockCleanupPreviewCandidates(args?: Record<string, unknown>): CleanupPr
       is_executable: false,
       blocking_reason: "Browser mock preview only"
     }));
+}
+
+function mockCleanupPreviewOperations(args?: Record<string, unknown>): OperationPreviewResult {
+  const ids = new Set(Array.isArray(args?.ids) ? args.ids.map(String) : []);
+  const previews: OperationPreview[] = mockStorageAnalysis()
+    .candidates
+    .filter((candidate) => ids.has(candidate.id))
+    .filter((candidate) => candidate.tier === "Safe" && candidate.trash_allowed)
+    .map((candidate) => ({
+      id: `cleanup-trash-${candidate.id}`,
+      fileId: candidate.id,
+      operation_type: "move_to_trash",
+      source_path: candidate.path,
+      target_path: "Recycle Bin",
+      old_name: candidate.name,
+      new_name: candidate.name,
+      status: "pending",
+      risk_level: "Normal",
+      confidence: 1,
+      requires_confirmation: true,
+      suggested_action: "DeleteCandidate",
+      is_duplicate: false,
+      reason: candidate.reason,
+      selected_by_default: true,
+      is_executable: true,
+      editable_new_name: false,
+      target_parent_exists: true,
+      will_create_parent: false
+    }));
+
+  return {
+    previews,
+    total: previews.length,
+    limit: previews.length,
+    offset: 0,
+    truncated: false,
+    hasMore: false
+  };
 }
 
 function mockSettings(settings?: AppSettings): AppSettings {

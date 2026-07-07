@@ -10,9 +10,10 @@ import {
 } from "lucide-react";
 import { tauriApi, type TauriApi } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
+import { useOperationQueueStore } from "../../store/useOperationQueueStore";
 import type {
-  CleanupPreviewItem,
   CleanupTier,
+  LibraryScope,
   StorageAnalysis,
   StorageCandidate
 } from "../../types/domain";
@@ -37,7 +38,7 @@ import {
 
 type StorageCleanupApi = Pick<
   TauriApi,
-  "scanStorageCleanup" | "revealStorageCandidate" | "previewCleanupCandidates"
+  "scanStorageCleanup" | "revealStorageCandidate" | "previewCleanupOperations"
 >;
 
 type Props = {
@@ -55,23 +56,24 @@ export function StorageCleanupView(props: Props = {}) {
 }
 
 function StorageCleanupViewWithContext(props: Omit<Props, "t">) {
-  const { t, onError } = useChromeContext();
-  return <StorageCleanupPanel {...props} t={t} onError={onError} />;
+  const { t, onError, setView } = useChromeContext();
+  return <StorageCleanupPanel {...props} t={t} onError={onError} setView={setView} />;
 }
 
 function StorageCleanupPanel({
   initialAnalysis,
   api = tauriApi,
   t,
-  onError
-}: Props & { t: Translator; onError?: (message: string) => void }) {
+  onError,
+  setView
+}: Props & { t: Translator; onError?: (message: string) => void; setView?: (view: "preview") => void }) {
+  const setPreviewResult = useOperationQueueStore((state) => state.setPreviewResult);
   const [analysis, setAnalysis] = useState<StorageAnalysis | null>(initialAnalysis ?? null);
   const [isScanning, setIsScanning] = useState(false);
   const [isGeneratingPreview, setIsGeneratingPreview] = useState(false);
   const [selectedCleanupIds, setSelectedCleanupIds] = useState<Set<string>>(
     () => new Set(defaultSelectedCleanupIds(initialAnalysis))
   );
-  const [previewItems, setPreviewItems] = useState<CleanupPreviewItem[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -99,7 +101,6 @@ function StorageCleanupPanel({
       const next = await api.scanStorageCleanup();
       setAnalysis(next);
       setSelectedCleanupIds(new Set(defaultSelectedCleanupIds(next)));
-      setPreviewItems([]);
     } catch (scanError) {
       const message = readableError(scanError);
       setError(message);
@@ -124,8 +125,9 @@ function StorageCleanupPanel({
     setIsGeneratingPreview(true);
     setError("");
     try {
-      const items = await api.previewCleanupCandidates([...selectedCleanupIds]);
-      setPreviewItems(items);
+      const result = await api.previewCleanupOperations([...selectedCleanupIds]);
+      setPreviewResult(result, cleanupPreviewScope(candidates, selectedCleanupIds));
+      if (setView) setView("preview");
     } catch (previewError) {
       const message = readableError(previewError);
       setError(message);
@@ -260,27 +262,6 @@ function StorageCleanupPanel({
               />
             ))}
           </section>
-
-          {previewItems.length > 0 && (
-            <section className={cn(contentPanel, "grid gap-3 p-4")}>
-              <div>
-                <h2 className={sectionHeading}>{t("storageCleanupPreviewTitle")}</h2>
-                <p className={sectionDescription}>{t("storageCleanupPreviewDesc")}</p>
-              </div>
-              <div className="max-h-[min(28vh,240px)] overflow-auto pr-1">
-                {previewItems.map((item) => (
-                  <div key={item.id} className="grid gap-1 border-b border-[var(--line-dark)] py-2 last:border-b-0">
-                    <div className="flex min-w-0 items-center justify-between gap-3">
-                      <strong className="truncate text-sm text-[var(--ink)]">{item.name}</strong>
-                      <ToneBadge tone="green">{formatBytes(item.size)}</ToneBadge>
-                    </div>
-                    <span className={quietText}>{compactPath(item.path, 110)}</span>
-                    {item.blocking_reason && <span className={metadataText}>{item.blocking_reason}</span>}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
 
           <footer className={cn(softPanel, "sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 p-3")}>
             <div className="min-w-0">
@@ -442,6 +423,15 @@ function defaultSelectedCleanupIds(analysis?: StorageAnalysis | null): string[] 
 
 function canSelectForCleanup(candidate: StorageCandidate) {
   return candidate.tier === "Safe" && candidate.trash_allowed && candidate.suggested_action === "MoveToTrash";
+}
+
+function cleanupPreviewScope(candidates: StorageCandidate[], selectedCleanupIds: Set<string>): LibraryScope {
+  return {
+    kind: "roots",
+    roots: candidates
+      .filter((candidate) => selectedCleanupIds.has(candidate.id))
+      .map((candidate) => candidate.path)
+  };
 }
 
 function tierTone(tier: CleanupTier): "green" | "amber" | "red" {

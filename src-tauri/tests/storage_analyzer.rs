@@ -7,7 +7,8 @@ use std::{
 use zen_canvas_tauri::storage_analyzer::{
     analyze_storage_roots_for_test, classify_candidate_for_test,
     cleanup_preview_items_for_candidates, default_scan_roots_for_test,
-    is_forbidden_storage_path_for_test, CleanupActionKind, CleanupTier, StorageCandidate,
+    is_forbidden_storage_path_for_test, preview_cleanup_operations_for_candidates,
+    CleanupActionKind, CleanupTier, StorageCandidate,
 };
 
 #[test]
@@ -196,6 +197,78 @@ fn cleanup_preview_items_reject_system_paths_even_if_client_marks_them_safe() {
         .expect("preview items");
 
     assert!(preview.is_empty());
+}
+
+#[test]
+fn cleanup_operation_preview_only_includes_safe_trash_candidates() {
+    let root = test_dir();
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    let review = classify_candidate_for_test(&root.join("Downloads").join("movie.mp4"), 128);
+    let caution = classify_candidate_for_test(&PathBuf::from("C:/Program Files/Example"), 128);
+
+    let preview = preview_cleanup_operations_for_candidates(
+        vec![safe.id.clone(), review.id.clone(), caution.id.clone()],
+        &[safe.clone(), review, caution],
+        None,
+    )
+    .expect("cleanup operation preview");
+
+    assert_eq!(preview.total, 1);
+    assert_eq!(preview.previews.len(), 1);
+    assert_eq!(preview.previews[0].operation_type, "move_to_trash");
+    assert_eq!(preview.previews[0].source_path, safe.path);
+    assert_eq!(preview.previews[0].target_path, "Recycle Bin");
+    assert!(preview.previews[0].requires_confirmation);
+    assert_eq!(preview.previews[0].suggested_action, "DeleteCandidate");
+    assert_eq!(preview.previews[0].is_executable, Some(true));
+    assert_eq!(preview.previews[0].editable_new_name, Some(false));
+    assert_eq!(preview.previews[0].will_create_parent, Some(false));
+}
+
+#[test]
+fn cleanup_operation_preview_rejects_system_and_app_data_paths() {
+    let root = test_dir();
+    let app_data = root.join("Zen Canvas");
+    let app_data_child = app_data.join("cache");
+    write_file(&app_data_child.join("owned.txt"), 64);
+    let forged_app_data = StorageCandidate {
+        id: "forged-app-data".to_string(),
+        path: app_data_child.to_string_lossy().into_owned(),
+        name: "cache".to_string(),
+        size: 64,
+        tier: CleanupTier::Safe,
+        category: "Forged".to_string(),
+        reason: "Client supplied".to_string(),
+        suggested_action: CleanupActionKind::MoveToTrash,
+        risk_note: None,
+        trash_allowed: true,
+        selected_by_default: true,
+    };
+    let forged_system = StorageCandidate {
+        id: "forged-system".to_string(),
+        path: "C:/Windows/System32".to_string(),
+        name: "System32".to_string(),
+        size: 64,
+        tier: CleanupTier::Safe,
+        category: "Forged".to_string(),
+        reason: "Client supplied".to_string(),
+        suggested_action: CleanupActionKind::MoveToTrash,
+        risk_note: None,
+        trash_allowed: true,
+        selected_by_default: true,
+    };
+
+    let preview = preview_cleanup_operations_for_candidates(
+        vec![forged_app_data.id.clone(), forged_system.id.clone()],
+        &[forged_app_data, forged_system],
+        Some(&app_data),
+    )
+    .expect("cleanup operation preview");
+
+    assert!(preview.previews.is_empty());
+    assert_eq!(preview.total, 0);
 }
 
 fn test_dir() -> PathBuf {

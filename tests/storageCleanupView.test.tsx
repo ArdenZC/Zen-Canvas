@@ -80,7 +80,7 @@ describe("StorageCleanupView", () => {
     expect(markup).toContain("可安全清理");
     expect(markup).toContain("需人工判断");
     expect(markup).toContain("谨慎处理");
-    expect(markup).toContain("当前版本不会执行清理，不会自动删除文件");
+    expect(markup).toContain("执行前仍需在“预览执行”中逐项确认");
     expect(markup).toContain("未统计，结果可能低估");
     expect(markup).toContain("node_modules");
     expect(markup).toContain("course.mp4");
@@ -91,16 +91,23 @@ describe("StorageCleanupView", () => {
     const api = {
       scanStorageCleanup: vi.fn().mockResolvedValue(analysis),
       revealStorageCandidate: vi.fn().mockResolvedValue(undefined),
-      previewCleanupCandidates: vi.fn().mockResolvedValue([])
+      previewCleanupOperations: vi.fn().mockResolvedValue({
+        previews: [],
+        total: 0,
+        limit: 0,
+        offset: 0,
+        truncated: false,
+        hasMore: false
+      })
     };
     const markup = renderToStaticMarkup(
       <StorageCleanupView initialAnalysis={analysis} api={api} t={makeTranslator("zh")} />
     );
 
     expect(markup).toContain("加入清理清单");
-    expect(markup).toContain("生成清理清单");
+    expect(markup).toContain("生成回收站预览");
     expect(markup).not.toContain("生成清理预览");
-    expect(markup).toContain("当前版本不会执行清理");
+    expect(markup).toContain("不会永久删除文件");
     expect(markup).toContain("data-selected-cleanup-ids=\"safe-node-modules\"");
     expect(markup).not.toContain("data-selected-cleanup-ids=\"safe-build");
     expect(markup).not.toContain("data-selected-cleanup-ids=\"review-video");
@@ -141,5 +148,19 @@ describe("StorageCleanupView", () => {
 
     expect(source).toContain('t("storageCleanupScanningDesc")');
     expect(source).toContain('t("storageCleanupProgressTodo")');
+  });
+
+  it("generates trash previews through the unified operation queue", () => {
+    const source = read("src/views/cleanup/StorageCleanupView.tsx");
+
+    expect(source).toContain("previewCleanupOperations");
+    expect(source).toContain("useOperationQueueStore");
+    expect(source).toContain("setPreviewResult");
+    expect(source).toContain('setView("preview")');
+    expect(source).toContain('t("storageCleanupGeneratePreview")');
+    expect(source).not.toContain("previewCleanupCandidates");
+    expect(source).not.toContain("setPreviewItems");
+    expect(makeTranslator("zh")("storageCleanupGeneratePreview")).toBe("生成回收站预览");
+    expect(makeTranslator("zh")("storageCleanupPreviewDesc")).toContain("预览执行");
   });
 });

@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { makeTranslator } from "../src/i18n";
+import type { OperationPreview } from "../src/types/domain";
+import { PreviewFileRow } from "../src/views/timeline/PreviewFileRow";
 
 function read(relativePath: string) {
   return readFileSync(resolve(relativePath), "utf8");
@@ -15,7 +19,7 @@ describe("preview execute safety UI", () => {
     expect(t("previewSafetyTitle")).toBe("执行前请确认");
     expect(t("executeSelectedWithCount")).toBe("执行已选操作 · {count}");
     expect(t("previewNoOverwriteDelete")).toContain("不会覆盖");
-    expect(t("previewNoOverwriteDelete")).toContain("不会删除");
+    expect(t("previewNoOverwriteDelete")).toContain("不会永久删除");
     expect(t("groupNoExecutableItems")).toBe("此分组没有可执行项");
     expect(t("operationCreatesParent")).toBe("会创建父目录");
     expect(t("operationProgressTitle")).toBe("正在执行已选操作");
@@ -82,5 +86,50 @@ describe("preview execute safety UI", () => {
     expect(row).toContain("gap-3 sm:grid-cols-[auto_auto_minmax(0,1fr)]");
     expect(row).toContain("grid min-w-0 gap-2 xl:grid-cols-2");
     expect(row).not.toContain("lg:grid-cols-2");
+  });
+
+  it("renders move_to_trash previews without rename or create-folder controls", () => {
+    const preview: OperationPreview = {
+      id: "trash-preview",
+      fileId: "file-trash",
+      operation_type: "move_to_trash",
+      source_path: "C:/Users/Zen/Desktop/zen-cleanup-test/node_modules",
+      target_path: "系统回收站",
+      old_name: "node_modules",
+      new_name: "node_modules",
+      status: "pending",
+      risk_level: "Normal",
+      confidence: 1,
+      requires_confirmation: true,
+      suggested_action: "DeleteCandidate",
+      reason: "Regenerable dependencies.",
+      selected_by_default: true,
+      is_executable: true,
+      editable_new_name: false,
+      will_create_parent: false
+    };
+
+    const markup = renderToStaticMarkup(createElement(PreviewFileRow, {
+      preview,
+      isSelected: true,
+      toggle: () => undefined,
+      onRenamePreview: () => undefined,
+      t: makeTranslator("zh")
+    }));
+
+    expect(markup).toContain("移到回收站");
+    expect(markup).toContain("系统回收站");
+    expect(markup).toContain("这不是永久删除");
+    expect(markup).not.toContain("会创建父目录");
+    expect(markup).not.toContain("aria-label=\"新文件名\"");
+  });
+
+  it("adds timeline safety copy for trash cleanup operations", () => {
+    const timeline = read("src/views/timeline/TimelineView.tsx");
+    const t = makeTranslator("zh");
+
+    expect(t("previewCleanupTrashSafety")).toContain("系统回收站");
+    expect(t("confirmMoveToTrashTitle")).toBe("确认移到回收站？");
+    expect(timeline).toContain('t("previewCleanupTrashSafety")');
   });
 });
