@@ -126,10 +126,10 @@ export function toastTone(type: "success" | "error" | "info"): string {
 }
 
 export function toneClasses(tone: string): string {
-  if (tone === "red") return "border-red-400/30 bg-red-500/10 text-red-600 dark:text-red-300";
-  if (tone === "purple") return "border-violet-400/30 bg-violet-500/10 text-violet-600 dark:text-violet-300";
-  if (tone === "green") return "border-emerald-400/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300";
-  if (tone === "amber") return "border-amber-400/30 bg-amber-500/10 text-amber-700 dark:text-amber-200";
-  if (tone === "slate") return "border-slate-400/30 bg-slate-500/10 text-slate-600 dark:text-slate-300";
-  return "border-blue-400/30 bg-blue-500/10 text-blue-600 dark:text-blue-300";
+  if (tone === "red") return "bg-red-500/10 text-red-600 dark:text-red-400 ring-1 ring-red-500/20 border-transparent";
+  if (tone === "purple") return "bg-purple-500/10 text-purple-600 dark:text-purple-400 ring-1 ring-purple-500/20 border-transparent";
+  if (tone === "green") return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20 border-transparent";
+  if (tone === "amber") return "bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/20 border-transparent";
+  if (tone === "slate") return "bg-slate-500/10 text-slate-600 dark:text-slate-400 ring-1 ring-slate-500/20 border-transparent";
+  return "bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20 border-transparent";
 }

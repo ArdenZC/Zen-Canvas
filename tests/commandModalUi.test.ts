@@ -19,6 +19,30 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).not.toContain("CommandEmptyState");
   });
 
+  it("uses purpose-driven result tones and dynamic file icons", () => {
+    const commandModal = read("src/components/CommandModal.tsx");
+
+    expect(commandModal).toContain("Folder, Video, Image as ImageIcon, Code, FileText");
+    expect(commandModal).toContain("function getIcon(fileType: string)");
+    expect(commandModal).toContain('if (type === "folder") return <Folder size={20} strokeWidth={1.5} />');
+    expect(commandModal).toContain('if (type === "video" || type === "mp4") return <Video size={20} strokeWidth={1.5} />');
+    expect(commandModal).toContain('if (type === "image" || type === "png" || type === "jpg") return <ImageIcon size={20} strokeWidth={1.5} />');
+    expect(commandModal).toContain('if (type === "code" || type === "ts" || type === "js" || type === "tsx" || type === "json") return <Code size={20} strokeWidth={1.5} />');
+    expect(commandModal).toContain("return <FileText size={20} strokeWidth={1.5} />");
+    expect(commandModal).toContain('const purpose = (file.purpose || "").toLowerCase()');
+    expect(commandModal).toContain('purpose.includes("strategy") || purpose.includes("finance") || file.lifecycle === "Archive"');
+    expect(commandModal).toContain('purpose.includes("media") || purpose.includes("image")');
+    expect(commandModal).toContain('purpose.includes("code") || purpose.includes("script")');
+    expect(commandModal).toContain('purpose.includes("doc") || purpose.includes("text")');
+    expect(commandModal).toContain('file.risk_level === "Sensitive" || purpose.includes("sensitive")');
+    expect(commandModal).toContain('{getIcon(file.extension ? file.extension.replace(".", "") : file.file_type)}');
+    expect(commandModal).toContain('<ToneBadge tone={tone as any}>{file.purpose}</ToneBadge>');
+    expect(commandModal).toContain('<ToneBadge tone={file.risk_level === "Sensitive" ? "red" : "amber"}>');
+    expect(commandModal).toContain('<ToneBadge tone="amber">{t("libraryDuplicateFiles")}</ToneBadge>');
+    expect(commandModal).not.toContain('<File size={20} strokeWidth={1.5} />');
+    expect(commandModal).not.toContain('<ToneBadge tone="info">{file.purpose}</ToneBadge>');
+  });
+
   it("keeps spotlight controls accessible and avoids scale-based motion", () => {
     const commandModal = read("src/components/CommandModal.tsx");
 

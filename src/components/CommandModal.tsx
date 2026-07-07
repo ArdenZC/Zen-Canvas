@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
-import { ChevronRight, File, Search, X } from "lucide-react";
+import { ChevronRight, File, Search, X, Folder, Video, Image as ImageIcon, Code, FileText } from "lucide-react";
 import { motion } from "motion/react";
 import { tauriApi } from "../api/tauriApi";
 import type { FileRecord, LibraryScope } from "../types/domain";
@@ -283,9 +283,22 @@ export function CommandModal({
   }
 
   function getResultTone(file: FileRecord) {
-    if (file.risk_level === "Sensitive") return "red";
-    if (file.lifecycle === "Archive") return "purple";
-    return "blue";
+    const purpose = (file.purpose || "").toLowerCase();
+    if (purpose.includes("strategy") || purpose.includes("finance") || file.lifecycle === "Archive") return "purple";
+    if (purpose.includes("media") || purpose.includes("image")) return "amber";
+    if (purpose.includes("code") || purpose.includes("script")) return "green";
+    if (purpose.includes("doc") || purpose.includes("text")) return "blue";
+    if (file.risk_level === "Sensitive" || purpose.includes("sensitive")) return "red";
+    return "slate";
+  }
+
+  function getIcon(fileType: string) {
+    const type = (fileType || "").toLowerCase();
+    if (type === "folder") return <Folder size={20} strokeWidth={1.5} />;
+    if (type === "video" || type === "mp4") return <Video size={20} strokeWidth={1.5} />;
+    if (type === "image" || type === "png" || type === "jpg") return <ImageIcon size={20} strokeWidth={1.5} />;
+    if (type === "code" || type === "ts" || type === "js" || type === "tsx" || type === "json") return <Code size={20} strokeWidth={1.5} />;
+    return <FileText size={20} strokeWidth={1.5} />;
   }
 
   return (
@@ -407,7 +420,7 @@ export function CommandModal({
                       onMouseEnter={() => setActiveIndex(index)}
                     >
                       <span className={cn(commandFileIcon, toneClasses(tone))}>
-                        <File size={20} strokeWidth={1.5} />
+                        {getIcon(file.extension ? file.extension.replace(".", "") : file.file_type)}
                       </span>
                       <span className="grid min-w-0 gap-1.5">
                         <strong className={commandFileName}>
@@ -415,10 +428,10 @@ export function CommandModal({
                         </strong>
                         <span className={commandFileMeta} title={file.path}>{compactPath(file.path, 74)}</span>
                         <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                          <ToneBadge tone="info">{file.purpose}</ToneBadge>
+                          <ToneBadge tone={tone as any}>{file.purpose}</ToneBadge>
                           <ToneBadge tone="slate">{extension}</ToneBadge>
-                          {file.risk_level !== "Normal" && <ToneBadge tone={file.risk_level === "Sensitive" ? "warning" : "amber"}>{file.risk_level === "Sensitive" ? t("sensitiveLabel") : file.risk_level}</ToneBadge>}
-                          {file.is_duplicate && <ToneBadge tone="warning">{t("libraryDuplicateFiles")}</ToneBadge>}
+                          {file.risk_level !== "Normal" && <ToneBadge tone={file.risk_level === "Sensitive" ? "red" : "amber"}>{file.risk_level === "Sensitive" ? t("sensitiveLabel") : file.risk_level}</ToneBadge>}
+                          {file.is_duplicate && <ToneBadge tone="amber">{t("libraryDuplicateFiles")}</ToneBadge>}
                         </span>
                       </span>
                       <span className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">

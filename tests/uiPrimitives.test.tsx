@@ -12,6 +12,7 @@ import {
   elevatedPanel,
   infoSurface,
   successSurface,
+  toneClasses,
   warningSurface
 } from "../src/utils/tw";
 import {
@@ -74,6 +75,15 @@ describe("shared UI primitives", () => {
     expect(buttonSecondary).toContain("min-h-10");
     expect(buttonIcon).toContain("h-9");
     expect(buttonIconDanger).toContain("red");
+  });
+
+  it("uses glass ring tone classes for badges and icon chips", () => {
+    expect(toneClasses("red")).toBe("bg-red-500/10 text-red-600 dark:text-red-400 ring-1 ring-red-500/20 border-transparent");
+    expect(toneClasses("purple")).toBe("bg-purple-500/10 text-purple-600 dark:text-purple-400 ring-1 ring-purple-500/20 border-transparent");
+    expect(toneClasses("green")).toBe("bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20 border-transparent");
+    expect(toneClasses("amber")).toBe("bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/20 border-transparent");
+    expect(toneClasses("slate")).toBe("bg-slate-500/10 text-slate-600 dark:text-slate-400 ring-1 ring-slate-500/20 border-transparent");
+    expect(toneClasses("blue")).toBe("bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20 border-transparent");
   });
 
   it("renders switch controls with clear on and off status labels", () => {
