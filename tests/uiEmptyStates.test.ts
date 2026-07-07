@@ -76,6 +76,9 @@ describe("ui empty and command states", () => {
     expect(vault).toContain("result count");
     expect(vault).toContain("StateBlock");
     expect(vault).toContain("filterDotClass");
+    expect(vault).toContain("remainingCount = Math.max(0, page.total - page.files.length)");
+    expect(vault).toContain("remainingDisplayCount = Math.min(LIBRARY_PAGE_SIZE, remainingCount)");
+    expect(vault).not.toContain("Math.min(LIBRARY_PAGE_SIZE, files.length)");
     expect(vault).not.toContain("NoticeBanner");
     expect(vault).not.toContain("ToneBadge");
     expect(vault).toContain("aria-pressed={libraryFilter === filter.key}");

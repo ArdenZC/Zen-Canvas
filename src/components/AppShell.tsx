@@ -14,7 +14,7 @@ import {
   Square,
   X
 } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { CommandModal } from "./CommandModal";
 import { ViewErrorBoundary } from "./ErrorBoundary";
 import { AmbientMesh, CloseChoiceDialog, TitlebarTools, ZenMark } from "./ShellChrome";
@@ -44,7 +44,7 @@ import {
 const appRoot =
   cn(pageFrame, "relative h-screen min-h-[680px] min-w-[980px] bg-[var(--bg)] text-[var(--ink)]");
 const searchWindowRoot =
-  "relative h-screen w-screen overflow-hidden bg-transparent text-[var(--ink)]";
+  "relative h-full w-full overflow-hidden bg-transparent text-[var(--ink)]";
 const titlebar =
   "relative z-30 grid h-12 grid-cols-[minmax(208px,240px)_1fr_minmax(208px,240px)] items-center border-b border-[var(--line-dark)] bg-[var(--surface)] px-4 backdrop-blur-xl [-webkit-app-region:drag]";
 const noDrag = "[-webkit-app-region:no-drag]";
@@ -132,7 +132,7 @@ export function AppShell() {
 
 function SearchWindow() {
   return (
-    <div className={cn(searchWindowRoot, "flex items-center justify-center")}>
+    <div className={cn(searchWindowRoot, "flex items-start justify-center")}>
       <CommandLauncher standalone />
     </div>
   );
@@ -339,12 +339,28 @@ function ViewHeading({
 
 function ToastContainer() {
   const toast = useAppStore((state) => state.toast);
+  const clearToast = useAppStore((state) => state.clearToast);
+  const { view } = useChromeContext();
+  const previousViewRef = useRef(view);
+
+  useEffect(() => {
+    if (!toast || toast.type === "error") return;
+    const timeout = window.setTimeout(clearToast, toast.type === "success" ? 2200 : 3200);
+    return () => window.clearTimeout(timeout);
+  }, [clearToast, toast]);
+
+  useEffect(() => {
+    if (previousViewRef.current !== view) {
+      previousViewRef.current = view;
+      if (toast?.type === "success") clearToast();
+    }
+  }, [clearToast, toast, view]);
 
   if (!toast) return null;
 
   if (toast.type === "success") {
     return (
-      <div className="fixed right-5 top-16 z-50 max-w-sm rounded-full border border-emerald-400/25 bg-[var(--surface-strong)] px-3 py-2 text-xs font-medium text-emerald-700 shadow-[var(--shadow)] backdrop-blur-xl dark:text-emerald-200" role="status">
+      <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-full border border-emerald-400/25 bg-[var(--surface-strong)] px-3 py-2 text-xs font-medium text-emerald-700 shadow-[var(--shadow)] backdrop-blur-xl dark:text-emerald-200" role="status">
         {toast.message}
       </div>
     );

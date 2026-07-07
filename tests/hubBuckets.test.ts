@@ -47,12 +47,15 @@ describe("HubView file buckets", () => {
     expect(hubView).toContain("contentPanel");
     expect(hubView).toContain("softPanel");
     expect(hubView).toContain("SummaryChip");
+    expect(hubView.indexOf('t("runDispatch")')).toBeLessThan(hubView.indexOf("<FileCardList"));
     expect(hubView).toContain("StateBlock");
     expect(hubView).toContain("NoticeBanner");
     expect(hubView).toContain("ToneBadge");
     expect(hubView).toContain("IconButton");
     expect(hubView).toContain("interactiveRow");
     expect(hubView).toContain("HUB_BUCKET_PREVIEW_LIMIT");
+    expect(hubView).not.toContain("max-h-64");
+    expect(hubView).not.toContain("grid max-h-64 gap-2 overflow-auto pr-1");
     expect(hubView).toContain('t("hubSafetyHint")');
     expect(hubView).toContain('t("hubPendingDesc")');
     expect(hubView).toContain('t("hubBucketSuggestionHint")');

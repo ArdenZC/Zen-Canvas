@@ -22,11 +22,13 @@ describe("settings view UI", () => {
     expect(t("settingsDeveloperRelease")).toBe("开发检查");
 
     expect(sharedUi).toContain("ControlGroup");
+    expect(sharedUi).toContain("SwitchButton");
     expect(sharedUi).toContain("SwitchField");
     expect(sharedUi).toContain("SegmentedControl");
     expect(settingsView).toContain("formSection");
     expect(settingsView).toContain("formRow");
     expect(settingsView).toContain("ControlGroup");
+    expect(settingsView).toContain("SwitchButton");
     expect(settingsView).toContain("SwitchField");
     expect(settingsView).toContain("SegmentedControl");
     expect(settingsView).toContain('t("settingsAppearanceLanguage")');
@@ -51,6 +53,8 @@ describe("settings view UI", () => {
     expect(t("confirmDeleteSearchFolderTitle")).toBe("删除这个搜索目录？");
 
     expect(settingsView).toContain("recordingHotkeyPreview");
+    expect(settingsView).toContain("statusLabel={root.enabled ? t(\"enabled\") : t(\"disabled\")}");
+    expect(settingsView).not.toContain("className={toggleSwitch(root.enabled)}");
     expect(settingsView).toContain("NoticeBanner");
     expect(settingsView).toContain("StateBlock");
     expect(settingsView).toContain("compactPath(root.path");

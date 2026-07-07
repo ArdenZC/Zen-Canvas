@@ -30,6 +30,7 @@ import {
   NoticeBanner,
   SegmentedControl,
   StateBlock,
+  SwitchButton,
   SwitchField,
   ToneBadge,
   compactInteractiveRow,
@@ -40,7 +41,6 @@ import {
   panelSurface,
   quietText,
   softPanel,
-  toggleSwitch,
   SectionTitle
 } from "../shared/ui";
 
@@ -345,7 +345,12 @@ export function SettingsView() {
                     <span className="block truncate text-xs leading-5 text-[var(--muted)]" title={root.path}>{compactPath(root.path, 72)}</span>
                   </div>
                   <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
-                    <button className={toggleSwitch(root.enabled)} onClick={() => void setScanRootEnabled(root, !root.enabled)} aria-label={root.enabled ? t("disableScanFolder") : t("enableScanFolder")} aria-pressed={root.enabled}><i /></button>
+                    <SwitchButton
+                      checked={root.enabled}
+                      label={root.enabled ? t("disableScanFolder") : t("enableScanFolder")}
+                      statusLabel={root.enabled ? t("enabled") : t("disabled")}
+                      onChange={(next) => void setScanRootEnabled(root, next)}
+                    />
                     <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void scanRootNow(root)} title={t("scanNow")}>
                       <Play size={14} />
                       <span>{t("scanNow")}</span>
@@ -440,7 +445,12 @@ export function SettingsView() {
                       <span className="block truncate text-xs leading-5 text-[var(--muted)]" title={root.path}>{compactPath(root.path, 72)}</span>
                     </div>
                     <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
-                      <button className={toggleSwitch(root.enabled)} onClick={() => void setSearchRootEnabled(root, !root.enabled)} aria-label={root.enabled ? t("disableSearchFolder") : t("enableSearchFolder")} aria-pressed={root.enabled}><i /></button>
+                      <SwitchButton
+                        checked={root.enabled}
+                        label={root.enabled ? t("disableSearchFolder") : t("enableSearchFolder")}
+                        statusLabel={root.enabled ? t("enabled") : t("disabled")}
+                        onChange={(next) => void setSearchRootEnabled(root, next)}
+                      />
                       <button className={buttonIconDanger} onClick={() => setFolderDeleteConfirm({ kind: "search", root })} title={t("deleteSearchFolder")} aria-label={t("deleteSearchFolder")}>
                         <Trash2 size={14} />
                       </button>
@@ -494,6 +504,7 @@ export function SettingsView() {
             description={t("launchAtLoginDesc")}
             checked={launchAtLogin}
             onChange={(next) => void updateLaunchAtLogin(next)}
+            statusLabel={launchAtLogin ? t("enabled") : t("disabled")}
           />
         </ControlGroup>
 

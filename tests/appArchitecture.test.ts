@@ -140,7 +140,12 @@ describe("app render architecture", () => {
     expect(appShell).not.toContain("h-[calc(");
     expect(appShell).not.toContain("cn(pageBody");
     expect(scanner).toContain("PageHeader");
-    expect(scanner).toContain("MetricCard");
+    expect(scanner).toContain("ScannerSummaryChip");
+    expect(scanner).toContain("pageSurface");
+    expect(scanner).toContain("clamp(180px,26vw,240px)");
+    expect(scanner).not.toContain("h-72");
+    expect(scanner).not.toContain("w-72");
+    expect(scanner).not.toContain("min-h-[360px]");
     expect(scanner).toContain("NoticeBanner");
     expect(scanner).toContain("StateBlock");
   });
@@ -176,6 +181,16 @@ describe("app render architecture", () => {
     expect(appShell).toContain('case "restore"');
     expect(appShell).toContain('case "settings"');
     expect(appShell).toContain("previewActionCount");
+  });
+
+  it("auto clears transient success and info toasts without restoring page banners", () => {
+    const appShell = read("src/components/AppShell.tsx");
+
+    expect(appShell).toContain("function ToastContainer");
+    expect(appShell).toContain("window.setTimeout(clearToast, toast.type === \"success\" ? 2200 : 3200)");
+    expect(appShell).toContain("previousViewRef");
+    expect(appShell).toContain("if (toast?.type === \"success\") clearToast()");
+    expect(appShell).not.toContain("成功：36/36");
   });
 
   it("keeps titlebar controls draggable-safe and gives mac controls large hit targets", () => {

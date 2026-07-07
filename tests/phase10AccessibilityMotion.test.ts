@@ -32,15 +32,17 @@ describe("phase 10 motion and accessibility contracts", () => {
     const rulesView = read("src/views/rules/RulesView.tsx");
 
     expect(sharedUi).toContain('"aria-label": label');
-    expect(sharedUi).toContain('"aria-pressed": checked');
+    expect(sharedUi).toContain('"aria-checked": checked');
     expect(sharedUi).toContain('"aria-pressed": value === option.value');
     expect(commandModal).not.toContain('event.key === "Tab"');
     expect(commandModal).toContain('event.key === "Enter" && visibleResults[activeIndex]');
     expect(commandModal).toContain('role="combobox"');
     expect(commandModal).toContain('role="listbox"');
     expect(commandModal).toContain('role="option"');
-    expect(settingsView).toContain("aria-pressed={root.enabled}");
-    expect(rulesView).toContain("aria-pressed={rule.enabled}");
+    expect(settingsView).toContain("SwitchButton");
+    expect(settingsView).toContain("statusLabel={root.enabled ? t(\"enabled\") : t(\"disabled\")}");
+    expect(rulesView).toContain("role=\"switch\"");
+    expect(rulesView).toContain("aria-checked={rule.enabled}");
   });
 
   it("keeps icon-only and dangerous actions labelled", () => {

@@ -46,13 +46,13 @@ export const softPanel = softPanelClass;
 export const toolbarSurface = toolbarSurfaceClass;
 export const scopeBarSurface = scopeBarSurfaceClass;
 
-export const pageFrame = "flex h-full min-h-0 flex-col overflow-hidden";
+export const pageFrame = "flex h-full min-h-0 min-w-0 flex-col overflow-hidden";
 export const pageHeader = "mb-4 flex shrink-0 items-start justify-between gap-4";
 export const pageHeaderText = "min-w-0";
 export const pageHeaderActions = "flex shrink-0 flex-wrap items-center justify-end gap-2";
 export const pageBody = "min-h-0 flex-1 overflow-auto overscroll-contain pr-1";
 export const viewStage = "min-h-0 flex-1 overflow-hidden";
-export const pageSurface = "h-full min-h-0 overflow-auto overscroll-contain pr-1";
+export const pageSurface = "h-full min-h-0 min-w-0 overflow-auto overscroll-contain pr-1";
 export const splitLayout = "grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto xl:overflow-hidden";
 export const cardGrid = "grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3";
 export const toolbar = "flex flex-wrap items-center justify-between gap-3";
@@ -91,8 +91,48 @@ export function segmentButton(active: boolean): string {
 
 export function toggleSwitch(on: boolean): string {
   return cn(
-    "relative h-7 w-12 rounded-full border border-slate-400/45 bg-slate-300/80 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/55 disabled:cursor-not-allowed disabled:opacity-55 dark:border-slate-600 dark:bg-slate-700 [&_i]:absolute [&_i]:left-1 [&_i]:top-1 [&_i]:h-5 [&_i]:w-5 [&_i]:rounded-full [&_i]:bg-white [&_i]:shadow-sm [&_i]:transition dark:[&_i]:bg-slate-100",
-    on && "border-blue-500/70 bg-blue-600 dark:border-blue-400/70 dark:bg-blue-500 [&_i]:translate-x-5"
+    "relative h-7 w-12 shrink-0 rounded-full border border-slate-500/65 bg-slate-300/95 shadow-inner transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/55 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200/60 disabled:opacity-55 dark:border-slate-500 dark:bg-slate-700 dark:disabled:border-slate-700 dark:disabled:bg-slate-800/60 [&_i]:absolute [&_i]:left-1 [&_i]:top-1 [&_i]:h-5 [&_i]:w-5 [&_i]:rounded-full [&_i]:bg-white [&_i]:shadow-[0_1px_4px_rgba(15,23,42,0.28)] [&_i]:ring-1 [&_i]:ring-slate-900/10 [&_i]:transition dark:[&_i]:bg-slate-50",
+    on && "border-blue-700/80 bg-blue-600 shadow-blue-600/20 dark:border-blue-300/70 dark:bg-blue-500 [&_i]:translate-x-5 [&_i]:ring-blue-900/20"
+  );
+}
+
+export function SwitchButton({
+  checked,
+  label,
+  onChange,
+  disabled = false,
+  statusLabel
+}: {
+  checked: boolean;
+  label: string;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  statusLabel?: string;
+}) {
+  return createElement(
+    "span",
+    { className: "inline-flex items-center gap-2" },
+    createElement(
+      "button",
+      {
+        type: "button",
+        className: toggleSwitch(checked),
+        disabled,
+        role: "switch",
+        "aria-checked": checked,
+        "aria-label": label,
+        title: label,
+        onClick: () => onChange(!checked)
+      },
+      createElement("i")
+    ),
+    statusLabel
+      ? createElement(
+          "span",
+          { className: cn("min-w-10 text-xs font-medium", checked ? "text-blue-700 dark:text-blue-200" : "text-[var(--muted)]") },
+          statusLabel
+        )
+      : null
   );
 }
 
@@ -360,13 +400,15 @@ export function SwitchField({
   description,
   checked,
   onChange,
-  disabled = false
+  disabled = false,
+  statusLabel
 }: {
   label: string;
   description?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
+  statusLabel?: string;
 }) {
   return createElement(
     "div",
@@ -377,18 +419,7 @@ export function SwitchField({
       createElement("strong", { className: "block text-sm text-[var(--ink)]" }, label),
       description ? createElement("span", { className: metadataText }, description) : null
     ),
-    createElement(
-      "button",
-      {
-        type: "button",
-        className: toggleSwitch(checked),
-        disabled,
-        "aria-pressed": checked,
-        "aria-label": label,
-        onClick: () => onChange(!checked)
-      },
-      createElement("i")
-    )
+    createElement(SwitchButton, { checked, disabled, label, onChange, statusLabel })
   );
 }
 

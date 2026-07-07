@@ -47,6 +47,7 @@ export function VaultView() {
   const [error, setError] = useState("");
   const requestIdRef = useRef(0);
   const hasMore = page.files.length < page.total;
+  const remainingCount = Math.max(0, page.total - page.files.length);
 
   const loadPage = useCallback(async (offset: number, append: boolean) => {
     const requestId = ++requestIdRef.current;
@@ -176,6 +177,7 @@ export function VaultView() {
             files={page.files}
             hasMore={hasMore}
             isLoading={isLoading}
+            remainingCount={remainingCount}
             onLoadMore={loadMore}
             onError={onError}
             selectedFileId={selectedFileId}
@@ -305,6 +307,7 @@ function VirtualAssetGrid({
   files,
   hasMore,
   isLoading,
+  remainingCount,
   onLoadMore,
   onError,
   selectedFileId,
@@ -314,6 +317,7 @@ function VirtualAssetGrid({
   files: FileRecord[];
   hasMore: boolean;
   isLoading: boolean;
+  remainingCount: number;
   onLoadMore: () => void;
   onError: (message: string) => void;
   selectedFileId?: string;
@@ -331,6 +335,7 @@ function VirtualAssetGrid({
     overscan: 4
   });
   const lastVisibleRowIndex = rowVirtualizer.getVirtualItems().at(-1)?.index ?? -1;
+  const remainingDisplayCount = Math.min(LIBRARY_PAGE_SIZE, remainingCount);
 
   useEffect(() => {
     const node = parentRef.current;
@@ -374,7 +379,7 @@ function VirtualAssetGrid({
         {hasMore && (
           <button className={cn(buttonSecondary, "mx-auto my-3 flex min-h-9 px-3 py-1.5 text-xs")} onClick={onLoadMore} disabled={isLoading}>
             <Plus size={15} />
-            {t("loadMoreFiles").replace("{count}", String(Math.min(LIBRARY_PAGE_SIZE, files.length)))}
+            {t("loadMoreFiles").replace("{count}", String(remainingDisplayCount))}
           </button>
         )}
       </section>
@@ -414,7 +419,7 @@ function VirtualAssetGrid({
       {hasMore && (
         <button className={cn(buttonSecondary, "mx-auto my-3 flex min-h-9 px-3 py-1.5 text-xs")} onClick={onLoadMore} disabled={isLoading}>
           <Plus size={15} />
-          {t("loadMoreFiles").replace("{count}", String(Math.min(LIBRARY_PAGE_SIZE, files.length)))}
+          {t("loadMoreFiles").replace("{count}", String(remainingDisplayCount))}
         </button>
       )}
     </section>

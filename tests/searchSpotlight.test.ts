@@ -114,6 +114,9 @@ describe("spotlight search navigation", () => {
     );
 
     expect(setupSearchWindow).toContain(".transparent(true)");
+    expect(appControl).toContain("SEARCH_WINDOW_WIDTH: f64 = 760.0");
+    expect(appControl).toContain("SEARCH_WINDOW_HEIGHT: f64 = 320.0");
+    expect(appControl).toContain("window.set_size(Size::Logical(LogicalSize");
     expect(setupSearchWindow).not.toContain("target_os = \"windows\", target_os = \"linux\"");
     expect(cargoToml).toContain("\"tauri/macos-private-api\"");
     expect(tauriConfig).toContain("\"macOSPrivateApi\": true");
@@ -123,6 +126,9 @@ describe("spotlight search navigation", () => {
     expect(setupSearchWindow).toContain(".always_on_top(true)");
     expect(appShell).toContain("const searchWindowRoot =");
     expect(appShell).toContain("bg-transparent");
+    expect(appShell).toContain("h-full w-full");
+    expect(appShell).not.toContain("h-screen w-screen");
+    expect(readFileSync(resolve("src/components/CommandModal.tsx"), "utf8")).not.toContain("pt-[9vh]");
     expect(main).toContain("search-window-root");
     expect(main).not.toContain("search-window-page");
     expect(styles).toContain("html.search-window-root");

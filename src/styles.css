@@ -121,8 +121,8 @@ textarea:focus-visible {
 }
 
 body.search-window-root {
-  min-width: 420px;
-  min-height: 320px;
+  min-width: 0;
+  min-height: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

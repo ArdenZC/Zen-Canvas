@@ -27,6 +27,8 @@ import {
   pageBody,
   pageFrame,
   softPanel,
+  SwitchButton,
+  SwitchField,
   toolbarSurface
 } from "../src/views/shared/ui";
 
@@ -72,6 +74,23 @@ describe("shared UI primitives", () => {
     expect(buttonSecondary).toContain("min-h-10");
     expect(buttonIcon).toContain("h-9");
     expect(buttonIconDanger).toContain("red");
+  });
+
+  it("renders switch controls with clear on and off status labels", () => {
+    const markup = renderToStaticMarkup(
+      <div>
+        <SwitchButton checked label="Scan folder" statusLabel="On" onChange={() => {}} />
+        <SwitchField checked={false} label="Launch at login" statusLabel="Off" onChange={() => {}} />
+      </div>
+    );
+
+    expect(markup).toContain("bg-blue-600");
+    expect(markup).toContain("bg-slate-300");
+    expect(markup).toContain("On");
+    expect(markup).toContain("Off");
+    expect(markup).toContain("role=\"switch\"");
+    expect(markup).toContain("aria-checked=\"true\"");
+    expect(markup).toContain("aria-checked=\"false\"");
   });
 
   it("renders semantic state, badge, metric, icon, and header components", () => {

@@ -21,7 +21,6 @@ import {
   ToneBadge,
   compactInteractiveRow,
   contentPanel,
-  inlineActions,
   interactiveRow,
   itemMotion,
   listMotion,
@@ -109,6 +108,7 @@ export function HubView() {
   ] satisfies Array<{ key: HubBucketKey; label: string; description: string; tone: HubTone }>, [t]);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
   const isEmptyCurrentScanScope = scope.kind === "current_scan" && scope.roots.length === 0;
+  const dispatchLabel = pendingFiles.length > 0 && classifiedCount === 0 ? t("generateSuggestions") : t("runDispatch");
 
   useEffect(() => {
     if (isEmptyCurrentScanScope) return;
@@ -131,7 +131,7 @@ export function HubView() {
 
   if (isEmptyCurrentScanScope) {
     return (
-      <div className={cn(pageFrame, "gap-3 overflow-auto pr-1")}>
+      <div className={cn(pageFrame, "gap-3 !overflow-auto overscroll-contain pr-1")}>
         <StateBlock
           tone="info"
           title={t("noOrganizeScopeTitle")}
@@ -158,7 +158,7 @@ export function HubView() {
   }
 
   return (
-    <div className={cn(pageFrame, "gap-3 overflow-auto pr-1")}>
+    <div className={cn(pageFrame, "gap-3 !overflow-auto overscroll-contain pr-1")}>
       <section className={cn(contentPanel, "grid gap-3 p-4")}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -168,9 +168,19 @@ export function HubView() {
             </div>
             <p className={sectionDescription}>{t("hubWorkbenchDesc")}</p>
           </div>
-          <div className={cn(softPanel, "flex max-w-md items-start gap-2 px-3 py-2 text-sm")}>
-            <ShieldCheck size={16} className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-300" />
-            <span className="leading-6 text-[var(--muted)]">{t("hubSafetyHint")}</span>
+          <div className="flex max-w-lg flex-wrap items-center justify-end gap-2">
+            <motion.button
+              className={glassButtonPrimary}
+              onClick={dispatchFiles}
+              disabled={isDispatching || isLoadingOrganizeQueue}
+              title={`${activeRuleCount} active rules`}
+            >
+              {isDispatching ? t("dispatching") : dispatchLabel}
+            </motion.button>
+            <div className={cn(softPanel, "flex items-start gap-2 px-3 py-2 text-sm")}>
+              <ShieldCheck size={16} className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-300" />
+              <span className="leading-6 text-[var(--muted)]">{t("hubSafetyHint")}</span>
+            </div>
           </div>
         </div>
       </section>
@@ -197,24 +207,19 @@ export function HubView() {
             <ToneBadge tone="warning">{pendingFiles.length.toLocaleString()} {t("items")}</ToneBadge>
           </div>
           <FileCardList files={pendingFiles} isLoading={isLoadingOrganizeQueue} onError={onError} t={t} />
-          <div className={cn(softPanel, "grid gap-3 p-3")}>
-            <div className={inlineActions}>
-              <motion.button
-                className={glassButtonPrimary}
-                onClick={dispatchFiles}
-                disabled={isDispatching || isLoadingOrganizeQueue}
-                title={`${activeRuleCount} active rules`}
-              >
-                {isDispatching ? t("dispatching") : t("runDispatch")}
-              </motion.button>
-              <span className={metadataText}>{t("hubSafetyHint")}</span>
-            </div>
-          </div>
         </section>
 
         <div className="grid content-start gap-3">
           {!isLoadingOrganizeQueue && classifiedCount === 0 && (
-            <NoticeBanner tone="info" title={t("hubNoBucketedTitle")}>
+            <NoticeBanner
+              tone="info"
+              title={t("hubNoBucketedTitle")}
+              action={(
+                <button className={glassButtonPrimary} onClick={dispatchFiles} disabled={isDispatching || isLoadingOrganizeQueue}>
+                  {isDispatching ? t("dispatching") : dispatchLabel}
+                </button>
+              )}
+            >
               {t("hubNoBucketedDesc")}
             </NoticeBanner>
           )}
@@ -335,7 +340,7 @@ function BucketFileList({
   const remaining = files.length - visibleFiles.length;
 
   return (
-    <motion.div className="grid max-h-64 gap-2 overflow-auto pr-1" variants={listMotion} initial="hidden" animate="show">
+    <motion.div className="grid gap-2" variants={listMotion} initial="hidden" animate="show">
       {visibleFiles.map((file) => (
         <BucketFileButton file={file} key={file.id} setView={setView} t={t} />
       ))}

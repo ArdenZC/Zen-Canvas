@@ -51,6 +51,9 @@ describe("rules view UI", () => {
     expect(rulesView).toContain('t("ruleNoAutoMove")');
     expect(rulesView).toContain('t("rulePreviewRequired")');
     expect(rulesView).toContain("expectedResultText");
+    expect(rulesView).toContain("<div className={pageSurface}>");
+    expect(rulesView).not.toContain("2xl:overflow-hidden");
+    expect(rulesView).not.toContain("grid min-h-0 gap-4 overflow-auto");
     expect(rulesView).toContain("buttonIconDanger");
     expect(rulesView).toContain('aria-label={t("deleteCondition")}');
     expect(rulesView).toContain("aria-pressed={rootOperator === item}");

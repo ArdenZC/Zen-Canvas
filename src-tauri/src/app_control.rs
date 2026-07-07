@@ -9,7 +9,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    App, Emitter, Manager, WebviewUrl, WebviewWindowBuilder,
+    App, Emitter, LogicalSize, Manager, Size, WebviewUrl, WebviewWindowBuilder,
 };
 #[cfg(feature = "desktop-runtime")]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -26,9 +26,9 @@ const MAIN_WINDOW_LABEL: &str = "main";
 const SEARCH_WINDOW_LABEL: &str = "search";
 const SEARCH_WINDOW_URL: &str = "index.html?mode=search";
 #[cfg(feature = "desktop-runtime")]
-const SEARCH_WINDOW_WIDTH: f64 = 640.0;
+const SEARCH_WINDOW_WIDTH: f64 = 760.0;
 #[cfg(feature = "desktop-runtime")]
-const SEARCH_WINDOW_HEIGHT: f64 = 360.0;
+const SEARCH_WINDOW_HEIGHT: f64 = 320.0;
 #[cfg(feature = "desktop-runtime")]
 const SEARCH_NAVIGATE_EVENT: &str = "search-navigate";
 #[cfg(feature = "desktop-runtime")]
@@ -412,6 +412,10 @@ pub fn toggle_search_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()>
         if window.is_visible()? {
             window.hide()?;
         } else {
+            window.set_size(Size::Logical(LogicalSize {
+                width: SEARCH_WINDOW_WIDTH,
+                height: SEARCH_WINDOW_HEIGHT,
+            }))?;
             window.center()?;
             window.show()?;
             window.set_focus()?;

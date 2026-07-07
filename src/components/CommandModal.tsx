@@ -211,7 +211,7 @@ export function CommandModal({
     <div
       className={cn(
         standalone
-          ? "relative z-10 flex h-full w-full items-start justify-center bg-transparent px-5 pt-[9vh]"
+          ? "relative z-10 flex h-full w-full items-start justify-center bg-transparent px-5 pt-2"
           : "fixed inset-0 z-40 flex items-start justify-center bg-slate-950/20 px-5 pt-[12vh] backdrop-blur-lg"
       )}
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}

@@ -1,5 +1,4 @@
 import { memo, useMemo, useRef, useState } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion } from "motion/react";
 import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { tauriApi } from "../../api/tauriApi";
@@ -9,8 +8,7 @@ import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import type { Lifecycle, Purpose, Rule, RuleCondition, RuleConditionGroup, RuleOperator } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { nowIso, readableError } from "../../utils/viewHelpers";
-import { shouldVirtualizeList } from "../../utils/virtualization";
-import { buttonIconDanger, buttonSecondary, cn, glassButton, glassButtonPrimary, glassButtonWarning, inputSurface, selectSurface, virtualList, virtualRow as virtualRowClass, virtualSpacer } from "../../utils/tw";
+import { buttonIconDanger, buttonSecondary, cn, glassButton, glassButtonPrimary, glassButtonWarning, inputSurface, selectSurface } from "../../utils/tw";
 import {
   ConfirmDialog,
   NoticeBanner,
@@ -39,8 +37,6 @@ import {
   createRuleCondition,
   createRuleGroup
 } from "./ruleBuilder";
-
-const RULE_ROW_HEIGHT = 68;
 
 type ConfirmState =
   | { kind: "deleteRule"; rule: Rule }
@@ -195,8 +191,9 @@ export function RulesView() {
 
   return (
     <>
-      <div className={cn(pageSurface, "mx-auto grid w-full max-w-[1180px] grid-cols-1 gap-4 overflow-auto 2xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.1fr)] 2xl:overflow-hidden")}>
-        <section id="rule-builder" className={cn(panelSurface, "grid gap-3")}>
+      <div className={pageSurface}>
+        <div className="mx-auto grid w-full max-w-[1180px] grid-cols-1 gap-4 2xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.1fr)]">
+          <section id="rule-builder" className={cn(panelSurface, "grid gap-3")}>
           <SectionTitle title={t("ruleBuilder")} body={t("customDesc")} />
 
           <section className={cn(contentPanel, "grid gap-3 p-3")}>
@@ -337,9 +334,9 @@ export function RulesView() {
             <Plus size={17} />
             {t("saveRule")}
           </button>
-        </section>
+          </section>
 
-        <section className={cn(panelSurface, "grid min-h-0 gap-3 overflow-hidden")}>
+          <section className={cn(panelSurface, "grid gap-3")}>
           <SectionTitle title={t("strategy")} body={t("ruleLayerDesc")} />
           <div className={cn(softPanel, "grid gap-3 p-3")}>
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -360,7 +357,7 @@ export function RulesView() {
             {reapplyStatus ? <span className={quietText}>{reapplyStatus}</span> : null}
           </div>
 
-          <div className="grid min-h-0 gap-4 overflow-auto pr-1">
+          <div className="grid gap-4">
             <RuleSection
               title={t("systemRuleTemplates")}
               description={t("systemRuleTemplatesDesc")}
@@ -381,7 +378,8 @@ export function RulesView() {
               t={t}
             />
           </div>
-        </section>
+          </section>
+        </div>
       </div>
 
       <ConfirmDialog
@@ -461,56 +459,18 @@ function VirtualRuleList({
   onRequestDeleteRule?: (rule: Rule) => void;
   t: Translator;
 }) {
-  const parentRef = useRef<HTMLDivElement | null>(null);
-  const shouldVirtualize = shouldVirtualizeList(rules.length);
-  const rowVirtualizer = useVirtualizer({
-    count: rules.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => RULE_ROW_HEIGHT,
-    overscan: 8
-  });
-
-  if (!shouldVirtualize) {
-    return (
-      <motion.div className="grid gap-2" variants={listMotion} initial="hidden" animate="show">
-        {rules.map((rule) => (
-          <RuleRow
-            key={rule.id}
-            rule={rule}
-            onToggleEnabled={onToggleRuleEnabled}
-            onRequestDeleteRule={onRequestDeleteRule}
-            t={t}
-          />
-        ))}
-      </motion.div>
-    );
-  }
-
   return (
-    <div ref={parentRef} className={cn("max-h-[min(60vh,520px)]", virtualList)}>
-      <div className={virtualSpacer} style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
-        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-          const rule = rules[virtualRow.index];
-          return (
-            <div
-              className={virtualRowClass}
-              key={rule.id}
-              style={{
-                height: `${virtualRow.size}px`,
-                transform: `translateY(${virtualRow.start}px)`
-              }}
-            >
-              <RuleRow
-                rule={rule}
-                onToggleEnabled={onToggleRuleEnabled}
-                onRequestDeleteRule={onRequestDeleteRule}
-                t={t}
-              />
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <motion.div className="grid gap-2" variants={listMotion} initial="hidden" animate="show">
+      {rules.map((rule) => (
+        <RuleRow
+          key={rule.id}
+          rule={rule}
+          onToggleEnabled={onToggleRuleEnabled}
+          onRequestDeleteRule={onRequestDeleteRule}
+          t={t}
+        />
+      ))}
+    </motion.div>
   );
 }
 
@@ -562,7 +522,8 @@ const RuleRow = memo(function RuleRow({
         type="button"
         className={toggleSwitch(rule.enabled)}
         disabled={!canToggle}
-        aria-pressed={rule.enabled}
+        role="switch"
+        aria-checked={rule.enabled}
         aria-label={toggleLabel}
         title={toggleLabel}
         onClick={(event) => {

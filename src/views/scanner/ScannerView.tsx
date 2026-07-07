@@ -9,7 +9,6 @@ import { formatBytes, percent } from "../../utils/format";
 import { compactPath, libraryScopeLabel } from "../../utils/viewHelpers";
 import { buttonSecondary, cn, glassButtonPrimary, glassButtonWarning } from "../../utils/tw";
 import {
-  MetricCard,
   NoticeBanner,
   PageHeader,
   StateBlock,
@@ -17,8 +16,7 @@ import {
   contentPanel,
   inlineActions,
   metadataText,
-  pageBody,
-  pageFrame,
+  pageSurface,
   quietText,
   sectionDescription,
   sectionHeading,
@@ -61,17 +59,17 @@ export function ScannerView() {
   });
 
   return (
-    <div className={pageFrame}>
+    <div className={cn(pageSurface, "grid content-start gap-4")}>
       <PageHeader
         title={t("spaceScan")}
         description={statusDescription}
         meta={t("diskUsageInScope").replace("{size}", formatBytes(scopedTotalSize)).replace("{disk}", formatBytes(stats.diskTotalSize))}
       />
-      <div className={cn(pageBody, "grid content-start gap-5")}>
+      <div className="grid content-start gap-4">
         <StatusNotice visualState={visualState} error={scanState.error} warningCount={scanProgress?.errors ?? 0} />
 
-        <section className="grid min-h-0 gap-5 xl:grid-cols-[minmax(320px,0.95fr)_minmax(280px,0.7fr)]">
-          <div className={cn(toolbarSurface, "grid min-h-[360px] place-items-center gap-4 px-4 py-6 text-center")}>
+        <section className="grid min-h-0 gap-4 xl:grid-cols-[minmax(280px,0.9fr)_minmax(260px,0.7fr)]">
+          <div className={cn(toolbarSurface, "grid place-items-center gap-3 px-4 py-4 text-center")}>
             <ScannerDisk
               visualState={visualState}
               statusLabel={statusLabel}
@@ -119,14 +117,24 @@ export function ScannerView() {
           </aside>
         </section>
 
-        <section className="grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-3">
-          <MetricCard label={t("scannerIndexedVolume")} value={formatBytes(scopedTotalSize)} hint={t("totalAnalysed")} tone="blue" />
-          <MetricCard label={t("files")} value={stats.totalFiles.toLocaleString()} hint={scopeLabel} tone="slate" />
-          <MetricCard label={t("needsReview")} value={stats.needsConfirmation.toLocaleString()} hint={t("confirmationItems")} tone={stats.needsConfirmation > 0 ? "amber" : "green"} />
-          <MetricCard label={t("clutterRatio")} value={percent(clutterRatio)} hint={t("scannerCurrentViewHint")} tone={clutterRatio > 0 ? "red" : "green"} />
-          <MetricCard label={t("scannerReferenceDisk")} value={formatBytes(stats.diskTotalSize)} hint={t("scannerReferenceDiskHint")} tone="purple" />
+        <section className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-2">
+          <ScannerSummaryChip label={t("scannerIndexedVolume")} value={formatBytes(scopedTotalSize)} hint={t("totalAnalysed")} />
+          <ScannerSummaryChip label={t("files")} value={stats.totalFiles.toLocaleString()} hint={scopeLabel} />
+          <ScannerSummaryChip label={t("needsReview")} value={stats.needsConfirmation.toLocaleString()} hint={t("confirmationItems")} />
+          <ScannerSummaryChip label={t("clutterRatio")} value={percent(clutterRatio)} hint={t("scannerCurrentViewHint")} />
+          <ScannerSummaryChip label={t("scannerReferenceDisk")} value={formatBytes(stats.diskTotalSize)} hint={t("scannerReferenceDiskHint")} />
         </section>
       </div>
+    </div>
+  );
+}
+
+function ScannerSummaryChip({ label, value, hint }: { label: string; value: string; hint: string }) {
+  return (
+    <div className="grid min-w-0 gap-0.5 rounded-xl border border-[var(--line-dark)] bg-[var(--surface-soft)] px-3 py-2">
+      <span className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--quiet)]">{label}</span>
+      <strong className="truncate text-lg font-semibold tabular-nums text-[var(--ink)]">{value}</strong>
+      <span className="truncate text-xs leading-5 text-[var(--muted)]">{hint}</span>
     </div>
   );
 }
@@ -232,19 +240,19 @@ function ScannerDisk({
     <div className="grid justify-items-center gap-4">
       <div
         className={cn(
-          "grid h-72 w-72 max-w-[72vw] place-items-center rounded-full p-4 shadow-[var(--shadow-strong)] transition-[background,border-color,box-shadow]",
+          "grid h-[clamp(180px,26vw,240px)] w-[clamp(180px,26vw,240px)] max-w-[64vw] place-items-center rounded-full p-3 shadow-[var(--shadow-strong)] transition-[background,border-color,box-shadow]",
           visualState === "scanning" && "animate-pulse shadow-blue-500/15",
           visualState === "canceling" && "shadow-amber-500/15",
           visualState === "error" && "shadow-red-500/12"
         )}
         style={{ background: scannerDiskBackground(visualState, progress) } as CSSProperties}
       >
-        <div className="grid h-full w-full place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] p-7 backdrop-blur-3xl">
-          <div className="grid justify-items-center gap-3 text-center">
+        <div className="grid h-full w-full place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] p-5 backdrop-blur-3xl">
+          <div className="grid justify-items-center gap-2 text-center">
             <ToneBadge tone={visualState === "canceling" ? "amber" : tone}>{statusLabel}</ToneBadge>
-            <strong className="text-5xl font-semibold tabular-nums tracking-[-0.03em] text-[var(--ink)]">{fileCount.toLocaleString()}</strong>
+            <strong className="text-4xl font-semibold tabular-nums tracking-[-0.03em] text-[var(--ink)]">{fileCount.toLocaleString()}</strong>
             <span className={quietText}>{t("files")}</span>
-            <p className="max-w-48 truncate text-sm font-medium text-[var(--ink)]">{rootLabel || t("scannerNoRoot")}</p>
+            <p className="max-w-40 truncate text-sm font-medium text-[var(--ink)]">{rootLabel || t("scannerNoRoot")}</p>
             <span className={metadataText}>
               {t("scannerElapsed").replace("{time}", formatElapsed(elapsedMs))}
               {skippedCount > 0 ? ` · ${t("skipped")}: ${skippedCount.toLocaleString()}` : ""}

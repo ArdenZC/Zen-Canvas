@@ -7,7 +7,7 @@ import type { Translator } from "../../types/ui";
 import { compactPath } from "../../utils/viewHelpers";
 import { cn, emptyState, glassButtonPrimary, sectionTitle } from "../../utils/tw";
 import { OperationProgressPanel } from "../timeline/TimelineView";
-import { compactRowSurface, mutedText, panelSurface, rowSurface, SectionTitle } from "../shared/ui";
+import { compactRowSurface, mutedText, pageSurface, panelSurface, rowSurface, SectionTitle } from "../shared/ui";
 
 export function RestoreView() {
   const { t } = useChromeContext();
@@ -43,8 +43,9 @@ export function RestoreView() {
   }
 
   return (
-    <div className="grid h-full min-h-0 grid-cols-1 gap-4 overflow-auto xl:grid-cols-[minmax(320px,0.8fr)_minmax(0,1.2fr)] xl:overflow-hidden">
-      <section className={cn(panelSurface, "overflow-auto")}>
+    <div className={pageSurface}>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(320px,0.8fr)_minmax(0,1.2fr)]">
+      <section className={panelSurface}>
         <SectionTitle title={t("restoreRecords")} body={t("restoreDesc")} />
         {batches.length ? (
           <div className="grid gap-2">
@@ -93,7 +94,7 @@ export function RestoreView() {
         )}
       </section>
 
-      <section className={cn(panelSurface, "overflow-auto")}>
+      <section className={panelSurface}>
         <div className={cn(sectionTitle, "items-center")}>
           <div>
             <h2>{t("restorePreview")}</h2>
@@ -145,6 +146,7 @@ export function RestoreView() {
           <div className={cn(emptyState, "min-h-20")}>{t("noRestorePreview")}</div>
         )}
       </section>
+      </div>
     </div>
   );
 }

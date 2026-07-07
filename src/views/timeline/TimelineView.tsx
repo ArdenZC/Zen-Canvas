@@ -19,7 +19,6 @@ import {
   contentPanel,
   interactiveRow,
   listMotion,
-  pageFrame,
   pageSurface,
   panelSurface,
   sectionDescription,
@@ -69,7 +68,7 @@ export function TimelineView() {
   const executeButtonLabel = t("executeSelectedWithCount").replace("{count}", selectedCount.toLocaleString());
 
   return (
-    <div className={pageFrame}>
+    <div className={pageSurface}>
       <section className={panelSurface}>
         <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
@@ -132,7 +131,7 @@ export function TimelineView() {
             )}
           />
         ) : (
-          <div className={cn(pageSurface, "grid gap-4")}>
+          <div className="grid gap-4">
             {groups.map((group) => {
               const executable = group.items.filter((item) => item.is_executable !== false);
               const allSelected = executable.length > 0 && executable.every((item) => selectedIds.has(item.id));
