@@ -38,7 +38,16 @@ fn current_schema_retains_content_hash_and_dedupe_index() {
         )
         .expect("dedupe index");
 
-    assert_eq!(version, 12);
+    let cleanup_table_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name IN ('cleanup_trash_batches', 'cleanup_trash_items')",
+            [],
+            |row| row.get(0),
+        )
+        .expect("cleanup trash tables");
+
+    assert_eq!(version, 13);
+    assert_eq!(cleanup_table_count, 2);
     assert_eq!(content_hash_type, "TEXT");
     assert_eq!(content_hash_notnull, 1);
     assert!(index_sql.contains("files(size, content_hash)"));

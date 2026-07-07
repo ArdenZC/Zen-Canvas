@@ -7,15 +7,17 @@ function read(relativePath: string) {
   return readFileSync(resolve(relativePath), "utf8");
 }
 
-describe("restore view trash cleanup logs", () => {
-  it("shows move_to_trash logs as system-trash restore only", () => {
+describe("restore view cleanup safe trash", () => {
+  it("shows Zen Canvas safe trash batches and restore safety copy", () => {
     const source = read("src/views/restore/RestoreView.tsx");
     const t = makeTranslator("zh");
 
-    expect(t("restoreFromSystemTrash")).toBe("请从系统回收站恢复");
-    expect(t("restoreDesc")).toContain("回收站清理项需要从系统回收站恢复");
-    expect(source).toContain('log.operation_type === "move_to_trash"');
-    expect(source).toContain('t("restoreFromSystemTrash")');
-    expect(source).toContain('log.operation_type !== "move_to_trash"');
+    expect(t("cleanupTrashRecords")).toBe("清理回收站");
+    expect(t("cleanupTrashRestoreBlockedDesc")).toContain("原路径已有文件");
+    expect(t("storageCleanupRestoreFromTrash")).toContain("恢复记录");
+    expect(source).toContain("listCleanupTrashBatches");
+    expect(source).toContain("restoreCleanupTrashItems");
+    expect(source).toContain("cleanupTrashBatches");
+    expect(source).toContain('t("cleanupTrashRecords")');
   });
 });

@@ -18,6 +18,7 @@ fn skip_dir_names() -> &'static HashSet<&'static str> {
             ".idea",
             ".vscode",
             ".cache",
+            ".zen-canvas-trash",
             ".parcel-cache",
             ".turbo",
             ".next",

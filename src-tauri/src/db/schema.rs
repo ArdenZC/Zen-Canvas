@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 12;
+const CURRENT_SCHEMA_VERSION: i32 = 13;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -277,6 +277,37 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         ensure_trigram_fts(conn)?;
         ensure_fts_triggers(conn)?;
         set_schema_version(conn, 12)?;
+    }
+    if version < 13 {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS cleanup_trash_batches (
+                id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                root TEXT,
+                total_items INTEGER NOT NULL,
+                total_size INTEGER NOT NULL,
+                status TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS cleanup_trash_items (
+                id TEXT PRIMARY KEY,
+                batch_id TEXT NOT NULL,
+                original_path TEXT NOT NULL,
+                trash_path TEXT NOT NULL,
+                name TEXT NOT NULL,
+                size INTEGER NOT NULL,
+                moved_at TEXT NOT NULL,
+                restored_at TEXT,
+                status TEXT NOT NULL,
+                message TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_cleanup_trash_items_batch_id
+            ON cleanup_trash_items(batch_id);
+            CREATE INDEX IF NOT EXISTS idx_cleanup_trash_batches_created_at
+            ON cleanup_trash_batches(created_at DESC);
+            "#,
+        )?;
+        set_schema_version(conn, 13)?;
     }
     Ok(())
 }

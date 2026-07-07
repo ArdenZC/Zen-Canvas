@@ -365,7 +365,16 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .expect("schema version"),
-            12
+            13
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name IN ('cleanup_trash_batches', 'cleanup_trash_items')",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .expect("cleanup trash tables"),
+            2
         );
         assert_eq!(
             db.search_files("报告2026", Some(10))

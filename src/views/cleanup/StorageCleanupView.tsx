@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { UnlistenFn } from "@tauri-apps/api/event";
 import { desktopDir, documentDir, downloadDir, tempDir } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
@@ -7,13 +8,18 @@ import {
   FolderOpen,
   HelpCircle,
   Loader2,
-  RefreshCw,
   Search,
   ShieldAlert,
-  Trash2
+  Trash2,
+  XCircle
 } from "lucide-react";
 import { tauriApi, type TauriApi } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
+import {
+  canSelectForCleanup,
+  defaultSelectedCleanupIds,
+  useStorageCleanupStore
+} from "../../store/useStorageCleanupStore";
 import type {
   CleanupExecutionResult,
   CleanupTier,
@@ -42,8 +48,22 @@ import {
 
 type StorageCleanupApi = Pick<
   TauriApi,
-  "scanStorageCleanup" | "revealStorageCandidate" | "moveCleanupCandidatesToTrash"
->;
+  | "startStorageCleanupScan"
+  | "cancelStorageCleanupScan"
+  | "getStorageCleanupScanStatus"
+  | "revealStorageCandidate"
+  | "moveCleanupCandidatesToSafeTrash"
+> &
+  Partial<
+    Pick<
+      TauriApi,
+      | "scanStorageCleanup"
+      | "onStorageCleanupProgress"
+      | "onStorageCleanupCompleted"
+      | "onStorageCleanupFailed"
+      | "onStorageCleanupCancelled"
+    >
+  >;
 
 type Props = {
   initialAnalysis?: StorageAnalysis;
@@ -52,8 +72,7 @@ type Props = {
   t?: Translator;
 };
 
-const TIER_ORDER: CleanupTier[] = ["Safe", "Review", "Caution"];
-const RECENT_SCOPE_KEY = "zen-canvas.storage-cleanup.recent-roots";
+const FILTERS: Array<CleanupTier | "All"> = ["All", "Safe", "Review", "Caution"];
 
 export function StorageCleanupView(props: Props = {}) {
   if (props.t) return <StorageCleanupPanel {...props} t={props.t} />;
@@ -72,23 +91,59 @@ function StorageCleanupPanel({
   t,
   onError
 }: Props & { t: Translator; onError?: (message: string) => void }) {
-  const [analysis, setAnalysis] = useState<StorageAnalysis | null>(initialAnalysis ?? null);
-  const [selectedRoots, setSelectedRoots] = useState<string[]>(() => initialRoots ?? loadRecentRoots());
-  const [isScanning, setIsScanning] = useState(false);
-  const [isExecuting, setIsExecuting] = useState(false);
+  const store = useStorageCleanupStore();
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [executionResult, setExecutionResult] = useState<CleanupExecutionResult | null>(null);
-  const [selectedCleanupIds, setSelectedCleanupIds] = useState<Set<string>>(
-    () => new Set(defaultSelectedCleanupIds(initialAnalysis))
-  );
-  const [error, setError] = useState("");
+  const [isExecuting, setIsExecuting] = useState(false);
+  const analysis = initialAnalysis ?? store.analysis;
+  const selectedRoots = initialRoots ?? store.selectedRoots;
+  const selectedCleanupIds = initialAnalysis
+    ? new Set(defaultSelectedCleanupIds(initialAnalysis))
+    : store.selectedCleanupIds;
+  const activeTierFilter = initialAnalysis ? "All" : store.activeTierFilter;
+  const isScanning = !initialAnalysis && store.isScanning;
+  const scanProgress = !initialAnalysis ? store.scanProgress : null;
+  const executionResult = !initialAnalysis ? store.executionResult : null;
+  const scanError = !initialAnalysis ? store.scanError : "";
+  const [localError, setLocalError] = useState("");
+  const error = localError || scanError;
 
   useEffect(() => {
-    rememberRecentRoots(selectedRoots);
-  }, [selectedRoots]);
+    if (initialAnalysis) return undefined;
+    const disposers: UnlistenFn[] = [];
+    let disposed = false;
+    async function wireEvents() {
+      const progressOff = await api.onStorageCleanupProgress?.((payload) => {
+        useStorageCleanupStore.getState().applyScanProgress(payload);
+      });
+      const completedOff = await api.onStorageCleanupCompleted?.((payload) => {
+        useStorageCleanupStore.getState().completeScan(payload.jobId, payload.analysis);
+      });
+      const failedOff = await api.onStorageCleanupFailed?.((payload) => {
+        useStorageCleanupStore.getState().failScan(payload.jobId, payload.message);
+      });
+      const cancelledOff = await api.onStorageCleanupCancelled?.((payload) => {
+        useStorageCleanupStore.getState().failScan(payload.jobId, t("scanCanceled"));
+      });
+      for (const disposer of [progressOff, completedOff, failedOff, cancelledOff]) {
+        if (disposer) disposers.push(disposer);
+      }
+      if (disposed) {
+        while (disposers.length) disposers.pop()?.();
+      }
+    }
+    void wireEvents();
+    return () => {
+      disposed = true;
+      while (disposers.length) disposers.pop()?.();
+    };
+  }, [api, initialAnalysis, t]);
 
   const sortedCandidates = useMemo(() => sortCandidatesBySize(analysis?.candidates ?? []), [analysis]);
-  const groups = useMemo(() => groupCandidates(sortedCandidates), [sortedCandidates]);
+  const filteredCandidates = useMemo(
+    () => sortedCandidates.filter((candidate) => activeTierFilter === "All" || candidate.tier === activeTierFilter),
+    [activeTierFilter, sortedCandidates]
+  );
+  const tierCounts = useMemo(() => countTiers(sortedCandidates), [sortedCandidates]);
   const selectedCleanupIdsText = [...selectedCleanupIds].join(",");
   const selectedReclaimable = sortedCandidates
     .filter((candidate) => selectedCleanupIds.has(candidate.id))
@@ -103,10 +158,8 @@ function StorageCleanupPanel({
       title: t("storageCleanupChooseScope")
     });
     if (typeof selected === "string" && selected.trim()) {
-      setSelectedRoots([selected]);
-      setAnalysis(null);
-      setExecutionResult(null);
-      setSelectedCleanupIds(new Set());
+      useStorageCleanupStore.getState().setSelectedRoots([selected]);
+      setLocalError("");
     }
   }
 
@@ -120,78 +173,62 @@ function StorageCleanupPanel({
             : kind === "documents"
               ? await documentDir()
               : await tempDir();
-      setSelectedRoots([path]);
-      setAnalysis(null);
-      setExecutionResult(null);
-      setSelectedCleanupIds(new Set());
+      useStorageCleanupStore.getState().setSelectedRoots([path]);
+      setLocalError("");
     } catch (scopeError) {
-      const message = readableError(scopeError);
-      setError(message);
-      onError?.(message);
+      reportError(scopeError);
     }
   }
 
   async function scan() {
     if (!selectedRoots.length) {
-      setError(t("storageCleanupScopeRequired"));
+      setLocalError(t("storageCleanupScopeRequired"));
       return;
     }
-    setIsScanning(true);
-    setError("");
-    setExecutionResult(null);
-    try {
-      const next = await api.scanStorageCleanup(selectedRoots);
-      setAnalysis(next);
-      setSelectedCleanupIds(new Set(defaultSelectedCleanupIds(next)));
-    } catch (scanError) {
-      const message = readableError(scanError);
-      setError(message);
-      onError?.(message);
-    } finally {
-      setIsScanning(false);
-    }
+    setLocalError("");
+    await useStorageCleanupStore.getState().startScan(api);
+  }
+
+  async function cancelScan() {
+    await useStorageCleanupStore.getState().cancelScan(api);
   }
 
   async function reveal(path: string) {
     try {
       await api.revealStorageCandidate(path);
     } catch (revealError) {
-      const message = readableError(revealError);
-      setError(message);
-      onError?.(message);
+      reportError(revealError);
     }
   }
 
-  async function moveSelectedToTrash() {
+  async function moveSelectedToSafeTrash() {
     if (!selectedCleanupIds.size || isExecuting) return;
     setIsExecuting(true);
-    setError("");
+    setLocalError("");
     try {
-      const result = await api.moveCleanupCandidatesToTrash([...selectedCleanupIds]);
-      setExecutionResult(result);
+      const result: CleanupExecutionResult = await api.moveCleanupCandidatesToSafeTrash([...selectedCleanupIds]);
+      useStorageCleanupStore.getState().setExecutionResult(result);
       setConfirmOpen(false);
-      if (selectedRoots.length) {
-        const refreshed = await api.scanStorageCleanup(selectedRoots);
-        setAnalysis(refreshed);
-        setSelectedCleanupIds(new Set(defaultSelectedCleanupIds(refreshed)));
+      if (!initialAnalysis && selectedRoots.length) {
+        await useStorageCleanupStore.getState().startScan(api);
+        useStorageCleanupStore.getState().setExecutionResult(result);
       }
     } catch (moveError) {
-      const message = readableError(moveError);
-      setError(message);
-      onError?.(message);
+      reportError(moveError);
     } finally {
       setIsExecuting(false);
     }
   }
 
   function toggleSafeCandidate(candidate: StorageCandidate) {
-    if (!canSelectForCleanup(candidate)) return;
-    setSelectedCleanupIds((current) => {
-      const next = new Set(current);
-      if (next.has(candidate.id)) next.delete(candidate.id);
-      else next.add(candidate.id);
-      return next;
-    });
+    if (initialAnalysis) return;
+    useStorageCleanupStore.getState().toggleCleanupCandidate(candidate);
+  }
+
+  function reportError(errorValue: unknown) {
+    const message = readableError(errorValue);
+    setLocalError(message);
+    onError?.(message);
   }
 
   return (
@@ -220,6 +257,12 @@ function StorageCleanupPanel({
                 {isScanning ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
                 <span>{t("storageCleanupScanScope")}</span>
               </button>
+              {isScanning && (
+                <button className={buttonSecondary} onClick={cancelScan}>
+                  <XCircle size={16} />
+                  <span>{t("storageCleanupCancelScan")}</span>
+                </button>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -235,7 +278,16 @@ function StorageCleanupPanel({
           <NoticeBanner tone="info" title={t("storageCleanupLoading")}>
             <div className="grid gap-1">
               <span>{t("storageCleanupScanningDesc")}</span>
-              <span className={metadataText}>{t("storageCleanupProgressTodo")}</span>
+              <span className={metadataText}>
+                {t("storageCleanupProgressLine")
+                  .replace("{count}", (scanProgress?.scannedEntries ?? 0).toLocaleString())
+                  .replace("{size}", formatBytes(scanProgress?.totalSize ?? 0))}
+              </span>
+              {scanProgress?.currentPath && (
+                <span className={quietText} title={scanProgress.currentPath}>
+                  {compactPath(scanProgress.currentPath, 110)}
+                </span>
+              )}
             </div>
           </NoticeBanner>
         )}
@@ -275,7 +327,7 @@ function StorageCleanupPanel({
               />
               <MetricCard
                 label={t("storageCleanupCautionCount")}
-                value={groups.Caution.length.toLocaleString()}
+                value={tierCounts.Caution.toLocaleString()}
                 hint={t("storageCleanupCautionHint")}
                 tone="red"
               />
@@ -313,22 +365,38 @@ function StorageCleanupPanel({
               </NoticeBanner>
             )}
 
-            <section className={cn(contentPanel, "grid gap-3 p-4")}>
-              <div>
-                <h2 className={sectionHeading}>{t("storageCleanupTopRanking")}</h2>
-                <p className={sectionDescription}>{t("storageCleanupTopRankingDesc")}</p>
+            <section className={cn(contentPanel, "grid min-h-0 gap-3 p-4")}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className={sectionHeading}>{t("storageCleanupTopRanking")}</h2>
+                  <p className={sectionDescription}>{t("storageCleanupTopRankingDesc")}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {FILTERS.map((filter) => (
+                    <button
+                      key={filter}
+                      className={filter === activeTierFilter ? glassButtonPrimary : buttonSecondary}
+                      onClick={() => {
+                        if (!initialAnalysis) useStorageCleanupStore.getState().setActiveTierFilter(filter);
+                      }}
+                    >
+                      <span>{filterTitle(filter, t)}</span>
+                      <span>{filter === "All" ? sortedCandidates.length : tierCounts[filter]}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="grid max-h-[min(52vh,520px)] gap-3 overflow-auto pr-1">
-                {sortedCandidates.length === 0 ? (
+              <div className="grid max-h-[min(56vh,540px)] gap-3 overflow-auto pr-1">
+                {filteredCandidates.length === 0 ? (
                   <StateBlock
                     density="compact"
                     title={t("storageCleanupNoCandidates")}
                     description={t("storageCleanupNoCandidatesDesc")}
                   />
                 ) : (
-                  sortedCandidates.map((candidate) => (
+                  filteredCandidates.map((candidate) => (
                     <CandidateCard
-                      key={`ranked-${candidate.id}`}
+                      key={candidate.id}
                       candidate={candidate}
                       selected={selectedCleanupIds.has(candidate.id)}
                       t={t}
@@ -338,20 +406,6 @@ function StorageCleanupPanel({
                   ))
                 )}
               </div>
-            </section>
-
-            <section className="grid gap-4 xl:grid-cols-3">
-              {TIER_ORDER.map((tier) => (
-                <TierSection
-                  key={tier}
-                  tier={tier}
-                  candidates={groups[tier]}
-                  selectedCleanupIds={selectedCleanupIds}
-                  t={t}
-                  onToggleSafeCandidate={toggleSafeCandidate}
-                  onReveal={reveal}
-                />
-              ))}
             </section>
 
             <footer className={cn(softPanel, "sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 p-3")}>
@@ -366,10 +420,10 @@ function StorageCleanupPanel({
               <button
                 className={glassButtonPrimary}
                 onClick={() => setConfirmOpen(true)}
-                disabled={!selectedCleanupIds.size || isExecuting}
+                disabled={!selectedCleanupIds.size || isExecuting || Boolean(initialAnalysis)}
               >
                 <Trash2 size={17} />
-                <span>{t("storageCleanupMoveToTrash")}</span>
+                <span>{t("storageCleanupMoveToSafeTrash")}</span>
               </button>
             </footer>
           </>
@@ -378,65 +432,17 @@ function StorageCleanupPanel({
       <ConfirmDialog
         open={confirmOpen}
         tone="danger"
-        title={t("storageCleanupConfirmTrashTitle")}
-        description={t("storageCleanupConfirmTrashDesc")
+        title={t("storageCleanupConfirmSafeTrashTitle")}
+        description={t("storageCleanupConfirmSafeTrashDesc")
           .replace("{count}", selectedCleanupIds.size.toLocaleString())
           .replace("{size}", formatBytes(selectedReclaimable))}
-        confirmLabel={t("storageCleanupMoveToTrash")}
+        confirmLabel={t("storageCleanupMoveToSafeTrash")}
         cancelLabel={t("cancel")}
         isProcessing={isExecuting}
-        onConfirm={moveSelectedToTrash}
+        onConfirm={moveSelectedToSafeTrash}
         onCancel={() => setConfirmOpen(false)}
       />
     </>
-  );
-}
-
-function TierSection({
-  tier,
-  candidates,
-  selectedCleanupIds,
-  t,
-  onToggleSafeCandidate,
-  onReveal
-}: {
-  tier: CleanupTier;
-  candidates: StorageCandidate[];
-  selectedCleanupIds: Set<string>;
-  t: Translator;
-  onToggleSafeCandidate: (candidate: StorageCandidate) => void;
-  onReveal: (path: string) => void;
-}) {
-  return (
-    <section className={cn(contentPanel, "grid min-h-0 gap-3 p-4")}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h2 className={sectionHeading}>{tierTitle(tier, t)}</h2>
-          <p className={sectionDescription}>{tierDescription(tier, t)}</p>
-        </div>
-        <TierBadge tier={tier} t={t} />
-      </div>
-      <div className="grid max-h-[min(42vh,360px)] gap-3 overflow-auto pr-1">
-        {candidates.length === 0 ? (
-          <StateBlock
-            density="compact"
-            title={t("storageCleanupNoCandidates")}
-            description={t("storageCleanupNoCandidatesDesc")}
-          />
-        ) : (
-          candidates.map((candidate) => (
-            <CandidateCard
-              key={candidate.id}
-              candidate={candidate}
-              selected={selectedCleanupIds.has(candidate.id)}
-              t={t}
-              onToggleSafeCandidate={onToggleSafeCandidate}
-              onReveal={onReveal}
-            />
-          ))
-        )}
-      </div>
-    </section>
   );
 }
 
@@ -459,7 +465,7 @@ function CandidateCard({
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <strong className="block truncate text-sm text-[var(--ink)]">{candidate.name}</strong>
-          <span className={quietText} title={candidate.path}>{compactPath(candidate.path, 98)}</span>
+          <span className={quietText} title={candidate.path}>{compactPath(candidate.path, 108)}</span>
         </div>
         <ToneBadge tone={tierTone(candidate.tier)}>{formatBytes(candidate.size)}</ToneBadge>
       </div>
@@ -505,7 +511,7 @@ function TierBadge({ tier, t }: { tier: CleanupTier; t: Translator }) {
     <ToneBadge tone={tierTone(tier)}>
       <span className="inline-flex items-center gap-1">
         <Icon size={13} />
-        <span>{tierTitle(tier, t)}</span>
+        <span>{filterTitle(tier, t)}</span>
       </span>
     </ToneBadge>
   );
@@ -515,39 +521,14 @@ function sortCandidatesBySize(candidates: StorageCandidate[]) {
   return [...candidates].sort((left, right) => right.size - left.size || left.path.localeCompare(right.path));
 }
 
-function groupCandidates(candidates: StorageCandidate[]) {
-  return candidates.reduce<Record<CleanupTier, StorageCandidate[]>>(
-    (groups, candidate) => {
-      groups[candidate.tier].push(candidate);
-      return groups;
+function countTiers(candidates: StorageCandidate[]) {
+  return candidates.reduce<Record<CleanupTier, number>>(
+    (counts, candidate) => {
+      counts[candidate.tier] += 1;
+      return counts;
     },
-    { Safe: [], Review: [], Caution: [] }
+    { Safe: 0, Review: 0, Caution: 0 }
   );
-}
-
-function defaultSelectedCleanupIds(analysis?: StorageAnalysis | null): string[] {
-  return (analysis?.candidates ?? [])
-    .filter((candidate) => canSelectForCleanup(candidate) && candidate.selected_by_default)
-    .map((candidate) => candidate.id);
-}
-
-function canSelectForCleanup(candidate: StorageCandidate) {
-  return candidate.tier === "Safe" && candidate.trash_allowed && candidate.suggested_action === "MoveToTrash";
-}
-
-function loadRecentRoots(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(RECENT_SCOPE_KEY) ?? "[]");
-    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function rememberRecentRoots(roots: string[]) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(RECENT_SCOPE_KEY, JSON.stringify(roots.slice(0, 4)));
 }
 
 function quickScopeLabel(kind: "downloads" | "desktop" | "documents" | "temp", t: Translator) {
@@ -563,14 +544,9 @@ function tierTone(tier: CleanupTier): "green" | "amber" | "red" {
   return "red";
 }
 
-function tierTitle(tier: CleanupTier, t: Translator) {
-  if (tier === "Safe") return t("storageCleanupSafeTier");
-  if (tier === "Review") return t("storageCleanupReviewTier");
+function filterTitle(filter: CleanupTier | "All", t: Translator) {
+  if (filter === "All") return t("storageCleanupAllFilter");
+  if (filter === "Safe") return t("storageCleanupSafeTier");
+  if (filter === "Review") return t("storageCleanupReviewTier");
   return t("storageCleanupCautionTier");
-}
-
-function tierDescription(tier: CleanupTier, t: Translator) {
-  if (tier === "Safe") return t("storageCleanupSafeTierDesc");
-  if (tier === "Review") return t("storageCleanupReviewTierDesc");
-  return t("storageCleanupCautionTierDesc");
 }

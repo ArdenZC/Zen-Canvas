@@ -313,6 +313,33 @@ export interface StorageAnalysis {
   warnings?: string[];
 }
 
+export interface StorageCleanupProgress {
+  jobId: string;
+  scannedEntries: number;
+  currentPath: string | null;
+  totalSize: number;
+}
+
+export interface StorageCleanupScanStatus {
+  jobId: string;
+  status: "running" | "completed" | "failed" | "cancelled" | string;
+  progress: StorageCleanupProgress;
+  analysis: StorageAnalysis | null;
+  error: string | null;
+  startedAt: string;
+  completedAt: string | null;
+}
+
+export interface StorageCleanupCompleted {
+  jobId: string;
+  analysis: StorageAnalysis;
+}
+
+export interface StorageCleanupJobMessage {
+  jobId: string;
+  message: string;
+}
+
 export interface CleanupPreviewItem {
   id: string;
   candidate_id: string;
@@ -336,6 +363,8 @@ export interface CleanupExecutionLog {
   size: number;
   status: "success" | "skipped" | "failed" | string;
   message: string;
+  itemId?: string | null;
+  trashPath?: string | null;
 }
 
 export interface CleanupExecutionResult {
@@ -343,6 +372,53 @@ export interface CleanupExecutionResult {
   skipped: number;
   failed: number;
   logs: CleanupExecutionLog[];
+}
+
+export interface CleanupTrashItem {
+  id: string;
+  batchId: string;
+  originalPath: string;
+  trashPath: string;
+  name: string;
+  size: number;
+  movedAt: string;
+  restoredAt: string | null;
+  status: "moved" | "restored" | "missing" | "failed" | string;
+  message: string | null;
+}
+
+export interface CleanupTrashBatch {
+  id: string;
+  createdAt: string;
+  root: string | null;
+  totalItems: number;
+  totalSize: number;
+  status: string;
+  items: CleanupTrashItem[];
+}
+
+export interface CleanupRestorePreview {
+  batchId: string;
+  items: CleanupTrashItem[];
+}
+
+export interface CleanupRestoreLog {
+  item_id?: string;
+  itemId?: string;
+  original_path?: string;
+  originalPath?: string;
+  trash_path?: string;
+  trashPath?: string;
+  status: "restored" | "conflict" | "missing" | "failed" | string;
+  message: string;
+}
+
+export interface CleanupRestoreResult {
+  restored: number;
+  conflicts: number;
+  missing: number;
+  failed: number;
+  logs: CleanupRestoreLog[];
 }
 
 export interface OperationLog {

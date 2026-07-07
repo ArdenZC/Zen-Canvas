@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronRight, RotateCcw, X } from "lucide-react";
+import { tauriApi } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useOperationQueueStore } from "../../store/useOperationQueueStore";
-import type { OperationLog } from "../../types/domain";
+import type { CleanupRestoreResult, CleanupTrashBatch, CleanupTrashItem, OperationLog } from "../../types/domain";
 import type { Translator } from "../../types/ui";
+import { formatBytes } from "../../utils/format";
 import { compactPath } from "../../utils/viewHelpers";
 import { cn, emptyState, glassButtonPrimary, sectionTitle } from "../../utils/tw";
 import { OperationProgressPanel } from "../timeline/TimelineView";
@@ -17,8 +19,15 @@ export function RestoreView() {
   const isOperationCanceling = useOperationQueueStore((state) => state.isOperationCanceling);
   const cancelOperations = useOperationQueueStore((state) => state.cancelOperations);
   const [selectedBatchId, setSelectedBatchId] = useState("");
+  const [selectedCleanupBatchId, setSelectedCleanupBatchId] = useState("");
+  const [cleanupTrashBatches, setCleanupTrashBatches] = useState<CleanupTrashBatch[]>([]);
+  const [cleanupRestoreResult, setCleanupRestoreResult] = useState<CleanupRestoreResult | null>(null);
+  const [isRestoringCleanupTrash, setIsRestoringCleanupTrash] = useState(false);
   const batches = useMemo(() => groupOperationLogs(logs), [logs]);
   const selectedBatch = batches.find((batch) => batch.batchId === selectedBatchId) ?? batches[0];
+  const selectedCleanupBatch =
+    cleanupTrashBatches.find((batch) => batch.id === selectedCleanupBatchId) ?? cleanupTrashBatches[0];
+  const restorableCleanupItems = selectedCleanupBatch?.items.filter(isRestorableCleanupTrashItem) ?? [];
   const restorableLogs = selectedBatch?.logs.filter(isRestorableLog) ?? [];
   const restoreProgress = operationProgress?.kind === "restore" ? operationProgress : null;
   const isRestoring = Boolean(restoreProgress);
@@ -37,9 +46,40 @@ export function RestoreView() {
     }
   }, [batches, selectedBatchId]);
 
+  useEffect(() => {
+    void refreshCleanupTrashBatches();
+  }, []);
+
+  useEffect(() => {
+    if (!cleanupTrashBatches.length) {
+      setSelectedCleanupBatchId("");
+      return;
+    }
+    if (!selectedCleanupBatchId || !cleanupTrashBatches.some((batch) => batch.id === selectedCleanupBatchId)) {
+      setSelectedCleanupBatchId(cleanupTrashBatches[0].id);
+    }
+  }, [cleanupTrashBatches, selectedCleanupBatchId]);
+
   async function restoreSelectedBatch() {
     if (!restorableLogs.length || isRestoring) return;
     await onRestore(restorableLogs);
+  }
+
+  async function refreshCleanupTrashBatches() {
+    const batches = await tauriApi.listCleanupTrashBatches();
+    setCleanupTrashBatches(batches);
+  }
+
+  async function restoreCleanupTrashItems() {
+    if (!restorableCleanupItems.length || isRestoringCleanupTrash) return;
+    setIsRestoringCleanupTrash(true);
+    try {
+      const result = await tauriApi.restoreCleanupTrashItems(restorableCleanupItems.map((item) => item.id));
+      setCleanupRestoreResult(result);
+      await refreshCleanupTrashBatches();
+    } finally {
+      setIsRestoringCleanupTrash(false);
+    }
   }
 
   return (
@@ -76,6 +116,36 @@ export function RestoreView() {
           <div className={emptyState}>{t("noRestoreRecords")}</div>
         )}
         <div className="my-5 h-px bg-[var(--line-dark)]" />
+        <SectionTitle title={t("cleanupTrashRecords")} body={t("cleanupTrashRecordsDesc")} />
+        {cleanupTrashBatches.length ? (
+          <div className="grid gap-2">
+            {cleanupTrashBatches.map((batch) => (
+              <button
+                className={cn(
+                  rowSurface,
+                  "w-full",
+                  batch.id === selectedCleanupBatch?.id && "border-emerald-400/60 bg-emerald-500/10"
+                )}
+                key={batch.id}
+                onClick={() => setSelectedCleanupBatchId(batch.id)}
+              >
+                <div className="mb-2 flex items-center gap-2 text-sm">
+                  <RotateCcw size={16} />
+                  <strong>{formatLogDate(batch.createdAt)}</strong>
+                </div>
+                <div>
+                  <strong className="block text-sm">{batch.totalItems} {t("items")} / {formatBytes(batch.totalSize)}</strong>
+                  <small className={mutedText}>
+                    {batch.items.filter(isRestorableCleanupTrashItem).length} {t("restorable")}
+                  </small>
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className={emptyState}>{t("cleanupTrashEmpty")}</div>
+        )}
+        <div className="my-5 h-px bg-[var(--line-dark)]" />
         <SectionTitle title={t("operationHistory")} body={t("timeMachineDesc")} />
         {historyLogs.length ? (
           <div className="grid gap-2">
@@ -95,6 +165,56 @@ export function RestoreView() {
       </section>
 
       <section className={panelSurface}>
+        {selectedCleanupBatch && (
+          <div className="mb-5 grid gap-3">
+            <div className={cn(sectionTitle, "items-center")}>
+              <div>
+                <h2>{t("cleanupTrashRestore")}</h2>
+                <p>{t("cleanupTrashRestoreBlockedDesc")}</p>
+              </div>
+              <button
+                className={glassButtonPrimary}
+                disabled={!restorableCleanupItems.length || isRestoringCleanupTrash}
+                onClick={restoreCleanupTrashItems}
+              >
+                <RotateCcw size={16} />
+                {isRestoringCleanupTrash ? t("restoring") : t("cleanupTrashRestore")}
+              </button>
+            </div>
+            {cleanupRestoreResult && (
+              <div className={compactRowSurface}>
+                <strong className="block text-sm">{t("storageCleanupExecutionDone")}</strong>
+                <small className={mutedText}>
+                  {t("restored")}: {cleanupRestoreResult.restored} · {t("failed")}: {cleanupRestoreResult.failed} · missing: {cleanupRestoreResult.missing}
+                </small>
+              </div>
+            )}
+            <div className="grid gap-2">
+              {selectedCleanupBatch.items.map((item) => (
+                <div
+                  className={cn(
+                    rowSurface,
+                    isRestorableCleanupTrashItem(item) ? "border-emerald-400/40 bg-emerald-500/10" : "border-slate-400/20 opacity-80"
+                  )}
+                  key={item.id}
+                >
+                  <div className="mb-2 flex items-center gap-2 text-sm">
+                    {isRestorableCleanupTrashItem(item) ? <Check size={15} /> : <X size={15} />}
+                    <strong>{cleanupTrashStatusLabel(item, t)}</strong>
+                  </div>
+                  <strong className="block truncate text-sm">{item.name}</strong>
+                  <div className="mt-2 flex min-w-0 items-center gap-2 text-xs text-[var(--muted)]">
+                    <span title={item.trashPath}>{compactPath(item.trashPath, 48)}</span>
+                    <ChevronRight size={14} />
+                    <span title={item.originalPath}>{compactPath(item.originalPath, 48)}</span>
+                  </div>
+                  {item.message && <small className="mt-2 block text-xs text-[var(--muted)]">{item.message}</small>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className={cn(sectionTitle, "items-center")}>
           <div>
             <h2>{t("restorePreview")}</h2>
@@ -198,6 +318,18 @@ function isRestorableLog(log: OperationLog): boolean {
     log.can_restore &&
     (log.restore_status === "not_restored" || log.restore_status === "failed" || log.restore_status === "canceled")
   );
+}
+
+function isRestorableCleanupTrashItem(item: CleanupTrashItem): boolean {
+  return item.status === "moved";
+}
+
+function cleanupTrashStatusLabel(item: CleanupTrashItem, t: Translator): string {
+  if (item.status === "restored") return t("restored");
+  if (item.status === "missing") return t("unavailable");
+  if (item.status === "failed") return t("failed");
+  if (isRestorableCleanupTrashItem(item)) return t("cleanupTrashMoved");
+  return item.status;
 }
 
 function restoreStatusLabel(log: OperationLog, t: Translator): string {

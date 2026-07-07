@@ -2,6 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AppSettings,
+  CleanupRestorePreview,
+  CleanupRestoreResult,
+  CleanupTrashBatch,
   CleanupExecutionResult,
   CleanupPreviewItem,
   DashboardStats,
@@ -17,7 +20,11 @@ import type {
   RestoreMovesResult,
   Rule,
   RuleExecutionMode,
-  StorageAnalysis
+  StorageAnalysis,
+  StorageCleanupCompleted,
+  StorageCleanupJobMessage,
+  StorageCleanupProgress,
+  StorageCleanupScanStatus
 } from "../types/domain";
 import type { View } from "../types/ui";
 import type { SearchNavigatePayload } from "../utils/searchNavigation";
@@ -186,6 +193,18 @@ export const tauriApi = {
     return invokeCommand<StorageAnalysis>("scan_storage_cleanup", { roots });
   },
 
+  startStorageCleanupScan(roots: string[]): Promise<string> {
+    return invokeCommand<string>("start_storage_cleanup_scan", { roots });
+  },
+
+  getStorageCleanupScanStatus(jobId: string): Promise<StorageCleanupScanStatus> {
+    return invokeCommand<StorageCleanupScanStatus>("get_storage_cleanup_scan_status", { jobId });
+  },
+
+  cancelStorageCleanupScan(jobId: string): Promise<void> {
+    return invokeCommand<void>("cancel_storage_cleanup_scan", { jobId });
+  },
+
   revealStorageCandidate(path: string): Promise<void> {
     return invokeCommand<void>("reveal_storage_candidate", { path });
   },
@@ -200,6 +219,22 @@ export const tauriApi = {
 
   moveCleanupCandidatesToTrash(ids: string[]): Promise<CleanupExecutionResult> {
     return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_trash", { ids });
+  },
+
+  moveCleanupCandidatesToSafeTrash(ids: string[]): Promise<CleanupExecutionResult> {
+    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_safe_trash", { ids });
+  },
+
+  listCleanupTrashBatches(): Promise<CleanupTrashBatch[]> {
+    return invokeCommand<CleanupTrashBatch[]>("list_cleanup_trash_batches");
+  },
+
+  previewRestoreCleanupTrash(batchId: string): Promise<CleanupRestorePreview> {
+    return invokeCommand<CleanupRestorePreview>("preview_restore_cleanup_trash", { batchId });
+  },
+
+  restoreCleanupTrashItems(itemIds: string[]): Promise<CleanupRestoreResult> {
+    return invokeCommand<CleanupRestoreResult>("restore_cleanup_trash_items", { itemIds });
   },
 
   executeRulesOnInbox(rules: Rule[]): Promise<RuleExecutionSummary> {
@@ -322,6 +357,22 @@ export const tauriApi = {
 
   onFsWatcherWarning<T>(handler: EventHandler<T>): Promise<UnlistenFn> {
     return listenTo("fs-watcher-warning", handler);
+  },
+
+  onStorageCleanupProgress(handler: EventHandler<StorageCleanupProgress>): Promise<UnlistenFn> {
+    return listenTo("storage-cleanup-progress", handler);
+  },
+
+  onStorageCleanupCompleted(handler: EventHandler<StorageCleanupCompleted>): Promise<UnlistenFn> {
+    return listenTo("storage-cleanup-completed", handler);
+  },
+
+  onStorageCleanupFailed(handler: EventHandler<StorageCleanupJobMessage>): Promise<UnlistenFn> {
+    return listenTo("storage-cleanup-failed", handler);
+  },
+
+  onStorageCleanupCancelled(handler: EventHandler<StorageCleanupJobMessage>): Promise<UnlistenFn> {
+    return listenTo("storage-cleanup-cancelled", handler);
   }
 };
 

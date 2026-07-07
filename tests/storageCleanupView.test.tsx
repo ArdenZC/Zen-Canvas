@@ -95,6 +95,7 @@ describe("StorageCleanupView", () => {
       <StorageCleanupView initialAnalysis={analysis} initialRoots={["C:/Users/Zen/Project"]} t={makeTranslator("zh")} />
     );
 
+    expect(markup).toContain("全部");
     expect(markup).toContain("可安全清理");
     expect(markup).toContain("需人工判断");
     expect(markup).toContain("谨慎处理");
@@ -130,11 +131,14 @@ describe("StorageCleanupView", () => {
     expect(cautionCard).not.toContain("可移到回收站");
   });
 
-  it("uses selected roots for scan and executes trash cleanup in-page", () => {
+  it("uses the persistent store and safe trash cleanup in-page", () => {
     const api = {
       scanStorageCleanup: vi.fn().mockResolvedValue(analysis),
       revealStorageCandidate: vi.fn().mockResolvedValue(undefined),
-      moveCleanupCandidatesToTrash: vi.fn().mockResolvedValue({
+      startStorageCleanupScan: vi.fn().mockResolvedValue("job-1"),
+      cancelStorageCleanupScan: vi.fn().mockResolvedValue(undefined),
+      getStorageCleanupScanStatus: vi.fn(),
+      moveCleanupCandidatesToSafeTrash: vi.fn().mockResolvedValue({
         moved: 1,
         skipped: 0,
         failed: 0,
@@ -147,11 +151,13 @@ describe("StorageCleanupView", () => {
       <StorageCleanupView initialAnalysis={analysis} initialRoots={["C:/Users/Zen"]} api={api} t={makeTranslator("zh")} />
     );
 
-    expect(source).toContain("api.scanStorageCleanup(selectedRoots)");
-    expect(source).toContain("moveCleanupCandidatesToTrash");
+    expect(source).toContain("useStorageCleanupStore");
+    expect(source).toContain("startStorageCleanupScan");
+    expect(source).toContain("cancelStorageCleanupScan");
+    expect(source).toContain("moveCleanupCandidatesToSafeTrash");
     expect(source).toContain("ConfirmDialog");
     expect(source).toContain("onReveal(candidate.path)");
-    expect(source).toContain('t("storageCleanupMoveToTrash")');
+    expect(source).toContain('t("storageCleanupMoveToSafeTrash")');
   });
 
   it("does not route cleanup through Preview or Timeline state", () => {
@@ -164,6 +170,21 @@ describe("StorageCleanupView", () => {
     expect(source).not.toContain("Timeline");
     expect(makeTranslator("zh")("storageCleanupGeneratePreview")).toBe("查看安全清理候选");
     expect(makeTranslator("zh")("storageCleanupPreviewDesc")).not.toContain("预览执行");
+  });
+
+  it("renders one main candidate list with tier filter pills instead of duplicated tier sections", () => {
+    const source = read("src/views/cleanup/StorageCleanupView.tsx");
+    const markup = renderToStaticMarkup(
+      <StorageCleanupView initialAnalysis={analysis} initialRoots={["C:/Users/Zen"]} t={makeTranslator("zh")} />
+    );
+
+    expect(source).toContain("activeTierFilter");
+    expect(source).toContain("filteredCandidates");
+    expect(source).not.toContain("function TierSection");
+    expect(source).not.toContain("TIER_ORDER.map");
+    expect(markup.match(/data-candidate-id=\"safe-node-modules\"/g)?.length).toBe(1);
+    expect(markup.match(/data-candidate-id=\"review-video\"/g)?.length).toBe(1);
+    expect(markup.match(/data-candidate-id=\"caution-app\"/g)?.length).toBe(1);
   });
 
   it("keeps the small-window layout scrollable without a horizontal ranking table", () => {
@@ -183,10 +204,13 @@ describe("StorageCleanupView", () => {
     expect(source).not.toContain("grid-cols-[minmax(140px,1.1fr)_minmax(220px,2fr)_110px_140px_96px]");
   });
 
-  it("shows active scan explanation and future progress/cancel TODO", () => {
+  it("shows active scan progress and cancel affordance", () => {
     const source = read("src/views/cleanup/StorageCleanupView.tsx");
 
     expect(source).toContain('t("storageCleanupScanningDesc")');
-    expect(source).toContain('t("storageCleanupProgressTodo")');
+    expect(source).toContain("scanProgress?.scannedEntries");
+    expect(source).toContain("scanProgress?.currentPath");
+    expect(source).toContain("cancelScan");
+    expect(source).toContain('t("storageCleanupCancelScan")');
   });
 });

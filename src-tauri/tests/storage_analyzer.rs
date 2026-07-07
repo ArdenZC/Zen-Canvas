@@ -1,15 +1,20 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use zen_canvas_tauri::db::Database;
 use zen_canvas_tauri::storage_analyzer::{
     analyze_storage_roots_for_test, classify_candidate_for_test,
     cleanup_preview_items_for_candidates, default_scan_roots_for_test,
-    is_forbidden_storage_path_for_test, move_cleanup_candidates_to_trash_for_candidates,
-    preview_cleanup_operations_for_candidates, validate_cleanup_roots_for_test,
-    CleanupActionKind, CleanupTier, StorageCandidate,
+    get_storage_cleanup_scan_status_for_test, is_forbidden_storage_path_for_test,
+    move_cleanup_candidates_to_safe_trash_for_candidates,
+    move_cleanup_candidates_to_trash_for_candidates, preview_cleanup_operations_for_candidates,
+    restore_cleanup_trash_items_for_db, start_storage_cleanup_scan_for_test,
+    validate_cleanup_roots_for_test, CleanupActionKind, CleanupTier, StorageCandidate,
+    StorageCleanupProgress, StorageCleanupState,
 };
 
 #[test]
@@ -106,6 +111,50 @@ fn storage_cleanup_scan_accepts_user_selected_temp_directory() {
     let result = validate_cleanup_roots_for_test(vec![root.to_string_lossy().into_owned()]);
 
     assert!(result.is_ok());
+}
+
+#[test]
+fn storage_cleanup_scan_job_can_report_progress_and_be_cancelled() {
+    let root = test_dir();
+    for index in 0..150 {
+        write_file(&root.join(format!("file-{index}.tmp")), 32);
+    }
+    let state = StorageCleanupState::default();
+
+    let job_id =
+        start_storage_cleanup_scan_for_test(vec![root.clone()], &state).expect("start job");
+    thread::sleep(Duration::from_millis(30));
+    let started = get_storage_cleanup_scan_status_for_test(&job_id, &state).expect("status");
+
+    assert_eq!(started.job_id, job_id);
+    assert!(matches!(started.status.as_str(), "running" | "completed"));
+    assert!(started.progress.scanned_entries > 0 || started.analysis.is_some());
+
+    zen_canvas_tauri::storage_analyzer::cancel_storage_cleanup_scan_for_test(&job_id, &state)
+        .expect("cancel job");
+    thread::sleep(Duration::from_millis(30));
+    let cancelled = get_storage_cleanup_scan_status_for_test(&job_id, &state).expect("status");
+
+    assert!(matches!(
+        cancelled.status.as_str(),
+        "cancelled" | "completed"
+    ));
+}
+
+#[test]
+fn storage_cleanup_progress_payload_serializes_camel_case() {
+    let payload = StorageCleanupProgress {
+        job_id: "job-1".to_string(),
+        scanned_entries: 7,
+        current_path: Some("C:/Users/Zen/file.tmp".to_string()),
+        total_size: 99,
+    };
+    let value = serde_json::to_value(payload).expect("serialize progress");
+
+    assert_eq!(value["jobId"], "job-1");
+    assert_eq!(value["scannedEntries"], 7);
+    assert_eq!(value["currentPath"], "C:/Users/Zen/file.tmp");
+    assert_eq!(value["totalSize"], 99);
 }
 
 #[test]
@@ -245,6 +294,28 @@ fn cleanup_preview_items_reject_system_paths_even_if_client_marks_them_safe() {
 }
 
 #[test]
+fn storage_analyzer_ignores_zen_canvas_safe_trash_paths() {
+    let root = test_dir();
+    let safe_trash = root.join(".zen-canvas-trash").join("items");
+    write_file(
+        &safe_trash
+            .join("batch")
+            .join("item")
+            .join("node_modules")
+            .join("x.js"),
+        256,
+    );
+
+    let analysis =
+        analyze_storage_roots_for_test(vec![root], Vec::new()).expect("analyze storage roots");
+
+    assert!(analysis
+        .candidates
+        .iter()
+        .all(|candidate| !candidate.path.contains(".zen-canvas-trash")));
+}
+
+#[test]
 fn cleanup_operation_preview_only_includes_safe_trash_candidates() {
     let root = test_dir();
     let safe_path = root.join("node_modules");
@@ -378,6 +449,125 @@ fn move_cleanup_candidates_to_trash_revalidates_execution_forbidden_paths() {
     assert!(app_data_child.exists());
 }
 
+#[test]
+fn move_cleanup_candidates_to_safe_trash_records_and_restores_items() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+
+    let result = move_cleanup_candidates_to_safe_trash_for_candidates(
+        vec![safe.id.clone()],
+        &[safe.clone()],
+        &db,
+        None,
+    )
+    .expect("move to safe trash");
+
+    assert_eq!(result.moved, 1);
+    assert_eq!(result.failed, 0);
+    assert!(!safe_path.exists());
+    let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    assert_eq!(item.original_path, safe.path);
+    assert_eq!(item.status, "moved");
+    assert!(Path::new(&item.trash_path).exists());
+
+    let restore =
+        restore_cleanup_trash_items_for_db(vec![item.id.clone()], &db).expect("restore safe trash");
+
+    assert_eq!(restore.restored, 1);
+    assert!(safe_path.exists());
+    let restored_item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    assert_eq!(restored_item.status, "restored");
+}
+
+#[test]
+fn move_cleanup_candidates_to_safe_trash_rejects_review_caution_missing_and_system_paths() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let review = classify_candidate_for_test(&root.join("Downloads").join("movie.mp4"), 128);
+    let caution = classify_candidate_for_test(&PathBuf::from("C:/Program Files/Example"), 128);
+    let forged_system = StorageCandidate {
+        id: "forged-system".to_string(),
+        path: "C:/Windows/System32".to_string(),
+        name: "System32".to_string(),
+        size: 64,
+        tier: CleanupTier::Safe,
+        category: "Forged".to_string(),
+        reason: "Client supplied".to_string(),
+        suggested_action: CleanupActionKind::MoveToTrash,
+        risk_note: None,
+        trash_allowed: true,
+        selected_by_default: true,
+    };
+
+    let result = move_cleanup_candidates_to_safe_trash_for_candidates(
+        vec![
+            review.id.clone(),
+            caution.id.clone(),
+            forged_system.id.clone(),
+            "missing".to_string(),
+        ],
+        &[review, caution, forged_system],
+        &db,
+        None,
+    )
+    .expect("move to safe trash");
+
+    assert_eq!(result.moved, 0);
+    assert_eq!(result.skipped, 4);
+    assert!(db
+        .list_cleanup_trash_batches()
+        .expect("trash batches")
+        .is_empty());
+}
+
+#[test]
+fn restore_cleanup_trash_items_blocks_conflicts_and_marks_missing_trash_paths() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    let result = move_cleanup_candidates_to_safe_trash_for_candidates(
+        vec![safe.id.clone()],
+        &[safe],
+        &db,
+        None,
+    )
+    .expect("move to safe trash");
+    assert_eq!(result.moved, 1);
+    write_file(&safe_path.join("conflict.txt"), 16);
+    let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+
+    let conflict =
+        restore_cleanup_trash_items_for_db(vec![item.id.clone()], &db).expect("restore conflict");
+
+    assert_eq!(conflict.restored, 0);
+    assert_eq!(conflict.conflicts, 1);
+    assert!(safe_path.exists());
+
+    let trash_path = PathBuf::from(item.trash_path);
+    if trash_path.exists() {
+        if trash_path.is_dir() {
+            fs::remove_dir_all(&trash_path).expect("remove trash path");
+        } else {
+            fs::remove_file(&trash_path).expect("remove trash path");
+        }
+    }
+    fs::remove_dir_all(&safe_path).expect("remove conflict");
+    let missing =
+        restore_cleanup_trash_items_for_db(vec![item.id.clone()], &db).expect("restore missing");
+
+    assert_eq!(missing.restored, 0);
+    assert_eq!(missing.missing, 1);
+    let missing_item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    assert_eq!(missing_item.status, "missing");
+}
+
 fn test_dir() -> PathBuf {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -386,6 +576,10 @@ fn test_dir() -> PathBuf {
     let dir = std::env::temp_dir().join(format!("zen-canvas-storage-analyzer-test-{nonce}"));
     fs::create_dir_all(&dir).expect("test dir");
     dir
+}
+
+fn test_db_path() -> PathBuf {
+    test_dir().join("zen-canvas-storage-cleanup.sqlite3")
 }
 
 fn write_file(path: &Path, size: usize) {

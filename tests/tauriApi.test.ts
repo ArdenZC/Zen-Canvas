@@ -54,25 +54,51 @@ describe("tauriApi", () => {
 
   it("calls storage cleanup commands with conservative arguments", async () => {
     await tauriApi.scanStorageCleanup(["F:/Downloads"]);
+    await tauriApi.startStorageCleanupScan(["F:/Downloads"]);
+    await tauriApi.getStorageCleanupScanStatus("job-1");
+    await tauriApi.cancelStorageCleanupScan("job-1");
     await tauriApi.revealStorageCandidate("F:/Downloads/big.zip");
     await tauriApi.previewCleanupCandidates(["storage-safe-1"]);
     await tauriApi.previewCleanupOperations(["storage-safe-1"]);
     await tauriApi.moveCleanupCandidatesToTrash(["storage-safe-1"]);
+    await tauriApi.moveCleanupCandidatesToSafeTrash(["storage-safe-1"]);
+    await tauriApi.listCleanupTrashBatches();
+    await tauriApi.previewRestoreCleanupTrash("batch-1");
+    await tauriApi.restoreCleanupTrashItems(["item-1"]);
 
     expect(apiMocks.invoke).toHaveBeenNthCalledWith(1, "scan_storage_cleanup", {
       roots: ["F:/Downloads"]
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(2, "reveal_storage_candidate", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(2, "start_storage_cleanup_scan", {
+      roots: ["F:/Downloads"]
+    });
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(3, "get_storage_cleanup_scan_status", {
+      jobId: "job-1"
+    });
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(4, "cancel_storage_cleanup_scan", {
+      jobId: "job-1"
+    });
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(5, "reveal_storage_candidate", {
       path: "F:/Downloads/big.zip"
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(3, "preview_cleanup_candidates", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(6, "preview_cleanup_candidates", {
       ids: ["storage-safe-1"]
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(4, "preview_cleanup_operations", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(7, "preview_cleanup_operations", {
       ids: ["storage-safe-1"]
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(5, "move_cleanup_candidates_to_trash", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(8, "move_cleanup_candidates_to_trash", {
       ids: ["storage-safe-1"]
+    });
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(9, "move_cleanup_candidates_to_safe_trash", {
+      ids: ["storage-safe-1"]
+    });
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(10, "list_cleanup_trash_batches", undefined);
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(11, "preview_restore_cleanup_trash", {
+      batchId: "batch-1"
+    });
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(12, "restore_cleanup_trash_items", {
+      itemIds: ["item-1"]
     });
   });
 

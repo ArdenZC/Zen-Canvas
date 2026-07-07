@@ -1,5 +1,8 @@
 import type {
   AppSettings,
+  CleanupRestorePreview,
+  CleanupRestoreResult,
+  CleanupTrashBatch,
   CleanupExecutionResult,
   CleanupPreviewItem,
   DashboardStats,
@@ -14,7 +17,8 @@ import type {
   RestoreMovesResult,
   Rule,
   RuleExecutionMode,
-  StorageAnalysis
+  StorageAnalysis,
+  StorageCleanupScanStatus
 } from "../types/domain";
 import type { View } from "../types/ui";
 import { DEFAULT_SEARCH_HOTKEY } from "../utils/hotkeys";
@@ -150,8 +154,31 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockOperationPreviews(args) as T;
     case "scan_storage_cleanup":
       return mockStorageAnalysis() as T;
+    case "start_storage_cleanup_scan":
+      return "browser-mock-storage-cleanup-job" as T;
+    case "get_storage_cleanup_scan_status":
+      return mockStorageCleanupStatus(String(args?.jobId ?? "browser-mock-storage-cleanup-job")) as T;
+    case "cancel_storage_cleanup_scan":
+      return undefined as T;
     case "move_cleanup_candidates_to_trash":
       return mockCleanupExecutionResult(args) as T;
+    case "move_cleanup_candidates_to_safe_trash":
+      return mockSafeTrashExecutionResult(args) as T;
+    case "list_cleanup_trash_batches":
+      return mockCleanupTrashBatches() as T;
+    case "preview_restore_cleanup_trash":
+      return {
+        batchId: String(args?.batchId ?? "browser-cleanup-batch"),
+        items: mockCleanupTrashBatches()[0]?.items ?? []
+      } satisfies CleanupRestorePreview as T;
+    case "restore_cleanup_trash_items":
+      return {
+        restored: Array.isArray(args?.itemIds) ? args.itemIds.length : 0,
+        conflicts: 0,
+        missing: 0,
+        failed: 0,
+        logs: []
+      } satisfies CleanupRestoreResult as T;
     case "preview_cleanup_candidates":
       return mockCleanupPreviewCandidates(args) as T;
     case "preview_cleanup_operations":
@@ -389,6 +416,23 @@ function mockStorageAnalysis(): StorageAnalysis {
   };
 }
 
+function mockStorageCleanupStatus(jobId: string): StorageCleanupScanStatus {
+  return {
+    jobId,
+    status: "completed",
+    progress: {
+      jobId,
+      scannedEntries: 48,
+      currentPath: "C:/Users/Zen/Projects/demo/node_modules",
+      totalSize: mockStorageAnalysis().total_size
+    },
+    analysis: mockStorageAnalysis(),
+    error: null,
+    startedAt: Date.now().toString(),
+    completedAt: Date.now().toString()
+  };
+}
+
 function mockCleanupExecutionResult(args?: Record<string, unknown>): CleanupExecutionResult {
   const ids = new Set(Array.isArray(args?.ids) ? args.ids.map(String) : []);
   const logs = mockStorageAnalysis()
@@ -416,6 +460,49 @@ function mockCleanupExecutionResult(args?: Record<string, unknown>): CleanupExec
     failed: 0,
     logs
   };
+}
+
+function mockSafeTrashExecutionResult(args?: Record<string, unknown>): CleanupExecutionResult {
+  const result = mockCleanupExecutionResult(args);
+  return {
+    ...result,
+    logs: result.logs.map((log, index) => ({
+      ...log,
+      message: log.status === "success"
+        ? "Moved to Zen Canvas Safe Trash. Restore it from Recovery records."
+        : log.message,
+      itemId: `browser-cleanup-item-${index}`,
+      trashPath: `C:/Users/Zen/.zen-canvas-trash/items/browser-cleanup-batch/item-${index}/${log.name}`
+    }))
+  };
+}
+
+function mockCleanupTrashBatches(): CleanupTrashBatch[] {
+  const movedAt = Date.now().toString();
+  return [
+    {
+      id: "browser-cleanup-batch",
+      createdAt: movedAt,
+      root: "C:/Users/Zen/Projects/demo",
+      totalItems: 1,
+      totalSize: 1_850_000_000,
+      status: "moved",
+      items: [
+        {
+          id: "browser-cleanup-item-0",
+          batchId: "browser-cleanup-batch",
+          originalPath: "C:/Users/Zen/Projects/demo/node_modules",
+          trashPath: "C:/Users/Zen/.zen-canvas-trash/items/browser-cleanup-batch/item-0/node_modules",
+          name: "node_modules",
+          size: 1_850_000_000,
+          movedAt,
+          restoredAt: null,
+          status: "moved",
+          message: "Moved to Zen Canvas Safe Trash."
+        }
+      ]
+    }
+  ];
 }
 
 function mockCleanupPreviewCandidates(args?: Record<string, unknown>): CleanupPreviewItem[] {

@@ -1,17 +1,28 @@
-use crate::db::{OperationPreviewDto, OperationPreviewScopeResult};
+use crate::db::{Database, DbError, OperationPreviewDto, OperationPreviewScopeResult};
+use rusqlite::{params, OptionalExtension, Row};
 use serde::Serialize;
 use std::{
     collections::{hash_map::DefaultHasher, HashMap, HashSet},
     env, fs,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Manager, Runtime, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 const LARGE_FILE_THRESHOLD: u64 = 100 * 1024 * 1024;
 const LARGE_DIR_THRESHOLD: u64 = 500 * 1024 * 1024;
 const MAX_CANDIDATES: usize = 120;
+const STORAGE_CLEANUP_PROGRESS_EVENT: &str = "storage-cleanup-progress";
+const STORAGE_CLEANUP_COMPLETED_EVENT: &str = "storage-cleanup-completed";
+const STORAGE_CLEANUP_FAILED_EVENT: &str = "storage-cleanup-failed";
+const STORAGE_CLEANUP_CANCELLED_EVENT: &str = "storage-cleanup-cancelled";
+const STORAGE_CLEANUP_EMIT_INTERVAL: Duration = Duration::from_millis(300);
+const STORAGE_CLEANUP_EMIT_ENTRY_INTERVAL: u64 = 100;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct StorageAnalysis {
@@ -87,16 +98,119 @@ pub struct CleanupExecutionLog {
     pub size: u64,
     pub status: String,
     pub message: String,
+    pub item_id: Option<String>,
+    pub trash_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageCleanupProgress {
+    pub job_id: String,
+    pub scanned_entries: u64,
+    pub current_path: Option<String>,
+    pub total_size: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageCleanupCompleted {
+    pub job_id: String,
+    pub analysis: StorageAnalysis,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageCleanupJobMessage {
+    pub job_id: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageCleanupScanStatus {
+    pub job_id: String,
+    pub status: String,
+    pub progress: StorageCleanupProgress,
+    pub analysis: Option<StorageAnalysis>,
+    pub error: Option<String>,
+    pub started_at: String,
+    pub completed_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupTrashItem {
+    pub id: String,
+    pub batch_id: String,
+    pub original_path: String,
+    pub trash_path: String,
+    pub name: String,
+    pub size: u64,
+    pub moved_at: String,
+    pub restored_at: Option<String>,
+    pub status: String,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupTrashBatch {
+    pub id: String,
+    pub created_at: String,
+    pub root: Option<String>,
+    pub total_items: usize,
+    pub total_size: u64,
+    pub status: String,
+    pub items: Vec<CleanupTrashItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupRestorePreview {
+    pub batch_id: String,
+    pub items: Vec<CleanupTrashItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CleanupRestoreLog {
+    pub item_id: String,
+    pub original_path: String,
+    pub trash_path: String,
+    pub status: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CleanupRestoreResult {
+    pub restored: usize,
+    pub conflicts: usize,
+    pub missing: usize,
+    pub failed: usize,
+    pub logs: Vec<CleanupRestoreLog>,
+}
+
+#[derive(Clone, Default)]
+pub struct StorageCleanupState {
+    inner: Arc<StorageCleanupStateInner>,
 }
 
 #[derive(Default)]
-pub struct StorageCleanupState {
+struct StorageCleanupStateInner {
     latest_candidates: Mutex<HashMap<String, StorageCandidate>>,
+    jobs: Mutex<HashMap<String, StorageCleanupJob>>,
+    active_job_id: Mutex<Option<String>>,
+}
+
+#[derive(Clone)]
+struct StorageCleanupJob {
+    status: StorageCleanupScanStatus,
+    cancel_flag: Arc<AtomicBool>,
 }
 
 impl StorageCleanupState {
     fn replace_candidates(&self, candidates: &[StorageCandidate]) -> Result<(), String> {
         let mut cache = self
+            .inner
             .latest_candidates
             .lock()
             .map_err(|_| "Storage cleanup cache is unavailable.".to_string())?;
@@ -112,10 +226,171 @@ impl StorageCleanupState {
 
     fn candidates_by_id(&self, ids: &[String]) -> Result<Vec<StorageCandidate>, String> {
         let cache = self
+            .inner
             .latest_candidates
             .lock()
             .map_err(|_| "Storage cleanup cache is unavailable.".to_string())?;
         Ok(ids.iter().filter_map(|id| cache.get(id).cloned()).collect())
+    }
+
+    fn start_job(&self, job_id: String, roots: &[PathBuf]) -> Result<Arc<AtomicBool>, String> {
+        self.cancel_active_job()?;
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let progress = StorageCleanupProgress {
+            job_id: job_id.clone(),
+            scanned_entries: 0,
+            current_path: roots.first().map(|path| normalize_path(path)),
+            total_size: 0,
+        };
+        let status = StorageCleanupScanStatus {
+            job_id: job_id.clone(),
+            status: "running".to_string(),
+            progress,
+            analysis: None,
+            error: None,
+            started_at: current_timestamp_ms().to_string(),
+            completed_at: None,
+        };
+        let mut jobs = self
+            .inner
+            .jobs
+            .lock()
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+        jobs.insert(
+            job_id.clone(),
+            StorageCleanupJob {
+                status,
+                cancel_flag: Arc::clone(&cancel_flag),
+            },
+        );
+        *self
+            .inner
+            .active_job_id
+            .lock()
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())? = Some(job_id);
+        Ok(cancel_flag)
+    }
+
+    fn cancel_active_job(&self) -> Result<(), String> {
+        let active = self
+            .inner
+            .active_job_id
+            .lock()
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?
+            .clone();
+        if let Some(job_id) = active {
+            let mut jobs = self
+                .inner
+                .jobs
+                .lock()
+                .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+            if let Some(job) = jobs.get_mut(&job_id) {
+                if job.status.status == "running" {
+                    job.cancel_flag.store(true, Ordering::Relaxed);
+                    job.status.status = "cancelled".to_string();
+                    job.status.completed_at = Some(current_timestamp_ms().to_string());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn cancel_job(&self, job_id: &str) -> Result<(), String> {
+        let mut jobs = self
+            .inner
+            .jobs
+            .lock()
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+        let job = jobs
+            .get_mut(job_id)
+            .ok_or_else(|| format!("Storage cleanup scan job not found: {job_id}"))?;
+        job.cancel_flag.store(true, Ordering::Relaxed);
+        if job.status.status == "running" {
+            job.status.status = "cancelled".to_string();
+            job.status.completed_at = Some(current_timestamp_ms().to_string());
+        }
+        Ok(())
+    }
+
+    fn update_job_progress(&self, progress: StorageCleanupProgress) -> Result<(), String> {
+        let mut jobs = self
+            .inner
+            .jobs
+            .lock()
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+        if let Some(job) = jobs.get_mut(&progress.job_id) {
+            job.status.progress = progress;
+        }
+        Ok(())
+    }
+
+    fn complete_job(&self, job_id: &str, analysis: StorageAnalysis) -> Result<(), String> {
+        self.replace_candidates(&analysis.candidates)?;
+        let mut jobs = self
+            .inner
+            .jobs
+            .lock()
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+        if let Some(job) = jobs.get_mut(job_id) {
+            job.status.status = "completed".to_string();
+            job.status.progress.total_size = analysis.total_size;
+            job.status.analysis = Some(analysis);
+            job.status.completed_at = Some(current_timestamp_ms().to_string());
+        }
+        *self
+            .inner
+            .active_job_id
+            .lock()
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())? = None;
+        Ok(())
+    }
+
+    fn fail_job(&self, job_id: &str, message: String) -> Result<(), String> {
+        let mut jobs = self
+            .inner
+            .jobs
+            .lock()
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+        if let Some(job) = jobs.get_mut(job_id) {
+            job.status.status = "failed".to_string();
+            job.status.error = Some(message);
+            job.status.completed_at = Some(current_timestamp_ms().to_string());
+        }
+        *self
+            .inner
+            .active_job_id
+            .lock()
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())? = None;
+        Ok(())
+    }
+
+    fn mark_job_cancelled(&self, job_id: &str) -> Result<(), String> {
+        let mut jobs = self
+            .inner
+            .jobs
+            .lock()
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+        if let Some(job) = jobs.get_mut(job_id) {
+            job.status.status = "cancelled".to_string();
+            job.status.completed_at = Some(current_timestamp_ms().to_string());
+        }
+        *self
+            .inner
+            .active_job_id
+            .lock()
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())? = None;
+        Ok(())
+    }
+
+    fn job_status(&self, job_id: &str) -> Result<StorageCleanupScanStatus, String> {
+        let jobs = self
+            .inner
+            .jobs
+            .lock()
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+        jobs.get(job_id)
+            .map(|job| job.status.clone())
+            .ok_or_else(|| format!("Storage cleanup scan job not found: {job_id}"))
     }
 }
 
@@ -135,6 +410,47 @@ pub async fn scan_storage_cleanup<R: Runtime>(
 
     state.replace_candidates(&analysis.candidates)?;
     Ok(analysis)
+}
+
+#[tauri::command]
+pub fn start_storage_cleanup_scan<R: Runtime>(
+    roots: Vec<String>,
+    app: AppHandle<R>,
+    state: State<'_, StorageCleanupState>,
+) -> Result<String, String> {
+    let app_data_dir = app.path().app_data_dir().ok();
+    let roots = validate_cleanup_roots(roots)?;
+    let job_id = new_id("storage-cleanup-scan");
+    let cancel_flag = state.start_job(job_id.clone(), &roots)?;
+    let state = state.inner().clone();
+    let job_id_for_task = job_id.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        run_storage_cleanup_scan_job(
+            roots,
+            app_data_dir.into_iter().collect(),
+            app,
+            state,
+            job_id_for_task,
+            cancel_flag,
+        );
+    });
+    Ok(job_id)
+}
+
+#[tauri::command]
+pub fn cancel_storage_cleanup_scan(
+    job_id: String,
+    state: State<'_, StorageCleanupState>,
+) -> Result<(), String> {
+    state.cancel_job(&job_id)
+}
+
+#[tauri::command]
+pub fn get_storage_cleanup_scan_status(
+    job_id: String,
+    state: State<'_, StorageCleanupState>,
+) -> Result<StorageCleanupScanStatus, String> {
+    state.job_status(&job_id)
 }
 
 #[tauri::command]
@@ -173,6 +489,50 @@ pub fn move_cleanup_candidates_to_trash<R: Runtime>(
     move_cleanup_candidates_to_trash_for_candidates(ids, &candidates, app_data_dir.as_deref())
 }
 
+#[tauri::command]
+pub fn move_cleanup_candidates_to_safe_trash<R: Runtime>(
+    ids: Vec<String>,
+    app: AppHandle<R>,
+    db: State<'_, Database>,
+    state: State<'_, StorageCleanupState>,
+) -> Result<CleanupExecutionResult, String> {
+    let app_data_dir = app.path().app_data_dir().ok();
+    let candidates = state.candidates_by_id(&ids)?;
+    move_cleanup_candidates_to_safe_trash_for_candidates(
+        ids,
+        &candidates,
+        db.inner(),
+        app_data_dir.as_deref(),
+    )
+}
+
+#[tauri::command]
+pub fn list_cleanup_trash_batches(
+    db: State<'_, Database>,
+) -> Result<Vec<CleanupTrashBatch>, String> {
+    db.list_cleanup_trash_batches()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn preview_restore_cleanup_trash(
+    batch_id: String,
+    db: State<'_, Database>,
+) -> Result<CleanupRestorePreview, String> {
+    let items = db
+        .cleanup_trash_items_for_batch(&batch_id)
+        .map_err(|error| error.to_string())?;
+    Ok(CleanupRestorePreview { batch_id, items })
+}
+
+#[tauri::command]
+pub fn restore_cleanup_trash_items(
+    item_ids: Vec<String>,
+    db: State<'_, Database>,
+) -> Result<CleanupRestoreResult, String> {
+    restore_cleanup_trash_items_for_db(item_ids, db.inner())
+}
+
 pub fn analyze_storage_roots_for_test(
     roots: Vec<PathBuf>,
     excluded_paths: Vec<PathBuf>,
@@ -182,6 +542,40 @@ pub fn analyze_storage_roots_for_test(
 
 pub fn validate_cleanup_roots_for_test(roots: Vec<String>) -> Result<Vec<PathBuf>, String> {
     validate_cleanup_roots(roots)
+}
+
+pub fn start_storage_cleanup_scan_for_test(
+    roots: Vec<PathBuf>,
+    state: &StorageCleanupState,
+) -> Result<String, String> {
+    let job_id = new_id("storage-cleanup-scan-test");
+    let cancel_flag = state.start_job(job_id.clone(), &roots)?;
+    let state = state.clone();
+    let job_id_for_task = job_id.clone();
+    std::thread::spawn(move || {
+        run_storage_cleanup_scan_job_without_events(
+            roots,
+            Vec::new(),
+            state,
+            job_id_for_task,
+            cancel_flag,
+        );
+    });
+    Ok(job_id)
+}
+
+pub fn cancel_storage_cleanup_scan_for_test(
+    job_id: &str,
+    state: &StorageCleanupState,
+) -> Result<(), String> {
+    state.cancel_job(job_id)
+}
+
+pub fn get_storage_cleanup_scan_status_for_test(
+    job_id: &str,
+    state: &StorageCleanupState,
+) -> Result<StorageCleanupScanStatus, String> {
+    state.job_status(job_id)
 }
 
 pub fn classify_candidate_for_test(path: &Path, size: u64) -> StorageCandidate {
@@ -218,6 +612,8 @@ pub fn move_cleanup_candidates_to_trash_for_candidates(
                 status: "skipped".to_string(),
                 message: "Candidate id was not found in the latest storage cleanup scan."
                     .to_string(),
+                item_id: None,
+                trash_path: None,
             });
             continue;
         };
@@ -230,8 +626,11 @@ pub fn move_cleanup_candidates_to_trash_for_candidates(
                 name: candidate.name.clone(),
                 size: candidate.size,
                 status: "skipped".to_string(),
-                message: "Only safe recycle-bin cleanup candidates from the latest scan can be moved."
-                    .to_string(),
+                message:
+                    "Only safe recycle-bin cleanup candidates from the latest scan can be moved."
+                        .to_string(),
+                item_id: None,
+                trash_path: None,
             });
             continue;
         }
@@ -244,8 +643,11 @@ pub fn move_cleanup_candidates_to_trash_for_candidates(
                     name: candidate.name.clone(),
                     size: candidate.size,
                     status: "success".to_string(),
-                    message: "Moved to the system trash. Restore it from the system trash if needed."
-                        .to_string(),
+                    message:
+                        "Moved to the system trash. Restore it from the system trash if needed."
+                            .to_string(),
+                    item_id: None,
+                    trash_path: None,
                 });
             }
             Err(error) => {
@@ -256,6 +658,243 @@ pub fn move_cleanup_candidates_to_trash_for_candidates(
                     size: candidate.size,
                     status: "failed".to_string(),
                     message: format!("Failed to move to system trash: {error}"),
+                    item_id: None,
+                    trash_path: None,
+                });
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
+    ids: Vec<String>,
+    candidates: &[StorageCandidate],
+    db: &Database,
+    app_data_dir: Option<&Path>,
+) -> Result<CleanupExecutionResult, String> {
+    let by_id = candidates
+        .iter()
+        .map(|candidate| (candidate.id.as_str(), candidate))
+        .collect::<HashMap<_, _>>();
+    let batch_id = new_id("cleanup-safe-trash");
+    let moved_at = current_timestamp_ms().to_string();
+    let mut result = CleanupExecutionResult {
+        moved: 0,
+        skipped: 0,
+        failed: 0,
+        logs: Vec::new(),
+    };
+    let mut items = Vec::new();
+
+    for (index, id) in ids.into_iter().enumerate() {
+        let Some(candidate) = by_id.get(id.as_str()) else {
+            result.skipped += 1;
+            result.logs.push(CleanupExecutionLog {
+                path: String::new(),
+                name: id,
+                size: 0,
+                status: "skipped".to_string(),
+                message: "Candidate id was not found in the latest storage cleanup scan."
+                    .to_string(),
+                item_id: None,
+                trash_path: None,
+            });
+            continue;
+        };
+
+        let source = Path::new(&candidate.path);
+        if !cleanup_candidate_can_enter_operation_preview(candidate, app_data_dir) {
+            result.skipped += 1;
+            result.logs.push(CleanupExecutionLog {
+                path: candidate.path.clone(),
+                name: candidate.name.clone(),
+                size: candidate.size,
+                status: "skipped".to_string(),
+                message: "Only safe candidates from the latest scan can be moved to Zen Canvas Safe Trash.".to_string(),
+                item_id: None,
+                trash_path: None,
+            });
+            continue;
+        }
+
+        let item_id = candidate_item_id(candidate, index);
+        let trash_path =
+            safe_trash_item_path(source, &batch_id, &item_id, &candidate.name, app_data_dir);
+        let trash_path_text = normalize_path(&trash_path);
+        if trash_path.exists() {
+            result.failed += 1;
+            result.logs.push(CleanupExecutionLog {
+                path: candidate.path.clone(),
+                name: candidate.name.clone(),
+                size: candidate.size,
+                status: "failed".to_string(),
+                message: "Safe trash destination already exists.".to_string(),
+                item_id: Some(item_id),
+                trash_path: Some(trash_path_text),
+            });
+            continue;
+        }
+
+        let move_result = move_path_to_safe_trash(source, &trash_path, candidate.size);
+        let status = if move_result.is_ok() {
+            "moved"
+        } else {
+            "failed"
+        };
+        let message = match move_result {
+            Ok(()) => "Moved to Zen Canvas Safe Trash.".to_string(),
+            Err(error) => format!("Failed to move to Zen Canvas Safe Trash: {error}"),
+        };
+        let item = CleanupTrashItem {
+            id: item_id.clone(),
+            batch_id: batch_id.clone(),
+            original_path: candidate.path.clone(),
+            trash_path: trash_path_text.clone(),
+            name: candidate.name.clone(),
+            size: candidate.size,
+            moved_at: moved_at.clone(),
+            restored_at: None,
+            status: status.to_string(),
+            message: Some(message.clone()),
+        };
+        items.push(item);
+        if status == "moved" {
+            result.moved += 1;
+            result.logs.push(CleanupExecutionLog {
+                path: candidate.path.clone(),
+                name: candidate.name.clone(),
+                size: candidate.size,
+                status: "success".to_string(),
+                message,
+                item_id: Some(item_id),
+                trash_path: Some(trash_path_text),
+            });
+        } else {
+            result.failed += 1;
+            result.logs.push(CleanupExecutionLog {
+                path: candidate.path.clone(),
+                name: candidate.name.clone(),
+                size: candidate.size,
+                status: "failed".to_string(),
+                message,
+                item_id: Some(item_id),
+                trash_path: Some(trash_path_text),
+            });
+        }
+    }
+
+    if !items.is_empty() {
+        let status = if result.failed > 0 {
+            "partial_failed"
+        } else {
+            "success"
+        };
+        db.save_cleanup_trash_batch(&CleanupTrashBatch {
+            id: batch_id,
+            created_at: moved_at,
+            root: candidates.first().and_then(|candidate| {
+                Path::new(&candidate.path)
+                    .parent()
+                    .map(|parent| normalize_path(parent))
+            }),
+            total_items: items.len(),
+            total_size: items.iter().map(|item| item.size).sum(),
+            status: status.to_string(),
+            items,
+        })
+        .map_err(|error| error.to_string())?;
+    }
+
+    Ok(result)
+}
+
+pub fn restore_cleanup_trash_items_for_db(
+    item_ids: Vec<String>,
+    db: &Database,
+) -> Result<CleanupRestoreResult, String> {
+    let mut result = CleanupRestoreResult {
+        restored: 0,
+        conflicts: 0,
+        missing: 0,
+        failed: 0,
+        logs: Vec::new(),
+    };
+
+    for item_id in item_ids {
+        let Some(mut item) = db
+            .cleanup_trash_item(&item_id)
+            .map_err(|error| error.to_string())?
+        else {
+            result.failed += 1;
+            result.logs.push(CleanupRestoreLog {
+                item_id,
+                original_path: String::new(),
+                trash_path: String::new(),
+                status: "failed".to_string(),
+                message: "Cleanup trash item was not found.".to_string(),
+            });
+            continue;
+        };
+
+        let original = PathBuf::from(&item.original_path);
+        let trash_path = PathBuf::from(&item.trash_path);
+        if !trash_path.exists() {
+            item.status = "missing".to_string();
+            item.message = Some("Safe trash path is missing.".to_string());
+            db.update_cleanup_trash_item_status(&item)
+                .map_err(|error| error.to_string())?;
+            result.missing += 1;
+            result.logs.push(CleanupRestoreLog {
+                item_id: item.id,
+                original_path: normalize_path(&original),
+                trash_path: normalize_path(&trash_path),
+                status: "missing".to_string(),
+                message: "Safe trash path is missing.".to_string(),
+            });
+            continue;
+        }
+        if original.exists() {
+            result.conflicts += 1;
+            result.logs.push(CleanupRestoreLog {
+                item_id: item.id,
+                original_path: normalize_path(&original),
+                trash_path: normalize_path(&trash_path),
+                status: "conflict".to_string(),
+                message: "Restore is blocked because the original path already exists.".to_string(),
+            });
+            continue;
+        }
+
+        match move_path_to_restore_location(&trash_path, &original, item.size) {
+            Ok(()) => {
+                item.status = "restored".to_string();
+                item.restored_at = Some(current_timestamp_ms().to_string());
+                item.message = Some("Restored from Zen Canvas Safe Trash.".to_string());
+                db.update_cleanup_trash_item_status(&item)
+                    .map_err(|error| error.to_string())?;
+                result.restored += 1;
+                result.logs.push(CleanupRestoreLog {
+                    item_id: item.id,
+                    original_path: normalize_path(&original),
+                    trash_path: normalize_path(&trash_path),
+                    status: "restored".to_string(),
+                    message: "Restored from Zen Canvas Safe Trash.".to_string(),
+                });
+            }
+            Err(error) => {
+                item.status = "failed".to_string();
+                item.message = Some(error.clone());
+                db.update_cleanup_trash_item_status(&item)
+                    .map_err(|error| error.to_string())?;
+                result.failed += 1;
+                result.logs.push(CleanupRestoreLog {
+                    item_id: item.id,
+                    original_path: normalize_path(&original),
+                    trash_path: normalize_path(&trash_path),
+                    status: "failed".to_string(),
+                    message: error,
                 });
             }
         }
@@ -386,19 +1025,138 @@ fn cleanup_operation_preview(candidate: &StorageCandidate) -> OperationPreviewDt
     }
 }
 
+fn run_storage_cleanup_scan_job<R: Runtime>(
+    roots: Vec<PathBuf>,
+    excluded_paths: Vec<PathBuf>,
+    app: AppHandle<R>,
+    state: StorageCleanupState,
+    job_id: String,
+    cancel_flag: Arc<AtomicBool>,
+) {
+    let app_for_progress = app.clone();
+    let state_for_progress = state.clone();
+    let result = analyze_storage_roots_with_progress(
+        roots,
+        excluded_paths,
+        Some(Arc::clone(&cancel_flag)),
+        job_id.clone(),
+        move |progress| {
+            state_for_progress.update_job_progress(progress.clone())?;
+            app_for_progress
+                .emit(STORAGE_CLEANUP_PROGRESS_EVENT, progress)
+                .map_err(|error| error.to_string())
+        },
+    );
+    finish_storage_cleanup_scan_job(result, app, state, job_id, cancel_flag);
+}
+
+fn run_storage_cleanup_scan_job_without_events(
+    roots: Vec<PathBuf>,
+    excluded_paths: Vec<PathBuf>,
+    state: StorageCleanupState,
+    job_id: String,
+    cancel_flag: Arc<AtomicBool>,
+) {
+    let state_for_progress = state.clone();
+    let result = analyze_storage_roots_with_progress(
+        roots,
+        excluded_paths,
+        Some(Arc::clone(&cancel_flag)),
+        job_id.clone(),
+        move |progress| state_for_progress.update_job_progress(progress),
+    );
+    match result {
+        Ok(analysis) if cancel_flag.load(Ordering::Relaxed) => {
+            let _ = state.mark_job_cancelled(&job_id);
+            let _ = analysis;
+        }
+        Ok(analysis) => {
+            let _ = state.complete_job(&job_id, analysis);
+        }
+        Err(error) => {
+            let _ = state.fail_job(&job_id, error);
+        }
+    }
+}
+
+fn finish_storage_cleanup_scan_job<R: Runtime>(
+    result: Result<StorageAnalysis, String>,
+    app: AppHandle<R>,
+    state: StorageCleanupState,
+    job_id: String,
+    cancel_flag: Arc<AtomicBool>,
+) {
+    match result {
+        Ok(analysis) if cancel_flag.load(Ordering::Relaxed) => {
+            let _ = state.mark_job_cancelled(&job_id);
+            let _ = app.emit(
+                STORAGE_CLEANUP_CANCELLED_EVENT,
+                StorageCleanupJobMessage {
+                    job_id,
+                    message: "Storage cleanup scan was cancelled.".to_string(),
+                },
+            );
+            let _ = analysis;
+        }
+        Ok(analysis) => {
+            let completed = StorageCleanupCompleted {
+                job_id: job_id.clone(),
+                analysis: analysis.clone(),
+            };
+            let _ = state.complete_job(&job_id, analysis);
+            let _ = app.emit(STORAGE_CLEANUP_COMPLETED_EVENT, completed);
+        }
+        Err(error) => {
+            let _ = state.fail_job(&job_id, error.clone());
+            let _ = app.emit(
+                STORAGE_CLEANUP_FAILED_EVENT,
+                StorageCleanupJobMessage {
+                    job_id,
+                    message: error,
+                },
+            );
+        }
+    }
+}
+
 fn analyze_storage_roots(
     roots: Vec<PathBuf>,
     excluded_paths: Vec<PathBuf>,
 ) -> Result<StorageAnalysis, String> {
+    analyze_storage_roots_with_progress(roots, excluded_paths, None, String::new(), |_| Ok(()))
+}
+
+fn analyze_storage_roots_with_progress<F>(
+    roots: Vec<PathBuf>,
+    excluded_paths: Vec<PathBuf>,
+    cancel_flag: Option<Arc<AtomicBool>>,
+    job_id: String,
+    mut on_progress: F,
+) -> Result<StorageAnalysis, String>
+where
+    F: FnMut(StorageCleanupProgress) -> Result<(), String>,
+{
     let mut context = ScanContext {
         excluded_paths,
         candidates: Vec::new(),
         denied_paths: Vec::new(),
         warnings: Vec::new(),
+        progress: StorageCleanupProgress {
+            job_id,
+            scanned_entries: 0,
+            current_path: None,
+            total_size: 0,
+        },
+        cancel_flag,
+        cancelled: false,
+        last_emit: Instant::now(),
     };
     let mut total_size = 0_u64;
 
     for root in roots {
+        if context.is_cancelled() {
+            break;
+        }
         if root.as_os_str().is_empty() {
             continue;
         }
@@ -415,9 +1173,11 @@ fn analyze_storage_roots(
         if !root.exists() {
             continue;
         }
-        total_size = total_size.saturating_add(scan_path_size(&root, &mut context));
+        total_size =
+            total_size.saturating_add(scan_path_size(&root, &mut context, &mut on_progress));
     }
 
+    context.emit_progress(&mut on_progress, true)?;
     context.candidates.sort_by(|left, right| {
         right
             .size
@@ -455,6 +1215,54 @@ struct ScanContext {
     candidates: Vec<StorageCandidate>,
     denied_paths: Vec<String>,
     warnings: Vec<String>,
+    progress: StorageCleanupProgress,
+    cancel_flag: Option<Arc<AtomicBool>>,
+    cancelled: bool,
+    last_emit: Instant,
+}
+
+impl ScanContext {
+    fn is_cancelled(&mut self) -> bool {
+        let cancelled = self
+            .cancel_flag
+            .as_ref()
+            .map(|flag| flag.load(Ordering::Relaxed))
+            .unwrap_or(false);
+        if cancelled {
+            self.cancelled = true;
+        }
+        cancelled
+    }
+
+    fn record_progress<F>(
+        &mut self,
+        path: &Path,
+        size: u64,
+        on_progress: &mut F,
+    ) -> Result<(), String>
+    where
+        F: FnMut(StorageCleanupProgress) -> Result<(), String>,
+    {
+        self.progress.scanned_entries = self.progress.scanned_entries.saturating_add(1);
+        self.progress.current_path = Some(normalize_path(path));
+        self.progress.total_size = self.progress.total_size.saturating_add(size);
+        self.emit_progress(on_progress, false)
+    }
+
+    fn emit_progress<F>(&mut self, on_progress: &mut F, force: bool) -> Result<(), String>
+    where
+        F: FnMut(StorageCleanupProgress) -> Result<(), String>,
+    {
+        let now = Instant::now();
+        if force
+            || self.progress.scanned_entries % STORAGE_CLEANUP_EMIT_ENTRY_INTERVAL == 0
+            || now.duration_since(self.last_emit) >= STORAGE_CLEANUP_EMIT_INTERVAL
+        {
+            self.last_emit = now;
+            on_progress(self.progress.clone())?;
+        }
+        Ok(())
+    }
 }
 
 fn validate_cleanup_roots(roots: Vec<String>) -> Result<Vec<PathBuf>, String> {
@@ -497,7 +1305,13 @@ fn validate_cleanup_roots(roots: Vec<String>) -> Result<Vec<PathBuf>, String> {
     Ok(validated)
 }
 
-fn scan_path_size(path: &Path, context: &mut ScanContext) -> u64 {
+fn scan_path_size<F>(path: &Path, context: &mut ScanContext, on_progress: &mut F) -> u64
+where
+    F: FnMut(StorageCleanupProgress) -> Result<(), String>,
+{
+    if context.is_cancelled() {
+        return 0;
+    }
     if is_forbidden_storage_path(path, &context.excluded_paths) {
         context.denied_paths.push(normalize_path(path));
         return 0;
@@ -518,6 +1332,7 @@ fn scan_path_size(path: &Path, context: &mut ScanContext) -> u64 {
 
     if metadata.is_file() {
         let size = metadata.len();
+        let _ = context.record_progress(path, size, on_progress);
         maybe_record_candidate(path, size, false, context);
         return size;
     }
@@ -536,9 +1351,13 @@ fn scan_path_size(path: &Path, context: &mut ScanContext) -> u64 {
     };
 
     for entry in entries.flatten() {
-        size = size.saturating_add(scan_path_size(&entry.path(), context));
+        if context.is_cancelled() {
+            break;
+        }
+        size = size.saturating_add(scan_path_size(&entry.path(), context, on_progress));
     }
 
+    let _ = context.record_progress(path, 0, on_progress);
     maybe_record_candidate(path, size, true, context);
     size
 }
@@ -747,6 +1566,288 @@ fn cleanup_preview_item(candidate: &StorageCandidate) -> CleanupPreviewItem {
     }
 }
 
+impl Database {
+    pub fn save_cleanup_trash_batch(&self, batch: &CleanupTrashBatch) -> Result<(), DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        tx.execute(
+            r#"
+            INSERT INTO cleanup_trash_batches (id, created_at, root, total_items, total_size, status)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            ON CONFLICT(id) DO UPDATE SET
+                created_at = excluded.created_at,
+                root = excluded.root,
+                total_items = excluded.total_items,
+                total_size = excluded.total_size,
+                status = excluded.status
+            "#,
+            params![
+                batch.id,
+                batch.created_at,
+                batch.root,
+                i64::try_from(batch.total_items).unwrap_or(i64::MAX),
+                i64::try_from(batch.total_size).unwrap_or(i64::MAX),
+                batch.status
+            ],
+        )?;
+        {
+            let mut stmt = tx.prepare(
+                r#"
+                INSERT INTO cleanup_trash_items (
+                    id, batch_id, original_path, trash_path, name, size, moved_at, restored_at, status, message
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                ON CONFLICT(id) DO UPDATE SET
+                    batch_id = excluded.batch_id,
+                    original_path = excluded.original_path,
+                    trash_path = excluded.trash_path,
+                    name = excluded.name,
+                    size = excluded.size,
+                    moved_at = excluded.moved_at,
+                    restored_at = excluded.restored_at,
+                    status = excluded.status,
+                    message = excluded.message
+                "#,
+            )?;
+            for item in &batch.items {
+                stmt.execute(params![
+                    item.id,
+                    item.batch_id,
+                    item.original_path,
+                    item.trash_path,
+                    item.name,
+                    i64::try_from(item.size).unwrap_or(i64::MAX),
+                    item.moved_at,
+                    item.restored_at,
+                    item.status,
+                    item.message
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn list_cleanup_trash_batches(&self) -> Result<Vec<CleanupTrashBatch>, DbError> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, created_at, root, total_items, total_size, status
+            FROM cleanup_trash_batches
+            ORDER BY CAST(created_at AS INTEGER) DESC
+            "#,
+        )?;
+        let batch_rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })?;
+        let mut batches = Vec::new();
+        for row in batch_rows {
+            let (id, created_at, root, total_items, total_size, status) = row?;
+            let items = self.cleanup_trash_items_for_batch(&id)?;
+            batches.push(CleanupTrashBatch {
+                id,
+                created_at,
+                root,
+                total_items: usize::try_from(total_items).unwrap_or(0),
+                total_size: u64::try_from(total_size).unwrap_or(0),
+                status,
+                items,
+            });
+        }
+        Ok(batches)
+    }
+
+    pub fn cleanup_trash_items_for_batch(
+        &self,
+        batch_id: &str,
+    ) -> Result<Vec<CleanupTrashItem>, DbError> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at, status, message
+            FROM cleanup_trash_items
+            WHERE batch_id = ?1
+            ORDER BY name COLLATE NOCASE ASC
+            "#,
+        )?;
+        let rows = stmt.query_map(params![batch_id], cleanup_trash_item_from_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    pub fn cleanup_trash_item(&self, id: &str) -> Result<Option<CleanupTrashItem>, DbError> {
+        let conn = self.conn()?;
+        conn.query_row(
+            r#"
+            SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at, status, message
+            FROM cleanup_trash_items
+            WHERE id = ?1
+            "#,
+            params![id],
+            cleanup_trash_item_from_row,
+        )
+        .optional()
+        .map_err(DbError::from)
+    }
+
+    pub fn update_cleanup_trash_item_status(&self, item: &CleanupTrashItem) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        conn.execute(
+            r#"
+            UPDATE cleanup_trash_items
+            SET restored_at = ?2,
+                status = ?3,
+                message = ?4
+            WHERE id = ?1
+            "#,
+            params![item.id, item.restored_at, item.status, item.message],
+        )?;
+        Ok(())
+    }
+}
+
+fn cleanup_trash_item_from_row(row: &Row<'_>) -> rusqlite::Result<CleanupTrashItem> {
+    let size: i64 = row.get(5)?;
+    Ok(CleanupTrashItem {
+        id: row.get(0)?,
+        batch_id: row.get(1)?,
+        original_path: row.get(2)?,
+        trash_path: row.get(3)?,
+        name: row.get(4)?,
+        size: u64::try_from(size).unwrap_or(0),
+        moved_at: row.get(6)?,
+        restored_at: row.get(7)?,
+        status: row.get(8)?,
+        message: row.get(9)?,
+    })
+}
+
+fn candidate_item_id(candidate: &StorageCandidate, index: usize) -> String {
+    let mut hasher = DefaultHasher::new();
+    candidate.id.hash(&mut hasher);
+    candidate.path.hash(&mut hasher);
+    index.hash(&mut hasher);
+    format!("cleanup-item-{:016x}", hasher.finish())
+}
+
+fn safe_trash_item_path(
+    source: &Path,
+    batch_id: &str,
+    item_id: &str,
+    name: &str,
+    app_data_dir: Option<&Path>,
+) -> PathBuf {
+    let root = preferred_safe_trash_root(source)
+        .or_else(|| app_data_dir.map(|dir| dir.join("safe-trash")))
+        .unwrap_or_else(|| env::temp_dir().join("Zen Canvas").join("safe-trash"));
+    root.join("items").join(batch_id).join(item_id).join(name)
+}
+
+fn preferred_safe_trash_root(source: &Path) -> Option<PathBuf> {
+    let text = normalize_path(source);
+    if text.get(1..3) == Some(":/") {
+        let drive = &text[..3];
+        return Some(PathBuf::from(drive).join(".zen-canvas-trash"));
+    }
+    source
+        .parent()
+        .map(|parent| parent.join(".zen-canvas-trash"))
+}
+
+fn move_path_to_safe_trash(
+    source: &Path,
+    trash_path: &Path,
+    expected_size: u64,
+) -> Result<(), String> {
+    move_path_with_copy_fallback(source, trash_path, expected_size)
+}
+
+fn move_path_to_restore_location(
+    trash_path: &Path,
+    original: &Path,
+    expected_size: u64,
+) -> Result<(), String> {
+    move_path_with_copy_fallback(trash_path, original, expected_size)
+}
+
+fn move_path_with_copy_fallback(
+    source: &Path,
+    target: &Path,
+    expected_size: u64,
+) -> Result<(), String> {
+    if target.exists() {
+        return Err("target path already exists".to_string());
+    }
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    match fs::rename(source, target) {
+        Ok(()) => return Ok(()),
+        Err(_) => {
+            copy_path(source, target)?;
+            let copied_size = path_size_for_verify(target)?;
+            if expected_size > 0 && copied_size != expected_size {
+                let _ = remove_path(target);
+                return Err(format!(
+                    "copy verification failed: expected {expected_size} bytes, copied {copied_size} bytes"
+                ));
+            }
+            remove_path(source)?;
+        }
+    }
+    Ok(())
+}
+
+fn copy_path(source: &Path, target: &Path) -> Result<(), String> {
+    let metadata = fs::symlink_metadata(source).map_err(|error| error.to_string())?;
+    if metadata.file_type().is_symlink() {
+        return Err("refusing to copy symlink into safe trash".to_string());
+    }
+    if metadata.is_file() {
+        fs::copy(source, target).map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+    if metadata.is_dir() {
+        fs::create_dir_all(target).map_err(|error| error.to_string())?;
+        for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            copy_path(&entry.path(), &target.join(entry.file_name()))?;
+        }
+        return Ok(());
+    }
+    Err("unsupported file type for safe trash".to_string())
+}
+
+fn remove_path(path: &Path) -> Result<(), String> {
+    if path.is_dir() {
+        fs::remove_dir_all(path).map_err(|error| error.to_string())
+    } else {
+        fs::remove_file(path).map_err(|error| error.to_string())
+    }
+}
+
+fn path_size_for_verify(path: &Path) -> Result<u64, String> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if metadata.is_file() {
+        return Ok(metadata.len());
+    }
+    if metadata.is_dir() {
+        let mut size = 0_u64;
+        for entry in fs::read_dir(path).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            size = size.saturating_add(path_size_for_verify(&entry.path())?);
+        }
+        return Ok(size);
+    }
+    Ok(0)
+}
+
 fn default_scan_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     push_if_some(&mut roots, dirs::download_dir());
@@ -799,11 +1900,19 @@ fn is_forbidden_storage_path(path: &Path, excluded_paths: &[PathBuf]) -> bool {
         .iter()
         .any(|excluded| is_same_or_child(&lower, &normalize_for_compare(excluded)))
         || is_system_path_text(&lower)
+        || is_zen_canvas_safe_trash_path_text(&lower)
         || lower.contains("/programdata")
         || lower.contains("/startlan/zen canvas")
         || lower.ends_with("/zen-canvas.sqlite3")
         || lower.ends_with("/zen-canvas.sqlite")
         || lower.ends_with("/zen-canvas.db")
+}
+
+fn is_zen_canvas_safe_trash_path_text(lower: &str) -> bool {
+    lower.ends_with("/.zen-canvas-trash")
+        || lower.contains("/.zen-canvas-trash/")
+        || lower.ends_with("/safe-trash")
+        || lower.contains("/safe-trash/items/")
 }
 
 fn is_system_path_text(lower: &str) -> bool {
@@ -967,6 +2076,22 @@ fn candidate_id(path: &str) -> String {
     let mut hasher = DefaultHasher::new();
     normalize_compare_text(path).hash(&mut hasher);
     format!("storage-{:016x}", hasher.finish())
+}
+
+fn new_id(prefix: &str) -> String {
+    let timestamp = current_timestamp_ms();
+    let mut hasher = DefaultHasher::new();
+    prefix.hash(&mut hasher);
+    timestamp.hash(&mut hasher);
+    std::thread::current().id().hash(&mut hasher);
+    format!("{prefix}-{timestamp}-{:016x}", hasher.finish())
+}
+
+fn current_timestamp_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default()
 }
 
 fn normalize_for_compare(path: &Path) -> String {

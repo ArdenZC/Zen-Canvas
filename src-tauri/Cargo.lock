@@ -5117,7 +5117,7 @@ dependencies = [
 
 [[package]]
 name = "zen-canvas-tauri"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "blake3",
  "dirs 5.0.1",

@@ -37,10 +37,15 @@ pub use settings::{
     get_app_settings, get_settings, save_app_settings, save_settings, AppSettings, OrganizeRootMode,
 };
 pub use storage_analyzer::{
-    move_cleanup_candidates_to_trash, preview_cleanup_candidates, preview_cleanup_operations,
-    reveal_storage_candidate, scan_storage_cleanup, CleanupActionKind, CleanupExecutionLog,
-    CleanupExecutionResult, CleanupPreviewItem, CleanupTier, StorageAnalysis, StorageCandidate,
-    StorageCleanupState,
+    cancel_storage_cleanup_scan, get_storage_cleanup_scan_status, list_cleanup_trash_batches,
+    move_cleanup_candidates_to_safe_trash, move_cleanup_candidates_to_trash,
+    preview_cleanup_candidates, preview_cleanup_operations, preview_restore_cleanup_trash,
+    restore_cleanup_trash_items, reveal_storage_candidate, scan_storage_cleanup,
+    start_storage_cleanup_scan, CleanupActionKind, CleanupExecutionLog, CleanupExecutionResult,
+    CleanupPreviewItem, CleanupRestoreLog, CleanupRestorePreview, CleanupRestoreResult,
+    CleanupTier, CleanupTrashBatch, CleanupTrashItem, StorageAnalysis, StorageCandidate,
+    StorageCleanupCompleted, StorageCleanupJobMessage, StorageCleanupProgress,
+    StorageCleanupScanStatus, StorageCleanupState,
 };
 pub use watcher::{
     setup_file_watcher, FileWatchEvent, FileWatcherManager, WatcherErrorEvent, WatcherReadyEvent,
