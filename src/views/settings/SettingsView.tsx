@@ -13,6 +13,7 @@ import {
 } from "../../hooks/useAppSettings";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
 import { useAppStore } from "../../store/useAppStore";
+import { useBackgroundIndexerStore } from "../../store/useBackgroundIndexerStore";
 import type {
   CloseBehavior,
   FolderNamingLanguage,
@@ -66,6 +67,7 @@ export function SettingsView() {
       defaultScanFolders,
       restoreRetentionDays,
       launchAtLogin,
+      backgroundIndexOnStartup,
       searchHotkey,
       searchScopeMode,
       customSearchRoots
@@ -74,11 +76,18 @@ export function SettingsView() {
     setDefaultScanFolders,
     setRestoreRetentionDays,
     setLaunchAtLogin,
+    setBackgroundIndexOnStartup,
     setSearchHotkey,
     setSearchScopeMode,
     setCustomSearchRoots
   } = useSettingsContext();
   const scanPath = useScanManagerStore((state) => state.scanPath);
+  const pendingBackgroundRoots = useBackgroundIndexerStore((state) => state.pendingRoots);
+  const currentBackgroundRoot = useBackgroundIndexerStore((state) => state.currentRoot);
+  const isBackgroundIndexing = useBackgroundIndexerStore((state) => state.isBackgroundIndexing);
+  const failedBackgroundRoots = useBackgroundIndexerStore((state) => state.failedRoots);
+  const completedBackgroundRoots = useBackgroundIndexerStore((state) => state.completedRoots);
+  const enqueueBackgroundIndexRoot = useBackgroundIndexerStore((state) => state.enqueueRoot);
   const globalHotkeyError = useAppStore((state) => state.globalHotkeyError);
   const setGlobalHotkeyError = useAppStore((state) => state.setGlobalHotkeyError);
   const hotkey = formatHotkeyLabel(searchHotkey, platform);
@@ -148,6 +157,13 @@ export function SettingsView() {
     }
   }
 
+  async function updateBackgroundIndexOnStartup(next: boolean) {
+    const saved = await setBackgroundIndexOnStartup(next);
+    if (saved) {
+      showStatus(t("settingsSavedInline"));
+    }
+  }
+
   async function addDefaultScanFolder() {
     const selectedPath = await open({
       directory: true,
@@ -195,14 +211,16 @@ export function SettingsView() {
 
     const saved = await setCustomSearchRoots(upsertSearchRoot(customSearchRoots, path));
     if (saved) {
-      showStatus(t("settingsSavedInline"));
+      enqueueBackgroundIndexRoot(path);
+      showStatus(`${t("settingsSavedInline")} · ${t("backgroundIndexQueued")}`);
     }
   }
 
   async function setSearchRootEnabled(root: SearchRootSetting, enabled: boolean) {
     const saved = await setCustomSearchRoots(toggleSearchRoot(customSearchRoots, root.id, enabled));
     if (saved) {
-      showStatus(t("settingsSavedInline"));
+      if (enabled) enqueueBackgroundIndexRoot(root.path);
+      showStatus(enabled ? `${t("settingsSavedInline")} · ${t("backgroundIndexQueued")}` : t("settingsSavedInline"));
     }
   }
 
@@ -230,6 +248,19 @@ export function SettingsView() {
 
   async function scanRootNow(root: ScanRootSetting) {
     await scanPath(root.path);
+  }
+
+  function indexSearchRootNow(root: SearchRootSetting) {
+    enqueueBackgroundIndexRoot(root.path);
+    showStatus(t("backgroundIndexQueued"));
+  }
+
+  function backgroundRootState(root: SearchRootSetting) {
+    const normalized = normalizeSettingsRoot(root.path);
+    if (currentBackgroundRoot && normalizeSettingsRoot(currentBackgroundRoot) === normalized) return "indexing";
+    if (pendingBackgroundRoots.some((path) => normalizeSettingsRoot(path) === normalized)) return "queued";
+    if (completedBackgroundRoots.some((path) => normalizeSettingsRoot(path) === normalized)) return "completed";
+    return "idle";
   }
 
   async function updateRestoreRetentionDays(next: RestoreRetentionDays) {
@@ -429,6 +460,7 @@ export function SettingsView() {
               onChange={(next) => void updateSearchScopeMode(next)}
             />
           </div>
+          <span className={quietText}>{t("searchLocalIndexBoundary")}</span>
           {searchScopeMode === "custom_roots" && (
             <div className="grid gap-2">
               <div className="flex justify-end">
@@ -451,6 +483,20 @@ export function SettingsView() {
                         statusLabel={root.enabled ? t("enabled") : t("disabled")}
                         onChange={(next) => void setSearchRootEnabled(root, next)}
                       />
+                      <button
+                        className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")}
+                        onClick={() => indexSearchRootNow(root)}
+                        disabled={backgroundRootState(root) === "indexing" || backgroundRootState(root) === "queued"}
+                      >
+                        <Play size={14} />
+                        <span>
+                          {backgroundRootState(root) === "indexing"
+                            ? t("backgroundIndexingShort")
+                            : backgroundRootState(root) === "queued"
+                              ? t("backgroundIndexQueuedShort")
+                              : t("indexNow")}
+                        </span>
+                      </button>
                       <button className={buttonIconDanger} onClick={() => setFolderDeleteConfirm({ kind: "search", root })} title={t("deleteSearchFolder")} aria-label={t("deleteSearchFolder")}>
                         <Trash2 size={14} />
                       </button>
@@ -467,6 +513,28 @@ export function SettingsView() {
               )}
             </div>
           )}
+          {(isBackgroundIndexing || pendingBackgroundRoots.length > 0 || completedBackgroundRoots.length > 0 || failedBackgroundRoots.length > 0) ? (
+            <div className={cn(softPanel, "grid gap-1.5 p-3 text-sm")} aria-live="polite">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <strong className="text-[var(--ink)]">{t("backgroundIndexingTitle")}</strong>
+                <ToneBadge tone={isBackgroundIndexing ? "info" : failedBackgroundRoots.length ? "warning" : "success"}>
+                  {isBackgroundIndexing ? t("backgroundIndexingRunning") : t("backgroundIndexingIdle")}
+                </ToneBadge>
+              </div>
+              {currentBackgroundRoot ? (
+                <span className={quietText}>{t("backgroundIndexingCurrent")}: {compactPath(currentBackgroundRoot, 76)}</span>
+              ) : null}
+              {pendingBackgroundRoots.length > 0 ? (
+                <span className={quietText}>{t("backgroundIndexingQueue")}: {pendingBackgroundRoots.length.toLocaleString()}</span>
+              ) : null}
+              {completedBackgroundRoots[0] ? (
+                <span className={quietText}>{t("backgroundIndexingCompleted")}: {compactPath(completedBackgroundRoots[0], 76)}</span>
+              ) : null}
+              {failedBackgroundRoots[0] ? (
+                <span className={quietText}>{t("backgroundIndexingFailed")}: {compactPath(failedBackgroundRoots[0].path, 76)}</span>
+              ) : null}
+            </div>
+          ) : null}
           <span className={quietText}>{t("searchScopeDoesNotChangeLibrary")}</span>
         </ControlGroup>
 
@@ -499,6 +567,13 @@ export function SettingsView() {
         </ControlGroup>
 
         <ControlGroup title={t("settingsStartup")} description={t("settingsStartupDesc")}>
+          <SwitchField
+            label={t("backgroundIndexOnStartup")}
+            description={t("backgroundIndexOnStartupDesc")}
+            checked={backgroundIndexOnStartup}
+            onChange={(next) => void updateBackgroundIndexOnStartup(next)}
+            statusLabel={backgroundIndexOnStartup ? t("enabled") : t("disabled")}
+          />
           <SwitchField
             label={t("launchAtLogin")}
             description={t("launchAtLoginDesc")}
@@ -543,4 +618,8 @@ export function SettingsView() {
     />
     </>
   );
+}
+
+function normalizeSettingsRoot(path: string) {
+  return path.trim().replace(/\\+/g, "/").replace(/\/+$/g, "").toLowerCase();
 }

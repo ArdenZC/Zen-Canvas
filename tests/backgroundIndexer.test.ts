@@ -1,0 +1,84 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+import { makeTranslator } from "../src/i18n";
+
+function read(relativePath: string) {
+  return readFileSync(resolve(relativePath), "utf8");
+}
+
+describe("background indexer", () => {
+  it("queues enabled scan and search roots without taking over the foreground scanner", () => {
+    const runtimeProviders = read("src/components/AppRuntimeProviders.tsx");
+    const indexerStore = read("src/store/useBackgroundIndexerStore.ts");
+
+    expect(runtimeProviders).toContain("useBackgroundIndexerStore");
+    expect(runtimeProviders).toContain("enqueueBackgroundIndexRoots");
+    expect(runtimeProviders).toContain("enabledScanRootPaths(appSettings.defaultScanFolders)");
+    expect(runtimeProviders).toContain("enabledSearchRootPaths(appSettings.customSearchRoots)");
+    expect(runtimeProviders).toContain("if (isSearchMode || isLoadingSettings) return");
+    expect(runtimeProviders).toContain("appSettings.backgroundIndexOnStartup === false");
+    expect(indexerStore).toContain("pendingRoots: string[]");
+    expect(indexerStore).toContain("currentRoot: string | null");
+    expect(indexerStore).toContain("isBackgroundIndexing: boolean");
+    expect(indexerStore).toContain("failedRoots: BackgroundIndexFailure[]");
+    expect(indexerStore).toContain("completedRoots: string[]");
+    expect(indexerStore).toContain("useScanManagerStore.getState().isScanning");
+    expect(indexerStore).toContain("await tauriApi.startScan(root, false)");
+    expect(indexerStore).toContain("const knownRoots = new Set");
+    expect(indexerStore).toContain("...state.pendingRoots.map(normalizeRoot)");
+    expect(indexerStore).toContain("state.currentRoot ? [normalizeRoot(state.currentRoot)]");
+    expect(indexerStore).not.toContain("...state.completedRoots.map(normalizeRoot)");
+    expect(indexerStore).toContain("useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery)");
+    expect(indexerStore).not.toContain("showSuccess");
+    expect(indexerStore).not.toContain("showError");
+    expect(indexerStore).not.toContain("setView");
+  });
+
+  it("surfaces quiet local-index status in settings copy", () => {
+    const settingsView = read("src/views/settings/SettingsView.tsx");
+    const zh = makeTranslator("zh");
+    const en = makeTranslator("en");
+
+    expect(zh("settingsSearchDesc")).toContain("本地索引");
+    expect(zh("searchScopeDoesNotChangeLibrary")).toContain("后台建立本地索引");
+    expect(zh("backgroundIndexQueued")).toBe("已加入后台索引队列");
+    expect(zh("backgroundIndexOnStartup")).toBe("启动后静默更新索引");
+    expect(zh("commandCustomRootsNoResults")).toContain("指定文件夹需要先建立本地索引");
+    expect(en("settingsSearchDesc")).toContain("local-index");
+    expect(en("searchScopeSettingsDesc")).toContain("local SQLite index");
+    expect(en("searchScopeAllIndexedLabel")).toBe("Search scope: all indexed files");
+    expect(en("searchLocalIndexBoundary")).toContain("local index");
+    expect(en("backgroundIndexOnStartup")).toBe("Update index in background on startup");
+    expect(settingsView).toContain("pendingBackgroundRoots");
+    expect(settingsView).toContain("currentBackgroundRoot");
+    expect(settingsView).toContain("isBackgroundIndexing");
+    expect(settingsView).toContain('t("backgroundIndexingTitle")');
+    expect(settingsView).toContain('t("backgroundIndexingQueue")');
+    expect(settingsView).toContain('t("backgroundIndexOnStartup")');
+    expect(settingsView).toContain('t("searchLocalIndexBoundary")');
+    expect(settingsView).toContain("enqueueBackgroundIndexRoot(root.path)");
+    expect(settingsView).toContain("indexSearchRootNow");
+  });
+
+  it("offers indexing from custom-root no-result spotlight states", () => {
+    const commandModal = read("src/components/CommandModal.tsx");
+
+    expect(commandModal).toContain("isCustomRootNoResults");
+    expect(commandModal).toContain("searchScope?.kind === \"roots\"");
+    expect(commandModal).toContain("enqueueBackgroundIndexRoots(searchScope.roots)");
+    expect(commandModal).toContain("setCommandIndexStatus(t(\"commandIndexQueued\"))");
+    expect(commandModal).toContain('t("indexSearchFolders")');
+    expect(commandModal).toContain('t("commandCustomRootsNoResults")');
+  });
+
+  it("keeps watcher roots in sync with custom search roots", () => {
+    const watcher = read("src-tauri/src/watcher.rs");
+
+    expect(watcher).toContain("SearchRootSetting");
+    expect(watcher).toContain("watch_paths_from_search_roots");
+    expect(watcher).toContain("watch_paths_from_settings");
+    expect(watcher).toContain("settings.custom_search_roots");
+    expect(watcher).toContain("watch_paths_include_enabled_custom_search_roots");
+  });
+});

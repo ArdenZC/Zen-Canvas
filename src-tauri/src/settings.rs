@@ -46,6 +46,8 @@ pub struct AppSettings {
     pub default_scan_folders: Vec<ScanRootSetting>,
     pub restore_retention_days: i64,
     pub launch_at_login: bool,
+    #[serde(default = "default_background_index_on_startup")]
+    pub background_index_on_startup: bool,
     #[serde(default = "default_search_hotkey")]
     pub search_hotkey: String,
     #[serde(default = "default_search_scope_mode")]
@@ -65,6 +67,7 @@ impl Default for AppSettings {
             default_scan_folders: default_scan_roots(),
             restore_retention_days: 30,
             launch_at_login: false,
+            background_index_on_startup: default_background_index_on_startup(),
             search_hotkey: DEFAULT_SEARCH_HOTKEY.to_string(),
             search_scope_mode: default_search_scope_mode(),
             custom_search_roots: default_search_roots(),
@@ -133,6 +136,10 @@ fn default_search_roots() -> Vec<SearchRootSetting> {
 
 fn default_search_hotkey() -> String {
     DEFAULT_SEARCH_HOTKEY.to_string()
+}
+
+fn default_background_index_on_startup() -> bool {
+    true
 }
 
 fn default_search_scope_mode() -> String {

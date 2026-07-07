@@ -3,7 +3,8 @@ import { ChevronRight, File, Search, X } from "lucide-react";
 import { tauriApi } from "../api/tauriApi";
 import type { FileRecord, LibraryScope } from "../types/domain";
 import type { Translator, View } from "../types/ui";
-import { cn, toneClasses } from "../utils/tw";
+import { buttonSecondary, cn, toneClasses } from "../utils/tw";
+import { useBackgroundIndexerStore } from "../store/useBackgroundIndexerStore";
 import { compactPath, readableError } from "../utils/viewHelpers";
 import { IconButton, StateBlock, ToneBadge, quietText } from "../views/shared/ui";
 
@@ -18,8 +19,9 @@ const commandShellExpanded =
   "max-w-[720px] rounded-[1.7rem] shadow-[0_24px_76px_rgba(15,23,42,0.24),0_1px_0_rgba(255,255,255,0.72)_inset] dark:shadow-[0_28px_86px_rgba(0,0,0,0.74),0_1px_0_rgba(255,255,255,0.08)_inset]";
 const commandShellStandaloneExpanded = "max-w-none";
 const commandShortcutHints = "flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1";
-const standaloneSearchWindowCollapsedHeight = 96;
-const standaloneSearchWindowExpandedHeight = 420;
+const SEARCH_RESULT_LIMIT = 80;
+const standaloneSearchWindowCollapsedHeight = 92;
+const standaloneSearchWindowExpandedHeight = 520;
 
 export async function activateCommandNavigation({
   standalone,
@@ -86,14 +88,22 @@ export function CommandModal({
   const [results, setResults] = useState<FileRecord[]>([]);
   const [queryState, setQueryState] = useState<"idle" | "pending" | "done" | "failed">("idle");
   const [commandError, setCommandError] = useState("");
+  const [commandIndexStatus, setCommandIndexStatus] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [inputFocused, setInputFocused] = useState(false);
+  const enqueueBackgroundIndexRoots = useBackgroundIndexerStore((state) => state.enqueueRoots);
   const trimmedSearch = search.trim();
   const showResults = trimmedSearch.length > 0 && results.length > 0;
   const activeResultId = showResults ? `command-result-${activeIndex}` : undefined;
   const isScopedEmpty = Boolean(searchScopeEmptyMessage);
   const locateKey = platform === "darwin" ? "⌥↵" : "Alt↵";
   const sortingPreviewKey = platform === "darwin" ? "⌘↵ / ⌘P" : "Ctrl↵ / Ctrl P";
+  const isCustomRootNoResults =
+    searchScope?.kind === "roots"
+    && searchScope.roots.length > 0
+    && trimmedSearch.length > 0
+    && queryState === "done"
+    && results.length === 0;
   const statusTitle =
     queryState === "pending"
       ? t("commandTypingTitle")
@@ -111,6 +121,8 @@ export function CommandModal({
         ? commandError || t("commandSearchFailed")
         : isScopedEmpty
           ? searchScopeEmptyMessage || t("commandScopedEmptyDesc")
+          : isCustomRootNoResults
+            ? commandIndexStatus || t("commandCustomRootsNoResults")
           : trimmedSearch
             ? t("commandNoResults")
             : t("commandIdleDesc");
@@ -139,6 +151,7 @@ export function CommandModal({
 
     let cancelled = false;
     setCommandError("");
+    setCommandIndexStatus("");
     if (searchScopeEmptyMessage) {
       setResults([]);
       setQueryState("done");
@@ -147,7 +160,7 @@ export function CommandModal({
     }
     setQueryState("pending");
     const timer = window.setTimeout(() => {
-      tauriApi.searchFiles(trimmedSearch, 12, searchScope)
+      tauriApi.searchFiles(trimmedSearch, SEARCH_RESULT_LIMIT, searchScope)
         .then((files) => {
           if (cancelled) return;
           setResults(files);
@@ -168,7 +181,12 @@ export function CommandModal({
     };
   }, [searchScope, searchScopeEmptyMessage, t, trimmedSearch]);
 
-  const visibleResults = useMemo(() => results.slice(0, 12), [results]);
+  const visibleResults = useMemo(() => results, [results]);
+
+  useEffect(() => {
+    if (!showResults || !activeResultId) return;
+    document.getElementById(activeResultId)?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, activeResultId, showResults]);
 
   async function chooseFile(file: FileRecord) {
     try {
@@ -216,8 +234,15 @@ export function CommandModal({
 
   function clearSearch() {
     setSearch("");
+    setCommandIndexStatus("");
     setActiveIndex(0);
     window.setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function indexSearchScopeRoots() {
+    if (searchScope?.kind !== "roots") return;
+    enqueueBackgroundIndexRoots(searchScope.roots);
+    setCommandIndexStatus(t("commandIndexQueued"));
   }
 
   function getResultTone(file: FileRecord) {
@@ -319,13 +344,13 @@ export function CommandModal({
           </div>
         )}
         {showResults && (
-          <div className="grid gap-0">
-            <div className="px-3 py-3">
+          <div className="grid min-h-0 gap-0">
+            <div className="min-h-0 px-3 py-3">
               <div className="flex items-center justify-between gap-3 px-3 pb-2">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--quiet)]">{t("smartMatches")}</span>
                 <span className={cn(quietText, "hidden sm:inline")}>{t("commandKeyboardHint")}</span>
               </div>
-              <div id="command-results" role="listbox" className="grid gap-1">
+              <div id="command-results" role="listbox" className="grid max-h-[360px] gap-1 overflow-y-auto overscroll-contain pr-1">
                 {visibleResults.map((file, index) => {
                   const tone = getResultTone(file);
                   const extension = file.extension ? file.extension.replace(".", "").toUpperCase() : file.file_type;
@@ -384,6 +409,11 @@ export function CommandModal({
               title={statusTitle}
               description={statusDescription}
               density="compact"
+              primaryAction={isCustomRootNoResults ? (
+                <button className={buttonSecondary} onClick={indexSearchScopeRoots}>
+                  {t("indexSearchFolders")}
+                </button>
+              ) : undefined}
             />
           </div>
         )}

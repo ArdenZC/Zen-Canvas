@@ -325,6 +325,7 @@ function VirtualAssetGrid({
   t: Translator;
 }) {
   const parentRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const [columns, setColumns] = useState(3);
   const shouldVirtualize = shouldVirtualizeList(files.length);
   const rowCount = Math.ceil(files.length / columns);
@@ -355,6 +356,23 @@ function VirtualAssetGrid({
     }
   }, [hasMore, isLoading, lastVisibleRowIndex, onLoadMore, rowCount]);
 
+  useEffect(() => {
+    const root = parentRef.current;
+    const sentinel = loadMoreSentinelRef.current;
+    if (!root || !sentinel || !hasMore || isLoading || typeof IntersectionObserver === "undefined") return;
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        onLoadMore();
+      }
+    }, {
+      root,
+      rootMargin: "420px"
+    });
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, isLoading, onLoadMore]);
+
   const handleScroll = useCallback(() => {
     const node = parentRef.current;
     if (!node || !hasMore || isLoading) return;
@@ -376,6 +394,7 @@ function VirtualAssetGrid({
             />
           ))}
         </motion.div>
+        <div ref={loadMoreSentinelRef} className="h-px" aria-hidden="true" />
         {hasMore && (
           <button className={cn(buttonSecondary, "mx-auto my-3 flex min-h-9 px-3 py-1.5 text-xs")} onClick={onLoadMore} disabled={isLoading}>
             <Plus size={15} />
@@ -416,6 +435,7 @@ function VirtualAssetGrid({
           );
         })}
       </div>
+      <div ref={loadMoreSentinelRef} className="h-px" aria-hidden="true" />
       {hasMore && (
         <button className={cn(buttonSecondary, "mx-auto my-3 flex min-h-9 px-3 py-1.5 text-xs")} onClick={onLoadMore} disabled={isLoading}>
           <Plus size={15} />

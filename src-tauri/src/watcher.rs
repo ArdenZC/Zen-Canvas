@@ -1,6 +1,6 @@
 use crate::{
     path_filter::is_ignored_dir_name,
-    settings::{AppSettings, ScanRootSetting},
+    settings::{AppSettings, ScanRootSetting, SearchRootSetting},
 };
 use notify::{
     event::{ModifyKind, RenameMode},
@@ -161,7 +161,7 @@ pub fn reload_file_watcher_for_settings<R: Runtime>(
     manager: &FileWatcherManager,
     settings: &AppSettings,
 ) -> Result<bool, String> {
-    let paths = existing_watch_paths_from_default_scan_folders(&settings.default_scan_folders);
+    let paths = existing_watch_paths_from_settings(settings);
     reload_file_watcher(app, manager, paths)
 }
 
@@ -182,6 +182,29 @@ pub fn watch_paths_from_default_scan_folders(folders: &[ScanRootSetting]) -> Vec
         .map(|root| root.path.trim())
         .filter(|path| !path.is_empty() && looks_absolute_path(path))
         .map(PathBuf::from)
+        .collect()
+}
+
+pub fn watch_paths_from_search_roots(roots: &[SearchRootSetting]) -> Vec<PathBuf> {
+    roots
+        .iter()
+        .filter(|root| root.enabled)
+        .map(|root| root.path.trim())
+        .filter(|path| !path.is_empty() && looks_absolute_path(path))
+        .map(PathBuf::from)
+        .collect()
+}
+
+pub fn watch_paths_from_settings(settings: &AppSettings) -> Vec<PathBuf> {
+    let mut paths = watch_paths_from_default_scan_folders(&settings.default_scan_folders);
+    paths.extend(watch_paths_from_search_roots(&settings.custom_search_roots));
+    paths
+}
+
+pub fn existing_watch_paths_from_settings(settings: &AppSettings) -> Vec<PathBuf> {
+    watch_paths_from_settings(settings)
+        .into_iter()
+        .filter(|path| path.exists())
         .collect()
 }
 
@@ -378,6 +401,28 @@ mod tests {
     }
 
     #[test]
+    fn watch_paths_include_enabled_custom_search_roots() {
+        let settings = AppSettings {
+            default_scan_folders: vec![scan_root("downloads", "/Users/zen/Downloads", true)],
+            custom_search_roots: vec![
+                search_root("projects", "/Users/zen/Projects", true),
+                search_root("disabled", "/Users/zen/Disabled", false),
+            ],
+            ..AppSettings::default()
+        };
+
+        let paths = watch_paths_from_settings(&settings);
+
+        assert_eq!(
+            paths,
+            vec![
+                PathBuf::from("/Users/zen/Downloads"),
+                PathBuf::from("/Users/zen/Projects")
+            ]
+        );
+    }
+
+    #[test]
     fn file_watcher_manager_restarts_when_roots_change() {
         let manager = FileWatcherManager::default();
         let starts = Arc::new(AtomicUsize::new(0));
@@ -482,6 +527,16 @@ mod tests {
 
     fn scan_root(id: &str, path: &str, enabled: bool) -> ScanRootSetting {
         ScanRootSetting {
+            id: id.to_string(),
+            path: path.to_string(),
+            label: id.to_string(),
+            enabled,
+            created_at: "2026-06-22T00:00:00.000Z".to_string(),
+        }
+    }
+
+    fn search_root(id: &str, path: &str, enabled: bool) -> SearchRootSetting {
+        SearchRootSetting {
             id: id.to_string(),
             path: path.to_string(),
             label: id.to_string(),

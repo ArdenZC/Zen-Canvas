@@ -44,6 +44,8 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).toContain("const shouldShowIdleState = !standalone && !trimmedSearch");
     expect(commandModal).toContain("isStandaloneCollapsed ? commandShellCollapsed : commandShellExpanded");
     expect(commandModal).toContain("h-full max-w-none rounded-full");
+    expect(commandModal).toContain("standaloneSearchWindowCollapsedHeight = 92");
+    expect(commandModal).toContain("standaloneSearchWindowExpandedHeight = 520");
     expect(commandModal).not.toContain("px-5 pt-2");
     expect(commandModal).not.toContain("pt-[9vh]");
   });

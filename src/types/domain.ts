@@ -87,6 +87,7 @@ export interface AppSettings {
   defaultScanFolders: ScanRootSetting[];
   restoreRetentionDays: RestoreRetentionDays;
   launchAtLogin: boolean;
+  backgroundIndexOnStartup: boolean;
   searchHotkey: string;
   searchScopeMode: SearchScopeMode;
   customSearchRoots: SearchRootSetting[];

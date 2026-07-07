@@ -25,6 +25,7 @@ describe("app settings helpers", () => {
       defaultScanFolders: [],
       restoreRetentionDays: 30,
       launchAtLogin: false,
+      backgroundIndexOnStartup: true,
       searchHotkey: "CmdOrCtrl+K",
       searchScopeMode: "all",
       customSearchRoots: []
@@ -55,6 +56,7 @@ describe("app settings helpers", () => {
       ],
       restoreRetentionDays: 90,
       launchAtLogin: false,
+      backgroundIndexOnStartup: true,
       searchHotkey: "CmdOrCtrl+K",
       searchScopeMode: "all",
       customSearchRoots: []

@@ -12,6 +12,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   defaultScanFolders: [],
   restoreRetentionDays: 30,
   launchAtLogin: false,
+  backgroundIndexOnStartup: true,
   searchHotkey: DEFAULT_SEARCH_HOTKEY,
   searchScopeMode: "all",
   customSearchRoots: []

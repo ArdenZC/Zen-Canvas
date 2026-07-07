@@ -28,9 +28,9 @@ const SEARCH_WINDOW_URL: &str = "index.html?mode=search";
 #[cfg(feature = "desktop-runtime")]
 const SEARCH_WINDOW_WIDTH: f64 = 760.0;
 #[cfg(feature = "desktop-runtime")]
-const SEARCH_WINDOW_COLLAPSED_HEIGHT: f64 = 96.0;
+const SEARCH_WINDOW_COLLAPSED_HEIGHT: f64 = 92.0;
 #[cfg(feature = "desktop-runtime")]
-const SEARCH_WINDOW_EXPANDED_HEIGHT: f64 = 420.0;
+const SEARCH_WINDOW_EXPANDED_HEIGHT: f64 = 520.0;
 #[cfg(feature = "desktop-runtime")]
 const SEARCH_NAVIGATE_EVENT: &str = "search-navigate";
 #[cfg(feature = "desktop-runtime")]

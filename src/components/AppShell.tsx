@@ -177,11 +177,11 @@ function CommandLauncher({ standalone = false }: { standalone?: boolean }) {
 }
 
 function commandSearchScopeLabel(settings: AppSettings, currentLibraryScope: LibraryScope, t: Translator) {
-  if (settings.searchScopeMode === "all") return `${t("searchScopeLabel")}: ${t("searchScopeAllIndexed")}`;
+  if (settings.searchScopeMode === "all") return t("searchScopeAllIndexedLabel");
   if (settings.searchScopeMode === "current_scan") {
     const currentLabel = libraryScopeLabel(currentLibraryScope, t("searchScopeAllIndexed"), t("noFolderSelected"));
     return currentLibraryScope.kind === "all"
-      ? `${t("searchScopeLabel")}: ${t("searchScopeAllIndexed")}`
+      ? t("searchScopeAllIndexedLabel")
       : `${t("searchScopeLabel")}: ${t("searchScopeCurrentScan")}${currentLibraryScope.roots.length ? ` · ${currentLabel}` : ""}`;
   }
 

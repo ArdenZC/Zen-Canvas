@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { tauriApi } from "../api/tauriApi";
 import { ChromeProvider, RulesProvider, SettingsProvider } from "../contexts/AppContexts";
 import { useAppChrome } from "../hooks/useAppChrome";
-import { useAppSettings } from "../hooks/useAppSettings";
+import { enabledScanRootPaths, enabledSearchRootPaths, useAppSettings } from "../hooks/useAppSettings";
 import { useFsWatcher } from "../hooks/useFsWatcher";
 import { useRulePersistence } from "../hooks/useRulePersistence";
 import { useWindowBehavior } from "../hooks/useWindowBehavior";
 import { makeTranslator } from "../i18n";
 import { useAppStore } from "../store/useAppStore";
+import { useBackgroundIndexerStore } from "../store/useBackgroundIndexerStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { persistRuleEnabledToggle, persistUserRuleDelete } from "../store/rulePersistence";
@@ -34,6 +35,7 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   const setView = useAppStore((state) => state.setView);
   const showSuccess = useAppStore((state) => state.showSuccess);
   const showError = useAppStore((state) => state.showError);
+  const enqueueBackgroundIndexRoots = useBackgroundIndexerStore((state) => state.enqueueRoots);
   const rules = useRulesStore((state) => state.rules);
   const upsertRule = useRulesStore((state) => state.upsertRule);
   const removeUserRule = useRulesStore((state) => state.removeUserRule);
@@ -92,6 +94,22 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     if (isSearchMode) return;
     useScanManagerStore.getState().setDefaultScanRoots(appSettings.defaultScanFolders);
   }, [appSettings.defaultScanFolders, isSearchMode]);
+
+  useEffect(() => {
+    if (isSearchMode || isLoadingSettings) return;
+    if (appSettings.backgroundIndexOnStartup === false) return;
+    enqueueBackgroundIndexRoots([
+      ...enabledScanRootPaths(appSettings.defaultScanFolders),
+      ...enabledSearchRootPaths(appSettings.customSearchRoots)
+    ]);
+  }, [
+    appSettings.backgroundIndexOnStartup,
+    appSettings.customSearchRoots,
+    appSettings.defaultScanFolders,
+    enqueueBackgroundIndexRoots,
+    isLoadingSettings,
+    isSearchMode
+  ]);
 
   useEffect(() => {
     if (isSearchMode) return;
@@ -167,6 +185,13 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     async (next: boolean) => {
       const savedSettings = await updateSettings({ launchAtLogin: next });
       return savedSettings.launchAtLogin === next;
+    },
+    [updateSettings]
+  );
+  const setBackgroundIndexOnStartup = useCallback(
+    async (next: boolean) => {
+      const savedSettings = await updateSettings({ backgroundIndexOnStartup: next });
+      return savedSettings.backgroundIndexOnStartup === next;
     },
     [updateSettings]
   );
@@ -269,6 +294,7 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     setDefaultScanFolders,
     setRestoreRetentionDays,
     setLaunchAtLogin,
+    setBackgroundIndexOnStartup,
     setSearchHotkey,
     setSearchScopeMode,
     setCustomSearchRoots
@@ -280,6 +306,7 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     setDefaultScanFolders,
     setRestoreRetentionDays,
     setLaunchAtLogin,
+    setBackgroundIndexOnStartup,
     setSearchHotkey,
     setSearchScopeMode,
     setCustomSearchRoots
