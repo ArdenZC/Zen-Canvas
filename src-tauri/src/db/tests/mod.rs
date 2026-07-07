@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     file_ops::OperationLogDto,
-    settings::{save_app_settings, AppSettings},
+    settings::{save_app_settings, AppSettings, OrganizeRootMode},
 };
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;

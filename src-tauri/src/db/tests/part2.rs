@@ -88,8 +88,8 @@
                 Vec::new(),
             )
             .expect("execute targeted rules");
-        let target = file_classification(&db, "/test/virtual/documents/resume_2026.pdf")
-            .expect("target file");
+        let target =
+            file_classification(&db, "/test/virtual/documents/resume_2026.pdf").expect("target file");
         let untouched = file_classification(&db, "/test/virtual/documents/invoice_apple.pdf")
             .expect("untouched file");
 
@@ -135,10 +135,8 @@
                 Vec::new(),
             )
             .expect("execute scoped rules");
-        let root_a = file_classification(&db, "/tmp/root-a/resume_2026.pdf")
-            .expect("root a file");
-        let root_b = file_classification(&db, "/tmp/root-b/invoice_apple.pdf")
-            .expect("root b file");
+        let root_a = file_classification(&db, "/tmp/root-a/resume_2026.pdf").expect("root a file");
+        let root_b = file_classification(&db, "/tmp/root-b/invoice_apple.pdf").expect("root b file");
 
         assert_eq!(summary.scanned, 1);
         assert_eq!(summary.updated, 1);
@@ -146,10 +144,7 @@
             root_a,
             ("Career".to_string(), "Reference".to_string(), false)
         );
-        assert_eq!(
-            root_b,
-            ("Unknown".to_string(), "Inbox".to_string(), false)
-        );
+        assert_eq!(root_b, ("Unknown".to_string(), "Inbox".to_string(), false));
     }
 
     #[test]
@@ -176,10 +171,10 @@
         let conn = Connection::open(db.path()).expect("open migrated database");
         conn.execute(
             r#"
-            UPDATE files
-            SET content_hash = 'same-global-content'
-            WHERE id IN ('duplicate-root-a', 'duplicate-root-b')
-            "#,
+                    UPDATE files
+                    SET content_hash = 'same-global-content'
+                    WHERE id IN ('duplicate-root-a', 'duplicate-root-b')
+                    "#,
             [],
         )
         .expect("set duplicate content hash");
@@ -232,10 +227,7 @@
             root_a,
             ("Duplicate Review".to_string(), "Inbox".to_string(), false)
         );
-        assert_eq!(
-            root_b,
-            ("Unknown".to_string(), "Inbox".to_string(), false)
-        );
+        assert_eq!(root_b, ("Unknown".to_string(), "Inbox".to_string(), false));
     }
 
     #[test]
@@ -305,12 +297,15 @@
                 &LibraryScope::Roots {
                     roots: vec!["/tmp/root-a".to_string()],
                 },
-                vec![name_contains_rule("special-career", "Special Career", "Career")],
+                vec![name_contains_rule(
+                    "special-career",
+                    "Special Career",
+                    "Career",
+                )],
                 RuleExecutionMode::AllChangedOrRuleChanged,
             )
             .expect("changed scoped rules");
-        let row = file_classification(&db, "/tmp/root-a/special_project.txt")
-            .expect("classified file");
+        let row = file_classification(&db, "/tmp/root-a/special_project.txt").expect("classified file");
 
         assert_eq!(summary.scanned, 1);
         assert_eq!(summary.updated, 1);
@@ -420,8 +415,8 @@
                 Vec::new(),
             )
             .expect("execute targeted rules");
-        let row = file_classification(&db, "/test/virtual/documents/resume_2026.pdf")
-            .expect("archive file");
+        let row =
+            file_classification(&db, "/test/virtual/documents/resume_2026.pdf").expect("archive file");
 
         assert_eq!(summary.scanned, 0);
         assert_eq!(summary.updated, 0);
@@ -431,10 +426,20 @@
     #[test]
     fn execute_rules_on_inbox_skips_unchanged_files() {
         let db = Database::open(test_db_path()).expect("open test database");
-        insert_test_file(&db, "file-plain", "plain.tmp", "tmp", 2_048, 1_900_000_000);
+        insert_test_file(
+            &db,
+            "file-special",
+            "special_plain.txt",
+            "txt",
+            2_048,
+            1_900_000_000,
+        );
 
-        let first = db.execute_rules_on_inbox(Vec::new()).expect("first rules");
-        let second = db.execute_rules_on_inbox(Vec::new()).expect("second rules");
+        let rules = vec![name_contains_rule("special-rule", "Special", "Project")];
+        let first = db
+            .execute_rules_on_inbox(rules.clone())
+            .expect("first rules");
+        let second = db.execute_rules_on_inbox(rules).expect("second rules");
 
         assert_eq!(first.scanned, 1);
         assert_eq!(first.updated, 1);
@@ -487,12 +492,25 @@
     #[test]
     fn execute_rules_on_inbox_reclassifies_when_file_mtime_changes() {
         let db = Database::open(test_db_path()).expect("open test database");
-        insert_test_file(&db, "file-plain", "plain.tmp", "tmp", 2_048, 1_900_000_000);
+        insert_test_file(
+            &db,
+            "file-special",
+            "special_plain.txt",
+            "txt",
+            2_048,
+            1_900_000_000,
+        );
 
-        db.execute_rules_on_inbox(Vec::new()).expect("first rules");
-        set_file_mtime(&db, "/test/virtual/documents/plain.tmp", 1_900_000_100);
-        let second = db.execute_rules_on_inbox(Vec::new()).expect("second rules");
-        let fingerprint = classification_fingerprint(&db, "/test/virtual/documents/plain.tmp")
+        let rules = vec![name_contains_rule("special-rule", "Special", "Project")];
+        db.execute_rules_on_inbox(rules.clone())
+            .expect("first rules");
+        set_file_mtime(
+            &db,
+            "/test/virtual/documents/special_plain.txt",
+            1_900_000_100,
+        );
+        let second = db.execute_rules_on_inbox(rules).expect("second rules");
+        let fingerprint = classification_fingerprint(&db, "/test/virtual/documents/special_plain.txt")
             .expect("fingerprint");
 
         assert_eq!(second.scanned, 1);
@@ -504,12 +522,21 @@
     #[test]
     fn execute_rules_on_inbox_reclassifies_when_file_size_changes() {
         let db = Database::open(test_db_path()).expect("open test database");
-        insert_test_file(&db, "file-plain", "plain.tmp", "tmp", 2_048, 1_900_000_000);
+        insert_test_file(
+            &db,
+            "file-special",
+            "special_plain.txt",
+            "txt",
+            2_048,
+            1_900_000_000,
+        );
 
-        db.execute_rules_on_inbox(Vec::new()).expect("first rules");
-        set_file_size(&db, "/test/virtual/documents/plain.tmp", 4_096);
-        let second = db.execute_rules_on_inbox(Vec::new()).expect("second rules");
-        let fingerprint = classification_fingerprint(&db, "/test/virtual/documents/plain.tmp")
+        let rules = vec![name_contains_rule("special-rule", "Special", "Project")];
+        db.execute_rules_on_inbox(rules.clone())
+            .expect("first rules");
+        set_file_size(&db, "/test/virtual/documents/special_plain.txt", 4_096);
+        let second = db.execute_rules_on_inbox(rules).expect("second rules");
+        let fingerprint = classification_fingerprint(&db, "/test/virtual/documents/special_plain.txt")
             .expect("fingerprint");
 
         assert_eq!(second.scanned, 1);
@@ -536,8 +563,8 @@
                 Vec::new(),
             )
             .expect("targeted rules");
-        let fingerprint = classification_fingerprint(&db, "/test/virtual/documents/target.tmp")
-            .expect("fingerprint");
+        let fingerprint =
+            classification_fingerprint(&db, "/test/virtual/documents/target.tmp").expect("fingerprint");
 
         assert_eq!(summary.scanned, 1);
         assert_eq!(summary.updated, 1);
@@ -568,8 +595,7 @@
         let rule_a = name_contains_rule("special-rule-a", "Special A", "Project");
         let rule_b = name_contains_rule("special-rule-b", "Special B", "Career");
 
-        let first =
-            rule_version_for_rules(&[rule_a.clone(), rule_b.clone()]).expect("first version");
+        let first = rule_version_for_rules(&[rule_a.clone(), rule_b.clone()]).expect("first version");
         let second = rule_version_for_rules(&[rule_b, rule_a]).expect("second version");
 
         assert_eq!(first, second);
@@ -811,9 +837,8 @@
         fs::write(nested.join("deep-note.md"), "deep").expect("write nested file");
         fs::write(ignored.join("package-file.js"), "ignored").expect("write ignored file");
 
-        let upserted =
-            upsert_files_by_paths_for_db(&db, &[imported.to_string_lossy().into_owned()])
-                .expect("upsert directory");
+        let upserted = upsert_files_by_paths_for_db(&db, &[imported.to_string_lossy().into_owned()])
+            .expect("upsert directory");
         let page = db.get_paged_files(Some(20), Some(0), None).expect("page");
         let names = page
             .files
@@ -841,8 +866,7 @@
             paths.push(file.to_string_lossy().into_owned());
         }
 
-        let upserted =
-            upsert_files_by_paths_with_optional_optimize(&db, &paths).expect("upsert paths");
+        let upserted = upsert_files_by_paths_with_optional_optimize(&db, &paths).expect("upsert paths");
         let page = db.get_paged_files(Some(1), Some(0), None).expect("page");
 
         assert_eq!(upserted, OPTIMIZE_AFTER_UPSERT_THRESHOLD);
@@ -891,22 +915,23 @@
     fn execute_rules_classifies_common_real_world_files_into_actionable_suggestions() {
         let db = Database::open(test_db_path()).expect("open test database");
         let samples = [
-            ("file-photo", "photo_001.jpg", "jpg", "Media", "Media/Images"),
+            (
+                "file-photo",
+                "photo_001.jpg",
+                "jpg",
+                "Media",
+                "Media/Images",
+            ),
             (
                 "file-screenshot",
                 "截图_桌面.png",
                 "png",
                 "Media",
-                "Screenshots",
+                "Media/Screenshots",
             ),
             ("file-video", "vacation.mp4", "mp4", "Media", "Media/Videos"),
-            (
-                "file-lecture",
-                "lecture_notes.pdf",
-                "pdf",
-                "Study",
-                "Study",
-            ),
+            ("file-audio", "podcast.mp3", "mp3", "Media", "Media/Audio"),
+            ("file-lecture", "lecture_notes.pdf", "pdf", "Study", "Study"),
             (
                 "file-thesis",
                 "毕业论文最终版.docx",
@@ -914,7 +939,13 @@
                 "Study",
                 "Study",
             ),
-            ("file-budget", "budget.xlsx", "xlsx", "Finance", "Finance"),
+            (
+                "file-budget",
+                "budget.xlsx",
+                "xlsx",
+                "Finance",
+                "Sensitive/Finance",
+            ),
             (
                 "file-slides",
                 "slides.pptx",
@@ -922,13 +953,7 @@
                 "Work",
                 "Presentations",
             ),
-            (
-                "file-archive",
-                "archive.zip",
-                "zip",
-                "Archive",
-                "Archives",
-            ),
+            ("file-archive", "archive.zip", "zip", "Archive", "Archives"),
             (
                 "file-package",
                 "package.json",
@@ -941,7 +966,7 @@
                 "新建文本文档.txt",
                 "txt",
                 "Temporary",
-                "90_Temporary",
+                "Temporary",
             ),
         ];
 
@@ -970,7 +995,140 @@
                 "{name} target was {}",
                 file.suggested_target_path
             );
+            assert!(!normalized_target.contains("00_Inbox"), "{name}");
+            assert!(!normalized_target.contains("20_Areas"), "{name}");
+            assert!(!normalized_target.contains("90_Temporary"), "{name}");
         }
+    }
+
+    #[test]
+    fn execute_rules_routes_teacher_and_work_documents_by_chinese_keywords() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let samples = [
+            (
+                "file-teaching-plan",
+                "数据库项目化课程教案.docx",
+                "docx",
+                "Teaching",
+                "Teaching",
+                "Move",
+                "Normal",
+            ),
+            (
+                "file-practice",
+                "Scala实训复习题.pdf",
+                "pdf",
+                "Teaching",
+                "Teaching",
+                "Move",
+                "Normal",
+            ),
+            (
+                "file-software-test",
+                "软件测试学生试卷.docx",
+                "docx",
+                "Teaching",
+                "Teaching",
+                "Move",
+                "Normal",
+            ),
+            (
+                "file-work",
+                "会议通知方案.docx",
+                "docx",
+                "Work",
+                "Work/Documents",
+                "Move",
+                "Normal",
+            ),
+            (
+                "file-invoice-cn",
+                "发票账单.pdf",
+                "pdf",
+                "Finance",
+                "Sensitive/Finance",
+                "Review",
+                "Sensitive",
+            ),
+            (
+                "file-identity-cn",
+                "身份证扫描件.pdf",
+                "pdf",
+                "Identity",
+                "Sensitive/Identity",
+                "Review",
+                "Sensitive",
+            ),
+        ];
+
+        for (id, name, extension, _, _, _, _) in samples {
+            insert_test_file(&db, id, name, extension, 2_048, 1_900_000_000);
+        }
+
+        db.execute_rules_on_inbox(Vec::new())
+            .expect("execute rules");
+        let page = db.get_paged_files(Some(50), Some(0), None).expect("page");
+
+        for (_, name, _, expected_purpose, target_fragment, action, risk) in samples {
+            let file = page
+                .files
+                .iter()
+                .find(|file| file.name == name)
+                .unwrap_or_else(|| panic!("classified sample {name}"));
+            let normalized_target = file.suggested_target_path.replace('\\', "/");
+
+            assert_eq!(file.purpose, expected_purpose, "{name}");
+            assert_eq!(file.suggested_action, action, "{name}");
+            assert_eq!(file.risk_level, risk, "{name}");
+            assert!(
+                normalized_target.contains(target_fragment),
+                "{name} target was {}",
+                file.suggested_target_path
+            );
+            assert!(!normalized_target.contains("00_Inbox"), "{name}");
+        }
+    }
+
+    #[test]
+    fn desktop_and_downloads_source_signal_does_not_force_inbox_target() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file_at_path(
+            &db,
+            "file-downloads-doc",
+            "/tmp/Downloads/普通文档.docx",
+            "普通文档.docx",
+            "docx",
+            2_048,
+            1_900_000_000,
+        );
+        insert_test_file_at_path(
+            &db,
+            "file-downloads-unknown",
+            "/tmp/Downloads/random.bin",
+            "random.bin",
+            "bin",
+            2_048,
+            1_900_000_000,
+        );
+
+        db.execute_rules_on_inbox(Vec::new())
+            .expect("execute rules");
+        let page = db.get_paged_files(Some(50), Some(0), None).expect("page");
+        let document = page
+            .files
+            .iter()
+            .find(|file| file.id == "file-downloads-doc")
+            .expect("document");
+        let unknown = page
+            .files
+            .iter()
+            .find(|file| file.id == "file-downloads-unknown")
+            .expect("unknown");
+
+        assert_eq!(document.suggested_target_path, "/tmp/Downloads/Documents");
+        assert!(!document.suggested_target_path.contains("00_Inbox"));
+        assert!(unknown.suggested_target_path.is_empty());
+        assert_eq!(unknown.suggested_action, "Keep");
     }
 
     #[test]

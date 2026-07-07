@@ -16,6 +16,10 @@ describe("settings view UI", () => {
     expect(t("settingsAppearanceLanguage")).toBe("外观与语言");
     expect(t("settingsScanRoots")).toBe("扫描目录");
     expect(t("settingsSearch")).toBe("搜索");
+    expect(t("settingsOrganizeRoot")).toBe("整理目标根目录");
+    expect(t("organizeRootCurrentFolder")).toBe("当前文件夹下分类");
+    expect(t("organizeRootZenCanvasFolder")).toBe("ZenCanvas 文件夹");
+    expect(t("organizeRootCustomRoot")).toBe("自定义整理目录");
     expect(t("settingsSafetyRestore")).toBe("安全与恢复");
     expect(t("settingsWindowBehavior")).toBe("窗口行为");
     expect(t("settingsStartup")).toBe("启动项");
@@ -34,6 +38,11 @@ describe("settings view UI", () => {
     expect(settingsView).toContain('t("settingsAppearanceLanguage")');
     expect(settingsView).toContain('t("settingsScanRoots")');
     expect(settingsView).toContain('t("settingsSearch")');
+    expect(settingsView).toContain('t("settingsOrganizeRoot")');
+    expect(settingsView).toContain("organizeRootMode");
+    expect(settingsView).toContain("setOrganizeRootMode");
+    expect(settingsView).toContain("setOrganizeRootPath");
+    expect(settingsView).toContain('t("organizePreviewStillRequired")');
     expect(settingsView).toContain('t("settingsSafetyRestore")');
     expect(settingsView).toContain('t("settingsWindowBehavior")');
     expect(settingsView).toContain('t("settingsStartup")');

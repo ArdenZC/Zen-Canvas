@@ -12,6 +12,7 @@ export type FileType =
 
 export type Purpose =
   | "Project"
+  | "Teaching"
   | "Study"
   | "Work"
   | "Personal"
@@ -53,6 +54,7 @@ export type CloseBehavior = "ask" | "minimize" | "quit";
 export type RestoreRetentionDays = 15 | 30 | 60 | 90;
 export type RuleExecutionMode = "inbox_only" | "all_changed_or_rule_changed";
 export type SearchScopeMode = "all" | "current_scan" | "custom_roots";
+export type OrganizeRootMode = "current_folder" | "zen_canvas_folder" | "custom_root";
 
 export interface ScanRootSetting {
   id: string;
@@ -91,6 +93,8 @@ export interface AppSettings {
   searchHotkey: string;
   searchScopeMode: SearchScopeMode;
   customSearchRoots: SearchRootSetting[];
+  organizeRootMode: OrganizeRootMode;
+  organizeRootPath?: string | null;
 }
 
 export interface FileRecord {

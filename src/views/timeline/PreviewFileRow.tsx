@@ -5,7 +5,7 @@ import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { percent } from "../../utils/format";
 import { cn, inputSurface } from "../../utils/tw";
-import { compactPath } from "../../utils/viewHelpers";
+import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
 import { ToneBadge, compactInteractiveRow, itemMotion } from "../shared/ui";
 
 export const PreviewFileRow = memo(function PreviewFileRow({
@@ -27,7 +27,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
     <motion.div
       className={cn(
         compactInteractiveRow({ selected: isSelected, disabled: blocked }),
-        "grid grid-cols-[auto_auto_minmax(0,1fr)] items-start gap-3"
+        "grid items-start gap-3 sm:grid-cols-[auto_auto_minmax(0,1fr)]"
       )}
       layout={false}
       variants={itemMotion}
@@ -66,7 +66,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
           )}
         </div>
 
-        <div className="mt-2 grid min-w-0 gap-2 lg:grid-cols-2">
+        <div className="mt-2 grid min-w-0 gap-2 xl:grid-cols-2">
           <PathBlock label={t("sourcePath")} path={preview.source_path} tone="source" />
           <PathBlock label={t("targetPath")} path={preview.target_path} tone="target" />
         </div>
@@ -84,6 +84,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
 });
 
 function PathBlock({ label, path, tone }: { label: string; path: string; tone: "source" | "target" }) {
+  const displayPath = formatDisplayPath(path);
   return (
     <div
       className={cn(
@@ -92,11 +93,11 @@ function PathBlock({ label, path, tone }: { label: string; path: string; tone: "
           ? "border-slate-400/20 bg-slate-500/8"
           : "border-blue-400/24 bg-blue-500/8"
       )}
-      title={path}
+      title={displayPath}
     >
       <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--quiet)]">{label}</span>
-      <code className="block min-w-0 break-all text-[11px] leading-5 text-[var(--muted)]">
-        {compactPath(path, 78)}
+      <code className="block min-w-0 truncate whitespace-nowrap text-[11px] leading-5 text-[var(--muted)]">
+        {compactPath(displayPath, 78)}
       </code>
     </div>
   );

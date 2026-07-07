@@ -35,8 +35,16 @@ export function splitDisplaySize(label: string) {
 
 export function compactPath(value: string | null | undefined, maxLength = 42) {
   if (!value) return "-";
-  if (value.length <= maxLength) return value;
-  return `${value.slice(0, Math.max(8, Math.floor(maxLength * 0.45)))}...${value.slice(-Math.max(8, Math.floor(maxLength * 0.35)))}`;
+  const displayValue = formatDisplayPath(value);
+  if (displayValue.length <= maxLength) return displayValue;
+  return `${displayValue.slice(0, Math.max(8, Math.floor(maxLength * 0.45)))}...${displayValue.slice(-Math.max(8, Math.floor(maxLength * 0.35)))}`;
+}
+
+export function formatDisplayPath(path: string, platform?: "windows" | "unix") {
+  const shouldUseWindowsSeparators = platform
+    ? platform === "windows"
+    : /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
+  return shouldUseWindowsSeparators ? path.replace(/[\\/]/g, "\\") : path.replace(/\\/g, "/");
 }
 
 export function libraryScopeLabel(scope: LibraryScope, allLabel: string, emptyLabel: string, maxLength = 64) {
@@ -54,13 +62,13 @@ export function groupOperationPreviews(previews: OperationPreview[], t: Translat
   const groups = new Map<string, { path: string; items: OperationPreview[]; subgroups: Map<string, { path: string; items: OperationPreview[] }> }>();
   for (const preview of previews) {
     const directory = pathDirLike(preview.target_path);
-    const relativeParts = relativeZenCanvasParts(directory);
+    const relativeParts = relativeOrganizeParts(directory);
     const firstSegment = relativeParts[0] ?? folderNameLike(directory);
     const mainKey = canonicalPreviewMainKey(firstSegment);
     const subgroupParts = isCanonicalPreviewMain(firstSegment) ? relativeParts.slice(1) : relativeParts;
     const subgroupKey = subgroupParts.length ? subgroupParts.join("/") : "__root__";
-    const mainPath = `ZenCanvas/${mainKey}`;
-    const subgroupPath = subgroupKey === "__root__" ? directory : `ZenCanvas/${mainKey}/${subgroupKey}`;
+    const mainPath = mainKey;
+    const subgroupPath = subgroupKey === "__root__" ? directory : `${mainKey}/${subgroupKey}`;
     const group = groups.get(mainKey) ?? {
       path: mainPath,
       items: [],
@@ -87,16 +95,22 @@ export function groupOperationPreviews(previews: OperationPreview[], t: Translat
 }
 
 export function relativeZenCanvasParts(directory: string): string[] {
+  return relativeOrganizeParts(directory);
+}
+
+export function relativeOrganizeParts(directory: string): string[] {
   const parts = directory.replace(/\\/g, "/").split("/").filter(Boolean);
   const zenIndex = parts.findIndex((part) => part.toLowerCase() === "zencanvas");
   if (zenIndex >= 0) return parts.slice(zenIndex + 1);
+  const canonicalIndex = parts.findIndex(isCanonicalPreviewMain);
+  if (canonicalIndex >= 0) return parts.slice(canonicalIndex);
   return [folderNameLike(directory)];
 }
 
 export function canonicalPreviewMainKey(segment: string): string {
   if (isCanonicalPreviewMain(segment)) return segment;
   const normalized = segment.toLowerCase().replace(/^\d+_/, "");
-  if (["career", "finance", "study", "work", "personal", "media", "project", "projects", "identity"].includes(normalized)) {
+  if (["career", "finance", "study", "work", "personal", "media", "project", "projects", "identity", "documents", "images", "videos", "audio"].includes(normalized)) {
     return "20_Areas";
   }
   if (normalized.includes("archive") || normalized.includes("reference")) return "40_Archive";

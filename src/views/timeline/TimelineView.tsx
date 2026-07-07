@@ -1,5 +1,3 @@
-import { useRef } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion } from "motion/react";
 import { Folder, Play, X } from "lucide-react";
 import type { OperationProgressPayload } from "../../api/tauriApi";
@@ -8,9 +6,8 @@ import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { useOperationQueueStore } from "../../store/useOperationQueueStore";
 import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
-import { groupOperationPreviews, compactPath, libraryScopeLabel } from "../../utils/viewHelpers";
-import { shouldVirtualizeList } from "../../utils/virtualization";
-import { cn, glassButton, glassButtonPrimary, glassButtonWarning, virtualList, virtualRow as virtualRowClass, virtualSpacer } from "../../utils/tw";
+import { groupOperationPreviews, compactPath, formatDisplayPath, libraryScopeLabel } from "../../utils/viewHelpers";
+import { cn, glassButton, glassButtonPrimary, glassButtonWarning } from "../../utils/tw";
 import {
   MetricCard,
   NoticeBanner,
@@ -26,8 +23,6 @@ import {
   softPanel
 } from "../shared/ui";
 import { PreviewFileRow } from "./PreviewFileRow";
-
-const PREVIEW_ROW_HEIGHT = 156;
 
 export function TimelineView() {
   const { t, setView } = useChromeContext();
@@ -158,7 +153,7 @@ export function TimelineView() {
                     <Folder size={20} />
                     <div>
                       <strong className="block text-sm">{group.name}</strong>
-                      <span className="block truncate text-xs text-[var(--muted)]">{group.path}</span>
+                    <span className="block truncate text-xs text-[var(--muted)]">{formatDisplayPath(group.path)}</span>
                     </div>
                     <em className="rounded-full border border-[var(--line)] px-2 py-1 text-xs not-italic text-[var(--muted)]">
                       {selectedInGroup.toLocaleString()} / {executable.length.toLocaleString()}
@@ -176,7 +171,7 @@ export function TimelineView() {
                           <Folder size={16} />
                           <div>
                             <strong className="block text-sm">{subgroup.name}</strong>
-                            <span className="block truncate text-xs text-[var(--muted)]">{subgroup.path}</span>
+                            <span className="block truncate text-xs text-[var(--muted)]">{formatDisplayPath(subgroup.path)}</span>
                           </div>
                           <em className="text-xs not-italic text-[var(--muted)]">{subgroup.items.length}</em>
                         </div>
@@ -218,58 +213,19 @@ function VirtualPreviewFileRows({
   onRenamePreview: (id: string, name: string) => void;
   t: Translator;
 }) {
-  const parentRef = useRef<HTMLDivElement | null>(null);
-  const shouldVirtualize = shouldVirtualizeList(previews.length);
-  const rowVirtualizer = useVirtualizer({
-    count: previews.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => PREVIEW_ROW_HEIGHT,
-    overscan: 6
-  });
-
-  if (!shouldVirtualize) {
-    return (
-      <motion.div className="grid gap-2" variants={listMotion} initial="hidden" animate="show">
-        {previews.map((preview) => (
-          <PreviewFileRow
-            key={preview.id}
-            preview={preview}
-            isSelected={selectedIds.has(preview.id)}
-            toggle={toggle}
-            onRenamePreview={onRenamePreview}
-            t={t}
-          />
-        ))}
-      </motion.div>
-    );
-  }
-
   return (
-    <div ref={parentRef} className={cn("max-h-96", virtualList)}>
-      <div className={virtualSpacer} style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
-        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-          const preview = previews[virtualRow.index];
-          return (
-            <div
-              className={virtualRowClass}
-              key={preview.id}
-              style={{
-                height: `${virtualRow.size}px`,
-                transform: `translateY(${virtualRow.start}px)`
-              }}
-            >
-              <PreviewFileRow
-                preview={preview}
-                isSelected={selectedIds.has(preview.id)}
-                toggle={toggle}
-                onRenamePreview={onRenamePreview}
-                t={t}
-              />
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <motion.div className="grid gap-3 overflow-visible" variants={listMotion} initial="hidden" animate="show">
+      {previews.map((preview) => (
+        <PreviewFileRow
+          key={preview.id}
+          preview={preview}
+          isSelected={selectedIds.has(preview.id)}
+          toggle={toggle}
+          onRenamePreview={onRenamePreview}
+          t={t}
+        />
+      ))}
+    </motion.div>
   );
 }
 
@@ -285,7 +241,7 @@ export function OperationProgressPanel({
   t: Translator;
 }) {
   const ratio = progress.total > 0 ? Math.min(1, progress.processed / progress.total) : 0;
-  const currentPath = progress.currentPath ? compactPath(progress.currentPath, 56) : "-";
+  const currentPath = progress.currentPath ? compactPath(formatDisplayPath(progress.currentPath), 56) : "-";
   const line = t("operationProgressLine")
     .replace("{processed}", progress.processed.toLocaleString())
     .replace("{total}", progress.total.toLocaleString())

@@ -1,5 +1,21 @@
 use super::super::*;
+use crate::settings::{AppSettings, OrganizeRootMode};
 use std::path::PathBuf;
+
+#[derive(Debug, Clone)]
+pub(crate) struct OrganizeRootConfig {
+    pub(crate) mode: OrganizeRootMode,
+    pub(crate) custom_root: Option<String>,
+}
+
+impl From<&AppSettings> for OrganizeRootConfig {
+    fn from(settings: &AppSettings) -> Self {
+        Self {
+            mode: settings.organize_root_mode,
+            custom_root: settings.organize_root_path.clone(),
+        }
+    }
+}
 
 pub(crate) fn translate_template(template: &str, language: &str) -> String {
     if language != "zh" {
@@ -12,9 +28,16 @@ pub(crate) fn translate_template(template: &str, language: &str) -> String {
         .replace("40_Archive", "40_归档")
         .replace("90_Temporary", "90_临时")
         .replace("Personal/Identity", "个人/证件")
+        .replace("Sensitive/Identity", "敏感/证件")
+        .replace("Sensitive/Finance", "敏感/财务")
+        .replace("Work/Documents", "工作/文档")
+        .replace("Media/Screenshots", "媒体/截图")
         .replace("Career", "职业")
+        .replace("Teaching", "教学")
         .replace("Finance", "财务")
         .replace("Study", "学业")
+        .replace("Work", "工作")
+        .replace("Sensitive", "敏感")
         .replace("Projects", "项目")
         .replace("Installers", "安装包")
         .replace("Media/Images", "媒体/图片")
@@ -22,9 +45,15 @@ pub(crate) fn translate_template(template: &str, language: &str) -> String {
         .replace("Media/Audio", "媒体/音频")
         .replace("Documents/Spreadsheets", "文档/表格")
         .replace("Documents/Presentations", "文档/演示")
+        .replace("Documents/Identity", "文档/证件")
         .replace("Documents", "文档")
+        .replace("Images", "图片")
+        .replace("Videos", "视频")
+        .replace("Audio", "音频")
         .replace("Screenshots", "截图")
         .replace("Archives", "压缩包")
+        .replace("Temporary", "临时")
+        .replace("Archive", "归档")
         .replace("Packages", "软件包")
 }
 
@@ -33,6 +62,7 @@ pub(crate) fn build_target_path(
     file_type: &str,
     template: Option<&str>,
     folder_naming_language: &str,
+    organize_root: &OrganizeRootConfig,
 ) -> String {
     let Some(template) = template.filter(|value| !value.is_empty()) else {
         return String::new();
@@ -45,15 +75,31 @@ pub(crate) fn build_target_path(
     let resolved = translated_template
         .replace("{year}", &year)
         .replace("{type}", file_type);
-    let mut target = PathBuf::from(parent_directory(&row.path));
-    target.push("ZenCanvas");
+    let mut target = target_base_directory(row, organize_root);
     for segment in resolved
         .split(['/', '\\'])
         .filter(|segment| !segment.is_empty())
     {
         target.push(segment);
     }
-    target.to_string_lossy().to_string()
+    target.to_string_lossy().replace('\\', "/")
+}
+
+fn target_base_directory(row: &IndexedFileRow, organize_root: &OrganizeRootConfig) -> PathBuf {
+    match organize_root.mode {
+        OrganizeRootMode::CurrentFolder => PathBuf::from(parent_directory(&row.path)),
+        OrganizeRootMode::ZenCanvasFolder => {
+            let mut target = PathBuf::from(parent_directory(&row.path));
+            target.push("ZenCanvas");
+            target
+        }
+        OrganizeRootMode::CustomRoot => organize_root
+            .custom_root
+            .as_deref()
+            .filter(|path| !path.trim().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(parent_directory(&row.path))),
+    }
 }
 
 pub(crate) fn build_suggested_name(row: &IndexedFileRow, template: Option<&str>) -> String {

@@ -13,7 +13,8 @@ describe("command modal spotlight polish", () => {
 
     expect(commandModal).toContain("StateBlock");
     expect(commandModal).toContain("ToneBadge");
-    expect(commandModal).toContain("compactPath(file.path");
+    expect(commandModal).toContain("formatDisplayPath");
+    expect(commandModal).toContain("compactPath(formatDisplayPath(file.path");
     expect(commandModal).toContain("isScopedEmpty");
     expect(commandModal).toContain('queryState === "failed" ? "error"');
     expect(commandModal).not.toContain("CommandEmptyState");
@@ -61,11 +62,20 @@ describe("command modal spotlight polish", () => {
     const commandModal = read("src/components/CommandModal.tsx");
 
     expect(commandModal).toContain(
+      '"w-full overflow-hidden bg-white dark:bg-neutral-900 shadow-2xl ring-1 ring-neutral-200 dark:ring-white/10"'
+    );
+    expect(commandModal).not.toContain("transition-[border-radius]");
+    expect(commandModal).toContain(
       'relative z-10 flex h-full w-full items-start justify-center bg-transparent pt-8 px-8'
     );
     expect(commandModal).toContain(
       'fixed inset-0 z-40 flex items-start justify-center bg-neutral-900/40 px-5 pt-[15vh] sm:pt-[20vh] backdrop-blur-md'
     );
+    expect(commandModal).toContain("<motion.div\n        layout");
+    expect(commandModal).toContain('window.addEventListener("blur", handleBlur)');
+    expect(commandModal).toContain('window.removeEventListener("blur", handleBlur)');
+    expect(commandModal).toContain("const handleBlur = () => onClose();");
+    expect(commandModal).toContain("}, [standalone, onClose]);");
     expect(commandModal).toContain("initial={{ opacity: 0, scale: 0.95, y: 10 }}");
     expect(commandModal).toContain("animate={{ opacity: 1, scale: 1, y: 0 }}");
     expect(commandModal).toContain("exit={{ opacity: 0, scale: 0.95, y: 10 }}");

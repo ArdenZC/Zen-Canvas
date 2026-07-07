@@ -28,7 +28,9 @@ describe("app settings helpers", () => {
       backgroundIndexOnStartup: true,
       searchHotkey: "CmdOrCtrl+K",
       searchScopeMode: "all",
-      customSearchRoots: []
+      customSearchRoots: [],
+      organizeRootMode: "current_folder",
+      organizeRootPath: undefined
     });
   });
 
@@ -59,7 +61,9 @@ describe("app settings helpers", () => {
       backgroundIndexOnStartup: true,
       searchHotkey: "CmdOrCtrl+K",
       searchScopeMode: "all",
-      customSearchRoots: []
+      customSearchRoots: [],
+      organizeRootMode: "current_folder",
+      organizeRootPath: undefined
     });
     expect(previous.defaultScanFolders).toEqual([]);
   });

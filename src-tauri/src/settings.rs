@@ -34,6 +34,18 @@ pub struct SearchRootSetting {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OrganizeRootMode {
+    CurrentFolder,
+    ZenCanvasFolder,
+    CustomRoot,
+}
+
+fn default_organize_root_mode() -> OrganizeRootMode {
+    OrganizeRootMode::CurrentFolder
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
@@ -57,6 +69,10 @@ pub struct AppSettings {
         deserialize_with = "deserialize_search_roots"
     )]
     pub custom_search_roots: Vec<SearchRootSetting>,
+    #[serde(default = "default_organize_root_mode")]
+    pub organize_root_mode: OrganizeRootMode,
+    #[serde(default)]
+    pub organize_root_path: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -71,6 +87,8 @@ impl Default for AppSettings {
             search_hotkey: DEFAULT_SEARCH_HOTKEY.to_string(),
             search_scope_mode: default_search_scope_mode(),
             custom_search_roots: default_search_roots(),
+            organize_root_mode: OrganizeRootMode::CurrentFolder,
+            organize_root_path: None,
         }
     }
 }
@@ -292,6 +310,16 @@ fn normalized_app_settings(settings: &AppSettings) -> AppSettings {
         "all" | "current_scan" | "custom_roots"
     ) {
         next.search_scope_mode = default_search_scope_mode();
+    }
+    next.organize_root_path = next
+        .organize_root_path
+        .as_deref()
+        .map(normalize_scan_root_path)
+        .filter(|path| !path.trim().is_empty());
+    if matches!(next.organize_root_mode, OrganizeRootMode::CustomRoot)
+        && next.organize_root_path.is_none()
+    {
+        next.organize_root_mode = OrganizeRootMode::CurrentFolder;
     }
     next
 }

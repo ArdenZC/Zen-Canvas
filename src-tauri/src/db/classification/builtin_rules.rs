@@ -15,6 +15,7 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
                 condition("name", "contains", "visa"),
                 condition("name", "contains", "身份证"),
                 condition("name", "contains", "护照"),
+                condition("name", "contains", "签证"),
                 condition("path", "contains", "identity"),
             ],
             RuleAction {
@@ -22,7 +23,7 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
                 lifecycle: Some("Sensitive".to_string()),
                 risk_level: Some("Sensitive".to_string()),
                 suggested_action: Some("Review".to_string()),
-                target_template: Some("20_Areas/Personal/Identity".to_string()),
+                target_template: Some("Sensitive/Identity".to_string()),
                 context: Some("Identity".to_string()),
                 ..RuleAction::default()
             },
@@ -44,7 +45,7 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
                 lifecycle: Some("Reference".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Move".to_string()),
-                target_template: Some("20_Areas/Career".to_string()),
+                target_template: Some("Career".to_string()),
                 context: Some("Career".to_string()),
                 ..RuleAction::default()
             },
@@ -61,6 +62,9 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
                 condition("name", "contains", "tax"),
                 condition("name", "contains", "budget"),
                 condition("name", "contains", "statement"),
+                condition("name", "contains", "发票"),
+                condition("name", "contains", "账单"),
+                condition("name", "contains", "银行卡"),
                 condition("path", "contains", "bank"),
             ],
             RuleAction {
@@ -68,7 +72,7 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
                 lifecycle: Some("Reference".to_string()),
                 risk_level: Some("Sensitive".to_string()),
                 suggested_action: Some("Review".to_string()),
-                target_template: Some("20_Areas/Finance".to_string()),
+                target_template: Some("Sensitive/Finance".to_string()),
                 context: Some("Finance".to_string()),
                 ..RuleAction::default()
             },
@@ -93,7 +97,7 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
                 lifecycle: Some("Active".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Review".to_string()),
-                target_template: Some("20_Areas/Projects".to_string()),
+                target_template: Some("Projects".to_string()),
                 context: Some("Code Project".to_string()),
                 ..RuleAction::default()
             },
@@ -114,10 +118,10 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
             ],
             RuleAction {
                 purpose: Some("Media".to_string()),
-                lifecycle: Some("Inbox".to_string()),
+                lifecycle: Some("Active".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Rename".to_string()),
-                target_template: Some("00_Inbox/Screenshots".to_string()),
+                target_template: Some("Media/Screenshots".to_string()),
                 rename_template: Some("{basename}_{date}".to_string()),
                 context: Some("Screenshot".to_string()),
                 ..RuleAction::default()
@@ -140,10 +144,10 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
             ],
             RuleAction {
                 purpose: Some("Temporary".to_string()),
-                lifecycle: Some("Inbox".to_string()),
+                lifecycle: Some("Disposable".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Review".to_string()),
-                target_template: Some("90_Temporary".to_string()),
+                target_template: Some("Temporary".to_string()),
                 context: Some("Temporary".to_string()),
                 ..RuleAction::default()
             },
@@ -161,14 +165,53 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
                 condition("name", "contains", "comp"),
                 condition("name", "contains", "论文"),
                 condition("name", "contains", "毕业"),
+                condition("name", "contains", "作业"),
+                condition("name", "contains", "实验"),
+                condition("name", "contains", "计算机"),
+                condition("name", "contains", "Java"),
+                condition("name", "contains", "Python"),
             ],
             RuleAction {
                 purpose: Some("Study".to_string()),
                 lifecycle: Some("Active".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Move".to_string()),
-                target_template: Some("20_Areas/Study".to_string()),
+                target_template: Some("Study".to_string()),
                 context: Some("Study".to_string()),
+                ..RuleAction::default()
+            },
+        ),
+        system_rule(
+            "system_teaching",
+            "Teaching material",
+            74.0,
+            78.0,
+            "OR",
+            teaching_conditions(),
+            RuleAction {
+                purpose: Some("Teaching".to_string()),
+                lifecycle: Some("Active".to_string()),
+                risk_level: Some("Normal".to_string()),
+                suggested_action: Some("Move".to_string()),
+                target_template: Some("Teaching".to_string()),
+                context: Some("Teaching".to_string()),
+                ..RuleAction::default()
+            },
+        ),
+        system_rule(
+            "system_work_documents",
+            "Work documents",
+            64.0,
+            72.0,
+            "OR",
+            work_document_conditions(),
+            RuleAction {
+                purpose: Some("Work".to_string()),
+                lifecycle: Some("Reference".to_string()),
+                risk_level: Some("Normal".to_string()),
+                suggested_action: Some("Move".to_string()),
+                target_template: Some("Work/Documents".to_string()),
+                context: Some("Work Document".to_string()),
                 ..RuleAction::default()
             },
         ),
@@ -184,7 +227,7 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
                 lifecycle: Some("Reference".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Move".to_string()),
-                target_template: Some("20_Areas/Media/Images".to_string()),
+                target_template: Some("Media/Images".to_string()),
                 context: Some("Image".to_string()),
                 ..RuleAction::default()
             },
@@ -201,7 +244,7 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
                 lifecycle: Some("Reference".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Move".to_string()),
-                target_template: Some("20_Areas/Media/Videos".to_string()),
+                target_template: Some("Media/Videos".to_string()),
                 context: Some("Video".to_string()),
                 ..RuleAction::default()
             },
@@ -218,7 +261,7 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
                 lifecycle: Some("Reference".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Move".to_string()),
-                target_template: Some("20_Areas/Media/Audio".to_string()),
+                target_template: Some("Media/Audio".to_string()),
                 context: Some("Audio".to_string()),
                 ..RuleAction::default()
             },
@@ -231,11 +274,11 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
             "OR",
             vec![condition("file_type", "equals", "Spreadsheet")],
             RuleAction {
-                purpose: Some("Work".to_string()),
+                purpose: Some("Unknown".to_string()),
                 lifecycle: Some("Reference".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Move".to_string()),
-                target_template: Some("20_Areas/Documents/Spreadsheets".to_string()),
+                target_template: Some("Documents/Spreadsheets".to_string()),
                 context: Some("Spreadsheet".to_string()),
                 ..RuleAction::default()
             },
@@ -252,7 +295,7 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
                 lifecycle: Some("Reference".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Move".to_string()),
-                target_template: Some("20_Areas/Documents/Presentations".to_string()),
+                target_template: Some("Documents/Presentations".to_string()),
                 context: Some("Presentation".to_string()),
                 ..RuleAction::default()
             },
@@ -269,7 +312,7 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
                 lifecycle: Some("Disposable".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Review".to_string()),
-                target_template: Some("90_Temporary/Archives".to_string()),
+                target_template: Some("Archives".to_string()),
                 context: Some("Archive Package".to_string()),
                 ..RuleAction::default()
             },
@@ -282,11 +325,11 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
             "OR",
             vec![condition("file_type", "equals", "Document")],
             RuleAction {
-                purpose: Some("Work".to_string()),
-                lifecycle: Some("Inbox".to_string()),
+                purpose: Some("Unknown".to_string()),
+                lifecycle: Some("Reference".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Move".to_string()),
-                target_template: Some("00_Inbox/Documents".to_string()),
+                target_template: Some("Documents".to_string()),
                 context: Some("Document".to_string()),
                 ..RuleAction::default()
             },
@@ -307,7 +350,7 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
                 lifecycle: Some("Disposable".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Review".to_string()),
-                target_template: Some("90_Temporary/Installers".to_string()),
+                target_template: Some("Installers".to_string()),
                 context: Some("Installer".to_string()),
                 ..RuleAction::default()
             },
@@ -324,7 +367,7 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
                 lifecycle: Some("Active".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Review".to_string()),
-                target_template: Some("20_Areas/Projects".to_string()),
+                target_template: Some("Projects".to_string()),
                 context: Some("Project Folder".to_string()),
                 ..RuleAction::default()
             },
@@ -332,8 +375,8 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
         system_rule(
             "system_inbox_downloads",
             "Downloads and desktop inbox",
-            50.0,
-            62.0,
+            1.0,
+            1.0,
             "OR",
             vec![
                 condition("directory", "contains", "downloads"),
@@ -341,11 +384,11 @@ pub(crate) fn built_in_rules() -> Vec<Rule> {
             ],
             RuleAction {
                 purpose: Some("Temporary".to_string()),
-                lifecycle: Some("Inbox".to_string()),
+                lifecycle: Some("Reference".to_string()),
                 risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
-                target_template: Some("00_Inbox".to_string()),
-                context: Some("Inbox".to_string()),
+                suggested_action: Some("Keep".to_string()),
+                target_template: Some(String::new()),
+                context: Some("User Space".to_string()),
                 ..RuleAction::default()
             },
         ),
@@ -364,7 +407,7 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                 lifecycle: Some("Active".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Review".to_string()),
-                target_template: Some("20_Areas/Projects".to_string()),
+                target_template: Some("Projects".to_string()),
                 context: Some("Project Folder".to_string()),
                 ..RuleAction::default()
             },
@@ -382,7 +425,7 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
             "private",
             "身份证",
             "护照",
-            "银行卡",
+            "签证",
         ],
     ) {
         return BuiltinClassification {
@@ -391,7 +434,7 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                 lifecycle: Some("Sensitive".to_string()),
                 risk_level: Some("Sensitive".to_string()),
                 suggested_action: Some("Review".to_string()),
-                target_template: Some("20_Areas/Personal/Identity".to_string()),
+                target_template: Some("Sensitive/Identity".to_string()),
                 context: Some("Identity".to_string()),
                 ..RuleAction::default()
             },
@@ -409,7 +452,7 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                 lifecycle: Some("Reference".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Move".to_string()),
-                target_template: Some("20_Areas/Career".to_string()),
+                target_template: Some("Career".to_string()),
                 context: Some("Career".to_string()),
                 ..RuleAction::default()
             },
@@ -429,6 +472,9 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
             "paypal",
             "budget",
             "statement",
+            "发票",
+            "账单",
+            "银行卡",
         ],
     ) {
         return BuiltinClassification {
@@ -437,7 +483,7 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                 lifecycle: Some("Reference".to_string()),
                 risk_level: Some("Sensitive".to_string()),
                 suggested_action: Some("Review".to_string()),
-                target_template: Some("20_Areas/Finance".to_string()),
+                target_template: Some("Sensitive/Finance".to_string()),
                 context: Some("Finance".to_string()),
                 ..RuleAction::default()
             },
@@ -452,7 +498,7 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                 lifecycle: Some("Active".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Review".to_string()),
-                target_template: Some("20_Areas/Projects".to_string()),
+                target_template: Some("Projects".to_string()),
                 context: Some("Code Project".to_string()),
                 ..RuleAction::default()
             },
@@ -471,10 +517,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                     }
                     .to_string(),
                 ),
-                lifecycle: Some("Inbox".to_string()),
+                lifecycle: Some("Active".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Rename".to_string()),
-                target_template: Some("00_Inbox/Screenshots".to_string()),
+                target_template: Some("Media/Screenshots".to_string()),
                 rename_template: Some("{basename}_{date}".to_string()),
                 context: Some("Screenshot".to_string()),
                 ..RuleAction::default()
@@ -483,19 +529,22 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
         };
     }
 
-    if any_contains(
-        &haystack,
-        &[
-            "course",
-            "lecture",
-            "assignment",
-            "report",
-            "paper",
-            "comp",
-            "math",
-            "cs",
-        ],
-    ) {
+    if any_contains(&haystack, teaching_keywords()) {
+        return BuiltinClassification {
+            action: RuleAction {
+                purpose: Some("Teaching".to_string()),
+                lifecycle: Some("Active".to_string()),
+                risk_level: Some("Normal".to_string()),
+                suggested_action: Some("Move".to_string()),
+                target_template: Some("Teaching".to_string()),
+                context: Some("Teaching".to_string()),
+                ..RuleAction::default()
+            },
+            confidence: 0.78,
+        };
+    }
+
+    if any_contains(&haystack, study_keywords()) {
         return BuiltinClassification {
             action: RuleAction {
                 purpose: Some("Study".to_string()),
@@ -504,9 +553,9 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                 suggested_action: Some("Move".to_string()),
                 target_template: Some(
                     if age_days <= 30 {
-                        "20_Areas/Study"
+                        "Study"
                     } else {
-                        "40_Archive/{year}/Study"
+                        "Archive/{year}/Study"
                     }
                     .to_string(),
                 ),
@@ -521,10 +570,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
         return BuiltinClassification {
             action: RuleAction {
                 purpose: Some("Temporary".to_string()),
-                lifecycle: Some("Inbox".to_string()),
+                lifecycle: Some("Disposable".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Review".to_string()),
-                target_template: Some("90_Temporary".to_string()),
+                target_template: Some("Temporary".to_string()),
                 context: Some("Temporary".to_string()),
                 ..RuleAction::default()
             },
@@ -539,7 +588,7 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                 lifecycle: Some("Disposable".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Review".to_string()),
-                target_template: Some("90_Temporary/Installers".to_string()),
+                target_template: Some("Installers".to_string()),
                 context: Some("Installer".to_string()),
                 ..RuleAction::default()
             },
@@ -556,9 +605,9 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                 suggested_action: Some("Move".to_string()),
                 target_template: Some(
                     if age_days <= 30 {
-                        "20_Areas/Media/Images"
+                        "Media/Images"
                     } else {
-                        "40_Archive/{year}/Media/Images"
+                        "Archive/{year}/Images"
                     }
                     .to_string(),
                 ),
@@ -585,9 +634,9 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                 suggested_action: Some("Move".to_string()),
                 target_template: Some(
                     if age_days <= 180 {
-                        "20_Areas/Media/Videos"
+                        "Media/Videos"
                     } else {
-                        "40_Archive/{year}/Media/Videos"
+                        "Archive/{year}/Videos"
                     }
                     .to_string(),
                 ),
@@ -605,7 +654,7 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                 lifecycle: Some("Reference".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Move".to_string()),
-                target_template: Some("20_Areas/Media/Audio".to_string()),
+                target_template: Some("Media/Audio".to_string()),
                 context: Some("Audio".to_string()),
                 ..RuleAction::default()
             },
@@ -620,7 +669,7 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                 lifecycle: Some("Reference".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Move".to_string()),
-                target_template: Some("20_Areas/Documents/Spreadsheets".to_string()),
+                target_template: Some("Documents/Spreadsheets".to_string()),
                 context: Some("Spreadsheet".to_string()),
                 ..RuleAction::default()
             },
@@ -642,7 +691,7 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                 lifecycle: Some("Reference".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Move".to_string()),
-                target_template: Some("20_Areas/Documents/Presentations".to_string()),
+                target_template: Some("Documents/Presentations".to_string()),
                 context: Some("Presentation".to_string()),
                 ..RuleAction::default()
             },
@@ -657,7 +706,7 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                 lifecycle: Some("Disposable".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Review".to_string()),
-                target_template: Some("90_Temporary/Archives".to_string()),
+                target_template: Some("Archives".to_string()),
                 context: Some("Archive Package".to_string()),
                 ..RuleAction::default()
             },
@@ -672,7 +721,7 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                 lifecycle: Some("Active".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Review".to_string()),
-                target_template: Some("20_Areas/Projects".to_string()),
+                target_template: Some("Projects".to_string()),
                 context: Some("Code".to_string()),
                 ..RuleAction::default()
             },
@@ -680,14 +729,30 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
         };
     }
 
-    if file_type == "Document" {
+    if any_contains(&haystack, work_document_keywords()) {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some(document_purpose(&haystack).to_string()),
-                lifecycle: Some("Inbox".to_string()),
+                purpose: Some("Work".to_string()),
+                lifecycle: Some("Reference".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some("Move".to_string()),
-                target_template: Some("00_Inbox/Documents".to_string()),
+                target_template: Some("Work/Documents".to_string()),
+                context: Some("Work Document".to_string()),
+                ..RuleAction::default()
+            },
+            confidence: 0.70,
+        };
+    }
+
+    if file_type == "Document" {
+        let purpose = document_purpose(&haystack);
+        return BuiltinClassification {
+            action: RuleAction {
+                purpose: Some(purpose.to_string()),
+                lifecycle: Some("Reference".to_string()),
+                risk_level: Some(document_risk_level(purpose).to_string()),
+                suggested_action: Some(document_suggested_action(purpose).to_string()),
+                target_template: Some(document_target_template(purpose).to_string()),
                 context: Some("Document".to_string()),
                 ..RuleAction::default()
             },
@@ -698,8 +763,7 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     if any_contains(
         &haystack,
         &["temp", "tmp", "copy", "副本", "screenshot", "screen shot"],
-    ) || is_inbox_directory(&parent_directory(&row.path))
-    {
+    ) {
         return BuiltinClassification {
             action: RuleAction {
                 purpose: Some(
@@ -710,7 +774,7 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                     }
                     .to_string(),
                 ),
-                lifecycle: Some("Inbox".to_string()),
+                lifecycle: Some("Disposable".to_string()),
                 risk_level: Some("Normal".to_string()),
                 suggested_action: Some(
                     if file_type == "Image" {
@@ -720,9 +784,16 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                     }
                     .to_string(),
                 ),
-                target_template: Some("00_Inbox".to_string()),
+                target_template: Some(
+                    if file_type == "Image" {
+                        "Media/Screenshots"
+                    } else {
+                        "Temporary"
+                    }
+                    .to_string(),
+                ),
                 rename_template: (file_type == "Image").then(|| "{basename}_{date}".to_string()),
-                context: Some("Inbox".to_string()),
+                context: Some("Temporary".to_string()),
             },
             confidence: 0.62,
         };
@@ -747,6 +818,20 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
         },
         confidence: 0.45,
     }
+}
+
+fn teaching_conditions() -> Vec<RuleCondition> {
+    teaching_keywords()
+        .iter()
+        .map(|keyword| condition("name", "contains", keyword))
+        .collect()
+}
+
+fn work_document_conditions() -> Vec<RuleCondition> {
+    work_document_keywords()
+        .iter()
+        .map(|keyword| condition("name", "contains", keyword))
+        .collect()
 }
 
 fn any_contains(haystack: &str, needles: &[&str]) -> bool {
@@ -788,21 +873,102 @@ fn is_temporary_name(haystack: &str) -> bool {
 }
 
 fn document_purpose(haystack: &str) -> &'static str {
-    if any_contains(
-        haystack,
-        &["论文", "毕业", "lecture", "course", "assignment"],
-    ) {
+    if any_contains(haystack, teaching_keywords()) {
+        "Teaching"
+    } else if any_contains(haystack, study_keywords()) {
         "Study"
+    } else if any_contains(haystack, finance_keywords()) {
+        "Finance"
+    } else if any_contains(haystack, work_document_keywords()) {
+        "Work"
     } else if any_contains(haystack, &["personal", "家庭", "个人"]) {
         "Personal"
     } else {
-        "Work"
+        "Unknown"
     }
 }
 
-fn is_inbox_directory(directory: &str) -> bool {
-    let normalized = directory.to_lowercase();
-    normalized.contains("downloads") || normalized.contains("desktop")
+fn document_target_template(purpose: &str) -> &'static str {
+    match purpose {
+        "Teaching" => "Teaching",
+        "Study" => "Study",
+        "Work" => "Work/Documents",
+        "Finance" => "Sensitive/Finance",
+        _ => "Documents",
+    }
+}
+
+fn document_risk_level(purpose: &str) -> &'static str {
+    match purpose {
+        "Finance" => "Sensitive",
+        _ => "Normal",
+    }
+}
+
+fn document_suggested_action(purpose: &str) -> &'static str {
+    match purpose {
+        "Finance" => "Review",
+        _ => "Move",
+    }
+}
+
+fn teaching_keywords() -> &'static [&'static str] {
+    &[
+        "教案",
+        "教学",
+        "课程",
+        "实训",
+        "试卷",
+        "复习题",
+        "学生",
+        "项目化课程",
+        "数据库",
+        "软件测试",
+        "scala",
+        "java",
+        "python",
+        "计算机",
+    ]
+}
+
+fn study_keywords() -> &'static [&'static str] {
+    &[
+        "course",
+        "lecture",
+        "assignment",
+        "paper",
+        "comp",
+        "math",
+        "cs",
+        "论文",
+        "毕业",
+        "实验",
+        "作业",
+    ]
+}
+
+fn work_document_keywords() -> &'static [&'static str] {
+    &[
+        "report", "summary", "meeting", "notice", "proposal", "contract", "报告", "总结", "会议",
+        "通知", "方案", "合同", "项目", "申报",
+    ]
+}
+
+fn finance_keywords() -> &'static [&'static str] {
+    &[
+        "invoice",
+        "receipt",
+        "bill",
+        "tax",
+        "payment",
+        "bank",
+        "paypal",
+        "budget",
+        "statement",
+        "发票",
+        "账单",
+        "银行卡",
+    ]
 }
 
 fn extract_study_context(name: &str) -> String {

@@ -5,6 +5,8 @@
         assert_eq!(settings.search_hotkey, "CmdOrCtrl+K");
         assert_eq!(settings.search_scope_mode, "all");
         assert!(settings.custom_search_roots.is_empty());
+        assert_eq!(settings.organize_root_mode, OrganizeRootMode::CurrentFolder);
+        assert_eq!(settings.organize_root_path, None);
     }
 
     #[test]
@@ -21,6 +23,8 @@
         assert_eq!(settings.search_hotkey, "CmdOrCtrl+K");
         assert_eq!(settings.search_scope_mode, "all");
         assert!(settings.custom_search_roots.is_empty());
+        assert_eq!(settings.organize_root_mode, OrganizeRootMode::CurrentFolder);
+        assert_eq!(settings.organize_root_path, None);
     }
 
     #[test]
@@ -67,9 +71,7 @@
             .find(|file| file.id == "file-resume-zh")
             .expect("classified file");
 
-        assert!(file.suggested_target_path.contains("20_领域"));
         assert!(file.suggested_target_path.contains("职业"));
-        assert!(!file.suggested_target_path.contains("20_Areas"));
         assert!(!file.suggested_target_path.contains("Career"));
     }
 
@@ -103,11 +105,12 @@
         settings.folder_naming_language = "zh".to_string();
         save_app_settings(&db, &settings).expect("save chinese settings");
         set_file_lifecycle(&db, "/test/virtual/documents/photo_001.jpg", "Inbox");
-        let summary = db.execute_rules_for_paths(
-            &["/test/virtual/documents/photo_001.jpg".to_string()],
-            Vec::new(),
-        )
-        .expect("execute chinese rules");
+        let summary = db
+            .execute_rules_for_paths(
+                &["/test/virtual/documents/photo_001.jpg".to_string()],
+                Vec::new(),
+            )
+            .expect("execute chinese rules");
         let chinese_path = db
             .get_paged_files(Some(10), Some(0), None)
             .expect("chinese page")
@@ -118,10 +121,128 @@
             .suggested_target_path
             .replace('\\', "/");
 
-        assert!(english_path.contains("20_Areas/Media/Images"));
+        assert!(english_path.contains("Images"));
         assert_eq!(summary.updated, 1);
-        assert!(chinese_path.contains("20_领域/媒体/图片"));
+        assert!(chinese_path.contains("图片"));
         assert_ne!(english_path, chinese_path);
+    }
+
+    #[test]
+    fn default_organize_root_places_documents_under_current_folder_without_zencanvas_or_inbox() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file_at_path(
+            &db,
+            "file-desktop-doc",
+            "/tmp/Desktop/test.docx",
+            "test.docx",
+            "docx",
+            2_048,
+            1_900_000_000,
+        );
+
+        db.execute_rules_on_inbox(Vec::new())
+            .expect("execute rules");
+        let file = db
+            .get_paged_files(Some(10), Some(0), None)
+            .expect("page")
+            .files
+            .into_iter()
+            .find(|file| file.id == "file-desktop-doc")
+            .expect("classified file");
+
+        assert_eq!(file.lifecycle, "Reference");
+        assert_eq!(file.suggested_target_path, "/tmp/Desktop/Documents");
+        assert!(!file.suggested_target_path.contains("ZenCanvas"));
+        assert!(!file.suggested_target_path.contains("00_Inbox"));
+    }
+
+    #[test]
+    fn zen_canvas_organize_root_mode_preserves_legacy_wrapper() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let mut settings = AppSettings::default();
+        settings.organize_root_mode = OrganizeRootMode::ZenCanvasFolder;
+        save_app_settings(&db, &settings).expect("save app settings");
+        insert_test_file_at_path(
+            &db,
+            "file-legacy-doc",
+            "/tmp/Desktop/legacy.docx",
+            "legacy.docx",
+            "docx",
+            2_048,
+            1_900_000_000,
+        );
+
+        db.execute_rules_on_inbox(Vec::new())
+            .expect("execute rules");
+        let path = db
+            .get_paged_files(Some(10), Some(0), None)
+            .expect("page")
+            .files
+            .into_iter()
+            .find(|file| file.id == "file-legacy-doc")
+            .expect("classified file")
+            .suggested_target_path;
+
+        assert_eq!(path, "/tmp/Desktop/ZenCanvas/Documents");
+    }
+
+    #[test]
+    fn custom_organize_root_mode_uses_configured_root_for_all_targets() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let mut settings = AppSettings::default();
+        settings.organize_root_mode = OrganizeRootMode::CustomRoot;
+        settings.organize_root_path = Some("/tmp/Organized".to_string());
+        save_app_settings(&db, &settings).expect("save app settings");
+        insert_test_file_at_path(
+            &db,
+            "file-custom-doc",
+            "/tmp/Desktop/custom.docx",
+            "custom.docx",
+            "docx",
+            2_048,
+            1_900_000_000,
+        );
+
+        db.execute_rules_on_inbox(Vec::new())
+            .expect("execute rules");
+        let path = db
+            .get_paged_files(Some(10), Some(0), None)
+            .expect("page")
+            .files
+            .into_iter()
+            .find(|file| file.id == "file-custom-doc")
+            .expect("classified file")
+            .suggested_target_path;
+
+        assert_eq!(path, "/tmp/Organized/Documents");
+    }
+
+    #[test]
+    fn target_paths_are_normalized_to_forward_slashes_without_mixed_windows_separators() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file_at_path(
+            &db,
+            "file-windows-doc",
+            "C:/Users/77588/Desktop/测试用.docx",
+            "测试用.docx",
+            "docx",
+            2_048,
+            1_900_000_000,
+        );
+
+        db.execute_rules_on_inbox(Vec::new())
+            .expect("execute rules");
+        let path = db
+            .get_paged_files(Some(10), Some(0), None)
+            .expect("page")
+            .files
+            .into_iter()
+            .find(|file| file.id == "file-windows-doc")
+            .expect("classified file")
+            .suggested_target_path;
+
+        assert_eq!(path, "C:/Users/77588/Desktop/Documents");
+        assert!(!path.contains('\\'));
     }
 
     #[test]
@@ -184,37 +305,37 @@
         {
             let conn = Connection::open(&path).expect("open database to simulate v11");
             conn.execute_batch(
-                r#"
-                DROP TRIGGER IF EXISTS files_ai;
-                DROP TRIGGER IF EXISTS files_ad;
-                DROP TRIGGER IF EXISTS files_au;
-                DROP TABLE IF EXISTS files_fts;
+                    r#"
+                        DROP TRIGGER IF EXISTS files_ai;
+                        DROP TRIGGER IF EXISTS files_ad;
+                        DROP TRIGGER IF EXISTS files_au;
+                        DROP TABLE IF EXISTS files_fts;
 
-                CREATE VIRTUAL TABLE files_fts USING fts5(
-                    name,
-                    path,
-                    content='files',
-                    content_rowid='rowid'
-                );
-                INSERT INTO files_fts(files_fts) VALUES('rebuild');
+                        CREATE VIRTUAL TABLE files_fts USING fts5(
+                            name,
+                            path,
+                            content='files',
+                            content_rowid='rowid'
+                        );
+                        INSERT INTO files_fts(files_fts) VALUES('rebuild');
 
-                CREATE TRIGGER files_ai AFTER INSERT ON files BEGIN
-                    INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
-                END;
-                CREATE TRIGGER files_ad AFTER DELETE ON files BEGIN
-                    INSERT INTO files_fts(files_fts, rowid, name, path)
-                    VALUES('delete', old.rowid, old.name, old.path);
-                END;
-                CREATE TRIGGER files_au AFTER UPDATE ON files BEGIN
-                    INSERT INTO files_fts(files_fts, rowid, name, path)
-                    VALUES('delete', old.rowid, old.name, old.path);
-                    INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
-                END;
+                        CREATE TRIGGER files_ai AFTER INSERT ON files BEGIN
+                            INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
+                        END;
+                        CREATE TRIGGER files_ad AFTER DELETE ON files BEGIN
+                            INSERT INTO files_fts(files_fts, rowid, name, path)
+                            VALUES('delete', old.rowid, old.name, old.path);
+                        END;
+                        CREATE TRIGGER files_au AFTER UPDATE ON files BEGIN
+                            INSERT INTO files_fts(files_fts, rowid, name, path)
+                            VALUES('delete', old.rowid, old.name, old.path);
+                            INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
+                        END;
 
-                PRAGMA user_version = 11;
-                "#,
-            )
-            .expect("simulate v11 non-trigram fts");
+                        PRAGMA user_version = 11;
+                        "#,
+                )
+                .expect("simulate v11 non-trigram fts");
         }
 
         let db = Database::open(&path).expect("migrate v11 database");
@@ -229,11 +350,11 @@
         let trigger_count: i64 = conn
             .query_row(
                 r#"
-                SELECT COUNT(*)
-                FROM sqlite_schema
-                WHERE type = 'trigger'
-                  AND name IN ('files_ai', 'files_ad', 'files_au')
-                "#,
+                        SELECT COUNT(*)
+                        FROM sqlite_schema
+                        WHERE type = 'trigger'
+                          AND name IN ('files_ai', 'files_ad', 'files_au')
+                        "#,
                 [],
                 |row| row.get(0),
             )
@@ -270,11 +391,11 @@
 
         conn.execute(
             r#"
-            UPDATE files
-            SET name = '更新合同2026.pdf',
-                path = '/test/virtual/documents/更新合同2026.pdf'
-            WHERE id = 'file-cn-contract'
-            "#,
+                    UPDATE files
+                    SET name = '更新合同2026.pdf',
+                        path = '/test/virtual/documents/更新合同2026.pdf'
+                    WHERE id = 'file-cn-contract'
+                    "#,
             [],
         )
         .expect("update file row");
@@ -287,11 +408,10 @@
 
         conn.execute("DELETE FROM files WHERE id = 'file-cn-contract'", [])
             .expect("delete file row");
-        assert!(
-            db.search_files("更新合同", Some(10))
-                .expect("search deleted fts")
-                .is_empty()
-        );
+        assert!(db
+            .search_files("更新合同", Some(10))
+            .expect("search deleted fts")
+            .is_empty());
     }
 
     #[test]
@@ -471,7 +591,8 @@
             .expect("query plan");
 
         assert!(
-            plan.iter().any(|line| line.contains("files_fts") || line.contains("idx_files")),
+            plan.iter()
+                .any(|line| line.contains("files_fts") || line.contains("idx_files")),
             "query plan should mention the FTS table or files indexes: {plan:?}"
         );
     }
@@ -519,10 +640,10 @@
         let conn = Connection::open(db.path()).expect("open migrated database");
         conn.execute(
             r#"
-            UPDATE files
-            SET content_hash = 'same-content'
-            WHERE path IN ('/tmp/root-a/duplicate-a.txt', '/tmp/root-a/duplicate-b.txt')
-            "#,
+                    UPDATE files
+                    SET content_hash = 'same-content'
+                    WHERE path IN ('/tmp/root-a/duplicate-a.txt', '/tmp/root-a/duplicate-b.txt')
+                    "#,
             [],
         )
         .expect("set duplicate content hash");
@@ -637,10 +758,10 @@
         let conn = Connection::open(db.path()).expect("open migrated database");
         conn.execute(
             r#"
-            UPDATE files
-            SET content_hash = 'same-global-content'
-            WHERE id IN ('duplicate-root-a', 'duplicate-root-b')
-            "#,
+                    UPDATE files
+                    SET content_hash = 'same-global-content'
+                    WHERE id IN ('duplicate-root-a', 'duplicate-root-b')
+                    "#,
             [],
         )
         .expect("set duplicate content hash");
@@ -1020,7 +1141,10 @@
             Some((true, true))
         );
         assert_eq!(
-            stale_state(&db, "/test/virtual/documents/project-other/sibling-report.txt"),
+            stale_state(
+                &db,
+                "/test/virtual/documents/project-other/sibling-report.txt"
+            ),
             Some((false, true))
         );
         assert_eq!(page.total, 2);

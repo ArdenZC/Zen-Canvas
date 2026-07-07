@@ -5,6 +5,7 @@ import type { useAppSettings } from "../hooks/useAppSettings";
 import type { useWindowBehavior } from "../hooks/useWindowBehavior";
 import type {
   FolderNamingLanguage,
+  OrganizeRootMode,
   RestoreRetentionDays,
   ScanRootSetting,
   SearchRootSetting,
@@ -29,6 +30,8 @@ export interface SettingsContextValue extends AppSettingsContextState {
   setSearchHotkey: (next: string) => Promise<boolean>;
   setSearchScopeMode: (next: SearchScopeMode) => Promise<boolean>;
   setCustomSearchRoots: (next: SearchRootSetting[]) => Promise<boolean>;
+  setOrganizeRootMode: (next: OrganizeRootMode) => Promise<boolean>;
+  setOrganizeRootPath: (next?: string) => Promise<boolean>;
 }
 
 export interface RulesContextValue {

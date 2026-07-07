@@ -86,7 +86,8 @@ describe("ui empty and command states", () => {
     expect(vault).not.toContain("h-[calc(");
     expect(assetCard).toContain("miniBadgeClass");
     expect(assetCard).not.toContain("ToneBadge");
-    expect(assetCard).toContain("compactPath(file.path");
+    expect(assetCard).toContain("formatDisplayPath");
+    expect(assetCard).toContain("compactPath(formatDisplayPath(file.path");
     expect(assetCard).toContain('title={t("revealPhysical")}');
     expect(assetCard).toContain('aria-label={t("revealPhysical")}');
     expect(assetCard).not.toContain("toneClasses");

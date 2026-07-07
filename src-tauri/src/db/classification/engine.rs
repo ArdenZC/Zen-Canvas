@@ -1,8 +1,9 @@
 use super::super::*;
 use super::{
     builtin_rules::{built_in_rules, classify_builtin, days_since_unix},
-    naming::{build_suggested_name, build_target_path},
+    naming::{build_suggested_name, build_target_path, OrganizeRootConfig},
 };
+use crate::settings::AppSettings;
 use rusqlite::{params, params_from_iter, Connection};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -13,10 +14,7 @@ impl Database {
         rules: Vec<Rule>,
     ) -> Result<RuleExecutionSummary, DbError> {
         let settings = crate::settings::get_app_settings(self)?;
-        self.execute_rules_on_inbox_with_folder_naming_language(
-            rules,
-            &settings.folder_naming_language,
-        )
+        self.execute_rules_on_inbox_with_settings(rules, &settings)
     }
 
     pub fn execute_rules_for_scope(
@@ -34,23 +32,18 @@ impl Database {
         mode: RuleExecutionMode,
     ) -> Result<RuleExecutionSummary, DbError> {
         let settings = crate::settings::get_app_settings(self)?;
-        self.execute_rules_for_scope_with_folder_naming_language(
-            scope,
-            rules,
-            mode,
-            &settings.folder_naming_language,
-        )
+        self.execute_rules_for_scope_with_settings(scope, rules, mode, &settings)
     }
 
-    fn execute_rules_for_scope_with_folder_naming_language(
+    fn execute_rules_for_scope_with_settings(
         &self,
         scope: &LibraryScope,
         rules: Vec<Rule>,
         mode: RuleExecutionMode,
-        folder_naming_language: &str,
+        settings: &AppSettings,
     ) -> Result<RuleExecutionSummary, DbError> {
         let all_rules = active_rules(rules);
-        let rule_version = classification_version_for_rules(&all_rules, folder_naming_language)?;
+        let rule_version = classification_version_for_rules(&all_rules, settings)?;
         let scoped = scoped_files_sql(Some(scope));
         let lifecycle_filter = match mode {
             RuleExecutionMode::InboxOnly => "WHERE f.lifecycle = 'Inbox'",
@@ -112,7 +105,7 @@ impl Database {
                     &batch,
                     &all_rules,
                     &rule_version,
-                    folder_naming_language,
+                    settings,
                 )?;
                 updated += batch_summary.updated;
                 needs_confirmation += batch_summary.needs_confirmation;
@@ -126,7 +119,7 @@ impl Database {
                 &batch,
                 &all_rules,
                 &rule_version,
-                folder_naming_language,
+                settings,
             )?;
             updated += batch_summary.updated;
             needs_confirmation += batch_summary.needs_confirmation;
@@ -140,13 +133,13 @@ impl Database {
         })
     }
 
-    fn execute_rules_on_inbox_with_folder_naming_language(
+    fn execute_rules_on_inbox_with_settings(
         &self,
         rules: Vec<Rule>,
-        folder_naming_language: &str,
+        settings: &AppSettings,
     ) -> Result<RuleExecutionSummary, DbError> {
         let all_rules = active_rules(rules);
-        let rule_version = classification_version_for_rules(&all_rules, folder_naming_language)?;
+        let rule_version = classification_version_for_rules(&all_rules, settings)?;
         let read_conn = self.conn()?;
         let mut write_conn = self.conn()?;
         let mut stmt = read_conn.prepare(
@@ -201,7 +194,7 @@ impl Database {
                     &batch,
                     &all_rules,
                     &rule_version,
-                    folder_naming_language,
+                    settings,
                 )?;
                 updated += batch_summary.updated;
                 needs_confirmation += batch_summary.needs_confirmation;
@@ -215,7 +208,7 @@ impl Database {
                 &batch,
                 &all_rules,
                 &rule_version,
-                folder_naming_language,
+                settings,
             )?;
             updated += batch_summary.updated;
             needs_confirmation += batch_summary.needs_confirmation;
@@ -235,18 +228,14 @@ impl Database {
         rules: Vec<Rule>,
     ) -> Result<RuleExecutionSummary, DbError> {
         let settings = crate::settings::get_app_settings(self)?;
-        self.execute_rules_for_paths_with_folder_naming_language(
-            paths,
-            rules,
-            &settings.folder_naming_language,
-        )
+        self.execute_rules_for_paths_with_settings(paths, rules, &settings)
     }
 
-    fn execute_rules_for_paths_with_folder_naming_language(
+    fn execute_rules_for_paths_with_settings(
         &self,
         paths: &[String],
         rules: Vec<Rule>,
-        folder_naming_language: &str,
+        settings: &AppSettings,
     ) -> Result<RuleExecutionSummary, DbError> {
         let target_paths = classification_path_candidates(paths, 500);
         if target_paths.is_empty() {
@@ -259,7 +248,7 @@ impl Database {
         }
 
         let all_rules = active_rules(rules);
-        let rule_version = classification_version_for_rules(&all_rules, folder_naming_language)?;
+        let rule_version = classification_version_for_rules(&all_rules, settings)?;
         let placeholders = std::iter::repeat("?")
             .take(target_paths.len())
             .collect::<Vec<_>>()
@@ -320,7 +309,7 @@ impl Database {
                     &batch,
                     &all_rules,
                     &rule_version,
-                    folder_naming_language,
+                    settings,
                 )?;
                 updated += batch_summary.updated;
                 needs_confirmation += batch_summary.needs_confirmation;
@@ -334,7 +323,7 @@ impl Database {
                 &batch,
                 &all_rules,
                 &rule_version,
-                folder_naming_language,
+                settings,
             )?;
             updated += batch_summary.updated;
             needs_confirmation += batch_summary.needs_confirmation;
@@ -376,10 +365,15 @@ pub(crate) fn rule_version_for_rules(rules: &[Rule]) -> Result<String, DbError> 
 
 fn classification_version_for_rules(
     rules: &[Rule],
-    folder_naming_language: &str,
+    settings: &AppSettings,
 ) -> Result<String, DbError> {
     let rules_version = rule_version_for_rules(rules)?;
-    let payload = format!("{rules_version}:folder_naming_language={folder_naming_language}");
+    let payload = format!(
+        "{rules_version}:folder_naming_language={}:organize_root_mode={:?}:organize_root_path={}",
+        settings.folder_naming_language,
+        settings.organize_root_mode,
+        settings.organize_root_path.as_deref().unwrap_or_default()
+    );
     let digest = Sha256::digest(payload.as_bytes());
     Ok(digest
         .iter()
@@ -421,7 +415,7 @@ fn execute_classification_batch(
     batch: &[IndexedFileRow],
     all_rules: &[Rule],
     rule_version: &str,
-    folder_naming_language: &str,
+    settings: &AppSettings,
 ) -> Result<RuleExecutionSummary, DbError> {
     let mut updated = 0_i64;
     let mut needs_confirmation = 0_i64;
@@ -453,7 +447,7 @@ fn execute_classification_batch(
         )?;
 
         for row in batch {
-            let classification = classify_indexed_file(row, all_rules, folder_naming_language)?;
+            let classification = classify_indexed_file(row, all_rules, settings)?;
             if classification.requires_confirmation {
                 needs_confirmation += 1;
             }
@@ -493,7 +487,7 @@ fn execute_classification_batch(
 fn classify_indexed_file(
     row: &IndexedFileRow,
     all_rules: &[Rule],
-    folder_naming_language: &str,
+    settings: &AppSettings,
 ) -> Result<ClassificationUpdate, DbError> {
     let file_type = normalized_file_type(row);
     let builtin = classify_builtin(row, &file_type);
@@ -552,7 +546,8 @@ fn classify_indexed_file(
         row,
         &file_type,
         action.target_template.as_deref(),
-        folder_naming_language,
+        &settings.folder_naming_language,
+        &OrganizeRootConfig::from(settings),
     );
     let suggested_name = build_suggested_name(row, action.rename_template.as_deref());
     let requires_confirmation = risk_level == "Sensitive"

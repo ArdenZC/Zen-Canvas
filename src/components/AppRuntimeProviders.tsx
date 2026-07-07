@@ -17,6 +17,7 @@ import { useScanManagerStore } from "../store/useScanManagerStore";
 import type {
   CloseBehavior,
   FolderNamingLanguage,
+  OrganizeRootMode,
   RestoreRetentionDays,
   ScanRootSetting,
   SearchRootSetting,
@@ -238,6 +239,21 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     },
     [updateSettings]
   );
+  const setOrganizeRootMode = useCallback(
+    async (next: OrganizeRootMode) => {
+      const savedSettings = await updateSettings({ organizeRootMode: next });
+      return savedSettings.organizeRootMode === next;
+    },
+    [updateSettings]
+  );
+  const setOrganizeRootPath = useCallback(
+    async (next?: string) => {
+      const normalized = normalizeOptionalPath(next);
+      const savedSettings = await updateSettings({ organizeRootPath: normalized });
+      return normalizeOptionalPath(savedSettings.organizeRootPath) === normalized;
+    },
+    [updateSettings]
+  );
   const windowBehavior = useWindowBehavior({
     closeBehavior: appSettings.closeBehavior,
     setCloseBehavior,
@@ -305,7 +321,9 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     setBackgroundIndexOnStartup,
     setSearchHotkey,
     setSearchScopeMode,
-    setCustomSearchRoots
+    setCustomSearchRoots,
+    setOrganizeRootMode,
+    setOrganizeRootPath
   }), [
     appSettings,
     isLoadingSettings,
@@ -317,7 +335,9 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     setBackgroundIndexOnStartup,
     setSearchHotkey,
     setSearchScopeMode,
-    setCustomSearchRoots
+    setCustomSearchRoots,
+    setOrganizeRootMode,
+    setOrganizeRootPath
   ]);
   const rulesContextValue = useMemo(() => ({
     rules,
@@ -406,4 +426,9 @@ function arraysEqual<T>(left: readonly T[], right: readonly T[]) {
 
 function backgroundIndexRootKey(path: string) {
   return path.trim().replace(/\\+/g, "/").replace(/\/+$/g, "").toLowerCase();
+}
+
+function normalizeOptionalPath(path?: string | null) {
+  const normalized = path?.trim().replace(/\\+/g, "/").replace(/\/+$/g, "");
+  return normalized || undefined;
 }

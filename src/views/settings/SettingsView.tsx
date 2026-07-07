@@ -17,6 +17,7 @@ import { useBackgroundIndexerStore } from "../../store/useBackgroundIndexerStore
 import type {
   CloseBehavior,
   FolderNamingLanguage,
+  OrganizeRootMode,
   RestoreRetentionDays,
   ScanRootSetting,
   SearchRootSetting,
@@ -70,7 +71,9 @@ export function SettingsView() {
       backgroundIndexOnStartup,
       searchHotkey,
       searchScopeMode,
-      customSearchRoots
+      customSearchRoots,
+      organizeRootMode,
+      organizeRootPath
     },
     setFolderNamingLanguage,
     setDefaultScanFolders,
@@ -79,7 +82,9 @@ export function SettingsView() {
     setBackgroundIndexOnStartup,
     setSearchHotkey,
     setSearchScopeMode,
-    setCustomSearchRoots
+    setCustomSearchRoots,
+    setOrganizeRootMode,
+    setOrganizeRootPath
   } = useSettingsContext();
   const scanPath = useScanManagerStore((state) => state.scanPath);
   const pendingBackgroundRoots = useBackgroundIndexerStore((state) => state.pendingRoots);
@@ -195,6 +200,35 @@ export function SettingsView() {
 
   async function updateSearchScopeMode(next: SearchScopeMode) {
     const saved = await setSearchScopeMode(next);
+    if (saved) {
+      showStatus(t("settingsSavedInline"));
+    }
+  }
+
+  async function updateOrganizeRootMode(next: OrganizeRootMode) {
+    const saved = await setOrganizeRootMode(next);
+    if (saved) {
+      showStatus(t("settingsSavedInline"));
+    }
+  }
+
+  async function chooseOrganizeRootPath() {
+    const selectedPath = await open({
+      directory: true,
+      multiple: false,
+      title: t("organizeRootPickerTitle")
+    });
+    const path = Array.isArray(selectedPath) ? selectedPath[0] : selectedPath;
+    if (!path?.trim()) return;
+
+    const saved = await setOrganizeRootPath(path);
+    if (saved) {
+      showStatus(t("settingsSavedInline"));
+    }
+  }
+
+  async function updateOrganizeRootPath(next: string) {
+    const saved = await setOrganizeRootPath(next);
     if (saved) {
       showStatus(t("settingsSavedInline"));
     }
@@ -401,6 +435,46 @@ export function SettingsView() {
               )} />
             )}
           </div>
+        </ControlGroup>
+
+        <ControlGroup title={t("settingsOrganizeRoot")} description={t("settingsOrganizeRootDesc")}>
+          <div className={formRow}>
+            <div>
+              <strong className="block text-sm">{t("settingsOrganizeRoot")}</strong>
+              <span className={metadataText}>{t("organizePreviewStillRequired")}</span>
+            </div>
+            <SegmentedControl
+              value={organizeRootMode}
+              ariaLabel={t("settingsOrganizeRoot")}
+              options={[
+                { value: "current_folder", label: t("organizeRootCurrentFolder") },
+                { value: "zen_canvas_folder", label: t("organizeRootZenCanvasFolder") },
+                { value: "custom_root", label: t("organizeRootCustomRoot") }
+              ]}
+              onChange={(next) => void updateOrganizeRootMode(next)}
+            />
+          </div>
+          {organizeRootMode === "custom_root" ? (
+            <div className={formRow}>
+              <div>
+                <strong className="block text-sm">{t("organizeRootCustomRoot")}</strong>
+                <span className={metadataText}>{t("organizeRootCustomDesc")}</span>
+              </div>
+              <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 md:justify-end">
+                <input
+                  className={cn(inputSurface, "min-w-[220px] flex-1 md:w-[360px]")}
+                  value={organizeRootPath ?? ""}
+                  onChange={(event) => void updateOrganizeRootPath(event.target.value)}
+                  placeholder={t("organizeRootPathPlaceholder")}
+                  aria-label={t("organizeRootCustomRoot")}
+                />
+                <button className={buttonSecondary} onClick={() => void chooseOrganizeRootPath()}>
+                  <FolderPlus size={15} />
+                  <span>{t("chooseFolders")}</span>
+                </button>
+              </div>
+            </div>
+          ) : null}
         </ControlGroup>
 
         <ControlGroup title={t("settingsSearch")} description={t("settingsSearchDesc")}>

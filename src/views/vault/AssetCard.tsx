@@ -5,7 +5,7 @@ import type { FileRecord } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { formatBytes, formatDate } from "../../utils/format";
 import { cn } from "../../utils/tw";
-import { compactPath } from "../../utils/viewHelpers";
+import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
 import { revealFileFromCard } from "../shared/cardActions";
 import { contentPanel, itemMotion, quietText } from "../shared/ui";
 
@@ -75,7 +75,7 @@ export const AssetCard = memo(function AssetCard({
         </span>
         <div className="min-w-0 max-w-full flex-1">
           <h3 className="line-clamp-2 break-all text-sm font-semibold leading-5 text-[var(--ink)]" title={file.name}>{file.name}</h3>
-          <p className={cn(quietText, "mt-0.5 truncate")} title={file.path}>{compactPath(file.path, 54)}</p>
+          <p className={cn(quietText, "mt-0.5 truncate")} title={formatDisplayPath(file.path)}>{compactPath(formatDisplayPath(file.path), 54)}</p>
         </div>
       </div>
 

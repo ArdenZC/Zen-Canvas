@@ -15,7 +15,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   backgroundIndexOnStartup: true,
   searchHotkey: DEFAULT_SEARCH_HOTKEY,
   searchScopeMode: "all",
-  customSearchRoots: []
+  customSearchRoots: [],
+  organizeRootMode: "current_folder",
+  organizeRootPath: undefined
 };
 
 interface UseAppSettingsOptions {

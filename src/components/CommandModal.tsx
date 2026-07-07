@@ -7,13 +7,13 @@ import type { FileRecord, LibraryScope } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { buttonSecondary, cn, toneClasses } from "../utils/tw";
 import { useBackgroundIndexerStore } from "../store/useBackgroundIndexerStore";
-import { compactPath, readableError } from "../utils/viewHelpers";
+import { compactPath, formatDisplayPath, readableError } from "../utils/viewHelpers";
 import { IconButton, StateBlock, ToneBadge, quietText } from "../views/shared/ui";
 
 const keyBadge =
   "flex items-center justify-center px-1.5 py-0.5 rounded bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-white/10 shadow-sm font-mono font-medium text-neutral-500 dark:text-neutral-400 text-[10px]";
 const commandShellBase =
-  "w-full overflow-hidden bg-white dark:bg-neutral-900 shadow-2xl ring-1 ring-neutral-200 dark:ring-white/10 transition-[border-radius]";
+  "w-full overflow-hidden bg-white dark:bg-neutral-900 shadow-2xl ring-1 ring-neutral-200 dark:ring-white/10";
 const commandShellCollapsed =
   "h-16 w-full max-w-[720px] rounded-full";
 const commandShellExpanded =
@@ -176,6 +176,13 @@ export function CommandModal({
   }, [isStandaloneCollapsed, standalone]);
 
   useEffect(() => {
+    if (!standalone) return;
+    const handleBlur = () => onClose();
+    window.addEventListener("blur", handleBlur);
+    return () => window.removeEventListener("blur", handleBlur);
+  }, [standalone, onClose]);
+
+  useEffect(() => {
     if (!trimmedSearch) {
       setResults([]);
       setQueryState("idle");
@@ -309,6 +316,7 @@ export function CommandModal({
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
       <motion.div
+        layout
         className={cn(
           commandShellBase,
           isStandaloneCollapsed ? commandShellCollapsed : commandShellExpanded,
@@ -424,7 +432,7 @@ export function CommandModal({
                         <strong className={cn(commandFileName, index === activeIndex ? "text-blue-900 dark:text-blue-100" : "")}>
                           <HighlightText text={file.name} highlight={trimmedSearch} />
                         </strong>
-                        <span className={commandFileMeta} title={file.path}>{compactPath(file.path, 74)}</span>
+                        <span className={commandFileMeta} title={formatDisplayPath(file.path)}>{compactPath(formatDisplayPath(file.path), 74)}</span>
                         <span className="flex min-w-0 flex-wrap items-center gap-1.5">
                           <ToneBadge tone={tone as any}>{file.purpose}</ToneBadge>
                           <ToneBadge tone="slate">{extension}</ToneBadge>

@@ -280,7 +280,7 @@ function mockOperationPreviews(args?: Record<string, unknown>): OperationPreview
       file_id: item.id,
       operation_type: "move",
       source_path: item.path,
-      target_path: `C:/Users/Zen/ZenCanvas/${item.lifecycle}/${item.name}`,
+      target_path: `C:/Users/Zen/${item.lifecycle}/${item.name}`,
       old_name: item.name,
       new_name: item.name,
       status: "pending",
@@ -317,7 +317,9 @@ function mockSettings(settings?: AppSettings): AppSettings {
     backgroundIndexOnStartup: true,
     searchHotkey: DEFAULT_SEARCH_HOTKEY,
     searchScopeMode: "all",
-    customSearchRoots: []
+    customSearchRoots: [],
+    organizeRootMode: "current_folder",
+    organizeRootPath: undefined
   };
 }
 
