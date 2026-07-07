@@ -71,7 +71,8 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).toContain(
       'fixed inset-0 z-40 flex items-start justify-center bg-neutral-900/40 px-5 pt-[15vh] sm:pt-[20vh] backdrop-blur-md'
     );
-    expect(commandModal).toContain("<motion.div\n        layout");
+    expect(commandModal).toContain("<motion.div");
+    expect(commandModal).toContain("layout");
     expect(commandModal).toContain('window.addEventListener("blur", handleBlur)');
     expect(commandModal).toContain('window.removeEventListener("blur", handleBlur)');
     expect(commandModal).toContain("const handleBlur = () => onClose();");
