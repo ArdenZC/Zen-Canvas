@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import { ChevronRight, File, Search, X } from "lucide-react";
+import { motion } from "motion/react";
 import { tauriApi } from "../api/tauriApi";
 import type { FileRecord, LibraryScope } from "../types/domain";
 import type { Translator, View } from "../types/ui";
@@ -9,16 +10,53 @@ import { compactPath, readableError } from "../utils/viewHelpers";
 import { IconButton, StateBlock, ToneBadge, quietText } from "../views/shared/ui";
 
 const keyBadge =
-  "rounded-md border border-[var(--line-dark)] bg-[var(--surface-soft)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--quiet)] shadow-sm";
+  "rounded bg-white px-1.5 py-0.5 font-sans text-xs font-medium text-neutral-600 shadow-sm border border-neutral-200 dark:border-white/10 dark:bg-neutral-800 dark:text-neutral-300";
 const commandHintText = "text-[11px] leading-tight text-[var(--quiet)]";
 const commandShellBase =
-  "w-full overflow-hidden border border-[var(--line)] bg-[rgba(248,250,252,0.94)] backdrop-blur-xl transition-[border-radius,background,box-shadow] dark:border-slate-700/80 dark:bg-[rgba(15,23,42,0.96)]";
+  "w-full overflow-hidden bg-white/95 shadow-2xl ring-1 ring-neutral-200/50 backdrop-blur-xl transition-[border-radius,background,box-shadow] dark:bg-neutral-900/95 dark:ring-white/10";
 const commandShellCollapsed =
-  "h-full max-w-none rounded-full shadow-[0_14px_42px_rgba(15,23,42,0.18),0_1px_0_rgba(255,255,255,0.64)_inset] dark:shadow-[0_16px_44px_rgba(0,0,0,0.42),0_1px_0_rgba(255,255,255,0.08)_inset]";
+  "h-full max-w-none rounded-full";
 const commandShellExpanded =
-  "max-w-[720px] rounded-[1.7rem] shadow-[0_24px_76px_rgba(15,23,42,0.24),0_1px_0_rgba(255,255,255,0.72)_inset] dark:shadow-[0_28px_86px_rgba(0,0,0,0.74),0_1px_0_rgba(255,255,255,0.08)_inset]";
+  "rounded-2xl";
+const commandShellDialogWidth = "max-w-[720px]";
 const commandShellStandaloneExpanded = "max-w-none";
 const commandShortcutHints = "flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1";
+const commandInputRowBase =
+  "flex h-16 min-h-16 items-center gap-3 border-b border-neutral-100 px-5 transition-colors dark:border-white/10";
+const commandInputRowCollapsed =
+  "flex h-full min-h-0 items-center gap-3 border-b-0 px-5 transition-colors";
+const commandInputRowFocused = "bg-white/70 dark:bg-white/[0.03]";
+const commandSearchIcon =
+  "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-500/15 dark:bg-blue-500/10 dark:text-blue-200 dark:ring-blue-400/20";
+const commandInput =
+  "command-input h-full min-w-0 flex-1 bg-transparent text-lg text-neutral-900 outline-none placeholder:text-neutral-400 focus:outline-none focus-visible:outline-none dark:text-neutral-100 dark:placeholder:text-neutral-500";
+const commandClearButton =
+  "h-8 w-8 rounded-lg border-transparent bg-transparent text-neutral-500 shadow-none hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-neutral-100";
+const commandScopeMeta =
+  "flex items-center justify-between gap-3 border-b border-neutral-100 px-5 py-2 dark:border-white/10";
+const commandResultsShell = "grid min-h-0 gap-0";
+const commandResultsBody = "min-h-0 px-3 py-3";
+const commandResultsHeader = "flex items-center justify-between gap-3 px-3 pb-2";
+const commandResultsTitle =
+  "text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400";
+const commandResultsList = "grid max-h-[360px] gap-1 overflow-y-auto overscroll-contain pr-1";
+const commandResultItemBase =
+  "grid min-h-[74px] grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-3 py-2.5 text-left ring-1 ring-transparent transition-[background,box-shadow,color]";
+const commandResultItemActive = "bg-blue-50/80 ring-blue-500/20 dark:bg-blue-500/10";
+const commandResultItemInactive = "hover:bg-neutral-50 dark:hover:bg-white/[0.04]";
+const commandFileIcon =
+  "flex h-10 w-10 items-center justify-center rounded-lg border";
+const commandFileName = "block truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100";
+const commandFileMeta = "block truncate text-xs text-neutral-500 dark:text-neutral-400";
+const commandBadges = "flex min-w-0 flex-wrap items-center gap-1.5";
+const commandResultChevron = "flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400";
+const commandFooter =
+  "flex items-center justify-between gap-3 border-t border-neutral-100 bg-neutral-50 px-5 py-3 text-xs text-neutral-500 dark:border-white/10 dark:bg-white/[0.02] dark:text-neutral-400";
+const commandStateWrapper = "px-4 py-4";
+const shortcutHint = "inline-flex min-w-0 items-center gap-1 whitespace-nowrap";
+const shortcutHintLabel = "hidden max-w-24 truncate text-neutral-500 sm:inline dark:text-neutral-400";
+const highlightMark =
+  "rounded-sm bg-blue-100/50 px-1 text-blue-700 dark:bg-blue-500/30 dark:text-blue-200";
 const SEARCH_RESULT_LIMIT = 80;
 const standaloneSearchWindowCollapsedHeight = 92;
 const standaloneSearchWindowExpandedHeight = 520;
@@ -256,16 +294,20 @@ export function CommandModal({
       className={cn(
         standalone
           ? "relative z-10 flex h-full w-full items-center justify-center bg-transparent p-0"
-          : "fixed inset-0 z-40 flex items-start justify-center bg-slate-950/20 px-5 pt-[12vh] backdrop-blur-lg"
+          : "fixed inset-0 z-40 flex items-start justify-center bg-neutral-950/25 px-5 pt-[12vh] backdrop-blur-lg"
       )}
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
-      <div
+      <motion.div
         className={cn(
           commandShellBase,
           isStandaloneCollapsed ? commandShellCollapsed : commandShellExpanded,
-          standalone && !isStandaloneCollapsed && commandShellStandaloneExpanded
+          !isStandaloneCollapsed && (standalone ? commandShellStandaloneExpanded : commandShellDialogWidth)
         )}
+        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 12 }}
+        transition={{ type: "spring", damping: 26, stiffness: 320 }}
         role={standalone ? "search" : "dialog"}
         aria-modal={standalone ? undefined : true}
         aria-label={t("globalSearch")}
@@ -302,13 +344,11 @@ export function CommandModal({
       >
         <div
           className={cn(
-            "flex items-center gap-3 border border-transparent px-5 transition-[border-color,box-shadow]",
-            isStandaloneCollapsed ? "h-full min-h-0" : "h-[60px] min-h-[60px]",
-            inputFocused && "border-blue-400/35 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.08),0_0_0_3px_rgba(59,130,246,0.08)]",
-            (showResults || shouldShowStateBlock || showScopeMeta) && "border-b-[var(--line-dark)]"
+            isStandaloneCollapsed ? commandInputRowCollapsed : commandInputRowBase,
+            inputFocused && commandInputRowFocused
           )}
         >
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-blue-400/22 bg-blue-500/10 text-blue-600 dark:text-blue-300">
+          <span className={commandSearchIcon}>
             <Search size={18} strokeWidth={2.2} />
           </span>
           <input
@@ -323,11 +363,11 @@ export function CommandModal({
             onClick={() => inputRef.current?.focus()}
             onFocus={() => setInputFocused(true)}
             onBlur={() => setInputFocused(false)}
-            className="command-input h-full min-w-0 flex-1 bg-transparent text-[15px] text-[var(--ink)] outline-none placeholder:text-[var(--quiet)] focus-visible:outline-none"
+            className={commandInput}
           />
           {search && (
             <IconButton
-              className="h-8 w-8 rounded-full border-transparent bg-transparent shadow-none"
+              className={commandClearButton}
               onClick={clearSearch}
               aria-label={t("commandClearSearch")}
               title={t("commandClearSearch")}
@@ -335,22 +375,22 @@ export function CommandModal({
               <X size={16} strokeWidth={2.5} />
             </IconButton>
           )}
-          <kbd className={cn(keyBadge, "hidden px-2 py-1 text-[10px] sm:inline-flex")}>ESC</kbd>
+          <kbd className={cn(keyBadge, "hidden sm:inline-flex")}>ESC</kbd>
         </div>
         {showScopeMeta && (
-          <div className={cn(commandHintText, "flex items-center justify-between gap-3 px-5 py-2")}>
+          <div className={cn(commandHintText, commandScopeMeta)}>
             <span className="min-w-0 truncate">{searchScopeLabel}</span>
             <span className="hidden shrink-0 sm:inline">{t("commandScopeMeta")}</span>
           </div>
         )}
         {showResults && (
-          <div className="grid min-h-0 gap-0">
-            <div className="min-h-0 px-3 py-3">
-              <div className="flex items-center justify-between gap-3 px-3 pb-2">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--quiet)]">{t("smartMatches")}</span>
+          <div className={commandResultsShell}>
+            <div className={commandResultsBody}>
+              <div className={commandResultsHeader}>
+                <span className={commandResultsTitle}>{t("smartMatches")}</span>
                 <span className={cn(quietText, "hidden sm:inline")}>{t("commandKeyboardHint")}</span>
               </div>
-              <div id="command-results" role="listbox" className="grid max-h-[360px] gap-1 overflow-y-auto overscroll-contain pr-1">
+              <div id="command-results" role="listbox" className={commandResultsList}>
                 {visibleResults.map((file, index) => {
                   const tone = getResultTone(file);
                   const extension = file.extension ? file.extension.replace(".", "").toUpperCase() : file.file_type;
@@ -361,30 +401,28 @@ export function CommandModal({
                       role="option"
                       aria-selected={index === activeIndex}
                       className={cn(
-                        "grid min-h-[74px] grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border px-3 py-3 text-left transition-[background,border-color,box-shadow,color]",
-                        index === activeIndex
-                          ? "border-blue-400/36 bg-blue-500/9 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.08),0_0_0_3px_rgba(59,130,246,0.08)]"
-                          : "border-transparent hover:bg-[var(--surface-soft)] dark:hover:bg-slate-800/90"
+                        commandResultItemBase,
+                        index === activeIndex ? commandResultItemActive : commandResultItemInactive
                       )}
                       onClick={() => void chooseFile(file)}
                       onMouseEnter={() => setActiveIndex(index)}
                     >
-                      <span className={cn("grid h-10 w-10 place-items-center rounded-xl border", toneClasses(tone))}>
+                      <span className={cn(commandFileIcon, toneClasses(tone))}>
                         <File size={20} strokeWidth={1.5} />
                       </span>
                       <span className="grid min-w-0 gap-1.5">
-                        <strong className="block truncate text-sm font-semibold text-[var(--ink)]">
+                        <strong className={commandFileName}>
                           <HighlightText text={file.name} highlight={trimmedSearch} />
                         </strong>
-                        <span className={cn(quietText, "block truncate")} title={file.path}>{compactPath(file.path, 74)}</span>
-                        <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <span className={commandFileMeta} title={file.path}>{compactPath(file.path, 74)}</span>
+                        <span className={commandBadges}>
                           <ToneBadge tone="info">{file.purpose}</ToneBadge>
                           <ToneBadge tone="slate">{extension}</ToneBadge>
                           {file.risk_level !== "Normal" && <ToneBadge tone={file.risk_level === "Sensitive" ? "warning" : "amber"}>{file.risk_level === "Sensitive" ? t("sensitiveLabel") : file.risk_level}</ToneBadge>}
                           {file.is_duplicate && <ToneBadge tone="warning">{t("libraryDuplicateFiles")}</ToneBadge>}
                         </span>
                       </span>
-                      <span className="flex items-center gap-2 text-xs text-[var(--quiet)]">
+                      <span className={commandResultChevron}>
                         {index === activeIndex && <ChevronRight className="text-blue-500" size={16} />}
                       </span>
                     </button>
@@ -392,7 +430,7 @@ export function CommandModal({
                 })}
               </div>
             </div>
-            <div className="flex items-center justify-between gap-3 border-t border-[var(--line-dark)] px-5 py-3 text-xs text-[var(--muted)]">
+            <div className={commandFooter}>
               <span>{t("matchesFound").replace("{count}", String(visibleResults.length))}</span>
               <div className={commandShortcutHints}>
                 <ShortcutHint badge="↵" label={t("commandOpenHint")} />
@@ -403,7 +441,7 @@ export function CommandModal({
           </div>
         )}
         {shouldShowStateBlock && (
-          <div className="px-4 py-4" aria-live={queryState === "failed" ? "assertive" : "polite"} role={queryState === "failed" ? "alert" : "status"}>
+          <div className={commandStateWrapper} aria-live={queryState === "failed" ? "assertive" : "polite"} role={queryState === "failed" ? "alert" : "status"}>
             <StateBlock
               tone={queryState === "failed" ? "error" : queryState === "pending" ? "info" : isScopedEmpty ? "warning" : "neutral"}
               title={statusTitle}
@@ -417,16 +455,16 @@ export function CommandModal({
             />
           </div>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 }
 
 function ShortcutHint({ badge, label }: { badge: string; label: string }) {
   return (
-    <span className="inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
+    <span className={shortcutHint}>
       <kbd className={keyBadge}>{badge}</kbd>
-      <span className="hidden max-w-24 truncate sm:inline">{label}</span>
+      <span className={shortcutHintLabel}>{label}</span>
     </span>
   );
 }
@@ -440,7 +478,7 @@ function HighlightText({ text, highlight }: { text: string; highlight: string })
     <>
       {text.split(matcher).map((part, index) => (
         part.toLowerCase() === value.toLowerCase()
-          ? <mark className="rounded bg-blue-400/20 px-0.5 text-blue-700 dark:text-blue-200" key={`${part}-${index}`}>{part}</mark>
+          ? <mark className={highlightMark} key={`${part}-${index}`}>{part}</mark>
           : <span key={`${part}-${index}`}>{part}</span>
       ))}
     </>
