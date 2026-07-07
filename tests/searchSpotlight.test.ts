@@ -80,7 +80,7 @@ describe("spotlight search navigation", () => {
     expect(commandModal).toContain("const visibleResults = useMemo(() => results, [results])");
     expect(commandModal).not.toContain("results.slice(0, 12)");
     expect(commandModal).toContain("scrollIntoView({ block: \"nearest\" })");
-    expect(commandModal).toContain("overflow-y-auto overscroll-contain");
+    expect(commandModal).toContain("max-h-[50vh] overflow-y-auto p-2");
     expect(commandModal).not.toContain("tauriApi.getPagedFiles(12, 0, trimmedSearch");
     expect(appShell).toContain("resolveEffectiveSearchScope");
     expect(appShell).toContain("searchScope={effectiveSearchScope}");
@@ -121,9 +121,9 @@ describe("spotlight search navigation", () => {
     );
 
     expect(setupSearchWindow).toContain(".transparent(true)");
-    expect(appControl).toContain("SEARCH_WINDOW_WIDTH: f64 = 760.0");
-    expect(appControl).toContain("SEARCH_WINDOW_COLLAPSED_HEIGHT: f64 = 92.0");
-    expect(appControl).toContain("SEARCH_WINDOW_EXPANDED_HEIGHT: f64 = 520.0");
+    expect(appControl).toContain("SEARCH_WINDOW_WIDTH: f64 = 820.0");
+    expect(appControl).toContain("SEARCH_WINDOW_COLLAPSED_HEIGHT: f64 = 160.0");
+    expect(appControl).toContain("SEARCH_WINDOW_EXPANDED_HEIGHT: f64 = 660.0");
     expect(appControl).not.toContain("SEARCH_WINDOW_HEIGHT: f64 = 320.0");
     expect(appControl).toContain("pub fn resize_search_window<R: Runtime>");
     expect(appControl).toContain("expanded: bool");
@@ -154,15 +154,15 @@ describe("spotlight search navigation", () => {
     expect(appShell).not.toContain("h-screen w-screen");
     expect(appShell).toContain("<div className={searchWindowRoot}>");
     const commandModal = readFileSync(resolve("src/components/CommandModal.tsx"), "utf8");
-    expect(commandModal).toContain("standaloneSearchWindowCollapsedHeight = 92");
-    expect(commandModal).toContain("standaloneSearchWindowExpandedHeight = 520");
-    expect(commandModal).toContain("max-h-[360px] gap-1 overflow-y-auto overscroll-contain");
+    expect(commandModal).toContain("standaloneSearchWindowCollapsedHeight = 160");
+    expect(commandModal).toContain("standaloneSearchWindowExpandedHeight = 660");
+    expect(commandModal).toContain("max-h-[50vh] overflow-y-auto p-2");
     expect(commandModal).toContain("const isStandaloneCollapsed =");
     expect(commandModal).toContain("void tauriApi.resizeSearchWindow(!isStandaloneCollapsed).catch(() => undefined)");
     expect(commandModal).toContain("commandShellBase");
     expect(commandModal).toContain("commandShellCollapsed");
     expect(commandModal).toContain("commandShellExpanded");
-    expect(commandModal).toContain("h-full max-w-none rounded-full");
+    expect(commandModal).toContain("h-16 w-full max-w-[720px] rounded-full");
     expect(commandModal).toContain("const shouldShowIdleState = !standalone && !trimmedSearch");
     expect(commandModal).not.toContain("pt-[9vh]");
     expect(commandModal).not.toContain("px-5 pt-2");

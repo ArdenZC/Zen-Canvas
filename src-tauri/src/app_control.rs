@@ -26,11 +26,11 @@ const MAIN_WINDOW_LABEL: &str = "main";
 const SEARCH_WINDOW_LABEL: &str = "search";
 const SEARCH_WINDOW_URL: &str = "index.html?mode=search";
 #[cfg(feature = "desktop-runtime")]
-const SEARCH_WINDOW_WIDTH: f64 = 760.0;
+const SEARCH_WINDOW_WIDTH: f64 = 820.0;
 #[cfg(feature = "desktop-runtime")]
-const SEARCH_WINDOW_COLLAPSED_HEIGHT: f64 = 92.0;
+const SEARCH_WINDOW_COLLAPSED_HEIGHT: f64 = 160.0;
 #[cfg(feature = "desktop-runtime")]
-const SEARCH_WINDOW_EXPANDED_HEIGHT: f64 = 520.0;
+const SEARCH_WINDOW_EXPANDED_HEIGHT: f64 = 660.0;
 #[cfg(feature = "desktop-runtime")]
 const SEARCH_NAVIGATE_EVENT: &str = "search-navigate";
 #[cfg(feature = "desktop-runtime")]

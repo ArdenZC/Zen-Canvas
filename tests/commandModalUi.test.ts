@@ -29,8 +29,20 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).toContain('role={standalone ? "search" : "dialog"}');
     expect(commandModal).toContain("aria-modal={standalone ? undefined : true}");
     expect(commandModal).toContain('aria-label={t("globalSearch")}');
-    expect(commandModal).toContain("commandShortcutHints");
+    expect(commandModal).toContain("shortcutHints");
     expect(commandModal).not.toContain("scale-");
+  });
+
+  it("uses the standalone glass spotlight alignment and spring motion contract", () => {
+    const commandModal = read("src/components/CommandModal.tsx");
+
+    expect(commandModal).toContain(
+      'relative z-10 flex h-full w-full items-start justify-center bg-transparent pt-8 px-8'
+    );
+    expect(commandModal).toContain("initial={{ opacity: 0, scale: 0.95, y: 10 }}");
+    expect(commandModal).toContain("animate={{ opacity: 1, scale: 1, y: 0 }}");
+    expect(commandModal).toContain("exit={{ opacity: 0, scale: 0.95, y: 10 }}");
+    expect(commandModal).toContain('transition={{ type: "spring", damping: 25, stiffness: 300 }}');
   });
 
   it("keeps standalone idle spotlight collapsed to the search pill", () => {
@@ -43,9 +55,9 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).toContain("!isScopedEmpty");
     expect(commandModal).toContain("const shouldShowIdleState = !standalone && !trimmedSearch");
     expect(commandModal).toContain("isStandaloneCollapsed ? commandShellCollapsed : commandShellExpanded");
-    expect(commandModal).toContain("h-full max-w-none rounded-full");
-    expect(commandModal).toContain("standaloneSearchWindowCollapsedHeight = 92");
-    expect(commandModal).toContain("standaloneSearchWindowExpandedHeight = 520");
+    expect(commandModal).toContain("h-16 w-full max-w-[720px] rounded-full");
+    expect(commandModal).toContain("standaloneSearchWindowCollapsedHeight = 160");
+    expect(commandModal).toContain("standaloneSearchWindowExpandedHeight = 660");
     expect(commandModal).not.toContain("px-5 pt-2");
     expect(commandModal).not.toContain("pt-[9vh]");
   });

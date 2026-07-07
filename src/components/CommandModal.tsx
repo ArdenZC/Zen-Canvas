@@ -10,56 +10,55 @@ import { compactPath, readableError } from "../utils/viewHelpers";
 import { IconButton, StateBlock, ToneBadge, quietText } from "../views/shared/ui";
 
 const keyBadge =
-  "rounded bg-white px-1.5 py-0.5 font-sans text-xs font-medium text-neutral-600 shadow-sm border border-neutral-200 dark:border-white/10 dark:bg-neutral-800 dark:text-neutral-300";
-const commandHintText = "text-[11px] leading-tight text-[var(--quiet)]";
+  "flex items-center justify-center px-1.5 py-0.5 rounded bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-white/10 shadow-sm font-sans font-medium text-neutral-500 dark:text-neutral-400 text-[10px]";
 const commandShellBase =
-  "w-full overflow-hidden bg-white/95 shadow-2xl ring-1 ring-neutral-200/50 backdrop-blur-xl transition-[border-radius,background,box-shadow] dark:bg-neutral-900/95 dark:ring-white/10";
+  "w-full overflow-hidden bg-white dark:bg-neutral-900 shadow-2xl ring-1 ring-neutral-200 dark:ring-white/10 transition-[border-radius]";
 const commandShellCollapsed =
-  "h-full max-w-none rounded-full";
+  "h-16 w-full max-w-[720px] rounded-full";
 const commandShellExpanded =
   "rounded-2xl";
 const commandShellDialogWidth = "max-w-[720px]";
-const commandShellStandaloneExpanded = "max-w-none";
-const commandShortcutHints = "flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1";
+const commandShellStandaloneExpanded = "w-full max-w-[720px]";
+
 const commandInputRowBase =
-  "flex h-16 min-h-16 items-center gap-3 border-b border-neutral-100 px-5 transition-colors dark:border-white/10";
+  "relative flex h-16 min-h-16 items-center gap-3 border-b border-neutral-100 px-4 transition-colors dark:border-white/10";
 const commandInputRowCollapsed =
-  "flex h-full min-h-0 items-center gap-3 border-b-0 px-5 transition-colors";
-const commandInputRowFocused = "bg-white/70 dark:bg-white/[0.03]";
+  "relative flex h-16 min-h-16 items-center gap-3 border-b-0 px-4 transition-colors";
+const commandInputRowFocused = "";
+
 const commandSearchIcon =
-  "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600 ring-1 ring-blue-500/15 dark:bg-blue-500/10 dark:text-blue-200 dark:ring-blue-400/20";
+  "w-5 h-5 text-neutral-400 shrink-0 grid place-items-center";
+
 const commandInput =
   "command-input h-full min-w-0 flex-1 bg-transparent text-lg text-neutral-900 outline-none placeholder:text-neutral-400 focus:outline-none focus-visible:outline-none dark:text-neutral-100 dark:placeholder:text-neutral-500";
-const commandClearButton =
-  "h-8 w-8 rounded-lg border-transparent bg-transparent text-neutral-500 shadow-none hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-neutral-100";
-const commandScopeMeta =
-  "flex items-center justify-between gap-3 border-b border-neutral-100 px-5 py-2 dark:border-white/10";
+
 const commandResultsShell = "grid min-h-0 gap-0";
-const commandResultsBody = "min-h-0 px-3 py-3";
-const commandResultsHeader = "flex items-center justify-between gap-3 px-3 pb-2";
-const commandResultsTitle =
-  "text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-500 dark:text-neutral-400";
-const commandResultsList = "grid max-h-[360px] gap-1 overflow-y-auto overscroll-contain pr-1";
+const commandResultsBody = "max-h-[50vh] overflow-y-auto p-2";
+const commandResultsHeader = "px-3 py-2 text-xs font-semibold text-neutral-400 uppercase tracking-wider flex items-center justify-between";
+
+const commandResultsList = "flex flex-col gap-1";
 const commandResultItemBase =
-  "grid min-h-[74px] grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-3 py-2.5 text-left ring-1 ring-transparent transition-[background,box-shadow,color]";
-const commandResultItemActive = "bg-blue-50/80 ring-blue-500/20 dark:bg-blue-500/10";
-const commandResultItemInactive = "hover:bg-neutral-50 dark:hover:bg-white/[0.04]";
+  "w-full grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-4 px-3 py-3 rounded-xl transition-all duration-150 text-left";
+const commandResultItemActive =
+  "bg-blue-50 dark:bg-blue-500/10 ring-1 ring-blue-500/20";
+const commandResultItemInactive =
+  "hover:bg-neutral-50 dark:hover:bg-white/5";
+
 const commandFileIcon =
-  "flex h-10 w-10 items-center justify-center rounded-lg border";
-const commandFileName = "block truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100";
-const commandFileMeta = "block truncate text-xs text-neutral-500 dark:text-neutral-400";
-const commandBadges = "flex min-w-0 flex-wrap items-center gap-1.5";
-const commandResultChevron = "flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400";
+  "flex shrink-0 items-center justify-center w-10 h-10 rounded-lg border";
+const commandFileName = "text-sm font-medium truncate transition-colors text-neutral-900 dark:text-neutral-100";
+const commandFileMeta = "text-xs text-neutral-500 dark:text-neutral-400 truncate";
+
 const commandFooter =
-  "flex items-center justify-between gap-3 border-t border-neutral-100 bg-neutral-50 px-5 py-3 text-xs text-neutral-500 dark:border-white/10 dark:bg-white/[0.02] dark:text-neutral-400";
-const commandStateWrapper = "px-4 py-4";
+  "flex items-center justify-between px-4 py-3 bg-neutral-50 dark:bg-white/[0.02] border-t border-neutral-100 dark:border-white/10 text-xs text-neutral-500 dark:text-neutral-400";
+const shortcutHints = "flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1";
 const shortcutHint = "inline-flex min-w-0 items-center gap-1 whitespace-nowrap";
 const shortcutHintLabel = "hidden max-w-24 truncate text-neutral-500 sm:inline dark:text-neutral-400";
 const highlightMark =
   "rounded-sm bg-blue-100/50 px-1 text-blue-700 dark:bg-blue-500/30 dark:text-blue-200";
 const SEARCH_RESULT_LIMIT = 80;
-const standaloneSearchWindowCollapsedHeight = 92;
-const standaloneSearchWindowExpandedHeight = 520;
+const standaloneSearchWindowCollapsedHeight = 160;
+const standaloneSearchWindowExpandedHeight = 660;
 
 export async function activateCommandNavigation({
   standalone,
@@ -293,7 +292,7 @@ export function CommandModal({
     <div
       className={cn(
         standalone
-          ? "relative z-10 flex h-full w-full items-center justify-center bg-transparent p-0"
+          ? "relative z-10 flex h-full w-full items-start justify-center bg-transparent pt-8 px-8"
           : "fixed inset-0 z-40 flex items-start justify-center bg-neutral-950/25 px-5 pt-[12vh] backdrop-blur-lg"
       )}
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
@@ -304,10 +303,10 @@ export function CommandModal({
           isStandaloneCollapsed ? commandShellCollapsed : commandShellExpanded,
           !isStandaloneCollapsed && (standalone ? commandShellStandaloneExpanded : commandShellDialogWidth)
         )}
-        initial={{ opacity: 0, scale: 0.96, y: 12 }}
+        initial={{ opacity: 0, scale: 0.95, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96, y: 12 }}
-        transition={{ type: "spring", damping: 26, stiffness: 320 }}
+        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+        transition={{ type: "spring", damping: 25, stiffness: 300 }}
         role={standalone ? "search" : "dialog"}
         aria-modal={standalone ? undefined : true}
         aria-label={t("globalSearch")}
@@ -367,7 +366,7 @@ export function CommandModal({
           />
           {search && (
             <IconButton
-              className={commandClearButton}
+              className="h-8 w-8 rounded-lg border-transparent bg-transparent text-neutral-500 shadow-none hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-neutral-100"
               onClick={clearSearch}
               aria-label={t("commandClearSearch")}
               title={t("commandClearSearch")}
@@ -378,7 +377,7 @@ export function CommandModal({
           <kbd className={cn(keyBadge, "hidden sm:inline-flex")}>ESC</kbd>
         </div>
         {showScopeMeta && (
-          <div className={cn(commandHintText, commandScopeMeta)}>
+          <div className="flex items-center justify-between gap-3 border-b border-neutral-100 px-4 py-2 text-[11px] leading-tight text-neutral-500 dark:border-white/10 dark:text-neutral-400">
             <span className="min-w-0 truncate">{searchScopeLabel}</span>
             <span className="hidden shrink-0 sm:inline">{t("commandScopeMeta")}</span>
           </div>
@@ -387,7 +386,7 @@ export function CommandModal({
           <div className={commandResultsShell}>
             <div className={commandResultsBody}>
               <div className={commandResultsHeader}>
-                <span className={commandResultsTitle}>{t("smartMatches")}</span>
+                <span>{t("smartMatches")}</span>
                 <span className={cn(quietText, "hidden sm:inline")}>{t("commandKeyboardHint")}</span>
               </div>
               <div id="command-results" role="listbox" className={commandResultsList}>
@@ -415,14 +414,14 @@ export function CommandModal({
                           <HighlightText text={file.name} highlight={trimmedSearch} />
                         </strong>
                         <span className={commandFileMeta} title={file.path}>{compactPath(file.path, 74)}</span>
-                        <span className={commandBadges}>
+                        <span className="flex min-w-0 flex-wrap items-center gap-1.5">
                           <ToneBadge tone="info">{file.purpose}</ToneBadge>
                           <ToneBadge tone="slate">{extension}</ToneBadge>
                           {file.risk_level !== "Normal" && <ToneBadge tone={file.risk_level === "Sensitive" ? "warning" : "amber"}>{file.risk_level === "Sensitive" ? t("sensitiveLabel") : file.risk_level}</ToneBadge>}
                           {file.is_duplicate && <ToneBadge tone="warning">{t("libraryDuplicateFiles")}</ToneBadge>}
                         </span>
                       </span>
-                      <span className={commandResultChevron}>
+                      <span className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
                         {index === activeIndex && <ChevronRight className="text-blue-500" size={16} />}
                       </span>
                     </button>
@@ -432,7 +431,7 @@ export function CommandModal({
             </div>
             <div className={commandFooter}>
               <span>{t("matchesFound").replace("{count}", String(visibleResults.length))}</span>
-              <div className={commandShortcutHints}>
+              <div className={shortcutHints}>
                 <ShortcutHint badge="↵" label={t("commandOpenHint")} />
                 <ShortcutHint badge={locateKey} label={t("commandRevealHint")} />
                 <ShortcutHint badge={sortingPreviewKey} label={t("commandPreviewHint")} />
@@ -441,7 +440,7 @@ export function CommandModal({
           </div>
         )}
         {shouldShowStateBlock && (
-          <div className={commandStateWrapper} aria-live={queryState === "failed" ? "assertive" : "polite"} role={queryState === "failed" ? "alert" : "status"}>
+          <div className="px-4 py-4" aria-live={queryState === "failed" ? "assertive" : "polite"} role={queryState === "failed" ? "alert" : "status"}>
             <StateBlock
               tone={queryState === "failed" ? "error" : queryState === "pending" ? "info" : isScopedEmpty ? "warning" : "neutral"}
               title={statusTitle}
