@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
-  Eye,
   FolderOpen,
   HelpCircle,
   ListChecks,
@@ -120,7 +119,7 @@ function StorageCleanupPanel({
     }
   }
 
-  async function generateCleanupPreview() {
+  async function generateCleanupList() {
     if (!selectedCleanupIds.size) return;
     setIsGeneratingPreview(true);
     setError("");
@@ -160,6 +159,15 @@ function StorageCleanupPanel({
       >
         {t("storageCleanupSafetyDesc")}
       </NoticeBanner>
+
+      {isScanning && (
+        <NoticeBanner tone="info" title={t("storageCleanupLoading")}>
+          <div className="grid gap-1">
+            <span>{t("storageCleanupScanningDesc")}</span>
+            <span className={metadataText}>{t("storageCleanupProgressTodo")}</span>
+          </div>
+        </NoticeBanner>
+      )}
 
       {error && (
         <NoticeBanner tone="danger" title={t("storageCleanupLoadFailed")}>
@@ -219,24 +227,21 @@ function StorageCleanupPanel({
               <h2 className={sectionHeading}>{t("storageCleanupTopRanking")}</h2>
               <p className={sectionDescription}>{t("storageCleanupTopRankingDesc")}</p>
             </div>
-            <div className="max-h-[min(34vh,300px)] overflow-auto pr-1">
-              <div className="grid min-w-[720px] grid-cols-[minmax(140px,1.1fr)_minmax(220px,2fr)_110px_140px_96px] gap-3 border-b border-[var(--line)] px-2 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--quiet)]">
-                <span>{t("storageCleanupName")}</span>
-                <span>{t("storageCleanupPath")}</span>
-                <span>{t("storageCleanupSize")}</span>
-                <span>{t("storageCleanupCategory")}</span>
-                <span>{t("storageCleanupTier")}</span>
-              </div>
+            <div className="grid max-h-[min(36vh,320px)] gap-2 overflow-auto pr-1 sm:grid-cols-2 xl:grid-cols-4">
               {rankedCandidates.map((candidate) => (
                 <div
                   key={candidate.id}
-                  className="grid min-w-[720px] grid-cols-[minmax(140px,1.1fr)_minmax(220px,2fr)_110px_140px_96px] gap-3 border-b border-[var(--line-dark)] px-2 py-2 text-sm last:border-b-0"
+                  className={cn(softPanel, "grid min-w-0 gap-2 p-3")}
                 >
-                  <strong className="truncate text-[var(--ink)]">{candidate.name}</strong>
-                  <span className="truncate text-[var(--muted)]" title={candidate.path}>{compactPath(candidate.path, 82)}</span>
-                  <span className="tabular-nums text-[var(--ink)]">{formatBytes(candidate.size)}</span>
-                  <span className="truncate text-[var(--muted)]">{candidate.category}</span>
-                  <TierBadge tier={candidate.tier} t={t} />
+                  <div className="flex min-w-0 items-start justify-between gap-2">
+                    <strong className="min-w-0 truncate text-sm text-[var(--ink)]">{candidate.name}</strong>
+                    <ToneBadge tone={tierTone(candidate.tier)}>{formatBytes(candidate.size)}</ToneBadge>
+                  </div>
+                  <span className={quietText} title={candidate.path}>{compactPath(candidate.path, 78)}</span>
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    <ToneBadge tone="slate">{candidate.category}</ToneBadge>
+                    <TierBadge tier={candidate.tier} t={t} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -288,7 +293,7 @@ function StorageCleanupPanel({
             </div>
             <button
               className={glassButtonPrimary}
-              onClick={generateCleanupPreview}
+              onClick={generateCleanupList}
               disabled={!selectedCleanupIds.size || isGeneratingPreview}
             >
               <ListChecks size={17} />
@@ -430,7 +435,9 @@ function groupCandidates(candidates: StorageCandidate[]) {
 }
 
 function defaultSelectedCleanupIds(analysis?: StorageAnalysis | null): string[] {
-  return (analysis?.candidates ?? []).filter(canSelectForCleanup).map((candidate) => candidate.id);
+  return (analysis?.candidates ?? [])
+    .filter((candidate) => canSelectForCleanup(candidate) && candidate.selected_by_default)
+    .map((candidate) => candidate.id);
 }
 
 function canSelectForCleanup(candidate: StorageCandidate) {

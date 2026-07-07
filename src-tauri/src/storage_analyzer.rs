@@ -33,6 +33,7 @@ pub struct StorageCandidate {
     pub suggested_action: CleanupActionKind,
     pub risk_note: Option<String>,
     pub trash_allowed: bool,
+    pub selected_by_default: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -138,6 +139,10 @@ pub fn analyze_storage_roots_for_test(
 
 pub fn classify_candidate_for_test(path: &Path, size: u64) -> StorageCandidate {
     classify_candidate(path, size)
+}
+
+pub fn default_scan_roots_for_test() -> Vec<PathBuf> {
+    default_scan_roots()
 }
 
 pub fn is_forbidden_storage_path_for_test(path: &Path) -> bool {
@@ -348,6 +353,17 @@ fn classify_candidate(path: &Path, size: u64) -> StorageCandidate {
             CleanupActionKind::AppInternalCleanup,
             Some("Use browser settings for cache, profile, or account cleanup.".to_string()),
         )
+    } else if lower_name == "node_modules" {
+        (
+            CleanupTier::Safe,
+            "Regenerable dependency folder".to_string(),
+            "node_modules dependencies can usually be recreated by the package manager.".to_string(),
+            CleanupActionKind::MoveToTrash,
+            Some(
+                "Review project context first: dependency folders can contain linked packages or local patches."
+                    .to_string(),
+            ),
+        )
     } else if is_temp_path(&lower) {
         (
             CleanupTier::Safe,
@@ -358,12 +374,15 @@ fn classify_candidate(path: &Path, size: u64) -> StorageCandidate {
         )
     } else if is_generated_dir_name(path) {
         (
-                CleanupTier::Safe,
-                "Regenerable development output".to_string(),
-                "Build output or dependency cache can usually be recreated by the package manager or build tool.".to_string(),
-                CleanupActionKind::MoveToTrash,
-                None,
-            )
+            CleanupTier::Safe,
+            "Regenerable development output".to_string(),
+            "Build output can usually be recreated by the build tool.".to_string(),
+            CleanupActionKind::MoveToTrash,
+            Some(
+                "Confirm this is generated output before adding it to the cleanup list."
+                    .to_string(),
+            ),
+        )
     } else if is_package_cache_path(&lower, &lower_name) {
         (
             CleanupTier::Safe,
@@ -418,6 +437,10 @@ fn classify_candidate(path: &Path, size: u64) -> StorageCandidate {
     let trash_allowed = tier == CleanupTier::Safe
         && suggested_action == CleanupActionKind::MoveToTrash
         && !is_forbidden_storage_path(path, &[]);
+    let selected_by_default = trash_allowed
+        && (is_temp_path(&lower)
+            || is_package_cache_path(&lower, &lower_name)
+            || lower_name == "node_modules");
 
     StorageCandidate {
         id: candidate_id(&normalized),
@@ -430,6 +453,7 @@ fn classify_candidate(path: &Path, size: u64) -> StorageCandidate {
         suggested_action,
         risk_note,
         trash_allowed,
+        selected_by_default,
     }
 }
 
@@ -460,13 +484,20 @@ fn default_scan_roots() -> Vec<PathBuf> {
     push_if_some(&mut roots, dirs::download_dir());
     push_if_some(&mut roots, dirs::desktop_dir());
     push_if_some(&mut roots, dirs::document_dir());
+    add_standard_user_roots(&mut roots);
     roots.push(env::temp_dir());
-    push_if_some(&mut roots, dirs::data_local_dir());
-    push_if_some(&mut roots, dirs::data_dir());
     add_home_dev_cache_roots(&mut roots);
-    add_program_files_roots(&mut roots);
     dedupe_paths(&mut roots);
     roots
+}
+
+fn add_standard_user_roots(roots: &mut Vec<PathBuf>) {
+    let Some(home) = dirs::home_dir() else {
+        return;
+    };
+    for relative in ["Downloads", "Desktop", "Documents"] {
+        roots.push(home.join(relative));
+    }
 }
 
 fn add_home_dev_cache_roots(roots: &mut Vec<PathBuf>) {
@@ -485,14 +516,6 @@ fn add_home_dev_cache_roots(roots: &mut Vec<PathBuf>) {
         "AppData/Local/Temp",
     ] {
         roots.push(home.join(relative));
-    }
-}
-
-fn add_program_files_roots(roots: &mut Vec<PathBuf>) {
-    for key in ["ProgramFiles", "ProgramFiles(x86)"] {
-        if let Ok(value) = env::var(key) {
-            roots.push(PathBuf::from(value));
-        }
     }
 }
 

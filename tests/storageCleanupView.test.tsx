@@ -26,7 +26,21 @@ const analysis: StorageAnalysis = {
       reason: "Package dependencies can be recreated.",
       suggested_action: "MoveToTrash",
       risk_note: null,
-      trash_allowed: true
+      trash_allowed: true,
+      selected_by_default: true
+    },
+    {
+      id: "safe-build",
+      path: "C:/Users/Zen/Project/build",
+      name: "build",
+      size: 700_000_000,
+      tier: "Safe",
+      category: "Regenerable development output",
+      reason: "Build output can be recreated.",
+      suggested_action: "MoveToTrash",
+      risk_note: "Confirm this is generated output before cleanup.",
+      trash_allowed: true,
+      selected_by_default: false
     },
     {
       id: "review-video",
@@ -38,7 +52,8 @@ const analysis: StorageAnalysis = {
       reason: "User-owned media needs review.",
       suggested_action: "Reveal",
       risk_note: "Open the location before selecting cleanup.",
-      trash_allowed: false
+      trash_allowed: false,
+      selected_by_default: false
     },
     {
       id: "caution-app",
@@ -50,7 +65,8 @@ const analysis: StorageAnalysis = {
       reason: "Installed app body.",
       suggested_action: "UninstallAdvice",
       risk_note: "Use the app uninstaller.",
-      trash_allowed: false
+      trash_allowed: false,
+      selected_by_default: false
     }
   ]
 };
@@ -64,14 +80,14 @@ describe("StorageCleanupView", () => {
     expect(markup).toContain("可安全清理");
     expect(markup).toContain("需人工判断");
     expect(markup).toContain("谨慎处理");
-    expect(markup).toContain("执行前仍会进入预览确认，不会自动删除文件");
+    expect(markup).toContain("当前版本不会执行清理，不会自动删除文件");
     expect(markup).toContain("未统计，结果可能低估");
     expect(markup).toContain("node_modules");
     expect(markup).toContain("course.mp4");
     expect(markup).toContain("Example");
   });
 
-  it("selects only safe candidates for cleanup preview by default", async () => {
+  it("selects only conservative safe candidates for the cleanup list by default", async () => {
     const api = {
       scanStorageCleanup: vi.fn().mockResolvedValue(analysis),
       revealStorageCandidate: vi.fn().mockResolvedValue(undefined),
@@ -81,9 +97,12 @@ describe("StorageCleanupView", () => {
       <StorageCleanupView initialAnalysis={analysis} api={api} t={makeTranslator("zh")} />
     );
 
-    expect(markup).toContain("加入清理预览");
-    expect(markup).toContain("生成清理预览");
+    expect(markup).toContain("加入清理清单");
+    expect(markup).toContain("生成清理清单");
+    expect(markup).not.toContain("生成清理预览");
+    expect(markup).toContain("当前版本不会执行清理");
     expect(markup).toContain("data-selected-cleanup-ids=\"safe-node-modules\"");
+    expect(markup).not.toContain("data-selected-cleanup-ids=\"safe-build");
     expect(markup).not.toContain("data-selected-cleanup-ids=\"review-video");
     expect(markup).not.toContain("data-selected-cleanup-ids=\"caution-app");
   });
@@ -95,11 +114,11 @@ describe("StorageCleanupView", () => {
 
     expect(markup).toContain("打开位置");
     expect(markup).toContain("查看建议");
-    expect(markup).not.toContain("review-video\">加入清理预览");
-    expect(markup).not.toContain("caution-app\">加入清理预览");
+    expect(markup).not.toContain("review-video\">加入清理清单");
+    expect(markup).not.toContain("caution-app\">加入清理清单");
   });
 
-  it("uses existing primitives and bounded scroll areas for the desktop minimum size", () => {
+  it("uses existing primitives and avoids horizontal ranking tables at the desktop minimum size", () => {
     const source = read("src/views/cleanup/StorageCleanupView.tsx");
 
     expect(source).toContain("pageSurface");
@@ -112,6 +131,15 @@ describe("StorageCleanupView", () => {
     expect(source).toContain("MetricCard");
     expect(source).toContain("overflow-auto");
     expect(source).toContain("max-h");
+    expect(source).not.toContain("min-w-[720px]");
+    expect(source).not.toContain("grid-cols-[minmax(140px,1.1fr)_minmax(220px,2fr)_110px_140px_96px]");
     expect(source).not.toContain("backdrop-blur");
+  });
+
+  it("shows an active scan explanation and future progress/cancel TODO", () => {
+    const source = read("src/views/cleanup/StorageCleanupView.tsx");
+
+    expect(source).toContain('t("storageCleanupScanningDesc")');
+    expect(source).toContain('t("storageCleanupProgressTodo")');
   });
 });

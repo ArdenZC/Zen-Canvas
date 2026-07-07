@@ -325,8 +325,22 @@ function mockStorageAnalysis(): StorageAnalysis {
       category: "Regenerable development output",
       reason: "Build output or dependency cache can usually be recreated.",
       suggested_action: "MoveToTrash",
-      risk_note: null,
-      trash_allowed: true
+      risk_note: "Review project context first: dependency folders can contain linked packages or local patches.",
+      trash_allowed: true,
+      selected_by_default: true
+    },
+    {
+      id: "storage-safe-build",
+      path: "C:/Users/Zen/Projects/demo/build",
+      name: "build",
+      size: 640_000_000,
+      tier: "Safe",
+      category: "Regenerable development output",
+      reason: "Build output can usually be recreated.",
+      suggested_action: "MoveToTrash",
+      risk_note: "Confirm this is generated output before adding it to the cleanup list.",
+      trash_allowed: true,
+      selected_by_default: false
     },
     {
       id: "storage-review-download",
@@ -338,7 +352,8 @@ function mockStorageAnalysis(): StorageAnalysis {
       reason: "User-owned content needs review before cleanup.",
       suggested_action: "Reveal",
       risk_note: "Open the location and review it manually.",
-      trash_allowed: false
+      trash_allowed: false,
+      selected_by_default: false
     },
     {
       id: "storage-caution-app",
@@ -350,7 +365,8 @@ function mockStorageAnalysis(): StorageAnalysis {
       reason: "Use the app uninstaller instead of deleting files directly.",
       suggested_action: "UninstallAdvice",
       risk_note: "Manual deletion can leave services and shared components behind.",
-      trash_allowed: false
+      trash_allowed: false,
+      selected_by_default: false
     }
   ] satisfies StorageAnalysis["candidates"];
 

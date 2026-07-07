@@ -300,6 +300,7 @@ export interface StorageCandidate {
   suggested_action: CleanupActionKind;
   risk_note: string | null;
   trash_allowed: boolean;
+  selected_by_default: boolean;
 }
 
 export interface StorageAnalysis {

@@ -6,8 +6,8 @@ use std::{
 
 use zen_canvas_tauri::storage_analyzer::{
     analyze_storage_roots_for_test, classify_candidate_for_test,
-    cleanup_preview_items_for_candidates, is_forbidden_storage_path_for_test, CleanupActionKind,
-    CleanupTier, StorageCandidate,
+    cleanup_preview_items_for_candidates, default_scan_roots_for_test,
+    is_forbidden_storage_path_for_test, CleanupActionKind, CleanupTier, StorageCandidate,
 };
 
 #[test]
@@ -27,7 +27,39 @@ fn storage_analyzer_classifies_regenerable_build_outputs_as_safe() {
     assert_eq!(candidate.tier, CleanupTier::Safe);
     assert_eq!(candidate.suggested_action, CleanupActionKind::MoveToTrash);
     assert!(candidate.trash_allowed);
+    assert!(candidate.selected_by_default);
+    assert!(candidate
+        .risk_note
+        .as_deref()
+        .unwrap_or("")
+        .contains("dependency"));
     assert!(analysis.reclaimable_estimate >= candidate.size);
+}
+
+#[test]
+fn default_storage_cleanup_roots_do_not_scan_entire_appdata_or_program_files() {
+    let roots = default_scan_roots_for_test()
+        .into_iter()
+        .map(|path| {
+            path.to_string_lossy()
+                .replace('\\', "/")
+                .to_ascii_lowercase()
+        })
+        .collect::<Vec<_>>();
+
+    assert!(roots.iter().any(|path| path.contains("/downloads")));
+    assert!(roots.iter().any(|path| path.contains("/desktop")));
+    assert!(roots.iter().any(|path| path.contains("/documents")));
+    assert!(roots.iter().any(|path| path.contains("/temp")));
+    assert!(roots
+        .iter()
+        .any(|path| path.contains(".npm") || path.contains("npm-cache")));
+    assert!(!roots.iter().any(|path| path.ends_with("/appdata/local")));
+    assert!(!roots.iter().any(|path| path.ends_with("/appdata/roaming")));
+    assert!(!roots.iter().any(|path| path.ends_with("/program files")));
+    assert!(!roots
+        .iter()
+        .any(|path| path.ends_with("/program files (x86)")));
 }
 
 #[test]
@@ -104,8 +136,25 @@ fn storage_analyzer_marks_temp_and_package_caches_safe() {
 
     assert_eq!(temp_candidate.tier, CleanupTier::Safe);
     assert!(temp_candidate.trash_allowed);
+    assert!(temp_candidate.selected_by_default);
     assert_eq!(cargo_candidate.tier, CleanupTier::Safe);
     assert!(cargo_candidate.trash_allowed);
+    assert!(cargo_candidate.selected_by_default);
+}
+
+#[test]
+fn storage_analyzer_does_not_select_build_outputs_by_default() {
+    for path in [
+        "C:/Users/zen/project/build",
+        "C:/Users/zen/project/dist",
+        "C:/Users/zen/project/target",
+    ] {
+        let candidate = classify_candidate_for_test(&PathBuf::from(path), 500);
+
+        assert_eq!(candidate.tier, CleanupTier::Safe);
+        assert!(candidate.trash_allowed);
+        assert!(!candidate.selected_by_default);
+    }
 }
 
 #[test]
@@ -140,6 +189,7 @@ fn cleanup_preview_items_reject_system_paths_even_if_client_marks_them_safe() {
         suggested_action: CleanupActionKind::MoveToTrash,
         risk_note: None,
         trash_allowed: true,
+        selected_by_default: true,
     };
 
     let preview = cleanup_preview_items_for_candidates(vec![forged.id.clone()], &[forged])
