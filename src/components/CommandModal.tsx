@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
-import { ChevronRight, File, Search, X, Folder, Video, Image as ImageIcon, Code, FileText } from "lucide-react";
+import type * as React from "react";
+import { ChevronRight, File, Search, X, Folder, Video, Image as ImageIcon, Code, FileText, CornerDownLeft } from "lucide-react";
 import { motion } from "motion/react";
 import { tauriApi } from "../api/tauriApi";
 import type { FileRecord, LibraryScope } from "../types/domain";
@@ -10,7 +11,7 @@ import { compactPath, readableError } from "../utils/viewHelpers";
 import { IconButton, StateBlock, ToneBadge, quietText } from "../views/shared/ui";
 
 const keyBadge =
-  "flex items-center justify-center px-1.5 py-0.5 rounded bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-white/10 shadow-sm font-sans font-medium text-neutral-500 dark:text-neutral-400 text-[10px]";
+  "flex items-center justify-center px-1.5 py-0.5 rounded bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-white/10 shadow-sm font-mono font-medium text-neutral-500 dark:text-neutral-400 text-[10px]";
 const commandShellBase =
   "w-full overflow-hidden bg-white dark:bg-neutral-900 shadow-2xl ring-1 ring-neutral-200 dark:ring-white/10 transition-[border-radius]";
 const commandShellCollapsed =
@@ -101,7 +102,6 @@ export function CommandModal({
   setView,
   setSelectedFileId,
   onClose,
-  platform,
   t,
   onError,
   searchScope,
@@ -133,8 +133,6 @@ export function CommandModal({
   const showResults = trimmedSearch.length > 0 && results.length > 0;
   const activeResultId = showResults ? `command-result-${activeIndex}` : undefined;
   const isScopedEmpty = Boolean(searchScopeEmptyMessage);
-  const locateKey = platform === "darwin" ? "⌥↵" : "Alt↵";
-  const sortingPreviewKey = platform === "darwin" ? "⌘↵ / ⌘P" : "Ctrl↵ / Ctrl P";
   const isCustomRootNoResults =
     searchScope?.kind === "roots"
     && searchScope.roots.length > 0
@@ -306,7 +304,7 @@ export function CommandModal({
       className={cn(
         standalone
           ? "relative z-10 flex h-full w-full items-start justify-center bg-transparent pt-8 px-8"
-          : "fixed inset-0 z-40 flex items-start justify-center bg-neutral-950/25 px-5 pt-[12vh] backdrop-blur-lg"
+          : "fixed inset-0 z-40 flex items-start justify-center bg-neutral-900/40 px-5 pt-[15vh] sm:pt-[20vh] backdrop-blur-md"
       )}
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
@@ -423,7 +421,7 @@ export function CommandModal({
                         {getIcon(file.extension ? file.extension.replace(".", "") : file.file_type)}
                       </span>
                       <span className="grid min-w-0 gap-1.5">
-                        <strong className={commandFileName}>
+                        <strong className={cn(commandFileName, index === activeIndex ? "text-blue-900 dark:text-blue-100" : "")}>
                           <HighlightText text={file.name} highlight={trimmedSearch} />
                         </strong>
                         <span className={commandFileMeta} title={file.path}>{compactPath(file.path, 74)}</span>
@@ -445,9 +443,9 @@ export function CommandModal({
             <div className={commandFooter}>
               <span>{t("matchesFound").replace("{count}", String(visibleResults.length))}</span>
               <div className={shortcutHints}>
-                <ShortcutHint badge="↵" label={t("commandOpenHint")} />
-                <ShortcutHint badge={locateKey} label={t("commandRevealHint")} />
-                <ShortcutHint badge={sortingPreviewKey} label={t("commandPreviewHint")} />
+                <ShortcutHint badge={<CornerDownLeft className="w-3 h-3" />} label={t("commandOpenHint")} />
+                <ShortcutHint badge="↑↓" label="to navigate" />
+                <ShortcutHint badge="ESC" label="to close" />
               </div>
             </div>
           </div>
@@ -472,7 +470,7 @@ export function CommandModal({
   );
 }
 
-function ShortcutHint({ badge, label }: { badge: string; label: string }) {
+function ShortcutHint({ badge, label }: { badge: React.ReactNode; label: string }) {
   return (
     <span className={shortcutHint}>
       <kbd className={keyBadge}>{badge}</kbd>

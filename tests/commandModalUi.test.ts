@@ -63,10 +63,29 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).toContain(
       'relative z-10 flex h-full w-full items-start justify-center bg-transparent pt-8 px-8'
     );
+    expect(commandModal).toContain(
+      'fixed inset-0 z-40 flex items-start justify-center bg-neutral-900/40 px-5 pt-[15vh] sm:pt-[20vh] backdrop-blur-md'
+    );
     expect(commandModal).toContain("initial={{ opacity: 0, scale: 0.95, y: 10 }}");
     expect(commandModal).toContain("animate={{ opacity: 1, scale: 1, y: 0 }}");
     expect(commandModal).toContain("exit={{ opacity: 0, scale: 0.95, y: 10 }}");
     expect(commandModal).toContain('transition={{ type: "spring", damping: 25, stiffness: 300 }}');
+  });
+
+  it("uses polished shortcut badges and active result text treatment", () => {
+    const commandModal = read("src/components/CommandModal.tsx");
+
+    expect(commandModal).toContain("CornerDownLeft");
+    expect(commandModal).toContain("font-mono");
+    expect(commandModal).not.toContain("font-sans font-medium");
+    expect(commandModal).toContain('function ShortcutHint({ badge, label }: { badge: React.ReactNode; label: string })');
+    expect(commandModal).toContain('<ShortcutHint badge={<CornerDownLeft className="w-3 h-3" />} label={t("commandOpenHint")} />');
+    expect(commandModal).toContain('<ShortcutHint badge="↑↓" label="to navigate" />');
+    expect(commandModal).toContain('<ShortcutHint badge="ESC" label="to close" />');
+    expect(commandModal).toContain('cn(commandFileName, index === activeIndex ? "text-blue-900 dark:text-blue-100" : "")');
+    expect(commandModal).not.toContain('ShortcutHint badge="↵"');
+    expect(commandModal).not.toContain("badge={locateKey}");
+    expect(commandModal).not.toContain("badge={sortingPreviewKey}");
   });
 
   it("keeps standalone idle spotlight collapsed to the search pill", () => {
