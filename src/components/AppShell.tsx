@@ -1,6 +1,7 @@
 import {
   Archive,
   Clock3,
+  Eraser,
   FolderSearch,
   LayoutGrid,
   ListChecks,
@@ -36,6 +37,7 @@ import {
   RestoreView,
   RulesView,
   ScannerView,
+  StorageCleanupView,
   SettingsView,
   TimelineView,
   VaultView
@@ -377,6 +379,7 @@ function AppViewContent() {
   const { view } = useChromeContext();
 
   if (view === "scanner") return <ScannerView />;
+  if (view === "cleanup") return <StorageCleanupView />;
   if (view === "organize") return <HubView />;
   if (view === "library") return <VaultView />;
   if (view === "preview") return <TimelineView />;
@@ -395,6 +398,8 @@ function viewDescription(
   switch (view) {
     case "scanner":
       return `${t("lastScan")}: ${stats.lastScannedAt ? formatDate(stats.lastScannedAt) : t("notScannedYet")}`;
+    case "cleanup":
+      return t("viewDescCleanup");
     case "organize":
       return `${t("currentOrganizeScope")}: ${scopeText} · ${t("viewDescOrganize")}`;
     case "library":
@@ -419,6 +424,7 @@ function navGroups(t: Translator): NavGroup[] {
       label: t("navWorkspace"),
       items: [
         { id: "scanner", label: t("spaceScan"), icon: Radar },
+        { id: "cleanup", label: t("storageCleanup"), icon: Eraser },
         { id: "organize", label: t("smartDispatch"), icon: LayoutGrid },
         { id: "library", label: t("fileLibrary"), icon: Archive },
         { id: "preview", label: t("previewExecute"), icon: ListChecks }

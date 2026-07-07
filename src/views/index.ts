@@ -1,4 +1,5 @@
 export { ScannerView } from "./scanner/ScannerView";
+export { StorageCleanupView } from "./cleanup/StorageCleanupView";
 export { HubView } from "./hub/HubView";
 export { VaultView } from "./vault/VaultView";
 export { TimelineView } from "./timeline/TimelineView";
