@@ -18,6 +18,10 @@ describe("background indexer", () => {
     expect(runtimeProviders).toContain("enabledSearchRootPaths(appSettings.customSearchRoots)");
     expect(runtimeProviders).toContain("if (isSearchMode || isLoadingSettings) return");
     expect(runtimeProviders).toContain("appSettings.backgroundIndexOnStartup === false");
+    expect(runtimeProviders).toContain("const backgroundIndexRoots = useMemo");
+    expect(runtimeProviders).toContain("const backgroundIndexRootSignature = useMemo");
+    expect(runtimeProviders).toContain("backgroundIndexRootSignature");
+    expect(runtimeProviders).not.toContain("appSettings.searchHotkey,\n    appSettings.customSearchRoots");
     expect(indexerStore).toContain("pendingRoots: string[]");
     expect(indexerStore).toContain("currentRoot: string | null");
     expect(indexerStore).toContain("isBackgroundIndexing: boolean");
@@ -28,7 +32,10 @@ describe("background indexer", () => {
     expect(indexerStore).toContain("const knownRoots = new Set");
     expect(indexerStore).toContain("...state.pendingRoots.map(normalizeRoot)");
     expect(indexerStore).toContain("state.currentRoot ? [normalizeRoot(state.currentRoot)]");
-    expect(indexerStore).not.toContain("...state.completedRoots.map(normalizeRoot)");
+    expect(indexerStore).toContain("recentlyIndexedRoots");
+    expect(indexerStore).toContain("markRecentlyIndexedRoot(root)");
+    expect(indexerStore).toContain("options?.force");
+    expect(indexerStore).toContain("state.completedRoots.map(normalizeRoot)");
     expect(indexerStore).toContain("useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery)");
     expect(indexerStore).not.toContain("showSuccess");
     expect(indexerStore).not.toContain("showError");
@@ -57,7 +64,9 @@ describe("background indexer", () => {
     expect(settingsView).toContain('t("backgroundIndexingQueue")');
     expect(settingsView).toContain('t("backgroundIndexOnStartup")');
     expect(settingsView).toContain('t("searchLocalIndexBoundary")');
-    expect(settingsView).toContain("enqueueBackgroundIndexRoot(root.path)");
+    expect(settingsView).toContain("enqueueBackgroundIndexRoot(path)");
+    expect(settingsView).toContain("if (enabled) enqueueBackgroundIndexRoot(root.path, { force: true })");
+    expect(settingsView).toContain("enqueueBackgroundIndexRoot(root.path, { force: true })");
     expect(settingsView).toContain("indexSearchRootNow");
   });
 

@@ -95,17 +95,25 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     useScanManagerStore.getState().setDefaultScanRoots(appSettings.defaultScanFolders);
   }, [appSettings.defaultScanFolders, isSearchMode]);
 
+  const backgroundIndexRoots = useMemo(
+    () => [
+      ...enabledScanRootPaths(appSettings.defaultScanFolders),
+      ...enabledSearchRootPaths(appSettings.customSearchRoots)
+    ],
+    [appSettings.defaultScanFolders, appSettings.customSearchRoots]
+  );
+  const backgroundIndexRootSignature = useMemo(
+    () => backgroundIndexRoots.map(backgroundIndexRootKey).sort().join("\n"),
+    [backgroundIndexRoots]
+  );
+
   useEffect(() => {
     if (isSearchMode || isLoadingSettings) return;
     if (appSettings.backgroundIndexOnStartup === false) return;
-    enqueueBackgroundIndexRoots([
-      ...enabledScanRootPaths(appSettings.defaultScanFolders),
-      ...enabledSearchRootPaths(appSettings.customSearchRoots)
-    ]);
+    enqueueBackgroundIndexRoots(backgroundIndexRoots);
   }, [
     appSettings.backgroundIndexOnStartup,
-    appSettings.customSearchRoots,
-    appSettings.defaultScanFolders,
+    backgroundIndexRootSignature,
     enqueueBackgroundIndexRoots,
     isLoadingSettings,
     isSearchMode
@@ -394,4 +402,8 @@ function StoreRuntimeBootstrapper({ enabled }: { enabled: boolean }) {
 
 function arraysEqual<T>(left: readonly T[], right: readonly T[]) {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function backgroundIndexRootKey(path: string) {
+  return path.trim().replace(/\\+/g, "/").replace(/\/+$/g, "").toLowerCase();
 }

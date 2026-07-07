@@ -219,7 +219,7 @@ export function SettingsView() {
   async function setSearchRootEnabled(root: SearchRootSetting, enabled: boolean) {
     const saved = await setCustomSearchRoots(toggleSearchRoot(customSearchRoots, root.id, enabled));
     if (saved) {
-      if (enabled) enqueueBackgroundIndexRoot(root.path);
+      if (enabled) enqueueBackgroundIndexRoot(root.path, { force: true });
       showStatus(enabled ? `${t("settingsSavedInline")} · ${t("backgroundIndexQueued")}` : t("settingsSavedInline"));
     }
   }
@@ -251,7 +251,7 @@ export function SettingsView() {
   }
 
   function indexSearchRootNow(root: SearchRootSetting) {
-    enqueueBackgroundIndexRoot(root.path);
+    enqueueBackgroundIndexRoot(root.path, { force: true });
     showStatus(t("backgroundIndexQueued"));
   }
 

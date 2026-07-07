@@ -10,22 +10,29 @@ export interface BackgroundIndexFailure {
   message: string;
 }
 
+export interface BackgroundIndexEnqueueOptions {
+  force?: boolean;
+}
+
 export interface BackgroundIndexerStore {
   pendingRoots: string[];
   currentRoot: string | null;
   isBackgroundIndexing: boolean;
   failedRoots: BackgroundIndexFailure[];
   completedRoots: string[];
-  enqueueRoot: (path: string) => void;
-  enqueueRoots: (paths: string[]) => void;
+  enqueueRoot: (path: string, options?: BackgroundIndexEnqueueOptions) => void;
+  enqueueRoots: (paths: string[], options?: BackgroundIndexEnqueueOptions) => void;
   cancelBackgroundIndexing: () => Promise<void>;
 }
 
 const BACKGROUND_INDEXER_FOREGROUND_WAIT_MS = 1200;
 const MAX_BACKGROUND_INDEX_HISTORY = 6;
+const MAX_RECENTLY_INDEXED_ROOTS = 200;
 
 let isProcessingBackgroundQueue = false;
 let isCancelingBackgroundQueue = false;
+const recentlyIndexedRoots = new Set<string>();
+const recentlyIndexedRootOrder: string[] = [];
 
 export const useBackgroundIndexerStore = create<BackgroundIndexerStore>((set, get) => ({
   pendingRoots: [],
@@ -33,22 +40,26 @@ export const useBackgroundIndexerStore = create<BackgroundIndexerStore>((set, ge
   isBackgroundIndexing: false,
   failedRoots: [],
   completedRoots: [],
-  enqueueRoot: (path) => get().enqueueRoots([path]),
-  enqueueRoots: (paths) => {
+  enqueueRoot: (path, options) => get().enqueueRoots([path], options),
+  enqueueRoots: (paths, options) => {
     const normalizedPaths = uniqueNormalizedRoots(paths);
     if (!normalizedPaths.length) return;
 
+    let queuedRoots = false;
     set((state) => {
       const knownRoots = new Set([
         ...state.pendingRoots.map(normalizeRoot),
-        ...(state.currentRoot ? [normalizeRoot(state.currentRoot)] : [])
+        ...(state.currentRoot ? [normalizeRoot(state.currentRoot)] : []),
+        ...(!options?.force ? state.completedRoots.map(normalizeRoot) : []),
+        ...(!options?.force ? Array.from(recentlyIndexedRoots) : [])
       ]);
       const nextRoots = normalizedPaths.filter((path) => !knownRoots.has(normalizeRoot(path)));
       if (!nextRoots.length) return state;
+      queuedRoots = true;
       return { pendingRoots: [...state.pendingRoots, ...nextRoots] };
     });
 
-    scheduleBackgroundIndexing();
+    if (queuedRoots) scheduleBackgroundIndexing();
   },
   cancelBackgroundIndexing: async () => {
     isCancelingBackgroundQueue = true;
@@ -99,6 +110,7 @@ async function processBackgroundQueue() {
     try {
       await tauriApi.startScan(root, false);
       if (!isCancelingBackgroundQueue) {
+        markRecentlyIndexedRoot(root);
         useBackgroundIndexerStore.setState((state) => ({
           completedRoots: [root, ...state.completedRoots.filter((item) => normalizeRoot(item) !== normalizeRoot(root))]
             .slice(0, MAX_BACKGROUND_INDEX_HISTORY),
@@ -139,6 +151,19 @@ function uniqueNormalizedRoots(paths: string[]) {
     roots.push(path.trim());
   }
   return roots;
+}
+
+function markRecentlyIndexedRoot(path: string) {
+  const normalized = normalizeRoot(path);
+  if (!normalized) return;
+  if (!recentlyIndexedRoots.has(normalized)) {
+    recentlyIndexedRootOrder.push(normalized);
+  }
+  recentlyIndexedRoots.add(normalized);
+  while (recentlyIndexedRootOrder.length > MAX_RECENTLY_INDEXED_ROOTS) {
+    const staleRoot = recentlyIndexedRootOrder.shift();
+    if (staleRoot) recentlyIndexedRoots.delete(staleRoot);
+  }
 }
 
 function normalizeRoot(path: string) {
