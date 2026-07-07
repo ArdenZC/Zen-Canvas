@@ -10,9 +10,16 @@ import { IconButton, StateBlock, ToneBadge, quietText } from "../views/shared/ui
 const keyBadge =
   "rounded-md border border-[var(--line-dark)] bg-[var(--surface-soft)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--quiet)] shadow-sm";
 const commandHintText = "text-[11px] leading-tight text-[var(--quiet)]";
-const commandShell =
-  "w-full max-w-[720px] overflow-hidden border border-[var(--line)] bg-[rgba(248,250,252,0.94)] shadow-[0_24px_76px_rgba(15,23,42,0.24),0_1px_0_rgba(255,255,255,0.72)_inset] backdrop-blur-xl transition-[border-radius,background,box-shadow] dark:border-slate-700/80 dark:bg-[rgba(15,23,42,0.96)] dark:shadow-[0_28px_86px_rgba(0,0,0,0.74),0_1px_0_rgba(255,255,255,0.08)_inset]";
+const commandShellBase =
+  "w-full overflow-hidden border border-[var(--line)] bg-[rgba(248,250,252,0.94)] backdrop-blur-xl transition-[border-radius,background,box-shadow] dark:border-slate-700/80 dark:bg-[rgba(15,23,42,0.96)]";
+const commandShellCollapsed =
+  "h-full max-w-none rounded-full shadow-[0_14px_42px_rgba(15,23,42,0.18),0_1px_0_rgba(255,255,255,0.64)_inset] dark:shadow-[0_16px_44px_rgba(0,0,0,0.42),0_1px_0_rgba(255,255,255,0.08)_inset]";
+const commandShellExpanded =
+  "max-w-[720px] rounded-[1.7rem] shadow-[0_24px_76px_rgba(15,23,42,0.24),0_1px_0_rgba(255,255,255,0.72)_inset] dark:shadow-[0_28px_86px_rgba(0,0,0,0.74),0_1px_0_rgba(255,255,255,0.08)_inset]";
+const commandShellStandaloneExpanded = "max-w-none";
 const commandShortcutHints = "flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1";
+const standaloneSearchWindowCollapsedHeight = 96;
+const standaloneSearchWindowExpandedHeight = 420;
 
 export async function activateCommandNavigation({
   standalone,
@@ -107,7 +114,19 @@ export function CommandModal({
           : trimmedSearch
             ? t("commandNoResults")
             : t("commandIdleDesc");
-  const shouldShowStateBlock = !showResults && (queryState !== "idle" || !trimmedSearch || isScopedEmpty);
+  const isStandaloneCollapsed =
+    standalone
+    && !trimmedSearch
+    && queryState === "idle"
+    && !isScopedEmpty;
+  const shouldShowIdleState = !standalone && !trimmedSearch;
+  const shouldShowStateBlock = !showResults && (queryState !== "idle" || shouldShowIdleState || isScopedEmpty);
+  const showScopeMeta = Boolean(searchScopeLabel && !isStandaloneCollapsed);
+
+  useEffect(() => {
+    if (!standalone) return;
+    void tauriApi.resizeSearchWindow(!isStandaloneCollapsed).catch(() => undefined);
+  }, [isStandaloneCollapsed, standalone]);
 
   useEffect(() => {
     if (!trimmedSearch) {
@@ -211,16 +230,16 @@ export function CommandModal({
     <div
       className={cn(
         standalone
-          ? "relative z-10 flex h-full w-full items-start justify-center bg-transparent px-5 pt-2"
+          ? "relative z-10 flex h-full w-full items-center justify-center bg-transparent p-0"
           : "fixed inset-0 z-40 flex items-start justify-center bg-slate-950/20 px-5 pt-[12vh] backdrop-blur-lg"
       )}
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
       <div
         className={cn(
-          commandShell,
-          standalone && "mt-1",
-          showResults || shouldShowStateBlock ? "rounded-[1.7rem]" : "rounded-full"
+          commandShellBase,
+          isStandaloneCollapsed ? commandShellCollapsed : commandShellExpanded,
+          standalone && !isStandaloneCollapsed && commandShellStandaloneExpanded
         )}
         role={standalone ? "search" : "dialog"}
         aria-modal={standalone ? undefined : true}
@@ -258,9 +277,10 @@ export function CommandModal({
       >
         <div
           className={cn(
-            "flex h-[60px] min-h-[60px] items-center gap-3 border border-transparent px-5 transition-[border-color,box-shadow]",
+            "flex items-center gap-3 border border-transparent px-5 transition-[border-color,box-shadow]",
+            isStandaloneCollapsed ? "h-full min-h-0" : "h-[60px] min-h-[60px]",
             inputFocused && "border-blue-400/35 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.08),0_0_0_3px_rgba(59,130,246,0.08)]",
-            (showResults || shouldShowStateBlock || searchScopeLabel) && "border-b-[var(--line-dark)]"
+            (showResults || shouldShowStateBlock || showScopeMeta) && "border-b-[var(--line-dark)]"
           )}
         >
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-blue-400/22 bg-blue-500/10 text-blue-600 dark:text-blue-300">
@@ -292,7 +312,7 @@ export function CommandModal({
           )}
           <kbd className={cn(keyBadge, "hidden px-2 py-1 text-[10px] sm:inline-flex")}>ESC</kbd>
         </div>
-        {searchScopeLabel && (
+        {showScopeMeta && (
           <div className={cn(commandHintText, "flex items-center justify-between gap-3 px-5 py-2")}>
             <span className="min-w-0 truncate">{searchScopeLabel}</span>
             <span className="hidden shrink-0 sm:inline">{t("commandScopeMeta")}</span>

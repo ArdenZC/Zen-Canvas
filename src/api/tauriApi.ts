@@ -231,6 +231,10 @@ export const tauriApi = {
     return invokeCommand<void>("activate_search_result", { view, fileId });
   },
 
+  resizeSearchWindow(expanded: boolean): Promise<void> {
+    return invokeCommand<void>("resize_search_window", { expanded });
+  },
+
   initDatabase(): Promise<void> {
     return invokeCommand<void>("init_db");
   },

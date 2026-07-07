@@ -28,7 +28,9 @@ const SEARCH_WINDOW_URL: &str = "index.html?mode=search";
 #[cfg(feature = "desktop-runtime")]
 const SEARCH_WINDOW_WIDTH: f64 = 760.0;
 #[cfg(feature = "desktop-runtime")]
-const SEARCH_WINDOW_HEIGHT: f64 = 320.0;
+const SEARCH_WINDOW_COLLAPSED_HEIGHT: f64 = 96.0;
+#[cfg(feature = "desktop-runtime")]
+const SEARCH_WINDOW_EXPANDED_HEIGHT: f64 = 420.0;
 #[cfg(feature = "desktop-runtime")]
 const SEARCH_NAVIGATE_EVENT: &str = "search-navigate";
 #[cfg(feature = "desktop-runtime")]
@@ -133,6 +135,14 @@ pub fn register_global_search_hotkey<R: Runtime>(
     register_global_search_shortcut(&app, &status_state, &accelerator)
 }
 
+#[tauri::command]
+pub fn resize_search_window<R: Runtime>(
+    app: AppHandle<R>,
+    expanded: bool,
+) -> Result<(), String> {
+    resize_search_window_for_state(&app, expanded).map_err(|error| error.to_string())
+}
+
 #[cfg(feature = "desktop-runtime")]
 fn activate_search_result_payload<R: Runtime>(
     app: &AppHandle<R>,
@@ -164,9 +174,12 @@ pub fn setup_search_window(app: &mut App) -> tauri::Result<()> {
         WebviewUrl::App(search_window_url().into()),
     )
     .title("Zen Canvas Search")
-    .inner_size(SEARCH_WINDOW_WIDTH, SEARCH_WINDOW_HEIGHT)
+    .inner_size(SEARCH_WINDOW_WIDTH, SEARCH_WINDOW_COLLAPSED_HEIGHT)
+    .min_inner_size(SEARCH_WINDOW_WIDTH, SEARCH_WINDOW_COLLAPSED_HEIGHT)
+    .max_inner_size(SEARCH_WINDOW_WIDTH, SEARCH_WINDOW_EXPANDED_HEIGHT)
     .decorations(false)
     .transparent(true)
+    .shadow(false)
     .resizable(false)
     .skip_taskbar(true)
     .always_on_top(true)
@@ -407,16 +420,39 @@ fn emit_global_hotkey_error<R: Runtime>(app: &AppHandle<R>, message: String) {
 }
 
 #[cfg(feature = "desktop-runtime")]
+fn resize_search_window_for_state<R: Runtime>(
+    app: &AppHandle<R>,
+    expanded: bool,
+) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window(SEARCH_WINDOW_LABEL) {
+        window.set_size(Size::Logical(LogicalSize {
+            width: SEARCH_WINDOW_WIDTH,
+            height: if expanded {
+                SEARCH_WINDOW_EXPANDED_HEIGHT
+            } else {
+                SEARCH_WINDOW_COLLAPSED_HEIGHT
+            },
+        }))?;
+        window.center()?;
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "desktop-runtime"))]
+fn resize_search_window_for_state<R: Runtime>(
+    _app: &AppHandle<R>,
+    _expanded: bool,
+) -> tauri::Result<()> {
+    Ok(())
+}
+
+#[cfg(feature = "desktop-runtime")]
 pub fn toggle_search_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     if let Some(window) = app.get_webview_window(SEARCH_WINDOW_LABEL) {
         if window.is_visible()? {
             window.hide()?;
         } else {
-            window.set_size(Size::Logical(LogicalSize {
-                width: SEARCH_WINDOW_WIDTH,
-                height: SEARCH_WINDOW_HEIGHT,
-            }))?;
-            window.center()?;
+            resize_search_window_for_state(app, false)?;
             window.show()?;
             window.set_focus()?;
         }

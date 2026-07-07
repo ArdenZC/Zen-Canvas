@@ -117,6 +117,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "reveal_in_folder":
     case "quit_app":
     case "activate_search_result":
+    case "resize_search_window":
     case "insert_file":
       return undefined as T;
     case "get_paged_files":

@@ -132,7 +132,7 @@ export function AppShell() {
 
 function SearchWindow() {
   return (
-    <div className={cn(searchWindowRoot, "flex items-start justify-center")}>
+    <div className={searchWindowRoot}>
       <CommandLauncher standalone />
     </div>
   );

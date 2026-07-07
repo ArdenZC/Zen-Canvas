@@ -33,6 +33,21 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).not.toContain("scale-");
   });
 
+  it("keeps standalone idle spotlight collapsed to the search pill", () => {
+    const commandModal = read("src/components/CommandModal.tsx");
+
+    expect(commandModal).toContain("const isStandaloneCollapsed =");
+    expect(commandModal).toContain("standalone");
+    expect(commandModal).toContain("!trimmedSearch");
+    expect(commandModal).toContain('queryState === "idle"');
+    expect(commandModal).toContain("!isScopedEmpty");
+    expect(commandModal).toContain("const shouldShowIdleState = !standalone && !trimmedSearch");
+    expect(commandModal).toContain("isStandaloneCollapsed ? commandShellCollapsed : commandShellExpanded");
+    expect(commandModal).toContain("h-full max-w-none rounded-full");
+    expect(commandModal).not.toContain("px-5 pt-2");
+    expect(commandModal).not.toContain("pt-[9vh]");
+  });
+
   it("adds product copy for spotlight states and shortcut hints", () => {
     const zh = makeTranslator("zh");
     const en = makeTranslator("en");
