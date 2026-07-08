@@ -47,6 +47,9 @@ pub struct AIDebugClassificationResult {
     pub model_returned_ref_id: Option<String>,
     pub model_returned_id: Option<String>,
     pub id_mapping_matched: bool,
+    pub missing_optional_fields: Vec<String>,
+    pub fallback_applied: bool,
+    pub item_parse_warnings: Vec<String>,
 }
 
 pub trait AIDebugRawProvider {
@@ -255,6 +258,18 @@ fn build_debug_result(
         .as_ref()
         .map(|resolution| resolution.matched)
         .unwrap_or(false);
+    let missing_optional_fields = parsed_output
+        .as_ref()
+        .map(|output| output.missing_optional_fields.clone())
+        .unwrap_or_default();
+    let fallback_applied = parsed_output
+        .as_ref()
+        .map(|output| output.fallback_applied)
+        .unwrap_or(false);
+    let item_parse_warnings = parsed_output
+        .as_ref()
+        .map(|output| output.item_parse_warnings.clone())
+        .unwrap_or_default();
     let mapping_error = parsed_output
         .as_ref()
         .and_then(|output| id_map.resolve_output(output).err());
@@ -328,6 +343,9 @@ fn build_debug_result(
         model_returned_ref_id,
         model_returned_id,
         id_mapping_matched,
+        missing_optional_fields,
+        fallback_applied,
+        item_parse_warnings,
     }
 }
 

@@ -148,6 +148,9 @@ export interface AIDebugClassificationResult {
   modelReturnedRefId: string | null;
   modelReturnedId: string | null;
   idMappingMatched: boolean;
+  missingOptionalFields: string[];
+  fallbackApplied: boolean;
+  itemParseWarnings: string[];
 }
 
 export interface RuleExecutionSummary {

@@ -710,14 +710,15 @@ function mockAIDebugClassification(args?: Record<string, unknown>): AIDebugClass
         message: {
           role: "assistant",
           content: JSON.stringify({
-            items: [
+            classifications: [
               {
-                fileId,
+                refId: "f1",
                 fileType: "Document",
                 purpose: "Work",
                 lifecycle: "Active",
                 riskLevel: "Normal",
                 suggestedAction: "Move",
+                targetTemplate: "Work/Reports",
                 confidence: 0.86,
                 reason: "Browser mock debug response."
               }
@@ -743,10 +744,10 @@ function mockAIDebugClassification(args?: Record<string, unknown>): AIDebugClass
     httpStatus: 200,
     providerResponseSummary: "has_choices=true; choice_count=1; finish_reason=stop; message_keys=[content,role]; content_type=string; content_length=180; has_reasoning_content=false; reasoning_content_length=0",
     rawResponsePreview,
-    messageContentPreview: "{\"items\":[{\"fileId\":\"" + fileId + "\",\"fileType\":\"Document\"}]}",
+    messageContentPreview: "{\"classifications\":[{\"refId\":\"f1\",\"fileType\":\"Document\"}]}",
     reasoningContentPreview: "",
-    extractedContentPreview: "{\"items\":[{\"fileId\":\"" + fileId + "\",\"fileType\":\"Document\"}]}",
-    cleanedContentPreview: "{\"items\":[{\"fileId\":\"" + fileId + "\",\"fileType\":\"Document\"}]}",
+    extractedContentPreview: "{\"classifications\":[{\"refId\":\"f1\",\"fileType\":\"Document\"}]}",
+    cleanedContentPreview: "{\"classifications\":[{\"refId\":\"f1\",\"fileType\":\"Document\"}]}",
     parseStage: "parse_ai_classification_response",
     parseError: null,
     success: true,
@@ -755,7 +756,10 @@ function mockAIDebugClassification(args?: Record<string, unknown>): AIDebugClass
     path: "C:/Users/Zen/Documents/project-report.pdf",
     modelReturnedRefId: "f1",
     modelReturnedId: null,
-    idMappingMatched: true
+    idMappingMatched: true,
+    missingOptionalFields: ["suggestedName", "keywords", "context", "requiresConfirmation"],
+    fallbackApplied: true,
+    itemParseWarnings: ["requiresConfirmation missing; safe fallback applied"]
   };
 }
 

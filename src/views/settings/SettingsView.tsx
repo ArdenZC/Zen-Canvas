@@ -972,6 +972,8 @@ export function SettingsView() {
                         <span>refId: {aiDebugResult.refId || "未生成"} · real file id: {aiDebugResult.realFileId || "未匹配"}</span>
                         <span>Path: {compactPath(aiDebugResult.path, 96)}</span>
                         <span>Model returned refId/id: {aiDebugResult.modelReturnedRefId ?? "空"} / {aiDebugResult.modelReturnedId ?? "空"} · idMappingMatched: {String(aiDebugResult.idMappingMatched)}</span>
+                        <span>missingOptionalFields: {aiDebugResult.missingOptionalFields.length ? aiDebugResult.missingOptionalFields.join(", ") : "无"} · fallbackApplied: {String(aiDebugResult.fallbackApplied)}</span>
+                        <span>itemParseWarnings: {aiDebugResult.itemParseWarnings.length ? aiDebugResult.itemParseWarnings.join("；") : "无"}</span>
                       </div>
                       <DebugPreviewBlock label="response summary" value={aiDebugResult.providerResponseSummary} apiKey={aiSettings.apiKey} />
                       <DebugPreviewBlock label="raw response preview" value={aiDebugResult.rawResponsePreview} apiKey={aiSettings.apiKey} />

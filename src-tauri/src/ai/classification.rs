@@ -54,28 +54,43 @@ pub struct AIClassificationInputFile {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AIClassificationOutput {
-    #[serde(default)]
+    #[serde(default, alias = "ref_id")]
     pub ref_id: Option<String>,
     #[serde(default)]
     pub id: String,
+    #[serde(default = "default_file_type", alias = "file_type")]
     pub file_type: String,
+    #[serde(default = "default_purpose", alias = "purpose")]
     pub purpose: String,
+    #[serde(default = "default_lifecycle", alias = "lifecycle")]
     pub lifecycle: String,
+    #[serde(default, alias = "context")]
     pub context: String,
+    #[serde(default = "default_risk_level", alias = "risk_level")]
     pub risk_level: String,
+    #[serde(default = "default_suggested_action", alias = "suggested_action")]
     pub suggested_action: String,
+    #[serde(default, alias = "target_template")]
     pub target_template: String,
+    #[serde(default, alias = "suggested_name")]
     pub suggested_name: Option<String>,
+    #[serde(default = "default_confidence", alias = "confidence")]
     pub confidence: f64,
+    #[serde(default, alias = "reason")]
     pub reason: String,
+    #[serde(default, alias = "keywords")]
     pub keywords: Vec<String>,
+    #[serde(
+        default = "default_requires_confirmation",
+        alias = "requires_confirmation"
+    )]
     pub requires_confirmation: bool,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AIClassificationResponse {
-    classifications: Vec<AIClassificationOutput>,
+    #[serde(skip)]
+    pub missing_optional_fields: Vec<String>,
+    #[serde(skip)]
+    pub fallback_applied: bool,
+    #[serde(skip)]
+    pub item_parse_warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -431,6 +446,9 @@ pub(crate) fn sanitize_ai_classification_result(
     let suggested_name = sanitize_suggested_name(output.suggested_name.as_deref());
     let confidence = output.confidence.clamp(0.0, 1.0);
     let mut requires_confirmation = output.requires_confirmation;
+    if output.fallback_applied {
+        requires_confirmation = true;
+    }
 
     if risk_level == "Sensitive" {
         suggested_action = "Review".to_string();
@@ -629,9 +647,13 @@ fn classify_ai_targets_with_provider(
                     true,
                 )?;
                 parse_ai_classification_response(&retry_content).map_err(|error| {
-                    format!(
-                        "{error} 已尝试清洗和重试，但仍失败。建议关闭 thinking，或换用 deepseek-v4-flash / qwen-plus 等更稳定的非思考模型。"
-                    )
+                    if is_ai_classification_schema_error(&error) {
+                        format!("{error} 已尝试清洗和重试，但仍失败。")
+                    } else {
+                        format!(
+                            "{error} 已尝试清洗和重试，但仍失败。建议关闭 thinking，或换用 deepseek-v4-flash / qwen-plus 等更稳定的非思考模型。"
+                        )
+                    }
                 })?
             }
         };
@@ -725,25 +747,116 @@ fn classification_outputs_from_value(
     value: serde_json::Value,
 ) -> Result<Vec<AIClassificationOutput>, String> {
     if value.is_array() {
-        return serde_json::from_value::<Vec<AIClassificationOutput>>(value)
-            .map_err(|error| format!("classification array schema mismatch: {error}"));
+        return classification_outputs_from_array(&value);
     }
 
-    if value.get("classifications").is_some() {
-        return serde_json::from_value::<AIClassificationResponse>(value)
-            .map(|response| response.classifications)
-            .map_err(|error| format!("classification object schema mismatch: {error}"));
+    if let Some(classifications) = value.get("classifications") {
+        return classification_outputs_from_array(classifications);
     }
 
     if let Some(result) = value.get("result") {
-        if result.get("classifications").is_some() {
-            return serde_json::from_value::<AIClassificationResponse>(result.clone())
-                .map(|response| response.classifications)
-                .map_err(|error| format!("result.classifications schema mismatch: {error}"));
+        if let Some(classifications) = result.get("classifications") {
+            return classification_outputs_from_array(classifications);
         }
     }
 
     Err("missing classifications array".to_string())
+}
+
+fn classification_outputs_from_array(
+    classifications: &serde_json::Value,
+) -> Result<Vec<AIClassificationOutput>, String> {
+    let Some(items) = classifications.as_array() else {
+        return Err("classifications is not an array".to_string());
+    };
+    let mut outputs = Vec::new();
+    let mut skipped_invalid_items = 0_usize;
+    for item in items {
+        match classification_output_from_item(item) {
+            Ok(Some(output)) => outputs.push(output),
+            Ok(None) => skipped_invalid_items += 1,
+            Err(_) => skipped_invalid_items += 1,
+        }
+    }
+    if outputs.is_empty() {
+        return Err(
+            "AI 返回了 JSON，但没有任何可应用的分类项。请减少 Batch Size 或重试。".to_string(),
+        );
+    }
+    if skipped_invalid_items > 0 {
+        for output in &mut outputs {
+            output
+                .item_parse_warnings
+                .push(format!("skippedInvalidItems={skipped_invalid_items}"));
+        }
+    }
+    Ok(outputs)
+}
+
+fn classification_output_from_item(
+    item: &serde_json::Value,
+) -> Result<Option<AIClassificationOutput>, String> {
+    let Some(object) = item.as_object() else {
+        return Err("classification item is not an object".to_string());
+    };
+    if !has_any_key(object, &["refId", "ref_id", "id"]) {
+        return Ok(None);
+    }
+
+    let mut missing_optional_fields = Vec::new();
+    for (field, keys) in [
+        ("targetTemplate", &["targetTemplate", "target_template"][..]),
+        ("suggestedName", &["suggestedName", "suggested_name"][..]),
+        ("reason", &["reason"][..]),
+        ("keywords", &["keywords"][..]),
+        ("context", &["context"][..]),
+        (
+            "requiresConfirmation",
+            &["requiresConfirmation", "requires_confirmation"][..],
+        ),
+        ("confidence", &["confidence"][..]),
+    ] {
+        if !has_any_key(object, keys) {
+            missing_optional_fields.push(field.to_string());
+        }
+    }
+
+    let mut fallback_fields = Vec::new();
+    for (field, keys) in [
+        ("fileType", &["fileType", "file_type"][..]),
+        ("purpose", &["purpose"][..]),
+        ("lifecycle", &["lifecycle"][..]),
+        ("riskLevel", &["riskLevel", "risk_level"][..]),
+        (
+            "suggestedAction",
+            &["suggestedAction", "suggested_action"][..],
+        ),
+    ] {
+        if !has_any_key(object, keys) {
+            fallback_fields.push(field.to_string());
+        }
+    }
+
+    let mut output = serde_json::from_value::<AIClassificationOutput>(item.clone())
+        .map_err(|error| format!("classification item schema mismatch: {error}"))?;
+    output.missing_optional_fields = missing_optional_fields;
+    output.fallback_applied = !fallback_fields.is_empty()
+        || output
+            .missing_optional_fields
+            .iter()
+            .any(|field| matches!(field.as_str(), "confidence" | "requiresConfirmation"));
+    output.item_parse_warnings = fallback_fields
+        .into_iter()
+        .map(|field| format!("{field} missing; safe fallback applied"))
+        .collect();
+    if output.fallback_applied {
+        output.requires_confirmation = true;
+    }
+    Ok(Some(output))
+}
+
+fn has_any_key(object: &serde_json::Map<String, serde_json::Value>, keys: &[&str]) -> bool {
+    keys.iter().any(|key| object.contains_key(*key))
 }
 
 fn ai_classification_json_error(content: &str, detail: &str) -> String {
@@ -756,7 +869,47 @@ fn ai_classification_json_error(content: &str, detail: &str) -> String {
         return "模型返回了 Markdown 代码块，Zen Canvas 已尝试提取 JSON，但结构仍不符合要求。"
             .to_string();
     }
+    if detail.contains("没有任何可应用的分类项") {
+        return detail.to_string();
+    }
+    if detail.contains("classification item schema mismatch") {
+        return "AI 返回了 JSON，但部分分类项缺少字段，Zen Canvas 已尝试使用安全默认值处理。严重无效的项目会被跳过。".to_string();
+    }
     format!("模型返回的内容不是 Zen Canvas 需要的 JSON 格式。已尝试清洗，但仍失败：{detail}")
+}
+
+fn is_ai_classification_schema_error(error: &str) -> bool {
+    error.contains("AI 返回了 JSON")
+        || error.contains("classification item schema mismatch")
+        || error.contains("没有任何可应用的分类项")
+}
+
+fn default_file_type() -> String {
+    "Other".to_string()
+}
+
+fn default_purpose() -> String {
+    "Unknown".to_string()
+}
+
+fn default_lifecycle() -> String {
+    "Inbox".to_string()
+}
+
+fn default_risk_level() -> String {
+    "Unknown".to_string()
+}
+
+fn default_suggested_action() -> String {
+    "Review".to_string()
+}
+
+fn default_confidence() -> f64 {
+    0.5
+}
+
+fn default_requires_confirmation() -> bool {
+    true
 }
 
 fn require_allowed(field: &str, value: &str, allowed: &[&str]) -> Result<String, String> {
@@ -961,6 +1114,139 @@ mod tests {
     }
 
     #[test]
+    fn classification_item_missing_target_template_defaults_empty() {
+        let outputs = parse_ai_classification_response(
+            r#"{"classifications":[{"refId":"f1","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Move","suggestedName":"","confidence":0.92,"reason":"ok","keywords":["Scala"],"requiresConfirmation":false}]}"#,
+        )
+        .expect("parse missing targetTemplate");
+
+        assert_eq!(outputs[0].target_template, "");
+        assert!(outputs[0]
+            .missing_optional_fields
+            .contains(&"targetTemplate".to_string()));
+    }
+
+    #[test]
+    fn classification_item_missing_suggested_name_defaults_empty() {
+        let outputs = parse_ai_classification_response(
+            r#"{"classifications":[{"refId":"f1","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Review","targetTemplate":"","confidence":0.92,"reason":"ok","keywords":["Scala"],"requiresConfirmation":true}]}"#,
+        )
+        .expect("parse missing suggestedName");
+
+        assert_eq!(outputs[0].suggested_name.as_deref(), None);
+        assert!(outputs[0]
+            .missing_optional_fields
+            .contains(&"suggestedName".to_string()));
+    }
+
+    #[test]
+    fn classification_item_missing_keywords_defaults_empty() {
+        let outputs = parse_ai_classification_response(
+            r#"{"classifications":[{"refId":"f1","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Review","targetTemplate":"","suggestedName":"","confidence":0.92,"reason":"ok","requiresConfirmation":true}]}"#,
+        )
+        .expect("parse missing keywords");
+
+        assert!(outputs[0].keywords.is_empty());
+    }
+
+    #[test]
+    fn classification_item_missing_reason_defaults_empty() {
+        let outputs = parse_ai_classification_response(
+            r#"{"classifications":[{"refId":"f1","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Review","targetTemplate":"","suggestedName":"","confidence":0.92,"keywords":["Scala"],"requiresConfirmation":true}]}"#,
+        )
+        .expect("parse missing reason");
+
+        assert_eq!(outputs[0].reason, "");
+    }
+
+    #[test]
+    fn classification_item_missing_confidence_defaults_half_and_requires_confirmation() {
+        let outputs = parse_ai_classification_response(
+            r#"{"classifications":[{"refId":"f1","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Review","targetTemplate":"","suggestedName":"","reason":"ok","keywords":["Scala"],"requiresConfirmation":false}]}"#,
+        )
+        .expect("parse missing confidence");
+
+        assert_eq!(outputs[0].confidence, 0.5);
+        assert!(outputs[0].requires_confirmation);
+        assert!(outputs[0].fallback_applied);
+    }
+
+    #[test]
+    fn classification_item_missing_suggested_action_falls_back_review() {
+        let outputs = parse_ai_classification_response(
+            r#"{"classifications":[{"refId":"f1","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","targetTemplate":"","suggestedName":"","confidence":0.92,"reason":"ok","keywords":["Scala"],"requiresConfirmation":false}]}"#,
+        )
+        .expect("parse missing suggestedAction");
+
+        assert_eq!(outputs[0].suggested_action, "Review");
+        assert!(outputs[0].requires_confirmation);
+        assert!(outputs[0].fallback_applied);
+    }
+
+    #[test]
+    fn classification_item_missing_file_type_falls_back_other() {
+        let outputs = parse_ai_classification_response(
+            r#"{"classifications":[{"refId":"f1","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Review","targetTemplate":"","suggestedName":"","confidence":0.92,"reason":"ok","keywords":["Scala"],"requiresConfirmation":false}]}"#,
+        )
+        .expect("parse missing fileType");
+
+        assert_eq!(outputs[0].file_type, "Other");
+        assert!(outputs[0].requires_confirmation);
+        assert!(outputs[0].fallback_applied);
+    }
+
+    #[test]
+    fn classification_item_missing_ref_id_and_id_is_skipped() {
+        let error = parse_ai_classification_response(
+            r#"{"classifications":[{"fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Review","targetTemplate":"","suggestedName":"","confidence":0.92,"reason":"ok","keywords":["Scala"],"requiresConfirmation":true}]}"#,
+        )
+        .expect_err("no applicable items");
+
+        assert!(error.contains("没有任何可应用的分类项"));
+    }
+
+    #[test]
+    fn batch_with_invalid_item_still_parses_valid_item() {
+        let outputs = parse_ai_classification_response(
+            r#"{"classifications":[{"fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Review","targetTemplate":"","suggestedName":"","confidence":0.92,"reason":"missing id","keywords":["Scala"],"requiresConfirmation":true},{"refId":"f1","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Move","suggestedName":"","confidence":0.92,"reason":"ok","keywords":["Scala"],"requiresConfirmation":false}]}"#,
+        )
+        .expect("parse valid item");
+
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0].ref_id.as_deref(), Some("f1"));
+        assert!(outputs[0]
+            .item_parse_warnings
+            .iter()
+            .any(|warning| warning == "skippedInvalidItems=1"));
+    }
+
+    #[test]
+    fn empty_target_template_with_move_downgrades_to_review() {
+        let requested = requested_ids(&["file-1"]);
+        let output = parse_ai_classification_response(
+            r#"{"classifications":[{"id":"file-1","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Move","suggestedName":"","confidence":0.92,"reason":"ok","keywords":["Scala"],"requiresConfirmation":false}]}"#,
+        )
+        .expect("parse missing targetTemplate")
+        .remove(0);
+
+        let sanitized = sanitize_ai_classification_result(output, &requested).expect("sanitize");
+        assert_eq!(sanitized.suggested_action, "Review");
+        assert!(sanitized.requires_confirmation);
+    }
+
+    #[test]
+    fn schema_error_message_does_not_suggest_disabling_thinking() {
+        let error = parse_ai_classification_response(
+            r#"{"classifications":[{"fileType":"Document","purpose":"Teaching"}]}"#,
+        )
+        .expect_err("no applicable items");
+
+        assert!(!error.contains("关闭 Thinking"));
+        assert!(!error.contains("非思考模型"));
+        assert!(error.contains("没有任何可应用的分类项"));
+    }
+
+    #[test]
     fn invalid_json_retries_once_then_writes_valid_result() {
         let db = test_db();
         insert_test_file(&db, "file-1", "/tmp/Scala期末复习题.pdf");
@@ -1097,6 +1383,27 @@ mod tests {
         assert_eq!(row.1, "Move");
         assert_eq!(row.2, "classified");
         assert!(row.3.contains("ai:deepseek:deepseek-v4-flash"));
+    }
+
+    #[test]
+    fn batch_with_invalid_item_still_writes_valid_classification() {
+        let db = test_db();
+        insert_test_file(&db, "real-file-1", "/tmp/Scala期末复习题.pdf");
+        let settings = enabled_settings();
+        let targets = collect_selected_ai_classification_targets(&db, &["real-file-1".to_string()])
+            .expect("collect targets");
+        let provider = StaticProvider {
+            response: Ok(format!(
+                r#"{{"classifications":[{{"fileType":"Document","purpose":"Teaching"}},{}]}}"#,
+                valid_ref_item("f1")
+            )),
+        };
+
+        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect("classify valid item");
+
+        assert_eq!(summary.updated, 1);
+        assert_eq!(file_status(&db, "real-file-1"), "classified");
     }
 
     #[test]
