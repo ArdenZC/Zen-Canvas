@@ -1,7 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AIConnectionTestResult,
+  AIProviderPreset,
+  AISettings,
   AppSettings,
+  ClassificationCorrectionRequest,
   CleanupRestorePreview,
   CleanupRestoreResult,
   CleanupTrashBatch,
@@ -20,7 +24,9 @@ import type {
   RestoreMovesResult,
   Rule,
   RuleExecutionMode,
+  RuleExecutionSummary,
   StorageAnalysis,
+  StorageCandidate,
   StorageCleanupCompleted,
   StorageCleanupJobMessage,
   StorageCleanupProgress,
@@ -75,13 +81,6 @@ export interface GlobalHotkeyStatus {
   accelerator: string;
   registered: boolean;
   error: string | null;
-}
-
-export interface RuleExecutionSummary {
-  scanned: number;
-  updated: number;
-  skipped: number;
-  needsConfirmation: number;
 }
 
 export interface TauriSearchFileResult {
@@ -225,6 +224,10 @@ export const tauriApi = {
     return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_safe_trash", { ids });
   },
 
+  analyzeCleanupCandidatesWithAI(ids: string[]): Promise<StorageCandidate[]> {
+    return invokeCommand<StorageCandidate[]>("analyze_cleanup_candidates_with_ai", { ids });
+  },
+
   listCleanupTrashBatches(): Promise<CleanupTrashBatch[]> {
     return invokeCommand<CleanupTrashBatch[]>("list_cleanup_trash_batches");
   },
@@ -253,6 +256,29 @@ export const tauriApi = {
     return invokeCommand<RuleExecutionSummary>("execute_rules_for_scope", { scope, rules, mode });
   },
 
+  classifyFilesWithAI(
+    scope: LibraryScope,
+    options?: {
+      onlyUnclassified?: boolean;
+      onlyLowConfidence?: boolean;
+      limit?: number;
+    }
+  ): Promise<RuleExecutionSummary> {
+    return invokeCommand<RuleExecutionSummary>("classify_files_with_ai", { scope, options: options ?? null });
+  },
+
+  classifySelectedFilesWithAI(fileIds: string[]): Promise<RuleExecutionSummary> {
+    return invokeCommand<RuleExecutionSummary>("classify_selected_files_with_ai", { fileIds });
+  },
+
+  confirmClassification(fileId: string): Promise<void> {
+    return invokeCommand<void>("confirm_classification", { fileId });
+  },
+
+  correctClassification(fileId: string, correction: ClassificationCorrectionRequest): Promise<void> {
+    return invokeCommand<void>("correct_classification", { fileId, correction });
+  },
+
   getUserRules(): Promise<Rule[]> {
     return invokeCommand<Rule[]>("get_user_rules");
   },
@@ -271,6 +297,22 @@ export const tauriApi = {
 
   saveSettings(settings: AppSettings): Promise<AppSettings> {
     return invokeCommand<AppSettings>("save_settings", { settings });
+  },
+
+  getAISettings(): Promise<AISettings> {
+    return invokeCommand<AISettings>("get_ai_settings");
+  },
+
+  saveAISettings(settings: AISettings): Promise<AISettings> {
+    return invokeCommand<AISettings>("save_ai_settings", { settings });
+  },
+
+  listAIProviderPresets(): Promise<AIProviderPreset[]> {
+    return invokeCommand<AIProviderPreset[]>("list_ai_provider_presets");
+  },
+
+  testAIProviderConnection(settings?: AISettings): Promise<AIConnectionTestResult> {
+    return invokeCommand<AIConnectionTestResult>("test_ai_provider_connection", { settings: settings ?? null });
   },
 
   getGlobalHotkeyStatus(): Promise<GlobalHotkeyStatus | null> {

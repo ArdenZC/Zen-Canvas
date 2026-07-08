@@ -365,7 +365,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .expect("schema version"),
-            13
+            14
         );
         assert_eq!(
             conn.query_row(

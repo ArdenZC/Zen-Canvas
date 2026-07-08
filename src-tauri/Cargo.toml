@@ -1,6 +1,6 @@
 [package]
 name = "zen-canvas-tauri"
-version = "0.1.23"
+version = "0.1.24"
 edition = "2021"
 
 [lib]
@@ -33,6 +33,7 @@ r2d2_sqlite = { version = "0.34.0", features = ["bundled"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 sha2 = "0.10"
 sysinfo = "0.32"
 tauri = { version = "2", default-features = false, features = ["macos-private-api"] }

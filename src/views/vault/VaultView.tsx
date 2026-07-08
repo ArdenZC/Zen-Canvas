@@ -1,16 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion } from "motion/react";
-import { FolderSearch, Layers, Plus, Search } from "lucide-react";
+import { FolderSearch, Layers, Plus, Search, Sparkles } from "lucide-react";
 import { tauriApi } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useDebounce } from "../../hooks/useDebounce";
 import { useAppStore } from "../../store/useAppStore";
 import { LIBRARY_PAGE_SIZE, useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
-import type { FileRecord, LibraryFilter, LibraryScope } from "../../types/domain";
+import type {
+  ClassificationCorrectionRequest,
+  FileRecord,
+  FileType,
+  Lifecycle,
+  LibraryFilter,
+  LibraryScope,
+  Purpose,
+  RiskLevel,
+  SuggestedAction
+} from "../../types/domain";
 import type { Translator } from "../../types/ui";
-import { libraryScopeLabel } from "../../utils/viewHelpers";
+import { libraryScopeLabel, readableError } from "../../utils/viewHelpers";
 import { shouldTriggerLoadMore, shouldVirtualizeList } from "../../utils/virtualization";
 import { buttonSecondary, cn, glassButtonPrimary, inputSurface, virtualList, virtualSpacer } from "../../utils/tw";
 import {
@@ -36,6 +46,10 @@ export function VaultView() {
   const scope = useFileLibraryStore((state) => state.scope);
   const stats = useFileLibraryStore((state) => state.stats);
   const selectedFileId = useFileLibraryStore((state) => state.selectedFileId);
+  const isClassifyingWithAI = useFileLibraryStore((state) => state.isClassifyingWithAI);
+  const aiClassificationStatus = useFileLibraryStore((state) => state.aiClassificationStatus);
+  const classifyCurrentScopeWithAI = useFileLibraryStore((state) => state.classifyCurrentScopeWithAI);
+  const classifySelectedFileWithAI = useFileLibraryStore((state) => state.classifySelectedFileWithAI);
   const setScope = useFileLibraryStore((state) => state.setScope);
   const setPage = useFileLibraryStore((state) => state.setLibraryPage);
   const setSelectedFileId = useFileLibraryStore((state) => state.setSelectedFileId);
@@ -48,6 +62,7 @@ export function VaultView() {
   const requestIdRef = useRef(0);
   const hasMore = page.files.length < page.total;
   const remainingCount = Math.max(0, page.total - page.files.length);
+  const selectedFile = page.files.find((file) => file.id === selectedFileId) ?? page.files[0];
 
   const loadPage = useCallback(async (offset: number, append: boolean) => {
     const requestId = ++requestIdRef.current;
@@ -161,6 +176,39 @@ export function VaultView() {
           </span>
           <span className={quietText}>{isLoading ? t("libraryLoadingResults") : activeFilterDescription || t("libraryScopeHint")}</span>
         </div>
+
+        <div data-section="ai classification actions" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--line-dark)] bg-[var(--surface-soft)] px-3 py-2">
+          <div className="min-w-0">
+            <strong className="block text-sm text-[var(--ink)]">AI 文件分类</strong>
+            <span className={quietText}>只刷新分类建议，不会移动、删除或整理文件。</span>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void classifyCurrentScopeWithAI({ onlyUnclassified: false })} disabled={isClassifyingWithAI || isEmptyCurrentScanScope}>
+              <Sparkles size={14} />
+              <span>{isClassifyingWithAI ? "AI 分类中..." : "AI 分类"}</span>
+            </button>
+            <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void classifyCurrentScopeWithAI({ onlyUnclassified: true })} disabled={isClassifyingWithAI || isEmptyCurrentScanScope}>
+              <Sparkles size={14} />
+              <span>AI 分类未分类文件</span>
+            </button>
+            <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void classifyCurrentScopeWithAI({ onlyUnclassified: false, onlyLowConfidence: true })} disabled={isClassifyingWithAI || isEmptyCurrentScanScope}>
+              <Sparkles size={14} />
+              <span>AI 复查低置信度</span>
+            </button>
+            <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void classifySelectedFileWithAI(selectedFile?.id)} disabled={isClassifyingWithAI || !selectedFile}>
+              <Sparkles size={14} />
+              <span>AI 分类选中文件</span>
+            </button>
+          </div>
+        </div>
+
+        {aiClassificationStatus ? (
+          <div className={aiStatusClass(aiClassificationStatus.startsWith("AI 分类完成"))} role="status">
+            {aiClassificationStatus}
+          </div>
+        ) : null}
+
+        {selectedFile ? <SelectedFileClassificationDetails file={selectedFile} /> : null}
       </section>
 
       {libraryState ? (
@@ -281,6 +329,280 @@ export function VaultView() {
       )
     };
   }
+}
+
+function SelectedFileClassificationDetails({ file }: { file: FileRecord }) {
+  const isAI = file.matched_rules.some((rule) => rule.startsWith("ai:"));
+  const isLowConfidence = file.confidence < 0.65;
+  const refresh = useFileLibraryStore((state) => state.refresh);
+  const searchQuery = useAppStore((state) => state.searchQuery);
+  const showSuccess = useAppStore((state) => state.showSuccess);
+  const showError = useAppStore((state) => state.showError);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [correction, setCorrection] = useState<ClassificationCorrectionRequest>(() => correctionFromFile(file));
+
+  useEffect(() => {
+    setCorrection(correctionFromFile(file));
+    setIsEditing(false);
+  }, [file.id]);
+
+  async function confirmClassification() {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await tauriApi.confirmClassification(file.id);
+      await refresh(searchQuery);
+      showSuccess("已确认，并会用于后续学习。");
+    } catch (error) {
+      showError(readableError(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function submitCorrection() {
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      await tauriApi.correctClassification(file.id, correction);
+      await refresh(searchQuery);
+      setIsEditing(false);
+      showSuccess("已学习你的分类习惯。");
+    } catch (error) {
+      showError(readableError(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <section className="grid gap-2 rounded-xl border border-[var(--line-dark)] bg-[var(--surface-soft)] px-3 py-2 text-xs">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <strong className="truncate text-sm text-[var(--ink)]">{file.name}</strong>
+        {isAI ? <InlineBadge tone="info">AI</InlineBadge> : null}
+        {file.requires_confirmation ? <InlineBadge tone="warning">需确认</InlineBadge> : null}
+        {isLowConfidence ? <InlineBadge tone="warning">低置信度</InlineBadge> : null}
+        <InlineBadge tone={file.suggested_action === "Review" ? "warning" : "success"}>{file.suggested_action}</InlineBadge>
+      </div>
+      <div className="grid gap-1 md:grid-cols-2">
+        <span className="truncate text-[var(--muted)]" title={file.suggested_target_path || "无"}>
+          建议路径：<strong className="font-medium text-[var(--ink)]">{file.suggested_target_path || "无"}</strong>
+        </span>
+        <span className="text-[var(--muted)]">
+          置信度：<strong className="font-medium text-[var(--ink)]">{Math.round(file.confidence * 100)}%</strong>
+        </span>
+        <span className="truncate text-[var(--muted)]" title={file.matched_rules.join(", ") || "无"}>
+          来源：<strong className="font-medium text-[var(--ink)]">{isAI ? "AI" : file.matched_rules.join(", ") || "无"}</strong>
+        </span>
+        <span className="truncate text-[var(--muted)]" title={file.classification_reason}>
+          原因：<strong className="font-medium text-[var(--ink)]">{file.classification_reason || "无"}</strong>
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button className={buttonSecondary} onClick={() => void confirmClassification()} disabled={isSubmitting}>
+          确认分类正确
+        </button>
+        <button className={buttonSecondary} onClick={() => setIsEditing((value) => !value)} disabled={isSubmitting}>
+          修改分类
+        </button>
+        <span className={quietText}>确认或修改后，Zen Canvas 会用于学习以后类似文件的分类习惯。</span>
+      </div>
+      {isEditing && (
+        <div className="grid gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface)] p-3">
+          <div className="grid gap-2 md:grid-cols-2">
+            <CorrectionSelect
+              label="fileType"
+              value={correction.fileType}
+              options={FILE_TYPE_OPTIONS}
+              onChange={(fileType) => setCorrection((current) => ({ ...current, fileType }))}
+            />
+            <CorrectionSelect
+              label="purpose"
+              value={correction.purpose}
+              options={PURPOSE_OPTIONS}
+              onChange={(purpose) => setCorrection((current) => ({ ...current, purpose }))}
+            />
+            <CorrectionSelect
+              label="lifecycle"
+              value={correction.lifecycle}
+              options={LIFECYCLE_OPTIONS}
+              onChange={(lifecycle) => setCorrection((current) => ({ ...current, lifecycle }))}
+            />
+            <CorrectionSelect
+              label="riskLevel"
+              value={correction.riskLevel}
+              options={RISK_LEVEL_OPTIONS}
+              onChange={(riskLevel) => setCorrection((current) => ({ ...current, riskLevel }))}
+            />
+            <CorrectionSelect
+              label="suggestedAction"
+              value={correction.suggestedAction}
+              options={SUGGESTED_ACTION_OPTIONS}
+              onChange={(suggestedAction) => setCorrection((current) => ({ ...current, suggestedAction }))}
+            />
+            <label className="grid gap-1">
+              <span className={metadataText}>context</span>
+              <input
+                className={inputSurface}
+                value={correction.context}
+                onChange={(event) => setCorrection((current) => ({ ...current, context: event.target.value }))}
+              />
+            </label>
+            <label className="grid gap-1">
+              <span className={metadataText}>targetTemplate</span>
+              <input
+                className={inputSurface}
+                placeholder="Teaching/Scala"
+                value={correction.targetTemplate}
+                onChange={(event) => setCorrection((current) => ({ ...current, targetTemplate: event.target.value }))}
+              />
+            </label>
+            <label className="grid gap-1">
+              <span className={metadataText}>suggestedName</span>
+              <input
+                className={inputSurface}
+                value={correction.suggestedName ?? ""}
+                onChange={(event) => setCorrection((current) => ({ ...current, suggestedName: event.target.value }))}
+              />
+            </label>
+          </div>
+          <label className="grid gap-1">
+            <span className={metadataText}>reason</span>
+            <input
+              className={inputSurface}
+              value={correction.reason ?? ""}
+              onChange={(event) => setCorrection((current) => ({ ...current, reason: event.target.value }))}
+            />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button className={glassButtonPrimary} onClick={() => void submitCorrection()} disabled={isSubmitting}>
+              以后类似文件都这样处理
+            </button>
+            <button className={buttonSecondary} onClick={() => setIsEditing(false)} disabled={isSubmitting}>
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function CorrectionSelect<T extends string>({
+  label,
+  value,
+  options,
+  onChange
+}: {
+  label: string;
+  value: T;
+  options: readonly T[];
+  onChange: (value: T) => void;
+}) {
+  return (
+    <label className="grid gap-1">
+      <span className={metadataText}>{label}</span>
+      <select className={inputSurface} value={value} onChange={(event) => onChange(event.target.value as T)}>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function correctionFromFile(file: FileRecord): ClassificationCorrectionRequest {
+  return {
+    fileType: file.file_type,
+    purpose: file.purpose,
+    lifecycle: file.lifecycle,
+    context: file.context,
+    riskLevel: file.risk_level,
+    suggestedAction: file.suggested_action,
+    targetTemplate: relativeTargetTemplate(file.suggested_target_path),
+    suggestedName: file.suggested_name || undefined,
+    reason: file.classification_reason || undefined
+  };
+}
+
+function relativeTargetTemplate(path: string) {
+  const value = path.trim().replace(/\\/g, "/");
+  if (!value || value.startsWith("/") || value.startsWith("//") || /^[A-Za-z]:\//.test(value)) {
+    return "";
+  }
+  return value;
+}
+
+const FILE_TYPE_OPTIONS: readonly FileType[] = [
+  "Document",
+  "Image",
+  "Video",
+  "Audio",
+  "Code",
+  "ArchivePackage",
+  "Installer",
+  "Spreadsheet",
+  "Presentation",
+  "Other"
+];
+const PURPOSE_OPTIONS: readonly Purpose[] = [
+  "Project",
+  "Teaching",
+  "Study",
+  "Work",
+  "Personal",
+  "Career",
+  "Finance",
+  "Identity",
+  "Media",
+  "Installer",
+  "Temporary",
+  "Archive",
+  "Unknown"
+];
+const LIFECYCLE_OPTIONS: readonly Lifecycle[] = [
+  "Inbox",
+  "Active",
+  "Reference",
+  "Archive",
+  "Disposable",
+  "Duplicate",
+  "Sensitive"
+];
+const RISK_LEVEL_OPTIONS: readonly RiskLevel[] = ["Normal", "Sensitive", "System", "Unknown"];
+const SUGGESTED_ACTION_OPTIONS: readonly SuggestedAction[] = [
+  "Keep",
+  "Rename",
+  "Move",
+  "MoveAndRename",
+  "Archive",
+  "Review",
+  "DeleteCandidate"
+];
+
+function InlineBadge({ tone, children }: { tone: "info" | "warning" | "success"; children: string }) {
+  return <span className={inlineBadgeClass(tone)}>{children}</span>;
+}
+
+function inlineBadgeClass(tone: "info" | "warning" | "success") {
+  return cn(
+    "inline-flex max-w-[9rem] items-center truncate rounded-full border px-2 py-0.5 text-[10px] font-medium leading-4",
+    tone === "info" && "border-blue-400/22 bg-blue-500/8 text-blue-700 dark:text-blue-200",
+    tone === "warning" && "border-amber-400/28 bg-amber-500/8 text-amber-700 dark:text-amber-200",
+    tone === "success" && "border-emerald-400/24 bg-emerald-500/8 text-emerald-700 dark:text-emerald-200"
+  );
+}
+
+function aiStatusClass(success: boolean) {
+  return cn(
+    "rounded-xl border px-3 py-2 text-sm",
+    success
+      ? "border-emerald-400/24 bg-emerald-500/8 text-emerald-800 dark:text-emerald-100"
+      : "border-amber-400/28 bg-amber-500/8 text-amber-800 dark:text-amber-100"
+  );
 }
 
 function filterPillClass(active: boolean, tone: "blue" | "green" | "amber" | "red" | "slate" | "purple") {

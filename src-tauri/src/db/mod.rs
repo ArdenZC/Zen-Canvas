@@ -1,14 +1,17 @@
 mod classification;
 mod commands;
 mod connection;
+mod learning;
 mod queries;
 mod schema;
 mod types;
 pub(crate) use classification::normalized_file_type;
+pub(crate) use classification::{build_target_path, OrganizeRootConfig};
 #[cfg(test)]
 pub(crate) use classification::{rule_version_for_rules, translate_template};
 pub use commands::*;
 pub use connection::Database;
+pub use learning::*;
 pub(crate) use queries::{
     bool_to_i64, current_unix_seconds, indexed_file_from_row, infer_file_type, normalize_path_text,
     optimize_search_index_after_bulk_upsert, parent_directory, path_lookup_candidates, push_unique,

@@ -136,10 +136,7 @@ pub fn register_global_search_hotkey<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn resize_search_window<R: Runtime>(
-    app: AppHandle<R>,
-    expanded: bool,
-) -> Result<(), String> {
+pub fn resize_search_window<R: Runtime>(app: AppHandle<R>, expanded: bool) -> Result<(), String> {
     resize_search_window_for_state(&app, expanded).map_err(|error| error.to_string())
 }
 

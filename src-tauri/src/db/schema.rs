@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 13;
+const CURRENT_SCHEMA_VERSION: i32 = 14;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -308,6 +308,53 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             "#,
         )?;
         set_schema_version(conn, 13)?;
+    }
+    if version < 14 {
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS classification_history (
+                id TEXT PRIMARY KEY,
+                file_id TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                extension TEXT NOT NULL DEFAULT '',
+                source TEXT NOT NULL,
+                file_type TEXT NOT NULL,
+                purpose TEXT NOT NULL,
+                lifecycle TEXT NOT NULL,
+                context TEXT NOT NULL DEFAULT '',
+                risk_level TEXT NOT NULL,
+                suggested_action TEXT NOT NULL,
+                suggested_target_path TEXT NOT NULL DEFAULT '',
+                suggested_name TEXT NOT NULL DEFAULT '',
+                confidence REAL NOT NULL DEFAULT 0.5,
+                reason TEXT NOT NULL DEFAULT '',
+                keywords_json TEXT NOT NULL DEFAULT '[]',
+                user_confirmed INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_classification_history_file_id
+            ON classification_history(file_id);
+            CREATE INDEX IF NOT EXISTS idx_classification_history_name
+            ON classification_history(file_name);
+            CREATE INDEX IF NOT EXISTS idx_classification_history_confirmed
+            ON classification_history(user_confirmed);
+            CREATE INDEX IF NOT EXISTS idx_classification_history_source
+            ON classification_history(source);
+
+            CREATE TABLE IF NOT EXISTS classification_feedback (
+                id TEXT PRIMARY KEY,
+                file_id TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                original_json TEXT NOT NULL,
+                corrected_json TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_classification_feedback_file_id
+            ON classification_feedback(file_id);
+            "#,
+        )?;
+        set_schema_version(conn, 14)?;
     }
     Ok(())
 }

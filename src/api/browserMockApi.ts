@@ -1,5 +1,9 @@
 import type {
+  AIConnectionTestResult,
+  AIProviderPreset,
+  AISettings,
   AppSettings,
+  ClassificationCorrectionRequest,
   CleanupRestorePreview,
   CleanupRestoreResult,
   CleanupTrashBatch,
@@ -17,14 +21,15 @@ import type {
   RestoreMovesResult,
   Rule,
   RuleExecutionMode,
+  RuleExecutionSummary,
   StorageAnalysis,
+  StorageCandidate,
   StorageCleanupScanStatus
 } from "../types/domain";
 import type { View } from "../types/ui";
 import { DEFAULT_SEARCH_HOTKEY } from "../utils/hotkeys";
 import type {
   GlobalHotkeyStatus,
-  RuleExecutionSummary,
   ScanSummary
 } from "./tauriApi";
 
@@ -164,6 +169,8 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockCleanupExecutionResult(args) as T;
     case "move_cleanup_candidates_to_safe_trash":
       return mockSafeTrashExecutionResult(args) as T;
+    case "analyze_cleanup_candidates_with_ai":
+      return mockAnalyzeCleanupCandidatesWithAI(args) as T;
     case "list_cleanup_trash_batches":
       return mockCleanupTrashBatches() as T;
     case "preview_restore_cleanup_trash":
@@ -192,6 +199,14 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
         skipped: 0,
         needsConfirmation: mockFiles.filter((item) => item.requires_confirmation).length
       } satisfies RuleExecutionSummary as T;
+    case "classify_files_with_ai":
+      return mockAIClassifyFiles(args) as T;
+    case "classify_selected_files_with_ai":
+      return mockAIClassifySelectedFiles(args) as T;
+    case "confirm_classification":
+      return undefined as T;
+    case "correct_classification":
+      return mockCorrectClassification(args) as T;
     case "get_user_rules":
       return mockRules as T;
     case "save_user_rule":
@@ -201,6 +216,13 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "get_settings":
     case "save_settings":
       return mockSettings(args?.settings as AppSettings | undefined) as T;
+    case "get_ai_settings":
+    case "save_ai_settings":
+      return mockAISettings(args?.settings as AISettings | undefined) as T;
+    case "list_ai_provider_presets":
+      return mockAIProviderPresets() as T;
+    case "test_ai_provider_connection":
+      return mockAIConnectionTest(args?.settings as AISettings | undefined) as T;
     case "get_global_hotkey_status":
     case "register_global_search_hotkey":
       return {
@@ -477,6 +499,35 @@ function mockSafeTrashExecutionResult(args?: Record<string, unknown>): CleanupEx
   };
 }
 
+function mockAnalyzeCleanupCandidatesWithAI(args?: Record<string, unknown>): StorageCandidate[] {
+  const requested = new Set(
+    Array.isArray(args?.ids)
+      ? args.ids.filter((id): id is string => typeof id === "string")
+      : []
+  );
+  return mockStorageAnalysis().candidates
+    .filter((candidate) => requested.has(candidate.id))
+    .map((candidate) => {
+      if (candidate.tier === "Safe") {
+        return {
+          ...candidate,
+          reason: `AI 风险说明：${candidate.reason}`,
+          risk_note: candidate.risk_note
+            ? `AI 分析后建议：${candidate.risk_note}`
+            : "AI 分析后建议：清理前确认没有本地补丁或未提交依赖改动。"
+        };
+      }
+      return {
+        ...candidate,
+        selected_by_default: false,
+        reason: `AI 风险说明：${candidate.reason}`,
+        risk_note: candidate.risk_note
+          ? `AI 分析后建议：${candidate.risk_note}`
+          : "AI 分析后建议：保持人工确认。"
+      };
+    });
+}
+
 function mockCleanupTrashBatches(): CleanupTrashBatch[] {
   const movedAt = Date.now().toString();
   return [
@@ -580,6 +631,125 @@ function mockSettings(settings?: AppSettings): AppSettings {
     customSearchRoots: [],
     organizeRootMode: "current_folder",
     organizeRootPath: undefined
+  };
+}
+
+function mockAISettings(settings?: AISettings): AISettings {
+  return settings ?? {
+    enabled: false,
+    provider: "openai_compatible",
+    preset: "deepseek",
+    baseUrl: "https://api.deepseek.com",
+    chatPath: "/chat/completions",
+    apiKey: "",
+    model: "deepseek-v4-flash",
+    temperature: 0.1,
+    maxTokens: 2048,
+    batchSize: 20,
+    timeoutSeconds: 120,
+    sendFullPath: true,
+    sendParentPath: true,
+    sendFileContent: false,
+    classificationMode: "rules_first",
+    cleanupAiEnabled: false,
+    forceJsonOutput: true,
+    enableThinking: false,
+    reasoningEffort: null,
+    extraBodyJson: null
+  };
+}
+
+function mockAIProviderPresets(): AIProviderPreset[] {
+  return [
+    ["deepseek", "DeepSeek，推荐", "https://api.deepseek.com", "deepseek-v4-flash", true, true, true],
+    ["kimi", "Kimi / Moonshot", "https://api.moonshot.cn/v1", "kimi-k2.7-code-highspeed", true, false, false],
+    ["qwen_dashscope", "通义千问 / DashScope", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus", false, false, false],
+    ["zhipu_glm", "智谱 GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4.5", false, false, false],
+    ["minimax", "MiniMax", "https://api.minimax.chat/v1", "", false, false, false],
+    ["baichuan", "百川", "", "", false, false, false],
+    ["doubao_ark", "豆包 / 火山方舟", "https://ark.cn-beijing.volces.com/api/v3", "", false, false, false],
+    ["siliconflow", "硅基流动", "https://api.siliconflow.cn/v1", "", false, false, false],
+    ["custom_openai_compatible", "自定义 OpenAI-compatible", "", "", false, false, false],
+    ["ollama", "Ollama 本地模型", "http://localhost:11434", "qwen3:8b", false, true, false]
+  ].map(([id, label, defaultBaseUrl, defaultModel, supportsResponseFormat, supportsThinking, supportsReasoningEffort]) => ({
+    id: id as AIProviderPreset["id"],
+    label: String(label),
+    providerKind: id === "ollama" ? "ollama" : "openai_compatible",
+    defaultBaseUrl: String(defaultBaseUrl),
+    defaultChatPath: id === "ollama" ? "/api/chat" : "/chat/completions",
+    defaultModel: String(defaultModel),
+    supportsResponseFormat: Boolean(supportsResponseFormat),
+    supportsJsonMode: true,
+    supportsThinking: Boolean(supportsThinking),
+    supportsReasoningEffort: Boolean(supportsReasoningEffort)
+  }));
+}
+
+function mockAIConnectionTest(settings?: AISettings): AIConnectionTestResult {
+  const resolved = mockAISettings(settings);
+  return {
+    ok: true,
+    message: "{\"ok\":true}",
+    model: resolved.model,
+    provider: resolved.provider,
+    preset: resolved.preset,
+    elapsedMs: 32
+  };
+}
+
+function mockAIClassifyFiles(args?: Record<string, unknown>): RuleExecutionSummary {
+  const options = args?.options as { onlyUnclassified?: boolean; onlyLowConfidence?: boolean; limit?: number } | null | undefined;
+  const limit = Math.max(1, Number(options?.limit ?? mockFiles.length));
+  const candidates = mockFiles
+    .filter((file) => !options?.onlyUnclassified || file.classification_status !== "classified")
+    .filter((file) => !options?.onlyLowConfidence || file.confidence < 0.65)
+    .slice(0, limit);
+  return applyMockAIClassification(candidates);
+}
+
+function mockAIClassifySelectedFiles(args?: Record<string, unknown>): RuleExecutionSummary {
+  const ids = new Set(Array.isArray(args?.fileIds) ? args.fileIds.map(String) : []);
+  return applyMockAIClassification(mockFiles.filter((file) => ids.has(file.id)));
+}
+
+function mockCorrectClassification(args?: Record<string, unknown>): void {
+  const fileId = String(args?.fileId ?? "");
+  const correction = args?.correction as ClassificationCorrectionRequest | undefined;
+  const file = mockFiles.find((item) => item.id === fileId);
+  if (!file || !correction) return;
+  file.file_type = correction.fileType;
+  file.purpose = correction.purpose;
+  file.lifecycle = correction.lifecycle;
+  file.context = correction.context;
+  file.risk_level = correction.riskLevel;
+  file.suggested_action = correction.suggestedAction;
+  file.suggested_target_path = correction.targetTemplate;
+  file.suggested_name = correction.suggestedName ?? "";
+  file.classification_reason = correction.reason || "User corrected classification.";
+  file.classification_status = "classified";
+  file.matched_rules = ["learned:browser-mock"];
+  file.confidence = 1;
+  file.requires_confirmation = correction.riskLevel === "Sensitive" || correction.suggestedAction === "Review";
+}
+
+function applyMockAIClassification(files: FileRecord[]): RuleExecutionSummary {
+  for (const file of files) {
+    file.classification_status = "classified";
+    file.classification_reason = "AI browser mock classified this file from metadata only.";
+    file.matched_rules = ["ai:browser-mock:model"];
+    file.confidence = Math.max(file.confidence, 0.82);
+    if (file.purpose === "Unknown") file.purpose = "Work";
+    if (file.suggested_action === "Keep") {
+      file.suggested_action = "Move";
+      file.suggested_target_path = `${file.directory}/ZenCanvas/${file.file_type}`;
+    }
+    file.requires_confirmation = file.requires_confirmation || file.confidence < 0.65 || file.risk_level === "Sensitive";
+  }
+  return {
+    scanned: files.length,
+    updated: files.length,
+    skipped: 0,
+    needsConfirmation: files.filter((file) => file.requires_confirmation).length
   };
 }
 

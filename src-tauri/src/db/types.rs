@@ -13,6 +13,8 @@ pub enum DbError {
     Pool(#[from] r2d2::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("{0}")]
+    Validation(String),
 }
 
 #[derive(Debug, Clone)]

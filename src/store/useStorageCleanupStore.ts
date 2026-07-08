@@ -25,6 +25,10 @@ interface StorageCleanupStore {
   scanError: string;
   executionResult: CleanupExecutionResult | null;
   selectedCleanupIds: Set<string>;
+  aiAnalyzedCandidateIds: Set<string>;
+  aiDowngradedCandidateIds: Set<string>;
+  aiCleanupStatus: string;
+  isAnalyzingWithAI: boolean;
   activeTierFilter: CleanupTier | "All";
   lastCompletedAt: string | null;
   setSelectedRoots: (roots: string[]) => void;
@@ -34,6 +38,9 @@ interface StorageCleanupStore {
   failScan: (jobId: string, message: string) => void;
   cancelScan: (api: Pick<StorageCleanupApi, "cancelStorageCleanupScan">) => Promise<void>;
   setExecutionResult: (result: CleanupExecutionResult | null) => void;
+  applyAIAnalyzedCandidates: (candidates: StorageCandidate[]) => void;
+  setAICleanupStatus: (status: string) => void;
+  setAIAnalyzing: (isAnalyzing: boolean) => void;
   setSelectedCleanupIds: (ids: Set<string>) => void;
   toggleCleanupCandidate: (candidate: StorageCandidate) => void;
   setActiveTierFilter: (filter: CleanupTier | "All") => void;
@@ -49,6 +56,10 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
   scanError: "",
   executionResult: null,
   selectedCleanupIds: new Set(),
+  aiAnalyzedCandidateIds: new Set(),
+  aiDowngradedCandidateIds: new Set(),
+  aiCleanupStatus: "",
+  isAnalyzingWithAI: false,
   activeTierFilter: "All",
   lastCompletedAt: null,
 
@@ -60,6 +71,9 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
       analysis: null,
       executionResult: null,
       selectedCleanupIds: new Set(),
+      aiAnalyzedCandidateIds: new Set(),
+      aiDowngradedCandidateIds: new Set(),
+      aiCleanupStatus: "",
       scanError: "",
       scanProgress: null,
       activeTierFilter: "All"
@@ -79,6 +93,9 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
       scanProgress: null,
       analysis: null,
       selectedCleanupIds: new Set(),
+      aiAnalyzedCandidateIds: new Set(),
+      aiDowngradedCandidateIds: new Set(),
+      aiCleanupStatus: "",
       activeTierFilter: "All"
     });
     try {
@@ -109,6 +126,9 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
       scanProgress: null,
       scanError: "",
       selectedCleanupIds: new Set(defaultSelectedCleanupIds(analysis)),
+      aiAnalyzedCandidateIds: new Set(),
+      aiDowngradedCandidateIds: new Set(),
+      aiCleanupStatus: "",
       lastCompletedAt: new Date().toISOString()
     });
   },
@@ -141,6 +161,45 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
     set({ executionResult: result });
   },
 
+  applyAIAnalyzedCandidates(candidates) {
+    if (!candidates.length) return;
+    set((state) => {
+      if (!state.analysis) return {};
+      const updates = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+      const updatedCandidates = state.analysis.candidates.map((candidate) => updates.get(candidate.id) ?? candidate);
+      const updatedAnalysis = rebuildStorageAnalysis(state.analysis, updatedCandidates);
+      const aiAnalyzedCandidateIds = new Set(state.aiAnalyzedCandidateIds);
+      const aiDowngradedCandidateIds = new Set(state.aiDowngradedCandidateIds);
+      for (const candidate of candidates) {
+        aiAnalyzedCandidateIds.add(candidate.id);
+        const before = state.analysis.candidates.find((item) => item.id === candidate.id);
+        if (before && isConservativeAIDowngrade(before, candidate)) {
+          aiDowngradedCandidateIds.add(candidate.id);
+        }
+      }
+      const selectedCleanupIds = new Set(
+        [...state.selectedCleanupIds].filter((id) => {
+          const candidate = updatedCandidates.find((item) => item.id === id);
+          return candidate ? canSelectForCleanup(candidate) && candidate.selected_by_default : false;
+        })
+      );
+      return {
+        analysis: updatedAnalysis,
+        selectedCleanupIds,
+        aiAnalyzedCandidateIds,
+        aiDowngradedCandidateIds
+      };
+    });
+  },
+
+  setAICleanupStatus(status) {
+    set({ aiCleanupStatus: status });
+  },
+
+  setAIAnalyzing(isAnalyzing) {
+    set({ isAnalyzingWithAI: isAnalyzing });
+  },
+
   setSelectedCleanupIds(ids) {
     set({ selectedCleanupIds: new Set(ids) });
   },
@@ -164,6 +223,10 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
       analysis: null,
       executionResult: null,
       selectedCleanupIds: new Set(),
+      aiAnalyzedCandidateIds: new Set(),
+      aiDowngradedCandidateIds: new Set(),
+      aiCleanupStatus: "",
+      isAnalyzingWithAI: false,
       scanError: "",
       scanProgress: null,
       activeTierFilter: "All"
@@ -181,6 +244,10 @@ export function resetStorageCleanupStoreForTest() {
     scanError: "",
     executionResult: null,
     selectedCleanupIds: new Set(),
+    aiAnalyzedCandidateIds: new Set(),
+    aiDowngradedCandidateIds: new Set(),
+    aiCleanupStatus: "",
+    isAnalyzingWithAI: false,
     activeTierFilter: "All",
     lastCompletedAt: null
   });
@@ -194,6 +261,32 @@ export function defaultSelectedCleanupIds(analysis?: StorageAnalysis | null): st
 
 export function canSelectForCleanup(candidate: StorageCandidate) {
   return candidate.tier === "Safe" && candidate.trash_allowed && candidate.suggested_action === "MoveToTrash";
+}
+
+function rebuildStorageAnalysis(previous: StorageAnalysis, candidates: StorageCandidate[]): StorageAnalysis {
+  return {
+    ...previous,
+    candidates,
+    reclaimable_estimate: candidates
+      .filter((candidate) => candidate.tier === "Safe" && candidate.trash_allowed)
+      .reduce((sum, candidate) => sum + candidate.size, 0),
+    review_estimate: candidates
+      .filter((candidate) => candidate.tier === "Review")
+      .reduce((sum, candidate) => sum + candidate.size, 0)
+  };
+}
+
+function isConservativeAIDowngrade(before: StorageCandidate, after: StorageCandidate) {
+  return tierRank(after.tier) > tierRank(before.tier)
+    || (before.trash_allowed && !after.trash_allowed)
+    || (before.selected_by_default && !after.selected_by_default)
+    || (before.suggested_action === "MoveToTrash" && after.suggested_action !== "MoveToTrash");
+}
+
+function tierRank(tier: CleanupTier) {
+  if (tier === "Safe") return 0;
+  if (tier === "Review") return 1;
+  return 2;
 }
 
 function loadRecentRoots(): string[] {

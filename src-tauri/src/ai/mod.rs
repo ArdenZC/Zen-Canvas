@@ -1,0 +1,9 @@
+pub mod classification;
+pub mod cleanup;
+pub mod ollama;
+pub mod openai_compatible;
+pub mod presets;
+pub mod prompts;
+pub mod provider;
+pub mod schema;
+pub mod settings;

@@ -224,13 +224,27 @@ impl StorageCleanupState {
         Ok(())
     }
 
-    fn candidates_by_id(&self, ids: &[String]) -> Result<Vec<StorageCandidate>, String> {
+    pub(crate) fn candidates_by_id(&self, ids: &[String]) -> Result<Vec<StorageCandidate>, String> {
         let cache = self
             .inner
             .latest_candidates
             .lock()
             .map_err(|_| "Storage cleanup cache is unavailable.".to_string())?;
         Ok(ids.iter().filter_map(|id| cache.get(id).cloned()).collect())
+    }
+
+    pub(crate) fn update_candidates(&self, candidates: &[StorageCandidate]) -> Result<(), String> {
+        let mut cache = self
+            .inner
+            .latest_candidates
+            .lock()
+            .map_err(|_| "Storage cleanup cache is unavailable.".to_string())?;
+        for candidate in candidates {
+            if cache.contains_key(&candidate.id) {
+                cache.insert(candidate.id.clone(), candidate.clone());
+            }
+        }
+        Ok(())
     }
 
     fn start_job(&self, job_id: String, roots: &[PathBuf]) -> Result<Arc<AtomicBool>, String> {

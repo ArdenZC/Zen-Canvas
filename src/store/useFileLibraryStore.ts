@@ -6,7 +6,8 @@ import type {
   FileQueryResult,
   FileRecord,
   LibraryFilter,
-  LibraryScope
+  LibraryScope,
+  RuleExecutionSummary
 } from "../types/domain";
 import { readableError } from "../utils/viewHelpers";
 import { useAppStore } from "./useAppStore";
@@ -93,6 +94,8 @@ export interface FileLibraryStore {
   isLoadingOrganizeQueue: boolean;
   libraryFilter: LibraryFilter;
   selectedFileId: string;
+  isClassifyingWithAI: boolean;
+  aiClassificationStatus: string;
   firstPageRequestId: number;
   setScope: (scope: LibraryScope) => void;
   setCurrentScanScope: (roots: string[], scanSessionId?: string) => void;
@@ -102,7 +105,16 @@ export interface FileLibraryStore {
   loadStats: (scope?: LibraryScope) => Promise<void>;
   loadFirstPage: (query?: string, scope?: LibraryScope, libraryFilter?: LibraryFilter) => Promise<void>;
   loadOrganizeQueue: (scope?: LibraryScope) => Promise<void>;
+  classifyCurrentScopeWithAI: (options?: AIClassificationRunOptions) => Promise<RuleExecutionSummary>;
+  classifySelectedFileWithAI: (fileId?: string) => Promise<RuleExecutionSummary>;
+  clearAIClassificationStatus: () => void;
   refresh: (query?: string) => Promise<void>;
+}
+
+export interface AIClassificationRunOptions {
+  onlyUnclassified?: boolean;
+  onlyLowConfidence?: boolean;
+  limit?: number;
 }
 
 export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
@@ -115,6 +127,8 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
   isLoadingOrganizeQueue: false,
   libraryFilter: "all",
   selectedFileId: "",
+  isClassifyingWithAI: false,
+  aiClassificationStatus: "",
   firstPageRequestId: 0,
   setScope: (scope) => {
     persistLibraryScope(scope);
@@ -202,6 +216,62 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
       useAppStore.getState().showError(readableError(error));
     }
   },
+  classifyCurrentScopeWithAI: async (options) => {
+    if (get().isClassifyingWithAI) {
+      return { scanned: 0, updated: 0, skipped: 0, needsConfirmation: 0 };
+    }
+    set({ isClassifyingWithAI: true, aiClassificationStatus: "" });
+    try {
+      const settings = await tauriApi.getAISettings();
+      ensureAIReady(settings.enabled, settings.provider, settings.apiKey);
+      const summary = await tauriApi.classifyFilesWithAI(get().scope, options);
+      await get().refresh(useAppStore.getState().searchQuery);
+      await get().loadOrganizeQueue(get().scope);
+      const message = aiClassificationSummaryMessage(summary);
+      set({ aiClassificationStatus: message });
+      useAppStore.getState().showSuccess(message);
+      return summary;
+    } catch (error) {
+      const message = readableAIClassificationError(error);
+      set({ aiClassificationStatus: message });
+      useAppStore.getState().showError(message);
+      throw error;
+    } finally {
+      set({ isClassifyingWithAI: false });
+    }
+  },
+  classifySelectedFileWithAI: async (fileId = get().selectedFileId) => {
+    const selectedId = fileId.trim();
+    if (!selectedId) {
+      const message = "请先选择一个文件。";
+      set({ aiClassificationStatus: message });
+      useAppStore.getState().showError(message);
+      return { scanned: 0, updated: 0, skipped: 0, needsConfirmation: 0 };
+    }
+    if (get().isClassifyingWithAI) {
+      return { scanned: 0, updated: 0, skipped: 0, needsConfirmation: 0 };
+    }
+    set({ isClassifyingWithAI: true, aiClassificationStatus: "" });
+    try {
+      const settings = await tauriApi.getAISettings();
+      ensureAIReady(settings.enabled, settings.provider, settings.apiKey);
+      const summary = await tauriApi.classifySelectedFilesWithAI([selectedId]);
+      await get().refresh(useAppStore.getState().searchQuery);
+      await get().loadOrganizeQueue(get().scope);
+      const message = aiClassificationSummaryMessage(summary);
+      set({ aiClassificationStatus: message });
+      useAppStore.getState().showSuccess(message);
+      return summary;
+    } catch (error) {
+      const message = readableAIClassificationError(error);
+      set({ aiClassificationStatus: message });
+      useAppStore.getState().showError(message);
+      throw error;
+    } finally {
+      set({ isClassifyingWithAI: false });
+    }
+  },
+  clearAIClassificationStatus: () => set({ aiClassificationStatus: "" }),
   refresh: async (query) => {
     const scope = get().scope;
     await Promise.all([get().loadStats(scope), get().loadFirstPage(query, scope, get().libraryFilter)]);
@@ -211,4 +281,49 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
 export function getSelectedFile() {
   const { libraryPage, selectedFileId } = useFileLibraryStore.getState();
   return libraryPage.files.find((file) => file.id === selectedFileId) ?? libraryPage.files[0];
+}
+
+function ensureAIReady(enabled: boolean, provider: string, apiKey: string) {
+  if (!enabled) {
+    throw new Error("请先在设置中启用 AI。");
+  }
+  if (provider !== "ollama" && !apiKey.trim()) {
+    throw new Error("当前模型服务需要 API Key，请在 AI 设置中填写。");
+  }
+}
+
+function aiClassificationSummaryMessage(summary: RuleExecutionSummary) {
+  return `AI 分类完成：扫描 ${summary.scanned.toLocaleString()} 个，更新 ${summary.updated.toLocaleString()} 个，跳过 ${summary.skipped.toLocaleString()} 个，需确认 ${summary.needsConfirmation.toLocaleString()} 个。`;
+}
+
+function readableAIClassificationError(error: unknown) {
+  const message = readableError(error);
+  const normalized = message.toLowerCase();
+  if (message.includes("AI 未启用") || message.includes("启用 AI")) return "请先在设置中启用 AI。";
+  if (message.includes("API Key 缺失") || normalized.includes("api key") || normalized.includes("api_key")) {
+    return "当前模型服务需要 API Key，请在 AI 设置中填写。";
+  }
+  if (
+    normalized.includes("request failed") ||
+    normalized.includes("http") ||
+    normalized.includes("provider") ||
+    normalized.includes("ollama") ||
+    normalized.includes("network") ||
+    normalized.includes("timeout")
+  ) {
+    return "无法连接到模型服务，请检查 Base URL、Chat Path、网络和 API Key。";
+  }
+  if (normalized.includes("invalid json") || normalized.includes("not valid json") || normalized.includes("json")) {
+    return "模型没有返回有效 JSON，请换用更稳定的模型或关闭 thinking。";
+  }
+  if (
+    normalized.includes("unsupported value") ||
+    normalized.includes("targettemplate") ||
+    normalized.includes("safety") ||
+    message.includes("安全") ||
+    message.includes("校验")
+  ) {
+    return "AI 返回了不安全的路径或操作，Zen Canvas 已拒绝应用该结果。";
+  }
+  return message;
 }

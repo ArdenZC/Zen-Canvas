@@ -10,11 +10,13 @@ import {
   Loader2,
   Search,
   ShieldAlert,
+  Sparkles,
   Trash2,
   XCircle
 } from "lucide-react";
 import { tauriApi, type TauriApi } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
+import { useAppStore } from "../../store/useAppStore";
 import {
   canSelectForCleanup,
   defaultSelectedCleanupIds,
@@ -57,6 +59,8 @@ type StorageCleanupApi = Pick<
   Partial<
     Pick<
       TauriApi,
+      | "getAISettings"
+      | "analyzeCleanupCandidatesWithAI"
       | "scanStorageCleanup"
       | "onStorageCleanupProgress"
       | "onStorageCleanupCompleted"
@@ -104,6 +108,10 @@ function StorageCleanupPanel({
   const scanProgress = !initialAnalysis ? store.scanProgress : null;
   const executionResult = !initialAnalysis ? store.executionResult : null;
   const scanError = !initialAnalysis ? store.scanError : "";
+  const aiCleanupStatus = !initialAnalysis ? store.aiCleanupStatus : "";
+  const isAnalyzingWithAI = !initialAnalysis && store.isAnalyzingWithAI;
+  const aiAnalyzedCandidateIds = !initialAnalysis ? store.aiAnalyzedCandidateIds : new Set<string>();
+  const aiDowngradedCandidateIds = !initialAnalysis ? store.aiDowngradedCandidateIds : new Set<string>();
   const [localError, setLocalError] = useState("");
   const error = localError || scanError;
 
@@ -217,6 +225,37 @@ function StorageCleanupPanel({
       reportError(moveError);
     } finally {
       setIsExecuting(false);
+    }
+  }
+
+  async function analyzeCandidatesWithAI(mode: "all" | "risk" | "selected") {
+    if (initialAnalysis || isAnalyzingWithAI || !analysis) return;
+    const ids = cleanupAIIdsForMode(mode, sortedCandidates, selectedCleanupIds);
+    if (!ids.length) {
+      reportError(t("storageCleanupAINoTargets"));
+      return;
+    }
+    if (!api.getAISettings || !api.analyzeCleanupCandidatesWithAI) {
+      reportError(t("storageCleanupAIUnsupported"));
+      return;
+    }
+    useStorageCleanupStore.getState().setAIAnalyzing(true);
+    useStorageCleanupStore.getState().setAICleanupStatus("");
+    setLocalError("");
+    try {
+      const settings = await api.getAISettings();
+      ensureCleanupAIReady(settings.enabled, settings.cleanupAiEnabled, settings.provider, settings.apiKey);
+      const candidates = await api.analyzeCleanupCandidatesWithAI(ids);
+      useStorageCleanupStore.getState().applyAIAnalyzedCandidates(candidates);
+      const message = t("storageCleanupAISuccess").replace("{count}", candidates.length.toLocaleString());
+      useStorageCleanupStore.getState().setAICleanupStatus(message);
+      useAppStore.getState().showSuccess(message);
+    } catch (aiError) {
+      const message = readableCleanupAIError(aiError);
+      useStorageCleanupStore.getState().setAICleanupStatus(message);
+      reportError(message);
+    } finally {
+      useStorageCleanupStore.getState().setAIAnalyzing(false);
     }
   }
 
@@ -365,6 +404,15 @@ function StorageCleanupPanel({
               </NoticeBanner>
             )}
 
+            {aiCleanupStatus && (
+              <NoticeBanner
+                tone={aiCleanupStatus.includes("失败") || aiCleanupStatus.includes("failed") ? "warning" : "success"}
+                title={t("storageCleanupAIStatusTitle")}
+              >
+                {aiCleanupStatus}
+              </NoticeBanner>
+            )}
+
             <section className={cn(contentPanel, "grid min-h-0 gap-3 p-4")}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -372,6 +420,30 @@ function StorageCleanupPanel({
                   <p className={sectionDescription}>{t("storageCleanupTopRankingDesc")}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <button
+                    className={buttonSecondary}
+                    onClick={() => void analyzeCandidatesWithAI("all")}
+                    disabled={Boolean(initialAnalysis) || isAnalyzingWithAI || !sortedCandidates.length}
+                  >
+                    {isAnalyzingWithAI ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                    <span>{t("storageCleanupAIAnalyzeAll")}</span>
+                  </button>
+                  <button
+                    className={buttonSecondary}
+                    onClick={() => void analyzeCandidatesWithAI("risk")}
+                    disabled={Boolean(initialAnalysis) || isAnalyzingWithAI || !tierCounts.Review && !tierCounts.Caution}
+                  >
+                    <Sparkles size={16} />
+                    <span>{t("storageCleanupAIAnalyzeRisk")}</span>
+                  </button>
+                  <button
+                    className={buttonSecondary}
+                    onClick={() => void analyzeCandidatesWithAI("selected")}
+                    disabled={Boolean(initialAnalysis) || isAnalyzingWithAI || !selectedCleanupIds.size}
+                  >
+                    <Sparkles size={16} />
+                    <span>{t("storageCleanupAIAnalyzeSelected")}</span>
+                  </button>
                   {FILTERS.map((filter) => (
                     <button
                       key={filter}
@@ -399,6 +471,8 @@ function StorageCleanupPanel({
                       key={candidate.id}
                       candidate={candidate}
                       selected={selectedCleanupIds.has(candidate.id)}
+                      aiAnalyzed={aiAnalyzedCandidateIds.has(candidate.id)}
+                      aiDowngraded={aiDowngradedCandidateIds.has(candidate.id)}
                       t={t}
                       onToggleSafeCandidate={toggleSafeCandidate}
                       onReveal={reveal}
@@ -449,12 +523,16 @@ function StorageCleanupPanel({
 function CandidateCard({
   candidate,
   selected,
+  aiAnalyzed,
+  aiDowngraded,
   t,
   onToggleSafeCandidate,
   onReveal
 }: {
   candidate: StorageCandidate;
   selected: boolean;
+  aiAnalyzed: boolean;
+  aiDowngraded: boolean;
   t: Translator;
   onToggleSafeCandidate: (candidate: StorageCandidate) => void;
   onReveal: (path: string) => void;
@@ -472,10 +550,30 @@ function CandidateCard({
       <div className="flex min-w-0 flex-wrap items-center gap-1.5">
         <ToneBadge tone="slate">{candidate.category}</ToneBadge>
         <TierBadge tier={candidate.tier} t={t} />
+        {aiAnalyzed && <ToneBadge tone="blue">{t("storageCleanupAIAnalyzedBadge")}</ToneBadge>}
         {selectable && <ToneBadge tone="green">{t("storageCleanupCanMoveToTrash")}</ToneBadge>}
+        <ToneBadge tone={candidate.trash_allowed ? "green" : "slate"}>
+          {candidate.trash_allowed ? t("storageCleanupTrashAllowed") : t("storageCleanupTrashBlocked")}
+        </ToneBadge>
+        <ToneBadge tone={candidate.selected_by_default ? "green" : "slate"}>
+          {candidate.selected_by_default ? t("storageCleanupSelectedByDefault") : t("storageCleanupNotSelectedByDefault")}
+        </ToneBadge>
       </div>
-      <p className={metadataText}>{candidate.reason}</p>
-      {candidate.risk_note && <p className={quietText}>{candidate.risk_note}</p>}
+      <div className="grid gap-1">
+        <p className={metadataText}>
+          {aiAnalyzed ? `${t("storageCleanupAIReasonLabel")}：` : ""}
+          {candidate.reason}
+        </p>
+        {candidate.risk_note && (
+          <p className={quietText}>
+            {aiAnalyzed ? `${t("storageCleanupAIRiskNoteLabel")}：` : ""}
+            {candidate.risk_note}
+          </p>
+        )}
+        {aiDowngraded && (
+          <p className="text-xs font-medium text-[var(--warning)]">{t("storageCleanupAIDowngraded")}</p>
+        )}
+      </div>
       <div className="flex flex-wrap items-center gap-2">
         {selectable && (
           <button
@@ -515,6 +613,66 @@ function TierBadge({ tier, t }: { tier: CleanupTier; t: Translator }) {
       </span>
     </ToneBadge>
   );
+}
+
+function cleanupAIIdsForMode(
+  mode: "all" | "risk" | "selected",
+  candidates: StorageCandidate[],
+  selectedCleanupIds: Set<string>
+) {
+  if (mode === "selected") return [...selectedCleanupIds];
+  return candidates
+    .filter((candidate) => mode === "all" || candidate.tier === "Review" || candidate.tier === "Caution")
+    .map((candidate) => candidate.id);
+}
+
+function ensureCleanupAIReady(
+  enabled: boolean,
+  cleanupAiEnabled: boolean,
+  provider: string,
+  apiKey: string
+) {
+  if (!enabled) {
+    throw new Error("请先在设置中启用 AI。");
+  }
+  if (!cleanupAiEnabled) {
+    throw new Error("请先在设置中启用 AI 清理分析。");
+  }
+  if (provider !== "ollama" && !apiKey.trim()) {
+    throw new Error("当前模型服务需要 API Key，请在 AI 设置中填写。");
+  }
+}
+
+function readableCleanupAIError(error: unknown) {
+  const message = readableError(error);
+  const normalized = message.toLowerCase();
+  if (message.includes("启用 AI 清理分析")) return "请先在设置中启用 AI 清理分析。";
+  if (message.includes("AI 未启用") || message.includes("启用 AI")) return "请先在设置中启用 AI。";
+  if (message.includes("API Key 缺失") || normalized.includes("api key") || normalized.includes("api_key")) {
+    return "当前模型服务需要 API Key，请在 AI 设置中填写。";
+  }
+  if (
+    normalized.includes("request failed") ||
+    normalized.includes("http") ||
+    normalized.includes("provider") ||
+    normalized.includes("ollama") ||
+    normalized.includes("network") ||
+    normalized.includes("timeout")
+  ) {
+    return "无法连接到模型服务，请检查 Base URL、Chat Path、网络和 API Key。";
+  }
+  if (normalized.includes("invalid json") || normalized.includes("not valid json") || normalized.includes("json")) {
+    return "模型没有返回有效 JSON，请换用更稳定的模型或关闭 thinking。";
+  }
+  if (
+    normalized.includes("unsupported value") ||
+    normalized.includes("safety") ||
+    message.includes("安全") ||
+    message.includes("校验")
+  ) {
+    return "AI 返回了不安全的路径或操作，Zen Canvas 已拒绝应用该结果。";
+  }
+  return message;
 }
 
 function sortCandidatesBySize(candidates: StorageCandidate[]) {

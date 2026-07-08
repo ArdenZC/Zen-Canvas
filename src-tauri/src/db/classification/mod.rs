@@ -7,3 +7,4 @@ pub(crate) use engine::normalized_file_type;
 pub(crate) use engine::rule_version_for_rules;
 #[cfg(test)]
 pub(crate) use naming::translate_template;
+pub(crate) use naming::{build_target_path, OrganizeRootConfig};

@@ -15,6 +15,10 @@ import { useScanManagerStore } from "../../store/useScanManagerStore";
 import { useAppStore } from "../../store/useAppStore";
 import { useBackgroundIndexerStore } from "../../store/useBackgroundIndexerStore";
 import type {
+  AIConnectionTestResult,
+  AIProviderPreset,
+  AIProviderPresetId,
+  AISettings,
   CloseBehavior,
   FolderNamingLanguage,
   OrganizeRootMode,
@@ -24,8 +28,8 @@ import type {
   SearchScopeMode
 } from "../../types/domain";
 import { acceleratorFromKeyboardEvent, formatHotkeyLabel, isValidSearchHotkey } from "../../utils/hotkeys";
-import { compactPath } from "../../utils/viewHelpers";
-import { buttonIconDanger, buttonSecondary, cn, glassButton, inputSurface } from "../../utils/tw";
+import { compactPath, readableError } from "../../utils/viewHelpers";
+import { buttonIconDanger, buttonSecondary, cn, glassButton, inputSurface, selectSurface } from "../../utils/tw";
 import {
   ConfirmDialog,
   ControlGroup,
@@ -102,6 +106,12 @@ export function SettingsView() {
   const [recordingHotkeyPreview, setRecordingHotkeyPreview] = useState("");
   const [folderDeleteConfirm, setFolderDeleteConfirm] = useState<FolderDeleteConfirmState | null>(null);
   const [isDeletingFolderConfig, setIsDeletingFolderConfig] = useState(false);
+  const [aiSettings, setAiSettings] = useState<AISettings | null>(null);
+  const [aiPresets, setAiPresets] = useState<AIProviderPreset[]>([]);
+  const [isLoadingAISettings, setIsLoadingAISettings] = useState(false);
+  const [isSavingAISettings, setIsSavingAISettings] = useState(false);
+  const [isTestingAIConnection, setIsTestingAIConnection] = useState(false);
+  const [aiConnectionStatus, setAiConnectionStatus] = useState<{ tone: StatusTone; message: string } | null>(null);
   const hotkeyCaptureRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -135,6 +145,28 @@ export function SettingsView() {
     window.addEventListener("keydown", handleWindowKeyDown);
     return () => window.removeEventListener("keydown", handleWindowKeyDown);
   }, [isRecordingHotkey, hotkey, platform]);
+
+  useEffect(() => {
+    let disposed = false;
+    setIsLoadingAISettings(true);
+    void Promise.all([tauriApi.listAIProviderPresets(), tauriApi.getAISettings()])
+      .then(([presets, settings]) => {
+        if (disposed) return;
+        setAiPresets(presets);
+        setAiSettings(settings);
+      })
+      .catch((error) => {
+        if (!disposed) {
+          setAiConnectionStatus({ tone: "warning", message: `AI 设置加载失败：${readableError(error)}` });
+        }
+      })
+      .finally(() => {
+        if (!disposed) setIsLoadingAISettings(false);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   function showStatus(message: string, tone: StatusTone = "success") {
     setSettingsStatus(message);
@@ -334,6 +366,70 @@ export function SettingsView() {
       return;
     }
     void updateSearchHotkey(accelerator);
+  }
+
+  function updateAISettings(partial: Partial<AISettings>) {
+    setAiConnectionStatus(null);
+    setAiSettings((current) => current ? { ...current, ...partial } : current);
+  }
+
+  function selectAIPreset(presetId: AIProviderPresetId) {
+    const preset = aiPresets.find((item) => item.id === presetId);
+    setAiConnectionStatus(null);
+    setAiSettings((current) => {
+      if (!preset) return current ? { ...current, preset: presetId } : current;
+      const fallback = current ?? defaultAISettingsFromPreset(preset);
+      if (!fallback) return fallback;
+      return {
+        ...fallback,
+        preset: preset.id,
+        provider: preset.providerKind,
+        baseUrl: preset.defaultBaseUrl,
+        chatPath: preset.defaultChatPath,
+        model: preset.defaultModel,
+        apiKey: fallback.apiKey
+      };
+    });
+  }
+
+  async function saveAISettings() {
+    if (!aiSettings || isSavingAISettings) return;
+    const next = normalizeAISettingsForSave(aiSettings);
+    setIsSavingAISettings(true);
+    setAiConnectionStatus(null);
+    try {
+      const saved = await tauriApi.saveAISettings(next);
+      setAiSettings(saved);
+      showStatus("AI 设置已保存");
+    } catch (error) {
+      setAiConnectionStatus({
+        tone: "warning",
+        message: sanitizeAIStatusMessage(`AI 设置保存失败：${readableError(error)}`, aiSettings.apiKey)
+      });
+    } finally {
+      setIsSavingAISettings(false);
+    }
+  }
+
+  async function testAIConnection() {
+    if (!aiSettings || isTestingAIConnection) return;
+    const next = normalizeAISettingsForSave(aiSettings);
+    setIsTestingAIConnection(true);
+    setAiConnectionStatus(null);
+    try {
+      const result = await tauriApi.testAIProviderConnection(next);
+      setAiConnectionStatus({
+        tone: "success",
+        message: aiConnectionSuccessMessage(result)
+      });
+    } catch (error) {
+      setAiConnectionStatus({
+        tone: "warning",
+        message: sanitizeAIStatusMessage(`连接测试失败：${readableError(error)}`, aiSettings.apiKey)
+      });
+    } finally {
+      setIsTestingAIConnection(false);
+    }
   }
 
   return (
@@ -664,6 +760,127 @@ export function SettingsView() {
           />
         </ControlGroup>
 
+        <ControlGroup title="AI 模型服务" description="选择国产模型或本地 Ollama。此阶段只测试连接，不接入文件分类或文件清理。">
+          {isLoadingAISettings || !aiSettings ? (
+            <StateBlock title="正在加载 AI 设置" description="从本地配置读取模型服务商预设。" />
+          ) : (
+            <div className="grid gap-4">
+              <SwitchField
+                label="启用 AI"
+                description="仅控制后续 AI 功能开关；本阶段不会自动分类或清理文件。"
+                checked={aiSettings.enabled}
+                onChange={(next) => updateAISettings({ enabled: next })}
+                statusLabel={aiSettings.enabled ? t("enabled") : t("disabled")}
+              />
+              <div className={formRow}>
+                <div>
+                  <strong className="block text-sm">模型服务商 preset</strong>
+                  <span className={metadataText}>DeepSeek 为默认推荐；切换 preset 会填充 URL、路径和默认模型，不覆盖 API Key。</span>
+                </div>
+                <select
+                  className={cn(selectSurface, "min-w-[260px]")}
+                  value={aiSettings.preset}
+                  onChange={(event) => selectAIPreset(event.target.value as AIProviderPresetId)}
+                >
+                  {aiPresets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <TextField label="Base URL" value={aiSettings.baseUrl} onChange={(value) => updateAISettings({ baseUrl: value })} />
+                <TextField label="Chat Path" value={aiSettings.chatPath} onChange={(value) => updateAISettings({ chatPath: value })} />
+                {aiSettings.provider === "ollama" ? (
+                  <div className={cn(softPanel, "p-3 text-sm text-[var(--muted)]")}>Ollama 本地模型不需要 API Key；该字段可为空。</div>
+                ) : (
+                  <TextField
+                    label="API Key"
+                    type="password"
+                    value={aiSettings.apiKey}
+                    onChange={(value) => updateAISettings({ apiKey: value })}
+                    placeholder="不会在页面明文显示"
+                  />
+                )}
+                <TextField label="Model" value={aiSettings.model} onChange={(value) => updateAISettings({ model: value })} />
+                <NumberField label="Batch Size" value={aiSettings.batchSize} min={1} onChange={(value) => updateAISettings({ batchSize: value })} />
+                <NumberField label="Timeout Seconds" value={aiSettings.timeoutSeconds} min={1} onChange={(value) => updateAISettings({ timeoutSeconds: value })} />
+              </div>
+              {aiSettings.preset === "deepseek" && ["deepseek-chat", "deepseek-reasoner"].includes(aiSettings.model.trim()) ? (
+                <NoticeBanner tone="warning">DeepSeek 旧模型名仍允许输入，但建议改用 deepseek-v4-flash 或 deepseek-v4-pro。</NoticeBanner>
+              ) : null}
+              <div className="grid gap-3 md:grid-cols-2">
+                <SwitchField
+                  label="Force JSON Output"
+                  description="优先使用 response_format；不支持时仅通过 prompt 约束 JSON。"
+                  checked={aiSettings.forceJsonOutput}
+                  onChange={(next) => updateAISettings({ forceJsonOutput: next })}
+                  statusLabel={aiSettings.forceJsonOutput ? t("enabled") : t("disabled")}
+                />
+                <SwitchField
+                  label="Enable Thinking"
+                  description="仅在支持的模型服务中传递 thinking / reasoning 配置。"
+                  checked={aiSettings.enableThinking}
+                  onChange={(next) => updateAISettings({ enableThinking: next })}
+                  statusLabel={aiSettings.enableThinking ? t("enabled") : t("disabled")}
+                />
+                <TextField
+                  label="Reasoning Effort"
+                  value={aiSettings.reasoningEffort ?? ""}
+                  onChange={(value) => updateAISettings({ reasoningEffort: value || null })}
+                  placeholder="例如 low / medium / high"
+                />
+                <SwitchField
+                  label="发送完整路径"
+                  description="后续 AI 分类提示词可使用完整路径。"
+                  checked={aiSettings.sendFullPath}
+                  onChange={(next) => updateAISettings({ sendFullPath: next })}
+                  statusLabel={aiSettings.sendFullPath ? t("enabled") : t("disabled")}
+                />
+                <SwitchField
+                  label="发送父目录"
+                  description="后续 AI 分类提示词可使用父目录信息。"
+                  checked={aiSettings.sendParentPath}
+                  onChange={(next) => updateAISettings({ sendParentPath: next })}
+                  statusLabel={aiSettings.sendParentPath ? t("enabled") : t("disabled")}
+                />
+                <SwitchField
+                  label="发送文件内容"
+                  description="第一阶段暂不启用；保持关闭，避免上传文件内容。"
+                  checked={false}
+                  onChange={() => updateAISettings({ sendFileContent: false })}
+                  disabled
+                  statusLabel={t("disabled")}
+                />
+              </div>
+              <div className="grid gap-2">
+                <label className="grid gap-1">
+                  <span className="text-sm font-medium text-[var(--ink)]">Extra Body JSON（高级选项）</span>
+                  <textarea
+                    className={cn(inputSurface, "min-h-24 resize-y py-2 font-mono")}
+                    value={aiSettings.extraBodyJson ?? ""}
+                    onChange={(event) => updateAISettings({ extraBodyJson: event.target.value || null })}
+                    placeholder='例如 { "thinking": { "type": "enabled" } }'
+                  />
+                </label>
+                <span className={quietText}>不会打印 API Key；错误信息会尝试脱敏当前 API Key。</span>
+              </div>
+              {aiConnectionStatus ? (
+                <NoticeBanner tone={aiConnectionStatus.tone}>{aiConnectionStatus.message}</NoticeBanner>
+              ) : null}
+              <div className="flex flex-wrap justify-end gap-2">
+                <button className={buttonSecondary} onClick={() => void testAIConnection()} disabled={isTestingAIConnection || isSavingAISettings}>
+                  {isTestingAIConnection ? "测试中..." : "测试连接"}
+                </button>
+                <button className={buttonSecondary} onClick={() => void saveAISettings()} disabled={isSavingAISettings || isTestingAIConnection}>
+                  {isSavingAISettings ? "保存中..." : "保存 AI 设置"}
+                </button>
+              </div>
+            </div>
+          )}
+        </ControlGroup>
+
         <details className={cn(formSection, "group")}>
           <summary className="cursor-pointer text-sm font-semibold text-[var(--ink)]">{t("settingsDeveloperRelease")}</summary>
           <div className="mt-3 grid gap-3">
@@ -703,4 +920,110 @@ export function SettingsView() {
 
 function normalizeSettingsRoot(path: string) {
   return path.trim().replace(/\\+/g, "/").replace(/\/+$/g, "").toLowerCase();
+}
+
+function TextField({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  placeholder?: string;
+}) {
+  return (
+    <label className="grid gap-1">
+      <span className="text-sm font-medium text-[var(--ink)]">{label}</span>
+      <input
+        className={inputSurface}
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function NumberField({
+  label,
+  value,
+  min,
+  onChange
+}: {
+  label: string;
+  value: number;
+  min: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="grid gap-1">
+      <span className="text-sm font-medium text-[var(--ink)]">{label}</span>
+      <input
+        className={inputSurface}
+        type="number"
+        min={min}
+        value={value}
+        onChange={(event) => onChange(Math.max(min, Number(event.target.value) || min))}
+      />
+    </label>
+  );
+}
+
+function defaultAISettingsFromPreset(preset?: AIProviderPreset): AISettings | null {
+  if (!preset) return null;
+  return {
+    enabled: false,
+    provider: preset.providerKind,
+    preset: preset.id,
+    baseUrl: preset.defaultBaseUrl,
+    chatPath: preset.defaultChatPath || "/chat/completions",
+    apiKey: "",
+    model: preset.defaultModel,
+    temperature: 0.1,
+    maxTokens: 2048,
+    batchSize: 20,
+    timeoutSeconds: 120,
+    sendFullPath: true,
+    sendParentPath: true,
+    sendFileContent: false,
+    classificationMode: "rules_first",
+    cleanupAiEnabled: false,
+    forceJsonOutput: true,
+    enableThinking: false,
+    reasoningEffort: null,
+    extraBodyJson: null
+  };
+}
+
+function normalizeAISettingsForSave(settings: AISettings): AISettings {
+  const chatPath = settings.chatPath.trim();
+  return {
+    ...settings,
+    baseUrl: settings.baseUrl.trim().replace(/\/+$/g, ""),
+    chatPath: chatPath ? `/${chatPath.replace(/^\/+/g, "")}` : "/chat/completions",
+    apiKey: settings.apiKey.trim(),
+    model: settings.model.trim(),
+    batchSize: Math.max(1, Math.floor(settings.batchSize || 1)),
+    timeoutSeconds: Math.max(1, Math.floor(settings.timeoutSeconds || 1)),
+    maxTokens: Math.max(1, Math.floor(settings.maxTokens || 1)),
+    sendFileContent: false,
+    reasoningEffort: settings.reasoningEffort?.trim() || null,
+    extraBodyJson: settings.extraBodyJson?.trim() || null
+  };
+}
+
+function sanitizeAIStatusMessage(message: string, apiKey: string) {
+  const trimmed = apiKey.trim();
+  return trimmed ? message.split(trimmed).join("[redacted]") : message;
+}
+
+function aiConnectionSuccessMessage(result: AIConnectionTestResult) {
+  const provider = result.provider === "ollama" ? "Ollama" : "OpenAI-compatible";
+  const model = result.model || "unknown model";
+  return `连接成功：${provider} / ${model} / ${result.elapsedMs}ms`;
 }

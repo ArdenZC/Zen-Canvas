@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { tauriApi, type OperationProgressPayload, type RuleExecutionSummary } from "../api/tauriApi";
+import { tauriApi, type OperationProgressPayload } from "../api/tauriApi";
 import { makeTranslator } from "../i18n";
-import type { FileRecord, LibraryScope, OperationLog, OperationPreview, OperationPreviewResult } from "../types/domain";
+import type { FileRecord, LibraryScope, OperationLog, OperationPreview, OperationPreviewResult, RuleExecutionSummary } from "../types/domain";
 import { applyPreviewNameOverride, createOperationPreviews, readableError } from "../utils/viewHelpers";
 import { useAppStore } from "./useAppStore";
 import { useFileLibraryStore } from "./useFileLibraryStore";

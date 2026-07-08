@@ -58,6 +58,86 @@ export type RestoreRetentionDays = 15 | 30 | 60 | 90;
 export type RuleExecutionMode = "inbox_only" | "all_changed_or_rule_changed";
 export type SearchScopeMode = "all" | "current_scan" | "custom_roots";
 export type OrganizeRootMode = "current_folder" | "zen_canvas_folder" | "custom_root";
+export type AIProviderKind = "openai_compatible" | "ollama";
+export type AIProviderPresetId =
+  | "deepseek"
+  | "kimi"
+  | "qwen_dashscope"
+  | "zhipu_glm"
+  | "minimax"
+  | "baichuan"
+  | "doubao_ark"
+  | "siliconflow"
+  | "custom_openai_compatible"
+  | "ollama";
+export type AIClassificationMode = "ai_first" | "rules_first" | "hybrid";
+
+export interface AIProviderPreset {
+  id: AIProviderPresetId;
+  label: string;
+  providerKind: AIProviderKind;
+  defaultBaseUrl: string;
+  defaultChatPath: string;
+  defaultModel: string;
+  apiKeyEnvHint?: string;
+  supportsResponseFormat: boolean;
+  supportsJsonMode?: boolean;
+  supportsThinking: boolean;
+  supportsReasoningEffort: boolean;
+  extraBodyStrategy?: string;
+  docsUrl?: string | null;
+}
+
+export interface AISettings {
+  enabled: boolean;
+  provider: AIProviderKind;
+  preset: AIProviderPresetId;
+  baseUrl: string;
+  chatPath: string;
+  apiKey: string;
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  batchSize: number;
+  timeoutSeconds: number;
+  sendFullPath: boolean;
+  sendParentPath: boolean;
+  sendFileContent: boolean;
+  classificationMode: AIClassificationMode;
+  cleanupAiEnabled: boolean;
+  forceJsonOutput: boolean;
+  enableThinking: boolean;
+  reasoningEffort: string | null;
+  extraBodyJson: string | null;
+}
+
+export interface AIConnectionTestResult {
+  ok: boolean;
+  message: string;
+  model: string | null;
+  provider: AIProviderKind | null;
+  preset: AIProviderPresetId | null;
+  elapsedMs: number;
+}
+
+export interface RuleExecutionSummary {
+  scanned: number;
+  updated: number;
+  skipped: number;
+  needsConfirmation: number;
+}
+
+export interface ClassificationCorrectionRequest {
+  fileType: FileType;
+  purpose: Purpose;
+  lifecycle: Lifecycle;
+  context: string;
+  riskLevel: RiskLevel;
+  suggestedAction: SuggestedAction;
+  targetTemplate: string;
+  suggestedName?: string;
+  reason?: string;
+}
 
 export interface ScanRootSetting {
   id: string;
@@ -156,7 +236,7 @@ export interface ScanRoot {
   summarized_count?: number;
 }
 
-export type RuleSource = "system" | "user" | "session";
+export type RuleSource = "system" | "user" | "session" | "ai" | "learned";
 export type RuleOperator = "AND" | "OR";
 
 export type ConditionField =
