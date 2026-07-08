@@ -130,6 +130,9 @@ impl Database {
             updated,
             skipped,
             needs_confirmation,
+            failed_batches: None,
+            failed_files: None,
+            warning: None,
         })
     }
 
@@ -219,6 +222,9 @@ impl Database {
             updated,
             skipped,
             needs_confirmation,
+            failed_batches: None,
+            failed_files: None,
+            warning: None,
         })
     }
 
@@ -244,6 +250,9 @@ impl Database {
                 updated: 0,
                 skipped: 0,
                 needs_confirmation: 0,
+                failed_batches: None,
+                failed_files: None,
+                warning: None,
             });
         }
 
@@ -334,6 +343,9 @@ impl Database {
             updated,
             skipped,
             needs_confirmation,
+            failed_batches: None,
+            failed_files: None,
+            warning: None,
         })
     }
 }
@@ -481,6 +493,9 @@ fn execute_classification_batch(
         updated,
         skipped: 0,
         needs_confirmation,
+        failed_batches: None,
+        failed_files: None,
+        warning: None,
     })
 }
 

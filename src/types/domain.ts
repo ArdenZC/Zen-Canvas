@@ -158,6 +158,9 @@ export interface RuleExecutionSummary {
   updated: number;
   skipped: number;
   needsConfirmation: number;
+  failedBatches?: number;
+  failedFiles?: number;
+  warning?: string;
 }
 
 export interface ClassificationCorrectionRequest {

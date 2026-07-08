@@ -648,7 +648,7 @@ function mockAISettings(settings?: AISettings): AISettings {
     model: "deepseek-v4-flash",
     temperature: 0.1,
     maxTokens: 2048,
-    batchSize: 20,
+    batchSize: 5,
     timeoutSeconds: 120,
     sendFullPath: true,
     sendParentPath: true,

@@ -251,6 +251,12 @@ pub struct RuleExecutionSummary {
     pub updated: i64,
     pub skipped: i64,
     pub needs_confirmation: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_batches: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed_files: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]

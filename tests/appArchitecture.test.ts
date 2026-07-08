@@ -85,7 +85,7 @@ describe("app render architecture", () => {
     const settings = read("src/views/settings/SettingsView.tsx");
     const browserMock = read("src/api/browserMockApi.ts");
 
-    expect(settings).toContain("每次请求模型处理的文件数，不是本次总处理数量。");
+    expect(settings).toContain("DeepSeek / 国产模型建议 5");
     expect(settings).toContain("启用 AI 空间清理分析");
     expect(settings).toContain("AI 空间清理分析只增强候选项的风险说明和建议，不会直接删除文件，也不会绕过 Safe Trash。");
     expect(settings).toContain("cleanupAiEnabled: true");

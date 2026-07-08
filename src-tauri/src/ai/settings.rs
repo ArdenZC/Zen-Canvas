@@ -52,7 +52,7 @@ impl Default for AISettings {
             model: "deepseek-v4-flash".to_string(),
             temperature: 0.1,
             max_tokens: 2048,
-            batch_size: 20,
+            batch_size: 5,
             timeout_seconds: 120,
             send_full_path: true,
             send_parent_path: true,

@@ -293,24 +293,35 @@ function ensureAIReady(enabled: boolean, provider: string, apiKey: string) {
 }
 
 function aiClassificationSummaryMessage(summary: RuleExecutionSummary) {
-  return `AI 分类完成：扫描 ${summary.scanned.toLocaleString()} 个，更新 ${summary.updated.toLocaleString()} 个，跳过 ${summary.skipped.toLocaleString()} 个，需要确认 ${summary.needsConfirmation.toLocaleString()} 个。`;
+  const base = `AI 分类完成：扫描 ${summary.scanned.toLocaleString()} 个，更新 ${summary.updated.toLocaleString()} 个，跳过 ${summary.skipped.toLocaleString()} 个，需要确认 ${summary.needsConfirmation.toLocaleString()} 个。`;
+  return summary.warning ? `${base}${summary.warning}` : base;
 }
 
-function readableAIClassificationError(error: unknown) {
+export function readableAIClassificationError(error: unknown) {
   const message = readableError(error);
   const normalized = message.toLowerCase();
   if (message.includes("模型返回") || message.includes("Zen Canvas 需要的 JSON")) return message;
   if (message.includes("AI 未启用") || message.includes("启用 AI")) return "请先在设置中启用 AI。";
-  if (message.includes("API Key 缺失") || normalized.includes("api key") || normalized.includes("api_key")) {
+  if (isRateLimitError(normalized)) {
+    return withProviderDetail("模型服务请求过快或达到限流，请降低 Batch Size 或稍后重试。", message);
+  }
+  if (isTimeoutError(normalized)) {
+    return withProviderDetail("模型请求超时，请降低 Batch Size、减少本次处理数量，或提高 Timeout Seconds。", message);
+  }
+  if (isHttpStatus(normalized, 400)) {
+    return withProviderDetail("模型服务拒绝了请求参数，请检查 response_format、thinking、extraBodyJson 或模型名。", message);
+  }
+  if (isHttpStatus(normalized, 401) || isHttpStatus(normalized, 403)) {
+    return withProviderDetail("模型服务认证或权限失败，请检查 API Key 和模型权限。", message);
+  }
+  if (message.includes("API Key 缺失") || message.includes("当前模型服务需要 API Key")) {
     return "当前模型服务需要 API Key，请在 AI 设置中填写。";
   }
+  if (hasConcreteProviderDetail(normalized)) return message;
   if (
     normalized.includes("request failed") ||
-    normalized.includes("http") ||
-    normalized.includes("provider") ||
     normalized.includes("ollama") ||
-    normalized.includes("network") ||
-    normalized.includes("timeout")
+    normalized.includes("network")
   ) {
     return "无法连接到模型服务，请检查 Base URL、Chat Path、网络和 API Key。";
   }
@@ -327,4 +338,36 @@ function readableAIClassificationError(error: unknown) {
     return "AI 返回了不安全的路径或操作，Zen Canvas 已拒绝应用该结果。";
   }
   return message;
+}
+
+function isHttpStatus(normalized: string, status: number) {
+  const text = String(status);
+  return normalized.includes(`http ${text}`)
+    || normalized.includes(`http status ${text}`)
+    || normalized.includes(`status ${text}`)
+    || normalized.includes(`status=${text}`);
+}
+
+function isRateLimitError(normalized: string) {
+  return isHttpStatus(normalized, 429)
+    || normalized.includes("rate limit")
+    || normalized.includes("too many request");
+}
+
+function isTimeoutError(normalized: string) {
+  return normalized.includes("timeout") || normalized.includes("timed out");
+}
+
+function hasConcreteProviderDetail(normalized: string) {
+  return normalized.includes("http ")
+    || normalized.includes("http status")
+    || normalized.includes("status ")
+    || normalized.includes("batch ")
+    || normalized.includes("provider response summary")
+    || normalized.includes("provider error:")
+    || normalized.includes("rate limit");
+}
+
+function withProviderDetail(summary: string, detail: string) {
+  return detail.includes(summary) ? detail : `${summary}\n${detail}`;
 }

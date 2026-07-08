@@ -854,7 +854,7 @@ export function SettingsView() {
                 <TextField label="Model" value={aiSettings.model} onChange={(value) => updateAISettings({ model: value })} />
                 <NumberField
                   label="Batch Size"
-                  description="每次请求模型处理的文件数，不是本次总处理数量。"
+                  description="每次请求模型处理的文件数，不是本次总处理数量。DeepSeek / 国产模型建议 5，过大会增加超时、限流或 JSON 不完整风险。"
                   value={aiSettings.batchSize}
                   min={1}
                   onChange={(value) => updateAISettings({ batchSize: value })}
@@ -1131,7 +1131,7 @@ function defaultAISettingsFromPreset(preset?: AIProviderPreset): AISettings | nu
     model: preset.defaultModel,
     temperature: 0.1,
     maxTokens: 2048,
-    batchSize: 20,
+    batchSize: 5,
     timeoutSeconds: 120,
     sendFullPath: true,
     sendParentPath: true,

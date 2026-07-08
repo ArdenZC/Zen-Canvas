@@ -27,6 +27,7 @@ use crate::{
 };
 
 const DEFAULT_AI_CLASSIFICATION_LIMIT: u32 = 1000;
+const AI_CLASSIFICATION_TRANSIENT_RETRIES: usize = 2;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -507,6 +508,9 @@ pub(crate) fn apply_ai_classification_results(
             updated: 0,
             skipped: targets.len() as i64,
             needs_confirmation: 0,
+            failed_batches: None,
+            failed_files: None,
+            warning: None,
         });
     }
     let app_settings = get_app_settings(db)?;
@@ -590,6 +594,9 @@ pub(crate) fn apply_ai_classification_results(
         updated,
         skipped: targets.len() as i64 - updated,
         needs_confirmation,
+        failed_batches: None,
+        failed_files: None,
+        warning: None,
     })
 }
 
@@ -629,26 +636,63 @@ fn classify_ai_targets_with_provider(
             updated: 0,
             skipped: 0,
             needs_confirmation: 0,
+            failed_batches: None,
+            failed_files: None,
+            warning: None,
         });
     }
     let batch_size = settings.batch_size.max(1);
+    let batch_count = targets.len().div_ceil(batch_size);
     let mut sanitized = Vec::new();
     let mut sanitized_ids = HashSet::new();
-    for batch in targets.chunks(batch_size) {
+    let mut failed_batches = Vec::new();
+    for (batch_index, batch) in targets.chunks(batch_size).enumerate() {
         let id_map = AIClassificationIdMap::from_targets(batch);
-        let content =
-            call_ai_classification_provider(provider, settings, batch, learned_rules, false)?;
+        let batch_context = AIClassificationBatchContext::new(
+            batch_index + 1,
+            batch_count,
+            batch_size,
+            targets.len(),
+            batch,
+        );
+        let content = match call_ai_classification_provider_with_retries(
+            provider,
+            settings,
+            batch,
+            learned_rules,
+            false,
+            &batch_context,
+        ) {
+            Ok(content) => content,
+            Err(error) => {
+                failed_batches.push(AIClassificationBatchFailure::from_context(
+                    &batch_context,
+                    error,
+                ));
+                continue;
+            }
+        };
         let outputs = match parse_ai_classification_response(&content) {
             Ok(outputs) => outputs,
             Err(_) => {
-                let retry_content = call_ai_classification_provider(
+                let retry_content = match call_ai_classification_provider_with_retries(
                     provider,
                     settings,
                     batch,
                     learned_rules,
                     true,
-                )?;
-                parse_ai_classification_response(&retry_content).map_err(|error| {
+                    &batch_context,
+                ) {
+                    Ok(content) => content,
+                    Err(error) => {
+                        failed_batches.push(AIClassificationBatchFailure::from_context(
+                            &batch_context,
+                            error,
+                        ));
+                        continue;
+                    }
+                };
+                match parse_ai_classification_response(&retry_content).map_err(|error| {
                     if is_ai_classification_schema_error(&error) {
                         format!("{error} 已尝试清洗和重试，但仍失败。")
                     } else {
@@ -656,7 +700,16 @@ fn classify_ai_targets_with_provider(
                             "{error} 已尝试清洗和重试，但仍失败。建议关闭 thinking，或换用 deepseek-v4-flash / qwen-plus 等更稳定的非思考模型。"
                         )
                     }
-                })?
+                }) {
+                    Ok(outputs) => outputs,
+                    Err(error) => {
+                        failed_batches.push(AIClassificationBatchFailure::from_context(
+                            &batch_context,
+                            error,
+                        ));
+                        continue;
+                    }
+                }
             }
         };
         for output in outputs {
@@ -667,7 +720,178 @@ fn classify_ai_targets_with_provider(
             }
         }
     }
-    apply_ai_classification_results(db, &targets, &sanitized, settings).map_err(string_error)
+    if sanitized.is_empty() && !failed_batches.is_empty() {
+        let first = failed_batches
+            .first()
+            .map(|failure| failure.message.clone())
+            .unwrap_or_else(|| "AI classification batches failed.".to_string());
+        return Err(first);
+    }
+    let mut summary = apply_ai_classification_results(db, &targets, &sanitized, settings)
+        .map_err(string_error)?;
+    if !failed_batches.is_empty() {
+        let failed_files = failed_batches
+            .iter()
+            .map(|failure| failure.file_count as i64)
+            .sum::<i64>();
+        summary.failed_batches = Some(failed_batches.len() as i64);
+        summary.failed_files = Some(failed_files);
+        summary.warning = Some("部分批次请求失败，请降低 Batch Size 或稍后重试。".to_string());
+    }
+    Ok(summary)
+}
+
+#[derive(Debug, Clone)]
+struct AIClassificationBatchContext {
+    batch_index: usize,
+    batch_count: usize,
+    batch_size: usize,
+    target_count: usize,
+    file_count: usize,
+    file_names: String,
+}
+
+impl AIClassificationBatchContext {
+    fn new(
+        batch_index: usize,
+        batch_count: usize,
+        batch_size: usize,
+        target_count: usize,
+        batch: &[IndexedFileRow],
+    ) -> Self {
+        Self {
+            batch_index,
+            batch_count,
+            batch_size,
+            target_count,
+            file_count: batch.len(),
+            file_names: batch_file_names(batch),
+        }
+    }
+
+    fn format_error(&self, error: &str) -> String {
+        let hint = provider_error_hint(error);
+        let hint = if hint.is_empty() {
+            String::new()
+        } else {
+            format!(" {hint}")
+        };
+        format!(
+            "AI classification batch {}/{} failed. batchSize={} targetCount={} files=[{}]. Provider error: {}{}",
+            self.batch_index,
+            self.batch_count,
+            self.batch_size,
+            self.target_count,
+            self.file_names,
+            error,
+            hint
+        )
+    }
+}
+
+#[derive(Debug, Clone)]
+struct AIClassificationBatchFailure {
+    file_count: usize,
+    message: String,
+}
+
+impl AIClassificationBatchFailure {
+    fn from_context(context: &AIClassificationBatchContext, error: String) -> Self {
+        Self {
+            file_count: context.file_count,
+            message: context.format_error(&error),
+        }
+    }
+}
+
+fn call_ai_classification_provider_with_retries(
+    provider: &dyn AIProvider,
+    settings: &AISettings,
+    targets: &[IndexedFileRow],
+    learned_rules: &[String],
+    retry_json_only: bool,
+    _batch_context: &AIClassificationBatchContext,
+) -> Result<String, String> {
+    let mut last_error = String::new();
+    for attempt in 0..=AI_CLASSIFICATION_TRANSIENT_RETRIES {
+        match call_ai_classification_provider(
+            provider,
+            settings,
+            targets,
+            learned_rules,
+            retry_json_only,
+        ) {
+            Ok(content) => return Ok(content),
+            Err(error) => {
+                let should_retry = is_transient_provider_error(&error)
+                    && attempt < AI_CLASSIFICATION_TRANSIENT_RETRIES;
+                last_error = error;
+                if should_retry {
+                    ai_classification_retry_sleep(attempt);
+                    continue;
+                }
+                break;
+            }
+        }
+    }
+    Err(last_error)
+}
+
+fn is_transient_provider_error(error: &str) -> bool {
+    let normalized = error.to_ascii_lowercase();
+    normalized.contains("http 429")
+        || normalized.contains("status 429")
+        || normalized.contains("rate limit")
+        || normalized.contains("too many request")
+        || normalized.contains("http 500")
+        || normalized.contains("http 502")
+        || normalized.contains("http 503")
+        || normalized.contains("status 500")
+        || normalized.contains("status 502")
+        || normalized.contains("status 503")
+        || normalized.contains("timeout")
+        || normalized.contains("timed out")
+}
+
+fn provider_error_hint(error: &str) -> &'static str {
+    let normalized = error.to_ascii_lowercase();
+    if normalized.contains("http 429")
+        || normalized.contains("status 429")
+        || normalized.contains("rate limit")
+    {
+        "Rate limit: 请降低 Batch Size 或稍后重试。"
+    } else if normalized.contains("timeout") || normalized.contains("timed out") {
+        "Timeout: 请降低 Batch Size、减少本次处理数量，或提高 Timeout Seconds。"
+    } else if normalized.contains("http 400") || normalized.contains("status 400") {
+        "HTTP 400: 请检查 response_format、thinking、extraBodyJson 或模型名。"
+    } else if normalized.contains("http 401")
+        || normalized.contains("http 403")
+        || normalized.contains("status 401")
+        || normalized.contains("status 403")
+    {
+        "请检查 API Key 或模型服务权限。"
+    } else {
+        ""
+    }
+}
+
+#[cfg(not(test))]
+fn ai_classification_retry_sleep(attempt: usize) {
+    let seconds = if attempt == 0 { 1 } else { 3 };
+    std::thread::sleep(std::time::Duration::from_secs(seconds));
+}
+
+#[cfg(test)]
+fn ai_classification_retry_sleep(_attempt: usize) {}
+
+fn batch_file_names(batch: &[IndexedFileRow]) -> String {
+    let names = batch
+        .iter()
+        .take(3)
+        .map(|row| row.name.replace(['\r', '\n', '[', ']'], " "))
+        .collect::<Vec<_>>()
+        .join(",");
+    names.chars().take(200).collect()
 }
 
 fn query_indexed_file_rows(
@@ -1342,6 +1566,146 @@ mod tests {
 
         assert_eq!(summary.scanned, 5);
         assert_eq!(summary.updated, 3);
+        assert_eq!(provider.call_count(), 3);
+    }
+
+    #[test]
+    fn one_successful_batch_and_one_failed_batch_returns_partial_summary() {
+        let db = test_db();
+        for index in 0..4 {
+            insert_test_file(
+                &db,
+                &format!("file-{index}"),
+                &format!("/tmp/ai-partial-batch-{index}.pdf"),
+            );
+        }
+        let settings = AISettings {
+            batch_size: 2,
+            ..enabled_settings()
+        };
+        let targets = collect_ai_classification_targets(&db, &LibraryScope::All, None, &settings)
+            .expect("collect targets");
+        let provider = SequenceProvider::new(vec![
+            Ok(valid_ref_response("f1")),
+            Err(AIProviderError::new("HTTP 429 rate limit")),
+            Err(AIProviderError::new("HTTP 429 rate limit")),
+            Err(AIProviderError::new("HTTP 429 rate limit")),
+        ]);
+
+        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect("partial success should return summary");
+
+        assert_eq!(summary.scanned, 4);
+        assert_eq!(summary.updated, 1);
+        assert_eq!(summary.skipped, 3);
+        assert_eq!(summary.failed_batches, Some(1));
+        assert_eq!(summary.failed_files, Some(2));
+        assert!(summary
+            .warning
+            .as_deref()
+            .unwrap_or_default()
+            .contains("部分批次请求失败"));
+        assert_eq!(provider.call_count(), 4);
+    }
+
+    #[test]
+    fn all_failed_batches_return_batch_context_error() {
+        let db = test_db();
+        for index in 0..2 {
+            insert_test_file(
+                &db,
+                &format!("file-{index}"),
+                &format!("/tmp/ai-all-fail-{index}.pdf"),
+            );
+        }
+        let settings = AISettings {
+            batch_size: 2,
+            ..enabled_settings()
+        };
+        let targets = collect_ai_classification_targets(&db, &LibraryScope::All, None, &settings)
+            .expect("collect targets");
+        let provider = SequenceProvider::new(vec![
+            Err(AIProviderError::new("HTTP 429 rate limit ai-secret-key")),
+            Err(AIProviderError::new("HTTP 429 rate limit ai-secret-key")),
+            Err(AIProviderError::new("HTTP 429 rate limit ai-secret-key")),
+        ]);
+
+        let error = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect_err("all batches should fail");
+
+        assert!(error.contains("batch 1/1"));
+        assert!(error.contains("batchSize=2"));
+        assert!(error.contains("targetCount=2"));
+        assert!(error.contains("HTTP 429"));
+        assert!(error.contains("降低 Batch Size"));
+        assert!(!error.contains("ai-secret-key"));
+        assert_eq!(provider.call_count(), 3);
+    }
+
+    #[test]
+    fn http_400_provider_error_is_not_retried() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "/tmp/ai-http-400.pdf");
+        let settings = AISettings {
+            batch_size: 1,
+            ..enabled_settings()
+        };
+        let targets = collect_ai_classification_targets(&db, &LibraryScope::All, None, &settings)
+            .expect("collect targets");
+        let provider =
+            SequenceProvider::new(vec![Err(AIProviderError::new("HTTP 400 invalid request"))]);
+
+        let error = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect_err("bad request should fail");
+
+        assert!(error.contains("HTTP 400"));
+        assert!(error.contains("response_format"));
+        assert_eq!(provider.call_count(), 1);
+    }
+
+    #[test]
+    fn http_500_provider_error_retries_twice() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "/tmp/ai-http-500.pdf");
+        let settings = AISettings {
+            batch_size: 1,
+            ..enabled_settings()
+        };
+        let targets = collect_ai_classification_targets(&db, &LibraryScope::All, None, &settings)
+            .expect("collect targets");
+        let provider = SequenceProvider::new(vec![
+            Err(AIProviderError::new("HTTP 500 provider unavailable")),
+            Err(AIProviderError::new("HTTP 500 provider unavailable")),
+            Err(AIProviderError::new("HTTP 500 provider unavailable")),
+        ]);
+
+        let _ = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect_err("server error should fail after retries");
+
+        assert_eq!(provider.call_count(), 3);
+    }
+
+    #[test]
+    fn timeout_provider_error_retries_twice() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "/tmp/ai-timeout.pdf");
+        let settings = AISettings {
+            batch_size: 1,
+            ..enabled_settings()
+        };
+        let targets = collect_ai_classification_targets(&db, &LibraryScope::All, None, &settings)
+            .expect("collect targets");
+        let provider = SequenceProvider::new(vec![
+            Err(AIProviderError::new("request timeout")),
+            Err(AIProviderError::new("request timeout")),
+            Err(AIProviderError::new("request timeout")),
+        ]);
+
+        let error = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect_err("timeout should fail after retries");
+
+        assert!(error.contains("Timeout"));
+        assert!(error.contains("Timeout Seconds"));
         assert_eq!(provider.call_count(), 3);
     }
 
