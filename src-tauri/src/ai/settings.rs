@@ -58,7 +58,7 @@ impl Default for AISettings {
             send_parent_path: true,
             send_file_content: false,
             classification_mode: "rules_first".to_string(),
-            cleanup_ai_enabled: false,
+            cleanup_ai_enabled: true,
             force_json_output: true,
             enable_thinking: false,
             reasoning_effort: None,

@@ -70,6 +70,28 @@ describe("app render architecture", () => {
     expect(bootstrapper).not.toContain("syncPreviews(files)");
   });
 
+  it("refreshes operation previews after AI classification before opening preview", () => {
+    const hub = read("src/views/hub/HubView.tsx");
+
+    expect(hub).toContain("DEFAULT_AI_CLASSIFICATION_RUN_LIMIT = 1000");
+    expect(hub).toContain("limit: DEFAULT_AI_CLASSIFICATION_RUN_LIMIT");
+    expect(hub).toContain("const refreshPreviewsForScope = useOperationQueueStore((state) => state.refreshPreviewsForScope)");
+    expect(hub).toContain("const previews = await refreshPreviewsForScope(scope)");
+    expect(hub).toContain("当前没有可执行的整理操作。可能原因：AI 建议均为 Keep / Review，或目标路径与原路径相同。");
+    expect(hub).not.toContain("AI 已生成整理建议，请进入预览后确认执行。");
+  });
+
+  it("describes AI batch size as per-request and exposes cleanup AI settings", () => {
+    const settings = read("src/views/settings/SettingsView.tsx");
+    const browserMock = read("src/api/browserMockApi.ts");
+
+    expect(settings).toContain("每次请求模型处理的文件数，不是本次总处理数量。");
+    expect(settings).toContain("启用 AI 空间清理分析");
+    expect(settings).toContain("AI 空间清理分析只增强候选项的风险说明和建议，不会直接删除文件，也不会绕过 Safe Trash。");
+    expect(settings).toContain("cleanupAiEnabled: true");
+    expect(browserMock).toContain("cleanupAiEnabled: true");
+  });
+
   it("does not register main-window runtime side effects in search mode", () => {
     const runtimeProviders = read("src/components/AppRuntimeProviders.tsx");
     const fsWatcher = read("src/hooks/useFsWatcher.ts");

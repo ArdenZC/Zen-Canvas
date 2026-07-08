@@ -26,6 +26,8 @@ use crate::{
     settings::get_app_settings,
 };
 
+const DEFAULT_AI_CLASSIFICATION_LIMIT: u32 = 1000;
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AIClassificationOptions {
@@ -273,12 +275,12 @@ pub(crate) fn collect_ai_classification_targets(
     db: &Database,
     scope: &LibraryScope,
     options: Option<&AIClassificationOptions>,
-    settings: &AISettings,
+    _settings: &AISettings,
 ) -> Result<Vec<IndexedFileRow>, DbError> {
     let limit = options
         .and_then(|options| options.limit)
-        .unwrap_or(settings.batch_size as u32)
-        .clamp(1, 1000);
+        .unwrap_or(DEFAULT_AI_CLASSIFICATION_LIMIT)
+        .clamp(1, 5000);
     let only_unclassified = options
         .and_then(|options| options.only_unclassified)
         .unwrap_or(true);
@@ -1072,7 +1074,7 @@ mod tests {
 
     #[test]
     fn normal_json_parses() {
-        let outputs = parse_ai_classification_response(valid_response("file-1", "Move", "Normal"))
+        let outputs = parse_ai_classification_response(&valid_response("file-1", "Move", "Normal"))
             .expect("parse json");
         assert_eq!(outputs.len(), 1);
         assert_eq!(outputs[0].id, "file-1");
@@ -1263,6 +1265,127 @@ mod tests {
 
         assert_eq!(summary.updated, 1);
         assert_eq!(provider.call_count(), 2);
+    }
+
+    #[test]
+    fn collect_targets_default_limit_is_not_batch_size() {
+        let db = test_db();
+        for index in 0..25 {
+            insert_test_file(
+                &db,
+                &format!("file-{index}"),
+                &format!("/tmp/ai-default-limit-{index}.pdf"),
+            );
+        }
+        let settings = AISettings {
+            batch_size: 20,
+            ..enabled_settings()
+        };
+
+        let targets = collect_ai_classification_targets(&db, &LibraryScope::All, None, &settings)
+            .expect("collect targets");
+
+        assert_eq!(targets.len(), 25);
+    }
+
+    #[test]
+    fn collect_targets_respects_explicit_limit() {
+        let db = test_db();
+        for index in 0..120 {
+            insert_test_file(
+                &db,
+                &format!("file-{index}"),
+                &format!("/tmp/ai-explicit-limit-{index}.pdf"),
+            );
+        }
+        let settings = AISettings {
+            batch_size: 20,
+            ..enabled_settings()
+        };
+        let options = AIClassificationOptions {
+            only_unclassified: None,
+            only_low_confidence: None,
+            limit: Some(100),
+        };
+
+        let targets =
+            collect_ai_classification_targets(&db, &LibraryScope::All, Some(&options), &settings)
+                .expect("collect targets");
+
+        assert_eq!(targets.len(), 100);
+    }
+
+    #[test]
+    fn batch_size_only_controls_provider_chunks() {
+        let db = test_db();
+        for index in 0..5 {
+            insert_test_file(
+                &db,
+                &format!("file-{index}"),
+                &format!("/tmp/ai-batch-size-{index}.pdf"),
+            );
+        }
+        let settings = AISettings {
+            batch_size: 2,
+            ..enabled_settings()
+        };
+        let targets = collect_ai_classification_targets(&db, &LibraryScope::All, None, &settings)
+            .expect("collect targets");
+        let provider = SequenceProvider::new(vec![
+            Ok(valid_ref_response("f1")),
+            Ok(valid_ref_response("f1")),
+            Ok(valid_ref_response("f1")),
+        ]);
+
+        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect("classify all targets");
+
+        assert_eq!(summary.scanned, 5);
+        assert_eq!(summary.updated, 3);
+        assert_eq!(provider.call_count(), 3);
+    }
+
+    #[test]
+    fn ai_move_classification_generates_operation_preview() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "/tmp/Scala期末复习题.pdf");
+        let settings = enabled_settings();
+        let targets = collect_selected_ai_classification_targets(&db, &["file-1".to_string()])
+            .expect("collect targets");
+        let provider = StaticProvider {
+            response: Ok(valid_response("file-1", "Move", "Normal").to_string()),
+        };
+
+        classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect("classify");
+        let previews = db
+            .get_operation_previews_for_scope(&LibraryScope::All, None, None, None)
+            .expect("operation previews");
+
+        assert_eq!(previews.total, 1);
+        assert_eq!(previews.previews.len(), 1);
+        assert_eq!(previews.previews[0].suggested_action, "Move");
+    }
+
+    #[test]
+    fn ai_review_classification_does_not_generate_operation_preview() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "/tmp/Scala期末复习题.pdf");
+        let settings = enabled_settings();
+        let targets = collect_selected_ai_classification_targets(&db, &["file-1".to_string()])
+            .expect("collect targets");
+        let provider = StaticProvider {
+            response: Ok(valid_response("file-1", "Review", "Normal").to_string()),
+        };
+
+        classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect("classify");
+        let previews = db
+            .get_operation_previews_for_scope(&LibraryScope::All, None, None, None)
+            .expect("operation previews");
+
+        assert_eq!(previews.total, 0);
+        assert!(previews.previews.is_empty());
     }
 
     #[test]
@@ -1583,10 +1706,13 @@ mod tests {
         }
     }
 
-    fn valid_response(id: &str, suggested_action: &str, risk_level: &str) -> &'static str {
+    fn valid_response(id: &str, suggested_action: &str, risk_level: &str) -> String {
         match (id, suggested_action, risk_level) {
             ("file-1", "Move", "Normal") => {
-                r#"{"classifications":[{"id":"file-1","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Move","targetTemplate":"Teaching/Scala/试卷","suggestedName":"","confidence":0.92,"reason":"文件名包含 Scala、期末、复习题，判断为教学考试资料。","keywords":["Scala","期末","复习题"],"requiresConfirmation":false}]}"#
+                r#"{"classifications":[{"id":"file-1","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Move","targetTemplate":"Teaching/Scala/试卷","suggestedName":"","confidence":0.92,"reason":"文件名包含 Scala、期末、复习题，判断为教学考试资料。","keywords":["Scala","期末","复习题"],"requiresConfirmation":false}]}"#.to_string()
+            }
+            ("file-1", "Review", "Normal") => {
+                r#"{"classifications":[{"id":"file-1","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Review","targetTemplate":"","suggestedName":"","confidence":0.72,"reason":"需要人工确认。","keywords":["Scala"],"requiresConfirmation":true}]}"#.to_string()
             }
             _ => panic!("unexpected fixture"),
         }
@@ -1609,7 +1735,7 @@ mod tests {
     }
 
     fn valid_output(id: &str) -> AIClassificationOutput {
-        parse_ai_classification_response(valid_response(id, "Move", "Normal"))
+        parse_ai_classification_response(&valid_response(id, "Move", "Normal"))
             .expect("parse fixture")
             .remove(0)
     }

@@ -813,6 +813,13 @@ export function SettingsView() {
                 onChange={(next) => updateAISettings({ enabled: next })}
                 statusLabel={aiSettings.enabled ? t("enabled") : t("disabled")}
               />
+              <SwitchField
+                label="启用 AI 空间清理分析"
+                description="AI 空间清理分析只增强候选项的风险说明和建议，不会直接删除文件，也不会绕过 Safe Trash。"
+                checked={aiSettings.cleanupAiEnabled}
+                onChange={(next) => updateAISettings({ cleanupAiEnabled: next })}
+                statusLabel={aiSettings.cleanupAiEnabled ? t("enabled") : t("disabled")}
+              />
               <div className={formRow}>
                 <div>
                   <strong className="block text-sm">模型服务商 preset</strong>
@@ -845,7 +852,13 @@ export function SettingsView() {
                   />
                 )}
                 <TextField label="Model" value={aiSettings.model} onChange={(value) => updateAISettings({ model: value })} />
-                <NumberField label="Batch Size" value={aiSettings.batchSize} min={1} onChange={(value) => updateAISettings({ batchSize: value })} />
+                <NumberField
+                  label="Batch Size"
+                  description="每次请求模型处理的文件数，不是本次总处理数量。"
+                  value={aiSettings.batchSize}
+                  min={1}
+                  onChange={(value) => updateAISettings({ batchSize: value })}
+                />
                 <NumberField label="Timeout Seconds" value={aiSettings.timeoutSeconds} min={1} onChange={(value) => updateAISettings({ timeoutSeconds: value })} />
               </div>
               {aiSettings.preset === "deepseek" && ["deepseek-chat", "deepseek-reasoner"].includes(aiSettings.model.trim()) ? (
@@ -1060,11 +1073,13 @@ function TextField({
 
 function NumberField({
   label,
+  description,
   value,
   min,
   onChange
 }: {
   label: string;
+  description?: string;
   value: number;
   min: number;
   onChange: (value: number) => void;
@@ -1072,6 +1087,7 @@ function NumberField({
   return (
     <label className="grid gap-1">
       <span className="text-sm font-medium text-[var(--ink)]">{label}</span>
+      {description ? <span className={quietText}>{description}</span> : null}
       <input
         className={inputSurface}
         type="number"
@@ -1121,7 +1137,7 @@ function defaultAISettingsFromPreset(preset?: AIProviderPreset): AISettings | nu
     sendParentPath: true,
     sendFileContent: false,
     classificationMode: "rules_first",
-    cleanupAiEnabled: false,
+    cleanupAiEnabled: true,
     forceJsonOutput: true,
     enableThinking: false,
     reasoningEffort: null,

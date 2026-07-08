@@ -86,8 +86,23 @@ describe("StorageCleanupView", () => {
     expect(markup).toContain("选择一个磁盘或文件夹开始分析");
     expect(markup).toContain("例如 Downloads、Desktop、D:\\Projects 或整个 F: 盘。");
     expect(markup).toContain("选择要分析的磁盘或文件夹");
+    expect(markup).toContain("AI 空间清理分析");
+    expect(markup).toContain("请先扫描空间");
     expect(source).not.toContain("void scan();");
     expect(source).not.toContain("default_scan_roots");
+  });
+
+  it("shows a first-class AI cleanup analysis panel before the candidate list", () => {
+    const markup = renderToStaticMarkup(
+      <StorageCleanupView initialAnalysis={analysis} initialRoots={["C:/Users/Zen/Project"]} t={makeTranslator("zh")} />
+    );
+
+    expect(markup).toContain("AI 空间清理分析");
+    expect(markup).toContain("使用当前 AI 模型复查清理候选");
+    expect(markup).toContain("AI 分析全部候选");
+    expect(markup).toContain("AI 复查高风险项");
+    expect(markup).toContain("AI 分析已选项");
+    expect(markup.indexOf("AI 空间清理分析")).toBeLessThan(markup.indexOf("Top 占用排行"));
   });
 
   it("renders cleanup guidance, three tiers, and conservative default safe selection", () => {
@@ -168,8 +183,20 @@ describe("StorageCleanupView", () => {
     expect(source).not.toContain("setPreviewResult");
     expect(source).not.toContain('setView("preview")');
     expect(source).not.toContain("Timeline");
+    expect(source).toContain("api.analyzeCleanupCandidatesWithAI(ids)");
+    expect(source).not.toContain("analyzeCleanupCandidatesWithAI(ids).then(() => api.moveCleanupCandidatesToSafeTrash");
     expect(makeTranslator("zh")("storageCleanupGeneratePreview")).toBe("查看安全清理候选");
     expect(makeTranslator("zh")("storageCleanupPreviewDesc")).not.toContain("预览执行");
+  });
+
+  it("documents AI cleanup readiness states and settings guidance", () => {
+    const source = read("src/views/cleanup/StorageCleanupView.tsx");
+
+    expect(source).toContain('t("storageCleanupAIEnableAI")');
+    expect(source).toContain('t("storageCleanupAIEnableCleanup")');
+    expect(source).toContain('t("storageCleanupAIAnalyzing")');
+    expect(makeTranslator("zh")("storageCleanupAIEnableAI")).toBe("请先在设置中启用 AI");
+    expect(makeTranslator("zh")("storageCleanupAIEnableCleanup")).toBe("请开启 AI 空间清理分析");
   });
 
   it("renders one main candidate list with tier filter pills instead of duplicated tier sections", () => {

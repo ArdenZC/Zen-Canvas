@@ -654,7 +654,7 @@ function mockAISettings(settings?: AISettings): AISettings {
     sendParentPath: true,
     sendFileContent: false,
     classificationMode: "rules_first",
-    cleanupAiEnabled: false,
+    cleanupAiEnabled: true,
     forceJsonOutput: true,
     enableThinking: false,
     reasoningEffort: null,

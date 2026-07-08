@@ -10,9 +10,9 @@ import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { useOperationQueueStore } from "../../store/useOperationQueueStore";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
 import type { FileRecord } from "../../types/domain";
-import type { Translator, View } from "../../types/ui";
+import type { Translator } from "../../types/ui";
 import { formatBytes, formatDate } from "../../utils/format";
-import { compactPath, libraryScopeLabel } from "../../utils/viewHelpers";
+import { compactPath, libraryScopeLabel, readableError } from "../../utils/viewHelpers";
 import { buttonSecondary, cn, glassButtonPrimary } from "../../utils/tw";
 import { revealFileFromCard } from "../shared/cardActions";
 import {
@@ -36,6 +36,7 @@ import {
 const HUB_BUCKET_KEYS = ["CoreAssets", "QuietArchive", "CleanupLane", "PrivacyVault"] as const;
 const HUB_PENDING_PREVIEW_LIMIT = 6;
 const HUB_BUCKET_PREVIEW_LIMIT = 4;
+const DEFAULT_AI_CLASSIFICATION_RUN_LIMIT = 1000;
 
 export type HubBucketKey = typeof HUB_BUCKET_KEYS[number];
 export type HubBucketGroups = Record<HubBucketKey, FileRecord[]>;
@@ -101,8 +102,10 @@ export function HubView() {
   const handleChooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
   const { rules } = useRulesContext();
   const runDispatch = useOperationQueueStore((state) => state.runDispatch);
+  const refreshPreviewsForScope = useOperationQueueStore((state) => state.refreshPreviewsForScope);
   const [isDispatching, setIsDispatching] = useState(false);
   const [aiThinkingWarning, setAiThinkingWarning] = useState(false);
+  const [aiPreviewNotice, setAiPreviewNotice] = useState("");
   const activeRuleCount = useMemo(() => countActiveRules(rules), [rules]);
   const { pendingFiles, bucketedFiles, classifiedCount } = useMemo(() => deriveHubFileModel(files), [files]);
   const buckets = useMemo(() => [
@@ -152,11 +155,29 @@ export function HubView() {
 
   async function runAIClassification(options: { onlyUnclassified: boolean; onlyLowConfidence: boolean }) {
     if (isClassifyingWithAI) return;
+    setAiPreviewNotice("");
     try {
-      await classifyCurrentScopeWithAI(options);
+      await classifyCurrentScopeWithAI({
+        ...options,
+        limit: DEFAULT_AI_CLASSIFICATION_RUN_LIMIT
+      });
       await loadOrganizeQueue(scope);
+      const previews = await refreshPreviewsForScope(scope);
+      setAiPreviewNotice(aiClassificationPreviewMessage(previews.total));
     } catch {
       // File library store owns readable AI error reporting and toast state.
+    }
+  }
+
+  async function openPreview() {
+    try {
+      const previews = await refreshPreviewsForScope(scope);
+      if (previews.total === 0) {
+        setAiPreviewNotice("当前没有可执行的整理操作。可能原因：AI 建议均为 Keep / Review，或目标路径与原路径相同。");
+      }
+      setView("preview");
+    } catch (error) {
+      onError(readableError(error));
     }
   }
 
@@ -260,7 +281,7 @@ export function HubView() {
               <Sparkles size={14} />
               <span>重新分类当前范围</span>
             </button>
-            <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => setView("preview")}>
+            <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void openPreview()}>
               查看整理预览
             </button>
           </div>
@@ -277,7 +298,7 @@ export function HubView() {
         ) : aiClassificationStatus ? (
           <NoticeBanner tone={aiClassificationStatus.startsWith("AI 分类完成") ? "success" : "warning"}>
             {aiClassificationStatus.startsWith("AI 分类完成")
-              ? `${aiClassificationStatus} AI 已生成整理建议，请进入预览后确认执行。`
+              ? `${aiClassificationStatus} ${aiPreviewNotice || "AI 已生成分类建议。可移动/重命名的项目会进入整理预览，需要确认的项目请在文件库或智能整理中查看。"}`
               : `AI 分类失败：${aiClassificationStatus}`}
           </NoticeBanner>
         ) : null}
@@ -328,7 +349,7 @@ export function HubView() {
                 files={bucketedFiles[bucket.key]}
                 isLoading={isLoadingOrganizeQueue}
                 key={bucket.key}
-                setView={setView}
+                onOpenPreview={openPreview}
                 t={t}
               />
             ))}
@@ -389,13 +410,13 @@ function BucketCard({
   bucket,
   files,
   isLoading,
-  setView,
+  onOpenPreview,
   t
 }: {
   bucket: { key: HubBucketKey; label: string; description: string; tone: HubTone };
   files: FileRecord[];
   isLoading: boolean;
-  setView: (view: View) => void;
+  onOpenPreview: () => Promise<void>;
   t: Translator;
 }) {
   return (
@@ -410,7 +431,7 @@ function BucketCard({
         </div>
         <ToneBadge tone={bucket.tone}>{files.length.toLocaleString()}</ToneBadge>
       </div>
-      <BucketFileList files={files} isLoading={isLoading} setView={setView} t={t} />
+      <BucketFileList files={files} isLoading={isLoading} onOpenPreview={onOpenPreview} t={t} />
     </motion.article>
   );
 }
@@ -418,12 +439,12 @@ function BucketCard({
 function BucketFileList({
   files,
   isLoading,
-  setView,
+  onOpenPreview,
   t
 }: {
   files: FileRecord[];
   isLoading: boolean;
-  setView: (view: View) => void;
+  onOpenPreview: () => Promise<void>;
   t: Translator;
 }) {
   if (isLoading) {
@@ -440,10 +461,10 @@ function BucketFileList({
   return (
     <motion.div className="grid gap-2" variants={listMotion} initial="hidden" animate="show">
       {visibleFiles.map((file) => (
-        <BucketFileButton file={file} key={file.id} setView={setView} t={t} />
+        <BucketFileButton file={file} key={file.id} onOpenPreview={onOpenPreview} t={t} />
       ))}
       {remaining > 0 && (
-        <button className={cn(buttonSecondary, "min-h-8 justify-self-start px-3 py-1.5 text-xs")} onClick={() => setView("preview")}>
+        <button className={cn(buttonSecondary, "min-h-8 justify-self-start px-3 py-1.5 text-xs")} onClick={() => void onOpenPreview()}>
           +{remaining.toLocaleString()} {t("items")}
         </button>
       )}
@@ -453,12 +474,12 @@ function BucketFileList({
 
 function BucketFileButton({
   file,
-  setView,
+  onOpenPreview,
   t,
   disableAnimation = false
 }: {
   file: FileRecord;
-  setView: (view: View) => void;
+  onOpenPreview: () => Promise<void>;
   t: Translator;
   disableAnimation?: boolean;
 }) {
@@ -469,7 +490,7 @@ function BucketFileButton({
       variants={disableAnimation ? undefined : itemMotion}
       initial={disableAnimation ? false : undefined}
       animate={disableAnimation ? false : undefined}
-      onClick={() => setView("preview")}
+      onClick={() => void onOpenPreview()}
       aria-label={`${file.name} · ${t("hubSuggestionStatus")}`}
     >
       <span className="grid h-6 w-6 shrink-0 place-items-center text-[var(--muted)]">
@@ -493,6 +514,13 @@ function countActiveRules(rules: readonly { enabled: boolean }[]): number {
     if (rule.enabled) count += 1;
   }
   return count;
+}
+
+function aiClassificationPreviewMessage(previewCount: number) {
+  if (previewCount > 0) {
+    return `AI 已生成整理建议，其中 ${previewCount.toLocaleString()} 项可进入整理预览。`;
+  }
+  return "AI 已完成分类，但当前没有可执行的移动/重命名操作。请查看需要确认的项目，或调整分类结果。";
 }
 
 function FileCard({

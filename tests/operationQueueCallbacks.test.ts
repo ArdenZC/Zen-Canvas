@@ -127,6 +127,27 @@ describe("operation queue store callbacks", () => {
     expect(useOperationQueueStore.getState().previewTotal).toBe(60);
   });
 
+  it("refreshes previews for a scope without executing operations", async () => {
+    const scope: LibraryScope = { kind: "roots", roots: ["F:/Downloads"] };
+    const previews = [preview("ai-preview", true)];
+    apiMocks.getOperationPreviewsForScope.mockResolvedValue({
+      previews,
+      total: 1,
+      limit: 1000,
+      offset: 0,
+      truncated: false,
+      hasMore: false
+    });
+
+    const result = await useOperationQueueStore.getState().refreshPreviewsForScope(scope);
+
+    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledWith(scope);
+    expect(apiMocks.executeMoves).not.toHaveBeenCalled();
+    expect(result.total).toBe(1);
+    expect(useOperationQueueStore.getState().displayPreviews).toEqual(previews);
+    expect(useOperationQueueStore.getState().previewScope).toEqual(scope);
+  });
+
   it("loads additional preview pages without dropping existing selections", async () => {
     const scope: LibraryScope = { kind: "roots", roots: ["F:/Downloads"] };
     const first = preview("first", true);

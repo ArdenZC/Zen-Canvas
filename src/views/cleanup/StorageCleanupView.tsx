@@ -113,6 +113,7 @@ function StorageCleanupPanel({
   const aiAnalyzedCandidateIds = !initialAnalysis ? store.aiAnalyzedCandidateIds : new Set<string>();
   const aiDowngradedCandidateIds = !initialAnalysis ? store.aiDowngradedCandidateIds : new Set<string>();
   const [localError, setLocalError] = useState("");
+  const [cleanupAIReadiness, setCleanupAIReadiness] = useState("");
   const error = localError || scanError;
 
   useEffect(() => {
@@ -143,6 +144,31 @@ function StorageCleanupPanel({
     return () => {
       disposed = true;
       while (disposers.length) disposers.pop()?.();
+    };
+  }, [api, initialAnalysis, t]);
+
+  useEffect(() => {
+    if (initialAnalysis || !api.getAISettings) {
+      setCleanupAIReadiness("");
+      return;
+    }
+    let disposed = false;
+    void api.getAISettings()
+      .then((settings) => {
+        if (disposed) return;
+        if (!settings.enabled) {
+          setCleanupAIReadiness(t("storageCleanupAIEnableAI"));
+        } else if (!settings.cleanupAiEnabled) {
+          setCleanupAIReadiness(t("storageCleanupAIEnableCleanup"));
+        } else {
+          setCleanupAIReadiness("");
+        }
+      })
+      .catch(() => {
+        if (!disposed) setCleanupAIReadiness("");
+      });
+    return () => {
+      disposed = true;
     };
   }, [api, initialAnalysis, t]);
 
@@ -338,17 +364,45 @@ function StorageCleanupPanel({
         )}
 
         {!analysis ? (
-          <StateBlock
-            tone="info"
-            title={t("storageCleanupChooseScopeEmptyTitle")}
-            description={t("storageCleanupChooseScopeEmptyDesc")}
-            primaryAction={
-              <button className={glassButtonPrimary} onClick={chooseScope}>
-                <FolderOpen size={16} />
-                <span>{t("storageCleanupChooseFolder")}</span>
-              </button>
-            }
-          />
+          <>
+            <section className={cn(contentPanel, "grid gap-3 p-4")}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className={sectionHeading}>{t("storageCleanupAIPanelTitle")}</h2>
+                    <ToneBadge tone="info">{t("storageCleanupAIAnalyzedBadge")}</ToneBadge>
+                  </div>
+                  <p className={sectionDescription}>{t("storageCleanupAIPanelDesc")}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button className={buttonSecondary} disabled>
+                    <Sparkles size={16} />
+                    <span>{t("storageCleanupAIAnalyzeAllShort")}</span>
+                  </button>
+                  <button className={buttonSecondary} disabled>
+                    <Sparkles size={16} />
+                    <span>{t("storageCleanupAIAnalyzeRisk")}</span>
+                  </button>
+                  <button className={buttonSecondary} disabled>
+                    <Sparkles size={16} />
+                    <span>{t("storageCleanupAIAnalyzeSelected")}</span>
+                  </button>
+                </div>
+              </div>
+              <NoticeBanner tone="info">{t("storageCleanupAIScanFirst")}</NoticeBanner>
+            </section>
+            <StateBlock
+              tone="info"
+              title={t("storageCleanupChooseScopeEmptyTitle")}
+              description={t("storageCleanupChooseScopeEmptyDesc")}
+              primaryAction={
+                <button className={glassButtonPrimary} onClick={chooseScope}>
+                  <FolderOpen size={16} />
+                  <span>{t("storageCleanupChooseFolder")}</span>
+                </button>
+              }
+            />
+          </>
         ) : (
           <>
             <section className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
@@ -404,14 +458,56 @@ function StorageCleanupPanel({
               </NoticeBanner>
             )}
 
-            {aiCleanupStatus && (
-              <NoticeBanner
-                tone={aiCleanupStatus.includes("失败") || aiCleanupStatus.includes("failed") ? "warning" : "success"}
-                title={t("storageCleanupAIStatusTitle")}
-              >
-                {aiCleanupStatus}
-              </NoticeBanner>
-            )}
+            <section className={cn(contentPanel, "grid gap-3 p-4")}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className={sectionHeading}>{t("storageCleanupAIPanelTitle")}</h2>
+                    <ToneBadge tone="info">{t("storageCleanupAIAnalyzedBadge")}</ToneBadge>
+                  </div>
+                  <p className={sectionDescription}>{t("storageCleanupAIPanelDesc")}</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    className={buttonSecondary}
+                    onClick={() => void analyzeCandidatesWithAI("all")}
+                    disabled={Boolean(initialAnalysis) || isAnalyzingWithAI || !sortedCandidates.length}
+                  >
+                    {isAnalyzingWithAI ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                    <span>{t("storageCleanupAIAnalyzeAllShort")}</span>
+                  </button>
+                  <button
+                    className={buttonSecondary}
+                    onClick={() => void analyzeCandidatesWithAI("risk")}
+                    disabled={Boolean(initialAnalysis) || isAnalyzingWithAI || !tierCounts.Review && !tierCounts.Caution}
+                  >
+                    <Sparkles size={16} />
+                    <span>{t("storageCleanupAIAnalyzeRisk")}</span>
+                  </button>
+                  <button
+                    className={buttonSecondary}
+                    onClick={() => void analyzeCandidatesWithAI("selected")}
+                    disabled={Boolean(initialAnalysis) || isAnalyzingWithAI || !selectedCleanupIds.size}
+                  >
+                    <Sparkles size={16} />
+                    <span>{t("storageCleanupAIAnalyzeSelected")}</span>
+                  </button>
+                </div>
+              </div>
+              {!analysis || !sortedCandidates.length ? (
+                <NoticeBanner tone="info">{t("storageCleanupAIScanFirst")}</NoticeBanner>
+              ) : cleanupAIReadiness ? (
+                <NoticeBanner tone="warning">{cleanupAIReadiness}</NoticeBanner>
+              ) : isAnalyzingWithAI ? (
+                <NoticeBanner tone="info">{t("storageCleanupAIAnalyzing")}</NoticeBanner>
+              ) : aiCleanupStatus ? (
+                <NoticeBanner tone={aiCleanupStatus.includes("失败") || aiCleanupStatus.includes("failed") ? "warning" : "success"}>
+                  {aiCleanupStatus}
+                </NoticeBanner>
+              ) : (
+                <NoticeBanner tone="info">{t("storageCleanupAIReadyHint")}</NoticeBanner>
+              )}
+            </section>
 
             <section className={cn(contentPanel, "grid min-h-0 gap-3 p-4")}>
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -636,7 +732,7 @@ function ensureCleanupAIReady(
     throw new Error("请先在设置中启用 AI。");
   }
   if (!cleanupAiEnabled) {
-    throw new Error("请先在设置中启用 AI 清理分析。");
+    throw new Error("请开启 AI 空间清理分析。");
   }
   if (provider !== "ollama" && !apiKey.trim()) {
     throw new Error("当前模型服务需要 API Key，请在 AI 设置中填写。");
@@ -647,7 +743,7 @@ function readableCleanupAIError(error: unknown) {
   const message = readableError(error);
   const normalized = message.toLowerCase();
   if (message.includes("模型返回") || message.includes("Zen Canvas 需要的 JSON")) return message;
-  if (message.includes("启用 AI 清理分析")) return "请先在设置中启用 AI 清理分析。";
+  if (message.includes("AI 空间清理分析") || message.includes("AI 清理分析")) return "请开启 AI 空间清理分析。";
   if (message.includes("AI 未启用") || message.includes("启用 AI")) return "请先在设置中启用 AI。";
   if (message.includes("API Key 缺失") || normalized.includes("api key") || normalized.includes("api_key")) {
     return "当前模型服务需要 API Key，请在 AI 设置中填写。";

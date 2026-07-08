@@ -60,6 +60,7 @@ describe("tauriApi", () => {
     await tauriApi.revealStorageCandidate("F:/Downloads/big.zip");
     await tauriApi.previewCleanupCandidates(["storage-safe-1"]);
     await tauriApi.previewCleanupOperations(["storage-safe-1"]);
+    await tauriApi.analyzeCleanupCandidatesWithAI(["storage-safe-1"]);
     await tauriApi.moveCleanupCandidatesToTrash(["storage-safe-1"]);
     await tauriApi.moveCleanupCandidatesToSafeTrash(["storage-safe-1"]);
     await tauriApi.listCleanupTrashBatches();
@@ -87,17 +88,20 @@ describe("tauriApi", () => {
     expect(apiMocks.invoke).toHaveBeenNthCalledWith(7, "preview_cleanup_operations", {
       ids: ["storage-safe-1"]
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(8, "move_cleanup_candidates_to_trash", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(8, "analyze_cleanup_candidates_with_ai", {
       ids: ["storage-safe-1"]
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(9, "move_cleanup_candidates_to_safe_trash", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(9, "move_cleanup_candidates_to_trash", {
       ids: ["storage-safe-1"]
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(10, "list_cleanup_trash_batches", undefined);
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(11, "preview_restore_cleanup_trash", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(10, "move_cleanup_candidates_to_safe_trash", {
+      ids: ["storage-safe-1"]
+    });
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(11, "list_cleanup_trash_batches", undefined);
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(12, "preview_restore_cleanup_trash", {
       batchId: "batch-1"
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(12, "restore_cleanup_trash_items", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(13, "restore_cleanup_trash_items", {
       itemIds: ["item-1"]
     });
   });

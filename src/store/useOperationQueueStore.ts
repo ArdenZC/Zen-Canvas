@@ -33,6 +33,7 @@ export interface OperationQueueStore {
   loadPersistedOperationLogs: () => Promise<void>;
   syncPreviews: (files: FileRecord[]) => void;
   setPreviewResult: (result: OperationPreviewResult, scope: LibraryScope) => void;
+  refreshPreviewsForScope: (scope: LibraryScope) => Promise<OperationPreviewResult>;
   loadMorePreviews: () => Promise<void>;
   setSelectedOperationIds: (ids: Set<string>) => void;
   runDispatch: () => Promise<RuleExecutionSummary>;
@@ -165,6 +166,11 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       previewActionCount: previewActionCount(displayPreviews)
     });
   },
+  refreshPreviewsForScope: async (scope) => {
+    const result = await tauriApi.getOperationPreviewsForScope(scope);
+    get().setPreviewResult(result, scope);
+    return result;
+  },
   loadMorePreviews: async () => {
     const state = get();
     if (!state.previewScope || !state.previewHasMore) return;
@@ -214,8 +220,7 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
         "inbox_only"
       );
       await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
-      const previews = await tauriApi.getOperationPreviewsForScope(scope);
-      get().setPreviewResult(previews, scope);
+      await get().refreshPreviewsForScope(scope);
       useAppStore.getState().showSuccess(
         `${t("success")}: ${summary.updated.toLocaleString()} / ${summary.scanned.toLocaleString()} (${t("skipped")}: ${summary.skipped.toLocaleString()})`
       );
