@@ -19,8 +19,9 @@ use super::{
 use crate::{
     db::{
         bool_to_i64, build_target_path, current_unix_seconds, indexed_file_from_row,
-        parent_directory, scoped_files_sql, unix_seconds_to_iso, Database, DbError, IndexedFileRow,
-        LibraryScope, OrganizeRootConfig, RuleExecutionSummary,
+        normalize_path_text, parent_directory, scoped_files_sql, trim_trailing_path_separators,
+        unix_seconds_to_iso, Database, DbError, IndexedFileRow, LibraryScope, OrganizeRootConfig,
+        RuleExecutionSummary,
     },
     settings::get_app_settings,
 };
@@ -36,7 +37,7 @@ pub struct AIClassificationOptions {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AIClassificationInputFile {
-    pub id: String,
+    pub ref_id: String,
     pub name: String,
     pub extension: String,
     pub path: Option<String>,
@@ -53,6 +54,9 @@ pub struct AIClassificationInputFile {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AIClassificationOutput {
+    #[serde(default)]
+    pub ref_id: Option<String>,
+    #[serde(default)]
     pub id: String,
     pub file_type: String,
     pub purpose: String,
@@ -89,6 +93,119 @@ pub(crate) struct SanitizedAIClassification {
     reason: String,
     keywords: Vec<String>,
     requires_confirmation: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AIClassificationIdEntry {
+    pub(crate) ref_id: String,
+    pub(crate) real_file_id: String,
+    pub(crate) path: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AIClassificationIdResolution {
+    pub(crate) real_file_id: String,
+    pub(crate) returned_ref_id: Option<String>,
+    pub(crate) returned_id: Option<String>,
+    pub(crate) matched: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AIClassificationIdMap {
+    pub(crate) entries: Vec<AIClassificationIdEntry>,
+    ref_to_id: HashMap<String, String>,
+    real_ids: HashSet<String>,
+    path_to_id: HashMap<String, String>,
+}
+
+impl AIClassificationIdMap {
+    pub(crate) fn from_targets(targets: &[IndexedFileRow]) -> Self {
+        let mut entries = Vec::with_capacity(targets.len());
+        let mut ref_to_id = HashMap::with_capacity(targets.len());
+        let mut real_ids = HashSet::with_capacity(targets.len());
+        let mut path_to_id = HashMap::with_capacity(targets.len() * 2);
+        for (index, row) in targets.iter().enumerate() {
+            let ref_id = format!("f{}", index + 1);
+            entries.push(AIClassificationIdEntry {
+                ref_id: ref_id.clone(),
+                real_file_id: row.id.clone(),
+                path: row.path.clone(),
+            });
+            ref_to_id.insert(ref_id, row.id.clone());
+            real_ids.insert(row.id.clone());
+            for key in path_keys(&row.path) {
+                path_to_id.entry(key).or_insert_with(|| row.id.clone());
+            }
+        }
+        Self {
+            entries,
+            ref_to_id,
+            real_ids,
+            path_to_id,
+        }
+    }
+
+    pub(crate) fn resolve_output(
+        &self,
+        output: &AIClassificationOutput,
+    ) -> Result<AIClassificationIdResolution, String> {
+        let returned_ref_id = output
+            .ref_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
+        let returned_id = output.id.trim();
+        let returned_id = (!returned_id.is_empty()).then(|| returned_id.to_string());
+
+        if let Some(ref_id) = returned_ref_id.as_deref() {
+            let Some(real_file_id) = self.ref_to_id.get(ref_id) else {
+                return Err("AI classification refId was not part of the request.".to_string());
+            };
+            return Ok(AIClassificationIdResolution {
+                real_file_id: real_file_id.clone(),
+                returned_ref_id,
+                returned_id,
+                matched: true,
+            });
+        }
+
+        let Some(id) = returned_id.as_deref() else {
+            return Err("AI classification result did not include refId.".to_string());
+        };
+        if let Some(real_file_id) = self.ref_to_id.get(id) {
+            return Ok(AIClassificationIdResolution {
+                real_file_id: real_file_id.clone(),
+                returned_ref_id,
+                returned_id,
+                matched: true,
+            });
+        }
+        if self.real_ids.contains(id) {
+            return Ok(AIClassificationIdResolution {
+                real_file_id: id.to_string(),
+                returned_ref_id,
+                returned_id,
+                matched: true,
+            });
+        }
+        for key in path_keys(id) {
+            if let Some(real_file_id) = self.path_to_id.get(&key) {
+                return Ok(AIClassificationIdResolution {
+                    real_file_id: real_file_id.clone(),
+                    returned_ref_id,
+                    returned_id,
+                    matched: true,
+                });
+            }
+        }
+        if is_path_like(id) {
+            return Err(
+                "AI returned file path instead of refId. This result was not applied.".to_string(),
+            );
+        }
+        Err("AI classification id was not part of the request.".to_string())
+    }
 }
 
 pub async fn classify_files_with_ai_for_db(
@@ -227,9 +344,11 @@ pub(crate) fn build_ai_classification_prompt(
     settings: &AISettings,
     learned_rules: &[String],
 ) -> Result<Vec<AIChatMessage>, String> {
+    let id_map = AIClassificationIdMap::from_targets(targets);
     let files = targets
         .iter()
-        .map(|row| ai_input_file_from_row(row, settings))
+        .zip(id_map.entries.iter())
+        .map(|(row, entry)| ai_input_file_from_row(row, settings, &entry.ref_id))
         .collect::<Vec<_>>();
     let user_prompt = build_ai_classification_prompt_body(&files, learned_rules)?;
     Ok(vec![
@@ -295,12 +414,10 @@ pub(crate) fn parse_ai_classification_response(
 
 pub(crate) fn sanitize_ai_classification_result(
     output: AIClassificationOutput,
-    requested_ids: &HashSet<String>,
+    id_map: &AIClassificationIdMap,
 ) -> Result<SanitizedAIClassification, String> {
-    let id = output.id.trim().to_string();
-    if !requested_ids.contains(&id) {
-        return Err("AI classification id was not part of the request.".to_string());
-    }
+    let resolution = id_map.resolve_output(&output)?;
+    let id = resolution.real_file_id;
     let file_type = require_allowed("fileType", &output.file_type, FILE_TYPES)?;
     let purpose = require_allowed("purpose", &output.purpose, PURPOSES)?;
     let lifecycle = require_allowed("lifecycle", &output.lifecycle, LIFECYCLES)?;
@@ -495,13 +612,10 @@ fn classify_ai_targets_with_provider(
         });
     }
     let batch_size = settings.batch_size.max(1);
-    let requested_ids = targets
-        .iter()
-        .map(|row| row.id.clone())
-        .collect::<HashSet<_>>();
     let mut sanitized = Vec::new();
     let mut sanitized_ids = HashSet::new();
     for batch in targets.chunks(batch_size) {
+        let id_map = AIClassificationIdMap::from_targets(batch);
         let content =
             call_ai_classification_provider(provider, settings, batch, learned_rules, false)?;
         let outputs = match parse_ai_classification_response(&content) {
@@ -522,7 +636,7 @@ fn classify_ai_targets_with_provider(
             }
         };
         for output in outputs {
-            match sanitize_ai_classification_result(output, &requested_ids) {
+            match sanitize_ai_classification_result(output, &id_map) {
                 Ok(result) if sanitized_ids.insert(result.id.clone()) => sanitized.push(result),
                 Ok(_) => {}
                 Err(_) => {}
@@ -562,11 +676,12 @@ fn select_indexed_file_columns(alias: &str) -> String {
 fn ai_input_file_from_row(
     row: &IndexedFileRow,
     settings: &AISettings,
+    ref_id: &str,
 ) -> AIClassificationInputFile {
     // Stage 3 intentionally ignores send_file_content even if enabled; only metadata is sent.
     let _send_file_content_ignored = settings.send_file_content;
     AIClassificationInputFile {
-        id: row.id.clone(),
+        ref_id: ref_id.to_string(),
         name: row.name.clone(),
         extension: row.extension.clone(),
         path: settings.send_full_path.then(|| row.path.clone()),
@@ -582,6 +697,28 @@ fn ai_input_file_from_row(
         existing_lifecycle: row.lifecycle.clone(),
         existing_risk_level: row.risk_level.clone(),
     }
+}
+
+fn path_keys(path: &str) -> Vec<String> {
+    let trimmed = trim_trailing_path_separators(path.trim());
+    let normalized = normalize_path_text(trimmed);
+    let normalized = trim_trailing_path_separators(&normalized).to_string();
+    let mut keys = vec![normalized.clone()];
+    if is_path_like(path) {
+        let lower = normalized.to_lowercase();
+        if lower != normalized {
+            keys.push(lower);
+        }
+    }
+    keys
+}
+
+fn is_path_like(value: &str) -> bool {
+    value.contains('/')
+        || value.contains('\\')
+        || value.as_bytes().get(1) == Some(&b':')
+        || value.starts_with("//")
+        || value.starts_with("\\\\")
 }
 
 fn classification_outputs_from_value(
@@ -963,6 +1100,123 @@ mod tests {
     }
 
     #[test]
+    fn ai_response_ref_id_maps_to_real_file_id() {
+        let db = test_db();
+        insert_test_file(&db, "real-file-1", "/tmp/Scala期末复习题.pdf");
+        let settings = enabled_settings();
+        let targets = collect_selected_ai_classification_targets(&db, &["real-file-1".to_string()])
+            .expect("collect targets");
+        let provider = StaticProvider {
+            response: Ok(valid_ref_response("f1").to_string()),
+        };
+
+        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect("classify");
+
+        assert_eq!(summary.updated, 1);
+        assert_eq!(file_status(&db, "real-file-1"), "classified");
+    }
+
+    #[test]
+    fn ai_response_id_can_compatibly_be_ref_id() {
+        let db = test_db();
+        insert_test_file(&db, "real-file-1", "/tmp/Scala期末复习题.pdf");
+        let settings = enabled_settings();
+        let targets = collect_selected_ai_classification_targets(&db, &["real-file-1".to_string()])
+            .expect("collect targets");
+        let provider = StaticProvider {
+            response: Ok(valid_id_response("f1")),
+        };
+
+        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect("classify");
+
+        assert_eq!(summary.updated, 1);
+        assert_eq!(file_status(&db, "real-file-1"), "classified");
+    }
+
+    #[test]
+    fn ai_response_id_can_compatibly_be_real_file_id() {
+        let db = test_db();
+        insert_test_file(&db, "real-file-1", "/tmp/Scala期末复习题.pdf");
+        let settings = enabled_settings();
+        let targets = collect_selected_ai_classification_targets(&db, &["real-file-1".to_string()])
+            .expect("collect targets");
+        let provider = StaticProvider {
+            response: Ok(valid_id_response("real-file-1")),
+        };
+
+        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect("classify");
+
+        assert_eq!(summary.updated, 1);
+        assert_eq!(file_status(&db, "real-file-1"), "classified");
+    }
+
+    #[test]
+    fn ai_response_id_can_fallback_match_path() {
+        let db = test_db();
+        insert_test_file(
+            &db,
+            "real-file-1",
+            "D:/Install_Package/Scala编程基础期末复习题.docx",
+        );
+        let settings = enabled_settings();
+        let targets = collect_selected_ai_classification_targets(&db, &["real-file-1".to_string()])
+            .expect("collect targets");
+        let provider = StaticProvider {
+            response: Ok(valid_id_response(
+                "D:/Install_Package/Scala编程基础期末复习题.docx",
+            )),
+        };
+
+        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect("classify");
+
+        assert_eq!(summary.updated, 1);
+        assert_eq!(file_status(&db, "real-file-1"), "classified");
+    }
+
+    #[test]
+    fn ai_response_unknown_id_is_rejected() {
+        let db = test_db();
+        insert_test_file(&db, "real-file-1", "/tmp/Scala期末复习题.pdf");
+        let settings = enabled_settings();
+        let targets = collect_selected_ai_classification_targets(&db, &["real-file-1".to_string()])
+            .expect("collect targets");
+        let provider = StaticProvider {
+            response: Ok(valid_id_response("unknown")),
+        };
+
+        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect("classify");
+
+        assert_eq!(summary.updated, 0);
+        assert_eq!(file_status(&db, "real-file-1"), "unclassified");
+    }
+
+    #[test]
+    fn ai_response_duplicate_ref_id_applies_once() {
+        let db = test_db();
+        insert_test_file(&db, "real-file-1", "/tmp/Scala期末复习题.pdf");
+        let settings = enabled_settings();
+        let targets = collect_selected_ai_classification_targets(&db, &["real-file-1".to_string()])
+            .expect("collect targets");
+        let provider = StaticProvider {
+            response: Ok(format!(
+                r#"{{"classifications":[{},{}]}}"#,
+                valid_ref_item("f1"),
+                valid_ref_item("f1")
+            )),
+        };
+
+        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect("classify");
+
+        assert_eq!(summary.updated, 1);
+    }
+
+    #[test]
     fn prompt_includes_learned_rule_hints() {
         let db = test_db();
         insert_test_file(&db, "file-1", "/tmp/Scala期末复习题.pdf");
@@ -980,6 +1234,12 @@ mod tests {
         assert!(messages[1].content.contains("用户已经确认过的分类习惯"));
         assert!(messages[1].content.contains("Scala"));
         assert!(messages[1].content.contains("Teaching"));
+        assert!(messages[1].content.contains("\"refId\": \"f1\""));
+        assert!(!messages[1].content.contains("\"id\": \"file-1\""));
+        assert!(messages[0]
+            .content
+            .contains("Return the same refId exactly"));
+        assert!(messages[0].content.contains("Do not use file path as id"));
     }
 
     fn assert_target_template_rejected(template: &str) {
@@ -989,8 +1249,31 @@ mod tests {
         assert!(sanitize_ai_classification_result(output, &requested).is_err());
     }
 
-    fn requested_ids(ids: &[&str]) -> HashSet<String> {
-        ids.iter().map(|id| (*id).to_string()).collect()
+    fn requested_ids(ids: &[&str]) -> AIClassificationIdMap {
+        let mut entries = Vec::new();
+        let mut ref_to_id = HashMap::new();
+        let mut real_ids = HashSet::new();
+        let mut path_to_id = HashMap::new();
+        for (index, id) in ids.iter().enumerate() {
+            let ref_id = format!("f{}", index + 1);
+            let path = format!("/tmp/{id}.pdf");
+            entries.push(AIClassificationIdEntry {
+                ref_id: ref_id.clone(),
+                real_file_id: (*id).to_string(),
+                path: path.clone(),
+            });
+            ref_to_id.insert(ref_id, (*id).to_string());
+            real_ids.insert((*id).to_string());
+            for key in path_keys(&path) {
+                path_to_id.insert(key, (*id).to_string());
+            }
+        }
+        AIClassificationIdMap {
+            entries,
+            ref_to_id,
+            real_ids,
+            path_to_id,
+        }
     }
 
     fn valid_response(id: &str, suggested_action: &str, risk_level: &str) -> &'static str {
@@ -1000,6 +1283,22 @@ mod tests {
             }
             _ => panic!("unexpected fixture"),
         }
+    }
+
+    fn valid_ref_response(ref_id: &str) -> String {
+        format!(r#"{{"classifications":[{}]}}"#, valid_ref_item(ref_id))
+    }
+
+    fn valid_id_response(id: &str) -> String {
+        format!(
+            r#"{{"classifications":[{{"id":"{id}","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Move","targetTemplate":"Teaching/Scala/试卷","suggestedName":"","confidence":0.92,"reason":"文件名包含 Scala、期末、复习题，判断为教学考试资料。","keywords":["Scala","期末","复习题"],"requiresConfirmation":false}}]}}"#
+        )
+    }
+
+    fn valid_ref_item(ref_id: &str) -> String {
+        format!(
+            r#"{{"refId":"{ref_id}","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Move","targetTemplate":"Teaching/Scala/试卷","suggestedName":"","confidence":0.92,"reason":"文件名包含 Scala、期末、复习题，判断为教学考试资料。","keywords":["Scala","期末","复习题"],"requiresConfirmation":false}}"#
+        )
     }
 
     fn valid_output(id: &str) -> AIClassificationOutput {

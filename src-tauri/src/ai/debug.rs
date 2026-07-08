@@ -6,7 +6,7 @@ use rusqlite::{params, OptionalExtension};
 use super::{
     classification::{
         build_ai_classification_prompt, collect_selected_ai_classification_targets,
-        parse_ai_classification_response,
+        parse_ai_classification_response, sanitize_ai_classification_result, AIClassificationIdMap,
     },
     openai_compatible::{
         debug_extract_openai_response, AIRawProviderResponse, OpenAICompatibleProvider,
@@ -41,6 +41,12 @@ pub struct AIDebugClassificationResult {
     pub parse_stage: String,
     pub parse_error: Option<String>,
     pub success: bool,
+    pub ref_id: String,
+    pub real_file_id: String,
+    pub path: String,
+    pub model_returned_ref_id: Option<String>,
+    pub model_returned_id: Option<String>,
+    pub id_mapping_matched: bool,
 }
 
 pub trait AIDebugRawProvider {
@@ -104,6 +110,7 @@ pub(crate) fn debug_ai_classification_once_for_db(
         .map(|hint| hint.summary)
         .collect::<Vec<_>>();
     let messages = build_ai_classification_prompt(&targets, &settings, &learned_rules)?;
+    let id_map = AIClassificationIdMap::from_targets(&targets);
     let raw = raw_provider
         .send_raw(AIChatRequest {
             messages,
@@ -115,7 +122,7 @@ pub(crate) fn debug_ai_classification_once_for_db(
         })
         .map_err(|error| sanitize_debug_text(&error, &settings.api_key))?;
 
-    Ok(build_debug_result(&settings, raw))
+    Ok(build_debug_result(&settings, raw, &id_map))
 }
 
 fn resolve_debug_target_file_id(db: &Database, target: &str) -> Result<String, String> {
@@ -210,6 +217,7 @@ fn is_windows_path_like(path: &str) -> bool {
 fn build_debug_result(
     settings: &AISettings,
     raw: AIRawProviderResponse,
+    id_map: &AIClassificationIdMap,
 ) -> AIDebugClassificationResult {
     let response_summary = sanitize_debug_text(&raw.response_summary, &settings.api_key);
     let raw_response = sanitize_debug_text(&raw.response_text, &settings.api_key);
@@ -218,6 +226,39 @@ fn build_debug_result(
     let reasoning_content = extracted.reasoning_content.unwrap_or_default();
     let extracted_content = extracted.extracted_content.unwrap_or_default();
     let cleaned_content = clean_ai_json_text(&extracted_content);
+    let parsed_output = parse_ai_classification_response(&extracted_content)
+        .ok()
+        .and_then(|outputs| outputs.into_iter().next());
+    let parsed_returned_ref_id = parsed_output
+        .as_ref()
+        .and_then(|output| output.ref_id.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+    let parsed_returned_id = parsed_output
+        .as_ref()
+        .map(|output| output.id.trim())
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+    let id_mapping = parsed_output
+        .as_ref()
+        .and_then(|output| id_map.resolve_output(output).ok());
+    let model_returned_ref_id = id_mapping
+        .as_ref()
+        .and_then(|resolution| resolution.returned_ref_id.clone())
+        .or(parsed_returned_ref_id);
+    let model_returned_id = id_mapping
+        .as_ref()
+        .and_then(|resolution| resolution.returned_id.clone())
+        .or(parsed_returned_id);
+    let id_mapping_matched = id_mapping
+        .as_ref()
+        .map(|resolution| resolution.matched)
+        .unwrap_or(false);
+    let mapping_error = parsed_output
+        .as_ref()
+        .and_then(|output| id_map.resolve_output(output).err());
+
     let (success, parse_stage, parse_error) = if let Some(error) = extracted.parse_error {
         (false, "raw_response_extract".to_string(), Some(error))
     } else if extracted_content.trim().is_empty() {
@@ -226,8 +267,8 @@ fn build_debug_result(
             "message_content_extract".to_string(),
             Some("No extracted message content found.".to_string()),
         )
-    } else {
-        match parse_ai_classification_response(&extracted_content) {
+    } else if let Some(output) = parsed_output.clone() {
+        match sanitize_ai_classification_result(output, id_map) {
             Ok(_) => (true, "parse_ai_classification_response".to_string(), None),
             Err(error) => (
                 false,
@@ -235,7 +276,27 @@ fn build_debug_result(
                 Some(sanitize_debug_text(&error, &settings.api_key)),
             ),
         }
+    } else if let Some(error) = mapping_error {
+        (
+            false,
+            "id_mapping".to_string(),
+            Some(sanitize_debug_text(&error, &settings.api_key)),
+        )
+    } else {
+        match parse_ai_classification_response(&extracted_content) {
+            Ok(_) => (
+                false,
+                "parse_ai_classification_response".to_string(),
+                Some("No classification item found.".to_string()),
+            ),
+            Err(error) => (
+                false,
+                "parse_ai_classification_response".to_string(),
+                Some(sanitize_debug_text(&error, &settings.api_key)),
+            ),
+        }
     };
+    let entry = id_map.entries.first();
 
     AIDebugClassificationResult {
         provider: settings.provider,
@@ -259,6 +320,14 @@ fn build_debug_result(
         parse_stage,
         parse_error,
         success,
+        ref_id: entry.map(|entry| entry.ref_id.clone()).unwrap_or_default(),
+        real_file_id: entry
+            .map(|entry| entry.real_file_id.clone())
+            .unwrap_or_default(),
+        path: entry.map(|entry| entry.path.clone()).unwrap_or_default(),
+        model_returned_ref_id,
+        model_returned_id,
+        id_mapping_matched,
     }
 }
 
@@ -448,6 +517,39 @@ mod tests {
         let serialized = serde_json::to_string(&result).expect("serialize result");
         assert!(!serialized.contains("secret-debug-key"));
         assert!(serialized.contains("[redacted]"));
+    }
+
+    #[test]
+    fn debug_classification_reports_id_mapping_match() {
+        let db = test_db();
+        insert_test_file(
+            &db,
+            "real-file-1",
+            "D:/Install_Package/Scala编程基础期末复习题.docx",
+        );
+        save_ai_settings_for_db(&db, &enabled_settings()).expect("save ai settings");
+        let provider = StaticRawProvider {
+            response: Ok(AIRawProviderResponse {
+                status: 200,
+                response_text: r#"{"choices":[{"finish_reason":"stop","message":{"content":"{\"classifications\":[{\"refId\":\"f1\",\"fileType\":\"Document\",\"purpose\":\"Teaching\",\"lifecycle\":\"Active\",\"context\":\"Scala\",\"riskLevel\":\"Normal\",\"suggestedAction\":\"Move\",\"targetTemplate\":\"Teaching/Scala\",\"suggestedName\":\"\",\"confidence\":0.8,\"reason\":\"debug\",\"keywords\":[\"Scala\"],\"requiresConfirmation\":false}]}"}}]}"#.to_string(),
+                request_used_response_format: false,
+                request_used_thinking_field: Some("disabled".to_string()),
+                response_summary: "provider response summary: has_choices=true".to_string(),
+            }),
+        };
+
+        let result = debug_ai_classification_once_for_db(&db, "real-file-1", &provider)
+            .expect("debug result");
+
+        assert_eq!(result.ref_id, "f1");
+        assert_eq!(result.real_file_id, "real-file-1");
+        assert_eq!(
+            result.path,
+            "D:/Install_Package/Scala编程基础期末复习题.docx"
+        );
+        assert_eq!(result.model_returned_ref_id.as_deref(), Some("f1"));
+        assert_eq!(result.model_returned_id, None);
+        assert!(result.id_mapping_matched);
     }
 
     struct StaticRawProvider {

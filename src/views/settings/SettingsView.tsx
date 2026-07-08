@@ -969,6 +969,9 @@ export function SettingsView() {
                         <span>Endpoint: {aiDebugResult.baseUrl}{aiDebugResult.chatPath}</span>
                         <span>HTTP: {aiDebugResult.httpStatus} · response_format: {String(aiDebugResult.requestUsedResponseFormat)} · thinking: {aiDebugResult.requestUsedThinkingField ?? "未使用"}</span>
                         <span>Max Tokens: {aiDebugResult.maxTokens} · Batch Size: {aiDebugResult.batchSize} · Parse Stage: {aiDebugResult.parseStage}</span>
+                        <span>refId: {aiDebugResult.refId || "未生成"} · real file id: {aiDebugResult.realFileId || "未匹配"}</span>
+                        <span>Path: {compactPath(aiDebugResult.path, 96)}</span>
+                        <span>Model returned refId/id: {aiDebugResult.modelReturnedRefId ?? "空"} / {aiDebugResult.modelReturnedId ?? "空"} · idMappingMatched: {String(aiDebugResult.idMappingMatched)}</span>
                       </div>
                       <DebugPreviewBlock label="response summary" value={aiDebugResult.providerResponseSummary} apiKey={aiSettings.apiKey} />
                       <DebugPreviewBlock label="raw response preview" value={aiDebugResult.rawResponsePreview} apiKey={aiSettings.apiKey} />

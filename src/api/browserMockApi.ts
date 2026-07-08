@@ -749,7 +749,13 @@ function mockAIDebugClassification(args?: Record<string, unknown>): AIDebugClass
     cleanedContentPreview: "{\"items\":[{\"fileId\":\"" + fileId + "\",\"fileType\":\"Document\"}]}",
     parseStage: "parse_ai_classification_response",
     parseError: null,
-    success: true
+    success: true,
+    refId: "f1",
+    realFileId: fileId,
+    path: "C:/Users/Zen/Documents/project-report.pdf",
+    modelReturnedRefId: "f1",
+    modelReturnedId: null,
+    idMappingMatched: true
   };
 }
 

@@ -142,6 +142,12 @@ export interface AIDebugClassificationResult {
   parseStage: string;
   parseError: string | null;
   success: boolean;
+  refId: string;
+  realFileId: string;
+  path: string;
+  modelReturnedRefId: string | null;
+  modelReturnedId: string | null;
+  idMappingMatched: boolean;
 }
 
 export interface RuleExecutionSummary {
