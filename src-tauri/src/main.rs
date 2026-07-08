@@ -94,6 +94,7 @@ fn main() {
             zen_canvas_tauri::ai::settings::test_ai_provider_connection,
             zen_canvas_tauri::ai::classification::classify_files_with_ai,
             zen_canvas_tauri::ai::classification::classify_selected_files_with_ai,
+            zen_canvas_tauri::ai::debug::debug_ai_classification_once,
             zen_canvas_tauri::ai::cleanup::analyze_cleanup_candidates_with_ai,
             zen_canvas_tauri::app_control::quit_app,
             zen_canvas_tauri::app_control::activate_search_result,

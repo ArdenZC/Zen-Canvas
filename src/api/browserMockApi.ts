@@ -1,5 +1,6 @@
 import type {
   AIConnectionTestResult,
+  AIDebugClassificationResult,
   AIProviderPreset,
   AISettings,
   AppSettings,
@@ -223,6 +224,8 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockAIProviderPresets() as T;
     case "test_ai_provider_connection":
       return mockAIConnectionTest(args?.settings as AISettings | undefined) as T;
+    case "debug_ai_classification_once":
+      return mockAIDebugClassification(args) as T;
     case "get_global_hotkey_status":
     case "register_global_search_hotkey":
       return {
@@ -694,6 +697,59 @@ function mockAIConnectionTest(settings?: AISettings): AIConnectionTestResult {
     provider: resolved.provider,
     preset: resolved.preset,
     elapsedMs: 32
+  };
+}
+
+function mockAIDebugClassification(args?: Record<string, unknown>): AIDebugClassificationResult {
+  const settings = mockAISettings();
+  const fileId = String(args?.fileId ?? "mock-report");
+  const rawResponsePreview = JSON.stringify({
+    choices: [
+      {
+        finish_reason: "stop",
+        message: {
+          role: "assistant",
+          content: JSON.stringify({
+            items: [
+              {
+                fileId,
+                fileType: "Document",
+                purpose: "Work",
+                lifecycle: "Active",
+                riskLevel: "Normal",
+                suggestedAction: "Move",
+                confidence: 0.86,
+                reason: "Browser mock debug response."
+              }
+            ]
+          })
+        }
+      }
+    ]
+  }, null, 2);
+
+  return {
+    provider: settings.provider,
+    preset: settings.preset,
+    model: settings.model,
+    baseUrl: settings.baseUrl,
+    chatPath: settings.chatPath,
+    forceJsonOutput: settings.forceJsonOutput,
+    enableThinking: settings.enableThinking,
+    maxTokens: settings.maxTokens,
+    batchSize: settings.batchSize,
+    requestUsedResponseFormat: false,
+    requestUsedThinkingField: "disabled",
+    httpStatus: 200,
+    providerResponseSummary: "has_choices=true; choice_count=1; finish_reason=stop; message_keys=[content,role]; content_type=string; content_length=180; has_reasoning_content=false; reasoning_content_length=0",
+    rawResponsePreview,
+    messageContentPreview: "{\"items\":[{\"fileId\":\"" + fileId + "\",\"fileType\":\"Document\"}]}",
+    reasoningContentPreview: "",
+    extractedContentPreview: "{\"items\":[{\"fileId\":\"" + fileId + "\",\"fileType\":\"Document\"}]}",
+    cleanedContentPreview: "{\"items\":[{\"fileId\":\"" + fileId + "\",\"fileType\":\"Document\"}]}",
+    parseStage: "parse_ai_classification_response",
+    parseError: null,
+    success: true
   };
 }
 

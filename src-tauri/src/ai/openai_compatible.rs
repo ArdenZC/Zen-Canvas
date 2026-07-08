@@ -15,6 +15,27 @@ pub struct OpenAICompatibleProvider {
     preset: AIProviderPreset,
 }
 
+#[derive(Debug, Clone)]
+pub struct AIRawProviderResponse {
+    pub status: u16,
+    pub response_text: String,
+    pub request_used_response_format: bool,
+    pub request_used_thinking_field: Option<String>,
+    pub response_summary: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AIDebugExtractResult {
+    pub finish_reason: Option<String>,
+    pub message_keys: Vec<String>,
+    pub message_content: Option<String>,
+    pub reasoning_content: Option<String>,
+    pub output_text: Option<String>,
+    pub text: Option<String>,
+    pub extracted_content: Option<String>,
+    pub parse_error: Option<String>,
+}
+
 impl OpenAICompatibleProvider {
     pub fn new(settings: AISettings) -> Self {
         let preset = provider_preset(settings.preset)
@@ -37,11 +58,48 @@ impl OpenAICompatibleProvider {
     fn error(&self, message: impl Into<String>) -> AIProviderError {
         AIProviderError::new(redact_api_key(&message.into(), &self.settings.api_key))
     }
-}
 
-impl AIProvider for OpenAICompatibleProvider {
-    fn chat_json(&self, request: AIChatRequest) -> Result<String, AIProviderError> {
+    pub fn send_chat_request_raw(
+        &self,
+        request: AIChatRequest,
+    ) -> Result<AIRawProviderResponse, AIProviderError> {
         let url = self.request_url()?;
+        let (body, request_used_response_format, request_used_thinking_field) =
+            self.build_chat_body(&request)?;
+
+        let mut builder = self
+            .client()?
+            .post(url)
+            .header(reqwest::header::CONTENT_TYPE, "application/json");
+        if !self.settings.api_key.trim().is_empty() {
+            builder = builder.bearer_auth(self.settings.api_key.trim());
+        }
+
+        let response = builder
+            .json(&Value::Object(body))
+            .send()
+            .map_err(|error| self.error(format!("AI request failed: {error}")))?;
+        let status = response.status();
+        let response_text = response
+            .text()
+            .map_err(|error| self.error(format!("failed to read AI response: {error}")))?;
+        let response_summary = serde_json::from_str::<Value>(&response_text)
+            .map(|value| summarize_provider_response(&value))
+            .unwrap_or_else(|error| format!("provider response summary: invalid_json={error}"));
+
+        Ok(AIRawProviderResponse {
+            status: status.as_u16(),
+            response_text: redact_api_key(&response_text, &self.settings.api_key),
+            request_used_response_format,
+            request_used_thinking_field,
+            response_summary,
+        })
+    }
+
+    fn build_chat_body(
+        &self,
+        request: &AIChatRequest,
+    ) -> Result<(Map<String, Value>, bool, Option<String>), AIProviderError> {
         let mut body = Map::new();
         body.insert("model".to_string(), json!(request.model));
         body.insert(
@@ -49,7 +107,7 @@ impl AIProvider for OpenAICompatibleProvider {
             json!(messages_with_instructions(
                 &request.messages,
                 request.force_json,
-                thinking_enabled(&self.settings, &request),
+                thinking_enabled(&self.settings, request),
                 self.preset.id
             )),
         );
@@ -82,7 +140,7 @@ impl AIProvider for OpenAICompatibleProvider {
         )
         .map_err(|error| self.error(error.to_string()))?;
 
-        let enable_thinking = thinking_enabled(&self.settings, &request);
+        let enable_thinking = thinking_enabled(&self.settings, request);
         if enable_thinking && self.preset.supports_reasoning_effort {
             if let Some(reasoning_effort) = request
                 .provider_options
@@ -104,26 +162,23 @@ impl AIProvider for OpenAICompatibleProvider {
             );
         }
 
-        let mut builder = self
-            .client()?
-            .post(url)
-            .header(reqwest::header::CONTENT_TYPE, "application/json");
-        if !self.settings.api_key.trim().is_empty() {
-            builder = builder.bearer_auth(self.settings.api_key.trim());
-        }
+        let request_used_thinking_field = body.get("thinking").map(thinking_field_text);
+        Ok((
+            body,
+            request.force_json && response_format_enabled,
+            request_used_thinking_field,
+        ))
+    }
+}
 
-        let response = builder
-            .json(&Value::Object(body))
-            .send()
-            .map_err(|error| self.error(format!("AI request failed: {error}")))?;
-        let status = response.status();
-        let text = response
-            .text()
-            .map_err(|error| self.error(format!("failed to read AI response: {error}")))?;
-        if !status.is_success() {
+impl AIProvider for OpenAICompatibleProvider {
+    fn chat_json(&self, request: AIChatRequest) -> Result<String, AIProviderError> {
+        let raw = self.send_chat_request_raw(request.clone())?;
+        if !(200..300).contains(&raw.status) {
             let mut message = format!(
-                "AI provider returned HTTP {status}: {}",
-                short_response(&text)
+                "AI provider returned HTTP {}: {}",
+                raw.status,
+                short_response(&raw.response_text)
             );
             if self.preset.id == AIProviderPresetId::DeepSeek
                 && !thinking_enabled(&self.settings, &request)
@@ -135,7 +190,7 @@ impl AIProvider for OpenAICompatibleProvider {
             return Err(self.error(message));
         }
 
-        parse_openai_content(&text).map_err(|error| self.error(error))
+        parse_openai_content(&raw.response_text).map_err(|error| self.error(error))
     }
 
     fn test_connection(&self) -> Result<AIConnectionTestResult, AIProviderError> {
@@ -302,6 +357,66 @@ fn parse_openai_content(text: &str) -> Result<String, String> {
     ))
 }
 
+pub fn debug_extract_openai_response(raw_response: &str) -> AIDebugExtractResult {
+    let value = match serde_json::from_str::<Value>(raw_response) {
+        Ok(value) => value,
+        Err(error) => {
+            return AIDebugExtractResult {
+                finish_reason: None,
+                message_keys: Vec::new(),
+                message_content: None,
+                reasoning_content: None,
+                output_text: None,
+                text: None,
+                extracted_content: None,
+                parse_error: Some(format!("provider raw response is not JSON: {error}")),
+            };
+        }
+    };
+    let choice = value
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first());
+    let message = choice
+        .and_then(|choice| choice.get("message"))
+        .and_then(Value::as_object);
+    let mut message_keys = message
+        .map(|message| message.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    message_keys.sort();
+    let message_content = message
+        .and_then(|message| message.get("content"))
+        .and_then(content_value_to_text);
+    let output_text = message
+        .and_then(|message| message.get("output_text"))
+        .and_then(content_value_to_text);
+    let text = message
+        .and_then(|message| message.get("text"))
+        .and_then(content_value_to_text);
+    let extracted_content = message_content
+        .clone()
+        .or_else(|| output_text.clone())
+        .or_else(|| text.clone());
+
+    AIDebugExtractResult {
+        finish_reason: choice
+            .and_then(|choice| choice.get("finish_reason"))
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
+        message_keys,
+        message_content,
+        reasoning_content: message
+            .and_then(|message| message.get("reasoning_content"))
+            .and_then(content_value_to_text),
+        output_text,
+        text,
+        extracted_content,
+        parse_error: message
+            .is_none()
+            .then(|| "provider response did not contain choices[0].message".to_string()),
+    }
+}
+
 pub(crate) fn summarize_provider_response(value: &Value) -> String {
     let choices = value.get("choices").and_then(Value::as_array);
     let choice = choices.and_then(|items| items.first());
@@ -332,6 +447,16 @@ pub(crate) fn summarize_provider_response(value: &Value) -> String {
         reasoning_content.is_some(),
         value_text_len(reasoning_content),
     )
+}
+
+fn thinking_field_text(value: &Value) -> String {
+    value
+        .get("type")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .unwrap_or_else(|| {
+            serde_json::to_string(value).unwrap_or_else(|_| json_type_name(value).to_string())
+        })
 }
 
 fn content_value_to_text(value: &Value) -> Option<String> {

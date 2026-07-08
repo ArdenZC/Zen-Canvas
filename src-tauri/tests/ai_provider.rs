@@ -8,8 +8,11 @@ use std::{
 
 use serde_json::Value;
 use zen_canvas_tauri::ai::{
+    debug::debug_preview,
     ollama::OllamaProvider,
-    openai_compatible::{join_base_url_and_chat_path, OpenAICompatibleProvider},
+    openai_compatible::{
+        debug_extract_openai_response, join_base_url_and_chat_path, OpenAICompatibleProvider,
+    },
     presets::{all_provider_presets, provider_preset, AIExtraBodyStrategy},
     provider::AIProvider,
     schema::{AIChatMessage, AIChatRequest, AIProviderKind, AIProviderOptions, AIProviderPresetId},
@@ -190,6 +193,47 @@ fn openai_compatible_test_connection_clamps_small_max_tokens_to_512() {
 }
 
 #[test]
+fn openai_raw_response_extractor_reads_message_content() {
+    let extracted = debug_extract_openai_response(
+        r#"{"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"{\"classifications\":[]}"}}]}"#,
+    );
+
+    assert_eq!(extracted.finish_reason.as_deref(), Some("stop"));
+    assert_eq!(
+        extracted.message_content.as_deref(),
+        Some(r#"{"classifications":[]}"#)
+    );
+    assert_eq!(
+        extracted.extracted_content.as_deref(),
+        Some(r#"{"classifications":[]}"#)
+    );
+    assert!(extracted.message_keys.contains(&"content".to_string()));
+}
+
+#[test]
+fn openai_raw_response_extractor_reads_reasoning_content() {
+    let extracted = debug_extract_openai_response(
+        r#"{"choices":[{"finish_reason":"length","message":{"role":"assistant","content":"","reasoning_content":"thinking first"}}]}"#,
+    );
+
+    assert_eq!(extracted.finish_reason.as_deref(), Some("length"));
+    assert_eq!(extracted.message_content.as_deref(), Some(""));
+    assert_eq!(
+        extracted.reasoning_content.as_deref(),
+        Some("thinking first")
+    );
+    assert_eq!(extracted.extracted_content.as_deref(), Some(""));
+}
+
+#[test]
+fn debug_preview_truncates_raw_response() {
+    let preview = debug_preview(&"x".repeat(3_500), 3_000);
+
+    assert_eq!(preview.chars().count(), 3_000);
+    assert!(preview.ends_with("..."));
+}
+
+#[test]
 fn ai_schema_serializes_expected_provider_and_preset_ids() {
     assert_eq!(
         serde_json::to_value(AIProviderKind::OpenAICompatible).unwrap(),
@@ -314,6 +358,29 @@ fn deepseek_chat_writes_thinking_disabled_when_not_requested() {
 
     let body: Value = serde_json::from_str(&server.request().body).expect("json body");
     assert_eq!(body["thinking"]["type"], "disabled");
+}
+
+#[test]
+fn openai_raw_chat_returns_request_diagnostics_without_api_key() {
+    let server = TestServer::start(
+        200,
+        r#"{"choices":[{"finish_reason":"stop","message":{"content":"{\"ok\":true}"}}]}"#,
+    );
+    let provider = OpenAICompatibleProvider::new(settings_for_server(
+        &server.base_url,
+        AIProviderPresetId::DeepSeek,
+        "secret-openai-key",
+    ));
+
+    let raw = provider
+        .send_chat_request_raw(chat_request("deepseek-v4-flash", true))
+        .expect("raw response");
+
+    assert_eq!(raw.status, 200);
+    assert!(!raw.response_text.contains("secret-openai-key"));
+    assert!(!raw.request_used_response_format);
+    assert_eq!(raw.request_used_thinking_field.as_deref(), Some("disabled"));
+    assert!(raw.response_summary.contains("has_choices=true"));
 }
 
 #[test]

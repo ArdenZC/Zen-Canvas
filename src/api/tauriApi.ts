@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AIConnectionTestResult,
+  AIDebugClassificationResult,
   AIProviderPreset,
   AISettings,
   AppSettings,
@@ -313,6 +314,10 @@ export const tauriApi = {
 
   testAIProviderConnection(settings?: AISettings): Promise<AIConnectionTestResult> {
     return invokeCommand<AIConnectionTestResult>("test_ai_provider_connection", { settings: settings ?? null });
+  },
+
+  debugAIClassificationOnce(fileId: string): Promise<AIDebugClassificationResult> {
+    return invokeCommand<AIDebugClassificationResult>("debug_ai_classification_once", { fileId });
   },
 
   getGlobalHotkeyStatus(): Promise<GlobalHotkeyStatus | null> {

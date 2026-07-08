@@ -16,6 +16,7 @@ import { useAppStore } from "../../store/useAppStore";
 import { useBackgroundIndexerStore } from "../../store/useBackgroundIndexerStore";
 import type {
   AIConnectionTestResult,
+  AIDebugClassificationResult,
   AIProviderPreset,
   AIProviderPresetId,
   AISettings,
@@ -112,6 +113,10 @@ export function SettingsView() {
   const [isSavingAISettings, setIsSavingAISettings] = useState(false);
   const [isTestingAIConnection, setIsTestingAIConnection] = useState(false);
   const [aiConnectionStatus, setAiConnectionStatus] = useState<{ tone: StatusTone; message: string } | null>(null);
+  const [aiDebugFileId, setAiDebugFileId] = useState("");
+  const [isDebuggingAI, setIsDebuggingAI] = useState(false);
+  const [aiDebugStatus, setAiDebugStatus] = useState<{ tone: StatusTone; message: string } | null>(null);
+  const [aiDebugResult, setAiDebugResult] = useState<AIDebugClassificationResult | null>(null);
   const hotkeyCaptureRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -370,12 +375,14 @@ export function SettingsView() {
 
   function updateAISettings(partial: Partial<AISettings>) {
     setAiConnectionStatus(null);
+    setAiDebugStatus(null);
     setAiSettings((current) => current ? { ...current, ...partial } : current);
   }
 
   function selectAIPreset(presetId: AIProviderPresetId) {
     const preset = aiPresets.find((item) => item.id === presetId);
     setAiConnectionStatus(null);
+    setAiDebugStatus(null);
     setAiSettings((current) => {
       if (!preset) return current ? { ...current, preset: presetId } : current;
       const fallback = current ?? defaultAISettingsFromPreset(preset);
@@ -429,6 +436,36 @@ export function SettingsView() {
       });
     } finally {
       setIsTestingAIConnection(false);
+    }
+  }
+
+  async function debugAIClassificationOnce() {
+    if (!aiSettings || isDebuggingAI) return;
+    const fileId = aiDebugFileId.trim();
+    if (!fileId) {
+      setAiDebugStatus({ tone: "warning", message: "请输入要调试的 file_id。" });
+      return;
+    }
+
+    setIsDebuggingAI(true);
+    setAiDebugStatus(null);
+    setAiDebugResult(null);
+    try {
+      const result = await tauriApi.debugAIClassificationOnce(fileId);
+      setAiDebugResult(result);
+      setAiDebugStatus({
+        tone: result.success ? "success" : "warning",
+        message: result.success
+          ? "AI 调试完成：模型返回已按分类 JSON 解析成功。"
+          : `AI 调试完成：${result.parseError ?? "模型返回未能解析为分类 JSON。"}`
+      });
+    } catch (error) {
+      setAiDebugStatus({
+        tone: "warning",
+        message: sanitizeAIStatusMessage(`AI 调试失败：${readableError(error)}`, aiSettings.apiKey)
+      });
+    } finally {
+      setIsDebuggingAI(false);
     }
   }
 
@@ -760,7 +797,7 @@ export function SettingsView() {
           />
         </ControlGroup>
 
-        <ControlGroup title="AI 模型服务" description="选择国产模型或本地 Ollama。此阶段只测试连接，不接入文件分类或文件清理。">
+        <ControlGroup title="AI 模型服务" description="选择国产模型或本地 Ollama，可测试连接并调试单个文件的模型原始返回。">
           {isLoadingAISettings || !aiSettings ? (
             <StateBlock title="正在加载 AI 设置" description="从本地配置读取模型服务商预设。" />
           ) : (
@@ -880,6 +917,50 @@ export function SettingsView() {
                   {isSavingAISettings ? "保存中..." : "保存 AI 设置"}
                 </button>
               </div>
+              <details className={cn(softPanel, "grid gap-3 p-3")}>
+                <summary className="cursor-pointer text-sm font-semibold text-[var(--ink)]">AI 调试</summary>
+                <div className="mt-3 grid gap-3">
+                  <NoticeBanner tone="warning">
+                    调试信息可能包含文件名和路径，请不要截图公开或提交到 GitHub。此功能只读取单个文件的模型返回，不写 files 表，不进入整理预览，也不会移动文件。
+                  </NoticeBanner>
+                  <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto] md:items-end">
+                    <TextField
+                      label="file_id"
+                      value={aiDebugFileId}
+                      onChange={setAiDebugFileId}
+                      placeholder="输入要调试的文件 ID"
+                    />
+                    <button
+                      className={buttonSecondary}
+                      onClick={() => void debugAIClassificationOnce()}
+                      disabled={isDebuggingAI || !aiDebugFileId.trim()}
+                    >
+                      {isDebuggingAI ? "调试中..." : "调试单个文件 AI 返回"}
+                    </button>
+                  </div>
+                  {aiDebugStatus ? (
+                    <NoticeBanner tone={aiDebugStatus.tone}>{sanitizeAIStatusMessage(aiDebugStatus.message, aiSettings.apiKey)}</NoticeBanner>
+                  ) : null}
+                  {aiDebugResult ? (
+                    <div className="grid gap-3">
+                      <div className={cn(softPanel, "grid gap-1 p-3 text-xs text-[var(--muted)]")}>
+                        <span>Provider: {aiDebugResult.provider} / {aiDebugResult.preset}</span>
+                        <span>Model: {aiDebugResult.model}</span>
+                        <span>Endpoint: {aiDebugResult.baseUrl}{aiDebugResult.chatPath}</span>
+                        <span>HTTP: {aiDebugResult.httpStatus} · response_format: {String(aiDebugResult.requestUsedResponseFormat)} · thinking: {aiDebugResult.requestUsedThinkingField ?? "未使用"}</span>
+                        <span>Max Tokens: {aiDebugResult.maxTokens} · Batch Size: {aiDebugResult.batchSize} · Parse Stage: {aiDebugResult.parseStage}</span>
+                      </div>
+                      <DebugPreviewBlock label="response summary" value={aiDebugResult.providerResponseSummary} apiKey={aiSettings.apiKey} />
+                      <DebugPreviewBlock label="raw response preview" value={aiDebugResult.rawResponsePreview} apiKey={aiSettings.apiKey} />
+                      <DebugPreviewBlock label="message content preview" value={aiDebugResult.messageContentPreview} apiKey={aiSettings.apiKey} />
+                      <DebugPreviewBlock label="reasoning content preview" value={aiDebugResult.reasoningContentPreview} apiKey={aiSettings.apiKey} />
+                      <DebugPreviewBlock label="extracted content preview" value={aiDebugResult.extractedContentPreview} apiKey={aiSettings.apiKey} />
+                      <DebugPreviewBlock label="cleaned content preview" value={aiDebugResult.cleanedContentPreview} apiKey={aiSettings.apiKey} />
+                      <DebugPreviewBlock label="parse error" value={aiDebugResult.parseError ?? ""} apiKey={aiSettings.apiKey} />
+                    </div>
+                  ) : null}
+                </div>
+              </details>
             </div>
           )}
         </ControlGroup>
@@ -973,6 +1054,26 @@ function NumberField({
         value={value}
         onChange={(event) => onChange(Math.max(min, Number(event.target.value) || min))}
       />
+    </label>
+  );
+}
+
+function DebugPreviewBlock({
+  label,
+  value,
+  apiKey
+}: {
+  label: string;
+  value: string | null | undefined;
+  apiKey: string;
+}) {
+  const displayValue = sanitizeAIStatusMessage(value || "（空）", apiKey);
+  return (
+    <label className="grid gap-1">
+      <span className="text-sm font-medium text-[var(--ink)]">{label}</span>
+      <pre className={cn(inputSurface, "max-h-72 overflow-auto whitespace-pre-wrap break-words p-3 text-xs leading-5")}>
+        {displayValue}
+      </pre>
     </label>
   );
 }

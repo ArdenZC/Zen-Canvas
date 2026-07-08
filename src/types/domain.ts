@@ -120,6 +120,30 @@ export interface AIConnectionTestResult {
   elapsedMs: number;
 }
 
+export interface AIDebugClassificationResult {
+  provider: AIProviderKind;
+  preset: AIProviderPresetId;
+  model: string;
+  baseUrl: string;
+  chatPath: string;
+  forceJsonOutput: boolean;
+  enableThinking: boolean;
+  maxTokens: number;
+  batchSize: number;
+  requestUsedResponseFormat: boolean;
+  requestUsedThinkingField: string | null;
+  httpStatus: number;
+  providerResponseSummary: string;
+  rawResponsePreview: string;
+  messageContentPreview: string;
+  reasoningContentPreview: string;
+  extractedContentPreview: string;
+  cleanedContentPreview: string;
+  parseStage: string;
+  parseError: string | null;
+  success: boolean;
+}
+
 export interface RuleExecutionSummary {
   scanned: number;
   updated: number;

@@ -1,5 +1,6 @@
 pub mod classification;
 pub mod cleanup;
+pub mod debug;
 pub mod ollama;
 pub mod openai_compatible;
 pub mod presets;
