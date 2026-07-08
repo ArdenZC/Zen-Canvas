@@ -293,12 +293,13 @@ function ensureAIReady(enabled: boolean, provider: string, apiKey: string) {
 }
 
 function aiClassificationSummaryMessage(summary: RuleExecutionSummary) {
-  return `AI 分类完成：扫描 ${summary.scanned.toLocaleString()} 个，更新 ${summary.updated.toLocaleString()} 个，跳过 ${summary.skipped.toLocaleString()} 个，需确认 ${summary.needsConfirmation.toLocaleString()} 个。`;
+  return `AI 分类完成：扫描 ${summary.scanned.toLocaleString()} 个，更新 ${summary.updated.toLocaleString()} 个，跳过 ${summary.skipped.toLocaleString()} 个，需要确认 ${summary.needsConfirmation.toLocaleString()} 个。`;
 }
 
 function readableAIClassificationError(error: unknown) {
   const message = readableError(error);
   const normalized = message.toLowerCase();
+  if (message.includes("模型返回") || message.includes("Zen Canvas 需要的 JSON")) return message;
   if (message.includes("AI 未启用") || message.includes("启用 AI")) return "请先在设置中启用 AI。";
   if (message.includes("API Key 缺失") || normalized.includes("api key") || normalized.includes("api_key")) {
     return "当前模型服务需要 API Key，请在 AI 设置中填写。";

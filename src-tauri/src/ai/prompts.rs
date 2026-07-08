@@ -8,6 +8,10 @@ pub fn ai_file_classification_system_prompt(enable_thinking: bool) -> String {
         "Do not output Markdown.",
         "Do not output code fences.",
         "Return only JSON.",
+        "If you are a thinking model, do not output thinking content.",
+        "Do not output <think> tags.",
+        "Do not output reasoning process.",
+        "Only output the final JSON.",
         "Do not suggest directly deleting files.",
         "targetTemplate must be a relative path template, never an absolute path.",
         "When uncertain, use suggestedAction = Review.",
@@ -47,6 +51,10 @@ pub fn ai_cleanup_analysis_system_prompt(enable_thinking: bool) -> String {
         "You must not suggest bypassing Zen Canvas Safe Trash, preview, confirmation, or restore flows.",
         "Be conservative. If uncertain, return tier = Review or tier = Caution.",
         "Return only JSON.",
+        "If you are a thinking model, do not output thinking content.",
+        "Do not output <think> tags.",
+        "Do not output reasoning process.",
+        "Only output the final JSON.",
         "Do not output Markdown.",
         "Do not output code fences.",
         "Allowed tier values: Safe, Review, Caution.",
@@ -80,4 +88,104 @@ pub fn build_ai_cleanup_analysis_prompt(
         "candidates": candidates,
     }))
     .map_err(|error| format!("failed to build AI cleanup analysis prompt: {error}"))
+}
+
+pub(crate) fn clean_ai_json_text(content: &str) -> String {
+    let without_thinking = strip_think_blocks(content);
+    let mut text = without_thinking.trim().to_string();
+    text = strip_markdown_fence(&text);
+    if let Some(index) = first_json_start(&text) {
+        text = text[index..].to_string();
+    }
+    text.trim().to_string()
+}
+
+pub(crate) fn extract_first_json_value(content: &str) -> Option<String> {
+    let content = clean_ai_json_text(content);
+    let mut start = None;
+    let mut depth = 0_i32;
+    let mut in_string = false;
+    let mut escaped = false;
+    let mut expected_close = Vec::new();
+
+    for (index, ch) in content.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '{' | '[' => {
+                if start.is_none() {
+                    start = Some(index);
+                }
+                depth += 1;
+                expected_close.push(if ch == '{' { '}' } else { ']' });
+            }
+            '}' | ']' => {
+                if depth > 0 && expected_close.last().copied() == Some(ch) {
+                    expected_close.pop();
+                    depth -= 1;
+                    if depth == 0 {
+                        let start = start?;
+                        return Some(content[start..=index].to_string());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+fn strip_think_blocks(content: &str) -> String {
+    let mut output = content.to_string();
+    loop {
+        let lower = output.to_ascii_lowercase();
+        let Some(start) = lower.find("<think>") else {
+            break;
+        };
+        let Some(end) = lower[start + "<think>".len()..].find("</think>") else {
+            output.replace_range(start.., "");
+            break;
+        };
+        let end = start + "<think>".len() + end + "</think>".len();
+        output.replace_range(start..end, "");
+    }
+    output
+}
+
+fn strip_markdown_fence(content: &str) -> String {
+    let trimmed = content.trim();
+    if !trimmed.starts_with("```") {
+        return trimmed.to_string();
+    }
+    let Some(first_newline) = trimmed.find('\n') else {
+        return trimmed.trim_matches('`').trim().to_string();
+    };
+    let body = &trimmed[first_newline + 1..];
+    let body = body.trim();
+    if let Some(stripped) = body.strip_suffix("```") {
+        stripped.trim().to_string()
+    } else {
+        body.to_string()
+    }
+}
+
+fn first_json_start(content: &str) -> Option<usize> {
+    let object = content.find('{');
+    let array = content.find('[');
+    match (object, array) {
+        (Some(left), Some(right)) => Some(left.min(right)),
+        (Some(index), None) | (None, Some(index)) => Some(index),
+        (None, None) => None,
+    }
 }

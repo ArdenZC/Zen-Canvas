@@ -810,6 +810,9 @@ export function SettingsView() {
               {aiSettings.preset === "deepseek" && ["deepseek-chat", "deepseek-reasoner"].includes(aiSettings.model.trim()) ? (
                 <NoticeBanner tone="warning">DeepSeek 旧模型名仍允许输入，但建议改用 deepseek-v4-flash 或 deepseek-v4-pro。</NoticeBanner>
               ) : null}
+              {(aiSettings.provider === "ollama" || aiSettings.model.toLowerCase().includes("qwen3")) ? (
+                <NoticeBanner tone="warning">Qwen3 是 thinking 模型，文件分类建议关闭 thinking，否则可能返回非 JSON 内容。</NoticeBanner>
+              ) : null}
               <div className="grid gap-3 md:grid-cols-2">
                 <SwitchField
                   label="Force JSON Output"

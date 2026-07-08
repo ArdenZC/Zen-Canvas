@@ -10,6 +10,7 @@ use super::{
     prompts::{
         ai_file_classification_system_prompt,
         build_ai_classification_prompt as build_ai_classification_prompt_body,
+        clean_ai_json_text, extract_first_json_value,
     },
     provider::AIProvider,
     schema::{AIChatMessage, AIChatRequest, AIProviderKind, AIProviderPresetId},
@@ -248,8 +249,15 @@ pub(crate) fn call_ai_classification_provider(
     settings: &AISettings,
     targets: &[IndexedFileRow],
     learned_rules: &[String],
+    retry_json_only: bool,
 ) -> Result<String, String> {
-    let messages = build_ai_classification_prompt(targets, settings, learned_rules)?;
+    let mut messages = build_ai_classification_prompt(targets, settings, learned_rules)?;
+    if retry_json_only {
+        messages.push(AIChatMessage {
+            role: "user".to_string(),
+            content: "上一次输出不是有效 JSON。请只返回一个 JSON 对象，不要 Markdown，不要解释，不要 thinking，不要代码块。".to_string(),
+        });
+    }
     provider
         .chat_json(AIChatRequest {
             messages,
@@ -265,23 +273,16 @@ pub(crate) fn call_ai_classification_provider(
 pub(crate) fn parse_ai_classification_response(
     content: &str,
 ) -> Result<Vec<AIClassificationOutput>, String> {
-    match serde_json::from_str::<AIClassificationResponse>(content) {
-        Ok(response) => return Ok(response.classifications),
-        Err(first_error) => {
-            let Some(object) = extract_first_json_object(content) else {
-                return Err(format!(
-                    "AI classification response is not valid JSON: {first_error}"
-                ));
-            };
-            serde_json::from_str::<AIClassificationResponse>(&object)
-                .map(|response| response.classifications)
-                .map_err(|error| {
-                    format!(
-                        "AI classification response JSON did not match expected schema: {error}"
-                    )
-                })
-        }
-    }
+    let cleaned = clean_ai_json_text(content);
+    let value = serde_json::from_str::<serde_json::Value>(&cleaned)
+        .or_else(|_| {
+            extract_first_json_value(content)
+                .ok_or_else(|| serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::InvalidData, "no JSON value found")))
+                .and_then(|value| serde_json::from_str::<serde_json::Value>(&value))
+        })
+        .map_err(|error| ai_classification_json_error(content, &error.to_string()))?;
+    classification_outputs_from_value(value)
+        .map_err(|error| ai_classification_json_error(content, &error))
 }
 
 pub(crate) fn sanitize_ai_classification_result(
@@ -493,8 +494,25 @@ fn classify_ai_targets_with_provider(
     let mut sanitized = Vec::new();
     let mut sanitized_ids = HashSet::new();
     for batch in targets.chunks(batch_size) {
-        let content = call_ai_classification_provider(provider, settings, batch, learned_rules)?;
-        let outputs = parse_ai_classification_response(&content)?;
+        let content =
+            call_ai_classification_provider(provider, settings, batch, learned_rules, false)?;
+        let outputs = match parse_ai_classification_response(&content) {
+            Ok(outputs) => outputs,
+            Err(_) => {
+                let retry_content = call_ai_classification_provider(
+                    provider,
+                    settings,
+                    batch,
+                    learned_rules,
+                    true,
+                )?;
+                parse_ai_classification_response(&retry_content).map_err(|error| {
+                    format!(
+                        "{error} 已尝试清洗和重试，但仍失败。建议关闭 thinking，或换用 deepseek-v4-flash / qwen-plus 等更稳定的非思考模型。"
+                    )
+                })?
+            }
+        };
         for output in outputs {
             match sanitize_ai_classification_result(output, &requested_ids) {
                 Ok(result) if sanitized_ids.insert(result.id.clone()) => sanitized.push(result),
@@ -558,43 +576,42 @@ fn ai_input_file_from_row(
     }
 }
 
-fn extract_first_json_object(content: &str) -> Option<String> {
-    let mut start = None;
-    let mut depth = 0_i32;
-    let mut in_string = false;
-    let mut escaped = false;
-    for (index, ch) in content.char_indices() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match ch {
-            '"' => in_string = true,
-            '{' => {
-                if start.is_none() {
-                    start = Some(index);
-                }
-                depth += 1;
-            }
-            '}' => {
-                if depth > 0 {
-                    depth -= 1;
-                    if depth == 0 {
-                        let start = start?;
-                        return Some(content[start..=index].to_string());
-                    }
-                }
-            }
-            _ => {}
+fn classification_outputs_from_value(
+    value: serde_json::Value,
+) -> Result<Vec<AIClassificationOutput>, String> {
+    if value.is_array() {
+        return serde_json::from_value::<Vec<AIClassificationOutput>>(value)
+            .map_err(|error| format!("classification array schema mismatch: {error}"));
+    }
+
+    if value.get("classifications").is_some() {
+        return serde_json::from_value::<AIClassificationResponse>(value)
+            .map(|response| response.classifications)
+            .map_err(|error| format!("classification object schema mismatch: {error}"));
+    }
+
+    if let Some(result) = value.get("result") {
+        if result.get("classifications").is_some() {
+            return serde_json::from_value::<AIClassificationResponse>(result.clone())
+                .map(|response| response.classifications)
+                .map_err(|error| format!("result.classifications schema mismatch: {error}"));
         }
     }
-    None
+
+    Err("missing classifications array".to_string())
+}
+
+fn ai_classification_json_error(content: &str, detail: &str) -> String {
+    let lower = content.to_ascii_lowercase();
+    if lower.contains("<think>") {
+        return "模型返回了 thinking 内容，导致 JSON 解析失败。请关闭 Thinking，或换用非思考模型。".to_string();
+    }
+    if lower.contains("```") {
+        return "模型返回了 Markdown 代码块，Zen Canvas 已尝试提取 JSON，但结构仍不符合要求。".to_string();
+    }
+    format!(
+        "模型返回的内容不是 Zen Canvas 需要的 JSON 格式。已尝试清洗，但仍失败：{detail}"
+    )
 }
 
 fn require_allowed(field: &str, value: &str, allowed: &[&str]) -> Result<String, String> {
@@ -771,6 +788,49 @@ mod tests {
         );
         let outputs = parse_ai_classification_response(&content).expect("extract json");
         assert_eq!(outputs[0].id, "file-1");
+    }
+
+    #[test]
+    fn thinking_wrapped_json_parses() {
+        let content = format!(
+            "<think>I should inspect the file name first.</think>\n{}",
+            valid_response("file-1", "Move", "Normal")
+        );
+        let outputs = parse_ai_classification_response(&content).expect("strip thinking");
+        assert_eq!(outputs[0].id, "file-1");
+    }
+
+    #[test]
+    fn direct_array_json_parses() {
+        let content = r#"[{"id":"file-1","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Move","targetTemplate":"Teaching/Scala/试卷","suggestedName":"","confidence":0.92,"reason":"文件名包含 Scala、期末、复习题，判断为教学考试资料。","keywords":["Scala"],"requiresConfirmation":false}]"#;
+        let outputs = parse_ai_classification_response(content).expect("parse direct array");
+        assert_eq!(outputs[0].id, "file-1");
+    }
+
+    #[test]
+    fn nested_result_classifications_parses() {
+        let content = r#"{"result":{"classifications":[{"id":"file-1","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Move","targetTemplate":"Teaching/Scala/试卷","suggestedName":"","confidence":0.92,"reason":"文件名包含 Scala、期末、复习题，判断为教学考试资料。","keywords":["Scala"],"requiresConfirmation":false}]}}"#;
+        let outputs = parse_ai_classification_response(content).expect("parse result.classifications");
+        assert_eq!(outputs[0].id, "file-1");
+    }
+
+    #[test]
+    fn invalid_json_retries_once_then_writes_valid_result() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "/tmp/Scala期末复习题.pdf");
+        let settings = enabled_settings();
+        let targets = collect_selected_ai_classification_targets(&db, &["file-1".to_string()])
+            .expect("collect targets");
+        let provider = SequenceProvider::new(vec![
+            Ok("not json".to_string()),
+            Ok(valid_response("file-1", "Move", "Normal").to_string()),
+        ]);
+
+        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+            .expect("retry and classify");
+
+        assert_eq!(summary.updated, 1);
+        assert_eq!(provider.call_count(), 2);
     }
 
     #[test]
@@ -993,6 +1053,47 @@ mod tests {
     impl AIProvider for StaticProvider {
         fn chat_json(&self, _request: AIChatRequest) -> Result<String, AIProviderError> {
             self.response.clone()
+        }
+
+        fn test_connection(&self) -> Result<AIConnectionTestResult, AIProviderError> {
+            Ok(AIConnectionTestResult {
+                ok: true,
+                message: "ok".to_string(),
+                model: None,
+                provider: None,
+                preset: None,
+                elapsed_ms: 0,
+            })
+        }
+    }
+
+    struct SequenceProvider {
+        responses: std::sync::Mutex<Vec<Result<String, AIProviderError>>>,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl SequenceProvider {
+        fn new(responses: Vec<Result<String, AIProviderError>>) -> Self {
+            Self {
+                responses: std::sync::Mutex::new(responses.into_iter().rev().collect()),
+                calls: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+
+        fn call_count(&self) -> usize {
+            self.calls.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl AIProvider for SequenceProvider {
+        fn chat_json(&self, _request: AIChatRequest) -> Result<String, AIProviderError> {
+            self.calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.responses
+                .lock()
+                .expect("responses")
+                .pop()
+                .unwrap_or_else(|| Err(AIProviderError::new("no response")))
         }
 
         fn test_connection(&self) -> Result<AIConnectionTestResult, AIProviderError> {

@@ -646,6 +646,7 @@ function ensureCleanupAIReady(
 function readableCleanupAIError(error: unknown) {
   const message = readableError(error);
   const normalized = message.toLowerCase();
+  if (message.includes("模型返回") || message.includes("Zen Canvas 需要的 JSON")) return message;
   if (message.includes("启用 AI 清理分析")) return "请先在设置中启用 AI 清理分析。";
   if (message.includes("AI 未启用") || message.includes("启用 AI")) return "请先在设置中启用 AI。";
   if (message.includes("API Key 缺失") || normalized.includes("api key") || normalized.includes("api_key")) {

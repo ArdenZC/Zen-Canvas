@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion } from "motion/react";
-import { FolderSearch, Layers, Plus, Search, Sparkles } from "lucide-react";
+import { FolderSearch, Layers, Plus, Search } from "lucide-react";
 import { tauriApi } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useDebounce } from "../../hooks/useDebounce";
@@ -38,7 +38,7 @@ const ASSET_GRID_MAX_COLUMNS = 5;
 const ASSET_GRID_ROW_HEIGHT = 172;
 
 export function VaultView() {
-  const { onError, t } = useChromeContext();
+  const { onError, setView, t } = useChromeContext();
   const searchQuery = useAppStore((state) => state.searchQuery);
   const setSearchQuery = useAppStore((state) => state.setSearchQuery);
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
@@ -46,10 +46,6 @@ export function VaultView() {
   const scope = useFileLibraryStore((state) => state.scope);
   const stats = useFileLibraryStore((state) => state.stats);
   const selectedFileId = useFileLibraryStore((state) => state.selectedFileId);
-  const isClassifyingWithAI = useFileLibraryStore((state) => state.isClassifyingWithAI);
-  const aiClassificationStatus = useFileLibraryStore((state) => state.aiClassificationStatus);
-  const classifyCurrentScopeWithAI = useFileLibraryStore((state) => state.classifyCurrentScopeWithAI);
-  const classifySelectedFileWithAI = useFileLibraryStore((state) => state.classifySelectedFileWithAI);
   const setScope = useFileLibraryStore((state) => state.setScope);
   const setPage = useFileLibraryStore((state) => state.setLibraryPage);
   const setSelectedFileId = useFileLibraryStore((state) => state.setSelectedFileId);
@@ -177,36 +173,15 @@ export function VaultView() {
           <span className={quietText}>{isLoading ? t("libraryLoadingResults") : activeFilterDescription || t("libraryScopeHint")}</span>
         </div>
 
-        <div data-section="ai classification actions" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--line-dark)] bg-[var(--surface-soft)] px-3 py-2">
+        <div data-section="ai classification handoff" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--line-dark)] bg-[var(--surface-soft)] px-3 py-2">
           <div className="min-w-0">
-            <strong className="block text-sm text-[var(--ink)]">AI 文件分类</strong>
-            <span className={quietText}>只刷新分类建议，不会移动、删除或整理文件。</span>
+            <strong className="block text-sm text-[var(--ink)]">分类建议</strong>
+            <span className={quietText}>这里用于查看 AI reason、confidence、建议路径，并确认或纠正单个文件。</span>
           </div>
-          <div className="flex flex-wrap justify-end gap-2">
-            <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void classifyCurrentScopeWithAI({ onlyUnclassified: false })} disabled={isClassifyingWithAI || isEmptyCurrentScanScope}>
-              <Sparkles size={14} />
-              <span>{isClassifyingWithAI ? "AI 分类中..." : "AI 分类"}</span>
-            </button>
-            <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void classifyCurrentScopeWithAI({ onlyUnclassified: true })} disabled={isClassifyingWithAI || isEmptyCurrentScanScope}>
-              <Sparkles size={14} />
-              <span>AI 分类未分类文件</span>
-            </button>
-            <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void classifyCurrentScopeWithAI({ onlyUnclassified: false, onlyLowConfidence: true })} disabled={isClassifyingWithAI || isEmptyCurrentScanScope}>
-              <Sparkles size={14} />
-              <span>AI 复查低置信度</span>
-            </button>
-            <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void classifySelectedFileWithAI(selectedFile?.id)} disabled={isClassifyingWithAI || !selectedFile}>
-              <Sparkles size={14} />
-              <span>AI 分类选中文件</span>
-            </button>
-          </div>
+          <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => setView("organize")}>
+            去智能整理中重新分类
+          </button>
         </div>
-
-        {aiClassificationStatus ? (
-          <div className={aiStatusClass(aiClassificationStatus.startsWith("AI 分类完成"))} role="status">
-            {aiClassificationStatus}
-          </div>
-        ) : null}
 
         {selectedFile ? <SelectedFileClassificationDetails file={selectedFile} /> : null}
       </section>
@@ -593,15 +568,6 @@ function inlineBadgeClass(tone: "info" | "warning" | "success") {
     tone === "info" && "border-blue-400/22 bg-blue-500/8 text-blue-700 dark:text-blue-200",
     tone === "warning" && "border-amber-400/28 bg-amber-500/8 text-amber-700 dark:text-amber-200",
     tone === "success" && "border-emerald-400/24 bg-emerald-500/8 text-emerald-700 dark:text-emerald-200"
-  );
-}
-
-function aiStatusClass(success: boolean) {
-  return cn(
-    "rounded-xl border px-3 py-2 text-sm",
-    success
-      ? "border-emerald-400/24 bg-emerald-500/8 text-emerald-800 dark:text-emerald-100"
-      : "border-amber-400/28 bg-amber-500/8 text-amber-800 dark:text-amber-100"
   );
 }
 

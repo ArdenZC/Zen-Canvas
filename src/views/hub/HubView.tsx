@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { File, FolderOpen, FolderSearch, Layers, ShieldCheck } from "lucide-react";
+import { File, FolderOpen, FolderSearch, Layers, ShieldCheck, Sparkles } from "lucide-react";
+import { tauriApi } from "../../api/tauriApi";
 import {
   useChromeContext,
   useRulesContext
@@ -91,13 +92,17 @@ export function HubView() {
   const files = useFileLibraryStore((state) => state.organizeQueue);
   const organizeQueueTruncated = useFileLibraryStore((state) => state.organizeQueueTruncated);
   const isLoadingOrganizeQueue = useFileLibraryStore((state) => state.isLoadingOrganizeQueue);
+  const isClassifyingWithAI = useFileLibraryStore((state) => state.isClassifyingWithAI);
+  const aiClassificationStatus = useFileLibraryStore((state) => state.aiClassificationStatus);
   const loadOrganizeQueue = useFileLibraryStore((state) => state.loadOrganizeQueue);
+  const classifyCurrentScopeWithAI = useFileLibraryStore((state) => state.classifyCurrentScopeWithAI);
   const scope = useFileLibraryStore((state) => state.scope);
   const setScope = useFileLibraryStore((state) => state.setScope);
   const handleChooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
   const { rules } = useRulesContext();
   const runDispatch = useOperationQueueStore((state) => state.runDispatch);
   const [isDispatching, setIsDispatching] = useState(false);
+  const [aiThinkingWarning, setAiThinkingWarning] = useState(false);
   const activeRuleCount = useMemo(() => countActiveRules(rules), [rules]);
   const { pendingFiles, bucketedFiles, classifiedCount } = useMemo(() => deriveHubFileModel(files), [files]);
   const buckets = useMemo(() => [
@@ -115,6 +120,22 @@ export function HubView() {
     void loadOrganizeQueue(scope);
   }, [isEmptyCurrentScanScope, loadOrganizeQueue, scope]);
 
+  useEffect(() => {
+    let disposed = false;
+    void tauriApi.getAISettings()
+      .then((settings) => {
+        if (disposed) return;
+        const model = settings.model.toLowerCase();
+        setAiThinkingWarning(settings.enableThinking || (settings.provider === "ollama" && model.includes("qwen3")));
+      })
+      .catch(() => {
+        if (!disposed) setAiThinkingWarning(false);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
   async function dispatchFiles() {
     if (isDispatching) return;
     setIsDispatching(true);
@@ -126,6 +147,16 @@ export function HubView() {
       // Operation store owns dispatch error reporting.
     } finally {
       setIsDispatching(false);
+    }
+  }
+
+  async function runAIClassification(options: { onlyUnclassified: boolean; onlyLowConfidence: boolean }) {
+    if (isClassifyingWithAI) return;
+    try {
+      await classifyCurrentScopeWithAI(options);
+      await loadOrganizeQueue(scope);
+    } catch {
+      // File library store owns readable AI error reporting and toast state.
     }
   }
 
@@ -183,6 +214,73 @@ export function HubView() {
             </div>
           </div>
         </div>
+      </section>
+
+      <section className={cn(contentPanel, "grid gap-3 p-4")}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className={sectionHeading}>AI 智能分类</h2>
+              <ToneBadge tone="info">不会自动移动文件</ToneBadge>
+            </div>
+            <p className={sectionDescription}>
+              让模型先理解文件，再生成整理建议。AI 不会直接移动文件，所有结果都需要进入预览后再执行。
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")}
+              onClick={() => void runAIClassification({ onlyUnclassified: false, onlyLowConfidence: false })}
+              disabled={isClassifyingWithAI || isLoadingOrganizeQueue}
+            >
+              <Sparkles size={14} />
+              <span>{isClassifyingWithAI ? "正在请求模型分析文件…" : "开始 AI 分类"}</span>
+            </button>
+            <button
+              className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")}
+              onClick={() => void runAIClassification({ onlyUnclassified: true, onlyLowConfidence: false })}
+              disabled={isClassifyingWithAI || isLoadingOrganizeQueue}
+            >
+              <Sparkles size={14} />
+              <span>仅处理未分类</span>
+            </button>
+            <button
+              className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")}
+              onClick={() => void runAIClassification({ onlyUnclassified: false, onlyLowConfidence: true })}
+              disabled={isClassifyingWithAI || isLoadingOrganizeQueue}
+            >
+              <Sparkles size={14} />
+              <span>复查低置信度</span>
+            </button>
+            <button
+              className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")}
+              onClick={() => void runAIClassification({ onlyUnclassified: false, onlyLowConfidence: false })}
+              disabled={isClassifyingWithAI || isLoadingOrganizeQueue}
+            >
+              <Sparkles size={14} />
+              <span>重新分类当前范围</span>
+            </button>
+            <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => setView("preview")}>
+              查看整理预览
+            </button>
+          </div>
+        </div>
+        {aiThinkingWarning ? (
+          <NoticeBanner tone="warning">
+            Thinking 模式可能降低 JSON 稳定性，建议关闭后再批量分类。
+          </NoticeBanner>
+        ) : null}
+        {isClassifyingWithAI ? (
+          <NoticeBanner tone="info">
+            正在请求模型分析文件… 正在解析 AI 分类结果… 正在写入整理建议…
+          </NoticeBanner>
+        ) : aiClassificationStatus ? (
+          <NoticeBanner tone={aiClassificationStatus.startsWith("AI 分类完成") ? "success" : "warning"}>
+            {aiClassificationStatus.startsWith("AI 分类完成")
+              ? `${aiClassificationStatus} AI 已生成整理建议，请进入预览后确认执行。`
+              : `AI 分类失败：${aiClassificationStatus}`}
+          </NoticeBanner>
+        ) : null}
       </section>
 
       <section className={cn(contentPanel, "grid gap-2 p-3 sm:grid-cols-3")}>

@@ -100,7 +100,10 @@ fn messages_with_ollama_instructions(
         instructions.push("no markdown");
     }
     if lower_model.starts_with("qwen3") || lower_model.contains("/qwen3") {
+        instructions.push("/no_think");
+        instructions.push("/qwen no_think style: only final JSON");
         instructions.push("no thinking");
+        instructions.push("no <think> tags");
     }
     if !instructions.is_empty() {
         output.push(AIChatMessage {

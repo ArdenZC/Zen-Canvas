@@ -9,6 +9,7 @@ use super::{
     prompts::{
         ai_cleanup_analysis_system_prompt,
         build_ai_cleanup_analysis_prompt as build_ai_cleanup_analysis_prompt_body,
+        clean_ai_json_text, extract_first_json_value,
     },
     provider::AIProvider,
     schema::{AIChatMessage, AIChatRequest, AIProviderKind, AIProviderOptions},
@@ -114,8 +115,18 @@ fn analyze_cleanup_candidates_with_provider(
     let mut updated_by_id = HashMap::new();
     let batch_size = settings.batch_size.max(1);
     for batch in candidates.chunks(batch_size) {
-        let content = call_ai_cleanup_provider(provider, settings, batch)?;
-        let outputs = parse_ai_cleanup_analysis_response(&content)?;
+        let content = call_ai_cleanup_provider(provider, settings, batch, false)?;
+        let outputs = match parse_ai_cleanup_analysis_response(&content) {
+            Ok(outputs) => outputs,
+            Err(_) => {
+                let retry_content = call_ai_cleanup_provider(provider, settings, batch, true)?;
+                parse_ai_cleanup_analysis_response(&retry_content).map_err(|error| {
+                    format!(
+                        "{error} 已尝试清洗和重试，但仍失败。建议关闭 thinking，或换用 deepseek-v4-flash / qwen-plus 等更稳定的非思考模型。"
+                    )
+                })?
+            }
+        };
         for output in outputs {
             if batch
                 .iter()
@@ -136,8 +147,15 @@ fn call_ai_cleanup_provider(
     provider: &dyn AIProvider,
     settings: &AISettings,
     candidates: &[StorageCandidate],
+    retry_json_only: bool,
 ) -> Result<String, String> {
-    let messages = build_ai_cleanup_analysis_prompt(candidates, settings)?;
+    let mut messages = build_ai_cleanup_analysis_prompt(candidates, settings)?;
+    if retry_json_only {
+        messages.push(AIChatMessage {
+            role: "user".to_string(),
+            content: "上一次输出不是有效 JSON。请只返回一个 JSON 对象，不要 Markdown，不要解释，不要 thinking，不要代码块。".to_string(),
+        });
+    }
     provider
         .chat_json(AIChatRequest {
             messages,
@@ -202,23 +220,15 @@ fn ai_cleanup_input_candidate(
 pub(crate) fn parse_ai_cleanup_analysis_response(
     content: &str,
 ) -> Result<Vec<AICleanupAnalysisOutput>, String> {
-    match serde_json::from_str::<AICleanupAnalysisResponse>(content) {
-        Ok(response) => Ok(response.analyses),
-        Err(first_error) => {
-            let Some(object) = extract_first_json_object(content) else {
-                return Err(format!(
-                    "AI cleanup analysis response is not valid JSON: {first_error}"
-                ));
-            };
-            serde_json::from_str::<AICleanupAnalysisResponse>(&object)
-                .map(|response| response.analyses)
-                .map_err(|error| {
-                    format!(
-                        "AI cleanup analysis response JSON did not match expected schema: {error}"
-                    )
-                })
-        }
-    }
+    let cleaned = clean_ai_json_text(content);
+    let value = serde_json::from_str::<serde_json::Value>(&cleaned)
+        .or_else(|_| {
+            extract_first_json_value(content)
+                .ok_or_else(|| serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::InvalidData, "no JSON value found")))
+                .and_then(|value| serde_json::from_str::<serde_json::Value>(&value))
+        })
+        .map_err(|error| ai_cleanup_json_error(content, &error.to_string()))?;
+    cleanup_outputs_from_value(value).map_err(|error| ai_cleanup_json_error(content, &error))
 }
 
 fn merge_ai_cleanup_results(
@@ -519,43 +529,42 @@ fn is_virtual_machine_image(extension: &str) -> bool {
     )
 }
 
-fn extract_first_json_object(content: &str) -> Option<String> {
-    let mut start = None;
-    let mut depth = 0_i32;
-    let mut in_string = false;
-    let mut escaped = false;
-    for (index, ch) in content.char_indices() {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match ch {
-            '"' => in_string = true,
-            '{' => {
-                if start.is_none() {
-                    start = Some(index);
-                }
-                depth += 1;
-            }
-            '}' => {
-                if depth > 0 {
-                    depth -= 1;
-                    if depth == 0 {
-                        let start = start?;
-                        return Some(content[start..=index].to_string());
-                    }
-                }
-            }
-            _ => {}
+fn cleanup_outputs_from_value(
+    value: serde_json::Value,
+) -> Result<Vec<AICleanupAnalysisOutput>, String> {
+    if value.is_array() {
+        return serde_json::from_value::<Vec<AICleanupAnalysisOutput>>(value)
+            .map_err(|error| format!("cleanup array schema mismatch: {error}"));
+    }
+
+    if value.get("analyses").is_some() {
+        return serde_json::from_value::<AICleanupAnalysisResponse>(value)
+            .map(|response| response.analyses)
+            .map_err(|error| format!("cleanup object schema mismatch: {error}"));
+    }
+
+    if let Some(result) = value.get("result") {
+        if result.get("analyses").is_some() {
+            return serde_json::from_value::<AICleanupAnalysisResponse>(result.clone())
+                .map(|response| response.analyses)
+                .map_err(|error| format!("result.analyses schema mismatch: {error}"));
         }
     }
-    None
+
+    Err("missing analyses array".to_string())
+}
+
+fn ai_cleanup_json_error(content: &str, detail: &str) -> String {
+    let lower = content.to_ascii_lowercase();
+    if lower.contains("<think>") {
+        return "模型返回了 thinking 内容，导致 JSON 解析失败。请关闭 Thinking，或换用非思考模型。".to_string();
+    }
+    if lower.contains("```") {
+        return "模型返回了 Markdown 代码块，Zen Canvas 已尝试提取 JSON，但结构仍不符合要求。".to_string();
+    }
+    format!(
+        "模型返回的内容不是 Zen Canvas 需要的 JSON 格式。已尝试清洗，但仍失败：{detail}"
+    )
 }
 
 fn sanitize_ai_cleanup_error(message: String, api_key: &str) -> String {
@@ -706,6 +715,37 @@ mod tests {
         assert!(message.contains("[redacted]"));
     }
 
+    #[test]
+    fn cleanup_markdown_wrapped_json_parses() {
+        let content = format!("```json\n{}\n```", cleanup_response("c1"));
+        let outputs = parse_ai_cleanup_analysis_response(&content).expect("parse markdown");
+        assert_eq!(outputs[0].candidate_id, "c1");
+    }
+
+    #[test]
+    fn cleanup_thinking_wrapped_json_parses() {
+        let content = format!(
+            "<think>Risk analysis goes here.</think>\n{}",
+            cleanup_response("c1")
+        );
+        let outputs = parse_ai_cleanup_analysis_response(&content).expect("strip thinking");
+        assert_eq!(outputs[0].candidate_id, "c1");
+    }
+
+    #[test]
+    fn cleanup_direct_array_json_parses() {
+        let content = r#"[{"candidateId":"c1","tier":"Safe","category":"AI category","suggestedAction":"MoveToTrash","confidence":0.95,"reason":"AI reason.","riskNote":"AI risk.","trashAllowed":true,"selectedByDefault":true}]"#;
+        let outputs = parse_ai_cleanup_analysis_response(content).expect("parse direct array");
+        assert_eq!(outputs[0].candidate_id, "c1");
+    }
+
+    #[test]
+    fn cleanup_nested_result_analyses_parses() {
+        let content = r#"{"result":{"analyses":[{"candidateId":"c1","tier":"Safe","category":"AI category","suggestedAction":"MoveToTrash","confidence":0.95,"reason":"AI reason.","riskNote":"AI risk.","trashAllowed":true,"selectedByDefault":true}]}}"#;
+        let outputs = parse_ai_cleanup_analysis_response(content).expect("parse result.analyses");
+        assert_eq!(outputs[0].candidate_id, "c1");
+    }
+
     fn safe_candidate(id: &str, path: &str) -> StorageCandidate {
         candidate(
             id,
@@ -774,5 +814,11 @@ mod tests {
             trash_allowed: Some(true),
             selected_by_default: Some(true),
         }
+    }
+
+    fn cleanup_response(id: &str) -> String {
+        format!(
+            r#"{{"analyses":[{{"candidateId":"{id}","tier":"Safe","category":"AI category","suggestedAction":"MoveToTrash","confidence":0.95,"reason":"AI reason.","riskNote":"AI risk.","trashAllowed":true,"selectedByDefault":true}}]}}"#
+        )
     }
 }
