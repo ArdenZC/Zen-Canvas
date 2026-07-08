@@ -31,7 +31,7 @@ fn deepseek_preset_uses_openai_compatible_defaults_without_forcing_response_form
     assert_eq!(preset.default_model, "deepseek-v4-flash");
     assert!(preset.supports_thinking);
     assert!(preset.supports_reasoning_effort);
-    assert!(preset.supports_response_format);
+    assert!(!preset.supports_response_format);
     assert_eq!(
         preset.extra_body_strategy,
         AIExtraBodyStrategy::DeepSeekThinking
@@ -142,11 +142,12 @@ fn test_ai_provider_connection_for_settings_uses_short_json_probe_and_reports_el
         200,
         r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#,
     );
-    let settings = settings_for_server(
+    let mut settings = settings_for_server(
         &server.base_url,
         AIProviderPresetId::DeepSeek,
         "secret-openai-key",
     );
+    settings.max_tokens = 8192;
 
     let result = test_ai_provider_connection_for_settings(settings).expect("connection test");
     let request = server.request();
@@ -158,7 +159,34 @@ fn test_ai_provider_connection_for_settings_uses_short_json_probe_and_reports_el
     assert_eq!(result.model.as_deref(), Some("deepseek-v4-flash"));
     assert!(result.elapsed_ms <= 10_000);
     assert!(body["messages"].to_string().contains(r#"{\"ok\":true}"#));
-    assert_eq!(body["max_tokens"], 64);
+    assert!(body["messages"]
+        .to_string()
+        .contains("Return exactly this JSON and nothing else"));
+    assert!(body["messages"]
+        .to_string()
+        .contains("Use non-thinking mode and only return final content"));
+    assert_eq!(body["max_tokens"], 4096);
+    assert_eq!(body["thinking"]["type"], "disabled");
+}
+
+#[test]
+fn openai_compatible_test_connection_clamps_small_max_tokens_to_512() {
+    let server = TestServer::start(
+        200,
+        r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#,
+    );
+    let mut settings = settings_for_server(
+        &server.base_url,
+        AIProviderPresetId::DeepSeek,
+        "secret-openai-key",
+    );
+    settings.max_tokens = 128;
+    let provider = OpenAICompatibleProvider::new(settings);
+
+    provider.test_connection().expect("connection test");
+
+    let body: Value = serde_json::from_str(&server.request().body).expect("json body");
+    assert_eq!(body["max_tokens"], 512);
 }
 
 #[test]
@@ -197,12 +225,12 @@ fn openai_compatible_chat_returns_choice_content_and_requests_json_mode() {
     );
     let provider = OpenAICompatibleProvider::new(settings_for_server(
         &server.base_url,
-        AIProviderPresetId::DeepSeek,
+        AIProviderPresetId::Kimi,
         "secret-openai-key",
     ));
 
     let content = provider
-        .chat_json(chat_request("deepseek-v4-flash", true))
+        .chat_json(chat_request("kimi-k2.7-code-highspeed", true))
         .expect("chat response");
 
     assert_eq!(content, r#"{"ok":true}"#);
@@ -217,7 +245,7 @@ fn openai_compatible_chat_returns_choice_content_and_requests_json_mode() {
         Some("application/json")
     );
     let body: Value = serde_json::from_str(&request.body).expect("json body");
-    assert_eq!(body["model"], "deepseek-v4-flash");
+    assert_eq!(body["model"], "kimi-k2.7-code-highspeed");
     assert_eq!(body["response_format"]["type"], "json_object");
     let messages = body["messages"].as_array().expect("messages");
     assert!(messages.iter().any(|message| message["content"]
@@ -242,6 +270,97 @@ fn openai_compatible_errors_redact_api_key() {
 
     assert!(message.contains("[redacted]"));
     assert!(!message.contains("secret-openai-key"));
+}
+
+#[test]
+fn deepseek_chat_writes_thinking_enabled_when_requested() {
+    let server = TestServer::start(
+        200,
+        r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#,
+    );
+    let mut settings = settings_for_server(
+        &server.base_url,
+        AIProviderPresetId::DeepSeek,
+        "secret-openai-key",
+    );
+    settings.enable_thinking = true;
+    let provider = OpenAICompatibleProvider::new(settings);
+
+    provider
+        .chat_json(chat_request("deepseek-v4-flash", true))
+        .expect("chat response");
+
+    let body: Value = serde_json::from_str(&server.request().body).expect("json body");
+    assert_eq!(body["thinking"]["type"], "enabled");
+}
+
+#[test]
+fn deepseek_chat_writes_thinking_disabled_when_not_requested() {
+    let server = TestServer::start(
+        200,
+        r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#,
+    );
+    let mut settings = settings_for_server(
+        &server.base_url,
+        AIProviderPresetId::DeepSeek,
+        "secret-openai-key",
+    );
+    settings.enable_thinking = false;
+    let provider = OpenAICompatibleProvider::new(settings);
+
+    provider
+        .chat_json(chat_request("deepseek-v4-flash", true))
+        .expect("chat response");
+
+    let body: Value = serde_json::from_str(&server.request().body).expect("json body");
+    assert_eq!(body["thinking"]["type"], "disabled");
+}
+
+#[test]
+fn deepseek_chat_does_not_override_user_supplied_thinking_body() {
+    let server = TestServer::start(
+        200,
+        r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#,
+    );
+    let mut settings = settings_for_server(
+        &server.base_url,
+        AIProviderPresetId::DeepSeek,
+        "secret-openai-key",
+    );
+    settings.enable_thinking = false;
+    settings.extra_body_json = Some(r#"{"thinking":{"type":"custom"}}"#.to_string());
+    let provider = OpenAICompatibleProvider::new(settings);
+
+    provider
+        .chat_json(chat_request("deepseek-v4-flash", true))
+        .expect("chat response");
+
+    let body: Value = serde_json::from_str(&server.request().body).expect("json body");
+    assert_eq!(body["thinking"]["type"], "custom");
+}
+
+#[test]
+fn reasoning_content_length_error_explains_truncated_final_content_and_redacts_key() {
+    let server = TestServer::start(
+        200,
+        r#"{"choices":[{"finish_reason":"length","message":{"role":"assistant","content":"","reasoning_content":"thinking with secret-openai-key"}}]}"#,
+    );
+    let provider = OpenAICompatibleProvider::new(settings_for_server(
+        &server.base_url,
+        AIProviderPresetId::DeepSeek,
+        "secret-openai-key",
+    ));
+
+    let error = provider
+        .chat_json(chat_request("deepseek-v4-flash", true))
+        .expect_err("reasoning-only response should fail")
+        .to_string();
+
+    assert!(error.contains("finish_reason=length"));
+    assert!(error.contains("reasoning_content"));
+    assert!(error.contains("empty content"));
+    assert!(error.contains("输出长度限制被截断"));
+    assert!(!error.contains("secret-openai-key"));
 }
 
 #[test]
@@ -296,6 +415,24 @@ fn ollama_chat_uses_api_chat_stream_false_and_json_format() {
         .as_str()
         .unwrap_or_default()
         .contains("no thinking")));
+}
+
+#[test]
+fn ollama_test_connection_clamps_small_max_tokens_to_512() {
+    let server = TestServer::start(200, r#"{"message":{"content":"{\"ok\":true}"}}"#);
+    let mut settings = AISettings::default();
+    settings.provider = AIProviderKind::Ollama;
+    settings.preset = AIProviderPresetId::Ollama;
+    settings.base_url = server.base_url.clone();
+    settings.chat_path = "/api/chat".to_string();
+    settings.model = "qwen3:8b".to_string();
+    settings.max_tokens = 128;
+    let provider = OllamaProvider::new(settings);
+
+    provider.test_connection().expect("ollama connection");
+
+    let body: Value = serde_json::from_str(&server.request().body).expect("json body");
+    assert_eq!(body["options"]["num_predict"], 512);
 }
 
 fn settings_for_server(base_url: &str, preset_id: AIProviderPresetId, api_key: &str) -> AISettings {

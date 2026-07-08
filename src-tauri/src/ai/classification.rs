@@ -9,11 +9,11 @@ use super::{
     openai_compatible::OpenAICompatibleProvider,
     prompts::{
         ai_file_classification_system_prompt,
-        build_ai_classification_prompt as build_ai_classification_prompt_body,
-        clean_ai_json_text, extract_first_json_value,
+        build_ai_classification_prompt as build_ai_classification_prompt_body, clean_ai_json_text,
+        extract_first_json_value,
     },
     provider::AIProvider,
-    schema::{AIChatMessage, AIChatRequest, AIProviderKind, AIProviderPresetId},
+    schema::{AIChatMessage, AIChatRequest, AIProviderKind, AIProviderOptions, AIProviderPresetId},
     settings::{get_ai_settings_for_db, normalize_ai_settings, AISettings},
 };
 use crate::{
@@ -265,7 +265,10 @@ pub(crate) fn call_ai_classification_provider(
             temperature: settings.temperature,
             max_tokens: settings.max_tokens,
             force_json: settings.force_json_output,
-            provider_options: Default::default(),
+            provider_options: AIProviderOptions {
+                use_response_format: retry_json_only.then_some(false),
+                ..Default::default()
+            },
         })
         .map_err(|error| sanitize_ai_error(error.to_string(), &settings.api_key))
 }
@@ -277,7 +280,12 @@ pub(crate) fn parse_ai_classification_response(
     let value = serde_json::from_str::<serde_json::Value>(&cleaned)
         .or_else(|_| {
             extract_first_json_value(content)
-                .ok_or_else(|| serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::InvalidData, "no JSON value found")))
+                .ok_or_else(|| {
+                    serde_json::Error::io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "no JSON value found",
+                    ))
+                })
                 .and_then(|value| serde_json::from_str::<serde_json::Value>(&value))
         })
         .map_err(|error| ai_classification_json_error(content, &error.to_string()))?;
@@ -604,14 +612,14 @@ fn classification_outputs_from_value(
 fn ai_classification_json_error(content: &str, detail: &str) -> String {
     let lower = content.to_ascii_lowercase();
     if lower.contains("<think>") {
-        return "模型返回了 thinking 内容，导致 JSON 解析失败。请关闭 Thinking，或换用非思考模型。".to_string();
+        return "模型返回了 thinking 内容，导致 JSON 解析失败。请关闭 Thinking，或换用非思考模型。"
+            .to_string();
     }
     if lower.contains("```") {
-        return "模型返回了 Markdown 代码块，Zen Canvas 已尝试提取 JSON，但结构仍不符合要求。".to_string();
+        return "模型返回了 Markdown 代码块，Zen Canvas 已尝试提取 JSON，但结构仍不符合要求。"
+            .to_string();
     }
-    format!(
-        "模型返回的内容不是 Zen Canvas 需要的 JSON 格式。已尝试清洗，但仍失败：{detail}"
-    )
+    format!("模型返回的内容不是 Zen Canvas 需要的 JSON 格式。已尝试清洗，但仍失败：{detail}")
 }
 
 fn require_allowed(field: &str, value: &str, allowed: &[&str]) -> Result<String, String> {
@@ -810,7 +818,8 @@ mod tests {
     #[test]
     fn nested_result_classifications_parses() {
         let content = r#"{"result":{"classifications":[{"id":"file-1","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Move","targetTemplate":"Teaching/Scala/试卷","suggestedName":"","confidence":0.92,"reason":"文件名包含 Scala、期末、复习题，判断为教学考试资料。","keywords":["Scala"],"requiresConfirmation":false}]}}"#;
-        let outputs = parse_ai_classification_response(content).expect("parse result.classifications");
+        let outputs =
+            parse_ai_classification_response(content).expect("parse result.classifications");
         assert_eq!(outputs[0].id, "file-1");
     }
 
@@ -1087,8 +1096,7 @@ mod tests {
 
     impl AIProvider for SequenceProvider {
         fn chat_json(&self, _request: AIChatRequest) -> Result<String, AIProviderError> {
-            self.calls
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             self.responses
                 .lock()
                 .expect("responses")

@@ -38,7 +38,7 @@ pub fn all_provider_presets() -> Vec<AIProviderPreset> {
             default_chat_path: "/chat/completions",
             default_model: "deepseek-v4-flash",
             api_key_env_hint: "DEEPSEEK_API_KEY",
-            supports_response_format: true,
+            supports_response_format: false,
             supports_json_mode: true,
             supports_thinking: true,
             supports_reasoning_effort: true,

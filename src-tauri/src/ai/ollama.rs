@@ -65,14 +65,16 @@ impl AIProvider for OllamaProvider {
     }
 
     fn test_connection(&self) -> Result<AIConnectionTestResult, AIProviderError> {
+        let test_max_tokens = self.settings.max_tokens.max(512).min(4096);
         let content = self.chat_json(AIChatRequest {
             messages: vec![AIChatMessage {
                 role: "user".to_string(),
-                content: "Return {\"ok\":true} as JSON.".to_string(),
+                content: "Return exactly this JSON and nothing else: {\"ok\":true}\nDo not output Markdown.\nDo not output reasoning.\nDo not output <think>.\nDo not explain."
+                    .to_string(),
             }],
             model: self.settings.model.clone(),
             temperature: 0.0,
-            max_tokens: 64,
+            max_tokens: test_max_tokens,
             force_json: true,
             provider_options: Default::default(),
         })?;

@@ -167,7 +167,7 @@ fn call_ai_cleanup_provider(
                 enable_thinking: Some(settings.enable_thinking),
                 reasoning_effort: settings.reasoning_effort.clone(),
                 extra_body_json: None,
-                use_response_format: None,
+                use_response_format: retry_json_only.then_some(false),
             },
         })
         .map_err(|error| sanitize_ai_cleanup_error(error.to_string(), &settings.api_key))
@@ -224,7 +224,12 @@ pub(crate) fn parse_ai_cleanup_analysis_response(
     let value = serde_json::from_str::<serde_json::Value>(&cleaned)
         .or_else(|_| {
             extract_first_json_value(content)
-                .ok_or_else(|| serde_json::Error::io(std::io::Error::new(std::io::ErrorKind::InvalidData, "no JSON value found")))
+                .ok_or_else(|| {
+                    serde_json::Error::io(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "no JSON value found",
+                    ))
+                })
                 .and_then(|value| serde_json::from_str::<serde_json::Value>(&value))
         })
         .map_err(|error| ai_cleanup_json_error(content, &error.to_string()))?;
@@ -557,14 +562,14 @@ fn cleanup_outputs_from_value(
 fn ai_cleanup_json_error(content: &str, detail: &str) -> String {
     let lower = content.to_ascii_lowercase();
     if lower.contains("<think>") {
-        return "模型返回了 thinking 内容，导致 JSON 解析失败。请关闭 Thinking，或换用非思考模型。".to_string();
+        return "模型返回了 thinking 内容，导致 JSON 解析失败。请关闭 Thinking，或换用非思考模型。"
+            .to_string();
     }
     if lower.contains("```") {
-        return "模型返回了 Markdown 代码块，Zen Canvas 已尝试提取 JSON，但结构仍不符合要求。".to_string();
+        return "模型返回了 Markdown 代码块，Zen Canvas 已尝试提取 JSON，但结构仍不符合要求。"
+            .to_string();
     }
-    format!(
-        "模型返回的内容不是 Zen Canvas 需要的 JSON 格式。已尝试清洗，但仍失败：{detail}"
-    )
+    format!("模型返回的内容不是 Zen Canvas 需要的 JSON 格式。已尝试清洗，但仍失败：{detail}")
 }
 
 fn sanitize_ai_cleanup_error(message: String, api_key: &str) -> String {

@@ -9,9 +9,7 @@ use super::{
     openai_compatible::OpenAICompatibleProvider,
     presets::{all_provider_presets, provider_preset, AIProviderPreset},
     provider::AIProvider,
-    schema::{
-        AIChatMessage, AIChatRequest, AIConnectionTestResult, AIProviderKind, AIProviderPresetId,
-    },
+    schema::{AIConnectionTestResult, AIProviderKind, AIProviderPresetId},
 };
 use crate::db::{Database, DbError};
 
@@ -155,39 +153,12 @@ pub fn test_ai_provider_connection_for_settings(
 ) -> Result<AIConnectionTestResult, String> {
     let settings = normalize_ai_settings(settings);
     let started = Instant::now();
-    let request = AIChatRequest {
-        messages: vec![AIChatMessage {
-            role: "user".to_string(),
-            content: "Return exactly this JSON object and nothing else: {\"ok\":true}".to_string(),
-        }],
-        model: settings.model.clone(),
-        temperature: 0.0,
-        max_tokens: 64,
-        force_json: true,
-        provider_options: Default::default(),
-    };
 
     let mut result = match settings.provider {
-        AIProviderKind::OpenAICompatible => OpenAICompatibleProvider::new(settings.clone())
-            .chat_json(request)
-            .map(|content| AIConnectionTestResult {
-                ok: true,
-                message: format!("AI provider responded: {content}"),
-                model: Some(settings.model.clone()),
-                provider: Some(settings.provider),
-                preset: Some(settings.preset),
-                elapsed_ms: 0,
-            }),
-        AIProviderKind::Ollama => OllamaProvider::new(settings.clone())
-            .chat_json(request)
-            .map(|content| AIConnectionTestResult {
-                ok: true,
-                message: format!("Ollama responded: {content}"),
-                model: Some(settings.model.clone()),
-                provider: Some(settings.provider),
-                preset: Some(settings.preset),
-                elapsed_ms: 0,
-            }),
+        AIProviderKind::OpenAICompatible => {
+            OpenAICompatibleProvider::new(settings.clone()).test_connection()
+        }
+        AIProviderKind::Ollama => OllamaProvider::new(settings.clone()).test_connection(),
     }
     .map_err(|error| sanitize_ai_error(error.to_string(), &settings.api_key))?;
     result.elapsed_ms = started.elapsed().as_millis();
