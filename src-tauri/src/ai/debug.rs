@@ -1,6 +1,8 @@
 use serde::Serialize;
 use tauri::State;
 
+use rusqlite::{params, OptionalExtension};
+
 use super::{
     classification::{
         build_ai_classification_prompt, collect_selected_ai_classification_targets,
@@ -13,7 +15,7 @@ use super::{
     schema::{AIChatRequest, AIProviderKind, AIProviderOptions, AIProviderPresetId},
     settings::{get_ai_settings_for_db, normalize_ai_settings, AISettings},
 };
-use crate::db::Database;
+use crate::db::{normalize_path_text, trim_trailing_path_separators, Database};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,8 +57,12 @@ impl AIDebugRawProvider for OpenAICompatibleProvider {
 #[tauri::command]
 pub async fn debug_ai_classification_once(
     db: State<'_, Database>,
-    file_id: String,
+    target: Option<String>,
+    file_id: Option<String>,
 ) -> Result<AIDebugClassificationResult, String> {
+    let target = target
+        .or(file_id)
+        .ok_or_else(|| "file id or path is required for AI classification debug.".to_string())?;
     let db = db.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let settings =
@@ -68,7 +74,7 @@ pub async fn debug_ai_classification_once(
             );
         }
         let provider = OpenAICompatibleProvider::new(settings.clone());
-        debug_ai_classification_once_for_db(&db, &file_id, &provider)
+        debug_ai_classification_once_for_db(&db, &target, &provider)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -76,7 +82,7 @@ pub async fn debug_ai_classification_once(
 
 pub(crate) fn debug_ai_classification_once_for_db(
     db: &Database,
-    file_id: &str,
+    target: &str,
     raw_provider: &dyn AIDebugRawProvider,
 ) -> Result<AIDebugClassificationResult, String> {
     let settings =
@@ -84,14 +90,12 @@ pub(crate) fn debug_ai_classification_once_for_db(
     if !settings.enabled {
         return Err("请先在设置中启用 AI。".to_string());
     }
-    let trimmed_file_id = file_id.trim();
-    if trimmed_file_id.is_empty() {
-        return Err("file_id is required for AI classification debug.".to_string());
-    }
-    let targets = collect_selected_ai_classification_targets(db, &[trimmed_file_id.to_string()])
-        .map_err(|error| error.to_string())?;
+    let resolved_file_id = resolve_debug_target_file_id(db, target)?;
+    let targets =
+        collect_selected_ai_classification_targets(db, std::slice::from_ref(&resolved_file_id))
+            .map_err(|error| error.to_string())?;
     if targets.len() != 1 {
-        return Err("AI classification debug requires one existing non-stale file.".to_string());
+        return Err("No indexed non-stale file matched this id or path. Please scan the folder first or choose a file from the library.".to_string());
     }
     let learned_rules = db
         .learned_rule_hints(20)
@@ -112,6 +116,95 @@ pub(crate) fn debug_ai_classification_once_for_db(
         .map_err(|error| sanitize_debug_text(&error, &settings.api_key))?;
 
     Ok(build_debug_result(&settings, raw))
+}
+
+fn resolve_debug_target_file_id(db: &Database, target: &str) -> Result<String, String> {
+    let cleaned = clean_debug_target(target);
+    if cleaned.is_empty() {
+        return Err("file id or path is required for AI classification debug.".to_string());
+    }
+
+    let conn = db.conn().map_err(|error| error.to_string())?;
+    if let Some(id) = conn
+        .query_row(
+            "SELECT id FROM files WHERE id = ?1 AND is_stale = 0 LIMIT 1",
+            params![cleaned],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+    {
+        return Ok(id);
+    }
+
+    if let Some(id) = conn
+        .query_row(
+            "SELECT id FROM files WHERE path = ?1 AND is_stale = 0 LIMIT 1",
+            params![cleaned],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?
+    {
+        return Ok(id);
+    }
+
+    let normalized = normalize_path_text(&cleaned);
+    let normalized = trim_trailing_path_separators(&normalized).to_string();
+    let target_key = if is_windows_path_like(&cleaned) {
+        normalized.to_lowercase()
+    } else {
+        normalized
+    };
+    let mut matches = Vec::new();
+    let mut stmt = conn
+        .prepare("SELECT id, path FROM files WHERE is_stale = 0")
+        .map_err(|error| error.to_string())?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| error.to_string())?;
+    for row in rows {
+        let (id, path) = row.map_err(|error| error.to_string())?;
+        let normalized_path = normalize_path_text(trim_trailing_path_separators(path.trim()));
+        let candidate_key = if is_windows_path_like(&cleaned) || is_windows_path_like(&path) {
+            normalized_path.to_lowercase()
+        } else {
+            normalized_path
+        };
+        if candidate_key == target_key {
+            matches.push(id);
+        }
+    }
+
+    matches.sort();
+    matches.dedup();
+    match matches.len() {
+        1 => Ok(matches.remove(0)),
+        0 => Err("No indexed non-stale file matched this id or path. Please scan the folder first or choose a file from the library.".to_string()),
+        _ => Err("Multiple files matched this debug target. Please select one from the file library.".to_string()),
+    }
+}
+
+fn clean_debug_target(target: &str) -> String {
+    let mut value = target.trim();
+    if value.len() >= 2 {
+        let bytes = value.as_bytes();
+        let quoted = (bytes.first() == Some(&b'"') && bytes.last() == Some(&b'"'))
+            || (bytes.first() == Some(&b'\'') && bytes.last() == Some(&b'\''));
+        if quoted {
+            value = &value[1..value.len() - 1];
+        }
+    }
+    trim_trailing_path_separators(value.trim()).to_string()
+}
+
+fn is_windows_path_like(path: &str) -> bool {
+    path.contains('\\')
+        || path.as_bytes().get(1) == Some(&b':')
+        || path.starts_with("//")
+        || path.starts_with("\\\\")
 }
 
 fn build_debug_result(
@@ -237,6 +330,104 @@ mod tests {
     }
 
     #[test]
+    fn debug_target_finds_file_by_id() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "F:/work/demo.docx");
+        save_ai_settings_for_db(&db, &enabled_settings()).expect("save ai settings");
+
+        let result =
+            debug_ai_classification_once_for_db(&db, "file-1", &ok_provider()).expect("debug");
+
+        assert!(result.message_content_preview.contains("file-1"));
+    }
+
+    #[test]
+    fn debug_target_finds_file_by_full_path() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "F:/work/MySQL教案/教案01.docx");
+        save_ai_settings_for_db(&db, &enabled_settings()).expect("save ai settings");
+
+        let result = debug_ai_classification_once_for_db(
+            &db,
+            "F:/work/MySQL教案/教案01.docx",
+            &ok_provider(),
+        )
+        .expect("debug");
+
+        assert!(result.message_content_preview.contains("file-1"));
+    }
+
+    #[test]
+    fn debug_target_matches_windows_backslash_path() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "F:/work/MySQL教案/教案01.docx");
+        save_ai_settings_for_db(&db, &enabled_settings()).expect("save ai settings");
+
+        let result = debug_ai_classification_once_for_db(
+            &db,
+            r"F:\work\MySQL教案\教案01.docx",
+            &ok_provider(),
+        )
+        .expect("debug");
+
+        assert!(result.message_content_preview.contains("file-1"));
+    }
+
+    #[test]
+    fn debug_target_matches_quoted_path() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "F:/work/MySQL教案/教案01.docx");
+        save_ai_settings_for_db(&db, &enabled_settings()).expect("save ai settings");
+
+        let result = debug_ai_classification_once_for_db(
+            &db,
+            "\"F:\\work\\MySQL教案\\教案01.docx\"",
+            &ok_provider(),
+        )
+        .expect("debug");
+
+        assert!(result.message_content_preview.contains("file-1"));
+    }
+
+    #[test]
+    fn debug_target_does_not_match_stale_file() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "F:/work/stale.docx");
+        mark_stale(&db, "file-1");
+        save_ai_settings_for_db(&db, &enabled_settings()).expect("save ai settings");
+
+        let error = debug_ai_classification_once_for_db(&db, "file-1", &ok_provider())
+            .expect_err("stale file should not match");
+
+        assert!(error.contains("No indexed non-stale file matched"));
+    }
+
+    #[test]
+    fn debug_target_not_found_mentions_scan_or_library() {
+        let db = test_db();
+        save_ai_settings_for_db(&db, &enabled_settings()).expect("save ai settings");
+
+        let error = debug_ai_classification_once_for_db(&db, "F:/missing.docx", &ok_provider())
+            .expect_err("missing file should not match");
+
+        assert!(error.contains("scan the folder"));
+        assert!(error.contains("choose a file from the library"));
+    }
+
+    #[test]
+    fn debug_target_reports_multiple_normalized_matches() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "F:/work/demo.docx");
+        insert_test_file(&db, "file-2", "f:/work/demo.docx");
+        save_ai_settings_for_db(&db, &enabled_settings()).expect("save ai settings");
+
+        let error = debug_ai_classification_once_for_db(&db, r"F:\work\demo.docx", &ok_provider())
+            .expect_err("case-insensitive Windows match should be ambiguous");
+
+        assert!(error.contains("Multiple files matched"));
+    }
+
+    #[test]
     fn debug_classification_redacts_api_key_from_result() {
         let db = test_db();
         insert_test_file(&db, "file-1", "/tmp/Scala期末复习题.pdf");
@@ -296,6 +487,26 @@ mod tests {
             state_code: 0,
         })
         .expect("insert file");
+    }
+
+    fn ok_provider() -> StaticRawProvider {
+        StaticRawProvider {
+            response: Ok(AIRawProviderResponse {
+                status: 200,
+                response_text:
+                    r#"{"choices":[{"finish_reason":"stop","message":{"content":"{\"classifications\":[{\"id\":\"file-1\",\"fileType\":\"Document\",\"purpose\":\"Work\",\"lifecycle\":\"Active\",\"riskLevel\":\"Normal\",\"suggestedAction\":\"Review\",\"confidence\":0.8,\"reason\":\"debug\"}]}"}}]}"#
+                        .to_string(),
+                request_used_response_format: false,
+                request_used_thinking_field: Some("disabled".to_string()),
+                response_summary: "provider response summary: has_choices=true".to_string(),
+            }),
+        }
+    }
+
+    fn mark_stale(db: &Database, id: &str) {
+        let conn = Connection::open(db.path()).expect("open db");
+        conn.execute("UPDATE files SET is_stale = 1 WHERE id = ?1", params![id])
+            .expect("mark stale");
     }
 
     fn file_status(db: &Database, id: &str) -> String {

@@ -316,8 +316,8 @@ export const tauriApi = {
     return invokeCommand<AIConnectionTestResult>("test_ai_provider_connection", { settings: settings ?? null });
   },
 
-  debugAIClassificationOnce(fileId: string): Promise<AIDebugClassificationResult> {
-    return invokeCommand<AIDebugClassificationResult>("debug_ai_classification_once", { fileId });
+  debugAIClassificationOnce(target: string): Promise<AIDebugClassificationResult> {
+    return invokeCommand<AIDebugClassificationResult>("debug_ai_classification_once", { target });
   },
 
   getGlobalHotkeyStatus(): Promise<GlobalHotkeyStatus | null> {

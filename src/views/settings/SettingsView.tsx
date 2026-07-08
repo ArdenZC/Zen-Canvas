@@ -14,6 +14,7 @@ import {
 import { useScanManagerStore } from "../../store/useScanManagerStore";
 import { useAppStore } from "../../store/useAppStore";
 import { useBackgroundIndexerStore } from "../../store/useBackgroundIndexerStore";
+import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import type {
   AIConnectionTestResult,
   AIDebugClassificationResult,
@@ -98,6 +99,9 @@ export function SettingsView() {
   const failedBackgroundRoots = useBackgroundIndexerStore((state) => state.failedRoots);
   const completedBackgroundRoots = useBackgroundIndexerStore((state) => state.completedRoots);
   const enqueueBackgroundIndexRoot = useBackgroundIndexerStore((state) => state.enqueueRoot);
+  const selectedLibraryFileId = useFileLibraryStore((state) => state.selectedFileId);
+  const libraryFiles = useFileLibraryStore((state) => state.libraryPage.files);
+  const selectedLibraryFile = libraryFiles.find((file) => file.id === selectedLibraryFileId);
   const globalHotkeyError = useAppStore((state) => state.globalHotkeyError);
   const setGlobalHotkeyError = useAppStore((state) => state.setGlobalHotkeyError);
   const hotkey = formatHotkeyLabel(searchHotkey, platform);
@@ -113,7 +117,7 @@ export function SettingsView() {
   const [isSavingAISettings, setIsSavingAISettings] = useState(false);
   const [isTestingAIConnection, setIsTestingAIConnection] = useState(false);
   const [aiConnectionStatus, setAiConnectionStatus] = useState<{ tone: StatusTone; message: string } | null>(null);
-  const [aiDebugFileId, setAiDebugFileId] = useState("");
+  const [aiDebugTarget, setAiDebugTarget] = useState("");
   const [isDebuggingAI, setIsDebuggingAI] = useState(false);
   const [aiDebugStatus, setAiDebugStatus] = useState<{ tone: StatusTone; message: string } | null>(null);
   const [aiDebugResult, setAiDebugResult] = useState<AIDebugClassificationResult | null>(null);
@@ -441,9 +445,9 @@ export function SettingsView() {
 
   async function debugAIClassificationOnce() {
     if (!aiSettings || isDebuggingAI) return;
-    const fileId = aiDebugFileId.trim();
-    if (!fileId) {
-      setAiDebugStatus({ tone: "warning", message: "请输入要调试的 file_id。" });
+    const target = aiDebugTarget.trim();
+    if (!target) {
+      setAiDebugStatus({ tone: "warning", message: "请输入文件 ID 或完整路径，或使用当前选中文件。" });
       return;
     }
 
@@ -451,7 +455,7 @@ export function SettingsView() {
     setAiDebugStatus(null);
     setAiDebugResult(null);
     try {
-      const result = await tauriApi.debugAIClassificationOnce(fileId);
+      const result = await tauriApi.debugAIClassificationOnce(target);
       setAiDebugResult(result);
       setAiDebugStatus({
         tone: result.success ? "success" : "warning",
@@ -923,17 +927,33 @@ export function SettingsView() {
                   <NoticeBanner tone="warning">
                     调试信息可能包含文件名和路径，请不要截图公开或提交到 GitHub。此功能只读取单个文件的模型返回，不写 files 表，不进入整理预览，也不会移动文件。
                   </NoticeBanner>
-                  <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto] md:items-end">
+                  {selectedLibraryFile ? (
+                    <div className={cn(softPanel, "grid gap-1 p-3 text-xs text-[var(--muted)]")}>
+                      <span className="font-medium text-[var(--ink)]">当前文件库选中文件</span>
+                      <span>{selectedLibraryFile.name}</span>
+                      <span title={selectedLibraryFile.path}>{compactPath(selectedLibraryFile.path, 96)}</span>
+                    </div>
+                  ) : (
+                    <span className={quietText}>文件库当前没有选中文件，可手动粘贴文件 ID 或完整路径。</span>
+                  )}
+                  <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto_auto] md:items-end">
                     <TextField
-                      label="file_id"
-                      value={aiDebugFileId}
-                      onChange={setAiDebugFileId}
-                      placeholder="输入要调试的文件 ID"
+                      label="文件 ID 或完整路径"
+                      value={aiDebugTarget}
+                      onChange={setAiDebugTarget}
+                      placeholder="可粘贴文件路径，例如 F:\\work\\xxx.docx，也可以使用文件库中的 file id"
                     />
                     <button
                       className={buttonSecondary}
+                      onClick={() => setAiDebugTarget(selectedLibraryFile?.id ?? "")}
+                      disabled={!selectedLibraryFile || isDebuggingAI}
+                    >
+                      使用当前选中文件
+                    </button>
+                    <button
+                      className={buttonSecondary}
                       onClick={() => void debugAIClassificationOnce()}
-                      disabled={isDebuggingAI || !aiDebugFileId.trim()}
+                      disabled={isDebuggingAI || !aiDebugTarget.trim()}
                     >
                       {isDebuggingAI ? "调试中..." : "调试单个文件 AI 返回"}
                     </button>

@@ -702,7 +702,7 @@ function mockAIConnectionTest(settings?: AISettings): AIConnectionTestResult {
 
 function mockAIDebugClassification(args?: Record<string, unknown>): AIDebugClassificationResult {
   const settings = mockAISettings();
-  const fileId = String(args?.fileId ?? "mock-report");
+  const fileId = String(args?.target ?? args?.fileId ?? "mock-report");
   const rawResponsePreview = JSON.stringify({
     choices: [
       {
