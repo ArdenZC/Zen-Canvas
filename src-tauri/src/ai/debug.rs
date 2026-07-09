@@ -107,10 +107,10 @@ pub(crate) fn debug_ai_classification_once_for_db(
         return Err("No indexed non-stale file matched this id or path. Please scan the folder first or choose a file from the library.".to_string());
     }
     let learned_rules = db
-        .learned_rule_hints(20)
+        .learned_rule_hints(10)
         .map_err(|error| error.to_string())?
         .into_iter()
-        .map(|hint| hint.summary)
+        .map(|hint| hint.summary.trim().chars().take(80).collect::<String>())
         .collect::<Vec<_>>();
     let messages = build_ai_classification_prompt(&targets, &settings, &learned_rules)?;
     let id_map = AIClassificationIdMap::from_targets(&targets);

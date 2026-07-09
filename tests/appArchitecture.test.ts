@@ -92,7 +92,11 @@ describe("app render architecture", () => {
     const settings = read("src/views/settings/SettingsView.tsx");
     const browserMock = read("src/api/browserMockApi.ts");
 
-    expect(settings).toContain("DeepSeek / 国产模型建议 5");
+    expect(settings).toContain("DeepSeek / 国产模型建议 10");
+    expect(settings).toContain("AI 分类并发数");
+    expect(settings).toContain("快速");
+    expect(settings).toContain("标准");
+    expect(settings).toContain("精细");
     expect(settings).toContain("启用 AI 空间清理分析");
     expect(settings).toContain("AI 空间清理分析只增强候选项的风险说明和建议，不会直接删除文件，也不会绕过 Safe Trash。");
     expect(settings).toContain("cleanupAiEnabled: true");

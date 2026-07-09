@@ -99,6 +99,7 @@ export interface AISettings {
   temperature: number;
   maxTokens: number;
   batchSize: number;
+  classificationConcurrency: number;
   timeoutSeconds: number;
   sendFullPath: boolean;
   sendParentPath: boolean;
@@ -159,8 +160,15 @@ export interface AIClassificationProgressPayload {
   total: number;
   batchIndex: number;
   batchCount: number;
+  completedBatches: number;
+  failedBatches: number;
+  updated: number;
+  skipped: number;
+  needsConfirmation: number;
   stage: string;
   currentFilePreview: string;
+  elapsedMs: number;
+  estimatedRemainingMs?: number | null;
 }
 
 export interface RuleExecutionSummary {
@@ -224,6 +232,8 @@ export interface AppSettings {
   customSearchRoots: SearchRootSetting[];
   organizeRootMode: OrganizeRootMode;
   organizeRootPath?: string | null;
+  useLegacyBuiltinClassificationRules: boolean;
+  useLearnedRulesAsAutoRules: boolean;
 }
 
 export interface FileRecord {

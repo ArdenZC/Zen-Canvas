@@ -30,7 +30,9 @@ describe("app settings helpers", () => {
       searchScopeMode: "all",
       customSearchRoots: [],
       organizeRootMode: "current_folder",
-      organizeRootPath: undefined
+      organizeRootPath: undefined,
+      useLegacyBuiltinClassificationRules: false,
+      useLearnedRulesAsAutoRules: false
     });
   });
 
@@ -63,7 +65,9 @@ describe("app settings helpers", () => {
       searchScopeMode: "all",
       customSearchRoots: [],
       organizeRootMode: "current_folder",
-      organizeRootPath: undefined
+      organizeRootPath: undefined,
+      useLegacyBuiltinClassificationRules: false,
+      useLearnedRulesAsAutoRules: false
     });
     expect(previous.defaultScanFolders).toEqual([]);
   });

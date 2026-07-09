@@ -634,7 +634,9 @@ function mockSettings(settings?: AppSettings): AppSettings {
     searchScopeMode: "all",
     customSearchRoots: [],
     organizeRootMode: "current_folder",
-    organizeRootPath: undefined
+    organizeRootPath: undefined,
+    useLegacyBuiltinClassificationRules: false,
+    useLearnedRulesAsAutoRules: false
   };
 }
 
@@ -647,16 +649,17 @@ function mockAISettings(settings?: AISettings): AISettings {
     chatPath: "/chat/completions",
     apiKey: "",
     model: "deepseek-v4-flash",
-    temperature: 0.1,
-    maxTokens: 2048,
-    batchSize: 5,
+    temperature: 0,
+    maxTokens: 1024,
+    batchSize: 10,
+    classificationConcurrency: 2,
     timeoutSeconds: 120,
-    sendFullPath: true,
+    sendFullPath: false,
     sendParentPath: true,
     sendFileContent: false,
-    classificationMode: "rules_first",
+    classificationMode: "ai_first",
     cleanupAiEnabled: true,
-    forceJsonOutput: true,
+    forceJsonOutput: false,
     enableThinking: false,
     reasoningEffort: null,
     extraBodyJson: null

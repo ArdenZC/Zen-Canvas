@@ -260,12 +260,13 @@ export const tauriApi = {
 
   classifyFilesWithAI(
     scope: LibraryScope,
-    options?: {
-      onlyUnclassified?: boolean;
-      onlyLowConfidence?: boolean;
-      limit?: number;
-    }
-  ): Promise<RuleExecutionSummary> {
+  options?: {
+    onlyUnclassified?: boolean;
+    onlyLowConfidence?: boolean;
+    limit?: number;
+    force?: boolean;
+  }
+): Promise<RuleExecutionSummary> {
     return invokeCommand<RuleExecutionSummary>("classify_files_with_ai", { scope, options: options ?? null });
   },
 

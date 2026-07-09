@@ -131,10 +131,11 @@ export function HubView() {
   const setScope = useFileLibraryStore((state) => state.setScope);
   const handleChooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
   const { rules } = useRulesContext();
-  const runDispatch = useOperationQueueStore((state) => state.runDispatch);
   const refreshPreviewsForScope = useOperationQueueStore((state) => state.refreshPreviewsForScope);
   const [isDispatching, setIsDispatching] = useState(false);
   const [aiThinkingWarning, setAiThinkingWarning] = useState(false);
+  const [aiBatchSize, setAiBatchSize] = useState(10);
+  const [aiConcurrency, setAiConcurrency] = useState(2);
   const [aiPreviewNotice, setAiPreviewNotice] = useState("");
   const [aiRunLimit, setAiRunLimit] = useState<number>(DEFAULT_AI_CLASSIFICATION_RUN_LIMIT);
   const activeRuleCount = useMemo(() => countActiveRules(rules), [rules]);
@@ -156,7 +157,7 @@ export function HubView() {
   ] satisfies Array<{ key: HubBucketKey; label: string; description: string; tone: HubTone }>, [t]);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
   const isEmptyCurrentScanScope = scope.kind === "current_scan" && scope.roots.length === 0;
-  const dispatchLabel = pendingFiles.length > 0 && classifiedCount === 0 ? t("generateSuggestions") : t("runDispatch");
+  const dispatchLabel = t("runDispatch");
 
   useEffect(() => {
     if (isEmptyCurrentScanScope) return;
@@ -170,6 +171,8 @@ export function HubView() {
         if (disposed) return;
         const model = settings.model.toLowerCase();
         setAiThinkingWarning(settings.enableThinking || (settings.provider === "ollama" && model.includes("qwen3")));
+        setAiBatchSize(Math.max(1, settings.batchSize || 10));
+        setAiConcurrency(Math.max(1, settings.classificationConcurrency || 1));
       })
       .catch(() => {
         if (!disposed) setAiThinkingWarning(false);
@@ -198,8 +201,7 @@ export function HubView() {
     if (isDispatching) return;
     setIsDispatching(true);
     try {
-      await runDispatch();
-      await loadOrganizeQueue(scope);
+      await refreshPreviewsForScope(scope);
       setView("preview");
     } catch {
       // Operation store owns dispatch error reporting.
@@ -208,7 +210,7 @@ export function HubView() {
     }
   }
 
-  async function runAIClassification(options: { onlyUnclassified: boolean; onlyLowConfidence: boolean }) {
+  async function runAIClassification(options: { onlyUnclassified: boolean; onlyLowConfidence: boolean; force?: boolean }) {
     if (isClassifyingWithAI) return;
     setAiPreviewNotice("");
     try {
@@ -328,7 +330,7 @@ export function HubView() {
               disabled={isClassifyingWithAI || isLoadingOrganizeQueue}
             >
               <Sparkles size={14} />
-              <span>{isClassifyingWithAI ? "正在请求模型分析文件…" : "开始 AI 分类"}</span>
+              <span>{isClassifyingWithAI ? "正在请求模型分析文件…" : "智能分类未处理文件"}</span>
             </button>
             <button
               className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")}
@@ -348,7 +350,7 @@ export function HubView() {
             </button>
             <button
               className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")}
-              onClick={() => void runAIClassification({ onlyUnclassified: false, onlyLowConfidence: false })}
+              onClick={() => void runAIClassification({ onlyUnclassified: false, onlyLowConfidence: false, force: true })}
               disabled={isClassifyingWithAI || isLoadingOrganizeQueue}
             >
               <Sparkles size={14} />
@@ -365,8 +367,13 @@ export function HubView() {
           </div>
         </div>
         {aiRunLimit === 1000 ? (
-          <NoticeBanner tone="warning">这可能需要较长时间和较多 API 请求。</NoticeBanner>
+          <NoticeBanner tone="warning">
+            {aiConcurrency >= 2 ? "这可能产生较多 API 请求。如遇限流，请降低并发数或稍后重试。" : "这可能需要较长时间和较多 API 请求。"}
+          </NoticeBanner>
         ) : null}
+        <NoticeBanner tone="info">
+          Batch Size：每次请求模型处理的文件数。并发数：同时请求模型的批次数。预计请求批次 {Math.ceil(aiRunLimit / aiBatchSize).toLocaleString()}，预计并发轮数 {Math.ceil(Math.ceil(aiRunLimit / aiBatchSize) / aiConcurrency).toLocaleString()}。提高 Batch Size 和并发数可以加快分类，但过高可能导致模型返回 JSON 不完整或触发限流。
+        </NoticeBanner>
         {aiThinkingWarning ? (
           <NoticeBanner tone="warning">
             Thinking 模式可能降低 JSON 稳定性，建议关闭后再批量分类。
@@ -375,7 +382,7 @@ export function HubView() {
         {isClassifyingWithAI ? (
           <NoticeBanner tone="info">
             {aiClassificationProgress
-              ? `${aiClassificationProgress.stage}：批次 ${aiClassificationProgress.batchIndex}/${aiClassificationProgress.batchCount}，已处理 ${aiClassificationProgress.processed}/${aiClassificationProgress.total}${aiClassificationProgress.currentFilePreview ? `，当前：${aiClassificationProgress.currentFilePreview}` : ""}`
+              ? `正在分类：${aiClassificationProgress.processed}/${aiClassificationProgress.total}，批次：${aiClassificationProgress.completedBatches}/${aiClassificationProgress.batchCount}，已更新：${aiClassificationProgress.updated}，失败批次：${aiClassificationProgress.failedBatches}，当前阶段：${aiClassificationProgress.stage}${aiClassificationProgress.currentFilePreview ? `，当前：${aiClassificationProgress.currentFilePreview}` : ""}`
               : "正在收集待分类文件…"}
           </NoticeBanner>
         ) : aiClassificationStatus ? (

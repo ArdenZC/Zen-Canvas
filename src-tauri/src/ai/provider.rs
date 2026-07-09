@@ -2,7 +2,7 @@ use std::{error::Error, fmt};
 
 use super::schema::{AIChatRequest, AIConnectionTestResult};
 
-pub trait AIProvider {
+pub trait AIProvider: Send + Sync {
     fn chat_json(&self, request: AIChatRequest) -> Result<String, AIProviderError>;
     fn test_connection(&self) -> Result<AIConnectionTestResult, AIProviderError>;
 }

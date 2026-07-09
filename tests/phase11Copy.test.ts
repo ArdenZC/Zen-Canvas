@@ -35,7 +35,7 @@ describe("phase 11 product copy", () => {
     expect(t("activeHub")).toBe("最近在用");
     expect(t("archiveGlacier")).toBe("可归档");
     expect(t("waitingFlow")).toBe("暂无文件进入此分类");
-    expect(t("runDispatch")).toBe("生成整理预览");
+    expect(t("runDispatch")).toBe("刷新整理预览");
     expect(t("inboxStack")).toBe("待整理文件");
     expect(t("targetBoxes")).toBe("建议去向");
     expect(t("strategy")).toBe("整理规则");

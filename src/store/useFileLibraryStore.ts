@@ -119,6 +119,7 @@ export interface AIClassificationRunOptions {
   onlyUnclassified?: boolean;
   onlyLowConfidence?: boolean;
   limit?: number;
+  force?: boolean;
 }
 
 export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
@@ -322,7 +323,7 @@ export function readableAIClassificationError(error: unknown) {
   if (message.includes("模型返回") || message.includes("Zen Canvas 需要的 JSON")) return message;
   if (message.includes("AI 未启用") || message.includes("启用 AI")) return "请先在设置中启用 AI。";
   if (isRateLimitError(normalized)) {
-    return withProviderDetail("模型服务请求过快或达到限流，请降低 Batch Size 或稍后重试。", message);
+    return withProviderDetail("模型服务请求过快或达到限流，请降低并发数 / Batch Size 或稍后重试。", message);
   }
   if (isTimeoutError(normalized)) {
     return withProviderDetail("模型请求超时，请降低 Batch Size、减少本次处理数量，或提高 Timeout Seconds。", message);
@@ -331,7 +332,7 @@ export function readableAIClassificationError(error: unknown) {
     return withProviderDetail("模型服务拒绝了请求参数，请检查 response_format、thinking、extraBodyJson 或模型名。", message);
   }
   if (isHttpStatus(normalized, 401) || isHttpStatus(normalized, 403)) {
-    return withProviderDetail("模型服务认证或权限失败，请检查 API Key 和模型权限。", message);
+    return withProviderDetail("API Key 无效或权限不足，请检查密钥和模型权限。", message);
   }
   if (message.includes("API Key 缺失") || message.includes("当前模型服务需要 API Key")) {
     return "当前模型服务需要 API Key，请在 AI 设置中填写。";
@@ -342,7 +343,7 @@ export function readableAIClassificationError(error: unknown) {
     normalized.includes("ollama") ||
     normalized.includes("network")
   ) {
-    return "无法连接到模型服务，请检查 Base URL、Chat Path、网络和 API Key。";
+    return "无法连接到模型服务，请检查 Base URL、Chat Path 和网络。";
   }
   if (normalized.includes("invalid json") || normalized.includes("not valid json") || normalized.includes("json")) {
     return "模型没有返回有效 JSON，请换用更稳定的模型或关闭 thinking。";

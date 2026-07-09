@@ -17,7 +17,8 @@ describe("AI classification error messages", () => {
     );
 
     expect(message).toContain("限流");
-    expect(message).toContain("降低 Batch Size");
+    expect(message).toContain("降低并发数");
+    expect(message).toContain("Batch Size");
     expect(message).toContain("HTTP 429");
     expect(message).not.toContain("检查 API Key");
   });
@@ -51,6 +52,6 @@ describe("AI classification error messages", () => {
   it("uses the generic connection message only for unknown network errors", () => {
     const message = readableAIClassificationError(new Error("network request failed"));
 
-    expect(message).toBe("无法连接到模型服务，请检查 Base URL、Chat Path、网络和 API Key。");
+    expect(message).toBe("无法连接到模型服务，请检查 Base URL、Chat Path 和网络。");
   });
 });

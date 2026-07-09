@@ -1,9 +1,11 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
+    sync::mpsc,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
+    time::Instant,
 };
 
 use rusqlite::{params, params_from_iter, types::Value as SqlValue};
@@ -47,8 +49,15 @@ pub struct AIClassificationProgressPayload {
     pub total: usize,
     pub batch_index: usize,
     pub batch_count: usize,
+    pub completed_batches: usize,
+    pub failed_batches: usize,
+    pub updated: i64,
+    pub skipped: i64,
+    pub needs_confirmation: i64,
     pub stage: String,
     pub current_file_preview: String,
+    pub elapsed_ms: u128,
+    pub estimated_remaining_ms: Option<u128>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -57,6 +66,7 @@ pub struct AIClassificationOptions {
     pub only_unclassified: Option<bool>,
     pub only_low_confidence: Option<bool>,
     pub limit: Option<u32>,
+    pub force: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -327,6 +337,7 @@ pub(crate) fn collect_ai_classification_targets(
         .and_then(|options| options.limit)
         .unwrap_or(DEFAULT_AI_CLASSIFICATION_LIMIT)
         .clamp(1, 5000);
+    let force = options.and_then(|options| options.force).unwrap_or(false);
     let only_unclassified = options
         .and_then(|options| options.only_unclassified)
         .unwrap_or(true);
@@ -339,6 +350,17 @@ pub(crate) fn collect_ai_classification_targets(
     }
     if only_low_confidence {
         filters.push("f.confidence < 0.65");
+    }
+    if !force {
+        filters.push(
+            "NOT (
+                f.classification_status = 'classified'
+                AND f.requires_confirmation = 0
+                AND f.last_classified_mtime = f.mtime
+                AND f.last_classified_size = f.size
+                AND f.matched_rules LIKE '%ai:%'
+            )",
+        );
     }
     let where_clause = if filters.is_empty() {
         String::new()
@@ -445,7 +467,7 @@ pub(crate) fn call_ai_classification_provider(
             messages,
             model: settings.model.clone(),
             temperature: settings.temperature,
-            max_tokens: settings.max_tokens,
+            max_tokens: max_tokens_for_classification_request(settings, targets.len()),
             force_json: settings.force_json_output,
             provider_options: AIProviderOptions {
                 use_response_format: retry_json_only.then_some(false),
@@ -453,6 +475,12 @@ pub(crate) fn call_ai_classification_provider(
             },
         })
         .map_err(|error| sanitize_ai_error(error.to_string(), &settings.api_key))
+}
+
+fn max_tokens_for_classification_request(settings: &AISettings, batch_len: usize) -> u32 {
+    let estimated = batch_len.saturating_mul(120).saturating_add(256);
+    let clamped = estimated.clamp(512, settings.max_tokens.max(512) as usize);
+    clamped as u32
 }
 
 pub(crate) fn parse_ai_classification_response(
@@ -543,7 +571,28 @@ pub(crate) fn sanitize_ai_classification_result(
     })
 }
 
+#[allow(dead_code)]
 pub(crate) fn apply_ai_classification_results(
+    db: &Database,
+    targets: &[IndexedFileRow],
+    results: &[SanitizedAIClassification],
+    settings: &AISettings,
+) -> Result<RuleExecutionSummary, DbError> {
+    if results.is_empty() {
+        return Ok(RuleExecutionSummary {
+            scanned: targets.len() as i64,
+            updated: 0,
+            skipped: targets.len() as i64,
+            needs_confirmation: 0,
+            failed_batches: None,
+            failed_files: None,
+            warning: None,
+        });
+    }
+    apply_ai_classification_batch_results(db, targets, results, settings)
+}
+
+fn apply_ai_classification_batch_results(
     db: &Database,
     targets: &[IndexedFileRow],
     results: &[SanitizedAIClassification],
@@ -656,17 +705,17 @@ fn classify_ai_targets_with_configured_provider(
     if !settings.enabled {
         return Err("AI classification is disabled.".to_string());
     }
-    let provider: Box<dyn AIProvider> = match settings.provider {
+    let provider: Arc<dyn AIProvider> = match settings.provider {
         AIProviderKind::OpenAICompatible => {
-            Box::new(OpenAICompatibleProvider::new(settings.clone()))
+            Arc::new(OpenAICompatibleProvider::new(settings.clone()))
         }
-        AIProviderKind::Ollama => Box::new(OllamaProvider::new(settings.clone())),
+        AIProviderKind::Ollama => Arc::new(OllamaProvider::new(settings.clone())),
     };
     let learned_rules = db
-        .learned_rule_hints(20)
+        .learned_rule_hints(10)
         .map_err(string_error)?
         .into_iter()
-        .map(|hint| hint.summary)
+        .map(|hint| truncate_chars(&hint.summary, 80))
         .collect::<Vec<_>>();
     classify_ai_targets_with_provider(
         db,
@@ -687,16 +736,12 @@ fn classify_ai_targets_with_provider(
     runtime: Option<(&dyn AIClassificationProgressEmitter, &AtomicBool)>,
 ) -> Result<RuleExecutionSummary, String> {
     let job_id = format!("ai-classification-{}", current_unix_seconds());
+    let started = Instant::now();
     if targets.is_empty() {
         emit_ai_classification_progress(
             runtime.map(|(emitter, _)| emitter),
-            &job_id,
-            0,
-            0,
-            0,
-            0,
-            "收集待分类文件",
-            "",
+            AIClassificationProgressUpdate::new(&job_id, 0, 0, 0, 0, "收集待分类文件")
+                .elapsed(started.elapsed().as_millis()),
         );
         return Ok(RuleExecutionSummary {
             scanned: 0,
@@ -708,179 +753,265 @@ fn classify_ai_targets_with_provider(
             warning: None,
         });
     }
+
     let batch_size = settings.batch_size.max(1);
     let batch_count = targets.len().div_ceil(batch_size);
-    emit_ai_classification_progress(
-        runtime.map(|(emitter, _)| emitter),
-        &job_id,
-        0,
-        targets.len(),
-        0,
-        batch_count,
-        "收集待分类文件",
-        targets
-            .first()
-            .map(|row| row.name.as_str())
-            .unwrap_or_default(),
-    );
-    let mut sanitized = Vec::new();
-    let mut sanitized_ids = HashSet::new();
-    let mut failed_batches = Vec::new();
-    for (batch_index, batch) in targets.chunks(batch_size).enumerate() {
-        if runtime
-            .map(|(_, cancel_flag)| cancel_flag.load(Ordering::SeqCst))
-            .unwrap_or(false)
-        {
-            break;
-        }
-        let processed_before = batch_index * batch_size;
-        let id_map = AIClassificationIdMap::from_targets(batch);
-        let batch_context = AIClassificationBatchContext::new(
-            batch_index + 1,
+    let concurrency = settings.classification_concurrency.clamp(1, 4).min(batch_count.max(1));
+    let tasks = targets
+        .chunks(batch_size)
+        .enumerate()
+        .map(|(index, batch)| AIClassificationBatchTask {
+            index: index + 1,
             batch_count,
             batch_size,
-            targets.len(),
-            batch,
-        );
-        emit_ai_classification_progress(
-            runtime.map(|(emitter, _)| emitter),
-            &job_id,
-            processed_before,
-            targets.len(),
-            batch_index + 1,
-            batch_count,
-            "请求模型分析",
-            batch
-                .first()
-                .map(|row| row.name.as_str())
-                .unwrap_or_default(),
-        );
-        let content = match call_ai_classification_provider_with_retries(
-            provider,
-            settings,
-            batch,
-            learned_rules,
-            false,
-            &batch_context,
-        ) {
-            Ok(content) => content,
-            Err(error) => {
-                failed_batches.push(AIClassificationBatchFailure::from_context(
-                    &batch_context,
-                    error,
-                ));
-                continue;
-            }
-        };
-        emit_ai_classification_progress(
-            runtime.map(|(emitter, _)| emitter),
-            &job_id,
-            processed_before,
-            targets.len(),
-            batch_index + 1,
-            batch_count,
-            "解析模型返回",
-            batch
-                .first()
-                .map(|row| row.name.as_str())
-                .unwrap_or_default(),
-        );
-        let outputs = match parse_ai_classification_response(&content) {
-            Ok(outputs) => outputs,
-            Err(_) => {
-                let retry_content = match call_ai_classification_provider_with_retries(
-                    provider,
-                    settings,
-                    batch,
-                    learned_rules,
-                    true,
-                    &batch_context,
-                ) {
-                    Ok(content) => content,
-                    Err(error) => {
-                        failed_batches.push(AIClassificationBatchFailure::from_context(
-                            &batch_context,
-                            error,
-                        ));
-                        continue;
-                    }
+            target_count: targets.len(),
+            rows: batch.to_vec(),
+        })
+        .collect::<VecDeque<_>>();
+    let queue = Arc::new(Mutex::new(tasks));
+    let (tx, rx) = mpsc::channel::<AIClassificationBatchRunResult>();
+    let cancel_flag = runtime.map(|(_, cancel_flag)| cancel_flag);
+    let mut completed_batches = 0_usize;
+    let mut failed_batches_count = 0_usize;
+    let mut processed = 0_usize;
+    let mut updated = 0_i64;
+    let mut skipped = 0_i64;
+    let mut needs_confirmation = 0_i64;
+    let mut failures = Vec::new();
+
+    emit_ai_classification_progress(
+        runtime.map(|(emitter, _)| emitter),
+        AIClassificationProgressUpdate::new(&job_id, 0, targets.len(), 0, batch_count, "收集待分类文件")
+            .current_file(targets.first().map(|row| row.name.as_str()).unwrap_or_default())
+            .elapsed(started.elapsed().as_millis()),
+    );
+
+    std::thread::scope(|scope| {
+        for _ in 0..concurrency {
+            let queue = Arc::clone(&queue);
+            let tx = tx.clone();
+            let provider = provider;
+            let settings = settings.clone();
+            let learned_rules = learned_rules.to_vec();
+            scope.spawn(move || loop {
+                let task = {
+                    let mut queue = queue.lock().expect("classification queue poisoned");
+                    queue.pop_front()
                 };
-                match parse_ai_classification_response(&retry_content).map_err(|error| {
-                    if is_ai_classification_schema_error(&error) {
-                        format!("{error} 已尝试清洗和重试，但仍失败。")
-                    } else {
-                        format!(
-                            "{error} 已尝试清洗和重试，但仍失败。建议关闭 thinking，或换用 deepseek-v4-flash / qwen-plus 等更稳定的非思考模型。"
-                        )
-                    }
-                }) {
-                    Ok(outputs) => outputs,
-                    Err(error) => {
-                        failed_batches.push(AIClassificationBatchFailure::from_context(
-                            &batch_context,
-                            error,
-                        ));
-                        continue;
+                let Some(task) = task else { break };
+                if cancel_flag.map(|flag| flag.load(Ordering::SeqCst)).unwrap_or(false) {
+                    break;
+                }
+                let result = run_ai_classification_batch(provider, &settings, &learned_rules, task);
+                if tx.send(result).is_err() {
+                    break;
+                }
+            });
+        }
+        drop(tx);
+
+        for result in rx {
+            processed += result.file_count();
+            match result {
+                AIClassificationBatchRunResult::Success { task, results } => {
+                    completed_batches += 1;
+                    match apply_ai_classification_batch_results(db, &task.rows, &results, settings)
+                        .map_err(string_error)
+                    {
+                        Ok(summary) => {
+                            updated += summary.updated;
+                            skipped += summary.skipped;
+                            needs_confirmation += summary.needs_confirmation;
+                            emit_ai_classification_progress(
+                                runtime.map(|(emitter, _)| emitter),
+                                AIClassificationProgressUpdate::new(&job_id, processed, targets.len(), task.index, batch_count, "写入整理建议")
+                                    .completed_batches(completed_batches)
+                                    .failed_batches(failed_batches_count)
+                                    .summary(updated, skipped, needs_confirmation)
+                                    .current_file(task.rows.last().map(|row| row.name.as_str()).unwrap_or_default())
+                                    .elapsed(started.elapsed().as_millis())
+                                    .estimated_remaining(estimated_remaining_ms(started, processed, targets.len())),
+                            );
+                        }
+                        Err(error) => {
+                            failed_batches_count += 1;
+                            skipped += task.rows.len() as i64;
+                            failures.push(AIClassificationBatchFailure::from_context(&task.context(), error));
+                        }
                     }
                 }
-            }
-        };
-        for output in outputs {
-            match sanitize_ai_classification_result(output, &id_map) {
-                Ok(result) if sanitized_ids.insert(result.id.clone()) => sanitized.push(result),
-                Ok(_) => {}
-                Err(_) => {}
+                AIClassificationBatchRunResult::Failure { task, error } => {
+                    failed_batches_count += 1;
+                    skipped += task.rows.len() as i64;
+                    failures.push(AIClassificationBatchFailure::from_context(&task.context(), error));
+                    emit_ai_classification_progress(
+                        runtime.map(|(emitter, _)| emitter),
+                        AIClassificationProgressUpdate::new(&job_id, processed, targets.len(), task.index, batch_count, "解析模型返回")
+                            .completed_batches(completed_batches)
+                            .failed_batches(failed_batches_count)
+                            .summary(updated, skipped, needs_confirmation)
+                            .current_file(task.rows.first().map(|row| row.name.as_str()).unwrap_or_default())
+                            .elapsed(started.elapsed().as_millis())
+                            .estimated_remaining(estimated_remaining_ms(started, processed, targets.len())),
+                    );
+                }
             }
         }
-        emit_ai_classification_progress(
-            runtime.map(|(emitter, _)| emitter),
-            &job_id,
-            (processed_before + batch.len()).min(targets.len()),
-            targets.len(),
-            batch_index + 1,
-            batch_count,
-            "写入整理建议",
-            batch
-                .last()
-                .map(|row| row.name.as_str())
-                .unwrap_or_default(),
-        );
-    }
-    if sanitized.is_empty() && !failed_batches.is_empty() {
-        let first = failed_batches
+    });
+
+    if updated == 0 && !failures.is_empty() && completed_batches == 0 {
+        let first = failures
             .first()
             .map(|failure| failure.message.clone())
             .unwrap_or_else(|| "AI classification batches failed.".to_string());
         return Err(first);
     }
-    emit_ai_classification_progress(
-        runtime.map(|(emitter, _)| emitter),
-        &job_id,
-        targets.len(),
-        targets.len(),
-        batch_count,
-        batch_count,
-        "写入整理建议",
-        "",
-    );
-    let mut summary = apply_ai_classification_results(db, &targets, &sanitized, settings)
-        .map_err(string_error)?;
-    if runtime
-        .map(|(_, cancel_flag)| cancel_flag.load(Ordering::SeqCst))
-        .unwrap_or(false)
-    {
+
+    let accounted = updated + skipped;
+    let mut summary = RuleExecutionSummary {
+        scanned: targets.len() as i64,
+        updated,
+        skipped: skipped + (targets.len() as i64 - accounted).max(0),
+        needs_confirmation,
+        failed_batches: None,
+        failed_files: None,
+        warning: None,
+    };
+
+    if cancel_flag.map(|flag| flag.load(Ordering::SeqCst)).unwrap_or(false) {
         summary.warning = Some("AI 分类已取消。".to_string());
     }
-    if !failed_batches.is_empty() {
-        let failed_files = failed_batches
+    if !failures.is_empty() {
+        let failed_files = failures
             .iter()
             .map(|failure| failure.file_count as i64)
             .sum::<i64>();
-        summary.failed_batches = Some(failed_batches.len() as i64);
+        summary.failed_batches = Some(failures.len() as i64);
         summary.failed_files = Some(failed_files);
-        summary.warning = Some("部分批次请求失败，请降低 Batch Size 或稍后重试。".to_string());
+        summary.warning = Some("部分批次请求失败，请降低 Batch Size 或并发数后重试。".to_string());
     }
+
+    emit_ai_classification_progress(
+        runtime.map(|(emitter, _)| emitter),
+        AIClassificationProgressUpdate::new(&job_id, targets.len(), targets.len(), batch_count, batch_count, "完成")
+            .completed_batches(completed_batches)
+            .failed_batches(failed_batches_count)
+            .summary(updated, summary.skipped, needs_confirmation)
+            .elapsed(started.elapsed().as_millis()),
+    );
+
     Ok(summary)
+}
+
+#[derive(Debug, Clone)]
+struct AIClassificationBatchTask {
+    index: usize,
+    batch_count: usize,
+    batch_size: usize,
+    target_count: usize,
+    rows: Vec<IndexedFileRow>,
+}
+
+impl AIClassificationBatchTask {
+    fn context(&self) -> AIClassificationBatchContext {
+        AIClassificationBatchContext::new(
+            self.index,
+            self.batch_count,
+            self.batch_size,
+            self.target_count,
+            &self.rows,
+        )
+    }
+}
+
+enum AIClassificationBatchRunResult {
+    Success {
+        task: AIClassificationBatchTask,
+        results: Vec<SanitizedAIClassification>,
+    },
+    Failure {
+        task: AIClassificationBatchTask,
+        error: String,
+    },
+}
+
+impl AIClassificationBatchRunResult {
+    fn file_count(&self) -> usize {
+        match self {
+            Self::Success { task, .. } | Self::Failure { task, .. } => task.rows.len(),
+        }
+    }
+}
+
+fn run_ai_classification_batch(
+    provider: &dyn AIProvider,
+    settings: &AISettings,
+    learned_rules: &[String],
+    task: AIClassificationBatchTask,
+) -> AIClassificationBatchRunResult {
+    let id_map = AIClassificationIdMap::from_targets(&task.rows);
+    let context = task.context();
+    let content = match call_ai_classification_provider_with_retries(
+        provider,
+        settings,
+        &task.rows,
+        learned_rules,
+        false,
+        &context,
+    ) {
+        Ok(content) => content,
+        Err(error) => return AIClassificationBatchRunResult::Failure { task, error },
+    };
+    let outputs = match parse_ai_classification_response(&content) {
+        Ok(outputs) => outputs,
+        Err(_) => {
+            let retry_content = match call_ai_classification_provider_with_retries(
+                provider,
+                settings,
+                &task.rows,
+                learned_rules,
+                true,
+                &context,
+            ) {
+                Ok(content) => content,
+                Err(error) => return AIClassificationBatchRunResult::Failure { task, error },
+            };
+            match parse_ai_classification_response(&retry_content).map_err(|error| {
+                if is_ai_classification_schema_error(&error) {
+                    format!("{error} 已尝试清洗和重试，但仍失败。")
+                } else {
+                    format!(
+                        "{error} 已尝试清洗和重试，但仍失败。建议关闭 thinking，或换用 deepseek-v4-flash / qwen-plus 等更稳定的非思考模型。"
+                    )
+                }
+            }) {
+                Ok(outputs) => outputs,
+                Err(error) => return AIClassificationBatchRunResult::Failure { task, error },
+            }
+        }
+    };
+    let mut sanitized = Vec::new();
+    let mut sanitized_ids = HashSet::new();
+    for output in outputs {
+        match sanitize_ai_classification_result(output, &id_map) {
+            Ok(result) if sanitized_ids.insert(result.id.clone()) => sanitized.push(result),
+            Ok(_) => {}
+            Err(_) => {}
+        }
+    }
+    AIClassificationBatchRunResult::Success {
+        task,
+        results: sanitized,
+    }
+}
+
+fn estimated_remaining_ms(started: Instant, processed: usize, total: usize) -> Option<u128> {
+    if processed == 0 || processed >= total {
+        return None;
+    }
+    let elapsed = started.elapsed().as_millis();
+    let remaining = total.saturating_sub(processed) as u128;
+    Some(elapsed.saturating_mul(remaining) / processed as u128)
 }
 
 trait AIClassificationProgressEmitter {
@@ -905,24 +1036,103 @@ impl<R: Runtime> AIClassificationProgressEmitter for TauriAIClassificationProgre
 
 fn emit_ai_classification_progress(
     emitter: Option<&dyn AIClassificationProgressEmitter>,
-    job_id: &str,
+    update: AIClassificationProgressUpdate,
+) {
+    if let Some(emitter) = emitter {
+        emitter.emit_progress(AIClassificationProgressPayload {
+            job_id: update.job_id,
+            processed: update.processed,
+            total: update.total,
+            batch_index: update.batch_index,
+            batch_count: update.batch_count,
+            completed_batches: update.completed_batches,
+            failed_batches: update.failed_batches,
+            updated: update.updated,
+            skipped: update.skipped,
+            needs_confirmation: update.needs_confirmation,
+            stage: update.stage,
+            current_file_preview: update.current_file_preview.chars().take(120).collect::<String>(),
+            elapsed_ms: update.elapsed_ms,
+            estimated_remaining_ms: update.estimated_remaining_ms,
+        });
+    }
+}
+
+#[derive(Debug, Clone)]
+struct AIClassificationProgressUpdate {
+    job_id: String,
     processed: usize,
     total: usize,
     batch_index: usize,
     batch_count: usize,
-    stage: &str,
-    current_file_preview: &str,
-) {
-    if let Some(emitter) = emitter {
-        emitter.emit_progress(AIClassificationProgressPayload {
+    completed_batches: usize,
+    failed_batches: usize,
+    updated: i64,
+    skipped: i64,
+    needs_confirmation: i64,
+    stage: String,
+    current_file_preview: String,
+    elapsed_ms: u128,
+    estimated_remaining_ms: Option<u128>,
+}
+
+impl AIClassificationProgressUpdate {
+    fn new(
+        job_id: &str,
+        processed: usize,
+        total: usize,
+        batch_index: usize,
+        batch_count: usize,
+        stage: &str,
+    ) -> Self {
+        Self {
             job_id: job_id.to_string(),
             processed,
             total,
             batch_index,
             batch_count,
+            completed_batches: 0,
+            failed_batches: 0,
+            updated: 0,
+            skipped: 0,
+            needs_confirmation: 0,
             stage: stage.to_string(),
-            current_file_preview: current_file_preview.chars().take(120).collect::<String>(),
-        });
+            current_file_preview: String::new(),
+            elapsed_ms: 0,
+            estimated_remaining_ms: None,
+        }
+    }
+
+    fn completed_batches(mut self, value: usize) -> Self {
+        self.completed_batches = value;
+        self
+    }
+
+    fn failed_batches(mut self, value: usize) -> Self {
+        self.failed_batches = value;
+        self
+    }
+
+    fn summary(mut self, updated: i64, skipped: i64, needs_confirmation: i64) -> Self {
+        self.updated = updated;
+        self.skipped = skipped;
+        self.needs_confirmation = needs_confirmation;
+        self
+    }
+
+    fn current_file(mut self, value: &str) -> Self {
+        self.current_file_preview = value.to_string();
+        self
+    }
+
+    fn elapsed(mut self, value: u128) -> Self {
+        self.elapsed_ms = value;
+        self
+    }
+
+    fn estimated_remaining(mut self, value: Option<u128>) -> Self {
+        self.estimated_remaining_ms = value;
+        self
     }
 }
 
@@ -1424,6 +1634,10 @@ fn ai_reason(result: &SanitizedAIClassification) -> String {
     }
 }
 
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    value.trim().chars().take(max_chars).collect()
+}
+
 fn ai_matched_rule(settings: &AISettings) -> String {
     format!(
         "ai:{}:{}",
@@ -1752,6 +1966,7 @@ mod tests {
             only_unclassified: None,
             only_low_confidence: None,
             limit: Some(100),
+            force: None,
         };
 
         let targets =
@@ -2319,7 +2534,7 @@ mod tests {
         )
         .expect("build prompt");
 
-        assert!(messages[1].content.contains("用户已经确认过的分类习惯"));
+        assert!(messages[1].content.contains("用户确认/纠正形成的习惯"));
         assert!(messages[1].content.contains("Scala"));
         assert!(messages[1].content.contains("Teaching"));
         assert!(messages[1].content.contains("\"refId\": \"f1\""));
@@ -2327,7 +2542,7 @@ mod tests {
         assert!(messages[0]
             .content
             .contains("Return the same refId exactly"));
-        assert!(messages[0].content.contains("Do not use file path as id"));
+        assert!(messages[0].content.contains("Do not use path as id"));
     }
 
     fn assert_target_template_rejected(template: &str) {

@@ -51,13 +51,14 @@ fn ai_settings_default_starts_disabled_on_deepseek() {
     assert_eq!(settings.base_url, "https://api.deepseek.com");
     assert_eq!(settings.chat_path, "/chat/completions");
     assert_eq!(settings.model, "deepseek-v4-flash");
-    assert_eq!(settings.batch_size, 5);
+    assert_eq!(settings.batch_size, 10);
+    assert_eq!(settings.classification_concurrency, 2);
     assert_eq!(settings.timeout_seconds, 120);
-    assert!(settings.send_full_path);
+    assert!(!settings.send_full_path);
     assert!(settings.send_parent_path);
     assert!(!settings.send_file_content);
     assert!(settings.cleanup_ai_enabled);
-    assert!(settings.force_json_output);
+    assert!(!settings.force_json_output);
     assert!(!settings.enable_thinking);
 }
 

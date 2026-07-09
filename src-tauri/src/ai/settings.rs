@@ -16,7 +16,7 @@ use crate::db::{Database, DbError};
 pub const AI_SETTINGS_KEY: &str = "ai_settings_v1";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 pub struct AISettings {
     pub enabled: bool,
     pub provider: AIProviderKind,
@@ -28,6 +28,7 @@ pub struct AISettings {
     pub temperature: f32,
     pub max_tokens: u32,
     pub batch_size: usize,
+    pub classification_concurrency: usize,
     pub timeout_seconds: u64,
     pub send_full_path: bool,
     pub send_parent_path: bool,
@@ -50,16 +51,17 @@ impl Default for AISettings {
             chat_path: "/chat/completions".to_string(),
             api_key: String::new(),
             model: "deepseek-v4-flash".to_string(),
-            temperature: 0.1,
-            max_tokens: 2048,
-            batch_size: 5,
+            temperature: 0.0,
+            max_tokens: 1024,
+            batch_size: 10,
+            classification_concurrency: 2,
             timeout_seconds: 120,
-            send_full_path: true,
+            send_full_path: false,
             send_parent_path: true,
             send_file_content: false,
-            classification_mode: "rules_first".to_string(),
+            classification_mode: "ai_first".to_string(),
             cleanup_ai_enabled: true,
-            force_json_output: true,
+            force_json_output: false,
             enable_thinking: false,
             reasoning_effort: None,
             extra_body_json: None,
@@ -126,6 +128,10 @@ pub fn normalize_ai_settings(mut settings: AISettings) -> AISettings {
     settings.api_key = settings.api_key.trim().to_string();
     settings.model = settings.model.trim().to_string();
     settings.batch_size = settings.batch_size.max(1);
+    settings.classification_concurrency = settings.classification_concurrency.clamp(1, 4);
+    if settings.provider == AIProviderKind::Ollama {
+        settings.classification_concurrency = settings.classification_concurrency.min(1);
+    }
     settings.timeout_seconds = settings.timeout_seconds.max(1);
     settings.max_tokens = settings.max_tokens.max(1);
     settings.temperature = settings.temperature.clamp(0.0, 2.0);

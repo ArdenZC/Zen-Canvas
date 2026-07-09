@@ -73,6 +73,10 @@ pub struct AppSettings {
     pub organize_root_mode: OrganizeRootMode,
     #[serde(default)]
     pub organize_root_path: Option<String>,
+    #[serde(default)]
+    pub use_legacy_builtin_classification_rules: bool,
+    #[serde(default)]
+    pub use_learned_rules_as_auto_rules: bool,
 }
 
 impl Default for AppSettings {
@@ -89,6 +93,8 @@ impl Default for AppSettings {
             custom_search_roots: default_search_roots(),
             organize_root_mode: OrganizeRootMode::CurrentFolder,
             organize_root_path: None,
+            use_legacy_builtin_classification_rules: false,
+            use_learned_rules_as_auto_rules: false,
         }
     }
 }

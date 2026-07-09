@@ -1,6 +1,6 @@
 use super::super::*;
 use super::{
-    builtin_rules::{built_in_rules, classify_builtin, days_since_unix},
+    builtin_rules::{classify_builtin, legacy_builtin_classification_rules, days_since_unix},
     naming::{build_suggested_name, build_target_path, OrganizeRootConfig},
 };
 use crate::settings::AppSettings;
@@ -42,7 +42,7 @@ impl Database {
         mode: RuleExecutionMode,
         settings: &AppSettings,
     ) -> Result<RuleExecutionSummary, DbError> {
-        let all_rules = active_rules(rules);
+        let all_rules = active_rules_for_manual_rules(rules, settings);
         let rule_version = classification_version_for_rules(&all_rules, settings)?;
         let scoped = scoped_files_sql(Some(scope));
         let lifecycle_filter = match mode {
@@ -141,7 +141,7 @@ impl Database {
         rules: Vec<Rule>,
         settings: &AppSettings,
     ) -> Result<RuleExecutionSummary, DbError> {
-        let all_rules = active_rules(rules);
+        let all_rules = active_rules_for_manual_rules(rules, settings);
         let rule_version = classification_version_for_rules(&all_rules, settings)?;
         let read_conn = self.conn()?;
         let mut write_conn = self.conn()?;
@@ -256,7 +256,7 @@ impl Database {
             });
         }
 
-        let all_rules = active_rules(rules);
+        let all_rules = active_rules_for_manual_rules(rules, settings);
         let rule_version = classification_version_for_rules(&all_rules, settings)?;
         let placeholders = std::iter::repeat("?")
             .take(target_paths.len())
@@ -350,11 +350,23 @@ impl Database {
     }
 }
 
-fn active_rules(rules: Vec<Rule>) -> Vec<Rule> {
-    built_in_rules()
+fn active_rules_for_manual_rules(rules: Vec<Rule>, settings: &AppSettings) -> Vec<Rule> {
+    let user_rules = rules
         .into_iter()
-        .chain(rules.into_iter().filter(|rule| rule.enabled))
-        .collect()
+        .filter(|rule| rule.enabled)
+        .filter(|rule| {
+            rule.source == "user"
+                || (settings.use_learned_rules_as_auto_rules && rule.source == "learned")
+                || (settings.use_legacy_builtin_classification_rules && rule.source == "system")
+        });
+    if settings.use_legacy_builtin_classification_rules {
+        legacy_builtin_classification_rules()
+            .into_iter()
+            .chain(user_rules)
+            .collect()
+    } else {
+        user_rules.collect()
+    }
 }
 
 pub(crate) fn rule_version_for_rules(rules: &[Rule]) -> Result<String, DbError> {
@@ -394,10 +406,19 @@ fn classification_version_for_rules(
 }
 
 fn should_classify_file(row: &IndexedFileRow, rule_version: &str) -> bool {
+    if row_has_ai_classification(row) {
+        return false;
+    }
     row.last_classified_at == 0
         || row.classified_rule_version != rule_version
         || row.last_classified_mtime != row.mtime
         || row.last_classified_size != row.size
+}
+
+fn row_has_ai_classification(row: &IndexedFileRow) -> bool {
+    serde_json::from_str::<Vec<String>>(&row.matched_rules)
+        .map(|rules| rules.iter().any(|rule| rule.starts_with("ai:")))
+        .unwrap_or(false)
 }
 
 fn classification_path_candidates(paths: &[String], limit: usize) -> Vec<String> {
@@ -505,7 +526,12 @@ fn classify_indexed_file(
     settings: &AppSettings,
 ) -> Result<ClassificationUpdate, DbError> {
     let file_type = normalized_file_type(row);
-    let builtin = classify_builtin(row, &file_type);
+    let safety = classify_builtin(row, &file_type);
+    let builtin = if settings.use_legacy_builtin_classification_rules {
+        safety.clone()
+    } else {
+        fallback_classification(row)
+    };
     let mut candidates = all_rules
         .iter()
         .filter_map(|rule| {
@@ -546,10 +572,22 @@ fn classify_indexed_file(
     let confidence = top
         .map(|candidate| (candidate.score / 100.0).clamp(0.35, 0.98))
         .unwrap_or(builtin.confidence);
-    let risk_level = action
+    let mut risk_level = action
         .risk_level
         .clone()
         .unwrap_or_else(|| default_if_empty(&row.risk_level, "Unknown"));
+    if safety
+        .action
+        .risk_level
+        .as_deref()
+        .is_some_and(|value| value == "Sensitive" || value == "System")
+    {
+        risk_level = safety
+            .action
+            .risk_level
+            .clone()
+            .unwrap_or_else(|| "Sensitive".to_string());
+    }
     let suggested_action = safe_action(
         &action
             .suggested_action
@@ -735,6 +773,22 @@ fn safe_action(action: &str, risk_level: &str) -> String {
         "Review".to_string()
     } else {
         action.to_string()
+    }
+}
+
+fn fallback_classification(row: &IndexedFileRow) -> BuiltinClassification {
+    BuiltinClassification {
+        action: RuleAction {
+            purpose: Some(default_if_empty(&row.purpose, "Unknown")),
+            lifecycle: Some(default_if_empty(&row.lifecycle, "Inbox")),
+            risk_level: Some(default_if_empty(&row.risk_level, "Unknown")),
+            suggested_action: Some(default_if_empty(&row.suggested_action, "Keep")),
+            target_template: (!row.suggested_target_path.trim().is_empty())
+                .then(|| row.suggested_target_path.clone()),
+            context: Some(row.context.clone()),
+            ..RuleAction::default()
+        },
+        confidence: row.confidence.clamp(0.0, 1.0),
     }
 }
 

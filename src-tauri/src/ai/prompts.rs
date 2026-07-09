@@ -3,30 +3,14 @@ use super::{classification::AIClassificationInputFile, cleanup::AICleanupInputCa
 pub fn ai_file_classification_system_prompt(enable_thinking: bool) -> String {
     let mut lines = vec![
         "You are the Zen Canvas AI file classification engine.",
-        "Classify files only from metadata: file name, extension, path, parent directory, size, modified time, directory flag, and existing classification fields.",
-        "Do not invent or infer file content.",
-        "Do not output Markdown.",
-        "Do not output code fences.",
-        "Return only JSON.",
-        "If you are a thinking model, do not output thinking content.",
-        "Do not output <think> tags.",
-        "Do not output reasoning process.",
-        "Only output the final JSON.",
-        "Do not suggest directly deleting files.",
-        "targetTemplate must be a relative path template, never an absolute path.",
-        "Return the same refId exactly.",
-        "Do not use file path as id.",
-        "Do not invent ids.",
-        "Do not return path in the id field.",
-        "When uncertain, use suggestedAction = Review.",
-        "Sensitive files must set requiresConfirmation = true.",
-        "Low confidence files must set requiresConfirmation = true.",
-        "Allowed fileType values: Document, Image, Video, Audio, Code, ArchivePackage, Installer, Spreadsheet, Presentation, Other.",
-        "Allowed purpose values: Project, Teaching, Study, Work, Personal, Career, Finance, Identity, Media, Installer, Temporary, Archive, Unknown.",
-        "Allowed lifecycle values: Inbox, Active, Reference, Archive, Disposable, Duplicate, Sensitive.",
-        "Allowed riskLevel values: Normal, Sensitive, System, Unknown.",
-        "Allowed suggestedAction values: Keep, Move, MoveAndRename, Archive, Review, DeleteCandidate.",
-        "Return JSON in this exact shape: {\"classifications\":[{\"refId\":\"f1\",\"fileType\":\"Document\",\"purpose\":\"Teaching\",\"lifecycle\":\"Active\",\"context\":\"Scala\",\"riskLevel\":\"Normal\",\"suggestedAction\":\"Move\",\"targetTemplate\":\"Teaching/Scala/试卷\",\"suggestedName\":\"\",\"confidence\":0.92,\"reason\":\"文件名包含 Scala、期末、复习题，判断为教学考试资料。\",\"keywords\":[\"Scala\",\"期末\",\"复习题\"],\"requiresConfirmation\":false}]}",
+        "Classify from metadata only; never infer file content.",
+        "Return JSON only; no Markdown, code fences, thinking, <think>, explanations, or chain-of-thought.",
+        "Never suggest direct deletion. Use Review when uncertain.",
+        "targetTemplate is a relative target directory only, never a file path or absolute path.",
+        "Return the same refId exactly. Do not use path as id, invent ids, or return path in id.",
+        "Sensitive or low-confidence results must set requiresConfirmation=true.",
+        "Enums: fileType=Document|Image|Video|Audio|Code|ArchivePackage|Installer|Spreadsheet|Presentation|Other; purpose=Project|Teaching|Study|Work|Personal|Career|Finance|Identity|Media|Installer|Temporary|Archive|Unknown; lifecycle=Inbox|Active|Reference|Archive|Disposable|Duplicate|Sensitive; riskLevel=Normal|Sensitive|System|Unknown; suggestedAction=Keep|Move|MoveAndRename|Archive|Review|DeleteCandidate.",
+        "Shape: {\"classifications\":[{\"refId\":\"f1\",\"fileType\":\"Document\",\"purpose\":\"Teaching\",\"lifecycle\":\"Active\",\"context\":\"Scala\",\"riskLevel\":\"Normal\",\"suggestedAction\":\"Move\",\"targetTemplate\":\"Teaching/Scala\",\"suggestedName\":\"\",\"confidence\":0.92,\"reason\":\"short reason\",\"keywords\":[\"Scala\"],\"requiresConfirmation\":false}]}",
     ];
     if !enable_thinking {
         lines.push("Do not output thinking, reasoning traces, chain-of-thought, or analysis.");
@@ -40,7 +24,7 @@ pub fn build_ai_classification_prompt(
 ) -> Result<String, String> {
     serde_json::to_string_pretty(&serde_json::json!({
         "task": "classifyFiles",
-        "learnedRulesInstruction": "以下是用户已经确认过的分类习惯，请优先参考，但不要违反安全规则。",
+        "learnedRulesInstruction": "用户确认/纠正形成的习惯，仅作参考；不得违反安全规则。",
         "learnedRules": learned_rules,
         "files": files,
     }))

@@ -65,6 +65,7 @@
     #[test]
     fn execute_rules_for_paths_classifies_only_target_paths() {
         let db = Database::open(test_db_path()).expect("open test database");
+        enable_legacy_builtin_rules(&db);
         insert_test_file(
             &db,
             "file-resume-target",
@@ -108,6 +109,7 @@
     #[test]
     fn execute_rules_for_scope_classifies_only_scoped_roots() {
         let db = Database::open(test_db_path()).expect("open test database");
+        enable_legacy_builtin_rules(&db);
         insert_test_file_at_path(
             &db,
             "file-root-a-resume",
@@ -233,6 +235,7 @@
     #[test]
     fn execute_rules_for_scope_inbox_only_skips_already_classified_files() {
         let db = Database::open(test_db_path()).expect("open test database");
+        enable_legacy_builtin_rules(&db);
         insert_test_file_at_path(
             &db,
             "file-root-a-resume",
@@ -876,6 +879,7 @@
     #[test]
     fn execute_rules_updates_inbox_resume_classification() {
         let db = Database::open(test_db_path()).expect("open test database");
+        enable_legacy_builtin_rules(&db);
         insert_test_file(
             &db,
             "file-resume",
@@ -914,6 +918,7 @@
     #[test]
     fn execute_rules_classifies_common_real_world_files_into_actionable_suggestions() {
         let db = Database::open(test_db_path()).expect("open test database");
+        enable_legacy_builtin_rules(&db);
         let samples = [
             (
                 "file-photo",
@@ -1004,6 +1009,7 @@
     #[test]
     fn execute_rules_routes_teacher_and_work_documents_by_chinese_keywords() {
         let db = Database::open(test_db_path()).expect("open test database");
+        enable_legacy_builtin_rules(&db);
         let samples = [
             (
                 "file-teaching-plan",
@@ -1092,6 +1098,7 @@
     #[test]
     fn desktop_and_downloads_source_signal_does_not_force_inbox_target() {
         let db = Database::open(test_db_path()).expect("open test database");
+        enable_legacy_builtin_rules(&db);
         insert_test_file_at_path(
             &db,
             "file-downloads-doc",
@@ -1167,6 +1174,7 @@
     #[test]
     fn execute_rules_marks_finance_files_sensitive_review_only() {
         let db = Database::open(test_db_path()).expect("open test database");
+        enable_legacy_builtin_rules(&db);
         insert_test_file(
             &db,
             "file-invoice",

@@ -1,3 +1,9 @@
+    fn enable_legacy_builtin_rules(db: &Database) {
+        let mut settings = AppSettings::default();
+        settings.use_legacy_builtin_classification_rules = true;
+        save_app_settings(db, &settings).expect("enable legacy builtin classification rules");
+    }
+
     fn insert_test_file(
         db: &Database,
         id: &str,

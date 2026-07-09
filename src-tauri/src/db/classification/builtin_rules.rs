@@ -2,7 +2,7 @@ use super::super::*;
 use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub(crate) fn built_in_rules() -> Vec<Rule> {
+pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
     vec![
         system_rule(
             "system_identity",

@@ -79,8 +79,11 @@ export function SettingsView() {
       searchScopeMode,
       customSearchRoots,
       organizeRootMode,
-      organizeRootPath
+      organizeRootPath,
+      useLegacyBuiltinClassificationRules,
+      useLearnedRulesAsAutoRules
     },
+    updateSettings,
     setFolderNamingLanguage,
     setDefaultScanFolders,
     setRestoreRetentionDays,
@@ -383,6 +386,36 @@ export function SettingsView() {
     setAiSettings((current) => current ? { ...current, ...partial } : current);
   }
 
+  function applyAIClassificationPreset(mode: "fast" | "standard" | "detailed") {
+    if (mode === "fast") {
+      updateAISettings({
+        batchSize: 20,
+        classificationConcurrency: 2,
+        maxTokens: 1024,
+        sendFullPath: false,
+        sendParentPath: true
+      });
+      return;
+    }
+    if (mode === "detailed") {
+      updateAISettings({
+        batchSize: 5,
+        classificationConcurrency: 1,
+        maxTokens: 2048,
+        sendFullPath: true,
+        sendParentPath: true
+      });
+      return;
+    }
+    updateAISettings({
+      batchSize: 10,
+      classificationConcurrency: 2,
+      maxTokens: 1024,
+      sendFullPath: false,
+      sendParentPath: true
+    });
+  }
+
   function selectAIPreset(presetId: AIProviderPresetId) {
     const preset = aiPresets.find((item) => item.id === presetId);
     setAiConnectionStatus(null);
@@ -398,7 +431,9 @@ export function SettingsView() {
         baseUrl: preset.defaultBaseUrl,
         chatPath: preset.defaultChatPath,
         model: preset.defaultModel,
-        apiKey: fallback.apiKey
+        apiKey: fallback.apiKey,
+        batchSize: preset.providerKind === "ollama" ? 5 : 10,
+        classificationConcurrency: preset.providerKind === "ollama" ? 1 : 2
       };
     });
   }
@@ -820,6 +855,15 @@ export function SettingsView() {
                 onChange={(next) => updateAISettings({ cleanupAiEnabled: next })}
                 statusLabel={aiSettings.cleanupAiEnabled ? t("enabled") : t("disabled")}
               />
+              <div className={cn(softPanel, "grid gap-2 p-3")}>
+                <strong className="text-sm text-[var(--ink)]">AI 分类模式预设</strong>
+                <span className={quietText}>快速 / 标准 / 精细会填充 Batch Size、并发数、Max Tokens 和路径隐私参数，不会覆盖 API Key。</span>
+                <div className="flex flex-wrap gap-2">
+                  <button className={buttonSecondary} onClick={() => applyAIClassificationPreset("fast")}>快速</button>
+                  <button className={buttonSecondary} onClick={() => applyAIClassificationPreset("standard")}>标准</button>
+                  <button className={buttonSecondary} onClick={() => applyAIClassificationPreset("detailed")}>精细</button>
+                </div>
+              </div>
               <div className={formRow}>
                 <div>
                   <strong className="block text-sm">模型服务商 preset</strong>
@@ -854,12 +898,44 @@ export function SettingsView() {
                 <TextField label="Model" value={aiSettings.model} onChange={(value) => updateAISettings({ model: value })} />
                 <NumberField
                   label="Batch Size"
-                  description="每次请求模型处理的文件数，不是本次总处理数量。DeepSeek / 国产模型建议 5，过大会增加超时、限流或 JSON 不完整风险。"
+                  description="Batch Size 是每次请求模型处理的文件数，不是本次总处理数量。DeepSeek / 国产模型建议 10，过大会增加超时、限流或 JSON 不完整风险。"
                   value={aiSettings.batchSize}
                   min={1}
                   onChange={(value) => updateAISettings({ batchSize: value })}
                 />
+                <NumberField
+                  label="AI 分类并发数"
+                  description="同时请求模型的批次数。DeepSeek / 国产模型建议 2，过高可能触发限流。"
+                  value={aiSettings.classificationConcurrency}
+                  min={1}
+                  onChange={(value) => updateAISettings({ classificationConcurrency: Math.min(4, Math.max(1, value)) })}
+                />
+                <NumberField
+                  label="Max Tokens"
+                  value={aiSettings.maxTokens}
+                  min={512}
+                  onChange={(value) => updateAISettings({ maxTokens: value })}
+                />
                 <NumberField label="Timeout Seconds" value={aiSettings.timeoutSeconds} min={1} onChange={(value) => updateAISettings({ timeoutSeconds: value })} />
+              </div>
+              <NoticeBanner tone="info">
+                学习习惯会记录你的确认和纠正，并在后续 AI 分类时作为参考。它不会训练模型，也不会自动移动文件。
+              </NoticeBanner>
+              <div className="grid gap-3 md:grid-cols-2">
+                <SwitchField
+                  label="将学习习惯作为自动规则执行"
+                  description="高级选项，默认关闭。开启后普通规则执行可能使用 learned rules。"
+                  checked={useLearnedRulesAsAutoRules}
+                  onChange={(next) => void updateSettings({ useLearnedRulesAsAutoRules: next })}
+                  statusLabel={useLearnedRulesAsAutoRules ? t("enabled") : t("disabled")}
+                />
+                <SwitchField
+                  label="使用旧内置分类规则"
+                  description="高级选项，默认关闭。开启后旧业务分类规则可能重新计算分类建议。"
+                  checked={useLegacyBuiltinClassificationRules}
+                  onChange={(next) => void updateSettings({ useLegacyBuiltinClassificationRules: next })}
+                  statusLabel={useLegacyBuiltinClassificationRules ? t("enabled") : t("disabled")}
+                />
               </div>
               {aiSettings.preset === "deepseek" && ["deepseek-chat", "deepseek-reasoner"].includes(aiSettings.model.trim()) ? (
                 <NoticeBanner tone="warning">DeepSeek 旧模型名仍允许输入，但建议改用 deepseek-v4-flash 或 deepseek-v4-pro。</NoticeBanner>
@@ -1129,16 +1205,17 @@ function defaultAISettingsFromPreset(preset?: AIProviderPreset): AISettings | nu
     chatPath: preset.defaultChatPath || "/chat/completions",
     apiKey: "",
     model: preset.defaultModel,
-    temperature: 0.1,
-    maxTokens: 2048,
-    batchSize: 5,
+    temperature: 0,
+    maxTokens: 1024,
+    batchSize: preset.providerKind === "ollama" ? 5 : 10,
+    classificationConcurrency: preset.providerKind === "ollama" ? 1 : 2,
     timeoutSeconds: 120,
-    sendFullPath: true,
+    sendFullPath: false,
     sendParentPath: true,
     sendFileContent: false,
-    classificationMode: "rules_first",
+    classificationMode: "ai_first",
     cleanupAiEnabled: true,
-    forceJsonOutput: true,
+    forceJsonOutput: false,
     enableThinking: false,
     reasoningEffort: null,
     extraBodyJson: null
@@ -1154,6 +1231,9 @@ function normalizeAISettingsForSave(settings: AISettings): AISettings {
     apiKey: settings.apiKey.trim(),
     model: settings.model.trim(),
     batchSize: Math.max(1, Math.floor(settings.batchSize || 1)),
+    classificationConcurrency: settings.provider === "ollama"
+      ? 1
+      : Math.min(4, Math.max(1, Math.floor(settings.classificationConcurrency || 1))),
     timeoutSeconds: Math.max(1, Math.floor(settings.timeoutSeconds || 1)),
     maxTokens: Math.max(1, Math.floor(settings.maxTokens || 1)),
     sendFileContent: false,

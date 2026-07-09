@@ -17,7 +17,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   searchScopeMode: "all",
   customSearchRoots: [],
   organizeRootMode: "current_folder",
-  organizeRootPath: undefined
+  organizeRootPath: undefined,
+  useLegacyBuiltinClassificationRules: false,
+  useLearnedRulesAsAutoRules: false
 };
 
 interface UseAppSettingsOptions {

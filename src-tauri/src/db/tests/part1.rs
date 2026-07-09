@@ -52,6 +52,7 @@
         let db = Database::open(test_db_path()).expect("open test database");
         let mut settings = AppSettings::default();
         settings.folder_naming_language = "zh".to_string();
+        settings.use_legacy_builtin_classification_rules = true;
         save_app_settings(&db, &settings).expect("save app settings");
         insert_test_file(
             &db,
@@ -80,6 +81,7 @@
         let db = Database::open(test_db_path()).expect("open test database");
         let mut settings = AppSettings::default();
         settings.folder_naming_language = "en".to_string();
+        settings.use_legacy_builtin_classification_rules = true;
         save_app_settings(&db, &settings).expect("save english settings");
         insert_test_file(
             &db,
@@ -130,6 +132,7 @@
     #[test]
     fn default_organize_root_places_documents_under_current_folder_without_zencanvas_or_inbox() {
         let db = Database::open(test_db_path()).expect("open test database");
+        enable_legacy_builtin_rules(&db);
         insert_test_file_at_path(
             &db,
             "file-desktop-doc",
@@ -161,6 +164,7 @@
         let db = Database::open(test_db_path()).expect("open test database");
         let mut settings = AppSettings::default();
         settings.organize_root_mode = OrganizeRootMode::ZenCanvasFolder;
+        settings.use_legacy_builtin_classification_rules = true;
         save_app_settings(&db, &settings).expect("save app settings");
         insert_test_file_at_path(
             &db,
@@ -192,6 +196,7 @@
         let mut settings = AppSettings::default();
         settings.organize_root_mode = OrganizeRootMode::CustomRoot;
         settings.organize_root_path = Some("/tmp/Organized".to_string());
+        settings.use_legacy_builtin_classification_rules = true;
         save_app_settings(&db, &settings).expect("save app settings");
         insert_test_file_at_path(
             &db,
@@ -220,6 +225,7 @@
     #[test]
     fn target_paths_are_normalized_to_forward_slashes_without_mixed_windows_separators() {
         let db = Database::open(test_db_path()).expect("open test database");
+        enable_legacy_builtin_rules(&db);
         insert_test_file_at_path(
             &db,
             "file-windows-doc",
