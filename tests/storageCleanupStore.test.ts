@@ -1,6 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { StorageAnalysis } from "../src/types/domain";
 import {
+  canAutoSelectForCleanup,
+  canManuallySelectForCleanup,
+  cleanupSelectionDisabledReason,
   resetStorageCleanupStoreForTest,
   useStorageCleanupStore
 } from "../src/store/useStorageCleanupStore";
@@ -94,5 +97,35 @@ describe("useStorageCleanupStore", () => {
     expect(api.cancelStorageCleanupScan).toHaveBeenCalledWith("job-1");
     expect(useStorageCleanupStore.getState().isScanning).toBe(false);
     expect(useStorageCleanupStore.getState().scanError).toContain("取消");
+  });
+
+  it("separates default safe cleanup selection from manual review selection", () => {
+    const safe = analysis.candidates[0];
+    const review = {
+      ...safe,
+      id: "review-cache",
+      tier: "Review" as const,
+      selected_by_default: false
+    };
+    const caution = {
+      ...safe,
+      id: "caution-cache",
+      tier: "Caution" as const,
+      selected_by_default: false
+    };
+    const blocked = {
+      ...safe,
+      id: "blocked-cache",
+      trash_allowed: false,
+      selected_by_default: false
+    };
+
+    expect(canAutoSelectForCleanup(safe)).toBe(true);
+    expect(canAutoSelectForCleanup(review)).toBe(false);
+    expect(canManuallySelectForCleanup(review)).toBe(true);
+    expect(canManuallySelectForCleanup(caution)).toBe(false);
+    expect(canManuallySelectForCleanup(blocked)).toBe(false);
+    expect(cleanupSelectionDisabledReason(caution)).toContain("谨慎处理项不能直接清理");
+    expect(cleanupSelectionDisabledReason(blocked)).toContain("不允许移动到 Safe Trash");
   });
 });

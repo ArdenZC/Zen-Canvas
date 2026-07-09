@@ -18,7 +18,8 @@ import { tauriApi, type TauriApi } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useAppStore } from "../../store/useAppStore";
 import {
-  canSelectForCleanup,
+  canManuallySelectForCleanup,
+  cleanupSelectionDisabledReason,
   defaultSelectedCleanupIds,
   useStorageCleanupStore
 } from "../../store/useStorageCleanupStore";
@@ -179,8 +180,9 @@ function StorageCleanupPanel({
   );
   const tierCounts = useMemo(() => countTiers(sortedCandidates), [sortedCandidates]);
   const selectedCleanupIdsText = [...selectedCleanupIds].join(",");
-  const selectedReclaimable = sortedCandidates
-    .filter((candidate) => selectedCleanupIds.has(candidate.id))
+  const selectedCandidates = sortedCandidates.filter((candidate) => selectedCleanupIds.has(candidate.id));
+  const selectedTierCounts = countTiers(selectedCandidates);
+  const selectedReclaimable = selectedCandidates
     .reduce((sum, candidate) => sum + candidate.size, 0);
   const deniedCount = analysis?.denied_paths.length ?? 0;
   const warnings = analysis?.warnings ?? [];
@@ -273,7 +275,8 @@ function StorageCleanupPanel({
       ensureCleanupAIReady(settings.enabled, settings.cleanupAiEnabled, settings.provider, settings.apiKey);
       const candidates = await api.analyzeCleanupCandidatesWithAI(ids);
       useStorageCleanupStore.getState().applyAIAnalyzedCandidates(candidates);
-      const message = t("storageCleanupAISuccess").replace("{count}", candidates.length.toLocaleString());
+      const analyzedCounts = countTiers(candidates);
+      const message = `AI 已分析 ${candidates.length.toLocaleString()} 个候选：可安全清理 ${analyzedCounts.Safe.toLocaleString()} 个，需要人工判断 ${analyzedCounts.Review.toLocaleString()} 个，谨慎处理 ${analyzedCounts.Caution.toLocaleString()} 个。${analyzedCounts.Safe === 0 ? " AI 未发现可自动加入清理清单的项目。请查看 Review 项的风险说明，人工确认后再加入 Safe Trash。" : ""}`;
       useStorageCleanupStore.getState().setAICleanupStatus(message);
       useAppStore.getState().showSuccess(message);
     } catch (aiError) {
@@ -287,6 +290,10 @@ function StorageCleanupPanel({
 
   function toggleSafeCandidate(candidate: StorageCandidate) {
     if (initialAnalysis) return;
+    if (!selectedCleanupIds.has(candidate.id) && candidate.tier === "Review") {
+      const confirmed = globalThis.confirm?.("这是需要人工判断的清理项，AI/规则无法保证删除后完全无影响。继续加入 Safe Trash 前，请确认你已经检查过风险说明。") ?? false;
+      if (!confirmed) return;
+    }
     useStorageCleanupStore.getState().toggleCleanupCandidate(candidate);
   }
 
@@ -581,11 +588,17 @@ function StorageCleanupPanel({
             <footer className={cn(softPanel, "sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 p-3")}>
               <div className="min-w-0">
                 <strong className="block text-sm text-[var(--ink)]">
-                  {t("storageCleanupSelectedSafe").replace("{count}", selectedCleanupIds.size.toLocaleString())}
+                  已选择 {selectedCleanupIds.size.toLocaleString()} 个清理项
                 </strong>
                 <span className={quietText}>
+                  其中 Safe {selectedTierCounts.Safe.toLocaleString()} 个，Review {selectedTierCounts.Review.toLocaleString()} 个。{" "}
                   {t("storageCleanupSelectedEstimate").replace("{size}", formatBytes(selectedReclaimable))}
                 </span>
+                {selectedCleanupIds.size === 0 && tierCounts.Review > 0 ? (
+                  <span className={cn(quietText, "block")}>当前没有默认可清理的绿色项。Review 项需要你逐个确认后才能加入 Safe Trash。</span>
+                ) : selectedCleanupIds.size === 0 && tierCounts.Caution > 0 ? (
+                  <span className={cn(quietText, "block")}>谨慎处理项不能直接加入 Safe Trash，请先打开位置人工检查。</span>
+                ) : null}
               </div>
               <button
                 className={glassButtonPrimary}
@@ -633,7 +646,8 @@ function CandidateCard({
   onToggleSafeCandidate: (candidate: StorageCandidate) => void;
   onReveal: (path: string) => void;
 }) {
-  const selectable = canSelectForCleanup(candidate);
+  const selectable = canManuallySelectForCleanup(candidate);
+  const disabledReason = cleanupSelectionDisabledReason(candidate);
   return (
     <article className={cn(softPanel, "grid gap-3 p-3")} data-candidate-id={candidate.id}>
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -695,6 +709,11 @@ function CandidateCard({
           </button>
         )}
       </div>
+      {!selectable && disabledReason ? (
+        <p className={quietText}>{disabledReason}</p>
+      ) : candidate.tier === "Review" ? (
+        <p className={quietText}>需要人工确认后才能加入 Safe Trash。</p>
+      ) : null}
     </article>
   );
 }
@@ -745,19 +764,21 @@ function readableCleanupAIError(error: unknown) {
   if (message.includes("模型返回") || message.includes("Zen Canvas 需要的 JSON")) return message;
   if (message.includes("AI 空间清理分析") || message.includes("AI 清理分析")) return "请开启 AI 空间清理分析。";
   if (message.includes("AI 未启用") || message.includes("启用 AI")) return "请先在设置中启用 AI。";
-  if (message.includes("API Key 缺失") || normalized.includes("api key") || normalized.includes("api_key")) {
-    return "当前模型服务需要 API Key，请在 AI 设置中填写。";
+  if (isCleanupRateLimitError(normalized)) {
+    return withCleanupProviderDetail("模型服务请求过快或达到限流，请降低 Batch Size 或稍后重试。", message);
   }
-  if (
-    normalized.includes("request failed") ||
-    normalized.includes("http") ||
-    normalized.includes("provider") ||
-    normalized.includes("ollama") ||
-    normalized.includes("network") ||
-    normalized.includes("timeout")
-  ) {
-    return "无法连接到模型服务，请检查 Base URL、Chat Path、网络和 API Key。";
+  if (isCleanupTimeoutError(normalized)) {
+    return withCleanupProviderDetail("模型请求超时，请降低 Batch Size、减少本次处理数量，或提高 Timeout Seconds。", message);
   }
+  if (isCleanupHttpStatus(normalized, 400)) {
+    return withCleanupProviderDetail("模型服务拒绝了请求参数，请检查 response_format、thinking、extraBodyJson 或模型名。", message);
+  }
+  if (isCleanupHttpStatus(normalized, 401) || isCleanupHttpStatus(normalized, 403)) {
+    return withCleanupProviderDetail("模型服务认证或权限失败，请检查 API Key 和模型权限。", message);
+  }
+  if (message.includes("API Key 缺失") || message.includes("当前模型服务需要 API Key")) return "当前模型服务需要 API Key，请在 AI 设置中填写。";
+  if (hasCleanupProviderDetail(normalized)) return message;
+  if (normalized.includes("request failed") || normalized.includes("ollama") || normalized.includes("network")) return "无法连接到模型服务，请检查 Base URL、Chat Path、网络和 API Key。";
   if (normalized.includes("invalid json") || normalized.includes("not valid json") || normalized.includes("json")) {
     return "模型没有返回有效 JSON，请换用更稳定的模型或关闭 thinking。";
   }
@@ -770,6 +791,38 @@ function readableCleanupAIError(error: unknown) {
     return "AI 返回了不安全的路径或操作，Zen Canvas 已拒绝应用该结果。";
   }
   return message;
+}
+
+function isCleanupHttpStatus(normalized: string, status: number) {
+  const text = String(status);
+  return normalized.includes(`http ${text}`)
+    || normalized.includes(`http status ${text}`)
+    || normalized.includes(`status ${text}`)
+    || normalized.includes(`status=${text}`);
+}
+
+function isCleanupRateLimitError(normalized: string) {
+  return isCleanupHttpStatus(normalized, 429)
+    || normalized.includes("rate limit")
+    || normalized.includes("too many request");
+}
+
+function isCleanupTimeoutError(normalized: string) {
+  return normalized.includes("timeout") || normalized.includes("timed out");
+}
+
+function hasCleanupProviderDetail(normalized: string) {
+  return normalized.includes("http ")
+    || normalized.includes("http status")
+    || normalized.includes("status ")
+    || normalized.includes("batch ")
+    || normalized.includes("provider response summary")
+    || normalized.includes("provider error:")
+    || normalized.includes("rate limit");
+}
+
+function withCleanupProviderDetail(summary: string, detail: string) {
+  return detail.includes(summary) ? detail : `${summary}\n${detail}`;
 }
 
 function sortCandidatesBySize(candidates: StorageCandidate[]) {

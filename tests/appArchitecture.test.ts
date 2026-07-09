@@ -73,11 +73,18 @@ describe("app render architecture", () => {
   it("refreshes operation previews after AI classification before opening preview", () => {
     const hub = read("src/views/hub/HubView.tsx");
 
-    expect(hub).toContain("DEFAULT_AI_CLASSIFICATION_RUN_LIMIT = 1000");
-    expect(hub).toContain("limit: DEFAULT_AI_CLASSIFICATION_RUN_LIMIT");
+    expect(hub).toContain("DEFAULT_AI_CLASSIFICATION_RUN_LIMIT = 100");
+    expect(hub).toContain("AI_CLASSIFICATION_LIMIT_OPTIONS");
+    expect(hub).toContain("limit: aiRunLimit");
     expect(hub).toContain("const refreshPreviewsForScope = useOperationQueueStore((state) => state.refreshPreviewsForScope)");
     expect(hub).toContain("const previews = await refreshPreviewsForScope(scope)");
-    expect(hub).toContain("当前没有可执行的整理操作。可能原因：AI 建议均为 Keep / Review，或目标路径与原路径相同。");
+    expect(hub).toContain("function emptyPreviewReasonMessage");
+    expect(hub).toContain("- AI 建议均为 Keep / Review");
+    expect(hub).toContain("- 目标路径与原路径相同");
+    expect(hub).toContain("- 低置信度结果需要先确认");
+    expect(hub).toContain("AI 分类完成：");
+    expect(hub).toContain("个可进入整理预览");
+    expect(hub).toContain("取消本次 AI 分类");
     expect(hub).not.toContain("AI 已生成整理建议，请进入预览后确认执行。");
   });
 

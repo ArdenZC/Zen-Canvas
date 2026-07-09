@@ -14,7 +14,8 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Manager, Runtime};
 
 pub use ai::classification::{
-    classify_files_with_ai, classify_selected_files_with_ai, AIClassificationOptions,
+    cancel_ai_classification, classify_files_with_ai, classify_selected_files_with_ai,
+    AIClassificationCancellationToken, AIClassificationOptions, AIClassificationProgressPayload,
 };
 pub use ai::cleanup::analyze_cleanup_candidates_with_ai;
 pub use ai::debug::{debug_ai_classification_once, AIDebugClassificationResult};

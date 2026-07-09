@@ -180,7 +180,7 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
       const selectedCleanupIds = new Set(
         [...state.selectedCleanupIds].filter((id) => {
           const candidate = updatedCandidates.find((item) => item.id === id);
-          return candidate ? canSelectForCleanup(candidate) && candidate.selected_by_default : false;
+          return candidate ? canManuallySelectForCleanup(candidate) : false;
         })
       );
       return {
@@ -205,7 +205,7 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
   },
 
   toggleCleanupCandidate(candidate) {
-    if (!canSelectForCleanup(candidate)) return;
+    if (!canManuallySelectForCleanup(candidate)) return;
     set((state) => {
       const selectedCleanupIds = new Set(state.selectedCleanupIds);
       if (selectedCleanupIds.has(candidate.id)) selectedCleanupIds.delete(candidate.id);
@@ -260,7 +260,25 @@ export function defaultSelectedCleanupIds(analysis?: StorageAnalysis | null): st
 }
 
 export function canSelectForCleanup(candidate: StorageCandidate) {
+  return canAutoSelectForCleanup(candidate);
+}
+
+export function canAutoSelectForCleanup(candidate: StorageCandidate) {
   return candidate.tier === "Safe" && candidate.trash_allowed && candidate.suggested_action === "MoveToTrash";
+}
+
+export function canManuallySelectForCleanup(candidate: StorageCandidate) {
+  return candidate.tier !== "Caution" && candidate.trash_allowed && candidate.suggested_action === "MoveToTrash";
+}
+
+export function cleanupSelectionDisabledReason(candidate: StorageCandidate) {
+  if (candidate.tier === "Caution") return "谨慎处理项不能直接清理，请先人工检查。";
+  if (!candidate.trash_allowed) return "该路径不允许移动到 Safe Trash。";
+  if (candidate.suggested_action !== "MoveToTrash") {
+    return "该项建议为 Reveal / AppInternalCleanup / UninstallAdvice，不是文件移动清理。";
+  }
+  if (candidate.tier === "Review") return "需要人工确认后才能加入 Safe Trash。";
+  return "";
 }
 
 function rebuildStorageAnalysis(previous: StorageAnalysis, candidates: StorageCandidate[]): StorageAnalysis {

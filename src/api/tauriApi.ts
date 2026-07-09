@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type Event, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AIConnectionTestResult,
+  AIClassificationProgressPayload,
   AIDebugClassificationResult,
   AIProviderPreset,
   AISettings,
@@ -272,6 +273,10 @@ export const tauriApi = {
     return invokeCommand<RuleExecutionSummary>("classify_selected_files_with_ai", { fileIds });
   },
 
+  cancelAIClassification(): Promise<void> {
+    return invokeCommand<void>("cancel_ai_classification");
+  },
+
   confirmClassification(fileId: string): Promise<void> {
     return invokeCommand<void>("confirm_classification", { fileId });
   },
@@ -420,6 +425,10 @@ export const tauriApi = {
 
   onStorageCleanupCancelled(handler: EventHandler<StorageCleanupJobMessage>): Promise<UnlistenFn> {
     return listenTo("storage-cleanup-cancelled", handler);
+  },
+
+  onAIClassificationProgress(handler: EventHandler<AIClassificationProgressPayload>): Promise<UnlistenFn> {
+    return listenTo("ai-classification-progress", handler);
   }
 };
 

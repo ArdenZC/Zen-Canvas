@@ -153,6 +153,16 @@ export interface AIDebugClassificationResult {
   itemParseWarnings: string[];
 }
 
+export interface AIClassificationProgressPayload {
+  jobId: string;
+  processed: number;
+  total: number;
+  batchIndex: number;
+  batchCount: number;
+  stage: string;
+  currentFilePreview: string;
+}
+
 export interface RuleExecutionSummary {
   scanned: number;
   updated: number;

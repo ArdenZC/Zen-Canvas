@@ -49,8 +49,8 @@ describe("preview execute safety UI", () => {
     const row = read("src/views/timeline/PreviewFileRow.tsx");
     const t = makeTranslator("zh");
 
-    expect(t("sourcePath")).toBe("原路径");
-    expect(t("targetPath")).toBe("目标路径");
+    expect(t("sourcePath")).toBe("源文件");
+    expect(t("targetPath")).toBe("将移动到");
     expect(t("operationMoveRename")).toBe("移动并重命名");
     expect(t("operationBlocked")).toBe("已阻止");
     expect(t("operationExecutable")).toBe("可执行");

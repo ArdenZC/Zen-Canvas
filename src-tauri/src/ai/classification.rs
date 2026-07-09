@@ -1,8 +1,14 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use rusqlite::{params, params_from_iter, types::Value as SqlValue};
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, Emitter, Runtime, State};
 
 use super::{
     ollama::OllamaProvider,
@@ -26,8 +32,24 @@ use crate::{
     settings::get_app_settings,
 };
 
-const DEFAULT_AI_CLASSIFICATION_LIMIT: u32 = 1000;
+pub const AI_CLASSIFICATION_PROGRESS_EVENT: &str = "ai-classification-progress";
+const DEFAULT_AI_CLASSIFICATION_LIMIT: u32 = 100;
 const AI_CLASSIFICATION_TRANSIENT_RETRIES: usize = 2;
+
+#[derive(Clone)]
+pub struct AIClassificationCancellationToken(pub Arc<AtomicBool>);
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AIClassificationProgressPayload {
+    pub job_id: String,
+    pub processed: usize,
+    pub total: usize,
+    pub batch_index: usize,
+    pub batch_count: usize,
+    pub stage: String,
+    pub current_file_preview: String,
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -235,7 +257,7 @@ pub async fn classify_files_with_ai_for_db(
         let settings = normalize_ai_settings(get_ai_settings_for_db(&db).map_err(string_error)?);
         let targets = collect_ai_classification_targets(&db, &scope, options.as_ref(), &settings)
             .map_err(string_error)?;
-        classify_ai_targets_with_configured_provider(&db, targets, &settings)
+        classify_ai_targets_with_configured_provider(&db, targets, &settings, None)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -249,19 +271,37 @@ pub async fn classify_selected_files_with_ai_for_db(
         let settings = normalize_ai_settings(get_ai_settings_for_db(&db).map_err(string_error)?);
         let targets =
             collect_selected_ai_classification_targets(&db, &file_ids).map_err(string_error)?;
-        classify_ai_targets_with_configured_provider(&db, targets, &settings)
+        classify_ai_targets_with_configured_provider(&db, targets, &settings, None)
     })
     .await
     .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
-pub async fn classify_files_with_ai(
+pub async fn classify_files_with_ai<R: Runtime>(
     db: State<'_, Database>,
+    app: AppHandle<R>,
+    cancellation: State<'_, AIClassificationCancellationToken>,
     scope: LibraryScope,
     options: Option<AIClassificationOptions>,
 ) -> Result<RuleExecutionSummary, String> {
-    classify_files_with_ai_for_db(db.inner().clone(), scope, options).await
+    cancellation.0.store(false, Ordering::SeqCst);
+    let cancel_flag = Arc::clone(&cancellation.0);
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let settings = normalize_ai_settings(get_ai_settings_for_db(&db).map_err(string_error)?);
+        let targets = collect_ai_classification_targets(&db, &scope, options.as_ref(), &settings)
+            .map_err(string_error)?;
+        let progress = TauriAIClassificationProgress::new(app);
+        classify_ai_targets_with_configured_provider(
+            &db,
+            targets,
+            &settings,
+            Some((&progress, &cancel_flag)),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -270,6 +310,11 @@ pub async fn classify_selected_files_with_ai(
     file_ids: Vec<String>,
 ) -> Result<RuleExecutionSummary, String> {
     classify_selected_files_with_ai_for_db(db.inner().clone(), file_ids).await
+}
+
+#[tauri::command]
+pub fn cancel_ai_classification(cancellation: State<'_, AIClassificationCancellationToken>) {
+    cancellation.0.store(true, Ordering::SeqCst);
 }
 
 pub(crate) fn collect_ai_classification_targets(
@@ -447,6 +492,8 @@ pub(crate) fn sanitize_ai_classification_result(
     )?;
     let target_template = sanitize_target_template(&output.target_template)?;
     let suggested_name = sanitize_suggested_name(output.suggested_name.as_deref());
+    let (target_template, suggested_name) =
+        split_filename_from_target_template(target_template, suggested_name);
     let confidence = output.confidence.clamp(0.0, 1.0);
     let mut requires_confirmation = output.requires_confirmation;
     if output.fallback_applied {
@@ -604,6 +651,7 @@ fn classify_ai_targets_with_configured_provider(
     db: &Database,
     targets: Vec<IndexedFileRow>,
     settings: &AISettings,
+    runtime: Option<(&dyn AIClassificationProgressEmitter, &AtomicBool)>,
 ) -> Result<RuleExecutionSummary, String> {
     if !settings.enabled {
         return Err("AI classification is disabled.".to_string());
@@ -620,7 +668,14 @@ fn classify_ai_targets_with_configured_provider(
         .into_iter()
         .map(|hint| hint.summary)
         .collect::<Vec<_>>();
-    classify_ai_targets_with_provider(db, targets, settings, provider.as_ref(), &learned_rules)
+    classify_ai_targets_with_provider(
+        db,
+        targets,
+        settings,
+        provider.as_ref(),
+        &learned_rules,
+        runtime,
+    )
 }
 
 fn classify_ai_targets_with_provider(
@@ -629,8 +684,20 @@ fn classify_ai_targets_with_provider(
     settings: &AISettings,
     provider: &dyn AIProvider,
     learned_rules: &[String],
+    runtime: Option<(&dyn AIClassificationProgressEmitter, &AtomicBool)>,
 ) -> Result<RuleExecutionSummary, String> {
+    let job_id = format!("ai-classification-{}", current_unix_seconds());
     if targets.is_empty() {
+        emit_ai_classification_progress(
+            runtime.map(|(emitter, _)| emitter),
+            &job_id,
+            0,
+            0,
+            0,
+            0,
+            "收集待分类文件",
+            "",
+        );
         return Ok(RuleExecutionSummary {
             scanned: 0,
             updated: 0,
@@ -643,10 +710,30 @@ fn classify_ai_targets_with_provider(
     }
     let batch_size = settings.batch_size.max(1);
     let batch_count = targets.len().div_ceil(batch_size);
+    emit_ai_classification_progress(
+        runtime.map(|(emitter, _)| emitter),
+        &job_id,
+        0,
+        targets.len(),
+        0,
+        batch_count,
+        "收集待分类文件",
+        targets
+            .first()
+            .map(|row| row.name.as_str())
+            .unwrap_or_default(),
+    );
     let mut sanitized = Vec::new();
     let mut sanitized_ids = HashSet::new();
     let mut failed_batches = Vec::new();
     for (batch_index, batch) in targets.chunks(batch_size).enumerate() {
+        if runtime
+            .map(|(_, cancel_flag)| cancel_flag.load(Ordering::SeqCst))
+            .unwrap_or(false)
+        {
+            break;
+        }
+        let processed_before = batch_index * batch_size;
         let id_map = AIClassificationIdMap::from_targets(batch);
         let batch_context = AIClassificationBatchContext::new(
             batch_index + 1,
@@ -654,6 +741,19 @@ fn classify_ai_targets_with_provider(
             batch_size,
             targets.len(),
             batch,
+        );
+        emit_ai_classification_progress(
+            runtime.map(|(emitter, _)| emitter),
+            &job_id,
+            processed_before,
+            targets.len(),
+            batch_index + 1,
+            batch_count,
+            "请求模型分析",
+            batch
+                .first()
+                .map(|row| row.name.as_str())
+                .unwrap_or_default(),
         );
         let content = match call_ai_classification_provider_with_retries(
             provider,
@@ -672,6 +772,19 @@ fn classify_ai_targets_with_provider(
                 continue;
             }
         };
+        emit_ai_classification_progress(
+            runtime.map(|(emitter, _)| emitter),
+            &job_id,
+            processed_before,
+            targets.len(),
+            batch_index + 1,
+            batch_count,
+            "解析模型返回",
+            batch
+                .first()
+                .map(|row| row.name.as_str())
+                .unwrap_or_default(),
+        );
         let outputs = match parse_ai_classification_response(&content) {
             Ok(outputs) => outputs,
             Err(_) => {
@@ -719,6 +832,19 @@ fn classify_ai_targets_with_provider(
                 Err(_) => {}
             }
         }
+        emit_ai_classification_progress(
+            runtime.map(|(emitter, _)| emitter),
+            &job_id,
+            (processed_before + batch.len()).min(targets.len()),
+            targets.len(),
+            batch_index + 1,
+            batch_count,
+            "写入整理建议",
+            batch
+                .last()
+                .map(|row| row.name.as_str())
+                .unwrap_or_default(),
+        );
     }
     if sanitized.is_empty() && !failed_batches.is_empty() {
         let first = failed_batches
@@ -727,8 +853,24 @@ fn classify_ai_targets_with_provider(
             .unwrap_or_else(|| "AI classification batches failed.".to_string());
         return Err(first);
     }
+    emit_ai_classification_progress(
+        runtime.map(|(emitter, _)| emitter),
+        &job_id,
+        targets.len(),
+        targets.len(),
+        batch_count,
+        batch_count,
+        "写入整理建议",
+        "",
+    );
     let mut summary = apply_ai_classification_results(db, &targets, &sanitized, settings)
         .map_err(string_error)?;
+    if runtime
+        .map(|(_, cancel_flag)| cancel_flag.load(Ordering::SeqCst))
+        .unwrap_or(false)
+    {
+        summary.warning = Some("AI 分类已取消。".to_string());
+    }
     if !failed_batches.is_empty() {
         let failed_files = failed_batches
             .iter()
@@ -739,6 +881,49 @@ fn classify_ai_targets_with_provider(
         summary.warning = Some("部分批次请求失败，请降低 Batch Size 或稍后重试。".to_string());
     }
     Ok(summary)
+}
+
+trait AIClassificationProgressEmitter {
+    fn emit_progress(&self, payload: AIClassificationProgressPayload);
+}
+
+struct TauriAIClassificationProgress<R: Runtime> {
+    app: AppHandle<R>,
+}
+
+impl<R: Runtime> TauriAIClassificationProgress<R> {
+    fn new(app: AppHandle<R>) -> Self {
+        Self { app }
+    }
+}
+
+impl<R: Runtime> AIClassificationProgressEmitter for TauriAIClassificationProgress<R> {
+    fn emit_progress(&self, payload: AIClassificationProgressPayload) {
+        let _ = self.app.emit(AI_CLASSIFICATION_PROGRESS_EVENT, payload);
+    }
+}
+
+fn emit_ai_classification_progress(
+    emitter: Option<&dyn AIClassificationProgressEmitter>,
+    job_id: &str,
+    processed: usize,
+    total: usize,
+    batch_index: usize,
+    batch_count: usize,
+    stage: &str,
+    current_file_preview: &str,
+) {
+    if let Some(emitter) = emitter {
+        emitter.emit_progress(AIClassificationProgressPayload {
+            job_id: job_id.to_string(),
+            processed,
+            total,
+            batch_index,
+            batch_count,
+            stage: stage.to_string(),
+            current_file_preview: current_file_preview.chars().take(120).collect::<String>(),
+        });
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1195,6 +1380,42 @@ fn sanitize_suggested_name(value: Option<&str>) -> String {
         .to_string()
 }
 
+fn split_filename_from_target_template(
+    target_template: String,
+    suggested_name: String,
+) -> (String, String) {
+    let Some((parent, file_name)) = split_template_filename_segment(&target_template) else {
+        return (target_template, suggested_name);
+    };
+    let safe_name = if suggested_name.trim().is_empty() {
+        sanitize_suggested_name(Some(&file_name))
+    } else {
+        suggested_name
+    };
+    (parent, safe_name)
+}
+
+fn split_template_filename_segment(template: &str) -> Option<(String, String)> {
+    let normalized = template.trim().replace('\\', "/");
+    let (parent, last) = normalized
+        .rsplit_once('/')
+        .unwrap_or(("", normalized.as_str()));
+    if !looks_like_file_name(last) {
+        return None;
+    }
+    Some((parent.trim_matches('/').to_string(), last.to_string()))
+}
+
+fn looks_like_file_name(segment: &str) -> bool {
+    let lower = segment.trim().to_ascii_lowercase();
+    [
+        ".doc", ".docx", ".pdf", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".zip", ".rar", ".7z",
+        ".csv", ".md", ".png", ".jpg", ".jpeg", ".gif", ".mp4", ".mov", ".mp3",
+    ]
+    .iter()
+    .any(|extension| lower.ends_with(extension) && lower.len() > extension.len())
+}
+
 fn ai_reason(result: &SanitizedAIClassification) -> String {
     if result.keywords.is_empty() {
         result.reason.clone()
@@ -1484,17 +1705,18 @@ mod tests {
             Ok(valid_response("file-1", "Move", "Normal").to_string()),
         ]);
 
-        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
-            .expect("retry and classify");
+        let summary =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect("retry and classify");
 
         assert_eq!(summary.updated, 1);
         assert_eq!(provider.call_count(), 2);
     }
 
     #[test]
-    fn collect_targets_default_limit_is_not_batch_size() {
+    fn collect_targets_default_limit_is_100_and_not_batch_size() {
         let db = test_db();
-        for index in 0..25 {
+        for index in 0..120 {
             insert_test_file(
                 &db,
                 &format!("file-{index}"),
@@ -1509,7 +1731,7 @@ mod tests {
         let targets = collect_ai_classification_targets(&db, &LibraryScope::All, None, &settings)
             .expect("collect targets");
 
-        assert_eq!(targets.len(), 25);
+        assert_eq!(targets.len(), 100);
     }
 
     #[test]
@@ -1561,8 +1783,9 @@ mod tests {
             Ok(valid_ref_response("f1")),
         ]);
 
-        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
-            .expect("classify all targets");
+        let summary =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect("classify all targets");
 
         assert_eq!(summary.scanned, 5);
         assert_eq!(summary.updated, 3);
@@ -1592,8 +1815,9 @@ mod tests {
             Err(AIProviderError::new("HTTP 429 rate limit")),
         ]);
 
-        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
-            .expect("partial success should return summary");
+        let summary =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect("partial success should return summary");
 
         assert_eq!(summary.scanned, 4);
         assert_eq!(summary.updated, 1);
@@ -1630,8 +1854,9 @@ mod tests {
             Err(AIProviderError::new("HTTP 429 rate limit ai-secret-key")),
         ]);
 
-        let error = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
-            .expect_err("all batches should fail");
+        let error =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect_err("all batches should fail");
 
         assert!(error.contains("batch 1/1"));
         assert!(error.contains("batchSize=2"));
@@ -1655,8 +1880,9 @@ mod tests {
         let provider =
             SequenceProvider::new(vec![Err(AIProviderError::new("HTTP 400 invalid request"))]);
 
-        let error = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
-            .expect_err("bad request should fail");
+        let error =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect_err("bad request should fail");
 
         assert!(error.contains("HTTP 400"));
         assert!(error.contains("response_format"));
@@ -1679,7 +1905,7 @@ mod tests {
             Err(AIProviderError::new("HTTP 500 provider unavailable")),
         ]);
 
-        let _ = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+        let _ = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
             .expect_err("server error should fail after retries");
 
         assert_eq!(provider.call_count(), 3);
@@ -1701,8 +1927,9 @@ mod tests {
             Err(AIProviderError::new("request timeout")),
         ]);
 
-        let error = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
-            .expect_err("timeout should fail after retries");
+        let error =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect_err("timeout should fail after retries");
 
         assert!(error.contains("Timeout"));
         assert!(error.contains("Timeout Seconds"));
@@ -1720,7 +1947,7 @@ mod tests {
             response: Ok(valid_response("file-1", "Move", "Normal").to_string()),
         };
 
-        classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+        classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
             .expect("classify");
         let previews = db
             .get_operation_previews_for_scope(&LibraryScope::All, None, None, None)
@@ -1729,6 +1956,64 @@ mod tests {
         assert_eq!(previews.total, 1);
         assert_eq!(previews.previews.len(), 1);
         assert_eq!(previews.previews[0].suggested_action, "Move");
+    }
+
+    #[test]
+    fn target_template_without_file_name_builds_normal_preview_path() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "/tmp/企业实践总结-舒智超.docx");
+        let settings = enabled_settings();
+        let targets = collect_selected_ai_classification_targets(&db, &["file-1".to_string()])
+            .expect("collect targets");
+        let provider = StaticProvider {
+            response: Ok(valid_id_response_with_target(
+                "file-1",
+                "Work/企业实践总结",
+                "",
+            )),
+        };
+
+        classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+            .expect("classify");
+        let previews = db
+            .get_operation_previews_for_scope(&LibraryScope::All, None, None, None)
+            .expect("operation previews");
+
+        assert_eq!(previews.total, 1);
+        assert!(previews.previews[0]
+            .target_path
+            .ends_with("Work/企业实践总结/企业实践总结-舒智超.docx"));
+        assert!(!previews.previews[0]
+            .target_path
+            .contains(".docx/企业实践总结-舒智超"));
+    }
+
+    #[test]
+    fn target_template_with_file_name_is_split_before_preview_path() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "/tmp/企业实践总结-舒智超.docx");
+        let settings = enabled_settings();
+        let targets = collect_selected_ai_classification_targets(&db, &["file-1".to_string()])
+            .expect("collect targets");
+        let provider = StaticProvider {
+            response: Ok(valid_id_response_with_target(
+                "file-1",
+                "Work/企业实践总结/企业实践总结-舒智超.docx",
+                "",
+            )),
+        };
+
+        classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+            .expect("classify");
+        let previews = db
+            .get_operation_previews_for_scope(&LibraryScope::All, None, None, None)
+            .expect("operation previews");
+
+        assert_eq!(previews.total, 1);
+        assert!(previews.previews[0]
+            .target_path
+            .ends_with("Work/企业实践总结/企业实践总结-舒智超.docx"));
+        assert!(!previews.previews[0].target_path.contains(".docx/"));
     }
 
     #[test]
@@ -1742,7 +2027,7 @@ mod tests {
             response: Ok(valid_response("file-1", "Review", "Normal").to_string()),
         };
 
-        classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
+        classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
             .expect("classify");
         let previews = db
             .get_operation_previews_for_scope(&LibraryScope::All, None, None, None)
@@ -1834,8 +2119,9 @@ mod tests {
             response: Err(AIProviderError::new("bad ai-secret-key")),
         };
 
-        let error = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
-            .expect_err("provider should fail");
+        let error =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect_err("provider should fail");
         let status = file_status(&db, "file-1");
 
         assert!(!error.contains("ai-secret-key"));
@@ -1853,8 +2139,9 @@ mod tests {
             response: Ok(valid_response("file-1", "Move", "Normal").to_string()),
         };
 
-        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
-            .expect("classify");
+        let summary =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect("classify");
 
         assert_eq!(summary.scanned, 1);
         assert_eq!(summary.updated, 1);
@@ -1886,8 +2173,9 @@ mod tests {
             )),
         };
 
-        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
-            .expect("classify valid item");
+        let summary =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect("classify valid item");
 
         assert_eq!(summary.updated, 1);
         assert_eq!(file_status(&db, "real-file-1"), "classified");
@@ -1904,8 +2192,9 @@ mod tests {
             response: Ok(valid_ref_response("f1").to_string()),
         };
 
-        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
-            .expect("classify");
+        let summary =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect("classify");
 
         assert_eq!(summary.updated, 1);
         assert_eq!(file_status(&db, "real-file-1"), "classified");
@@ -1922,8 +2211,9 @@ mod tests {
             response: Ok(valid_id_response("f1")),
         };
 
-        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
-            .expect("classify");
+        let summary =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect("classify");
 
         assert_eq!(summary.updated, 1);
         assert_eq!(file_status(&db, "real-file-1"), "classified");
@@ -1940,8 +2230,9 @@ mod tests {
             response: Ok(valid_id_response("real-file-1")),
         };
 
-        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
-            .expect("classify");
+        let summary =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect("classify");
 
         assert_eq!(summary.updated, 1);
         assert_eq!(file_status(&db, "real-file-1"), "classified");
@@ -1964,8 +2255,9 @@ mod tests {
             )),
         };
 
-        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
-            .expect("classify");
+        let summary =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect("classify");
 
         assert_eq!(summary.updated, 1);
         assert_eq!(file_status(&db, "real-file-1"), "classified");
@@ -1982,8 +2274,9 @@ mod tests {
             response: Ok(valid_id_response("unknown")),
         };
 
-        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
-            .expect("classify");
+        let summary =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect("classify");
 
         assert_eq!(summary.updated, 0);
         assert_eq!(file_status(&db, "real-file-1"), "unclassified");
@@ -2004,8 +2297,9 @@ mod tests {
             )),
         };
 
-        let summary = classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[])
-            .expect("classify");
+        let summary =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect("classify");
 
         assert_eq!(summary.updated, 1);
     }
@@ -2089,6 +2383,16 @@ mod tests {
     fn valid_id_response(id: &str) -> String {
         format!(
             r#"{{"classifications":[{{"id":"{id}","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Move","targetTemplate":"Teaching/Scala/试卷","suggestedName":"","confidence":0.92,"reason":"文件名包含 Scala、期末、复习题，判断为教学考试资料。","keywords":["Scala","期末","复习题"],"requiresConfirmation":false}}]}}"#
+        )
+    }
+
+    fn valid_id_response_with_target(
+        id: &str,
+        target_template: &str,
+        suggested_name: &str,
+    ) -> String {
+        format!(
+            r#"{{"classifications":[{{"id":"{id}","fileType":"Document","purpose":"Work","lifecycle":"Active","context":"企业实践","riskLevel":"Normal","suggestedAction":"Move","targetTemplate":"{target_template}","suggestedName":"{suggested_name}","confidence":0.92,"reason":"工作文档。","keywords":["企业实践"],"requiresConfirmation":false}}]}}"#
         )
     }
 

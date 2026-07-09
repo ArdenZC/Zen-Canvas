@@ -7,37 +7,41 @@ import { deriveHubFileModel, groupFilesByHubBucket } from "../src/views/hub/HubV
 describe("HubView file buckets", () => {
   it("groups classified files into the same bucket rules used by HubView", () => {
     const files = [
-      file({ id: "core", name: "core.pdf" }),
-      file({ id: "archive", name: "archive.zip", lifecycle: "Archive" }),
-      file({ id: "cleanup", name: "cleanup.tmp", suggested_action: "Review" }),
+      file({ id: "actionable", name: "core.pdf", suggested_action: "Move", suggested_target_path: "/test/Work", confidence: 0.9 }),
+      file({ id: "review", name: "review.pdf", suggested_action: "Review", requires_confirmation: true }),
+      file({ id: "keep", name: "keep.pdf", suggested_action: "Keep" }),
       file({ id: "delete", name: "delete.log", suggested_action: "DeleteCandidate" }),
       file({ id: "privacy", name: "passport.pdf", risk_level: "Sensitive" })
     ];
 
     const grouped = groupFilesByHubBucket(files);
 
-    expect(grouped.CoreAssets.map((item) => item.id)).toEqual(["core"]);
-    expect(grouped.QuietArchive.map((item) => item.id)).toEqual(["archive"]);
-    expect(grouped.CleanupLane.map((item) => item.id)).toEqual(["cleanup", "delete"]);
-    expect(grouped.PrivacyVault.map((item) => item.id)).toEqual(["privacy"]);
+    expect(grouped.Actionable.map((item) => item.id)).toEqual(["actionable"]);
+    expect(grouped.Review.map((item) => item.id)).toEqual(["review"]);
+    expect(grouped.Keep.map((item) => item.id)).toEqual(["keep"]);
+    expect(grouped.Cleanup.map((item) => item.id)).toEqual(["delete"]);
+    expect(grouped.Sensitive.map((item) => item.id)).toEqual(["privacy"]);
   });
 
   it("derives pending and bucketed hub files in one pass", () => {
     const files = [
       file({ id: "pending", name: "pending.pdf", classification_status: "unclassified" }),
-      file({ id: "core", name: "core.pdf" }),
-      file({ id: "archive", name: "archive.zip", lifecycle: "Archive" }),
-      file({ id: "cleanup", name: "cleanup.tmp", suggested_action: "Review" })
+      file({ id: "actionable", name: "core.pdf", suggested_action: "Move", suggested_target_path: "/test/Work", confidence: 0.9 }),
+      file({ id: "keep", name: "archive.zip", suggested_action: "Keep" }),
+      file({ id: "review", name: "cleanup.tmp", suggested_action: "Review" })
     ];
 
     const model = deriveHubFileModel(files);
 
     expect(model.pendingFiles.map((item) => item.id)).toEqual(["pending"]);
-    expect(model.bucketedFiles.CoreAssets.map((item) => item.id)).toEqual(["core"]);
-    expect(model.bucketedFiles.QuietArchive.map((item) => item.id)).toEqual(["archive"]);
-    expect(model.bucketedFiles.CleanupLane.map((item) => item.id)).toEqual(["cleanup"]);
-    expect(model.bucketedFiles.PrivacyVault).toEqual([]);
+    expect(model.bucketedFiles.Actionable.map((item) => item.id)).toEqual(["actionable"]);
+    expect(model.bucketedFiles.Keep.map((item) => item.id)).toEqual(["keep"]);
+    expect(model.bucketedFiles.Review.map((item) => item.id)).toEqual(["review"]);
+    expect(model.bucketedFiles.Sensitive).toEqual([]);
     expect(model.classifiedCount).toBe(3);
+    expect(model.actionablePreviewCount).toBe(1);
+    expect(model.requiresConfirmationCount).toBe(1);
+    expect(model.keepCount).toBe(1);
   });
 
   it("keeps Smart Dispatch framed as a non-destructive review workbench", () => {
@@ -54,6 +58,11 @@ describe("HubView file buckets", () => {
     expect(hubView).toContain("IconButton");
     expect(hubView).toContain("interactiveRow");
     expect(hubView).toContain("HUB_BUCKET_PREVIEW_LIMIT");
+    expect(hubView).toContain("本次最多处理");
+    expect(hubView).toContain("可进入预览");
+    expect(hubView).toContain("需人工确认");
+    expect(hubView).toContain("保留不动");
+    expect(hubView).toContain("清理候选");
     expect(hubView).not.toContain("max-h-64");
     expect(hubView).not.toContain("grid max-h-64 gap-2 overflow-auto pr-1");
     expect(hubView).toContain('t("hubSafetyHint")');

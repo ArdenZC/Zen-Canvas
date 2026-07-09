@@ -1034,12 +1034,12 @@ fn post_join_where_clause(clause: Option<&str>) -> String {
 
 fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPreviewDto> {
     let source_directory = parent_directory(&row.path);
-    let new_name = if row.suggested_name.trim().is_empty() {
+    let mut new_name = if row.suggested_name.trim().is_empty() {
         row.name.clone()
     } else {
         row.suggested_name.clone()
     };
-    let target_directory = match row.suggested_action.as_str() {
+    let mut target_directory = match row.suggested_action.as_str() {
         "Rename" => {
             if row.suggested_target_path.trim().is_empty() {
                 source_directory.clone()
@@ -1050,6 +1050,12 @@ fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPrevie
         "Move" | "MoveAndRename" | "Archive" => row.suggested_target_path.clone(),
         _ => String::new(),
     };
+    if let Some((parent, file_name)) = split_filename_like_target_directory(&target_directory) {
+        target_directory = parent;
+        if row.suggested_name.trim().is_empty() || row.suggested_name == row.name {
+            new_name = file_name;
+        }
+    }
     let target_path = if target_directory.trim().is_empty() {
         row.path.clone()
     } else {
@@ -1101,6 +1107,25 @@ fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPrevie
         target_parent_exists: Some(target_parent_exists),
         will_create_parent: Some(!target_parent_exists),
     })
+}
+
+fn split_filename_like_target_directory(target_directory: &str) -> Option<(String, String)> {
+    let normalized = target_directory.trim().replace('\\', "/");
+    let (parent, last) = normalized.rsplit_once('/')?;
+    if !looks_like_file_name_segment(last) {
+        return None;
+    }
+    Some((parent.to_string(), last.to_string()))
+}
+
+fn looks_like_file_name_segment(segment: &str) -> bool {
+    let lower = segment.trim().to_ascii_lowercase();
+    [
+        ".doc", ".docx", ".pdf", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".zip", ".rar", ".7z",
+        ".csv", ".md", ".png", ".jpg", ".jpeg", ".gif", ".mp4", ".mov", ".mp3",
+    ]
+    .iter()
+    .any(|extension| lower.ends_with(extension) && lower.len() > extension.len())
 }
 
 fn operation_preview_id(file_id: &str) -> String {

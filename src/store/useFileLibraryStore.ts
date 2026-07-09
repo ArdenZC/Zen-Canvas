@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { tauriApi } from "../api/tauriApi";
 import type {
   DashboardStats,
+  AIClassificationProgressPayload,
   FileLibraryFilters,
   FileQueryResult,
   FileRecord,
@@ -96,6 +97,7 @@ export interface FileLibraryStore {
   selectedFileId: string;
   isClassifyingWithAI: boolean;
   aiClassificationStatus: string;
+  aiClassificationProgress: AIClassificationProgressPayload | null;
   firstPageRequestId: number;
   setScope: (scope: LibraryScope) => void;
   setCurrentScanScope: (roots: string[], scanSessionId?: string) => void;
@@ -107,6 +109,8 @@ export interface FileLibraryStore {
   loadOrganizeQueue: (scope?: LibraryScope) => Promise<void>;
   classifyCurrentScopeWithAI: (options?: AIClassificationRunOptions) => Promise<RuleExecutionSummary>;
   classifySelectedFileWithAI: (fileId?: string) => Promise<RuleExecutionSummary>;
+  applyAIClassificationProgress: (progress: AIClassificationProgressPayload) => void;
+  cancelAIClassification: () => Promise<void>;
   clearAIClassificationStatus: () => void;
   refresh: (query?: string) => Promise<void>;
 }
@@ -129,6 +133,7 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
   selectedFileId: "",
   isClassifyingWithAI: false,
   aiClassificationStatus: "",
+  aiClassificationProgress: null,
   firstPageRequestId: 0,
   setScope: (scope) => {
     persistLibraryScope(scope);
@@ -220,7 +225,7 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
     if (get().isClassifyingWithAI) {
       return { scanned: 0, updated: 0, skipped: 0, needsConfirmation: 0 };
     }
-    set({ isClassifyingWithAI: true, aiClassificationStatus: "" });
+    set({ isClassifyingWithAI: true, aiClassificationStatus: "", aiClassificationProgress: null });
     try {
       const settings = await tauriApi.getAISettings();
       ensureAIReady(settings.enabled, settings.provider, settings.apiKey);
@@ -237,7 +242,7 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
       useAppStore.getState().showError(message);
       throw error;
     } finally {
-      set({ isClassifyingWithAI: false });
+      set({ isClassifyingWithAI: false, aiClassificationProgress: null });
     }
   },
   classifySelectedFileWithAI: async (fileId = get().selectedFileId) => {
@@ -251,7 +256,7 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
     if (get().isClassifyingWithAI) {
       return { scanned: 0, updated: 0, skipped: 0, needsConfirmation: 0 };
     }
-    set({ isClassifyingWithAI: true, aiClassificationStatus: "" });
+    set({ isClassifyingWithAI: true, aiClassificationStatus: "", aiClassificationProgress: null });
     try {
       const settings = await tauriApi.getAISettings();
       ensureAIReady(settings.enabled, settings.provider, settings.apiKey);
@@ -268,7 +273,21 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
       useAppStore.getState().showError(message);
       throw error;
     } finally {
-      set({ isClassifyingWithAI: false });
+      set({ isClassifyingWithAI: false, aiClassificationProgress: null });
+    }
+  },
+  applyAIClassificationProgress: (aiClassificationProgress) => set({ aiClassificationProgress }),
+  cancelAIClassification: async () => {
+    try {
+      await tauriApi.cancelAIClassification();
+      const message = "AI 分类已取消。";
+      set({ aiClassificationStatus: message, isClassifyingWithAI: false, aiClassificationProgress: null });
+      useAppStore.getState().showSuccess(message);
+    } catch (error) {
+      const message = readableError(error);
+      set({ aiClassificationStatus: message, isClassifyingWithAI: false, aiClassificationProgress: null });
+      useAppStore.getState().showError(message);
+      throw error;
     }
   },
   clearAIClassificationStatus: () => set({ aiClassificationStatus: "" }),

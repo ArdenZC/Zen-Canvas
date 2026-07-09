@@ -3,7 +3,8 @@ import { tauriApi } from "../src/api/tauriApi";
 import type { LibraryScope } from "../src/types/domain";
 
 const apiMocks = vi.hoisted(() => ({
-  invoke: vi.fn()
+  invoke: vi.fn(),
+  listen: vi.fn()
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -11,7 +12,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn()
+  listen: apiMocks.listen
 }));
 
 describe("tauriApi", () => {
@@ -23,6 +24,7 @@ describe("tauriApi", () => {
       limit: 50,
       offset: 0
     });
+    apiMocks.listen.mockReset().mockResolvedValue(() => undefined);
   });
 
   it("sends paged library filters alongside query and scope", async () => {
@@ -116,6 +118,16 @@ describe("tauriApi", () => {
       rules: [],
       mode: "all_changed_or_rule_changed"
     });
+  });
+
+  it("exposes AI classification cancellation and progress events", async () => {
+    apiMocks.listen.mockResolvedValueOnce(() => undefined);
+
+    await tauriApi.cancelAIClassification();
+    await tauriApi.onAIClassificationProgress(() => undefined);
+
+    expect(apiMocks.invoke).toHaveBeenCalledWith("cancel_ai_classification", undefined);
+    expect(apiMocks.listen).toHaveBeenCalledWith("ai-classification-progress", expect.any(Function));
   });
 
   it("reads and refreshes global hotkey registration status", async () => {

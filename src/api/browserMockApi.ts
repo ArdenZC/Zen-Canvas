@@ -127,6 +127,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "init_db":
     case "cancel_scan":
     case "cancel_operations":
+    case "cancel_ai_classification":
     case "reveal_in_folder":
     case "reveal_storage_candidate":
     case "quit_app":

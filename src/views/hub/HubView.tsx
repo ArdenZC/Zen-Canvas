@@ -33,10 +33,11 @@ import {
   softPanel
 } from "../shared/ui";
 
-const HUB_BUCKET_KEYS = ["CoreAssets", "QuietArchive", "CleanupLane", "PrivacyVault"] as const;
+const HUB_BUCKET_KEYS = ["Actionable", "Review", "Keep", "Cleanup", "Sensitive"] as const;
 const HUB_PENDING_PREVIEW_LIMIT = 6;
 const HUB_BUCKET_PREVIEW_LIMIT = 4;
-const DEFAULT_AI_CLASSIFICATION_RUN_LIMIT = 1000;
+const DEFAULT_AI_CLASSIFICATION_RUN_LIMIT = 100;
+const AI_CLASSIFICATION_LIMIT_OPTIONS = [50, 100, 500, 1000] as const;
 
 export type HubBucketKey = typeof HUB_BUCKET_KEYS[number];
 export type HubBucketGroups = Record<HubBucketKey, FileRecord[]>;
@@ -44,24 +45,41 @@ export interface HubFileModel {
   pendingFiles: FileRecord[];
   bucketedFiles: HubBucketGroups;
   classifiedCount: number;
+  actionablePreviewCount: number;
+  requiresConfirmationCount: number;
+  keepCount: number;
+  cleanupCandidateCount: number;
+  sensitiveCount: number;
 }
 
 type HubTone = "blue" | "green" | "amber" | "red" | "slate" | "purple";
 
 function createEmptyHubBucketGroups(): HubBucketGroups {
   return {
-    CoreAssets: [],
-    QuietArchive: [],
-    CleanupLane: [],
-    PrivacyVault: []
+    Actionable: [],
+    Review: [],
+    Keep: [],
+    Cleanup: [],
+    Sensitive: []
   };
 }
 
 export function getHubBucketKey(file: FileRecord): HubBucketKey {
-  if (file.risk_level === "Sensitive") return "PrivacyVault";
-  if (file.lifecycle === "Archive") return "QuietArchive";
-  if (file.suggested_action === "DeleteCandidate" || file.suggested_action === "Review") return "CleanupLane";
-  return "CoreAssets";
+  if (file.risk_level === "Sensitive" || file.lifecycle === "Sensitive") return "Sensitive";
+  if (file.suggested_action === "DeleteCandidate" || file.lifecycle === "Disposable" || file.purpose === "Temporary") return "Cleanup";
+  if (file.suggested_action === "Keep") return "Keep";
+  if (
+    file.suggested_action === "Review"
+    || file.requires_confirmation
+    || file.confidence < 0.65
+    || !file.suggested_target_path.trim() && ["Move", "MoveAndRename", "Archive"].includes(file.suggested_action)
+  ) return "Review";
+  if (
+    ["Move", "MoveAndRename", "Archive"].includes(file.suggested_action)
+    && file.suggested_target_path.trim()
+    && file.confidence >= 0.65
+  ) return "Actionable";
+  return "Keep";
 }
 
 export function groupFilesByHubBucket(files: readonly FileRecord[]): HubBucketGroups {
@@ -85,7 +103,16 @@ export function deriveHubFileModel(files: readonly FileRecord[]): HubFileModel {
     }
   }
 
-  return { pendingFiles, bucketedFiles, classifiedCount };
+  return {
+    pendingFiles,
+    bucketedFiles,
+    classifiedCount,
+    actionablePreviewCount: bucketedFiles.Actionable.length,
+    requiresConfirmationCount: bucketedFiles.Review.length,
+    keepCount: bucketedFiles.Keep.length,
+    cleanupCandidateCount: bucketedFiles.Cleanup.length,
+    sensitiveCount: bucketedFiles.Sensitive.length
+  };
 }
 
 export function HubView() {
@@ -95,8 +122,11 @@ export function HubView() {
   const isLoadingOrganizeQueue = useFileLibraryStore((state) => state.isLoadingOrganizeQueue);
   const isClassifyingWithAI = useFileLibraryStore((state) => state.isClassifyingWithAI);
   const aiClassificationStatus = useFileLibraryStore((state) => state.aiClassificationStatus);
+  const aiClassificationProgress = useFileLibraryStore((state) => state.aiClassificationProgress);
   const loadOrganizeQueue = useFileLibraryStore((state) => state.loadOrganizeQueue);
   const classifyCurrentScopeWithAI = useFileLibraryStore((state) => state.classifyCurrentScopeWithAI);
+  const cancelAIClassification = useFileLibraryStore((state) => state.cancelAIClassification);
+  const applyAIClassificationProgress = useFileLibraryStore((state) => state.applyAIClassificationProgress);
   const scope = useFileLibraryStore((state) => state.scope);
   const setScope = useFileLibraryStore((state) => state.setScope);
   const handleChooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
@@ -106,13 +136,23 @@ export function HubView() {
   const [isDispatching, setIsDispatching] = useState(false);
   const [aiThinkingWarning, setAiThinkingWarning] = useState(false);
   const [aiPreviewNotice, setAiPreviewNotice] = useState("");
+  const [aiRunLimit, setAiRunLimit] = useState<number>(DEFAULT_AI_CLASSIFICATION_RUN_LIMIT);
   const activeRuleCount = useMemo(() => countActiveRules(rules), [rules]);
-  const { pendingFiles, bucketedFiles, classifiedCount } = useMemo(() => deriveHubFileModel(files), [files]);
+  const {
+    pendingFiles,
+    bucketedFiles,
+    classifiedCount,
+    actionablePreviewCount,
+    requiresConfirmationCount,
+    keepCount,
+    cleanupCandidateCount
+  } = useMemo(() => deriveHubFileModel(files), [files]);
   const buckets = useMemo(() => [
-    { key: "CoreAssets" as const, label: t("coreAssets"), description: t("coreAssetsDesc"), tone: "blue" },
-    { key: "QuietArchive" as const, label: t("archiveBox"), description: t("archiveBoxDesc"), tone: "purple" },
-    { key: "CleanupLane" as const, label: t("cleanupLane"), description: t("cleanupLaneDesc"), tone: "slate" },
-    { key: "PrivacyVault" as const, label: t("privacyVault"), description: t("privacyVaultDesc"), tone: "red" }
+    { key: "Actionable" as const, label: "可整理", description: "高置信且目标明确，可进入预览执行。", tone: "green" },
+    { key: "Review" as const, label: "需人工确认", description: "这些文件 AI 已给出初步判断，但因为置信度低、目标不明确或涉及敏感信息，暂时不会进入预览执行。", tone: "amber" },
+    { key: "Keep" as const, label: "保留不动", description: "这些文件被判断为近期使用或无需移动，默认不会进入整理预览。", tone: "blue" },
+    { key: "Cleanup" as const, label: "清理候选", description: "这些文件可能适合清理，但不会在智能整理中删除。请前往空间清理中处理。", tone: "slate" },
+    { key: "Sensitive" as const, label: "敏感文件", description: "仅展示和提醒，不自动移动，不进入批量执行。", tone: "red" }
   ] satisfies Array<{ key: HubBucketKey; label: string; description: string; tone: HubTone }>, [t]);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
   const isEmptyCurrentScanScope = scope.kind === "current_scan" && scope.roots.length === 0;
@@ -139,6 +179,21 @@ export function HubView() {
     };
   }, []);
 
+  useEffect(() => {
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
+    void tauriApi.onAIClassificationProgress((payload) => {
+      if (!disposed) applyAIClassificationProgress(payload);
+    }).then((unlisten) => {
+      if (disposed) unlisten();
+      else cleanup = unlisten;
+    }).catch(() => undefined);
+    return () => {
+      disposed = true;
+      cleanup?.();
+    };
+  }, [applyAIClassificationProgress]);
+
   async function dispatchFiles() {
     if (isDispatching) return;
     setIsDispatching(true);
@@ -157,13 +212,18 @@ export function HubView() {
     if (isClassifyingWithAI) return;
     setAiPreviewNotice("");
     try {
-      await classifyCurrentScopeWithAI({
+      const summary = await classifyCurrentScopeWithAI({
         ...options,
-        limit: DEFAULT_AI_CLASSIFICATION_RUN_LIMIT
+        limit: aiRunLimit
       });
       await loadOrganizeQueue(scope);
       const previews = await refreshPreviewsForScope(scope);
-      setAiPreviewNotice(aiClassificationPreviewMessage(previews.total));
+      const latestModel = deriveHubFileModel(useFileLibraryStore.getState().organizeQueue);
+      setAiPreviewNotice(aiClassificationCompletionMessage(
+        summary,
+        previews.total,
+        latestModel.keepCount
+      ));
     } catch {
       // File library store owns readable AI error reporting and toast state.
     }
@@ -173,7 +233,7 @@ export function HubView() {
     try {
       const previews = await refreshPreviewsForScope(scope);
       if (previews.total === 0) {
-        setAiPreviewNotice("当前没有可执行的整理操作。可能原因：AI 建议均为 Keep / Review，或目标路径与原路径相同。");
+        setAiPreviewNotice(emptyPreviewReasonMessage());
       }
       setView("preview");
     } catch (error) {
@@ -249,6 +309,19 @@ export function HubView() {
             </p>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
+            <label className={cn(softPanel, "flex min-h-8 items-center gap-2 px-3 py-1.5 text-xs text-[var(--muted)]")}>
+              <span>本次最多处理</span>
+              <select
+                className="rounded-md border border-[var(--line)] bg-[var(--surface)] px-2 py-1 text-[var(--ink)]"
+                value={aiRunLimit}
+                onChange={(event) => setAiRunLimit(Number(event.target.value))}
+                disabled={isClassifyingWithAI}
+              >
+                {AI_CLASSIFICATION_LIMIT_OPTIONS.map((limit) => (
+                  <option key={limit} value={limit}>{limit}</option>
+                ))}
+              </select>
+            </label>
             <button
               className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")}
               onClick={() => void runAIClassification({ onlyUnclassified: false, onlyLowConfidence: false })}
@@ -284,8 +357,16 @@ export function HubView() {
             <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void openPreview()}>
               查看整理预览
             </button>
+            {isClassifyingWithAI && (
+              <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void cancelAIClassification()}>
+                取消本次 AI 分类
+              </button>
+            )}
           </div>
         </div>
+        {aiRunLimit === 1000 ? (
+          <NoticeBanner tone="warning">这可能需要较长时间和较多 API 请求。</NoticeBanner>
+        ) : null}
         {aiThinkingWarning ? (
           <NoticeBanner tone="warning">
             Thinking 模式可能降低 JSON 稳定性，建议关闭后再批量分类。
@@ -293,21 +374,24 @@ export function HubView() {
         ) : null}
         {isClassifyingWithAI ? (
           <NoticeBanner tone="info">
-            正在请求模型分析文件… 正在解析 AI 分类结果… 正在写入整理建议…
+            {aiClassificationProgress
+              ? `${aiClassificationProgress.stage}：批次 ${aiClassificationProgress.batchIndex}/${aiClassificationProgress.batchCount}，已处理 ${aiClassificationProgress.processed}/${aiClassificationProgress.total}${aiClassificationProgress.currentFilePreview ? `，当前：${aiClassificationProgress.currentFilePreview}` : ""}`
+              : "正在收集待分类文件…"}
           </NoticeBanner>
         ) : aiClassificationStatus ? (
           <NoticeBanner tone={aiClassificationStatus.startsWith("AI 分类完成") ? "success" : "warning"}>
             {aiClassificationStatus.startsWith("AI 分类完成")
-              ? `${aiClassificationStatus} ${aiPreviewNotice || "AI 已生成分类建议。可移动/重命名的项目会进入整理预览，需要确认的项目请在文件库或智能整理中查看。"}`
+              ? aiPreviewNotice || "AI 已生成分类建议。可移动/重命名的项目会进入整理预览，需要确认的项目请在文件库或智能整理中查看。"
               : `AI 分类失败：${aiClassificationStatus}`}
           </NoticeBanner>
         ) : null}
       </section>
 
-      <section className={cn(contentPanel, "grid gap-2 p-3 sm:grid-cols-3")}>
-        <SummaryChip label={t("inboxStack")} value={pendingFiles.length.toLocaleString()} hint={t("hubPendingStatus")} />
-        <SummaryChip label={t("suggestedPlan")} value={classifiedCount.toLocaleString()} hint={t("hubSuggestionStatus")} />
-        <SummaryChip label={t("builtInRules")} value={activeRuleCount.toLocaleString()} hint={t("safeModeDesc")} />
+      <section className={cn(contentPanel, "grid gap-2 p-3 sm:grid-cols-4")}>
+        <SummaryChip label="可进入预览" value={actionablePreviewCount.toLocaleString()} hint="可整理项会进入预览执行" />
+        <SummaryChip label="需人工确认" value={requiresConfirmationCount.toLocaleString()} hint="低置信、敏感或目标不明确" />
+        <SummaryChip label="保留不动" value={keepCount.toLocaleString()} hint="默认不进入整理预览" />
+        <SummaryChip label="清理候选" value={cleanupCandidateCount.toLocaleString()} hint="请前往空间清理处理" />
       </section>
 
       {organizeQueueTruncated && (
@@ -516,11 +600,42 @@ function countActiveRules(rules: readonly { enabled: boolean }[]): number {
   return count;
 }
 
+function aiClassificationCompletionMessage(
+  summary: { scanned: number; skipped: number; needsConfirmation: number; warning?: string },
+  previewCount: number,
+  keepCount: number
+) {
+  const lines = [
+    "AI 分类完成：",
+    `- 已分析 ${summary.scanned.toLocaleString()} 个文件`,
+    `- ${previewCount.toLocaleString()} 个可进入整理预览`,
+    `- ${summary.needsConfirmation.toLocaleString()} 个需要人工确认`,
+    `- ${keepCount.toLocaleString()} 个建议保留`,
+    `- ${summary.skipped.toLocaleString()} 个跳过`
+  ];
+  if (summary.warning) lines.push(summary.warning);
+  if (previewCount > 0) {
+    lines.push(aiClassificationPreviewMessage(previewCount));
+  } else {
+    lines.push("AI 已完成分类，但当前没有可执行的移动/重命名操作。请查看需要确认的项目，或调整分类结果。");
+  }
+  return lines.join("\n");
+}
+
 function aiClassificationPreviewMessage(previewCount: number) {
   if (previewCount > 0) {
     return `AI 已生成整理建议，其中 ${previewCount.toLocaleString()} 项可进入整理预览。`;
   }
   return "AI 已完成分类，但当前没有可执行的移动/重命名操作。请查看需要确认的项目，或调整分类结果。";
+}
+
+function emptyPreviewReasonMessage() {
+  return [
+    "当前没有可执行的整理操作。可能原因：",
+    "- AI 建议均为 Keep / Review",
+    "- 目标路径与原路径相同",
+    "- 低置信度结果需要先确认"
+  ].join("\n");
 }
 
 function FileCard({

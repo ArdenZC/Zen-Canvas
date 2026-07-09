@@ -69,6 +69,11 @@ export const PreviewFileRow = memo(function PreviewFileRow({
         {trashOperation && (
           <p className="mt-2 text-xs text-[var(--muted)]">{t("operationMoveToTrashRisk")}</p>
         )}
+        {preview.reason && (
+          <p className="mt-2 text-xs text-[var(--muted)]">
+            {t("reason")}：{preview.reason}
+          </p>
+        )}
 
         <div className="mt-2 grid min-w-0 gap-2 xl:grid-cols-2">
           <PathBlock label={t("sourcePath")} path={preview.source_path} tone="source" />
