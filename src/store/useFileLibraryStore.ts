@@ -120,6 +120,7 @@ export interface AIClassificationRunOptions {
   onlyLowConfidence?: boolean;
   limit?: number;
   force?: boolean;
+  allowOverwriteUserCorrections?: boolean;
 }
 
 export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({

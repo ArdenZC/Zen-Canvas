@@ -99,6 +99,7 @@ describe("operation queue store callbacks", () => {
   it("loads dispatch previews from the full active scope after rule execution", async () => {
     const scope: LibraryScope = { kind: "roots", roots: ["F:/Downloads"] };
     const refresh = vi.fn(async () => {});
+    const confirm = vi.fn(() => true);
     const previews = [preview("selected", true), preview("manual", false)];
     apiMocks.executeRulesForScope.mockResolvedValue({
       scanned: 60,
@@ -114,10 +115,16 @@ describe("operation queue store callbacks", () => {
       truncated: false,
       hasMore: false
     });
-    useFileLibraryStore.setState({ scope, refresh });
+    vi.stubGlobal("confirm", confirm);
+    useFileLibraryStore.setState({
+      scope,
+      refresh,
+      organizeQueue: [{ matched_rules: ["ai:deepseek:model"] }] as never
+    });
 
     await useOperationQueueStore.getState().runDispatch();
 
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("当前范围内已有 AI 分类或用户纠正结果"));
     expect(apiMocks.executeRulesForScope).toHaveBeenCalledWith(scope, [], "inbox_only");
     expect(refresh).toHaveBeenCalledOnce();
     expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledWith(scope);
@@ -125,6 +132,20 @@ describe("operation queue store callbacks", () => {
     expect(useOperationQueueStore.getState().selectedOperationIds).toEqual(new Set(["selected"]));
     expect(useOperationQueueStore.getState().previewScope).toEqual(scope);
     expect(useOperationQueueStore.getState().previewTotal).toBe(60);
+  });
+
+  it("does not run automatic rules when dispatch confirmation is canceled", async () => {
+    const scope: LibraryScope = { kind: "roots", roots: ["F:/Downloads"] };
+    const refresh = vi.fn(async () => {});
+    vi.stubGlobal("confirm", vi.fn(() => false));
+    useFileLibraryStore.setState({ scope, refresh });
+
+    const result = await useOperationQueueStore.getState().runDispatch();
+
+    expect(apiMocks.executeRulesForScope).not.toHaveBeenCalled();
+    expect(apiMocks.getOperationPreviewsForScope).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(result.updated).toBe(0);
   });
 
   it("refreshes previews for a scope without executing operations", async () => {

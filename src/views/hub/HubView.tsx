@@ -231,6 +231,14 @@ export function HubView() {
     }
   }
 
+  async function rerunAIClassificationForCurrentScope() {
+    const confirmed = globalThis.confirm?.(
+      "这会重新分析当前范围内的文件，可能覆盖已有 AI 分类结果。用户手动纠正和确认过的结果默认仍会被保护，除非你在高级选项中允许覆盖。是否继续？"
+    ) ?? false;
+    if (!confirmed) return;
+    await runAIClassification({ onlyUnclassified: false, onlyLowConfidence: false, force: true });
+  }
+
   async function openPreview() {
     try {
       const previews = await refreshPreviewsForScope(scope);
@@ -326,11 +334,11 @@ export function HubView() {
             </label>
             <button
               className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")}
-              onClick={() => void runAIClassification({ onlyUnclassified: false, onlyLowConfidence: false })}
+              onClick={() => void runAIClassification({ onlyUnclassified: true, onlyLowConfidence: false, force: false })}
               disabled={isClassifyingWithAI || isLoadingOrganizeQueue}
             >
               <Sparkles size={14} />
-              <span>{isClassifyingWithAI ? "正在请求模型分析文件…" : "智能分类未处理文件"}</span>
+              <span>{isClassifyingWithAI ? "正在请求模型分析文件…" : "智能分类待处理文件"}</span>
             </button>
             <button
               className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")}
@@ -350,7 +358,7 @@ export function HubView() {
             </button>
             <button
               className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")}
-              onClick={() => void runAIClassification({ onlyUnclassified: false, onlyLowConfidence: false, force: true })}
+              onClick={() => void rerunAIClassificationForCurrentScope()}
               disabled={isClassifyingWithAI || isLoadingOrganizeQueue}
             >
               <Sparkles size={14} />
@@ -371,6 +379,9 @@ export function HubView() {
             {aiConcurrency >= 2 ? "这可能产生较多 API 请求。如遇限流，请降低并发数或稍后重试。" : "这可能需要较长时间和较多 API 请求。"}
           </NoticeBanner>
         ) : null}
+        <NoticeBanner tone="info">
+          只处理未分类、文件变化过、低置信度或需要确认的项目。不会覆盖你已经确认或纠正过的分类。
+        </NoticeBanner>
         <NoticeBanner tone="info">
           Batch Size：每次请求模型处理的文件数。并发数：同时请求模型的批次数。预计请求批次 {Math.ceil(aiRunLimit / aiBatchSize).toLocaleString()}，预计并发轮数 {Math.ceil(Math.ceil(aiRunLimit / aiBatchSize) / aiConcurrency).toLocaleString()}。提高 Batch Size 和并发数可以加快分类，但过高可能导致模型返回 JSON 不完整或触发限流。
         </NoticeBanner>

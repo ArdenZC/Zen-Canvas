@@ -78,6 +78,10 @@ describe("app render architecture", () => {
     expect(hub).toContain("limit: aiRunLimit");
     expect(hub).toContain("const refreshPreviewsForScope = useOperationQueueStore((state) => state.refreshPreviewsForScope)");
     expect(hub).toContain("const previews = await refreshPreviewsForScope(scope)");
+    expect(hub).not.toContain("useOperationQueueStore((state) => state.runDispatch)");
+    expect(hub).toContain("智能分类待处理文件");
+    expect(hub).toContain("onlyUnclassified: true, onlyLowConfidence: false, force: false");
+    expect(hub).toContain("重新分析当前范围内的文件");
     expect(hub).toContain("function emptyPreviewReasonMessage");
     expect(hub).toContain("- AI 建议均为 Keep / Review");
     expect(hub).toContain("- 目标路径与原路径相同");
@@ -97,10 +101,24 @@ describe("app render architecture", () => {
     expect(settings).toContain("快速");
     expect(settings).toContain("标准");
     expect(settings).toContain("精细");
+    expect(settings).toContain("默认情况下，学习习惯只会作为 AI 分类参考");
+    expect(settings).toContain("使用旧版内置分类规则");
+    expect(settings).toContain("AI-first 模式下建议关闭");
     expect(settings).toContain("启用 AI 空间清理分析");
     expect(settings).toContain("AI 空间清理分析只增强候选项的风险说明和建议，不会直接删除文件，也不会绕过 Safe Trash。");
     expect(settings).toContain("cleanupAiEnabled: true");
     expect(browserMock).toContain("cleanupAiEnabled: true");
+  });
+
+  it("keeps automatic rule execution behind advanced warning copy", () => {
+    const rulesView = read("src/views/rules/RulesView.tsx");
+    const i18n = read("src/i18n.ts");
+
+    expect(rulesView).toContain("continueRunAutoRules");
+    expect(i18n).toContain("自动规则，高级功能");
+    expect(i18n).toContain("可能覆盖 AI 分类结果");
+    expect(i18n).toContain("默认不会覆盖用户手动确认或纠正过的结果");
+    expect(i18n).toContain("继续执行自动规则");
   });
 
   it("does not register main-window runtime side effects in search mode", () => {

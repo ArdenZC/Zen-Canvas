@@ -54,6 +54,13 @@ impl Database {
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
         insert_classification_history(&tx, &snapshot, true)?;
+        tx.execute(
+            "UPDATE files SET matched_rules = ?2 WHERE id = ?1",
+            params![
+                file_id,
+                append_matched_rule_marker(&row.matched_rules, "user_confirmed")?
+            ],
+        )?;
         if let Some(rule) = learn_rule_from_confirmed_classification(&snapshot)? {
             insert_learned_rule(&tx, &rule)?;
         }
@@ -568,7 +575,11 @@ fn sanitize_suggested_name(value: &str) -> String {
 
 fn classification_source(matched_rules_json: &str) -> String {
     let rules = serde_json::from_str::<Vec<String>>(matched_rules_json).unwrap_or_default();
-    if rules.iter().any(|rule| rule.starts_with("ai:")) {
+    if rules.iter().any(|rule| rule == "user_correction") {
+        "user_correction".to_string()
+    } else if rules.iter().any(|rule| rule == "user_confirmed") {
+        "user_confirmed".to_string()
+    } else if rules.iter().any(|rule| rule.starts_with("ai:")) {
         "ai".to_string()
     } else if rules
         .iter()
@@ -580,6 +591,17 @@ fn classification_source(matched_rules_json: &str) -> String {
     } else {
         "user".to_string()
     }
+}
+
+fn append_matched_rule_marker(
+    matched_rules_json: &str,
+    marker: &str,
+) -> Result<String, serde_json::Error> {
+    let mut rules = serde_json::from_str::<Vec<String>>(matched_rules_json).unwrap_or_default();
+    if !rules.iter().any(|rule| rule == marker) {
+        rules.push(marker.to_string());
+    }
+    serde_json::to_string(&rules)
 }
 
 fn tokenize_learning_text(value: &str) -> Vec<String> {
@@ -801,8 +823,16 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("learned source");
+        let matched_rules: String = conn
+            .query_row(
+                "SELECT matched_rules FROM files WHERE id = 'file-1'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("matched rules");
         assert_eq!(confirmed, 1);
         assert_eq!(source, "learned");
+        assert!(matched_rules.contains("user_confirmed"));
     }
 
     #[test]

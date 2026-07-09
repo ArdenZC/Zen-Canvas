@@ -919,19 +919,19 @@ export function SettingsView() {
                 <NumberField label="Timeout Seconds" value={aiSettings.timeoutSeconds} min={1} onChange={(value) => updateAISettings({ timeoutSeconds: value })} />
               </div>
               <NoticeBanner tone="info">
-                学习习惯会记录你的确认和纠正，并在后续 AI 分类时作为参考。它不会训练模型，也不会自动移动文件。
+                学习习惯会记录你的确认和纠正。默认情况下，学习习惯只会作为 AI 分类参考，不会训练模型，也不会自动移动文件。
               </NoticeBanner>
               <div className="grid gap-3 md:grid-cols-2">
                 <SwitchField
                   label="将学习习惯作为自动规则执行"
-                  description="高级选项，默认关闭。开启后普通规则执行可能使用 learned rules。"
+                  description="默认情况下，学习习惯只会作为 AI 分类参考。开启后，它会参与自动规则执行，可能影响已有分类建议。"
                   checked={useLearnedRulesAsAutoRules}
                   onChange={(next) => void updateSettings({ useLearnedRulesAsAutoRules: next })}
                   statusLabel={useLearnedRulesAsAutoRules ? t("enabled") : t("disabled")}
                 />
                 <SwitchField
-                  label="使用旧内置分类规则"
-                  description="高级选项，默认关闭。开启后旧业务分类规则可能重新计算分类建议。"
+                  label="使用旧版内置分类规则"
+                  description="旧版内置规则会按文件名、扩展名和路径进行固定分类。AI-first 模式下建议关闭，否则可能与 AI 分类结果不一致。"
                   checked={useLegacyBuiltinClassificationRules}
                   onChange={(next) => void updateSettings({ useLegacyBuiltinClassificationRules: next })}
                   statusLabel={useLegacyBuiltinClassificationRules ? t("enabled") : t("disabled")}

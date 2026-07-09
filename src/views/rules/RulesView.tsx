@@ -187,7 +187,7 @@ export function RulesView() {
   const confirmDialogDescription =
     confirmState?.kind === "deleteRule" ? t("confirmDeleteRule") : t("reapplyRulesSafetyDesc");
   const confirmDialogLabel =
-    confirmState?.kind === "deleteRule" ? t("deleteRule") : t("reapplyRules");
+    confirmState?.kind === "deleteRule" ? t("deleteRule") : t("continueRunAutoRules");
 
   return (
     <>

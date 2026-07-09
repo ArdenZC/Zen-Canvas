@@ -908,7 +908,7 @@
         assert!(file
             .matched_rules
             .iter()
-            .any(|rule| rule.contains("Career")));
+            .any(|rule| rule == "legacy_builtin:system_career"));
         assert_ne!(
             file.classification_reason,
             "Indexed by Zen Canvas Tauri backend."
@@ -1258,7 +1258,7 @@
         assert!(file
             .matched_rules
             .iter()
-            .any(|rule| rule == "Resume project override"));
+            .any(|rule| rule == "rule:user_resume_project"));
     }
 
     #[test]

@@ -406,7 +406,7 @@ fn classification_version_for_rules(
 }
 
 fn should_classify_file(row: &IndexedFileRow, rule_version: &str) -> bool {
-    if row_has_ai_classification(row) {
+    if row_has_protected_classification(row) {
         return false;
     }
     row.last_classified_at == 0
@@ -415,9 +415,16 @@ fn should_classify_file(row: &IndexedFileRow, rule_version: &str) -> bool {
         || row.last_classified_size != row.size
 }
 
-fn row_has_ai_classification(row: &IndexedFileRow) -> bool {
+fn row_has_protected_classification(row: &IndexedFileRow) -> bool {
     serde_json::from_str::<Vec<String>>(&row.matched_rules)
-        .map(|rules| rules.iter().any(|rule| rule.starts_with("ai:")))
+        .map(|rules| {
+            rules.iter().any(|rule| {
+                rule.starts_with("ai:")
+                    || rule == "user_correction"
+                    || rule == "user_confirmed"
+                    || rule == "manual"
+            })
+        })
         .unwrap_or(false)
 }
 
@@ -565,9 +572,9 @@ fn classify_indexed_file(
     let action = top
         .map(|candidate| merge_action(&builtin.action, &candidate.rule.action))
         .unwrap_or_else(|| builtin.action.clone());
-    let matched_rule_names = candidates
+    let mut matched_rule_names = candidates
         .iter()
-        .map(|candidate| candidate.rule.name.clone())
+        .map(|candidate| matched_rule_marker(&candidate.rule))
         .collect::<Vec<_>>();
     let confidence = top
         .map(|candidate| (candidate.score / 100.0).clamp(0.35, 0.98))
@@ -576,17 +583,23 @@ fn classify_indexed_file(
         .risk_level
         .clone()
         .unwrap_or_else(|| default_if_empty(&row.risk_level, "Unknown"));
-    if safety
+    let safety_guard_applied = safety
         .action
         .risk_level
         .as_deref()
-        .is_some_and(|value| value == "Sensitive" || value == "System")
-    {
+        .is_some_and(|value| value == "Sensitive" || value == "System");
+    if safety_guard_applied {
         risk_level = safety
             .action
             .risk_level
             .clone()
             .unwrap_or_else(|| "Sensitive".to_string());
+        if !matched_rule_names
+            .iter()
+            .any(|rule| rule == "safety_guard:sensitive_or_system")
+        {
+            matched_rule_names.push("safety_guard:sensitive_or_system".to_string());
+        }
     }
     let suggested_action = safe_action(
         &action
@@ -637,6 +650,14 @@ fn classify_indexed_file(
         matched_rules: serde_json::to_string(&matched_rule_names)?,
         requires_confirmation,
     })
+}
+
+fn matched_rule_marker(rule: &Rule) -> String {
+    match rule.source.as_str() {
+        "system" => format!("legacy_builtin:{}", rule.id),
+        "learned" => format!("learned:{}", rule.id),
+        _ => format!("rule:{}", rule.id),
+    }
 }
 
 fn evaluate_rule(rule: &Rule, row: &IndexedFileRow, file_type: &str) -> bool {

@@ -214,6 +214,26 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
     const t = currentT();
     try {
       const scope = useFileLibraryStore.getState().scope;
+      const files = useFileLibraryStore.getState().organizeQueue;
+      const hasProtectedResults = files.some((file) =>
+        file.matched_rules.some((rule) =>
+          rule.startsWith("ai:")
+          || rule === "user_correction"
+          || rule === "user_confirmed"
+        )
+      );
+      const warning = hasProtectedResults
+        ? "当前范围内已有 AI 分类或用户纠正结果。执行自动规则可能覆盖这些结果。\n\n自动规则会重新计算当前范围内的分类建议，可能覆盖 AI 分类结果或用户手动纠正结果。是否继续？"
+        : "自动规则会重新计算当前范围内的分类建议，可能覆盖 AI 分类结果或用户手动纠正结果。是否继续？";
+      const confirmed = globalThis.confirm?.(warning) ?? false;
+      if (!confirmed) {
+        return {
+          scanned: 0,
+          updated: 0,
+          skipped: 0,
+          needsConfirmation: 0
+        };
+      }
       const summary = await tauriApi.executeRulesForScope(
         scope,
         useRulesStore.getState().rules,

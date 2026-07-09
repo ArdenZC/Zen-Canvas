@@ -38,7 +38,7 @@ describe("phase 11 product copy", () => {
     expect(t("runDispatch")).toBe("刷新整理预览");
     expect(t("inboxStack")).toBe("待整理文件");
     expect(t("targetBoxes")).toBe("建议去向");
-    expect(t("strategy")).toBe("整理规则");
+    expect(t("strategy")).toBe("自动规则，高级功能");
     expect(t("releaseReady")).toBe("发布检查");
     expect(t("settingsDeveloperRelease")).toBe("开发检查");
   });

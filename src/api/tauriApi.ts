@@ -265,6 +265,7 @@ export const tauriApi = {
     onlyLowConfidence?: boolean;
     limit?: number;
     force?: boolean;
+    allowOverwriteUserCorrections?: boolean;
   }
 ): Promise<RuleExecutionSummary> {
     return invokeCommand<RuleExecutionSummary>("classify_files_with_ai", { scope, options: options ?? null });

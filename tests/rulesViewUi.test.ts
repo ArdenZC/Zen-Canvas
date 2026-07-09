@@ -18,7 +18,7 @@ describe("rules view UI", () => {
     expect(t("lockedTemplate")).toBe("锁定模板");
     expect(t("editableRule")).toBe("可编辑规则");
     expect(t("confirmDeleteRuleTitle")).toBe("删除这条规则？");
-    expect(t("confirmReapplyRulesTitle")).toBe("重新应用规则？");
+    expect(t("confirmReapplyRulesTitle")).toBe("执行自动规则？");
 
     expect(sharedUi).toContain("ConfirmDialog");
     expect(rulesView).toContain("ConfirmDialog");
@@ -42,7 +42,10 @@ describe("rules view UI", () => {
     expect(t("ruleExpectedResult")).toBe("预期结果摘要");
     expect(t("ruleNoAutoMove")).toBe("不会自动移动文件");
     expect(t("rulePreviewRequired")).toBe("需要进入预览确认");
-    expect(t("reapplyRulesSafetyDesc")).toContain("不会移动文件");
+    expect(t("reapplyRulesSafetyDesc")).toContain("可能覆盖 AI 分类结果");
+    expect(t("reapplyRulesSafetyDesc")).toContain("默认不会覆盖用户手动确认或纠正过的结果");
+    expect(t("ruleNoAutoMove")).toContain("不会自动移动文件");
+    expect(t("rulePreviewRequired")).toContain("需要进入预览确认");
 
     expect(rulesView).toContain('t("ruleBasicInfo")');
     expect(rulesView).toContain('t("ruleConditions")');

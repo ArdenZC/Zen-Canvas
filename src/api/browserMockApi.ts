@@ -768,11 +768,32 @@ function mockAIDebugClassification(args?: Record<string, unknown>): AIDebugClass
 }
 
 function mockAIClassifyFiles(args?: Record<string, unknown>): RuleExecutionSummary {
-  const options = args?.options as { onlyUnclassified?: boolean; onlyLowConfidence?: boolean; limit?: number } | null | undefined;
+  const options = args?.options as {
+    onlyUnclassified?: boolean;
+    onlyLowConfidence?: boolean;
+    limit?: number;
+    force?: boolean;
+    allowOverwriteUserCorrections?: boolean;
+  } | null | undefined;
   const limit = Math.max(1, Number(options?.limit ?? mockFiles.length));
   const candidates = mockFiles
     .filter((file) => !options?.onlyUnclassified || file.classification_status !== "classified")
     .filter((file) => !options?.onlyLowConfidence || file.confidence < 0.65)
+    .filter((file) => {
+      const protectedByUser = file.matched_rules.some((rule) =>
+        rule === "user_correction"
+        || rule === "user_confirmed"
+        || rule === "manual"
+        || rule.startsWith("learned:")
+      );
+      if (protectedByUser && !options?.allowOverwriteUserCorrections) return false;
+      if (options?.force) return true;
+      return !(
+        file.classification_status === "classified"
+        && !file.requires_confirmation
+        && file.matched_rules.some((rule) => rule.startsWith("ai:"))
+      );
+    })
     .slice(0, limit);
   return applyMockAIClassification(candidates);
 }

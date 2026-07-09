@@ -67,6 +67,7 @@ pub struct AIClassificationOptions {
     pub only_low_confidence: Option<bool>,
     pub limit: Option<u32>,
     pub force: Option<bool>,
+    pub allow_overwrite_user_corrections: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -338,6 +339,9 @@ pub(crate) fn collect_ai_classification_targets(
         .unwrap_or(DEFAULT_AI_CLASSIFICATION_LIMIT)
         .clamp(1, 5000);
     let force = options.and_then(|options| options.force).unwrap_or(false);
+    let allow_overwrite_user_corrections = options
+        .and_then(|options| options.allow_overwrite_user_corrections)
+        .unwrap_or(false);
     let only_unclassified = options
         .and_then(|options| options.only_unclassified)
         .unwrap_or(true);
@@ -351,6 +355,16 @@ pub(crate) fn collect_ai_classification_targets(
     if only_low_confidence {
         filters.push("f.confidence < 0.65");
     }
+    if !allow_overwrite_user_corrections {
+        filters.push(
+            "NOT (
+                f.matched_rules LIKE '%user_correction%'
+                OR f.matched_rules LIKE '%user_confirmed%'
+                OR f.matched_rules LIKE '%manual%'
+                OR f.matched_rules LIKE '%learned:%'
+            )",
+        );
+    }
     if !force {
         filters.push(
             "NOT (
@@ -358,7 +372,6 @@ pub(crate) fn collect_ai_classification_targets(
                 AND f.requires_confirmation = 0
                 AND f.last_classified_mtime = f.mtime
                 AND f.last_classified_size = f.size
-                AND f.matched_rules LIKE '%ai:%'
             )",
         );
     }
@@ -1967,6 +1980,7 @@ mod tests {
             only_low_confidence: None,
             limit: Some(100),
             force: None,
+            allow_overwrite_user_corrections: None,
         };
 
         let targets =
@@ -1974,6 +1988,128 @@ mod tests {
                 .expect("collect targets");
 
         assert_eq!(targets.len(), 100);
+    }
+
+    #[test]
+    fn collect_targets_skips_stable_ai_classification_unless_forced() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "/tmp/ai-stable.pdf");
+        mark_classified(
+            &db,
+            "file-1",
+            r#"["ai:deepseek:deepseek-v4-flash"]"#,
+            false,
+        );
+        let settings = enabled_settings();
+        let default_options = AIClassificationOptions {
+            only_unclassified: Some(false),
+            only_low_confidence: Some(false),
+            limit: None,
+            force: Some(false),
+            allow_overwrite_user_corrections: None,
+        };
+        let force_options = AIClassificationOptions {
+            force: Some(true),
+            ..default_options.clone()
+        };
+
+        let default_targets = collect_ai_classification_targets(
+            &db,
+            &LibraryScope::All,
+            Some(&default_options),
+            &settings,
+        )
+        .expect("collect default targets");
+        let force_targets =
+            collect_ai_classification_targets(&db, &LibraryScope::All, Some(&force_options), &settings)
+                .expect("collect forced targets");
+
+        assert!(default_targets.is_empty());
+        assert_eq!(force_targets.len(), 1);
+    }
+
+    #[test]
+    fn collect_targets_protects_user_corrections_even_when_forced() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "/tmp/user-corrected.pdf");
+        mark_classified(&db, "file-1", r#"["user_correction"]"#, false);
+        let settings = enabled_settings();
+        let options = AIClassificationOptions {
+            only_unclassified: Some(false),
+            only_low_confidence: Some(false),
+            limit: None,
+            force: Some(true),
+            allow_overwrite_user_corrections: None,
+        };
+
+        let targets =
+            collect_ai_classification_targets(&db, &LibraryScope::All, Some(&options), &settings)
+                .expect("collect targets");
+
+        assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn collect_targets_protects_user_confirmed_even_when_forced() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "/tmp/user-confirmed.pdf");
+        mark_classified(&db, "file-1", r#"["ai:deepseek:model","user_confirmed"]"#, false);
+        let settings = enabled_settings();
+        let options = AIClassificationOptions {
+            only_unclassified: Some(false),
+            only_low_confidence: Some(false),
+            limit: None,
+            force: Some(true),
+            allow_overwrite_user_corrections: None,
+        };
+
+        let targets =
+            collect_ai_classification_targets(&db, &LibraryScope::All, Some(&options), &settings)
+                .expect("collect targets");
+
+        assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn collect_targets_allows_user_correction_overwrite_only_when_explicit() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "/tmp/user-corrected-override.pdf");
+        mark_classified(&db, "file-1", r#"["user_correction"]"#, false);
+        let settings = enabled_settings();
+        let options = AIClassificationOptions {
+            only_unclassified: Some(false),
+            only_low_confidence: Some(false),
+            limit: None,
+            force: Some(true),
+            allow_overwrite_user_corrections: Some(true),
+        };
+
+        let targets =
+            collect_ai_classification_targets(&db, &LibraryScope::All, Some(&options), &settings)
+                .expect("collect targets");
+
+        assert_eq!(targets.len(), 1);
+    }
+
+    #[test]
+    fn collect_targets_skips_classified_unchanged_confirmed_files_by_default() {
+        let db = test_db();
+        insert_test_file(&db, "file-1", "/tmp/classified-stable.pdf");
+        mark_classified(&db, "file-1", r#"[]"#, false);
+        let settings = enabled_settings();
+        let options = AIClassificationOptions {
+            only_unclassified: Some(false),
+            only_low_confidence: Some(false),
+            limit: None,
+            force: Some(false),
+            allow_overwrite_user_corrections: None,
+        };
+
+        let targets =
+            collect_ai_classification_targets(&db, &LibraryScope::All, Some(&options), &settings)
+                .expect("collect targets");
+
+        assert!(targets.is_empty());
     }
 
     #[test]
@@ -2650,6 +2786,29 @@ mod tests {
             state_code: 0,
         })
         .expect("insert file");
+    }
+
+    fn mark_classified(
+        db: &Database,
+        id: &str,
+        matched_rules: &str,
+        requires_confirmation: bool,
+    ) {
+        let conn = Connection::open(db.path()).expect("open db");
+        conn.execute(
+            r#"
+            UPDATE files
+            SET classification_status = 'classified',
+                matched_rules = ?2,
+                requires_confirmation = ?3,
+                last_classified_at = 1700000001,
+                last_classified_mtime = mtime,
+                last_classified_size = size
+            WHERE id = ?1
+            "#,
+            params![id, matched_rules, i64::from(requires_confirmation)],
+        )
+        .expect("mark classified");
     }
 
     fn file_status(db: &Database, id: &str) -> String {
