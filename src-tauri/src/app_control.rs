@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::{AppHandle, Runtime, State};
 
@@ -39,8 +39,21 @@ const GLOBAL_HOTKEY_REGISTRATION_FAILED_EVENT: &str = "global-hotkey-registratio
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchNavigatePayload {
-    pub view: String,
+    pub view: SearchView,
     pub file_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchView {
+    Scanner,
+    Cleanup,
+    Organize,
+    Library,
+    Preview,
+    Rules,
+    Restore,
+    Settings,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -70,7 +83,7 @@ pub struct GlobalHotkeyStatusState {
 }
 
 impl SearchNavigatePayload {
-    pub fn new(view: String, file_id: Option<String>) -> Self {
+    pub fn new(view: SearchView, file_id: Option<String>) -> Self {
         Self { view, file_id }
     }
 }
@@ -112,7 +125,7 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 #[tauri::command]
 pub fn activate_search_result<R: Runtime>(
     app: AppHandle<R>,
-    view: String,
+    view: SearchView,
     file_id: Option<String>,
 ) -> Result<(), String> {
     let payload = SearchNavigatePayload::new(view, file_id);
@@ -532,7 +545,7 @@ mod tests {
 
     #[test]
     fn search_navigation_payload_serializes_camel_case_file_id() {
-        let payload = SearchNavigatePayload::new("library".to_string(), Some("file-1".to_string()));
+        let payload = SearchNavigatePayload::new(SearchView::Library, Some("file-1".to_string()));
         let value = serde_json::to_value(payload).expect("serialize search navigation payload");
 
         assert_eq!(value["view"], "library");

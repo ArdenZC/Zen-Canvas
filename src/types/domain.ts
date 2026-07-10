@@ -95,6 +95,7 @@ export interface AISettings {
   baseUrl: string;
   chatPath: string;
   apiKey: string;
+  apiKeyConfigured?: boolean;
   model: string;
   temperature: number;
   maxTokens: number;
@@ -103,7 +104,6 @@ export interface AISettings {
   timeoutSeconds: number;
   sendFullPath: boolean;
   sendParentPath: boolean;
-  sendFileContent: boolean;
   classificationMode: AIClassificationMode;
   cleanupAiEnabled: boolean;
   forceJsonOutput: boolean;
@@ -447,6 +447,10 @@ export interface StorageAnalysis {
   candidates: StorageCandidate[];
   denied_paths: string[];
   warnings?: string[];
+  candidate_total?: number;
+  candidate_offset?: number;
+  candidate_limit?: number;
+  has_more?: boolean;
 }
 
 export interface StorageCleanupProgress {
@@ -458,7 +462,7 @@ export interface StorageCleanupProgress {
 
 export interface StorageCleanupScanStatus {
   jobId: string;
-  status: "running" | "completed" | "failed" | "cancelled" | string;
+  status: "running" | "completed" | "failed" | "cancelled";
   progress: StorageCleanupProgress;
   analysis: StorageAnalysis | null;
   error: string | null;
@@ -497,7 +501,7 @@ export interface CleanupExecutionLog {
   path: string;
   name: string;
   size: number;
-  status: "success" | "skipped" | "failed" | string;
+  status: "success" | "skipped" | "failed";
   message: string;
   itemId?: string | null;
   trashPath?: string | null;
@@ -519,7 +523,7 @@ export interface CleanupTrashItem {
   size: number;
   movedAt: string;
   restoredAt: string | null;
-  status: "moved" | "restored" | "missing" | "failed" | string;
+  status: "pending" | "moved" | "restored" | "missing" | "failed";
   message: string | null;
 }
 
@@ -529,7 +533,7 @@ export interface CleanupTrashBatch {
   root: string | null;
   totalItems: number;
   totalSize: number;
-  status: string;
+  status: "pending" | "success" | "partial_failed";
   items: CleanupTrashItem[];
 }
 
@@ -539,13 +543,10 @@ export interface CleanupRestorePreview {
 }
 
 export interface CleanupRestoreLog {
-  item_id?: string;
-  itemId?: string;
-  original_path?: string;
-  originalPath?: string;
-  trash_path?: string;
-  trashPath?: string;
-  status: "restored" | "conflict" | "missing" | "failed" | string;
+  itemId: string;
+  originalPath: string;
+  trashPath: string;
+  status: "restored" | "conflict" | "missing" | "failed";
   message: string;
 }
 
@@ -580,7 +581,11 @@ export interface OperationLog {
 }
 
 export interface ExecuteOperationRequest {
-  operations: OperationPreview[];
+  operations: Array<{
+    id: string;
+    fileId: string;
+    newName?: string;
+  }>;
 }
 
 export interface ExecuteOperationResult {

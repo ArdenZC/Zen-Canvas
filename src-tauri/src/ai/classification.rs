@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::mpsc,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::Instant,
@@ -38,8 +38,35 @@ pub const AI_CLASSIFICATION_PROGRESS_EVENT: &str = "ai-classification-progress";
 const DEFAULT_AI_CLASSIFICATION_LIMIT: u32 = 100;
 const AI_CLASSIFICATION_TRANSIENT_RETRIES: usize = 2;
 
-#[derive(Clone)]
-pub struct AIClassificationCancellationToken(pub Arc<AtomicBool>);
+static AI_JOB_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Clone, Default)]
+pub struct AIClassificationCancellationToken {
+    cancel: Arc<AtomicBool>,
+    running: Arc<AtomicBool>,
+}
+
+impl AIClassificationCancellationToken {
+    fn begin(&self) -> Result<AIClassificationRunGuard, String> {
+        self.running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+            .map_err(|_| "Another AI classification job is already running.".to_string())?;
+        self.cancel.store(false, Ordering::Release);
+        Ok(AIClassificationRunGuard {
+            running: Arc::clone(&self.running),
+        })
+    }
+}
+
+struct AIClassificationRunGuard {
+    running: Arc<AtomicBool>,
+}
+
+impl Drop for AIClassificationRunGuard {
+    fn drop(&mut self) {
+        self.running.store(false, Ordering::Release);
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -297,10 +324,11 @@ pub async fn classify_files_with_ai<R: Runtime>(
     scope: LibraryScope,
     options: Option<AIClassificationOptions>,
 ) -> Result<RuleExecutionSummary, String> {
-    cancellation.0.store(false, Ordering::SeqCst);
-    let cancel_flag = Arc::clone(&cancellation.0);
+    let guard = cancellation.begin()?;
+    let cancel_flag = Arc::clone(&cancellation.cancel);
     let db = db.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
         let settings = normalize_ai_settings(get_ai_settings_for_db(&db).map_err(string_error)?);
         let targets = collect_ai_classification_targets(&db, &scope, options.as_ref(), &settings)
             .map_err(string_error)?;
@@ -317,16 +345,35 @@ pub async fn classify_files_with_ai<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn classify_selected_files_with_ai(
+pub async fn classify_selected_files_with_ai<R: Runtime>(
     db: State<'_, Database>,
+    app: AppHandle<R>,
+    cancellation: State<'_, AIClassificationCancellationToken>,
     file_ids: Vec<String>,
 ) -> Result<RuleExecutionSummary, String> {
-    classify_selected_files_with_ai_for_db(db.inner().clone(), file_ids).await
+    let guard = cancellation.begin()?;
+    let cancel_flag = Arc::clone(&cancellation.cancel);
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let settings = normalize_ai_settings(get_ai_settings_for_db(&db).map_err(string_error)?);
+        let targets =
+            collect_selected_ai_classification_targets(&db, &file_ids).map_err(string_error)?;
+        let progress = TauriAIClassificationProgress::new(app);
+        classify_ai_targets_with_configured_provider(
+            &db,
+            targets,
+            &settings,
+            Some((&progress, &cancel_flag)),
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
 pub fn cancel_ai_classification(cancellation: State<'_, AIClassificationCancellationToken>) {
-    cancellation.0.store(true, Ordering::SeqCst);
+    cancellation.cancel.store(true, Ordering::SeqCst);
 }
 
 pub(crate) fn collect_ai_classification_targets(
@@ -435,8 +482,7 @@ pub(crate) fn collect_selected_ai_classification_targets(
     if ids.is_empty() {
         return Ok(Vec::new());
     }
-    let placeholders = std::iter::repeat("?")
-        .take(ids.len())
+    let placeholders = std::iter::repeat_n("?", ids.len())
         .collect::<Vec<_>>()
         .join(", ");
     let sql = format!(
@@ -764,7 +810,11 @@ fn classify_ai_targets_with_provider(
     learned_rules: &[String],
     runtime: Option<(&dyn AIClassificationProgressEmitter, &AtomicBool)>,
 ) -> Result<RuleExecutionSummary, String> {
-    let job_id = format!("ai-classification-{}", current_unix_seconds());
+    let job_id = format!(
+        "ai-classification-{}-{}",
+        current_unix_seconds(),
+        AI_JOB_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    );
     let started = Instant::now();
     if targets.is_empty() {
         emit_ai_classification_progress(
@@ -785,7 +835,10 @@ fn classify_ai_targets_with_provider(
 
     let batch_size = settings.batch_size.max(1);
     let batch_count = targets.len().div_ceil(batch_size);
-    let concurrency = settings.classification_concurrency.clamp(1, 4).min(batch_count.max(1));
+    let concurrency = settings
+        .classification_concurrency
+        .clamp(1, 4)
+        .min(batch_count.max(1));
     let tasks = targets
         .chunks(batch_size)
         .enumerate()
@@ -810,16 +863,27 @@ fn classify_ai_targets_with_provider(
 
     emit_ai_classification_progress(
         runtime.map(|(emitter, _)| emitter),
-        AIClassificationProgressUpdate::new(&job_id, 0, targets.len(), 0, batch_count, "收集待分类文件")
-            .current_file(targets.first().map(|row| row.name.as_str()).unwrap_or_default())
-            .elapsed(started.elapsed().as_millis()),
+        AIClassificationProgressUpdate::new(
+            &job_id,
+            0,
+            targets.len(),
+            0,
+            batch_count,
+            "收集待分类文件",
+        )
+        .current_file(
+            targets
+                .first()
+                .map(|row| row.name.as_str())
+                .unwrap_or_default(),
+        )
+        .elapsed(started.elapsed().as_millis()),
     );
 
     std::thread::scope(|scope| {
         for _ in 0..concurrency {
             let queue = Arc::clone(&queue);
             let tx = tx.clone();
-            let provider = provider;
             let settings = settings.clone();
             let learned_rules = learned_rules.to_vec();
             scope.spawn(move || loop {
@@ -828,7 +892,10 @@ fn classify_ai_targets_with_provider(
                     queue.pop_front()
                 };
                 let Some(task) = task else { break };
-                if cancel_flag.map(|flag| flag.load(Ordering::SeqCst)).unwrap_or(false) {
+                if cancel_flag
+                    .map(|flag| flag.load(Ordering::SeqCst))
+                    .unwrap_or(false)
+                {
                     break;
                 }
                 let result = run_ai_classification_batch(provider, &settings, &learned_rules, task);
@@ -853,35 +920,71 @@ fn classify_ai_targets_with_provider(
                             needs_confirmation += summary.needs_confirmation;
                             emit_ai_classification_progress(
                                 runtime.map(|(emitter, _)| emitter),
-                                AIClassificationProgressUpdate::new(&job_id, processed, targets.len(), task.index, batch_count, "写入整理建议")
-                                    .completed_batches(completed_batches)
-                                    .failed_batches(failed_batches_count)
-                                    .summary(updated, skipped, needs_confirmation)
-                                    .current_file(task.rows.last().map(|row| row.name.as_str()).unwrap_or_default())
-                                    .elapsed(started.elapsed().as_millis())
-                                    .estimated_remaining(estimated_remaining_ms(started, processed, targets.len())),
+                                AIClassificationProgressUpdate::new(
+                                    &job_id,
+                                    processed,
+                                    targets.len(),
+                                    task.index,
+                                    batch_count,
+                                    "写入整理建议",
+                                )
+                                .completed_batches(completed_batches)
+                                .failed_batches(failed_batches_count)
+                                .summary(updated, skipped, needs_confirmation)
+                                .current_file(
+                                    task.rows
+                                        .last()
+                                        .map(|row| row.name.as_str())
+                                        .unwrap_or_default(),
+                                )
+                                .elapsed(started.elapsed().as_millis())
+                                .estimated_remaining(
+                                    estimated_remaining_ms(started, processed, targets.len()),
+                                ),
                             );
                         }
                         Err(error) => {
                             failed_batches_count += 1;
                             skipped += task.rows.len() as i64;
-                            failures.push(AIClassificationBatchFailure::from_context(&task.context(), error));
+                            failures.push(AIClassificationBatchFailure::from_context(
+                                &task.context(),
+                                error,
+                            ));
                         }
                     }
                 }
                 AIClassificationBatchRunResult::Failure { task, error } => {
                     failed_batches_count += 1;
                     skipped += task.rows.len() as i64;
-                    failures.push(AIClassificationBatchFailure::from_context(&task.context(), error));
+                    failures.push(AIClassificationBatchFailure::from_context(
+                        &task.context(),
+                        error,
+                    ));
                     emit_ai_classification_progress(
                         runtime.map(|(emitter, _)| emitter),
-                        AIClassificationProgressUpdate::new(&job_id, processed, targets.len(), task.index, batch_count, "解析模型返回")
-                            .completed_batches(completed_batches)
-                            .failed_batches(failed_batches_count)
-                            .summary(updated, skipped, needs_confirmation)
-                            .current_file(task.rows.first().map(|row| row.name.as_str()).unwrap_or_default())
-                            .elapsed(started.elapsed().as_millis())
-                            .estimated_remaining(estimated_remaining_ms(started, processed, targets.len())),
+                        AIClassificationProgressUpdate::new(
+                            &job_id,
+                            processed,
+                            targets.len(),
+                            task.index,
+                            batch_count,
+                            "解析模型返回",
+                        )
+                        .completed_batches(completed_batches)
+                        .failed_batches(failed_batches_count)
+                        .summary(updated, skipped, needs_confirmation)
+                        .current_file(
+                            task.rows
+                                .first()
+                                .map(|row| row.name.as_str())
+                                .unwrap_or_default(),
+                        )
+                        .elapsed(started.elapsed().as_millis())
+                        .estimated_remaining(estimated_remaining_ms(
+                            started,
+                            processed,
+                            targets.len(),
+                        )),
                     );
                 }
             }
@@ -907,7 +1010,10 @@ fn classify_ai_targets_with_provider(
         warning: None,
     };
 
-    if cancel_flag.map(|flag| flag.load(Ordering::SeqCst)).unwrap_or(false) {
+    if cancel_flag
+        .map(|flag| flag.load(Ordering::SeqCst))
+        .unwrap_or(false)
+    {
         summary.warning = Some("AI 分类已取消。".to_string());
     }
     if !failures.is_empty() {
@@ -922,11 +1028,18 @@ fn classify_ai_targets_with_provider(
 
     emit_ai_classification_progress(
         runtime.map(|(emitter, _)| emitter),
-        AIClassificationProgressUpdate::new(&job_id, targets.len(), targets.len(), batch_count, batch_count, "完成")
-            .completed_batches(completed_batches)
-            .failed_batches(failed_batches_count)
-            .summary(updated, summary.skipped, needs_confirmation)
-            .elapsed(started.elapsed().as_millis()),
+        AIClassificationProgressUpdate::new(
+            &job_id,
+            targets.len(),
+            targets.len(),
+            batch_count,
+            batch_count,
+            "完成",
+        )
+        .completed_batches(completed_batches)
+        .failed_batches(failed_batches_count)
+        .summary(updated, summary.skipped, needs_confirmation)
+        .elapsed(started.elapsed().as_millis()),
     );
 
     Ok(summary)
@@ -1080,7 +1193,11 @@ fn emit_ai_classification_progress(
             skipped: update.skipped,
             needs_confirmation: update.needs_confirmation,
             stage: update.stage,
-            current_file_preview: update.current_file_preview.chars().take(120).collect::<String>(),
+            current_file_preview: update
+                .current_file_preview
+                .chars()
+                .take(120)
+                .collect::<String>(),
             elapsed_ms: update.elapsed_ms,
             estimated_remaining_ms: update.estimated_remaining_ms,
         });
@@ -1350,8 +1467,6 @@ fn ai_input_file_from_row(
     settings: &AISettings,
     ref_id: &str,
 ) -> AIClassificationInputFile {
-    // Stage 3 intentionally ignores send_file_content even if enabled; only metadata is sent.
-    let _send_file_content_ignored = settings.send_file_content;
     AIClassificationInputFile {
         ref_id: ref_id.to_string(),
         name: row.name.clone(),
@@ -2011,12 +2126,7 @@ mod tests {
     fn collect_targets_skips_stable_ai_classification_unless_forced() {
         let db = test_db();
         insert_test_file(&db, "file-1", "/tmp/ai-stable.pdf");
-        mark_classified(
-            &db,
-            "file-1",
-            r#"["ai:deepseek:deepseek-v4-flash"]"#,
-            false,
-        );
+        mark_classified(&db, "file-1", r#"["ai:deepseek:deepseek-v4-flash"]"#, false);
         let settings = enabled_settings();
         let default_options = AIClassificationOptions {
             pending_only: None,
@@ -2038,9 +2148,13 @@ mod tests {
             &settings,
         )
         .expect("collect default targets");
-        let force_targets =
-            collect_ai_classification_targets(&db, &LibraryScope::All, Some(&force_options), &settings)
-                .expect("collect forced targets");
+        let force_targets = collect_ai_classification_targets(
+            &db,
+            &LibraryScope::All,
+            Some(&force_options),
+            &settings,
+        )
+        .expect("collect forced targets");
 
         assert!(default_targets.is_empty());
         assert_eq!(force_targets.len(), 1);
@@ -2072,7 +2186,12 @@ mod tests {
     fn collect_targets_protects_user_confirmed_even_when_forced() {
         let db = test_db();
         insert_test_file(&db, "file-1", "/tmp/user-confirmed.pdf");
-        mark_classified(&db, "file-1", r#"["ai:deepseek:model","user_confirmed"]"#, false);
+        mark_classified(
+            &db,
+            "file-1",
+            r#"["ai:deepseek:model","user_confirmed"]"#,
+            false,
+        );
         let settings = enabled_settings();
         let options = AIClassificationOptions {
             pending_only: None,
@@ -2184,13 +2303,9 @@ mod tests {
             allow_overwrite_user_corrections: None,
         };
         let settings = enabled_settings();
-        let targets = collect_ai_classification_targets(
-            &db,
-            &LibraryScope::All,
-            Some(&options),
-            &settings,
-        )
-        .expect("collect pending targets");
+        let targets =
+            collect_ai_classification_targets(&db, &LibraryScope::All, Some(&options), &settings)
+                .expect("collect pending targets");
         let ids = targets
             .into_iter()
             .map(|target| target.id)
@@ -2942,12 +3057,7 @@ mod tests {
         .expect("insert file");
     }
 
-    fn mark_classified(
-        db: &Database,
-        id: &str,
-        matched_rules: &str,
-        requires_confirmation: bool,
-    ) {
+    fn mark_classified(db: &Database, id: &str, matched_rules: &str, requires_confirmation: bool) {
         let conn = Connection::open(db.path()).expect("open db");
         conn.execute(
             r#"

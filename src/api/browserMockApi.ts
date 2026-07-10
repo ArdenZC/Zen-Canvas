@@ -143,6 +143,8 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return searchMockFiles(String(args?.query ?? ""), Number(args?.limit ?? 12)) as T;
     case "scan_directory":
       return {
+        jobId: String(args?.jobId ?? "browser-mock-scan"),
+        jobKind: args?.jobKind === "background" ? "background" : "foreground",
         root: String(args?.path ?? "C:/Users/Zen"),
         scanned: mockFiles.length,
         files: mockFiles.length,
@@ -165,6 +167,8 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return "browser-mock-storage-cleanup-job" as T;
     case "get_storage_cleanup_scan_status":
       return mockStorageCleanupStatus(String(args?.jobId ?? "browser-mock-storage-cleanup-job")) as T;
+    case "get_storage_cleanup_candidate_page":
+      return mockStorageAnalysis() as T;
     case "cancel_storage_cleanup_scan":
       return undefined as T;
     case "move_cleanup_candidates_to_trash":
@@ -238,7 +242,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "upsert_files_by_paths":
       return 0 as T;
     default:
-      return undefined as T;
+      throw new Error(`Unsupported mock command: ${command}`);
   }
 }
 
@@ -461,7 +465,7 @@ function mockStorageCleanupStatus(jobId: string): StorageCleanupScanStatus {
 
 function mockCleanupExecutionResult(args?: Record<string, unknown>): CleanupExecutionResult {
   const ids = new Set(Array.isArray(args?.ids) ? args.ids.map(String) : []);
-  const logs = mockStorageAnalysis()
+  const logs: CleanupExecutionResult["logs"] = mockStorageAnalysis()
     .candidates
     .filter((candidate) => ids.has(candidate.id))
     .map((candidate) => {
@@ -541,7 +545,7 @@ function mockCleanupTrashBatches(): CleanupTrashBatch[] {
       root: "C:/Users/Zen/Projects/demo",
       totalItems: 1,
       totalSize: 1_850_000_000,
-      status: "moved",
+      status: "success",
       items: [
         {
           id: "browser-cleanup-item-0",
@@ -656,7 +660,6 @@ function mockAISettings(settings?: AISettings): AISettings {
     timeoutSeconds: 120,
     sendFullPath: false,
     sendParentPath: true,
-    sendFileContent: false,
     classificationMode: "ai_first",
     cleanupAiEnabled: true,
     forceJsonOutput: false,

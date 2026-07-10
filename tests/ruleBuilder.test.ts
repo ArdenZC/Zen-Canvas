@@ -38,6 +38,41 @@ describe("rule builder", () => {
     expect(rule.groups).toEqual(groups);
     expect(rule.action.purpose).toBe("Project");
     expect(rule.action.lifecycle).toBe("Reference");
+    expect(rule.action.suggested_action).toBeUndefined();
+    expect(rule.action.target_template).toBeUndefined();
+    expect(rule.action.context).toBeUndefined();
     expect(rule.weight).toBe(91);
+  });
+
+  it("rejects an empty rule name", () => {
+    expect(() => buildRuleFromBuilderDraft({
+      name: "   ",
+      rootOperator: "AND",
+      groups: [{
+        id: "group-name",
+        operator: "AND",
+        conditions: [{ id: "cond-name", field: "name", operator: "contains", value: "invoice" }]
+      }],
+      purpose: "Project",
+      lifecycle: "Reference",
+      weight: 50,
+      now: "2026-07-10T00:00:00.000Z"
+    })).toThrow("Rule name is required");
+  });
+
+  it("rejects empty condition values", () => {
+    expect(() => buildRuleFromBuilderDraft({
+      name: "Invalid rule",
+      rootOperator: "AND",
+      groups: [{
+        id: "group-name",
+        operator: "AND",
+        conditions: [{ id: "cond-name", field: "name", operator: "contains", value: "" }]
+      }],
+      purpose: "Project",
+      lifecycle: "Reference",
+      weight: 50,
+      now: "2026-07-10T00:00:00.000Z"
+    })).toThrow("condition value is required");
   });
 });

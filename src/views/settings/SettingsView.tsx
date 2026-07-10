@@ -30,7 +30,7 @@ import type {
   SearchScopeMode
 } from "../../types/domain";
 import { acceleratorFromKeyboardEvent, formatHotkeyLabel, isValidSearchHotkey } from "../../utils/hotkeys";
-import { compactPath, readableError } from "../../utils/viewHelpers";
+import { compactPath, normalizePathLike, readableError } from "../../utils/viewHelpers";
 import { buttonIconDanger, buttonSecondary, cn, glassButton, inputSurface, selectSurface } from "../../utils/tw";
 import {
   ConfirmDialog,
@@ -892,7 +892,7 @@ export function SettingsView() {
                     type="password"
                     value={aiSettings.apiKey}
                     onChange={(value) => updateAISettings({ apiKey: value })}
-                    placeholder="不会在页面明文显示"
+                    placeholder={aiSettings.apiKeyConfigured ? "已安全保存在系统凭据库；输入新值可替换" : "不会在页面明文显示"}
                   />
                 )}
                 <TextField label="Model" value={aiSettings.model} onChange={(value) => updateAISettings({ model: value })} />
@@ -977,14 +977,6 @@ export function SettingsView() {
                   checked={aiSettings.sendParentPath}
                   onChange={(next) => updateAISettings({ sendParentPath: next })}
                   statusLabel={aiSettings.sendParentPath ? t("enabled") : t("disabled")}
-                />
-                <SwitchField
-                  label="发送文件内容"
-                  description="第一阶段暂不启用；保持关闭，避免上传文件内容。"
-                  checked={false}
-                  onChange={() => updateAISettings({ sendFileContent: false })}
-                  disabled
-                  statusLabel={t("disabled")}
                 />
               </div>
               <div className="grid gap-2">
@@ -1117,7 +1109,7 @@ export function SettingsView() {
 }
 
 function normalizeSettingsRoot(path: string) {
-  return path.trim().replace(/\\+/g, "/").replace(/\/+$/g, "").toLowerCase();
+  return normalizePathLike(path.trim());
 }
 
 function TextField({
@@ -1212,7 +1204,6 @@ function defaultAISettingsFromPreset(preset?: AIProviderPreset): AISettings | nu
     timeoutSeconds: 120,
     sendFullPath: false,
     sendParentPath: true,
-    sendFileContent: false,
     classificationMode: "ai_first",
     cleanupAiEnabled: true,
     forceJsonOutput: false,
@@ -1236,7 +1227,6 @@ function normalizeAISettingsForSave(settings: AISettings): AISettings {
       : Math.min(4, Math.max(1, Math.floor(settings.classificationConcurrency || 1))),
     timeoutSeconds: Math.max(1, Math.floor(settings.timeoutSeconds || 1)),
     maxTokens: Math.max(1, Math.floor(settings.maxTokens || 1)),
-    sendFileContent: false,
     reasoningEffort: settings.reasoningEffort?.trim() || null,
     extraBodyJson: settings.extraBodyJson?.trim() || null
   };

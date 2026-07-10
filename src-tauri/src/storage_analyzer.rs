@@ -12,11 +12,12 @@ use std::{
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Emitter, Manager, Runtime, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State, WebviewWindow};
 
 const LARGE_FILE_THRESHOLD: u64 = 100 * 1024 * 1024;
 const LARGE_DIR_THRESHOLD: u64 = 500 * 1024 * 1024;
-const MAX_CANDIDATES: usize = 120;
+const MAX_RETAINED_CLEANUP_JOBS: usize = 8;
+const STORAGE_CLEANUP_PAGE_SIZE: usize = 200;
 const STORAGE_CLEANUP_PROGRESS_EVENT: &str = "storage-cleanup-progress";
 const STORAGE_CLEANUP_COMPLETED_EVENT: &str = "storage-cleanup-completed";
 const STORAGE_CLEANUP_FAILED_EVENT: &str = "storage-cleanup-failed";
@@ -32,6 +33,10 @@ pub struct StorageAnalysis {
     pub candidates: Vec<StorageCandidate>,
     pub denied_paths: Vec<String>,
     pub warnings: Vec<String>,
+    pub candidate_total: usize,
+    pub candidate_offset: usize,
+    pub candidate_limit: usize,
+    pub has_more: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -92,6 +97,7 @@ pub struct CleanupExecutionResult {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CleanupExecutionLog {
     pub path: String,
     pub name: String,
@@ -172,6 +178,7 @@ pub struct CleanupRestorePreview {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CleanupRestoreLog {
     pub item_id: String,
     pub original_path: String,
@@ -181,6 +188,7 @@ pub struct CleanupRestoreLog {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CleanupRestoreResult {
     pub restored: usize,
     pub conflicts: usize,
@@ -277,6 +285,18 @@ impl StorageCleanupState {
                 cancel_flag: Arc::clone(&cancel_flag),
             },
         );
+        if jobs.len() > MAX_RETAINED_CLEANUP_JOBS {
+            let mut completed = jobs
+                .iter()
+                .filter(|(id, job)| *id != &job_id && job.status.status != "running")
+                .map(|(id, job)| (id.clone(), job.status.started_at.clone()))
+                .collect::<Vec<_>>();
+            completed.sort_by(|left, right| left.1.cmp(&right.1));
+            let remove_count = jobs.len().saturating_sub(MAX_RETAINED_CLEANUP_JOBS);
+            for (id, _) in completed.into_iter().take(remove_count) {
+                jobs.remove(&id);
+            }
+        }
         *self
             .inner
             .active_job_id
@@ -351,11 +371,7 @@ impl StorageCleanupState {
             job.status.analysis = Some(analysis);
             job.status.completed_at = Some(current_timestamp_ms().to_string());
         }
-        *self
-            .inner
-            .active_job_id
-            .lock()
-            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())? = None;
+        self.clear_active_job(job_id)?;
         Ok(())
     }
 
@@ -370,11 +386,7 @@ impl StorageCleanupState {
             job.status.error = Some(message);
             job.status.completed_at = Some(current_timestamp_ms().to_string());
         }
-        *self
-            .inner
-            .active_job_id
-            .lock()
-            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())? = None;
+        self.clear_active_job(job_id)?;
         Ok(())
     }
 
@@ -388,11 +400,19 @@ impl StorageCleanupState {
             job.status.status = "cancelled".to_string();
             job.status.completed_at = Some(current_timestamp_ms().to_string());
         }
-        *self
+        self.clear_active_job(job_id)?;
+        Ok(())
+    }
+
+    fn clear_active_job(&self, job_id: &str) -> Result<(), String> {
+        let mut active = self
             .inner
             .active_job_id
             .lock()
-            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())? = None;
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+        if active.as_deref() == Some(job_id) {
+            *active = None;
+        }
         Ok(())
     }
 
@@ -403,8 +423,33 @@ impl StorageCleanupState {
             .lock()
             .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
         jobs.get(job_id)
-            .map(|job| job.status.clone())
+            .map(|job| {
+                let mut status = job.status.clone();
+                status.analysis = status
+                    .analysis
+                    .as_ref()
+                    .map(|analysis| storage_analysis_page(analysis, 0, STORAGE_CLEANUP_PAGE_SIZE));
+                status
+            })
             .ok_or_else(|| format!("Storage cleanup scan job not found: {job_id}"))
+    }
+
+    fn job_analysis_page(
+        &self,
+        job_id: &str,
+        offset: usize,
+        limit: usize,
+    ) -> Result<StorageAnalysis, String> {
+        let jobs = self
+            .inner
+            .jobs
+            .lock()
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+        let analysis = jobs
+            .get(job_id)
+            .and_then(|job| job.status.analysis.as_ref())
+            .ok_or_else(|| format!("Completed storage cleanup job not found: {job_id}"))?;
+        Ok(storage_analysis_page(analysis, offset, limit.clamp(1, 500)))
     }
 }
 
@@ -423,7 +468,11 @@ pub async fn scan_storage_cleanup<R: Runtime>(
     .map_err(|error| format!("storage cleanup scan task failed: {error}"))??;
 
     state.replace_candidates(&analysis.candidates)?;
-    Ok(analysis)
+    Ok(storage_analysis_page(
+        &analysis,
+        0,
+        STORAGE_CLEANUP_PAGE_SIZE,
+    ))
 }
 
 #[tauri::command]
@@ -468,6 +517,16 @@ pub fn get_storage_cleanup_scan_status(
 }
 
 #[tauri::command]
+pub fn get_storage_cleanup_candidate_page(
+    job_id: String,
+    offset: usize,
+    limit: Option<usize>,
+    state: State<'_, StorageCleanupState>,
+) -> Result<StorageAnalysis, String> {
+    state.job_analysis_page(&job_id, offset, limit.unwrap_or(STORAGE_CLEANUP_PAGE_SIZE))
+}
+
+#[tauri::command]
 pub fn reveal_storage_candidate(path: String) -> Result<(), String> {
     crate::file_ops::reveal_in_folder(path)
 }
@@ -494,10 +553,12 @@ pub fn preview_cleanup_operations<R: Runtime>(
 
 #[tauri::command]
 pub fn move_cleanup_candidates_to_trash<R: Runtime>(
+    window: WebviewWindow<R>,
     ids: Vec<String>,
     app: AppHandle<R>,
     state: State<'_, StorageCleanupState>,
 ) -> Result<CleanupExecutionResult, String> {
+    require_main_window(&window)?;
     let app_data_dir = app.path().app_data_dir().ok();
     let candidates = state.candidates_by_id(&ids)?;
     move_cleanup_candidates_to_trash_for_candidates(ids, &candidates, app_data_dir.as_deref())
@@ -505,11 +566,13 @@ pub fn move_cleanup_candidates_to_trash<R: Runtime>(
 
 #[tauri::command]
 pub fn move_cleanup_candidates_to_safe_trash<R: Runtime>(
+    window: WebviewWindow<R>,
     ids: Vec<String>,
     app: AppHandle<R>,
     db: State<'_, Database>,
     state: State<'_, StorageCleanupState>,
 ) -> Result<CleanupExecutionResult, String> {
+    require_main_window(&window)?;
     let app_data_dir = app.path().app_data_dir().ok();
     let candidates = state.candidates_by_id(&ids)?;
     move_cleanup_candidates_to_safe_trash_for_candidates(
@@ -540,11 +603,21 @@ pub fn preview_restore_cleanup_trash(
 }
 
 #[tauri::command]
-pub fn restore_cleanup_trash_items(
+pub fn restore_cleanup_trash_items<R: Runtime>(
+    window: WebviewWindow<R>,
     item_ids: Vec<String>,
     db: State<'_, Database>,
 ) -> Result<CleanupRestoreResult, String> {
+    require_main_window(&window)?;
     restore_cleanup_trash_items_for_db(item_ids, db.inner())
+}
+
+fn require_main_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
+    if window.label() == "main" {
+        Ok(())
+    } else {
+        Err("This cleanup operation is only available from the main window.".to_string())
+    }
 }
 
 pub fn analyze_storage_roots_for_test(
@@ -751,16 +824,6 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
             continue;
         }
 
-        let move_result = move_path_to_safe_trash(source, &trash_path, candidate.size);
-        let status = if move_result.is_ok() {
-            "moved"
-        } else {
-            "failed"
-        };
-        let message = match move_result {
-            Ok(()) => "Moved to Zen Canvas Safe Trash.".to_string(),
-            Err(error) => format!("Failed to move to Zen Canvas Safe Trash: {error}"),
-        };
         let item = CleanupTrashItem {
             id: item_id.clone(),
             batch_id: batch_id.clone(),
@@ -770,36 +833,69 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
             size: candidate.size,
             moved_at: moved_at.clone(),
             restored_at: None,
-            status: status.to_string(),
-            message: Some(message.clone()),
+            status: "pending".to_string(),
+            message: Some("Pending move to Zen Canvas Safe Trash.".to_string()),
         };
         items.push(item);
-        if status == "moved" {
-            result.moved += 1;
-            result.logs.push(CleanupExecutionLog {
-                path: candidate.path.clone(),
-                name: candidate.name.clone(),
-                size: candidate.size,
-                status: "success".to_string(),
-                message,
-                item_id: Some(item_id),
-                trash_path: Some(trash_path_text),
-            });
-        } else {
-            result.failed += 1;
-            result.logs.push(CleanupExecutionLog {
-                path: candidate.path.clone(),
-                name: candidate.name.clone(),
-                size: candidate.size,
-                status: "failed".to_string(),
-                message,
-                item_id: Some(item_id),
-                trash_path: Some(trash_path_text),
-            });
-        }
     }
 
     if !items.is_empty() {
+        let root = candidates
+            .first()
+            .and_then(|candidate| Path::new(&candidate.path).parent().map(normalize_path));
+        db.save_cleanup_trash_batch(&CleanupTrashBatch {
+            id: batch_id.clone(),
+            created_at: moved_at.clone(),
+            root: root.clone(),
+            total_items: items.len(),
+            total_size: items.iter().map(|item| item.size).sum(),
+            status: "pending".to_string(),
+            items: items.clone(),
+        })
+        .map_err(|error| {
+            format!("failed to persist safe-trash journal before moving files: {error}")
+        })?;
+
+        for item in &mut items {
+            let move_result = move_path_to_safe_trash(
+                Path::new(&item.original_path),
+                Path::new(&item.trash_path),
+                item.size,
+            );
+            let (status, log_status, message) = match move_result {
+                Ok(()) => {
+                    result.moved += 1;
+                    (
+                        "moved",
+                        "success",
+                        "Moved to Zen Canvas Safe Trash.".to_string(),
+                    )
+                }
+                Err(error) => {
+                    result.failed += 1;
+                    (
+                        "failed",
+                        "failed",
+                        format!("Failed to move to Zen Canvas Safe Trash: {error}"),
+                    )
+                }
+            };
+            item.status = status.to_string();
+            item.message = Some(message.clone());
+            db.update_cleanup_trash_item_status(item).map_err(|error| {
+                format!("safe-trash item moved but journal update failed: {error}")
+            })?;
+            result.logs.push(CleanupExecutionLog {
+                path: item.original_path.clone(),
+                name: item.name.clone(),
+                size: item.size,
+                status: log_status.to_string(),
+                message,
+                item_id: Some(item.id.clone()),
+                trash_path: Some(item.trash_path.clone()),
+            });
+        }
+
         let status = if result.failed > 0 {
             "partial_failed"
         } else {
@@ -808,11 +904,7 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
         db.save_cleanup_trash_batch(&CleanupTrashBatch {
             id: batch_id,
             created_at: moved_at,
-            root: candidates.first().and_then(|candidate| {
-                Path::new(&candidate.path)
-                    .parent()
-                    .map(|parent| normalize_path(parent))
-            }),
+            root,
             total_items: items.len(),
             total_size: items.iter().map(|item| item.size).sum(),
             status: status.to_string(),
@@ -915,6 +1007,35 @@ pub fn restore_cleanup_trash_items_for_db(
     }
 
     Ok(result)
+}
+
+pub fn reconcile_pending_cleanup_journal(db: &Database) -> Result<usize, String> {
+    let mut items = db
+        .pending_cleanup_trash_items()
+        .map_err(|error| error.to_string())?;
+    for item in &mut items {
+        let original_exists = Path::new(&item.original_path).exists();
+        let trash_exists = Path::new(&item.trash_path).exists();
+        if !original_exists && trash_exists {
+            item.status = "moved".to_string();
+            item.message =
+                Some("Recovered an interrupted Safe Trash journal after restart.".to_string());
+        } else {
+            item.status = "failed".to_string();
+            item.message = Some(if original_exists && !trash_exists {
+                "Safe Trash move was interrupted before the filesystem change.".to_string()
+            } else {
+                "Interrupted Safe Trash move requires manual path review.".to_string()
+            });
+        }
+        db.update_cleanup_trash_item_status(item)
+            .map_err(|error| error.to_string())?;
+    }
+    if !items.is_empty() {
+        db.recompute_cleanup_batch_statuses()
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(items.len())
 }
 
 pub fn is_forbidden_storage_path_for_test(path: &Path) -> bool {
@@ -1115,7 +1236,7 @@ fn finish_storage_cleanup_scan_job<R: Runtime>(
         Ok(analysis) => {
             let completed = StorageCleanupCompleted {
                 job_id: job_id.clone(),
-                analysis: analysis.clone(),
+                analysis: storage_analysis_page(&analysis, 0, STORAGE_CLEANUP_PAGE_SIZE),
             };
             let _ = state.complete_job(&job_id, analysis);
             let _ = app.emit(STORAGE_CLEANUP_COMPLETED_EVENT, completed);
@@ -1150,7 +1271,12 @@ fn analyze_storage_roots_with_progress<F>(
 where
     F: FnMut(StorageCleanupProgress) -> Result<(), String>,
 {
+    let scan_roots = roots
+        .iter()
+        .map(|root| normalize_for_compare(root))
+        .collect::<HashSet<_>>();
     let mut context = ScanContext {
+        scan_roots,
         excluded_paths,
         candidates: Vec::new(),
         denied_paths: Vec::new(),
@@ -1199,7 +1325,12 @@ where
             .then_with(|| left.path.cmp(&right.path))
     });
     dedupe_candidates(&mut context.candidates);
-    context.candidates.truncate(MAX_CANDIDATES);
+    context.candidates.sort_by(|left, right| {
+        right
+            .size
+            .cmp(&left.size)
+            .then_with(|| left.path.cmp(&right.path))
+    });
 
     let reclaimable_estimate = context
         .candidates
@@ -1214,6 +1345,7 @@ where
         .map(|candidate| candidate.size)
         .sum();
 
+    let candidate_total = context.candidates.len();
     Ok(StorageAnalysis {
         total_size,
         reclaimable_estimate,
@@ -1221,10 +1353,37 @@ where
         candidates: context.candidates,
         denied_paths: context.denied_paths,
         warnings: context.warnings,
+        candidate_total,
+        candidate_offset: 0,
+        candidate_limit: candidate_total,
+        has_more: false,
     })
 }
 
+fn storage_analysis_page(
+    analysis: &StorageAnalysis,
+    offset: usize,
+    limit: usize,
+) -> StorageAnalysis {
+    let total = analysis.candidates.len();
+    let offset = offset.min(total);
+    let end = offset.saturating_add(limit).min(total);
+    StorageAnalysis {
+        total_size: analysis.total_size,
+        reclaimable_estimate: analysis.reclaimable_estimate,
+        review_estimate: analysis.review_estimate,
+        candidates: analysis.candidates[offset..end].to_vec(),
+        denied_paths: analysis.denied_paths.clone(),
+        warnings: analysis.warnings.clone(),
+        candidate_total: total,
+        candidate_offset: offset,
+        candidate_limit: limit,
+        has_more: end < total,
+    }
+}
+
 struct ScanContext {
+    scan_roots: HashSet<String>,
     excluded_paths: Vec<PathBuf>,
     candidates: Vec<StorageCandidate>,
     denied_paths: Vec<String>,
@@ -1269,7 +1428,10 @@ impl ScanContext {
     {
         let now = Instant::now();
         if force
-            || self.progress.scanned_entries % STORAGE_CLEANUP_EMIT_ENTRY_INTERVAL == 0
+            || self
+                .progress
+                .scanned_entries
+                .is_multiple_of(STORAGE_CLEANUP_EMIT_ENTRY_INTERVAL)
             || now.duration_since(self.last_emit) >= STORAGE_CLEANUP_EMIT_INTERVAL
         {
             self.last_emit = now;
@@ -1377,7 +1539,7 @@ where
 }
 
 fn maybe_record_candidate(path: &Path, size: u64, is_dir: bool, context: &mut ScanContext) {
-    if size == 0 {
+    if size == 0 || context.scan_roots.contains(&normalize_for_compare(path)) {
         return;
     }
 
@@ -1646,34 +1808,50 @@ impl Database {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
             r#"
-            SELECT id, created_at, root, total_items, total_size, status
-            FROM cleanup_trash_batches
-            ORDER BY CAST(created_at AS INTEGER) DESC
+            SELECT b.id, b.created_at, b.root, b.total_items, b.total_size, b.status,
+                   i.id, i.batch_id, i.original_path, i.trash_path, i.name, i.size,
+                   i.moved_at, i.restored_at, i.status, i.message
+            FROM cleanup_trash_batches AS b
+            LEFT JOIN cleanup_trash_items AS i ON i.batch_id = b.id
+            ORDER BY CAST(b.created_at AS INTEGER) DESC, i.name COLLATE NOCASE ASC
             "#,
         )?;
-        let batch_rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, i64>(4)?,
-                row.get::<_, String>(5)?,
-            ))
-        })?;
+        let mut rows = stmt.query([])?;
         let mut batches = Vec::new();
-        for row in batch_rows {
-            let (id, created_at, root, total_items, total_size, status) = row?;
-            let items = self.cleanup_trash_items_for_batch(&id)?;
-            batches.push(CleanupTrashBatch {
-                id,
-                created_at,
-                root,
-                total_items: usize::try_from(total_items).unwrap_or(0),
-                total_size: u64::try_from(total_size).unwrap_or(0),
-                status,
-                items,
-            });
+        let mut batch_indexes = HashMap::<String, usize>::new();
+        while let Some(row) = rows.next()? {
+            let id = row.get::<_, String>(0)?;
+            let index = if let Some(index) = batch_indexes.get(&id) {
+                *index
+            } else {
+                let index = batches.len();
+                batches.push(CleanupTrashBatch {
+                    id: id.clone(),
+                    created_at: row.get(1)?,
+                    root: row.get(2)?,
+                    total_items: usize::try_from(row.get::<_, i64>(3)?).unwrap_or(0),
+                    total_size: u64::try_from(row.get::<_, i64>(4)?).unwrap_or(0),
+                    status: row.get(5)?,
+                    items: Vec::new(),
+                });
+                batch_indexes.insert(id, index);
+                index
+            };
+            let item_id = row.get::<_, Option<String>>(6)?;
+            if let Some(item_id) = item_id {
+                batches[index].items.push(CleanupTrashItem {
+                    id: item_id,
+                    batch_id: row.get(7)?,
+                    original_path: row.get(8)?,
+                    trash_path: row.get(9)?,
+                    name: row.get(10)?,
+                    size: u64::try_from(row.get::<_, i64>(11)?).unwrap_or(0),
+                    moved_at: row.get(12)?,
+                    restored_at: row.get(13)?,
+                    status: row.get(14)?,
+                    message: row.get(15)?,
+                });
+            }
         }
         Ok(batches)
     }
@@ -1708,6 +1886,44 @@ impl Database {
         )
         .optional()
         .map_err(DbError::from)
+    }
+
+    pub fn pending_cleanup_trash_items(&self) -> Result<Vec<CleanupTrashItem>, DbError> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at, status, message
+            FROM cleanup_trash_items
+            WHERE status = 'pending'
+            ORDER BY moved_at ASC
+            "#,
+        )?;
+        let rows = stmt.query_map([], cleanup_trash_item_from_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    pub fn recompute_cleanup_batch_statuses(&self) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        conn.execute_batch(
+            r#"
+            UPDATE cleanup_trash_batches AS batch
+            SET status = CASE
+                WHEN EXISTS (
+                    SELECT 1 FROM cleanup_trash_items AS item
+                    WHERE item.batch_id = batch.id AND item.status = 'pending'
+                ) THEN 'pending'
+                WHEN EXISTS (
+                    SELECT 1 FROM cleanup_trash_items AS item
+                    WHERE item.batch_id = batch.id AND item.status = 'failed'
+                ) THEN 'partial_failed'
+                ELSE 'success'
+            END
+            WHERE EXISTS (
+                SELECT 1 FROM cleanup_trash_items AS item WHERE item.batch_id = batch.id
+            );
+            "#,
+        )?;
+        Ok(())
     }
 
     pub fn update_cleanup_trash_item_status(&self, item: &CleanupTrashItem) -> Result<(), DbError> {
@@ -1804,18 +2020,40 @@ fn move_path_with_copy_fallback(
     match fs::rename(source, target) {
         Ok(()) => return Ok(()),
         Err(_) => {
-            copy_path(source, target)?;
-            let copied_size = path_size_for_verify(target)?;
+            let stage = staging_path_for(target);
+            if stage.exists() {
+                let _ = remove_path(&stage);
+            }
+            if let Err(error) = copy_path(source, &stage) {
+                let _ = remove_path(&stage);
+                return Err(error);
+            }
+            let copied_size = path_size_for_verify(&stage)?;
             if expected_size > 0 && copied_size != expected_size {
-                let _ = remove_path(target);
+                let _ = remove_path(&stage);
                 return Err(format!(
                     "copy verification failed: expected {expected_size} bytes, copied {copied_size} bytes"
                 ));
             }
+            fs::rename(&stage, target).map_err(|error| {
+                let _ = remove_path(&stage);
+                format!("failed to commit staged safe-trash copy: {error}")
+            })?;
             remove_path(source)?;
         }
     }
     Ok(())
+}
+
+fn staging_path_for(target: &Path) -> PathBuf {
+    let name = target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("item");
+    target.with_file_name(format!(
+        ".{name}.zencanvas-stage-{}",
+        current_timestamp_ms()
+    ))
 }
 
 fn copy_path(source: &Path, target: &Path) -> Result<(), String> {
@@ -1890,9 +2128,10 @@ fn add_home_dev_cache_roots(roots: &mut Vec<PathBuf>) {
     for relative in [
         ".npm",
         ".pnpm-store",
-        ".cargo",
-        ".gradle",
-        ".m2",
+        ".cargo/registry/cache",
+        ".cargo/git/checkouts",
+        ".gradle/caches",
+        ".m2/repository",
         "AppData/Local/npm-cache",
         "AppData/Local/pnpm-store",
         "AppData/Local/Cargo",
@@ -1935,6 +2174,27 @@ fn is_system_path_text(lower: &str) -> bool {
         || lower.contains("/windows/winsxs")
         || lower.contains("/system volume information")
         || lower.contains("/$recycle.bin")
+        || matches!(
+            lower,
+            "/" | "/system"
+                | "/usr"
+                | "/etc"
+                | "/var"
+                | "/bin"
+                | "/sbin"
+                | "/library"
+                | "/applications"
+                | "/private"
+        )
+        || lower.starts_with("/system/")
+        || lower.starts_with("/usr/")
+        || lower.starts_with("/etc/")
+        || lower.starts_with("/var/")
+        || lower.starts_with("/bin/")
+        || lower.starts_with("/sbin/")
+        || lower.starts_with("/library/")
+        || lower.starts_with("/applications/")
+        || lower.starts_with("/private/")
 }
 
 fn is_program_files_path_text(lower: &str) -> bool {
@@ -1981,9 +2241,14 @@ fn is_generated_dir_name(path: &Path) -> bool {
 fn is_package_cache_path(lower: &str, lower_name: &str) -> bool {
     matches!(
         lower_name,
-        ".npm" | ".pnpm-store" | ".cargo" | ".gradle" | ".m2" | "npm-cache" | "pnpm-store"
-    ) || lower.contains("/.cargo/registry/")
+        ".npm" | ".pnpm-store" | "npm-cache" | "pnpm-store"
+    ) || lower.ends_with("/.cargo/registry/cache")
+        || lower.contains("/.cargo/registry/cache/")
+        || lower.ends_with("/.cargo/git/checkouts")
+        || lower.contains("/.cargo/git/checkouts/")
+        || lower.ends_with("/.gradle/caches")
         || lower.contains("/.gradle/caches/")
+        || lower.ends_with("/.m2/repository")
         || lower.contains("/.m2/repository/")
 }
 
@@ -2073,8 +2338,42 @@ fn review_category(lower: &str, extension: &str) -> String {
 }
 
 fn dedupe_candidates(candidates: &mut Vec<StorageCandidate>) {
+    candidates.sort_by(|left, right| {
+        let left_depth = Path::new(&left.path).components().count();
+        let right_depth = Path::new(&right.path).components().count();
+        cleanup_candidate_specificity(right)
+            .cmp(&cleanup_candidate_specificity(left))
+            .then_with(|| left_depth.cmp(&right_depth))
+            .then_with(|| left.path.cmp(&right.path))
+    });
     let mut seen = HashSet::new();
-    candidates.retain(|candidate| seen.insert(normalize_compare_text(&candidate.path)));
+    let mut retained_safe_parents = Vec::<String>::new();
+    candidates.retain(|candidate| {
+        let normalized = normalize_compare_text(&candidate.path);
+        if !seen.insert(normalized.clone()) {
+            return false;
+        }
+        if candidate.trash_allowed {
+            if retained_safe_parents.iter().any(|retained| {
+                normalized != *retained
+                    && (is_same_or_child(&normalized, retained)
+                        || is_same_or_child(retained, &normalized))
+            }) {
+                return false;
+            }
+            retained_safe_parents.push(normalized);
+        }
+        true
+    });
+}
+
+fn cleanup_candidate_specificity(candidate: &StorageCandidate) -> u8 {
+    match candidate.category.as_str() {
+        "Regenerable dependency folder" | "Developer cache" => 3,
+        "Regenerable development output" => 2,
+        "Temporary files" => 1,
+        _ => 0,
+    }
 }
 
 fn dedupe_paths(paths: &mut Vec<PathBuf>) {
@@ -2113,12 +2412,16 @@ fn normalize_for_compare(path: &Path) -> String {
 }
 
 fn normalize_compare_text(value: &str) -> String {
-    let value = value
+    let normalized = value
         .strip_prefix("//?/")
         .or_else(|| value.strip_prefix("//?/"))
         .unwrap_or(value)
-        .trim_end_matches('/')
         .replace('\\', "/");
+    let value = if normalized == "/" {
+        normalized
+    } else {
+        normalized.trim_end_matches('/').to_string()
+    };
     if cfg!(windows) || value.get(1..3) == Some(":/") {
         value.to_ascii_lowercase()
     } else {

@@ -47,7 +47,7 @@ export function useAppChrome({ theme, setTheme, setLanguage, searchHotkey }: Use
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", effectiveTheme === "dark");
-    window.localStorage.setItem("zc-theme", theme);
+    try { window.localStorage.setItem("zc-theme", theme); } catch { /* optional preference */ }
   }, [effectiveTheme, theme]);
 
   useEffect(() => {

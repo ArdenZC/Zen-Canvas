@@ -1,3 +1,5 @@
+#[cfg(debug_assertions)]
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use rusqlite::{params, OptionalExtension};
@@ -14,6 +16,12 @@ use super::{
 use crate::db::{Database, DbError};
 
 pub const AI_SETTINGS_KEY: &str = "ai_settings_v1";
+#[cfg(not(debug_assertions))]
+const AI_CREDENTIAL_SERVICE: &str = "com.startlan.zencanvas";
+#[cfg(not(debug_assertions))]
+const AI_CREDENTIAL_USER: &str = "ai-api-key";
+#[cfg(debug_assertions)]
+static DEV_API_KEY: OnceLock<Mutex<String>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -24,6 +32,8 @@ pub struct AISettings {
     pub base_url: String,
     pub chat_path: String,
     pub api_key: String,
+    #[serde(default, skip_serializing)]
+    pub api_key_configured: bool,
     pub model: String,
     pub temperature: f32,
     pub max_tokens: u32,
@@ -32,7 +42,6 @@ pub struct AISettings {
     pub timeout_seconds: u64,
     pub send_full_path: bool,
     pub send_parent_path: bool,
-    pub send_file_content: bool,
     pub classification_mode: String,
     pub cleanup_ai_enabled: bool,
     pub force_json_output: bool,
@@ -50,6 +59,7 @@ impl Default for AISettings {
             base_url: "https://api.deepseek.com".to_string(),
             chat_path: "/chat/completions".to_string(),
             api_key: String::new(),
+            api_key_configured: false,
             model: "deepseek-v4-flash".to_string(),
             temperature: 0.0,
             max_tokens: 1024,
@@ -58,7 +68,6 @@ impl Default for AISettings {
             timeout_seconds: 120,
             send_full_path: false,
             send_parent_path: true,
-            send_file_content: false,
             classification_mode: "ai_first".to_string(),
             cleanup_ai_enabled: true,
             force_json_output: false,
@@ -79,31 +88,101 @@ pub fn get_ai_settings_for_db(db: &Database) -> Result<AISettings, DbError> {
         )
         .optional()?;
 
-    match settings_json {
+    let mut settings = match settings_json {
         Some(value) => serde_json::from_str(&value)
             .map(normalize_ai_settings)
-            .map_err(DbError::from),
-        None => Ok(AISettings::default()),
+            .map_err(DbError::from)?,
+        None => AISettings::default(),
+    };
+    if !settings.api_key.is_empty() {
+        store_api_key(&settings.api_key).map_err(DbError::Validation)?;
+        settings.api_key.clear();
+        persist_ai_settings_without_secret(db, &settings)?;
     }
+    settings.api_key = load_api_key().unwrap_or_default();
+    settings.api_key_configured = !settings.api_key.is_empty();
+    Ok(settings)
 }
 
 pub fn save_ai_settings_for_db(
     db: &Database,
     settings: &AISettings,
 ) -> Result<AISettings, DbError> {
-    let normalized = normalize_ai_settings(settings.clone());
+    let mut normalized = normalize_ai_settings(settings.clone());
+    if !normalized.api_key.is_empty() {
+        store_api_key(&normalized.api_key).map_err(DbError::Validation)?;
+    } else if let Ok(existing) = load_api_key() {
+        normalized.api_key = existing;
+    }
+    normalized.api_key_configured = !normalized.api_key.is_empty();
+    persist_ai_settings_without_secret(db, &normalized)?;
+    Ok(normalized)
+}
+
+fn persist_ai_settings_without_secret(db: &Database, settings: &AISettings) -> Result<(), DbError> {
+    let mut persisted = settings.clone();
+    persisted.api_key.clear();
+    persisted.api_key_configured = false;
     let conn = db.conn()?;
-    let settings_json = serde_json::to_string(&normalized)?;
+    let settings_json = serde_json::to_string(&persisted)?;
     conn.execute(
         r#"
         INSERT INTO app_settings (key, value)
         VALUES (?1, ?2)
-        ON CONFLICT(key) DO UPDATE SET
-            value = excluded.value
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
         "#,
         params![AI_SETTINGS_KEY, settings_json],
     )?;
-    Ok(normalized)
+    Ok(())
+}
+
+#[cfg(not(debug_assertions))]
+fn credential_entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new(AI_CREDENTIAL_SERVICE, AI_CREDENTIAL_USER)
+        .map_err(|error| format!("failed to open system credential store: {error}"))
+}
+
+#[cfg(not(debug_assertions))]
+fn store_api_key(api_key: &str) -> Result<(), String> {
+    credential_entry()?
+        .set_password(api_key.trim())
+        .map_err(|error| format!("failed to save API key in system credential store: {error}"))
+}
+
+#[cfg(not(debug_assertions))]
+fn load_api_key() -> Result<String, String> {
+    match credential_entry()?.get_password() {
+        Ok(value) => Ok(value),
+        Err(keyring::Error::NoEntry) => Ok(String::new()),
+        Err(error) => Err(format!(
+            "failed to read API key from system credential store: {error}"
+        )),
+    }
+}
+
+#[cfg(debug_assertions)]
+fn store_api_key(api_key: &str) -> Result<(), String> {
+    *DEV_API_KEY
+        .get_or_init(|| Mutex::new(String::new()))
+        .lock()
+        .map_err(|_| "development credential store is unavailable".to_string())? =
+        api_key.trim().to_string();
+    Ok(())
+}
+
+#[cfg(debug_assertions)]
+fn load_api_key() -> Result<String, String> {
+    DEV_API_KEY
+        .get_or_init(|| Mutex::new(String::new()))
+        .lock()
+        .map(|value| value.clone())
+        .map_err(|_| "development credential store is unavailable".to_string())
+}
+
+fn public_ai_settings(mut settings: AISettings) -> AISettings {
+    settings.api_key_configured = !settings.api_key.is_empty();
+    settings.api_key.clear();
+    settings
 }
 
 pub fn normalize_ai_settings(mut settings: AISettings) -> AISettings {
@@ -173,7 +252,9 @@ pub fn test_ai_provider_connection_for_settings(
 
 #[tauri::command]
 pub fn get_ai_settings(db: State<'_, Database>) -> Result<AISettings, String> {
-    get_ai_settings_for_db(db.inner()).map_err(|error| error.to_string())
+    get_ai_settings_for_db(db.inner())
+        .map(public_ai_settings)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -181,7 +262,9 @@ pub fn save_ai_settings(
     db: State<'_, Database>,
     settings: AISettings,
 ) -> Result<AISettings, String> {
-    save_ai_settings_for_db(db.inner(), &settings).map_err(|error| error.to_string())
+    save_ai_settings_for_db(db.inner(), &settings)
+        .map(public_ai_settings)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -197,7 +280,14 @@ pub async fn test_ai_provider_connection(
     let db = db.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let settings = match settings {
-            Some(settings) => normalize_ai_settings(settings),
+            Some(mut settings) => {
+                if settings.api_key.trim().is_empty() {
+                    settings.api_key = get_ai_settings_for_db(&db)
+                        .map_err(|error| error.to_string())?
+                        .api_key;
+                }
+                normalize_ai_settings(settings)
+            }
             None => get_ai_settings_for_db(&db).map_err(|error| error.to_string())?,
         };
         test_ai_provider_connection_for_settings(settings)

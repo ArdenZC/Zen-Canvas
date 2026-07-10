@@ -4,6 +4,7 @@ use serde::Serialize;
 use std::{
     fs::File,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Runtime};
@@ -14,6 +15,9 @@ pub const DEDUPE_COMPLETE_EVENT: &str = "dedupe-complete";
 
 const DEDUPE_BATCH_SIZE: usize = 500;
 const DEDUPE_EMIT_INTERVAL: Duration = Duration::from_millis(200);
+static DEDUPE_RUNNING: AtomicBool = AtomicBool::new(false);
+static DEDUPE_CANCEL_REQUESTED: AtomicBool = AtomicBool::new(false);
+static DEDUPE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Error)]
 pub enum DedupeError {
@@ -34,6 +38,7 @@ pub enum DedupeError {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DedupeProgressPayload {
+    pub job_id: String,
     pub processed: u64,
     pub total: u64,
 }
@@ -41,6 +46,7 @@ pub struct DedupeProgressPayload {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DedupeCompletePayload {
+    pub job_id: String,
     pub candidate_files: u64,
     pub hashed_files: u64,
     pub duplicate_files: i64,
@@ -62,8 +68,9 @@ pub struct DedupeSummary {
 }
 
 impl DedupeSummary {
-    fn complete_payload(&self) -> DedupeCompletePayload {
+    fn complete_payload(&self, job_id: &str) -> DedupeCompletePayload {
         DedupeCompletePayload {
+            job_id: job_id.to_string(),
             candidate_files: self.candidate_files,
             hashed_files: self.hashed_files,
             duplicate_files: self.duplicate_files,
@@ -137,6 +144,21 @@ struct CandidateSize {
 struct CandidateFile {
     id: String,
     path: PathBuf,
+    expected_size: i64,
+    expected_mtime: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FileIdentity {
+    size: u64,
+    mtime: i64,
+}
+
+struct HashUpdate {
+    id: String,
+    hash: String,
+    expected_size: i64,
+    expected_mtime: i64,
 }
 
 pub fn run_duplicate_detection(
@@ -152,28 +174,67 @@ pub fn run_duplicate_detection_with_hasher(
     emitter: &impl DedupeEventEmitter,
     hasher: &mut impl ContentHasher,
 ) -> Result<DedupeSummary, DedupeError> {
+    let job_id = next_dedupe_job_id();
     let started_at = Instant::now();
     let candidate_sizes = candidate_sizes(db)?;
     let total_candidates = candidate_sizes
         .iter()
         .map(|candidate| candidate.count)
         .sum::<u64>();
-    let mut progress = DedupeProgress::new(total_candidates);
+    let mut progress = DedupeProgress::new(job_id.clone(), total_candidates);
     let mut updates = Vec::with_capacity(DEDUPE_BATCH_SIZE);
     let mut processed = 0_u64;
     let mut hashed = 0_u64;
-    let skipped = 0_u64;
+    let mut skipped = 0_u64;
     let mut errors = 0_u64;
 
-    for candidate_size in candidate_sizes {
+    'sizes: for candidate_size in candidate_sizes {
         for candidate in candidate_files_for_size(db, candidate_size.size)? {
+            if DEDUPE_CANCEL_REQUESTED.load(Ordering::Acquire) {
+                skipped = skipped.saturating_add(total_candidates.saturating_sub(processed));
+                break 'sizes;
+            }
             processed += 1;
+            let before = match file_identity(&candidate.path) {
+                Ok(identity)
+                    if i64::try_from(identity.size).unwrap_or(i64::MAX)
+                        == candidate.expected_size
+                        && identity.mtime == candidate.expected_mtime =>
+                {
+                    identity
+                }
+                Ok(_) | Err(DedupeError::Io { .. }) => {
+                    errors += 1;
+                    progress.maybe_emit(emitter, processed)?;
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             match hasher.hash_file(&candidate.path) {
                 Ok(hash) => {
+                    let after = match file_identity(&candidate.path) {
+                        Ok(identity) => identity,
+                        Err(DedupeError::Io { .. }) => {
+                            errors += 1;
+                            progress.maybe_emit(emitter, processed)?;
+                            continue;
+                        }
+                        Err(error) => return Err(error),
+                    };
+                    if before != after {
+                        errors += 1;
+                        progress.maybe_emit(emitter, processed)?;
+                        continue;
+                    }
                     hashed += 1;
-                    updates.push((candidate.id, hash));
+                    updates.push(HashUpdate {
+                        id: candidate.id,
+                        hash,
+                        expected_size: candidate.expected_size,
+                        expected_mtime: candidate.expected_mtime,
+                    });
                     if updates.len() >= DEDUPE_BATCH_SIZE {
-                        flush_hash_updates(db, &mut updates)?;
+                        skipped += flush_hash_updates(db, &mut updates)?;
                     }
                 }
                 Err(DedupeError::Io { .. }) => {
@@ -186,7 +247,7 @@ pub fn run_duplicate_detection_with_hasher(
         }
     }
 
-    flush_hash_updates(db, &mut updates)?;
+    skipped += flush_hash_updates(db, &mut updates)?;
     progress.emit_final(emitter, processed)?;
     let duplicate_files = duplicate_file_count(db)?;
     let summary = DedupeSummary {
@@ -197,15 +258,30 @@ pub fn run_duplicate_detection_with_hasher(
         error_files: errors,
         duration_ms: started_at.elapsed().as_millis(),
     };
-    emitter.emit_complete(&summary.complete_payload())?;
+    emitter.emit_complete(&summary.complete_payload(&job_id))?;
     Ok(summary)
 }
 
 pub fn spawn_duplicate_detection<R: Runtime>(app: AppHandle<R>, db: Database) {
+    if DEDUPE_RUNNING
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+        .is_err()
+    {
+        return;
+    }
+    DEDUPE_CANCEL_REQUESTED.store(false, Ordering::Release);
     tauri::async_runtime::spawn_blocking(move || {
+        struct RunningGuard;
+        impl Drop for RunningGuard {
+            fn drop(&mut self) {
+                DEDUPE_RUNNING.store(false, Ordering::Release);
+            }
+        }
+        let _guard = RunningGuard;
         let emitter = TauriDedupeEventEmitter::new(app);
         if let Err(error) = run_duplicate_detection(&db, &emitter) {
             let payload = DedupeCompletePayload {
+                job_id: next_dedupe_job_id(),
                 candidate_files: 0,
                 hashed_files: 0,
                 duplicate_files: 0,
@@ -222,6 +298,10 @@ pub fn spawn_duplicate_detection<R: Runtime>(app: AppHandle<R>, db: Database) {
     });
 }
 
+pub fn request_duplicate_detection_cancel() {
+    DEDUPE_CANCEL_REQUESTED.store(true, Ordering::Release);
+}
+
 fn hash_file_blake3(path: &Path) -> Result<String, DedupeError> {
     let mut file = File::open(path).map_err(|source| DedupeError::Io {
         path: path.to_string_lossy().into_owned(),
@@ -236,6 +316,23 @@ fn hash_file_blake3(path: &Path) -> Result<String, DedupeError> {
         })?;
 
     Ok(hasher.finalize().to_hex().to_string())
+}
+
+fn file_identity(path: &Path) -> Result<FileIdentity, DedupeError> {
+    let metadata = path.metadata().map_err(|source| DedupeError::Io {
+        path: path.to_string_lossy().into_owned(),
+        source,
+    })?;
+    let mtime = metadata
+        .modified()
+        .ok()
+        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|value| i64::try_from(value.as_secs()).unwrap_or(i64::MAX))
+        .unwrap_or_default();
+    Ok(FileIdentity {
+        size: metadata.len(),
+        mtime,
+    })
 }
 
 fn candidate_sizes(db: &Database) -> Result<Vec<CandidateSize>, DedupeError> {
@@ -270,7 +367,7 @@ fn candidate_files_for_size(db: &Database, size: i64) -> Result<Vec<CandidateFil
     let conn = db.conn()?;
     let mut stmt = conn.prepare(
         r#"
-        SELECT id, path
+        SELECT id, path, size, mtime
         FROM files
         WHERE is_dir = 0
           AND is_stale = 0
@@ -284,6 +381,8 @@ fn candidate_files_for_size(db: &Database, size: i64) -> Result<Vec<CandidateFil
         Ok(CandidateFile {
             id: row.get(0)?,
             path: PathBuf::from(path),
+            expected_size: row.get(2)?,
+            expected_mtime: row.get(3)?,
         })
     })?;
 
@@ -291,25 +390,34 @@ fn candidate_files_for_size(db: &Database, size: i64) -> Result<Vec<CandidateFil
         .map_err(DedupeError::from)
 }
 
-fn flush_hash_updates(
-    db: &Database,
-    updates: &mut Vec<(String, String)>,
-) -> Result<(), DedupeError> {
+fn flush_hash_updates(db: &Database, updates: &mut Vec<HashUpdate>) -> Result<u64, DedupeError> {
     if updates.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
 
     let mut conn = db.conn()?;
     let tx = conn.transaction()?;
     {
-        let mut stmt = tx.prepare("UPDATE files SET content_hash = ?2 WHERE id = ?1")?;
-        for (id, hash) in updates.iter() {
-            stmt.execute(params![id, hash])?;
+        let mut stmt = tx.prepare(
+            "UPDATE files SET content_hash = ?2 WHERE id = ?1 AND size = ?3 AND mtime = ?4 AND is_stale = 0",
+        )?;
+        let mut skipped = 0_u64;
+        for update in updates.iter() {
+            if stmt.execute(params![
+                update.id,
+                update.hash,
+                update.expected_size,
+                update.expected_mtime
+            ])? == 0
+            {
+                skipped += 1;
+            }
         }
+        drop(stmt);
+        tx.commit()?;
+        updates.clear();
+        Ok(skipped)
     }
-    tx.commit()?;
-    updates.clear();
-    Ok(())
 }
 
 fn duplicate_file_count(db: &Database) -> Result<i64, DedupeError> {
@@ -342,13 +450,15 @@ fn duplicate_file_count(db: &Database) -> Result<i64, DedupeError> {
 }
 
 struct DedupeProgress {
+    job_id: String,
     total: u64,
     last_emit_at: Instant,
 }
 
 impl DedupeProgress {
-    fn new(total: u64) -> Self {
+    fn new(job_id: String, total: u64) -> Self {
         Self {
+            job_id,
             total,
             last_emit_at: Instant::now(),
         }
@@ -380,10 +490,15 @@ impl DedupeProgress {
         processed: u64,
     ) -> Result<(), DedupeError> {
         emitter.emit_progress(&DedupeProgressPayload {
+            job_id: self.job_id.clone(),
             processed,
             total: self.total,
         })?;
         self.last_emit_at = Instant::now();
         Ok(())
     }
+}
+
+fn next_dedupe_job_id() -> String {
+    format!("dedupe-{}", DEDUPE_SEQUENCE.fetch_add(1, Ordering::Relaxed))
 }

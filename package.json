@@ -1,6 +1,6 @@
 {
   "name": "zen-canvas",
-  "version": "0.1.33",
+  "version": "0.1.34",
   "private": true,
   "description": "A local-first personal digital asset steward.",
   "author": "Startlan",
@@ -14,6 +14,7 @@
     "test:performance": "node scripts/runPerformanceTest.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "security:audit": "npm audit --audit-level=high",
+    "security:audit:rust": "cargo audit --file src-tauri/Cargo.lock --ignore RUSTSEC-2026-0194 --ignore RUSTSEC-2026-0195",
     "verify": "npm run typecheck && npm test && npm run test:performance && npm run build && npm run security:audit",
     "assets:brand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generateBrandAssets.ps1"
   },
@@ -29,6 +30,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@cyclonedx/cyclonedx-npm": "^6.0.0",
     "@tailwindcss/vite": "^4.3.1",
     "@tauri-apps/cli": "^2.11.2",
     "@types/node": "^24.0.0",

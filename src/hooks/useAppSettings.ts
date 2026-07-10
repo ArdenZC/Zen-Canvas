@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { tauriApi } from "../api/tauriApi";
 import type { AppSettings, LibraryScope, ScanRootSetting, SearchRootSetting } from "../types/domain";
 import { DEFAULT_SEARCH_HOTKEY } from "../utils/hotkeys";
-import { readableError } from "../utils/viewHelpers";
+import { normalizePathLike, readableError } from "../utils/viewHelpers";
 
 const defaultFormatSettingsError = (error: unknown) => readableError(error);
 
@@ -172,7 +172,7 @@ function normalizeScanRootPath(path: string) {
 }
 
 function sameScanRootPath(left: string, right: string) {
-  return normalizeScanRootPath(left).toLowerCase() === normalizeScanRootPath(right).toLowerCase();
+  return normalizePathLike(normalizeScanRootPath(left)) === normalizePathLike(normalizeScanRootPath(right));
 }
 
 function scanRootLabel(path: string) {
@@ -182,13 +182,22 @@ function scanRootLabel(path: string) {
 }
 
 function scanRootId(path: string) {
-  const normalizedPath = normalizeScanRootPath(path).toLowerCase();
+  const normalizedPath = normalizePathLike(normalizeScanRootPath(path));
   const slug = normalizedPath
     .replace(/^[a-z]:/i, (drive) => drive[0] ?? "")
     .replace(/[^a-z0-9\u4e00-\u9fff]+/gi, "-")
     .replace(/^-+|-+$/g, "")
     .toLowerCase();
-  return `scan-root-${slug || "root"}`;
+  return `scan-root-${slug || "root"}-${fnv1a32(normalizedPath)}`;
+}
+
+function fnv1a32(value: string) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 export function useAppSettings({
@@ -199,6 +208,8 @@ export function useAppSettings({
 }: UseAppSettingsOptions) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
+  const latestSettingsRef = useRef(DEFAULT_APP_SETTINGS);
+  const saveRequestIdRef = useRef(0);
 
   useEffect(() => {
     if (!isDatabaseReady) return;
@@ -210,6 +221,7 @@ export function useAppSettings({
       try {
         const loadedSettings = await tauriApi.getSettings();
         if (!cancelled) {
+          latestSettingsRef.current = loadedSettings;
           setSettings(loadedSettings);
         }
       } catch (error) {
@@ -232,22 +244,31 @@ export function useAppSettings({
 
   const updateSettings = useCallback(
     async (partial: Partial<AppSettings>) => {
-      const previousSettings = settings;
+      const requestId = saveRequestIdRef.current + 1;
+      saveRequestIdRef.current = requestId;
+      const previousSettings = latestSettingsRef.current;
       const nextSettings = mergeAppSettings(previousSettings, partial);
 
+      latestSettingsRef.current = nextSettings;
       setSettings(nextSettings);
 
       try {
         const savedSettings = await tauriApi.saveSettings(nextSettings);
-        setSettings(savedSettings);
+        if (requestId === saveRequestIdRef.current) {
+          latestSettingsRef.current = savedSettings;
+          setSettings(savedSettings);
+        }
         return savedSettings;
       } catch (error) {
-        setSettings(previousSettings);
-        onError(formatSaveError(error));
-        return previousSettings;
+        if (requestId === saveRequestIdRef.current) {
+          latestSettingsRef.current = previousSettings;
+          setSettings(previousSettings);
+          onError(formatSaveError(error));
+        }
+        return latestSettingsRef.current;
       }
     },
-    [formatSaveError, onError, settings]
+    [formatSaveError, onError]
   );
 
   return {

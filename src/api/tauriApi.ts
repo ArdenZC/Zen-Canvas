@@ -49,6 +49,8 @@ export interface ScannedEntry {
 }
 
 export interface ScanProgressPayload {
+  jobId: string;
+  jobKind: "foreground" | "background";
   root: string;
   scanned: number;
   files: number;
@@ -59,6 +61,8 @@ export interface ScanProgressPayload {
 }
 
 export interface ScanBatchPayload {
+  jobId: string;
+  jobKind: "foreground" | "background";
   root: string;
   batchIndex: number;
   entries: ScannedEntry[];
@@ -147,21 +151,35 @@ export const tauriApi = {
     return invokeCommand<FileRecord[]>("search_files", { query, limit, scope: scope ?? null });
   },
 
-  startScan(path: string, includeEntries = false): Promise<ScanSummary> {
-    return invokeCommand<ScanSummary>("scan_directory", { path, includeEntries });
+  startScan(
+    path: string,
+    includeEntries = false,
+    jobId: string,
+    jobKind: "foreground" | "background",
+    runDedupe = true
+  ): Promise<ScanSummary> {
+    return invokeCommand<ScanSummary>("scan_directory", { path, includeEntries, jobId, jobKind, runDedupe });
   },
 
-  cancelScan(): Promise<void> {
-    return invokeCommand<void>("cancel_scan");
+  cancelScan(jobId: string): Promise<void> {
+    return invokeCommand<void>("cancel_scan", { jobId });
   },
 
   executeMoves(operations: OperationPreview[]): Promise<ExecuteOperationResult> {
-    const request: ExecuteOperationRequest = { operations };
+    const request: ExecuteOperationRequest = {
+      operations: operations.map((operation) => ({
+        id: operation.id,
+        fileId: operation.fileId,
+        ...(operation.new_name !== operation.old_name ? { newName: operation.new_name } : {})
+      }))
+    };
     return invokeCommand<ExecuteOperationResult>("execute_moves", { request });
   },
 
   restoreMoves(logs: OperationLog[]): Promise<RestoreMovesResult> {
-    return invokeCommand<RestoreMovesResult>("restore_moves", { request: { logs } });
+    return invokeCommand<RestoreMovesResult>("restore_moves", {
+      request: { logIds: logs.map((log) => log.id) }
+    });
   },
 
   cancelOperations(): Promise<void> {
@@ -200,6 +218,10 @@ export const tauriApi = {
 
   getStorageCleanupScanStatus(jobId: string): Promise<StorageCleanupScanStatus> {
     return invokeCommand<StorageCleanupScanStatus>("get_storage_cleanup_scan_status", { jobId });
+  },
+
+  getStorageCleanupCandidatePage(jobId: string, offset: number, limit = 200): Promise<StorageAnalysis> {
+    return invokeCommand<StorageAnalysis>("get_storage_cleanup_candidate_page", { jobId, offset, limit });
   },
 
   cancelStorageCleanupScan(jobId: string): Promise<void> {
@@ -390,7 +412,7 @@ export const tauriApi = {
     return listenTo("scan-canceled", handler);
   },
 
-  onScanError(handler: EventHandler<{ root: string; path: string; message: string }>): Promise<UnlistenFn> {
+  onScanError(handler: EventHandler<{ jobId: string; jobKind: "foreground" | "background"; root: string; path: string; message: string }>): Promise<UnlistenFn> {
     return listenTo("scan-error", handler);
   },
 

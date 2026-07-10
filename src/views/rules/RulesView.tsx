@@ -119,17 +119,21 @@ export function RulesView() {
   }
 
   async function submit() {
-    const now = nowIso();
-    await onSave(buildRuleFromBuilderDraft({
-      name,
-      rootOperator,
-      groups,
-      purpose,
-      lifecycle,
-      weight,
-      now
-    }));
-    setConfirmState({ kind: "reapplyRules" });
+    try {
+      const now = nowIso();
+      await onSave(buildRuleFromBuilderDraft({
+        name,
+        rootOperator,
+        groups,
+        purpose,
+        lifecycle,
+        weight,
+        now
+      }));
+      setConfirmState({ kind: "reapplyRules" });
+    } catch (error) {
+      onError(readableError(error));
+    }
   }
 
   async function reapplyRulesToCurrentScope() {

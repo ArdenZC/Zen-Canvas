@@ -1,4 +1,4 @@
-import { createElement, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { createElement, useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import type { Variants } from "motion/react";
 import {
   appPanel as appPanelClass,
@@ -328,6 +328,41 @@ export function ConfirmDialog({
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    cancelRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isProcessing) {
+        event.preventDefault();
+        onCancel();
+      }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previous?.focus();
+    };
+  }, [isProcessing, onCancel, open]);
+
   if (!open) return null;
 
   return createElement(
@@ -336,18 +371,19 @@ export function ConfirmDialog({
     createElement(
       "div",
       {
+        ref: dialogRef,
         className: cn(elevatedPanel, "grid w-full max-w-md gap-4 p-5"),
         role: "alertdialog",
         "aria-modal": "true",
-        "aria-labelledby": "confirm-dialog-title",
-        "aria-describedby": description ? "confirm-dialog-description" : undefined
+        "aria-labelledby": titleId,
+        "aria-describedby": description ? descriptionId : undefined
       },
       createElement(
         "div",
         null,
-        createElement("h2", { id: "confirm-dialog-title", className: sectionHeading }, title),
+        createElement("h2", { id: titleId, className: sectionHeading }, title),
         description
-          ? createElement("p", { id: "confirm-dialog-description", className: sectionDescription }, description)
+          ? createElement("p", { id: descriptionId, className: sectionDescription }, description)
           : null
       ),
       createElement(
@@ -355,7 +391,7 @@ export function ConfirmDialog({
         { className: "flex flex-wrap justify-end gap-2" },
         createElement(
           "button",
-          { type: "button", className: buttonSecondary, onClick: onCancel, disabled: isProcessing },
+          { ref: cancelRef, type: "button", className: buttonSecondary, onClick: onCancel, disabled: isProcessing },
           cancelLabel
         ),
         createElement(

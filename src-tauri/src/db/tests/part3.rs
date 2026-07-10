@@ -89,7 +89,7 @@
             Some("Operation is not executable.")
         );
         assert!(!logs[0].can_restore);
-        assert_eq!(operation_batch_status(&db, "batch-skipped"), "success");
+        assert_eq!(operation_batch_status(&db, "batch-skipped"), "skipped");
     }
 
     #[test]
@@ -164,4 +164,3 @@
 
         assert_eq!(query, "\"项目\"\"报告\" AND \"final-v1.pdf\"");
     }
-

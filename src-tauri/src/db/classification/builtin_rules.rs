@@ -124,7 +124,6 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
                 target_template: Some("Media/Screenshots".to_string()),
                 rename_template: Some("{basename}_{date}".to_string()),
                 context: Some("Screenshot".to_string()),
-                ..RuleAction::default()
             },
         ),
         system_rule(
@@ -523,7 +522,6 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                 target_template: Some("Media/Screenshots".to_string()),
                 rename_template: Some("{basename}_{date}".to_string()),
                 context: Some("Screenshot".to_string()),
-                ..RuleAction::default()
             },
             confidence: 0.78,
         };

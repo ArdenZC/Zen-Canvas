@@ -7,11 +7,12 @@ use crate::path_filter::is_ignored_dir_name;
 use jwalk::{ClientState, DirEntry, WalkDir};
 use serde::Serialize;
 use std::{
+    collections::HashMap,
     ffi::OsStr,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::{Duration, Instant, UNIX_EPOCH},
 };
@@ -63,6 +64,8 @@ pub struct ScannedEntry {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanProgressPayload {
+    pub job_id: String,
+    pub job_kind: String,
     pub root: String,
     pub scanned: u64,
     pub files: u64,
@@ -75,6 +78,8 @@ pub struct ScanProgressPayload {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanStartedPayload {
+    pub job_id: String,
+    pub job_kind: String,
     pub root: String,
     pub batch_size: usize,
 }
@@ -82,6 +87,8 @@ pub struct ScanStartedPayload {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanBatchPayload {
+    pub job_id: String,
+    pub job_kind: String,
     pub root: String,
     pub batch_index: u64,
     pub entries: Vec<ScannedEntry>,
@@ -91,6 +98,8 @@ pub struct ScanBatchPayload {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanErrorPayload {
+    pub job_id: String,
+    pub job_kind: String,
     pub root: String,
     pub path: String,
     pub message: String,
@@ -106,39 +115,103 @@ struct ScanCounters {
     errors: u64,
 }
 
-#[derive(Clone)]
-pub struct ScanCancellationToken(pub Arc<AtomicBool>);
+#[derive(Clone, Default)]
+pub struct ScanJobManager(Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>);
+
+impl ScanJobManager {
+    fn register(&self, job_id: &str) -> Result<Arc<AtomicBool>, String> {
+        let job_id = job_id.trim();
+        if job_id.is_empty() || job_id.len() > 128 {
+            return Err("A valid scan job ID is required.".to_string());
+        }
+        let mut jobs = self
+            .0
+            .lock()
+            .map_err(|_| "Scan job manager is unavailable.".to_string())?;
+        if jobs.contains_key(job_id) {
+            return Err(format!("Scan job already exists: {job_id}."));
+        }
+        let token = Arc::new(AtomicBool::new(false));
+        jobs.insert(job_id.to_string(), Arc::clone(&token));
+        Ok(token)
+    }
+
+    fn cancel(&self, job_id: &str) -> bool {
+        let Ok(jobs) = self.0.lock() else {
+            return false;
+        };
+        let Some(token) = jobs.get(job_id.trim()) else {
+            return false;
+        };
+        token.store(true, Ordering::Relaxed);
+        true
+    }
+
+    fn finish(&self, job_id: &str) {
+        if let Ok(mut jobs) = self.0.lock() {
+            jobs.remove(job_id.trim());
+        }
+    }
+}
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn scan_directory<R: Runtime>(
     app: AppHandle<R>,
     db: State<'_, Database>,
-    cancel: State<'_, ScanCancellationToken>,
+    jobs: State<'_, ScanJobManager>,
     path: String,
     include_entries: bool,
+    job_id: String,
+    job_kind: String,
+    run_dedupe: Option<bool>,
 ) -> Result<ScanSummary, String> {
+    if !matches!(job_kind.as_str(), "foreground" | "background") {
+        return Err("Scan job kind must be foreground or background.".to_string());
+    }
     let db = db.inner().clone();
-    cancel.0.store(false, Ordering::Relaxed);
-    let cancel_flag = Arc::clone(&cancel.0);
-    tauri::async_runtime::spawn_blocking(move || {
-        scan_directory_blocking(app, db, PathBuf::from(path), cancel_flag, include_entries)
+    let jobs = jobs.inner().clone();
+    let cancel_flag = jobs.register(&job_id)?;
+    let job_id_for_task = job_id.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        scan_directory_blocking(
+            app,
+            db,
+            PathBuf::from(path),
+            cancel_flag,
+            include_entries,
+            job_id_for_task,
+            job_kind,
+            run_dedupe.unwrap_or(true),
+        )
     })
     .await
     .map_err(|error| ScanError::Join(error.to_string()).to_string())?
-    .map_err(|error| error.to_string())
+    .map_err(|error| error.to_string());
+    jobs.finish(&job_id);
+    result
 }
 
 #[tauri::command]
-pub fn cancel_scan(cancel: State<'_, ScanCancellationToken>) {
-    cancel.0.store(true, Ordering::Relaxed);
+pub fn cancel_scan(jobs: State<'_, ScanJobManager>, job_id: String) -> Result<(), String> {
+    if jobs.cancel(&job_id) {
+        crate::dedupe::request_duplicate_detection_cancel();
+        Ok(())
+    } else {
+        Err(format!("Scan job not found: {job_id}."))
+    }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn scan_directory_blocking<R: Runtime>(
     app: AppHandle<R>,
     db: Database,
     root: PathBuf,
     cancel_flag: Arc<AtomicBool>,
     include_entries: bool,
+    job_id: String,
+    job_kind: String,
+    run_dedupe: bool,
 ) -> Result<ScanSummary, ScanError> {
     validate_root(&root)?;
 
@@ -153,6 +226,8 @@ fn scan_directory_blocking<R: Runtime>(
     app.emit(
         SCAN_STARTED_EVENT,
         ScanStartedPayload {
+            job_id: job_id.clone(),
+            job_kind: job_kind.clone(),
             root: root_label.clone(),
             batch_size: SCAN_BATCH_SIZE,
         },
@@ -194,7 +269,7 @@ fn scan_directory_blocking<R: Runtime>(
                 }
                 Err(error) => {
                     counters.errors += 1;
-                    emit_scan_error(&app, &root_label, error)?;
+                    emit_scan_error(&app, &job_id, &job_kind, &root_label, error)?;
                 }
             },
             Err(error) => {
@@ -202,6 +277,8 @@ fn scan_directory_blocking<R: Runtime>(
                 app.emit(
                     SCAN_ERROR_EVENT,
                     ScanErrorPayload {
+                        job_id: job_id.clone(),
+                        job_kind: job_kind.clone(),
                         root: root_label.clone(),
                         path: root_label.clone(),
                         message: error.to_string(),
@@ -218,6 +295,8 @@ fn scan_directory_blocking<R: Runtime>(
                 counters: &counters,
                 started_at,
                 include_entries,
+                job_id: &job_id,
+                job_kind: &job_kind,
             };
             batch.flush(&context, skipped.load(Ordering::Relaxed))?;
         }
@@ -233,6 +312,8 @@ fn scan_directory_blocking<R: Runtime>(
             counters: &counters,
             started_at,
             include_entries,
+            job_id: &job_id,
+            job_kind: &job_kind,
         };
         batch.flush(&context, skipped.load(Ordering::Relaxed))?;
     }
@@ -242,6 +323,8 @@ fn scan_directory_blocking<R: Runtime>(
     }
 
     let summary = progress_payload(
+        &job_id,
+        &job_kind,
         &root_label,
         &counters,
         skipped.load(Ordering::Relaxed),
@@ -265,7 +348,11 @@ fn scan_directory_blocking<R: Runtime>(
             app.emit(SCAN_COMPLETE_EVENT, summary.clone())?;
             Ok(())
         },
-        || spawn_duplicate_detection(app_for_dedupe, db_for_dedupe),
+        || {
+            if run_dedupe {
+                spawn_duplicate_detection(app_for_dedupe, db_for_dedupe);
+            }
+        },
     )?;
     Ok(summary)
 }
@@ -286,6 +373,8 @@ struct BatchEmitContext<'a, R: Runtime> {
     counters: &'a ScanCounters,
     started_at: Instant,
     include_entries: bool,
+    job_id: &'a str,
+    job_kind: &'a str,
 }
 
 struct ScanBatchBuffer {
@@ -330,8 +419,14 @@ impl ScanBatchBuffer {
             return Ok(());
         }
 
-        let progress =
-            progress_payload(context.root, context.counters, skipped, context.started_at);
+        let progress = progress_payload(
+            context.job_id,
+            context.job_kind,
+            context.root,
+            context.counters,
+            skipped,
+            context.started_at,
+        );
         let entries = std::mem::take(&mut self.entries);
         // insert_files wraps only this bounded batch in a transaction, keeping scan writes short
         // enough for WAL readers to continue querying while the background scan runs.
@@ -345,6 +440,8 @@ impl ScanBatchBuffer {
         context.app.emit(
             SCAN_BATCH_EVENT,
             scan_batch_payload(
+                context.job_id,
+                context.job_kind,
                 context.root,
                 self.batch_index,
                 entries,
@@ -362,6 +459,8 @@ impl ScanBatchBuffer {
 }
 
 fn scan_batch_payload(
+    job_id: &str,
+    job_kind: &str,
     root: &str,
     batch_index: u64,
     entries: Vec<ScannedEntry>,
@@ -369,6 +468,8 @@ fn scan_batch_payload(
     include_entries: bool,
 ) -> ScanBatchPayload {
     ScanBatchPayload {
+        job_id: job_id.to_string(),
+        job_kind: job_kind.to_string(),
         root: root.to_string(),
         batch_index,
         entries: if include_entries { entries } else { Vec::new() },
@@ -392,6 +493,8 @@ fn scanned_entry_to_insert_request(entry: &ScannedEntry) -> InsertFileRequest {
 
 fn emit_scan_error(
     app: &AppHandle<impl Runtime>,
+    job_id: &str,
+    job_kind: &str,
     root: &str,
     error: ScanError,
 ) -> Result<(), ScanError> {
@@ -403,6 +506,8 @@ fn emit_scan_error(
     app.emit(
         SCAN_ERROR_EVENT,
         ScanErrorPayload {
+            job_id: job_id.to_string(),
+            job_kind: job_kind.to_string(),
             root: root.to_string(),
             path,
             message,
@@ -448,12 +553,16 @@ fn entry_to_payload<C: ClientState>(
 }
 
 fn progress_payload(
+    job_id: &str,
+    job_kind: &str,
     root: &str,
     counters: &ScanCounters,
     skipped: u64,
     started_at: Instant,
 ) -> ScanProgressPayload {
     ScanProgressPayload {
+        job_id: job_id.to_string(),
+        job_kind: job_kind.to_string(),
         root: root.to_string(),
         scanned: counters.scanned,
         files: counters.files,
@@ -552,6 +661,8 @@ mod tests {
     #[test]
     fn scan_batch_payload_omits_entries_when_not_requested() {
         let payload = scan_batch_payload(
+            "job-1",
+            "foreground",
             "/tmp/root",
             2,
             vec![test_scanned_entry(1), test_scanned_entry(2)],
@@ -568,6 +679,8 @@ mod tests {
     #[test]
     fn scan_batch_payload_includes_entries_when_requested() {
         let payload = scan_batch_payload(
+            "job-1",
+            "foreground",
             "/tmp/root",
             3,
             vec![test_scanned_entry(1), test_scanned_entry(2)],
@@ -596,6 +709,18 @@ mod tests {
         assert_eq!(*events.borrow(), vec!["scan-complete", "dedupe-started"]);
     }
 
+    #[test]
+    fn scan_jobs_have_independent_cancellation_tokens() {
+        let jobs = ScanJobManager::default();
+        let foreground = jobs.register("foreground-1").expect("foreground job");
+        let background = jobs.register("background-1").expect("background job");
+
+        assert!(jobs.cancel("background-1"));
+
+        assert!(!is_scan_cancelled(&foreground));
+        assert!(is_scan_cancelled(&background));
+    }
+
     fn test_scanned_entry(index: usize) -> ScannedEntry {
         ScannedEntry {
             path: format!("/tmp/file-{index}.txt"),
@@ -611,6 +736,8 @@ mod tests {
 
     fn test_scan_progress() -> ScanProgressPayload {
         ScanProgressPayload {
+            job_id: "job-1".to_string(),
+            job_kind: "foreground".to_string(),
             root: "/tmp/root".to_string(),
             scanned: 2,
             files: 2,

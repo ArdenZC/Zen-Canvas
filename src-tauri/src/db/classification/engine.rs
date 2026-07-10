@@ -1,6 +1,6 @@
 use super::super::*;
 use super::{
-    builtin_rules::{classify_builtin, legacy_builtin_classification_rules, days_since_unix},
+    builtin_rules::{classify_builtin, days_since_unix, legacy_builtin_classification_rules},
     naming::{build_suggested_name, build_target_path, OrganizeRootConfig},
 };
 use crate::settings::AppSettings;
@@ -258,8 +258,7 @@ impl Database {
 
         let all_rules = active_rules_for_manual_rules(rules, settings);
         let rule_version = classification_version_for_rules(&all_rules, settings)?;
-        let placeholders = std::iter::repeat("?")
-            .take(target_paths.len())
+        let placeholders = std::iter::repeat_n("?", target_paths.len())
             .collect::<Vec<_>>()
             .join(", ");
         let sql = format!(
@@ -694,7 +693,10 @@ fn evaluate_group(group: &RuleConditionGroup, row: &IndexedFileRow, file_type: &
 
 fn evaluate_condition(condition: &RuleCondition, row: &IndexedFileRow, file_type: &str) -> bool {
     let raw = condition_value(&condition.field, row, file_type).to_lowercase();
-    let expected = json_value_to_string(&condition.value).to_lowercase();
+    let expected = json_value_to_string(&condition.value).trim().to_lowercase();
+    if expected.is_empty() {
+        return false;
+    }
     match condition.operator.as_str() {
         "contains" => raw.contains(&expected),
         "equals" | "is" => raw == expected,

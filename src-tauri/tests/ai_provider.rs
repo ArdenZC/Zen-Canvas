@@ -56,7 +56,6 @@ fn ai_settings_default_starts_disabled_on_deepseek() {
     assert_eq!(settings.timeout_seconds, 120);
     assert!(!settings.send_full_path);
     assert!(settings.send_parent_path);
-    assert!(!settings.send_file_content);
     assert!(settings.cleanup_ai_enabled);
     assert!(!settings.force_json_output);
     assert!(!settings.enable_thinking);

@@ -26,6 +26,7 @@ pub use ai::settings::{
 pub use app_control::{
     activate_search_result, get_global_hotkey_status, quit_app, register_global_search_hotkey,
     resize_search_window, GlobalHotkeyStatus, GlobalHotkeyStatusState, SearchNavigatePayload,
+    SearchView,
 };
 pub use db::{
     confirm_classification, correct_classification, delete_user_rule, execute_rules_for_paths,
@@ -38,19 +39,22 @@ pub use db::{
     StatsSummary,
 };
 pub use file_ops::{
-    cancel_operations, execute_moves, move_file, rename_file, restore_moves, ExecuteMovesRequest,
-    ExecuteMovesResult, FileOperationResult, OperationCancellationToken, OperationLogDto,
-    OperationPreviewRequest, OperationProgressPayload, RestoreMovesRequest, RestoreMovesResult,
+    cancel_operations, execute_moves, move_file, reconcile_pending_operation_journal, rename_file,
+    restore_moves, ExecuteMovesByIdRequest, ExecuteMovesRequest, ExecuteMovesResult,
+    FileOperationResult, OperationCancellationToken, OperationLogDto, OperationPreviewRequest,
+    OperationProgressPayload, OperationSelection, RestoreMovesByIdRequest, RestoreMovesRequest,
+    RestoreMovesResult,
 };
 pub use scanner::{
-    cancel_scan, scan_directory, ScanBatchPayload, ScanCancellationToken, ScanProgressPayload,
+    cancel_scan, scan_directory, ScanBatchPayload, ScanJobManager, ScanProgressPayload,
     ScanSummary, ScannedEntry,
 };
 pub use settings::{
     get_app_settings, get_settings, save_app_settings, save_settings, AppSettings, OrganizeRootMode,
 };
 pub use storage_analyzer::{
-    cancel_storage_cleanup_scan, get_storage_cleanup_scan_status, list_cleanup_trash_batches,
+    cancel_storage_cleanup_scan, get_storage_cleanup_candidate_page,
+    get_storage_cleanup_scan_status, list_cleanup_trash_batches,
     move_cleanup_candidates_to_safe_trash, move_cleanup_candidates_to_trash,
     preview_cleanup_candidates, preview_cleanup_operations, preview_restore_cleanup_trash,
     restore_cleanup_trash_items, reveal_storage_candidate, scan_storage_cleanup,

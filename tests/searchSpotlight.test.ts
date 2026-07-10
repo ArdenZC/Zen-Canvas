@@ -86,6 +86,20 @@ describe("spotlight search navigation", () => {
     expect(appShell).toContain("searchScope={effectiveSearchScope}");
   });
 
+  it("falls back to the library for an invalid runtime view payload", () => {
+    const setView = vi.fn();
+    const setSelectedFileId = vi.fn();
+
+    applySearchNavigation(
+      { view: "destructive-unknown-view", fileId: "file-1" },
+      setView,
+      setSelectedFileId
+    );
+
+    expect(setView).toHaveBeenCalledWith("library");
+    expect(setSelectedFileId).toHaveBeenCalledWith("file-1");
+  });
+
   it("keeps Tab available for focus movement and uses primary-key shortcuts for sorting preview", () => {
     const keyEvent = (key: string, overrides: Partial<KeyboardEvent> = {}) => ({
       key,

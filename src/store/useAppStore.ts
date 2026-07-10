@@ -31,12 +31,12 @@ export const useAppStore = create<AppStore>((set) => ({
   globalHotkeyError: "",
   toast: null,
   setLanguage: (language) => {
-    window.localStorage.setItem("zc-language", language);
     set({ language });
+    try { window.localStorage.setItem("zc-language", language); } catch { /* optional preference */ }
   },
   setTheme: (theme) => {
-    window.localStorage.setItem("zc-theme", theme);
     set({ theme });
+    try { window.localStorage.setItem("zc-theme", theme); } catch { /* optional preference */ }
   },
   setView: (view) => set({ view }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),

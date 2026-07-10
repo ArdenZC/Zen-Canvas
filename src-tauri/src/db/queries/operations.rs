@@ -1,6 +1,6 @@
 use super::super::*;
 use crate::file_ops::OperationLogDto;
-use rusqlite::{params, Row};
+use rusqlite::{params, OptionalExtension, Row};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 impl Database {
@@ -39,6 +39,97 @@ impl Database {
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
     }
 
+    pub fn get_restorable_operation_logs_by_ids(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<OperationLogDto>, DbError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT
+                id, batch_id, operation_type, source_path, target_path, old_name, new_name,
+                status, error_message, created_at, can_undo, path_before, path_after,
+                name_before, name_after, can_restore, restored_at, restore_status, restore_error
+            FROM operation_logs
+            WHERE id = ?1
+              AND status = 'success'
+              AND can_restore = 1
+              AND restore_status = 'not_restored'
+            "#,
+        )?;
+        let mut logs = Vec::with_capacity(ids.len());
+        for id in ids {
+            let log = stmt
+                .query_row(params![id], operation_log_from_row)
+                .optional()?;
+            if let Some(log) = log {
+                logs.push(log);
+            }
+        }
+        Ok(logs)
+    }
+
+    pub fn get_pending_operation_logs(&self) -> Result<Vec<OperationLogDto>, DbError> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT
+                id, batch_id, operation_type, source_path, target_path, old_name, new_name,
+                status, error_message, created_at, can_undo, path_before, path_after,
+                name_before, name_after, can_restore, restored_at, restore_status, restore_error
+            FROM operation_logs
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            "#,
+        )?;
+        let rows = stmt.query_map([], operation_log_from_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    pub fn get_pending_restore_logs(&self) -> Result<Vec<OperationLogDto>, DbError> {
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT
+                id, batch_id, operation_type, source_path, target_path, old_name, new_name,
+                status, error_message, created_at, can_undo, path_before, path_after,
+                name_before, name_after, can_restore, restored_at, restore_status, restore_error
+            FROM operation_logs
+            WHERE restore_status = 'pending'
+            ORDER BY created_at ASC
+            "#,
+        )?;
+        let rows = stmt.query_map([], operation_log_from_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    pub fn mark_operation_restores_pending(&self, ids: &[String]) -> Result<(), DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                r#"
+                UPDATE operation_logs
+                SET restore_status = 'pending', restore_error = NULL
+                WHERE id = ?1 AND status = 'success' AND can_restore = 1
+                  AND restore_status = 'not_restored'
+                "#,
+            )?;
+            for id in ids {
+                if stmt.execute(params![id])? != 1 {
+                    return Err(DbError::Validation(format!(
+                        "Operation log is no longer restorable: {id}"
+                    )));
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn save_operation_logs(
         &self,
         batch_id: &str,
@@ -50,8 +141,12 @@ impl Database {
             .first()
             .map(|log| parse_operation_timestamp(&log.created_at))
             .unwrap_or_else(current_timestamp_ms);
-        let batch_status = if logs.iter().any(|log| log.status == "failed") {
+        let batch_status = if logs.iter().any(|log| log.status == "pending") {
+            "pending"
+        } else if logs.iter().any(|log| log.status == "failed") {
             "partial_failed"
+        } else if logs.iter().all(|log| log.status == "skipped") {
+            "skipped"
         } else {
             "success"
         };

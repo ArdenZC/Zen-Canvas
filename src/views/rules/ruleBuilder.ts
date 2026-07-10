@@ -36,9 +36,27 @@ export interface RuleBuilderDraft {
 }
 
 export function buildRuleFromBuilderDraft(draft: RuleBuilderDraft): Rule {
+  const name = draft.name.trim();
+  if (!name) {
+    throw new Error("Rule name is required.");
+  }
+  if (draft.groups.length === 0) {
+    throw new Error("At least one condition group is required.");
+  }
+  for (const group of draft.groups) {
+    if (group.conditions.length === 0) {
+      throw new Error("Each rule group requires at least one condition.");
+    }
+    for (const condition of group.conditions) {
+      if (typeof condition.value === "string" && !condition.value.trim()) {
+        throw new Error("Rule condition value is required.");
+      }
+    }
+  }
+
   return {
     id: draft.id ?? localId("rule"),
-    name: draft.name,
+    name,
     source: "user",
     enabled: true,
     priority: 75,
@@ -50,10 +68,7 @@ export function buildRuleFromBuilderDraft(draft: RuleBuilderDraft): Rule {
     })),
     action: {
       purpose: draft.purpose,
-      lifecycle: draft.lifecycle,
-      suggested_action: "Move",
-      target_template: "00_Inbox/Screenshots",
-      context: "Screenshots"
+      lifecycle: draft.lifecycle
     },
     created_at: draft.now,
     updated_at: draft.now

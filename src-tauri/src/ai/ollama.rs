@@ -12,20 +12,22 @@ use super::{
 
 pub struct OllamaProvider {
     settings: AISettings,
+    client: Option<Client>,
 }
 
 impl OllamaProvider {
     pub fn new(settings: AISettings) -> Self {
-        Self { settings }
+        let client = Client::builder()
+            .timeout(Duration::from_secs(settings.timeout_seconds.max(1)))
+            .build()
+            .ok();
+        Self { settings, client }
     }
 
-    fn client(&self) -> Result<Client, AIProviderError> {
-        Client::builder()
-            .timeout(Duration::from_secs(self.settings.timeout_seconds.max(1)))
-            .build()
-            .map_err(|error| {
-                AIProviderError::new(format!("failed to build Ollama client: {error}"))
-            })
+    fn client(&self) -> Result<&Client, AIProviderError> {
+        self.client
+            .as_ref()
+            .ok_or_else(|| AIProviderError::new("failed to build Ollama client"))
     }
 }
 
@@ -65,7 +67,7 @@ impl AIProvider for OllamaProvider {
     }
 
     fn test_connection(&self) -> Result<AIConnectionTestResult, AIProviderError> {
-        let test_max_tokens = self.settings.max_tokens.max(512).min(4096);
+        let test_max_tokens = self.settings.max_tokens.clamp(512, 4096);
         let content = self.chat_json(AIChatRequest {
             messages: vec![AIChatMessage {
                 role: "user".to_string(),

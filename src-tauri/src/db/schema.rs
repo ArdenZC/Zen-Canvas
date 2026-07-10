@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 14;
+const CURRENT_SCHEMA_VERSION: i32 = 16;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -35,13 +35,20 @@ fn set_schema_version(conn: &Connection, version: i32) -> Result<(), DbError> {
 pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
     assert_fts5_available(conn)?;
     let version = schema_version(conn)?;
-    if version >= CURRENT_SCHEMA_VERSION {
+    if version > CURRENT_SCHEMA_VERSION {
+        return Err(DbError::Validation(format!(
+            "Database schema version {version} is newer than this app supports ({CURRENT_SCHEMA_VERSION})."
+        )));
+    }
+    if version == CURRENT_SCHEMA_VERSION {
         return Ok(());
     }
-    if version < 1 {
-        // 建表 + 基础索引
-        conn.execute_batch(
-            r#"
+    conn.execute_batch("BEGIN IMMEDIATE")?;
+    let migration_result = (|| -> Result<(), DbError> {
+        if version < 1 {
+            // 建表 + 基础索引
+            conn.execute_batch(
+                r#"
             CREATE TABLE IF NOT EXISTS files (
                 id TEXT PRIMARY KEY,
                 path TEXT NOT NULL UNIQUE,
@@ -57,12 +64,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             CREATE INDEX IF NOT EXISTS idx_files_extension ON files(extension);
             CREATE INDEX IF NOT EXISTS idx_files_mtime ON files(mtime DESC);
             "#,
-        )?;
-        set_schema_version(conn, 1)?;
-    }
-    if version < 2 {
-        // 分类字段 + FTS + 触发器
-        execute_column_migrations(
+            )?;
+            set_schema_version(conn, 1)?;
+        }
+        if version < 2 {
+            // 分类字段 + FTS + 触发器
+            execute_column_migrations(
             conn,
             &[
                 "ALTER TABLE files ADD COLUMN file_type TEXT NOT NULL DEFAULT 'Other';",
@@ -79,7 +86,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
                 "ALTER TABLE files ADD COLUMN requires_confirmation INTEGER NOT NULL DEFAULT 0;",
             ],
         )?;
-        conn.execute_batch(
+            conn.execute_batch(
             r#"
             CREATE INDEX IF NOT EXISTS idx_files_file_type ON files(file_type);
             CREATE INDEX IF NOT EXISTS idx_files_purpose ON files(purpose);
@@ -88,20 +95,20 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             CREATE INDEX IF NOT EXISTS idx_files_requires_confirmation ON files(requires_confirmation);
             "#,
         )?;
-        ensure_trigram_fts(conn)?;
-        ensure_fts_triggers(conn)?;
-        set_schema_version(conn, 2)?;
-    }
-    if version < 3 {
-        // 新增 ctime 字段（真实创建时间）
-        execute_column_migrations(
-            conn,
-            &["ALTER TABLE files ADD COLUMN ctime INTEGER NOT NULL DEFAULT 0;"],
-        )?;
-        set_schema_version(conn, 3)?;
-    }
-    if version < 4 {
-        conn.execute_batch(
+            ensure_trigram_fts(conn)?;
+            ensure_fts_triggers(conn)?;
+            set_schema_version(conn, 2)?;
+        }
+        if version < 3 {
+            // 新增 ctime 字段（真实创建时间）
+            execute_column_migrations(
+                conn,
+                &["ALTER TABLE files ADD COLUMN ctime INTEGER NOT NULL DEFAULT 0;"],
+            )?;
+            set_schema_version(conn, 3)?;
+        }
+        if version < 4 {
+            conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS operation_batches (
                 id TEXT PRIMARY KEY,
@@ -134,26 +141,26 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             CREATE INDEX IF NOT EXISTS idx_operation_logs_restore_status ON operation_logs(restore_status);
             "#,
         )?;
-        set_schema_version(conn, 4)?;
-    }
-    if version < 5 {
-        execute_column_migrations(
-            conn,
-            &[
-                "ALTER TABLE files ADD COLUMN is_stale INTEGER NOT NULL DEFAULT 0;",
-                "ALTER TABLE files ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0;",
-            ],
-        )?;
-        conn.execute_batch(
-            r#"
+            set_schema_version(conn, 4)?;
+        }
+        if version < 5 {
+            execute_column_migrations(
+                conn,
+                &[
+                    "ALTER TABLE files ADD COLUMN is_stale INTEGER NOT NULL DEFAULT 0;",
+                    "ALTER TABLE files ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0;",
+                ],
+            )?;
+            conn.execute_batch(
+                r#"
             CREATE INDEX IF NOT EXISTS idx_files_is_stale ON files(is_stale);
             CREATE INDEX IF NOT EXISTS idx_files_last_seen_at ON files(last_seen_at DESC);
             "#,
-        )?;
-        set_schema_version(conn, 5)?;
-    }
-    if version < 6 {
-        execute_column_migrations(
+            )?;
+            set_schema_version(conn, 5)?;
+        }
+        if version < 6 {
+            execute_column_migrations(
             conn,
             &[
                 "ALTER TABLE files ADD COLUMN last_classified_at INTEGER NOT NULL DEFAULT 0;",
@@ -162,18 +169,18 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
                 "ALTER TABLE files ADD COLUMN last_classified_size INTEGER NOT NULL DEFAULT 0;",
             ],
         )?;
-        conn.execute_batch(
+            conn.execute_batch(
             r#"
             CREATE INDEX IF NOT EXISTS idx_files_classified_version ON files(classified_rule_version);
             CREATE INDEX IF NOT EXISTS idx_files_last_classified_at ON files(last_classified_at DESC);
             CREATE INDEX IF NOT EXISTS idx_files_classification_fingerprint ON files(last_classified_mtime, last_classified_size);
             "#,
         )?;
-        set_schema_version(conn, 6)?;
-    }
-    if version < 7 {
-        conn.execute_batch(
-            r#"
+            set_schema_version(conn, 6)?;
+        }
+        if version < 7 {
+            conn.execute_batch(
+                r#"
             CREATE TABLE IF NOT EXISTS rules (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
@@ -191,67 +198,67 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             CREATE INDEX IF NOT EXISTS idx_rules_enabled ON rules(enabled);
             CREATE INDEX IF NOT EXISTS idx_rules_priority ON rules(priority DESC);
             "#,
-        )?;
-        set_schema_version(conn, 7)?;
-    }
-    if version < 8 {
-        conn.execute_batch(
-            r#"
+            )?;
+            set_schema_version(conn, 7)?;
+        }
+        if version < 8 {
+            conn.execute_batch(
+                r#"
             CREATE TABLE IF NOT EXISTS app_settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
             );
             "#,
-        )?;
-        conn.execute(
-            r#"
+            )?;
+            conn.execute(
+                r#"
             INSERT OR IGNORE INTO app_settings (key, value)
             VALUES (?1, ?2)
             "#,
-            params![
-                crate::settings::APP_SETTINGS_KEY,
-                crate::settings::default_settings_json()?
-            ],
-        )?;
-        set_schema_version(conn, 8)?;
-    }
-    if version < 9 {
-        execute_column_migrations(
-            conn,
-            &["ALTER TABLE files ADD COLUMN content_hash TEXT NOT NULL DEFAULT '';"],
-        )?;
-        conn.execute_batch(
-            r#"
+                params![
+                    crate::settings::APP_SETTINGS_KEY,
+                    crate::settings::default_settings_json()?
+                ],
+            )?;
+            set_schema_version(conn, 8)?;
+        }
+        if version < 9 {
+            execute_column_migrations(
+                conn,
+                &["ALTER TABLE files ADD COLUMN content_hash TEXT NOT NULL DEFAULT '';"],
+            )?;
+            conn.execute_batch(
+                r#"
             CREATE INDEX IF NOT EXISTS idx_files_dedupe
             ON files(size, content_hash)
             WHERE is_dir = 0 AND size > 0;
             "#,
-        )?;
-        set_schema_version(conn, 9)?;
-    }
-    if version < 10 {
-        execute_column_migrations(
-            conn,
-            &[r#"
+            )?;
+            set_schema_version(conn, 9)?;
+        }
+        if version < 10 {
+            execute_column_migrations(
+                conn,
+                &[r#"
                 ALTER TABLE files ADD COLUMN classification_status TEXT NOT NULL DEFAULT 'unclassified'
                 CHECK (classification_status IN ('unclassified', 'classified'));
             "#],
-        )?;
-        conn.execute(
-            r#"
+            )?;
+            conn.execute(
+                r#"
             UPDATE files
             SET classification_status = 'classified'
             WHERE last_classified_at > 0
                OR matched_rules <> '[]'
                OR purpose <> 'Unknown'
             "#,
-            [],
-        )?;
-        set_schema_version(conn, 10)?;
-    }
-    if version < 11 {
-        conn.execute_batch(
-            r#"
+                [],
+            )?;
+            set_schema_version(conn, 10)?;
+        }
+        if version < 11 {
+            conn.execute_batch(
+                r#"
             CREATE INDEX IF NOT EXISTS idx_files_active_mtime
             ON files(is_stale, mtime DESC);
 
@@ -270,17 +277,17 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             CREATE INDEX IF NOT EXISTS idx_files_scope_path
             ON files(is_stale, path);
             "#,
-        )?;
-        set_schema_version(conn, 11)?;
-    }
-    if version < 12 {
-        ensure_trigram_fts(conn)?;
-        ensure_fts_triggers(conn)?;
-        set_schema_version(conn, 12)?;
-    }
-    if version < 13 {
-        conn.execute_batch(
-            r#"
+            )?;
+            set_schema_version(conn, 11)?;
+        }
+        if version < 12 {
+            ensure_trigram_fts(conn)?;
+            ensure_fts_triggers(conn)?;
+            set_schema_version(conn, 12)?;
+        }
+        if version < 13 {
+            conn.execute_batch(
+                r#"
             CREATE TABLE IF NOT EXISTS cleanup_trash_batches (
                 id TEXT PRIMARY KEY,
                 created_at TEXT NOT NULL,
@@ -306,12 +313,12 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             CREATE INDEX IF NOT EXISTS idx_cleanup_trash_batches_created_at
             ON cleanup_trash_batches(created_at DESC);
             "#,
-        )?;
-        set_schema_version(conn, 13)?;
-    }
-    if version < 14 {
-        conn.execute_batch(
-            r#"
+            )?;
+            set_schema_version(conn, 13)?;
+        }
+        if version < 14 {
+            conn.execute_batch(
+                r#"
             CREATE TABLE IF NOT EXISTS classification_history (
                 id TEXT PRIMARY KEY,
                 file_id TEXT NOT NULL,
@@ -353,10 +360,103 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             CREATE INDEX IF NOT EXISTS idx_classification_feedback_file_id
             ON classification_feedback(file_id);
             "#,
+            )?;
+            set_schema_version(conn, 14)?;
+        }
+        if version < 15 {
+            conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS operation_batches (
+                id TEXT PRIMARY KEY, created_at INTEGER NOT NULL, status TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS operation_logs (
+                id TEXT PRIMARY KEY, batch_id TEXT NOT NULL, operation_type TEXT NOT NULL,
+                source_path TEXT NOT NULL, target_path TEXT NOT NULL, old_name TEXT NOT NULL,
+                new_name TEXT NOT NULL, status TEXT NOT NULL, error_message TEXT,
+                created_at INTEGER NOT NULL, can_undo INTEGER NOT NULL DEFAULT 0,
+                path_before TEXT NOT NULL, path_after TEXT NOT NULL, name_before TEXT NOT NULL,
+                name_after TEXT NOT NULL, can_restore INTEGER NOT NULL DEFAULT 0,
+                restored_at INTEGER, restore_status TEXT NOT NULL DEFAULT 'not_restored',
+                restore_error TEXT
+            );
+            CREATE TABLE IF NOT EXISTS cleanup_trash_batches (
+                id TEXT PRIMARY KEY, created_at TEXT NOT NULL, root TEXT,
+                total_items INTEGER NOT NULL, total_size INTEGER NOT NULL, status TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS cleanup_trash_items (
+                id TEXT PRIMARY KEY, batch_id TEXT NOT NULL, original_path TEXT NOT NULL,
+                trash_path TEXT NOT NULL, name TEXT NOT NULL, size INTEGER NOT NULL,
+                moved_at TEXT NOT NULL, restored_at TEXT, status TEXT NOT NULL, message TEXT
+            );
+
+            CREATE TRIGGER IF NOT EXISTS operation_logs_batch_guard_insert
+            BEFORE INSERT ON operation_logs
+            WHEN NOT EXISTS (SELECT 1 FROM operation_batches WHERE id = NEW.batch_id)
+            BEGIN SELECT RAISE(ABORT, 'operation log batch does not exist'); END;
+
+            CREATE TRIGGER IF NOT EXISTS operation_logs_status_guard_insert
+            BEFORE INSERT ON operation_logs
+            WHEN NEW.status NOT IN ('pending', 'success', 'failed', 'skipped')
+              OR NEW.restore_status NOT IN ('not_restored', 'pending', 'restored', 'failed', 'unavailable', 'canceled')
+            BEGIN SELECT RAISE(ABORT, 'invalid operation log status'); END;
+
+            CREATE TRIGGER IF NOT EXISTS operation_logs_status_guard_update
+            BEFORE UPDATE OF status, restore_status ON operation_logs
+            WHEN NEW.status NOT IN ('pending', 'success', 'failed', 'skipped')
+              OR NEW.restore_status NOT IN ('not_restored', 'pending', 'restored', 'failed', 'unavailable', 'canceled')
+            BEGIN SELECT RAISE(ABORT, 'invalid operation log status'); END;
+
+            CREATE TRIGGER IF NOT EXISTS cleanup_items_batch_guard_insert
+            BEFORE INSERT ON cleanup_trash_items
+            WHEN NOT EXISTS (SELECT 1 FROM cleanup_trash_batches WHERE id = NEW.batch_id)
+            BEGIN SELECT RAISE(ABORT, 'cleanup item batch does not exist'); END;
+
+            CREATE TRIGGER IF NOT EXISTS cleanup_items_status_guard_insert
+            BEFORE INSERT ON cleanup_trash_items
+            WHEN NEW.status NOT IN ('pending', 'moved', 'restored', 'failed', 'missing')
+            BEGIN SELECT RAISE(ABORT, 'invalid cleanup item status'); END;
+
+            CREATE TRIGGER IF NOT EXISTS cleanup_items_status_guard_update
+            BEFORE UPDATE OF status ON cleanup_trash_items
+            WHEN NEW.status NOT IN ('pending', 'moved', 'restored', 'failed', 'missing')
+            BEGIN SELECT RAISE(ABORT, 'invalid cleanup item status'); END;
+            "#,
         )?;
-        set_schema_version(conn, 14)?;
+            set_schema_version(conn, 15)?;
+        }
+        if version < 16 {
+            conn.execute_batch(
+            r#"
+            DROP TRIGGER IF EXISTS operation_logs_status_guard_insert;
+            DROP TRIGGER IF EXISTS operation_logs_status_guard_update;
+
+            CREATE TRIGGER operation_logs_status_guard_insert
+            BEFORE INSERT ON operation_logs
+            WHEN NEW.status NOT IN ('pending', 'success', 'failed', 'skipped')
+              OR NEW.restore_status NOT IN ('not_restored', 'pending', 'restored', 'failed', 'unavailable', 'canceled')
+            BEGIN SELECT RAISE(ABORT, 'invalid operation log status'); END;
+
+            CREATE TRIGGER operation_logs_status_guard_update
+            BEFORE UPDATE OF status, restore_status ON operation_logs
+            WHEN NEW.status NOT IN ('pending', 'success', 'failed', 'skipped')
+              OR NEW.restore_status NOT IN ('not_restored', 'pending', 'restored', 'failed', 'unavailable', 'canceled')
+            BEGIN SELECT RAISE(ABORT, 'invalid operation log status'); END;
+            "#,
+        )?;
+            set_schema_version(conn, 16)?;
+        }
+        Ok(())
+    })();
+    match migration_result {
+        Ok(()) => {
+            conn.execute_batch("COMMIT")?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(error)
+        }
     }
-    Ok(())
 }
 
 fn execute_column_migrations(conn: &Connection, statements: &[&str]) -> Result<(), DbError> {

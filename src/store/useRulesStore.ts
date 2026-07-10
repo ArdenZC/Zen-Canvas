@@ -3,6 +3,7 @@ import type { Rule } from "../types/domain";
 import { mergeSystemAndUserRules, removeUserRule, setRuleEnabled } from "./rulePersistence";
 
 const RULES_STORAGE_KEY = "zc-user-rules";
+const RULES_STORAGE_VERSION = 1;
 
 interface RulesStore {
   rules: Rule[];
@@ -22,14 +23,29 @@ function readStoredRules(): Rule[] {
     const saved = window.localStorage.getItem(RULES_STORAGE_KEY);
     if (!saved) return [];
     const parsed: unknown = JSON.parse(saved);
-    return Array.isArray(parsed) ? (parsed as Rule[]) : [];
+    if (Array.isArray(parsed)) return parsed as Rule[];
+    if (
+      parsed && typeof parsed === "object"
+      && "version" in parsed && parsed.version === RULES_STORAGE_VERSION
+      && "rules" in parsed && Array.isArray(parsed.rules)
+    ) {
+      return parsed.rules as Rule[];
+    }
+    return [];
   } catch {
     return [];
   }
 }
 
 function writeStoredRules(rules: Rule[]) {
-  window.localStorage.setItem(RULES_STORAGE_KEY, JSON.stringify(rules));
+  try {
+    window.localStorage.setItem(
+      RULES_STORAGE_KEY,
+      JSON.stringify({ version: RULES_STORAGE_VERSION, rules })
+    );
+  } catch {
+    // SQLite remains authoritative when the optional migration cache is unavailable.
+  }
 }
 
 export const useRulesStore = create<RulesStore>((set) => {

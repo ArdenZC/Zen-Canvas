@@ -12,9 +12,9 @@ use zen_canvas_tauri::storage_analyzer::{
     get_storage_cleanup_scan_status_for_test, is_forbidden_storage_path_for_test,
     move_cleanup_candidates_to_safe_trash_for_candidates,
     move_cleanup_candidates_to_trash_for_candidates, preview_cleanup_operations_for_candidates,
-    restore_cleanup_trash_items_for_db, start_storage_cleanup_scan_for_test,
-    validate_cleanup_roots_for_test, CleanupActionKind, CleanupTier, StorageCandidate,
-    StorageCleanupProgress, StorageCleanupState,
+    reconcile_pending_cleanup_journal, restore_cleanup_trash_items_for_db,
+    start_storage_cleanup_scan_for_test, validate_cleanup_roots_for_test, CleanupActionKind,
+    CleanupTier, StorageCandidate, StorageCleanupProgress, StorageCleanupState,
 };
 
 #[test]
@@ -61,6 +61,14 @@ fn default_storage_cleanup_roots_do_not_scan_entire_appdata_or_program_files() {
     assert!(roots
         .iter()
         .any(|path| path.contains(".npm") || path.contains("npm-cache")));
+    assert!(!roots.iter().any(|path| path.ends_with("/.cargo")));
+    assert!(!roots.iter().any(|path| path.ends_with("/.m2")));
+    assert!(!roots.iter().any(|path| path.ends_with("/.gradle")));
+    assert!(roots
+        .iter()
+        .any(|path| path.ends_with("/.cargo/registry/cache")));
+    assert!(roots.iter().any(|path| path.ends_with("/.m2/repository")));
+    assert!(roots.iter().any(|path| path.ends_with("/.gradle/caches")));
     assert!(!roots.iter().any(|path| path.ends_with("/appdata/local")));
     assert!(!roots.iter().any(|path| path.ends_with("/appdata/roaming")));
     assert!(!roots.iter().any(|path| path.ends_with("/program files")));
@@ -103,6 +111,16 @@ fn storage_cleanup_scan_rejects_protected_system_roots() {
     let result = validate_cleanup_roots_for_test(vec!["C:/Windows/System32".to_string()]);
 
     assert!(result.is_err());
+}
+
+#[test]
+fn storage_cleanup_rejects_unix_system_roots() {
+    for path in ["/", "/System", "/usr", "/etc", "/var", "/bin", "/sbin"] {
+        assert!(
+            is_forbidden_storage_path_for_test(Path::new(path)),
+            "expected {path} to be protected"
+        );
+    }
 }
 
 #[test]
@@ -238,6 +256,20 @@ fn storage_analyzer_marks_temp_and_package_caches_safe() {
 }
 
 #[test]
+fn storage_analyzer_never_selects_developer_credentials_or_config() {
+    for path in [
+        "C:/Users/zen/.cargo/credentials.toml",
+        "C:/Users/zen/.m2/settings.xml",
+        "C:/Users/zen/.gradle/init.gradle",
+    ] {
+        let candidate = classify_candidate_for_test(Path::new(path), 500);
+        assert_ne!(candidate.tier, CleanupTier::Safe, "{path}");
+        assert!(!candidate.trash_allowed, "{path}");
+        assert!(!candidate.selected_by_default, "{path}");
+    }
+}
+
+#[test]
 fn storage_analyzer_does_not_select_build_outputs_by_default() {
     for path in [
         "C:/Users/zen/project/build",
@@ -250,6 +282,26 @@ fn storage_analyzer_does_not_select_build_outputs_by_default() {
         assert!(candidate.trash_allowed);
         assert!(!candidate.selected_by_default);
     }
+}
+
+#[test]
+fn storage_analyzer_does_not_return_overlapping_safe_parent_and_child_candidates() {
+    let root = test_dir();
+    let parent = root.join("node_modules");
+    let child = parent.join("package").join("dist");
+    write_file(&child.join("index.js"), 128);
+
+    let analysis = analyze_storage_roots_for_test(vec![root], Vec::new())
+        .expect("analyze nested cleanup candidates");
+    let safe_paths = analysis
+        .candidates
+        .iter()
+        .filter(|candidate| candidate.trash_allowed)
+        .map(|candidate| candidate.path.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(safe_paths.iter().any(|path| path.ends_with("node_modules")));
+    assert!(!safe_paths.iter().any(|path| path.ends_with("package/dist")));
 }
 
 #[test]
@@ -480,6 +532,29 @@ fn move_cleanup_candidates_to_safe_trash_records_and_restores_items() {
     assert!(safe_path.exists());
     let restored_item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
     assert_eq!(restored_item.status, "restored");
+}
+
+#[test]
+fn pending_safe_trash_journal_reconciles_a_completed_move_after_restart() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let mut item = db.list_cleanup_trash_batches().expect("batches")[0].items[0].clone();
+    item.status = "pending".to_string();
+    item.message = Some("simulate interrupted journal update".to_string());
+    db.update_cleanup_trash_item_status(&item)
+        .expect("mark pending");
+
+    let reconciled = reconcile_pending_cleanup_journal(&db).expect("reconcile cleanup");
+    let batch = &db.list_cleanup_trash_batches().expect("batches after")[0];
+
+    assert_eq!(reconciled, 1);
+    assert_eq!(batch.status, "success");
+    assert_eq!(batch.items[0].status, "moved");
 }
 
 #[test]

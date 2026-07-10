@@ -8,13 +8,15 @@ use notify::{
 };
 use serde::Serialize;
 use std::{
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{
-        mpsc::{self, Receiver, RecvTimeoutError},
-        Mutex,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, RecvTimeoutError, TrySendError},
+        Arc, Mutex,
     },
     thread::{self, JoinHandle},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Runtime};
 use thiserror::Error;
@@ -22,6 +24,8 @@ use thiserror::Error;
 const FILE_EVENT_NAME: &str = "fs-event";
 const WATCHER_READY_EVENT_NAME: &str = "fs-watcher-ready";
 const WATCHER_ERROR_EVENT_NAME: &str = "fs-watcher-error";
+const WATCHER_CHANNEL_CAPACITY: usize = 2048;
+const WATCHER_COALESCE_WINDOW: Duration = Duration::from_millis(150);
 
 #[derive(Debug, Error)]
 enum WatcherError {
@@ -241,11 +245,22 @@ fn start_watcher_session<R: Runtime>(
         .iter()
         .map(|path| normalize_path(path))
         .collect::<Vec<_>>();
-    let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
+    let (tx, rx) = mpsc::sync_channel::<notify::Result<Event>>(WATCHER_CHANNEL_CAPACITY);
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let overflow_reported = Arc::new(AtomicBool::new(false));
+    let overflow_for_callback = Arc::clone(&overflow_reported);
+    let overflow_app = app.clone();
 
     let mut watcher = recommended_watcher(move |event| {
-        let _ = tx.send(event);
+        if let Err(TrySendError::Full(_)) = tx.try_send(event) {
+            if !overflow_for_callback.swap(true, Ordering::AcqRel) {
+                emit_file_watcher_error(
+                    &overflow_app,
+                    "File watcher overflowed its bounded queue. A rescan is required to reconcile changes."
+                        .to_string(),
+                );
+            }
+        }
     })?;
 
     for root in &roots {
@@ -297,7 +312,17 @@ fn run_watcher_loop(
         match rx.recv_timeout(Duration::from_millis(250)) {
             Ok(event) => match event {
                 Ok(event) => {
-                    if let Some(payload) = event_to_payload(event) {
+                    let mut payloads = event_to_payload(event).into_iter().collect::<Vec<_>>();
+                    let deadline = Instant::now() + WATCHER_COALESCE_WINDOW;
+                    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+                        match rx.recv_timeout(remaining) {
+                            Ok(Ok(event)) => payloads.extend(event_to_payload(event)),
+                            Ok(Err(error)) => emit_file_watcher_error(&app, error.to_string()),
+                            Err(RecvTimeoutError::Timeout) => break,
+                            Err(RecvTimeoutError::Disconnected) => break,
+                        }
+                    }
+                    if let Some(payload) = coalesce_payloads(payloads) {
                         let _ = app.emit(FILE_EVENT_NAME, payload);
                     }
                 }
@@ -307,6 +332,42 @@ fn run_watcher_loop(
             Err(RecvTimeoutError::Disconnected) => break,
         }
     }
+}
+
+fn coalesce_payloads(payloads: Vec<FileWatchEvent>) -> Option<FileWatchEvent> {
+    if payloads.is_empty() {
+        return None;
+    }
+    let mut paths = HashSet::new();
+    let mut latest_route = HashMap::<String, bool>::new();
+    for payload in payloads {
+        paths.extend(payload.paths);
+        for path in payload.stale_paths {
+            latest_route.insert(path, false);
+        }
+        for path in payload.upsert_paths {
+            latest_route.insert(path, true);
+        }
+    }
+    let mut paths = paths.into_iter().collect::<Vec<_>>();
+    let mut stale_paths = latest_route
+        .iter()
+        .filter_map(|(path, upsert)| (!upsert).then_some(path.clone()))
+        .collect::<Vec<_>>();
+    let mut upsert_paths = latest_route
+        .into_iter()
+        .filter_map(|(path, upsert)| upsert.then_some(path))
+        .collect::<Vec<_>>();
+    paths.sort();
+    stale_paths.sort();
+    upsert_paths.sort();
+    Some(FileWatchEvent {
+        event_type: "batch".to_string(),
+        paths,
+        stale_paths,
+        upsert_paths,
+        timestamp_ms: current_timestamp_ms(),
+    })
 }
 
 fn event_to_payload(event: Event) -> Option<FileWatchEvent> {
@@ -533,6 +594,32 @@ mod tests {
             enabled,
             created_at: "2026-06-22T00:00:00.000Z".to_string(),
         }
+    }
+
+    #[test]
+    fn watcher_payloads_coalesce_and_keep_the_latest_route_for_each_path() {
+        let path = "/Users/zen/Documents/report.pdf".to_string();
+        let created = FileWatchEvent {
+            event_type: "create".to_string(),
+            paths: vec![path.clone()],
+            stale_paths: Vec::new(),
+            upsert_paths: vec![path.clone()],
+            timestamp_ms: 1,
+        };
+        let removed = FileWatchEvent {
+            event_type: "remove".to_string(),
+            paths: vec![path.clone()],
+            stale_paths: vec![path.clone()],
+            upsert_paths: Vec::new(),
+            timestamp_ms: 2,
+        };
+
+        let payload = coalesce_payloads(vec![created, removed]).expect("coalesced payload");
+
+        assert_eq!(payload.event_type, "batch");
+        assert_eq!(payload.paths, vec![path.clone()]);
+        assert_eq!(payload.stale_paths, vec![path]);
+        assert!(payload.upsert_paths.is_empty());
     }
 
     fn search_root(id: &str, path: &str, enabled: bool) -> SearchRootSetting {

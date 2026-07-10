@@ -1,5 +1,6 @@
-import { motion } from "motion/react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Folder, Play, X } from "lucide-react";
+import { useRef } from "react";
 import type { OperationProgressPayload } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
@@ -15,7 +16,6 @@ import {
   cardGrid,
   contentPanel,
   interactiveRow,
-  listMotion,
   pageSurface,
   panelSurface,
   sectionDescription,
@@ -220,19 +220,42 @@ function VirtualPreviewFileRows({
   onRenamePreview: (id: string, name: string) => void;
   t: Translator;
 }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const virtualizer = useVirtualizer({
+    count: previews.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 92,
+    overscan: 6
+  });
+  if (previews.length <= 20) {
+    return (
+      <div className="grid gap-3">
+        {previews.map((preview) => (
+          <PreviewFileRow key={preview.id} preview={preview} isSelected={selectedIds.has(preview.id)} toggle={toggle} onRenamePreview={onRenamePreview} t={t} />
+        ))}
+      </div>
+    );
+  }
   return (
-    <motion.div className="grid gap-3 overflow-visible" variants={listMotion} initial="hidden" animate="show">
-      {previews.map((preview) => (
-        <PreviewFileRow
-          key={preview.id}
-          preview={preview}
-          isSelected={selectedIds.has(preview.id)}
-          toggle={toggle}
-          onRenamePreview={onRenamePreview}
-          t={t}
-        />
-      ))}
-    </motion.div>
+    <div ref={scrollRef} className="max-h-[520px] overflow-auto" role="list">
+      <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const preview = previews[virtualRow.index];
+          return (
+            <div
+              key={preview.id}
+              ref={virtualizer.measureElement}
+              data-index={virtualRow.index}
+              className="absolute left-0 top-0 w-full pb-3"
+              style={{ transform: `translateY(${virtualRow.start}px)` }}
+              role="listitem"
+            >
+              <PreviewFileRow preview={preview} isSelected={selectedIds.has(preview.id)} toggle={toggle} onRenamePreview={onRenamePreview} t={t} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

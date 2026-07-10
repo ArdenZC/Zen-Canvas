@@ -3,7 +3,10 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::State;
+
+static LEARNING_ID_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -177,7 +180,6 @@ impl Database {
             SELECT name, groups_json, action_json
             FROM rules
             WHERE source = 'learned'
-              AND enabled = 1
             ORDER BY priority DESC, weight DESC, updated_at DESC
             LIMIT ?1
             "#,
@@ -343,7 +345,7 @@ fn learned_rule_from_snapshot(
         ),
         name: format!("learned: {}", keywords.join(", ")),
         source: "learned".to_string(),
-        enabled: true,
+        enabled: false,
         priority: 88.0,
         weight: 85.0,
         root_operator: "OR".to_string(),
@@ -681,6 +683,31 @@ fn is_dangerous_learning_path(path: &str) -> bool {
         || lower.contains("/program files (x86)/")
         || lower.contains("/programdata/")
         || lower.contains("/system volume information/")
+        || matches!(
+            lower.as_str(),
+            "/" | "/system"
+                | "/usr"
+                | "/etc"
+                | "/var"
+                | "/bin"
+                | "/sbin"
+                | "/library"
+                | "/applications"
+                | "/private"
+        )
+        || [
+            "/system/",
+            "/usr/",
+            "/etc/",
+            "/var/",
+            "/bin/",
+            "/sbin/",
+            "/library/",
+            "/applications/",
+            "/private/",
+        ]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
 }
 
 fn is_cjk(ch: char) -> bool {
@@ -697,7 +724,12 @@ fn stable_id(value: &str) -> String {
 }
 
 fn new_learning_id(prefix: &str, file_id: &str) -> String {
-    format!("{prefix}-{}-{}", current_unix_seconds(), stable_id(file_id))
+    format!(
+        "{prefix}-{}-{}-{}",
+        current_unix_seconds(),
+        LEARNING_ID_SEQUENCE.fetch_add(1, Ordering::Relaxed),
+        stable_id(file_id)
+    )
 }
 
 fn current_rule_timestamp() -> String {

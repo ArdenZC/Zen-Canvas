@@ -10,9 +10,12 @@ use super::{
     settings::AISettings,
 };
 
+type ChatBody = (Map<String, Value>, bool, Option<String>);
+
 pub struct OpenAICompatibleProvider {
     settings: AISettings,
     preset: AIProviderPreset,
+    client: Option<Client>,
 }
 
 #[derive(Debug, Clone)]
@@ -41,18 +44,25 @@ impl OpenAICompatibleProvider {
         let preset = provider_preset(settings.preset)
             .or_else(|| provider_preset(AIProviderPresetId::CustomOpenAICompatible))
             .expect("custom OpenAI-compatible preset exists");
-        Self { settings, preset }
+        let client = Client::builder()
+            .timeout(Duration::from_secs(settings.timeout_seconds.max(1)))
+            .build()
+            .ok();
+        Self {
+            settings,
+            preset,
+            client,
+        }
     }
 
     fn request_url(&self) -> Result<String, AIProviderError> {
         join_base_url_and_chat_path(&self.settings.base_url, &self.settings.chat_path)
     }
 
-    fn client(&self) -> Result<Client, AIProviderError> {
-        Client::builder()
-            .timeout(Duration::from_secs(self.settings.timeout_seconds.max(1)))
-            .build()
-            .map_err(|error| self.error(format!("failed to build AI HTTP client: {error}")))
+    fn client(&self) -> Result<&Client, AIProviderError> {
+        self.client
+            .as_ref()
+            .ok_or_else(|| self.error("failed to build AI HTTP client"))
     }
 
     fn error(&self, message: impl Into<String>) -> AIProviderError {
@@ -96,10 +106,7 @@ impl OpenAICompatibleProvider {
         })
     }
 
-    fn build_chat_body(
-        &self,
-        request: &AIChatRequest,
-    ) -> Result<(Map<String, Value>, bool, Option<String>), AIProviderError> {
+    fn build_chat_body(&self, request: &AIChatRequest) -> Result<ChatBody, AIProviderError> {
         let mut body = Map::new();
         body.insert("model".to_string(), json!(request.model));
         body.insert(
@@ -198,7 +205,7 @@ impl AIProvider for OpenAICompatibleProvider {
         if self.preset.id == AIProviderPresetId::DeepSeek && !self.settings.enable_thinking {
             prompt.push_str("\nUse non-thinking mode and only return final content.");
         }
-        let test_max_tokens = self.settings.max_tokens.max(512).min(4096);
+        let test_max_tokens = self.settings.max_tokens.clamp(512, 4096);
         let content = self.chat_json(AIChatRequest {
             messages: vec![AIChatMessage {
                 role: "user".to_string(),

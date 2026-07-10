@@ -32,6 +32,13 @@ const initialScanState: ScanStateData = {
 };
 
 let scanJobCanceled = false;
+let activeScanJobId: string | null = null;
+
+function createScanJobId(kind: "foreground" | "background") {
+  const suffix = globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `scan-${kind}-${suffix}`;
+}
 
 export interface ScanManagerStore {
   selectedFolders: string[];
@@ -87,6 +94,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
       try {
         const unlisteners = await Promise.all([
           tauriApi.onScanProgress((progress) => {
+            if (progress.jobId !== activeScanJobId) return;
             set((state) => ({
               scanState: {
                 ...state.scanState,
@@ -97,6 +105,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
             }));
           }),
           tauriApi.onScanBatch((batch: ScanBatchPayload) => {
+            if (batch.jobId !== activeScanJobId) return;
             set((state) => ({
               scanState: {
                 ...state.scanState,
@@ -107,6 +116,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
             }));
           }),
           tauriApi.onScanComplete((summary: ScanSummary) => {
+            if (summary.jobId !== activeScanJobId) return;
             set((state) => ({
               scanState: {
                 ...state.scanState,
@@ -117,6 +127,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
             }));
           }),
           tauriApi.onScanCanceled((summary: ScanSummary) => {
+            if (summary.jobId !== activeScanJobId) return;
             set((state) => ({
               scanState: {
                 ...state.scanState,
@@ -127,6 +138,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
             }));
           }),
           tauriApi.onScanError((payload) => {
+            if (payload.jobId !== activeScanJobId) return;
             set((state) => ({
               scanState: {
                 ...state.scanState,
@@ -138,6 +150,8 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
                     }
                   : {
                       root: payload.root,
+                      jobId: payload.jobId,
+                      jobKind: payload.jobKind,
                       scanned: 0,
                       files: 0,
                       directories: 0,
@@ -192,9 +206,16 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
     try {
       let totalFiles = 0;
       const completedScanRoots: string[] = [];
-      for (const path of scanRoots) {
+      for (const [index, path] of scanRoots.entries()) {
         if (scanJobCanceled) break;
-        const summary = await tauriApi.startScan(path, false);
+        activeScanJobId = createScanJobId("foreground");
+        const summary = await tauriApi.startScan(
+          path,
+          false,
+          activeScanJobId,
+          "foreground",
+          index === scanRoots.length - 1
+        );
         if (scanJobCanceled) break;
         totalFiles += summary.files;
         completedScanRoots.push(path);
@@ -230,6 +251,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
       }));
       useAppStore.getState().showError(message);
     } finally {
+      activeScanJobId = null;
       set({ isScanning: false, isCancelingScan: false });
     }
   },
@@ -263,7 +285,8 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
       }
     }));
     try {
-      await tauriApi.cancelScan();
+      if (!activeScanJobId) return;
+      await tauriApi.cancelScan(activeScanJobId);
     } catch (error) {
       scanJobCanceled = false;
       const message = readableError(error);

@@ -25,7 +25,7 @@ import type {
   Rule
 } from "../types/domain";
 import { applySearchNavigation } from "../utils/searchNavigation";
-import { readableError } from "../utils/viewHelpers";
+import { normalizePathLike, readableError } from "../utils/viewHelpers";
 
 export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   const language = useAppStore((state) => state.language);
@@ -425,7 +425,7 @@ function arraysEqual<T>(left: readonly T[], right: readonly T[]) {
 }
 
 function backgroundIndexRootKey(path: string) {
-  return path.trim().replace(/\\+/g, "/").replace(/\/+$/g, "").toLowerCase();
+  return normalizePathLike(path.trim());
 }
 
 function normalizeOptionalPath(path?: string | null) {

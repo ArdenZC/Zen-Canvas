@@ -656,6 +656,60 @@
     }
 
     #[test]
+    fn save_user_rule_rejects_empty_conditions() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let mut rule = user_rule_for_persistence("rule-empty", "Empty", 200.0);
+        rule.groups[0].conditions[0].value = Value::String("   ".to_string());
+
+        let error = db.save_user_rule(rule).expect_err("reject empty condition");
+
+        assert!(error.to_string().contains("condition value is required"));
+    }
+
+    #[test]
+    fn save_user_rule_rejects_unsafe_move_target() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let mut rule = user_rule_for_persistence("rule-target", "Target", 200.0);
+        rule.action.suggested_action = Some("Move".to_string());
+        rule.action.target_template = Some("../Secrets".to_string());
+
+        let error = db.save_user_rule(rule).expect_err("reject unsafe target");
+
+        assert!(error.to_string().contains("target template"));
+    }
+
+    #[test]
+    fn save_user_rule_rejects_unsafe_rename_template() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let mut rule = user_rule_for_persistence("rule-rename", "Rename", 200.0);
+        rule.action.rename_template = Some("../outside.txt".to_string());
+
+        let error = db.save_user_rule(rule).expect_err("reject rename template");
+
+        assert!(error.to_string().contains("rename template is unsafe"));
+    }
+
+    #[test]
+    fn operation_restore_lookup_only_returns_restorable_database_logs() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let success = operation_log("log-success", "batch-restore", "success");
+        let failed = operation_log("log-failed", "batch-restore", "failed");
+        db.save_operation_logs("batch-restore", &[success, failed])
+            .expect("save logs");
+
+        let logs = db
+            .get_restorable_operation_logs_by_ids(&[
+                "log-failed".to_string(),
+                "log-success".to_string(),
+                "log-missing".to_string(),
+            ])
+            .expect("load restorable logs");
+
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].id, "log-success");
+    }
+
+    #[test]
     fn save_user_rule_updates_existing_rule() {
         let db = Database::open(test_db_path()).expect("open test database");
         let mut rule = user_rule_for_persistence("rule-update", "Before", 100.0);

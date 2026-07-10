@@ -15,7 +15,7 @@ import {
   Square,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
 import { CommandModal } from "./CommandModal";
 import { ViewErrorBoundary } from "./ErrorBoundary";
 import { AmbientMesh, CloseChoiceDialog, TitlebarTools, ZenMark } from "./ShellChrome";
@@ -32,16 +32,15 @@ import { formatDate } from "../utils/format";
 import { cn, glassButton, glassButtonPrimary, statusToast, toastTone } from "../utils/tw";
 import { compactPath, libraryScopeLabel, readableError } from "../utils/viewHelpers";
 import { PageHeader, inlineActions, pageFrame, softPanel, viewStage } from "../views/shared/ui";
-import {
-  HubView,
-  RestoreView,
-  RulesView,
-  ScannerView,
-  StorageCleanupView,
-  SettingsView,
-  TimelineView,
-  VaultView
-} from "../views";
+
+const ScannerView = lazy(() => import("../views/scanner/ScannerView").then((module) => ({ default: module.ScannerView })));
+const StorageCleanupView = lazy(() => import("../views/cleanup/StorageCleanupView").then((module) => ({ default: module.StorageCleanupView })));
+const HubView = lazy(() => import("../views/hub/HubView").then((module) => ({ default: module.HubView })));
+const VaultView = lazy(() => import("../views/vault/VaultView").then((module) => ({ default: module.VaultView })));
+const TimelineView = lazy(() => import("../views/timeline/TimelineView").then((module) => ({ default: module.TimelineView })));
+const RulesView = lazy(() => import("../views/rules/RulesView").then((module) => ({ default: module.RulesView })));
+const RestoreView = lazy(() => import("../views/restore/RestoreView").then((module) => ({ default: module.RestoreView })));
+const SettingsView = lazy(() => import("../views/settings/SettingsView").then((module) => ({ default: module.SettingsView })));
 
 const appRoot =
   cn(pageFrame, "relative h-screen min-h-[680px] min-w-[980px] bg-[var(--bg)] text-[var(--ink)]");
@@ -376,16 +375,18 @@ function ToastContainer() {
 }
 
 function AppViewContent() {
-  const { view } = useChromeContext();
+  const { view, t } = useChromeContext();
 
-  if (view === "scanner") return <ScannerView />;
-  if (view === "cleanup") return <StorageCleanupView />;
-  if (view === "organize") return <HubView />;
-  if (view === "library") return <VaultView />;
-  if (view === "preview") return <TimelineView />;
-  if (view === "rules") return <RulesView />;
-  if (view === "restore") return <RestoreView />;
-  return <SettingsView />;
+  let content;
+  if (view === "scanner") content = <ScannerView />;
+  else if (view === "cleanup") content = <StorageCleanupView />;
+  else if (view === "organize") content = <HubView />;
+  else if (view === "library") content = <VaultView />;
+  else if (view === "preview") content = <TimelineView />;
+  else if (view === "rules") content = <RulesView />;
+  else if (view === "restore") content = <RestoreView />;
+  else content = <SettingsView />;
+  return <Suspense fallback={<div className={softPanel}>{t("loading")}</div>}>{content}</Suspense>;
 }
 
 function viewDescription(

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { desktopDir, documentDir, downloadDir, tempDir } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -61,6 +62,7 @@ type StorageCleanupApi = Pick<
     Pick<
       TauriApi,
       | "getAISettings"
+      | "getStorageCleanupCandidatePage"
       | "analyzeCleanupCandidatesWithAI"
       | "scanStorageCleanup"
       | "onStorageCleanupProgress"
@@ -111,6 +113,7 @@ function StorageCleanupPanel({
   const scanError = !initialAnalysis ? store.scanError : "";
   const aiCleanupStatus = !initialAnalysis ? store.aiCleanupStatus : "";
   const isAnalyzingWithAI = !initialAnalysis && store.isAnalyzingWithAI;
+  const loadMoreCandidates = store.loadMoreCandidates;
   const aiAnalyzedCandidateIds = !initialAnalysis ? store.aiAnalyzedCandidateIds : new Set<string>();
   const aiDowngradedCandidateIds = !initialAnalysis ? store.aiDowngradedCandidateIds : new Set<string>();
   const [localError, setLocalError] = useState("");
@@ -272,7 +275,7 @@ function StorageCleanupPanel({
     setLocalError("");
     try {
       const settings = await api.getAISettings();
-      ensureCleanupAIReady(settings.enabled, settings.cleanupAiEnabled, settings.provider, settings.apiKey);
+      ensureCleanupAIReady(settings.enabled, settings.cleanupAiEnabled, settings.provider, settings.apiKey, settings.apiKeyConfigured);
       const candidates = await api.analyzeCleanupCandidatesWithAI(ids);
       useStorageCleanupStore.getState().applyAIAnalyzedCandidates(candidates);
       const analyzedCounts = countTiers(candidates);
@@ -561,7 +564,7 @@ function StorageCleanupPanel({
                   ))}
                 </div>
               </div>
-              <div className="grid max-h-[min(56vh,540px)] gap-3 overflow-auto pr-1">
+              <div>
                 {filteredCandidates.length === 0 ? (
                   <StateBlock
                     density="compact"
@@ -569,18 +572,23 @@ function StorageCleanupPanel({
                     description={t("storageCleanupNoCandidatesDesc")}
                   />
                 ) : (
-                  filteredCandidates.map((candidate) => (
-                    <CandidateCard
-                      key={candidate.id}
-                      candidate={candidate}
-                      selected={selectedCleanupIds.has(candidate.id)}
-                      aiAnalyzed={aiAnalyzedCandidateIds.has(candidate.id)}
-                      aiDowngraded={aiDowngradedCandidateIds.has(candidate.id)}
-                      t={t}
-                      onToggleSafeCandidate={toggleSafeCandidate}
-                      onReveal={reveal}
-                    />
-                  ))
+                  <VirtualCandidateList
+                    candidates={filteredCandidates}
+                    selectedIds={selectedCleanupIds}
+                    aiAnalyzedIds={aiAnalyzedCandidateIds}
+                    aiDowngradedIds={aiDowngradedCandidateIds}
+                    t={t}
+                    onToggleSafeCandidate={toggleSafeCandidate}
+                    onReveal={reveal}
+                  />
+                )}
+                {!initialAnalysis && analysis?.has_more && (
+                  <button className={buttonSecondary} onClick={() => void loadMoreCandidates(api)}>
+                    {t("loadMoreFiles").replace(
+                      "{count}",
+                      Math.max(0, (analysis.candidate_total ?? 0) - analysis.candidates.length).toLocaleString()
+                    )}
+                  </button>
                 )}
               </div>
             </section>
@@ -626,6 +634,99 @@ function StorageCleanupPanel({
         onCancel={() => setConfirmOpen(false)}
       />
     </>
+  );
+}
+
+function VirtualCandidateList({
+  candidates,
+  selectedIds,
+  aiAnalyzedIds,
+  aiDowngradedIds,
+  t,
+  onToggleSafeCandidate,
+  onReveal
+}: {
+  candidates: StorageCandidate[];
+  selectedIds: Set<string>;
+  aiAnalyzedIds: Set<string>;
+  aiDowngradedIds: Set<string>;
+  t: Translator;
+  onToggleSafeCandidate: (candidate: StorageCandidate) => void;
+  onReveal: (path: string) => void;
+}) {
+  if (candidates.length <= 20) {
+    return (
+      <div className="grid gap-3">
+        {candidates.map((candidate) => (
+          <CandidateCard
+            key={candidate.id}
+            candidate={candidate}
+            selected={selectedIds.has(candidate.id)}
+            aiAnalyzed={aiAnalyzedIds.has(candidate.id)}
+            aiDowngraded={aiDowngradedIds.has(candidate.id)}
+            t={t}
+            onToggleSafeCandidate={onToggleSafeCandidate}
+            onReveal={onReveal}
+          />
+        ))}
+      </div>
+    );
+  }
+  return <VirtualizedCandidateRows {...{ candidates, selectedIds, aiAnalyzedIds, aiDowngradedIds, t, onToggleSafeCandidate, onReveal }} />;
+}
+
+function VirtualizedCandidateRows({
+  candidates,
+  selectedIds,
+  aiAnalyzedIds,
+  aiDowngradedIds,
+  t,
+  onToggleSafeCandidate,
+  onReveal
+}: {
+  candidates: StorageCandidate[];
+  selectedIds: Set<string>;
+  aiAnalyzedIds: Set<string>;
+  aiDowngradedIds: Set<string>;
+  t: Translator;
+  onToggleSafeCandidate: (candidate: StorageCandidate) => void;
+  onReveal: (path: string) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const virtualizer = useVirtualizer({
+    count: candidates.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 230,
+    overscan: 5
+  });
+  return (
+    <div ref={scrollRef} className="max-h-[min(56vh,540px)] overflow-auto pr-1" role="list">
+      <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const candidate = candidates[virtualRow.index];
+          return (
+            <div
+              key={candidate.id}
+              ref={virtualizer.measureElement}
+              data-index={virtualRow.index}
+              className="absolute left-0 top-0 w-full pb-3"
+              style={{ transform: `translateY(${virtualRow.start}px)` }}
+              role="listitem"
+            >
+              <CandidateCard
+                candidate={candidate}
+                selected={selectedIds.has(candidate.id)}
+                aiAnalyzed={aiAnalyzedIds.has(candidate.id)}
+                aiDowngraded={aiDowngradedIds.has(candidate.id)}
+                t={t}
+                onToggleSafeCandidate={onToggleSafeCandidate}
+                onReveal={onReveal}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -745,7 +846,8 @@ function ensureCleanupAIReady(
   enabled: boolean,
   cleanupAiEnabled: boolean,
   provider: string,
-  apiKey: string
+  apiKey: string,
+  apiKeyConfigured?: boolean
 ) {
   if (!enabled) {
     throw new Error("请先在设置中启用 AI。");
@@ -753,7 +855,7 @@ function ensureCleanupAIReady(
   if (!cleanupAiEnabled) {
     throw new Error("请开启 AI 空间清理分析。");
   }
-  if (provider !== "ollama" && !apiKey.trim()) {
+  if (provider !== "ollama" && !apiKey.trim() && !apiKeyConfigured) {
     throw new Error("当前模型服务需要 API Key，请在 AI 设置中填写。");
   }
 }

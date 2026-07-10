@@ -37,7 +37,7 @@
 - **文件库**：用于查看扫描结果、状态筛选和分类原因；具体找文件优先使用顶部搜索。
 - **预览执行**：按主文件夹和子文件夹展示整理方案，所有移动、重命名、移动加重命名都必须先确认。
 - **自动规则**：内置规则与用户规则共同参与分类；用户规则已持久化到 SQLite，Zustand 只作为运行时状态。
-- **恢复记录**：只恢复 Zen Canvas 自己执行过的操作；operation logs 持久化在 SQLite 中，前端默认加载最近操作记录，后续会补充按天保留与自动清理策略。
+- **恢复记录**：只恢复 Zen Canvas 自己成功执行且仍标记为可恢复的操作；operation journal 持久化在 SQLite 中，并按设置的保留天数自动清理。
 
 ## 搜索能力
 
@@ -59,8 +59,9 @@
 
 ## 操作日志与恢复
 
-- `execute_moves` 会把批次写入 `operation_batches`，并把 success / failed / skipped 结果写入 `operation_logs`。
-- `restore_moves` 会回写 `restore_status`、`restored_at`、`restore_error` 和 `can_restore`。
+- 执行请求只携带后端生成的预览 ID 和文件 ID；Rust 会重新读取权威路径、动作和文件身份，不信任前端提交的源/目标路径。
+- 文件系统变更前先写入 pending journal；启动时会协调上次中断的操作，再将结果落为 success / failed / skipped。
+- 恢复请求只携带日志 ID；Rust 仅允许恢复数据库中 success、can_restore 且尚未恢复的记录，并回写 `restore_status`、`restored_at`、`restore_error` 和 `can_restore`。
 - 应用启动时会从 SQLite 读取最近 operation logs，恢复记录不再只是 React state。
 - execute / restore 成功后会同步更新 `files` 表和 FTS，确保文件库和搜索结果指向真实路径。
 
@@ -80,7 +81,9 @@
 - 默认跳过部分系统目录和明显生成目录，例如 `.git`、`node_modules`、`.venv`、`__pycache__`、`dist`、`build`、`target`、`coverage`、`vendor`、`Windows`、`Program Files`、`System Volume Information`。
 - 敏感文件只显示建议和原因，不生成默认可执行勾选。
 - 冲突、低置信、规则接近项默认进入待确认队列。
-- Tauri command 层会再次校验移动、重命名和恢复操作的类型、绝对路径、安全文件名、源路径一致性、系统目录和覆盖冲突。
+- Storage Cleanup 只把精确白名单缓存路径默认视为安全候选，不会把整个 `.cargo`、`.m2` 或 `.gradle` 当作缓存清理；所有 Safe Trash 操作仍需预览确认。
+- Tauri command 层会再次校验移动、重命名和恢复操作的权威 ID、文件身份、类型、绝对路径、安全文件名、系统目录和覆盖冲突。
+- AI API Key 由系统凭据存储保存，生产接口不会把密钥回传给前端。
 - watcher 删除事件只标记 stale，不直接破坏索引历史。
 - watcher 对超大目录可能只做部分增量索引并提示手动完整扫描。
 - execute / restore 后会同步更新 `files` 表和 FTS。
@@ -139,11 +142,11 @@ npm run verify
 
 ## 打包与发布
 
-本项目已迁移到 Tauri 2，当前打包入口为 Tauri 构建。默认构建会生成当前平台的桌面应用和安装包；签名配置后续预留。
+本项目已迁移到 Tauri 2，当前打包入口为 Tauri 构建。Release workflow 会执行前端与 Rust 质量门，生成 CycloneDX SBOM 和 SHA-256 checksums；公开构建目前仍是未签名安装包。
 
 ```bash
 npm run assets:brand
 npm run build
 ```
 
-Windows 构建会输出 NSIS 安装包到 `src-tauri/target/release/bundle/nsis/`。跨平台发布矩阵和签名流程会随 Tauri 发布配置继续完善。
+Windows 构建会输出 NSIS 安装包到 `src-tauri/target/release/bundle/nsis/`。生产签名需要在发布环境配置 Windows 代码签名证书以及 macOS signing/notarization 凭据。

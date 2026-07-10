@@ -30,6 +30,8 @@ vi.mock("../src/api/tauriApi", () => ({
 }));
 
 const scanSummary = {
+  jobId: "scan-foreground-test",
+  jobKind: "foreground" as const,
   root: "F:/Downloads",
   scanned: 1,
   files: 1,
@@ -156,8 +158,8 @@ describe("library scope store", () => {
     await useScanManagerStore.getState().handleScan();
 
     expect(apiMocks.dialogOpen).not.toHaveBeenCalled();
-    expect(apiMocks.startScan).toHaveBeenNthCalledWith(1, "F:/Downloads", false);
-    expect(apiMocks.startScan).toHaveBeenNthCalledWith(2, "D:/Projects", false);
+    expect(apiMocks.startScan).toHaveBeenNthCalledWith(1, "F:/Downloads", false, expect.any(String), "foreground", false);
+    expect(apiMocks.startScan).toHaveBeenNthCalledWith(2, "D:/Projects", false, expect.any(String), "foreground", true);
     expect(useFileLibraryStore.getState().scope).toEqual({
       kind: "current_scan",
       roots: ["F:/Downloads", "D:/Projects"]
@@ -171,7 +173,7 @@ describe("library scope store", () => {
 
     expect(localStorage.setItem).toHaveBeenCalledWith(
       LIBRARY_SCOPE_STORAGE_KEY,
-      JSON.stringify(scope)
+      JSON.stringify({ version: 1, scope })
     );
   });
 

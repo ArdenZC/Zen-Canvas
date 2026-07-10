@@ -1,15 +1,22 @@
 import type { View } from "../types/ui";
 
 export interface SearchNavigatePayload {
-  view: View;
-  fileId: string | null;
+  view: unknown;
+  fileId: unknown;
 }
+
+const VALID_VIEWS = new Set<View>([
+  "scanner", "cleanup", "organize", "library", "preview", "rules", "restore", "settings"
+]);
 
 export function applySearchNavigation(
   payload: SearchNavigatePayload,
   setView: (view: View) => void,
   setSelectedFileId: (id: string) => void
 ) {
-  setView(payload.view);
-  if (payload.fileId) setSelectedFileId(payload.fileId);
+  const view = typeof payload.view === "string" && VALID_VIEWS.has(payload.view as View)
+    ? payload.view as View
+    : "library";
+  setView(view);
+  if (typeof payload.fileId === "string" && payload.fileId) setSelectedFileId(payload.fileId);
 }

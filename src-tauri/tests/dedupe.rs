@@ -46,7 +46,7 @@ fn current_schema_retains_content_hash_and_dedupe_index() {
         )
         .expect("cleanup trash tables");
 
-    assert_eq!(version, 14);
+    assert_eq!(version, 16);
     assert_eq!(cleanup_table_count, 2);
     assert_eq!(content_hash_type, "TEXT");
     assert_eq!(content_hash_notnull, 1);
@@ -163,9 +163,47 @@ fn duplicate_detection_hashes_new_file_when_matching_size_already_has_hash() {
     assert!(new_file.is_duplicate);
 }
 
+#[test]
+fn duplicate_detection_does_not_persist_a_hash_when_file_changes_during_hashing() {
+    let dir = test_dir("dedupe-race");
+    let db = Database::open(dir.join("db.sqlite3")).expect("open test database");
+    let changing = write_indexed_file(&db, &dir, "changing.txt", b"same-size-1", 30);
+    write_indexed_file(&db, &dir, "peer.txt", b"same-size-2", 31);
+    let mut hasher = MutatingHasher {
+        target: changing.clone(),
+    };
+
+    let summary = run_duplicate_detection_with_hasher(&db, &NoopDedupeEventEmitter, &mut hasher)
+        .expect("run duplicate detection");
+    let conn = Connection::open(db.path()).expect("open database connection");
+    let stored_hash: String = conn
+        .query_row(
+            "SELECT content_hash FROM files WHERE path = ?1",
+            [changing.to_string_lossy().to_string()],
+            |row| row.get(0),
+        )
+        .expect("stored hash");
+
+    assert!(summary.error_files >= 1);
+    assert_eq!(stored_hash, "");
+}
+
 #[derive(Default)]
 struct CountingHasher {
     calls: usize,
+}
+
+struct MutatingHasher {
+    target: PathBuf,
+}
+
+impl ContentHasher for MutatingHasher {
+    fn hash_file(&mut self, path: &Path) -> Result<String, DedupeError> {
+        if path == self.target {
+            fs::write(path, b"changed-size").expect("mutate file while hashing");
+        }
+        Ok("synthetic-hash".to_string())
+    }
 }
 
 impl ContentHasher for CountingHasher {
@@ -175,9 +213,16 @@ impl ContentHasher for CountingHasher {
     }
 }
 
-fn write_indexed_file(db: &Database, dir: &Path, name: &str, bytes: &[u8], mtime: i64) -> PathBuf {
+fn write_indexed_file(db: &Database, dir: &Path, name: &str, bytes: &[u8], _mtime: i64) -> PathBuf {
     let path = dir.join(name);
     fs::write(&path, bytes).expect("write file");
+    let metadata = fs::metadata(&path).expect("file metadata");
+    let mtime = metadata
+        .modified()
+        .expect("modified time")
+        .duration_since(UNIX_EPOCH)
+        .expect("unix mtime")
+        .as_secs() as i64;
     db.insert_file(InsertFileRequest {
         id: path.to_string_lossy().into_owned(),
         path: path.to_string_lossy().into_owned(),

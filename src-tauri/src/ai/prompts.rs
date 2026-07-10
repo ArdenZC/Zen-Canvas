@@ -117,14 +117,12 @@ pub(crate) fn extract_first_json_value(content: &str) -> Option<String> {
                 depth += 1;
                 expected_close.push(if ch == '{' { '}' } else { ']' });
             }
-            '}' | ']' => {
-                if depth > 0 && expected_close.last().copied() == Some(ch) {
-                    expected_close.pop();
-                    depth -= 1;
-                    if depth == 0 {
-                        let start = start?;
-                        return Some(content[start..=index].to_string());
-                    }
+            '}' | ']' if depth > 0 && expected_close.last().copied() == Some(ch) => {
+                expected_close.pop();
+                depth -= 1;
+                if depth == 0 {
+                    let start = start?;
+                    return Some(content[start..=index].to_string());
                 }
             }
             _ => {}

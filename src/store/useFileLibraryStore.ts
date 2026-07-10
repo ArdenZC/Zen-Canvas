@@ -17,6 +17,7 @@ export const LIBRARY_PAGE_SIZE = 50;
 export const ORGANIZE_QUEUE_PAGE_SIZE = 500;
 export const ORGANIZE_QUEUE_MAX_FILES = 3000;
 export const LIBRARY_SCOPE_STORAGE_KEY = "zc-library-scope";
+const LIBRARY_SCOPE_STORAGE_VERSION = 1;
 export const defaultLibraryScope: LibraryScope = { kind: "current_scan", roots: [] };
 
 function browserLocalStorage(): Storage | null {
@@ -49,14 +50,29 @@ export function readPersistedLibraryScope(): LibraryScope {
 
   try {
     const parsed = JSON.parse(raw) as unknown;
-    return isLibraryScope(parsed) ? parsed : defaultLibraryScope;
+    if (isLibraryScope(parsed)) return parsed;
+    if (
+      parsed && typeof parsed === "object"
+      && "version" in parsed && parsed.version === LIBRARY_SCOPE_STORAGE_VERSION
+      && "scope" in parsed && isLibraryScope(parsed.scope)
+    ) {
+      return parsed.scope;
+    }
+    return defaultLibraryScope;
   } catch {
     return defaultLibraryScope;
   }
 }
 
 function persistLibraryScope(scope: LibraryScope) {
-  browserLocalStorage()?.setItem(LIBRARY_SCOPE_STORAGE_KEY, JSON.stringify(scope));
+  try {
+    browserLocalStorage()?.setItem(
+      LIBRARY_SCOPE_STORAGE_KEY,
+      JSON.stringify({ version: LIBRARY_SCOPE_STORAGE_VERSION, scope })
+    );
+  } catch {
+    // State remains authoritative for this session when storage is unavailable or full.
+  }
 }
 
 function filtersForLibraryFilter(libraryFilter: LibraryFilter): FileLibraryFilters | undefined {
@@ -98,7 +114,10 @@ export interface FileLibraryStore {
   isClassifyingWithAI: boolean;
   aiClassificationStatus: string;
   aiClassificationProgress: AIClassificationProgressPayload | null;
+  activeAIJobId: string | null;
   firstPageRequestId: number;
+  statsRequestId: number;
+  organizeQueueRequestId: number;
   setScope: (scope: LibraryScope) => void;
   setCurrentScanScope: (roots: string[], scanSessionId?: string) => void;
   setLibraryFilter: (libraryFilter: LibraryFilter) => void;
@@ -137,7 +156,10 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
   isClassifyingWithAI: false,
   aiClassificationStatus: "",
   aiClassificationProgress: null,
+  activeAIJobId: null,
   firstPageRequestId: 0,
+  statsRequestId: 0,
+  organizeQueueRequestId: 0,
   setScope: (scope) => {
     persistLibraryScope(scope);
     set({ scope });
@@ -158,9 +180,14 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
     })),
   setSelectedFileId: (selectedFileId) => set({ selectedFileId }),
   loadStats: async (scope = get().scope) => {
+    const requestId = get().statsRequestId + 1;
+    set({ statsRequestId: requestId });
     try {
-      set({ stats: await tauriApi.getStatsSummary(scope) });
+      const stats = await tauriApi.getStatsSummary(scope);
+      if (requestId !== get().statsRequestId) return;
+      set({ stats });
     } catch (error) {
+      if (requestId !== get().statsRequestId) return;
       set({ stats: emptyStats });
       useAppStore.getState().showError(readableError(error));
     }
@@ -193,7 +220,8 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
     }
   },
   loadOrganizeQueue: async (scope = get().scope) => {
-    set({ isLoadingOrganizeQueue: true });
+    const requestId = get().organizeQueueRequestId + 1;
+    set({ isLoadingOrganizeQueue: true, organizeQueueRequestId: requestId });
     try {
       const files: FileRecord[] = [];
       let total = 0;
@@ -208,6 +236,7 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
         offset += ORGANIZE_QUEUE_PAGE_SIZE;
       }
 
+      if (requestId !== get().organizeQueueRequestId) return;
       set({
         organizeQueue: files,
         organizeQueueTotal: total,
@@ -215,6 +244,7 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
         isLoadingOrganizeQueue: false
       });
     } catch (error) {
+      if (requestId !== get().organizeQueueRequestId) return;
       set({
         organizeQueue: [],
         organizeQueueTotal: 0,
@@ -228,10 +258,10 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
     if (get().isClassifyingWithAI) {
       return { scanned: 0, updated: 0, skipped: 0, needsConfirmation: 0 };
     }
-    set({ isClassifyingWithAI: true, aiClassificationStatus: "", aiClassificationProgress: null });
+    set({ isClassifyingWithAI: true, aiClassificationStatus: "", aiClassificationProgress: null, activeAIJobId: null });
     try {
       const settings = await tauriApi.getAISettings();
-      ensureAIReady(settings.enabled, settings.provider, settings.apiKey);
+      ensureAIReady(settings.enabled, settings.provider, settings.apiKey, settings.apiKeyConfigured);
       const summary = await tauriApi.classifyFilesWithAI(get().scope, options);
       await get().refresh(useAppStore.getState().searchQuery);
       await get().loadOrganizeQueue(get().scope);
@@ -245,7 +275,7 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
       useAppStore.getState().showError(message);
       throw error;
     } finally {
-      set({ isClassifyingWithAI: false, aiClassificationProgress: null });
+      set({ isClassifyingWithAI: false, aiClassificationProgress: null, activeAIJobId: null });
     }
   },
   classifySelectedFileWithAI: async (fileId = get().selectedFileId) => {
@@ -259,10 +289,10 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
     if (get().isClassifyingWithAI) {
       return { scanned: 0, updated: 0, skipped: 0, needsConfirmation: 0 };
     }
-    set({ isClassifyingWithAI: true, aiClassificationStatus: "", aiClassificationProgress: null });
+    set({ isClassifyingWithAI: true, aiClassificationStatus: "", aiClassificationProgress: null, activeAIJobId: null });
     try {
       const settings = await tauriApi.getAISettings();
-      ensureAIReady(settings.enabled, settings.provider, settings.apiKey);
+      ensureAIReady(settings.enabled, settings.provider, settings.apiKey, settings.apiKeyConfigured);
       const summary = await tauriApi.classifySelectedFilesWithAI([selectedId]);
       await get().refresh(useAppStore.getState().searchQuery);
       await get().loadOrganizeQueue(get().scope);
@@ -276,19 +306,23 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
       useAppStore.getState().showError(message);
       throw error;
     } finally {
-      set({ isClassifyingWithAI: false, aiClassificationProgress: null });
+      set({ isClassifyingWithAI: false, aiClassificationProgress: null, activeAIJobId: null });
     }
   },
-  applyAIClassificationProgress: (aiClassificationProgress) => set({ aiClassificationProgress }),
+  applyAIClassificationProgress: (aiClassificationProgress) => set((state) => {
+    if (!state.isClassifyingWithAI) return state;
+    if (state.activeAIJobId && state.activeAIJobId !== aiClassificationProgress.jobId) return state;
+    return { aiClassificationProgress, activeAIJobId: state.activeAIJobId ?? aiClassificationProgress.jobId };
+  }),
   cancelAIClassification: async () => {
     try {
       await tauriApi.cancelAIClassification();
       const message = "AI 分类已取消。";
-      set({ aiClassificationStatus: message, isClassifyingWithAI: false, aiClassificationProgress: null });
+      set({ aiClassificationStatus: message, isClassifyingWithAI: false, aiClassificationProgress: null, activeAIJobId: null });
       useAppStore.getState().showSuccess(message);
     } catch (error) {
       const message = readableError(error);
-      set({ aiClassificationStatus: message, isClassifyingWithAI: false, aiClassificationProgress: null });
+      set({ aiClassificationStatus: message, isClassifyingWithAI: false, aiClassificationProgress: null, activeAIJobId: null });
       useAppStore.getState().showError(message);
       throw error;
     }
@@ -305,11 +339,11 @@ export function getSelectedFile() {
   return libraryPage.files.find((file) => file.id === selectedFileId) ?? libraryPage.files[0];
 }
 
-function ensureAIReady(enabled: boolean, provider: string, apiKey: string) {
+function ensureAIReady(enabled: boolean, provider: string, apiKey: string, apiKeyConfigured?: boolean) {
   if (!enabled) {
     throw new Error("请先在设置中启用 AI。");
   }
-  if (provider !== "ollama" && !apiKey.trim()) {
+  if (provider !== "ollama" && !apiKey.trim() && !apiKeyConfigured) {
     throw new Error("当前模型服务需要 API Key，请在 AI 设置中填写。");
   }
 }

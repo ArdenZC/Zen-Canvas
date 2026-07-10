@@ -371,7 +371,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .expect("schema version"),
-            14
+            16
         );
         assert_eq!(
             conn.query_row(
@@ -454,6 +454,24 @@
             (2_000_000_000..=3_000_000_000).contains(&mmap_size),
             "expected a large mmap_size up to the requested 3GB, got {mmap_size}"
         );
+    }
+
+    #[test]
+    fn database_rejects_a_future_schema_version() {
+        let path = test_db_path();
+        let db = Database::open(&path).expect("create database");
+        drop(db);
+        let conn = Connection::open(&path).expect("open sqlite");
+        conn.execute_batch("PRAGMA user_version = 999;")
+            .expect("set future version");
+        drop(conn);
+
+        let error = match Database::open(&path) {
+            Ok(_) => panic!("expected future schema rejection"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("newer than this app supports"));
     }
 
     #[test]

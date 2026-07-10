@@ -221,7 +221,12 @@ export function folderNameLike(folderPath: string): string {
 }
 
 export function normalizePathLike(value: string): string {
-  return value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const normalized = value.replace(/\\/g, "/").replace(/\/+$/, "");
+  return isWindowsPathLike(normalized) ? normalized.toLowerCase() : normalized;
+}
+
+function isWindowsPathLike(value: string): boolean {
+  return /^[a-z]:\//i.test(value) || value.startsWith("//");
 }
 
 export function fileBelongsToRoots(file: FileRecord, roots: string[]): boolean {

@@ -299,6 +299,13 @@ fn normalized_app_settings(settings: &AppSettings) -> AppSettings {
         .collect::<Result<Vec<_>, _>>()
         .unwrap_or_default();
     let mut next = settings.clone();
+    if !matches!(next.close_behavior.as_str(), "ask" | "minimize" | "quit") {
+        next.close_behavior = "ask".to_string();
+    }
+    if !matches!(next.folder_naming_language.as_str(), "en" | "zh") {
+        next.folder_naming_language = "en".to_string();
+    }
+    next.restore_retention_days = next.restore_retention_days.clamp(1, 3650);
     next.default_scan_folders = scan_roots_from_values(values, dirs::home_dir().as_deref());
     let search_values = settings
         .custom_search_roots
@@ -308,6 +315,8 @@ fn normalized_app_settings(settings: &AppSettings) -> AppSettings {
         .collect::<Result<Vec<_>, _>>()
         .unwrap_or_default();
     next.custom_search_roots = search_roots_from_values(search_values);
+    next.custom_search_roots
+        .retain(|root| looks_absolute_path(&root.path));
     if next.search_hotkey.trim().is_empty() {
         next.search_hotkey = default_search_hotkey();
     }
@@ -321,7 +330,7 @@ fn normalized_app_settings(settings: &AppSettings) -> AppSettings {
         .organize_root_path
         .as_deref()
         .map(normalize_scan_root_path)
-        .filter(|path| !path.trim().is_empty());
+        .filter(|path| !path.trim().is_empty() && looks_absolute_path(path));
     if matches!(next.organize_root_mode, OrganizeRootMode::CustomRoot)
         && next.organize_root_path.is_none()
     {
@@ -389,8 +398,7 @@ fn scan_root_label(path: &str) -> String {
     let normalized = normalize_scan_root_path(path);
     normalized
         .split('/')
-        .filter(|segment| !segment.is_empty())
-        .last()
+        .rfind(|segment| !segment.is_empty())
         .unwrap_or(&normalized)
         .to_string()
 }
@@ -411,7 +419,13 @@ fn scan_root_id(path: &str) -> String {
         .trim_matches('-')
         .to_string();
 
-    format!("scan-root-{}", if slug.is_empty() { "root" } else { &slug })
+    let normalized = normalize_scan_root_path(path).to_lowercase();
+    let digest = blake3::hash(normalized.as_bytes()).to_hex().to_string();
+    format!(
+        "scan-root-{}-{}",
+        if slug.is_empty() { "root" } else { &slug },
+        &digest[..8]
+    )
 }
 
 fn looks_absolute_path(path: &str) -> bool {
@@ -459,7 +473,8 @@ pub fn save_app_settings_with_launch_at_login(
     launch_at_login: &impl LaunchAtLoginController,
 ) -> Result<AppSettings, SettingsError> {
     let current_settings = get_app_settings(db)?;
-    if current_settings.launch_at_login != settings.launch_at_login {
+    let launch_changed = current_settings.launch_at_login != settings.launch_at_login;
+    if launch_changed {
         if settings.launch_at_login {
             launch_at_login.enable().map_err(SettingsError::Autostart)?;
         } else {
@@ -470,7 +485,21 @@ pub fn save_app_settings_with_launch_at_login(
     }
 
     let normalized = normalized_app_settings(settings);
-    save_app_settings(db, &normalized)?;
+    if let Err(error) = save_app_settings(db, &normalized) {
+        if launch_changed {
+            let rollback = if current_settings.launch_at_login {
+                launch_at_login.enable()
+            } else {
+                launch_at_login.disable()
+            };
+            if let Err(rollback_error) = rollback {
+                return Err(SettingsError::Autostart(format!(
+                    "database save failed: {error}; autostart rollback failed: {rollback_error}"
+                )));
+            }
+        }
+        return Err(SettingsError::Db(error));
+    }
     Ok(normalized)
 }
 

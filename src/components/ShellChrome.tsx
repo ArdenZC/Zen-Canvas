@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Languages, Monitor, Moon, Sun } from "lucide-react";
 import type { Language } from "../i18n";
 import type { ThemeMode, Translator } from "../types/ui";
@@ -102,6 +102,38 @@ export function CloseChoiceDialog({
 }) {
   const [remember, setRemember] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState<"minimize" | "quit" | null>(null);
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    cancelRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && isSubmitting === null) {
+        event.preventDefault();
+        onCancel();
+      }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])');
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previous?.focus();
+    };
+  }, [isSubmitting, onCancel]);
 
   async function choose(action: "minimize" | "quit") {
     setIsSubmitting(action);
@@ -109,21 +141,21 @@ export function CloseChoiceDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/30 p-6 backdrop-blur-xl" role="dialog" aria-modal="true">
-      <section className={cn(glassPanel, "grid w-full max-w-md gap-5 p-6")}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/30 p-6 backdrop-blur-xl">
+      <section ref={dialogRef} className={cn(glassPanel, "grid w-full max-w-md gap-5 p-6")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
         <div className="mx-auto">
           <ZenMark />
         </div>
         <div className="text-center">
-          <h2 className="text-xl font-semibold">{t("closeChoiceTitle")}</h2>
-          <p className="mt-2 text-sm text-[var(--muted)]">{t("closeChoiceDesc")}</p>
+          <h2 id={titleId} className="text-xl font-semibold">{t("closeChoiceTitle")}</h2>
+          <p id={descriptionId} className="mt-2 text-sm text-[var(--muted)]">{t("closeChoiceDesc")}</p>
         </div>
         <label className="flex items-center justify-center gap-2 text-sm text-[var(--muted)]">
           <input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
           <span>{t("doNotAskAgain")}</span>
         </label>
         <div className="grid grid-cols-3 gap-2">
-          <button className={glassButton} onClick={onCancel} disabled={isSubmitting !== null}>
+          <button ref={cancelRef} className={glassButton} onClick={onCancel} disabled={isSubmitting !== null}>
             {t("cancel")}
           </button>
           <button className={glassButton} onClick={() => void choose("quit")} disabled={isSubmitting !== null}>

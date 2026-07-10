@@ -197,7 +197,6 @@ fn ai_cleanup_input_candidate(
     candidate: &StorageCandidate,
     settings: &AISettings,
 ) -> AICleanupInputCandidate {
-    let _send_file_content_ignored = settings.send_file_content;
     AICleanupInputCandidate {
         candidate_id: candidate.id.clone(),
         name: candidate.name.clone(),

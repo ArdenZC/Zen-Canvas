@@ -28,7 +28,8 @@ describe("background indexer", () => {
     expect(indexerStore).toContain("failedRoots: BackgroundIndexFailure[]");
     expect(indexerStore).toContain("completedRoots: string[]");
     expect(indexerStore).toContain("useScanManagerStore.getState().isScanning");
-    expect(indexerStore).toContain("await tauriApi.startScan(root, false)");
+    expect(indexerStore).toContain('await tauriApi.startScan(root, false, jobId, "background", true)');
+    expect(indexerStore).toContain("await tauriApi.cancelScan(activeBackgroundJobId)");
     expect(indexerStore).toContain("const knownRoots = new Set");
     expect(indexerStore).toContain("...state.pendingRoots.map(normalizeRoot)");
     expect(indexerStore).toContain("state.currentRoot ? [normalizeRoot(state.currentRoot)]");

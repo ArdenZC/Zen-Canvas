@@ -17,6 +17,34 @@ struct SearchMatchSql {
 }
 
 impl Database {
+    pub fn verify_indexed_file_identity(&self, file_id: &str) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        let (path, expected_size, expected_mtime): (String, i64, i64) = conn.query_row(
+            "SELECT path, size, mtime FROM files WHERE id = ?1 AND is_stale = 0",
+            params![file_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        let metadata = fs::metadata(&path)?;
+        if !metadata.is_dir() && i64::try_from(metadata.len()).unwrap_or(i64::MAX) != expected_size
+        {
+            return Err(DbError::Validation(format!(
+                "File changed after preview (size mismatch): {path}"
+            )));
+        }
+        let actual_mtime = metadata
+            .modified()
+            .ok()
+            .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|value| value.as_secs() as i64)
+            .unwrap_or(0);
+        if expected_mtime > 0 && actual_mtime != expected_mtime {
+            return Err(DbError::Validation(format!(
+                "File changed after preview (modified time mismatch): {path}"
+            )));
+        }
+        Ok(())
+    }
+
     pub fn insert_file(&self, file: InsertFileRequest) -> Result<(), DbError> {
         self.insert_files(&[file])
     }
@@ -783,6 +811,47 @@ impl Database {
         })
     }
 
+    pub fn get_operation_previews_by_file_ids(
+        &self,
+        file_ids: &[String],
+    ) -> Result<Vec<OperationPreviewDto>, DbError> {
+        if file_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn()?;
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT f.id, f.path, f.name, f.extension, f.size, f.mtime, f.ctime, f.is_dir, f.state_code,
+                   f.file_type, f.purpose, f.lifecycle, f.context, f.risk_level, f.suggested_action,
+                   f.suggested_target_path, f.suggested_name, f.confidence, f.classification_reason,
+                   f.classification_status, f.matched_rules, f.requires_confirmation, f.content_hash,
+                   EXISTS (
+                       SELECT 1 FROM files AS other
+                       WHERE other.id <> f.id
+                         AND other.is_dir = 0
+                         AND other.is_stale = 0
+                         AND other.size = f.size
+                         AND other.content_hash = f.content_hash
+                         AND f.content_hash <> ''
+                   ) AS is_duplicate,
+                   f.is_stale, f.last_seen_at, f.last_classified_at, f.classified_rule_version,
+                   f.last_classified_mtime, f.last_classified_size
+            FROM files AS f
+            WHERE f.id = ?1 AND f.is_stale = 0
+            "#,
+        )?;
+        let mut previews = Vec::with_capacity(file_ids.len());
+        for file_id in file_ids {
+            let mut rows = stmt.query_map(params![file_id], indexed_file_from_row)?;
+            if let Some(row) = rows.next() {
+                if let Some(preview) = operation_preview_from_indexed(row?) {
+                    previews.push(preview);
+                }
+            }
+        }
+        Ok(previews)
+    }
+
     pub fn get_stats_summary(&self) -> Result<StatsSummary, DbError> {
         self.get_stats_summary_in_scope(&LibraryScope::All)
     }
@@ -1209,21 +1278,5 @@ fn search_match_sql(fts_query: &str, raw_query: &str) -> SearchMatchSql {
 
 fn should_use_like_fallback(query: &str) -> bool {
     let trimmed = query.trim();
-    !trimmed.is_empty()
-        && (trimmed.chars().filter(|ch| !ch.is_whitespace()).count() < 3
-            || trimmed.chars().any(is_cjk_character))
-}
-
-fn is_cjk_character(ch: char) -> bool {
-    matches!(
-        ch as u32,
-        0x3400..=0x4DBF
-            | 0x4E00..=0x9FFF
-            | 0xF900..=0xFAFF
-            | 0x20000..=0x2A6DF
-            | 0x2A700..=0x2B73F
-            | 0x2B740..=0x2B81F
-            | 0x2B820..=0x2CEAF
-            | 0x2CEB0..=0x2EBEF
-    )
+    !trimmed.is_empty() && trimmed.chars().filter(|ch| !ch.is_whitespace()).count() < 3
 }

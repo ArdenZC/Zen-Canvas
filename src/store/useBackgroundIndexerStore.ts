@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { tauriApi } from "../api/tauriApi";
-import { readableError } from "../utils/viewHelpers";
+import { normalizePathLike, readableError } from "../utils/viewHelpers";
 import { useAppStore } from "./useAppStore";
 import { useFileLibraryStore } from "./useFileLibraryStore";
 import { useScanManagerStore } from "./useScanManagerStore";
@@ -31,6 +31,7 @@ const MAX_RECENTLY_INDEXED_ROOTS = 200;
 
 let isProcessingBackgroundQueue = false;
 let isCancelingBackgroundQueue = false;
+let activeBackgroundJobId: string | null = null;
 const recentlyIndexedRoots = new Set<string>();
 const recentlyIndexedRootOrder: string[] = [];
 
@@ -65,7 +66,9 @@ export const useBackgroundIndexerStore = create<BackgroundIndexerStore>((set, ge
     isCancelingBackgroundQueue = true;
     set({ pendingRoots: [], currentRoot: null, isBackgroundIndexing: false });
     try {
-      await tauriApi.cancelScan();
+      if (activeBackgroundJobId) {
+        await tauriApi.cancelScan(activeBackgroundJobId);
+      }
     } catch {
       // The scan command may not be active; cancellation is best-effort.
     } finally {
@@ -108,7 +111,9 @@ async function processBackgroundQueue() {
     }));
 
     try {
-      await tauriApi.startScan(root, false);
+      const jobId = createBackgroundScanJobId();
+      activeBackgroundJobId = jobId;
+      await tauriApi.startScan(root, false, jobId, "background", true);
       if (!isCancelingBackgroundQueue) {
         markRecentlyIndexedRoot(root);
         useBackgroundIndexerStore.setState((state) => ({
@@ -129,12 +134,19 @@ async function processBackgroundQueue() {
         }));
       }
     } finally {
+      activeBackgroundJobId = null;
       useBackgroundIndexerStore.setState((state) => ({
         currentRoot: state.currentRoot === root ? null : state.currentRoot,
         isBackgroundIndexing: false
       }));
     }
   }
+}
+
+function createBackgroundScanJobId() {
+  const suffix = globalThis.crypto?.randomUUID?.()
+    ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `scan-background-${suffix}`;
 }
 
 function delay(ms: number) {
@@ -167,5 +179,5 @@ function markRecentlyIndexedRoot(path: string) {
 }
 
 function normalizeRoot(path: string) {
-  return path.trim().replace(/\\+/g, "/").replace(/\/+$/g, "").toLowerCase();
+  return normalizePathLike(path.trim());
 }

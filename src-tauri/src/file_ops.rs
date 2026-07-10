@@ -12,7 +12,7 @@ use std::{
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tauri::{command, AppHandle, Emitter, Manager, Runtime, State};
+use tauri::{command, AppHandle, Emitter, Manager, Runtime, State, WebviewWindow};
 use thiserror::Error;
 
 pub const OPERATION_PROGRESS_EVENT: &str = "operation-progress";
@@ -57,6 +57,20 @@ pub struct FileOperationResult {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExecuteMovesRequest {
     pub operations: Vec<OperationPreviewRequest>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExecuteMovesByIdRequest {
+    pub operations: Vec<OperationSelection>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct OperationSelection {
+    pub id: String,
+    #[serde(alias = "fileId")]
+    pub file_id: String,
+    #[serde(default, alias = "newName")]
+    pub new_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -112,6 +126,12 @@ pub struct RestoreMovesRequest {
     pub logs: Vec<OperationLogDto>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct RestoreMovesByIdRequest {
+    #[serde(alias = "logIds")]
+    pub log_ids: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct RestoreMovesResult {
     pub logs: Vec<OperationLogDto>,
@@ -130,7 +150,32 @@ pub struct OperationProgressPayload {
 }
 
 #[derive(Clone, Default)]
-pub struct OperationCancellationToken(pub Arc<AtomicBool>);
+pub struct OperationCancellationToken {
+    cancel: Arc<AtomicBool>,
+    running: Arc<AtomicBool>,
+}
+
+impl OperationCancellationToken {
+    fn begin(&self) -> Result<OperationRunGuard, String> {
+        self.running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+            .map_err(|_| "Another file operation is already running.".to_string())?;
+        self.cancel.store(false, Ordering::Release);
+        Ok(OperationRunGuard {
+            running: Arc::clone(&self.running),
+        })
+    }
+}
+
+struct OperationRunGuard {
+    running: Arc<AtomicBool>,
+}
+
+impl Drop for OperationRunGuard {
+    fn drop(&mut self) {
+        self.running.store(false, Ordering::Release);
+    }
+}
 
 pub trait OperationProgressEmitter {
     fn emit_progress(&self, payload: OperationProgressPayload);
@@ -166,7 +211,6 @@ struct RevealCommand {
     args: Vec<String>,
 }
 
-#[command]
 pub fn move_file(source_path: String, target_path: String) -> Result<FileOperationResult, String> {
     let source = validate_source_path(&PathBuf::from(source_path))?;
     let target = validate_target_path(&PathBuf::from(target_path))?;
@@ -184,16 +228,20 @@ pub fn move_file(source_path: String, target_path: String) -> Result<FileOperati
 
 #[command]
 pub async fn execute_moves<R: Runtime>(
+    window: WebviewWindow<R>,
     app: AppHandle<R>,
     db: State<'_, Database>,
     cancel: State<'_, OperationCancellationToken>,
-    request: ExecuteMovesRequest,
+    request: ExecuteMovesByIdRequest,
 ) -> Result<ExecuteMovesResult, String> {
+    require_main_window(&window)?;
     let db = db.inner().clone();
+    let request = resolve_execute_selections(&db, request)?;
     let app_data_dir = app.path().app_data_dir().ok();
-    cancel.0.store(false, Ordering::Relaxed);
-    let cancel_flag = Arc::clone(&cancel.0);
+    let guard = cancel.begin()?;
+    let cancel_flag = Arc::clone(&cancel.cancel);
     tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
         let emitter = TauriOperationProgressEmitter::new(app);
         execute_moves_with_persistence_with_progress_and_app_data(
             &db,
@@ -207,9 +255,70 @@ pub async fn execute_moves<R: Runtime>(
     .map_err(|error| format!("operation task failed: {error}"))?
 }
 
+fn resolve_execute_selections(
+    db: &Database,
+    request: ExecuteMovesByIdRequest,
+) -> Result<ExecuteMovesRequest, String> {
+    if request.operations.is_empty() {
+        return Err("At least one authoritative preview ID is required.".to_string());
+    }
+    let file_ids = request
+        .operations
+        .iter()
+        .map(|selection| selection.file_id.clone())
+        .collect::<Vec<_>>();
+    let previews = db
+        .get_operation_previews_by_file_ids(&file_ids)
+        .map_err(|error| error.to_string())?;
+    let previews_by_file_id = previews
+        .into_iter()
+        .map(|preview| (preview.file_id.clone(), preview))
+        .collect::<std::collections::HashMap<_, _>>();
+    let mut operations = Vec::with_capacity(request.operations.len());
+    for selection in request.operations {
+        let preview = previews_by_file_id
+            .get(&selection.file_id)
+            .ok_or_else(|| format!("No authoritative preview exists for {}.", selection.id))?;
+        if preview.id != selection.id || preview.is_executable == Some(false) {
+            return Err(format!(
+                "Invalid authoritative preview ID: {}.",
+                selection.id
+            ));
+        }
+        db.verify_indexed_file_identity(&selection.file_id)
+            .map_err(|error| error.to_string())?;
+        let mut new_name = preview.new_name.clone();
+        let mut target_path = preview.target_path.clone();
+        if let Some(override_name) = selection.new_name {
+            validate_safe_file_name(&override_name)?;
+            let parent = Path::new(&target_path)
+                .parent()
+                .ok_or_else(|| "Authoritative preview target has no parent.".to_string())?;
+            target_path = normalize_path(&parent.join(&override_name));
+            new_name = override_name;
+        }
+        operations.push(OperationPreviewRequest {
+            id: preview.id.clone(),
+            file_id: preview.file_id.clone(),
+            operation_type: preview.operation_type.clone(),
+            source_path: preview.source_path.clone(),
+            target_path,
+            old_name: preview.old_name.clone(),
+            new_name,
+            is_executable: preview.is_executable,
+        });
+    }
+    Ok(ExecuteMovesRequest { operations })
+}
+
 #[command]
-pub fn cancel_operations(cancel: State<'_, OperationCancellationToken>) {
-    cancel.0.store(true, Ordering::Relaxed);
+pub fn cancel_operations<R: Runtime>(
+    window: WebviewWindow<R>,
+    cancel: State<'_, OperationCancellationToken>,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    cancel.cancel.store(true, Ordering::Relaxed);
+    Ok(())
 }
 
 pub fn execute_moves_with_persistence(
@@ -247,8 +356,17 @@ fn execute_moves_with_persistence_with_progress_and_app_data(
     app_data_dir: Option<PathBuf>,
 ) -> Result<ExecuteMovesResult, String> {
     let operations = request.operations.clone();
-    let mut result =
-        execute_moves_core_with_progress_and_app_data(request, cancel_flag, emitter, app_data_dir);
+    let batch_id = format!("batch-{}", current_timestamp_ms());
+    let created_at = current_timestamp_ms().to_string();
+    persist_pending_operation_journal(db, &request, &batch_id, &created_at)?;
+    let mut result = execute_moves_core_with_identity(
+        request,
+        cancel_flag,
+        emitter,
+        app_data_dir,
+        batch_id,
+        created_at,
+    );
 
     for (operation, log) in operations.iter().zip(result.logs.iter_mut()) {
         if log.status != "success" {
@@ -299,6 +417,24 @@ fn execute_moves_core_with_progress_and_app_data(
 ) -> ExecuteMovesResult {
     let batch_id = format!("batch-{}", current_timestamp_ms());
     let created_at = current_timestamp_ms().to_string();
+    execute_moves_core_with_identity(
+        request,
+        cancel_flag,
+        emitter,
+        app_data_dir,
+        batch_id,
+        created_at,
+    )
+}
+
+fn execute_moves_core_with_identity(
+    request: ExecuteMovesRequest,
+    cancel_flag: Arc<AtomicBool>,
+    emitter: &impl OperationProgressEmitter,
+    app_data_dir: Option<PathBuf>,
+    batch_id: String,
+    created_at: String,
+) -> ExecuteMovesResult {
     let total = request.operations.len() as u64;
     let mut progress = OperationProgressBuffer::new("execute", batch_id.clone(), total);
     let mut logs = Vec::with_capacity(request.operations.len());
@@ -324,6 +460,104 @@ fn execute_moves_core_with_progress_and_app_data(
     ExecuteMovesResult { logs, batch_id }
 }
 
+fn persist_pending_operation_journal(
+    db: &Database,
+    request: &ExecuteMovesRequest,
+    batch_id: &str,
+    created_at: &str,
+) -> Result<(), String> {
+    let logs = request
+        .operations
+        .iter()
+        .enumerate()
+        .map(|(index, operation)| {
+            make_operation_log(
+                batch_id,
+                created_at,
+                index,
+                operation,
+                "pending",
+                None,
+                operation.target_path.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    db.save_operation_logs(batch_id, &logs)
+        .map_err(|error| format!("failed to persist operation journal before execution: {error}"))
+}
+
+pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, String> {
+    let pending = db
+        .get_pending_operation_logs()
+        .map_err(|error| error.to_string())?;
+    let pending_restores = db
+        .get_pending_restore_logs()
+        .map_err(|error| error.to_string())?;
+    let mut by_batch = std::collections::HashMap::<String, Vec<OperationLogDto>>::new();
+    for mut log in pending {
+        let before_exists = Path::new(&log.path_before).exists();
+        let after_exists = Path::new(&log.path_after).exists();
+        if !before_exists && after_exists {
+            log.status = "success".to_string();
+            log.can_undo = log.operation_type != "move_to_trash";
+            log.can_restore = log.can_undo;
+            log.error_message =
+                Some("Recovered an interrupted operation journal after restart.".to_string());
+        } else {
+            log.status = "failed".to_string();
+            log.can_undo = false;
+            log.can_restore = false;
+            log.error_message = Some(if before_exists && !after_exists {
+                "Operation was interrupted before the filesystem move.".to_string()
+            } else {
+                "Interrupted operation requires manual path review.".to_string()
+            });
+        }
+        by_batch.entry(log.batch_id.clone()).or_default().push(log);
+    }
+    let mut reconciled = by_batch.values().map(Vec::len).sum::<usize>();
+    for (batch_id, logs) in by_batch {
+        db.save_operation_logs(&batch_id, &logs)
+            .map_err(|error| error.to_string())?;
+    }
+    if !pending_restores.is_empty() {
+        let mut restored_logs = Vec::with_capacity(pending_restores.len());
+        for mut log in pending_restores {
+            let before_exists = Path::new(&log.path_before).exists();
+            let after_exists = Path::new(&log.path_after).exists();
+            if before_exists && !after_exists {
+                log.can_undo = false;
+                log.can_restore = false;
+                log.restored_at = Some(current_timestamp_ms().to_string());
+                log.restore_status = "restored".to_string();
+                log.restore_error = None;
+                if let Err(error) = db.update_file_after_successful_restore(&log) {
+                    eprintln!("reconciled restore index sync failed: {error}");
+                }
+            } else if !before_exists && after_exists {
+                log.restore_status = "not_restored".to_string();
+                log.restore_error = Some(
+                    "Restore was interrupted before the filesystem move; it remains available."
+                        .to_string(),
+                );
+            } else {
+                log.can_undo = false;
+                log.can_restore = false;
+                log.restore_status = "failed".to_string();
+                log.restore_error = Some(
+                    "Interrupted restore requires manual path review because both or neither path exists."
+                        .to_string(),
+                );
+            }
+            restored_logs.push(log);
+        }
+        reconciled += restored_logs.len();
+        db.update_operation_restore_logs(&restored_logs)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(reconciled)
+}
+
 #[command]
 pub fn reveal_in_folder(path: String) -> Result<(), String> {
     let trimmed = path.trim();
@@ -339,7 +573,6 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
         .map_err(|error| format!("Failed to reveal path in file manager: {error}"))
 }
 
-#[command]
 pub fn rename_file(source_path: String, new_name: String) -> Result<FileOperationResult, String> {
     validate_safe_file_name(&new_name)?;
     let source = validate_source_path(&PathBuf::from(source_path))?;
@@ -445,20 +678,41 @@ fn execute_preview_operation_with_app_data(
 
 #[command]
 pub async fn restore_moves<R: Runtime>(
+    window: WebviewWindow<R>,
     app: AppHandle<R>,
     db: State<'_, Database>,
     cancel: State<'_, OperationCancellationToken>,
-    request: RestoreMovesRequest,
+    request: RestoreMovesByIdRequest,
 ) -> Result<RestoreMovesResult, String> {
+    require_main_window(&window)?;
     let db = db.inner().clone();
-    cancel.0.store(false, Ordering::Relaxed);
-    let cancel_flag = Arc::clone(&cancel.0);
+    let requested_count = request.log_ids.len();
+    let logs = db
+        .get_restorable_operation_logs_by_ids(&request.log_ids)
+        .map_err(|error| error.to_string())?;
+    if logs.len() != requested_count {
+        return Err(
+            "One or more operation log IDs are missing or no longer restorable.".to_string(),
+        );
+    }
+    let request = RestoreMovesRequest { logs };
+    let guard = cancel.begin()?;
+    let cancel_flag = Arc::clone(&cancel.cancel);
     tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
         let emitter = TauriOperationProgressEmitter::new(app);
         restore_moves_with_persistence_with_progress(&db, request, cancel_flag, &emitter)
     })
     .await
     .map_err(|error| format!("restore task failed: {error}"))?
+}
+
+fn require_main_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
+    if window.label() == "main" {
+        Ok(())
+    } else {
+        Err("This operation is only available from the main window.".to_string())
+    }
 }
 
 pub fn restore_moves_with_persistence(
@@ -479,6 +733,13 @@ fn restore_moves_with_persistence_with_progress(
     cancel_flag: Arc<AtomicBool>,
     emitter: &impl OperationProgressEmitter,
 ) -> Result<RestoreMovesResult, String> {
+    let log_ids = request
+        .logs
+        .iter()
+        .map(|log| log.id.clone())
+        .collect::<Vec<_>>();
+    db.mark_operation_restores_pending(&log_ids)
+        .map_err(|error| format!("failed to persist restore journal before execution: {error}"))?;
     let result = restore_moves_core_with_progress(request, cancel_flag, emitter);
     for log in result
         .logs
@@ -1235,6 +1496,155 @@ mod tests {
         },
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    #[test]
+    fn execute_selection_resolves_authoritative_paths_from_database() {
+        let db = Database::open(test_db_path()).expect("open database");
+        let root = test_dir();
+        let source = root.join("source.txt");
+        let target_dir = root.join("organized");
+        fs::write(&source, "hello").expect("write source");
+        insert_indexed_file(&db, &source, "source.txt", "txt");
+        let file_id = source.to_string_lossy().into_owned();
+        let metadata = fs::metadata(&source).expect("source metadata");
+        let mtime = metadata
+            .modified()
+            .expect("mtime")
+            .duration_since(UNIX_EPOCH)
+            .expect("unix mtime")
+            .as_secs() as i64;
+        let conn = rusqlite::Connection::open(db.path()).expect("open sqlite");
+        conn.execute(
+            "UPDATE files SET suggested_action = 'Move', suggested_target_path = ?2, suggested_name = 'source.txt', confidence = 0.95, size = ?3, mtime = ?4 WHERE path = ?1",
+            rusqlite::params![file_id, normalize_path(&target_dir), metadata.len() as i64, mtime],
+        )
+        .expect("set suggestion");
+        let preview = db
+            .get_operation_previews_by_file_ids(&[file_id.clone()])
+            .expect("preview")
+            .pop()
+            .expect("operation preview");
+
+        let request = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![OperationSelection {
+                    id: preview.id,
+                    file_id,
+                    new_name: None,
+                }],
+            },
+        )
+        .expect("resolve selection");
+
+        assert_eq!(
+            normalize_path(Path::new(&request.operations[0].source_path)),
+            normalize_path(&source)
+        );
+        assert_eq!(
+            request.operations[0].target_path,
+            normalize_path(&target_dir.join("source.txt"))
+        );
+    }
+
+    #[test]
+    fn execute_selection_rejects_forged_preview_id() {
+        let db = Database::open(test_db_path()).expect("open database");
+
+        let error = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![OperationSelection {
+                    id: "op-forged".to_string(),
+                    file_id: "file-forged".to_string(),
+                    new_name: None,
+                }],
+            },
+        )
+        .expect_err("reject forged selection");
+
+        assert!(error.contains("authoritative preview"));
+    }
+
+    #[test]
+    fn pending_operation_journal_reconciles_a_move_completed_before_restart() {
+        let db = Database::open(test_db_path()).expect("open database");
+        let root = test_dir();
+        let source = root.join("before.txt");
+        let target = root.join("after.txt");
+        fs::write(&source, "hello").expect("write source");
+        let request = ExecuteMovesRequest {
+            operations: vec![OperationPreviewRequest {
+                id: "op-recovery".to_string(),
+                file_id: "file-recovery".to_string(),
+                operation_type: "rename".to_string(),
+                source_path: normalize_path(&source),
+                target_path: normalize_path(&target),
+                old_name: "before.txt".to_string(),
+                new_name: "after.txt".to_string(),
+                is_executable: Some(true),
+            }],
+        };
+        persist_pending_operation_journal(&db, &request, "batch-recovery", "1900000000000")
+            .expect("persist pending journal");
+        assert_eq!(db.get_pending_operation_logs().expect("pending").len(), 1);
+        fs::rename(&source, &target).expect("simulate completed filesystem move");
+
+        let reconciled = reconcile_pending_operation_journal(&db).expect("reconcile journal");
+        let logs = db.get_operation_logs(Some(10)).expect("logs");
+
+        assert_eq!(reconciled, 1);
+        assert_eq!(logs[0].status, "success");
+        assert!(logs[0].can_restore);
+        assert!(db
+            .get_pending_operation_logs()
+            .expect("pending after")
+            .is_empty());
+    }
+
+    #[test]
+    fn pending_restore_journal_reconciles_a_restore_completed_before_restart() {
+        let db = Database::open(test_db_path()).expect("open database");
+        let root = test_dir();
+        let source = root.join("before.txt");
+        let target = root.join("after.txt");
+        fs::write(&source, "hello").expect("write source");
+        let executed = execute_moves_with_persistence(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![OperationPreviewRequest {
+                    id: "op-restore-recovery".to_string(),
+                    file_id: "file-restore-recovery".to_string(),
+                    operation_type: "rename".to_string(),
+                    source_path: normalize_path(&source),
+                    target_path: normalize_path(&target),
+                    old_name: "before.txt".to_string(),
+                    new_name: "after.txt".to_string(),
+                    is_executable: Some(true),
+                }],
+            },
+        )
+        .expect("execute move");
+        let log_id = executed.logs[0].id.clone();
+        db.mark_operation_restores_pending(std::slice::from_ref(&log_id))
+            .expect("mark restore pending");
+        fs::rename(&target, &source).expect("simulate completed restore");
+
+        let reconciled = reconcile_pending_operation_journal(&db).expect("reconcile journal");
+        let logs = db.get_operation_logs(Some(10)).expect("logs");
+        let restored = logs
+            .iter()
+            .find(|log| log.id == log_id)
+            .expect("restored log");
+
+        assert_eq!(reconciled, 1);
+        assert_eq!(restored.restore_status, "restored");
+        assert!(!restored.can_restore);
+        assert!(db
+            .get_pending_restore_logs()
+            .expect("pending after")
+            .is_empty());
+    }
 
     #[test]
     fn execute_moves_core_moves_files_and_returns_success_log() {

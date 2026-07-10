@@ -51,7 +51,7 @@ describe("app settings helpers", () => {
       folderNamingLanguage: "en",
       defaultScanFolders: [
         {
-          id: "scan-root-f-downloads",
+          id: "scan-root-f-downloads-2691f373",
           path: "F:/Downloads",
           label: "Downloads",
           enabled: true,
@@ -83,6 +83,13 @@ describe("app settings helpers", () => {
     expect(enabledScanRootPaths(disabled)).toEqual(["F:/Downloads"]);
     expect(upsertDefaultScanRoot(disabled, "d:/work/projects", createdAt)[1].enabled).toBe(true);
     expect(removeDefaultScanRoot(roots, downloads.id)).toEqual([projects]);
+  });
+
+  it("generates distinct IDs for paths whose slugs collide", () => {
+    const first = createScanRootSetting("C:/A+B", "2026-07-10T00:00:00.000Z");
+    const second = createScanRootSetting("C:/A B", "2026-07-10T00:00:00.000Z");
+
+    expect(first.id).not.toBe(second.id);
   });
 
   it("adds, disables, removes, and lists custom search roots", () => {

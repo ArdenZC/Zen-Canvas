@@ -112,19 +112,27 @@ pub(crate) fn build_suggested_name(row: &IndexedFileRow, template: Option<&str>)
         .unwrap_or("1970-01-01")
         .replace('-', "");
     let extension = row.extension.trim_start_matches('.');
-    let suffix = if extension.is_empty() {
-        String::new()
+    let rendered = template
+        .replace("{basename}", &basename)
+        .replace("{date}", &date)
+        .replace("{extension}", extension);
+    append_extension_once(&rendered, extension)
+}
+
+fn append_extension_once(rendered: &str, extension: &str) -> String {
+    let extension = extension.trim_start_matches('.');
+    if extension.is_empty() {
+        return rendered.to_string();
+    }
+    let suffix = format!(".{extension}");
+    if rendered
+        .to_ascii_lowercase()
+        .ends_with(&suffix.to_ascii_lowercase())
+    {
+        rendered.to_string()
     } else {
-        format!(".{extension}")
-    };
-    format!(
-        "{}{}",
-        template
-            .replace("{basename}", &basename)
-            .replace("{date}", &date)
-            .replace("{extension}", extension),
-        suffix
-    )
+        format!("{rendered}{suffix}")
+    }
 }
 
 fn file_stem<'a>(name: &'a str, extension: &str) -> &'a str {
@@ -153,4 +161,15 @@ fn clean_name(value: &str) -> String {
         }
     }
     output.trim_matches('_').to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extension_placeholder_does_not_duplicate_the_extension() {
+        assert_eq!(append_extension_once("report.pdf", "pdf"), "report.pdf");
+        assert_eq!(append_extension_once("report", "pdf"), "report.pdf");
+    }
 }

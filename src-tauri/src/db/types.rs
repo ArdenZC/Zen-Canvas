@@ -259,17 +259,12 @@ pub struct RuleExecutionSummary {
     pub warning: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum RuleExecutionMode {
+    #[default]
     InboxOnly,
     AllChangedOrRuleChanged,
-}
-
-impl Default for RuleExecutionMode {
-    fn default() -> Self {
-        Self::InboxOnly
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]

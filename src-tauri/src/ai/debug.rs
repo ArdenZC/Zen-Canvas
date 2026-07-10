@@ -69,6 +69,9 @@ pub async fn debug_ai_classification_once(
     target: Option<String>,
     file_id: Option<String>,
 ) -> Result<AIDebugClassificationResult, String> {
+    if !cfg!(any(debug_assertions, feature = "ai-debug")) {
+        return Err("AI debug commands are disabled in production builds.".to_string());
+    }
     let target = target
         .or(file_id)
         .ok_or_else(|| "file id or path is required for AI classification debug.".to_string())?;

@@ -78,10 +78,10 @@ describe("preview execute safety UI", () => {
     expect(row).not.toContain("truncate rounded-lg");
 
     expect(timeline).not.toContain("const PREVIEW_ROW_HEIGHT");
-    expect(timeline).not.toContain("useVirtualizer");
-    expect(timeline).not.toContain("measureElement");
+    expect(timeline).toContain("useVirtualizer");
+    expect(timeline).toContain("measureElement");
     expect(timeline).not.toContain("virtualRowClass");
-    expect(timeline).toContain("overflow-visible");
+    expect(timeline).toContain("overflow-auto");
     expect(timeline).not.toContain("max-h-96");
     expect(row).toContain("gap-3 sm:grid-cols-[auto_auto_minmax(0,1fr)]");
     expect(row).toContain("grid min-w-0 gap-2 xl:grid-cols-2");

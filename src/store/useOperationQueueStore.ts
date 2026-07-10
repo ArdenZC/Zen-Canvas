@@ -295,8 +295,18 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
         selectedOperationIds: new Set()
       }));
       await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
-      const canceled = result.logs.some((log) => log.status === "skipped");
-      useAppStore.getState().showSuccess(canceled ? t("operationCanceled") : t("success"));
+      const previewScope = get().previewScope;
+      if (previewScope) await get().refreshPreviewsForScope(previewScope);
+      const succeeded = result.logs.filter((log) => log.status === "success").length;
+      const failed = result.logs.filter((log) => log.status === "failed").length;
+      const skipped = result.logs.filter((log) => log.status === "skipped").length;
+      if (failed > 0) {
+        useAppStore.getState().showError(`${t("failed")}: ${failed.toLocaleString()}`);
+      } else if (succeeded === 0 && skipped > 0) {
+        useAppStore.getState().showSuccess(t("operationCanceled"));
+      } else {
+        useAppStore.getState().showSuccess(`${t("success")}: ${succeeded.toLocaleString()}${skipped ? ` (${t("skipped")}: ${skipped.toLocaleString()})` : ""}`);
+      }
     } catch (error) {
       useAppStore.getState().showError(readableError(error));
     } finally {
@@ -330,8 +340,14 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
         operationLogs: state.operationLogs.map((log) => updatedById.get(log.id) ?? log)
       }));
       await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
-      const canceled = result.logs.some((log) => log.restore_status === "canceled");
-      useAppStore.getState().showSuccess(canceled ? t("operationCanceled") : `${t("restored")}: ${result.restored.toLocaleString()}`);
+      const previewScope = get().previewScope;
+      if (previewScope) await get().refreshPreviewsForScope(previewScope);
+      const canceled = result.logs.every((log) => log.restore_status === "canceled");
+      if (result.failed > 0) {
+        useAppStore.getState().showError(`${t("failed")}: ${result.failed.toLocaleString()}`);
+      } else {
+        useAppStore.getState().showSuccess(canceled ? t("operationCanceled") : `${t("restored")}: ${result.restored.toLocaleString()}`);
+      }
     } catch (error) {
       useAppStore.getState().showError(readableError(error));
     } finally {

@@ -56,11 +56,14 @@ describe("scan manager progress callbacks", () => {
     );
 
     expect(storeSource).toContain("let scanJobCanceled = false");
+    expect(storeSource).toContain("activeScanJobId");
+    expect(storeSource).toContain("progress.jobId !== activeScanJobId");
     expect(scanPaths).toContain("scanJobCanceled = false");
     expect(scanPaths).toContain("if (scanJobCanceled) break");
     expect(scanPaths.indexOf("if (scanJobCanceled) break"))
-      .toBeLessThan(scanPaths.indexOf("tauriApi.startScan(path, false)"));
+      .toBeLessThan(scanPaths.indexOf("tauriApi.startScan("));
     expect(cancelScan).toContain("scanJobCanceled = true");
+    expect(cancelScan).toContain("tauriApi.cancelScan(activeScanJobId)");
     expect(cancelScan).toContain("isCancelingScan: true");
     expect(cancelScan).not.toContain("isScanning: false");
     expect(cancelScan).toContain('status: "canceled"');

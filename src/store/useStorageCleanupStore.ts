@@ -14,6 +14,7 @@ type StorageCleanupApi = {
   startStorageCleanupScan(roots: string[]): Promise<string>;
   cancelStorageCleanupScan(jobId: string): Promise<void>;
   getStorageCleanupScanStatus(jobId: string): Promise<StorageCleanupScanStatus>;
+  getStorageCleanupCandidatePage?(jobId: string, offset: number, limit?: number): Promise<StorageAnalysis>;
 };
 
 interface StorageCleanupStore {
@@ -37,6 +38,7 @@ interface StorageCleanupStore {
   completeScan: (jobId: string, analysis: StorageAnalysis) => void;
   failScan: (jobId: string, message: string) => void;
   cancelScan: (api: Pick<StorageCleanupApi, "cancelStorageCleanupScan">) => Promise<void>;
+  loadMoreCandidates: (api: StorageCleanupApi) => Promise<void>;
   setExecutionResult: (result: CleanupExecutionResult | null) => void;
   applyAIAnalyzedCandidates: (candidates: StorageCandidate[]) => void;
   setAICleanupStatus: (status: string) => void;
@@ -155,6 +157,27 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
     } finally {
       set({ isScanning: false, scanError: "扫描已取消。", scanProgress: null });
     }
+  },
+
+  async loadMoreCandidates(api) {
+    const { analysis, scanJobId } = get();
+    if (!analysis?.has_more || !scanJobId || !api.getStorageCleanupCandidatePage) return;
+    const page = await api.getStorageCleanupCandidatePage(scanJobId, analysis.candidates.length, 200);
+    if (get().scanJobId !== scanJobId) return;
+    set((state) => {
+      if (!state.analysis) return state;
+      const seen = new Set(state.analysis.candidates.map((candidate) => candidate.id));
+      const appended = page.candidates.filter((candidate) => !seen.has(candidate.id));
+      const candidates = [...state.analysis.candidates, ...appended];
+      const selectedCleanupIds = new Set(state.selectedCleanupIds);
+      for (const id of defaultSelectedCleanupIds({ ...page, candidates: appended })) {
+        selectedCleanupIds.add(id);
+      }
+      return {
+        analysis: { ...page, candidates, candidate_offset: 0 },
+        selectedCleanupIds
+      };
+    });
   },
 
   setExecutionResult(result) {
@@ -319,7 +342,11 @@ function loadRecentRoots(): string[] {
 
 function rememberRecentRoots(roots: string[]) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(RECENT_SCOPE_KEY, JSON.stringify(roots.slice(0, 4)));
+  try {
+    window.localStorage.setItem(RECENT_SCOPE_KEY, JSON.stringify(roots.slice(0, 4)));
+  } catch {
+    // Recent roots are optional convenience state.
+  }
 }
 
 function readableStoreError(error: unknown): string {

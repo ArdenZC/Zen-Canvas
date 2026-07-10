@@ -3,17 +3,14 @@
     windows_subsystem = "windows"
 )]
 
-use std::{
-    io,
-    sync::{atomic::AtomicBool, Arc},
-};
+use std::io;
 
 use tauri::Manager;
 use tauri_plugin_autostart::ManagerExt;
 use zen_canvas_tauri::{
     open_database, settings,
     watcher::{reload_file_watcher_for_settings, FileWatcherManager},
-    AIClassificationCancellationToken, OperationCancellationToken, ScanCancellationToken,
+    AIClassificationCancellationToken, OperationCancellationToken, ScanJobManager,
 };
 
 fn main() {
@@ -24,23 +21,21 @@ fn main() {
             None,
         ))
         .setup(|app| {
-            let db = open_database(&app.handle())
-                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+            let db = open_database(app.handle()).map_err(io::Error::other)?;
+            zen_canvas_tauri::file_ops::reconcile_pending_operation_journal(&db)
+                .map_err(io::Error::other)?;
+            zen_canvas_tauri::storage_analyzer::reconcile_pending_cleanup_journal(&db)
+                .map_err(io::Error::other)?;
             app.manage(db.clone());
-            app.manage(ScanCancellationToken(Arc::new(AtomicBool::new(false))));
-            app.manage(OperationCancellationToken(Arc::new(AtomicBool::new(false))));
-            app.manage(AIClassificationCancellationToken(Arc::new(
-                AtomicBool::new(false),
-            )));
+            app.manage(ScanJobManager::default());
+            app.manage(OperationCancellationToken::default());
+            app.manage(AIClassificationCancellationToken::default());
             app.manage(FileWatcherManager::default());
             app.manage(zen_canvas_tauri::storage_analyzer::StorageCleanupState::default());
             app.manage(zen_canvas_tauri::app_control::GlobalHotkeyStatusState::default());
-            zen_canvas_tauri::app_control::setup_tray(app)
-                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
-            zen_canvas_tauri::app_control::setup_search_window(app)
-                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
-            let app_settings = settings::get_app_settings(&db)
-                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+            zen_canvas_tauri::app_control::setup_tray(app).map_err(io::Error::other)?;
+            zen_canvas_tauri::app_control::setup_search_window(app).map_err(io::Error::other)?;
+            let app_settings = settings::get_app_settings(&db).map_err(io::Error::other)?;
             let launch_at_login = app.autolaunch();
             let app_settings = match settings::sync_launch_at_login_from_system(
                 &db,
@@ -54,7 +49,7 @@ fn main() {
                 }
             };
             db.prune_operation_logs(app_settings.restore_retention_days)
-                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+                .map_err(io::Error::other)?;
             if let Err(error) = zen_canvas_tauri::app_control::setup_global_search_shortcut(
                 app,
                 &app_settings.search_hotkey,
@@ -107,8 +102,6 @@ fn main() {
             zen_canvas_tauri::app_control::register_global_search_hotkey,
             zen_canvas_tauri::scanner::scan_directory,
             zen_canvas_tauri::scanner::cancel_scan,
-            zen_canvas_tauri::file_ops::move_file,
-            zen_canvas_tauri::file_ops::rename_file,
             zen_canvas_tauri::file_ops::reveal_in_folder,
             zen_canvas_tauri::file_ops::execute_moves,
             zen_canvas_tauri::file_ops::restore_moves,
@@ -116,6 +109,7 @@ fn main() {
             zen_canvas_tauri::storage_analyzer::scan_storage_cleanup,
             zen_canvas_tauri::storage_analyzer::start_storage_cleanup_scan,
             zen_canvas_tauri::storage_analyzer::get_storage_cleanup_scan_status,
+            zen_canvas_tauri::storage_analyzer::get_storage_cleanup_candidate_page,
             zen_canvas_tauri::storage_analyzer::cancel_storage_cleanup_scan,
             zen_canvas_tauri::storage_analyzer::reveal_storage_candidate,
             zen_canvas_tauri::storage_analyzer::preview_cleanup_candidates,
