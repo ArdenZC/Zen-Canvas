@@ -116,6 +116,7 @@ export interface FileLibraryStore {
 }
 
 export interface AIClassificationRunOptions {
+  pendingOnly?: boolean;
   onlyUnclassified?: boolean;
   onlyLowConfidence?: boolean;
   limit?: number;

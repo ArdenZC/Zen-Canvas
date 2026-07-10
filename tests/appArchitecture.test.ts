@@ -80,7 +80,10 @@ describe("app render architecture", () => {
     expect(hub).toContain("const previews = await refreshPreviewsForScope(scope)");
     expect(hub).not.toContain("useOperationQueueStore((state) => state.runDispatch)");
     expect(hub).toContain("智能分类待处理文件");
+    expect(hub).toContain("pendingOnly: true, force: false");
     expect(hub).toContain("onlyUnclassified: true, onlyLowConfidence: false, force: false");
+    expect(hub).toContain("onlyLowConfidence: true, force: false");
+    expect(hub).toContain("force: true, allowOverwriteUserCorrections: false");
     expect(hub).toContain("重新分析当前范围内的文件");
     expect(hub).toContain("function emptyPreviewReasonMessage");
     expect(hub).toContain("- AI 建议均为 Keep / Review");

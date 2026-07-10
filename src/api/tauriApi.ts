@@ -261,6 +261,7 @@ export const tauriApi = {
   classifyFilesWithAI(
     scope: LibraryScope,
   options?: {
+    pendingOnly?: boolean;
     onlyUnclassified?: boolean;
     onlyLowConfidence?: boolean;
     limit?: number;

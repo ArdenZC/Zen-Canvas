@@ -210,7 +210,13 @@ export function HubView() {
     }
   }
 
-  async function runAIClassification(options: { onlyUnclassified: boolean; onlyLowConfidence: boolean; force?: boolean }) {
+  async function runAIClassification(options: {
+    pendingOnly?: boolean;
+    onlyUnclassified?: boolean;
+    onlyLowConfidence?: boolean;
+    force?: boolean;
+    allowOverwriteUserCorrections?: boolean;
+  }) {
     if (isClassifyingWithAI) return;
     setAiPreviewNotice("");
     try {
@@ -236,7 +242,7 @@ export function HubView() {
       "这会重新分析当前范围内的文件，可能覆盖已有 AI 分类结果。用户手动纠正和确认过的结果默认仍会被保护，除非你在高级选项中允许覆盖。是否继续？"
     ) ?? false;
     if (!confirmed) return;
-    await runAIClassification({ onlyUnclassified: false, onlyLowConfidence: false, force: true });
+    await runAIClassification({ force: true, allowOverwriteUserCorrections: false });
   }
 
   async function openPreview() {
@@ -334,7 +340,7 @@ export function HubView() {
             </label>
             <button
               className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")}
-              onClick={() => void runAIClassification({ onlyUnclassified: true, onlyLowConfidence: false, force: false })}
+              onClick={() => void runAIClassification({ pendingOnly: true, force: false })}
               disabled={isClassifyingWithAI || isLoadingOrganizeQueue}
             >
               <Sparkles size={14} />
@@ -342,7 +348,7 @@ export function HubView() {
             </button>
             <button
               className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")}
-              onClick={() => void runAIClassification({ onlyUnclassified: true, onlyLowConfidence: false })}
+              onClick={() => void runAIClassification({ onlyUnclassified: true, onlyLowConfidence: false, force: false })}
               disabled={isClassifyingWithAI || isLoadingOrganizeQueue}
             >
               <Sparkles size={14} />
@@ -350,7 +356,7 @@ export function HubView() {
             </button>
             <button
               className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")}
-              onClick={() => void runAIClassification({ onlyUnclassified: false, onlyLowConfidence: true })}
+              onClick={() => void runAIClassification({ onlyUnclassified: false, onlyLowConfidence: true, force: false })}
               disabled={isClassifyingWithAI || isLoadingOrganizeQueue}
             >
               <Sparkles size={14} />

@@ -769,6 +769,7 @@ function mockAIDebugClassification(args?: Record<string, unknown>): AIDebugClass
 
 function mockAIClassifyFiles(args?: Record<string, unknown>): RuleExecutionSummary {
   const options = args?.options as {
+    pendingOnly?: boolean;
     onlyUnclassified?: boolean;
     onlyLowConfidence?: boolean;
     limit?: number;
@@ -777,6 +778,11 @@ function mockAIClassifyFiles(args?: Record<string, unknown>): RuleExecutionSumma
   } | null | undefined;
   const limit = Math.max(1, Number(options?.limit ?? mockFiles.length));
   const candidates = mockFiles
+    .filter((file) => !options?.pendingOnly || (
+      file.classification_status !== "classified"
+      || file.confidence < 0.65
+      || file.requires_confirmation
+    ))
     .filter((file) => !options?.onlyUnclassified || file.classification_status !== "classified")
     .filter((file) => !options?.onlyLowConfidence || file.confidence < 0.65)
     .filter((file) => {

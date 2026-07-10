@@ -63,6 +63,7 @@ pub struct AIClassificationProgressPayload {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AIClassificationOptions {
+    pub pending_only: Option<bool>,
     pub only_unclassified: Option<bool>,
     pub only_low_confidence: Option<bool>,
     pub limit: Option<u32>,
@@ -342,13 +343,27 @@ pub(crate) fn collect_ai_classification_targets(
     let allow_overwrite_user_corrections = options
         .and_then(|options| options.allow_overwrite_user_corrections)
         .unwrap_or(false);
+    let pending_only = options
+        .and_then(|options| options.pending_only)
+        .unwrap_or(false);
     let only_unclassified = options
         .and_then(|options| options.only_unclassified)
-        .unwrap_or(true);
+        .unwrap_or(!pending_only);
     let only_low_confidence = options
         .and_then(|options| options.only_low_confidence)
         .unwrap_or(false);
     let mut filters = Vec::new();
+    if pending_only {
+        filters.push(
+            "(
+                f.classification_status <> 'classified'
+                OR f.confidence < 0.65
+                OR f.requires_confirmation = 1
+                OR f.last_classified_mtime <> f.mtime
+                OR f.last_classified_size <> f.size
+            )",
+        );
+    }
     if only_unclassified {
         filters.push("f.classification_status <> 'classified'");
     }
@@ -369,6 +384,7 @@ pub(crate) fn collect_ai_classification_targets(
         filters.push(
             "NOT (
                 f.classification_status = 'classified'
+                AND f.confidence >= 0.65
                 AND f.requires_confirmation = 0
                 AND f.last_classified_mtime = f.mtime
                 AND f.last_classified_size = f.size
@@ -1976,6 +1992,7 @@ mod tests {
             ..enabled_settings()
         };
         let options = AIClassificationOptions {
+            pending_only: None,
             only_unclassified: None,
             only_low_confidence: None,
             limit: Some(100),
@@ -2002,6 +2019,7 @@ mod tests {
         );
         let settings = enabled_settings();
         let default_options = AIClassificationOptions {
+            pending_only: None,
             only_unclassified: Some(false),
             only_low_confidence: Some(false),
             limit: None,
@@ -2035,6 +2053,7 @@ mod tests {
         mark_classified(&db, "file-1", r#"["user_correction"]"#, false);
         let settings = enabled_settings();
         let options = AIClassificationOptions {
+            pending_only: None,
             only_unclassified: Some(false),
             only_low_confidence: Some(false),
             limit: None,
@@ -2056,6 +2075,7 @@ mod tests {
         mark_classified(&db, "file-1", r#"["ai:deepseek:model","user_confirmed"]"#, false);
         let settings = enabled_settings();
         let options = AIClassificationOptions {
+            pending_only: None,
             only_unclassified: Some(false),
             only_low_confidence: Some(false),
             limit: None,
@@ -2077,6 +2097,7 @@ mod tests {
         mark_classified(&db, "file-1", r#"["user_correction"]"#, false);
         let settings = enabled_settings();
         let options = AIClassificationOptions {
+            pending_only: None,
             only_unclassified: Some(false),
             only_low_confidence: Some(false),
             limit: None,
@@ -2098,6 +2119,7 @@ mod tests {
         mark_classified(&db, "file-1", r#"[]"#, false);
         let settings = enabled_settings();
         let options = AIClassificationOptions {
+            pending_only: None,
             only_unclassified: Some(false),
             only_low_confidence: Some(false),
             limit: None,
@@ -2110,6 +2132,138 @@ mod tests {
                 .expect("collect targets");
 
         assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn pending_only_collects_each_pending_classification_state() {
+        let db = test_db();
+        insert_test_file(&db, "unclassified", "/tmp/pending-unclassified.pdf");
+        insert_test_file(&db, "low-confidence", "/tmp/pending-low-confidence.pdf");
+        insert_test_file(&db, "needs-confirmation", "/tmp/pending-confirmation.pdf");
+        insert_test_file(&db, "mtime-changed", "/tmp/pending-mtime.pdf");
+        insert_test_file(&db, "size-changed", "/tmp/pending-size.pdf");
+        insert_test_file(&db, "stable", "/tmp/pending-stable.pdf");
+
+        for id in [
+            "low-confidence",
+            "needs-confirmation",
+            "mtime-changed",
+            "size-changed",
+            "stable",
+        ] {
+            mark_classified(&db, id, r#"["ai:deepseek:model"]"#, false);
+        }
+        let conn = Connection::open(db.path()).expect("open db");
+        conn.execute(
+            "UPDATE files SET confidence = 0.4 WHERE id = 'low-confidence'",
+            [],
+        )
+        .expect("set low confidence");
+        conn.execute(
+            "UPDATE files SET requires_confirmation = 1 WHERE id = 'needs-confirmation'",
+            [],
+        )
+        .expect("require confirmation");
+        conn.execute(
+            "UPDATE files SET mtime = mtime + 1 WHERE id = 'mtime-changed'",
+            [],
+        )
+        .expect("change mtime");
+        conn.execute(
+            "UPDATE files SET size = size + 1 WHERE id = 'size-changed'",
+            [],
+        )
+        .expect("change size");
+
+        let options = AIClassificationOptions {
+            pending_only: Some(true),
+            only_unclassified: None,
+            only_low_confidence: None,
+            limit: None,
+            force: Some(false),
+            allow_overwrite_user_corrections: None,
+        };
+        let settings = enabled_settings();
+        let targets = collect_ai_classification_targets(
+            &db,
+            &LibraryScope::All,
+            Some(&options),
+            &settings,
+        )
+        .expect("collect pending targets");
+        let ids = targets
+            .into_iter()
+            .map(|target| target.id)
+            .collect::<HashSet<_>>();
+
+        assert_eq!(
+            ids,
+            HashSet::from([
+                "unclassified".to_string(),
+                "low-confidence".to_string(),
+                "needs-confirmation".to_string(),
+                "mtime-changed".to_string(),
+                "size-changed".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn pending_only_protects_user_corrections() {
+        let db = test_db();
+        insert_test_file(&db, "user-corrected", "/tmp/pending-user-corrected.pdf");
+        mark_classified(&db, "user-corrected", r#"["user_correction"]"#, true);
+        let options = AIClassificationOptions {
+            pending_only: Some(true),
+            only_unclassified: None,
+            only_low_confidence: None,
+            limit: None,
+            force: Some(false),
+            allow_overwrite_user_corrections: None,
+        };
+
+        let targets = collect_ai_classification_targets(
+            &db,
+            &LibraryScope::All,
+            Some(&options),
+            &enabled_settings(),
+        )
+        .expect("collect pending targets");
+
+        assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn only_unclassified_excludes_classified_pending_files() {
+        let db = test_db();
+        insert_test_file(&db, "unclassified", "/tmp/only-unclassified.pdf");
+        insert_test_file(&db, "classified-low", "/tmp/only-unclassified-low.pdf");
+        mark_classified(&db, "classified-low", r#"["ai:deepseek:model"]"#, false);
+        let conn = Connection::open(db.path()).expect("open db");
+        conn.execute(
+            "UPDATE files SET confidence = 0.4 WHERE id = 'classified-low'",
+            [],
+        )
+        .expect("set low confidence");
+        let options = AIClassificationOptions {
+            pending_only: Some(false),
+            only_unclassified: Some(true),
+            only_low_confidence: Some(false),
+            limit: None,
+            force: Some(false),
+            allow_overwrite_user_corrections: None,
+        };
+
+        let targets = collect_ai_classification_targets(
+            &db,
+            &LibraryScope::All,
+            Some(&options),
+            &enabled_settings(),
+        )
+        .expect("collect unclassified targets");
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].id, "unclassified");
     }
 
     #[test]
@@ -2801,6 +2955,7 @@ mod tests {
             SET classification_status = 'classified',
                 matched_rules = ?2,
                 requires_confirmation = ?3,
+                confidence = 0.9,
                 last_classified_at = 1700000001,
                 last_classified_mtime = mtime,
                 last_classified_size = size
