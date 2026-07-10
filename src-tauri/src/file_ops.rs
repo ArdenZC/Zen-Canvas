@@ -1393,7 +1393,11 @@ fn protected_roots() -> Vec<PathBuf> {
             PathBuf::from("/sbin"),
             PathBuf::from("/usr"),
             PathBuf::from("/etc"),
-            PathBuf::from("/private"),
+            PathBuf::from("/private/etc"),
+            PathBuf::from("/private/var/db"),
+            PathBuf::from("/private/var/root"),
+            PathBuf::from("/private/var/protected"),
+            PathBuf::from("/private/var/vm"),
         ]);
     } else {
         roots.extend([
@@ -2288,8 +2292,8 @@ mod tests {
         assert_eq!(result.logs[0].status, "success");
         assert_eq!(page.total, 1);
         assert_eq!(page.files[0].name, "new-name.txt");
-        assert_eq!(page.files[0].path, normalize_path(&renamed));
-        assert_eq!(page.files[0].id, normalize_path(&renamed));
+        assert_eq!(page.files[0].path, canonical_test_path(&renamed));
+        assert_eq!(page.files[0].id, canonical_test_path(&renamed));
         assert_eq!(page.files[0].extension, "txt");
         assert_eq!(page.files[0].suggested_action, "Keep");
         assert!(!page.files[0].requires_confirmation);
@@ -2326,7 +2330,7 @@ mod tests {
 
         assert_eq!(new_results.len(), 1);
         assert_eq!(new_results[0].name, "new-report.txt");
-        assert_eq!(new_results[0].path, normalize_path(&renamed));
+        assert_eq!(new_results[0].path, canonical_test_path(&renamed));
         assert!(old_results
             .iter()
             .all(|result| result.path != normalize_path(&source)));
@@ -2364,8 +2368,8 @@ mod tests {
         let page = db.get_paged_files(Some(10), Some(0), None).expect("page");
 
         assert_eq!(page.total, 1);
-        assert_eq!(page.files[0].path, normalize_path(&target));
-        assert_eq!(page.files[0].id, normalize_path(&target));
+        assert_eq!(page.files[0].path, canonical_test_path(&target));
+        assert_eq!(page.files[0].id, canonical_test_path(&target));
     }
 
     #[test]
@@ -2696,6 +2700,12 @@ mod tests {
         {
             std::os::unix::fs::symlink(target, link)
         }
+    }
+
+    fn canonical_test_path(path: &Path) -> String {
+        normalize_path(&fs::canonicalize(path).expect("canonical test path"))
+            .trim_start_matches("//?/")
+            .to_string()
     }
 
     struct RecordingOperationProgressEmitter {

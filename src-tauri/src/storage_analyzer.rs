@@ -1056,7 +1056,7 @@ pub fn is_cleanup_execution_forbidden(path: &Path, app_data_dir: Option<&Path>) 
     {
         return true;
     }
-    if path.parent().is_none() || path.file_name().is_none() {
+    if path.parent().is_none() || path.file_name().is_none() || is_drive_root(path) {
         return true;
     }
     if fs::symlink_metadata(path)
@@ -2169,6 +2169,14 @@ fn is_zen_canvas_safe_trash_path_text(lower: &str) -> bool {
 }
 
 fn is_system_path_text(lower: &str) -> bool {
+    if cfg!(target_os = "macos")
+        && (lower == "/private/tmp"
+            || lower.starts_with("/private/tmp/")
+            || lower == "/private/var/folders"
+            || lower.starts_with("/private/var/folders/"))
+    {
+        return false;
+    }
     lower.starts_with("c:/windows")
         || lower.contains("/windows/system32")
         || lower.contains("/windows/winsxs")
