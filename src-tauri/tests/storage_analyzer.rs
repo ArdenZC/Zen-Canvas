@@ -131,6 +131,22 @@ fn storage_cleanup_scan_accepts_user_selected_temp_directory() {
     assert!(result.is_ok());
 }
 
+#[cfg(target_os = "macos")]
+#[test]
+fn storage_cleanup_accepts_both_macos_temp_path_forms() {
+    for path in [
+        "/tmp/zen-canvas-test",
+        "/var/folders/zen-canvas-test",
+        "/private/tmp/zen-canvas-test",
+        "/private/var/folders/zen-canvas-test",
+    ] {
+        assert!(
+            !is_forbidden_storage_path_for_test(Path::new(path)),
+            "expected macOS temp path {path} to remain eligible"
+        );
+    }
+}
+
 #[test]
 fn storage_cleanup_scan_job_can_report_progress_and_be_cancelled() {
     let root = test_dir();

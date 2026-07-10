@@ -2170,7 +2170,11 @@ fn is_zen_canvas_safe_trash_path_text(lower: &str) -> bool {
 
 fn is_system_path_text(lower: &str) -> bool {
     if cfg!(target_os = "macos")
-        && (lower == "/private/tmp"
+        && (lower == "/tmp"
+            || lower.starts_with("/tmp/")
+            || lower == "/var/folders"
+            || lower.starts_with("/var/folders/")
+            || lower == "/private/tmp"
             || lower.starts_with("/private/tmp/")
             || lower == "/private/var/folders"
             || lower.starts_with("/private/var/folders/"))
