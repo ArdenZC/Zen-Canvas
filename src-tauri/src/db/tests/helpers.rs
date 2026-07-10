@@ -353,7 +353,11 @@
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        std::env::temp_dir().join(format!("zen-canvas-db-test-{nonce}.sqlite3"))
+        let counter = TEST_PATH_COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "zen-canvas-db-test-{}-{nonce}-{counter}.sqlite3",
+            std::process::id()
+        ))
     }
 
     fn test_dir() -> PathBuf {
@@ -361,9 +365,23 @@
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("zen-canvas-db-file-test-{nonce}"));
+        let counter = TEST_PATH_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "zen-canvas-db-file-test-{}-{nonce}-{counter}",
+            std::process::id()
+        ));
         fs::create_dir_all(&dir).expect("test dir");
         dir
+    }
+
+    #[test]
+    fn temporary_database_paths_are_unique_across_parallel_tests() {
+        let paths = (0..64)
+            .map(|_| std::thread::spawn(test_db_path))
+            .map(|handle| handle.join().expect("join path generator"))
+            .collect::<std::collections::HashSet<_>>();
+
+        assert_eq!(paths.len(), 64);
     }
 
     fn normalized_test_path(path: &Path) -> String {
