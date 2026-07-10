@@ -2184,7 +2184,10 @@ fn is_system_path_text(lower: &str) -> bool {
         || lower.contains("/$recycle.bin")
         || matches!(
             lower,
-            "/" | "/system"
+            "/" | "/System"
+                | "/Library"
+                | "/Applications"
+                | "/system"
                 | "/usr"
                 | "/etc"
                 | "/var"
@@ -2194,6 +2197,9 @@ fn is_system_path_text(lower: &str) -> bool {
                 | "/applications"
                 | "/private"
         )
+        || lower.starts_with("/System/")
+        || lower.starts_with("/Library/")
+        || lower.starts_with("/Applications/")
         || lower.starts_with("/system/")
         || lower.starts_with("/usr/")
         || lower.starts_with("/etc/")

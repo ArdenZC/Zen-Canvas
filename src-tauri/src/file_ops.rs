@@ -1944,6 +1944,7 @@ mod tests {
         assert_eq!(progress.events().last().map(|event| event.total), Some(11));
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn execute_moves_core_supports_move_to_trash_success_path() {
         let root = test_dir();
