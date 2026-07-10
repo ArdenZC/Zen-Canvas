@@ -1977,15 +1977,22 @@ mod tests {
 
     #[test]
     fn execute_moves_core_refuses_dangerous_move_to_trash_paths() {
+        let protected_path = if cfg!(windows) {
+            "C:/Windows/System32"
+        } else if cfg!(target_os = "macos") {
+            "/System"
+        } else {
+            "/etc"
+        };
         let result = execute_moves_core(ExecuteMovesRequest {
             operations: vec![OperationPreviewRequest {
                 id: "trash-system".to_string(),
-                file_id: "C:/Windows/System32".to_string(),
+                file_id: protected_path.to_string(),
                 operation_type: "move_to_trash".to_string(),
-                source_path: "C:/Windows/System32".to_string(),
+                source_path: protected_path.to_string(),
                 target_path: "Recycle Bin".to_string(),
-                old_name: "System32".to_string(),
-                new_name: "System32".to_string(),
+                old_name: "protected-system-path".to_string(),
+                new_name: "protected-system-path".to_string(),
                 is_executable: Some(true),
             }],
         });
