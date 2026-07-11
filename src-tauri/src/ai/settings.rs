@@ -137,12 +137,11 @@ pub fn save_ai_settings_with_store(
 ) -> Result<AISettings, DbError> {
     validate_ai_settings(settings, !cfg!(debug_assertions)).map_err(DbError::Validation)?;
     let mut normalized = normalize_ai_settings(settings.clone());
+    let previous_key = credentials.get().map_err(DbError::Validation)?;
+    let mut credential_changed = false;
     match normalized.api_key_action {
         ApiKeyAction::Preserve => {
-            normalized.api_key = credentials
-                .get()
-                .map_err(DbError::Validation)?
-                .unwrap_or_default();
+            normalized.api_key = previous_key.clone().unwrap_or_default();
         }
         ApiKeyAction::Replace => {
             if normalized.api_key.is_empty() {
@@ -153,15 +152,30 @@ pub fn save_ai_settings_with_store(
             credentials
                 .set(&normalized.api_key)
                 .map_err(DbError::Validation)?;
+            credential_changed = true;
         }
         ApiKeyAction::Clear => {
             credentials.delete().map_err(DbError::Validation)?;
             normalized.api_key.clear();
+            credential_changed = true;
         }
     }
     normalized.api_key_action = ApiKeyAction::Preserve;
     normalized.api_key_configured = !normalized.api_key.is_empty();
-    persist_ai_settings_without_secret(db, &normalized)?;
+    if let Err(error) = persist_ai_settings_without_secret(db, &normalized) {
+        if credential_changed {
+            let rollback = match previous_key.as_deref() {
+                Some(value) => credentials.set(value),
+                None => credentials.delete(),
+            };
+            if let Err(rollback_error) = rollback {
+                return Err(DbError::Validation(format!(
+                    "AI settings save failed: {error}; credential rollback failed: {rollback_error}"
+                )));
+            }
+        }
+        return Err(error);
+    }
     Ok(normalized)
 }
 

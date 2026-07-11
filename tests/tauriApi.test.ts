@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { tauriApi } from "../src/api/tauriApi";
-import type { LibraryScope } from "../src/types/domain";
+import { mockInvokeCommand } from "../src/api/browserMockApi";
+import type { AISettings, LibraryScope } from "../src/types/domain";
 
 const apiMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -18,6 +19,22 @@ vi.mock("@tauri-apps/api/event", () => ({
 describe("tauriApi", () => {
   it("does not expose the legacy unscoped cleanup scan", () => {
     expect("scanStorageCleanup" in tauriApi).toBe(false);
+  });
+
+  it("browser mock never returns a complete AI API key", async () => {
+    const replacement = {
+      ...(await mockInvokeCommand<AISettings>("get_ai_settings")),
+      apiKey: "browser-secret",
+      apiKeyAction: "replace" as const
+    };
+
+    const saved = await mockInvokeCommand<AISettings>("save_ai_settings", { settings: replacement });
+    const loaded = await mockInvokeCommand<AISettings>("get_ai_settings");
+
+    expect(saved.apiKey).toBe("");
+    expect(saved.apiKeyConfigured).toBe(true);
+    expect(loaded.apiKey).toBe("");
+    expect(loaded.apiKeyConfigured).toBe(true);
   });
 
   beforeEach(() => {

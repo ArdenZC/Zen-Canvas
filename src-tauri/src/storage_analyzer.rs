@@ -159,6 +159,12 @@ pub struct CleanupTrashItem {
     pub restored_at: Option<String>,
     pub status: String,
     pub message: Option<String>,
+    #[serde(skip_serializing)]
+    pub source_modified_ns: Option<String>,
+    #[serde(skip_serializing)]
+    pub source_platform_file_id: Option<String>,
+    #[serde(skip_serializing)]
+    pub source_quick_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -906,17 +912,36 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
             continue;
         }
 
+        let fingerprint = match crate::file_ops::file_identity_fingerprint(source) {
+            Ok(fingerprint) => fingerprint,
+            Err(error) => {
+                result.failed += 1;
+                result.logs.push(CleanupExecutionLog {
+                    path: candidate.path.clone(),
+                    name: candidate.name.clone(),
+                    size: candidate.size,
+                    status: "failed".to_string(),
+                    message: format!("Cannot journal Safe Trash source identity: {error}"),
+                    item_id: Some(item_id),
+                    trash_path: Some(trash_path_text),
+                });
+                continue;
+            }
+        };
         let item = CleanupTrashItem {
             id: item_id.clone(),
             batch_id: batch_id.clone(),
             original_path: candidate.path.clone(),
             trash_path: trash_path_text.clone(),
             name: candidate.name.clone(),
-            size: candidate.size,
+            size: fingerprint.size,
             moved_at: moved_at.clone(),
             restored_at: None,
             status: "pending".to_string(),
             message: Some("Pending move to Zen Canvas Safe Trash.".to_string()),
+            source_modified_ns: fingerprint.modified_ns.map(|value| value.to_string()),
+            source_platform_file_id: fingerprint.platform_file_id,
+            source_quick_hash: fingerprint.quick_hash,
         };
         items.push(item);
     }
@@ -1028,6 +1053,17 @@ pub fn restore_cleanup_trash_items_for_db(
 
         let original = PathBuf::from(&item.original_path);
         let trash_path = PathBuf::from(&item.trash_path);
+        if item.status != "moved" {
+            result.failed += 1;
+            result.logs.push(CleanupRestoreLog {
+                item_id: item.id,
+                original_path: normalize_path(&original),
+                trash_path: normalize_path(&trash_path),
+                status: "failed".to_string(),
+                message: "Cleanup trash item is not in a restorable moved state.".to_string(),
+            });
+            continue;
+        }
         if !trash_path.exists() {
             item.status = "missing".to_string();
             item.message = Some("Safe trash path is missing.".to_string());
@@ -1040,6 +1076,37 @@ pub fn restore_cleanup_trash_items_for_db(
                 trash_path: normalize_path(&trash_path),
                 status: "missing".to_string(),
                 message: "Safe trash path is missing.".to_string(),
+            });
+            continue;
+        }
+        let has_verifiable_identity = item.source_platform_file_id.is_some()
+            || (item.source_modified_ns.is_some() && item.source_quick_hash.is_some());
+        if !has_verifiable_identity
+            || !crate::file_ops::file_identity_matches(
+                &trash_path,
+                item.size,
+                item.source_modified_ns.as_deref(),
+                item.source_platform_file_id.as_deref(),
+                item.source_quick_hash.as_deref(),
+            )
+        {
+            item.status = "failed".to_string();
+            item.message = Some(if has_verifiable_identity {
+                "Safe Trash item identity changed; automatic restore is blocked for manual review."
+                    .to_string()
+            } else {
+                "Legacy Safe Trash item has no identity fingerprint; automatic restore is blocked for manual review."
+                    .to_string()
+            });
+            db.update_cleanup_trash_item_status(&item)
+                .map_err(|error| error.to_string())?;
+            result.failed += 1;
+            result.logs.push(CleanupRestoreLog {
+                item_id: item.id,
+                original_path: normalize_path(&original),
+                trash_path: normalize_path(&trash_path),
+                status: "failed".to_string(),
+                message: item.message.unwrap_or_default(),
             });
             continue;
         }
@@ -1098,13 +1165,25 @@ pub fn reconcile_pending_cleanup_journal(db: &Database) -> Result<usize, String>
     for item in &mut items {
         let original_exists = Path::new(&item.original_path).exists();
         let trash_exists = Path::new(&item.trash_path).exists();
-        if !original_exists && trash_exists {
+        if !original_exists
+            && trash_exists
+            && crate::file_ops::file_identity_matches(
+                Path::new(&item.trash_path),
+                item.size,
+                item.source_modified_ns.as_deref(),
+                item.source_platform_file_id.as_deref(),
+                item.source_quick_hash.as_deref(),
+            )
+        {
             item.status = "moved".to_string();
             item.message =
                 Some("Recovered an interrupted Safe Trash journal after restart.".to_string());
         } else {
             item.status = "failed".to_string();
-            item.message = Some(if original_exists && !trash_exists {
+            item.message = Some(if !original_exists && trash_exists {
+                "Interrupted Safe Trash move found a different file identity; manual review is required."
+                    .to_string()
+            } else if original_exists && !trash_exists {
                 "Safe Trash move was interrupted before the filesystem change.".to_string()
             } else {
                 "Interrupted Safe Trash move requires manual path review.".to_string()
@@ -2251,9 +2330,10 @@ impl Database {
             let mut stmt = tx.prepare(
                 r#"
                 INSERT INTO cleanup_trash_items (
-                    id, batch_id, original_path, trash_path, name, size, moved_at, restored_at, status, message
+                    id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
+                    status, message, source_modified_ns, source_platform_file_id, source_quick_hash
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                 ON CONFLICT(id) DO UPDATE SET
                     batch_id = excluded.batch_id,
                     original_path = excluded.original_path,
@@ -2263,7 +2343,10 @@ impl Database {
                     moved_at = excluded.moved_at,
                     restored_at = excluded.restored_at,
                     status = excluded.status,
-                    message = excluded.message
+                    message = excluded.message,
+                    source_modified_ns = excluded.source_modified_ns,
+                    source_platform_file_id = excluded.source_platform_file_id,
+                    source_quick_hash = excluded.source_quick_hash
                 "#,
             )?;
             for item in &batch.items {
@@ -2277,7 +2360,10 @@ impl Database {
                     item.moved_at,
                     item.restored_at,
                     item.status,
-                    item.message
+                    item.message,
+                    item.source_modified_ns,
+                    item.source_platform_file_id,
+                    item.source_quick_hash
                 ])?;
             }
         }
@@ -2291,7 +2377,8 @@ impl Database {
             r#"
             SELECT b.id, b.created_at, b.root, b.total_items, b.total_size, b.status,
                    i.id, i.batch_id, i.original_path, i.trash_path, i.name, i.size,
-                   i.moved_at, i.restored_at, i.status, i.message
+                   i.moved_at, i.restored_at, i.status, i.message,
+                   i.source_modified_ns, i.source_platform_file_id, i.source_quick_hash
             FROM cleanup_trash_batches AS b
             LEFT JOIN cleanup_trash_items AS i ON i.batch_id = b.id
             ORDER BY CAST(b.created_at AS INTEGER) DESC, i.name COLLATE NOCASE ASC
@@ -2331,6 +2418,9 @@ impl Database {
                     restored_at: row.get(13)?,
                     status: row.get(14)?,
                     message: row.get(15)?,
+                    source_modified_ns: row.get(16)?,
+                    source_platform_file_id: row.get(17)?,
+                    source_quick_hash: row.get(18)?,
                 });
             }
         }
@@ -2344,7 +2434,8 @@ impl Database {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
             r#"
-            SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at, status, message
+            SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
+                   status, message, source_modified_ns, source_platform_file_id, source_quick_hash
             FROM cleanup_trash_items
             WHERE batch_id = ?1
             ORDER BY name COLLATE NOCASE ASC
@@ -2358,7 +2449,8 @@ impl Database {
         let conn = self.conn()?;
         conn.query_row(
             r#"
-            SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at, status, message
+            SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
+                   status, message, source_modified_ns, source_platform_file_id, source_quick_hash
             FROM cleanup_trash_items
             WHERE id = ?1
             "#,
@@ -2373,7 +2465,8 @@ impl Database {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
             r#"
-            SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at, status, message
+            SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
+                   status, message, source_modified_ns, source_platform_file_id, source_quick_hash
             FROM cleanup_trash_items
             WHERE status = 'pending'
             ORDER BY moved_at ASC
@@ -2436,6 +2529,9 @@ fn cleanup_trash_item_from_row(row: &Row<'_>) -> rusqlite::Result<CleanupTrashIt
         restored_at: row.get(7)?,
         status: row.get(8)?,
         message: row.get(9)?,
+        source_modified_ns: row.get(10)?,
+        source_platform_file_id: row.get(11)?,
+        source_quick_hash: row.get(12)?,
     })
 }
 

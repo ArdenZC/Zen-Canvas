@@ -185,6 +185,33 @@ fn credential_preserve_replace_clear() {
 }
 
 #[test]
+fn credential_replace_rolls_back_when_database_save_fails() {
+    let db = Database::open(test_db_path()).expect("open test database");
+    let credentials = InMemoryCredentialStore::default();
+    credentials.set("existing-secret").expect("seed key");
+    let conn = rusqlite::Connection::open(db.path()).expect("open sqlite");
+    conn.execute("DROP TABLE app_settings", [])
+        .expect("force settings persistence failure");
+
+    let error = save_ai_settings_with_store(
+        &db,
+        &AISettings {
+            api_key: "replacement-secret".to_string(),
+            api_key_action: ApiKeyAction::Replace,
+            ..AISettings::default()
+        },
+        &credentials,
+    )
+    .expect_err("database failure must abort credential replacement");
+
+    assert!(error.to_string().contains("sqlite"));
+    assert_eq!(
+        credentials.get().unwrap().as_deref(),
+        Some("existing-secret")
+    );
+}
+
+#[test]
 fn normalize_ai_settings_reconciles_preset_provider_and_chat_path() {
     let normalized = normalize_ai_settings(AISettings {
         preset: AIProviderPresetId::Ollama,

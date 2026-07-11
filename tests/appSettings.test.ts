@@ -8,6 +8,7 @@ import {
   enabledScanRootPaths,
   enabledSearchRootPaths,
   mergeAppSettings,
+  reconcileFailedSettingsSave,
   removeSearchRoot,
   removeDefaultScanRoot,
   resolveEffectiveSearchScope,
@@ -19,6 +20,21 @@ import {
 } from "../src/hooks/useAppSettings";
 
 describe("app settings helpers", () => {
+  it("surfaces an older queued settings failure while reconciling database state", async () => {
+    const latest = { settings: DEFAULT_APP_SETTINGS, revision: 9 };
+    const getSettings = vi.fn().mockResolvedValue(latest);
+    const onError = vi.fn();
+
+    const reconciled = await reconcileFailedSettingsSave(
+      { getSettings },
+      new Error("disk full"),
+      onError,
+      (error) => String(error)
+    );
+
+    expect(reconciled).toEqual(latest);
+    expect(onError).toHaveBeenCalledWith("Error: disk full");
+  });
   it("settings_partial_retry_preserves_newer_fields", async () => {
     const latest = {
       ...DEFAULT_APP_SETTINGS,

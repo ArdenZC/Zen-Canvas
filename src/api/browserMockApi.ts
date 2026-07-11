@@ -224,8 +224,9 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "save_settings":
       return saveMockVersionedSettings(args?.request as SaveSettingsRequest) as T;
     case "get_ai_settings":
+      return getMockAISettings() as T;
     case "save_ai_settings":
-      return mockAISettings(args?.settings as AISettings | undefined) as T;
+      return saveMockAISettings(args?.settings as AISettings) as T;
     case "list_ai_provider_presets":
       return mockAIProviderPresets() as T;
     case "test_ai_provider_connection":
@@ -664,8 +665,8 @@ function saveMockVersionedSettings(request: SaveSettingsRequest): VersionedAppSe
   return getMockVersionedSettings();
 }
 
-function mockAISettings(settings?: AISettings): AISettings {
-  return settings ?? {
+function defaultMockAISettings(): AISettings {
+  return {
     enabled: false,
     provider: "openai_compatible",
     preset: "deepseek",
@@ -687,6 +688,37 @@ function mockAISettings(settings?: AISettings): AISettings {
     reasoningEffort: null,
     extraBodyJson: null
   };
+}
+
+let persistedMockAISettings: AISettings | undefined;
+let mockApiKeyConfigured = false;
+
+function getMockAISettings(): AISettings {
+  return {
+    ...(persistedMockAISettings ?? defaultMockAISettings()),
+    apiKey: "",
+    apiKeyAction: "preserve",
+    apiKeyConfigured: mockApiKeyConfigured
+  };
+}
+
+function saveMockAISettings(settings: AISettings): AISettings {
+  if (settings.apiKeyAction === "replace") {
+    mockApiKeyConfigured = Boolean(settings.apiKey.trim());
+  } else if (settings.apiKeyAction === "clear") {
+    mockApiKeyConfigured = false;
+  }
+  persistedMockAISettings = {
+    ...settings,
+    apiKey: "",
+    apiKeyAction: "preserve",
+    apiKeyConfigured: mockApiKeyConfigured
+  };
+  return getMockAISettings();
+}
+
+function mockAISettings(settings?: AISettings): AISettings {
+  return settings ? { ...settings, apiKey: "" } : getMockAISettings();
 }
 
 function mockAIProviderPresets(): AIProviderPreset[] {

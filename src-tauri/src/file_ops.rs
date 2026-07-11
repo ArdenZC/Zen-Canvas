@@ -510,14 +510,14 @@ fn execute_moves_core_with_identity(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct FileIdentityFingerprint {
-    size: u64,
-    modified_ns: Option<i128>,
-    platform_file_id: Option<String>,
-    quick_hash: Option<String>,
+pub(crate) struct FileIdentityFingerprint {
+    pub(crate) size: u64,
+    pub(crate) modified_ns: Option<i128>,
+    pub(crate) platform_file_id: Option<String>,
+    pub(crate) quick_hash: Option<String>,
 }
 
-fn file_identity_fingerprint(path: &Path) -> Result<FileIdentityFingerprint, String> {
+pub(crate) fn file_identity_fingerprint(path: &Path) -> Result<FileIdentityFingerprint, String> {
     let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
     if metadata.file_type().is_symlink() || (!metadata.is_file() && !metadata.is_dir()) {
         return Err("unsupported source file type".to_string());
@@ -622,23 +622,41 @@ fn apply_source_fingerprint(log: &mut OperationLogDto, fingerprint: &FileIdentit
 }
 
 fn journal_identity_matches(log: &OperationLogDto, path: &Path) -> bool {
+    log.source_size.is_some_and(|size| {
+        file_identity_matches(
+            path,
+            size,
+            log.source_modified_ns.as_deref(),
+            log.source_platform_file_id.as_deref(),
+            log.source_quick_hash.as_deref(),
+        )
+    })
+}
+
+pub(crate) fn file_identity_matches(
+    path: &Path,
+    expected_size: u64,
+    expected_modified_ns: Option<&str>,
+    expected_platform_file_id: Option<&str>,
+    expected_quick_hash: Option<&str>,
+) -> bool {
     let Ok(actual) = file_identity_fingerprint(path) else {
         return false;
     };
-    if log.source_size != Some(actual.size) {
+    if actual.size != expected_size {
         return false;
     }
-    let platform_matches = log
-        .source_platform_file_id
-        .as_ref()
-        .zip(actual.platform_file_id.as_ref())
+    let platform_matches = expected_platform_file_id
+        .zip(actual.platform_file_id.as_deref())
         .is_some_and(|(expected, actual)| expected == actual);
-    let hash_matches = log
-        .source_quick_hash
-        .as_ref()
-        .zip(actual.quick_hash.as_ref())
+    let hash_matches = expected_quick_hash
+        .zip(actual.quick_hash.as_deref())
         .is_some_and(|(expected, actual)| expected == actual);
-    platform_matches || hash_matches
+    let modified_matches = expected_modified_ns
+        .and_then(|value| value.parse::<i128>().ok())
+        .zip(actual.modified_ns)
+        .is_some_and(|(expected, actual)| expected == actual);
+    platform_matches || (modified_matches && hash_matches)
 }
 
 fn persist_pending_operation_journal(
@@ -1281,7 +1299,8 @@ fn validate_target_path_with_parent_policy(
         if !allow_create_parent {
             return Err(FileOpError::TargetParentMissing.to_string());
         }
-        ensure_general_file_operation_allowed(parent)?;
+        let existing_ancestor = canonicalize_nearest_existing_ancestor(parent)?;
+        ensure_general_file_operation_allowed(&existing_ancestor)?;
         fs::create_dir_all(parent).map_err(|error| FileOpError::Io(error).to_string())?;
     }
     let parent = parent
@@ -1290,6 +1309,17 @@ fn validate_target_path_with_parent_policy(
     ensure_general_file_operation_allowed(&parent)?;
 
     Ok(parent.join(name))
+}
+
+fn canonicalize_nearest_existing_ancestor(path: &Path) -> Result<PathBuf, String> {
+    let ancestor = path
+        .ancestors()
+        .find(|ancestor| ancestor.exists())
+        .ok_or(FileOpError::TargetParentMissing)
+        .map_err(|error| error.to_string())?;
+    ancestor
+        .canonicalize()
+        .map_err(|error| FileOpError::Io(error).to_string())
 }
 
 fn move_file_with_parent_policy_with_cancel(
@@ -1592,9 +1622,9 @@ fn ensure_general_file_operation_allowed(path: &Path) -> Result<(), String> {
 }
 
 fn ensure_general_file_operation_allowed_for_os(path: &Path, os: &str) -> Result<(), String> {
-    let normalized = normalize_for_compare(path);
+    let normalized = normalize_for_compare_for_os(path, os);
     for root in general_file_operation_protected_roots_for_os(os) {
-        let protected = normalize_for_compare(&root);
+        let protected = normalize_for_compare_for_os(&root, os);
         if normalized == protected || normalized.starts_with(&format!("{protected}/")) {
             return Err(FileOpError::ProtectedPath(normalize_path(&root)).to_string());
         }
@@ -1700,14 +1730,14 @@ fn build_reveal_command(path: &Path) -> Result<RevealCommand, String> {
     Err("Reveal in folder is not supported on this platform.".to_string())
 }
 
-fn normalize_for_compare(path: &Path) -> String {
+fn normalize_for_compare_for_os(path: &Path, os: &str) -> String {
     let value = normalize_path(path);
     let value = value
         .strip_prefix("//?/")
         .unwrap_or(&value)
         .trim_end_matches('/')
         .to_string();
-    if cfg!(windows) {
+    if os == "windows" || os == "macos" {
         value.to_ascii_lowercase()
     } else {
         value
@@ -1904,6 +1934,37 @@ mod tests {
             assert!(!log.can_restore);
             assert!(!log.can_undo);
         }
+    }
+
+    #[test]
+    fn pending_move_hash_fallback_also_requires_matching_mtime() {
+        let db = Database::open(test_db_path()).expect("open database");
+        let root = test_dir();
+        let source = root.join("before-same-content.txt");
+        let target = root.join("after-same-content.txt");
+        fs::write(&source, "same-content").expect("write source");
+        let request = ExecuteMovesRequest {
+            operations: vec![preview_operation(0, &source, &target)],
+        };
+        persist_pending_operation_journal(&db, &request, "batch-mtime", "1")
+            .expect("persist pending journal");
+        fs::remove_file(&source).expect("remove source");
+        fs::write(&target, "same-content").expect("write replacement target");
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&target)
+            .expect("open replacement")
+            .set_times(
+                fs::FileTimes::new()
+                    .set_modified(SystemTime::now() - Duration::from_secs(24 * 60 * 60)),
+            )
+            .expect("change replacement mtime");
+
+        reconcile_pending_operation_journal(&db).expect("reconcile journal");
+        let log = db.get_operation_logs(Some(1)).expect("logs").remove(0);
+
+        assert_eq!(log.status, "manual_review");
+        assert!(!log.can_restore);
     }
 
     #[test]
@@ -2282,9 +2343,7 @@ mod tests {
         let target = root.join("target.txt");
         let link = root.join("source-link.txt");
         fs::write(&target, "target").expect("write target");
-        if create_file_symlink_for_test(&target, &link).is_err() {
-            return;
-        }
+        create_file_symlink_for_test(&target, &link).expect("create source symlink fixture");
 
         let error = validate_source_path(&link).expect_err("symlink source must be rejected");
 
@@ -2314,6 +2373,40 @@ mod tests {
         .expect_err("macOS private paths must be protected");
 
         assert!(error.contains("protected system location"));
+    }
+
+    #[test]
+    fn general_operations_treat_macos_paths_case_insensitively() {
+        assert_eq!(
+            normalize_for_compare_for_os(Path::new("/pRiVaTe/var/log/example.log"), "macos"),
+            "/private/var/log/example.log"
+        );
+        let error = ensure_general_file_operation_allowed_for_os(
+            Path::new("/pRiVaTe/var/log/example.log"),
+            "macos",
+        )
+        .expect_err("macOS protected paths must be case insensitive");
+
+        assert!(error.contains("protected system location"));
+    }
+
+    #[test]
+    fn nearest_existing_target_ancestor_resolves_symlinks_before_creation() {
+        let root = test_dir();
+        let real_parent = root.join("real-parent");
+        let link = root.join("linked-parent");
+        fs::create_dir_all(&real_parent).expect("real parent");
+        create_directory_symlink_for_test(&real_parent, &link)
+            .expect("create target-parent symlink fixture");
+
+        let resolved = canonicalize_nearest_existing_ancestor(&link.join("missing/child"))
+            .expect("resolve existing symlink ancestor");
+
+        assert_eq!(
+            resolved,
+            real_parent.canonicalize().expect("canonical real parent")
+        );
+        assert!(!real_parent.join("missing").exists());
     }
 
     #[test]
@@ -2351,17 +2444,14 @@ mod tests {
 
     #[test]
     fn symlink_parent_cannot_escape_protected_root() {
-        let Some(protected_root) = general_file_operation_protected_roots()
+        let protected_root = general_file_operation_protected_roots()
             .into_iter()
             .find(|root| root.is_dir())
-        else {
-            return;
-        };
+            .expect("supported platform has a protected system directory");
         let root = test_dir();
         let link = root.join("protected-link");
-        if create_directory_symlink_for_test(&protected_root, &link).is_err() {
-            return;
-        }
+        create_directory_symlink_for_test(&protected_root, &link)
+            .expect("create protected-root symlink fixture");
 
         let error = validate_target_path(&link.join("escape.txt"))
             .expect_err("symlink parent must not escape into a protected root");
@@ -2464,7 +2554,6 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    #[ignore = "requires an interactive macOS Trash service"]
     fn macos_system_trash_smoke_test() {
         let root = tempfile::tempdir().expect("macOS temporary fixture");
         let source = root.path().join("system-trash-smoke.txt");

@@ -5,7 +5,10 @@ use crate::{
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 use tauri::{AppHandle, Runtime, State};
 use tauri_plugin_autostart::{AutoLaunchManager, ManagerExt};
 use thiserror::Error;
@@ -13,6 +16,7 @@ use thiserror::Error;
 pub const APP_SETTINGS_KEY: &str = "app_settings_v1";
 pub const DEFAULT_SEARCH_HOTKEY: &str = "CmdOrCtrl+K";
 const DEFAULT_SCAN_ROOT_CREATED_AT: &str = "1970-01-01T00:00:00.000Z";
+static VERSIONED_SETTINGS_SAVE_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -557,6 +561,9 @@ pub fn save_versioned_app_settings_with_launch_at_login(
     request: &SaveSettingsRequest,
     launch_at_login: &impl LaunchAtLoginController,
 ) -> Result<VersionedAppSettings, SettingsError> {
+    let _save_guard = VERSIONED_SETTINGS_SAVE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let current = get_versioned_app_settings(db)?;
     let launch_changed = current.settings.launch_at_login != request.settings.launch_at_login;
     if launch_changed {

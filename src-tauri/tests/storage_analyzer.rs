@@ -8,6 +8,46 @@ use std::{
 
 static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+#[test]
+fn schema_18_adds_safe_trash_identity_columns() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("create current database");
+    drop(db);
+    let conn = rusqlite::Connection::open(&path).expect("open sqlite");
+    conn.execute_batch(
+        r#"
+        ALTER TABLE cleanup_trash_items DROP COLUMN source_modified_ns;
+        ALTER TABLE cleanup_trash_items DROP COLUMN source_platform_file_id;
+        ALTER TABLE cleanup_trash_items DROP COLUMN source_quick_hash;
+        PRAGMA user_version = 18;
+        "#,
+    )
+    .expect("downgrade fixture to schema 18");
+    drop(conn);
+
+    Database::open(&path).expect("migrate schema 18 database");
+    let conn = rusqlite::Connection::open(&path).expect("inspect migrated database");
+    let columns = conn
+        .prepare("PRAGMA table_info(cleanup_trash_items)")
+        .expect("prepare columns")
+        .query_map([], |row| row.get::<_, String>(1))
+        .expect("query columns")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect columns");
+    let version: i64 = conn
+        .query_row("SELECT user_version FROM pragma_user_version", [], |row| {
+            row.get(0)
+        })
+        .expect("schema version");
+
+    assert_eq!(version, 19);
+    assert!(columns.iter().any(|column| column == "source_modified_ns"));
+    assert!(columns
+        .iter()
+        .any(|column| column == "source_platform_file_id"));
+    assert!(columns.iter().any(|column| column == "source_quick_hash"));
+}
+
 use zen_canvas_tauri::db::Database;
 use zen_canvas_tauri::storage_analyzer::{
     analyze_storage_roots_for_test, candidates_by_job_and_ids_for_test,
@@ -162,9 +202,8 @@ fn cleanup_root_symlinks_to_system_directories_are_rejected() {
     } else {
         PathBuf::from("/etc")
     };
-    if create_directory_symlink_for_test(&target, &link).is_err() {
-        return;
-    }
+    create_directory_symlink_for_test(&target, &link)
+        .expect("create protected cleanup-root symlink fixture");
 
     let result = validate_cleanup_roots_for_test(vec![link.to_string_lossy().into_owned()]);
     fs::remove_dir(&link).expect("remove system directory symlink");
@@ -177,9 +216,8 @@ fn cleanup_root_symlinks_to_system_directories_are_rejected() {
 fn cleanup_root_symlink_to_current_temp_is_not_automatically_allowed() {
     let root = test_dir();
     let link = root.join("temp-link");
-    if create_directory_symlink_for_test(&std::env::temp_dir(), &link).is_err() {
-        return;
-    }
+    create_directory_symlink_for_test(&std::env::temp_dir(), &link)
+        .expect("create temp-root symlink fixture");
 
     let result = validate_cleanup_roots_for_test(vec![link.to_string_lossy().into_owned()]);
     fs::remove_dir(&link).expect("remove temp directory symlink");
@@ -851,6 +889,73 @@ fn pending_safe_trash_journal_reconciles_a_completed_move_after_restart() {
     assert_eq!(reconciled, 1);
     assert_eq!(batch.status, "success");
     assert_eq!(batch.items[0].status, "moved");
+}
+
+#[test]
+fn pending_safe_trash_rejects_replaced_trash_identity() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let mut item = db.list_cleanup_trash_batches().expect("batches")[0].items[0].clone();
+    item.status = "pending".to_string();
+    db.update_cleanup_trash_item_status(&item)
+        .expect("mark pending");
+    fs::remove_dir_all(&item.trash_path).expect("remove moved trash item");
+    let replacement = Path::new(&item.trash_path).join("package").join("index.js");
+    fs::create_dir_all(replacement.parent().expect("replacement parent"))
+        .expect("create replacement parent");
+    fs::write(&replacement, vec![0x7f; 128]).expect("write unrelated replacement");
+
+    reconcile_pending_cleanup_journal(&db).expect("reconcile cleanup");
+    let recovered = db.list_cleanup_trash_batches().expect("batches after")[0].items[0].clone();
+    let restore = restore_cleanup_trash_items_for_db(vec![recovered.id.clone()], &db)
+        .expect("reject unsafe restore");
+
+    assert_eq!(recovered.status, "failed");
+    assert!(recovered
+        .message
+        .as_deref()
+        .unwrap_or_default()
+        .contains("identity"));
+    assert_eq!(restore.restored, 0);
+    assert_eq!(restore.failed, 1);
+    assert!(!Path::new(&recovered.original_path).exists());
+}
+
+#[test]
+fn restore_safe_trash_rejects_identity_replaced_after_successful_move() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let item = db.list_cleanup_trash_batches().expect("batches")[0].items[0].clone();
+    assert_eq!(item.status, "moved");
+    fs::remove_dir_all(&item.trash_path).expect("remove moved trash item");
+    let replacement = Path::new(&item.trash_path).join("package").join("index.js");
+    fs::create_dir_all(replacement.parent().expect("replacement parent"))
+        .expect("create replacement parent");
+    fs::write(&replacement, vec![0x55; 128]).expect("write unrelated replacement");
+
+    let restore = restore_cleanup_trash_items_for_db(vec![item.id.clone()], &db)
+        .expect("reject replaced trash item");
+    let updated = db.list_cleanup_trash_batches().expect("updated batches")[0].items[0].clone();
+
+    assert_eq!(restore.restored, 0);
+    assert_eq!(restore.failed, 1);
+    assert_eq!(updated.status, "failed");
+    assert!(updated
+        .message
+        .as_deref()
+        .unwrap_or_default()
+        .contains("identity"));
+    assert!(!Path::new(&item.original_path).exists());
 }
 
 #[test]

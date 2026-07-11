@@ -300,7 +300,7 @@ fn merge_extra_body(
     for (key, value) in extra {
         if matches!(
             key.as_str(),
-            "model" | "messages" | "temperature" | "max_tokens" | "response_format"
+            "model" | "messages" | "temperature" | "max_tokens" | "response_format" | "stream"
         ) {
             continue;
         }
@@ -577,7 +577,7 @@ mod tests {
 
         merge_extra_body(
             &mut body,
-            Some(r#"{"model":"attacker","messages":[],"temperature":2,"max_tokens":999999,"response_format":{"type":"text"},"thinking":{"type":"enabled"}}"#),
+            Some(r#"{"model":"attacker","messages":[],"temperature":2,"max_tokens":999999,"response_format":{"type":"text"},"stream":true,"thinking":{"type":"enabled"}}"#),
             "",
         )
         .expect("merge safe extension fields");
@@ -587,6 +587,7 @@ mod tests {
         assert_eq!(body["temperature"], 0.2);
         assert_eq!(body["max_tokens"], 1024);
         assert_eq!(body["response_format"]["type"], "json_object");
+        assert!(!body.contains_key("stream"));
         assert_eq!(body["thinking"]["type"], "enabled");
     }
 

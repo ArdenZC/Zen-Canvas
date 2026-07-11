@@ -37,6 +37,20 @@ interface UseAppSettingsOptions {
 
 type SettingsPersistenceApi = Pick<typeof tauriApi, "getSettings" | "saveSettings">;
 
+export async function reconcileFailedSettingsSave(
+  api: Pick<typeof tauriApi, "getSettings">,
+  error: unknown,
+  onError: (message: string) => void,
+  formatSaveError: (error: unknown) => string
+): Promise<VersionedAppSettings | null> {
+  onError(formatSaveError(error));
+  try {
+    return await api.getSettings();
+  } catch {
+    return null;
+  }
+}
+
 export async function saveSettingsIntentWithRetry(
   api: SettingsPersistenceApi,
   base: VersionedAppSettings,
@@ -305,17 +319,19 @@ export function useAppSettings({
           }
           return saved.settings;
         } catch (error) {
-            try {
-              const latest = await tauriApi.getSettings();
+            const latest = await reconcileFailedSettingsSave(
+              tauriApi,
+              error,
+              onError,
+              formatSaveError
+            );
+            if (latest) {
               persistedSettingsRef.current = latest.settings;
               settingsRevisionRef.current = latest.revision;
-            } catch {
-              // Keep the last confirmed database snapshot when reconciliation cannot load.
             }
             if (requestId === saveRequestIdRef.current) {
               latestSettingsRef.current = persistedSettingsRef.current;
               setSettings(persistedSettingsRef.current);
-              onError(formatSaveError(error));
             }
             return persistedSettingsRef.current;
         }

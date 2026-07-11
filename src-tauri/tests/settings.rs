@@ -1,14 +1,18 @@
 use rusqlite::{params, Connection};
 use std::{
     path::{Path, PathBuf},
+    sync::{mpsc, Arc, Mutex},
+    thread,
+    time::Duration,
     time::{SystemTime, UNIX_EPOCH},
 };
 use zen_canvas_tauri::{
     db::Database,
     settings::{
         get_app_settings, get_versioned_app_settings, save_app_settings, save_app_settings_cas,
-        save_app_settings_with_launch_at_login, sync_launch_at_login_from_system, AppSettings,
-        LaunchAtLoginController, ScanRootSetting, APP_SETTINGS_KEY,
+        save_app_settings_with_launch_at_login, save_versioned_app_settings_with_launch_at_login,
+        sync_launch_at_login_from_system, AppSettings, LaunchAtLoginController,
+        SaveSettingsRequest, ScanRootSetting, APP_SETTINGS_KEY,
     },
 };
 
@@ -31,7 +35,7 @@ fn new_database_creates_default_app_settings_row() {
         .expect("default app settings row");
     let settings: AppSettings = serde_json::from_str(&value).expect("deserialize settings");
 
-    assert_eq!(version, 18);
+    assert_eq!(version, 19);
     assert_eq!(settings.close_behavior, "ask");
     assert_eq!(settings.folder_naming_language, "en");
     assert_default_scan_roots(&settings.default_scan_folders);
@@ -69,7 +73,7 @@ fn schema_7_database_migrates_to_settings_without_losing_existing_rows() {
         .expect("legacy rule");
     let default_settings = get_app_settings(&db).expect("default settings");
 
-    assert_eq!(version, 18);
+    assert_eq!(version, 19);
     assert_eq!(file_name, "legacy.pdf");
     assert_eq!(rule_name, "Legacy Rule");
     assert_default_scan_roots(&default_settings.default_scan_folders);
@@ -134,6 +138,53 @@ fn settings_revision_rejects_stale_write() {
     assert_eq!(loaded.revision, saved.revision);
     assert_eq!(loaded.settings.restore_retention_days, 90);
     assert_eq!(loaded.settings.close_behavior, newer.close_behavior);
+}
+
+#[test]
+fn settings_cas_serializes_autostart_side_effects() {
+    let db = Database::open(test_db_path()).expect("open test database");
+    let initial = get_versioned_app_settings(&db).expect("initial settings");
+    let mut desired = initial.settings.clone();
+    desired.launch_at_login = true;
+    let request = SaveSettingsRequest {
+        settings: desired,
+        expected_revision: initial.revision,
+    };
+    let controller = Arc::new(ConcurrentLaunchAtLoginController::default());
+    let (entered_tx, entered_rx) = mpsc::channel();
+
+    let first_db = db.clone();
+    let first_request = request.clone();
+    let first_controller = Arc::clone(&controller);
+    let first = thread::spawn(move || {
+        first_controller.mark_first_enable(entered_tx);
+        save_versioned_app_settings_with_launch_at_login(
+            &first_db,
+            &first_request,
+            first_controller.as_ref(),
+        )
+    });
+    entered_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("first autostart mutation started");
+
+    let second_db = db.clone();
+    let second_controller = Arc::clone(&controller);
+    let second = thread::spawn(move || {
+        save_versioned_app_settings_with_launch_at_login(
+            &second_db,
+            &request,
+            second_controller.as_ref(),
+        )
+    });
+
+    let first_result = first.join().expect("first save thread");
+    let second_result = second.join().expect("second save thread");
+    let loaded = get_versioned_app_settings(&db).expect("load final settings");
+
+    assert_ne!(first_result.is_ok(), second_result.is_ok());
+    assert!(loaded.settings.launch_at_login);
+    assert!(controller.is_enabled().expect("controller state"));
 }
 
 #[test]
@@ -420,6 +471,65 @@ impl LaunchAtLoginController for RecordingLaunchAtLoginController {
     fn is_enabled(&self) -> Result<bool, String> {
         self.calls.borrow_mut().push("is_enabled");
         Ok(self.enabled)
+    }
+}
+
+#[derive(Default)]
+struct ConcurrentLaunchAtLoginController {
+    state: Mutex<ConcurrentLaunchState>,
+}
+
+#[derive(Default)]
+struct ConcurrentLaunchState {
+    enabled: bool,
+    first_enable_sender: Option<mpsc::Sender<()>>,
+    enable_calls: usize,
+}
+
+impl ConcurrentLaunchAtLoginController {
+    fn mark_first_enable(&self, sender: mpsc::Sender<()>) {
+        self.state
+            .lock()
+            .expect("controller state")
+            .first_enable_sender = Some(sender);
+    }
+}
+
+impl LaunchAtLoginController for ConcurrentLaunchAtLoginController {
+    fn enable(&self) -> Result<(), String> {
+        let sender = {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| "state poisoned".to_string())?;
+            state.enabled = true;
+            state.enable_calls += 1;
+            if state.enable_calls == 1 {
+                state.first_enable_sender.take()
+            } else {
+                None
+            }
+        };
+        if let Some(sender) = sender {
+            let _ = sender.send(());
+            thread::sleep(Duration::from_millis(250));
+        }
+        Ok(())
+    }
+
+    fn disable(&self) -> Result<(), String> {
+        self.state
+            .lock()
+            .map_err(|_| "state poisoned".to_string())?
+            .enabled = false;
+        Ok(())
+    }
+
+    fn is_enabled(&self) -> Result<bool, String> {
+        self.state
+            .lock()
+            .map(|state| state.enabled)
+            .map_err(|_| "state poisoned".to_string())
     }
 }
 

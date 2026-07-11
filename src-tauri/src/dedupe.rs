@@ -50,6 +50,13 @@ impl DedupeJobManager {
         if state.jobs.contains_key(&job_id) {
             return Err(format!("Dedupe job already exists: {job_id}."));
         }
+        if let Some(scan_id) = parent_scan_job_id.as_ref() {
+            if state.scan_to_dedupe.contains_key(scan_id) {
+                return Err(format!(
+                    "Scan job already has an active dedupe job: {scan_id}."
+                ));
+            }
+        }
         let cancel_flag = Arc::new(AtomicBool::new(false));
         if let Some(scan_id) = parent_scan_job_id.as_ref() {
             state.scan_to_dedupe.insert(scan_id.clone(), job_id.clone());
@@ -93,7 +100,9 @@ impl DedupeJobManager {
         if let Ok(mut state) = self.0.lock() {
             if let Some(job) = state.jobs.remove(job_id) {
                 if let Some(scan_id) = job.parent_scan_job_id {
-                    state.scan_to_dedupe.remove(&scan_id);
+                    if state.scan_to_dedupe.get(&scan_id).map(String::as_str) == Some(job_id) {
+                        state.scan_to_dedupe.remove(&scan_id);
+                    }
                 }
             }
         }
@@ -693,5 +702,20 @@ mod job_manager_tests {
         assert!(!manager.cancel("dedupe-a"));
         assert!(!manager.cancel_for_scan("scan-a"));
         assert!(manager.register("dedupe-a".to_string(), None).is_ok());
+    }
+
+    #[test]
+    fn duplicate_live_dedupe_for_same_scan_is_rejected() {
+        let manager = DedupeJobManager::default();
+        manager
+            .register("dedupe-a".to_string(), Some("scan-a".to_string()))
+            .expect("register first job");
+
+        let error = manager
+            .register("dedupe-b".to_string(), Some("scan-a".to_string()))
+            .expect_err("one scan cannot own two live dedupe jobs");
+
+        assert!(error.contains("already has an active dedupe job"));
+        assert!(manager.cancel_for_scan("scan-a"));
     }
 }
