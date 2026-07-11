@@ -75,7 +75,11 @@ fn storage_analyzer_classifies_regenerable_build_outputs_as_safe() {
         .find(|candidate| candidate.path.ends_with("node_modules"))
         .expect("node_modules candidate");
 
-    assert_eq!(candidate.tier, CleanupTier::Safe);
+    assert_eq!(
+        candidate.tier,
+        CleanupTier::Safe,
+        "aged current-temp candidate: {candidate:?}"
+    );
     assert_eq!(candidate.suggested_action, CleanupActionKind::MoveToTrash);
     assert!(candidate.trash_allowed);
     assert!(candidate.selected_by_default);
