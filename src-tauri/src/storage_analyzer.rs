@@ -1635,27 +1635,7 @@ fn validate_cleanup_roots(roots: Vec<String>) -> Result<Vec<PathBuf>, String> {
         .map(|root| root.trim().to_string())
         .filter(|root| !root.is_empty())
         .map(PathBuf::from)
-        .map(|root| {
-            if !root.is_absolute() {
-                return Err(format!(
-                    "Cleanup scope must be an absolute path: {}",
-                    normalize_path(&root)
-                ));
-            }
-            if is_forbidden_storage_path(&root, &[]) {
-                return Err(format!(
-                    "Cleanup scope is protected and cannot be scanned: {}",
-                    normalize_path(&root)
-                ));
-            }
-            if !root.exists() {
-                return Err(format!(
-                    "Cleanup scope does not exist: {}",
-                    normalize_path(&root)
-                ));
-            }
-            Ok(root)
-        })
+        .map(validate_cleanup_root)
         .collect::<Result<Vec<_>, _>>()?;
 
     dedupe_paths(&mut validated);
@@ -1663,6 +1643,40 @@ fn validate_cleanup_roots(roots: Vec<String>) -> Result<Vec<PathBuf>, String> {
         return Err("Choose a disk or folder before scanning storage cleanup.".to_string());
     }
     Ok(validated)
+}
+
+fn validate_cleanup_root(root: PathBuf) -> Result<PathBuf, String> {
+    if !root.is_absolute() {
+        return Err(format!(
+            "Cleanup scope must be an absolute path: {}",
+            normalize_path(&root)
+        ));
+    }
+    let metadata = fs::symlink_metadata(&root).map_err(|error| {
+        format!(
+            "Cleanup scope cannot be inspected: {} ({error})",
+            normalize_path(&root)
+        )
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!(
+            "Cleanup scope cannot be a symlink: {}",
+            normalize_path(&root)
+        ));
+    }
+    let canonical = root.canonicalize().map_err(|error| {
+        format!(
+            "Cleanup scope cannot be canonicalized: {} ({error})",
+            normalize_path(&root)
+        )
+    })?;
+    if is_forbidden_storage_path(&canonical, &[]) {
+        return Err(format!(
+            "Cleanup scope is protected and cannot be scanned: {}",
+            normalize_path(&canonical)
+        ));
+    }
+    Ok(canonical)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -3058,6 +3072,13 @@ mod temp_safety_tests {
                 is_system_path_text_for_os(path, "macos"),
                 "expected macOS system path to remain protected: {path}"
             );
+        }
+    }
+
+    #[test]
+    fn macos_system_path_case_variants_remain_protected() {
+        for path in ["/sYsTeM", "/LIBRARY/Application Support", "/aPpLiCaTiOnS"] {
+            assert!(is_system_path_text_for_os(path, "macos"));
         }
     }
 
