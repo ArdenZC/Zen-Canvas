@@ -2,29 +2,32 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Languages, Monitor, Moon, Sun } from "lucide-react";
 import type { Language } from "../i18n";
 import type { ThemeMode, Translator } from "../types/ui";
-import { cn, glassButton, glassButtonPrimary, glassPanel } from "../utils/tw";
+import { cn, floatingSurface, glassButton, glassButtonPrimary } from "../utils/tw";
+import { BrandMark } from "./ui/BrandMark";
 
 const titlebarToolButton =
-  "grid h-8 w-8 place-items-center rounded-full border border-[var(--line-dark)] bg-[var(--surface-soft)] text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:border-blue-400/25 hover:bg-[var(--surface-strong)] hover:text-[var(--ink)] hover:shadow-[0_0_0_3px_rgba(59,130,246,0.055)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/45";
+  "grid h-8 w-8 place-items-center rounded-full border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-secondary)] transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
 const titlebarPillButton =
-  "inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--line-dark)] bg-[var(--surface-soft)] px-3 text-xs font-medium text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:border-blue-400/25 hover:bg-[var(--surface-strong)] hover:text-[var(--ink)] hover:shadow-[0_0_0_3px_rgba(59,130,246,0.055)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/45";
+  "inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3 text-xs font-medium text-[var(--zc-text-secondary)] transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
 
-export function ZenMark() {
-  return (
-    <div className="relative h-9 w-9 shrink-0" aria-hidden="true">
-      <span className="absolute inset-0 rounded-[15px] bg-gradient-to-br from-blue-400 via-blue-500 to-blue-700 shadow-lg shadow-blue-500/22" />
-      <span className="absolute inset-[3px] rounded-xl border border-white/70 bg-slate-50 shadow-[inset_0_1px_0_rgba(255,255,255,0.86)] dark:border-blue-300/18 dark:bg-slate-950" />
-      <span className="absolute inset-[9px] rounded-md border border-blue-500/45 bg-blue-500/12 dark:border-blue-300/45 dark:bg-blue-400/14" />
-      <span className="absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-600 shadow-[0_0_0_3px_rgba(37,99,235,0.16)] dark:bg-blue-300" />
-    </div>
-  );
+export function ZenMark({
+  decorative = true,
+  size = "sidebar",
+  ariaLabel
+}: {
+  decorative?: boolean;
+  size?: "micro" | "sidebar" | "app";
+  ariaLabel?: string;
+} = {}) {
+  return <BrandMark size={size} decorative={decorative} aria-label={ariaLabel} />;
 }
 
 export function AmbientMesh() {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
-      <div className="absolute inset-0 bg-[linear-gradient(120deg,rgba(59,130,246,0.08),transparent_30%,rgba(16,185,129,0.05)_58%,transparent_84%)]" />
-      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.34),transparent_18%,transparent_76%,rgba(15,23,42,0.05))] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.05),transparent_28%,rgba(0,0,0,0.18))]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_0%,var(--zc-ambient-primary),transparent_42%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_86%_88%,var(--zc-ambient-secondary),transparent_38%)]" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_72%,var(--zc-ambient-vignette))]" />
     </div>
   );
 }
@@ -141,10 +144,10 @@ export function CloseChoiceDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/30 p-6 backdrop-blur-xl">
-      <section ref={dialogRef} className={cn(glassPanel, "grid w-full max-w-md gap-5 p-6")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--zc-overlay)] p-6 backdrop-blur-sm">
+      <section ref={dialogRef} className={cn(floatingSurface, "grid w-full max-w-md gap-5 p-6")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
         <div className="mx-auto">
-          <ZenMark />
+          <ZenMark decorative={false} ariaLabel={t("appName")} />
         </div>
         <div className="text-center">
           <h2 id={titleId} className="text-xl font-semibold">{t("closeChoiceTitle")}</h2>

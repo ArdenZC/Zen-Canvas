@@ -10,6 +10,10 @@ import {
   contentPanel,
   dangerSurface,
   elevatedPanel,
+  glassButton,
+  glassButtonDanger,
+  glassButtonPrimary,
+  glassButtonWarning,
   infoSurface,
   successSurface,
   toneClasses,
@@ -55,6 +59,9 @@ describe("shared UI primitives", () => {
     }
 
     expect(new Set([appPanel, contentPanel, elevatedPanel, softPanel]).size).toBe(4);
+    expect(appPanel).toContain("bg-[var(--zc-canvas-elevated)]");
+    expect(appPanel).not.toContain("bg-[var(--zc-surface)]");
+    expect(warningSurface).toContain("text-[var(--zc-warning-text)]");
     expect(interactiveRow({ selected: true })).toContain("border-blue");
     expect(interactiveRow({ disabled: true })).toContain("pointer-events-none");
   });
@@ -74,7 +81,15 @@ describe("shared UI primitives", () => {
 
     expect(buttonSecondary).toContain("min-h-10");
     expect(buttonIcon).toContain("h-9");
-    expect(buttonIconDanger).toContain("red");
+    expect(buttonIconDanger).toContain("var(--zc-danger-text)");
+
+    expect(glassButton).toContain("bg-[var(--zc-surface)]");
+    expect(glassButtonPrimary).toContain("bg-[var(--zc-primary)]");
+    expect(glassButtonPrimary).not.toContain("bg-[var(--zc-surface)]");
+    expect(glassButtonDanger).toContain("bg-[var(--zc-danger-soft)]");
+    expect(glassButtonDanger).not.toContain("bg-[var(--zc-surface)]");
+    expect(glassButtonWarning).toContain("bg-[var(--zc-warning-soft)]");
+    expect(glassButtonWarning).not.toContain("bg-[var(--zc-surface)]");
   });
 
   it("uses glass ring tone classes for badges and icon chips", () => {

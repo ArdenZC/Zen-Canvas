@@ -1,63 +1,49 @@
 @import "tailwindcss";
+@import "./styles/tokens.css";
 
 :root {
   color-scheme: light;
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
-  color: #0f172a;
-  background: #e6eef5;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  color: var(--zc-text-primary);
+  background: var(--zc-canvas);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 
-  --bg: #e8f0f6;
-  --surface: rgba(255, 255, 255, 0.74);
-  --surface-soft: rgba(255, 255, 255, 0.6);
-  --surface-strong: rgba(255, 255, 255, 0.9);
-  --ink: #0f172a;
-  --muted: #475569;
-  --quiet: #64748b;
-  --line: rgba(148, 163, 184, 0.34);
-  --line-dark: rgba(15, 23, 42, 0.1);
-  --primary: #007aff;
-  --accent: #34c759;
-  --success: #16a34a;
-  --warning: #ff3b30;
-  --danger: #dc2626;
+  /* Legacy aliases keep existing pages stable while they migrate to zc tokens. */
+  --bg: var(--zc-canvas);
+  --surface: var(--zc-surface);
+  --surface-soft: var(--zc-surface-subtle);
+  --surface-strong: var(--zc-surface-floating);
+  --ink: var(--zc-text-primary);
+  --muted: var(--zc-text-secondary);
+  --quiet: var(--zc-text-tertiary);
+  --line: var(--zc-border);
+  --line-dark: var(--zc-divider);
+  --primary: var(--zc-primary);
+  --accent: var(--zc-brand-green);
+  --success: var(--zc-success);
+  --warning: var(--zc-warning);
+  --danger: var(--zc-danger);
   --purple: #7c3aed;
-  --shadow: 0 18px 42px -22px rgba(15, 23, 42, 0.24);
-  --shadow-strong: 0 30px 72px -34px rgba(15, 23, 42, 0.32);
-  --shadow-cmd: 0 28px 80px -24px rgba(15, 23, 42, 0.34);
+  --shadow: var(--zc-shadow-raised);
+  --shadow-strong: var(--zc-shadow-floating);
+  --shadow-cmd: var(--zc-shadow-spotlight);
   --inset: inset 0 1px 2px rgba(255, 255, 255, 0.92);
-  --radius-lg: 24px;
-  --radius-md: 16px;
-  --radius-sm: 10px;
-  --ease-spring: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --radius-lg: var(--zc-radius-window);
+  --radius-md: var(--zc-radius-panel);
+  --radius-sm: var(--zc-radius-control);
+  --ease-spring: var(--zc-ease-standard);
   --color-text-secondary: var(--muted);
-  --color-background-danger: rgba(220, 38, 38, 0.12);
-  --color-text-danger: #b91c1c;
+  --color-background-danger: var(--zc-danger-soft);
+  --color-text-danger: var(--zc-danger);
 }
 
 :root.dark {
   color-scheme: dark;
-  color: #f3f4f6;
-  background: #0b1220;
-
-  --bg: #0b1220;
-  --surface: rgba(15, 23, 42, 0.86);
-  --surface-soft: rgba(15, 23, 42, 0.68);
-  --surface-strong: rgba(30, 41, 59, 0.92);
-  --ink: #f8fafc;
-  --muted: #cbd5e1;
-  --quiet: #94a3b8;
-  --line: rgba(148, 163, 184, 0.2);
-  --line-dark: rgba(148, 163, 184, 0.14);
-  --shadow: 0 22px 58px -22px rgba(0, 0, 0, 0.72);
-  --shadow-strong: 0 42px 92px -34px rgba(0, 0, 0, 0.82);
-  --shadow-cmd: 0 32px 90px -28px rgba(0, 0, 0, 0.8);
+  color: var(--zc-text-primary);
+  background: var(--zc-canvas);
   --inset: inset 0 1px 1px rgba(255, 255, 255, 0.08);
-  --color-text-secondary: var(--muted);
-  --color-background-danger: rgba(220, 38, 38, 0.14);
-  --color-text-danger: #fca5a5;
 }
 
 * {
@@ -108,7 +94,7 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-  outline: 2px solid rgba(0, 122, 255, 0.58);
+  outline: 2px solid var(--zc-focus-ring);
   outline-offset: 2px;
 }
 
@@ -117,7 +103,7 @@ textarea:focus-visible {
 }
 
 ::selection {
-  background: rgba(0, 122, 255, 0.22);
+  background: var(--zc-primary-soft);
 }
 
 body.search-window-root {
