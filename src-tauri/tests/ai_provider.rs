@@ -73,8 +73,8 @@ fn ai_settings_roundtrip_uses_separate_settings_row_and_normalizes_paths() {
         chat_path: " chat/completions ".to_string(),
         api_key: " moonshot-secret ".to_string(),
         model: " kimi-k2.6 ".to_string(),
-        timeout_seconds: 0,
-        batch_size: 0,
+        timeout_seconds: 1,
+        batch_size: 1,
         ..AISettings::default()
     };
 

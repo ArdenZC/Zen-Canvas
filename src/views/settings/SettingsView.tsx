@@ -882,8 +882,8 @@ export function SettingsView() {
                 </select>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
-                <TextField label="Base URL" value={aiSettings.baseUrl} onChange={(value) => updateAISettings({ baseUrl: value })} />
-                <TextField label="Chat Path" value={aiSettings.chatPath} onChange={(value) => updateAISettings({ chatPath: value })} />
+                <TextField label="Base URL" value={aiSettings.baseUrl} maxLength={2048} onChange={(value) => updateAISettings({ baseUrl: value })} />
+                <TextField label="Chat Path" value={aiSettings.chatPath} maxLength={512} onChange={(value) => updateAISettings({ chatPath: value })} />
                 {aiSettings.provider === "ollama" ? (
                   <div className={cn(softPanel, "p-3 text-sm text-[var(--muted)]")}>Ollama 本地模型不需要 API Key；该字段可为空。</div>
                 ) : (
@@ -895,12 +895,13 @@ export function SettingsView() {
                     placeholder={aiSettings.apiKeyConfigured ? "已安全保存在系统凭据库；输入新值可替换" : "不会在页面明文显示"}
                   />
                 )}
-                <TextField label="Model" value={aiSettings.model} onChange={(value) => updateAISettings({ model: value })} />
+                <TextField label="Model" value={aiSettings.model} maxLength={200} onChange={(value) => updateAISettings({ model: value })} />
                 <NumberField
                   label="Batch Size"
                   description="Batch Size 是每次请求模型处理的文件数，不是本次总处理数量。DeepSeek / 国产模型建议 10，过大会增加超时、限流或 JSON 不完整风险。"
                   value={aiSettings.batchSize}
                   min={1}
+                  max={100}
                   onChange={(value) => updateAISettings({ batchSize: value })}
                 />
                 <NumberField
@@ -908,15 +909,17 @@ export function SettingsView() {
                   description="同时请求模型的批次数。DeepSeek / 国产模型建议 2，过高可能触发限流。"
                   value={aiSettings.classificationConcurrency}
                   min={1}
+                  max={4}
                   onChange={(value) => updateAISettings({ classificationConcurrency: Math.min(4, Math.max(1, value)) })}
                 />
                 <NumberField
                   label="Max Tokens"
                   value={aiSettings.maxTokens}
                   min={512}
+                  max={32768}
                   onChange={(value) => updateAISettings({ maxTokens: value })}
                 />
-                <NumberField label="Timeout Seconds" value={aiSettings.timeoutSeconds} min={1} onChange={(value) => updateAISettings({ timeoutSeconds: value })} />
+                <NumberField label="Timeout Seconds" value={aiSettings.timeoutSeconds} min={1} max={600} onChange={(value) => updateAISettings({ timeoutSeconds: value })} />
               </div>
               <NoticeBanner tone="info">
                 学习习惯会记录你的确认和纠正。默认情况下，学习习惯只会作为 AI 分类参考，不会训练模型，也不会自动移动文件。
@@ -961,6 +964,7 @@ export function SettingsView() {
                 <TextField
                   label="Reasoning Effort"
                   value={aiSettings.reasoningEffort ?? ""}
+                  maxLength={64}
                   onChange={(value) => updateAISettings({ reasoningEffort: value || null })}
                   placeholder="例如 low / medium / high"
                 />
@@ -985,6 +989,7 @@ export function SettingsView() {
                   <textarea
                     className={cn(inputSurface, "min-h-24 resize-y py-2 font-mono")}
                     value={aiSettings.extraBodyJson ?? ""}
+                    maxLength={16384}
                     onChange={(event) => updateAISettings({ extraBodyJson: event.target.value || null })}
                     placeholder='例如 { "thinking": { "type": "enabled" } }'
                   />
@@ -1117,13 +1122,15 @@ function TextField({
   value,
   onChange,
   type = "text",
-  placeholder
+  placeholder,
+  maxLength
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
   placeholder?: string;
+  maxLength?: number;
 }) {
   return (
     <label className="grid gap-1">
@@ -1133,6 +1140,7 @@ function TextField({
         type={type}
         value={value}
         placeholder={placeholder}
+        maxLength={maxLength}
         onChange={(event) => onChange(event.target.value)}
       />
     </label>
@@ -1144,12 +1152,14 @@ function NumberField({
   description,
   value,
   min,
+  max,
   onChange
 }: {
   label: string;
   description?: string;
   value: number;
   min: number;
+  max?: number;
   onChange: (value: number) => void;
 }) {
   return (
@@ -1160,8 +1170,9 @@ function NumberField({
         className={inputSurface}
         type="number"
         min={min}
+        max={max}
         value={value}
-        onChange={(event) => onChange(Math.max(min, Number(event.target.value) || min))}
+        onChange={(event) => onChange(Math.min(max ?? Number.POSITIVE_INFINITY, Math.max(min, Number(event.target.value) || min)))}
       />
     </label>
   );
@@ -1221,12 +1232,12 @@ function normalizeAISettingsForSave(settings: AISettings): AISettings {
     chatPath: chatPath ? `/${chatPath.replace(/^\/+/g, "")}` : "/chat/completions",
     apiKey: settings.apiKey.trim(),
     model: settings.model.trim(),
-    batchSize: Math.max(1, Math.floor(settings.batchSize || 1)),
+    batchSize: Math.min(100, Math.max(1, Math.floor(settings.batchSize || 1))),
     classificationConcurrency: settings.provider === "ollama"
       ? 1
       : Math.min(4, Math.max(1, Math.floor(settings.classificationConcurrency || 1))),
-    timeoutSeconds: Math.max(1, Math.floor(settings.timeoutSeconds || 1)),
-    maxTokens: Math.max(1, Math.floor(settings.maxTokens || 1)),
+    timeoutSeconds: Math.min(600, Math.max(1, Math.floor(settings.timeoutSeconds || 1))),
+    maxTokens: Math.min(32768, Math.max(1, Math.floor(settings.maxTokens || 1))),
     reasoningEffort: settings.reasoningEffort?.trim() || null,
     extraBodyJson: settings.extraBodyJson?.trim() || null
   };
