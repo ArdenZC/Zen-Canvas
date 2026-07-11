@@ -1579,8 +1579,18 @@ enum CleanupRootKind {
 
 #[derive(Debug, Clone)]
 struct CleanupRootContext {
+    requested_root: PathBuf,
     canonical_root: PathBuf,
     kind: CleanupRootKind,
+}
+
+impl CleanupRootContext {
+    fn matches(&self, path: &str) -> bool {
+        let normalized_path = normalize_compare_text(path);
+        [&self.requested_root, &self.canonical_root]
+            .into_iter()
+            .any(|root| is_same_or_child(&normalized_path, &normalize_for_compare(root)))
+    }
 }
 
 fn cleanup_root_kind_for(
@@ -1628,6 +1638,7 @@ fn build_cleanup_root_contexts(roots: &[PathBuf]) -> Vec<CleanupRootContext> {
                 downloads.as_deref(),
             );
             CleanupRootContext {
+                requested_root: root.clone(),
                 canonical_root,
                 kind,
             }
@@ -1653,9 +1664,7 @@ impl ScanContext {
         let normalized = normalize_for_compare(path);
         self.root_contexts
             .iter()
-            .filter(|context| {
-                is_same_or_child(&normalized, &normalize_for_compare(&context.canonical_root))
-            })
+            .filter(|context| context.matches(&normalized))
             .max_by_key(|context| context.canonical_root.components().count())
             .map(|context| context.kind)
             .unwrap_or(CleanupRootKind::UserSelected)
@@ -3008,6 +3017,32 @@ fn current_timestamp_ms() -> u128 {
 #[cfg(test)]
 mod temp_safety_tests {
     use super::*;
+
+    #[test]
+    fn cleanup_root_context_matches_requested_and_canonical_aliases() {
+        let context = CleanupRootContext {
+            requested_root: PathBuf::from("/var/folders/user/T/job"),
+            canonical_root: PathBuf::from("/private/var/folders/user/T/job"),
+            kind: CleanupRootKind::SystemTemp,
+        };
+
+        assert!(context.matches("/var/folders/user/T/job/old.tmp"));
+        assert!(context.matches("/private/var/folders/user/T/job/old.tmp"));
+        assert!(!context.matches("/private/var/folders/other/T/job/old.tmp"));
+    }
+
+    #[test]
+    fn cleanup_root_context_matches_windows_short_path_alias() {
+        let context = CleanupRootContext {
+            requested_root: PathBuf::from("C:/Users/RUNNER~1/AppData/Local/Temp/job"),
+            canonical_root: PathBuf::from("C:/Users/runneradmin/AppData/Local/Temp/job"),
+            kind: CleanupRootKind::SystemTemp,
+        };
+
+        assert!(context.matches("c:/users/runner~1/appdata/local/temp/job/old.tmp"));
+        assert!(context.matches("c:/users/runneradmin/appdata/local/temp/job/old.tmp"));
+        assert!(!context.matches("c:/users/other/appdata/local/temp/job/old.tmp"));
+    }
 
     #[test]
     fn current_user_old_temp_file_is_safe_and_selected() {
