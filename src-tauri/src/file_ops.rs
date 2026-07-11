@@ -191,6 +191,18 @@ pub trait OperationProgressEmitter {
     fn emit_progress(&self, payload: OperationProgressPayload);
 }
 
+pub trait TrashProvider {
+    fn delete(&self, path: &Path) -> Result<(), String>;
+}
+
+struct SystemTrashProvider;
+
+impl TrashProvider for SystemTrashProvider {
+    fn delete(&self, path: &Path) -> Result<(), String> {
+        trash::delete(path).map_err(|error| error.to_string())
+    }
+}
+
 struct NoopOperationProgressEmitter;
 
 impl OperationProgressEmitter for NoopOperationProgressEmitter {
@@ -377,6 +389,7 @@ fn execute_moves_with_persistence_with_progress_and_app_data(
         app_data_dir,
         batch_id,
         created_at,
+        &SystemTrashProvider,
     );
 
     for (operation, log) in operations.iter().zip(result.logs.iter_mut()) {
@@ -432,6 +445,22 @@ fn execute_moves_core_with_progress_and_app_data(
     emitter: &impl OperationProgressEmitter,
     app_data_dir: Option<PathBuf>,
 ) -> ExecuteMovesResult {
+    execute_moves_core_with_progress_app_data_and_trash(
+        request,
+        cancel_flag,
+        emitter,
+        app_data_dir,
+        &SystemTrashProvider,
+    )
+}
+
+fn execute_moves_core_with_progress_app_data_and_trash(
+    request: ExecuteMovesRequest,
+    cancel_flag: Arc<AtomicBool>,
+    emitter: &impl OperationProgressEmitter,
+    app_data_dir: Option<PathBuf>,
+    trash_provider: &dyn TrashProvider,
+) -> ExecuteMovesResult {
     let batch_id = new_job_id("operation-batch");
     let created_at = current_timestamp_ms().to_string();
     execute_moves_core_with_identity(
@@ -441,6 +470,7 @@ fn execute_moves_core_with_progress_and_app_data(
         app_data_dir,
         batch_id,
         created_at,
+        trash_provider,
     )
 }
 
@@ -451,6 +481,7 @@ fn execute_moves_core_with_identity(
     app_data_dir: Option<PathBuf>,
     batch_id: String,
     created_at: String,
+    trash_provider: &dyn TrashProvider,
 ) -> ExecuteMovesResult {
     let total = request.operations.len() as u64;
     let mut progress = OperationProgressBuffer::new("execute", batch_id.clone(), total);
@@ -467,6 +498,7 @@ fn execute_moves_core_with_identity(
                 operation,
                 Some(cancel_flag.as_ref()),
                 app_data_dir.as_deref(),
+                trash_provider,
             )
         };
         let current_path = operation.source_path.clone();
@@ -779,6 +811,7 @@ fn execute_preview_operation(
         operation,
         cancel_flag,
         None,
+        &SystemTrashProvider,
     )
 }
 
@@ -789,6 +822,7 @@ fn execute_preview_operation_with_app_data(
     operation: &OperationPreviewRequest,
     cancel_flag: Option<&AtomicBool>,
     app_data_dir: Option<&Path>,
+    trash_provider: &dyn TrashProvider,
 ) -> OperationLogDto {
     let status = if operation.is_executable == Some(false) {
         Err("Operation is not executable.".to_string())
@@ -801,9 +835,11 @@ fn execute_preview_operation_with_app_data(
                 true,
                 cancel_flag,
             ),
-            "move_to_trash" => {
-                move_to_trash_with_safety(operation.source_path.clone(), app_data_dir)
-            }
+            "move_to_trash" => move_to_trash_with_safety(
+                operation.source_path.clone(),
+                app_data_dir,
+                trash_provider,
+            ),
             other => Err(format!("Unsupported operation type: {other}")),
         }
     };
@@ -1280,9 +1316,12 @@ fn move_file_with_parent_policy_with_cancel(
 fn move_to_trash_with_safety(
     source_path: String,
     app_data_dir: Option<&Path>,
+    trash_provider: &dyn TrashProvider,
 ) -> Result<FileOperationResult, String> {
     let source = validate_cleanup_trash_source(&PathBuf::from(source_path), app_data_dir)?;
-    trash::delete(&source).map_err(|error| FileOpError::Trash(error.to_string()).to_string())?;
+    trash_provider
+        .delete(&source)
+        .map_err(|error| FileOpError::Trash(error).to_string())?;
 
     Ok(FileOperationResult {
         operation: "move_to_trash".to_string(),
@@ -1698,6 +1737,28 @@ mod tests {
         },
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
+
+    struct MockTrashProvider;
+
+    impl TrashProvider for MockTrashProvider {
+        fn delete(&self, path: &Path) -> Result<(), String> {
+            if path.is_dir() {
+                fs::remove_dir_all(path).map_err(|error| error.to_string())
+            } else {
+                fs::remove_file(path).map_err(|error| error.to_string())
+            }
+        }
+    }
+
+    fn execute_moves_core_with_mock_trash(request: ExecuteMovesRequest) -> ExecuteMovesResult {
+        execute_moves_core_with_progress_app_data_and_trash(
+            request,
+            Arc::new(AtomicBool::new(false)),
+            &NoopOperationProgressEmitter,
+            None,
+            &MockTrashProvider,
+        )
+    }
 
     #[test]
     fn execute_selection_resolves_authoritative_paths_from_database() {
@@ -2307,7 +2368,6 @@ mod tests {
         assert_eq!(progress.events().last().map(|event| event.total), Some(11));
     }
 
-    #[cfg(not(target_os = "macos"))]
     #[test]
     fn execute_moves_core_supports_move_to_trash_success_path() {
         let root = test_dir();
@@ -2323,7 +2383,7 @@ mod tests {
         )
         .expect("age temporary source");
 
-        let result = execute_moves_core(ExecuteMovesRequest {
+        let result = execute_moves_core_with_mock_trash(ExecuteMovesRequest {
             operations: vec![OperationPreviewRequest {
                 id: "trash-preview".to_string(),
                 file_id: source.to_string_lossy().into_owned(),
@@ -2346,6 +2406,32 @@ mod tests {
         assert!(!source.exists());
         assert!(!result.logs[0].can_restore);
         assert_eq!(result.logs[0].restore_status, "unavailable");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires an interactive macOS Trash service"]
+    fn macos_system_trash_smoke_test() {
+        let root = tempfile::tempdir().expect("macOS temporary fixture");
+        let source = root.path().join("system-trash-smoke.txt");
+        fs::write(&source, "temporary").expect("write source");
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(&source)
+            .expect("open temporary source");
+        file.set_times(
+            fs::FileTimes::new()
+                .set_modified(SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60)),
+        )
+        .expect("age temporary source");
+
+        move_to_trash_with_safety(
+            source.to_string_lossy().into_owned(),
+            None,
+            &SystemTrashProvider,
+        )
+        .expect("system Trash should accept a current-user temporary file");
+        assert!(!source.exists());
     }
 
     #[test]

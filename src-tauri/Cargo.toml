@@ -62,3 +62,6 @@ keyring = { version = "3.6.3", default-features = false, features = ["sync-secre
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[dev-dependencies]
+tempfile = "3"
