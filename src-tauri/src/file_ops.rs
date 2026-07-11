@@ -2403,8 +2403,7 @@ mod tests {
 
         let resolved = canonicalize_nearest_existing_ancestor(&link.join("missing/child"))
             .expect("resolve existing symlink ancestor");
-        remove_directory_symlink_for_test(&link)
-            .expect("remove target-parent symlink fixture");
+        remove_directory_symlink_for_test(&link).expect("remove target-parent symlink fixture");
 
         assert_eq!(
             resolved,
@@ -2458,8 +2457,7 @@ mod tests {
             .expect("create protected-root symlink fixture");
 
         let validation = validate_target_path(&link.join("escape.txt"));
-        remove_directory_symlink_for_test(&link)
-            .expect("remove protected-root symlink fixture");
+        remove_directory_symlink_for_test(&link).expect("remove protected-root symlink fixture");
         let error = validation.expect_err("symlink parent must not escape into a protected root");
 
         assert!(error.contains("protected system location"));
