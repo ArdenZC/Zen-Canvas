@@ -44,6 +44,20 @@ describe("App Shell v4", () => {
     expect(appShell).toContain('t("modeAICloud")');
     expect(appShell).toContain('t("modeAILocal")');
     expect(appShell).toContain('t("modeAIDisabled")');
+    for (const icon of ["LoaderCircle", "TriangleAlert", "LockKeyhole", "Cpu", "Cloud"]) {
+      expect(appShell).toContain(icon);
+    }
+    expect(appShell).toContain("openAIProcessingModeSettings");
+    expect(appShell).toContain('openSection("settings-ai")');
+  });
+
+  it("does not render permanent theme or language controls in the titlebar", () => {
+    expect(appShell).not.toContain("<TitlebarTools");
+    expect(appShell).not.toContain("function ChromeTools");
+    expect(appShell).not.toContain("setLanguage");
+    expect(appShell).not.toContain("setTheme");
+    expect(appShell).toContain("MacWindowControls");
+    expect(appShell).toContain("WindowsControls");
   });
 
   it("keeps background content inert, restores Spotlight focus, and does not inject scan actions", () => {

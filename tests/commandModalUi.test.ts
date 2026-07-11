@@ -101,6 +101,8 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).not.toContain("badge={sortingPreviewKey}");
     expect(commandModal).not.toContain("to navigate");
     expect(commandModal).not.toContain("to close");
+    expect(commandModal).toContain('"bg-transparent font-semibold text-[var(--zc-primary-text)]"');
+    expect(commandModal).not.toContain('bg-[var(--zc-primary-soft)] px-1 text-[var(--zc-primary-text)]');
   });
 
   it("keeps standalone idle spotlight collapsed to the search pill", () => {
@@ -128,8 +130,28 @@ describe("command modal spotlight polish", () => {
     expect(zh("commandTypingTitle")).toBe("正在准备搜索");
     expect(zh("commandScopedEmptyTitle")).toBe("当前搜索范围为空");
     expect(zh("commandOpenHint")).toBe("打开结果");
+    expect(zh("globalSearch")).toBe("搜索文件、操作或设置");
+    expect(zh("commandPlaceholder")).toBe("搜索文件、文件夹、操作或设置");
+    expect(zh("smartMatches")).toBe("智能匹配");
+    expect(zh("unknown")).toBe("未分类或未知类型");
+    for (const forbidden of ["Smart Matches", "Unknown", "生命周期维度", "控制指令"]) {
+      expect([zh("globalSearch"), zh("commandPlaceholder"), zh("smartMatches"), zh("unknown")].join(" ")).not.toContain(forbidden);
+    }
     expect(en("commandIdleTitle")).toBe("Type to search");
     expect(en("commandScopedEmptyTitle")).toBe("This search scope is empty");
     expect(en("commandClearSearch")).toBe("Clear Spotlight search");
+  });
+
+  it("keeps clear, escape, focus, active descendant, selection, and scrolling semantics", () => {
+    const commandModal = read("src/components/CommandModal.tsx");
+
+    expect(commandModal).toContain('aria-label={t("commandClearSearch")}');
+    expect(commandModal).toContain('title={t("commandClearSearch")}');
+    expect(commandModal).toContain('if (event.key === "Escape") onClose()');
+    expect(commandModal).toContain("cycleDialogFocus(event, focusable");
+    expect(commandModal).toContain("restoreDialogFocus(restoreFocusRef?.current ?? previous)");
+    expect(commandModal).toContain("aria-activedescendant={activeResultId}");
+    expect(commandModal).toContain("aria-selected={active}");
+    expect(commandModal).toContain('scrollIntoView({ block: "nearest" })');
   });
 });

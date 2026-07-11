@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { makeTranslator } from "../src/i18n";
-import { ShellViewHeading } from "../src/components/AppShell";
+import { AIProcessingModeStatus, openAIProcessingModeSettings, ShellViewHeading } from "../src/components/AppShell";
+import { filesForCurrentQuery } from "../src/components/CommandModal";
 import type { AISettings, FileRecord, OperationLog } from "../src/types/domain";
 
 const t = makeTranslator("zh");
@@ -68,6 +69,37 @@ describe("App Shell v4.1 behavior", () => {
     await controller.load(async () => Promise.reject(new Error("offline")));
     expect(module.resolveAIProcessingMode(controller.getState())).toBe("failed");
     expect(controller.getState().error).toBe("offline");
+  });
+
+  it("renders distinct semantic AI mode icons and lets failed state open AI settings", () => {
+    const states = [
+      { status: "loading", settings: null, error: "", icon: "loader", tone: "--zc-info-text" },
+      { status: "failed", settings: null, error: "offline", icon: "warning", tone: "--zc-warning-text" },
+      { status: "ready", settings: aiSettings(false, "openai_compatible"), error: "", icon: "disabled", tone: "--zc-neutral-text" },
+      { status: "ready", settings: aiSettings(true, "ollama"), error: "", icon: "local", tone: "--zc-success-text" },
+      { status: "ready", settings: aiSettings(true, "openai_compatible"), error: "", icon: "cloud", tone: "--zc-info-text" }
+    ] as const;
+
+    for (const item of states) {
+      const html = renderToStaticMarkup(createElement(AIProcessingModeStatus, { state: item, t, onCheckSettings: vi.fn() }));
+      expect(html).toContain(`data-ai-mode-icon="${item.icon}"`);
+      expect(html).toContain(item.tone);
+    }
+
+    const failedHtml = renderToStaticMarkup(createElement(AIProcessingModeStatus, { state: states[1], t, onCheckSettings: vi.fn() }));
+    expect(failedHtml).toContain("检查设置");
+
+    const setView = vi.fn();
+    const openSection = vi.fn();
+    openAIProcessingModeSettings(setView, openSection);
+    expect(setView).toHaveBeenCalledWith("settings");
+    expect(openSection).toHaveBeenCalledWith("settings-ai");
+  });
+
+  it("never mixes file results from the previous query into a new query", () => {
+    const previousFiles = [file("old", "旧结果.txt", "document", "2026-07-10T10:00:00Z")];
+    expect(filesForCurrentQuery("新查询", "旧查询", previousFiles)).toEqual([]);
+    expect(filesForCurrentQuery("新查询", "新查询", previousFiles)).toBe(previousFiles);
   });
 
   it("queries the complete client command registry", async () => {

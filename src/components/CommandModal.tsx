@@ -61,7 +61,7 @@ const shortcutHints = "flex min-w-0 flex-wrap items-center justify-end gap-x-2 g
 const shortcutHint = "inline-flex min-w-0 items-center gap-1 whitespace-nowrap";
 const shortcutHintLabel = "hidden max-w-24 truncate text-[var(--zc-text-secondary)] sm:inline";
 const highlightMark =
-  "rounded-sm bg-[var(--zc-primary-soft)] px-1 text-[var(--zc-primary-text)]";
+  "bg-transparent font-semibold text-[var(--zc-primary-text)]";
 const commandIdleGroups = "grid gap-3 px-4 py-3";
 const commandIdleGroup = "grid gap-1 border-b border-[var(--zc-divider)] pb-3 last:border-b-0 last:pb-0";
 const commandIdleAction = "flex min-h-10 items-center gap-3 rounded-[var(--zc-radius-control)] px-2.5 text-left text-sm text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]";
@@ -69,6 +69,10 @@ const commandBackgroundStatus = "flex min-h-9 items-center gap-2 border-t border
 const SEARCH_RESULT_LIMIT = 80;
 const standaloneSearchWindowCollapsedHeight = 160;
 const standaloneSearchWindowExpandedHeight = 660;
+
+export function filesForCurrentQuery(currentQuery: string, resultQuery: string, files: FileRecord[]) {
+  return currentQuery === resultQuery ? files : [];
+}
 
 export async function activateCommandNavigation({
   standalone,
@@ -133,7 +137,7 @@ export function CommandModal({
   restoreFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   const [search, setSearch] = useState("");
-  const [results, setResults] = useState<FileRecord[]>([]);
+  const [fileResultState, setFileResultState] = useState<{ query: string; files: FileRecord[] }>({ query: "", files: [] });
   const [queryState, setQueryState] = useState<"idle" | "pending" | "done" | "failed">("idle");
   const [commandError, setCommandError] = useState("");
   const [commandIndexStatus, setCommandIndexStatus] = useState("");
@@ -147,14 +151,15 @@ export function CommandModal({
   const libraryFiles = useFileLibraryStore((state) => state.libraryPage.files);
   const operationLogs = useOperationQueueStore((state) => state.operationLogs);
   const trimmedSearch = search.trim();
+  const currentFileResults = filesForCurrentQuery(trimmedSearch, fileResultState.query, fileResultState.files);
   const commandRegistry = useMemo(() => createCommandRegistry(t), [t]);
   const commandResults = useMemo(
     () => queryCommandRegistry(trimmedSearch, commandRegistry),
     [commandRegistry, trimmedSearch]
   );
   const visibleResults = useMemo(
-    () => mergeSpotlightResults(results, commandResults),
-    [commandResults, results]
+    () => mergeSpotlightResults(currentFileResults, commandResults),
+    [commandResults, currentFileResults]
   );
   const resultGroups = useMemo(() => groupSpotlightResults(visibleResults, t), [t, visibleResults]);
   const recentGroups = useMemo(() => buildRecentGroups(libraryFiles, operationLogs, t), [libraryFiles, operationLogs, t]);
@@ -220,7 +225,7 @@ export function CommandModal({
 
   useEffect(() => {
     if (!trimmedSearch) {
-      setResults([]);
+      setFileResultState({ query: "", files: [] });
       setQueryState("idle");
       setCommandError("");
       setActiveIndex(0);
@@ -231,23 +236,24 @@ export function CommandModal({
     setCommandError("");
     setCommandIndexStatus("");
     if (searchScopeEmptyMessage) {
-      setResults([]);
+      setFileResultState({ query: trimmedSearch, files: [] });
       setQueryState("done");
       setActiveIndex(0);
       return;
     }
+    setFileResultState({ query: trimmedSearch, files: [] });
     setQueryState("pending");
     const timer = window.setTimeout(() => {
       tauriApi.searchFiles(trimmedSearch, SEARCH_RESULT_LIMIT, searchScope)
         .then((files) => {
           if (cancelled) return;
-          setResults(files);
+          setFileResultState({ query: trimmedSearch, files });
           setQueryState("done");
           setActiveIndex(0);
         })
         .catch(() => {
           if (cancelled) return;
-          setResults([]);
+          setFileResultState({ query: trimmedSearch, files: [] });
           setQueryState("failed");
           setCommandError(t("commandSearchFailed"));
         });

@@ -77,7 +77,9 @@ describe("spotlight search navigation", () => {
     expect(commandModal).toContain("searchScope");
     expect(commandModal).toContain("const SEARCH_RESULT_LIMIT = 80");
     expect(commandModal).toContain("tauriApi.searchFiles(trimmedSearch, SEARCH_RESULT_LIMIT, searchScope)");
-    expect(commandModal).toContain("mergeSpotlightResults(results, commandResults)");
+    expect(commandModal).toContain("mergeSpotlightResults(currentFileResults, commandResults)");
+    expect(commandModal).toContain("filesForCurrentQuery(trimmedSearch, fileResultState.query, fileResultState.files)");
+    expect(commandModal).toContain('setFileResultState({ query: trimmedSearch, files: [] })');
     expect(commandModal).toContain("queryCommandRegistry(trimmedSearch, commandRegistry)");
     expect(commandModal).toContain("groupSpotlightResults(visibleResults, t)");
     expect(commandModal).not.toContain("results.slice(0, 12)");

@@ -1,7 +1,10 @@
 import {
   Archive,
   Clock3,
+  Cloud,
+  Cpu,
   LayoutGrid,
+  LoaderCircle,
   LockKeyhole,
   Minus,
   Radar,
@@ -9,12 +12,14 @@ import {
   Settings,
   SlidersHorizontal,
   Square,
+  TriangleAlert,
   X
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
 import { CommandModal } from "./CommandModal";
 import { ViewErrorBoundary } from "./ErrorBoundary";
-import { AmbientMesh, CloseChoiceDialog, TitlebarTools, ZenMark } from "./ShellChrome";
+import { AmbientMesh, CloseChoiceDialog, ZenMark } from "./ShellChrome";
+import { requestSettingsSection } from "./spotlight/commandRegistry";
 import { useChromeContext, useSettingsContext } from "../contexts/AppContexts";
 import { resolveEffectiveSearchScope } from "../hooks/useAppSettings";
 import { hideToBackground } from "../hooks/useWindowBehavior";
@@ -95,7 +100,7 @@ export function AppShell() {
       <AmbientMesh />
       <header className={titlebar} inert={isCommandOpen ? true : undefined}>
         <div className="flex items-center justify-start">
-          {!isWindows ? <MacWindowControls /> : <ChromeTools />}
+          {!isWindows ? <MacWindowControls /> : null}
         </div>
         <div className="flex items-center justify-center">
           <button ref={spotlightTriggerRef} className={cn(spotlightButton, noDrag)} onClick={() => setIsCommandOpen(true)}>
@@ -105,7 +110,7 @@ export function AppShell() {
           </button>
         </div>
         <div className="flex items-center justify-end">
-          {!isWindows ? <ChromeTools /> : <WindowsControls />}
+          {isWindows ? <WindowsControls /> : null}
         </div>
       </header>
       <div className={workspaceShell} inert={isCommandOpen ? true : undefined}>
@@ -210,21 +215,6 @@ function commandSearchScopeEmptyMessage(settings: AppSettings, currentLibrarySco
   return "";
 }
 
-function ChromeTools() {
-  const { language, theme, effectiveTheme, setLanguage, setTheme, t } = useChromeContext();
-
-  return (
-    <TitlebarTools
-      language={language}
-      theme={theme}
-      effectiveTheme={effectiveTheme}
-      setLanguage={setLanguage}
-      setTheme={setTheme}
-      t={t}
-    />
-  );
-}
-
 function MacWindowControls() {
   const { handleWindowAction, t } = useChromeContext();
 
@@ -273,7 +263,9 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
     void loadAIProcessingMode();
   }, [loadAIProcessingMode]);
 
-  const mode = sidebarMode({ status: aiModeStatus, settings: aiModeSettings, error: aiModeError }, t);
+  function openAISettings() {
+    openAIProcessingModeSettings(setView, requestSettingsSection);
+  }
 
   return (
     <aside className={sidebarClass}>
@@ -307,7 +299,11 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
           </section>
         ))}
       </nav>
-      <AIProcessingModeStatus state={{ status: aiModeStatus, settings: aiModeSettings, error: aiModeError }} t={t} />
+      <AIProcessingModeStatus
+        state={{ status: aiModeStatus, settings: aiModeSettings, error: aiModeError }}
+        t={t}
+        onCheckSettings={openAISettings}
+      />
     </aside>
   );
 }
@@ -379,17 +375,58 @@ function AppViewContent() {
   return <Suspense fallback={<div className={softPanel}>{t("loading")}</div>}>{content}</Suspense>;
 }
 
-export function AIProcessingModeStatus({ state, t }: { state: AIProcessingModeState; t: Translator }) {
+export function AIProcessingModeStatus({
+  state,
+  t,
+  onCheckSettings
+}: {
+  state: AIProcessingModeState;
+  t: Translator;
+  onCheckSettings?: () => void;
+}) {
   const mode = sidebarMode(state, t);
   return (
     <div className={cn(softPanel, "mt-auto flex items-start gap-3 p-3 text-sm")} data-ai-processing-mode={resolveAIProcessingMode(state)}>
-      <LockKeyhole size={17} className="mt-0.5 text-[var(--zc-primary)]" />
-      <div>
+      <AIProcessingModeIcon mode={mode.id} />
+      <div className="min-w-0 flex-1">
         <strong className="block text-sm text-[var(--zc-text-primary)]">{mode.title}</strong>
         <span className="block text-xs leading-5 text-[var(--zc-text-secondary)]">{mode.description}</span>
+        {mode.id === "failed" && onCheckSettings ? (
+          <button
+            className="mt-1 rounded px-1 py-0.5 text-xs font-semibold text-[var(--zc-warning-text)] hover:bg-[var(--zc-warning-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]"
+            onClick={onCheckSettings}
+          >
+            {t("modeCheckSettings")}
+          </button>
+        ) : null}
       </div>
     </div>
   );
+}
+
+function AIProcessingModeIcon({ mode }: { mode: ReturnType<typeof resolveAIProcessingMode> }) {
+  const iconClass = "mt-0.5 shrink-0";
+  if (mode === "loading") {
+    return <LoaderCircle data-ai-mode-icon="loader" size={17} className={cn(iconClass, "animate-spin text-[var(--zc-info-text)]")} />;
+  }
+  if (mode === "failed") {
+    return <TriangleAlert data-ai-mode-icon="warning" size={17} className={cn(iconClass, "text-[var(--zc-warning-text)]")} />;
+  }
+  if (mode === "disabled") {
+    return <LockKeyhole data-ai-mode-icon="disabled" size={17} className={cn(iconClass, "text-[var(--zc-neutral-text)]")} />;
+  }
+  if (mode === "local") {
+    return <Cpu data-ai-mode-icon="local" size={17} className={cn(iconClass, "text-[var(--zc-success-text)]")} />;
+  }
+  return <Cloud data-ai-mode-icon="cloud" size={17} className={cn(iconClass, "text-[var(--zc-info-text)]")} />;
+}
+
+export function openAIProcessingModeSettings(
+  setView: (view: View) => void,
+  openSection: (sectionId: string) => void
+) {
+  setView("settings");
+  openSection("settings-ai");
 }
 
 function viewDescription(
@@ -455,9 +492,9 @@ function sidebarMode(
   t: Translator
 ) {
   const mode = resolveAIProcessingMode(state);
-  if (mode === "loading") return { title: t("modeLoading"), description: t("modeLoadingDesc") };
-  if (mode === "failed") return { title: t("modeFailed"), description: t("modeFailedDesc") };
-  if (mode === "disabled") return { title: t("modeAIDisabled"), description: t("modeAIDisabledDesc") };
-  if (mode === "local") return { title: t("modeAILocal"), description: t("modeAILocalDesc") };
-  return { title: t("modeAICloud"), description: t("modeAICloudDesc") };
+  if (mode === "loading") return { id: mode, title: t("modeLoading"), description: t("modeLoadingDesc") };
+  if (mode === "failed") return { id: mode, title: t("modeFailed"), description: t("modeFailedDesc") };
+  if (mode === "disabled") return { id: mode, title: t("modeAIDisabled"), description: t("modeAIDisabledDesc") };
+  if (mode === "local") return { id: mode, title: t("modeAILocal"), description: t("modeAILocalDesc") };
+  return { id: mode, title: t("modeAICloud"), description: t("modeAICloudDesc") };
 }
