@@ -1525,7 +1525,7 @@ mod tests {
             atomic::{AtomicBool, Ordering},
             Arc,
         },
-        time::{SystemTime, UNIX_EPOCH},
+        time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
     #[test]
@@ -2073,6 +2073,15 @@ mod tests {
         let root = test_dir();
         let source = root.join("trash-me.txt");
         fs::write(&source, "temporary").expect("write source");
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(&source)
+            .expect("open temporary source");
+        file.set_times(
+            fs::FileTimes::new()
+                .set_modified(SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60)),
+        )
+        .expect("age temporary source");
 
         let result = execute_moves_core(ExecuteMovesRequest {
             operations: vec![OperationPreviewRequest {

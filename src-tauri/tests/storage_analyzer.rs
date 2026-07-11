@@ -135,18 +135,86 @@ fn storage_cleanup_scan_accepts_user_selected_temp_directory() {
     assert!(result.is_ok());
 }
 
+#[test]
+fn current_user_recent_temp_file_is_not_default_safe_in_real_scan() {
+    let root = current_temp_test_dir();
+    let recent = root.join("recent.tmp");
+    write_file(&recent, 128);
+
+    let analysis =
+        analyze_storage_roots_for_test(vec![root], Vec::new()).expect("scan current temp child");
+
+    assert!(!analysis.candidates.iter().any(|candidate| {
+        candidate.path == recent.to_string_lossy().replace('\\', "/")
+            && candidate.tier == CleanupTier::Safe
+            && candidate.selected_by_default
+    }));
+}
+
+#[test]
+fn current_user_old_temp_file_is_safe_in_real_scan() {
+    let root = current_temp_test_dir();
+    let old = root.join("old.tmp");
+    write_file(&old, 128);
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(&old)
+        .expect("open old temp file");
+    file.set_times(
+        fs::FileTimes::new()
+            .set_modified(SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60)),
+    )
+    .expect("age temp file");
+
+    let analysis = analyze_storage_roots_for_test(vec![root], Vec::new())
+        .expect("scan aged current temp child");
+    let candidate = analysis
+        .candidates
+        .iter()
+        .find(|candidate| candidate.path == old.to_string_lossy().replace('\\', "/"))
+        .expect("old temp candidate");
+
+    assert_eq!(candidate.tier, CleanupTier::Safe);
+    assert!(candidate.trash_allowed);
+    assert!(candidate.selected_by_default);
+}
+
+#[test]
+fn temp_execution_revalidation_enforces_age_policy() {
+    let root = current_temp_test_dir();
+    let recent = root.join("recent-execution.tmp");
+    let old = root.join("old-execution.tmp");
+    write_file(&recent, 128);
+    write_file(&old, 128);
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(&old)
+        .expect("open old execution temp file");
+    file.set_times(
+        fs::FileTimes::new()
+            .set_modified(SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60)),
+    )
+    .expect("age execution temp file");
+
+    assert!(zen_canvas_tauri::storage_analyzer::is_cleanup_execution_forbidden(&recent, None));
+    assert!(!zen_canvas_tauri::storage_analyzer::is_cleanup_execution_forbidden(&old, None));
+}
+
 #[cfg(target_os = "macos")]
 #[test]
-fn storage_cleanup_accepts_both_macos_temp_path_forms() {
+fn storage_cleanup_only_accepts_the_current_macos_temp_root() {
+    let current_temp = std::env::temp_dir();
+    let current_temp_entry = current_temp.join("zen-canvas-test");
+    assert!(!is_forbidden_storage_path_for_test(&current_temp_entry));
+
     for path in [
-        "/tmp/zen-canvas-test",
-        "/var/folders/zen-canvas-test",
-        "/private/tmp/zen-canvas-test",
-        "/private/var/folders/zen-canvas-test",
+        "/var/folders/another-user/T/zen-canvas-test",
+        "/private/var/folders/another-user/T/zen-canvas-test",
+        "/private/var/db/zen-canvas-test",
     ] {
         assert!(
-            !is_forbidden_storage_path_for_test(Path::new(path)),
-            "expected macOS temp path {path} to remain eligible"
+            is_forbidden_storage_path_for_test(Path::new(path)),
+            "expected non-current macOS temp path {path} to remain protected"
         );
     }
 }
@@ -161,8 +229,14 @@ fn storage_cleanup_scan_job_can_report_progress_and_be_cancelled() {
 
     let job_id =
         start_storage_cleanup_scan_for_test(vec![root.clone()], &state).expect("start job");
-    thread::sleep(Duration::from_millis(30));
-    let started = get_storage_cleanup_scan_status_for_test(&job_id, &state).expect("status");
+    let mut started = get_storage_cleanup_scan_status_for_test(&job_id, &state).expect("status");
+    for _ in 0..20 {
+        if started.progress.scanned_entries > 0 || started.analysis.is_some() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+        started = get_storage_cleanup_scan_status_for_test(&job_id, &state).expect("status");
+    }
 
     assert_eq!(started.job_id, job_id);
     assert!(matches!(started.status.as_str(), "running" | "completed"));
@@ -820,11 +894,29 @@ fn test_dir() -> PathBuf {
         .expect("clock")
         .as_nanos();
     let counter = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::current_dir()
+        .expect("current test directory")
+        .join("target")
+        .join("storage-analyzer-tests")
+        .join(format!(
+            "zen-canvas-storage-analyzer-test-{}-{nonce}-{counter}",
+            std::process::id()
+        ));
+    fs::create_dir_all(&dir).expect("test dir");
+    dir
+}
+
+fn current_temp_test_dir() -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let counter = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!(
-        "zen-canvas-storage-analyzer-test-{}-{nonce}-{counter}",
+        "zen-canvas-current-temp-test-{}-{nonce}-{counter}",
         std::process::id()
     ));
-    fs::create_dir_all(&dir).expect("test dir");
+    fs::create_dir_all(&dir).expect("current temp test dir");
     dir
 }
 
