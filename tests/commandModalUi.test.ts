@@ -92,13 +92,15 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).not.toContain("font-sans font-medium");
     expect(commandModal).toContain('function ShortcutHint({ badge, label }: { badge: React.ReactNode; label: string })');
     expect(commandModal).toContain('<ShortcutHint badge={<CornerDownLeft className="w-3 h-3" />} label={t("commandOpenHint")} />');
-    expect(commandModal).toContain('<ShortcutHint badge="↑↓" label="to navigate" />');
-    expect(commandModal).toContain('<ShortcutHint badge="ESC" label="to close" />');
+    expect(commandModal).toContain('<ShortcutHint badge="↑↓" label={t("commandNavigateHint")} />');
+    expect(commandModal).toContain('<ShortcutHint badge="ESC" label={t("commandCloseHint")} />');
     expect(commandModal).toContain('<strong className={commandFileName}>');
     expect(commandModal).toContain('className="text-[var(--zc-primary)]"');
     expect(commandModal).not.toContain('ShortcutHint badge="↵"');
     expect(commandModal).not.toContain("badge={locateKey}");
     expect(commandModal).not.toContain("badge={sortingPreviewKey}");
+    expect(commandModal).not.toContain("to navigate");
+    expect(commandModal).not.toContain("to close");
   });
 
   it("keeps standalone idle spotlight collapsed to the search pill", () => {

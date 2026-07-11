@@ -1,20 +1,17 @@
 import {
   Archive,
   Clock3,
-  FolderSearch,
   LayoutGrid,
   LockKeyhole,
   Minus,
   Radar,
-  RefreshCw,
   Search,
   Settings,
   SlidersHorizontal,
   Square,
   X
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { tauriApi } from "../api/tauriApi";
+import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
 import { CommandModal } from "./CommandModal";
 import { ViewErrorBoundary } from "./ErrorBoundary";
 import { AmbientMesh, CloseChoiceDialog, TitlebarTools, ZenMark } from "./ShellChrome";
@@ -24,13 +21,13 @@ import { hideToBackground } from "../hooks/useWindowBehavior";
 import { useAppStore } from "../store/useAppStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
-import { useScanManagerStore } from "../store/useScanManagerStore";
-import type { AISettings, AppSettings, DashboardStats, LibraryScope } from "../types/domain";
+import { resolveAIProcessingMode, useAIProcessingModeStore, type AIProcessingModeState } from "../store/useAIProcessingModeStore";
+import type { AppSettings, DashboardStats, LibraryScope } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { formatDate } from "../utils/format";
-import { cn, glassButton, glassButtonPrimary, statusToast, toastTone } from "../utils/tw";
+import { cn, statusToast, toastTone } from "../utils/tw";
 import { compactPath, libraryScopeLabel, readableError } from "../utils/viewHelpers";
-import { PageHeader, inlineActions, pageFrame, softPanel, viewStage } from "../views/shared/ui";
+import { PageHeader, pageFrame, softPanel, viewStage } from "../views/shared/ui";
 
 const ScannerView = lazy(() => import("../views/scanner/ScannerView").then((module) => ({ default: module.ScannerView })));
 const StorageCleanupView = lazy(() => import("../views/cleanup/StorageCleanupView").then((module) => ({ default: module.StorageCleanupView })));
@@ -84,6 +81,7 @@ export function AppShell() {
   const stats = useFileLibraryStore((state) => state.stats);
   const scope = useFileLibraryStore((state) => state.scope);
   const previewActionCount = useOperationQueueStore((state) => state.previewActionCount);
+  const spotlightTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   if (isSearchMode) return <SearchWindow />;
 
@@ -95,12 +93,12 @@ export function AppShell() {
   return (
     <div className={appRoot}>
       <AmbientMesh />
-      <header className={titlebar}>
+      <header className={titlebar} inert={isCommandOpen ? true : undefined}>
         <div className="flex items-center justify-start">
           {!isWindows ? <MacWindowControls /> : <ChromeTools />}
         </div>
         <div className="flex items-center justify-center">
-          <button className={cn(spotlightButton, noDrag)} onClick={() => setIsCommandOpen(true)}>
+          <button ref={spotlightTriggerRef} className={cn(spotlightButton, noDrag)} onClick={() => setIsCommandOpen(true)}>
             <Search size={15} className="text-[var(--zc-primary)]" />
             <span className="min-w-0 truncate text-left">{t("globalSearch")}</span>
             <kbd>{hotkeyLabel}</kbd>
@@ -110,10 +108,10 @@ export function AppShell() {
           {!isWindows ? <ChromeTools /> : <WindowsControls />}
         </div>
       </header>
-      <div className={workspaceShell}>
+      <div className={workspaceShell} inert={isCommandOpen ? true : undefined}>
         <Sidebar groups={groups} />
         <main className={workspaceClass}>
-          <ViewHeading activeLabel={activeLabel} headingDescription={headingDescription} />
+          <ShellViewHeading view={view} activeLabel={activeLabel} headingDescription={headingDescription} />
           <ToastContainer />
           <div className={viewStageClass}>
             <ViewErrorBoundary key={view}>
@@ -122,7 +120,7 @@ export function AppShell() {
           </div>
         </main>
       </div>
-      {isCommandOpen && <CommandLauncher />}
+      {isCommandOpen && <CommandLauncher restoreFocusRef={spotlightTriggerRef} />}
       {isCloseChoiceOpen && (
         <CloseChoiceDialog t={t} onCancel={onCancelCloseChoice} onChoose={resolveCloseChoice} />
       )}
@@ -138,7 +136,13 @@ function SearchWindow() {
   );
 }
 
-function CommandLauncher({ standalone = false }: { standalone?: boolean }) {
+function CommandLauncher({
+  standalone = false,
+  restoreFocusRef
+}: {
+  standalone?: boolean;
+  restoreFocusRef?: React.RefObject<HTMLElement | null>;
+}) {
   const { commandInputRef, setView, setIsCommandOpen, platform, onError, t } = useChromeContext();
   const { settings } = useSettingsContext();
   const currentLibraryScope = useFileLibraryStore((state) => state.scope);
@@ -172,6 +176,7 @@ function CommandLauncher({ standalone = false }: { standalone?: boolean }) {
       searchScopeLabel={searchScopeLabel}
       searchScopeEmptyMessage={searchScopeEmptyMessage}
       standalone={standalone}
+      restoreFocusRef={restoreFocusRef}
     />
   );
 }
@@ -259,21 +264,16 @@ function WindowsControls() {
 function Sidebar({ groups }: { groups: NavGroup[] }) {
   const { view, setView, t } = useChromeContext();
   const previewActionCount = useOperationQueueStore((state) => state.previewActionCount);
-  const [aiSettings, setAISettings] = useState<Pick<AISettings, "enabled" | "provider"> | null>(null);
+  const aiModeStatus = useAIProcessingModeStore((state) => state.status);
+  const aiModeSettings = useAIProcessingModeStore((state) => state.settings);
+  const aiModeError = useAIProcessingModeStore((state) => state.error);
+  const loadAIProcessingMode = useAIProcessingModeStore((state) => state.load);
 
   useEffect(() => {
-    let active = true;
-    void tauriApi.getAISettings()
-      .then((settings) => {
-        if (active) setAISettings({ enabled: settings.enabled, provider: settings.provider });
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, []);
+    void loadAIProcessingMode();
+  }, [loadAIProcessingMode]);
 
-  const mode = sidebarMode(aiSettings, t);
+  const mode = sidebarMode({ status: aiModeStatus, settings: aiModeSettings, error: aiModeError }, t);
 
   return (
     <aside className={sidebarClass}>
@@ -307,49 +307,25 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
           </section>
         ))}
       </nav>
-      <div className={cn(softPanel, "mt-auto flex items-start gap-3 p-3 text-sm")}>
-        <LockKeyhole size={17} className="mt-0.5 text-[var(--zc-primary)]" />
-        <div>
-          <strong className="block text-sm text-[var(--zc-text-primary)]">{mode.title}</strong>
-          <span className="block text-xs leading-5 text-[var(--zc-text-secondary)]">{mode.description}</span>
-        </div>
-      </div>
+      <AIProcessingModeStatus state={{ status: aiModeStatus, settings: aiModeSettings, error: aiModeError }} t={t} />
     </aside>
   );
 }
 
-function ViewHeading({
+export function ShellViewHeading({
+  view,
   activeLabel,
-  headingDescription
+  headingDescription,
+  actions
 }: {
+  view: View;
   activeLabel: string;
   headingDescription: string;
+  actions?: React.ReactNode;
 }) {
-  const { view, t } = useChromeContext();
-  const isScanning = useScanManagerStore((state) => state.isScanning);
-  const handleChooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
-  const handleScan = useScanManagerStore((state) => state.handleScan);
-
   if (view === "scanner") return null;
 
-  return (
-    <PageHeader
-      title={activeLabel}
-      description={headingDescription}
-      actions={
-        <div className={inlineActions}>
-          <button className={glassButton} onClick={handleChooseFolders} disabled={isScanning}>
-            <FolderSearch size={17} />
-            <span>{t("chooseFolders")}</span>
-          </button>
-          <button className={glassButtonPrimary} onClick={handleScan} disabled={isScanning}>
-            <RefreshCw size={17} className={isScanning ? "animate-spin" : ""} />
-            <span>{t("scanCommon")}</span>
-          </button>
-        </div>
-      }
-    />
-  );
+  return <PageHeader title={activeLabel} description={headingDescription} actions={actions} />;
 }
 
 function ToastContainer() {
@@ -375,7 +351,7 @@ function ToastContainer() {
 
   if (toast.type === "success") {
     return (
-      <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-full border border-emerald-400/25 bg-[var(--surface-strong)] px-3 py-2 text-xs font-medium text-emerald-700 shadow-[var(--shadow)] backdrop-blur-xl dark:text-emerald-200" role="status">
+      <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-full border border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] px-3 py-2 text-xs font-medium text-[var(--zc-success-text)] shadow-[var(--zc-shadow-raised)] backdrop-blur-xl" role="status">
         {toast.message}
       </div>
     );
@@ -401,6 +377,19 @@ function AppViewContent() {
   else if (view === "restore") content = <RestoreView />;
   else content = <SettingsView />;
   return <Suspense fallback={<div className={softPanel}>{t("loading")}</div>}>{content}</Suspense>;
+}
+
+export function AIProcessingModeStatus({ state, t }: { state: AIProcessingModeState; t: Translator }) {
+  const mode = sidebarMode(state, t);
+  return (
+    <div className={cn(softPanel, "mt-auto flex items-start gap-3 p-3 text-sm")} data-ai-processing-mode={resolveAIProcessingMode(state)}>
+      <LockKeyhole size={17} className="mt-0.5 text-[var(--zc-primary)]" />
+      <div>
+        <strong className="block text-sm text-[var(--zc-text-primary)]">{mode.title}</strong>
+        <span className="block text-xs leading-5 text-[var(--zc-text-secondary)]">{mode.description}</span>
+      </div>
+    </div>
+  );
 }
 
 function viewDescription(
@@ -462,11 +451,13 @@ function viewLabel(view: View, t: Translator) {
 }
 
 function sidebarMode(
-  settings: Pick<AISettings, "enabled" | "provider"> | null,
+  state: AIProcessingModeState,
   t: Translator
 ) {
-  if (!settings) return { title: t("localOnly"), description: t("privacyLine") };
-  if (!settings.enabled) return { title: t("modeAIDisabled"), description: t("modeAIDisabledDesc") };
-  if (settings.provider === "ollama") return { title: t("modeAILocal"), description: t("modeAILocalDesc") };
+  const mode = resolveAIProcessingMode(state);
+  if (mode === "loading") return { title: t("modeLoading"), description: t("modeLoadingDesc") };
+  if (mode === "failed") return { title: t("modeFailed"), description: t("modeFailedDesc") };
+  if (mode === "disabled") return { title: t("modeAIDisabled"), description: t("modeAIDisabledDesc") };
+  if (mode === "local") return { title: t("modeAILocal"), description: t("modeAILocalDesc") };
   return { title: t("modeAICloud"), description: t("modeAICloudDesc") };
 }

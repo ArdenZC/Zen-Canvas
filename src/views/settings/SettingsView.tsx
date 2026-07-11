@@ -14,6 +14,8 @@ import {
 import { useScanManagerStore } from "../../store/useScanManagerStore";
 import { useAppStore } from "../../store/useAppStore";
 import { useBackgroundIndexerStore } from "../../store/useBackgroundIndexerStore";
+import { useAIProcessingModeStore } from "../../store/useAIProcessingModeStore";
+import { SETTINGS_SECTION_EVENT } from "../../components/spotlight/commandRegistry";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import type {
   AIConnectionTestResult,
@@ -115,6 +117,7 @@ export function SettingsView() {
   const [folderDeleteConfirm, setFolderDeleteConfirm] = useState<FolderDeleteConfirmState | null>(null);
   const [isDeletingFolderConfig, setIsDeletingFolderConfig] = useState(false);
   const [aiSettings, setAiSettings] = useState<AISettings | null>(null);
+  const publishAIProcessingMode = useAIProcessingModeStore((state) => state.publish);
   const [aiPresets, setAiPresets] = useState<AIProviderPreset[]>([]);
   const [isLoadingAISettings, setIsLoadingAISettings] = useState(false);
   const [isSavingAISettings, setIsSavingAISettings] = useState(false);
@@ -125,6 +128,33 @@ export function SettingsView() {
   const [aiDebugStatus, setAiDebugStatus] = useState<{ tone: StatusTone; message: string } | null>(null);
   const [aiDebugResult, setAiDebugResult] = useState<AIDebugClassificationResult | null>(null);
   const hotkeyCaptureRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function focusSection(sectionId: string) {
+      window.setTimeout(() => {
+        const section = document.getElementById(sectionId);
+        section?.scrollIntoView({ block: "start" });
+        section?.focus({ preventScroll: true });
+      }, 0);
+    }
+
+    function handleSectionRequest(event: Event) {
+      const sectionId = (event as CustomEvent<string>).detail;
+      if (sectionId) focusSection(sectionId);
+    }
+
+    window.addEventListener(SETTINGS_SECTION_EVENT, handleSectionRequest);
+    try {
+      const pendingSection = window.sessionStorage.getItem(SETTINGS_SECTION_EVENT);
+      if (pendingSection) {
+        window.sessionStorage.removeItem(SETTINGS_SECTION_EVENT);
+        focusSection(pendingSection);
+      }
+    } catch {
+      // In-memory events still work when storage is unavailable.
+    }
+    return () => window.removeEventListener(SETTINGS_SECTION_EVENT, handleSectionRequest);
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -166,6 +196,7 @@ export function SettingsView() {
         if (disposed) return;
         setAiPresets(presets);
         setAiSettings(settings);
+        publishAIProcessingMode({ enabled: settings.enabled, provider: settings.provider });
       })
       .catch((error) => {
         if (!disposed) {
@@ -178,7 +209,7 @@ export function SettingsView() {
     return () => {
       disposed = true;
     };
-  }, []);
+  }, [publishAIProcessingMode]);
 
   function showStatus(message: string, tone: StatusTone = "success") {
     setSettingsStatus(message);
@@ -446,6 +477,7 @@ export function SettingsView() {
     try {
       const saved = await tauriApi.saveAISettings(next);
       setAiSettings(saved);
+      publishAIProcessingMode({ enabled: saved.enabled, provider: saved.provider });
       showStatus("AI 设置已保存");
     } catch (error) {
       setAiConnectionStatus({
@@ -538,7 +570,7 @@ export function SettingsView() {
               onChange={setLanguage}
             />
           </div>
-          <div className={formRow}>
+          <div id="settings-appearance" tabIndex={-1} className={cn(formRow, "outline-none")}>
             <div><strong className="block text-sm">{t("appearance")}</strong><span className={metadataText}>{t("appearanceDesc")}</span></div>
             <SegmentedControl
               value={theme}
@@ -700,7 +732,7 @@ export function SettingsView() {
               </button>
             ))}
           </div>
-          <div className={formRow}>
+          <div id="settings-search-scope" tabIndex={-1} className={cn(formRow, "outline-none")}>
             <div><strong className="block text-sm">{t("searchScopeSettings")}</strong><span className={metadataText}>{t("searchScopeSettingsDesc")}</span></div>
             <SegmentedControl
               value={searchScopeMode}
@@ -836,6 +868,7 @@ export function SettingsView() {
           />
         </ControlGroup>
 
+        <div id="settings-ai" tabIndex={-1} className="outline-none">
         <ControlGroup title="AI 模型服务" description="选择国产模型或本地 Ollama，可测试连接并调试单个文件的模型原始返回。">
           {isLoadingAISettings || !aiSettings ? (
             <StateBlock title="正在加载 AI 设置" description="从本地配置读取模型服务商预设。" />
@@ -1070,6 +1103,7 @@ export function SettingsView() {
             </div>
           )}
         </ControlGroup>
+        </div>
 
         <details className={cn(formSection, "group")}>
           <summary className="cursor-pointer text-sm font-semibold text-[var(--ink)]">{t("settingsDeveloperRelease")}</summary>

@@ -31,7 +31,7 @@ describe("ui empty and command states", () => {
     expect(commandModal).toContain('id="command-results"');
     expect(commandModal).toContain('role="listbox"');
     expect(commandModal).toContain('role="option"');
-    expect(commandModal).toContain("aria-selected={index === activeIndex}");
+    expect(commandModal).toContain("aria-selected={active}");
     expect(commandModal).toContain("id={`command-result-${index}`}");
   });
 

@@ -34,8 +34,9 @@ describe("phase 10 motion and accessibility contracts", () => {
     expect(sharedUi).toContain('"aria-label": label');
     expect(sharedUi).toContain('"aria-checked": checked');
     expect(sharedUi).toContain('"aria-pressed": value === option.value');
-    expect(commandModal).not.toContain('event.key === "Tab"');
-    expect(commandModal).toContain('event.key === "Enter" && visibleResults[activeIndex]');
+    expect(commandModal).toContain('event.key === "Tab"');
+    expect(commandModal).toContain("cycleDialogFocus(event, focusable");
+    expect(commandModal).toContain('event.key === "Enter" && activeResult');
     expect(commandModal).toContain('role="combobox"');
     expect(commandModal).toContain('role="listbox"');
     expect(commandModal).toContain('role="option"');

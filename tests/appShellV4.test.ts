@@ -37,11 +37,29 @@ describe("App Shell v4", () => {
   });
 
   it("reports the active local or AI mode instead of making an absolute local-only claim", () => {
-    expect(appShell).toContain("tauriApi.getAISettings()");
-    expect(appShell).toContain('provider === "ollama"');
+    expect(appShell).toContain("useAIProcessingModeStore");
+    expect(appShell).toContain("resolveAIProcessingMode");
+    expect(appShell).toContain('t("modeLoading")');
+    expect(appShell).toContain('t("modeFailed")');
     expect(appShell).toContain('t("modeAICloud")');
     expect(appShell).toContain('t("modeAILocal")');
     expect(appShell).toContain('t("modeAIDisabled")');
+  });
+
+  it("keeps background content inert, restores Spotlight focus, and does not inject scan actions", () => {
+    expect(appShell).toContain("inert={isCommandOpen ? true : undefined}");
+    expect(appShell).toContain("restoreFocusRef={spotlightTriggerRef}");
+    expect(appShell).not.toContain("handleChooseFolders");
+    expect(appShell).not.toContain("handleScan");
+    expect(appShell).not.toContain("FolderSearch");
+    expect(appShell).not.toContain("RefreshCw");
+  });
+
+  it("uses semantic success colors without fixed AppShell status palettes", () => {
+    expect(appShell).toContain("var(--zc-success-border)");
+    expect(appShell).toContain("var(--zc-success-soft)");
+    expect(appShell).toContain("var(--zc-success-text)");
+    expect(appShell).not.toMatch(/(?:emerald|red|blue)-\d/);
   });
 
   it("keeps platform controls native to each platform and drag-safe", () => {
