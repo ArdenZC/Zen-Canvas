@@ -8,7 +8,7 @@ const focusRing =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
 
 const disabledState =
-  "disabled:cursor-not-allowed disabled:border-[var(--zc-divider)] disabled:bg-[var(--zc-surface-subtle)] disabled:text-[var(--zc-text-disabled)] disabled:shadow-none disabled:opacity-70 disabled:hover:border-[var(--zc-divider)] disabled:hover:bg-[var(--zc-surface-subtle)] disabled:hover:text-[var(--zc-text-disabled)] disabled:hover:shadow-none";
+  "disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:text-[var(--zc-text-disabled)] disabled:shadow-none disabled:opacity-70 disabled:hover:border-[var(--zc-control-border)] disabled:hover:bg-[var(--zc-surface-subtle)] disabled:hover:text-[var(--zc-text-disabled)] disabled:hover:shadow-none";
 
 const standardButtonBase = cn(
   "inline-flex min-h-10 items-center justify-center gap-2 px-4 py-2 text-sm font-medium transition-[background,border-color,box-shadow,color,opacity] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
@@ -65,14 +65,14 @@ export const warningSurface =
   "rounded-[var(--zc-radius-field)] border border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)] px-3 py-2 text-[var(--zc-warning-text)]";
 
 export const infoSurface =
-  "rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-primary-soft)] px-3 py-2 text-[var(--zc-primary-text)]";
+  "rounded-[var(--zc-radius-field)] border border-[var(--zc-info-border)] bg-[var(--zc-info-soft)] px-3 py-2 text-[var(--zc-info-text)]";
 
 export const successSurface =
   "rounded-[var(--zc-radius-field)] border border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] px-3 py-2 text-[var(--zc-success-text)]";
 
 export const glassButton = cn(
   standardButtonBase,
-  "rounded-[var(--zc-radius-control)] border border-[var(--zc-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)] shadow-sm enabled:hover:border-[var(--zc-border-strong)] enabled:hover:bg-[var(--zc-surface-hover)]"
+  "rounded-[var(--zc-radius-control)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)] shadow-sm enabled:hover:border-[var(--zc-control-border-hover)] enabled:hover:bg-[var(--zc-surface-hover)]"
 );
 
 export const glassButtonPrimary = cn(
@@ -99,26 +99,26 @@ export const buttonGhost = cn(
 
 export const buttonSubtle = cn(
   standardButtonBase,
-  "rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-secondary)] enabled:hover:border-[var(--zc-border)] enabled:hover:bg-[var(--zc-surface-hover)] enabled:hover:text-[var(--zc-text-primary)]"
+  "rounded-[var(--zc-radius-control)] border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-secondary)] enabled:hover:border-[var(--zc-control-border-hover)] enabled:hover:bg-[var(--zc-surface-hover)] enabled:hover:text-[var(--zc-text-primary)]"
 );
 
 export const buttonIcon = cn(
   iconButtonBase,
-  "border-[var(--zc-border)] enabled:hover:border-[var(--zc-border-strong)] enabled:hover:bg-[var(--zc-surface-hover)] enabled:hover:text-[var(--zc-text-primary)]"
+  "border-[var(--zc-control-border)] enabled:hover:border-[var(--zc-control-border-hover)] enabled:hover:bg-[var(--zc-surface-hover)] enabled:hover:text-[var(--zc-text-primary)]"
 );
 
 export const buttonIconDanger = cn(
   iconButtonBase,
-  "border-[var(--zc-border)] enabled:hover:border-[var(--zc-danger-border)] enabled:hover:bg-[var(--zc-danger-soft)] enabled:hover:text-[var(--zc-danger-text)]"
+  "border-[var(--zc-control-border)] enabled:hover:border-[var(--zc-danger-border)] enabled:hover:bg-[var(--zc-danger-soft)] enabled:hover:text-[var(--zc-danger-text)]"
 );
 
 export const buttonPill = cn(
   standardButtonBase,
-  "rounded-full border border-[var(--zc-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)] shadow-sm enabled:hover:border-[var(--zc-border-strong)] enabled:hover:bg-[var(--zc-surface-hover)]"
+  "rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface)] text-[var(--zc-text-primary)] shadow-sm enabled:hover:border-[var(--zc-control-border-hover)] enabled:hover:bg-[var(--zc-surface-hover)]"
 );
 
 export const inputSurface =
-  "min-h-10 rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)] outline-none transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] placeholder:text-[var(--zc-text-tertiary)] focus:border-[var(--zc-primary)] focus:bg-[var(--zc-surface)] focus:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
+  "min-h-10 rounded-[var(--zc-radius-field)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)] outline-none transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] placeholder:text-[var(--zc-text-tertiary)] hover:border-[var(--zc-control-border-hover)] focus:border-[var(--zc-primary)] focus:bg-[var(--zc-surface)] focus:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
 
 export const selectSurface = cn(inputSurface, "appearance-auto");
 
@@ -133,19 +133,19 @@ export const virtualSpacer = "relative w-full";
 export const virtualRow = "absolute left-0 top-0 w-full";
 
 export const statusToast =
-  "mb-3 rounded-xl border border-[var(--line)] bg-[var(--surface-strong)] px-4 py-3 text-sm text-[var(--muted)] shadow-[var(--shadow)] backdrop-blur-xl";
+  "mb-3 rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3 text-sm text-[var(--zc-text-secondary)] shadow-[var(--zc-shadow-raised)] backdrop-blur-xl";
 
 export function toastTone(type: "success" | "error" | "info"): string {
-  if (type === "success") return "border-l-4 border-l-green-600";
-  if (type === "error") return "border-l-4 border-l-red-600 bg-red-600/10";
-  return "border-l-4 border-l-blue-600";
+  if (type === "success") return "border-l-4 border-l-[var(--zc-success)]";
+  if (type === "error") return "border-l-4 border-l-[var(--zc-danger)] bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]";
+  return "border-l-4 border-l-[var(--zc-info)]";
 }
 
 export function toneClasses(tone: string): string {
-  if (tone === "red") return "bg-red-500/10 text-red-600 dark:text-red-400 ring-1 ring-red-500/20 border-transparent";
-  if (tone === "purple") return "bg-purple-500/10 text-purple-600 dark:text-purple-400 ring-1 ring-purple-500/20 border-transparent";
-  if (tone === "green") return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20 border-transparent";
-  if (tone === "amber") return "bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/20 border-transparent";
-  if (tone === "slate") return "bg-slate-500/10 text-slate-600 dark:text-slate-400 ring-1 ring-slate-500/20 border-transparent";
-  return "bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20 border-transparent";
+  if (tone === "red") return "border-transparent bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)] ring-1 ring-[var(--zc-danger-border)]";
+  if (tone === "purple") return "border-transparent bg-[var(--zc-purple-soft)] text-[var(--zc-purple-text)] ring-1 ring-[var(--zc-purple-border)]";
+  if (tone === "green") return "border-transparent bg-[var(--zc-success-soft)] text-[var(--zc-success-text)] ring-1 ring-[var(--zc-success-border)]";
+  if (tone === "amber") return "border-transparent bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)] ring-1 ring-[var(--zc-warning-border)]";
+  if (tone === "slate") return "border-transparent bg-[var(--zc-neutral-soft)] text-[var(--zc-neutral-text)] ring-1 ring-[var(--zc-neutral-border)]";
+  return "border-transparent bg-[var(--zc-info-soft)] text-[var(--zc-info-text)] ring-1 ring-[var(--zc-info-border)]";
 }

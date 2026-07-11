@@ -15,7 +15,11 @@ import {
   glassButtonPrimary,
   glassButtonWarning,
   infoSurface,
+  inputSurface,
+  selectSurface,
+  statusToast,
   successSurface,
+  toastTone,
   toneClasses,
   warningSurface
 } from "../src/utils/tw";
@@ -62,7 +66,7 @@ describe("shared UI primitives", () => {
     expect(appPanel).toContain("bg-[var(--zc-canvas-elevated)]");
     expect(appPanel).not.toContain("bg-[var(--zc-surface)]");
     expect(warningSurface).toContain("text-[var(--zc-warning-text)]");
-    expect(interactiveRow({ selected: true })).toContain("border-blue");
+    expect(interactiveRow({ selected: true })).not.toBe(interactiveRow());
     expect(interactiveRow({ disabled: true })).toContain("pointer-events-none");
   });
 
@@ -90,15 +94,27 @@ describe("shared UI primitives", () => {
     expect(glassButtonDanger).not.toContain("bg-[var(--zc-surface)]");
     expect(glassButtonWarning).toContain("bg-[var(--zc-warning-soft)]");
     expect(glassButtonWarning).not.toContain("bg-[var(--zc-surface)]");
+
+    for (const control of [glassButton, buttonSubtle, buttonPill, buttonIcon, inputSurface, selectSurface]) {
+      expect(control).toContain("var(--zc-control-border)");
+    }
+    expect(contentPanel).not.toContain("var(--zc-control-border)");
   });
 
-  it("uses glass ring tone classes for badges and icon chips", () => {
-    expect(toneClasses("red")).toBe("bg-red-500/10 text-red-600 dark:text-red-400 ring-1 ring-red-500/20 border-transparent");
-    expect(toneClasses("purple")).toBe("bg-purple-500/10 text-purple-600 dark:text-purple-400 ring-1 ring-purple-500/20 border-transparent");
-    expect(toneClasses("green")).toBe("bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20 border-transparent");
-    expect(toneClasses("amber")).toBe("bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/20 border-transparent");
-    expect(toneClasses("slate")).toBe("bg-slate-500/10 text-slate-600 dark:text-slate-400 ring-1 ring-slate-500/20 border-transparent");
-    expect(toneClasses("blue")).toBe("bg-blue-500/10 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/20 border-transparent");
+  it("uses semantic status tokens for badges, icon chips, and toasts", () => {
+    const fixedTailwindPalette = /(?:red|blue|green|emerald|amber|slate|purple)-\d/;
+
+    for (const tone of ["red", "purple", "green", "amber", "slate", "blue"]) {
+      expect(toneClasses(tone)).toContain("var(--zc-");
+      expect(toneClasses(tone)).not.toMatch(fixedTailwindPalette);
+    }
+    for (const type of ["success", "error", "info"] as const) {
+      expect(toastTone(type)).toContain("var(--zc-");
+      expect(toastTone(type)).not.toMatch(fixedTailwindPalette);
+    }
+    expect(statusToast).toContain("var(--zc-surface-floating)");
+    expect(statusToast).toContain("var(--zc-text-secondary)");
+    expect(statusToast).not.toMatch(fixedTailwindPalette);
   });
 
   it("renders switch controls with clear on and off status labels", () => {
@@ -109,8 +125,6 @@ describe("shared UI primitives", () => {
       </div>
     );
 
-    expect(markup).toContain("bg-blue-600");
-    expect(markup).toContain("bg-slate-300");
     expect(markup).toContain("On");
     expect(markup).toContain("Off");
     expect(markup).toContain("role=\"switch\"");
@@ -138,8 +152,7 @@ describe("shared UI primitives", () => {
     expect(markup).toContain("Needs review");
     expect(markup).toContain("Nothing scanned");
     expect(markup).toContain("1,204");
-    expect(markup).not.toContain("bg-blue-500");
-    expect(markup).not.toContain("text-blue-600");
+    expect(markup).not.toMatch(/(?:red|blue|green|emerald|amber|slate|purple)-\d/);
     expect(markup).toContain("aria-label=\"Reveal\"");
   });
 });

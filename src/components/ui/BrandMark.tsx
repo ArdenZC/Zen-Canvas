@@ -15,17 +15,17 @@ const sizeClasses: Record<
 > = {
   micro: {
     root: "h-5 w-5",
-    core: "right-0 top-0 h-3 w-3 shadow-[0_1px_4px_var(--zc-primary-soft)]",
+    core: "right-0 top-0 h-3 w-3 shadow-[0_1px_4px_var(--zc-brand-blue-soft)]",
     canvas: "bottom-0 left-0 h-3.5 w-3.5 rounded-[5px]"
   },
   sidebar: {
     root: "h-9 w-9",
-    core: "right-0.5 top-0.5 h-[22px] w-[22px] shadow-[0_3px_10px_var(--zc-primary-soft)]",
+    core: "right-0.5 top-0.5 h-[22px] w-[22px] shadow-[0_3px_10px_var(--zc-brand-blue-soft)]",
     canvas: "bottom-0.5 left-0.5 h-[25px] w-[25px] rounded-[8px] backdrop-blur-[2px]"
   },
   app: {
     root: "h-20 w-20",
-    core: "right-1 top-1 h-12 w-12 shadow-[0_6px_18px_var(--zc-primary-soft)]",
+    core: "right-1 top-1 h-12 w-12 shadow-[0_6px_18px_var(--zc-brand-blue-soft)]",
     canvas: "bottom-1 left-1 h-14 w-14 rounded-[18px] backdrop-blur-md"
   }
 };
@@ -49,7 +49,7 @@ export function BrandMark({
       {/* Zen Core: understanding and intelligent analysis. */}
       <span
         className={cn(
-          "absolute rounded-full [background:linear-gradient(135deg,var(--zc-primary),var(--zc-brand-cyan))]",
+          "absolute rounded-full [background:linear-gradient(135deg,var(--zc-brand-blue),var(--zc-brand-cyan))]",
           classes.core
         )}
       />

@@ -12,20 +12,24 @@
 
   --zc-text-primary: #1c1c1e;
   --zc-text-secondary: #5f6470;
-  --zc-text-tertiary: #858a95;
+  --zc-text-tertiary: #68707c;
   --zc-text-disabled: #aeb3bc;
 
   --zc-divider: rgba(28, 28, 30, 0.09);
   --zc-border: rgba(28, 28, 30, 0.12);
   --zc-border-strong: rgba(28, 28, 30, 0.18);
+  --zc-control-border: #858a95;
+  --zc-control-border-hover: #68707c;
 
-  --zc-primary: #007aff;
-  --zc-primary-hover: #006be6;
-  --zc-primary-pressed: #005bc4;
-  --zc-primary-soft: rgba(0, 122, 255, 0.1);
+  --zc-primary: #0066cc;
+  --zc-primary-hover: #005ebd;
+  --zc-primary-pressed: #0052a8;
+  --zc-primary-soft: rgba(0, 102, 204, 0.1);
   --zc-primary-contrast: #ffffff;
   --zc-primary-text: #0055ad;
 
+  --zc-brand-blue: #007aff;
+  --zc-brand-blue-soft: rgba(0, 122, 255, 0.16);
   --zc-brand-cyan: #4facfe;
   --zc-brand-green: #22c55e;
   --zc-brand-teal: #06b6d4;
@@ -33,6 +37,18 @@
   --zc-brand-canvas-border: rgba(255, 255, 255, 0.88);
   --zc-brand-canvas-highlight: rgba(255, 255, 255, 0.28);
 
+  --zc-info: #0066cc;
+  --zc-info-text: #0055ad;
+  --zc-info-soft: rgba(0, 102, 204, 0.1);
+  --zc-info-border: rgba(0, 102, 204, 0.3);
+  --zc-neutral: #68707c;
+  --zc-neutral-text: #4b5563;
+  --zc-neutral-soft: rgba(104, 112, 124, 0.1);
+  --zc-neutral-border: rgba(104, 112, 124, 0.28);
+  --zc-purple: #7c3aed;
+  --zc-purple-text: #6d28d9;
+  --zc-purple-soft: rgba(124, 58, 237, 0.1);
+  --zc-purple-border: rgba(124, 58, 237, 0.28);
   --zc-success: #1f9d61;
   --zc-success-text: #137a4b;
   --zc-success-soft: rgba(31, 157, 97, 0.1);
@@ -71,8 +87,8 @@
   --zc-duration-slow: 280ms;
   --zc-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
 
-  --zc-focus-ring: rgba(0, 122, 255, 0.62);
-  --zc-focus-ring-soft: rgba(0, 122, 255, 0.16);
+  --zc-focus-ring: #0066cc;
+  --zc-focus-ring-soft: rgba(0, 102, 204, 0.16);
 
   --zc-ambient-primary: rgba(79, 172, 254, 0.055);
   --zc-ambient-secondary: rgba(6, 182, 212, 0.03);
@@ -100,6 +116,8 @@
   --zc-divider: rgba(255, 255, 255, 0.08);
   --zc-border: rgba(255, 255, 255, 0.11);
   --zc-border-strong: rgba(255, 255, 255, 0.18);
+  --zc-control-border: #647287;
+  --zc-control-border-hover: #75849a;
 
   --zc-primary: #4facfe;
   --zc-primary-hover: #72beff;
@@ -111,7 +129,20 @@
   --zc-brand-canvas: rgba(17, 27, 42, 0.7);
   --zc-brand-canvas-border: rgba(255, 255, 255, 0.2);
   --zc-brand-canvas-highlight: rgba(255, 255, 255, 0.12);
+  --zc-brand-blue-soft: rgba(0, 122, 255, 0.22);
 
+  --zc-info: #72beff;
+  --zc-info-text: #72beff;
+  --zc-info-soft: rgba(114, 190, 255, 0.12);
+  --zc-info-border: rgba(114, 190, 255, 0.3);
+  --zc-neutral: #94a3b8;
+  --zc-neutral-text: #cbd5e1;
+  --zc-neutral-soft: rgba(148, 163, 184, 0.12);
+  --zc-neutral-border: rgba(148, 163, 184, 0.28);
+  --zc-purple: #c4b5fd;
+  --zc-purple-text: #ddd6fe;
+  --zc-purple-soft: rgba(196, 181, 253, 0.12);
+  --zc-purple-border: rgba(196, 181, 253, 0.3);
   --zc-success: #4ade80;
   --zc-success-text: #4ade80;
   --zc-success-soft: rgba(74, 222, 128, 0.12);

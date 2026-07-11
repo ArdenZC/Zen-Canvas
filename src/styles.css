@@ -25,7 +25,7 @@
   --success: var(--zc-success);
   --warning: var(--zc-warning);
   --danger: var(--zc-danger);
-  --purple: #7c3aed;
+  --purple: var(--zc-purple);
   --shadow: var(--zc-shadow-raised);
   --shadow-strong: var(--zc-shadow-floating);
   --shadow-cmd: var(--zc-shadow-spotlight);

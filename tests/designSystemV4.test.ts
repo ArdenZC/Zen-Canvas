@@ -13,6 +13,25 @@ function tokenValue(source: string, name: string) {
   return source.match(new RegExp(`--${name}:\\s*([^;]+);`))?.[1].trim() ?? "";
 }
 
+function relativeLuminance(hex: string) {
+  const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  if (!match) throw new Error(`Expected a six-digit hex color, received: ${hex}`);
+
+  const channels = match.slice(1).map((channel) => Number.parseInt(channel, 16) / 255);
+  const [red, green, blue] = channels.map((channel) =>
+    channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+  );
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
+function contrastRatio(foreground: string, background: string) {
+  const foregroundLuminance = relativeLuminance(foreground);
+  const backgroundLuminance = relativeLuminance(background);
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+  const darker = Math.min(foregroundLuminance, backgroundLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 describe("Design Foundation v4", () => {
   const styles = read("src/styles.css");
   const tokens = read("src/styles/tokens.css");
@@ -23,8 +42,43 @@ describe("Design Foundation v4", () => {
   it("defines the required light semantic tokens and imports them globally", () => {
     expect(tokens).toContain("--zc-canvas: #f4f6f9");
     expect(tokens).toContain("--zc-surface: #ffffff");
-    expect(tokens).toContain("--zc-primary: #007aff");
+    expect(tokens).toContain("--zc-brand-blue: #007aff");
+    expect(tokens).toContain("--zc-primary: #0066cc");
+    expect(tokens).toContain("--zc-primary-hover: #005ebd");
+    expect(tokens).toContain("--zc-primary-pressed: #0052a8");
+    expect(tokens).toContain("--zc-control-border: #858a95");
+    expect(tokens).toContain("--zc-control-border-hover: #68707c");
     expect(styles).toContain('@import "./styles/tokens.css"');
+  });
+
+  it("meets light-mode text and interaction contrast requirements", () => {
+    const primary = tokenValue(tokens, "zc-primary");
+    const primaryHover = tokenValue(tokens, "zc-primary-hover");
+    const primaryPressed = tokenValue(tokens, "zc-primary-pressed");
+    const primaryContrast = tokenValue(tokens, "zc-primary-contrast");
+    const tertiary = tokenValue(tokens, "zc-text-tertiary");
+    const surface = tokenValue(tokens, "zc-surface");
+    const canvas = tokenValue(tokens, "zc-canvas");
+    const focusRing = tokenValue(tokens, "zc-focus-ring");
+    const controlBorder = tokenValue(tokens, "zc-control-border");
+
+    expect(primary).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(primaryHover).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(primaryPressed).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(primaryContrast).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(tertiary).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(surface).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(canvas).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(focusRing).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(controlBorder).toMatch(/^#[0-9a-f]{6}$/i);
+
+    expect(contrastRatio(primary, primaryContrast)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(primaryHover, primaryContrast)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(primaryPressed, primaryContrast)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(tertiary, surface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(tertiary, canvas)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(focusRing, canvas)).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio(controlBorder, surface)).toBeGreaterThanOrEqual(3);
   });
 
   it("defines an independent dark theme with distinct warning and danger semantics", () => {
@@ -33,8 +87,22 @@ describe("Design Foundation v4", () => {
     expect(darkTheme).toContain("--zc-canvas: #0a0f1a");
     expect(darkTheme).toContain("--zc-surface: #111b2a");
     expect(darkTheme).toContain("--zc-primary: #4facfe");
+    expect(darkTheme).toContain("--zc-control-border: #647287");
+    expect(darkTheme).toContain("--zc-control-border-hover: #75849a");
     expect(tokenValue(tokens, "zc-warning")).not.toBe(tokenValue(tokens, "zc-danger"));
     expect(tokenValue(darkTheme, "zc-warning")).not.toBe(tokenValue(darkTheme, "zc-danger"));
+  });
+
+  it("defines semantic info, neutral, and purple token families in both themes", () => {
+    const darkTheme = tokens.match(/:root\.dark\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+
+    for (const family of ["info", "neutral", "purple"]) {
+      for (const suffix of ["", "-text", "-soft", "-border"]) {
+        const tokenName = `zc-${family}${suffix}`;
+        expect(tokenValue(tokens, tokenName), `${tokenName} light`).not.toBe("");
+        expect(tokenValue(darkTheme, tokenName), `${tokenName} dark`).not.toBe("");
+      }
+    }
   });
 
   it("provides radius, spacing, shadow, motion, and focus-ring tokens", () => {
@@ -89,6 +157,9 @@ describe("Design Foundation v4", () => {
     expect(brandMark).toContain("micro:");
     expect(brandMark).toContain("sidebar:");
     expect(brandMark).toContain("app:");
+    expect(brandMark).toContain("var(--zc-brand-blue)");
+    expect(brandMark).toContain("var(--zc-brand-blue-soft)");
+    expect(brandMark).not.toMatch(/var\(--zc-primary(?:-[^)]+)?\)/);
     expect(brandMark).toContain("var(--zc-brand-canvas-highlight)");
     expect(brandMark).not.toContain("rgba(255,255,255,0.28)");
     expect(shellChrome).toContain("export function ZenMark");
@@ -106,6 +177,12 @@ describe("Design Foundation v4", () => {
     expect(styles).toContain("@media (prefers-reduced-motion: reduce)");
     expect(brandMark).not.toMatch(/(?:hover|active):scale-/);
     expect(tw).not.toMatch(/(?:hover|active):scale-/);
+  });
+
+  it("keeps status exports free of fixed Tailwind palette colors", () => {
+    const statusExports = tw.slice(tw.indexOf("export const statusToast"));
+    expect(statusExports).toContain("var(--zc-");
+    expect(statusExports).not.toMatch(/(?:red|blue|green|emerald|amber|slate|purple)-\d/);
   });
 
   it("keeps Ambient Mesh structure local to ShellChrome and driven by semantic tokens", () => {
