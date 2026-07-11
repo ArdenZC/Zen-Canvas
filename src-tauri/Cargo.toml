@@ -44,6 +44,7 @@ tauri-plugin-global-shortcut = "2"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting"] }
 trash = "5"
+uuid = { version = "1", features = ["v4", "v7"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

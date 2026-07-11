@@ -1,4 +1,4 @@
-use crate::db::Database;
+use crate::{db::Database, ids::new_job_id};
 use serde::{Deserialize, Serialize};
 use std::{
     env,
@@ -366,7 +366,7 @@ fn execute_moves_with_persistence_with_progress_and_app_data(
     app_data_dir: Option<PathBuf>,
 ) -> Result<ExecuteMovesResult, String> {
     let operations = request.operations.clone();
-    let batch_id = format!("batch-{}", current_timestamp_ms());
+    let batch_id = new_job_id("operation-batch");
     let created_at = current_timestamp_ms().to_string();
     let source_fingerprints =
         persist_pending_operation_journal(db, &request, &batch_id, &created_at)?;
@@ -432,7 +432,7 @@ fn execute_moves_core_with_progress_and_app_data(
     emitter: &impl OperationProgressEmitter,
     app_data_dir: Option<PathBuf>,
 ) -> ExecuteMovesResult {
-    let batch_id = format!("batch-{}", current_timestamp_ms());
+    let batch_id = new_job_id("operation-batch");
     let created_at = current_timestamp_ms().to_string();
     execute_moves_core_with_identity(
         request,
@@ -1113,10 +1113,8 @@ fn mark_restore_unavailable(log: &OperationLogDto, reason: impl Into<String>) ->
     unavailable
 }
 
-fn restore_progress_batch_id(logs: &[OperationLogDto]) -> String {
-    logs.first()
-        .map(|log| log.batch_id.clone())
-        .unwrap_or_else(|| format!("restore-{}", current_timestamp_ms()))
+fn restore_progress_batch_id(_logs: &[OperationLogDto]) -> String {
+    new_job_id("restore-batch")
 }
 
 fn is_operation_cancelled(cancel_flag: &Arc<AtomicBool>) -> bool {
@@ -1523,10 +1521,11 @@ fn temp_path_for_target(target: &Path) -> Result<PathBuf, String> {
         .and_then(|value| value.to_str())
         .ok_or(FileOpError::UnsafeFileName)
         .map_err(|error| error.to_string())?;
-    let timestamp = current_timestamp_ms();
-
     for attempt in 0..100 {
-        let candidate = parent.join(format!(".{name}.zencanvas-tmp-{timestamp}-{attempt}"));
+        let candidate = parent.join(format!(
+            ".{name}.{}-{attempt}",
+            new_job_id("zencanvas-stage")
+        ));
         if !candidate.exists() {
             return Ok(candidate);
         }

@@ -144,9 +144,7 @@ async function processBackgroundQueue() {
 }
 
 function createBackgroundScanJobId() {
-  const suffix = globalThis.crypto?.randomUUID?.()
-    ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `scan-background-${suffix}`;
+  return `scan-background-${globalThis.crypto.randomUUID()}`;
 }
 
 function delay(ms: number) {

@@ -290,7 +290,7 @@ export function readableError(error: unknown): string {
 }
 
 export function localId(prefix: string): string {
-  return `${prefix}_${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
+  return `${prefix}_${globalThis.crypto.randomUUID()}`;
 }
 
 export function nowIso(): string {

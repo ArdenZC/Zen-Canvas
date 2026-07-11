@@ -48,9 +48,7 @@ export function isCurrentDedupeEvent(
 }
 
 function createScanJobId(kind: "foreground" | "background") {
-  const suffix = globalThis.crypto?.randomUUID?.()
-    ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `scan-${kind}-${suffix}`;
+  return `scan-${kind}-${globalThis.crypto.randomUUID()}`;
 }
 
 export interface ScanManagerStore {

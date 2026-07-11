@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::mpsc,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
     time::Instant,
@@ -37,8 +37,6 @@ use crate::{
 pub const AI_CLASSIFICATION_PROGRESS_EVENT: &str = "ai-classification-progress";
 const DEFAULT_AI_CLASSIFICATION_LIMIT: u32 = 100;
 const AI_CLASSIFICATION_TRANSIENT_RETRIES: usize = 2;
-
-static AI_JOB_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Default)]
 pub struct AIClassificationCancellationToken {
@@ -810,11 +808,7 @@ fn classify_ai_targets_with_provider(
     learned_rules: &[String],
     runtime: Option<(&dyn AIClassificationProgressEmitter, &AtomicBool)>,
 ) -> Result<RuleExecutionSummary, String> {
-    let job_id = format!(
-        "ai-classification-{}-{}",
-        current_unix_seconds(),
-        AI_JOB_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-    );
+    let job_id = crate::ids::new_job_id("ai-classification");
     let started = Instant::now();
     if targets.is_empty() {
         emit_ai_classification_progress(
