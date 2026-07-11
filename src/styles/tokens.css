@@ -33,9 +33,9 @@
   --zc-brand-cyan: #4facfe;
   --zc-brand-green: #22c55e;
   --zc-brand-teal: #06b6d4;
-  --zc-brand-canvas: rgba(255, 255, 255, 0.68);
-  --zc-brand-canvas-border: rgba(255, 255, 255, 0.88);
-  --zc-brand-canvas-highlight: rgba(255, 255, 255, 0.28);
+  --zc-brand-canvas: rgba(238, 246, 255, 0.94);
+  --zc-brand-canvas-border: rgba(0, 122, 255, 0.24);
+  --zc-brand-canvas-highlight: rgba(255, 255, 255, 0.78);
 
   --zc-info: #0066cc;
   --zc-info-text: #0055ad;
@@ -126,9 +126,9 @@
   --zc-primary-contrast: #07111f;
   --zc-primary-text: #72beff;
 
-  --zc-brand-canvas: rgba(17, 27, 42, 0.7);
-  --zc-brand-canvas-border: rgba(255, 255, 255, 0.2);
-  --zc-brand-canvas-highlight: rgba(255, 255, 255, 0.12);
+  --zc-brand-canvas: rgba(17, 31, 50, 0.94);
+  --zc-brand-canvas-border: rgba(114, 190, 255, 0.42);
+  --zc-brand-canvas-highlight: rgba(255, 255, 255, 0.2);
   --zc-brand-blue-soft: rgba(0, 122, 255, 0.22);
 
   --zc-info: #72beff;

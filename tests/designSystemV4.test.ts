@@ -166,6 +166,34 @@ describe("Design Foundation v4", () => {
     expect(shellChrome).toContain("<BrandMark");
   });
 
+  it("uses optical BrandMark variants without collapsing the micro mark into a glow", () => {
+    const micro = brandMark.match(/micro:\s*\{([\s\S]*?)\n\s*\},\n\s*sidebar:/)?.[1] ?? "";
+    const sidebar = brandMark.match(/sidebar:\s*\{([\s\S]*?)\n\s*\},\n\s*app:/)?.[1] ?? "";
+    const app = brandMark.match(/app:\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
+
+    expect(micro).not.toContain("backdrop-blur");
+    expect(micro).not.toContain("shadow-");
+    expect(micro).toContain("h-3");
+    expect(micro).toContain("h-3.5");
+    expect(micro).toContain("border");
+
+    expect(sidebar).toContain("backdrop-blur-[2px]");
+    expect(sidebar).not.toMatch(/backdrop-blur-(?:sm|md|lg|xl|2xl|3xl)/);
+    expect(app).toContain("backdrop-blur-[4px]");
+    expect(app).not.toContain("backdrop-blur-md");
+  });
+
+  it("uses high-opacity, blue-tinted BrandMark canvas surfaces in both themes", () => {
+    const darkTheme = tokens.match(/:root\.dark\s*\{([\s\S]*?)\}/)?.[1] ?? "";
+    const lightCanvas = tokenValue(tokens, "zc-brand-canvas");
+    const darkCanvas = tokenValue(darkTheme, "zc-brand-canvas");
+
+    expect(lightCanvas).toBe("rgba(238, 246, 255, 0.94)");
+    expect(tokenValue(tokens, "zc-brand-canvas-border")).toBe("rgba(0, 122, 255, 0.24)");
+    expect(darkCanvas).toBe("rgba(17, 31, 50, 0.94)");
+    expect(tokenValue(darkTheme, "zc-brand-canvas-border")).toBe("rgba(114, 190, 255, 0.42)");
+  });
+
   it("lets each BrandMark usage choose decorative or accessible image semantics", () => {
     expect(brandMark).toContain("decorative?: boolean");
     expect(brandMark).toContain('role={decorative ? undefined : "img"}');

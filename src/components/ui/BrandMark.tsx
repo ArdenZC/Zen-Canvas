@@ -15,18 +15,18 @@ const sizeClasses: Record<
 > = {
   micro: {
     root: "h-5 w-5",
-    core: "right-0 top-0 h-3 w-3 shadow-[0_1px_4px_var(--zc-brand-blue-soft)]",
-    canvas: "bottom-0 left-0 h-3.5 w-3.5 rounded-[5px]"
+    core: "right-0 top-0 h-3 w-3",
+    canvas: "bottom-0 left-0 h-3.5 w-3.5 rounded-[5px] border-[1.5px]"
   },
   sidebar: {
     root: "h-9 w-9",
-    core: "right-0.5 top-0.5 h-[22px] w-[22px] shadow-[0_3px_10px_var(--zc-brand-blue-soft)]",
-    canvas: "bottom-0.5 left-0.5 h-[25px] w-[25px] rounded-[8px] backdrop-blur-[2px]"
+    core: "right-0.5 top-0.5 h-6 w-6 shadow-[0_2px_6px_var(--zc-brand-blue-soft)]",
+    canvas: "bottom-0.5 left-0.5 h-[27px] w-[27px] rounded-[8px] backdrop-blur-[2px]"
   },
   app: {
     root: "h-20 w-20",
-    core: "right-1 top-1 h-12 w-12 shadow-[0_6px_18px_var(--zc-brand-blue-soft)]",
-    canvas: "bottom-1 left-1 h-14 w-14 rounded-[18px] backdrop-blur-md"
+    core: "right-1 top-1 h-[50px] w-[50px] shadow-[0_4px_12px_var(--zc-brand-blue-soft)]",
+    canvas: "bottom-1 left-1 h-14 w-14 rounded-[18px] backdrop-blur-[4px]"
   }
 };
 
@@ -56,7 +56,7 @@ export function BrandMark({
       {/* Canvas: the foreground space that receives and orders files. */}
       <span
         className={cn(
-          "absolute border border-[var(--zc-brand-canvas-border)] bg-[var(--zc-brand-canvas)] shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight)]",
+          "absolute border border-[var(--zc-brand-canvas-border)] bg-[var(--zc-brand-canvas)] shadow-[inset_1px_1px_0_var(--zc-brand-canvas-highlight)]",
           classes.canvas
         )}
       />
