@@ -3258,7 +3258,14 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("zen-canvas-file-op-test-{nonce}"));
+        // macOS resolves its system temporary directory beneath `/private`, which is
+        // intentionally forbidden for ordinary file operations. Keep these fixtures
+        // inside the checkout so successful-path tests do not weaken that boundary.
+        let dir = std::env::current_dir()
+            .expect("current test directory")
+            .join("target")
+            .join("file-op-tests")
+            .join(format!("zen-canvas-file-op-test-{nonce}"));
         fs::create_dir_all(&dir).expect("test dir");
         dir
     }
@@ -3268,7 +3275,12 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        std::env::temp_dir().join(format!("zen-canvas-file-op-db-test-{nonce}.sqlite3"))
+        let dir = std::env::current_dir()
+            .expect("current test directory")
+            .join("target")
+            .join("file-op-tests");
+        fs::create_dir_all(&dir).expect("test database directory");
+        dir.join(format!("zen-canvas-file-op-db-test-{nonce}.sqlite3"))
     }
 
     fn insert_indexed_file(db: &Database, path: &Path, name: &str, extension: &str) {

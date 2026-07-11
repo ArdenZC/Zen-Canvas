@@ -254,6 +254,7 @@ fn current_user_old_temp_file_is_safe_in_real_scan() {
             .set_modified(SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60)),
     )
     .expect("age temp file");
+    drop(file);
 
     let analysis = analyze_storage_roots_for_test(vec![root], Vec::new())
         .expect("scan aged current temp child");
@@ -284,6 +285,7 @@ fn temp_execution_revalidation_enforces_age_policy() {
             .set_modified(SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60)),
     )
     .expect("age execution temp file");
+    drop(file);
 
     assert!(zen_canvas_tauri::storage_analyzer::is_cleanup_execution_forbidden(&recent, None));
     assert!(!zen_canvas_tauri::storage_analyzer::is_cleanup_execution_forbidden(&old, None));
