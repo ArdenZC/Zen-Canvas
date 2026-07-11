@@ -199,11 +199,11 @@
                 }],
             }],
             action: RuleAction {
-                purpose: Some("Duplicate Review".to_string()),
-                lifecycle: Some("Inbox".to_string()),
+                purpose: Some("Duplicate Review".into()),
+                lifecycle: Some("Inbox".into()),
                 context: Some("D1 Duplicate".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Review".to_string()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Review".into()),
                 target_template: None,
                 rename_template: None,
             },
@@ -667,10 +667,71 @@
     }
 
     #[test]
+    fn save_user_rule_rejects_invalid_domain_values() {
+        let db = Database::open(test_db_path()).expect("open test database");
+
+        let mut purpose = user_rule_for_persistence("rule-purpose", "Purpose", 200.0);
+        purpose.action.purpose = Some("not-a-purpose".into());
+        assert!(db
+            .save_user_rule(purpose)
+            .expect_err("reject invalid purpose")
+            .to_string()
+            .contains("purpose is invalid"));
+
+        let mut lifecycle = user_rule_for_persistence("rule-lifecycle", "Lifecycle", 200.0);
+        lifecycle.action.lifecycle = Some("not-a-lifecycle".into());
+        assert!(db
+            .save_user_rule(lifecycle)
+            .expect_err("reject invalid lifecycle")
+            .to_string()
+            .contains("lifecycle is invalid"));
+
+        let mut risk = user_rule_for_persistence("rule-risk", "Risk", 200.0);
+        risk.action.risk_level = Some("not-a-risk".into());
+        assert!(db
+            .save_user_rule(risk)
+            .expect_err("reject invalid risk")
+            .to_string()
+            .contains("risk level is invalid"));
+    }
+
+    #[test]
+    fn legacy_invalid_rule_values_load_as_unknown() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        db.save_user_rule(user_rule_for_persistence("rule-legacy-enum", "Legacy", 200.0))
+            .expect("save valid rule");
+        let conn = Connection::open(db.path()).expect("open sqlite");
+        conn.execute(
+            "UPDATE rules SET action_json = ?2 WHERE id = ?1",
+            params![
+                "rule-legacy-enum",
+                r#"{"purpose":"bad-purpose","lifecycle":"bad-lifecycle","risk_level":"bad-risk","suggested_action":"bad-action"}"#
+            ],
+        )
+        .expect("inject legacy invalid values");
+
+        let rule = db.get_user_rules().expect("load migrated rules").remove(0);
+
+        assert_eq!(rule.action.purpose.as_deref(), Some("Unknown"));
+        assert_eq!(rule.action.lifecycle.as_deref(), Some("Unknown"));
+        assert_eq!(rule.action.risk_level.as_deref(), Some("Unknown"));
+        assert_eq!(rule.action.suggested_action.as_deref(), Some("Unknown"));
+        let stored: String = conn
+            .query_row(
+                "SELECT action_json FROM rules WHERE id = 'rule-legacy-enum'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read migrated action json");
+        assert!(!stored.contains("bad-purpose"));
+        assert_eq!(stored.matches("Unknown").count(), 4);
+    }
+
+    #[test]
     fn save_user_rule_rejects_unsafe_move_target() {
         let db = Database::open(test_db_path()).expect("open test database");
         let mut rule = user_rule_for_persistence("rule-target", "Target", 200.0);
-        rule.action.suggested_action = Some("Move".to_string());
+        rule.action.suggested_action = Some("Move".into());
         rule.action.target_template = Some("../Secrets".to_string());
 
         let error = db.save_user_rule(rule).expect_err("reject unsafe target");
@@ -717,7 +778,7 @@
 
         rule.name = "After".to_string();
         rule.enabled = false;
-        rule.action.lifecycle = Some("TrashReview".to_string());
+        rule.action.lifecycle = Some("TrashReview".into());
         let saved = db.save_user_rule(rule.clone()).expect("update rule");
         let rules = db.get_user_rules().expect("get user rules");
 
@@ -1286,11 +1347,11 @@
                 }],
             }],
             action: RuleAction {
-                purpose: Some("Project".to_string()),
-                lifecycle: Some("Active".to_string()),
+                purpose: Some("Project".into()),
+                lifecycle: Some("Active".into()),
                 context: Some("Override".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("20_Areas/Projects".to_string()),
                 rename_template: None,
             },

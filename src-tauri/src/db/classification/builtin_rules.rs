@@ -19,10 +19,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
                 condition("path", "contains", "identity"),
             ],
             RuleAction {
-                purpose: Some("Identity".to_string()),
-                lifecycle: Some("Sensitive".to_string()),
-                risk_level: Some("Sensitive".to_string()),
-                suggested_action: Some("Review".to_string()),
+                purpose: Some("Identity".into()),
+                lifecycle: Some("Sensitive".into()),
+                risk_level: Some("Sensitive".into()),
+                suggested_action: Some("Review".into()),
                 target_template: Some("Sensitive/Identity".to_string()),
                 context: Some("Identity".to_string()),
                 ..RuleAction::default()
@@ -41,10 +41,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
                 condition("path", "contains", "career"),
             ],
             RuleAction {
-                purpose: Some("Career".to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Career".into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Career".to_string()),
                 context: Some("Career".to_string()),
                 ..RuleAction::default()
@@ -68,10 +68,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
                 condition("path", "contains", "bank"),
             ],
             RuleAction {
-                purpose: Some("Finance".to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Sensitive".to_string()),
-                suggested_action: Some("Review".to_string()),
+                purpose: Some("Finance".into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Sensitive".into()),
+                suggested_action: Some("Review".into()),
                 target_template: Some("Sensitive/Finance".to_string()),
                 context: Some("Finance".to_string()),
                 ..RuleAction::default()
@@ -93,10 +93,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
                 condition("name", "contains", "go.mod"),
             ],
             RuleAction {
-                purpose: Some("Project".to_string()),
-                lifecycle: Some("Active".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Review".to_string()),
+                purpose: Some("Project".into()),
+                lifecycle: Some("Active".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Review".into()),
                 target_template: Some("Projects".to_string()),
                 context: Some("Code Project".to_string()),
                 ..RuleAction::default()
@@ -117,10 +117,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
                 condition("name", "contains", "微信截图"),
             ],
             RuleAction {
-                purpose: Some("Media".to_string()),
-                lifecycle: Some("Active".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Rename".to_string()),
+                purpose: Some("Media".into()),
+                lifecycle: Some("Active".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Rename".into()),
                 target_template: Some("Media/Screenshots".to_string()),
                 rename_template: Some("{basename}_{date}".to_string()),
                 context: Some("Screenshot".to_string()),
@@ -142,10 +142,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
                 condition("name", "contains", "新建"),
             ],
             RuleAction {
-                purpose: Some("Temporary".to_string()),
-                lifecycle: Some("Disposable".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Review".to_string()),
+                purpose: Some("Temporary".into()),
+                lifecycle: Some("Disposable".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Review".into()),
                 target_template: Some("Temporary".to_string()),
                 context: Some("Temporary".to_string()),
                 ..RuleAction::default()
@@ -171,10 +171,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
                 condition("name", "contains", "Python"),
             ],
             RuleAction {
-                purpose: Some("Study".to_string()),
-                lifecycle: Some("Active".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Study".into()),
+                lifecycle: Some("Active".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Study".to_string()),
                 context: Some("Study".to_string()),
                 ..RuleAction::default()
@@ -188,10 +188,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
             "OR",
             teaching_conditions(),
             RuleAction {
-                purpose: Some("Teaching".to_string()),
-                lifecycle: Some("Active".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Teaching".into()),
+                lifecycle: Some("Active".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Teaching".to_string()),
                 context: Some("Teaching".to_string()),
                 ..RuleAction::default()
@@ -205,10 +205,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
             "OR",
             work_document_conditions(),
             RuleAction {
-                purpose: Some("Work".to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Work".into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Work/Documents".to_string()),
                 context: Some("Work Document".to_string()),
                 ..RuleAction::default()
@@ -222,10 +222,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
             "OR",
             vec![condition("file_type", "equals", "Image")],
             RuleAction {
-                purpose: Some("Media".to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Media".into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Media/Images".to_string()),
                 context: Some("Image".to_string()),
                 ..RuleAction::default()
@@ -239,10 +239,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
             "OR",
             vec![condition("file_type", "equals", "Video")],
             RuleAction {
-                purpose: Some("Media".to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Media".into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Media/Videos".to_string()),
                 context: Some("Video".to_string()),
                 ..RuleAction::default()
@@ -256,10 +256,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
             "OR",
             vec![condition("file_type", "equals", "Audio")],
             RuleAction {
-                purpose: Some("Media".to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Media".into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Media/Audio".to_string()),
                 context: Some("Audio".to_string()),
                 ..RuleAction::default()
@@ -273,10 +273,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
             "OR",
             vec![condition("file_type", "equals", "Spreadsheet")],
             RuleAction {
-                purpose: Some("Unknown".to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Unknown".into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Documents/Spreadsheets".to_string()),
                 context: Some("Spreadsheet".to_string()),
                 ..RuleAction::default()
@@ -290,10 +290,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
             "OR",
             vec![condition("file_type", "equals", "Presentation")],
             RuleAction {
-                purpose: Some("Work".to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Work".into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Documents/Presentations".to_string()),
                 context: Some("Presentation".to_string()),
                 ..RuleAction::default()
@@ -307,10 +307,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
             "OR",
             vec![condition("file_type", "equals", "ArchivePackage")],
             RuleAction {
-                purpose: Some("Archive".to_string()),
-                lifecycle: Some("Disposable".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Review".to_string()),
+                purpose: Some("Archive".into()),
+                lifecycle: Some("Disposable".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Review".into()),
                 target_template: Some("Archives".to_string()),
                 context: Some("Archive Package".to_string()),
                 ..RuleAction::default()
@@ -324,10 +324,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
             "OR",
             vec![condition("file_type", "equals", "Document")],
             RuleAction {
-                purpose: Some("Unknown".to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Unknown".into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Documents".to_string()),
                 context: Some("Document".to_string()),
                 ..RuleAction::default()
@@ -345,10 +345,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
                 condition("name", "contains", "installer"),
             ],
             RuleAction {
-                purpose: Some("Installer".to_string()),
-                lifecycle: Some("Disposable".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Review".to_string()),
+                purpose: Some("Installer".into()),
+                lifecycle: Some("Disposable".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Review".into()),
                 target_template: Some("Installers".to_string()),
                 context: Some("Installer".to_string()),
                 ..RuleAction::default()
@@ -362,10 +362,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
             "OR",
             vec![condition("extension", "equals", "folder")],
             RuleAction {
-                purpose: Some("Project".to_string()),
-                lifecycle: Some("Active".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Review".to_string()),
+                purpose: Some("Project".into()),
+                lifecycle: Some("Active".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Review".into()),
                 target_template: Some("Projects".to_string()),
                 context: Some("Project Folder".to_string()),
                 ..RuleAction::default()
@@ -382,10 +382,10 @@ pub(crate) fn legacy_builtin_classification_rules() -> Vec<Rule> {
                 condition("directory", "contains", "desktop"),
             ],
             RuleAction {
-                purpose: Some("Temporary".to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Keep".to_string()),
+                purpose: Some("Temporary".into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Keep".into()),
                 target_template: Some(String::new()),
                 context: Some("User Space".to_string()),
                 ..RuleAction::default()
@@ -402,10 +402,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     if row.is_dir {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Project".to_string()),
-                lifecycle: Some("Active".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Review".to_string()),
+                purpose: Some("Project".into()),
+                lifecycle: Some("Active".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Review".into()),
                 target_template: Some("Projects".to_string()),
                 context: Some("Project Folder".to_string()),
                 ..RuleAction::default()
@@ -429,10 +429,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     ) {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Identity".to_string()),
-                lifecycle: Some("Sensitive".to_string()),
-                risk_level: Some("Sensitive".to_string()),
-                suggested_action: Some("Review".to_string()),
+                purpose: Some("Identity".into()),
+                lifecycle: Some("Sensitive".into()),
+                risk_level: Some("Sensitive".into()),
+                suggested_action: Some("Review".into()),
                 target_template: Some("Sensitive/Identity".to_string()),
                 context: Some("Identity".to_string()),
                 ..RuleAction::default()
@@ -447,10 +447,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     ) {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Career".to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Career".into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Career".to_string()),
                 context: Some("Career".to_string()),
                 ..RuleAction::default()
@@ -478,10 +478,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     ) {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Finance".to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Sensitive".to_string()),
-                suggested_action: Some("Review".to_string()),
+                purpose: Some("Finance".into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Sensitive".into()),
+                suggested_action: Some("Review".into()),
                 target_template: Some("Sensitive/Finance".to_string()),
                 context: Some("Finance".to_string()),
                 ..RuleAction::default()
@@ -493,10 +493,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     if is_project_manifest(&name) {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Project".to_string()),
-                lifecycle: Some("Active".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Review".to_string()),
+                purpose: Some("Project".into()),
+                lifecycle: Some("Active".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Review".into()),
                 target_template: Some("Projects".to_string()),
                 context: Some("Code Project".to_string()),
                 ..RuleAction::default()
@@ -514,11 +514,11 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                     } else {
                         "Temporary"
                     }
-                    .to_string(),
+                    .into(),
                 ),
-                lifecycle: Some("Active".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Rename".to_string()),
+                lifecycle: Some("Active".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Rename".into()),
                 target_template: Some("Media/Screenshots".to_string()),
                 rename_template: Some("{basename}_{date}".to_string()),
                 context: Some("Screenshot".to_string()),
@@ -530,10 +530,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     if any_contains(&haystack, teaching_keywords()) {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Teaching".to_string()),
-                lifecycle: Some("Active".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Teaching".into()),
+                lifecycle: Some("Active".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Teaching".to_string()),
                 context: Some("Teaching".to_string()),
                 ..RuleAction::default()
@@ -545,17 +545,17 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     if any_contains(&haystack, study_keywords()) {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Study".to_string()),
-                lifecycle: Some(if age_days <= 30 { "Active" } else { "Archive" }.to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Study".into()),
+                lifecycle: Some(if age_days <= 30 { "Active" } else { "Archive" }.into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some(
                     if age_days <= 30 {
                         "Study"
                     } else {
                         "Archive/{year}/Study"
                     }
-                    .to_string(),
+                    .into(),
                 ),
                 context: Some(extract_study_context(&row.name)),
                 ..RuleAction::default()
@@ -567,10 +567,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     if is_temporary_name(&haystack) {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Temporary".to_string()),
-                lifecycle: Some("Disposable".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Review".to_string()),
+                purpose: Some("Temporary".into()),
+                lifecycle: Some("Disposable".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Review".into()),
                 target_template: Some("Temporary".to_string()),
                 context: Some("Temporary".to_string()),
                 ..RuleAction::default()
@@ -582,10 +582,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     if file_type == "Installer" {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Installer".to_string()),
-                lifecycle: Some("Disposable".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Review".to_string()),
+                purpose: Some("Installer".into()),
+                lifecycle: Some("Disposable".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Review".into()),
                 target_template: Some("Installers".to_string()),
                 context: Some("Installer".to_string()),
                 ..RuleAction::default()
@@ -597,17 +597,17 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     if file_type == "Image" {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Media".to_string()),
-                lifecycle: Some(if age_days <= 30 { "Active" } else { "Archive" }.to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Media".into()),
+                lifecycle: Some(if age_days <= 30 { "Active" } else { "Archive" }.into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some(
                     if age_days <= 30 {
                         "Media/Images"
                     } else {
                         "Archive/{year}/Images"
                     }
-                    .to_string(),
+                    .into(),
                 ),
                 context: Some("Image".to_string()),
                 ..RuleAction::default()
@@ -619,17 +619,17 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     if file_type == "Video" {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Media".to_string()),
+                purpose: Some("Media".into()),
                 lifecycle: Some(
                     if age_days <= 180 {
                         "Reference"
                     } else {
                         "Archive"
                     }
-                    .to_string(),
+                    .into(),
                 ),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some(
                     if age_days <= 180 {
                         "Media/Videos"
@@ -648,10 +648,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     if file_type == "Audio" {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Media".to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Media".into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Media/Audio".to_string()),
                 context: Some("Audio".to_string()),
                 ..RuleAction::default()
@@ -663,10 +663,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     if file_type == "Spreadsheet" {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Work".to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Work".into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Documents/Spreadsheets".to_string()),
                 context: Some("Spreadsheet".to_string()),
                 ..RuleAction::default()
@@ -684,11 +684,11 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                     } else {
                         "Work"
                     }
-                    .to_string(),
+                    .into(),
                 ),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Documents/Presentations".to_string()),
                 context: Some("Presentation".to_string()),
                 ..RuleAction::default()
@@ -700,10 +700,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     if file_type == "ArchivePackage" {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Archive".to_string()),
-                lifecycle: Some("Disposable".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Review".to_string()),
+                purpose: Some("Archive".into()),
+                lifecycle: Some("Disposable".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Review".into()),
                 target_template: Some("Archives".to_string()),
                 context: Some("Archive Package".to_string()),
                 ..RuleAction::default()
@@ -715,10 +715,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     if file_type == "Code" {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Project".to_string()),
-                lifecycle: Some("Active".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Review".to_string()),
+                purpose: Some("Project".into()),
+                lifecycle: Some("Active".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Review".into()),
                 target_template: Some("Projects".to_string()),
                 context: Some("Code".to_string()),
                 ..RuleAction::default()
@@ -730,10 +730,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
     if any_contains(&haystack, work_document_keywords()) {
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some("Work".to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                purpose: Some("Work".into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("Work/Documents".to_string()),
                 context: Some("Work Document".to_string()),
                 ..RuleAction::default()
@@ -746,10 +746,10 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
         let purpose = document_purpose(&haystack);
         return BuiltinClassification {
             action: RuleAction {
-                purpose: Some(purpose.to_string()),
-                lifecycle: Some("Reference".to_string()),
-                risk_level: Some(document_risk_level(purpose).to_string()),
-                suggested_action: Some(document_suggested_action(purpose).to_string()),
+                purpose: Some(purpose.into()),
+                lifecycle: Some("Reference".into()),
+                risk_level: Some(document_risk_level(purpose).into()),
+                suggested_action: Some(document_suggested_action(purpose).into()),
                 target_template: Some(document_target_template(purpose).to_string()),
                 context: Some("Document".to_string()),
                 ..RuleAction::default()
@@ -770,17 +770,17 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
                     } else {
                         "Temporary"
                     }
-                    .to_string(),
+                    .into(),
                 ),
-                lifecycle: Some("Disposable".to_string()),
-                risk_level: Some("Normal".to_string()),
+                lifecycle: Some("Disposable".into()),
+                risk_level: Some("Normal".into()),
                 suggested_action: Some(
                     if file_type == "Image" {
                         "Rename"
                     } else {
                         "Move"
                     }
-                    .to_string(),
+                    .into(),
                 ),
                 target_template: Some(
                     if file_type == "Image" {
@@ -799,17 +799,17 @@ pub(super) fn classify_builtin(row: &IndexedFileRow, file_type: &str) -> Builtin
 
     BuiltinClassification {
         action: RuleAction {
-            purpose: Some("Unknown".to_string()),
+            purpose: Some("Unknown".into()),
             lifecycle: Some(
                 if age_days <= 14 {
                     "Active"
                 } else {
                     "Reference"
                 }
-                .to_string(),
+                .into(),
             ),
-            risk_level: Some("Unknown".to_string()),
-            suggested_action: Some("Keep".to_string()),
+            risk_level: Some("Unknown".into()),
+            suggested_action: Some("Keep".into()),
             target_template: Some(String::new()),
             context: Some(String::new()),
             ..RuleAction::default()

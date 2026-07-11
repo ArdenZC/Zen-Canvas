@@ -812,7 +812,7 @@ mod tests {
             candidate_id: id.to_string(),
             tier: Some("Safe".to_string()),
             category: Some("AI category".to_string()),
-            suggested_action: Some("MoveToTrash".to_string()),
+            suggested_action: Some("MoveToTrash".into()),
             confidence: Some(0.95),
             reason: Some("AI reason.".to_string()),
             risk_note: Some("AI risk.".to_string()),

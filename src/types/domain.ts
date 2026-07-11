@@ -23,6 +23,8 @@ export type Purpose =
   | "Installer"
   | "Temporary"
   | "Archive"
+  | "Document"
+  | "Duplicate Review"
   | "Unknown";
 
 export type Lifecycle =
@@ -32,9 +34,11 @@ export type Lifecycle =
   | "Archive"
   | "Disposable"
   | "Duplicate"
-  | "Sensitive";
+  | "Sensitive"
+  | "TrashReview"
+  | "Unknown";
 
-export type RiskLevel = "Normal" | "Sensitive" | "System" | "Unknown";
+export type RiskLevel = "Normal" | "Sensitive" | "System" | "Caution" | "Unknown";
 
 export type SuggestedAction =
   | "Keep"
@@ -43,7 +47,8 @@ export type SuggestedAction =
   | "MoveAndRename"
   | "Archive"
   | "Review"
-  | "DeleteCandidate";
+  | "DeleteCandidate"
+  | "Unknown";
 
 export type DispatchZone = "CoreAssets" | "QuietArchive" | "PrivacyVault" | "CleanupLane";
 export type SearchSourceType = "user_space" | "folder" | "cloud" | "external";

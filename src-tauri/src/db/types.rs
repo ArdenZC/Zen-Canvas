@@ -229,15 +229,15 @@ pub struct RuleCondition {
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RuleAction {
     #[serde(default)]
-    pub purpose: Option<String>,
+    pub purpose: Option<Purpose>,
     #[serde(default)]
-    pub lifecycle: Option<String>,
+    pub lifecycle: Option<Lifecycle>,
     #[serde(default)]
     pub context: Option<String>,
     #[serde(default, alias = "riskLevel")]
-    pub risk_level: Option<String>,
+    pub risk_level: Option<RiskLevel>,
     #[serde(default, alias = "suggestedAction")]
-    pub suggested_action: Option<String>,
+    pub suggested_action: Option<SuggestedAction>,
     #[serde(default, alias = "targetTemplate")]
     pub target_template: Option<String>,
     #[serde(default, alias = "renameTemplate")]
@@ -363,4 +363,108 @@ fn default_or() -> String {
 
 fn default_and() -> String {
     "AND".to_string()
+}
+macro_rules! domain_enum {
+    ($name:ident { $($variant:ident => $value:literal),+ $(,)? }) => {
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub enum $name {
+            $($variant,)+
+            Invalid(String),
+        }
+
+        impl $name {
+            pub fn as_str(&self) -> &str {
+                match self {
+                    $(Self::$variant => $value,)+
+                    Self::Invalid(value) => value,
+                }
+            }
+            pub fn is_invalid(&self) -> bool { matches!(self, Self::Invalid(_)) }
+
+            fn from_value(value: String) -> Self {
+                match value.as_str() {
+                    $($value => Self::$variant,)+
+                    _ => Self::Invalid(value),
+                }
+            }
+        }
+
+        impl std::ops::Deref for $name {
+            type Target = str;
+            fn deref(&self) -> &Self::Target { self.as_str() }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str(self.as_str())
+            }
+        }
+
+        impl From<String> for $name {
+            fn from(value: String) -> Self { Self::from_value(value) }
+        }
+
+        impl From<&str> for $name {
+            fn from(value: &str) -> Self { Self::from_value(value.to_string()) }
+        }
+
+        impl Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_str(self.as_str())
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let value = String::deserialize(deserializer)?;
+                Ok(Self::from_value(value))
+            }
+        }
+    };
+}
+
+domain_enum!(Purpose {
+    Project => "Project", Teaching => "Teaching", Study => "Study", Work => "Work",
+    Personal => "Personal", Career => "Career", Finance => "Finance", Identity => "Identity",
+    Media => "Media", Installer => "Installer", Temporary => "Temporary", Archive => "Archive",
+    Document => "Document", DuplicateReview => "Duplicate Review", Unknown => "Unknown"
+});
+domain_enum!(Lifecycle {
+    Inbox => "Inbox", Active => "Active", Reference => "Reference", Archive => "Archive",
+    Disposable => "Disposable", Duplicate => "Duplicate", Sensitive => "Sensitive",
+    TrashReview => "TrashReview", Unknown => "Unknown"
+});
+domain_enum!(RiskLevel {
+    Normal => "Normal", Sensitive => "Sensitive", System => "System", Caution => "Caution",
+    Unknown => "Unknown"
+});
+domain_enum!(SuggestedAction {
+    Keep => "Keep", Rename => "Rename", Move => "Move", MoveAndRename => "MoveAndRename",
+    Archive => "Archive", Review => "Review", DeleteCandidate => "DeleteCandidate",
+    Unknown => "Unknown"
+});
+
+#[cfg(test)]
+mod domain_enum_tests {
+    use super::*;
+
+    #[test]
+    fn rule_domain_enums_serialize_with_frontend_values() {
+        assert_eq!(
+            serde_json::to_string(&Purpose::Project).unwrap(),
+            r#""Project""#
+        );
+        assert_eq!(
+            serde_json::to_string(&Lifecycle::Reference).unwrap(),
+            r#""Reference""#
+        );
+        assert_eq!(
+            serde_json::to_string(&RiskLevel::System).unwrap(),
+            r#""System""#
+        );
+        assert_eq!(
+            serde_json::to_string(&SuggestedAction::MoveAndRename).unwrap(),
+            r#""MoveAndRename""#
+        );
+    }
 }

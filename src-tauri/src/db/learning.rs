@@ -323,11 +323,11 @@ fn learned_rule_from_snapshot(
 
     let now = current_rule_timestamp();
     let action = RuleAction {
-        purpose: Some(snapshot.purpose.clone()),
-        lifecycle: Some(snapshot.lifecycle.clone()),
+        purpose: Some(snapshot.purpose.clone().into()),
+        lifecycle: Some(snapshot.lifecycle.clone().into()),
         context: (!snapshot.context.trim().is_empty()).then(|| snapshot.context.clone()),
-        risk_level: Some(snapshot.risk_level.clone()),
-        suggested_action: Some(snapshot.suggested_action.clone()),
+        risk_level: Some(snapshot.risk_level.clone().into()),
+        suggested_action: Some(snapshot.suggested_action.clone().into()),
         target_template: target_template
             .map(str::trim)
             .filter(|value| !value.is_empty())

@@ -6,6 +6,7 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 impl Database {
     pub fn get_user_rules(&self) -> Result<Vec<Rule>, DbError> {
         let conn = self.conn()?;
+        migrate_invalid_rule_domain_values(&conn)?;
         let mut stmt = conn.prepare(
             r#"
             SELECT
@@ -107,6 +108,41 @@ impl Database {
         )?;
         Ok(deleted > 0)
     }
+}
+
+fn migrate_invalid_rule_domain_values(conn: &rusqlite::Connection) -> Result<(), DbError> {
+    let migrations = [
+        (
+            "purpose",
+            "'Project','Teaching','Study','Work','Personal','Career','Finance','Identity','Media','Installer','Temporary','Archive','Document','Duplicate Review','Unknown'",
+        ),
+        (
+            "lifecycle",
+            "'Inbox','Active','Reference','Archive','Disposable','Duplicate','Sensitive','TrashReview','Unknown'",
+        ),
+        (
+            "risk_level",
+            "'Normal','Sensitive','System','Caution','Unknown'",
+        ),
+        (
+            "suggested_action",
+            "'Keep','Rename','Move','MoveAndRename','Archive','Review','DeleteCandidate','Unknown'",
+        ),
+    ];
+    for (field, allowed) in migrations {
+        let sql = format!(
+            "UPDATE rules SET action_json = json_set(action_json, '$.{field}', 'Unknown') \
+             WHERE source = 'user' AND json_type(action_json, '$.{field}') = 'text' \
+             AND json_extract(action_json, '$.{field}') NOT IN ({allowed})"
+        );
+        let changed = conn.execute(&sql, [])?;
+        if changed > 0 {
+            eprintln!(
+                "migration warning: mapped {changed} invalid rule {field} value(s) to Unknown"
+            );
+        }
+    }
+    Ok(())
 }
 
 fn validate_user_rule(rule: &Rule) -> Result<(), DbError> {
@@ -214,6 +250,34 @@ fn validate_user_rule(rule: &Rule) -> Result<(), DbError> {
         }
     }
 
+    if rule
+        .action
+        .purpose
+        .as_ref()
+        .is_some_and(Purpose::is_invalid)
+    {
+        return Err(DbError::Validation("Rule purpose is invalid.".to_string()));
+    }
+    if rule
+        .action
+        .lifecycle
+        .as_ref()
+        .is_some_and(Lifecycle::is_invalid)
+    {
+        return Err(DbError::Validation(
+            "Rule lifecycle is invalid.".to_string(),
+        ));
+    }
+    if rule
+        .action
+        .risk_level
+        .as_ref()
+        .is_some_and(RiskLevel::is_invalid)
+    {
+        return Err(DbError::Validation(
+            "Rule risk level is invalid.".to_string(),
+        ));
+    }
     if let Some(action) = rule.action.suggested_action.as_deref() {
         if !matches!(
             action,
@@ -229,7 +293,10 @@ fn validate_user_rule(rule: &Rule) -> Result<(), DbError> {
     validate_optional_rule_action_value(rule.action.lifecycle.as_deref(), "lifecycle")?;
     validate_optional_rule_action_value(rule.action.context.as_deref(), "context")?;
     if let Some(risk_level) = rule.action.risk_level.as_deref() {
-        if !matches!(risk_level, "Normal" | "Sensitive" | "Caution" | "Unknown") {
+        if !matches!(
+            risk_level,
+            "Normal" | "Sensitive" | "System" | "Caution" | "Unknown"
+        ) {
             return Err(DbError::Validation(
                 "Rule risk level is invalid.".to_string(),
             ));
@@ -312,6 +379,43 @@ fn rule_from_row(row: &Row<'_>) -> rusqlite::Result<RuleSqlRow> {
 }
 
 fn rule_from_sql_row(row: RuleSqlRow) -> Result<Rule, DbError> {
+    let mut action = serde_json::from_str::<RuleAction>(&row.action_json)?;
+    if action.purpose.as_ref().is_some_and(Purpose::is_invalid) {
+        eprintln!(
+            "migration warning: rule {} has invalid purpose; mapped to Unknown",
+            row.id
+        );
+        action.purpose = Some(Purpose::Unknown);
+    }
+    if action.lifecycle.as_ref().is_some_and(Lifecycle::is_invalid) {
+        eprintln!(
+            "migration warning: rule {} has invalid lifecycle; mapped to Unknown",
+            row.id
+        );
+        action.lifecycle = Some(Lifecycle::Unknown);
+    }
+    if action
+        .risk_level
+        .as_ref()
+        .is_some_and(RiskLevel::is_invalid)
+    {
+        eprintln!(
+            "migration warning: rule {} has invalid risk level; mapped to Unknown",
+            row.id
+        );
+        action.risk_level = Some(RiskLevel::Unknown);
+    }
+    if action
+        .suggested_action
+        .as_ref()
+        .is_some_and(SuggestedAction::is_invalid)
+    {
+        eprintln!(
+            "migration warning: rule {} has invalid suggested action; mapped to Unknown",
+            row.id
+        );
+        action.suggested_action = Some(SuggestedAction::Unknown);
+    }
     Ok(Rule {
         id: row.id,
         name: row.name,
@@ -321,7 +425,7 @@ fn rule_from_sql_row(row: RuleSqlRow) -> Result<Rule, DbError> {
         weight: row.weight,
         root_operator: row.root_operator,
         groups: serde_json::from_str::<Vec<RuleConditionGroup>>(&row.groups_json)?,
-        action: serde_json::from_str::<RuleAction>(&row.action_json)?,
+        action,
         created_at: row.created_at,
         updated_at: row.updated_at,
     })
