@@ -1,19 +1,23 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 use zen_canvas_tauri::db::Database;
 use zen_canvas_tauri::storage_analyzer::{
-    analyze_storage_roots_for_test, classify_candidate_for_test,
-    cleanup_preview_items_for_candidates, default_scan_roots_for_test,
-    get_storage_cleanup_scan_status_for_test, is_forbidden_storage_path_for_test,
-    move_cleanup_candidates_to_safe_trash_for_candidates,
+    analyze_storage_roots_for_test, candidates_by_job_and_ids_for_test,
+    classify_candidate_for_test, cleanup_preview_items_for_candidates, default_scan_roots_for_test,
+    get_storage_cleanup_candidate_page_for_test, get_storage_cleanup_scan_status_for_test,
+    is_forbidden_storage_path_for_test, move_cleanup_candidates_to_safe_trash_for_candidates,
     move_cleanup_candidates_to_trash_for_candidates, preview_cleanup_operations_for_candidates,
     reconcile_pending_cleanup_journal, restore_cleanup_trash_items_for_db,
-    start_storage_cleanup_scan_for_test, validate_cleanup_roots_for_test, CleanupActionKind,
+    start_storage_cleanup_job_state_for_test, start_storage_cleanup_scan_for_test,
+    store_completed_cleanup_analysis_for_test, validate_cleanup_roots_for_test, CleanupActionKind,
     CleanupTier, StorageCandidate, StorageCleanupProgress, StorageCleanupState,
 };
 
@@ -189,6 +193,157 @@ fn storage_cleanup_progress_payload_serializes_camel_case() {
     assert_eq!(value["scannedEntries"], 7);
     assert_eq!(value["currentPath"], "C:/Users/Zen/file.tmp");
     assert_eq!(value["totalSize"], 99);
+}
+
+#[test]
+fn cleanup_job_a_cannot_execute_job_b_candidates() {
+    let state = StorageCleanupState::default();
+    let (job_a, candidate_a) = completed_cleanup_job(&state, "project-a");
+    let (job_b, candidate_b) = completed_cleanup_job(&state, "project-b");
+
+    let resolved =
+        candidates_by_job_and_ids_for_test(&state, &job_a, std::slice::from_ref(&candidate_a.id))
+            .expect("resolve job A candidate");
+    assert_eq!(resolved[0].id, candidate_a.id);
+
+    let error =
+        candidates_by_job_and_ids_for_test(&state, &job_a, std::slice::from_ref(&candidate_b.id))
+            .expect_err("job B candidate must not resolve through job A");
+    assert!(
+        error.contains("does not belong"),
+        "unexpected error: {error}"
+    );
+    assert_ne!(job_a, job_b);
+}
+
+#[test]
+fn cleanup_new_job_does_not_change_old_job_page() {
+    let state = StorageCleanupState::default();
+    let (job_a, _) = completed_cleanup_job(&state, "project-a");
+    let page_before = get_storage_cleanup_candidate_page_for_test(&state, &job_a, 0, 200)
+        .expect("job A page before job B");
+
+    let _ = completed_cleanup_job(&state, "project-b");
+    let page_after = get_storage_cleanup_candidate_page_for_test(&state, &job_a, 0, 200)
+        .expect("job A page after job B");
+
+    let before_ids = page_before
+        .candidates
+        .iter()
+        .map(|candidate| candidate.id.as_str())
+        .collect::<Vec<_>>();
+    let after_ids = page_after
+        .candidates
+        .iter()
+        .map(|candidate| candidate.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(after_ids, before_ids);
+}
+
+#[test]
+fn cleanup_missing_candidate_fails_whole_request() {
+    let state = StorageCleanupState::default();
+    let (job_id, candidate) = completed_cleanup_job(&state, "project-a");
+
+    let error = candidates_by_job_and_ids_for_test(
+        &state,
+        &job_id,
+        &[candidate.id, "storage-missing".to_string()],
+    )
+    .expect_err("one missing ID must fail the whole request");
+
+    assert!(
+        error.contains("does not belong"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn cleanup_duplicate_candidate_ids_are_rejected() {
+    let state = StorageCleanupState::default();
+    let (job_id, candidate) = completed_cleanup_job(&state, "project-a");
+
+    let error =
+        candidates_by_job_and_ids_for_test(&state, &job_id, &[candidate.id.clone(), candidate.id])
+            .expect_err("duplicate IDs must be rejected");
+
+    assert!(error.contains("duplicate"), "unexpected error: {error}");
+}
+
+#[test]
+fn cleanup_running_and_cancelled_jobs_cannot_resolve_candidates() {
+    let state = StorageCleanupState::default();
+    start_storage_cleanup_job_state_for_test(&state, "job-running").expect("start job state");
+
+    let running = candidates_by_job_and_ids_for_test(&state, "job-running", &[])
+        .expect_err("running job must not resolve candidates");
+    assert!(running.contains("not completed"));
+
+    zen_canvas_tauri::storage_analyzer::cancel_storage_cleanup_scan_for_test("job-running", &state)
+        .expect("cancel job state");
+    let cancelled = candidates_by_job_and_ids_for_test(&state, "job-running", &[])
+        .expect_err("cancelled job must not resolve candidates");
+    assert!(cancelled.contains("not completed"));
+}
+
+#[test]
+fn cleanup_candidate_resolution_preserves_request_order() {
+    let state = StorageCleanupState::default();
+    let (job_id, candidates) = completed_cleanup_job_with_candidates(&state, "ordered", 2);
+    let requested = vec![candidates[1].id.clone(), candidates[0].id.clone()];
+
+    let resolved = candidates_by_job_and_ids_for_test(&state, &job_id, &requested)
+        .expect("resolve candidates in request order");
+    let resolved_ids = resolved
+        .into_iter()
+        .map(|candidate| candidate.id)
+        .collect::<Vec<_>>();
+
+    assert_eq!(resolved_ids, requested);
+}
+
+#[test]
+fn cleanup_candidate_ids_are_scoped_to_jobs() {
+    let state = StorageCleanupState::default();
+    let root = cleanup_candidate_root("same-path", 1);
+    let job_a = start_storage_cleanup_scan_for_test(vec![root.clone()], &state).expect("job A");
+    let candidate_a = wait_for_completed_cleanup_job(&state, &job_a).candidates[0].clone();
+    let job_b = start_storage_cleanup_scan_for_test(vec![root], &state).expect("job B");
+    let candidate_b = wait_for_completed_cleanup_job(&state, &job_b).candidates[0].clone();
+
+    assert_ne!(candidate_a.id, candidate_b.id);
+}
+
+#[test]
+fn cleanup_completion_payload_uses_job_scoped_candidate_ids() {
+    let state = StorageCleanupState::default();
+    let root = cleanup_candidate_root("completion-payload", 1);
+    let analysis = analyze_storage_roots_for_test(vec![root], Vec::new()).expect("analysis");
+
+    let completed = store_completed_cleanup_analysis_for_test(&state, "job-completed", analysis)
+        .expect("store completed analysis");
+    let page = get_storage_cleanup_candidate_page_for_test(&state, "job-completed", 0, 200)
+        .expect("stored page");
+
+    assert_eq!(completed.candidates[0].id, page.candidates[0].id);
+}
+
+#[test]
+fn cleanup_evicted_job_cannot_resolve_candidates() {
+    let state = StorageCleanupState::default();
+    let (old_job, old_candidate) = completed_cleanup_job(&state, "oldest");
+    for index in 0..8 {
+        let _ = completed_cleanup_job(&state, &format!("newer-{index}"));
+    }
+
+    let error = candidates_by_job_and_ids_for_test(
+        &state,
+        &old_job,
+        std::slice::from_ref(&old_candidate.id),
+    )
+    .expect_err("evicted job must not resolve candidates");
+
+    assert!(error.contains("not found"), "unexpected error: {error}");
 }
 
 #[test]
@@ -456,7 +611,7 @@ fn cleanup_operation_preview_rejects_system_and_app_data_paths() {
 }
 
 #[test]
-fn move_cleanup_candidates_to_trash_only_allows_safe_latest_candidates() {
+fn move_cleanup_candidates_to_trash_only_allows_safe_resolved_candidates() {
     let root = test_dir();
     let safe_path = root.join("node_modules");
     write_file(&safe_path.join("package").join("index.js"), 128);
@@ -664,7 +819,11 @@ fn test_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("zen-canvas-storage-analyzer-test-{nonce}"));
+    let counter = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "zen-canvas-storage-analyzer-test-{}-{nonce}-{counter}",
+        std::process::id()
+    ));
     fs::create_dir_all(&dir).expect("test dir");
     dir
 }
@@ -678,4 +837,52 @@ fn write_file(path: &Path, size: usize) {
         fs::create_dir_all(parent).expect("parent dir");
     }
     fs::write(path, vec![b'x'; size]).expect("write file");
+}
+
+fn cleanup_candidate_root(label: &str, count: usize) -> PathBuf {
+    let root = test_dir();
+    for index in 0..count {
+        write_file(
+            &root
+                .join(format!("{label}-{index}"))
+                .join("node_modules")
+                .join("package")
+                .join("index.js"),
+            128,
+        );
+    }
+    root
+}
+
+fn completed_cleanup_job(state: &StorageCleanupState, label: &str) -> (String, StorageCandidate) {
+    let (job_id, candidates) = completed_cleanup_job_with_candidates(state, label, 1);
+    (job_id, candidates[0].clone())
+}
+
+fn completed_cleanup_job_with_candidates(
+    state: &StorageCleanupState,
+    label: &str,
+    count: usize,
+) -> (String, Vec<StorageCandidate>) {
+    let root = cleanup_candidate_root(label, count);
+    let job_id = start_storage_cleanup_scan_for_test(vec![root], state).expect("start cleanup job");
+    let analysis = wait_for_completed_cleanup_job(state, &job_id);
+    assert_eq!(analysis.candidates.len(), count);
+    (job_id, analysis.candidates)
+}
+
+fn wait_for_completed_cleanup_job(
+    state: &StorageCleanupState,
+    job_id: &str,
+) -> zen_canvas_tauri::storage_analyzer::StorageAnalysis {
+    for _ in 0..200 {
+        let status = get_storage_cleanup_scan_status_for_test(job_id, state).expect("job status");
+        match status.status.as_str() {
+            "completed" => return status.analysis.expect("completed analysis"),
+            "failed" => panic!("cleanup job failed: {:?}", status.error),
+            "cancelled" => panic!("cleanup job was cancelled"),
+            _ => thread::sleep(Duration::from_millis(5)),
+        }
+    }
+    panic!("cleanup job did not complete: {job_id}");
 }

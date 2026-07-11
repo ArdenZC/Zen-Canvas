@@ -208,10 +208,6 @@ export const tauriApi = {
     return invokeCommand<void>("reveal_in_folder", { path });
   },
 
-  scanStorageCleanup(roots: string[]): Promise<StorageAnalysis> {
-    return invokeCommand<StorageAnalysis>("scan_storage_cleanup", { roots });
-  },
-
   startStorageCleanupScan(roots: string[]): Promise<string> {
     return invokeCommand<string>("start_storage_cleanup_scan", { roots });
   },
@@ -232,24 +228,24 @@ export const tauriApi = {
     return invokeCommand<void>("reveal_storage_candidate", { path });
   },
 
-  previewCleanupCandidates(ids: string[]): Promise<CleanupPreviewItem[]> {
-    return invokeCommand<CleanupPreviewItem[]>("preview_cleanup_candidates", { ids });
+  previewCleanupCandidates(jobId: string, ids: string[]): Promise<CleanupPreviewItem[]> {
+    return invokeCommand<CleanupPreviewItem[]>("preview_cleanup_candidates", { jobId, ids });
   },
 
-  previewCleanupOperations(ids: string[]): Promise<OperationPreviewResult> {
-    return invokeCommand<OperationPreviewResult>("preview_cleanup_operations", { ids });
+  previewCleanupOperations(jobId: string, ids: string[]): Promise<OperationPreviewResult> {
+    return invokeCommand<OperationPreviewResult>("preview_cleanup_operations", { jobId, ids });
   },
 
-  moveCleanupCandidatesToTrash(ids: string[]): Promise<CleanupExecutionResult> {
-    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_trash", { ids });
+  moveCleanupCandidatesToTrash(jobId: string, ids: string[]): Promise<CleanupExecutionResult> {
+    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_trash", { jobId, ids });
   },
 
-  moveCleanupCandidatesToSafeTrash(ids: string[]): Promise<CleanupExecutionResult> {
-    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_safe_trash", { ids });
+  moveCleanupCandidatesToSafeTrash(jobId: string, ids: string[]): Promise<CleanupExecutionResult> {
+    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_safe_trash", { jobId, ids });
   },
 
-  analyzeCleanupCandidatesWithAI(ids: string[]): Promise<StorageCandidate[]> {
-    return invokeCommand<StorageCandidate[]>("analyze_cleanup_candidates_with_ai", { ids });
+  analyzeCleanupCandidatesWithAI(jobId: string, ids: string[]): Promise<StorageCandidate[]> {
+    return invokeCommand<StorageCandidate[]>("analyze_cleanup_candidates_with_ai", { jobId, ids });
   },
 
   listCleanupTrashBatches(): Promise<CleanupTrashBatch[]> {

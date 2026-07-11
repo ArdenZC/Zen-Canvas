@@ -148,7 +148,6 @@ describe("StorageCleanupView", () => {
 
   it("uses the persistent store and safe trash cleanup in-page", () => {
     const api = {
-      scanStorageCleanup: vi.fn().mockResolvedValue(analysis),
       revealStorageCandidate: vi.fn().mockResolvedValue(undefined),
       startStorageCleanupScan: vi.fn().mockResolvedValue("job-1"),
       cancelStorageCleanupScan: vi.fn().mockResolvedValue(undefined),
@@ -183,10 +182,21 @@ describe("StorageCleanupView", () => {
     expect(source).not.toContain("setPreviewResult");
     expect(source).not.toContain('setView("preview")');
     expect(source).not.toContain("Timeline");
-    expect(source).toContain("api.analyzeCleanupCandidatesWithAI(ids)");
-    expect(source).not.toContain("analyzeCleanupCandidatesWithAI(ids).then(() => api.moveCleanupCandidatesToSafeTrash");
+    expect(source).toContain("api.analyzeCleanupCandidatesWithAI(displayedJobId, ids)");
+    expect(source).toContain("applyAIAnalyzedCandidates(displayedJobId, candidates)");
+    expect(source).not.toContain("analyzeCleanupCandidatesWithAI(ids)");
+    expect(source).not.toContain("analyzeCleanupCandidatesWithAI(displayedJobId, ids).then(() => api.moveCleanupCandidatesToSafeTrash");
     expect(makeTranslator("zh")("storageCleanupGeneratePreview")).toBe("查看安全清理候选");
     expect(makeTranslator("zh")("storageCleanupPreviewDesc")).not.toContain("预览执行");
+  });
+
+  it("requires the displayed job for AI and Safe Trash actions", () => {
+    const source = read("src/views/cleanup/StorageCleanupView.tsx");
+
+    expect(source).toContain("const displayedJobId = initialAnalysis ? null : store.displayedJobId");
+    expect(source).toContain("api.moveCleanupCandidatesToSafeTrash(displayedJobId, [...selectedCleanupIds])");
+    expect(source).toContain("if (!displayedJobId)");
+    expect(source).toContain("disabled={!selectedCleanupIds.size || isExecuting || !displayedJobId}");
   });
 
   it("documents AI cleanup readiness states and settings guidance", () => {

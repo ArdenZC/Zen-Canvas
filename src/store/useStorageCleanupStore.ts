@@ -21,7 +21,8 @@ interface StorageCleanupStore {
   selectedRoots: string[];
   analysis: StorageAnalysis | null;
   isScanning: boolean;
-  scanJobId: string | null;
+  activeJobId: string | null;
+  displayedJobId: string | null;
   scanProgress: StorageCleanupProgress | null;
   scanError: string;
   executionResult: CleanupExecutionResult | null;
@@ -33,6 +34,8 @@ interface StorageCleanupStore {
   activeTierFilter: CleanupTier | "All";
   lastCompletedAt: string | null;
   setSelectedRoots: (roots: string[]) => void;
+  beginDisplayingJob: (jobId: string) => void;
+  displayJob: (api: StorageCleanupApi, jobId: string) => Promise<void>;
   startScan: (api: StorageCleanupApi) => Promise<void>;
   applyScanProgress: (progress: StorageCleanupProgress) => void;
   completeScan: (jobId: string, analysis: StorageAnalysis) => void;
@@ -40,7 +43,7 @@ interface StorageCleanupStore {
   cancelScan: (api: Pick<StorageCleanupApi, "cancelStorageCleanupScan">) => Promise<void>;
   loadMoreCandidates: (api: StorageCleanupApi) => Promise<void>;
   setExecutionResult: (result: CleanupExecutionResult | null) => void;
-  applyAIAnalyzedCandidates: (candidates: StorageCandidate[]) => void;
+  applyAIAnalyzedCandidates: (jobId: string, candidates: StorageCandidate[]) => void;
   setAICleanupStatus: (status: string) => void;
   setAIAnalyzing: (isAnalyzing: boolean) => void;
   setSelectedCleanupIds: (ids: Set<string>) => void;
@@ -53,7 +56,8 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
   selectedRoots: loadRecentRoots(),
   analysis: null,
   isScanning: false,
-  scanJobId: null,
+  activeJobId: null,
+  displayedJobId: null,
   scanProgress: null,
   scanError: "",
   executionResult: null,
@@ -71,6 +75,7 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
     set({
       selectedRoots: cleaned,
       analysis: null,
+      displayedJobId: null,
       executionResult: null,
       selectedCleanupIds: new Set(),
       aiAnalyzedCandidateIds: new Set(),
@@ -94,6 +99,8 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
       executionResult: null,
       scanProgress: null,
       analysis: null,
+      activeJobId: null,
+      displayedJobId: null,
       selectedCleanupIds: new Set(),
       aiAnalyzedCandidateIds: new Set(),
       aiDowngradedCandidateIds: new Set(),
@@ -102,29 +109,43 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
     });
     try {
       const jobId = await api.startStorageCleanupScan(roots);
-      set({ scanJobId: jobId });
+      set({ activeJobId: jobId });
+      try {
+        const status = await api.getStorageCleanupScanStatus(jobId);
+        if (get().activeJobId !== jobId) return;
+        if (status.status === "completed" && status.analysis) {
+          get().completeScan(jobId, status.analysis);
+        } else if (status.status === "failed" || status.status === "cancelled") {
+          get().failScan(jobId, status.error || "扫描未完成。");
+        } else {
+          get().applyScanProgress(status.progress);
+        }
+      } catch {
+        // Event delivery remains authoritative when the immediate status check is unavailable.
+      }
     } catch (error) {
       set({
         isScanning: false,
-        scanJobId: null,
+        activeJobId: null,
         scanError: readableStoreError(error)
       });
     }
   },
 
   applyScanProgress(progress) {
-    const { scanJobId } = get();
-    if (scanJobId && progress.jobId !== scanJobId) return;
+    const { activeJobId } = get();
+    if (!activeJobId || progress.jobId !== activeJobId) return;
     set({ scanProgress: progress, isScanning: true, scanError: "" });
   },
 
   completeScan(jobId, analysis) {
-    const { scanJobId } = get();
-    if (scanJobId && jobId !== scanJobId) return;
+    const { activeJobId } = get();
+    if (jobId !== activeJobId) return;
     set({
       analysis,
       isScanning: false,
-      scanJobId: jobId,
+      activeJobId: null,
+      displayedJobId: jobId,
       scanProgress: null,
       scanError: "",
       selectedCleanupIds: new Set(defaultSelectedCleanupIds(analysis)),
@@ -136,18 +157,18 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
   },
 
   failScan(jobId, message) {
-    const { scanJobId } = get();
-    if (scanJobId && jobId !== scanJobId) return;
+    const { activeJobId } = get();
+    if (jobId !== activeJobId) return;
     set({
       isScanning: false,
-      scanJobId: jobId,
+      activeJobId: null,
       scanError: message,
       scanProgress: null
     });
   },
 
   async cancelScan(api) {
-    const jobId = get().scanJobId;
+    const jobId = get().activeJobId;
     if (!jobId) {
       set({ isScanning: false, scanError: "扫描已取消。" });
       return;
@@ -155,15 +176,19 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
     try {
       await api.cancelStorageCleanupScan(jobId);
     } finally {
-      set({ isScanning: false, scanError: "扫描已取消。", scanProgress: null });
+      if (get().activeJobId === jobId) {
+        set({ activeJobId: null, isScanning: false, scanError: "扫描已取消。", scanProgress: null });
+      }
     }
   },
 
   async loadMoreCandidates(api) {
-    const { analysis, scanJobId } = get();
-    if (!analysis?.has_more || !scanJobId || !api.getStorageCleanupCandidatePage) return;
-    const page = await api.getStorageCleanupCandidatePage(scanJobId, analysis.candidates.length, 200);
-    if (get().scanJobId !== scanJobId) return;
+    const { analysis, displayedJobId } = get();
+    if (!analysis?.has_more || !displayedJobId || !api.getStorageCleanupCandidatePage) return;
+    const offset = analysis.candidates.length;
+    const page = await api.getStorageCleanupCandidatePage(displayedJobId, offset, 200);
+    if (get().displayedJobId !== displayedJobId) return;
+    if ((get().analysis?.candidates.length ?? 0) !== offset) return;
     set((state) => {
       if (!state.analysis) return state;
       const seen = new Set(state.analysis.candidates.map((candidate) => candidate.id));
@@ -180,14 +205,49 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
     });
   },
 
+  beginDisplayingJob(jobId) {
+    set({
+      displayedJobId: jobId,
+      analysis: null,
+      executionResult: null,
+      selectedCleanupIds: new Set(),
+      aiAnalyzedCandidateIds: new Set(),
+      aiDowngradedCandidateIds: new Set(),
+      aiCleanupStatus: "",
+      isAnalyzingWithAI: false,
+      activeTierFilter: "All"
+    });
+  },
+
+  async displayJob(api, jobId) {
+    get().beginDisplayingJob(jobId);
+    if (!api.getStorageCleanupCandidatePage) {
+      set({ scanError: "无法加载清理任务候选项。" });
+      return;
+    }
+    try {
+      const page = await api.getStorageCleanupCandidatePage(jobId, 0, 200);
+      if (get().displayedJobId !== jobId) return;
+      set({
+        analysis: page,
+        scanError: "",
+        selectedCleanupIds: new Set(defaultSelectedCleanupIds(page))
+      });
+    } catch (error) {
+      if (get().displayedJobId === jobId) {
+        set({ scanError: readableStoreError(error) });
+      }
+    }
+  },
+
   setExecutionResult(result) {
     set({ executionResult: result });
   },
 
-  applyAIAnalyzedCandidates(candidates) {
+  applyAIAnalyzedCandidates(jobId, candidates) {
     if (!candidates.length) return;
     set((state) => {
-      if (!state.analysis) return {};
+      if (!state.analysis || state.displayedJobId !== jobId) return {};
       const updates = new Map(candidates.map((candidate) => [candidate.id, candidate]));
       const updatedCandidates = state.analysis.candidates.map((candidate) => updates.get(candidate.id) ?? candidate);
       const updatedAnalysis = rebuildStorageAnalysis(state.analysis, updatedCandidates);
@@ -244,6 +304,7 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
   clearAnalysis() {
     set({
       analysis: null,
+      displayedJobId: null,
       executionResult: null,
       selectedCleanupIds: new Set(),
       aiAnalyzedCandidateIds: new Set(),
@@ -262,7 +323,8 @@ export function resetStorageCleanupStoreForTest() {
     selectedRoots: [],
     analysis: null,
     isScanning: false,
-    scanJobId: null,
+    activeJobId: null,
+    displayedJobId: null,
     scanProgress: null,
     scanError: "",
     executionResult: null,

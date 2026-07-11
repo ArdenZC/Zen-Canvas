@@ -64,7 +64,6 @@ type StorageCleanupApi = Pick<
       | "getAISettings"
       | "getStorageCleanupCandidatePage"
       | "analyzeCleanupCandidatesWithAI"
-      | "scanStorageCleanup"
       | "onStorageCleanupProgress"
       | "onStorageCleanupCompleted"
       | "onStorageCleanupFailed"
@@ -102,6 +101,7 @@ function StorageCleanupPanel({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const analysis = initialAnalysis ?? store.analysis;
+  const displayedJobId = initialAnalysis ? null : store.displayedJobId;
   const selectedRoots = initialRoots ?? store.selectedRoots;
   const selectedCleanupIds = initialAnalysis
     ? new Set(defaultSelectedCleanupIds(initialAnalysis))
@@ -242,10 +242,15 @@ function StorageCleanupPanel({
 
   async function moveSelectedToSafeTrash() {
     if (!selectedCleanupIds.size || isExecuting) return;
+    if (!displayedJobId) {
+      reportError("当前清理结果已过期，请重新扫描。");
+      return;
+    }
     setIsExecuting(true);
     setLocalError("");
     try {
-      const result: CleanupExecutionResult = await api.moveCleanupCandidatesToSafeTrash([...selectedCleanupIds]);
+      const result: CleanupExecutionResult = await api.moveCleanupCandidatesToSafeTrash(displayedJobId, [...selectedCleanupIds]);
+      if (useStorageCleanupStore.getState().displayedJobId !== displayedJobId) return;
       useStorageCleanupStore.getState().setExecutionResult(result);
       setConfirmOpen(false);
       if (!initialAnalysis && selectedRoots.length) {
@@ -261,6 +266,10 @@ function StorageCleanupPanel({
 
   async function analyzeCandidatesWithAI(mode: "all" | "risk" | "selected") {
     if (initialAnalysis || isAnalyzingWithAI || !analysis) return;
+    if (!displayedJobId) {
+      reportError("当前清理结果已过期，请重新扫描。");
+      return;
+    }
     const ids = cleanupAIIdsForMode(mode, sortedCandidates, selectedCleanupIds);
     if (!ids.length) {
       reportError(t("storageCleanupAINoTargets"));
@@ -276,23 +285,27 @@ function StorageCleanupPanel({
     try {
       const settings = await api.getAISettings();
       ensureCleanupAIReady(settings.enabled, settings.cleanupAiEnabled, settings.provider, settings.apiKey, settings.apiKeyConfigured);
-      const candidates = await api.analyzeCleanupCandidatesWithAI(ids);
-      useStorageCleanupStore.getState().applyAIAnalyzedCandidates(candidates);
+      const candidates = await api.analyzeCleanupCandidatesWithAI(displayedJobId, ids);
+      if (useStorageCleanupStore.getState().displayedJobId !== displayedJobId) return;
+      useStorageCleanupStore.getState().applyAIAnalyzedCandidates(displayedJobId, candidates);
       const analyzedCounts = countTiers(candidates);
       const message = `AI 已分析 ${candidates.length.toLocaleString()} 个候选：可安全清理 ${analyzedCounts.Safe.toLocaleString()} 个，需要人工判断 ${analyzedCounts.Review.toLocaleString()} 个，谨慎处理 ${analyzedCounts.Caution.toLocaleString()} 个。${analyzedCounts.Safe === 0 ? " AI 未发现可自动加入清理清单的项目。请查看 Review 项的风险说明，人工确认后再加入 Safe Trash。" : ""}`;
       useStorageCleanupStore.getState().setAICleanupStatus(message);
       useAppStore.getState().showSuccess(message);
     } catch (aiError) {
+      if (useStorageCleanupStore.getState().displayedJobId !== displayedJobId) return;
       const message = readableCleanupAIError(aiError);
       useStorageCleanupStore.getState().setAICleanupStatus(message);
       reportError(message);
     } finally {
-      useStorageCleanupStore.getState().setAIAnalyzing(false);
+      if (useStorageCleanupStore.getState().displayedJobId === displayedJobId) {
+        useStorageCleanupStore.getState().setAIAnalyzing(false);
+      }
     }
   }
 
   function toggleSafeCandidate(candidate: StorageCandidate) {
-    if (initialAnalysis) return;
+    if (initialAnalysis || !displayedJobId) return;
     if (!selectedCleanupIds.has(candidate.id) && candidate.tier === "Review") {
       const confirmed = globalThis.confirm?.("这是需要人工判断的清理项，AI/规则无法保证删除后完全无影响。继续加入 Safe Trash 前，请确认你已经检查过风险说明。") ?? false;
       if (!confirmed) return;
@@ -481,7 +494,7 @@ function StorageCleanupPanel({
                   <button
                     className={buttonSecondary}
                     onClick={() => void analyzeCandidatesWithAI("all")}
-                    disabled={Boolean(initialAnalysis) || isAnalyzingWithAI || !sortedCandidates.length}
+                    disabled={!displayedJobId || isAnalyzingWithAI || !sortedCandidates.length}
                   >
                     {isAnalyzingWithAI ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
                     <span>{t("storageCleanupAIAnalyzeAllShort")}</span>
@@ -489,7 +502,7 @@ function StorageCleanupPanel({
                   <button
                     className={buttonSecondary}
                     onClick={() => void analyzeCandidatesWithAI("risk")}
-                    disabled={Boolean(initialAnalysis) || isAnalyzingWithAI || !tierCounts.Review && !tierCounts.Caution}
+                    disabled={!displayedJobId || isAnalyzingWithAI || !tierCounts.Review && !tierCounts.Caution}
                   >
                     <Sparkles size={16} />
                     <span>{t("storageCleanupAIAnalyzeRisk")}</span>
@@ -497,7 +510,7 @@ function StorageCleanupPanel({
                   <button
                     className={buttonSecondary}
                     onClick={() => void analyzeCandidatesWithAI("selected")}
-                    disabled={Boolean(initialAnalysis) || isAnalyzingWithAI || !selectedCleanupIds.size}
+                    disabled={!displayedJobId || isAnalyzingWithAI || !selectedCleanupIds.size}
                   >
                     <Sparkles size={16} />
                     <span>{t("storageCleanupAIAnalyzeSelected")}</span>
@@ -529,7 +542,7 @@ function StorageCleanupPanel({
                   <button
                     className={buttonSecondary}
                     onClick={() => void analyzeCandidatesWithAI("all")}
-                    disabled={Boolean(initialAnalysis) || isAnalyzingWithAI || !sortedCandidates.length}
+                    disabled={!displayedJobId || isAnalyzingWithAI || !sortedCandidates.length}
                   >
                     {isAnalyzingWithAI ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
                     <span>{t("storageCleanupAIAnalyzeAll")}</span>
@@ -537,7 +550,7 @@ function StorageCleanupPanel({
                   <button
                     className={buttonSecondary}
                     onClick={() => void analyzeCandidatesWithAI("risk")}
-                    disabled={Boolean(initialAnalysis) || isAnalyzingWithAI || !tierCounts.Review && !tierCounts.Caution}
+                    disabled={!displayedJobId || isAnalyzingWithAI || !tierCounts.Review && !tierCounts.Caution}
                   >
                     <Sparkles size={16} />
                     <span>{t("storageCleanupAIAnalyzeRisk")}</span>
@@ -545,7 +558,7 @@ function StorageCleanupPanel({
                   <button
                     className={buttonSecondary}
                     onClick={() => void analyzeCandidatesWithAI("selected")}
-                    disabled={Boolean(initialAnalysis) || isAnalyzingWithAI || !selectedCleanupIds.size}
+                    disabled={!displayedJobId || isAnalyzingWithAI || !selectedCleanupIds.size}
                   >
                     <Sparkles size={16} />
                     <span>{t("storageCleanupAIAnalyzeSelected")}</span>
@@ -611,7 +624,7 @@ function StorageCleanupPanel({
               <button
                 className={glassButtonPrimary}
                 onClick={() => setConfirmOpen(true)}
-                disabled={!selectedCleanupIds.size || isExecuting || Boolean(initialAnalysis)}
+                disabled={!selectedCleanupIds.size || isExecuting || !displayedJobId}
               >
                 <Trash2 size={17} />
                 <span>{t("storageCleanupMoveToSafeTrash")}</span>
