@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -11,6 +11,7 @@ import {
   removeSearchRoot,
   removeDefaultScanRoot,
   resolveEffectiveSearchScope,
+  saveSettingsIntentWithRetry,
   toggleSearchRoot,
   toggleDefaultScanRoot,
   upsertSearchRoot,
@@ -18,6 +19,55 @@ import {
 } from "../src/hooks/useAppSettings";
 
 describe("app settings helpers", () => {
+  it("retries one revision conflict against fresh settings without losing other fields", async () => {
+    const latest = {
+      ...DEFAULT_APP_SETTINGS,
+      launchAtLogin: true,
+      folderNamingLanguage: "zh" as const
+    };
+    const saveSettings = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("settings_revision_conflict"))
+      .mockResolvedValueOnce({
+        settings: { ...latest, restoreRetentionDays: 90 },
+        revision: 8
+      });
+    const getSettings = vi.fn().mockResolvedValue({ settings: latest, revision: 7 });
+
+    const saved = await saveSettingsIntentWithRetry(
+      { getSettings, saveSettings },
+      { settings: DEFAULT_APP_SETTINGS, revision: 6 },
+      { restoreRetentionDays: 90 }
+    );
+
+    expect(saveSettings).toHaveBeenCalledTimes(2);
+    expect(getSettings).toHaveBeenCalledTimes(1);
+    expect(saveSettings).toHaveBeenLastCalledWith({
+      settings: { ...latest, restoreRetentionDays: 90 },
+      expectedRevision: 7
+    });
+    expect(saved.settings.launchAtLogin).toBe(true);
+    expect(saved.settings.restoreRetentionDays).toBe(90);
+  });
+
+  it("retries a revision conflict only once", async () => {
+    const saveSettings = vi.fn().mockRejectedValue(new Error("settings_revision_conflict"));
+    const getSettings = vi.fn().mockResolvedValue({
+      settings: DEFAULT_APP_SETTINGS,
+      revision: 2
+    });
+
+    await expect(
+      saveSettingsIntentWithRetry(
+        { getSettings, saveSettings },
+        { settings: DEFAULT_APP_SETTINGS, revision: 1 },
+        { closeBehavior: "quit" }
+      )
+    ).rejects.toThrow("settings_revision_conflict");
+
+    expect(saveSettings).toHaveBeenCalledTimes(2);
+    expect(getSettings).toHaveBeenCalledTimes(1);
+  });
   it("matches the backend default settings shape", () => {
     expect(DEFAULT_APP_SETTINGS).toEqual({
       closeBehavior: "ask",

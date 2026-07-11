@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 16;
+const CURRENT_SCHEMA_VERSION: i32 = 17;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -444,6 +444,23 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             "#,
         )?;
             set_schema_version(conn, 16)?;
+        }
+        if version < 17 {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+            )?;
+            execute_column_migrations(
+                conn,
+                &["ALTER TABLE app_settings ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;"],
+            )?;
+            conn.execute(
+                "INSERT OR IGNORE INTO app_settings (key, value, revision) VALUES (?1, ?2, 0)",
+                params![
+                    crate::settings::APP_SETTINGS_KEY,
+                    crate::settings::default_settings_json()?
+                ],
+            )?;
+            set_schema_version(conn, 17)?;
         }
         Ok(())
     })();

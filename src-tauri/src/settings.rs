@@ -99,23 +99,47 @@ impl Default for AppSettings {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionedAppSettings {
+    pub settings: AppSettings,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveSettingsRequest {
+    pub settings: AppSettings,
+    pub expected_revision: i64,
+}
+
 pub fn default_settings_json() -> Result<String, DbError> {
     serde_json::to_string(&AppSettings::default()).map_err(DbError::from)
 }
 
 pub fn get_app_settings(db: &Database) -> Result<AppSettings, DbError> {
+    Ok(get_versioned_app_settings(db)?.settings)
+}
+
+pub fn get_versioned_app_settings(db: &Database) -> Result<VersionedAppSettings, DbError> {
     let conn = db.conn()?;
-    let settings_json = conn
+    let row = conn
         .query_row(
-            "SELECT value FROM app_settings WHERE key = ?1",
+            "SELECT value, revision FROM app_settings WHERE key = ?1",
             params![APP_SETTINGS_KEY],
-            |row| row.get::<_, String>(0),
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
         )
         .optional()?;
 
-    match settings_json {
-        Some(value) => serde_json::from_str(&value).map_err(DbError::from),
-        None => Ok(AppSettings::default()),
+    match row {
+        Some((value, revision)) => Ok(VersionedAppSettings {
+            settings: serde_json::from_str(&value)?,
+            revision,
+        }),
+        None => Ok(VersionedAppSettings {
+            settings: AppSettings::default(),
+            revision: 0,
+        }),
     }
 }
 
@@ -127,11 +151,34 @@ pub fn save_app_settings(db: &Database, settings: &AppSettings) -> Result<(), Db
         INSERT INTO app_settings (key, value)
         VALUES (?1, ?2)
         ON CONFLICT(key) DO UPDATE SET
-            value = excluded.value
+            value = excluded.value,
+            revision = app_settings.revision + 1
         "#,
         params![APP_SETTINGS_KEY, settings_json],
     )?;
     Ok(())
+}
+
+pub fn save_app_settings_cas(
+    db: &Database,
+    settings: &AppSettings,
+    expected_revision: i64,
+) -> Result<VersionedAppSettings, SettingsError> {
+    let conn = db.conn()?;
+    let normalized = normalized_app_settings(settings);
+    let settings_json = serde_json::to_string(&normalized).map_err(DbError::from)?;
+    let changed = conn.execute(
+        "UPDATE app_settings SET value = ?1, revision = revision + 1 WHERE key = ?2 AND revision = ?3",
+        params![settings_json, APP_SETTINGS_KEY, expected_revision],
+    )
+    .map_err(DbError::from)?;
+    if changed == 0 {
+        return Err(SettingsError::RevisionConflict);
+    }
+    Ok(VersionedAppSettings {
+        settings: normalized,
+        revision: expected_revision + 1,
+    })
 }
 
 fn deserialize_scan_roots<'de, D>(deserializer: D) -> Result<Vec<ScanRootSetting>, D::Error>
@@ -445,6 +492,8 @@ pub enum SettingsError {
     Db(#[from] DbError),
     #[error("autostart error: {0}")]
     Autostart(String),
+    #[error("settings_revision_conflict")]
+    RevisionConflict,
 }
 
 pub trait LaunchAtLoginController {
@@ -503,6 +552,42 @@ pub fn save_app_settings_with_launch_at_login(
     Ok(normalized)
 }
 
+pub fn save_versioned_app_settings_with_launch_at_login(
+    db: &Database,
+    request: &SaveSettingsRequest,
+    launch_at_login: &impl LaunchAtLoginController,
+) -> Result<VersionedAppSettings, SettingsError> {
+    let current = get_versioned_app_settings(db)?;
+    let launch_changed = current.settings.launch_at_login != request.settings.launch_at_login;
+    if launch_changed {
+        if request.settings.launch_at_login {
+            launch_at_login.enable().map_err(SettingsError::Autostart)?;
+        } else {
+            launch_at_login
+                .disable()
+                .map_err(SettingsError::Autostart)?;
+        }
+    }
+    match save_app_settings_cas(db, &request.settings, request.expected_revision) {
+        Ok(saved) => Ok(saved),
+        Err(error) => {
+            if launch_changed {
+                let rollback = if current.settings.launch_at_login {
+                    launch_at_login.enable()
+                } else {
+                    launch_at_login.disable()
+                };
+                rollback.map_err(|rollback_error| {
+                    SettingsError::Autostart(format!(
+                        "settings save failed: {error}; autostart rollback failed: {rollback_error}"
+                    ))
+                })?;
+            }
+            Err(error)
+        }
+    }
+}
+
 pub fn sync_launch_at_login_from_system(
     db: &Database,
     settings: &AppSettings,
@@ -522,8 +607,8 @@ pub fn sync_launch_at_login_from_system(
 }
 
 #[tauri::command]
-pub fn get_settings(db: State<'_, Database>) -> Result<AppSettings, String> {
-    get_app_settings(&db).map_err(|error| error.to_string())
+pub fn get_settings(db: State<'_, Database>) -> Result<VersionedAppSettings, String> {
+    get_versioned_app_settings(&db).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -531,13 +616,15 @@ pub fn save_settings<R: Runtime>(
     app: AppHandle<R>,
     db: State<'_, Database>,
     watcher_manager: State<'_, FileWatcherManager>,
-    settings: AppSettings,
-) -> Result<AppSettings, String> {
+    request: SaveSettingsRequest,
+) -> Result<VersionedAppSettings, String> {
     let launch_at_login = app.autolaunch();
-    let saved = save_app_settings_with_launch_at_login(&db, &settings, &*launch_at_login)
+    let saved = save_versioned_app_settings_with_launch_at_login(&db, &request, &*launch_at_login)
         .map_err(|error| error.to_string())?;
 
-    if let Err(error) = reload_file_watcher_for_settings(app.clone(), &watcher_manager, &saved) {
+    if let Err(error) =
+        reload_file_watcher_for_settings(app.clone(), &watcher_manager, &saved.settings)
+    {
         emit_file_watcher_error(&app, error.clone());
         eprintln!("File watcher reload failed after settings save (non-fatal): {error}");
     }

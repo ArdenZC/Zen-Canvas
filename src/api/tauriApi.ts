@@ -6,7 +6,6 @@ import type {
   AIDebugClassificationResult,
   AIProviderPreset,
   AISettings,
-  AppSettings,
   ClassificationCorrectionRequest,
   CleanupRestorePreview,
   CleanupRestoreResult,
@@ -27,12 +26,14 @@ import type {
   Rule,
   RuleExecutionMode,
   RuleExecutionSummary,
+  SaveSettingsRequest,
   StorageAnalysis,
   StorageCandidate,
   StorageCleanupCompleted,
   StorageCleanupJobMessage,
   StorageCleanupProgress,
-  StorageCleanupScanStatus
+  StorageCleanupScanStatus,
+  VersionedAppSettings
 } from "../types/domain";
 import type { View } from "../types/ui";
 import type { SearchNavigatePayload } from "../utils/searchNavigation";
@@ -318,12 +319,12 @@ export const tauriApi = {
     return invokeCommand<boolean>("delete_user_rule", { id });
   },
 
-  getSettings(): Promise<AppSettings> {
-    return invokeCommand<AppSettings>("get_settings");
+  getSettings(): Promise<VersionedAppSettings> {
+    return invokeCommand<VersionedAppSettings>("get_settings");
   },
 
-  saveSettings(settings: AppSettings): Promise<AppSettings> {
-    return invokeCommand<AppSettings>("save_settings", { settings });
+  saveSettings(request: SaveSettingsRequest): Promise<VersionedAppSettings> {
+    return invokeCommand<VersionedAppSettings>("save_settings", { request });
   },
 
   getAISettings(): Promise<AISettings> {

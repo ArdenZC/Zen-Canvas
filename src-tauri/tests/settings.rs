@@ -6,9 +6,9 @@ use std::{
 use zen_canvas_tauri::{
     db::Database,
     settings::{
-        get_app_settings, save_app_settings, save_app_settings_with_launch_at_login,
-        sync_launch_at_login_from_system, AppSettings, LaunchAtLoginController, ScanRootSetting,
-        APP_SETTINGS_KEY,
+        get_app_settings, get_versioned_app_settings, save_app_settings, save_app_settings_cas,
+        save_app_settings_with_launch_at_login, sync_launch_at_login_from_system, AppSettings,
+        LaunchAtLoginController, ScanRootSetting, APP_SETTINGS_KEY,
     },
 };
 
@@ -31,7 +31,7 @@ fn new_database_creates_default_app_settings_row() {
         .expect("default app settings row");
     let settings: AppSettings = serde_json::from_str(&value).expect("deserialize settings");
 
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert_eq!(settings.close_behavior, "ask");
     assert_eq!(settings.folder_naming_language, "en");
     assert_default_scan_roots(&settings.default_scan_folders);
@@ -69,7 +69,7 @@ fn schema_7_database_migrates_to_settings_without_losing_existing_rows() {
         .expect("legacy rule");
     let default_settings = get_app_settings(&db).expect("default settings");
 
-    assert_eq!(version, 16);
+    assert_eq!(version, 17);
     assert_eq!(file_name, "legacy.pdf");
     assert_eq!(rule_name, "Legacy Rule");
     assert_default_scan_roots(&default_settings.default_scan_folders);
@@ -114,6 +114,26 @@ fn app_settings_roundtrip_persists_single_json_row() {
     assert!(loaded.launch_at_login);
     assert_eq!(loaded.search_hotkey, "Alt+Space");
     assert_eq!(row_count, 1);
+}
+
+#[test]
+fn stale_settings_revision_cannot_overwrite_a_newer_save() {
+    let db = Database::open(test_db_path()).expect("open test database");
+    let initial = get_versioned_app_settings(&db).expect("initial versioned settings");
+    let mut newer = initial.settings.clone();
+    newer.restore_retention_days = 90;
+    let saved = save_app_settings_cas(&db, &newer, initial.revision).expect("save newer settings");
+
+    let mut stale = initial.settings;
+    stale.close_behavior = "quit".to_string();
+    let error = save_app_settings_cas(&db, &stale, initial.revision)
+        .expect_err("stale revision must conflict");
+
+    assert_eq!(error.to_string(), "settings_revision_conflict");
+    let loaded = get_versioned_app_settings(&db).expect("load winner");
+    assert_eq!(loaded.revision, saved.revision);
+    assert_eq!(loaded.settings.restore_retention_days, 90);
+    assert_eq!(loaded.settings.close_behavior, newer.close_behavior);
 }
 
 #[test]
