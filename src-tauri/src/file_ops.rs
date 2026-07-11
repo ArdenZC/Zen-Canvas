@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     env,
     fs::{self, OpenOptions},
-    io::{self, Read, Write},
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Component, Path, PathBuf},
     process::Command as ProcessCommand,
     sync::{
@@ -113,6 +113,16 @@ pub struct OperationLogDto {
     pub restored_at: Option<String>,
     pub restore_status: String,
     pub restore_error: Option<String>,
+    #[serde(default)]
+    pub source_size: Option<u64>,
+    #[serde(default)]
+    pub source_modified_ns: Option<String>,
+    #[serde(default)]
+    pub source_platform_file_id: Option<String>,
+    #[serde(default)]
+    pub source_quick_hash: Option<String>,
+    #[serde(default)]
+    pub target_platform_file_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -358,7 +368,8 @@ fn execute_moves_with_persistence_with_progress_and_app_data(
     let operations = request.operations.clone();
     let batch_id = format!("batch-{}", current_timestamp_ms());
     let created_at = current_timestamp_ms().to_string();
-    persist_pending_operation_journal(db, &request, &batch_id, &created_at)?;
+    let source_fingerprints =
+        persist_pending_operation_journal(db, &request, &batch_id, &created_at)?;
     let mut result = execute_moves_core_with_identity(
         request,
         cancel_flag,
@@ -369,8 +380,14 @@ fn execute_moves_with_persistence_with_progress_and_app_data(
     );
 
     for (operation, log) in operations.iter().zip(result.logs.iter_mut()) {
+        if let Some(fingerprint) = source_fingerprints.get(&log.id) {
+            apply_source_fingerprint(log, fingerprint);
+        }
         if log.status != "success" {
             continue;
+        }
+        if let Ok(target_fingerprint) = file_identity_fingerprint(Path::new(&log.path_after)) {
+            log.target_platform_file_id = target_fingerprint.platform_file_id;
         }
         if operation.operation_type == "move_to_trash" {
             continue;
@@ -460,18 +477,152 @@ fn execute_moves_core_with_identity(
     ExecuteMovesResult { logs, batch_id }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FileIdentityFingerprint {
+    size: u64,
+    modified_ns: Option<i128>,
+    platform_file_id: Option<String>,
+    quick_hash: Option<String>,
+}
+
+fn file_identity_fingerprint(path: &Path) -> Result<FileIdentityFingerprint, String> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if metadata.file_type().is_symlink() || (!metadata.is_file() && !metadata.is_dir()) {
+        return Err("unsupported source file type".to_string());
+    }
+    let (size, quick_hash) = quick_hash_path(path)?;
+    Ok(FileIdentityFingerprint {
+        size,
+        modified_ns: metadata.modified().ok().and_then(|modified| {
+            modified
+                .duration_since(UNIX_EPOCH)
+                .ok()
+                .map(|duration| duration.as_nanos() as i128)
+        }),
+        platform_file_id: platform_file_id(path, &metadata),
+        quick_hash: Some(quick_hash),
+    })
+}
+
+fn quick_hash_path(path: &Path) -> Result<(u64, String), String> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if metadata.is_file() {
+        const SAMPLE_SIZE: u64 = 1024 * 1024;
+        let mut file = fs::File::open(path).map_err(|error| error.to_string())?;
+        let size = metadata.len();
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&size.to_le_bytes());
+        let mut buffer = vec![0_u8; SAMPLE_SIZE.min(size) as usize];
+        file.read_exact(&mut buffer)
+            .map_err(|error| error.to_string())?;
+        hasher.update(&buffer);
+        if size > SAMPLE_SIZE * 2 {
+            file.seek(SeekFrom::End(-(SAMPLE_SIZE as i64)))
+                .map_err(|error| error.to_string())?;
+            buffer.resize(SAMPLE_SIZE as usize, 0);
+            file.read_exact(&mut buffer)
+                .map_err(|error| error.to_string())?;
+            hasher.update(&buffer);
+        } else if size > SAMPLE_SIZE {
+            let mut remainder = Vec::new();
+            file.read_to_end(&mut remainder)
+                .map_err(|error| error.to_string())?;
+            hasher.update(&remainder);
+        }
+        return Ok((size, hasher.finalize().to_hex().to_string()));
+    }
+    if metadata.is_dir() {
+        let mut entries = fs::read_dir(path)
+            .map_err(|error| error.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| error.to_string())?;
+        entries.sort_by_key(|entry| entry.file_name());
+        let mut size = 0_u64;
+        let mut hasher = blake3::Hasher::new();
+        for entry in entries {
+            let entry_path = entry.path();
+            let entry_metadata = fs::symlink_metadata(&entry_path).map_err(|e| e.to_string())?;
+            if entry_metadata.file_type().is_symlink() {
+                return Err("directory identity contains a symlink".to_string());
+            }
+            let (child_size, child_hash) = quick_hash_path(&entry_path)?;
+            size = size.saturating_add(child_size);
+            hasher.update(entry.file_name().to_string_lossy().as_bytes());
+            hasher.update(&child_size.to_le_bytes());
+            hasher.update(child_hash.as_bytes());
+        }
+        return Ok((size, hasher.finalize().to_hex().to_string()));
+    }
+    Err("unsupported source file type".to_string())
+}
+
+#[cfg(unix)]
+fn platform_file_id(_path: &Path, metadata: &fs::Metadata) -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
+    Some(format!("{}:{}", metadata.dev(), metadata.ino()))
+}
+
+#[cfg(windows)]
+fn platform_file_id(path: &Path, _metadata: &fs::Metadata) -> Option<String> {
+    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS,
+    };
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+        .ok()?;
+    let mut info = unsafe { std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>() };
+    let success = unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) };
+    if success == 0 {
+        return None;
+    }
+    let file_index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    Some(format!("{}:{file_index}", info.dwVolumeSerialNumber))
+}
+
+fn apply_source_fingerprint(log: &mut OperationLogDto, fingerprint: &FileIdentityFingerprint) {
+    log.source_size = Some(fingerprint.size);
+    log.source_modified_ns = fingerprint.modified_ns.map(|value| value.to_string());
+    log.source_platform_file_id = fingerprint.platform_file_id.clone();
+    log.source_quick_hash = fingerprint.quick_hash.clone();
+}
+
+fn journal_identity_matches(log: &OperationLogDto, path: &Path) -> bool {
+    let Ok(actual) = file_identity_fingerprint(path) else {
+        return false;
+    };
+    if log.source_size != Some(actual.size) {
+        return false;
+    }
+    let platform_matches = log
+        .source_platform_file_id
+        .as_ref()
+        .zip(actual.platform_file_id.as_ref())
+        .is_some_and(|(expected, actual)| expected == actual);
+    let hash_matches = log
+        .source_quick_hash
+        .as_ref()
+        .zip(actual.quick_hash.as_ref())
+        .is_some_and(|(expected, actual)| expected == actual);
+    platform_matches || hash_matches
+}
+
 fn persist_pending_operation_journal(
     db: &Database,
     request: &ExecuteMovesRequest,
     batch_id: &str,
     created_at: &str,
-) -> Result<(), String> {
+) -> Result<std::collections::HashMap<String, FileIdentityFingerprint>, String> {
     let logs = request
         .operations
         .iter()
         .enumerate()
         .map(|(index, operation)| {
-            make_operation_log(
+            let fingerprint = file_identity_fingerprint(Path::new(&operation.source_path))
+                .map_err(|error| format!("cannot journal source identity: {error}"))?;
+            let mut log = make_operation_log(
                 batch_id,
                 created_at,
                 index,
@@ -479,11 +630,20 @@ fn persist_pending_operation_journal(
                 "pending",
                 None,
                 operation.target_path.clone(),
-            )
+            );
+            apply_source_fingerprint(&mut log, &fingerprint);
+            Ok((log, fingerprint))
         })
-        .collect::<Vec<_>>();
-    db.save_operation_logs(batch_id, &logs)
-        .map_err(|error| format!("failed to persist operation journal before execution: {error}"))
+        .collect::<Result<Vec<_>, String>>()?;
+    let fingerprints = logs
+        .iter()
+        .map(|(log, fingerprint)| (log.id.clone(), fingerprint.clone()))
+        .collect::<std::collections::HashMap<_, _>>();
+    let logs = logs.into_iter().map(|(log, _)| log).collect::<Vec<_>>();
+    db.save_operation_logs(batch_id, &logs).map_err(|error| {
+        format!("failed to persist operation journal before execution: {error}")
+    })?;
+    Ok(fingerprints)
 }
 
 pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, String> {
@@ -497,14 +657,17 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
     for mut log in pending {
         let before_exists = Path::new(&log.path_before).exists();
         let after_exists = Path::new(&log.path_after).exists();
-        if !before_exists && after_exists {
+        if !before_exists
+            && after_exists
+            && journal_identity_matches(&log, Path::new(&log.path_after))
+        {
             log.status = "success".to_string();
             log.can_undo = log.operation_type != "move_to_trash";
             log.can_restore = log.can_undo;
             log.error_message =
                 Some("Recovered an interrupted operation journal after restart.".to_string());
         } else {
-            log.status = "failed".to_string();
+            log.status = "manual_review".to_string();
             log.can_undo = false;
             log.can_restore = false;
             log.error_message = Some(if before_exists && !after_exists {
@@ -525,7 +688,10 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
         for mut log in pending_restores {
             let before_exists = Path::new(&log.path_before).exists();
             let after_exists = Path::new(&log.path_after).exists();
-            if before_exists && !after_exists {
+            if before_exists
+                && !after_exists
+                && journal_identity_matches(&log, Path::new(&log.path_before))
+            {
                 log.can_undo = false;
                 log.can_restore = false;
                 log.restored_at = Some(current_timestamp_ms().to_string());
@@ -541,9 +707,10 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
                         .to_string(),
                 );
             } else {
+                log.status = "manual_review".to_string();
                 log.can_undo = false;
                 log.can_restore = false;
-                log.restore_status = "failed".to_string();
+                log.restore_status = "manual_review".to_string();
                 log.restore_error = Some(
                     "Interrupted restore requires manual path review because both or neither path exists."
                         .to_string(),
@@ -860,6 +1027,11 @@ fn make_operation_log(
         restored_at: None,
         restore_status: restore_status.to_string(),
         restore_error,
+        source_size: None,
+        source_modified_ns: None,
+        source_platform_file_id: None,
+        source_quick_hash: None,
+        target_platform_file_id: None,
     }
 }
 
@@ -1620,6 +1792,13 @@ mod tests {
             .expect("persist pending journal");
         assert_eq!(db.get_pending_operation_logs().expect("pending").len(), 1);
         fs::rename(&source, &target).expect("simulate completed filesystem move");
+        let target_file = fs::OpenOptions::new()
+            .write(true)
+            .open(&target)
+            .expect("open moved target");
+        target_file
+            .set_times(fs::FileTimes::new().set_modified(SystemTime::now()))
+            .expect("change target mtime");
 
         let reconciled = reconcile_pending_operation_journal(&db).expect("reconcile journal");
         let logs = db.get_operation_logs(Some(10)).expect("logs");
@@ -1631,6 +1810,68 @@ mod tests {
             .get_pending_operation_logs()
             .expect("pending after")
             .is_empty());
+    }
+
+    #[test]
+    fn pending_operation_journal_requires_matching_target_identity() {
+        for (label, replacement) in [("size", "different-size"), ("hash", "world")] {
+            let db = Database::open(test_db_path()).expect("open database");
+            let root = test_dir();
+            let source = root.join(format!("before-{label}.txt"));
+            let target = root.join(format!("after-{label}.txt"));
+            fs::write(&source, "hello").expect("write source");
+            let request = ExecuteMovesRequest {
+                operations: vec![OperationPreviewRequest {
+                    id: format!("op-{label}"),
+                    file_id: format!("file-{label}"),
+                    operation_type: "rename".to_string(),
+                    source_path: normalize_path(&source),
+                    target_path: normalize_path(&target),
+                    old_name: format!("before-{label}.txt"),
+                    new_name: format!("after-{label}.txt"),
+                    is_executable: Some(true),
+                }],
+            };
+            persist_pending_operation_journal(&db, &request, &format!("batch-{label}"), "1")
+                .expect("persist pending journal");
+            fs::remove_file(&source).expect("remove source");
+            fs::write(&target, replacement).expect("write unrelated target");
+
+            reconcile_pending_operation_journal(&db).expect("reconcile journal");
+            let log = db.get_operation_logs(Some(1)).expect("logs").remove(0);
+
+            assert_eq!(log.status, "manual_review");
+            assert!(!log.can_restore);
+            assert!(!log.can_undo);
+        }
+    }
+
+    #[test]
+    fn pending_operation_journal_marks_ambiguous_path_states_for_manual_review() {
+        for (label, keep_source, create_target) in [("both", true, true), ("neither", false, false)]
+        {
+            let db = Database::open(test_db_path()).expect("open database");
+            let root = test_dir();
+            let source = root.join(format!("before-{label}.txt"));
+            let target = root.join(format!("after-{label}.txt"));
+            fs::write(&source, "hello").expect("write source");
+            let request = ExecuteMovesRequest {
+                operations: vec![preview_operation(0, &source, &target)],
+            };
+            persist_pending_operation_journal(&db, &request, &format!("batch-{label}"), "1")
+                .expect("persist pending journal");
+            if !keep_source {
+                fs::remove_file(&source).expect("remove source");
+            }
+            if create_target {
+                fs::write(&target, "hello").expect("write target");
+            }
+
+            reconcile_pending_operation_journal(&db).expect("reconcile journal");
+            let log = db.get_operation_logs(Some(1)).expect("logs").remove(0);
+            assert_eq!(log.status, "manual_review");
+            assert!(!log.can_restore);
+        }
     }
 
     #[test]
@@ -2207,6 +2448,11 @@ mod tests {
             restored_at: None,
             restore_status: "unavailable".to_string(),
             restore_error: Some("Restore from system trash".to_string()),
+            source_size: None,
+            source_modified_ns: None,
+            source_platform_file_id: None,
+            source_quick_hash: None,
+            target_platform_file_id: None,
         };
 
         let restored = restore_moves_core(RestoreMovesRequest { logs: vec![log] });
