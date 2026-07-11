@@ -2345,7 +2345,9 @@ mod tests {
         fs::write(&target, "target").expect("write target");
         create_file_symlink_for_test(&target, &link).expect("create source symlink fixture");
 
-        let error = validate_source_path(&link).expect_err("symlink source must be rejected");
+        let validation = validate_source_path(&link);
+        fs::remove_file(&link).expect("remove source symlink fixture");
+        let error = validation.expect_err("symlink source must be rejected");
 
         assert!(error.contains("protected system location"));
     }
@@ -2401,6 +2403,7 @@ mod tests {
 
         let resolved = canonicalize_nearest_existing_ancestor(&link.join("missing/child"))
             .expect("resolve existing symlink ancestor");
+        fs::remove_dir(&link).expect("remove target-parent symlink fixture");
 
         assert_eq!(
             resolved,
@@ -2453,8 +2456,9 @@ mod tests {
         create_directory_symlink_for_test(&protected_root, &link)
             .expect("create protected-root symlink fixture");
 
-        let error = validate_target_path(&link.join("escape.txt"))
-            .expect_err("symlink parent must not escape into a protected root");
+        let validation = validate_target_path(&link.join("escape.txt"));
+        fs::remove_dir(&link).expect("remove protected-root symlink fixture");
+        let error = validation.expect_err("symlink parent must not escape into a protected root");
 
         assert!(error.contains("protected system location"));
     }
@@ -2645,11 +2649,10 @@ mod tests {
         let target = root.join("target.txt");
         let link = root.join("link.txt");
         fs::write(&target, "target").expect("write target");
-        if create_file_symlink_for_test(&target, &link).is_ok() {
-            assert!(crate::storage_analyzer::is_cleanup_execution_forbidden(
-                &link, None
-            ));
-        }
+        create_file_symlink_for_test(&target, &link).expect("create cleanup symlink fixture");
+        let forbidden = crate::storage_analyzer::is_cleanup_execution_forbidden(&link, None);
+        fs::remove_file(&link).expect("remove cleanup symlink fixture");
+        assert!(forbidden);
     }
 
     #[test]
