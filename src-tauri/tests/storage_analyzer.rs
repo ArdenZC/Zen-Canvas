@@ -75,11 +75,7 @@ fn storage_analyzer_classifies_regenerable_build_outputs_as_safe() {
         .find(|candidate| candidate.path.ends_with("node_modules"))
         .expect("node_modules candidate");
 
-    assert_eq!(
-        candidate.tier,
-        CleanupTier::Safe,
-        "aged current-temp candidate: {candidate:?}"
-    );
+    assert_eq!(candidate.tier, CleanupTier::Safe);
     assert_eq!(candidate.suggested_action, CleanupActionKind::MoveToTrash);
     assert!(candidate.trash_allowed);
     assert!(candidate.selected_by_default);
@@ -210,7 +206,7 @@ fn cleanup_root_symlinks_to_system_directories_are_rejected() {
         .expect("create protected cleanup-root symlink fixture");
 
     let result = validate_cleanup_roots_for_test(vec![link.to_string_lossy().into_owned()]);
-    fs::remove_dir(&link).expect("remove system directory symlink");
+    remove_directory_symlink_for_test(&link).expect("remove system directory symlink");
     let error = result.expect_err("symlink cleanup root must be rejected");
 
     assert!(error.to_ascii_lowercase().contains("symlink"));
@@ -224,7 +220,7 @@ fn cleanup_root_symlink_to_current_temp_is_not_automatically_allowed() {
         .expect("create temp-root symlink fixture");
 
     let result = validate_cleanup_roots_for_test(vec![link.to_string_lossy().into_owned()]);
-    fs::remove_dir(&link).expect("remove temp directory symlink");
+    remove_directory_symlink_for_test(&link).expect("remove temp directory symlink");
     assert!(result.is_err());
 }
 
@@ -268,7 +264,11 @@ fn current_user_old_temp_file_is_safe_in_real_scan() {
         .find(|candidate| candidate.path == old.to_string_lossy().replace('\\', "/"))
         .expect("old temp candidate");
 
-    assert_eq!(candidate.tier, CleanupTier::Safe);
+    assert_eq!(
+        candidate.tier,
+        CleanupTier::Safe,
+        "aged current-temp candidate: {candidate:?}"
+    );
     assert!(candidate.trash_allowed);
     assert!(candidate.selected_by_default);
 }
@@ -299,8 +299,14 @@ fn temp_execution_revalidation_enforces_age_policy() {
 #[test]
 fn storage_cleanup_only_accepts_the_current_macos_temp_root() {
     let current_temp = std::env::temp_dir();
-    let current_temp_entry = current_temp.join("zen-canvas-test");
-    assert!(!is_forbidden_storage_path_for_test(&current_temp_entry));
+    let current_temp_entry = current_temp.join(format!(
+        "zen-canvas-macos-temp-boundary-test-{}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&current_temp_entry).expect("create current macOS temp fixture");
+    let current_temp_is_forbidden = is_forbidden_storage_path_for_test(&current_temp_entry);
+    fs::remove_dir(&current_temp_entry).expect("remove current macOS temp fixture");
+    assert!(!current_temp_is_forbidden);
 
     for path in [
         "/var/folders/another-user/T/zen-canvas-test",
@@ -1101,6 +1107,17 @@ fn create_directory_symlink_for_test(target: &Path, link: &Path) -> std::io::Res
 #[cfg(unix)]
 fn create_directory_symlink_for_test(target: &Path, link: &Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(target, link)
+}
+
+fn remove_directory_symlink_for_test(link: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
+    {
+        fs::remove_dir(link)
+    }
+    #[cfg(unix)]
+    {
+        fs::remove_file(link)
+    }
 }
 
 fn cleanup_candidate_root(label: &str, count: usize) -> PathBuf {
