@@ -2,7 +2,7 @@ use crate::db::{
     current_unix_seconds, emit_search_index_optimized, run_search_index_optimize, Database,
     DbError, InsertFileRequest,
 };
-use crate::dedupe::spawn_duplicate_detection;
+use crate::dedupe::{spawn_duplicate_detection, DedupeJobManager};
 use crate::path_filter::is_ignored_dir_name;
 use jwalk::{ClientState, DirEntry, WalkDir};
 use serde::Serialize;
@@ -160,6 +160,7 @@ pub async fn scan_directory<R: Runtime>(
     app: AppHandle<R>,
     db: State<'_, Database>,
     jobs: State<'_, ScanJobManager>,
+    dedupe_jobs: State<'_, DedupeJobManager>,
     path: String,
     include_entries: bool,
     job_id: String,
@@ -171,6 +172,7 @@ pub async fn scan_directory<R: Runtime>(
     }
     let db = db.inner().clone();
     let jobs = jobs.inner().clone();
+    let dedupe_jobs = dedupe_jobs.inner().clone();
     let cancel_flag = jobs.register(&job_id)?;
     let job_id_for_task = job_id.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
@@ -183,6 +185,7 @@ pub async fn scan_directory<R: Runtime>(
             job_id_for_task,
             job_kind,
             run_dedupe.unwrap_or(true),
+            dedupe_jobs,
         )
     })
     .await
@@ -193,9 +196,14 @@ pub async fn scan_directory<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn cancel_scan(jobs: State<'_, ScanJobManager>, job_id: String) -> Result<(), String> {
-    if jobs.cancel(&job_id) {
-        crate::dedupe::request_duplicate_detection_cancel();
+pub fn cancel_scan(
+    jobs: State<'_, ScanJobManager>,
+    dedupe_jobs: State<'_, DedupeJobManager>,
+    job_id: String,
+) -> Result<(), String> {
+    let scan_cancelled = jobs.cancel(&job_id);
+    let dedupe_cancelled = dedupe_jobs.cancel_for_scan(&job_id);
+    if scan_cancelled || dedupe_cancelled {
         Ok(())
     } else {
         Err(format!("Scan job not found: {job_id}."))
@@ -212,6 +220,7 @@ fn scan_directory_blocking<R: Runtime>(
     job_id: String,
     job_kind: String,
     run_dedupe: bool,
+    dedupe_jobs: DedupeJobManager,
 ) -> Result<ScanSummary, ScanError> {
     validate_root(&root)?;
 
@@ -350,7 +359,14 @@ fn scan_directory_blocking<R: Runtime>(
         },
         || {
             if run_dedupe {
-                spawn_duplicate_detection(app_for_dedupe, db_for_dedupe);
+                if let Err(error) = spawn_duplicate_detection(
+                    app_for_dedupe,
+                    db_for_dedupe,
+                    dedupe_jobs,
+                    Some(job_id.clone()),
+                ) {
+                    eprintln!("Failed to start dedupe job: {error}");
+                }
             }
         },
     )?;

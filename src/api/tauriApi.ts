@@ -72,6 +72,22 @@ export interface ScanBatchPayload {
 
 export type ScanSummary = ScanProgressPayload;
 
+export interface DedupeProgressPayload {
+  dedupeJobId: string;
+  parentScanJobId: string | null;
+  processed: number;
+  total: number;
+  status: "running";
+}
+
+export interface DedupeCompletePayload {
+  dedupeJobId: string;
+  parentScanJobId: string | null;
+  status: "completed" | "cancelled" | "failed";
+  success: boolean;
+  error: string | null;
+}
+
 export interface OperationProgressPayload {
   kind: "execute" | "restore";
   batchId: string;
@@ -164,6 +180,10 @@ export const tauriApi = {
 
   cancelScan(jobId: string): Promise<void> {
     return invokeCommand<void>("cancel_scan", { jobId });
+  },
+
+  cancelDedupe(jobId: string): Promise<void> {
+    return invokeCommand<void>("cancel_dedupe", { jobId });
   },
 
   executeMoves(operations: OperationPreview[]): Promise<ExecuteOperationResult> {
@@ -411,6 +431,14 @@ export const tauriApi = {
 
   onScanError(handler: EventHandler<{ jobId: string; jobKind: "foreground" | "background"; root: string; path: string; message: string }>): Promise<UnlistenFn> {
     return listenTo("scan-error", handler);
+  },
+
+  onDedupeProgress(handler: EventHandler<DedupeProgressPayload>): Promise<UnlistenFn> {
+    return listenTo("dedupe-progress", handler);
+  },
+
+  onDedupeComplete(handler: EventHandler<DedupeCompletePayload>): Promise<UnlistenFn> {
+    return listenTo("dedupe-complete", handler);
   },
 
   onOperationProgress(handler: EventHandler<OperationProgressPayload>): Promise<UnlistenFn> {
