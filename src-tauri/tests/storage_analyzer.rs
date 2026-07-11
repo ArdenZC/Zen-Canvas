@@ -136,7 +136,7 @@ fn storage_cleanup_scan_accepts_user_selected_temp_directory() {
 }
 
 #[test]
-fn cleanup_roots_are_deduplicated_after_canonicalization() {
+fn cleanup_canonicalizes_macos_roots() {
     let root = test_dir();
     let child = root.join("child");
     fs::create_dir_all(&child).expect("child directory");

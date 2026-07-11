@@ -651,7 +651,7 @@ mod job_manager_tests {
     use super::*;
 
     #[test]
-    fn scan_jobs_map_to_independent_dedupe_jobs() {
+    fn cancel_scan_only_cancels_owned_dedupe() {
         let manager = DedupeJobManager::default();
         let a = manager
             .register("dedupe-a".to_string(), Some("scan-a".to_string()))
@@ -666,7 +666,7 @@ mod job_manager_tests {
     }
 
     #[test]
-    fn cancelling_one_dedupe_job_does_not_affect_another() {
+    fn parallel_dedupe_jobs_do_not_share_cancel_flag() {
         let manager = DedupeJobManager::default();
         let a = manager
             .register("dedupe-a".to_string(), None)

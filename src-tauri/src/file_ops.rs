@@ -1873,7 +1873,7 @@ mod tests {
     }
 
     #[test]
-    fn pending_operation_journal_requires_matching_target_identity() {
+    fn pending_move_requires_matching_fingerprint() {
         for (label, replacement) in [("size", "different-size"), ("hash", "world")] {
             let db = Database::open(test_db_path()).expect("open database");
             let root = test_dir();
@@ -1904,6 +1904,28 @@ mod tests {
             assert!(!log.can_restore);
             assert!(!log.can_undo);
         }
+    }
+
+    #[test]
+    fn replaced_target_is_manual_review() {
+        let db = Database::open(test_db_path()).expect("open database");
+        let root = test_dir();
+        let source = root.join("before-replaced.txt");
+        let target = root.join("after-replaced.txt");
+        fs::write(&source, "original").expect("write source");
+        let request = ExecuteMovesRequest {
+            operations: vec![preview_operation(0, &source, &target)],
+        };
+        persist_pending_operation_journal(&db, &request, "batch-replaced", "1")
+            .expect("persist pending journal");
+        fs::remove_file(&source).expect("remove original source");
+        fs::write(&target, "replacement").expect("write replacement target");
+
+        reconcile_pending_operation_journal(&db).expect("reconcile journal");
+        let log = db.get_operation_logs(Some(1)).expect("logs").remove(0);
+
+        assert_eq!(log.status, "manual_review");
+        assert!(!log.can_restore);
     }
 
     #[test]
@@ -1976,6 +1998,38 @@ mod tests {
             .get_pending_restore_logs()
             .expect("pending after")
             .is_empty());
+    }
+
+    #[test]
+    fn pending_restore_requires_matching_fingerprint() {
+        let db = Database::open(test_db_path()).expect("open database");
+        let root = test_dir();
+        let source = root.join("before-restore-replaced.txt");
+        let target = root.join("after-restore-replaced.txt");
+        fs::write(&source, "original").expect("write source");
+        let executed = execute_moves_with_persistence(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![preview_operation(0, &source, &target)],
+            },
+        )
+        .expect("execute move");
+        let log_id = executed.logs[0].id.clone();
+        db.mark_operation_restores_pending(std::slice::from_ref(&log_id))
+            .expect("mark restore pending");
+        fs::remove_file(&target).expect("remove moved file");
+        fs::write(&source, "replacement").expect("write replacement source");
+
+        reconcile_pending_operation_journal(&db).expect("reconcile journal");
+        let log = db
+            .get_operation_logs(Some(10))
+            .expect("logs")
+            .into_iter()
+            .find(|log| log.id == log_id)
+            .expect("restore log");
+
+        assert_eq!(log.restore_status, "manual_review");
+        assert!(!log.can_restore);
     }
 
     #[test]
@@ -2263,7 +2317,7 @@ mod tests {
     }
 
     #[test]
-    fn general_rename_rejects_applications() {
+    fn general_move_rejects_applications() {
         let error = ensure_general_file_operation_allowed_for_os(
             Path::new("/Applications/Example.app/file"),
             "macos",

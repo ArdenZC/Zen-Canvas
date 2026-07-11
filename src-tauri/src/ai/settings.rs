@@ -511,7 +511,7 @@ mod validation_tests {
     }
 
     #[test]
-    fn ai_numeric_bounds_accept_limits_and_reject_out_of_range_values() {
+    fn ai_settings_reject_excessive_limits() {
         let mut settings = AISettings {
             batch_size: 100,
             classification_concurrency: 4,
@@ -551,7 +551,7 @@ mod validation_tests {
     }
 
     #[test]
-    fn ai_url_policy_rejects_unsafe_schemes_userinfo_and_release_http() {
+    fn ai_settings_reject_unsafe_urls() {
         let mut settings = AISettings::default();
         for url in [
             "file:///tmp/model",

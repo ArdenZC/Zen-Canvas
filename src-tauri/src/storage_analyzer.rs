@@ -3011,7 +3011,7 @@ mod temp_safety_tests {
     }
 
     #[test]
-    fn only_current_real_temp_root_gets_system_temp_context() {
+    fn cleanup_only_allows_current_user_temp_root() {
         let current_temp = Path::new("/private/var/folders/current/T");
 
         assert_eq!(
@@ -3063,7 +3063,7 @@ mod temp_safety_tests {
     }
 
     #[test]
-    fn macos_system_path_case_variants_remain_protected() {
+    fn cleanup_rejects_system_path_case_variants() {
         for path in ["/sYsTeM", "/LIBRARY/Application Support", "/aPpLiCaTiOnS"] {
             assert!(is_system_path_text_for_os(path, "macos"));
         }

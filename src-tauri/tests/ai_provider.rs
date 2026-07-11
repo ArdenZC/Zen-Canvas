@@ -127,7 +127,7 @@ fn missing_ai_settings_loads_deepseek_defaults_and_presets_list_has_all_ids() {
 }
 
 #[test]
-fn ai_api_key_actions_are_explicit_and_sqlite_never_stores_plaintext() {
+fn credential_preserve_replace_clear() {
     let db = Database::open(test_db_path()).expect("open test database");
     let credentials = InMemoryCredentialStore::default();
     credentials.set("existing-secret").expect("seed key");

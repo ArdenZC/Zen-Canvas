@@ -133,7 +133,7 @@ describe("useStorageCleanupStore", () => {
     expect(state.analysis?.candidates[0].id).toBe("safe-cache");
   });
 
-  it("switching displayed jobs clears selection and old candidate pages", () => {
+  it("cleanup_switching_jobs_clears_selection", () => {
     useStorageCleanupStore.setState({ activeJobId: "job-a" });
     useStorageCleanupStore.getState().completeScan("job-a", analysis);
     expect(useStorageCleanupStore.getState().selectedCleanupIds.size).toBe(1);
@@ -168,7 +168,7 @@ describe("useStorageCleanupStore", () => {
     expect(state.selectedCleanupIds.has("job-b-first")).toBe(true);
   });
 
-  it("does not allow an old job page response to overwrite the displayed job", async () => {
+  it("cleanup_old_response_cannot_override_new_job", async () => {
     const oldPage = deferred<StorageAnalysis>();
     const api = cleanupPagingApi(() => oldPage.promise);
     useStorageCleanupStore.setState({

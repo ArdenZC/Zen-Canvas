@@ -117,7 +117,7 @@ fn app_settings_roundtrip_persists_single_json_row() {
 }
 
 #[test]
-fn stale_settings_revision_cannot_overwrite_a_newer_save() {
+fn settings_revision_rejects_stale_write() {
     let db = Database::open(test_db_path()).expect("open test database");
     let initial = get_versioned_app_settings(&db).expect("initial versioned settings");
     let mut newer = initial.settings.clone();
