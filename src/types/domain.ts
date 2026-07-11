@@ -107,6 +107,7 @@ export interface AISettings {
   baseUrl: string;
   chatPath: string;
   apiKey: string;
+  apiKeyAction?: "preserve" | "replace" | "clear";
   apiKeyConfigured?: boolean;
   model: string;
   temperature: number;

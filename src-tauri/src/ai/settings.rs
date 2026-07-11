@@ -1,6 +1,4 @@
-#[cfg(debug_assertions)]
-use std::sync::{Mutex, OnceLock};
-use std::time::Instant;
+use std::{sync::Mutex, time::Instant};
 
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -16,12 +14,17 @@ use super::{
 use crate::db::{Database, DbError};
 
 pub const AI_SETTINGS_KEY: &str = "ai_settings_v1";
-#[cfg(not(debug_assertions))]
 const AI_CREDENTIAL_SERVICE: &str = "com.startlan.zencanvas";
-#[cfg(not(debug_assertions))]
 const AI_CREDENTIAL_USER: &str = "ai-api-key";
-#[cfg(debug_assertions)]
-static DEV_API_KEY: OnceLock<Mutex<String>> = OnceLock::new();
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiKeyAction {
+    #[default]
+    Preserve,
+    Replace,
+    Clear,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -33,6 +36,8 @@ pub struct AISettings {
     pub chat_path: String,
     pub api_key: String,
     #[serde(default, skip_serializing)]
+    pub api_key_action: ApiKeyAction,
+    #[serde(default)]
     pub api_key_configured: bool,
     pub model: String,
     pub temperature: f32,
@@ -59,6 +64,7 @@ impl Default for AISettings {
             base_url: "https://api.deepseek.com".to_string(),
             chat_path: "/chat/completions".to_string(),
             api_key: String::new(),
+            api_key_action: ApiKeyAction::Preserve,
             api_key_configured: false,
             model: "deepseek-v4-flash".to_string(),
             temperature: 0.0,
@@ -79,6 +85,13 @@ impl Default for AISettings {
 }
 
 pub fn get_ai_settings_for_db(db: &Database) -> Result<AISettings, DbError> {
+    get_ai_settings_with_store(db, &SystemCredentialStore)
+}
+
+pub fn get_ai_settings_with_store(
+    db: &Database,
+    credentials: &impl CredentialStore,
+) -> Result<AISettings, DbError> {
     let conn = db.conn()?;
     let settings_json = conn
         .query_row(
@@ -95,11 +108,17 @@ pub fn get_ai_settings_for_db(db: &Database) -> Result<AISettings, DbError> {
         None => AISettings::default(),
     };
     if !settings.api_key.is_empty() {
-        store_api_key(&settings.api_key).map_err(DbError::Validation)?;
+        credentials
+            .set(&settings.api_key)
+            .map_err(DbError::Validation)?;
         settings.api_key.clear();
         persist_ai_settings_without_secret(db, &settings)?;
     }
-    settings.api_key = load_api_key().unwrap_or_default();
+    settings.api_key = credentials
+        .get()
+        .map_err(DbError::Validation)?
+        .unwrap_or_default();
+    settings.api_key_action = ApiKeyAction::Preserve;
     settings.api_key_configured = !settings.api_key.is_empty();
     Ok(settings)
 }
@@ -108,13 +127,39 @@ pub fn save_ai_settings_for_db(
     db: &Database,
     settings: &AISettings,
 ) -> Result<AISettings, DbError> {
+    save_ai_settings_with_store(db, settings, &SystemCredentialStore)
+}
+
+pub fn save_ai_settings_with_store(
+    db: &Database,
+    settings: &AISettings,
+    credentials: &impl CredentialStore,
+) -> Result<AISettings, DbError> {
     validate_ai_settings(settings, !cfg!(debug_assertions)).map_err(DbError::Validation)?;
     let mut normalized = normalize_ai_settings(settings.clone());
-    if !normalized.api_key.is_empty() {
-        store_api_key(&normalized.api_key).map_err(DbError::Validation)?;
-    } else if let Ok(existing) = load_api_key() {
-        normalized.api_key = existing;
+    match normalized.api_key_action {
+        ApiKeyAction::Preserve => {
+            normalized.api_key = credentials
+                .get()
+                .map_err(DbError::Validation)?
+                .unwrap_or_default();
+        }
+        ApiKeyAction::Replace => {
+            if normalized.api_key.is_empty() {
+                return Err(DbError::Validation(
+                    "Replacing the AI API key requires a non-empty value.".to_string(),
+                ));
+            }
+            credentials
+                .set(&normalized.api_key)
+                .map_err(DbError::Validation)?;
+        }
+        ApiKeyAction::Clear => {
+            credentials.delete().map_err(DbError::Validation)?;
+            normalized.api_key.clear();
+        }
     }
+    normalized.api_key_action = ApiKeyAction::Preserve;
     normalized.api_key_configured = !normalized.api_key.is_empty();
     persist_ai_settings_without_secret(db, &normalized)?;
     Ok(normalized)
@@ -137,47 +182,71 @@ fn persist_ai_settings_without_secret(db: &Database, settings: &AISettings) -> R
     Ok(())
 }
 
-#[cfg(not(debug_assertions))]
+pub trait CredentialStore {
+    fn set(&self, value: &str) -> Result<(), String>;
+    fn get(&self) -> Result<Option<String>, String>;
+    fn delete(&self) -> Result<(), String>;
+}
+
+pub struct SystemCredentialStore;
+
+#[derive(Default)]
+pub struct InMemoryCredentialStore(Mutex<Option<String>>);
+
+impl CredentialStore for InMemoryCredentialStore {
+    fn set(&self, value: &str) -> Result<(), String> {
+        *self
+            .0
+            .lock()
+            .map_err(|_| "in-memory credential store is unavailable".to_string())? =
+            Some(value.trim().to_string());
+        Ok(())
+    }
+
+    fn get(&self) -> Result<Option<String>, String> {
+        self.0
+            .lock()
+            .map(|value| value.clone())
+            .map_err(|_| "in-memory credential store is unavailable".to_string())
+    }
+
+    fn delete(&self) -> Result<(), String> {
+        *self
+            .0
+            .lock()
+            .map_err(|_| "in-memory credential store is unavailable".to_string())? = None;
+        Ok(())
+    }
+}
+
 fn credential_entry() -> Result<keyring::Entry, String> {
     keyring::Entry::new(AI_CREDENTIAL_SERVICE, AI_CREDENTIAL_USER)
         .map_err(|error| format!("failed to open system credential store: {error}"))
 }
 
-#[cfg(not(debug_assertions))]
-fn store_api_key(api_key: &str) -> Result<(), String> {
-    credential_entry()?
-        .set_password(api_key.trim())
-        .map_err(|error| format!("failed to save API key in system credential store: {error}"))
-}
-
-#[cfg(not(debug_assertions))]
-fn load_api_key() -> Result<String, String> {
-    match credential_entry()?.get_password() {
-        Ok(value) => Ok(value),
-        Err(keyring::Error::NoEntry) => Ok(String::new()),
-        Err(error) => Err(format!(
-            "failed to read API key from system credential store: {error}"
-        )),
+impl CredentialStore for SystemCredentialStore {
+    fn set(&self, value: &str) -> Result<(), String> {
+        credential_entry()?
+            .set_password(value.trim())
+            .map_err(|error| format!("failed to save API key in system credential store: {error}"))
     }
-}
-
-#[cfg(debug_assertions)]
-fn store_api_key(api_key: &str) -> Result<(), String> {
-    *DEV_API_KEY
-        .get_or_init(|| Mutex::new(String::new()))
-        .lock()
-        .map_err(|_| "development credential store is unavailable".to_string())? =
-        api_key.trim().to_string();
-    Ok(())
-}
-
-#[cfg(debug_assertions)]
-fn load_api_key() -> Result<String, String> {
-    DEV_API_KEY
-        .get_or_init(|| Mutex::new(String::new()))
-        .lock()
-        .map(|value| value.clone())
-        .map_err(|_| "development credential store is unavailable".to_string())
+    fn get(&self) -> Result<Option<String>, String> {
+        match credential_entry()?.get_password() {
+            Ok(value) => Ok(Some(value)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(format!(
+                "failed to read API key from system credential store: {error}"
+            )),
+        }
+    }
+    fn delete(&self) -> Result<(), String> {
+        match credential_entry()?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(error) => Err(format!(
+                "failed to delete API key from system credential store: {error}"
+            )),
+        }
+    }
 }
 
 fn public_ai_settings(mut settings: AISettings) -> AISettings {
@@ -422,6 +491,24 @@ fn sanitize_ai_error(message: String, api_key: &str) -> String {
 #[cfg(test)]
 mod validation_tests {
     use super::*;
+
+    #[test]
+    fn public_ai_settings_reports_configuration_without_exposing_the_key() {
+        let public = public_ai_settings(AISettings {
+            api_key: "top-secret".to_string(),
+            api_key_action: ApiKeyAction::Replace,
+            ..AISettings::default()
+        });
+
+        assert!(public.api_key.is_empty());
+        assert!(public.api_key_configured);
+        assert_eq!(public.api_key_action, ApiKeyAction::Replace);
+        let json = serde_json::to_value(public).expect("serialize public settings");
+        assert_eq!(json["apiKey"], "");
+        assert_eq!(json["apiKeyConfigured"], true);
+        assert!(json.get("apiKeyAction").is_none());
+        assert!(!json.to_string().contains("top-secret"));
+    }
 
     #[test]
     fn ai_numeric_bounds_accept_limits_and_reject_out_of_range_values() {

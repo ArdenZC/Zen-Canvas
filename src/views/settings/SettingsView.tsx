@@ -891,10 +891,19 @@ export function SettingsView() {
                     label="API Key"
                     type="password"
                     value={aiSettings.apiKey}
-                    onChange={(value) => updateAISettings({ apiKey: value })}
+                    onChange={(value) => updateAISettings({ apiKey: value, apiKeyAction: value ? "replace" : "preserve" })}
                     placeholder={aiSettings.apiKeyConfigured ? "已安全保存在系统凭据库；输入新值可替换" : "不会在页面明文显示"}
                   />
                 )}
+                {aiSettings.provider !== "ollama" && aiSettings.apiKeyConfigured ? (
+                  <button
+                    className={buttonSecondary}
+                    type="button"
+                    onClick={() => updateAISettings({ apiKey: "", apiKeyAction: "clear", apiKeyConfigured: false })}
+                  >
+                    清除已保存的 API Key
+                  </button>
+                ) : null}
                 <TextField label="Model" value={aiSettings.model} maxLength={200} onChange={(value) => updateAISettings({ model: value })} />
                 <NumberField
                   label="Batch Size"
@@ -1207,6 +1216,7 @@ function defaultAISettingsFromPreset(preset?: AIProviderPreset): AISettings | nu
     baseUrl: preset.defaultBaseUrl,
     chatPath: preset.defaultChatPath || "/chat/completions",
     apiKey: "",
+    apiKeyAction: "preserve",
     model: preset.defaultModel,
     temperature: 0,
     maxTokens: 1024,
