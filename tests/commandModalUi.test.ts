@@ -23,7 +23,7 @@ describe("command modal spotlight polish", () => {
   it("uses purpose-driven result tones and dynamic file icons", () => {
     const commandModal = read("src/components/CommandModal.tsx");
 
-    expect(commandModal).toContain("Folder, Video, Image as ImageIcon, Code, FileText");
+    expect(commandModal).toContain("FileText, Folder, Image as ImageIcon, LayoutGrid, Radar");
     expect(commandModal).toContain("function getIcon(fileType: string)");
     expect(commandModal).toContain('if (type === "folder") return <Folder size={20} strokeWidth={1.5} />');
     expect(commandModal).toContain('if (type === "video" || type === "mp4") return <Video size={20} strokeWidth={1.5} />');
@@ -58,18 +58,18 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).not.toContain("scale-");
   });
 
-  it("uses the standalone glass spotlight alignment and spring motion contract", () => {
+  it("uses the standalone floating Spotlight alignment and restrained motion contract", () => {
     const commandModal = read("src/components/CommandModal.tsx");
 
     expect(commandModal).toContain(
-      '"w-full overflow-hidden bg-white dark:bg-neutral-900 shadow-2xl ring-1 ring-neutral-200 dark:ring-white/10"'
+      '"w-full overflow-hidden border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-spotlight)] backdrop-blur-xl"'
     );
     expect(commandModal).not.toContain("transition-[border-radius]");
     expect(commandModal).toContain(
       'relative z-10 flex h-full w-full items-start justify-center bg-transparent pt-8 px-8'
     );
     expect(commandModal).toContain(
-      'fixed inset-0 z-40 flex items-start justify-center bg-neutral-900/40 px-5 pt-[15vh] sm:pt-[20vh] backdrop-blur-md'
+      'fixed inset-0 z-40 flex items-start justify-center bg-[var(--zc-overlay)] px-5 pt-[15vh] backdrop-blur-sm sm:pt-[20vh]'
     );
     expect(commandModal).toContain("<motion.div");
     expect(commandModal).toContain("layout");
@@ -77,10 +77,11 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).toContain('window.removeEventListener("blur", handleBlur)');
     expect(commandModal).toContain("const handleBlur = () => onClose();");
     expect(commandModal).toContain("}, [standalone, onClose]);");
-    expect(commandModal).toContain("initial={{ opacity: 0, scale: 0.95, y: 10 }}");
-    expect(commandModal).toContain("animate={{ opacity: 1, scale: 1, y: 0 }}");
-    expect(commandModal).toContain("exit={{ opacity: 0, scale: 0.95, y: 10 }}");
-    expect(commandModal).toContain('transition={{ type: "spring", damping: 25, stiffness: 300 }}');
+    expect(commandModal).toContain("initial={{ opacity: 0, y: 8 }}");
+    expect(commandModal).toContain("animate={{ opacity: 1, y: 0 }}");
+    expect(commandModal).toContain("exit={{ opacity: 0, y: 8 }}");
+    expect(commandModal).toContain("transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}");
+    expect(commandModal).not.toContain("scale:");
   });
 
   it("uses polished shortcut badges and active result text treatment", () => {
@@ -93,7 +94,8 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).toContain('<ShortcutHint badge={<CornerDownLeft className="w-3 h-3" />} label={t("commandOpenHint")} />');
     expect(commandModal).toContain('<ShortcutHint badge="↑↓" label="to navigate" />');
     expect(commandModal).toContain('<ShortcutHint badge="ESC" label="to close" />');
-    expect(commandModal).toContain('cn(commandFileName, index === activeIndex ? "text-blue-900 dark:text-blue-100" : "")');
+    expect(commandModal).toContain('<strong className={commandFileName}>');
+    expect(commandModal).toContain('className="text-[var(--zc-primary)]"');
     expect(commandModal).not.toContain('ShortcutHint badge="↵"');
     expect(commandModal).not.toContain("badge={locateKey}");
     expect(commandModal).not.toContain("badge={sortingPreviewKey}");

@@ -90,6 +90,12 @@
   --zc-focus-ring: #0066cc;
   --zc-focus-ring-soft: rgba(0, 102, 204, 0.16);
 
+  --zc-window-close-hover: #c42b1c;
+  --zc-window-close-text: #ffffff;
+  --zc-window-mac-close: #ff5f57;
+  --zc-window-mac-minimize: #febc2e;
+  --zc-window-mac-maximize: #28c840;
+
   --zc-ambient-primary: rgba(79, 172, 254, 0.055);
   --zc-ambient-secondary: rgba(6, 182, 212, 0.03);
   --zc-ambient-vignette: rgba(28, 28, 30, 0.025);

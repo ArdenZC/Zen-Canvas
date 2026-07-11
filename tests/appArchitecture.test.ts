@@ -226,11 +226,13 @@ describe("app render architecture", () => {
     const appShell = read("src/components/AppShell.tsx");
 
     expect(appShell).toContain("function navGroups");
-    expect(appShell).toContain('id: "workspace"');
-    expect(appShell).toContain('id: "system"');
-    expect(appShell.indexOf('id: "scanner"')).toBeLessThan(appShell.indexOf('id: "cleanup"'));
-    expect(appShell.indexOf('id: "cleanup"')).toBeLessThan(appShell.indexOf('id: "organize"'));
-    expect(appShell).toContain('label: t("storageCleanup")');
+    expect(appShell).toContain('id: "primary"');
+    expect(appShell).toContain('id: "advanced"');
+    expect(appShell.indexOf('id: "scanner"')).toBeLessThan(appShell.indexOf('id: "library"'));
+    expect(appShell.indexOf('id: "library"')).toBeLessThan(appShell.indexOf('id: "organize"'));
+    expect(appShell.indexOf('id: "organize"')).toBeLessThan(appShell.indexOf('id: "restore"'));
+    expect(appShell).not.toContain('{ id: "cleanup",');
+    expect(appShell).not.toContain('{ id: "preview",');
     expect(appShell).not.toContain("index === 4");
     expect(appShell).toContain('aria-current={view === item.id ? "page" : undefined}');
     expect(appShell).toContain("function viewDescription");
@@ -259,8 +261,10 @@ describe("app render architecture", () => {
     expect(appShell).toContain("noDrag");
     expect(appShell).toContain("windowsControlButton");
     expect(appShell).toContain("windowsCloseButton");
-    expect(appShell).toContain("h-8 w-10");
+    expect(appShell).toContain("h-12 w-11");
     expect(appShell).toContain("h-6 w-6");
+    expect(appShell).toContain("var(--zc-window-close-hover)");
+    expect(appShell).not.toContain("overflow-hidden rounded-lg border");
     expect(appShell).toContain("softPanel");
     expect(shellChrome).toContain("titlebarToolButton");
     expect(shellChrome).toContain("aria-label={themeLabel}");

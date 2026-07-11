@@ -1,10 +1,8 @@
 import {
   Archive,
   Clock3,
-  Eraser,
   FolderSearch,
   LayoutGrid,
-  ListChecks,
   LockKeyhole,
   Minus,
   Radar,
@@ -15,7 +13,8 @@ import {
   Square,
   X
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { tauriApi } from "../api/tauriApi";
 import { CommandModal } from "./CommandModal";
 import { ViewErrorBoundary } from "./ErrorBoundary";
 import { AmbientMesh, CloseChoiceDialog, TitlebarTools, ZenMark } from "./ShellChrome";
@@ -26,7 +25,7 @@ import { useAppStore } from "../store/useAppStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { useScanManagerStore } from "../store/useScanManagerStore";
-import type { AppSettings, DashboardStats, LibraryScope } from "../types/domain";
+import type { AISettings, AppSettings, DashboardStats, LibraryScope } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { formatDate } from "../utils/format";
 import { cn, glassButton, glassButtonPrimary, statusToast, toastTone } from "../utils/tw";
@@ -43,31 +42,31 @@ const RestoreView = lazy(() => import("../views/restore/RestoreView").then((modu
 const SettingsView = lazy(() => import("../views/settings/SettingsView").then((module) => ({ default: module.SettingsView })));
 
 const appRoot =
-  cn(pageFrame, "relative h-screen min-h-[680px] min-w-[980px] bg-[var(--bg)] text-[var(--ink)]");
+  cn(pageFrame, "relative h-screen min-h-[680px] min-w-[980px] bg-[var(--zc-canvas)] text-[var(--zc-text-primary)]");
 const searchWindowRoot =
-  "relative h-full w-full overflow-hidden bg-transparent text-[var(--ink)]";
+  "relative h-full w-full overflow-hidden bg-transparent text-[var(--zc-text-primary)]";
 const titlebar =
-  "relative z-30 grid h-12 grid-cols-[minmax(208px,240px)_1fr_minmax(208px,240px)] items-center border-b border-[var(--line-dark)] bg-[var(--surface)] px-4 backdrop-blur-xl [-webkit-app-region:drag]";
+  "relative z-30 grid h-12 grid-cols-[228px_minmax(0,1fr)_228px] items-center border-b border-[var(--zc-divider)] bg-[var(--zc-titlebar)] px-4 backdrop-blur-xl [-webkit-app-region:drag]";
 const noDrag = "[-webkit-app-region:no-drag]";
 const spotlightButton =
-  "mx-auto grid h-8 w-[min(42vw,420px)] min-w-64 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-full border border-[var(--line-dark)] bg-[var(--surface-soft)] px-3 text-xs text-[var(--muted)] shadow-sm transition-[background,border-color,box-shadow,color] hover:border-blue-400/24 hover:bg-[var(--surface-strong)] hover:shadow-[0_0_0_3px_rgba(59,130,246,0.055)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/50 [&_kbd]:rounded-md [&_kbd]:border [&_kbd]:border-[var(--line-dark)] [&_kbd]:bg-[var(--surface-soft)] [&_kbd]:px-1.5 [&_kbd]:py-0.5 [&_kbd]:text-[11px] [&_kbd]:font-medium [&_kbd]:text-[var(--quiet)]";
-const workspaceShell = "relative z-10 grid min-h-0 flex-1 grid-cols-[minmax(220px,248px)_minmax(0,1fr)]";
+  "mx-auto grid h-8 w-[min(42vw,440px)] min-w-64 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] px-3 text-xs text-[var(--zc-text-secondary)] shadow-sm transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)] [&_kbd]:rounded-md [&_kbd]:border [&_kbd]:border-[var(--zc-divider)] [&_kbd]:bg-[var(--zc-surface)] [&_kbd]:px-1.5 [&_kbd]:py-0.5 [&_kbd]:text-[11px] [&_kbd]:font-medium [&_kbd]:text-[var(--zc-text-tertiary)]";
+const workspaceShell = "relative z-10 grid min-h-0 flex-1 grid-cols-[228px_minmax(0,1fr)]";
 const sidebarClass =
-  "flex min-h-0 flex-col gap-5 border-r border-[var(--line-dark)] bg-[var(--surface)] px-4 py-5 backdrop-blur-xl";
+  "flex min-h-0 flex-col gap-5 border-r border-[var(--zc-divider)] bg-[var(--zc-sidebar)] px-4 py-5 backdrop-blur-xl";
 const navItemBase =
-  "flex min-h-10 w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:bg-[var(--surface-soft)] hover:text-[var(--ink)] dark:hover:bg-slate-700/70";
-const navItemActive = "border-blue-400/24 bg-blue-500/9 text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]";
-const workspaceClass = "flex min-h-0 min-w-0 flex-col overflow-hidden px-5 py-5";
+  "relative flex min-h-10 w-full items-center gap-3 rounded-[var(--zc-radius-control)] border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--zc-text-secondary)] transition-[background,border-color,color] duration-[var(--zc-duration-fast)] before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-[var(--zc-primary)] before:opacity-0 hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
+const navItemActive = "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] before:opacity-100";
+const workspaceClass = "flex min-h-0 min-w-[720px] flex-col overflow-hidden px-5 py-5";
 const viewStageClass = viewStage;
 const windowsControlButton =
-  "grid h-8 w-10 place-items-center text-[var(--muted)] transition-[background,color] hover:bg-[var(--surface-soft)] hover:text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-500/45";
+  "grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]";
 const windowsCloseButton =
-  "grid h-8 w-10 place-items-center text-[var(--muted)] transition-[background,color] hover:bg-red-500/85 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-red-400/60";
+  "grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]";
 const macControlButton = "grid h-6 w-6 place-items-center rounded-full";
-const navGroupTitle = "px-3 pt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--quiet)]";
+const navGroupTitle = "px-3 pt-2 text-[11px] font-semibold text-[var(--zc-text-tertiary)]";
 
 type NavItem = { id: View; label: string; icon: typeof Radar };
-type NavGroup = { id: "workspace" | "system"; label: string; items: NavItem[] };
+type NavGroup = { id: "primary" | "advanced"; label: string; items: NavItem[] };
 
 export function AppShell() {
   const {
@@ -89,7 +88,7 @@ export function AppShell() {
   if (isSearchMode) return <SearchWindow />;
 
   const groups = navGroups(t);
-  const activeLabel = groups.flatMap((group) => group.items).find((item) => item.id === view)?.label ?? t("spaceScan");
+  const activeLabel = groups.flatMap((group) => group.items).find((item) => item.id === view)?.label ?? viewLabel(view, t);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
   const headingDescription = viewDescription(view, stats, scopeText, previewActionCount, t);
 
@@ -102,7 +101,7 @@ export function AppShell() {
         </div>
         <div className="flex items-center justify-center">
           <button className={cn(spotlightButton, noDrag)} onClick={() => setIsCommandOpen(true)}>
-            <Search size={15} className="text-blue-500/85" />
+            <Search size={15} className="text-[var(--zc-primary)]" />
             <span className="min-w-0 truncate text-left">{t("globalSearch")}</span>
             <kbd>{hotkeyLabel}</kbd>
           </button>
@@ -227,13 +226,13 @@ function MacWindowControls() {
   return (
     <div className={cn("flex items-center gap-1", noDrag)} aria-label="Window controls">
       <button className={macControlButton} onClick={() => handleWindowAction("close")} aria-label={t("close")}>
-        <span className="h-3 w-3 rounded-full bg-red-500 shadow-sm" />
+        <span className="h-3 w-3 rounded-full bg-[var(--zc-window-mac-close)] shadow-sm" />
       </button>
       <button className={macControlButton} onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")}>
-        <span className="h-3 w-3 rounded-full bg-amber-400 shadow-sm" />
+        <span className="h-3 w-3 rounded-full bg-[var(--zc-window-mac-minimize)] shadow-sm" />
       </button>
       <button className={macControlButton} onClick={() => handleWindowAction("maximize")} aria-label={t("maximize")}>
-        <span className="h-3 w-3 rounded-full bg-emerald-500 shadow-sm" />
+        <span className="h-3 w-3 rounded-full bg-[var(--zc-window-mac-maximize)] shadow-sm" />
       </button>
     </div>
   );
@@ -243,7 +242,7 @@ function WindowsControls() {
   const { handleWindowAction, t } = useChromeContext();
 
   return (
-    <div className={cn("flex items-center overflow-hidden rounded-lg border border-[var(--line-dark)] bg-[var(--surface-soft)]", noDrag)} aria-label="Window controls">
+    <div className={cn("flex h-12 items-center", noDrag)} aria-label="Window controls">
       <button className={windowsControlButton} onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")}>
         <Minus size={15} strokeWidth={1.6} />
       </button>
@@ -260,6 +259,21 @@ function WindowsControls() {
 function Sidebar({ groups }: { groups: NavGroup[] }) {
   const { view, setView, t } = useChromeContext();
   const previewActionCount = useOperationQueueStore((state) => state.previewActionCount);
+  const [aiSettings, setAISettings] = useState<Pick<AISettings, "enabled" | "provider"> | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void tauriApi.getAISettings()
+      .then((settings) => {
+        if (active) setAISettings({ enabled: settings.enabled, provider: settings.provider });
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const mode = sidebarMode(aiSettings, t);
 
   return (
     <aside className={sidebarClass}>
@@ -267,12 +281,12 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
         <ZenMark />
         <div>
           <strong className="block text-base font-semibold">{t("appName")}</strong>
-          <span className="block text-xs text-[var(--muted)]">{t("appSubtitle")}</span>
+          <span className="block text-xs text-[var(--zc-text-secondary)]">{t("appSubtitle")}</span>
         </div>
       </div>
       <nav className="flex flex-1 flex-col gap-3">
         {groups.map((group) => (
-          <section className="grid gap-1 border-t border-[var(--line-dark)] pt-3 first:border-t-0 first:pt-0" key={group.id}>
+          <section className="grid gap-1 border-t border-[var(--zc-divider)] pt-3 first:border-t-0 first:pt-0" key={group.id}>
             <span className={navGroupTitle}>{group.label}</span>
             {group.items.map((item) => (
               <button
@@ -283,8 +297,8 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
               >
                 <item.icon size={18} />
                 <span>{item.label}</span>
-                {item.id === "preview" && previewActionCount > 0 && (
-                  <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500/10 px-1 text-[11px] font-medium text-red-600 dark:text-red-300" aria-label={`${previewActionCount} pending`}>
+                {item.id === "organize" && previewActionCount > 0 && (
+                  <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--zc-danger-soft)] px-1 text-[11px] font-medium text-[var(--zc-danger-text)]" aria-label={`${previewActionCount} pending`}>
                     {previewActionCount}
                   </span>
                 )}
@@ -294,10 +308,10 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
         ))}
       </nav>
       <div className={cn(softPanel, "mt-auto flex items-start gap-3 p-3 text-sm")}>
-        <LockKeyhole size={17} className="mt-0.5 text-blue-500/75" />
+        <LockKeyhole size={17} className="mt-0.5 text-[var(--zc-primary)]" />
         <div>
-          <strong className="block text-sm text-[var(--ink)]">{t("localOnly")}</strong>
-          <span className="block text-xs leading-5 text-[var(--muted)]">{t("privacyLine")}</span>
+          <strong className="block text-sm text-[var(--zc-text-primary)]">{mode.title}</strong>
+          <span className="block text-xs leading-5 text-[var(--zc-text-secondary)]">{mode.description}</span>
         </div>
       </div>
     </aside>
@@ -421,24 +435,38 @@ function viewDescription(
 function navGroups(t: Translator): NavGroup[] {
   return [
     {
-      id: "workspace",
-      label: t("navWorkspace"),
+      id: "primary",
+      label: t("navPrimary"),
       items: [
-        { id: "scanner", label: t("spaceScan"), icon: Radar },
-        { id: "cleanup", label: t("storageCleanup"), icon: Eraser },
-        { id: "organize", label: t("smartDispatch"), icon: LayoutGrid },
+        { id: "scanner", label: t("overview"), icon: Radar },
         { id: "library", label: t("fileLibrary"), icon: Archive },
-        { id: "preview", label: t("previewExecute"), icon: ListChecks }
+        { id: "organize", label: t("organizeSuggestions"), icon: LayoutGrid },
+        { id: "restore", label: t("history"), icon: Clock3 }
       ]
     },
     {
-      id: "system",
-      label: t("navSystem"),
+      id: "advanced",
+      label: t("navAdvanced"),
       items: [
-        { id: "rules", label: t("ruleEngine"), icon: SlidersHorizontal },
-        { id: "restore", label: t("restoreRecords"), icon: Clock3 },
+        { id: "rules", label: t("automation"), icon: SlidersHorizontal },
         { id: "settings", label: t("settings"), icon: Settings }
       ]
     }
   ];
+}
+
+function viewLabel(view: View, t: Translator) {
+  if (view === "cleanup") return t("storageCleanup");
+  if (view === "preview") return t("previewExecute");
+  return t("overview");
+}
+
+function sidebarMode(
+  settings: Pick<AISettings, "enabled" | "provider"> | null,
+  t: Translator
+) {
+  if (!settings) return { title: t("localOnly"), description: t("privacyLine") };
+  if (!settings.enabled) return { title: t("modeAIDisabled"), description: t("modeAIDisabledDesc") };
+  if (settings.provider === "ollama") return { title: t("modeAILocal"), description: t("modeAILocalDesc") };
+  return { title: t("modeAICloud"), description: t("modeAICloudDesc") };
 }

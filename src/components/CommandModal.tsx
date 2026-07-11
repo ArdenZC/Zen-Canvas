@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import type * as React from "react";
-import { ChevronRight, File, Search, X, Folder, Video, Image as ImageIcon, Code, FileText, CornerDownLeft } from "lucide-react";
+import { Activity, Archive, ChevronRight, Clock3, Code, CornerDownLeft, FileText, Folder, Image as ImageIcon, LayoutGrid, Radar, Search, Video, X } from "lucide-react";
 import { motion } from "motion/react";
 import { tauriApi } from "../api/tauriApi";
 import type { FileRecord, LibraryScope } from "../types/domain";
@@ -11,9 +11,9 @@ import { compactPath, formatDisplayPath, readableError } from "../utils/viewHelp
 import { IconButton, StateBlock, ToneBadge, quietText } from "../views/shared/ui";
 
 const keyBadge =
-  "flex items-center justify-center px-1.5 py-0.5 rounded bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-white/10 shadow-sm font-mono font-medium text-neutral-500 dark:text-neutral-400 text-[10px]";
+  "flex items-center justify-center rounded border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[var(--zc-text-tertiary)] shadow-sm";
 const commandShellBase =
-  "w-full overflow-hidden bg-white dark:bg-neutral-900 shadow-2xl ring-1 ring-neutral-200 dark:ring-white/10";
+  "w-full overflow-hidden border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-spotlight)] backdrop-blur-xl";
 const commandShellCollapsed =
   "h-16 w-full max-w-[720px] rounded-full";
 const commandShellExpanded =
@@ -22,41 +22,44 @@ const commandShellDialogWidth = "max-w-[720px]";
 const commandShellStandaloneExpanded = "w-full max-w-[720px]";
 
 const commandInputRowBase =
-  "relative flex h-16 min-h-16 items-center gap-3 border-b border-neutral-100 px-4 transition-colors dark:border-white/10";
+  "relative flex h-16 min-h-16 items-center gap-3 border-b border-[var(--zc-divider)] px-4 transition-colors";
 const commandInputRowCollapsed =
   "relative flex h-16 min-h-16 items-center gap-3 border-b-0 px-4 transition-colors";
 const commandInputRowFocused = "";
 
 const commandSearchIcon =
-  "w-5 h-5 text-neutral-400 shrink-0 grid place-items-center";
+  "grid h-5 w-5 shrink-0 place-items-center text-[var(--zc-primary)]";
 
 const commandInput =
-  "command-input h-full min-w-0 flex-1 bg-transparent text-lg text-neutral-900 outline-none placeholder:text-neutral-400 focus:outline-none focus-visible:outline-none dark:text-neutral-100 dark:placeholder:text-neutral-500";
+  "command-input h-full min-w-0 flex-1 bg-transparent text-lg text-[var(--zc-text-primary)] outline-none placeholder:text-[var(--zc-text-tertiary)] focus:outline-none focus-visible:outline-none";
 
 const commandResultsShell = "grid min-h-0 gap-0";
 const commandResultsBody = "max-h-[50vh] overflow-y-auto p-2";
-const commandResultsHeader = "px-3 py-2 text-xs font-semibold text-neutral-400 uppercase tracking-wider flex items-center justify-between";
+const commandResultsHeader = "flex items-center justify-between px-3 py-2 text-xs font-semibold text-[var(--zc-text-tertiary)]";
 
 const commandResultsList = "flex flex-col gap-1";
 const commandResultItemBase =
-  "w-full grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-4 px-3 py-3 rounded-xl transition-all duration-150 text-left";
+  "grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-4 rounded-[var(--zc-radius-field)] px-3 py-3 text-left transition-[background,box-shadow] duration-[var(--zc-duration-fast)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]";
 const commandResultItemActive =
-  "bg-blue-50 dark:bg-blue-500/10 ring-1 ring-blue-500/20";
+  "bg-[var(--zc-surface-selected)] shadow-[inset_0_0_0_1px_var(--zc-primary-soft)]";
 const commandResultItemInactive =
-  "hover:bg-neutral-50 dark:hover:bg-white/5";
+  "hover:bg-[var(--zc-surface-hover)]";
 
 const commandFileIcon =
   "flex shrink-0 items-center justify-center w-10 h-10 rounded-lg border";
-const commandFileName = "text-sm font-medium truncate transition-colors text-neutral-900 dark:text-neutral-100";
-const commandFileMeta = "text-xs text-neutral-500 dark:text-neutral-400 truncate";
+const commandFileName = "truncate text-sm font-medium text-[var(--zc-text-primary)] transition-colors";
+const commandFileMeta = "truncate text-xs text-[var(--zc-text-secondary)]";
 
 const commandFooter =
-  "flex items-center justify-between px-4 py-3 bg-neutral-50 dark:bg-white/[0.02] border-t border-neutral-100 dark:border-white/10 text-xs text-neutral-500 dark:text-neutral-400";
+  "flex items-center justify-between border-t border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-4 py-3 text-xs text-[var(--zc-text-secondary)]";
 const shortcutHints = "flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1";
 const shortcutHint = "inline-flex min-w-0 items-center gap-1 whitespace-nowrap";
-const shortcutHintLabel = "hidden max-w-24 truncate text-neutral-500 sm:inline dark:text-neutral-400";
+const shortcutHintLabel = "hidden max-w-24 truncate text-[var(--zc-text-secondary)] sm:inline";
 const highlightMark =
-  "rounded-sm bg-blue-100/50 px-1 text-blue-700 dark:bg-blue-500/30 dark:text-blue-200";
+  "rounded-sm bg-[var(--zc-primary-soft)] px-1 text-[var(--zc-primary-text)]";
+const commandIdleGroups = "grid gap-3 p-4 sm:grid-cols-2";
+const commandIdleGroup = "grid gap-2 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3";
+const commandIdleAction = "flex min-h-10 items-center gap-3 rounded-[var(--zc-radius-control)] px-2.5 text-left text-sm text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]";
 const SEARCH_RESULT_LIMIT = 80;
 const standaloneSearchWindowCollapsedHeight = 160;
 const standaloneSearchWindowExpandedHeight = 660;
@@ -129,6 +132,9 @@ export function CommandModal({
   const [activeIndex, setActiveIndex] = useState(0);
   const [inputFocused, setInputFocused] = useState(false);
   const enqueueBackgroundIndexRoots = useBackgroundIndexerStore((state) => state.enqueueRoots);
+  const isBackgroundIndexing = useBackgroundIndexerStore((state) => state.isBackgroundIndexing);
+  const currentBackgroundRoot = useBackgroundIndexerStore((state) => state.currentRoot);
+  const pendingBackgroundRoots = useBackgroundIndexerStore((state) => state.pendingRoots.length);
   const trimmedSearch = search.trim();
   const showResults = trimmedSearch.length > 0 && results.length > 0;
   const activeResultId = showResults ? `command-result-${activeIndex}` : undefined;
@@ -167,7 +173,7 @@ export function CommandModal({
     && queryState === "idle"
     && !isScopedEmpty;
   const shouldShowIdleState = !standalone && !trimmedSearch;
-  const shouldShowStateBlock = !showResults && (queryState !== "idle" || shouldShowIdleState || isScopedEmpty);
+  const shouldShowStateBlock = !showResults && (queryState !== "idle" || isScopedEmpty);
   const showScopeMeta = Boolean(searchScopeLabel && !isStandaloneCollapsed);
 
   useEffect(() => {
@@ -287,6 +293,21 @@ export function CommandModal({
     setCommandIndexStatus(t("commandIndexQueued"));
   }
 
+  function openIdleDestination(view: View) {
+    void activateCommandNavigation({
+      standalone,
+      view,
+      fileId: null,
+      setView,
+      setSelectedFileId,
+      onClose
+    }).catch((error) => {
+      const message = readableError(error);
+      setCommandError(message);
+      onError?.(message);
+    });
+  }
+
   function getResultTone(file: FileRecord) {
     const purpose = (file.purpose || "").toLowerCase();
     if (purpose.includes("strategy") || purpose.includes("finance") || file.lifecycle === "Archive") return "purple";
@@ -311,7 +332,7 @@ export function CommandModal({
       className={cn(
         standalone
           ? "relative z-10 flex h-full w-full items-start justify-center bg-transparent pt-8 px-8"
-          : "fixed inset-0 z-40 flex items-start justify-center bg-neutral-900/40 px-5 pt-[15vh] sm:pt-[20vh] backdrop-blur-md"
+          : "fixed inset-0 z-40 flex items-start justify-center bg-[var(--zc-overlay)] px-5 pt-[15vh] backdrop-blur-sm sm:pt-[20vh]"
       )}
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
@@ -322,10 +343,10 @@ export function CommandModal({
           isStandaloneCollapsed ? commandShellCollapsed : commandShellExpanded,
           !isStandaloneCollapsed && (standalone ? commandShellStandaloneExpanded : commandShellDialogWidth)
         )}
-        initial={{ opacity: 0, scale: 0.95, y: 10 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 10 }}
-        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 8 }}
+        transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
         role={standalone ? "search" : "dialog"}
         aria-modal={standalone ? undefined : true}
         aria-label={t("globalSearch")}
@@ -385,7 +406,7 @@ export function CommandModal({
           />
           {search && (
             <IconButton
-              className="h-8 w-8 rounded-lg border-transparent bg-transparent text-neutral-500 shadow-none hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-neutral-100"
+              className="h-8 w-8 rounded-lg border-transparent bg-transparent text-[var(--zc-text-secondary)] shadow-none hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]"
               onClick={clearSearch}
               aria-label={t("commandClearSearch")}
               title={t("commandClearSearch")}
@@ -396,7 +417,7 @@ export function CommandModal({
           <kbd className={cn(keyBadge, "hidden sm:inline-flex")}>ESC</kbd>
         </div>
         {showScopeMeta && (
-          <div className="flex items-center justify-between gap-3 border-b border-neutral-100 px-4 py-2 text-[11px] leading-tight text-neutral-500 dark:border-white/10 dark:text-neutral-400">
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--zc-divider)] px-4 py-2 text-[11px] leading-tight text-[var(--zc-text-secondary)]">
             <span className="min-w-0 truncate">{searchScopeLabel}</span>
             <span className="hidden shrink-0 sm:inline">{t("commandScopeMeta")}</span>
           </div>
@@ -429,7 +450,7 @@ export function CommandModal({
                         {getIcon(file.extension ? file.extension.replace(".", "") : file.file_type)}
                       </span>
                       <span className="grid min-w-0 gap-1.5">
-                        <strong className={cn(commandFileName, index === activeIndex ? "text-blue-900 dark:text-blue-100" : "")}>
+                        <strong className={commandFileName}>
                           <HighlightText text={file.name} highlight={trimmedSearch} />
                         </strong>
                         <span className={commandFileMeta} title={formatDisplayPath(file.path)}>{compactPath(formatDisplayPath(file.path), 74)}</span>
@@ -440,8 +461,8 @@ export function CommandModal({
                           {file.is_duplicate && <ToneBadge tone="amber">{t("libraryDuplicateFiles")}</ToneBadge>}
                         </span>
                       </span>
-                      <span className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-                        {index === activeIndex && <ChevronRight className="text-blue-500" size={16} />}
+                      <span className="flex items-center gap-2 text-xs text-[var(--zc-text-secondary)]">
+                        {index === activeIndex && <ChevronRight className="text-[var(--zc-primary)]" size={16} />}
                       </span>
                     </button>
                   );
@@ -457,6 +478,15 @@ export function CommandModal({
               </div>
             </div>
           </div>
+        )}
+        {shouldShowIdleState && (
+          <CommandIdleGroups
+            t={t}
+            isBackgroundIndexing={isBackgroundIndexing}
+            currentBackgroundRoot={currentBackgroundRoot}
+            pendingBackgroundRoots={pendingBackgroundRoots}
+            onOpen={openIdleDestination}
+          />
         )}
         {shouldShowStateBlock && (
           <div className="px-4 py-4" aria-live={queryState === "failed" ? "assertive" : "polite"} role={queryState === "failed" ? "alert" : "status"}>
@@ -475,6 +505,74 @@ export function CommandModal({
         )}
       </motion.div>
     </div>
+  );
+}
+
+function CommandIdleGroups({
+  t,
+  isBackgroundIndexing,
+  currentBackgroundRoot,
+  pendingBackgroundRoots,
+  onOpen
+}: {
+  t: Translator;
+  isBackgroundIndexing: boolean;
+  currentBackgroundRoot: string | null;
+  pendingBackgroundRoots: number;
+  onOpen: (view: View) => void;
+}) {
+  const backgroundDescription = isBackgroundIndexing && currentBackgroundRoot
+    ? compactPath(formatDisplayPath(currentBackgroundRoot), 42)
+    : pendingBackgroundRoots > 0
+      ? t("spotlightPendingTasks").replace("{count}", String(pendingBackgroundRoots))
+      : t("spotlightNoBackgroundTasks");
+
+  return (
+    <div className={commandIdleGroups} aria-label={t("commandIdleTitle")}>
+      <IdleGroup title={t("spotlightRecentFiles")}>
+        <IdleAction icon={Archive} label={t("fileLibrary")} onClick={() => onOpen("library")} />
+      </IdleGroup>
+      <IdleGroup title={t("spotlightRecentOperations")}>
+        <IdleAction icon={Clock3} label={t("history")} onClick={() => onOpen("restore")} />
+      </IdleGroup>
+      <IdleGroup title={t("spotlightCommonTasks")}>
+        <IdleAction icon={Radar} label={t("overview")} onClick={() => onOpen("scanner")} />
+        <IdleAction icon={LayoutGrid} label={t("organizeSuggestions")} onClick={() => onOpen("organize")} />
+      </IdleGroup>
+      <IdleGroup title={t("spotlightBackgroundTasks")}>
+        <div className="flex min-h-10 items-center gap-3 px-2.5 text-sm text-[var(--zc-text-secondary)]" role="status">
+          <Activity size={17} className={isBackgroundIndexing ? "animate-pulse text-[var(--zc-primary)]" : "text-[var(--zc-text-tertiary)]"} />
+          <span className="min-w-0 truncate">{backgroundDescription}</span>
+        </div>
+      </IdleGroup>
+    </div>
+  );
+}
+
+function IdleGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className={commandIdleGroup}>
+      <h3 className="px-2 text-xs font-semibold text-[var(--zc-text-tertiary)]">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function IdleAction({
+  icon: Icon,
+  label,
+  onClick
+}: {
+  icon: typeof Archive;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button className={commandIdleAction} onClick={onClick}>
+      <Icon size={17} className="text-[var(--zc-primary)]" />
+      <span>{label}</span>
+      <ChevronRight size={15} className="ml-auto text-[var(--zc-text-tertiary)]" />
+    </button>
   );
 }
 
