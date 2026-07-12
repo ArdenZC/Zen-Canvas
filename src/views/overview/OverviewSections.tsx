@@ -1,4 +1,5 @@
 import { AlertTriangle, BrainCircuit, ChevronRight, Clock3, FileCog, FolderSync, History } from "lucide-react";
+import type { Language } from "../../i18n";
 import type { Translator } from "../../types/ui";
 import { formatDate } from "../../utils/format";
 import { buttonGhost, cn } from "../../utils/tw";
@@ -14,7 +15,7 @@ export function OverviewSpaceSummary({ summary, t }: { summary: string; t: Trans
   );
 }
 
-export function OverviewRecentActivityList({ activities, t }: { activities: OverviewActivity[]; t: Translator }) {
+export function OverviewRecentActivityList({ activities, t, language }: { activities: OverviewActivity[]; t: Translator; language?: Language }) {
   if (activities.length === 0) return null;
   return (
     <section className="grid gap-2" aria-labelledby="overview-activity-title">
@@ -32,7 +33,7 @@ export function OverviewRecentActivityList({ activities, t }: { activities: Over
               <p className="text-sm font-medium text-[var(--zc-text-primary)]">{activity.title}</p>
               {activity.description ? <p className="truncate text-xs text-[var(--zc-text-secondary)]">{activity.description}</p> : null}
             </div>
-            <time className="shrink-0 text-xs text-[var(--zc-text-tertiary)]" dateTime={activity.createdAt}>{formatDate(activity.createdAt)}</time>
+            <time className="shrink-0 text-xs text-[var(--zc-text-tertiary)]" dateTime={activity.createdAt}>{formatDate(activity.createdAt, language)}</time>
           </div>
         ))}
       </div>

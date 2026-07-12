@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { makeTranslator } from "../src/i18n";
 import type { DashboardStats, OperationLog } from "../src/types/domain";
+import { formatDate } from "../src/utils/format";
 import {
   buildOverviewSummary,
   deriveOverviewScanState,
@@ -12,7 +13,7 @@ import {
   selectRecentOverviewActivity
 } from "../src/views/overview/overviewModel";
 import { OverviewPriorityTask } from "../src/views/overview/OverviewPriorityTask";
-import { OverviewBackgroundTaskList } from "../src/views/overview/OverviewSections";
+import { OverviewBackgroundTaskList, OverviewRecentActivityList } from "../src/views/overview/OverviewSections";
 import { ScanCancelDialog } from "../src/views/overview/ScanCancelDialog";
 import { ScanTaskPanel, formatElapsed } from "../src/views/overview/ScanTaskPanel";
 import { readFileSync } from "node:fs";
@@ -175,6 +176,43 @@ describe("Overview v4", () => {
     expect(formatElapsed(41_000, "en")).toBe("41s");
     expect(formatElapsed(182_000, "en")).toBe("3m 2s");
     expect(formatElapsed(3_848_000, "en")).toBe("1h 4m 8s");
+  });
+
+  it("formats Overview dates with the explicit application language", () => {
+    const value = "2026-07-12T08:00:00Z";
+    const chinese = formatDate(value, "zh");
+    const english = formatDate(value, "en");
+    expect(chinese).toContain("7月12日");
+    expect(chinese).not.toContain("Jul");
+    expect(english).toContain("Jul");
+    expect(english).not.toMatch(/[月日]/);
+
+    const summary = buildOverviewSummary(stats(), [], makeTranslator("en"), "en");
+    expect(summary).toContain("Jul");
+    expect(summary).not.toMatch(/[月日]/);
+
+    const activityHtml = renderToStaticMarkup(createElement(OverviewRecentActivityList, {
+      activities: [{
+        id: "operation:date",
+        createdAt: value,
+        title: "Rename completed",
+        description: "C:/Users/Zen/file.txt",
+        status: "success",
+        destination: null
+      }],
+      t: makeTranslator("en"),
+      language: "en"
+    }));
+    expect(activityHtml).toContain("Jul");
+    expect(activityHtml).not.toMatch(/[月日]/);
+  });
+
+  it("uses five scan facts at wide widths and two columns below xl", () => {
+    const source = readFileSync(resolve("src/views/overview/ScanTaskPanel.tsx"), "utf8");
+    expect(source).toContain("sm:grid-cols-2 xl:grid-cols-5");
+    expect(source).not.toContain("xl:grid-cols-4");
+    expect(source).toContain("aria-live=\"polite\"");
+    expect((source.match(/aria-live=/g) ?? [])).toHaveLength(1);
   });
 
   it("hides background work when idle and exposes only real active or failed tasks", () => {

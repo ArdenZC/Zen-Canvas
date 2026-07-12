@@ -85,7 +85,7 @@ export function ScannerView() {
   });
   const scopeRoots = scope.kind === "all" ? [] : scope.roots;
   const overviewRoots = scopeRoots.length > 0 ? scopeRoots : selectedFolders;
-  const summary = buildOverviewSummary(stats, overviewRoots, t);
+  const summary = buildOverviewSummary(stats, overviewRoots, t, language);
   const scanFallbackPath = scanState.progress?.root || selectedFolders[0] || scopeRoots[0] || "";
 
   function runPrimaryAction(task: OverviewPriorityTaskModel) {
@@ -135,7 +135,7 @@ export function ScannerView() {
       />
 
       <OverviewSpaceSummary summary={summary} t={t} />
-      <OverviewRecentActivityList activities={activities} t={t} />
+      <OverviewRecentActivityList activities={activities} t={t} language={language} />
       <OverviewBackgroundTaskList
         tasks={backgroundTasks}
         t={t}

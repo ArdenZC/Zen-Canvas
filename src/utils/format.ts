@@ -1,3 +1,5 @@
+import type { Language } from "../i18n";
+
 export function formatBytes(bytes: number): string {
   if (!bytes) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -5,9 +7,10 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
-export function formatDate(value: string | null): string {
+export function formatDate(value: string | null, language?: Language): string {
   if (!value) return "-";
-  return new Intl.DateTimeFormat(undefined, {
+  const locale = language === "zh" ? "zh-CN" : language === "en" ? "en-US" : undefined;
+  return new Intl.DateTimeFormat(locale, {
     month: "short",
     day: "2-digit",
     hour: "2-digit",
@@ -18,4 +21,3 @@ export function formatDate(value: string | null): string {
 export function percent(value: number): string {
   return `${Math.round(value * 100)}%`;
 }
-

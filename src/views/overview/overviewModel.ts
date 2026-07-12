@@ -1,4 +1,5 @@
 import type { ScanProgressPayload } from "../../api/tauriApi";
+import type { Language } from "../../i18n";
 import type { DashboardStats, OperationLog } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { formatBytes, formatDate } from "../../utils/format";
@@ -214,13 +215,13 @@ export function selectOverviewBackgroundTasks(input: {
   return tasks;
 }
 
-export function buildOverviewSummary(stats: DashboardStats, roots: string[], t: Translator) {
+export function buildOverviewSummary(stats: DashboardStats, roots: string[], t: Translator, language?: Language) {
   if (stats.totalFiles <= 0 || !stats.lastScannedAt) return t("overviewSummaryFirstUse");
   const scope = roots.length > 0
     ? roots.slice(0, 2).map((root) => compactPath(formatDisplayPath(root), 28)).join(t("overviewSummaryScopeJoin"))
     : t("overviewSummaryIndexedScope");
   return t("overviewSummaryScanned")
-    .replace("{time}", formatDate(stats.lastScannedAt))
+    .replace("{time}", formatDate(stats.lastScannedAt, language))
     .replace("{count}", stats.totalFiles.toLocaleString())
     .replace("{size}", formatBytes(stats.totalSize))
     .replace("{scope}", scope)

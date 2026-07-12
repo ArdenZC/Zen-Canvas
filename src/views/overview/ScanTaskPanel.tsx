@@ -34,7 +34,7 @@ export function ScanTaskPanel({
       </div>
       <p className="sr-only" aria-live="polite" aria-atomic="true">{phase.announcement}</p>
       {error ? <p className="text-sm leading-6 text-[var(--zc-danger-text)]">{error}</p> : null}
-      <dl className="grid gap-x-5 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
+      <dl className="grid gap-x-5 gap-y-3 sm:grid-cols-2 xl:grid-cols-5">
         {path ? <ScanFact icon={Folder} label={t("overviewScanCurrentPath")} value={compactPath(formatDisplayPath(path), 54)} /> : null}
         {typeof progress?.files === "number" ? <ScanFact icon={FileSearch} label={t("overviewScanProcessed")} value={progress.files.toLocaleString()} /> : null}
         {typeof progress?.elapsedMs === "number" ? <ScanFact icon={Clock3} label={t("overviewScanElapsed")} value={formatElapsed(progress.elapsedMs, language)} /> : null}

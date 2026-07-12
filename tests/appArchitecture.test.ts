@@ -51,7 +51,7 @@ describe("app render architecture", () => {
     const vault = read("src/views/vault/VaultView.tsx");
     const fileLibraryStore = read("src/store/useFileLibraryStore.ts");
 
-    expect(scanner).toContain("buildOverviewSummary(stats, overviewRoots, t)");
+    expect(scanner).toContain("buildOverviewSummary(stats, overviewRoots, t, language)");
     expect(overviewModel).toContain("stats.totalSize");
     expect(overviewModel).toContain("stats.totalFiles");
     expect(scanner).not.toContain("files.reduce((sum, file) => sum + file.size");
