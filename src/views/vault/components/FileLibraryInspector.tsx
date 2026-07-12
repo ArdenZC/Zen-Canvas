@@ -49,6 +49,12 @@ export function FileLibraryInspector({
   );
 }
 
+export function libraryRevealLabel(t: Translator) {
+  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
+    ? t("libraryRevealInFinder")
+    : t("libraryRevealFile");
+}
+
 export function FileLibraryPreviewDialog({
   file,
   language,
@@ -106,7 +112,7 @@ export function FileLibraryPreviewDialog({
         </div>
         <PreviewSurface file={file} t={t} />
         <div className="flex flex-wrap justify-end gap-2">
-          <button className={buttonSecondary} onClick={() => onReveal(file.path)}>{t("libraryRevealFile")}</button>
+          <button className={buttonSecondary} onClick={() => onReveal(file.path)}>{libraryRevealLabel(t)}</button>
           <button className={glassButtonPrimary} onClick={onClose}>{t("libraryPreviewClose")}</button>
         </div>
         <p className="text-xs text-[var(--zc-text-tertiary)]">{formatDate(file.modified_at, language)} · {formatBytes(file.size)}</p>
@@ -158,7 +164,7 @@ function MultiInspector({
         {summary.commonDirectory ? <div><dt className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("libraryCommonPath")}</dt><dd className="mt-1 truncate text-[var(--zc-text-primary)]" title={formatDisplayPath(summary.commonDirectory)}>{compactPath(summary.commonDirectory, 44)}</dd></div> : null}
       </dl>
       <div className="flex flex-wrap gap-2">
-        {summary.commonDirectory ? <button className={buttonSecondary} onClick={() => onReveal(summary.commonDirectory!)}>{t("libraryRevealFile")}</button> : null}
+        {summary.commonDirectory ? <button className={buttonSecondary} onClick={() => onReveal(summary.commonDirectory!)}>{libraryRevealLabel(t)}</button> : null}
         <button className={buttonSecondary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button>
         <button className="text-sm font-medium text-[var(--zc-text-secondary)] underline-offset-2 hover:underline" onClick={onClearSelection}>{t("libraryClearSelection")}</button>
       </div>
@@ -193,6 +199,8 @@ function SingleInspector({
       <dl className="grid gap-3 text-sm">
         <InspectorField label={t("libraryCurrentStatus")} value={missing ? t("libraryFileNotFound") : t("libraryReady")} tone={missing ? "warning" : "normal"} />
         <InspectorField label={t("libraryClassification")} value={actionLabel(file, t)} />
+        <InspectorField label={t("lifecycle")} value={t(`libraryLifecycle${file.lifecycle}` as Parameters<Translator>[0])} />
+        <InspectorField label={t("risk")} value={t(`libraryRisk${file.risk_level}` as Parameters<Translator>[0])} />
         {file.suggested_target_path ? <InspectorField label={t("librarySuggestedDestination")} value={compactPath(formatDisplayPath(file.suggested_target_path), 44)} /> : null}
         <InspectorField label={t("libraryClassificationReason")} value={file.classification_reason || t("unknown")} />
         <InspectorField label={t("confidence")} value={confidenceLabel(file.confidence, t)} />
@@ -201,7 +209,7 @@ function SingleInspector({
       </dl>
       <div className="flex flex-wrap gap-2">
         {!missing ? <button className={buttonSecondary} onClick={() => onPreview(file)}>{t("libraryPreview")}</button> : null}
-        <button className={buttonSecondary} onClick={() => onReveal(file.path)}>{t("libraryRevealFile")}</button>
+        <button className={buttonSecondary} onClick={() => onReveal(file.path)}>{libraryRevealLabel(t)}</button>
         <button className={glassButtonPrimary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button>
       </div>
     </div>

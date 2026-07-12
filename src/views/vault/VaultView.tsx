@@ -12,7 +12,7 @@ import { buttonGhost, buttonSecondary, buttonSubtle, cn, glassButtonPrimary, inp
 import { StateBlock, pageFrame, quietText } from "../shared/ui";
 import { FileClassificationDetails } from "./components/FileClassificationDetails";
 import { FileLibraryFilterPopover } from "./components/FileLibraryFilterPopover";
-import { FileLibraryInspector, FileLibraryPreviewDialog } from "./components/FileLibraryInspector";
+import { FileLibraryInspector, FileLibraryPreviewDialog, libraryRevealLabel } from "./components/FileLibraryInspector";
 import { FileLibraryList } from "./components/FileLibraryList";
 import {
   defaultLibrarySort,
@@ -403,7 +403,7 @@ function LibraryContextMenu({ context, t, onClose, onPreview, onReveal, onViewSu
   return <div className="fixed z-50 grid min-w-52 gap-1 rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" style={{ left: context.x, top: context.y }} role="menu" aria-label={t("libraryContextMenu")} onPointerDown={(event) => event.stopPropagation()}>
     <p className="truncate px-3 py-1 text-xs font-semibold text-[var(--zc-text-tertiary)]" title={context.file.name}>{context.file.name}</p>
     <button role="menuitem" className={menuItemClass} onClick={onPreview}>{t("libraryPreview")}</button>
-    <button role="menuitem" className={menuItemClass} onClick={() => { onReveal(); onClose(); }}>{t("libraryRevealFile")}</button>
+    <button role="menuitem" className={menuItemClass} onClick={() => { onReveal(); onClose(); }}>{libraryRevealLabel(t)}</button>
     <button role="menuitem" className={menuItemClass} onClick={() => { onViewSuggestions(); onClose(); }}>{t("libraryViewSuggestions")}</button>
     <button role="menuitem" className={menuItemClass} onClick={() => { onClearSelection(); onClose(); }}>{t("libraryClearSelection")}</button>
   </div>;

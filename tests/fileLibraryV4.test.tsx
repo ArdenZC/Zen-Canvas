@@ -105,6 +105,9 @@ describe("File Library v4 model and interaction contracts", () => {
     expect(vault).toContain('aria-live="polite"');
     expect(list).toContain("useVirtualizer");
     expect(inspector).toContain("libraryPreviewUnavailable");
+    expect(inspector).toContain("file.lifecycle");
+    expect(inspector).toContain("file.risk_level");
+    expect(inspector).toContain("libraryRevealInFinder");
     expect(vault).not.toContain("AssetCard");
     expect(vault).not.toContain("window.confirm");
     expect(vault).not.toContain("globalThis.confirm");
