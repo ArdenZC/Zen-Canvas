@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { LibraryScope, OperationPreview } from "../src/types/domain";
+import type { LibraryScope, OperationLog, OperationPreview } from "../src/types/domain";
 import { operationNeedsCleanupConfirmation, useOperationQueueStore } from "../src/store/useOperationQueueStore";
 import { useFileLibraryStore } from "../src/store/useFileLibraryStore";
 import { useRulesStore } from "../src/store/useRulesStore";
@@ -78,7 +78,8 @@ describe("operation queue store callbacks", () => {
       previewLimit: 0,
       previewOffset: 0,
       previewTruncated: false,
-      previewHasMore: false
+      previewHasMore: false,
+      lastExecutionLogs: []
     });
     useRulesStore.setState({ rules: [] });
     useAppStore.setState({ language: "en" });
@@ -122,9 +123,9 @@ describe("operation queue store callbacks", () => {
       organizeQueue: [{ matched_rules: ["ai:deepseek:model"] }] as never
     });
 
-    await useOperationQueueStore.getState().runDispatch();
+    await useOperationQueueStore.getState().runDispatch(true);
 
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("当前范围内已有 AI 分类或用户纠正结果"));
+    expect(confirm).not.toHaveBeenCalled();
     expect(apiMocks.executeRulesForScope).toHaveBeenCalledWith(scope, [], "inbox_only");
     expect(refresh).toHaveBeenCalledOnce();
     expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledWith(scope);
@@ -140,7 +141,7 @@ describe("operation queue store callbacks", () => {
     vi.stubGlobal("confirm", vi.fn(() => false));
     useFileLibraryStore.setState({ scope, refresh });
 
-    const result = await useOperationQueueStore.getState().runDispatch();
+    const result = await useOperationQueueStore.getState().runDispatch(false);
 
     expect(apiMocks.executeRulesForScope).not.toHaveBeenCalled();
     expect(apiMocks.getOperationPreviewsForScope).not.toHaveBeenCalled();
@@ -218,10 +219,10 @@ describe("operation queue store callbacks", () => {
     });
     vi.stubGlobal("confirm", vi.fn(() => false));
 
-    await useOperationQueueStore.getState().executeSelected();
+    await useOperationQueueStore.getState().executeSelected(false);
 
     expect(operationNeedsCleanupConfirmation(duplicate)).toBe(true);
-    expect(globalThis.confirm).toHaveBeenCalledOnce();
+    expect(globalThis.confirm).not.toHaveBeenCalled();
     expect(apiMocks.executeMoves).not.toHaveBeenCalled();
   });
 
@@ -236,13 +237,13 @@ describe("operation queue store callbacks", () => {
     });
     vi.stubGlobal("confirm", vi.fn(() => true));
 
-    await useOperationQueueStore.getState().executeSelected();
+    await useOperationQueueStore.getState().executeSelected(true);
 
-    expect(globalThis.confirm).toHaveBeenCalledOnce();
+    expect(globalThis.confirm).not.toHaveBeenCalled();
     expect(apiMocks.executeMoves).toHaveBeenCalledWith([cleanup]);
   });
 
-  it("requires trash-specific confirmation for move_to_trash previews", async () => {
+  it("only executes trash previews after explicit app-level confirmation", async () => {
     const trash = {
       ...preview("trash", true),
       operation_type: "move_to_trash" as const,
@@ -258,10 +259,45 @@ describe("operation queue store callbacks", () => {
     });
     vi.stubGlobal("confirm", vi.fn(() => true));
 
-    await useOperationQueueStore.getState().executeSelected();
+    await useOperationQueueStore.getState().executeSelected(true);
 
     expect(operationNeedsCleanupConfirmation(trash)).toBe(true);
-    expect(globalThis.confirm).toHaveBeenCalledWith(expect.stringContaining("Move selected items to trash?"));
+    expect(globalThis.confirm).not.toHaveBeenCalled();
     expect(apiMocks.executeMoves).toHaveBeenCalledWith([trash]);
   });
+
+  it("never sends blocked previews to the backend", async () => {
+    const allowed = preview("allowed", true);
+    const blocked = { ...preview("blocked", true), is_executable: false, blocking_reason: "source changed" };
+    useOperationQueueStore.setState({
+      displayPreviews: [allowed, blocked],
+      selectedOperationIds: new Set([allowed.id, blocked.id])
+    });
+
+    await useOperationQueueStore.getState().executeSelected(true);
+
+    expect(apiMocks.executeMoves).toHaveBeenCalledWith([allowed]);
+  });
+
+  it("keeps exact partial execution results for the result view", async () => {
+    const logs = [log("ok", "success", true), log("skip", "skipped"), log("bad", "failed")];
+    const operation = preview("mixed", true);
+    apiMocks.executeMoves.mockResolvedValue({ logs, batch_id: "batch-mixed" });
+    useOperationQueueStore.setState({ displayPreviews: [operation], selectedOperationIds: new Set([operation.id]) });
+
+    const result = await useOperationQueueStore.getState().executeSelected(true);
+
+    expect(result).toEqual(logs);
+    expect(useOperationQueueStore.getState().lastExecutionLogs).toEqual(logs);
+    expect(useOperationQueueStore.getState().operationLogs.slice(0, 3)).toEqual(logs);
+  });
 });
+
+function log(id: string, status: OperationLog["status"], canRestore = false): OperationLog {
+  return {
+    id, batch_id: "batch-mixed", operation_type: "move", source_path: `F:/Downloads/${id}.txt`, target_path: `F:/Work/${id}.txt`,
+    old_name: `${id}.txt`, new_name: `${id}.txt`, status, error_message: status === "failed" ? "permission denied" : null,
+    created_at: "2026-07-12T00:00:00Z", can_undo: canRestore, path_before: `F:/Downloads/${id}.txt`, path_after: `F:/Work/${id}.txt`,
+    name_before: `${id}.txt`, name_after: `${id}.txt`, can_restore: canRestore, restored_at: null, restore_status: "not_restored", restore_error: null
+  };
+}

@@ -23,6 +23,7 @@ export interface OperationQueueStore {
   previewTruncated: boolean;
   previewHasMore: boolean;
   previewActionCount: number;
+  lastExecutionLogs: OperationLog[];
   operationProgress: OperationProgressPayload | null;
   isOperationCanceling: boolean;
   activeOperationKind: OperationProgressPayload["kind"] | null;
@@ -36,8 +37,8 @@ export interface OperationQueueStore {
   refreshPreviewsForScope: (scope: LibraryScope) => Promise<OperationPreviewResult>;
   loadMorePreviews: () => Promise<void>;
   setSelectedOperationIds: (ids: Set<string>) => void;
-  runDispatch: () => Promise<RuleExecutionSummary>;
-  executeSelected: () => Promise<void>;
+  runDispatch: (confirmed: boolean) => Promise<RuleExecutionSummary>;
+  executeSelected: (confirmed: boolean) => Promise<OperationLog[]>;
   restoreOperationLogs: (logs: OperationLog[]) => Promise<void>;
   cancelOperations: () => Promise<void>;
   onRenamePreview: (id: string, name: string) => void;
@@ -97,6 +98,7 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
   previewTruncated: false,
   previewHasMore: false,
   previewActionCount: 0,
+  lastExecutionLogs: [],
   operationProgress: null,
   isOperationCanceling: false,
   activeOperationKind: null,
@@ -210,30 +212,13 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
     }
   },
   setSelectedOperationIds: (selectedOperationIds) => set({ selectedOperationIds }),
-  runDispatch: async () => {
+  runDispatch: async (confirmed) => {
     const t = currentT();
+    if (!confirmed) {
+      return { scanned: 0, updated: 0, skipped: 0, needsConfirmation: 0 };
+    }
     try {
       const scope = useFileLibraryStore.getState().scope;
-      const files = useFileLibraryStore.getState().organizeQueue;
-      const hasProtectedResults = files.some((file) =>
-        file.matched_rules.some((rule) =>
-          rule.startsWith("ai:")
-          || rule === "user_correction"
-          || rule === "user_confirmed"
-        )
-      );
-      const warning = hasProtectedResults
-        ? "当前范围内已有 AI 分类或用户纠正结果。执行自动规则可能覆盖这些结果。\n\n自动规则会重新计算当前范围内的分类建议，可能覆盖 AI 分类结果或用户手动纠正结果。是否继续？"
-        : "自动规则会重新计算当前范围内的分类建议，可能覆盖 AI 分类结果或用户手动纠正结果。是否继续？";
-      const confirmed = globalThis.confirm?.(warning) ?? false;
-      if (!confirmed) {
-        return {
-          scanned: 0,
-          updated: 0,
-          skipped: 0,
-          needsConfirmation: 0
-        };
-      }
       const summary = await tauriApi.executeRulesForScope(
         scope,
         useRulesStore.getState().rules,
@@ -250,34 +235,18 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       throw error;
     }
   },
-  executeSelected: async () => {
+  executeSelected: async (confirmed) => {
     const t = currentT();
+    if (!confirmed) return [];
     const { displayPreviews, selectedOperationIds } = get();
     const operations = displayPreviews.filter(
       (preview) => selectedOperationIds.has(preview.id) && preview.is_executable !== false
     );
-    if (!operations.length) return;
-
-    const trashConfirmationCount = operations.filter((operation) => operation.operation_type === "move_to_trash").length;
-    if (trashConfirmationCount > 0) {
-      const confirmed = globalThis.confirm?.(
-        `${t("confirmMoveToTrashTitle")}\n\n${t("confirmMoveToTrashDesc")}`
-      ) ?? false;
-      if (!confirmed) return;
-    }
-
-    const cleanupConfirmationCount = operations
-      .filter((operation) => operation.operation_type !== "move_to_trash")
-      .filter(operationNeedsCleanupConfirmation).length;
-    if (cleanupConfirmationCount > 0) {
-      const confirmed = globalThis.confirm?.(
-        t("confirmCleanupDispatch").replace("{count}", cleanupConfirmationCount.toLocaleString())
-      ) ?? false;
-      if (!confirmed) return;
-    }
+    if (!operations.length) return [];
 
     set({
       activeOperationKind: "execute",
+      lastExecutionLogs: [],
       isOperationCanceling: false,
       operationProgress: {
         kind: "execute",
@@ -292,6 +261,7 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       const result = await tauriApi.executeMoves(operations as OperationPreview[]);
       set((state) => ({
         operationLogs: [...result.logs, ...state.operationLogs].slice(0, MAX_LOGS),
+        lastExecutionLogs: result.logs,
         selectedOperationIds: new Set()
       }));
       await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
@@ -307,8 +277,10 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       } else {
         useAppStore.getState().showSuccess(`${t("success")}: ${succeeded.toLocaleString()}${skipped ? ` (${t("skipped")}: ${skipped.toLocaleString()})` : ""}`);
       }
+      return result.logs;
     } catch (error) {
       useAppStore.getState().showError(readableError(error));
+      return [];
     } finally {
       set({
         activeOperationKind: null,

@@ -24,15 +24,15 @@ describe("preview execute safety UI", () => {
     expect(t("operationCreatesParent")).toBe("会创建父目录");
     expect(t("operationProgressTitle")).toBe("正在执行已选操作");
 
-    expect(timeline).toContain("MetricCard");
+    expect(timeline).toContain("PreviewCount");
     expect(timeline).toContain("NoticeBanner");
     expect(timeline).toContain("StateBlock");
-    expect(timeline).toContain("MetricCard label={t(\"previewTotalSuggestions\")}");
-    expect(timeline).toContain("MetricCard label={t(\"selectedOperations\")}");
-    expect(timeline).toContain("MetricCard label={t(\"executableItems\")}");
-    expect(timeline).toContain("MetricCard label={t(\"blockedItems\")}");
-    expect(timeline).toContain("MetricCard label={t(\"confirmationItems\")}");
-    expect(timeline).toContain("MetricCard label={t(\"autoCreateFolders\")}");
+    expect(timeline).toContain("PreviewCount label={t(\"previewTotalSuggestions\")}");
+    expect(timeline).toContain("PreviewCount label={t(\"selectedOperations\")}");
+    expect(timeline).toContain("PreviewCount label={t(\"executableItems\")}");
+    expect(timeline).toContain("PreviewCount label={t(\"blockedItems\")}");
+    expect(timeline).toContain("PreviewCount label={t(\"confirmationItems\")}");
+    expect(timeline).toContain("PreviewCount label={t(\"autoCreateFolders\")}");
     expect(timeline).toContain('tone="warning"');
     expect(timeline).toContain('t("executeSelectedWithCount")');
     expect(timeline).toContain("selectedCount.toLocaleString()");
@@ -42,6 +42,11 @@ describe("preview execute safety UI", () => {
     expect(timeline).toContain('t("groupNoExecutableItems")');
     expect(timeline).toContain('t("operationProgressTitle")');
     expect(timeline).toContain("glassButtonWarning");
+    expect(timeline).toContain("ConfirmDialog");
+    expect(timeline).toContain("executeSelected(true)");
+    expect(timeline).not.toContain("window.confirm");
+    expect(timeline).not.toContain("globalThis.confirm");
+    expect(timeline).toContain('aria-live="polite"');
   });
 
   it("shows source and target paths as distinct bounded rows with operation state badges", () => {

@@ -1,19 +1,18 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Folder, Play, X } from "lucide-react";
-import { useRef } from "react";
+import { CheckCircle2, Folder, Play, X } from "lucide-react";
+import { useRef, useState } from "react";
 import type { OperationProgressPayload } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
-import { useOperationQueueStore } from "../../store/useOperationQueueStore";
+import { operationNeedsCleanupConfirmation, useOperationQueueStore } from "../../store/useOperationQueueStore";
 import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { groupOperationPreviews, compactPath, formatDisplayPath, libraryScopeLabel } from "../../utils/viewHelpers";
-import { cn, glassButton, glassButtonPrimary, glassButtonWarning } from "../../utils/tw";
+import { buttonSecondary, cn, contentSurface, glassButton, glassButtonPrimary, glassButtonWarning, raisedSurface } from "../../utils/tw";
 import {
-  MetricCard,
+  ConfirmDialog,
   NoticeBanner,
   StateBlock,
-  cardGrid,
   contentPanel,
   interactiveRow,
   pageSurface,
@@ -22,6 +21,7 @@ import {
   sectionHeading,
   softPanel
 } from "../shared/ui";
+import { summarizeOperationLogs } from "../organize/organizeModel";
 import { PreviewFileRow } from "./PreviewFileRow";
 
 export function TimelineView() {
@@ -38,9 +38,11 @@ export function TimelineView() {
   const loadMorePreviews = useOperationQueueStore((state) => state.loadMorePreviews);
   const onRenamePreview = useOperationQueueStore((state) => state.onRenamePreview);
   const executeSelected = useOperationQueueStore((state) => state.executeSelected);
+  const lastExecutionLogs = useOperationQueueStore((state) => state.lastExecutionLogs);
   const operationProgress = useOperationQueueStore((state) => state.operationProgress);
   const isOperationCanceling = useOperationQueueStore((state) => state.isOperationCanceling);
   const cancelOperations = useOperationQueueStore((state) => state.cancelOperations);
+  const [confirmExecute, setConfirmExecute] = useState(false);
   function toggle(id: string) {
     const preview = previews.find((item) => item.id === id);
     if (!preview || preview.is_executable === false) return;
@@ -62,6 +64,10 @@ export function TimelineView() {
   const scopeText = libraryScopeLabel(previewScope ?? scope, t("allIndexedFiles"), t("noFolderSelected"));
   const coveredTotal = previewTotal || previews.length;
   const selectedCount = selectedIds.size;
+  const selectedOperations = previews.filter((preview) => selectedIds.has(preview.id) && preview.is_executable !== false);
+  const sensitiveSelectionCount = selectedOperations.filter(operationNeedsCleanupConfirmation).length;
+  const trashSelectionCount = selectedOperations.filter((preview) => preview.operation_type === "move_to_trash").length;
+  const resultSummary = summarizeOperationLogs(lastExecutionLogs);
   const executeButtonLabel = t("executeSelectedWithCount").replace("{count}", selectedCount.toLocaleString());
 
   return (
@@ -73,7 +79,7 @@ export function TimelineView() {
             <p className={sectionDescription}>{t("previewBeforeExecute")}</p>
             <p className="mt-2 truncate text-xs text-[var(--muted)]">{t("currentOrganizeScope")}: {scopeText}</p>
           </div>
-          <button className={glassButtonPrimary} onClick={executeSelected} disabled={!selectedCount || isExecuting}>
+          <button className={glassButtonPrimary} onClick={() => setConfirmExecute(true)} disabled={!selectedOperations.length || isExecuting}>
             <Play size={16} />
             <span>{isExecuting ? t("executingOperations") : executeButtonLabel}</span>
           </button>
@@ -88,14 +94,14 @@ export function TimelineView() {
               {t("previewCleanupTrashSafety")}
             </NoticeBanner>
           )}
-          <div className={cardGrid}>
-            <MetricCard label={t("previewTotalSuggestions")} value={coveredTotal.toLocaleString()} tone="blue" />
-            <MetricCard label={t("selectedOperations")} value={selectedCount.toLocaleString()} tone="green" />
-            <MetricCard label={t("executableItems")} value={executableCount.toLocaleString()} tone="green" />
-            <MetricCard label={t("blockedItems")} value={blockedCount.toLocaleString()} tone="red" />
-            <MetricCard label={t("confirmationItems")} value={confirmationCount.toLocaleString()} tone="amber" />
-            <MetricCard label={t("autoCreateFolders")} value={autoCreateParentCount.toLocaleString()} tone="purple" />
-          </div>
+          <dl className={cn(contentSurface, "grid grid-cols-2 divide-x divide-y divide-[var(--zc-divider)] overflow-hidden text-sm sm:grid-cols-3 sm:divide-y-0")}>
+            <PreviewCount label={t("previewTotalSuggestions")} value={coveredTotal} />
+            <PreviewCount label={t("selectedOperations")} value={selectedCount} />
+            <PreviewCount label={t("executableItems")} value={executableCount} />
+            <PreviewCount label={t("blockedItems")} value={blockedCount} />
+            <PreviewCount label={t("confirmationItems")} value={confirmationCount} />
+            <PreviewCount label={t("autoCreateFolders")} value={autoCreateParentCount} />
+          </dl>
         </div>
         {previewTruncated && (
           <NoticeBanner tone="warning">
@@ -117,6 +123,21 @@ export function TimelineView() {
             t={t}
           />
         )}
+        {!isExecuting && lastExecutionLogs.length ? (
+          <section className={cn(raisedSurface, "mb-4 grid gap-3 p-4")} aria-labelledby="organize-result-title">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="mt-0.5 shrink-0 text-[var(--zc-success-text)]" size={20} aria-hidden="true" />
+              <div>
+                <h3 id="organize-result-title" className="font-semibold text-[var(--zc-text-primary)]">{resultSummary.failed ? t("organizeResultPartialTitle") : t("organizeResultSuccessTitle")}</h3>
+                <p className="mt-1 text-sm text-[var(--zc-text-secondary)]">{t("organizeResultSummary").replace("{success}", resultSummary.success.toLocaleString()).replace("{skipped}", resultSummary.skipped.toLocaleString()).replace("{failed}", resultSummary.failed.toLocaleString())}</p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button className={buttonSecondary} onClick={() => setView("restore")}>{t("organizeViewHistory")}</button>
+              {resultSummary.restorable ? <button className={buttonSecondary} onClick={() => setView("restore")}>{t("organizeRestoreEntry").replace("{count}", resultSummary.restorable.toLocaleString())}</button> : null}
+            </div>
+          </section>
+        ) : null}
         {!previews.length ? (
           <StateBlock
             title={t("previewEmptyTitle")}
@@ -203,8 +224,22 @@ export function TimelineView() {
           </div>
         )}
       </section>
+      <ConfirmDialog
+        open={confirmExecute}
+        tone="warning"
+        title={trashSelectionCount ? t("confirmMoveToTrashTitle") : t("organizeExecuteConfirmTitle")}
+        description={(trashSelectionCount ? `${t("confirmMoveToTrashDesc")} ` : "") + t("organizeExecuteConfirmDesc").replace("{count}", selectedOperations.length.toLocaleString())}
+        confirmLabel={t("organizeExecuteConfirmAction").replace("{count}", selectedOperations.length.toLocaleString())}
+        cancelLabel={t("cancel")}
+        onCancel={() => setConfirmExecute(false)}
+        onConfirm={() => { setConfirmExecute(false); void executeSelected(true); }}
+      />
     </div>
   );
+}
+
+function PreviewCount({ label, value }: { label: string; value: number }) {
+  return <div className="flex items-baseline justify-between gap-2 px-3 py-2"><dt className="text-[var(--zc-text-secondary)]">{label}</dt><dd className="font-semibold tabular-nums text-[var(--zc-text-primary)]">{value.toLocaleString()}</dd></div>;
 }
 
 function VirtualPreviewFileRows({
@@ -278,7 +313,7 @@ export function OperationProgressPanel({
     .replace("{path}", currentPath);
 
   return (
-    <div className={cn(contentPanel, "mb-4 grid gap-3 p-4")}>
+    <div className={cn(contentPanel, "mb-4 grid gap-3 p-4")} role="status" aria-live="polite">
       <div className="flex items-center justify-between gap-3 text-sm">
         <strong>{progress.kind === "restore" ? t("restoring") : t("operationProgressTitle")}</strong>
         <span className="text-[var(--muted)]">
@@ -287,7 +322,7 @@ export function OperationProgressPanel({
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-white/50 dark:bg-white/10">
         <div
-          className="h-full rounded-full bg-blue-500 transition-[width]"
+          className="h-full rounded-full bg-[var(--zc-primary)] transition-[width] motion-reduce:transition-none"
           style={{ width: `${Math.round(ratio * 100)}%` }}
         />
       </div>
