@@ -109,7 +109,7 @@ export function selectRecentOverviewActivity(
     return {
       id: `operation:${log.id}`,
       createdAt: log.created_at,
-      title: operationActivityTitle(log.operation_type, t),
+      title: operationActivityTitle(log.operation_type, log.status, t),
       description: path ? compactPath(formatDisplayPath(path), 72) : "",
       status: log.status,
       destination: null
@@ -128,11 +128,36 @@ function isPermissionError(error: string | null) {
     || normalized.includes("拒绝访问");
 }
 
-function operationActivityTitle(operationType: string, t: Translator) {
+export function operationActivityTitle(
+  operationType: string,
+  status: OperationLog["status"],
+  t: Translator
+) {
   const normalized = operationType.toLowerCase();
-  if (normalized.includes("restore")) return t("overviewActivityRestored");
-  if (normalized.includes("trash") || normalized.includes("clean")) return t("overviewActivityCleaned");
-  if (normalized.includes("rename")) return t("overviewActivityRenamed");
+  const type = normalized.includes("restore")
+    ? "restore"
+    : normalized.includes("trash") || normalized.includes("clean")
+      ? "cleanup"
+      : normalized.includes("rename")
+        ? "rename"
+        : "organize";
+  if (type === "restore") {
+    if (status === "failed") return t("overviewActivityRestoreFailed");
+    if (status === "skipped") return t("overviewActivityRestoreSkipped");
+    return t("overviewActivityRestored");
+  }
+  if (type === "cleanup") {
+    if (status === "failed") return t("overviewActivityCleanupFailed");
+    if (status === "skipped") return t("overviewActivityCleanupSkipped");
+    return t("overviewActivityCleaned");
+  }
+  if (type === "rename") {
+    if (status === "failed") return t("overviewActivityRenameFailed");
+    if (status === "skipped") return t("overviewActivityRenameSkipped");
+    return t("overviewActivityRenamed");
+  }
+  if (status === "failed") return t("overviewActivityOrganizeFailed");
+  if (status === "skipped") return t("overviewActivityOrganizeSkipped");
   return t("overviewActivityOrganized");
 }
 

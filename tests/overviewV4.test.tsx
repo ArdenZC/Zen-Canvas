@@ -6,6 +6,7 @@ import type { DashboardStats, OperationLog } from "../src/types/domain";
 import {
   buildOverviewSummary,
   deriveOverviewScanState,
+  operationActivityTitle,
   selectOverviewBackgroundTasks,
   selectOverviewPriorityTask,
   selectRecentOverviewActivity
@@ -13,6 +14,7 @@ import {
 import { OverviewPriorityTask } from "../src/views/overview/OverviewPriorityTask";
 import { OverviewBackgroundTaskList } from "../src/views/overview/OverviewSections";
 import { ScanCancelDialog } from "../src/views/overview/ScanCancelDialog";
+import { ScanTaskPanel, formatElapsed } from "../src/views/overview/ScanTaskPanel";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -75,6 +77,104 @@ describe("Overview v4", () => {
     const activity = selectRecentOverviewActivity(logs, t, 3);
     expect(activity.map((item) => item.id)).toEqual(["operation:new", "operation:old"]);
     expect(activity[0]).toMatchObject({ status: "failed", destination: null });
+  });
+
+  it("keeps orderly state to one scan action without a duplicate custom-folder action", () => {
+    const task = selectOverviewPriorityTask({ scan: scan(), stats: stats(), cleanupCandidateCount: 0, reclaimableBytes: 0, indexNeedsUpdate: false });
+    const html = renderToStaticMarkup(createElement(OverviewPriorityTask, { task, t, onPrimary: vi.fn(), onChooseFolder: vi.fn(), onCancel: vi.fn() }));
+    expect(html.match(/扫描新位置/g)).toHaveLength(1);
+    expect(html).not.toContain("选择自定义位置");
+    expect(html.match(/<button/g)).toHaveLength(1);
+  });
+
+  it("uses status-aware copy for every recent operation type", () => {
+    const cases = [
+      ["organize", "success", "完成整理操作"],
+      ["organize", "failed", "整理失败"],
+      ["organize", "skipped", "已跳过整理"],
+      ["rename", "success", "完成重命名"],
+      ["rename", "failed", "重命名失败"],
+      ["rename", "skipped", "已跳过重命名"],
+      ["cleanup", "success", "完成清理操作"],
+      ["cleanup", "failed", "清理失败"],
+      ["cleanup", "skipped", "已跳过清理操作"],
+      ["restore", "success", "完成恢复操作"],
+      ["restore", "failed", "恢复失败"],
+      ["restore", "skipped", "已跳过恢复"]
+    ] as const;
+    for (const [operationType, status, expected] of cases) {
+      const title = operationActivityTitle(operationType, status, t);
+      expect(title).toBe(expected);
+    }
+    const failedRename = selectRecentOverviewActivity([{
+      id: "rename-failed",
+      created_at: "2026-07-12T10:00:00Z",
+      operation_type: "rename",
+      status: "failed",
+      path_after: "F:/failed.txt"
+    } as OperationLog], t)[0];
+    const skippedCleanup = selectRecentOverviewActivity([{
+      id: "cleanup-skipped",
+      created_at: "2026-07-12T11:00:00Z",
+      operation_type: "cleanup",
+      status: "skipped",
+      path_after: "F:/skipped.tmp"
+    } as OperationLog], t)[0];
+    expect(failedRename.title).not.toContain("完成重命名");
+    expect(skippedCleanup.title).not.toContain("完成清理操作");
+  });
+
+  it("renders scan details without repeating the priority state copy", () => {
+    const html = renderToStaticMarkup(createElement(ScanTaskPanel, {
+      state: "scanning",
+      progress: { root: "F:/Documents", files: 41, elapsedMs: 41000, skipped: 2, errors: 1 },
+      error: null,
+      fallbackPath: "",
+      t,
+      language: "zh"
+    }));
+    expect(html).toContain("扫描详情");
+    expect(html).toContain("当前位置");
+    expect(html).toContain("已处理");
+    expect(html).toContain("已用时间");
+    expect(html).toContain("41 秒");
+    expect(html).not.toContain("正在建立本地索引");
+    expect(html).not.toContain("你可以安全离开此页面");
+    expect(html.match(/aria-live="polite"/g)).toHaveLength(1);
+    const repeatedStateCopy = [
+      ["canceling", "正在停止扫描"],
+      ["partial", "扫描部分完成"],
+      ["failed", "扫描未能完成"],
+      ["canceled", "扫描已取消"],
+      ["completed", "扫描已完成"]
+    ] as const;
+    for (const [state, repeatedTitle] of repeatedStateCopy) {
+      const stateHtml = renderToStaticMarkup(createElement(ScanTaskPanel, {
+        state,
+        progress: { files: 3, skipped: 0, errors: 0, elapsedMs: 1000 },
+        error: null,
+        fallbackPath: "",
+        t,
+        language: "zh"
+      }));
+      expect(stateHtml).not.toContain(repeatedTitle);
+    }
+  });
+
+  it("keeps a single scan live region and only the details panel owns it", () => {
+    const priority = readFileSync(resolve("src/views/overview/OverviewPriorityTask.tsx"), "utf8");
+    const details = readFileSync(resolve("src/views/overview/ScanTaskPanel.tsx"), "utf8");
+    expect(priority).not.toContain("aria-live");
+    expect(details.match(/aria-live=/g)).toHaveLength(1);
+  });
+
+  it("formats scan elapsed time for Chinese and English", () => {
+    expect(formatElapsed(41_000, "zh")).toBe("41 秒");
+    expect(formatElapsed(182_000, "zh")).toBe("3 分 2 秒");
+    expect(formatElapsed(3_848_000, "zh")).toBe("1 小时 4 分 8 秒");
+    expect(formatElapsed(41_000, "en")).toBe("41s");
+    expect(formatElapsed(182_000, "en")).toBe("3m 2s");
+    expect(formatElapsed(3_848_000, "en")).toBe("1h 4m 8s");
   });
 
   it("hides background work when idle and exposes only real active or failed tasks", () => {

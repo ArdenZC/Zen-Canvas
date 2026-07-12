@@ -25,7 +25,7 @@ import {
 } from "../overview/overviewModel";
 
 export function ScannerView() {
-  const { setView, t } = useChromeContext();
+  const { setView, t, language } = useChromeContext();
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
   const scope = useFileLibraryStore((state) => state.scope);
   const stats = useFileLibraryStore((state) => state.stats);
@@ -131,6 +131,7 @@ export function ScannerView() {
         error={scanState.error}
         fallbackPath={scanFallbackPath}
         t={t}
+        language={language}
       />
 
       <OverviewSpaceSummary summary={summary} t={t} />

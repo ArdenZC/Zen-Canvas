@@ -19,6 +19,11 @@ export function OverviewPriorityTask({
 }) {
   const content = priorityContent(task, t);
   const Icon = content.icon;
+  const showChooseFolder = task.kind === "unindexed"
+    || task.kind === "update"
+    || task.kind === "scan-failed"
+    || task.kind === "scan-permission"
+    || task.kind === "scan-canceled";
   return (
     <section className="grid gap-5 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] p-5" aria-labelledby="overview-priority-title">
       <div className="flex min-w-0 items-start gap-4">
@@ -26,9 +31,9 @@ export function OverviewPriorityTask({
           <Icon size={22} className={task.kind === "scan-active" ? "animate-spin motion-reduce:animate-none" : ""} />
         </span>
         <div className="min-w-0 flex-1">
-          <span className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("overviewPriorityLabel")}</span>
+          <span className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{task.kind === "orderly" ? t("overviewCurrentStatusLabel") : t("overviewPriorityLabel")}</span>
           <h2 id="overview-priority-title" className="mt-1 text-xl font-semibold text-[var(--zc-text-primary)]">{content.title}</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--zc-text-secondary)]" aria-live={task.kind.startsWith("scan-") ? "polite" : undefined}>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--zc-text-secondary)]">
             {content.description}
           </p>
         </div>
@@ -38,7 +43,7 @@ export function OverviewPriorityTask({
           <span>{content.primaryLabel}</span>
           <ArrowRight size={17} />
         </button>
-        {(task.kind === "unindexed" || task.kind === "orderly" || task.kind === "update" || task.kind === "scan-failed" || task.kind === "scan-permission" || task.kind === "scan-canceled") ? (
+        {showChooseFolder ? (
           <button className={buttonSecondary} onClick={onChooseFolder}>
             <FolderSearch size={17} />
             <span>{t("overviewChooseFolder")}</span>
