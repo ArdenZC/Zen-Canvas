@@ -37,7 +37,7 @@ describe("ui empty and command states", () => {
 
   it("shows explicit empty current scan scope guidance in library and hub views", () => {
     const vault = read("src/views/vault/VaultView.tsx");
-    const hub = read("src/views/hub/HubView.tsx");
+    const organize = read("src/views/organize/OrganizeSuggestionsView.tsx");
     const t = makeTranslator("zh");
 
     expect(t("noCurrentScanTitle")).toBe("还没有当前扫描目录");
@@ -46,9 +46,9 @@ describe("ui empty and command states", () => {
     expect(vault).toContain('t("noCurrentScanTitle")');
     expect(vault).toContain('t("libraryGoToOverview")');
     expect(vault).toContain('setScope({ kind: "all" })');
-    expect(hub).toContain("isEmptyCurrentScanScope");
-    expect(hub).toContain('t("noOrganizeScopeTitle")');
-    expect(hub).toContain('t("viewAllIndexedFiles")');
+    expect(organize).toContain("isEmptyCurrentScanScope");
+    expect(organize).toContain('t("noOrganizeScopeTitle")');
+    expect(organize).toContain('t("viewAllIndexedFiles")');
   });
 
   it("shows the current library filter next to the library result count", () => {

@@ -74,28 +74,18 @@ describe("app render architecture", () => {
   });
 
   it("refreshes operation previews after AI classification before opening preview", () => {
-    const hub = read("src/views/hub/HubView.tsx");
+    const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
 
-    expect(hub).toContain("DEFAULT_AI_CLASSIFICATION_RUN_LIMIT = 100");
-    expect(hub).toContain("AI_CLASSIFICATION_LIMIT_OPTIONS");
-    expect(hub).toContain("limit: aiRunLimit");
-    expect(hub).toContain("const refreshPreviewsForScope = useOperationQueueStore((state) => state.refreshPreviewsForScope)");
-    expect(hub).toContain("const previews = await refreshPreviewsForScope(scope)");
-    expect(hub).not.toContain("useOperationQueueStore((state) => state.runDispatch)");
-    expect(hub).toContain("智能分类待处理文件");
-    expect(hub).toContain("pendingOnly: true, force: false");
-    expect(hub).toContain("onlyUnclassified: true, onlyLowConfidence: false, force: false");
-    expect(hub).toContain("onlyLowConfidence: true, force: false");
-    expect(hub).toContain("force: true, allowOverwriteUserCorrections: false");
-    expect(hub).toContain("重新分析当前范围内的文件");
-    expect(hub).toContain("function emptyPreviewReasonMessage");
-    expect(hub).toContain("- AI 建议均为 Keep / Review");
-    expect(hub).toContain("- 目标路径与原路径相同");
-    expect(hub).toContain("- 低置信度结果需要先确认");
-    expect(hub).toContain("AI 分类完成：");
-    expect(hub).toContain("个可进入整理预览");
-    expect(hub).toContain("取消本次 AI 分类");
-    expect(hub).not.toContain("AI 已生成整理建议，请进入预览后确认执行。");
+    expect(view).toContain("AI_ANALYSIS_LIMIT = 100");
+    expect(view).toContain("const refreshPreviewsForScope = useOperationQueueStore((state) => state.refreshPreviewsForScope)");
+    expect(view).toContain("await Promise.all([loadOrganizeQueue(scope), refreshPreviewsForScope(scope)])");
+    expect(view).toContain("while (useOperationQueueStore.getState().previewHasMore)");
+    expect(view).not.toContain("useOperationQueueStore((state) => state.runDispatch)");
+    expect(view).toContain("pendingOnly: true, force: false, limit: AI_ANALYSIS_LIMIT");
+    expect(view).toContain("force: true, allowOverwriteUserCorrections: false, limit: AI_ANALYSIS_LIMIT");
+    expect(view).toContain("setSelectedOperationIds(ids)");
+    expect(view).toContain('setView("preview")');
+    expect(view).not.toMatch(/temperature|top_p|endpoint|modelName/i);
   });
 
   it("describes AI batch size as per-request and exposes cleanup AI settings", () => {

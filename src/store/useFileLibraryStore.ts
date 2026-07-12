@@ -109,6 +109,7 @@ export interface FileLibraryStore {
   organizeQueueTotal: number;
   organizeQueueTruncated: boolean;
   isLoadingOrganizeQueue: boolean;
+  organizeQueueError: string;
   libraryFilter: LibraryFilter;
   selectedFileId: string;
   isClassifyingWithAI: boolean;
@@ -151,6 +152,7 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
   organizeQueueTotal: 0,
   organizeQueueTruncated: false,
   isLoadingOrganizeQueue: false,
+  organizeQueueError: "",
   libraryFilter: "all",
   selectedFileId: "",
   isClassifyingWithAI: false,
@@ -221,7 +223,7 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
   },
   loadOrganizeQueue: async (scope = get().scope) => {
     const requestId = get().organizeQueueRequestId + 1;
-    set({ isLoadingOrganizeQueue: true, organizeQueueRequestId: requestId });
+    set({ isLoadingOrganizeQueue: true, organizeQueueError: "", organizeQueueRequestId: requestId });
     try {
       const files: FileRecord[] = [];
       let total = 0;
@@ -241,7 +243,8 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
         organizeQueue: files,
         organizeQueueTotal: total,
         organizeQueueTruncated: total > ORGANIZE_QUEUE_MAX_FILES,
-        isLoadingOrganizeQueue: false
+        isLoadingOrganizeQueue: false,
+        organizeQueueError: ""
       });
     } catch (error) {
       if (requestId !== get().organizeQueueRequestId) return;
@@ -249,7 +252,8 @@ export const useFileLibraryStore = create<FileLibraryStore>((set, get) => ({
         organizeQueue: [],
         organizeQueueTotal: 0,
         organizeQueueTruncated: false,
-        isLoadingOrganizeQueue: false
+        isLoadingOrganizeQueue: false,
+        organizeQueueError: readableError(error)
       });
       useAppStore.getState().showError(readableError(error));
     }
