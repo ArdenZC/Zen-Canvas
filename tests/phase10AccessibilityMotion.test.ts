@@ -68,14 +68,15 @@ describe("phase 10 motion and accessibility contracts", () => {
     expect(rulesView).toContain('aria-label={deleteLabel}');
   });
 
-  it("keeps library asset cards readable at the minimum desktop width", () => {
+  it("keeps the File Library list and Inspector readable at the minimum desktop width", () => {
     const vaultView = read("src/views/vault/VaultView.tsx");
-    const assetCard = read("src/views/vault/AssetCard.tsx");
+    const list = read("src/views/vault/components/FileLibraryList.tsx");
+    const inspector = read("src/views/vault/components/FileLibraryInspector.tsx");
 
-    expect(vaultView).toContain("Math.floor(width / 260)");
-    expect(vaultView).toContain("minmax(260px,1fr)");
-    expect(assetCard).toContain("overflow-hidden");
-    expect(assetCard).toContain("max-w-full");
+    expect(vaultView).toContain("max-[1100px]:grid-cols-1");
+    expect(list).toContain("min-w-[560px]");
+    expect(list).toContain('role="listbox"');
+    expect(inspector).toContain("max-w-xl");
   });
 });
 
