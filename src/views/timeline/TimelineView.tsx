@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import type { OperationProgressPayload } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
-import { previewsForExecutionIntent, useOperationQueueStore } from "../../store/useOperationQueueStore";
+import { previewsForExecutionIntent, selectionForPreviewGroup, useOperationQueueStore } from "../../store/useOperationQueueStore";
 import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { groupOperationPreviews, compactPath, formatDisplayPath, libraryScopeLabel } from "../../utils/viewHelpers";
@@ -183,13 +183,8 @@ export function TimelineView() {
                       disabled={executable.length === 0}
                       aria-describedby={executable.length === 0 ? groupDisabledDescriptionId : undefined}
                       onChange={() => {
-                        const next = new Set(selectedIds);
                         const shouldSelect = !allSelected;
-                        executable.forEach((item) => {
-                          if (shouldSelect) next.add(item.id);
-                          else next.delete(item.id);
-                        });
-                        setSelectedIds(next);
+                        setSelectedIds(selectionForPreviewGroup(selectedIds, executable, shouldSelect, executionIntent));
                       }}
                     />
                     <Folder size={20} />

@@ -105,6 +105,7 @@ export function OrganizeSuggestionsView() {
   const keepableBatchSuggestions = selectedBatchSuggestions.filter((suggestion) => suggestion.decision !== "blocked");
   const clearableBatchSuggestions = selectedBatchSuggestions.filter((suggestion) => ["accepted", "kept", "edited"].includes(suggestion.decision));
   const blockedBatchCount = selectedBatchSuggestions.filter((suggestion) => suggestion.decision === "blocked").length;
+  const needsReviewBatchCount = selectedBatchSuggestions.filter((suggestion) => suggestion.decision === "needs-review").length;
 
   useEffect(() => {
     if (inspectorRef.current) inspectorRef.current.scrollTop = 0;
@@ -265,10 +266,10 @@ export function OrganizeSuggestionsView() {
         <>
           <section className={cn(contentSurface, "grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_360px] overflow-hidden max-[1100px]:grid-cols-1 max-[1100px]:overflow-auto")}>
             <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden max-[1100px]:min-h-[360px]">
-              {batchMode ? <OrganizeBatchToolbar selectedCount={batchIds.size} safeCount={safeBatchSuggestions.length} keepableCount={keepableBatchSuggestions.length} clearableCount={clearableBatchSuggestions.length} blockedCount={blockedBatchCount} t={t} onAcceptSafe={() => applyBatch("accepted")} onKeep={() => applyBatch("kept")} onClear={() => applyBatch("undecided")} onExit={() => { setBatchMode(false); setBatchIds(new Set()); requestAnimationFrame(() => listRef.current?.focus()); }} /> : <div className="border-b border-[var(--zc-divider)] px-3 py-2 text-xs text-[var(--zc-text-tertiary)]">{t("organizeClickOnlyViews")}</div>}
+              {batchMode ? <OrganizeBatchToolbar selectedCount={batchIds.size} safeCount={safeBatchSuggestions.length} keepableCount={keepableBatchSuggestions.length} clearableCount={clearableBatchSuggestions.length} blockedCount={blockedBatchCount} needsReviewCount={needsReviewBatchCount} t={t} onAcceptSafe={() => applyBatch("accepted")} onKeep={() => applyBatch("kept")} onClear={() => applyBatch("undecided")} onExit={() => { setBatchMode(false); setBatchIds(new Set()); requestAnimationFrame(() => listRef.current?.focus()); }} /> : <div className="border-b border-[var(--zc-divider)] px-3 py-2 text-xs text-[var(--zc-text-tertiary)]">{t("organizeClickOnlyViews")}</div>}
               <OrganizeSuggestionList suggestions={suggestions} activeId={activeSuggestion?.file.id ?? ""} batchMode={batchMode} batchIds={batchIds} t={t} onActivate={setActiveId} onToggleBatch={toggleBatch} onKeyDown={handleListKeyDown} listRef={listRef} />
             </div>
-            <OrganizeSuggestionInspector suggestion={activeSuggestion} t={t} inspectorRef={inspectorRef} onAccept={() => applyDecision(activeSuggestion, "accepted")} onKeep={() => applyDecision(activeSuggestion, "kept")} onEdit={() => activeSuggestion && setTargetFileId(activeSuggestion.file.id)} onClear={() => activeSuggestion && clearDecision(scope, activeSuggestion.file, activeSuggestion.preview)} />
+            <OrganizeSuggestionInspector suggestion={activeSuggestion} t={t} inspectorRef={inspectorRef} onAccept={() => applyDecision(activeSuggestion, "accepted")} onKeep={() => applyDecision(activeSuggestion, "kept")} onEdit={() => activeSuggestion && setTargetFileId(activeSuggestion.file.id)} onClear={() => activeSuggestion && clearDecision(scope, activeSuggestion.file, activeSuggestion.preview)} onReturnToList={() => listRef.current?.focus()} />
           </section>
           <OrganizeDecisionBar summary={summary} t={t} onPreview={openPreview} />
         </>

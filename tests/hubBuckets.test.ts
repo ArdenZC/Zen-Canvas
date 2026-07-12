@@ -76,6 +76,8 @@ describe("Organize Suggestions decision workbench", () => {
     expect(validateOrganizeFileName("../report.txt")).toBe("unsafe");
     expect(validateOrganizeFileName("CON.txt")).toBe("reserved");
     expect(validateOrganizeFileName("folder/report.txt")).toBe("unsafe");
+    expect(validateOrganizeFileName("report.txt ")).toBe("unsafe");
+    expect(validateOrganizeFileName("report.")).toBe("unsafe");
   });
 
   it("maps Space to acceptance normally and checkbox toggling in batch mode", () => {

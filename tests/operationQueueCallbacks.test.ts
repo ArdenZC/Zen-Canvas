@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LibraryScope, OperationLog, OperationPreview } from "../src/types/domain";
-import { operationNeedsCleanupConfirmation, previewsForExecutionIntent, useOperationQueueStore } from "../src/store/useOperationQueueStore";
+import { operationNeedsCleanupConfirmation, previewsForExecutionIntent, selectionForPreviewGroup, useOperationQueueStore } from "../src/store/useOperationQueueStore";
 import { useFileLibraryStore } from "../src/store/useFileLibraryStore";
 import { useRulesStore } from "../src/store/useRulesStore";
 import { useAppStore } from "../src/store/useAppStore";
@@ -291,8 +291,10 @@ describe("operation queue store callbacks", () => {
   });
 
   it("does not execute a preview with an invalid edited file name", async () => {
-    const invalid = { ...preview("invalid", true), new_name: "../unsafe.txt" };
-    useOperationQueueStore.setState({ displayPreviews: [invalid], selectedOperationIds: new Set([invalid.id]) });
+    const invalid = preview("invalid", true);
+    useOperationQueueStore.setState({ previews: [invalid], displayPreviews: [invalid], selectedOperationIds: new Set([invalid.id]) });
+    useOperationQueueStore.getState().onRenamePreview(invalid.id, "unsafe ");
+    expect(useOperationQueueStore.getState().displayPreviews[0].new_name).toBe("unsafe ");
     await useOperationQueueStore.getState().executeSelected(true);
     expect(apiMocks.executeMoves).not.toHaveBeenCalled();
   });
@@ -316,6 +318,13 @@ describe("operation queue store callbacks", () => {
     expect(visible).toEqual([accepted]);
   });
 
+  it("group selection cannot add previews outside the organize whitelist", () => {
+    const accepted = preview("accepted-group", true);
+    const kept = preview("kept-group", true);
+    const intent = { source: "organize" as const, scopeKey: "all", allowedPreviewIds: new Set([accepted.id]), initialAllowedCount: 1, sessionId: "group" };
+    expect(selectionForPreviewGroup(new Set(), [accepted, kept], true, intent)).toEqual(new Set([accepted.id]));
+  });
+
   it("syncs a valid Preview rename back to the organize edited decision", () => {
     const operation = preview("rename-sync", true);
     useOrganizeDecisionStore.setState({ decisions: { [`all::${operation.fileId}`]: { fileId: operation.fileId, scopeKey: "all", signature: "stable", state: "accepted" } } });
@@ -326,6 +335,14 @@ describe("operation queue store callbacks", () => {
 
     expect(useOrganizeDecisionStore.getState().decisions[`all::${operation.fileId}`]).toMatchObject({ state: "edited", editedName: "renamed.txt" });
     expect(useOperationQueueStore.getState().displayPreviews[0].new_name).toBe("renamed.txt");
+  });
+
+  it("keeps general Preview renames in the operation override without creating organize decisions", () => {
+    const operation = preview("general-rename", true);
+    useOperationQueueStore.setState({ previews: [operation], displayPreviews: [operation], executionIntent: { source: "general" } });
+    useOperationQueueStore.getState().onRenamePreview(operation.id, "general.txt");
+    expect(useOperationQueueStore.getState().displayPreviews[0].new_name).toBe("general.txt");
+    expect(useOrganizeDecisionStore.getState().decisions).toEqual({});
   });
 
   it("drops stale organize preview ids after authoritative refresh", () => {
@@ -386,6 +403,22 @@ describe("operation queue store callbacks", () => {
     expect(result).toEqual(logs);
     expect(useOperationQueueStore.getState().lastExecutionLogs).toEqual(logs);
     expect(useOperationQueueStore.getState().operationLogs.slice(0, 3)).toEqual(logs);
+  });
+
+  it("keeps an API execution failure as an in-page error state", async () => {
+    const operation = preview("api-error", true);
+    apiMocks.executeMoves.mockRejectedValue(new Error("backend unavailable"));
+    useOperationQueueStore.setState({ displayPreviews: [operation], selectedOperationIds: new Set([operation.id]) });
+    expect(await useOperationQueueStore.getState().executeSelected(true)).toEqual([]);
+    expect(useOperationQueueStore.getState().executionError).toContain("backend unavailable");
+    expect(useOperationQueueStore.getState().lastExecutionLogs).toEqual([]);
+  });
+
+  it("clears previous execution results when a new organize session starts", () => {
+    useOperationQueueStore.setState({ lastExecutionLogs: [log("old-result", "success", true)], executionError: "old error" });
+    useOperationQueueStore.getState().startOrganizePreviewSession("all", new Set(["new-preview"]));
+    expect(useOperationQueueStore.getState().lastExecutionLogs).toEqual([]);
+    expect(useOperationQueueStore.getState().executionError).toBe("");
   });
 });
 

@@ -6,7 +6,7 @@ import type { Translator } from "../../types/ui";
 import { percent } from "../../utils/format";
 import { cn, inputSurface } from "../../utils/tw";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
-import { ToneBadge, compactInteractiveRow, itemMotion } from "../shared/ui";
+import { ToneBadge, itemMotion } from "../shared/ui";
 import { validateOrganizeFileName } from "../organize/organizeModel";
 import { riskLabel } from "../vault/components/FileLibraryList";
 
@@ -30,8 +30,9 @@ export const PreviewFileRow = memo(function PreviewFileRow({
   return (
     <motion.div
       className={cn(
-        compactInteractiveRow({ selected: isSelected, disabled: blocked }),
-        "grid items-start gap-3 sm:grid-cols-[auto_auto_minmax(0,1fr)]"
+        "grid items-start gap-3 border-b border-[var(--zc-divider)] px-2 py-3 transition-[background,color] sm:grid-cols-[auto_auto_minmax(0,1fr)]",
+        isSelected && "bg-[var(--zc-surface-selected)]",
+        blocked && "opacity-65"
       )}
       layout={false}
       variants={itemMotion}
@@ -62,9 +63,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
           {preview.requires_confirmation && (
             <ToneBadge tone="warning">{t("operationNeedsConfirmation")}</ToneBadge>
           )}
-          {preview.blocking_reason && (
-            <ToneBadge tone="danger">{preview.blocking_reason}</ToneBadge>
-          )}
+          {preview.blocking_reason ? <ToneBadge tone="danger">{t("operationBlocked")}</ToneBadge> : null}
           {!trashOperation && preview.will_create_parent && (
             <ToneBadge tone="info">{t("operationCreatesParent")}</ToneBadge>
           )}
@@ -103,8 +102,8 @@ function PathBlock({ label, path, tone }: { label: string; path: string; tone: "
       className={cn(
         "min-w-0 rounded-lg border px-2 py-1.5",
         tone === "source"
-          ? "border-slate-400/20 bg-slate-500/8"
-          : "border-blue-400/24 bg-blue-500/8"
+          ? "border-[var(--zc-divider)] bg-[var(--zc-neutral-soft)]"
+          : "border-[var(--zc-info-border)] bg-[var(--zc-info-soft)]"
       )}
       title={displayPath}
     >

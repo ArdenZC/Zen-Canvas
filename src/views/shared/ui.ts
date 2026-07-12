@@ -383,7 +383,7 @@ export function ConfirmDialog({
         null,
         createElement("h2", { id: titleId, className: sectionHeading }, title),
         description
-          ? createElement("p", { id: descriptionId, className: sectionDescription }, description)
+          ? createElement("p", { id: descriptionId, className: cn(sectionDescription, "whitespace-pre-line") }, description)
           : null
       ),
       createElement(

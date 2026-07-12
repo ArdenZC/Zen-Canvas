@@ -23,6 +23,16 @@ export function previewsForExecutionIntent(previews: readonly OperationPreview[]
     : [...previews];
 }
 
+export function selectionForPreviewGroup(current: Set<string>, previews: readonly OperationPreview[], select: boolean, intent: PreviewExecutionIntent) {
+  const next = new Set(current);
+  for (const preview of previewsForExecutionIntent(previews, intent)) {
+    if (preview.is_executable === false) continue;
+    if (select) next.add(preview.id);
+    else next.delete(preview.id);
+  }
+  return next;
+}
+
 export interface OperationQueueStore {
   operationLogs: OperationLog[];
   selectedOperationIds: Set<string>;
@@ -71,7 +81,11 @@ function applyOverrides(
   previews: OperationPreview[],
   previewNameOverrides: Record<string, string>
 ) {
-  return previews.map((preview) => applyPreviewNameOverride(preview, previewNameOverrides[preview.id]));
+  return previews.map((preview) => {
+    const override = previewNameOverrides[preview.id];
+    if (override !== undefined && validateOrganizeFileName(override) !== null) return { ...preview, new_name: override };
+    return applyPreviewNameOverride(preview, override);
+  });
 }
 
 function previewActionCount(displayPreviews: OperationPreview[]) {

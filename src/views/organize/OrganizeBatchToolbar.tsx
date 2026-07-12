@@ -7,6 +7,7 @@ export function OrganizeBatchToolbar({
   keepableCount,
   clearableCount,
   blockedCount,
+  needsReviewCount,
   t,
   onAcceptSafe,
   onKeep,
@@ -18,6 +19,7 @@ export function OrganizeBatchToolbar({
   keepableCount: number;
   clearableCount: number;
   blockedCount: number;
+  needsReviewCount: number;
   t: Translator;
   onAcceptSafe: () => void;
   onKeep: () => void;
@@ -31,6 +33,7 @@ export function OrganizeBatchToolbar({
       <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} disabled={!keepableCount} onClick={onKeep}>{t("organizeBatchKeep").replace("{count}", keepableCount.toLocaleString())}</button>
       <button className={cn(buttonGhost, "min-h-8 px-3 py-1.5 text-xs")} disabled={!clearableCount} onClick={onClear}>{t("organizeBatchClear").replace("{count}", clearableCount.toLocaleString())}</button>
       {blockedCount ? <span className="text-xs text-[var(--zc-warning-text)]">{t("organizeBatchBlocked").replace("{count}", blockedCount.toLocaleString())}</span> : null}
+      {needsReviewCount ? <span className="text-xs text-[var(--zc-warning-text)]">{t("organizeBatchNeedsReview").replace("{count}", needsReviewCount.toLocaleString())}</span> : null}
       <button className={cn(buttonGhost, "min-h-8 px-3 py-1.5 text-xs")} onClick={onExit}>{t("organizeBatchExit")}</button>
     </div>
   );

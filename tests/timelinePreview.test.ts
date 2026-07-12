@@ -63,7 +63,8 @@ describe("preview execute safety UI", () => {
     expect(t("selectOperation")).toBe("选择操作");
 
     expect(row).toContain("ToneBadge");
-    expect(row).toContain("compactInteractiveRow");
+    expect(row).toContain("border-b border-[var(--zc-divider)]");
+    expect(row).toContain("bg-[var(--zc-surface-selected)]");
     expect(row).toContain("operationLabel(preview.operation_type");
     expect(row).toContain('t("sourcePath")');
     expect(row).toContain('t("targetPath")');
@@ -88,7 +89,7 @@ describe("preview execute safety UI", () => {
     expect(timeline).not.toContain("virtualRowClass");
     expect(timeline).toContain("overflow-auto");
     expect(timeline).not.toContain("max-h-96");
-    expect(row).toContain("gap-3 sm:grid-cols-[auto_auto_minmax(0,1fr)]");
+    expect(row).toContain("sm:grid-cols-[auto_auto_minmax(0,1fr)]");
     expect(row).toContain("grid min-w-0 gap-2 xl:grid-cols-2");
     expect(row).not.toContain("lg:grid-cols-2");
   });

@@ -177,8 +177,8 @@ export function validateOrganizeFileName(name: string): string | null {
     trimmed === "."
     || trimmed === ".."
     || trimmed.includes("..")
-    || trimmed.endsWith(".")
-    || trimmed.endsWith(" ")
+    || name.endsWith(".")
+    || name.endsWith(" ")
     || /[\u0000-\u001f/\\<>:"|?*]/.test(trimmed)
   ) return "unsafe";
   const stem = trimmed.split(".")[0]?.toLowerCase() ?? "";

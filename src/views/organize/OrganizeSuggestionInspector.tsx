@@ -14,7 +14,8 @@ export function OrganizeSuggestionInspector({
   onAccept,
   onKeep,
   onEdit,
-  onClear
+  onClear,
+  onReturnToList
 }: {
   suggestion: OrganizeSuggestion | null;
   t: Translator;
@@ -23,6 +24,7 @@ export function OrganizeSuggestionInspector({
   onKeep: () => void;
   onEdit: () => void;
   onClear: () => void;
+  onReturnToList: () => void;
 }) {
   if (!suggestion) {
     return (
@@ -40,7 +42,7 @@ export function OrganizeSuggestionInspector({
   const targetPath = effectiveTargetPath(suggestion);
   const blockingText = organizeBlockingText(suggestion, t);
   return (
-    <aside ref={inspectorRef} tabIndex={-1} className="min-h-0 overflow-auto border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-4 max-[1100px]:border-l-0 max-[1100px]:border-t" aria-labelledby="organize-inspector-title">
+    <aside ref={inspectorRef} tabIndex={-1} className="min-h-0 overflow-auto border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-4 max-[1100px]:border-l-0 max-[1100px]:border-t" aria-labelledby="organize-inspector-title" aria-keyshortcuts="Escape" onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); onReturnToList(); } }}>
       <div className="grid gap-4">
         <div className="grid min-h-32 place-items-center gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] px-4 py-5 text-center">
           <FileSearch size={28} className="text-[var(--zc-info-text)]" aria-hidden="true" />
