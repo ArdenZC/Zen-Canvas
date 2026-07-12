@@ -91,7 +91,8 @@ export function VaultView() {
     if (showOpenedSort) options.splice(3, 0, { key: "last_opened_at", label: t("librarySortOpened") });
     return options;
   }, [showOpenedSort, t]);
-  const currentSortLabel = `${sortOptions.find((option) => option.key === sort.key)?.label ?? t("librarySortModified")}${sortScopeComplete ? "" : ` · ${t("librarySortLoadedOnly")}`}`;
+  const currentSortLabel = sortOptions.find((option) => option.key === sort.key)?.label ?? t("librarySortModified");
+  const sortScopeDescriptionId = !sortScopeComplete ? "library-sort-scope-description" : undefined;
 
   const loadPage = useCallback(async (offset: number, append: boolean) => {
     const requestId = ++requestIdRef.current;
@@ -389,7 +390,7 @@ export function VaultView() {
       <section className={cn(raisedSurface, "relative z-20 grid shrink-0 gap-2 px-3 py-2")}>
         <div data-section="scope bar" className="flex min-w-0 flex-wrap items-center justify-end gap-2" aria-label={scopeText}>
           <div className="flex flex-wrap items-center gap-2">
-            {scope.kind !== "all" ? <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => setScope({ kind: "all" })}><Layers size={15} />{t("viewAllIndexedFiles")}</button> : null}
+            {scope.kind !== "all" && !isEmptyCurrentScanScope ? <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => setScope({ kind: "all" })}><Layers size={15} />{t("viewAllIndexedFiles")}</button> : null}
             <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => void handleChooseFolders()}><FolderSearch size={15} />{t("switchScanDirectory")}</button>
           </div>
         </div>
@@ -403,9 +404,9 @@ export function VaultView() {
              {isFilterOpen ? <div id="library-filter-popover"><FileLibraryFilterPopover libraryFilter={libraryFilter} filters={advancedFilters} t={t} onLibraryFilterChange={(value) => { setLibraryFilter(value); clearSelection(); }} onFiltersChange={(value) => { setAdvancedFilters((current) => ({ ...current, ...value })); clearSelection(); }} onClear={clearFilters} onClose={closeFilterPopover} /></div> : null}
           </div>
           <div className="relative">
-            <button ref={sortButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isSortOpen} aria-haspopup="menu" onClick={() => { setIsSortOpen((value) => !value); setIsFilterOpen(false); }} onKeyDown={(event) => { if (event.key === "Escape" && isSortOpen) { event.preventDefault(); closeSortPopover(); } }}><span>{currentSortLabel}</span><ChevronDown size={14} /></button>
+            <button ref={sortButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isSortOpen} aria-haspopup="menu" aria-describedby={sortScopeDescriptionId} title={!sortScopeComplete ? t("librarySortLoadedOnly") : undefined} onClick={() => { setIsSortOpen((value) => !value); setIsFilterOpen(false); }} onKeyDown={(event) => { if (event.key === "Escape" && isSortOpen) { event.preventDefault(); closeSortPopover(); } }}><span>{currentSortLabel}</span><ChevronDown size={14} /></button>
              {isSortOpen ? <div className="absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" role="menu" aria-label={t("librarySort")} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeSortPopover(); } }}>
-              {!sortScopeComplete ? <p className="px-3 pb-1 text-xs text-[var(--zc-text-tertiary)]">{t("librarySortLoadedOnly")}</p> : null}
+              {!sortScopeComplete ? <p id="library-sort-scope-description" className="px-3 pb-1 text-xs text-[var(--zc-text-tertiary)]">{t("librarySortLoadedOnly")}</p> : null}
               <div className="grid gap-1">
                 {sortOptions.map((option, index) => <button autoFocus={index === 0} key={option.key} role="menuitemradio" aria-checked={sort.key === option.key} className={cn("flex min-h-9 items-center justify-between rounded-[var(--zc-radius-control)] px-3 text-left text-sm", sort.key === option.key ? "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]")} onClick={() => { setSort({ key: option.key, direction: sort.key === option.key && sort.direction === "desc" ? "asc" : "desc" }); closeSortPopover(); }}>{option.label}<span className="text-xs">{sort.key === option.key ? sort.direction === "desc" ? "↓" : "↑" : ""}</span></button>)}
                 <button role="menuitem" className="border-t border-[var(--zc-divider)] px-3 pt-2 text-left text-xs text-[var(--zc-text-secondary)]" onClick={() => setSort((current) => ({ ...current, direction: current.direction === "desc" ? "asc" : "desc" }))}>{sort.direction === "desc" ? t("librarySortDescending") : t("librarySortAscending")}</button>

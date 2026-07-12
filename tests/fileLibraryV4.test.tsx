@@ -159,6 +159,16 @@ describe("File Library v4 model and interaction contracts", () => {
     expect(vault).toContain("event.key === \"Tab\"");
     expect(list).toContain("is_deleted || file.is_stale");
     expect(list).toContain("AlertTriangle");
+    expect(list).toContain("absolute -right-1 -top-1");
+    expect(list).not.toContain('className="mr-1 inline');
+    expect(inspector).toContain('t("libraryFileUnavailableTitle")');
+    expect(inspector).toContain('t("libraryFileUnavailableDesc")');
+    expect(inspector).not.toContain('missing ? t("libraryFileNotFound") : t("libraryPreviewUnavailable")');
+    expect(inspector).toContain("!missing ? <button");
+    expect(vault).toContain('scope.kind !== "all" && !isEmptyCurrentScanScope');
+    expect(vault).toContain('const currentSortLabel = sortOptions.find');
+    expect(vault).not.toContain('` · ${t("librarySortLoadedOnly")}`');
+    expect(vault).toContain('id="library-sort-scope-description"');
     expect(readFileSync(resolve("src/views/vault/components/FileLibraryFilterPopover.tsx"), "utf8")).toContain("overscroll-contain");
     expect(vault).not.toContain("AssetCard");
     expect(vault).not.toContain("window.confirm");

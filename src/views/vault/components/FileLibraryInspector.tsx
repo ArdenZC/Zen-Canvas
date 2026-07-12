@@ -1,4 +1,4 @@
-import { Archive, File, FileCode2, FileImage, FileText, Folder, Info, Music2, Package, Video, X } from "lucide-react";
+import { Archive, File, FileCode2, FileImage, FileText, Folder, Info, Music2, Package, TriangleAlert, Video, X } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";
 import type { FileRecord } from "../../../types/domain";
 import type { Language } from "../../../i18n";
@@ -223,12 +223,12 @@ function InspectorField({ label, value, title, tone = "normal" }: { label: strin
 function PreviewSurface({ file, t }: { file: FileRecord; t: Translator }) {
   const missing = file.is_deleted || file.is_stale;
   const kind = missing ? "unsupported" : filePreviewKind(file);
-  const Icon = previewIcon(kind);
+  const Icon = missing ? TriangleAlert : previewIcon(kind);
   return (
     <div className="grid min-h-36 place-items-center gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] px-4 py-5 text-center" data-library-preview-kind={kind}>
-      <Icon size={30} className="text-[var(--zc-info-text)]" aria-hidden="true" />
-      <strong className="text-sm text-[var(--zc-text-primary)]">{missing ? t("libraryFileNotFound") : previewTitle(file, t)}</strong>
-      <span className="max-w-xs text-xs leading-5 text-[var(--zc-text-secondary)]">{missing ? t("libraryFileNotFound") : t("libraryPreviewUnavailable")}</span>
+      <Icon size={30} className={missing ? "text-[var(--zc-warning-text)]" : "text-[var(--zc-info-text)]"} aria-hidden="true" />
+      <strong className="text-sm text-[var(--zc-text-primary)]">{missing ? t("libraryFileUnavailableTitle") : previewTitle(file, t)}</strong>
+      <span className="max-w-xs text-xs leading-5 text-[var(--zc-text-secondary)]">{missing ? t("libraryFileUnavailableDesc") : t("libraryPreviewUnavailable")}</span>
     </div>
   );
 }

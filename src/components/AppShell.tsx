@@ -93,7 +93,7 @@ export function AppShell() {
   const groups = navGroups(t);
   const activeLabel = groups.flatMap((group) => group.items).find((item) => item.id === view)?.label ?? viewLabel(view, t);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
-  const headingDescription = viewDescription(view, stats, scopeText, previewActionCount, t);
+  const headingDescription = viewDescription(view, stats, scope, scopeText, previewActionCount, t);
 
   return (
     <div className={appRoot}>
@@ -432,6 +432,7 @@ export function openAIProcessingModeSettings(
 function viewDescription(
   view: View,
   stats: DashboardStats,
+  scope: LibraryScope,
   scopeText: string,
   previewActionCount: number,
   t: Translator
@@ -444,7 +445,7 @@ function viewDescription(
     case "organize":
       return `${t("currentOrganizeScope")}: ${scopeText} · ${t("viewDescOrganize")}`;
     case "library":
-      return `${t("currentScope")}: ${scopeText} · ${stats.totalFiles.toLocaleString()} ${t("files")}`;
+      return fileLibraryHeadingDescription(scope, stats.totalFiles, scopeText, t);
     case "preview":
       return previewActionCount > 0
         ? `${previewActionCount.toLocaleString()} ${t("items")} · ${t("viewDescPreview")}`
@@ -479,6 +480,18 @@ function navGroups(t: Translator): NavGroup[] {
       ]
     }
   ];
+}
+
+export function fileLibraryHeadingDescription(
+  scope: LibraryScope,
+  scopedTotal: number,
+  scopeText: string,
+  t: Translator
+) {
+  const prefix = `${t("currentScope")}: ${scopeText}`;
+  return scope.kind === "current_scan" && scope.roots.length === 0
+    ? prefix
+    : `${prefix} · ${scopedTotal.toLocaleString()} ${t("files")}`;
 }
 
 function viewLabel(view: View, t: Translator) {

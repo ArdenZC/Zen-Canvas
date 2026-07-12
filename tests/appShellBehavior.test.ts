@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { makeTranslator } from "../src/i18n";
-import { AIProcessingModeStatus, openAIProcessingModeSettings, ShellViewHeading } from "../src/components/AppShell";
+import { AIProcessingModeStatus, fileLibraryHeadingDescription, openAIProcessingModeSettings, ShellViewHeading } from "../src/components/AppShell";
 import { filesForCurrentQuery } from "../src/components/CommandModal";
 import type { AISettings, FileRecord, OperationLog } from "../src/types/domain";
 
@@ -50,6 +50,12 @@ function operation(id: string, createdAt: string): OperationLog {
 }
 
 describe("App Shell v4.1 behavior", () => {
+  it("does not attach global file totals to an empty current scan scope", () => {
+    expect(fileLibraryHeadingDescription({ kind: "current_scan", roots: [] }, 5, "尚未选择文件夹", t)).toBe("当前范围: 尚未选择文件夹");
+    expect(fileLibraryHeadingDescription({ kind: "all" }, 5, "全部索引文件", t)).toBe("当前范围: 全部索引文件 · 5 文件");
+    expect(fileLibraryHeadingDescription({ kind: "current_scan", roots: ["C:/Users/Zen/Documents"] }, 2, "Documents", t)).toBe("当前范围: Documents · 2 文件");
+  });
+
   it("models AI processing mode as loading, disabled, local, cloud, failed, and immediate updates", async () => {
     const module = await aiModule();
     expect(module.createAIProcessingModeController).toBeTypeOf("function");

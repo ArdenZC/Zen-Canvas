@@ -152,20 +152,20 @@ function FileLibraryRow({
       style={style}
       role="option"
       aria-selected={selected}
-      aria-label={`${file.name}, ${path}`}
+      aria-label={`${file.name}, ${path}${missing ? `, ${t("libraryFileNotFound")}` : ""}`}
       data-library-row={file.id}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
     >
       <div className="flex min-w-0 items-center gap-2.5">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-secondary)]" aria-hidden="true">
+        <span className="relative grid h-8 w-8 shrink-0 place-items-center rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-secondary)]" aria-hidden="true">
           <Icon size={17} />
+          {missing ? <AlertTriangle size={13} className="absolute -right-1 -top-1 rounded-full bg-[var(--zc-surface)] text-[var(--zc-warning-text)]" /> : null}
         </span>
         <div className="min-w-0">
-          {missing ? <AlertTriangle size={14} className="mr-1 inline text-[var(--zc-warning-text)]" aria-label={t("libraryFileNotFound")} /> : null}
           <p className={cn("truncate font-medium text-[var(--zc-text-primary)]", missing && "text-[var(--zc-text-secondary)]")} title={file.name}>{file.name}</p>
-          <p className={cn("truncate text-xs text-[var(--zc-text-secondary)]", missing && "text-[var(--zc-warning-text)]")}>{missing ? t("libraryFileNotFound") : `${typeLabel(file, t)} · ${purposeLabel(file, t)}`}</p>
+          <p className={cn("truncate text-xs text-[var(--zc-text-secondary)]", missing && "text-[var(--zc-warning-text)]")} aria-label={missing ? t("libraryFileNotFound") : undefined}>{missing ? t("libraryFileNotFound") : `${typeLabel(file, t)} · ${purposeLabel(file, t)}`}</p>
         </div>
       </div>
       <span className="truncate text-xs text-[var(--zc-text-secondary)] max-[1100px]:hidden" title={formatDisplayPath(file.directory)}>{path}</span>
