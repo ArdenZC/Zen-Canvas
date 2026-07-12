@@ -47,10 +47,13 @@ describe("app render architecture", () => {
 
   it("keeps scanner totals and vault filters tied to their real state", () => {
     const scanner = read("src/views/scanner/ScannerView.tsx");
+    const overviewModel = read("src/views/overview/overviewModel.ts");
     const vault = read("src/views/vault/VaultView.tsx");
     const fileLibraryStore = read("src/store/useFileLibraryStore.ts");
 
-    expect(scanner).toContain("const scopedTotalSize = stats.totalSize");
+    expect(scanner).toContain("buildOverviewSummary(stats, overviewRoots, t)");
+    expect(overviewModel).toContain("stats.totalSize");
+    expect(overviewModel).toContain("stats.totalFiles");
     expect(scanner).not.toContain("files.reduce((sum, file) => sum + file.size");
     expect(vault).not.toContain('useState<LibraryFilter>("all")');
     expect(fileLibraryStore).toContain("libraryFilter: LibraryFilter");
@@ -194,32 +197,36 @@ describe("app render architecture", () => {
     expect(appShell).not.toContain("h-[calc(");
     expect(appShell).not.toContain("cn(pageBody");
     expect(scanner).toContain("PageHeader");
-    expect(scanner).toContain("ScannerSummaryChip");
+    expect(scanner).toContain("OverviewPriorityTask");
+    expect(scanner).toContain("OverviewSpaceSummary");
+    expect(scanner).toContain("OverviewRecentActivityList");
+    expect(scanner).toContain("OverviewBackgroundTaskList");
     expect(scanner).toContain("pageSurface");
-    expect(scanner).toContain("clamp(180px,26vw,240px)");
-    expect(scanner).not.toContain("h-72");
-    expect(scanner).not.toContain("w-72");
-    expect(scanner).not.toContain("min-h-[360px]");
-    expect(scanner).toContain("NoticeBanner");
-    expect(scanner).toContain("StateBlock");
+    expect(scanner).not.toContain("ScannerSummaryChip");
+    expect(scanner).not.toContain("ScannerDisk");
+    expect(scanner).not.toContain("clamp(180px,26vw,240px)");
   });
 
   it("keeps scanner state-driven with clear metrics and safety guidance", () => {
     const scanner = read("src/views/scanner/ScannerView.tsx");
+    const overviewModel = read("src/views/overview/overviewModel.ts");
+    const scanTaskPanel = read("src/views/overview/ScanTaskPanel.tsx");
+    const cancelDialog = read("src/views/overview/ScanCancelDialog.tsx");
 
-    expect(scanner).toContain("type ScannerVisualState");
-    expect(scanner).toContain("function scannerVisualState");
-    expect(scanner).toContain('return "canceling"');
-    expect(scanner).toContain('return "completed"');
-    expect(scanner).toContain('return "error"');
+    expect(overviewModel).toContain("export type OverviewScanState");
+    for (const state of ["scanning", "canceling", "completed", "partial", "canceled", "failed", "first-use"]) {
+      expect(overviewModel).toContain(`"${state}"`);
+    }
     expect(scanner).toContain("scanState.error");
-    expect(scanner).toContain('t("scannerStartTitle")');
-    expect(scanner).toContain('t("scannerLocalIndexSafety")');
-    expect(scanner).toContain('t("totalAnalysed")');
-    expect(scanner).toContain('t("needsReview")');
-    expect(scanner).toContain('t("scannerReferenceDisk")');
-    expect(scanner).toContain('tone={visualState === "canceling" ? "amber"');
-    expect(scanner).toContain('NoticeBanner tone="error"');
+    expect(scanTaskPanel).toContain('t("overviewScanProcessed")');
+    expect(scanTaskPanel).toContain('t("overviewScanElapsed")');
+    expect(scanTaskPanel).toContain('t("overviewScanSkipped")');
+    expect(scanTaskPanel).toContain('t("overviewScanWarnings")');
+    expect(scanTaskPanel).not.toContain("progressbar");
+    expect(cancelDialog).toContain("ConfirmDialog");
+    expect(scanner).toContain("await cancelScan()");
+    expect(scanner).not.toContain("globalThis.confirm");
+    expect(scanner).not.toContain("window.confirm");
   });
 
   it("keeps shell navigation grouped explicitly and page descriptions view-specific", () => {
