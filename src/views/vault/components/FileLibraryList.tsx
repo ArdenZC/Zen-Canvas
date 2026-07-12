@@ -1,4 +1,4 @@
-import { Archive, File, FileCode2, FileImage, FileText, Folder, Music2, Package, Video } from "lucide-react";
+import { AlertTriangle, Archive, File, FileCode2, FileImage, FileText, Folder, Music2, Package, Video } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { FileRecord } from "../../../types/domain";
@@ -73,10 +73,10 @@ export function FileLibraryList({
       tabIndex={0}
       onKeyDown={onKeyDown}
     >
-      <div className={cn("grid min-w-[560px] grid-cols-[minmax(220px,1.5fr)_minmax(160px,1fr)_132px_92px] items-center gap-3 border-b border-[var(--zc-divider)] px-3 py-2 text-[11px] font-semibold text-[var(--zc-text-tertiary)]")} role="presentation">
+      <div className={cn("grid min-w-[560px] grid-cols-[minmax(220px,1.5fr)_minmax(160px,1fr)_132px_92px] items-center gap-3 border-b border-[var(--zc-divider)] px-3 py-2 text-[11px] font-semibold text-[var(--zc-text-tertiary)]", "max-[1100px]:min-w-0 max-[1100px]:grid-cols-[minmax(0,1fr)_92px]")} role="presentation">
         <span>{t("fileName")}</span>
-        <span>{t("fileLocation")}</span>
-        <span>{t("fileModified")}</span>
+        <span className="max-[1100px]:hidden">{t("fileLocation")}</span>
+        <span className="max-[1100px]:hidden">{t("fileModified")}</span>
         <span className="text-right">{t("fileSize")}</span>
       </div>
       {files.length === 0 ? (
@@ -138,12 +138,13 @@ function FileLibraryRow({
   onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => void;
 }) {
   const Icon = fileIcon(file);
+  const missing = file.is_deleted || file.is_stale;
   const path = compactPath(formatDisplayPath(file.directory), 54);
   return (
     <div
       id={`library-row-${file.id}`}
       className={cn(
-        "absolute left-0 top-0 grid min-w-[560px] w-full grid-cols-[minmax(220px,1.5fr)_minmax(160px,1fr)_132px_92px] items-center gap-3 border-b border-[var(--zc-divider)] px-3 text-left text-sm transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)]",
+        "absolute left-0 top-0 grid min-w-[560px] w-full grid-cols-[minmax(220px,1.5fr)_minmax(160px,1fr)_132px_92px] items-center gap-3 border-b border-[var(--zc-divider)] px-3 text-left text-sm transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)] max-[1100px]:min-w-0 max-[1100px]:grid-cols-[minmax(0,1fr)_92px]",
         "hover:bg-[var(--zc-surface-hover)]",
         selected && "bg-[var(--zc-surface-selected)]",
         focused && "outline outline-2 outline-offset-[-2px] outline-[var(--zc-focus-ring)]"
@@ -162,12 +163,13 @@ function FileLibraryRow({
           <Icon size={17} />
         </span>
         <div className="min-w-0">
-          <p className="truncate font-medium text-[var(--zc-text-primary)]" title={file.name}>{file.name}</p>
-          <p className="truncate text-xs text-[var(--zc-text-secondary)]">{typeLabel(file, t)} · {purposeLabel(file, t)}</p>
+          {missing ? <AlertTriangle size={14} className="mr-1 inline text-[var(--zc-warning-text)]" aria-label={t("libraryFileNotFound")} /> : null}
+          <p className={cn("truncate font-medium text-[var(--zc-text-primary)]", missing && "text-[var(--zc-text-secondary)]")} title={file.name}>{file.name}</p>
+          <p className={cn("truncate text-xs text-[var(--zc-text-secondary)]", missing && "text-[var(--zc-warning-text)]")}>{missing ? t("libraryFileNotFound") : `${typeLabel(file, t)} · ${purposeLabel(file, t)}`}</p>
         </div>
       </div>
-      <span className="truncate text-xs text-[var(--zc-text-secondary)]" title={formatDisplayPath(file.directory)}>{path}</span>
-      <time className="truncate text-xs text-[var(--zc-text-secondary)]" dateTime={file.modified_at}>{formatDate(file.modified_at, language)}</time>
+      <span className="truncate text-xs text-[var(--zc-text-secondary)] max-[1100px]:hidden" title={formatDisplayPath(file.directory)}>{path}</span>
+      <time className="truncate text-xs text-[var(--zc-text-secondary)] max-[1100px]:hidden" dateTime={file.modified_at}>{formatDate(file.modified_at, language)}</time>
       <span className="truncate text-right text-xs tabular-nums text-[var(--zc-text-primary)]">{formatBytes(file.size)}</span>
     </div>
   );

@@ -7,17 +7,20 @@ import { useAppStore } from "../../store/useAppStore";
 import { emptyPage, LIBRARY_PAGE_SIZE, useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
 import type { FileRecord, LibraryFilter } from "../../types/domain";
-import { libraryScopeLabel, readableError } from "../../utils/viewHelpers";
+import { libraryScopeLabel } from "../../utils/viewHelpers";
 import { buttonGhost, buttonSecondary, buttonSubtle, cn, glassButtonPrimary, inputSurface, raisedSurface } from "../../utils/tw";
-import { StateBlock, pageFrame, quietText } from "../shared/ui";
+import { StateBlock, pageFrame } from "../shared/ui";
 import { FileClassificationDetails } from "./components/FileClassificationDetails";
 import { FileLibraryFilterPopover } from "./components/FileLibraryFilterPopover";
 import { FileLibraryInspector, FileLibraryPreviewDialog, libraryRevealLabel } from "./components/FileLibraryInspector";
 import { FileLibraryList } from "./components/FileLibraryList";
 import {
   defaultLibrarySort,
+  classifyLibraryError,
+  collectLibraryPages,
   emptyLibraryAdvancedFilters,
   filterLibraryFiles,
+  libraryPageHasMore,
   moveFocusIndex,
   selectionForRowClick,
   sortLibraryFiles,
@@ -49,7 +52,9 @@ export function VaultView() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [errorKind, setErrorKind] = useState<"permission" | "load" | null>(null);
+  const [filterScanInProgress, setFilterScanInProgress] = useState(false);
+  const [filterScanComplete, setFilterScanComplete] = useState(true);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [focusedId, setFocusedId] = useState("");
   const [anchorIndex, setAnchorIndex] = useState(-1);
@@ -70,10 +75,11 @@ export function VaultView() {
   );
   const visibleFiles = useMemo(() => sortLibraryFiles(filteredFiles, sort), [filteredFiles, sort]);
   const selectedFiles = selectedIds.map((id) => page.files.find((file) => file.id === id)).filter((file): file is FileRecord => Boolean(file));
-  const hasMore = page.files.length < page.total;
+  const hasMore = libraryPageHasMore(page);
   const remainingCount = Math.max(0, page.total - page.files.length);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
   const isEmptyCurrentScanScope = scope.kind === "current_scan" && scope.roots.length === 0;
+  const sortScopeComplete = !hasMore && !filterScanInProgress && (!hasAdvancedFilters || filterScanComplete);
   const showOpenedSort = page.files.some((file) => Boolean(file.last_opened_at));
   const sortOptions = useMemo(() => {
     const options: Array<{ key: LibrarySortKey; label: string }> = [
@@ -85,7 +91,7 @@ export function VaultView() {
     if (showOpenedSort) options.splice(3, 0, { key: "last_opened_at", label: t("librarySortOpened") });
     return options;
   }, [showOpenedSort, t]);
-  const currentSortLabel = sortOptions.find((option) => option.key === sort.key)?.label ?? t("librarySortModified");
+  const currentSortLabel = `${sortOptions.find((option) => option.key === sort.key)?.label ?? t("librarySortModified")}${sortScopeComplete ? "" : ` · ${t("librarySortLoadedOnly")}`}`;
 
   const loadPage = useCallback(async (offset: number, append: boolean) => {
     const requestId = ++requestIdRef.current;
@@ -93,14 +99,19 @@ export function VaultView() {
       setPage(emptyPage);
       setSelectedFileId("");
       setIsLoading(false);
-      setError("");
+      setErrorKind(null);
+      setFilterScanInProgress(false);
+      setFilterScanComplete(true);
       return;
     }
     setIsLoading(true);
-    setError("");
+    setErrorKind(null);
+    setFilterScanInProgress(!append && hasAdvancedFilters);
+    setFilterScanComplete(!hasAdvancedFilters);
     try {
       const filters = libraryFilter === "all" ? undefined : { libraryFilter };
-      const next = await tauriApi.getPagedFiles(LIBRARY_PAGE_SIZE, offset, debouncedSearchQuery, scope, filters);
+      const fetchPage = (nextOffset: number) => tauriApi.getPagedFiles(LIBRARY_PAGE_SIZE, nextOffset, debouncedSearchQuery, scope, filters);
+      const next = await fetchPage(offset);
       if (requestId !== requestIdRef.current) return;
       setPage((current) => append
         ? { ...next, files: [...current.files, ...next.files], offset: current.offset }
@@ -114,13 +125,30 @@ export function VaultView() {
         setSelectedFileId(nextSelectedId);
         setFocusedId(nextSelectedId);
       }
+      if (!append && hasAdvancedFilters) {
+        const collected = await collectLibraryPages(
+          next,
+          fetchPage,
+          (current) => {
+            if (requestId === requestIdRef.current && current.files.length > next.files.length) setPage(current);
+          },
+          () => requestId === requestIdRef.current
+        );
+        if (!collected) return;
+        setFilterScanComplete(collected.complete);
+        setFilterScanInProgress(!collected.complete);
+      }
       await loadStats(scope);
     } catch (caught) {
-      if (requestId === requestIdRef.current) setError(readableError(caught));
+      if (requestId === requestIdRef.current) {
+        setErrorKind(classifyLibraryError(caught));
+        setFilterScanInProgress(false);
+        setFilterScanComplete(false);
+      }
     } finally {
       if (requestId === requestIdRef.current) setIsLoading(false);
     }
-  }, [debouncedSearchQuery, libraryFilter, loadStats, scope, setPage, setSelectedFileId]);
+  }, [debouncedSearchQuery, hasAdvancedFilters, libraryFilter, loadStats, scope, setPage, setSelectedFileId]);
 
   useEffect(() => {
     if (!didMountRef.current) {
@@ -133,7 +161,9 @@ export function VaultView() {
     setFocusedId("");
     setAnchorIndex(-1);
     setSelectedFileId("");
-  }, [libraryFilter, scopeSignature, searchQuery, setPage, setSelectedFileId]);
+    setFilterScanInProgress(hasAdvancedFilters);
+    setFilterScanComplete(!hasAdvancedFilters);
+  }, [hasAdvancedFilters, libraryFilter, scopeSignature, searchQuery, setPage, setSelectedFileId]);
 
   useEffect(() => {
     void loadPage(0, false);
@@ -145,12 +175,19 @@ export function VaultView() {
       if (focusedId) setFocusedId("");
       return;
     }
-    if (selectedIds.length === 0 && selectedFileId && page.files.some((file) => file.id === selectedFileId)) {
-      setSelectedIds([selectedFileId]);
-      setFocusedId(selectedFileId);
-      setAnchorIndex(page.files.findIndex((file) => file.id === selectedFileId));
+    if (selectedIds.length === 0) {
+      const nextId = selectedFileId && visibleFiles.some((file) => file.id === selectedFileId)
+        ? selectedFileId
+        : visibleFiles[0]?.id ?? "";
+      if (nextId) {
+        setSelectedIds([nextId]);
+        setFocusedId(nextId);
+        setAnchorIndex(page.files.findIndex((file) => file.id === nextId));
+      } else if (filterScanComplete) {
+        setSelectedFileId("");
+      }
     }
-  }, [focusedId, isEmptyCurrentScanScope, page.files, selectedFileId, selectedIds.length]);
+  }, [filterScanComplete, focusedId, isEmptyCurrentScanScope, page.files, selectedFileId, selectedIds.length, setSelectedFileId, visibleFiles]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -225,20 +262,31 @@ export function VaultView() {
   async function revealFile(path: string) {
     try {
       await tauriApi.revealInFolder(path);
-    } catch (caught) {
-      onError(readableError(caught));
+    } catch {
+      onError(t("libraryActionFailed"));
     }
-  }
-
-  async function openFile(file: FileRecord | undefined) {
-    if (!file) return;
-    await revealFile(file.path);
   }
 
   function openPreview(file: FileRecord | undefined) {
     if (!file) return;
     setContextMenu(null);
     setPreviewFile(file);
+  }
+
+  function positionContextMenu(anchorX: number, anchorY: number) {
+    const width = 260;
+    const height = 236;
+    return {
+      x: Math.max(8, Math.min(anchorX, window.innerWidth - width - 8)),
+      y: Math.max(8, Math.min(anchorY, window.innerHeight - height - 8))
+    };
+  }
+
+  function openContextMenu(file: FileRecord, anchorX?: number, anchorY?: number) {
+    const row = document.getElementById(`library-row-${file.id}`);
+    const rect = row?.getBoundingClientRect();
+    const position = positionContextMenu(anchorX ?? rect?.left ?? 8, anchorY ?? rect?.bottom ?? 8);
+    setContextMenu({ file, ...position });
   }
 
   function handleListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -270,7 +318,7 @@ export function VaultView() {
           const next = selectionForRowClick(ids, focusedIndex, { selectedIds });
           updateSelection(next.selectedIds, next.focusedId, next.anchorIndex);
         }
-        setContextMenu({ file, x: 220, y: 140 });
+        openContextMenu(file);
       }
       return;
     }
@@ -293,7 +341,7 @@ export function VaultView() {
     const isSpace = event.key === " " || event.key === "Space";
     if (event.key === "Enter") {
       event.preventDefault();
-      void openFile(visibleFiles.find((file) => file.id === focusedId) ?? visibleFiles[0]);
+      openPreview(visibleFiles.find((file) => file.id === focusedId) ?? visibleFiles[0]);
       return;
     }
     if (isSpace) {
@@ -310,21 +358,20 @@ export function VaultView() {
       const next = selectionForRowClick(visibleFiles.map((item) => item.id), index, { selectedIds });
       updateSelection(next.selectedIds, next.focusedId, next.anchorIndex);
     }
-    setContextMenu({
-      file,
-      x: Math.max(8, Math.min(event.clientX, window.innerWidth - 260)),
-      y: Math.max(8, Math.min(event.clientY, window.innerHeight - 230))
-    });
+    openContextMenu(file, event.clientX, event.clientY);
   }
 
   function libraryState() {
-    if (error) {
-      const permission = /permission|access denied|权限|拒绝访问/i.test(error);
-      return { tone: "error" as const, title: permission ? t("libraryPermissionState") : t("libraryLoadFailedTitle"), description: error, primaryAction: <button className={buttonSecondary} onClick={() => void loadPage(0, false)}>{t("libraryRetry")}</button> };
-    }
+    if (errorKind) return {
+      tone: "error" as const,
+      title: errorKind === "permission" ? t("libraryPermissionState") : t("libraryLoadFailedTitle"),
+      description: errorKind === "permission" ? t("libraryPermissionDesc") : t("libraryLoadFailedDesc"),
+      primaryAction: <button className={buttonSecondary} onClick={() => void loadPage(0, false)}>{t("libraryRetry")}</button>
+    };
     if (isLoading && page.total === 0) return { tone: "info" as const, title: t("libraryLoadingResults"), description: t("libraryScopeHint") };
     if (!stats.lastScannedAt && scope.kind === "all") return { tone: "info" as const, title: t("libraryNoScanTitle"), description: t("libraryNoScanDesc"), primaryAction: <button className={glassButtonPrimary} onClick={() => setView("scanner")}><Layers size={16} />{t("libraryGoToOverview")}</button> };
     if (isEmptyCurrentScanScope) return { tone: "info" as const, title: t("noCurrentScanTitle"), description: t("noCurrentScanDesc"), primaryAction: <button className={glassButtonPrimary} onClick={() => setView("scanner")}><Layers size={16} />{t("libraryGoToOverview")}</button>, secondaryAction: <button className={buttonSecondary} onClick={() => setScope({ kind: "all" })}>{t("viewAllIndexedFiles")}</button> };
+    if (filterScanInProgress && visibleFiles.length === 0) return { tone: "info" as const, title: t("libraryFilteringTitle"), description: t("libraryFilteringDesc") };
     if (page.total > 0 && visibleFiles.length === 0) return { tone: "neutral" as const, title: hasAdvancedFilters ? t("libraryNoFilterTitle") : t("libraryNoSearchTitle"), description: hasAdvancedFilters ? t("libraryNoFilterDesc") : t("libraryNoSearchDesc") };
     if (page.total > 0) return null;
     if (searchQuery.trim()) return { tone: "neutral" as const, title: t("libraryNoSearchTitle"), description: t("libraryNoSearchDesc") };
@@ -334,21 +381,19 @@ export function VaultView() {
 
   const state = libraryState();
   const activeFilterCount = (libraryFilter !== "all" ? 1 : 0) + Object.values(advancedFilters).filter((value) => value !== "all" && value !== false).length;
+  const isNoIndexState = !stats.lastScannedAt && scope.kind === "all" && page.total === 0 && !isLoading && !errorKind;
+  const showLibraryControls = !isNoIndexState;
 
   return (
-    <div className={cn(pageFrame, "gap-3")}>
+    <div className={cn(pageFrame, "gap-3 overflow-x-hidden")}>
       <section className={cn(raisedSurface, "relative z-20 grid shrink-0 gap-2 px-3 py-2")}>
-        <div data-section="scope bar" className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2 text-sm">
-            <span className={quietText}>{t("currentScope")}</span>
-            <span className="min-w-0 truncate font-semibold text-[var(--zc-text-primary)]" title={scopeText}>{scopeText}</span>
-          </div>
+        <div data-section="scope bar" className="flex min-w-0 flex-wrap items-center justify-end gap-2" aria-label={scopeText}>
           <div className="flex flex-wrap items-center gap-2">
             {scope.kind !== "all" ? <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => setScope({ kind: "all" })}><Layers size={15} />{t("viewAllIndexedFiles")}</button> : null}
             <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => void handleChooseFolders()}><FolderSearch size={15} />{t("switchScanDirectory")}</button>
           </div>
         </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        {showLibraryControls ? <div className="flex min-w-0 flex-wrap items-center gap-2">
           <label data-section="search bar" className={cn(inputSurface, "flex min-h-9 min-w-[min(100%,320px)] flex-1 items-center gap-2 px-3")}>
             <Search size={15} className="shrink-0 text-[var(--zc-text-tertiary)]" aria-hidden="true" />
             <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={scope.kind === "all" ? t("librarySearchPlaceholder") : t("librarySearchPlaceholderScoped")} className="min-w-0 flex-1 bg-transparent outline-none" aria-label={t("search")} />
@@ -359,13 +404,16 @@ export function VaultView() {
           </div>
           <div className="relative">
             <button ref={sortButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isSortOpen} aria-haspopup="menu" onClick={() => { setIsSortOpen((value) => !value); setIsFilterOpen(false); }} onKeyDown={(event) => { if (event.key === "Escape" && isSortOpen) { event.preventDefault(); closeSortPopover(); } }}><span>{currentSortLabel}</span><ChevronDown size={14} /></button>
-             {isSortOpen ? <div className="absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 gap-1 rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" role="menu" aria-label={t("librarySort")} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeSortPopover(); } }}>
-              {sortOptions.map((option, index) => <button autoFocus={index === 0} key={option.key} role="menuitemradio" aria-checked={sort.key === option.key} className={cn("flex min-h-9 items-center justify-between rounded-[var(--zc-radius-control)] px-3 text-left text-sm", sort.key === option.key ? "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]")} onClick={() => { setSort({ key: option.key, direction: sort.key === option.key && sort.direction === "desc" ? "asc" : "desc" }); closeSortPopover(); }}>{option.label}<span className="text-xs">{sort.key === option.key ? sort.direction === "desc" ? "↓" : "↑" : ""}</span></button>)}
-              <button role="menuitem" className="border-t border-[var(--zc-divider)] px-3 pt-2 text-left text-xs text-[var(--zc-text-secondary)]" onClick={() => setSort((current) => ({ ...current, direction: current.direction === "desc" ? "asc" : "desc" }))}>{sort.direction === "desc" ? t("librarySortDescending") : t("librarySortAscending")}</button>
+             {isSortOpen ? <div className="absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" role="menu" aria-label={t("librarySort")} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeSortPopover(); } }}>
+              {!sortScopeComplete ? <p className="px-3 pb-1 text-xs text-[var(--zc-text-tertiary)]">{t("librarySortLoadedOnly")}</p> : null}
+              <div className="grid gap-1">
+                {sortOptions.map((option, index) => <button autoFocus={index === 0} key={option.key} role="menuitemradio" aria-checked={sort.key === option.key} className={cn("flex min-h-9 items-center justify-between rounded-[var(--zc-radius-control)] px-3 text-left text-sm", sort.key === option.key ? "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]")} onClick={() => { setSort({ key: option.key, direction: sort.key === option.key && sort.direction === "desc" ? "asc" : "desc" }); closeSortPopover(); }}>{option.label}<span className="text-xs">{sort.key === option.key ? sort.direction === "desc" ? "↓" : "↑" : ""}</span></button>)}
+                <button role="menuitem" className="border-t border-[var(--zc-divider)] px-3 pt-2 text-left text-xs text-[var(--zc-text-secondary)]" onClick={() => setSort((current) => ({ ...current, direction: current.direction === "desc" ? "asc" : "desc" }))}>{sort.direction === "desc" ? t("librarySortDescending") : t("librarySortAscending")}</button>
+              </div>
             </div> : null}
           </div>
-        </div>
-        <div data-section="applied filters" className="flex min-h-0 flex-wrap items-center gap-1.5" aria-label={t("libraryAppliedFilters")}>
+        </div> : null}
+        {showLibraryControls ? <div data-section="applied filters" className="flex min-h-0 flex-wrap items-center gap-1.5" aria-label={t("libraryAppliedFilters")}>
           {libraryFilter !== "all" ? <FilterChip label={filterLabel(libraryFilter, t)} onRemove={() => setLibraryFilter("all")} /> : null}
           {advancedFilters.fileType !== "all" ? <FilterChip label={t(`libraryType${advancedFilters.fileType === "ArchivePackage" ? "Archive" : advancedFilters.fileType}` as Parameters<typeof t>[0])} onRemove={() => setAdvancedFilters((current) => ({ ...current, fileType: "all" }))} /> : null}
           {advancedFilters.lifecycle !== "all" ? <FilterChip label={t(`libraryLifecycle${advancedFilters.lifecycle}` as Parameters<typeof t>[0])} onRemove={() => setAdvancedFilters((current) => ({ ...current, lifecycle: "all" }))} /> : null}
@@ -374,21 +422,23 @@ export function VaultView() {
           {advancedFilters.modified !== "all" ? <FilterChip label={t(advancedFilters.modified === "7d" ? "libraryFilterRecent7" : advancedFilters.modified === "30d" ? "libraryFilterRecent30" : "libraryFilterOlder")} onRemove={() => setAdvancedFilters((current) => ({ ...current, modified: "all" }))} /> : null}
           {advancedFilters.duplicateOnly ? <FilterChip label={t("libraryFilterDuplicateOnly")} onRemove={() => setAdvancedFilters((current) => ({ ...current, duplicateOnly: false }))} /> : null}
           {advancedFilters.reviewOnly ? <FilterChip label={t("libraryFilterReviewOnly")} onRemove={() => setAdvancedFilters((current) => ({ ...current, reviewOnly: false }))} /> : null}
-        </div>
-        <div data-section="result count" className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--zc-text-tertiary)]">
-          <span>{t("libraryShowing").replace("{visible}", String(visibleFiles.length)).replace("{total}", String(page.total))}</span>
-          <span>{selectedIds.length ? t("librarySelectedCount").replace("{count}", String(selectedIds.length)) : t("libraryScopeHint")}</span>
-        </div>
+        </div> : null}
+        {showLibraryControls ? <div data-section="result count" className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--zc-text-tertiary)]">
+          <span>{filterScanInProgress
+            ? t("libraryFilteringIndexedFiles")
+            : t(hasAdvancedFilters ? "libraryShowingFiltered" : "libraryShowing").replace("{visible}", String(visibleFiles.length)).replace("{total}", String(page.total))}</span>
+          <span>{selectedIds.length ? t("librarySelectedLoadedCount").replace("{count}", String(selectedIds.length)) : t("libraryScopeHint")}</span>
+        </div> : null}
       </section>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_360px] gap-4 overflow-hidden max-[1100px]:grid-cols-1 max-[1100px]:overflow-auto">
+      <div className={cn("grid min-h-0 flex-1 gap-4 overflow-hidden max-[1100px]:grid-cols-1 max-[1100px]:overflow-auto", showInspectorLayout(isNoIndexState))}>
         <section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>
-          {state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={visibleFiles} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); void openFile(visibleFiles[index]); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadPage(page.files.length, true)} />}
+          {state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={visibleFiles} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore && !filterScanInProgress} isLoading={isLoading || filterScanInProgress} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); openPreview(visibleFiles[index]); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadPage(page.files.length, true)} />}
         </section>
-        <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} language={language} t={t} onPreview={openPreview} onReveal={(path) => void revealFile(path)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} classificationDetails={selectedFiles[0] ? <FileClassificationDetails file={selectedFiles[0]} t={t} /> : null} />
+        {!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} language={language} t={t} onPreview={openPreview} onReveal={(path) => void revealFile(path)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} classificationDetails={selectedFiles[0] ? <FileClassificationDetails file={selectedFiles[0]} t={t} /> : null} /> : null}
       </div>
 
-      <p className="sr-only" aria-live="polite" aria-atomic="true">{selectedIds.length ? t("librarySelectedCount").replace("{count}", String(selectedIds.length)) : ""}</p>
+      <p className="sr-only" aria-live="polite" aria-atomic="true">{selectedIds.length ? t("librarySelectedLoadedCount").replace("{count}", String(selectedIds.length)) : ""}</p>
       {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={closeContextMenu} onPreview={() => openPreview(contextMenu.file)} onReveal={() => void revealFile(contextMenu.file.path)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
       <FileLibraryPreviewDialog file={previewFile} language={language} t={t} onClose={() => { setPreviewFile(null); focusList(); }} onReveal={(path) => void revealFile(path)} />
     </div>
@@ -400,16 +450,64 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
 }
 
 function LibraryContextMenu({ context, t, onClose, onPreview, onReveal, onViewSuggestions, onClearSelection }: { context: ContextMenuState; t: ReturnType<typeof import("../../i18n").makeTranslator>; onClose: () => void; onPreview: () => void; onReveal: () => void; onViewSuggestions: () => void; onClearSelection: () => void }) {
-  return <div className="fixed z-50 grid min-w-52 gap-1 rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" style={{ left: context.x, top: context.y }} role="menu" aria-label={t("libraryContextMenu")} onPointerDown={(event) => event.stopPropagation()}>
+  const itemRefs = useRef<HTMLButtonElement[]>([]);
+  const items = [
+    { label: t("libraryPreview"), action: onPreview },
+    { label: libraryRevealLabel(t), action: () => { onReveal(); onClose(); } },
+    { label: t("libraryViewSuggestions"), action: () => { onViewSuggestions(); onClose(); } },
+    { label: t("libraryClearSelection"), action: () => { onClearSelection(); onClose(); } }
+  ];
+
+  useEffect(() => {
+    itemRefs.current[0]?.focus();
+  }, []);
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const focusable = itemRefs.current.filter(Boolean);
+    const activeIndex = focusable.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      if (!focusable.length) return;
+      const nextIndex = event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? focusable.length - 1
+          : event.key === "ArrowDown"
+            ? (activeIndex + 1 + focusable.length) % focusable.length
+            : (activeIndex - 1 + focusable.length) % focusable.length;
+      focusable[nextIndex]?.focus();
+      return;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      if (!focusable.length) return;
+      focusable[event.shiftKey
+        ? (activeIndex - 1 + focusable.length) % focusable.length
+        : (activeIndex + 1) % focusable.length]?.focus();
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (activeIndex >= 0) items[activeIndex]?.action();
+    }
+  }
+
+  return <div className="fixed z-50 grid max-h-screen min-w-52 gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" style={{ left: context.x, top: context.y }} role="menu" aria-label={t("libraryContextMenu")} tabIndex={-1} onKeyDown={handleKeyDown} onPointerDown={(event) => event.stopPropagation()}>
     <p className="truncate px-3 py-1 text-xs font-semibold text-[var(--zc-text-tertiary)]" title={context.file.name}>{context.file.name}</p>
-    <button role="menuitem" className={menuItemClass} onClick={onPreview}>{t("libraryPreview")}</button>
-    <button role="menuitem" className={menuItemClass} onClick={() => { onReveal(); onClose(); }}>{libraryRevealLabel(t)}</button>
-    <button role="menuitem" className={menuItemClass} onClick={() => { onViewSuggestions(); onClose(); }}>{t("libraryViewSuggestions")}</button>
-    <button role="menuitem" className={menuItemClass} onClick={() => { onClearSelection(); onClose(); }}>{t("libraryClearSelection")}</button>
+    {items.map((item, index) => <button key={item.label} ref={(element) => { if (element) itemRefs.current[index] = element; }} type="button" role="menuitem" className={menuItemClass} onClick={item.action}>{item.label}</button>)}
   </div>;
 }
 
 const menuItemClass = "flex min-h-9 items-center rounded-[var(--zc-radius-control)] px-3 text-left text-sm text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]";
+
+function showInspectorLayout(noIndex: boolean) {
+  return noIndex ? "grid-cols-1" : "grid-cols-[minmax(0,1fr)_360px]";
+}
 
 function filterLabel(filter: LibraryFilter, t: ReturnType<typeof import("../../i18n").makeTranslator>) {
   const key = filter === "all" ? "libraryFilterAll" : filter === "active" ? "libraryFilterActive" : filter === "archive" ? "libraryFilterArchive" : filter === "review" ? "libraryFilterReview" : filter === "duplicate" ? "libraryFilterDuplicate" : "libraryFilterSensitive";

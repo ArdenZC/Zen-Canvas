@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest";
 import type { FileRecord } from "../src/types/domain";
 import {
   defaultLibrarySort,
+  appendLibraryPage,
+  classifyLibraryError,
+  collectLibraryPages,
   emptyLibraryAdvancedFilters,
   filePreviewKind,
   filterLibraryFiles,
@@ -91,6 +94,43 @@ describe("File Library v4 model and interaction contracts", () => {
     expect(filePreviewKind(file({ file_type: "Other", extension: "bin" }))).toBe("unsupported");
   });
 
+  it("continues advanced filter inspection across pages before declaring no results", async () => {
+    const firstPage = { files: [file({ id: "first", file_type: "Document" })], total: 2, limit: 1, offset: 0 };
+    const secondPage = { files: [file({ id: "second", file_type: "Image", extension: "png" })], total: 2, limit: 1, offset: 1 };
+    const loaded: string[][] = [];
+    const result = await collectLibraryPages(firstPage, async (offset) => {
+      expect(offset).toBe(1);
+      return secondPage;
+    }, (page) => loaded.push(page.files.map((item) => item.id)));
+
+    expect(result?.complete).toBe(true);
+    expect(result?.page.files).toHaveLength(2);
+    expect(filterLibraryFiles(result!.page.files, "all", { ...emptyLibraryAdvancedFilters, fileType: "Image" })).toHaveLength(1);
+    expect(loaded).toEqual([["first"], ["first", "second"]]);
+    expect(appendLibraryPage(firstPage, secondPage).files).toHaveLength(2);
+  });
+
+  it("keeps an incomplete page walk distinguishable from a real empty result", async () => {
+    const firstPage = { files: [file({ id: "first" })], total: 2, limit: 1, offset: 0 };
+    const result = await collectLibraryPages(firstPage, async () => ({ files: [], total: 2, limit: 1, offset: 1 }));
+    expect(result?.complete).toBe(false);
+  });
+
+  it("cancels a stale page walk before it can publish a newer query", async () => {
+    const firstPage = { files: [file({ id: "first" })], total: 2, limit: 1, offset: 0 };
+    let current = true;
+    const result = await collectLibraryPages(firstPage, async () => {
+      current = false;
+      return { files: [file({ id: "stale" })], total: 2, limit: 1, offset: 1 };
+    }, undefined, () => current);
+    expect(result).toBeNull();
+  });
+
+  it("maps raw access and backend failures to semantic error kinds", () => {
+    expect(classifyLibraryError(new Error("permission denied"))).toBe("permission");
+    expect(classifyLibraryError(new Error("database error"))).toBe("load");
+  });
+
   it("renders a listbox + Inspector architecture with keyboard and context-menu hooks", () => {
     const vault = readFileSync(resolve("src/views/vault/VaultView.tsx"), "utf8");
     const list = readFileSync(resolve("src/views/vault/components/FileLibraryList.tsx"), "utf8");
@@ -108,6 +148,18 @@ describe("File Library v4 model and interaction contracts", () => {
     expect(inspector).toContain("file.lifecycle");
     expect(inspector).toContain("file.risk_level");
     expect(inspector).toContain("libraryRevealInFinder");
+    expect(vault).toContain("librarySelectedLoadedCount");
+    expect(vault).toContain("openPreview(visibleFiles[index])");
+    expect(vault).not.toContain("void openFile");
+    expect(vault).toContain("max-[1100px]:grid-cols-1");
+    expect(list).toContain("max-[1100px]:grid-cols-[minmax(0,1fr)_92px]");
+    expect(vault).toContain("libraryFilteringIndexedFiles");
+    expect(vault).toContain("getBoundingClientRect");
+    expect(vault).toContain("ArrowDown");
+    expect(vault).toContain("event.key === \"Tab\"");
+    expect(list).toContain("is_deleted || file.is_stale");
+    expect(list).toContain("AlertTriangle");
+    expect(readFileSync(resolve("src/views/vault/components/FileLibraryFilterPopover.tsx"), "utf8")).toContain("overscroll-contain");
     expect(vault).not.toContain("AssetCard");
     expect(vault).not.toContain("window.confirm");
     expect(vault).not.toContain("globalThis.confirm");

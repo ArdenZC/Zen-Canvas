@@ -21,7 +21,7 @@ export function FileLibraryFilterPopover({
   onClose: () => void;
 }) {
   return (
-    <div className="absolute right-0 top-[calc(100%+8px)] z-30 w-[min(92vw,360px)] rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-4 text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" role="dialog" aria-labelledby="library-filter-title" onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); onClose(); } }}>
+    <div className="absolute right-0 top-[calc(100%+8px)] z-30 flex max-h-[min(70vh,560px)] w-[min(92vw,360px)] flex-col overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-4 text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" role="dialog" aria-labelledby="library-filter-title" onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); onClose(); } }}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 id="library-filter-title" className="text-sm font-semibold">{t("libraryFilterTitle")}</h2>
@@ -56,7 +56,7 @@ export function FileLibraryFilterPopover({
         </label>
         <p className="text-xs leading-5 text-[var(--zc-text-tertiary)]">{t("libraryNoTagFilter")}</p>
       </div>
-      <div className="mt-4 flex justify-end">
+      <div className="sticky bottom-0 mt-4 flex justify-end bg-[var(--zc-surface-floating)] pt-2">
         <button type="button" className={cn(buttonSecondary, "min-h-9 px-3 py-1.5 text-xs")} onClick={onClose}>{t("libraryFilterDone")}</button>
       </div>
     </div>

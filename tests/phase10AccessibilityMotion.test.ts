@@ -75,6 +75,7 @@ describe("phase 10 motion and accessibility contracts", () => {
 
     expect(vaultView).toContain("max-[1100px]:grid-cols-1");
     expect(list).toContain("min-w-[560px]");
+    expect(list).toContain("max-[1100px]:min-w-0");
     expect(list).toContain('role="listbox"');
     expect(inspector).toContain("max-w-xl");
   });

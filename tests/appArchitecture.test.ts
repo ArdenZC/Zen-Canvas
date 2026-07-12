@@ -58,7 +58,7 @@ describe("app render architecture", () => {
     expect(vault).not.toContain('useState<LibraryFilter>("all")');
     expect(fileLibraryStore).toContain("libraryFilter: LibraryFilter");
     expect(fileLibraryStore).toContain("setLibraryFilter");
-    expect(vault).toContain("tauriApi.getPagedFiles(LIBRARY_PAGE_SIZE, offset, debouncedSearchQuery, scope, filters)");
+    expect(vault).toContain("tauriApi.getPagedFiles(LIBRARY_PAGE_SIZE, nextOffset, debouncedSearchQuery, scope, filters)");
     expect(vault).not.toContain("setSearchQuery(filter.key)");
   });
 

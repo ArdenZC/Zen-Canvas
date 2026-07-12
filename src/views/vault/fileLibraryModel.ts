@@ -1,4 +1,4 @@
-import type { FileRecord, LibraryFilter } from "../../types/domain";
+import type { FileQueryResult, FileRecord, LibraryFilter } from "../../types/domain";
 
 export type LibrarySortKey = "name" | "modified_at" | "size" | "last_opened_at" | "confidence";
 export type SortDirection = "asc" | "desc";
@@ -35,6 +35,53 @@ export const defaultLibrarySort: LibrarySort = {
   key: "modified_at",
   direction: "desc"
 };
+
+export type LibraryErrorKind = "permission" | "load";
+
+export interface LibraryPageCollection {
+  page: FileQueryResult;
+  complete: boolean;
+}
+
+export function appendLibraryPage(current: FileQueryResult, next: FileQueryResult): FileQueryResult {
+  return {
+    ...next,
+    files: [...current.files, ...next.files],
+    offset: current.offset
+  };
+}
+
+export function libraryPageHasMore(page: FileQueryResult): boolean {
+  return page.offset + page.files.length < page.total;
+}
+
+/**
+ * Walks the real paged API without changing the rendering model. The caller
+ * can publish each accumulated page to keep virtualization and loading state
+ * visible while the truthfulness scan is still in progress.
+ */
+export async function collectLibraryPages(
+  firstPage: FileQueryResult,
+  fetchPage: (offset: number) => Promise<FileQueryResult>,
+  onPage?: (page: FileQueryResult) => void,
+  isCurrentRequest: () => boolean = () => true
+): Promise<LibraryPageCollection | null> {
+  let page = firstPage;
+  onPage?.(page);
+  while (libraryPageHasMore(page)) {
+    const next = await fetchPage(page.offset + page.files.length);
+    if (!isCurrentRequest()) return null;
+    if (!next.files.length) return { page, complete: false };
+    page = appendLibraryPage(page, next);
+    onPage?.(page);
+  }
+  return { page, complete: true };
+}
+
+export function classifyLibraryError(error: unknown): LibraryErrorKind {
+  const message = error instanceof Error ? error.message : String(error);
+  return /permission|access denied|拒绝访问|权限不足|无法访问/i.test(message) ? "permission" : "load";
+}
 
 export function filterLibraryFiles(
   files: FileRecord[],

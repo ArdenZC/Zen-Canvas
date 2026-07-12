@@ -246,6 +246,7 @@ function previewIcon(kind: ReturnType<typeof filePreviewKind>) {
 }
 
 function previewTitle(file: FileRecord, t: Translator) {
+  if (filePreviewKind(file) === "pdf") return t("libraryPreviewPdfFile");
   const key = `libraryPreview${filePreviewKind(file).replace(/^./, (value) => value.toUpperCase())}` as Parameters<Translator>[0];
   return t(key);
 }
