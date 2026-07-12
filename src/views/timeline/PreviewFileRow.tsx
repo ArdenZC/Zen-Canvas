@@ -7,6 +7,8 @@ import { percent } from "../../utils/format";
 import { cn, inputSurface } from "../../utils/tw";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
 import { ToneBadge, compactInteractiveRow, itemMotion } from "../shared/ui";
+import { validateOrganizeFileName } from "../organize/organizeModel";
+import { riskLabel } from "../vault/components/FileLibraryList";
 
 export const PreviewFileRow = memo(function PreviewFileRow({
   preview,
@@ -23,6 +25,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
 }) {
   const blocked = preview.is_executable === false;
   const trashOperation = preview.operation_type === "move_to_trash";
+  const nameError = trashOperation ? null : validateOrganizeFileName(preview.new_name);
 
   return (
     <motion.div
@@ -55,7 +58,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
         </div>
 
         <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
-          <ToneBadge tone={riskTone(preview.risk_level)}>{preview.risk_level}</ToneBadge>
+          <ToneBadge tone={riskTone(preview.risk_level)}>{riskLabel(preview.risk_level, t)}</ToneBadge>
           {preview.requires_confirmation && (
             <ToneBadge tone="warning">{t("operationNeedsConfirmation")}</ToneBadge>
           )}
@@ -69,11 +72,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
         {trashOperation && (
           <p className="mt-2 text-xs text-[var(--muted)]">{t("operationMoveToTrashRisk")}</p>
         )}
-        {preview.reason && (
-          <p className="mt-2 text-xs text-[var(--muted)]">
-            {t("reason")}：{preview.reason}
-          </p>
-        )}
+        {preview.reason ? <p className="mt-2 text-xs text-[var(--muted)]">{t("organizeReasonFromAnalysis")}</p> : null}
 
         <div className="mt-2 grid min-w-0 gap-2 xl:grid-cols-2">
           <PathBlock label={t("sourcePath")} path={preview.source_path} tone="source" />
@@ -87,8 +86,11 @@ export const PreviewFileRow = memo(function PreviewFileRow({
             disabled={!preview.editable_new_name || blocked}
             onChange={(event) => onRenamePreview(preview.id, event.target.value)}
             aria-label={t("newFileName")}
+            aria-invalid={Boolean(nameError)}
+            aria-describedby={nameError ? `preview-name-error-${preview.id}` : undefined}
           />
         )}
+        {nameError ? <p id={`preview-name-error-${preview.id}`} className="mt-1 text-xs text-[var(--zc-danger-text)]" role="alert">{t(nameError === "empty" ? "organizeNameErrorEmpty" : nameError === "reserved" ? "organizeNameErrorReserved" : "organizeNameErrorUnsafe")}</p> : null}
       </div>
     </motion.div>
   );

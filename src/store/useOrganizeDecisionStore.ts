@@ -8,7 +8,8 @@ import {
   organizeDecisionSignature,
   operationPreviewForFile,
   type OrganizeDecision,
-  type OrganizeDecisionRecord
+  type OrganizeDecisionRecord,
+  validateOrganizeFileName
 } from "../views/organize/organizeModel";
 
 interface OrganizeDecisionStore {
@@ -22,6 +23,7 @@ interface OrganizeDecisionStore {
     editedName?: string
   ) => boolean;
   clearDecision: (scope: LibraryScope, file: FileRecord, preview: OperationPreview | null) => void;
+  setEditedNameForPreview: (scopeKey: string, preview: OperationPreview, name: string) => boolean;
 }
 
 export const useOrganizeDecisionStore = create<OrganizeDecisionStore>((set, get) => ({
@@ -78,5 +80,14 @@ export const useOrganizeDecisionStore = create<OrganizeDecisionStore>((set, get)
         }
       }
     }));
+  },
+  setEditedNameForPreview: (scopeKey, preview, name) => {
+    const editedName = name.trim();
+    if (validateOrganizeFileName(name) !== null) return false;
+    const key = `${scopeKey}::${preview.fileId || preview.file_id}`;
+    const existing = get().decisions[key];
+    if (!existing) return false;
+    set((current) => ({ decisions: { ...current.decisions, [key]: { ...existing, state: "edited", editedName } } }));
+    return true;
   }
 }));

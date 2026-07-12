@@ -2,7 +2,7 @@ import { FileSearch, ShieldAlert } from "lucide-react";
 import type { RefObject } from "react";
 import type { Translator } from "../../types/ui";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
-import { purposeLabel, typeLabel } from "../vault/components/FileLibraryList";
+import { lifecycleLabel, purposeLabel, riskLabel, typeLabel } from "../vault/components/FileLibraryList";
 import { buttonGhost, buttonSecondary, cn } from "../../utils/tw";
 import { DecisionBadge } from "./OrganizeSuggestionList";
 import { effectiveTargetPath, type OrganizeSuggestion } from "./organizeModel";
@@ -60,9 +60,9 @@ export function OrganizeSuggestionInspector({
           <InspectorField label={t("organizeCurrentPath")} value={formatDisplayPath(file.path)} />
           <InspectorField label={t("organizeSuggestedTarget")} value={targetPath ? formatDisplayPath(targetPath) : t("organizeTargetUnavailable")} tone={targetPath ? "normal" : "warning"} />
           <InspectorField label={t("organizeSuggestedAction")} value={preview ? operationLabel(preview.operation_type, t) : t("organizeNoExecutableAction")} />
-          <InspectorField label={t("organizeWhySuggested")} value={file.classification_reason || preview?.reason || t("organizeReasonUnavailable")} />
-          <InspectorField label={t("lifecycle")} value={file.lifecycle} />
-          <InspectorField label={t("risk")} value={file.risk_level} tone={file.risk_level === "Normal" ? "normal" : "warning"} />
+          <InspectorField label={t("organizeWhySuggested")} value={userFacingReason(suggestion, t)} />
+          <InspectorField label={t("lifecycle")} value={lifecycleLabel(file, t)} />
+          <InspectorField label={t("risk")} value={riskLabel(file.risk_level, t)} tone={file.risk_level === "Normal" ? "normal" : "warning"} />
         </dl>
 
         {blockingText ? (
@@ -90,12 +90,21 @@ export function OrganizeSuggestionInspector({
             <InspectorField label={t("confidence")} value={`${Math.round(file.confidence * 100)}%`} />
             <InspectorField label={t("organizeMatchedRules")} value={file.matched_rules.length ? file.matched_rules.join(", ") : t("unknown")} />
             <InspectorField label={t("organizeContextSignal")} value={file.context || t("unknown")} />
+            <InspectorField label={t("organizeTechnicalBasis")} value={file.classification_reason || preview?.reason || t("unknown")} />
             <InspectorField label={t("organizeExecutionRecheck")} value={t("organizeExecutionRecheckDesc")} />
           </dl>
         </details>
       </div>
     </aside>
   );
+}
+
+function userFacingReason(suggestion: OrganizeSuggestion, t: Translator) {
+  if (suggestion.file.is_duplicate) return t("organizeDuplicateReviewDesc");
+  if (suggestion.file.risk_level === "Sensitive") return t("organizeSensitiveReviewDesc");
+  if (suggestion.file.confidence < 0.7) return t("organizeLowConfidenceDesc");
+  if (suggestion.preview) return t("organizeReasonFromAnalysis");
+  return t("organizeReasonUnavailable");
 }
 
 function InspectorField({ label, value, tone = "normal" }: { label: string; value: string; tone?: "normal" | "warning" }) {

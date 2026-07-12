@@ -15,6 +15,8 @@ import { OrganizeSuggestionList } from "./OrganizeSuggestionList";
 import { OrganizeTargetDialog } from "./OrganizeTargetDialog";
 import {
   buildOrganizeSuggestions,
+  organizeScopeKey,
+  organizeSpaceAction,
   previewIdsForOrganizeDecisions,
   shouldIgnoreOrganizeShortcut,
   summarizeOrganizeDecisions,
@@ -40,9 +42,8 @@ export function OrganizeSuggestionsView() {
   const cancelAIClassification = useFileLibraryStore((state) => state.cancelAIClassification);
   const handleChooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
   const previews = useOperationQueueStore((state) => state.previews);
-  const refreshPreviewsForScope = useOperationQueueStore((state) => state.refreshPreviewsForScope);
-  const loadMorePreviews = useOperationQueueStore((state) => state.loadMorePreviews);
-  const setSelectedOperationIds = useOperationQueueStore((state) => state.setSelectedOperationIds);
+  const refreshPreviewsForFiles = useOperationQueueStore((state) => state.refreshPreviewsForFiles);
+  const startOrganizePreviewSession = useOperationQueueStore((state) => state.startOrganizePreviewSession);
   const onRenamePreview = useOperationQueueStore((state) => state.onRenamePreview);
   const decisions = useOrganizeDecisionStore((state) => state.decisions);
   const syncSuggestions = useOrganizeDecisionStore((state) => state.syncSuggestions);
@@ -57,32 +58,40 @@ export function OrganizeSuggestionsView() {
   const [workspaceError, setWorkspaceError] = useState(false);
   const [analysisFailed, setAnalysisFailed] = useState(false);
   const inspectorRef = useRef<HTMLElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const workspaceRequestRef = useRef(0);
   const isEmptyCurrentScanScope = scope.kind === "current_scan" && scope.roots.length === 0;
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
 
   const loadWorkspace = useCallback(async () => {
-    if (isEmptyCurrentScanScope) return;
+    const requestId = ++workspaceRequestRef.current;
+    if (isEmptyCurrentScanScope) {
+      setWorkspaceLoading(false);
+      return;
+    }
     setWorkspaceLoading(true);
     setWorkspaceError(false);
     try {
-      await Promise.all([loadOrganizeQueue(scope), refreshPreviewsForScope(scope)]);
-      while (useOperationQueueStore.getState().previewHasMore) {
-        await loadMorePreviews();
-      }
+      await loadOrganizeQueue(scope);
+      if (requestId !== workspaceRequestRef.current) return;
+      const currentFiles = useFileLibraryStore.getState().organizeQueue;
+      await refreshPreviewsForFiles(scope, new Set(currentFiles.map((file) => file.id)));
+      if (requestId !== workspaceRequestRef.current) return;
     } catch {
-      setWorkspaceError(true);
+      if (requestId === workspaceRequestRef.current) setWorkspaceError(true);
     } finally {
-      setWorkspaceLoading(false);
+      if (requestId === workspaceRequestRef.current) setWorkspaceLoading(false);
     }
-  }, [isEmptyCurrentScanScope, loadMorePreviews, loadOrganizeQueue, refreshPreviewsForScope, scope]);
+  }, [isEmptyCurrentScanScope, loadOrganizeQueue, refreshPreviewsForFiles, scope]);
 
   useEffect(() => {
     void loadWorkspace();
   }, [loadWorkspace]);
 
   useEffect(() => {
+    if (workspaceLoading) return;
     syncSuggestions(scope, files, previews);
-  }, [files, previews, scope, syncSuggestions]);
+  }, [files, previews, scope, syncSuggestions, workspaceLoading]);
 
   const suggestions = useMemo(
     () => buildOrganizeSuggestions(files, previews, scope, decisions),
@@ -93,6 +102,13 @@ export function OrganizeSuggestionsView() {
   const summary = useMemo(() => summarizeOrganizeDecisions(suggestions), [suggestions]);
   const selectedBatchSuggestions = suggestions.filter((suggestion) => batchIds.has(suggestion.file.id));
   const safeBatchSuggestions = selectedBatchSuggestions.filter((suggestion) => suggestion.safeForBatch);
+  const keepableBatchSuggestions = selectedBatchSuggestions.filter((suggestion) => suggestion.decision !== "blocked");
+  const clearableBatchSuggestions = selectedBatchSuggestions.filter((suggestion) => ["accepted", "kept", "edited"].includes(suggestion.decision));
+  const blockedBatchCount = selectedBatchSuggestions.filter((suggestion) => suggestion.decision === "blocked").length;
+
+  useEffect(() => {
+    if (inspectorRef.current) inspectorRef.current.scrollTop = 0;
+  }, [activeSuggestion?.file.id]);
 
   useEffect(() => {
     if (!suggestions.length) {
@@ -125,7 +141,8 @@ export function OrganizeSuggestionsView() {
     else if (event.key === "End") nextIndex = Math.max(0, suggestions.length - 1);
     else if (event.key === " " || event.key === "Space") {
       event.preventDefault();
-      applyDecision(activeSuggestion, "accepted");
+      if (organizeSpaceAction(batchMode) === "toggle-batch" && activeSuggestion) toggleBatch(activeSuggestion.file.id);
+      else applyDecision(activeSuggestion, "accepted");
       return;
     } else if (event.key.toLowerCase() === "k") {
       event.preventDefault();
@@ -142,6 +159,7 @@ export function OrganizeSuggestionsView() {
         event.preventDefault();
         setBatchMode(false);
         setBatchIds(new Set());
+        requestAnimationFrame(() => listRef.current?.focus());
       }
       return;
     } else if (event.key === "Enter") {
@@ -167,7 +185,7 @@ export function OrganizeSuggestionsView() {
   }
 
   function applyBatch(state: "accepted" | "kept" | "undecided") {
-    const targets = state === "accepted" ? safeBatchSuggestions : selectedBatchSuggestions;
+    const targets = state === "accepted" ? safeBatchSuggestions : state === "kept" ? keepableBatchSuggestions : clearableBatchSuggestions;
     for (const suggestion of targets) {
       if (state === "undecided") clearDecision(scope, suggestion.file, suggestion.preview);
       else applyDecision(suggestion, state);
@@ -197,9 +215,10 @@ export function OrganizeSuggestionsView() {
 
   function openPreview() {
     const ids = previewIdsForOrganizeDecisions(suggestions);
-    setSelectedOperationIds(ids);
+    startOrganizePreviewSession(organizeScopeKey(scope), ids);
     setView("preview");
   }
+  const closeTargetDialog = useCallback(() => setTargetFileId(null), []);
 
   if (isEmptyCurrentScanScope) {
     return (
@@ -246,8 +265,8 @@ export function OrganizeSuggestionsView() {
         <>
           <section className={cn(contentSurface, "grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_360px] overflow-hidden max-[1100px]:grid-cols-1 max-[1100px]:overflow-auto")}>
             <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden max-[1100px]:min-h-[360px]">
-              {batchMode ? <OrganizeBatchToolbar selectedCount={batchIds.size} safeCount={safeBatchSuggestions.length} t={t} onAcceptSafe={() => applyBatch("accepted")} onKeep={() => applyBatch("kept")} onClear={() => applyBatch("undecided")} onExit={() => { setBatchMode(false); setBatchIds(new Set()); }} /> : <div className="border-b border-[var(--zc-divider)] px-3 py-2 text-xs text-[var(--zc-text-tertiary)]">{t("organizeClickOnlyViews")}</div>}
-              <OrganizeSuggestionList suggestions={suggestions} activeId={activeSuggestion?.file.id ?? ""} batchMode={batchMode} batchIds={batchIds} t={t} onActivate={setActiveId} onToggleBatch={toggleBatch} onKeyDown={handleListKeyDown} />
+              {batchMode ? <OrganizeBatchToolbar selectedCount={batchIds.size} safeCount={safeBatchSuggestions.length} keepableCount={keepableBatchSuggestions.length} clearableCount={clearableBatchSuggestions.length} blockedCount={blockedBatchCount} t={t} onAcceptSafe={() => applyBatch("accepted")} onKeep={() => applyBatch("kept")} onClear={() => applyBatch("undecided")} onExit={() => { setBatchMode(false); setBatchIds(new Set()); requestAnimationFrame(() => listRef.current?.focus()); }} /> : <div className="border-b border-[var(--zc-divider)] px-3 py-2 text-xs text-[var(--zc-text-tertiary)]">{t("organizeClickOnlyViews")}</div>}
+              <OrganizeSuggestionList suggestions={suggestions} activeId={activeSuggestion?.file.id ?? ""} batchMode={batchMode} batchIds={batchIds} t={t} onActivate={setActiveId} onToggleBatch={toggleBatch} onKeyDown={handleListKeyDown} listRef={listRef} />
             </div>
             <OrganizeSuggestionInspector suggestion={activeSuggestion} t={t} inspectorRef={inspectorRef} onAccept={() => applyDecision(activeSuggestion, "accepted")} onKeep={() => applyDecision(activeSuggestion, "kept")} onEdit={() => activeSuggestion && setTargetFileId(activeSuggestion.file.id)} onClear={() => activeSuggestion && clearDecision(scope, activeSuggestion.file, activeSuggestion.preview)} />
           </section>
@@ -255,7 +274,7 @@ export function OrganizeSuggestionsView() {
         </>
       )}
 
-      <OrganizeTargetDialog suggestion={targetSuggestion} t={t} onClose={() => setTargetFileId(null)} onSave={(name) => { if (targetSuggestion && applyDecision(targetSuggestion, "edited", name)) onRenamePreview(targetSuggestion.preview!.id, name); setTargetFileId(null); }} />
+      <OrganizeTargetDialog suggestion={targetSuggestion} t={t} onClose={closeTargetDialog} onSave={(name) => { if (targetSuggestion && applyDecision(targetSuggestion, "edited", name)) onRenamePreview(targetSuggestion.preview!.id, name); closeTargetDialog(); }} />
       <ConfirmDialog open={confirmReanalysis} tone="warning" title={t("organizeReanalyzeConfirmTitle")} description={t("organizeReanalyzeConfirmDesc")} confirmLabel={t("organizeReanalyzeConfirmAction")} cancelLabel={t("cancel")} onCancel={() => setConfirmReanalysis(false)} onConfirm={() => void rerunAnalysis()} />
     </div>
   );

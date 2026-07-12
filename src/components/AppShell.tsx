@@ -25,6 +25,7 @@ import { resolveEffectiveSearchScope } from "../hooks/useAppSettings";
 import { hideToBackground } from "../hooks/useWindowBehavior";
 import { useAppStore } from "../store/useAppStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
+import { useOrganizeDecisionStore } from "../store/useOrganizeDecisionStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { resolveAIProcessingMode, useAIProcessingModeStore, type AIProcessingModeState } from "../store/useAIProcessingModeStore";
 import type { AppSettings, DashboardStats, LibraryScope } from "../types/domain";
@@ -33,6 +34,7 @@ import { formatDate } from "../utils/format";
 import { cn, statusToast, toastTone } from "../utils/tw";
 import { compactPath, libraryScopeLabel, readableError } from "../utils/viewHelpers";
 import { PageHeader, pageFrame, softPanel, viewStage } from "../views/shared/ui";
+import { organizeScopeKey } from "../views/organize/organizeModel";
 
 const ScannerView = lazy(() => import("../views/scanner/ScannerView").then((module) => ({ default: module.ScannerView })));
 const StorageCleanupView = lazy(() => import("../views/cleanup/StorageCleanupView").then((module) => ({ default: module.StorageCleanupView })));
@@ -85,7 +87,10 @@ export function AppShell() {
   } = useChromeContext();
   const stats = useFileLibraryStore((state) => state.stats);
   const scope = useFileLibraryStore((state) => state.scope);
-  const previewActionCount = useOperationQueueStore((state) => state.previewActionCount);
+  const decisions = useOrganizeDecisionStore((state) => state.decisions);
+  const organizeFiles = useFileLibraryStore((state) => state.organizeQueue);
+  const previewActionCount = organizePendingCount(scope, organizeFiles.map((file) => file.id), decisions);
+  const executionIntent = useOperationQueueStore((state) => state.executionIntent);
   const spotlightTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   if (isSearchMode) return <SearchWindow />;
@@ -93,7 +98,7 @@ export function AppShell() {
   const groups = navGroups(t);
   const activeLabel = groups.flatMap((group) => group.items).find((item) => item.id === view)?.label ?? viewLabel(view, t);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
-  const headingDescription = viewDescription(view, stats, scope, scopeText, previewActionCount, t);
+  const headingDescription = viewDescription(view, stats, scope, scopeText, view === "preview" && executionIntent?.source === "organize" ? executionIntent.allowedPreviewIds.size : previewActionCount, t);
 
   return (
     <div className={appRoot}>
@@ -253,7 +258,10 @@ function WindowsControls() {
 
 function Sidebar({ groups }: { groups: NavGroup[] }) {
   const { view, setView, t } = useChromeContext();
-  const previewActionCount = useOperationQueueStore((state) => state.previewActionCount);
+  const scope = useFileLibraryStore((state) => state.scope);
+  const organizeFiles = useFileLibraryStore((state) => state.organizeQueue);
+  const decisions = useOrganizeDecisionStore((state) => state.decisions);
+  const previewActionCount = organizePendingCount(scope, organizeFiles.map((file) => file.id), decisions);
   const aiModeStatus = useAIProcessingModeStore((state) => state.status);
   const aiModeSettings = useAIProcessingModeStore((state) => state.settings);
   const aiModeError = useAIProcessingModeStore((state) => state.error);
@@ -290,7 +298,7 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
                 <item.icon size={18} />
                 <span>{item.label}</span>
                 {item.id === "organize" && previewActionCount > 0 && (
-                  <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--zc-danger-soft)] px-1 text-[11px] font-medium text-[var(--zc-danger-text)]" aria-label={`${previewActionCount} pending`}>
+                  <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--zc-warning-soft)] px-1 text-[11px] font-medium text-[var(--zc-warning-text)]" aria-label={t("organizePendingBadge").replace("{count}", previewActionCount.toLocaleString())}>
                     {previewActionCount}
                   </span>
                 )}
@@ -373,6 +381,14 @@ function AppViewContent() {
   else if (view === "restore") content = <RestoreView />;
   else content = <SettingsView />;
   return <Suspense fallback={<div className={softPanel}>{t("loading")}</div>}>{content}</Suspense>;
+}
+
+function organizePendingCount(scope: LibraryScope, fileIds: string[], decisions: Record<string, { state: string }>) {
+  const scopeKey = organizeScopeKey(scope);
+  return fileIds.filter((fileId) => {
+    const state = decisions[`${scopeKey}::${fileId}`]?.state;
+    return state === "undecided" || state === "needs-review";
+  }).length;
 }
 
 export function AIProcessingModeStatus({

@@ -77,13 +77,13 @@ describe("app render architecture", () => {
     const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
 
     expect(view).toContain("AI_ANALYSIS_LIMIT = 100");
-    expect(view).toContain("const refreshPreviewsForScope = useOperationQueueStore((state) => state.refreshPreviewsForScope)");
-    expect(view).toContain("await Promise.all([loadOrganizeQueue(scope), refreshPreviewsForScope(scope)])");
-    expect(view).toContain("while (useOperationQueueStore.getState().previewHasMore)");
+    expect(view).toContain("const refreshPreviewsForFiles = useOperationQueueStore((state) => state.refreshPreviewsForFiles)");
+    expect(view).toContain("await refreshPreviewsForFiles(scope, new Set(currentFiles.map((file) => file.id)))");
+    expect(view).not.toContain("while (useOperationQueueStore.getState().previewHasMore)");
     expect(view).not.toContain("useOperationQueueStore((state) => state.runDispatch)");
     expect(view).toContain("pendingOnly: true, force: false, limit: AI_ANALYSIS_LIMIT");
     expect(view).toContain("force: true, allowOverwriteUserCorrections: false, limit: AI_ANALYSIS_LIMIT");
-    expect(view).toContain("setSelectedOperationIds(ids)");
+    expect(view).toContain("startOrganizePreviewSession(organizeScopeKey(scope), ids)");
     expect(view).toContain('setView("preview")');
     expect(view).not.toMatch(/temperature|top_p|endpoint|modelName/i);
   });

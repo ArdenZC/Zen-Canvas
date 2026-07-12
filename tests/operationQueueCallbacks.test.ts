@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LibraryScope, OperationLog, OperationPreview } from "../src/types/domain";
-import { operationNeedsCleanupConfirmation, useOperationQueueStore } from "../src/store/useOperationQueueStore";
+import { operationNeedsCleanupConfirmation, previewsForExecutionIntent, useOperationQueueStore } from "../src/store/useOperationQueueStore";
 import { useFileLibraryStore } from "../src/store/useFileLibraryStore";
 import { useRulesStore } from "../src/store/useRulesStore";
 import { useAppStore } from "../src/store/useAppStore";
+import { useOrganizeDecisionStore } from "../src/store/useOrganizeDecisionStore";
 
 const apiMocks = vi.hoisted(() => ({
   executeRulesForScope: vi.fn(),
@@ -27,10 +28,10 @@ vi.mock("../src/api/tauriApi", () => ({
   }
 }));
 
-function preview(id: string, selectedByDefault: boolean): OperationPreview {
+function preview(id: string, selectedByDefault: boolean, fileId = `file-${id}`): OperationPreview {
   return {
     id,
-    fileId: `file-${id}`,
+    fileId,
     operation_type: "move",
     source_path: `F:/Downloads/${id}.txt`,
     target_path: `F:/Downloads/ZenCanvas/${id}.txt`,
@@ -79,9 +80,13 @@ describe("operation queue store callbacks", () => {
       previewOffset: 0,
       previewTruncated: false,
       previewHasMore: false,
-      lastExecutionLogs: []
+      lastExecutionLogs: [],
+      executionIntent: null,
+      executionError: "",
+      previewRequestId: 0
     });
     useRulesStore.setState({ rules: [] });
+    useOrganizeDecisionStore.setState({ decisions: {} });
     useAppStore.setState({ language: "en" });
     useFileLibraryStore.setState({
       scope: { kind: "current_scan", roots: [] },
@@ -266,6 +271,12 @@ describe("operation queue store callbacks", () => {
     expect(apiMocks.executeMoves).toHaveBeenCalledWith([trash]);
   });
 
+  it("classifies every explicit risk field as requiring stronger confirmation", () => {
+    expect(operationNeedsCleanupConfirmation({ ...preview("confirm", true), requires_confirmation: true })).toBe(true);
+    expect(operationNeedsCleanupConfirmation({ ...preview("sensitive", true), risk_level: "Sensitive" })).toBe(true);
+    expect(operationNeedsCleanupConfirmation({ ...preview("system", true), risk_level: "System" })).toBe(true);
+  });
+
   it("never sends blocked previews to the backend", async () => {
     const allowed = preview("allowed", true);
     const blocked = { ...preview("blocked", true), is_executable: false, blocking_reason: "source changed" };
@@ -277,6 +288,91 @@ describe("operation queue store callbacks", () => {
     await useOperationQueueStore.getState().executeSelected(true);
 
     expect(apiMocks.executeMoves).toHaveBeenCalledWith([allowed]);
+  });
+
+  it("does not execute a preview with an invalid edited file name", async () => {
+    const invalid = { ...preview("invalid", true), new_name: "../unsafe.txt" };
+    useOperationQueueStore.setState({ displayPreviews: [invalid], selectedOperationIds: new Set([invalid.id]) });
+    await useOperationQueueStore.getState().executeSelected(true);
+    expect(apiMocks.executeMoves).not.toHaveBeenCalled();
+  });
+
+  it("enforces an organize execution whitelist against injected selections", async () => {
+    const accepted = preview("accepted", true);
+    const kept = preview("kept", true);
+    useOperationQueueStore.setState({ displayPreviews: [accepted, kept] });
+    useOperationQueueStore.getState().startOrganizePreviewSession("all", new Set([accepted.id]));
+    useOperationQueueStore.setState({ selectedOperationIds: new Set([accepted.id, kept.id]) });
+
+    await useOperationQueueStore.getState().executeSelected(true);
+
+    expect(apiMocks.executeMoves).toHaveBeenCalledWith([accepted]);
+  });
+
+  it("shows and counts only previews allowed by an organize session", () => {
+    const accepted = preview("accepted", true);
+    const kept = preview("kept", true);
+    const visible = previewsForExecutionIntent([accepted, kept], { source: "organize", scopeKey: "all", allowedPreviewIds: new Set([accepted.id]), initialAllowedCount: 1, sessionId: "test" });
+    expect(visible).toEqual([accepted]);
+  });
+
+  it("syncs a valid Preview rename back to the organize edited decision", () => {
+    const operation = preview("rename-sync", true);
+    useOrganizeDecisionStore.setState({ decisions: { [`all::${operation.fileId}`]: { fileId: operation.fileId, scopeKey: "all", signature: "stable", state: "accepted" } } });
+    useOperationQueueStore.setState({ previews: [operation], displayPreviews: [operation] });
+    useOperationQueueStore.getState().startOrganizePreviewSession("all", new Set([operation.id]));
+
+    useOperationQueueStore.getState().onRenamePreview(operation.id, "renamed.txt");
+
+    expect(useOrganizeDecisionStore.getState().decisions[`all::${operation.fileId}`]).toMatchObject({ state: "edited", editedName: "renamed.txt" });
+    expect(useOperationQueueStore.getState().displayPreviews[0].new_name).toBe("renamed.txt");
+  });
+
+  it("drops stale organize preview ids after authoritative refresh", () => {
+    const oldPreview = preview("old", true);
+    const replacement = preview("replacement", true);
+    useOperationQueueStore.setState({ previews: [oldPreview], displayPreviews: [oldPreview] });
+    useOperationQueueStore.getState().startOrganizePreviewSession("all", new Set([oldPreview.id]));
+
+    useOperationQueueStore.getState().setPreviewResult({ previews: [replacement], total: 1, limit: 1000, offset: 0, truncated: false, hasMore: false }, { kind: "all" });
+
+    expect(useOperationQueueStore.getState().selectedOperationIds).toEqual(new Set());
+    expect(useOperationQueueStore.getState().executionIntent).toMatchObject({ source: "organize", allowedPreviewIds: new Set() });
+  });
+
+  it("clears an organize whitelist when the preview scope changes", () => {
+    const operation = preview("scope-a", true);
+    useOperationQueueStore.getState().startOrganizePreviewSession("roots:a:/", new Set([operation.id]));
+    useOperationQueueStore.getState().setPreviewResult(previewResult([operation]), { kind: "roots", roots: ["B:/"] });
+    expect(useOperationQueueStore.getState().executionIntent).toBeNull();
+    expect(useOperationQueueStore.getState().selectedOperationIds).toEqual(new Set([operation.id]));
+  });
+
+  it("loads only requested file previews and stops when a page adds no matches", async () => {
+    const wanted = preview("wanted", true);
+    const unrelated = preview("unrelated", true);
+    apiMocks.getOperationPreviewsForScope
+      .mockResolvedValueOnce(previewResult([wanted, unrelated], true))
+      .mockResolvedValueOnce(previewResult([unrelated], true));
+
+    const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set([wanted.fileId, "missing-file"]));
+
+    expect(result?.previews).toEqual([wanted]);
+    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledTimes(2);
+    expect(useOperationQueueStore.getState().previews).toEqual([wanted]);
+  });
+
+  it("does not let a late old-scope preview request overwrite a newer scope", async () => {
+    const first = deferred<ReturnType<typeof previewResult>>();
+    const second = deferred<ReturnType<typeof previewResult>>();
+    apiMocks.getOperationPreviewsForScope.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const oldRequest = useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "roots", roots: ["A:/"] }, new Set(["file-old"]));
+    const newRequest = useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "roots", roots: ["B:/"] }, new Set(["file-new"]));
+    second.resolve(previewResult([preview("new", true, "file-new")]));
+    await newRequest;
+    first.resolve(previewResult([preview("old", true, "file-old")]));
+    expect(await oldRequest).toBeNull();
+    expect(useOperationQueueStore.getState().previews.map((item) => item.id)).toEqual(["new"]);
   });
 
   it("keeps exact partial execution results for the result view", async () => {
@@ -300,4 +396,14 @@ function log(id: string, status: OperationLog["status"], canRestore = false): Op
     created_at: "2026-07-12T00:00:00Z", can_undo: canRestore, path_before: `F:/Downloads/${id}.txt`, path_after: `F:/Work/${id}.txt`,
     name_before: `${id}.txt`, name_after: `${id}.txt`, can_restore: canRestore, restored_at: null, restore_status: "not_restored", restore_error: null
   };
+}
+
+function previewResult(previews: OperationPreview[], hasMore = false) {
+  return { previews, total: previews.length, limit: previews.length || 100, offset: 0, truncated: hasMore, hasMore };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
 }

@@ -1,6 +1,6 @@
 import { Archive, File, FileCode2, FileImage, FileText, Music2, Package, Video } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useRef, type KeyboardEvent } from "react";
+import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 import type { Translator } from "../../types/ui";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
 import { cn } from "../../utils/tw";
@@ -16,7 +16,8 @@ export function OrganizeSuggestionList({
   t,
   onActivate,
   onToggleBatch,
-  onKeyDown
+  onKeyDown,
+  listRef
 }: {
   suggestions: OrganizeSuggestion[];
   activeId: string;
@@ -26,6 +27,7 @@ export function OrganizeSuggestionList({
   onActivate: (fileId: string) => void;
   onToggleBatch: (fileId: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
+  listRef?: RefObject<HTMLDivElement | null>;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const virtualizer = useVirtualizer({
@@ -34,16 +36,19 @@ export function OrganizeSuggestionList({
     estimateSize: () => ROW_HEIGHT,
     overscan: 8
   });
+  useEffect(() => {
+    const index = suggestions.findIndex((suggestion) => suggestion.file.id === activeId);
+    if (index >= 0) virtualizer.scrollToIndex(index, { align: "auto" });
+  }, [activeId, suggestions, virtualizer]);
 
   return (
     <div
-      ref={scrollRef}
+      ref={(node) => { scrollRef.current = node; if (listRef) listRef.current = node; }}
       className="h-full min-h-[260px] overflow-auto overscroll-contain"
-      role="listbox"
+      role="list"
       tabIndex={0}
       aria-label={t("organizeSuggestionList")}
       aria-activedescendant={activeId ? `organize-suggestion-${activeId}` : undefined}
-      aria-multiselectable={batchMode ? true : undefined}
       aria-keyshortcuts="ArrowUp ArrowDown Home End Space K E Escape Enter"
       onKeyDown={onKeyDown}
     >
@@ -97,8 +102,8 @@ function SuggestionRow({
   return (
     <div
       id={`organize-suggestion-${suggestion.file.id}`}
-      role="option"
-      aria-selected={active}
+      role="listitem"
+      aria-current={active ? "true" : undefined}
       aria-label={`${suggestion.file.name} · ${decisionLabel(suggestion.decision, t)}`}
       data-organize-decision={suggestion.decision}
       className={cn(

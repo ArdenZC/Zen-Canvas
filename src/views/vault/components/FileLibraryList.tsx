@@ -196,3 +196,11 @@ export function typeLabel(file: FileRecord, t: Translator) {
 export function purposeLabel(file: FileRecord, t: Translator) {
   return t(`libraryPurpose${file.purpose}` as Parameters<Translator>[0]);
 }
+
+export function lifecycleLabel(file: FileRecord, t: Translator) {
+  return t(`libraryLifecycle${file.lifecycle}` as Parameters<Translator>[0]);
+}
+
+export function riskLabel(risk: FileRecord["risk_level"], t: Translator) {
+  return t(`libraryRisk${risk}` as Parameters<Translator>[0]);
+}

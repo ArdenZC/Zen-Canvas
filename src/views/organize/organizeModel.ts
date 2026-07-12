@@ -43,6 +43,7 @@ export interface OperationResultSummary {
   failed: number;
   restorable: number;
 }
+export type OperationResultState = "success" | "partial" | "failed" | "canceled" | "no-changes";
 
 export function organizeScopeKey(scope: LibraryScope): string {
   if (scope.kind === "all") return "all";
@@ -194,6 +195,10 @@ export function shouldIgnoreOrganizeShortcut(event: Pick<KeyboardEvent, "ctrlKey
   );
 }
 
+export function organizeSpaceAction(batchMode: boolean): "accept" | "toggle-batch" {
+  return batchMode ? "toggle-batch" : "accept";
+}
+
 export function summarizeOperationLogs(logs: readonly OperationLog[]): OperationResultSummary {
   return {
     success: logs.filter((log) => log.status === "success").length,
@@ -201,6 +206,15 @@ export function summarizeOperationLogs(logs: readonly OperationLog[]): Operation
     failed: logs.filter((log) => log.status === "failed").length,
     restorable: logs.filter((log) => log.status === "success" && (log.can_restore || log.can_undo)).length
   };
+}
+
+export function operationResultState(summary: OperationResultSummary, apiFailed = false): OperationResultState {
+  if (apiFailed && summary.success === 0) return "failed";
+  if (summary.success > 0 && (summary.failed > 0 || summary.skipped > 0)) return "partial";
+  if (summary.success > 0) return "success";
+  if (summary.failed > 0) return "failed";
+  if (summary.skipped > 0) return "canceled";
+  return "no-changes";
 }
 
 export function effectiveTargetPath(suggestion: OrganizeSuggestion): string {

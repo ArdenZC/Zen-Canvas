@@ -1,10 +1,10 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { CheckCircle2, Folder, Play, X } from "lucide-react";
+import { CheckCircle2, CircleSlash2, Folder, Play, TriangleAlert, X } from "lucide-react";
 import { useRef, useState } from "react";
 import type { OperationProgressPayload } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
-import { operationNeedsCleanupConfirmation, useOperationQueueStore } from "../../store/useOperationQueueStore";
+import { previewsForExecutionIntent, useOperationQueueStore } from "../../store/useOperationQueueStore";
 import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { groupOperationPreviews, compactPath, formatDisplayPath, libraryScopeLabel } from "../../utils/viewHelpers";
@@ -21,13 +21,14 @@ import {
   sectionHeading,
   softPanel
 } from "../shared/ui";
-import { summarizeOperationLogs } from "../organize/organizeModel";
+import { operationResultState, summarizeOperationLogs, validateOrganizeFileName } from "../organize/organizeModel";
 import { PreviewFileRow } from "./PreviewFileRow";
 
 export function TimelineView() {
   const { t, setView } = useChromeContext();
   const scope = useFileLibraryStore((state) => state.scope);
   const previews = useOperationQueueStore((state) => state.displayPreviews);
+  const executionIntent = useOperationQueueStore((state) => state.executionIntent);
   const previewScope = useOperationQueueStore((state) => state.previewScope);
   const previewTotal = useOperationQueueStore((state) => state.previewTotal);
   const previewLimit = useOperationQueueStore((state) => state.previewLimit);
@@ -39,12 +40,14 @@ export function TimelineView() {
   const onRenamePreview = useOperationQueueStore((state) => state.onRenamePreview);
   const executeSelected = useOperationQueueStore((state) => state.executeSelected);
   const lastExecutionLogs = useOperationQueueStore((state) => state.lastExecutionLogs);
+  const executionError = useOperationQueueStore((state) => state.executionError);
   const operationProgress = useOperationQueueStore((state) => state.operationProgress);
   const isOperationCanceling = useOperationQueueStore((state) => state.isOperationCanceling);
   const cancelOperations = useOperationQueueStore((state) => state.cancelOperations);
   const [confirmExecute, setConfirmExecute] = useState(false);
+  const visiblePreviews = previewsForExecutionIntent(previews, executionIntent);
   function toggle(id: string) {
-    const preview = previews.find((item) => item.id === id);
+    const preview = visiblePreviews.find((item) => item.id === id);
     if (!preview || preview.is_executable === false) return;
     const next = new Set(selectedIds);
     if (next.has(id)) next.delete(id);
@@ -52,22 +55,29 @@ export function TimelineView() {
     setSelectedIds(next);
   }
 
-  const groups = groupOperationPreviews(previews, t);
-  const executableCount = previews.filter((preview) => preview.is_executable !== false).length;
-  const blockedCount = previews.length - executableCount;
-  const confirmationCount = previews.filter((preview) => preview.requires_confirmation).length;
-  const autoCreateParentCount = previews.filter(
+  const groups = groupOperationPreviews(visiblePreviews, t);
+  const executableCount = visiblePreviews.filter((preview) => preview.is_executable !== false).length;
+  const blockedCount = visiblePreviews.length - executableCount;
+  const confirmationCount = visiblePreviews.filter((preview) => preview.requires_confirmation).length;
+  const autoCreateParentCount = visiblePreviews.filter(
     (preview) => preview.operation_type !== "move_to_trash" && preview.will_create_parent
   ).length;
   const executeProgress = operationProgress?.kind === "execute" ? operationProgress : null;
   const isExecuting = Boolean(executeProgress);
   const scopeText = libraryScopeLabel(previewScope ?? scope, t("allIndexedFiles"), t("noFolderSelected"));
-  const coveredTotal = previewTotal || previews.length;
+  const coveredTotal = executionIntent?.source === "organize" ? visiblePreviews.length : previewTotal || visiblePreviews.length;
   const selectedCount = selectedIds.size;
-  const selectedOperations = previews.filter((preview) => selectedIds.has(preview.id) && preview.is_executable !== false);
-  const sensitiveSelectionCount = selectedOperations.filter(operationNeedsCleanupConfirmation).length;
+  const selectedOperations = visiblePreviews.filter((preview) => selectedIds.has(preview.id) && preview.is_executable !== false)
+    .filter((preview) => preview.operation_type === "move_to_trash" || validateOrganizeFileName(preview.new_name) === null);
   const trashSelectionCount = selectedOperations.filter((preview) => preview.operation_type === "move_to_trash").length;
+  const sensitiveSelectionCount = selectedOperations.filter((preview) => preview.risk_level === "Sensitive").length;
+  const systemSelectionCount = selectedOperations.filter((preview) => preview.risk_level === "System").length;
+  const duplicateSelectionCount = selectedOperations.filter((preview) => preview.is_duplicate).length;
+  const confirmationSelectionCount = selectedOperations.filter((preview) => preview.requires_confirmation).length;
+  const createParentSelectionCount = selectedOperations.filter((preview) => preview.will_create_parent).length;
   const resultSummary = summarizeOperationLogs(lastExecutionLogs);
+  const resultState = operationResultState(resultSummary, Boolean(executionError));
+  const ResultIcon = resultState === "success" ? CheckCircle2 : resultState === "canceled" || resultState === "no-changes" ? CircleSlash2 : TriangleAlert;
   const executeButtonLabel = t("executeSelectedWithCount").replace("{count}", selectedCount.toLocaleString());
 
   return (
@@ -75,8 +85,10 @@ export function TimelineView() {
       <section className={panelSurface}>
         <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
+            {executionIntent?.source === "organize" ? <button className={cn(buttonSecondary, "mb-3 min-h-8 px-3 py-1.5 text-xs")} onClick={() => setView("organize")}>{t("organizeBackToSuggestions")}</button> : null}
             <h2 className={sectionHeading}>{t("suggestedPlan")}</h2>
             <p className={sectionDescription}>{t("previewBeforeExecute")}</p>
+            {executionIntent?.source === "organize" ? <p className="mt-1 text-sm text-[var(--zc-info-text)]">{t("organizePreviewAcceptedOnly")}</p> : null}
             <p className="mt-2 truncate text-xs text-[var(--muted)]">{t("currentOrganizeScope")}: {scopeText}</p>
           </div>
           <button className={glassButtonPrimary} onClick={() => setConfirmExecute(true)} disabled={!selectedOperations.length || isExecuting}>
@@ -86,10 +98,11 @@ export function TimelineView() {
         </div>
 
         <div className="mb-4 grid gap-3">
+          {executionIntent?.source === "organize" && visiblePreviews.length < executionIntent.initialAllowedCount ? <NoticeBanner tone="warning">{t("organizePreviewInvalidated")}</NoticeBanner> : null}
           <NoticeBanner tone="warning" title={t("previewSafetyTitle")}>
             {t("previewNoOverwriteDelete")}
           </NoticeBanner>
-          {previews.some((preview) => preview.operation_type === "move_to_trash") && (
+          {visiblePreviews.some((preview) => preview.operation_type === "move_to_trash") && (
             <NoticeBanner tone="warning">
               {t("previewCleanupTrashSafety")}
             </NoticeBanner>
@@ -123,13 +136,14 @@ export function TimelineView() {
             t={t}
           />
         )}
-        {!isExecuting && lastExecutionLogs.length ? (
+        {!isExecuting && (lastExecutionLogs.length || executionError) ? (
           <section className={cn(raisedSurface, "mb-4 grid gap-3 p-4")} aria-labelledby="organize-result-title">
             <div className="flex items-start gap-3">
-              <CheckCircle2 className="mt-0.5 shrink-0 text-[var(--zc-success-text)]" size={20} aria-hidden="true" />
+              <ResultIcon className={cn("mt-0.5 shrink-0", resultState === "success" ? "text-[var(--zc-success-text)]" : resultState === "failed" ? "text-[var(--zc-danger-text)]" : "text-[var(--zc-warning-text)]")} size={20} aria-hidden="true" />
               <div>
-                <h3 id="organize-result-title" className="font-semibold text-[var(--zc-text-primary)]">{resultSummary.failed ? t("organizeResultPartialTitle") : t("organizeResultSuccessTitle")}</h3>
+                <h3 id="organize-result-title" className="font-semibold text-[var(--zc-text-primary)]">{t(resultState === "success" ? "organizeResultSuccessTitle" : resultState === "partial" ? "organizeResultPartialTitle" : resultState === "failed" ? "organizeResultFailedTitle" : resultState === "canceled" ? "organizeResultCanceledTitle" : "organizeResultNoChangesTitle")}</h3>
                 <p className="mt-1 text-sm text-[var(--zc-text-secondary)]">{t("organizeResultSummary").replace("{success}", resultSummary.success.toLocaleString()).replace("{skipped}", resultSummary.skipped.toLocaleString()).replace("{failed}", resultSummary.failed.toLocaleString())}</p>
+                {executionError ? <p className="mt-1 text-sm text-[var(--zc-danger-text)]">{executionError}</p> : null}
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -138,7 +152,7 @@ export function TimelineView() {
             </div>
           </section>
         ) : null}
-        {!previews.length ? (
+        {!visiblePreviews.length ? (
           <StateBlock
             title={t("previewEmptyTitle")}
             description={t("previewEmptyDesc")}
@@ -218,7 +232,7 @@ export function TimelineView() {
             })}
             {previewHasMore && (
               <button className={glassButton} onClick={loadMorePreviews}>
-                {t("loadMoreFiles").replace("{count}", Math.max(0, coveredTotal - previews.length).toLocaleString())}
+                {t("loadMoreFiles").replace("{count}", Math.max(0, coveredTotal - visiblePreviews.length).toLocaleString())}
               </button>
             )}
           </div>
@@ -226,9 +240,19 @@ export function TimelineView() {
       </section>
       <ConfirmDialog
         open={confirmExecute}
-        tone="warning"
+        tone={trashSelectionCount ? "danger" : "warning"}
         title={trashSelectionCount ? t("confirmMoveToTrashTitle") : t("organizeExecuteConfirmTitle")}
-        description={(trashSelectionCount ? `${t("confirmMoveToTrashDesc")} ` : "") + t("organizeExecuteConfirmDesc").replace("{count}", selectedOperations.length.toLocaleString())}
+        description={[
+          trashSelectionCount ? t("confirmMoveToTrashDesc") : "",
+          t("organizeExecuteConfirmDesc").replace("{count}", selectedOperations.length.toLocaleString()),
+          t("organizeExecuteRiskSummary")
+            .replace("{confirmation}", confirmationSelectionCount.toLocaleString())
+            .replace("{sensitive}", sensitiveSelectionCount.toLocaleString())
+            .replace("{system}", systemSelectionCount.toLocaleString())
+            .replace("{duplicate}", duplicateSelectionCount.toLocaleString())
+            .replace("{trash}", trashSelectionCount.toLocaleString())
+            .replace("{folders}", createParentSelectionCount.toLocaleString())
+        ].filter(Boolean).join("\n")}
         confirmLabel={t("organizeExecuteConfirmAction").replace("{count}", selectedOperations.length.toLocaleString())}
         cancelLabel={t("cancel")}
         onCancel={() => setConfirmExecute(false)}

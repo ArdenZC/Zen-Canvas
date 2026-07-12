@@ -7,8 +7,21 @@ import { applyPreviewNameOverride, createOperationPreviews, readableError } from
 import { useAppStore } from "./useAppStore";
 import { useFileLibraryStore } from "./useFileLibraryStore";
 import { useRulesStore } from "./useRulesStore";
+import { useOrganizeDecisionStore } from "./useOrganizeDecisionStore";
+import { organizeScopeKey, validateOrganizeFileName } from "../views/organize/organizeModel";
 
 export const MAX_LOGS = 500;
+
+export type PreviewExecutionIntent =
+  | { source: "organize"; scopeKey: string; allowedPreviewIds: Set<string>; initialAllowedCount: number; sessionId: string }
+  | { source: "general" }
+  | null;
+
+export function previewsForExecutionIntent(previews: readonly OperationPreview[], intent: PreviewExecutionIntent) {
+  return intent?.source === "organize"
+    ? previews.filter((preview) => intent.allowedPreviewIds.has(preview.id))
+    : [...previews];
+}
 
 export interface OperationQueueStore {
   operationLogs: OperationLog[];
@@ -24,6 +37,9 @@ export interface OperationQueueStore {
   previewHasMore: boolean;
   previewActionCount: number;
   lastExecutionLogs: OperationLog[];
+  executionIntent: PreviewExecutionIntent;
+  executionError: string;
+  previewRequestId: number;
   operationProgress: OperationProgressPayload | null;
   isOperationCanceling: boolean;
   activeOperationKind: OperationProgressPayload["kind"] | null;
@@ -35,8 +51,11 @@ export interface OperationQueueStore {
   syncPreviews: (files: FileRecord[]) => void;
   setPreviewResult: (result: OperationPreviewResult, scope: LibraryScope) => void;
   refreshPreviewsForScope: (scope: LibraryScope) => Promise<OperationPreviewResult>;
+  refreshPreviewsForFiles: (scope: LibraryScope, fileIds: Set<string>) => Promise<OperationPreviewResult | null>;
   loadMorePreviews: () => Promise<void>;
   setSelectedOperationIds: (ids: Set<string>) => void;
+  startOrganizePreviewSession: (scopeKey: string, allowedPreviewIds: Set<string>) => void;
+  clearExecutionIntent: () => void;
   runDispatch: (confirmed: boolean) => Promise<RuleExecutionSummary>;
   executeSelected: (confirmed: boolean) => Promise<OperationLog[]>;
   restoreOperationLogs: (logs: OperationLog[]) => Promise<void>;
@@ -67,11 +86,20 @@ function defaultSelectedPreviewIds(previews: OperationPreview[]) {
   );
 }
 
+function reconcileExecutionIntent(intent: PreviewExecutionIntent, previews: OperationPreview[]) {
+  if (intent?.source !== "organize") return intent;
+  const valid = new Set(previews.map((preview) => preview.id));
+  return { ...intent, allowedPreviewIds: new Set([...intent.allowedPreviewIds].filter((id) => valid.has(id))) };
+}
+
 export function operationNeedsCleanupConfirmation(preview: OperationPreview): boolean {
   return preview.operation_type === "move_to_trash"
     || preview.is_duplicate === true
     || preview.suggested_action === "DeleteCandidate"
-    || preview.suggested_action === "Review";
+    || preview.suggested_action === "Review"
+    || preview.requires_confirmation
+    || preview.risk_level === "Sensitive"
+    || preview.risk_level === "System";
 }
 
 export function mergeOperationLogs(persisted: OperationLog[], current: OperationLog[]): OperationLog[] {
@@ -99,6 +127,9 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
   previewHasMore: false,
   previewActionCount: 0,
   lastExecutionLogs: [],
+  executionIntent: null,
+  executionError: "",
+  previewRequestId: 0,
   operationProgress: null,
   isOperationCanceling: false,
   activeOperationKind: null,
@@ -154,22 +185,70 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
   },
   setPreviewResult: (result, scope) => {
     const displayPreviews = applyOverrides(result.previews, {});
-    set({
+    set((state) => {
+      const scopedIntent = state.executionIntent?.source === "organize" && state.executionIntent.scopeKey !== organizeScopeKey(scope)
+        ? null
+        : state.executionIntent;
+      const executionIntent = reconcileExecutionIntent(scopedIntent, result.previews);
+      const allowed = executionIntent?.source === "organize" ? executionIntent.allowedPreviewIds : null;
+      return {
       previews: result.previews,
       displayPreviews,
       previewNameOverrides: {},
-      selectedOperationIds: defaultSelectedPreviewIds(result.previews),
       previewScope: scope,
       previewTotal: result.total,
       previewLimit: result.limit,
       previewOffset: result.offset,
       previewTruncated: result.truncated,
       previewHasMore: result.hasMore,
-      previewActionCount: previewActionCount(displayPreviews)
+      previewActionCount: previewActionCount(displayPreviews),
+      executionIntent,
+      selectedOperationIds: allowed
+        ? new Set([...state.selectedOperationIds].filter((id) => allowed.has(id)))
+        : defaultSelectedPreviewIds(result.previews)
+      };
     });
   },
   refreshPreviewsForScope: async (scope) => {
     const result = await tauriApi.getOperationPreviewsForScope(scope);
+    get().setPreviewResult(result, scope);
+    return result;
+  },
+  refreshPreviewsForFiles: async (scope, fileIds) => {
+    const requestId = get().previewRequestId + 1;
+    set({
+      previewRequestId: requestId,
+      previews: [],
+      displayPreviews: [],
+      previewNameOverrides: {},
+      previewTotal: 0,
+      previewHasMore: false,
+      previewTruncated: false
+    });
+    const matched = new Map<string, OperationPreview>();
+    const limit = Math.min(500, Math.max(100, fileIds.size));
+    let offset = 0;
+    let hasMore = true;
+    let pages = 0;
+    while (hasMore && matched.size < fileIds.size && pages < 8) {
+      const page = await tauriApi.getOperationPreviewsForScope(scope, undefined, limit, offset);
+      if (get().previewRequestId !== requestId) return null;
+      let additions = 0;
+      for (const preview of page.previews) {
+        const fileId = preview.fileId || preview.file_id || "";
+        if (fileIds.has(fileId) && !matched.has(preview.id)) {
+          matched.set(preview.id, preview);
+          additions += 1;
+        }
+      }
+      pages += 1;
+      hasMore = page.hasMore;
+      offset += page.previews.length;
+      if (!page.previews.length || additions === 0) break;
+    }
+    if (get().previewRequestId !== requestId) return null;
+    const previews = [...matched.values()];
+    const result: OperationPreviewResult = { previews, total: previews.length, limit, offset: 0, truncated: hasMore, hasMore: false };
     get().setPreviewResult(result, scope);
     return result;
   },
@@ -211,7 +290,17 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       throw error;
     }
   },
-  setSelectedOperationIds: (selectedOperationIds) => set({ selectedOperationIds }),
+  setSelectedOperationIds: (ids) => set((state) => {
+    const allowed = state.executionIntent?.source === "organize" ? state.executionIntent.allowedPreviewIds : null;
+    return { selectedOperationIds: allowed ? new Set([...ids].filter((id) => allowed.has(id))) : ids };
+  }),
+  startOrganizePreviewSession: (scopeKey, allowedPreviewIds) => set({
+    executionIntent: { source: "organize", scopeKey, allowedPreviewIds: new Set(allowedPreviewIds), initialAllowedCount: allowedPreviewIds.size, sessionId: `${Date.now()}-${Math.random().toString(36).slice(2)}` },
+    selectedOperationIds: new Set(allowedPreviewIds),
+    lastExecutionLogs: [],
+    executionError: ""
+  }),
+  clearExecutionIntent: () => set({ executionIntent: null, selectedOperationIds: new Set(), lastExecutionLogs: [], executionError: "" }),
   runDispatch: async (confirmed) => {
     const t = currentT();
     if (!confirmed) {
@@ -238,15 +327,17 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
   executeSelected: async (confirmed) => {
     const t = currentT();
     if (!confirmed) return [];
-    const { displayPreviews, selectedOperationIds } = get();
+    const { displayPreviews, selectedOperationIds, executionIntent } = get();
+    const allowed = executionIntent?.source === "organize" ? executionIntent.allowedPreviewIds : null;
     const operations = displayPreviews.filter(
-      (preview) => selectedOperationIds.has(preview.id) && preview.is_executable !== false
-    );
+      (preview) => selectedOperationIds.has(preview.id) && (!allowed || allowed.has(preview.id)) && preview.is_executable !== false
+    ).filter((preview) => preview.operation_type === "move_to_trash" || validateOrganizeFileName(preview.new_name) === null);
     if (!operations.length) return [];
 
     set({
       activeOperationKind: "execute",
       lastExecutionLogs: [],
+      executionError: "",
       isOperationCanceling: false,
       operationProgress: {
         kind: "execute",
@@ -279,7 +370,9 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       }
       return result.logs;
     } catch (error) {
-      useAppStore.getState().showError(readableError(error));
+      const message = readableError(error);
+      set({ executionError: message });
+      useAppStore.getState().showError(message);
       return [];
     } finally {
       set({
@@ -342,6 +435,11 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
   },
   onRenamePreview: (id, name) => {
     set((state) => {
+      const preview = state.previews.find((item) => item.id === id);
+      if (!preview) return {};
+      if (state.executionIntent?.source === "organize" && validateOrganizeFileName(name) === null) {
+        useOrganizeDecisionStore.getState().setEditedNameForPreview(state.executionIntent.scopeKey, preview, name);
+      }
       const previewNameOverrides = { ...state.previewNameOverrides, [id]: name };
       const displayPreviews = applyOverrides(state.previews, previewNameOverrides);
       return {

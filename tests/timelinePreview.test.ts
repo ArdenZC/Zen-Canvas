@@ -33,7 +33,7 @@ describe("preview execute safety UI", () => {
     expect(timeline).toContain("PreviewCount label={t(\"blockedItems\")}");
     expect(timeline).toContain("PreviewCount label={t(\"confirmationItems\")}");
     expect(timeline).toContain("PreviewCount label={t(\"autoCreateFolders\")}");
-    expect(timeline).toContain('tone="warning"');
+    expect(timeline).toContain('tone={trashSelectionCount ? "danger" : "warning"}');
     expect(timeline).toContain('t("executeSelectedWithCount")');
     expect(timeline).toContain("selectedCount.toLocaleString()");
     expect(timeline).toContain("disabled={executable.length === 0}");
@@ -127,6 +127,8 @@ describe("preview execute safety UI", () => {
     expect(markup).toContain("这不是永久删除");
     expect(markup).not.toContain("会创建父目录");
     expect(markup).not.toContain("aria-label=\"新文件名\"");
+    expect(markup).toContain("正常");
+    expect(markup).not.toContain("Browser mock preview");
   });
 
   it("adds timeline safety copy for trash cleanup operations", () => {
