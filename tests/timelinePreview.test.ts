@@ -6,12 +6,18 @@ import { describe, expect, it } from "vitest";
 import { makeTranslator } from "../src/i18n";
 import type { OperationPreview } from "../src/types/domain";
 import { PreviewFileRow } from "../src/views/timeline/PreviewFileRow";
+import { previewSubgroupLabel } from "../src/utils/viewHelpers";
 
 function read(relativePath: string) {
   return readFileSync(resolve(relativePath), "utf8");
 }
 
 describe("preview execute safety UI", () => {
+  it("localizes lifecycle-like preview subgroup names", () => {
+    expect(previewSubgroupLabel("Archive", makeTranslator("zh"))).toBe("归档");
+    expect(previewSubgroupLabel("Duplicate/Sensitive", makeTranslator("zh"))).toBe("重复 / 敏感");
+    expect(previewSubgroupLabel("Archive", makeTranslator("en"))).toBe("Archive");
+  });
   it("uses shared primitives for the execution safety summary and progress state", () => {
     const timeline = read("src/views/timeline/TimelineView.tsx");
     const t = makeTranslator("zh");

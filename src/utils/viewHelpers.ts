@@ -88,7 +88,7 @@ export function groupOperationPreviews(previews: OperationPreview[], t: Translat
     subgroups: [...group.subgroups.entries()].map(([subKey, subgroup]) => ({
       key: subKey,
       path: subgroup.path,
-      name: subKey === "__root__" ? t("previewRootFiles") : prettyFolderName(subKey),
+      name: subKey === "__root__" ? t("previewRootFiles") : previewSubgroupLabel(subKey, t),
       items: subgroup.items
     }))
   }));
@@ -223,6 +223,19 @@ export function folderNameLike(folderPath: string): string {
 export function normalizePathLike(value: string): string {
   const normalized = value.replace(/\\/g, "/").replace(/\/+$/, "");
   return isWindowsPathLike(normalized) ? normalized.toLowerCase() : normalized;
+}
+
+export function previewSubgroupLabel(value: string, t: Translator): string {
+  const lifecycleKeys: Record<string, Parameters<Translator>[0]> = {
+    inbox: "libraryLifecycleInbox", active: "libraryLifecycleActive", reference: "libraryLifecycleReference",
+    archive: "libraryLifecycleArchive", disposable: "libraryLifecycleDisposable", duplicate: "libraryLifecycleDuplicate",
+    sensitive: "libraryLifecycleSensitive"
+  };
+  return value.split("/").map((part) => {
+    const normalized = part.replace(/^\d+_/, "").toLowerCase();
+    const key = lifecycleKeys[normalized];
+    return key ? t(key) : prettyFolderName(part);
+  }).join(" / ");
 }
 
 function isWindowsPathLike(value: string): boolean {
