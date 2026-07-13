@@ -3,11 +3,10 @@ import type { Translator } from "../../types/ui";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
 import { buttonSecondary, cn, floatingSurface, glassButtonPrimary, inputSurface } from "../../utils/tw";
 import { validateOrganizeFileName, type OrganizeSuggestion } from "./organizeModel";
-import { ModalPortal, restoreDialogFocus } from "../../components/modal/ModalPortal";
+import { ModalPortal } from "../../components/modal/ModalPortal";
 
 export function OrganizeTargetDialog({ suggestion, t, onSave, onClose }: { suggestion: OrganizeSuggestion | null; t: Translator; onSave: (name: string) => void; onClose: () => void }) {
   const [name, setName] = useState("");
-  const dialogRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const titleId = useId();
   const descriptionId = useId();
@@ -17,37 +16,15 @@ export function OrganizeTargetDialog({ suggestion, t, onSave, onClose }: { sugge
   useEffect(() => {
     if (!suggestion) return;
     setName(suggestion.editedName || suggestion.preview?.new_name || suggestion.file.name);
-    const previous = document.activeElement;
-    const focusFrame = requestAnimationFrame(() => inputRef.current?.focus());
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseRef.current();
-        return;
-      }
-      if (event.key !== "Tab" || !dialogRef.current) return;
-      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled])'));
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      cancelAnimationFrame(focusFrame);
-      document.removeEventListener("keydown", onKeyDown);
-      requestAnimationFrame(() => restoreDialogFocus(previous));
-    };
   }, [suggestion]);
 
   if (!suggestion) return null;
   const error = validateOrganizeFileName(name);
   const errorMessage = error ? t(error === "empty" ? "organizeNameErrorEmpty" : error === "reserved" ? "organizeNameErrorReserved" : "organizeNameErrorUnsafe") : "";
   return (
-    <ModalPortal>
+    <ModalPortal initialFocusRef={inputRef} onEscape={() => onCloseRef.current()}>
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/25 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
-      <div ref={dialogRef} className={cn(floatingSurface, "grid w-full max-w-lg gap-4 p-5")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
+      <div className={cn(floatingSurface, "grid w-full max-w-lg gap-4 p-5")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
         <div>
           <h2 id={titleId} className="text-lg font-semibold text-[var(--zc-text-primary)]">{t("organizeTargetDialogTitle")}</h2>
           <p id={descriptionId} className="mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]">{t("organizeTargetDialogDesc")}</p>

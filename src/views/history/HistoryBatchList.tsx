@@ -1,10 +1,29 @@
 import { useEffect, useRef } from "react";
-import { Check, ChevronRight, Circle } from "lucide-react";
+import { AlertCircle, Check, ChevronRight, Circle, CircleOff, RotateCcw } from "lucide-react";
 import type { Translator } from "../../types/ui";
 import type { OperationLog } from "../../types/domain";
 import { cn } from "../../utils/tw";
 import { formatDisplayPath } from "../../utils/viewHelpers";
-import { isRestorableLog, type OperationHistoryBatch } from "./historyModel";
+import { historyTime, type OperationHistoryBatch } from "./historyModel";
+
+function batchStateLabel(batch: OperationHistoryBatch, t: Translator) {
+  if (batch.state === "restored") return t("historyStatusRestored");
+  if (batch.state === "partially_restored") return t("historyStatusPartiallyRestored");
+  if (batch.state === "partial") return t("historyStatusPartial");
+  if (batch.state === "failed") return t("historyStatusFailed");
+  if (batch.state === "skipped") return t("historyStatusSkipped");
+  if (batch.state === "restorable") return t("historyStatusRestorable");
+  if (batch.state === "success") return t("historyStatusSuccess");
+  return t("historyStatusUnavailable");
+}
+
+function BatchStateIcon({ state }: { state: OperationHistoryBatch["state"] }) {
+  if (state === "restored") return <Check size={15} aria-hidden="true" />;
+  if (state === "partially_restored" || state === "partial") return <AlertCircle size={15} aria-hidden="true" />;
+  if (state === "failed") return <CircleOff size={15} aria-hidden="true" />;
+  if (state === "restorable") return <RotateCcw size={15} aria-hidden="true" />;
+  return <Circle size={15} aria-hidden="true" />;
+}
 
 function BatchCheckbox({
   batch,
@@ -18,19 +37,19 @@ function BatchCheckbox({
   t: Translator;
 }) {
   const ref = useRef<HTMLInputElement | null>(null);
-  const eligible = batch.logs.filter(isRestorableLog);
-  const selected = eligible.filter((log) => selectedIds.has(log.id)).length;
+  const selectable = batch.logs;
+  const selected = selectable.filter((log) => selectedIds.has(log.id)).length;
   const selectedAny = batch.logs.some((log) => selectedIds.has(log.id));
   useEffect(() => {
-    if (ref.current) ref.current.indeterminate = selected > 0 && selected < eligible.length;
-  }, [eligible.length, selected]);
+    if (ref.current) ref.current.indeterminate = selected > 0 && selected < selectable.length;
+  }, [selectable.length, selected]);
   return (
     <input
       ref={ref}
       type="checkbox"
       aria-label={t("historySelectBatch")}
-      checked={eligible.length > 0 && selected === eligible.length}
-      disabled={eligible.length === 0 && !selectedAny}
+      checked={selectable.length > 0 && selected === selectable.length}
+      disabled={selectable.length === 0 && !selectedAny}
       onChange={(event) => onChange(event.currentTarget.checked)}
       onClick={(event) => event.stopPropagation()}
     />
@@ -64,7 +83,7 @@ export function HistoryBatchList({
     else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       const batch = batches[activeIndex];
-      if (batch) onToggleBatch(batch, batch.logs.filter(isRestorableLog).some((log) => !selectedIds.has(log.id)));
+      if (batch) onToggleBatch(batch, batch.logs.some((log) => !selectedIds.has(log.id)));
       return;
     } else return;
     event.preventDefault();
@@ -82,8 +101,7 @@ export function HistoryBatchList({
       onKeyDown={handleKeyDown}
     >
       {batches.map((batch) => {
-        const eligible = batch.logs.filter(isRestorableLog);
-        const selected = eligible.filter((log) => selectedIds.has(log.id)).length;
+        const selected = batch.logs.filter((log) => selectedIds.has(log.id)).length;
         const active = batch.id === activeBatchId;
         const first = batch.logs[0];
         return (
@@ -103,15 +121,16 @@ export function HistoryBatchList({
             <BatchCheckbox batch={batch} selectedIds={selectedIds} onChange={(checked) => onToggleBatch(batch, checked)} t={t} />
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
-                {first?.status === "success" ? <Check size={15} className="text-[var(--zc-success-text)]" aria-hidden="true" /> : <Circle size={15} className="text-[var(--muted)]" aria-hidden="true" />}
-                <strong className="truncate text-sm">{batch.createdAt ? new Date(Number(batch.createdAt) || batch.createdAt).toLocaleString() : t("historyBatch")}</strong>
+                <span className={cn("shrink-0", batch.state === "failed" ? "text-[var(--zc-danger-text)]" : batch.state === "restored" ? "text-[var(--zc-success-text)]" : "text-[var(--zc-primary)]")}><BatchStateIcon state={batch.state} /></span>
+                <strong className="truncate text-sm">{historyTime(batch.createdAt) ? new Date(historyTime(batch.createdAt)).toLocaleString() : t("historyTimeUnavailable")}</strong>
               </div>
               <span className="mt-1 block truncate text-xs text-[var(--muted)]" title={first?.path_after || first?.target_path}>
                 {first ? formatDisplayPath(first.path_after || first.target_path) : t("historyBatch")}
               </span>
               <span className="mt-1 block text-xs text-[var(--muted)]">
-                {t("historyBatchItems").replace("{count}", String(batch.total))} · {batch.restorable} {t("restorable")}
+                {t("historyBatchItems").replace("{count}", String(batch.total))} · {batchStateLabel(batch, t)} · {batch.restorable} {t("restorable")}
               </span>
+              <span className="mt-1 block text-[11px] tabular-nums text-[var(--muted)]">{t("historyStatusSuccess")}: {batch.success} · {t("historyStatusFailed")}: {batch.failed} · {t("historyStatusSkipped")}: {batch.skipped} · {t("historyStatusRestored")}: {batch.restored}</span>
             </div>
             <ChevronRight size={16} className="mt-1 text-[var(--muted)]" aria-hidden="true" />
             {selected > 0 && <span className="col-start-2 text-xs font-medium text-[var(--zc-primary)]">{t("historyBatchSelected").replace("{count}", String(selected))}</span>}

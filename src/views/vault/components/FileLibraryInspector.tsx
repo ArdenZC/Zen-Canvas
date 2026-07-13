@@ -1,5 +1,5 @@
 import { Archive, File, FileCode2, FileImage, FileText, Folder, Info, Music2, Package, TriangleAlert, Video, X } from "lucide-react";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import type { FileRecord } from "../../../types/domain";
 import type { Language } from "../../../i18n";
 import type { Translator } from "../../../types/ui";
@@ -8,7 +8,7 @@ import { compactPath, formatDisplayPath } from "../../../utils/viewHelpers";
 import { buttonSecondary, cn, floatingSurface, glassButtonPrimary } from "../../../utils/tw";
 import { filePreviewKind, selectionSummary } from "../fileLibraryModel";
 import { purposeLabel, typeLabel } from "./FileLibraryList";
-import { ModalPortal, restoreDialogFocus } from "../../../components/modal/ModalPortal";
+import { ModalPortal } from "../../../components/modal/ModalPortal";
 
 export function FileLibraryInspector({
   selectedIds,
@@ -72,42 +72,9 @@ export function FileLibraryPreviewDialog({
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-  useEffect(() => {
-    if (!file) return;
-    const previous = document.activeElement;
-    const focusFrame = requestAnimationFrame(() => closeRef.current?.focus());
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCloseRef.current();
-        return;
-      }
-      if (event.key === "Tab") {
-        const dialog = closeRef.current?.closest<HTMLElement>('[role="dialog"]');
-        const focusable = dialog?.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])');
-        if (!focusable?.length) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (event.shiftKey && document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      cancelAnimationFrame(focusFrame);
-      document.removeEventListener("keydown", handleKeyDown);
-      requestAnimationFrame(() => restoreDialogFocus(previous));
-    };
-  }, [file]);
-
   if (!file) return null;
   return (
-    <ModalPortal>
+    <ModalPortal initialFocusRef={closeRef} onEscape={() => onCloseRef.current()}>
     <div className="fixed inset-0 z-40 grid place-items-center bg-black/20 p-5" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
       <section className={cn(floatingSurface, "grid w-full max-w-xl gap-4 p-5")} role="dialog" aria-modal="true" aria-labelledby="library-preview-title">
         <div className="flex items-start justify-between gap-3">

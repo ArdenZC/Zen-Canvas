@@ -180,10 +180,9 @@ describe("Organize Suggestions v4.2 hardening", () => {
   it("keeps dialog focus semantics, tabular numbers, token tones, and native confirms out", () => {
     const dialog = read("src/views/shared/ui.ts");
     const timeline = read("src/views/timeline/TimelineView.tsx");
-    expect(dialog).toContain('event.key !== "Tab"');
-    expect(dialog).toContain('event.key === "Escape"');
-    expect(dialog).toContain("restoreDialogFocus(previous, restoreFocusRef.current?.())");
     expect(dialog).toContain("ModalPortal");
+    expect(dialog).toContain("initialFocusRef: cancelRef");
+    expect(dialog).toContain("onEscape");
     expect(dialog).toContain("bg-[var(--zc-overlay)]");
     expect(dialog).toContain("glassButtonWarning");
     expect(timeline).toContain("tabular-nums");

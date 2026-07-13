@@ -4,7 +4,10 @@ import {
   filterHistoryBatches,
   groupOperationLogs,
   isRestorableLog,
+  resolveHistoryBatchState,
   resolveOperationRestoreSelection,
+  resolveRestoreExecutionIds,
+  restoreIntentMatchesResolution,
   restoreEligibility,
   selectionForOperationBatch
 } from "../src/views/history/historyModel";
@@ -64,10 +67,36 @@ describe("history restore truth model", () => {
     expect(filtered[0].total).toBe(1);
   });
 
-  it("selects only executable records and removes all records on deselect", () => {
+  it("selects all records for honest selected versus executable counts", () => {
     const records = [log("ok"), log("blocked", { can_restore: false })];
     const selected = selectionForOperationBatch(new Set(), records, true);
-    expect(selected).toEqual(new Set(["ok"]));
+    expect(selected).toEqual(new Set(["ok", "blocked"]));
     expect(selectionForOperationBatch(new Set(["ok", "blocked"]), records, false)).toEqual(new Set());
+  });
+
+  it("keeps the confirmation whitelist immutable while accepting backend order changes", () => {
+    const records = [log("first"), log("second")];
+    const initial = resolveOperationRestoreSelection(records, ["first", "second"]);
+    const intent = {
+      sessionId: "session",
+      source: "operation_logs" as const,
+      selectedIds: new Set(initial.selectedIds),
+      allowedIds: new Set(initial.executableIds),
+      selectedCount: initial.selectedCount,
+      executableCount: initial.executableCount,
+      excludedCount: initial.excludedCount,
+      reasonCounts: initial.reasonCounts,
+      createdAt: 1,
+      revision: 1,
+      authorityFingerprint: initial.fingerprint
+    };
+    const reordered = resolveOperationRestoreSelection([records[1], records[0]], ["first", "second"]);
+    expect(restoreIntentMatchesResolution(intent, reordered)).toBe(true);
+    expect(resolveRestoreExecutionIds(["second", "forged", "first"], intent, reordered.executableIds)).toEqual(["second", "first"]);
+  });
+
+  it("derives a restorable batch state from the aggregate, not the first log", () => {
+    expect(resolveHistoryBatchState([log("first"), log("second")])).toBe("restorable");
+    expect(resolveHistoryBatchState([log("first"), log("failed", { status: "failed", can_restore: false })])).toBe("partial");
   });
 });

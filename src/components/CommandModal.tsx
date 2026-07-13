@@ -11,10 +11,9 @@ import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { compactPath, formatDisplayPath, readableError } from "../utils/viewHelpers";
 import { IconButton, StateBlock, ToneBadge, quietText } from "../views/shared/ui";
-import { ModalPortal, restoreDialogFocus } from "./modal/ModalPortal";
+import { ModalPortal } from "./modal/ModalPortal";
 import { createCommandRegistry, executeSpotlightCommand, queryCommandRegistry, requestSettingsSection, type SpotlightCommand } from "./spotlight/commandRegistry";
 import { buildRecentGroups, groupSpotlightResults, mergeSpotlightResults, type SpotlightResult } from "./spotlight/spotlightModel";
-import { cycleDialogFocus } from "./spotlight/focusTrap";
 
 const keyBadge =
   "flex items-center justify-center rounded border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[var(--zc-text-tertiary)] shadow-sm";
@@ -144,7 +143,6 @@ export function CommandModal({
   const [commandIndexStatus, setCommandIndexStatus] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [inputFocused, setInputFocused] = useState(false);
-  const dialogRef = useRef<HTMLDivElement | null>(null);
   const enqueueBackgroundIndexRoots = useBackgroundIndexerStore((state) => state.enqueueRoots);
   const isBackgroundIndexing = useBackgroundIndexerStore((state) => state.isBackgroundIndexing);
   const currentBackgroundRoot = useBackgroundIndexerStore((state) => state.currentRoot);
@@ -205,13 +203,12 @@ export function CommandModal({
   const showScopeMeta = Boolean(searchScopeLabel && !isStandaloneCollapsed);
 
   useEffect(() => {
-    const previous = document.activeElement;
+    if (!standalone) return;
     const focusFrame = requestAnimationFrame(() => inputRef.current?.focus());
     return () => {
       cancelAnimationFrame(focusFrame);
-      if (!standalone) requestAnimationFrame(() => restoreDialogFocus(previous, restoreFocusRef?.current));
     };
-  }, [inputRef, restoreFocusRef, standalone]);
+  }, [inputRef, standalone]);
 
   useEffect(() => {
     if (!standalone) return;
@@ -404,7 +401,6 @@ export function CommandModal({
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
       <motion.div
-        ref={dialogRef}
         layout
         className={cn(
           commandShellBase,
@@ -420,12 +416,6 @@ export function CommandModal({
         aria-label={t("globalSearch")}
         aria-busy={queryState === "pending"}
         onKeyDown={(event) => {
-          if (!standalone && event.key === "Tab" && dialogRef.current) {
-            const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
-              'button:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
-            ));
-            cycleDialogFocus(event, focusable, document.activeElement as HTMLElement | null);
-          }
           if ((event.metaKey && event.key === "Backspace") || (event.ctrlKey && event.key === "Backspace")) {
             event.preventDefault();
             clearSearch();
@@ -453,7 +443,6 @@ export function CommandModal({
             event.preventDefault();
             chooseResult(activeResult);
           }
-          if (event.key === "Escape") onClose();
         }}
       >
         <div
@@ -562,7 +551,7 @@ export function CommandModal({
     </div>
   );
 
-  return standalone ? content : <ModalPortal>{content}</ModalPortal>;
+  return standalone ? content : <ModalPortal initialFocusRef={inputRef} restoreFocus={() => restoreFocusRef?.current ?? null} onEscape={onClose}>{content}</ModalPortal>;
 }
 
 function SpotlightResultGroups({

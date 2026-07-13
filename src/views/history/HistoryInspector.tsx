@@ -1,11 +1,15 @@
-import { ArrowLeft, ChevronRight, ExternalLink, FileWarning, RotateCcw } from "lucide-react";
-import type { CleanupTrashBatch, CleanupTrashItem, OperationLog } from "../../types/domain";
+import { useState } from "react";
+import { ArrowLeft, ExternalLink, FileWarning, RotateCcw } from "lucide-react";
+import { tauriApi } from "../../api/tauriApi";
+import type { CleanupRestorePreviewItem, CleanupTrashBatch, CleanupTrashItem, OperationLog } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { buttonGhost, buttonSecondary, cn } from "../../utils/tw";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
 import { mutedText, rowSurface } from "../shared/ui";
 import {
+  cleanupRestoreEligibility,
   cleanupBatchRestorableCount,
+  historyTime,
   isRestorableCleanupTrashItem,
   isRestorableLog,
   restoreEligibility,
@@ -17,6 +21,32 @@ function replaceCount(text: string, count: number) {
   return text.replace("{count}", String(count));
 }
 
+function formatDate(value: string, t: Translator) {
+  const timestamp = historyTime(value);
+  if (!timestamp) return t("historyTimeUnavailable");
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(timestamp));
+}
+
+function localizedRestoreMessage(message: string | null | undefined, t: Translator) {
+  const normalized = (message ?? "").toLocaleLowerCase();
+  if (!normalized) return "";
+  if (normalized.includes("target file already exists") || normalized.includes("original path already exists") || normalized.includes("already exists") || normalized.includes("原路径已有文件")) return t("restoreErrorTargetExists");
+  if (normalized.includes("source file does not exist") || normalized.includes("safe trash path is missing") || normalized.includes("not found") || normalized.includes("不存在") || normalized.includes("缺失")) return t("restoreErrorSourceMissing");
+  if (normalized.includes("permission") || normalized.includes("access denied") || normalized.includes("权限")) return t("restoreErrorPermission");
+  if (normalized.includes("in use") || normalized.includes("occupied") || normalized.includes("被占用")) return t("restoreErrorOccupied");
+  if (normalized.includes("no longer restorable") || normalized.includes("blocked") || normalized.includes("阻止")) return t("restoreErrorBlocked");
+  if (normalized.includes("already restored") || normalized.includes("已经恢复")) return t("restoreErrorAlreadyRestored");
+  if (normalized.includes("processing") || normalized.includes("处理中")) return t("restoreErrorProcessing");
+  if (normalized.includes("canceled") || normalized.includes("cancelled") || normalized.includes("取消")) return t("restoreErrorCanceled");
+  return t("restoreErrorGeneric");
+}
+
 export function restoreEligibilityLabel(log: OperationLog, t: Translator) {
   const reason = restoreEligibility(log).reason;
   const key = `historyEligibility${reason.charAt(0).toUpperCase()}${reason.slice(1)}` as Parameters<Translator>[0];
@@ -24,9 +54,12 @@ export function restoreEligibilityLabel(log: OperationLog, t: Translator) {
 }
 
 export function operationStatusLabel(log: OperationLog, t: Translator) {
+  if (log.restore_status === "restored") return t("historyStatusRestored");
+  if (log.restore_status === "canceled") return t("historyStatusCanceled");
+  if (log.restore_status === "failed") return t("historyStatusFailed");
   if (log.status === "failed") return t("historyStatusFailed");
   if (log.status === "skipped") return t("historyStatusSkipped");
-  return log.restore_status === "restored" ? t("restored") : t("historyStatusSuccess");
+  return t("historyStatusSuccess");
 }
 
 export function operationTypeLabel(log: OperationLog, t: Translator) {
@@ -35,6 +68,20 @@ export function operationTypeLabel(log: OperationLog, t: Translator) {
   if (log.operation_type === "move_rename") return t("operationMoveRename");
   if (log.operation_type === "move_to_trash") return t("operationMoveToTrash");
   return log.operation_type;
+}
+
+function operationCurrentPath(log: OperationLog) {
+  return log.restore_status === "restored"
+    ? log.path_before || log.source_path || log.target_path
+    : log.path_after || log.target_path || log.path_before || log.source_path;
+}
+
+function operationOriginalPath(log: OperationLog) {
+  return log.path_before || log.source_path || log.path_after || log.target_path;
+}
+
+function DetailRow({ label, value, title }: { label: string; value: string; title?: string }) {
+  return <div className="grid min-w-0 gap-0.5"><dt className="text-[11px] font-semibold text-[var(--zc-text-tertiary)]">{label}</dt><dd className="min-w-0 truncate text-xs text-[var(--muted)]" title={title ?? value}>{value || "-"}</dd></div>;
 }
 
 export function HistoryInspector({
@@ -50,19 +97,45 @@ export function HistoryInspector({
   onBack?: () => void;
   t: Translator;
 }) {
+  const [technicalOpen, setTechnicalOpen] = useState<Set<string>>(new Set());
+  const [revealError, setRevealError] = useState<Record<string, string>>({});
   if (!batch) return <div className="grid min-h-56 place-items-center text-sm text-[var(--muted)]">{t("historyNoSelection")}</div>;
+
+  async function reveal(log: OperationLog) {
+    const path = operationCurrentPath(log);
+    try {
+      setRevealError((current) => ({ ...current, [log.id]: "" }));
+      await tauriApi.revealInFolder(path);
+    } catch {
+      setRevealError((current) => ({ ...current, [log.id]: t("historyPathRevealFailed") }));
+    }
+  }
+
+  function toggleTechnical(id: string) {
+    setTechnicalOpen((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   return (
     <section aria-labelledby="history-inspector-title" className="grid gap-3">
       <div className="flex items-start gap-3">
         {onBack && <button type="button" className={buttonSecondary} onClick={onBack} aria-label={t("historyInspectorBack")}><ArrowLeft size={16} /></button>}
         <div className="min-w-0">
           <h2 id="history-inspector-title" className="text-base font-semibold">{t("historyInspector")}</h2>
-          <p className={cn(mutedText, "mt-1")}>{batch.total} · {batch.restorable} {t("restorable")}</p>
+          <p className={cn(mutedText, "mt-1 tabular-nums")}>{batch.total} · {batch.success} {t("historyStatusSuccess")} · {batch.failed} {t("historyStatusFailed")} · {batch.restorable} {t("restorable")}</p>
         </div>
       </div>
       <div className="grid gap-2" role="list" aria-label={t("historyInspector")}>
         {batch.logs.map((log) => {
           const eligible = isRestorableLog(log);
+          const currentPath = operationCurrentPath(log);
+          const originalPath = operationOriginalPath(log);
+          const rawError = log.restore_error || log.error_message;
+          const technical = technicalOpen.has(log.id);
           return (
             <div className={cn(rowSurface, "grid gap-2")} key={log.id} role="listitem">
               <div className="flex items-start gap-3">
@@ -70,25 +143,29 @@ export function HistoryInspector({
                   type="checkbox"
                   aria-label={`${t("historySelectItem")}: ${operationDisplayName(log)}`}
                   checked={selectedIds.has(log.id)}
-                  disabled={!eligible && !selectedIds.has(log.id)}
                   onChange={(event) => onToggle(log, event.currentTarget.checked)}
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <strong className="truncate text-sm">{operationDisplayName(log)}</strong>
+                    <strong className="truncate text-sm" title={operationDisplayName(log)}>{operationDisplayName(log)}</strong>
                     <span className="text-xs text-[var(--muted)]">{operationTypeLabel(log, t)}</span>
                     <span className="rounded-full border border-[var(--zc-border)] px-2 py-0.5 text-[11px] text-[var(--muted)]">{operationStatusLabel(log, t)}</span>
                   </div>
-                  <div className="mt-2 grid gap-1 text-xs text-[var(--muted)]">
-                    <span className="truncate" title={log.path_before || log.source_path}>{compactPath(formatDisplayPath(log.path_before || log.source_path), 68)}</span>
-                    <span className="flex items-center gap-1"><ChevronRight size={12} aria-hidden="true" /> <span className="truncate" title={log.path_after || log.target_path}>{compactPath(formatDisplayPath(log.path_after || log.target_path), 68)}</span></span>
+                  <dl className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                    <DetailRow label={t("historyCreatedAt")} value={formatDate(log.created_at, t)} />
+                    <DetailRow label={t("historyRestoreEligibility")} value={restoreEligibilityLabel(log, t)} />
+                    <DetailRow label={t("historyOriginalPath")} value={compactPath(formatDisplayPath(originalPath), 68)} title={formatDisplayPath(originalPath)} />
+                    <DetailRow label={t("historyCurrentPath")} value={compactPath(formatDisplayPath(currentPath), 68)} title={formatDisplayPath(currentPath)} />
+                  </dl>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                    <span className={cn("font-medium", eligible ? "text-[var(--zc-success-text)]" : "text-[var(--muted)]")}>{restoreEligibilityLabel(log, t)}</span>
+                    {rawError && <button type="button" className="text-[var(--zc-primary)]" aria-expanded={technical} onClick={() => toggleTechnical(log.id)}>{technical ? t("historyRestoreHideTechnical") : t("historyRestoreShowTechnical")}</button>}
                   </div>
-                  <p className={cn("mt-2 text-xs", eligible ? "text-[var(--zc-success-text)]" : "text-[var(--muted)]")}>
-                    {restoreEligibilityLabel(log, t)}
-                  </p>
-                  {(log.restore_error || log.error_message) && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{log.restore_error || log.error_message}</p>}
+                  {revealError[log.id] && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{revealError[log.id]}</p>}
+                  {rawError && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{localizedRestoreMessage(rawError, t)}</p>}
+                  {technical && rawError && <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--muted)]">{rawError}</pre>}
                 </div>
-                <button type="button" className={buttonGhost} aria-label={`${t("historyOpenPath")}: ${operationDisplayName(log)}`} title={log.path_after || log.target_path}>
+                <button type="button" className={buttonGhost} aria-label={`${t("historyOpenPath")}: ${operationDisplayName(log)}`} title={formatDisplayPath(currentPath)} onClick={() => void reveal(log)}>
                   <ExternalLink size={15} />
                 </button>
               </div>
@@ -100,18 +177,53 @@ export function HistoryInspector({
   );
 }
 
+function cleanupStatusLabel(item: CleanupTrashItem, preview: CleanupRestorePreviewItem | undefined, t: Translator) {
+  const eligibility = cleanupRestoreEligibility(preview ?? item);
+  if (eligibility.executable) return t("cleanupTrashMoved");
+  if (eligibility.reason === "conflict") return t("historyCleanupConflict");
+  if (eligibility.reason === "missing") return t("historyCleanupMissing");
+  if (eligibility.reason === "failed") return t("historyCleanupFailed");
+  if (eligibility.reason === "pending") return t("historyEligibilityPending");
+  if (item.status === "restored") return t("restored");
+  return t("historyStatusUnavailable");
+}
+
 export function CleanupInspector({
   batch,
+  previewById,
   selectedIds,
   onToggle,
   t
 }: {
   batch: CleanupTrashBatch | undefined;
+  previewById: ReadonlyMap<string, CleanupRestorePreviewItem>;
   selectedIds: ReadonlySet<string>;
   onToggle: (item: CleanupTrashItem, checked: boolean) => void;
   t: Translator;
 }) {
+  const [technicalOpen, setTechnicalOpen] = useState<Set<string>>(new Set());
+  const [revealError, setRevealError] = useState<Record<string, string>>({});
   if (!batch) return <div className="grid min-h-40 place-items-center text-sm text-[var(--muted)]">{t("cleanupTrashEmpty")}</div>;
+
+  async function reveal(item: CleanupTrashItem) {
+    const path = item.status === "restored" ? item.originalPath : item.trashPath;
+    try {
+      setRevealError((current) => ({ ...current, [item.id]: "" }));
+      await tauriApi.revealInFolder(path);
+    } catch {
+      setRevealError((current) => ({ ...current, [item.id]: t("historyPathRevealFailed") }));
+    }
+  }
+
+  function toggleTechnical(id: string) {
+    setTechnicalOpen((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   return (
     <section className="grid gap-3" aria-labelledby="cleanup-inspector-title">
       <div>
@@ -120,7 +232,11 @@ export function CleanupInspector({
       </div>
       <div className="grid gap-2" role="list">
         {batch.items.map((item) => {
-          const eligible = isRestorableCleanupTrashItem(item);
+          const preview = previewById.get(item.id);
+          const eligible = isRestorableCleanupTrashItem(item, preview);
+          const currentPath = item.status === "restored" ? item.originalPath : item.trashPath;
+          const technical = technicalOpen.has(item.id);
+          const rawMessage = item.message || preview?.blockingReason || "";
           return (
             <div key={item.id} className={cn(rowSurface, "grid gap-2")} role="listitem">
               <div className="flex items-start gap-3">
@@ -128,24 +244,33 @@ export function CleanupInspector({
                   type="checkbox"
                   aria-label={`${t("historySelectItem")}: ${item.name}`}
                   checked={selectedIds.has(item.id)}
-                  disabled={!eligible && !selectedIds.has(item.id)}
                   onChange={(event) => onToggle(item, event.currentTarget.checked)}
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2"><RotateCcw size={15} aria-hidden="true" /><strong className="truncate text-sm">{item.name}</strong></div>
-                  <p className="mt-2 text-xs text-[var(--muted)]">{compactPath(item.originalPath, 72)}</p>
-                  <p className={cn("mt-1 text-xs", eligible ? "text-[var(--zc-success-text)]" : "text-[var(--muted)]")}>
-                    {eligible ? t("cleanupTrashMoved") : item.status === "restored" ? t("restored") : t("unavailable")}
-                  </p>
-                  {item.message && <p className="mt-1 text-xs text-[var(--muted)]">{item.message}</p>}
+                  <div className="flex items-center gap-2"><RotateCcw size={15} aria-hidden="true" /><strong className="truncate text-sm" title={item.name}>{item.name}</strong></div>
+                  <dl className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                    <DetailRow label={t("historyCreatedAt")} value={formatDate(item.movedAt, t)} />
+                    <DetailRow label={t("historyRestoreEligibility")} value={cleanupStatusLabel(item, preview, t)} />
+                    <DetailRow label={t("historyCleanupOriginalPath")} value={compactPath(formatDisplayPath(item.originalPath), 68)} title={formatDisplayPath(item.originalPath)} />
+                    <DetailRow label={t("historyCleanupCurrentPath")} value={compactPath(formatDisplayPath(currentPath), 68)} title={formatDisplayPath(currentPath)} />
+                  </dl>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                    <span className={cn("font-medium", eligible ? "text-[var(--zc-success-text)]" : "text-[var(--muted)]")}>{cleanupStatusLabel(item, preview, t)}</span>
+                    {rawMessage && <button type="button" className="text-[var(--zc-primary)]" aria-expanded={technical} onClick={() => toggleTechnical(item.id)}>{technical ? t("historyRestoreHideTechnical") : t("historyRestoreShowTechnical")}</button>}
+                  </div>
+                  {revealError[item.id] && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{revealError[item.id]}</p>}
+                  {technical && rawMessage && <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--muted)]">{rawMessage}</pre>}
                 </div>
+                <button type="button" className={buttonGhost} aria-label={`${t("historyOpenPath")}: ${item.name}`} title={formatDisplayPath(currentPath)} onClick={() => void reveal(item)}>
+                  <ExternalLink size={15} />
+                </button>
                 {!eligible && <FileWarning size={16} className="text-[var(--muted)]" aria-hidden="true" />}
               </div>
             </div>
           );
         })}
       </div>
-      <p className={mutedText}>{replaceCount(t("historyBatchItems"), cleanupBatchRestorableCount(batch))} {t("restorable")}</p>
+      <p className={cn(mutedText, "tabular-nums")}>{replaceCount(t("historyBatchItems"), cleanupBatchRestorableCount(batch, [...previewById.values()]))} {t("restorable")}</p>
     </section>
   );
 }

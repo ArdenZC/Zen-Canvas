@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { History, RotateCcw, Search, ShieldCheck, Trash2, X } from "lucide-react";
+import { History, RotateCcw, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { tauriApi } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useOperationQueueStore } from "../../store/useOperationQueueStore";
-import type { CleanupRestoreResult, CleanupTrashBatch, CleanupTrashItem, OperationLog } from "../../types/domain";
+import type { CleanupRestorePreviewItem, CleanupTrashBatch, CleanupTrashItem, OperationLog } from "../../types/domain";
 import { formatBytes } from "../../utils/format";
 import { buttonGhost, cn, contentPanel, emptyState, glassButtonPrimary } from "../../utils/tw";
 import { OperationProgressPanel } from "../timeline/TimelineView";
@@ -13,82 +13,133 @@ import { HistoryBatchList } from "../history/HistoryBatchList";
 import { CleanupInspector, HistoryInspector } from "../history/HistoryInspector";
 import {
   cleanupBatchRestorableCount,
+  filterCleanupBatches,
   filterHistoryBatches,
   groupCleanupBatches,
   groupOperationLogs,
   historyTime,
-  isRestorableCleanupTrashItem,
+  resolveCleanupRestoreSelection,
+  resolveHistorySummary,
   resolveOperationRestoreSelection,
   selectionForOperationBatch,
+  type HistoryFilter,
   type OperationHistoryBatch
 } from "../history/historyModel";
 
-type HistoryFilter = "all" | "restorable" | "needsReview" | "cleanup";
+type ViewFilter = HistoryFilter | "cleanup";
 
 function replace(text: string, values: Record<string, string | number>) {
   return Object.entries(values).reduce((result, [key, value]) => result.replace(`{${key}}`, String(value)), text);
 }
 
-function formatDate(value: string) {
-  const numeric = Number(value);
-  const timestamp = Number.isFinite(numeric) && numeric > 0 ? numeric : Date.parse(value);
-  if (!Number.isFinite(timestamp) || timestamp <= 0) return "-";
-  return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(timestamp));
+function formatDate(value: string, t: ReturnType<typeof useChromeContext>["t"]) {
+  const timestamp = historyTime(value);
+  if (!timestamp) return t("historyTimeUnavailable");
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(timestamp));
 }
 
 export function RestoreView() {
   const { t } = useChromeContext();
   const logs = useOperationQueueStore((state) => state.operationLogs);
-  const restoreOperationLogs = useOperationQueueStore((state) => state.restoreOperationLogs);
+  const restoreIntent = useOperationQueueStore((state) => state.restoreIntent);
+  const prepareOperationRestoreIntent = useOperationQueueStore((state) => state.prepareOperationRestoreIntent);
+  const prepareCleanupRestoreIntent = useOperationQueueStore((state) => state.prepareCleanupRestoreIntent);
+  const confirmOperationRestore = useOperationQueueStore((state) => state.confirmOperationRestore);
+  const confirmCleanupRestore = useOperationQueueStore((state) => state.confirmCleanupRestore);
+  const invalidateRestoreIntent = useOperationQueueStore((state) => state.invalidateRestoreIntent);
   const refreshOperationLogs = useOperationQueueStore((state) => state.refreshOperationLogs);
   const operationProgress = useOperationQueueStore((state) => state.operationProgress);
+  const activeOperationKind = useOperationQueueStore((state) => state.activeOperationKind);
   const isOperationCanceling = useOperationQueueStore((state) => state.isOperationCanceling);
   const cancelOperations = useOperationQueueStore((state) => state.cancelOperations);
+  const cancelCleanupRestore = useOperationQueueStore((state) => state.cancelCleanupRestore);
+  const cleanupRestoreProgress = useOperationQueueStore((state) => state.cleanupRestoreProgress);
+  const cleanupRestoreResult = useOperationQueueStore((state) => state.cleanupRestoreResult);
   const lastRestoreResult = useOperationQueueStore((state) => state.lastRestoreResult);
+  const lastRestoreSummary = useOperationQueueStore((state) => state.lastRestoreSummary);
   const restoreError = useOperationQueueStore((state) => state.restoreError);
+  const cleanupRestoreError = useOperationQueueStore((state) => state.cleanupRestoreError);
+  const restoreTechnicalError = useOperationQueueStore((state) => state.restoreTechnicalError);
   const [cleanupBatches, setCleanupBatches] = useState<CleanupTrashBatch[]>([]);
-  const [cleanupResult, setCleanupResult] = useState<CleanupRestoreResult | null>(null);
-  const [cleanupError, setCleanupError] = useState("");
+  const [cleanupPreviewItems, setCleanupPreviewItems] = useState<CleanupRestorePreviewItem[]>([]);
+  const [cleanupLoadError, setCleanupLoadError] = useState("");
   const [activeBatchId, setActiveBatchId] = useState("");
   const [activeCleanupBatchId, setActiveCleanupBatchId] = useState("");
   const [selectedOperationIds, setSelectedOperationIds] = useState<Set<string>>(new Set());
   const [selectedCleanupIds, setSelectedCleanupIds] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<HistoryFilter>("all");
+  const [filter, setFilter] = useState<ViewFilter>("all");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isPreparing, setIsPreparing] = useState(false);
-  const [isRestoringCleanup, setIsRestoringCleanup] = useState(false);
   const [narrowPane, setNarrowPane] = useState<"list" | "details">("list");
+  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const confirmTriggerRef = useRef<HTMLButtonElement | null>(null);
   const inspectorScrollRef = useRef<HTMLDivElement | null>(null);
   const isNarrow = useMediaQuery("(max-width: 980px)");
 
-  const batches = useMemo(() => {
+  const operationBatches = useMemo(() => {
     const grouped = groupOperationLogs(logs);
-    const filtered = filterHistoryBatches(grouped, query);
-    if (filter === "restorable") return filtered.filter((batch) => batch.restorable > 0);
-    if (filter === "needsReview") return filtered.filter((batch) => batch.excluded > 0);
-    return filter === "cleanup" ? [] : filtered;
+    return filterHistoryBatches(grouped, query, filter === "cleanup" ? "all" : filter);
   }, [filter, logs, query]);
-  const cleanup = useMemo(() => groupCleanupBatches(cleanupBatches), [cleanupBatches]);
-  const activeBatch = batches.find((batch) => batch.id === activeBatchId) ?? batches[0];
+  const cleanup = useMemo(
+    () => filterCleanupBatches(groupCleanupBatches(cleanupBatches), query, cleanupPreviewItems),
+    [cleanupBatches, cleanupPreviewItems, query]
+  );
+  const activeBatch = operationBatches.find((batch) => batch.id === activeBatchId) ?? operationBatches[0];
   const activeCleanupBatch = cleanup.find((batch) => batch.id === activeCleanupBatchId) ?? cleanup[0];
-  const operationSelection = useMemo(() => resolveOperationRestoreSelection(logs, selectedOperationIds), [logs, selectedOperationIds]);
+  const operationSelection = useMemo(
+    () => resolveOperationRestoreSelection(logs, selectedOperationIds),
+    [logs, selectedOperationIds]
+  );
+  const cleanupSelection = useMemo(
+    () => resolveCleanupRestoreSelection(cleanupPreviewItems, selectedCleanupIds),
+    [cleanupPreviewItems, selectedCleanupIds]
+  );
+  const cleanupPreviewById = useMemo(
+    () => new Map(cleanupPreviewItems.map((item) => [item.id, item])),
+    [cleanupPreviewItems]
+  );
   const selectedCleanupItems = useMemo(
-    () => cleanup.flatMap((batch) => batch.items).filter((item) => selectedCleanupIds.has(item.id) && isRestorableCleanupTrashItem(item)),
+    () => cleanup.flatMap((batch) => batch.items).filter((item) => selectedCleanupIds.has(item.id)),
     [cleanup, selectedCleanupIds]
   );
-  const selectedCount = operationSelection.executable.length || selectedCleanupItems.length;
-  const excludedCount = operationSelection.excludedCount;
+  const selectedMode = selectedOperationIds.size > 0 ? "operation_logs" : selectedCleanupIds.size > 0 ? "cleanup_trash" : null;
+  const selectedResolution = selectedMode === "operation_logs" ? operationSelection : cleanupSelection;
+  const selectedCount = selectedResolution.selectedCount;
+  const executableCount = selectedResolution.executableCount;
+  const excludedCount = selectedResolution.excludedCount;
+  const summary = useMemo(
+    () => resolveHistorySummary(logs, cleanupBatches.flatMap((batch) => batch.items), cleanupPreviewItems),
+    [cleanupBatches, cleanupPreviewItems, logs]
+  );
   const restoreProgress = operationProgress?.kind === "restore" ? operationProgress : null;
-  const busy = Boolean(restoreProgress) || isRestoringCleanup || isPreparing;
+  const busy = Boolean(restoreProgress) || Boolean(cleanupRestoreProgress) || isPreparing || activeOperationKind === "restore";
+  const showCleanup = filter === "cleanup";
+  const visibleError = selectedMode === "cleanup_trash" ? cleanupRestoreError : restoreError;
 
   const refreshCleanup = useCallback(async () => {
     try {
-      setCleanupError("");
-      setCleanupBatches(await tauriApi.listCleanupTrashBatches());
+      setCleanupLoadError("");
+      const batches = await tauriApi.listCleanupTrashBatches();
+      const previews = await Promise.all(
+        batches.map(async (batch) => {
+          try {
+            return await tauriApi.previewRestoreCleanupTrash(batch.id);
+          } catch {
+            return { batchId: batch.id, items: [] };
+          }
+        })
+      );
+      setCleanupBatches(batches);
+      setCleanupPreviewItems(previews.flatMap((preview) => preview.items));
     } catch (error) {
-      setCleanupError(error instanceof Error ? error.message : String(error));
+      setCleanupLoadError(error instanceof Error ? error.message : String(error));
     }
   }, []);
 
@@ -98,8 +149,8 @@ export function RestoreView() {
   }, [refreshCleanup, refreshOperationLogs]);
 
   useEffect(() => {
-    if (!activeBatchId || !batches.some((batch) => batch.id === activeBatchId)) setActiveBatchId(batches[0]?.id ?? "");
-  }, [activeBatchId, batches]);
+    if (!activeBatchId || !operationBatches.some((batch) => batch.id === activeBatchId)) setActiveBatchId(operationBatches[0]?.id ?? "");
+  }, [activeBatchId, operationBatches]);
 
   useEffect(() => {
     if (!activeCleanupBatchId || !cleanup.some((batch) => batch.id === activeCleanupBatchId)) setActiveCleanupBatchId(cleanup[0]?.id ?? "");
@@ -114,6 +165,14 @@ export function RestoreView() {
   }, [activeBatch?.id, activeCleanupBatch?.id, filter]);
 
   useEffect(() => {
+    setSelectedOperationIds(new Set());
+    setSelectedCleanupIds(new Set());
+    invalidateRestoreIntent();
+  }, [filter, invalidateRestoreIntent, query]);
+
+  useEffect(() => () => invalidateRestoreIntent(), [invalidateRestoreIntent]);
+
+  useEffect(() => {
     if (!isNarrow || narrowPane !== "details" || confirmOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -125,105 +184,93 @@ export function RestoreView() {
   }, [confirmOpen, isNarrow, narrowPane]);
 
   function toggleBatch(batch: OperationHistoryBatch, checked: boolean) {
+    invalidateRestoreIntent();
     setSelectedCleanupIds(new Set());
     setSelectedOperationIds((current) => selectionForOperationBatch(current, batch.logs, checked));
   }
 
   function toggleOperation(log: OperationLog, checked: boolean) {
+    invalidateRestoreIntent();
     setSelectedCleanupIds(new Set());
     setSelectedOperationIds((current) => {
       const next = new Set(current);
-      if (checked) next.add(log.id); else next.delete(log.id);
+      if (checked) next.add(log.id);
+      else next.delete(log.id);
       return next;
     });
   }
 
   function toggleCleanup(item: CleanupTrashItem, checked: boolean) {
+    invalidateRestoreIntent();
     setSelectedOperationIds(new Set());
     setSelectedCleanupIds((current) => {
       const next = new Set(current);
-      if (checked && isRestorableCleanupTrashItem(item)) next.add(item.id); else next.delete(item.id);
+      if (checked) next.add(item.id);
+      else next.delete(item.id);
       return next;
     });
   }
 
-  function changeFilter(next: HistoryFilter) {
+  function changeFilter(next: ViewFilter) {
     setFilter(next);
-    if (next === "cleanup") setSelectedOperationIds(new Set());
-    else setSelectedCleanupIds(new Set());
-  }
-
-  async function restoreSelected() {
-    setConfirmOpen(false);
-    if (operationSelection.executable.length) {
-      await restoreOperationLogs(operationSelection.executableIds);
-      return;
-    }
-    if (!selectedCleanupItems.length) return;
-    setIsRestoringCleanup(true);
-    setCleanupError("");
-    try {
-      const result = await tauriApi.restoreCleanupTrashItems(selectedCleanupItems.map((item) => item.id));
-      setCleanupResult(result);
-      setSelectedCleanupIds(new Set());
-      await refreshCleanup();
-    } catch (error) {
-      setCleanupError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsRestoringCleanup(false);
-    }
+    setSelectedOperationIds(new Set());
+    setSelectedCleanupIds(new Set());
+    invalidateRestoreIntent();
   }
 
   async function prepareConfirmation() {
     if (busy) return;
     setIsPreparing(true);
-    setRestoreErrorForPreparation("");
+    setShowTechnicalDetails(false);
     try {
-      if (selectedCleanupItems.length) {
-        const batchIds = [...new Set(selectedCleanupItems.map((item) => item.batchId))];
-        const previews = await Promise.all(batchIds.map((batchId) => tauriApi.previewRestoreCleanupTrash(batchId)));
-        const previewItems = previews.flatMap((preview) => preview.items);
-        const previewById = new Map(previewItems.map((item) => [item.id, item]));
-        const nextSelection = new Set([...selectedCleanupIds].filter((id) => {
-          const previewItem = previewById.get(id);
-          return Boolean(previewItem && isRestorableCleanupTrashItem(previewItem));
-        }));
-        setSelectedCleanupIds(nextSelection);
-        if (!nextSelection.size) {
-          setCleanupError(t("restoreNoExecutableSelected"));
-          return;
-        }
-      } else {
-        const authoritative = await refreshOperationLogs();
-        const latest = resolveOperationRestoreSelection(authoritative, selectedOperationIds);
-        if (!latest.executable.length) {
-          setRestoreErrorForPreparation(t("restoreNoExecutableSelected"));
-          return;
-        }
-      }
-      setConfirmOpen(true);
-    } catch (error) {
-      setRestoreErrorForPreparation(error instanceof Error ? error.message : String(error));
+      const intent = selectedMode === "operation_logs"
+        ? await prepareOperationRestoreIntent(selectedOperationIds)
+        : selectedMode === "cleanup_trash"
+          ? await prepareCleanupRestoreIntent(selectedCleanupItems)
+          : null;
+      if (intent) setConfirmOpen(true);
     } finally {
       setIsPreparing(false);
     }
   }
 
-  function setRestoreErrorForPreparation(message: string) {
-    if (message) useOperationQueueStore.setState({ restoreError: message });
-    else if (restoreError) useOperationQueueStore.setState({ restoreError: "" });
+  async function confirmRestore() {
+    if (!restoreIntent) return;
+    const outcome = restoreIntent.source === "operation_logs"
+      ? await confirmOperationRestore(restoreIntent.sessionId)
+      : await confirmCleanupRestore(restoreIntent.sessionId);
+    if (outcome.status !== "executed") return;
+    setConfirmOpen(false);
+    if (restoreIntent.source === "operation_logs") setSelectedOperationIds(new Set());
+    else {
+      setSelectedCleanupIds(new Set());
+      await refreshCleanup();
+    }
   }
 
-  const summary = {
-    operations: logs.length,
-    restorable: logs.filter((log) => resolveOperationRestoreSelection([log], new Set([log.id])).executable.length > 0).length,
-    restored: logs.filter((log) => log.restore_status === "restored").length,
-    excluded: logs.filter((log) => !resolveOperationRestoreSelection([log], new Set([log.id])).executable.length).length
-  };
-  const showCleanup = filter === "cleanup" || cleanup.length > 0;
-  const resultCount = lastRestoreResult.length;
-  const resultRestored = lastRestoreResult.filter((log) => log.restore_status === "restored").length;
-  const resultFailed = lastRestoreResult.filter((log) => log.restore_status === "failed" || log.status === "failed").length;
+  function cancelConfirmation() {
+    setConfirmOpen(false);
+    invalidateRestoreIntent();
+  }
+
+  const filterButtons: Array<{ value: ViewFilter; key: Parameters<typeof t>[0] }> = [
+    { value: "all", key: "historyFilterAll" },
+    { value: "restorable", key: "historyFilterRestorable" },
+    { value: "restored", key: "historyFilterRestored" },
+    { value: "success", key: "historyFilterSuccess" },
+    { value: "failed", key: "historyFilterFailed" },
+    { value: "skipped", key: "historyFilterSkipped" },
+    { value: "canceled", key: "historyFilterCanceled" },
+    { value: "needsReview", key: "historyFilterNeedsReview" },
+    { value: "cleanup", key: "historyFilterCleanup" }
+  ];
+  const intentCount = restoreIntent?.executableCount ?? executableCount;
+  const intentExcluded = restoreIntent?.excludedCount ?? excludedCount;
+  const confirmDescription = restoreIntent
+    ? replace(t("historyRestoreConfirmDesc"), { count: intentCount })
+      + (intentExcluded ? `\n${replace(t("historyRestoreConfirmExcluded"), { count: intentExcluded })}` : "")
+    : "";
+  const confirmError = visibleError && restoreIntent ? `\n${visibleError}` : undefined;
 
   return (
     <div className={pageSurface}>
@@ -238,40 +285,45 @@ export function RestoreView() {
 
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
-            [t("historySummaryOperations"), summary.operations],
-            [t("historySummaryRestorable"), summary.restorable],
-            [t("historySummaryRestored"), summary.restored],
-            [t("historySummaryExcluded"), summary.excluded]
-          ].map(([label, value]) => <div key={String(label)} className={cn(contentPanel, "p-3")}><span className="block text-xs text-[var(--muted)]">{label}</span><strong className="mt-1 block text-lg tabular-nums">{value}</strong></div>)}
+            { label: t("historySummaryOperations"), value: summary.operations, hint: `${summary.operationRestorable} ${t("restorable")}` },
+            { label: t("historySummaryRestorable"), value: summary.restorable, hint: `${t("historySummaryOperationRestorable")}: ${summary.operationRestorable} · ${t("historySummaryCleanupRestorable")}: ${summary.cleanupRestorable}` },
+            { label: t("historySummaryRestored"), value: summary.restored, hint: t("historyRestoreSuccess") },
+            { label: t("historySummaryExcluded"), value: summary.unavailable, hint: t("historyStatusUnavailable") }
+          ].map((card) => <div key={card.label} className={cn(contentPanel, "p-3")}><span className="block text-xs text-[var(--muted)]">{card.label}</span><strong className="mt-1 block text-lg tabular-nums">{card.value}</strong><span className="mt-1 block truncate text-[11px] text-[var(--muted)]" title={card.hint}>{card.hint}</span></div>)}
         </div>
 
         <section className={cn(panelSurface, "grid gap-4 p-4 lg:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.2fr)]")}>
-          <div className={cn("grid gap-3", isNarrow && narrowPane === "details" && "hidden")}>
+          <div className={cn("grid min-w-0 gap-3", isNarrow && narrowPane === "details" && "hidden")}>
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold">{t("historyBatches")}</h2>
-              <span className="text-xs text-[var(--muted)]">{batches.length}</span>
+              <h2 className="text-sm font-semibold">{showCleanup ? t("historyCleanupScope") : t("historyBatches")}</h2>
+              <span className="text-xs text-[var(--muted)] tabular-nums">{showCleanup ? cleanup.length : operationBatches.length}</span>
             </div>
             <label className="relative block"><Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" aria-hidden="true" /><input value={query} onChange={(event) => setQuery(event.currentTarget.value)} className="w-full rounded-[var(--zc-radius-field)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] py-2 pl-9 pr-3 text-sm" placeholder={t("historySearchPlaceholder")} aria-label={t("historySearchPlaceholder")} /></label>
-            <div className="flex flex-wrap gap-1" role="group" aria-label={t("historyBatches")}>
-              {(["all", "restorable", "needsReview", "cleanup"] as HistoryFilter[]).map((value) => <button key={value} type="button" className={cn(buttonGhost, filter === value && "bg-[var(--zc-primary-soft)] text-[var(--zc-primary)]")} onClick={() => changeFilter(value)}>{t(value === "all" ? "historyFilterAll" : value === "restorable" ? "historyFilterRestorable" : value === "needsReview" ? "historyFilterNeedsReview" : "historyFilterCleanup")}</button>)}
+            <div className="flex max-w-full flex-wrap gap-1" role="group" aria-label={t("historyBatches")}>
+              {filterButtons.map(({ value, key }) => <button key={value} type="button" className={cn(buttonGhost, "shrink-0", filter === value && "bg-[var(--zc-primary-soft)] text-[var(--zc-primary)]")} onClick={() => changeFilter(value)}>{t(key)}</button>)}
             </div>
-            {filter !== "cleanup" && batches.length > 0 && <HistoryBatchList batches={batches} activeBatchId={activeBatch?.id ?? ""} selectedIds={selectedOperationIds} onActiveBatch={(id) => { setActiveBatchId(id); if (isNarrow) setNarrowPane("details"); }} onToggleBatch={toggleBatch} t={t} />}
-            {filter !== "cleanup" && batches.length === 0 && <div className={emptyState}>{query ? t("historyNoMatches") : t("historyNoRecords")}</div>}
-             {showCleanup && <div className="grid gap-2 border-t border-[var(--zc-border)] pt-3"><div className="flex items-center justify-between"><strong className="text-sm">{t("historyCleanupScope")}</strong><span className="text-xs text-[var(--muted)]">{cleanup.length}</span></div>{cleanup.length ? cleanup.map((batch) => <button key={batch.id} type="button" className={cn(rowButton, batch.id === activeCleanupBatch?.id && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)]")} onClick={() => { setActiveCleanupBatchId(batch.id); changeFilter("cleanup"); if (isNarrow) setNarrowPane("details"); }}><span className="min-w-0 text-left"><strong className="block text-sm">{formatDate(batch.createdAt)}</strong><span className="block text-xs text-[var(--muted)]">{batch.totalItems} · {formatBytes(batch.totalSize)} · {cleanupBatchRestorableCount(batch)} {t("restorable")}</span></span><Trash2 size={15} aria-hidden="true" /></button>) : <p className={mutedText}>{t("cleanupTrashEmpty")}</p>}</div>}
+            {!showCleanup && operationBatches.length > 0 && <HistoryBatchList batches={operationBatches} activeBatchId={activeBatch?.id ?? ""} selectedIds={selectedOperationIds} onActiveBatch={(id) => { setActiveBatchId(id); if (isNarrow) setNarrowPane("details"); }} onToggleBatch={toggleBatch} t={t} />}
+            {!showCleanup && operationBatches.length === 0 && <div className={emptyState}>{query ? t("historyNoMatches") : t("historyNoRecords")}</div>}
+            {showCleanup && cleanup.length > 0 && <div className="grid gap-2">{cleanup.map((batch) => <button key={batch.id} type="button" className={cn(rowButton, batch.id === activeCleanupBatch?.id && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)]")} onClick={() => { setActiveCleanupBatchId(batch.id); if (isNarrow) setNarrowPane("details"); }}><span className="min-w-0 text-left"><strong className="block text-sm">{formatDate(batch.createdAt, t)}</strong><span className="block truncate text-xs text-[var(--muted)]">{batch.totalItems} · {formatBytes(batch.totalSize)} · {cleanupBatchRestorableCount(batch, cleanupPreviewItems)} {t("restorable")}</span></span><Trash2 size={15} aria-hidden="true" /></button>)}</div>}
+            {showCleanup && cleanup.length === 0 && <div className={emptyState}>{query ? t("historyNoMatches") : cleanupLoadError || t("cleanupTrashEmpty")}</div>}
           </div>
 
-           <div ref={inspectorScrollRef} className={cn("min-w-0 max-h-[min(72vh,760px)] overflow-y-auto", isNarrow && narrowPane === "list" && "hidden")}>
-            {filter === "cleanup" ? <CleanupInspector batch={activeCleanupBatch} selectedIds={selectedCleanupIds} onToggle={toggleCleanup} t={t} /> : <HistoryInspector batch={activeBatch} selectedIds={selectedOperationIds} onToggle={toggleOperation} onBack={isNarrow ? () => setNarrowPane("list") : undefined} t={t} />}
+          <div ref={inspectorScrollRef} className={cn("min-w-0 max-h-[min(72vh,760px)] overflow-y-auto", isNarrow && narrowPane === "list" && "hidden")}>
+            {showCleanup
+              ? <CleanupInspector batch={activeCleanupBatch} previewById={cleanupPreviewById} selectedIds={selectedCleanupIds} onToggle={toggleCleanup} t={t} />
+              : <HistoryInspector batch={activeBatch} selectedIds={selectedOperationIds} onToggle={toggleOperation} onBack={isNarrow ? () => setNarrowPane("list") : undefined} t={t} />}
           </div>
         </section>
 
-         {(operationSelection.selectedCount > 0 || selectedCleanupItems.length > 0) && <div className={cn(contentPanel, "sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 p-3 shadow-[var(--zc-shadow-floating)]")}><div className="min-w-0"><strong className="text-sm">{replace(t("historyBatchSelected"), { count: selectedCount })}</strong>{excludedCount > 0 && <span className="ml-2 text-xs text-[var(--muted)]">{replace(t("historyExcludedCount"), { count: excludedCount })}</span>}</div><button ref={confirmTriggerRef} type="button" className={glassButtonPrimary} disabled={!selectedCount || busy} onClick={() => void prepareConfirmation()}><RotateCcw size={16} />{busy ? t("restoring") : t("historyRestoreAction")}</button></div>}
+        {selectedCount > 0 && <div className={cn(contentPanel, "sticky bottom-3 z-10 flex flex-wrap items-center justify-between gap-3 p-3 shadow-[var(--zc-shadow-floating)]")}><div className="min-w-0"><strong className="block text-sm tabular-nums">{replace(t("historySelectedCount"), { count: selectedCount })}</strong><span className="block text-xs text-[var(--muted)] tabular-nums">{replace(t("historyExecutableCount"), { count: executableCount })} · {replace(t("historyExcludedCount"), { count: excludedCount })}</span></div><button ref={confirmTriggerRef} type="button" className={glassButtonPrimary} disabled={!executableCount || busy} onClick={() => void prepareConfirmation()}><RotateCcw size={16} />{busy ? t("restoring") : replace(t("historyRestoreActionCount"), { count: executableCount })}</button></div>}
 
         {restoreProgress && <OperationProgressPanel progress={restoreProgress} isCanceling={isOperationCanceling} onCancel={cancelOperations} t={t} />}
-        {(resultCount > 0 || restoreError || cleanupResult || cleanupError) && <section className={cn(contentPanel, "grid gap-2 p-4")} aria-live="polite"><strong className="text-sm">{t("historyRestoreResultTitle")}</strong>{resultCount > 0 && <p className={mutedText}>{replace(t("historyRestoreResultLine"), { restored: resultRestored, failed: resultFailed, excluded: Math.max(0, resultCount - resultRestored - resultFailed) })}</p>}{cleanupResult && <p className={mutedText}>{replace(t("historyRestoreResultLine"), { restored: cleanupResult.restored, failed: cleanupResult.failed + cleanupResult.conflicts, excluded: cleanupResult.missing })}</p>}{(restoreError || cleanupError) && <p className="text-sm text-[var(--zc-danger-text)]">{restoreError || cleanupError}</p>}</section>}
+        {cleanupRestoreProgress && <section className={cn(contentPanel, "grid gap-2 p-4")} aria-live="polite"><strong className="text-sm">{t("historyCleanupProgressTitle")}</strong><p className={mutedText}>{replace(t("historyCleanupProgressLine"), { processed: cleanupRestoreProgress.processed, total: cleanupRestoreProgress.total, path: cleanupRestoreProgress.currentPath || cleanupRestoreProgress.currentItemId || "-" })}</p><p className={cn(mutedText, "tabular-nums")}>{replace(t("historyCleanupProgressCounts"), { restored: cleanupRestoreProgress.restored, conflicts: cleanupRestoreProgress.conflicts, missing: cleanupRestoreProgress.missing, failed: cleanupRestoreProgress.failed, canceled: cleanupRestoreProgress.canceled })}</p><button type="button" className="justify-self-start text-sm text-[var(--zc-primary)] disabled:opacity-60" disabled={cleanupRestoreProgress.cancelRequested} onClick={() => void cancelCleanupRestore()}>{cleanupRestoreProgress.cancelRequested ? t("operationCanceling") : t("cancel")}</button></section>}
+
+        {(lastRestoreResult.length > 0 || cleanupRestoreResult || lastRestoreSummary || visibleError || restoreTechnicalError) && <section className={cn(contentPanel, "grid gap-2 p-4")} aria-live="polite"><strong className="text-sm">{t("historyRestoreResultTitle")}</strong>{cleanupRestoreResult && lastRestoreSummary ? <p className={mutedText}>{replace(t("historyCleanupRestoreResultLine"), { restored: lastRestoreSummary.restored, conflicts: lastRestoreSummary.conflicts, missing: lastRestoreSummary.missing, failed: lastRestoreSummary.failed, canceled: lastRestoreSummary.canceled, excluded: lastRestoreSummary.excluded })}</p> : lastRestoreSummary ? <p className={mutedText}>{replace(t("historyRestoreResultLine"), { restored: lastRestoreSummary.restored, failed: lastRestoreSummary.failed, skipped: lastRestoreSummary.skipped, canceled: lastRestoreSummary.canceled, excluded: lastRestoreSummary.excluded })}</p> : null}{visibleError && <p className="text-sm text-[var(--zc-danger-text)]">{visibleError}</p>}{restoreTechnicalError && <div><button type="button" className="text-xs text-[var(--zc-primary)]" aria-expanded={showTechnicalDetails} onClick={() => setShowTechnicalDetails((value) => !value)}>{showTechnicalDetails ? t("historyRestoreHideTechnical") : t("historyRestoreShowTechnical")}</button>{showTechnicalDetails && <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--muted)]">{restoreTechnicalError}</pre>}</div>}</section>}
       </div>
 
-      <ConfirmDialog open={confirmOpen} tone={selectedCleanupItems.length ? "warning" : "default"} title={t("historyRestoreConfirmTitle")} description={replace(t("historyRestoreConfirmDesc"), { count: selectedCount }) + (excludedCount ? `\n${replace(t("historyRestoreConfirmExcluded"), { count: excludedCount })}` : "")} emphasis={selectedCleanupItems.length ? t("historyCleanupRestoreDesc") : undefined} confirmLabel={t("historyRestoreAction")} cancelLabel={t("cancel")} isProcessing={busy} restoreFocus={() => confirmTriggerRef.current} onCancel={() => setConfirmOpen(false)} onConfirm={() => void restoreSelected()} />
+      <ConfirmDialog open={confirmOpen} tone={restoreIntent?.source === "cleanup_trash" ? "warning" : "default"} title={t("historyRestoreConfirmTitle")} description={confirmDescription + (confirmError ?? "")} emphasis={restoreIntent ? `${replace(t("historySelectedCount"), { count: restoreIntent.selectedCount })} · ${replace(t("historyExecutableCount"), { count: restoreIntent.executableCount })} · ${replace(t("historyExcludedCount"), { count: restoreIntent.excludedCount })}` : undefined} confirmLabel={replace(t("historyRestoreActionCount"), { count: intentCount })} cancelLabel={t("cancel")} isProcessing={busy} restoreFocus={() => confirmTriggerRef.current} onCancel={cancelConfirmation} onConfirm={() => void confirmRestore()} />
     </div>
   );
 }

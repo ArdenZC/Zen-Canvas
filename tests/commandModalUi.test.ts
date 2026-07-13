@@ -147,10 +147,10 @@ describe("command modal spotlight polish", () => {
 
     expect(commandModal).toContain('aria-label={t("commandClearSearch")}');
     expect(commandModal).toContain('title={t("commandClearSearch")}');
-    expect(commandModal).toContain('if (event.key === "Escape") onClose()');
-    expect(commandModal).toContain("cycleDialogFocus(event, focusable");
-    expect(commandModal).toContain("restoreDialogFocus(previous, restoreFocusRef?.current)");
-    expect(commandModal).toContain("<ModalPortal>");
+    expect(commandModal).toContain("<ModalPortal initialFocusRef={inputRef}");
+    expect(commandModal).toContain("initialFocusRef={inputRef}");
+    expect(commandModal).toContain("onEscape={onClose}");
+    expect(commandModal).not.toContain("cycleDialogFocus");
     expect(commandModal).toContain("aria-activedescendant={activeResultId}");
     expect(commandModal).toContain("aria-selected={active}");
     expect(commandModal).toContain('scrollIntoView({ block: "nearest" })');

@@ -1,10 +1,10 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Languages, Monitor, Moon, Sun } from "lucide-react";
 import type { Language } from "../i18n";
 import type { ThemeMode, Translator } from "../types/ui";
 import { cn, floatingSurface, glassButton, glassButtonPrimary } from "../utils/tw";
 import { BrandMark } from "./ui/BrandMark";
-import { ModalPortal, restoreDialogFocus } from "./modal/ModalPortal";
+import { ModalPortal } from "./modal/ModalPortal";
 
 const titlebarToolButton =
   "grid h-8 w-8 place-items-center rounded-full border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-secondary)] transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
@@ -106,7 +106,6 @@ export function CloseChoiceDialog({
 }) {
   const [remember, setRemember] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState<"minimize" | "quit" | null>(null);
-  const dialogRef = useRef<HTMLElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement | null>(null);
   const titleId = useId();
   const descriptionId = useId();
@@ -115,44 +114,15 @@ export function CloseChoiceDialog({
   onCancelRef.current = onCancel;
   isSubmittingRef.current = isSubmitting;
 
-  useEffect(() => {
-    const previous = document.activeElement;
-    const focusFrame = requestAnimationFrame(() => cancelRef.current?.focus());
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && isSubmittingRef.current === null) {
-        event.preventDefault();
-        onCancelRef.current();
-      }
-      if (event.key !== "Tab" || !dialogRef.current) return;
-      const focusable = dialogRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])');
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      cancelAnimationFrame(focusFrame);
-      document.removeEventListener("keydown", handleKeyDown);
-      requestAnimationFrame(() => restoreDialogFocus(previous));
-    };
-  }, []);
-
   async function choose(action: "minimize" | "quit") {
     setIsSubmitting(action);
     await onChoose(action, remember);
   }
 
   return (
-    <ModalPortal>
+    <ModalPortal initialFocusRef={cancelRef} onEscape={() => { if (isSubmittingRef.current === null) onCancelRef.current(); }}>
     <div className="fixed inset-0 z-50 grid place-items-center bg-[var(--zc-overlay)] p-6 backdrop-blur-sm">
-      <section ref={dialogRef} className={cn(floatingSurface, "grid w-full max-w-md gap-5 p-6")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
+      <section className={cn(floatingSurface, "grid w-full max-w-md gap-5 p-6")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
         <div className="mx-auto">
           <ZenMark decorative={false} ariaLabel={t("appName")} />
         </div>

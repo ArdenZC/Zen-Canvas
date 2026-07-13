@@ -1,8 +1,13 @@
-import type { CleanupTrashBatch, CleanupTrashItem, OperationLog } from "../../types/domain";
+import type {
+  CleanupRestorePreviewItem,
+  CleanupTrashBatch,
+  CleanupTrashItem,
+  OperationLog
+} from "../../types/domain";
 
 /**
  * Restore eligibility is deliberately ordered to mirror the Rust restore
- * command.  The first matching reason is the only reason shown to users.
+ * command. The first matching reason is the only reason shown to users.
  * Keeping this in one pure module prevents the list, inspector and store from
  * disagreeing about what the backend can accept.
  */
@@ -17,6 +22,15 @@ export type RestoreEligibilityReason =
   | "missingSource"
   | "restoreFailed"
   | "canceled";
+
+export type CleanupRestoreEligibilityReason =
+  | "restorable"
+  | "alreadyRestored"
+  | "conflict"
+  | "missing"
+  | "failed"
+  | "pending"
+  | "unavailable";
 
 export interface RestoreEligibility {
   executable: boolean;
@@ -40,42 +54,83 @@ export function isRestorableLog(log: OperationLog) {
   return restoreEligibility(log).executable;
 }
 
+function uniqueIds(selectedIds: ReadonlySet<string> | readonly string[]) {
+  return [...new Set(selectedIds instanceof Set ? [...selectedIds] : selectedIds)];
+}
+
+function increment(counts: Record<string, number>, key: string) {
+  counts[key] = (counts[key] ?? 0) + 1;
+}
+
+function countsEqual(left: Record<string, number>, right: Record<string, number>) {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  return [...keys].every((key) => (left[key] ?? 0) === (right[key] ?? 0));
+}
+
+function operationFingerprint(logs: readonly OperationLog[], ids: readonly string[]) {
+  const byId = new Map(logs.map((log) => [log.id, log]));
+  return ids
+    .map((id) => {
+      const log = byId.get(id);
+      if (!log) return `${id}|missing`;
+      return [
+        id,
+        log.batch_id,
+        log.operation_type,
+        log.status,
+        log.restore_status,
+        log.can_restore,
+        log.path_before,
+        log.path_after,
+        log.error_message ?? "",
+        log.restore_error ?? ""
+      ].join("\u001f");
+    })
+    .join("\u001e");
+}
+
 export interface RestoreSelectionResolution {
+  selectedIds: string[];
   selectedCount: number;
   executable: OperationLog[];
   executableIds: string[];
+  executableCount: number;
   excludedCount: number;
   missingIds: string[];
-  reasonCounts: Partial<Record<RestoreEligibilityReason, number>>;
+  reasonCounts: Record<string, number>;
+  fingerprint: string;
 }
 
 export function resolveOperationRestoreSelection(
   logs: readonly OperationLog[],
   selectedIds: ReadonlySet<string> | readonly string[]
 ): RestoreSelectionResolution {
-  const ids = [...new Set(selectedIds instanceof Set ? [...selectedIds] : selectedIds)];
+  const ids = uniqueIds(selectedIds);
   const byId = new Map(logs.map((log) => [log.id, log]));
   const executable: OperationLog[] = [];
-  const reasonCounts: Partial<Record<RestoreEligibilityReason, number>> = {};
+  const reasonCounts: Record<string, number> = {};
   const missingIds: string[] = [];
   for (const id of ids) {
     const log = byId.get(id);
     if (!log) {
       missingIds.push(id);
-      reasonCounts.unavailable = (reasonCounts.unavailable ?? 0) + 1;
+      increment(reasonCounts, "unavailable");
       continue;
     }
     const eligibility = restoreEligibility(log);
     if (eligibility.executable) executable.push(log);
-    else reasonCounts[eligibility.reason] = (reasonCounts[eligibility.reason] ?? 0) + 1;
+    else increment(reasonCounts, eligibility.reason);
   }
   return {
+    selectedIds: ids,
     selectedCount: ids.length,
     executable,
     executableIds: executable.map((log) => log.id),
+    executableCount: executable.length,
     excludedCount: ids.length - executable.length,
     missingIds,
-    reasonCounts
+    reasonCounts,
+    fingerprint: operationFingerprint(logs, ids)
   };
 }
 
@@ -86,13 +141,189 @@ export function selectionForOperationBatch(
 ) {
   const next = new Set(current);
   for (const log of logs) {
-    if (select) {
-      if (isRestorableLog(log)) next.add(log.id);
-    } else {
-      next.delete(log.id);
-    }
+    if (select) next.add(log.id);
+    else next.delete(log.id);
   }
   return next;
+}
+
+function cleanupReasonFromBlockingReason(reason: string | null | undefined): CleanupRestoreEligibilityReason {
+  const normalized = (reason ?? "").toLocaleLowerCase();
+  if (normalized.includes("restored") || normalized.includes("已恢复")) return "alreadyRestored";
+  if (normalized.includes("conflict") || normalized.includes("exists") || normalized.includes("原路径") || normalized.includes("original")) return "conflict";
+  if (normalized.includes("missing") || normalized.includes("not found") || normalized.includes("不存在") || normalized.includes("缺失")) return "missing";
+  if (normalized.includes("pending") || normalized.includes("processing") || normalized.includes("处理中")) return "pending";
+  if (normalized.includes("failed") || normalized.includes("error") || normalized.includes("失败")) return "failed";
+  return "unavailable";
+}
+
+export function cleanupRestoreEligibility(
+  item: CleanupRestorePreviewItem | CleanupTrashItem
+): { executable: boolean; reason: CleanupRestoreEligibilityReason } {
+  if ("canRestore" in item && item.canRestore !== undefined) {
+    if (item.canRestore) return { executable: true, reason: "restorable" };
+    return { executable: false, reason: cleanupReasonFromBlockingReason(item.blockingReason) };
+  }
+  if (item.status === "moved") return { executable: true, reason: "restorable" };
+  if (item.status === "restored") return { executable: false, reason: "alreadyRestored" };
+  if (item.status === "missing") return { executable: false, reason: "missing" };
+  if (item.status === "failed") return { executable: false, reason: "failed" };
+  if (item.status === "pending") return { executable: false, reason: "pending" };
+  return { executable: false, reason: "unavailable" };
+}
+
+export function isRestorableCleanupTrashItem(
+  item: CleanupTrashItem,
+  preview?: CleanupRestorePreviewItem
+) {
+  return cleanupRestoreEligibility(preview ?? item).executable;
+}
+
+function cleanupFingerprint(items: readonly CleanupRestorePreviewItem[], ids: readonly string[]) {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  return ids
+    .map((id) => {
+      const item = byId.get(id);
+      if (!item) return `${id}|missing`;
+      return [
+        id,
+        item.batchId,
+        item.status,
+        item.canRestore,
+        item.blockingReason ?? "",
+        item.originalPath,
+        item.trashPath,
+        item.message ?? ""
+      ].join("\u001f");
+    })
+    .join("\u001e");
+}
+
+export interface CleanupSelectionResolution {
+  selectedIds: string[];
+  selectedCount: number;
+  executable: CleanupRestorePreviewItem[];
+  executableIds: string[];
+  executableCount: number;
+  excludedCount: number;
+  missingIds: string[];
+  reasonCounts: Record<string, number>;
+  fingerprint: string;
+}
+
+export function resolveCleanupRestoreSelection(
+  items: readonly CleanupRestorePreviewItem[],
+  selectedIds: ReadonlySet<string> | readonly string[]
+): CleanupSelectionResolution {
+  const ids = uniqueIds(selectedIds);
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const executable: CleanupRestorePreviewItem[] = [];
+  const reasonCounts: Record<string, number> = {};
+  const missingIds: string[] = [];
+  for (const id of ids) {
+    const item = byId.get(id);
+    if (!item) {
+      missingIds.push(id);
+      increment(reasonCounts, "unavailable");
+      continue;
+    }
+    const eligibility = cleanupRestoreEligibility(item);
+    if (eligibility.executable) executable.push(item);
+    else increment(reasonCounts, eligibility.reason);
+  }
+  return {
+    selectedIds: ids,
+    selectedCount: ids.length,
+    executable,
+    executableIds: executable.map((item) => item.id),
+    executableCount: executable.length,
+    excludedCount: ids.length - executable.length,
+    missingIds,
+    reasonCounts,
+    fingerprint: cleanupFingerprint(items, ids)
+  };
+}
+
+export interface RestoreExecutionIntent {
+  sessionId: string;
+  source: "operation_logs" | "cleanup_trash";
+  selectedIds: Set<string>;
+  allowedIds: Set<string>;
+  selectedCount: number;
+  executableCount: number;
+  excludedCount: number;
+  reasonCounts: Record<string, number>;
+  createdAt: number;
+  revision: number;
+  authorityFingerprint: string;
+  batchIds?: Set<string>;
+}
+
+export type RestoreResolution = RestoreSelectionResolution | CleanupSelectionResolution;
+
+export interface RestoreResultSummary {
+  requested: number;
+  restored: number;
+  failed: number;
+  skipped: number;
+  canceled: number;
+  conflicts: number;
+  missing: number;
+  excluded: number;
+}
+
+export function createRestoreExecutionIntent(
+  source: RestoreExecutionIntent["source"],
+  resolution: RestoreResolution,
+  sessionId: string,
+  createdAt = Date.now(),
+  revision = 1
+): RestoreExecutionIntent {
+  return {
+    sessionId,
+    source,
+    selectedIds: new Set(resolution.selectedIds),
+    allowedIds: new Set(resolution.executableIds),
+    selectedCount: resolution.selectedCount,
+    executableCount: resolution.executableCount,
+    excludedCount: resolution.excludedCount,
+    reasonCounts: { ...resolution.reasonCounts },
+    createdAt,
+    revision,
+    authorityFingerprint: resolution.fingerprint
+  };
+}
+
+/**
+ * This is the final security intersection used immediately before invoking a
+ * restore API. The caller may provide a larger current selection, but only
+ * IDs in the immutable confirmation allow-list and the latest authoritative
+ * executable set survive.
+ */
+export function resolveRestoreExecutionIds(
+  currentSelectedIds: ReadonlySet<string> | readonly string[],
+  intent: Pick<RestoreExecutionIntent, "allowedIds">,
+  authoritativeRestorableIds: ReadonlySet<string> | readonly string[]
+) {
+  const selected = uniqueIds(currentSelectedIds);
+  const allowed = new Set(intent.allowedIds);
+  const authoritative = new Set(authoritativeRestorableIds);
+  return selected.filter((id) => allowed.has(id) && authoritative.has(id));
+}
+
+export function restoreIntentMatchesResolution(
+  intent: RestoreExecutionIntent,
+  resolution: RestoreResolution
+) {
+  const actualIds = resolveRestoreExecutionIds(intent.selectedIds, intent, resolution.executableIds);
+  const allowedIds = new Set(intent.allowedIds);
+  const allowedIdsMatch = actualIds.length === allowedIds.size && actualIds.every((id) => allowedIds.has(id));
+  return allowedIdsMatch
+    && resolution.selectedCount === intent.selectedCount
+    && resolution.executableCount === intent.executableCount
+    && resolution.excludedCount === intent.excludedCount
+    && countsEqual(resolution.reasonCounts, intent.reasonCounts)
+    && resolution.fingerprint === intent.authorityFingerprint;
 }
 
 export interface OperationHistoryBatch {
@@ -103,26 +334,78 @@ export interface OperationHistoryBatch {
   success: number;
   failed: number;
   skipped: number;
+  canceled: number;
   restored: number;
   restorable: number;
   excluded: number;
+  state: HistoryBatchState;
 }
 
-function timeValue(value: string) {
-  const numeric = Number(value);
+export type HistoryBatchState =
+  | "success"
+  | "partial"
+  | "failed"
+  | "skipped"
+  | "restorable"
+  | "partially_restored"
+  | "restored"
+  | "unavailable";
+
+function timeValue(value: string | number | null | undefined) {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  const text = String(value ?? "");
+  const numeric = Number(text);
   if (Number.isFinite(numeric) && numeric > 0) return numeric;
-  const parsed = Date.parse(value);
+  const parsed = Date.parse(text);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function historyTime(value: string) {
+export function historyTime(value: string | number | null | undefined) {
   return timeValue(value);
+}
+
+export function resolveHistoryBatchState(logs: readonly OperationLog[]): HistoryBatchState {
+  if (!logs.length) return "unavailable";
+  const restored = logs.filter((log) => log.restore_status === "restored").length;
+  if (restored === logs.length) return "restored";
+  if (restored > 0) return "partially_restored";
+  if (logs.every(isRestorableLog)) return "restorable";
+
+  const success = logs.filter((log) => log.status === "success").length;
+  const failed = logs.filter((log) => log.status === "failed").length;
+  const skipped = logs.filter((log) => log.status === "skipped").length;
+  const canceled = logs.filter((log) => log.restore_status === "canceled").length;
+  if (success === logs.length) return "success";
+  if (failed === logs.length) return "failed";
+  if (skipped + canceled === logs.length) return "skipped";
+  if (success > 0 && failed + skipped + canceled > 0) return "partial";
+  if (new Set(logs.map((log) => log.status)).size > 1) return "partial";
+  if (logs.some(isRestorableLog)) return "restorable";
+  return "unavailable";
+}
+
+function buildOperationBatch(id: string, entries: readonly OperationLog[]): OperationHistoryBatch {
+  const batchLogs = [...entries].sort((a, b) => timeValue(b.created_at) - timeValue(a.created_at));
+  return {
+    id,
+    createdAt: batchLogs[0]?.created_at ?? "",
+    logs: batchLogs,
+    total: batchLogs.length,
+    success: batchLogs.filter((log) => log.status === "success").length,
+    failed: batchLogs.filter((log) => log.status === "failed").length,
+    skipped: batchLogs.filter((log) => log.status === "skipped").length,
+    canceled: batchLogs.filter((log) => log.restore_status === "canceled").length,
+    restored: batchLogs.filter((log) => log.restore_status === "restored").length,
+    restorable: batchLogs.filter(isRestorableLog).length,
+    excluded: batchLogs.filter((log) => !isRestorableLog(log)).length,
+    state: resolveHistoryBatchState(batchLogs)
+  };
 }
 
 export function groupOperationLogs(logs: readonly OperationLog[]): OperationHistoryBatch[] {
   const groups = new Map<string, OperationLog[]>();
   for (const log of logs) {
-    // Logs without a backend batch id are each a distinct operation.  Merging
+    // Logs without a backend batch id are each a distinct operation. Merging
     // them into one synthetic batch loses selection and summary truthfulness.
     const id = log.batch_id || `unbatched-${log.created_at}-${log.id}`;
     const group = groups.get(id) ?? [];
@@ -130,61 +413,143 @@ export function groupOperationLogs(logs: readonly OperationLog[]): OperationHist
     groups.set(id, group);
   }
   return [...groups.entries()]
-    .map(([id, entries]) => {
-      const batchLogs = [...entries].sort((a, b) => timeValue(b.created_at) - timeValue(a.created_at));
-      const excluded = batchLogs.filter((log) => !isRestorableLog(log)).length;
-      return {
-        id,
-        createdAt: batchLogs[0]?.created_at ?? "",
-        logs: batchLogs,
-        total: batchLogs.length,
-        success: batchLogs.filter((log) => log.status === "success").length,
-        failed: batchLogs.filter((log) => log.status === "failed").length,
-        skipped: batchLogs.filter((log) => log.status === "skipped").length,
-        restored: batchLogs.filter((log) => log.restore_status === "restored").length,
-        restorable: batchLogs.filter(isRestorableLog).length,
-        excluded
-      };
-    })
+    .map(([id, entries]) => buildOperationBatch(id, entries))
     .sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt));
+}
+
+export type HistoryFilter =
+  | "all"
+  | "restorable"
+  | "restored"
+  | "success"
+  | "failed"
+  | "skipped"
+  | "canceled"
+  | "needsReview";
+
+export function historyFilterMatchesLog(log: OperationLog, filter: HistoryFilter) {
+  if (filter === "all") return true;
+  if (filter === "restorable") return isRestorableLog(log);
+  if (filter === "restored") return log.restore_status === "restored";
+  if (filter === "success") return log.status === "success";
+  if (filter === "failed") return log.status === "failed" || log.restore_status === "failed";
+  if (filter === "skipped") return log.status === "skipped";
+  if (filter === "canceled") return log.restore_status === "canceled";
+  const reason = restoreEligibility(log).reason;
+  return reason === "backendBlocked"
+    || reason === "unavailable"
+    || reason === "missingSource"
+    || reason === "restoreFailed"
+    || reason === "failedOperation";
 }
 
 export function matchesHistoryFilter(log: OperationLog, query: string) {
   const normalized = query.trim().toLocaleLowerCase();
   if (!normalized) return true;
-  return [log.id, log.operation_type, log.source_path, log.target_path, log.path_before, log.path_after, log.old_name, log.new_name]
+  return [
+    log.id,
+    log.batch_id,
+    log.operation_type,
+    log.source_path,
+    log.target_path,
+    log.path_before,
+    log.path_after,
+    log.old_name,
+    log.new_name,
+    log.name_before,
+    log.name_after,
+    log.error_message,
+    log.restore_error
+  ]
+    .filter((value): value is string => Boolean(value))
     .some((value) => value.toLocaleLowerCase().includes(normalized));
 }
 
-export function filterHistoryBatches(batches: readonly OperationHistoryBatch[], query: string) {
-  if (!query.trim()) return [...batches];
+export function filterHistoryBatches(
+  batches: readonly OperationHistoryBatch[],
+  query: string,
+  filter: HistoryFilter = "all"
+) {
   return batches
-    .map((batch) => ({ ...batch, logs: batch.logs.filter((log) => matchesHistoryFilter(log, query)) }))
-    .filter((batch) => batch.logs.length > 0)
     .map((batch) => ({
-      ...batch,
-      total: batch.logs.length,
-      success: batch.logs.filter((log) => log.status === "success").length,
-      failed: batch.logs.filter((log) => log.status === "failed").length,
-      skipped: batch.logs.filter((log) => log.status === "skipped").length,
-      restored: batch.logs.filter((log) => log.restore_status === "restored").length,
-      restorable: batch.logs.filter(isRestorableLog).length,
-      excluded: batch.logs.filter((log) => !isRestorableLog(log)).length
-    }));
+      batch,
+      logs: batch.logs.filter((log) => historyFilterMatchesLog(log, filter) && matchesHistoryFilter(log, query))
+    }))
+    .filter(({ logs }) => logs.length > 0)
+    .map(({ batch, logs }) => buildOperationBatch(batch.id, logs));
 }
 
-export function isRestorableCleanupTrashItem(item: CleanupTrashItem) {
-  return item.status === "moved";
-}
-
-export function cleanupBatchRestorableCount(batch: CleanupTrashBatch) {
-  return batch.items.filter(isRestorableCleanupTrashItem).length;
+export function cleanupBatchRestorableCount(
+  batch: CleanupTrashBatch,
+  previews: readonly CleanupRestorePreviewItem[] = []
+) {
+  const previewById = new Map(previews.map((item) => [item.id, item]));
+  return batch.items.filter((item) => isRestorableCleanupTrashItem(item, previewById.get(item.id))).length;
 }
 
 export function groupCleanupBatches(batches: readonly CleanupTrashBatch[]) {
   return [...batches].sort((a, b) => timeValue(b.createdAt) - timeValue(a.createdAt));
 }
 
-export function reasonCountTotal(counts: Partial<Record<RestoreEligibilityReason, number>>) {
+export function matchesCleanupTrashSearch(item: CleanupTrashItem, query: string) {
+  const normalized = query.trim().toLocaleLowerCase();
+  if (!normalized) return true;
+  return [item.id, item.batchId, item.originalPath, item.trashPath, item.name, item.message]
+    .filter((value): value is string => Boolean(value))
+    .some((value) => value.toLocaleLowerCase().includes(normalized));
+}
+
+export function filterCleanupBatches(
+  batches: readonly CleanupTrashBatch[],
+  query: string,
+  previews: readonly CleanupRestorePreviewItem[] = []
+) {
+  const previewById = new Map(previews.map((item) => [item.id, item]));
+  return batches
+    .map((batch) => {
+      const items = batch.items.filter((item) => matchesCleanupTrashSearch(item, query));
+      return {
+        ...batch,
+        items,
+        totalItems: items.length,
+        totalSize: items.reduce((total, item) => total + item.size, 0),
+        restorable: items.filter((item) => isRestorableCleanupTrashItem(item, previewById.get(item.id))).length
+      };
+    })
+    .filter((batch) => batch.items.length > 0);
+}
+
+export interface HistorySummary {
+  operations: number;
+  operationRestorable: number;
+  cleanupRestorable: number;
+  restorable: number;
+  restored: number;
+  unavailable: number;
+}
+
+export function resolveHistorySummary(
+  logs: readonly OperationLog[],
+  cleanupItems: readonly CleanupTrashItem[] = [],
+  cleanupPreviews: readonly CleanupRestorePreviewItem[] = []
+): HistorySummary {
+  const previewById = new Map(cleanupPreviews.map((item) => [item.id, item]));
+  const operationRestorable = logs.filter(isRestorableLog).length;
+  const cleanupRestorable = cleanupItems.filter((item) => isRestorableCleanupTrashItem(item, previewById.get(item.id))).length;
+  const restored = logs.filter((log) => log.restore_status === "restored").length
+    + cleanupItems.filter((item) => item.status === "restored").length;
+  const unavailable = logs.filter((log) => !isRestorableLog(log) && log.restore_status !== "restored").length
+    + cleanupItems.filter((item) => !isRestorableCleanupTrashItem(item, previewById.get(item.id)) && item.status !== "restored").length;
+  return {
+    operations: logs.length,
+    operationRestorable,
+    cleanupRestorable,
+    restorable: operationRestorable + cleanupRestorable,
+    restored,
+    unavailable
+  };
+}
+
+export function reasonCountTotal(counts: Record<string, number>) {
   return Object.values(counts).reduce((total, count) => total + (count ?? 0), 0);
 }

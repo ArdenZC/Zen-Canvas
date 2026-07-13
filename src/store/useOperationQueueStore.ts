@@ -2,14 +2,33 @@ import { create } from "zustand";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { tauriApi, type OperationProgressPayload } from "../api/tauriApi";
 import { makeTranslator } from "../i18n";
-import type { FileRecord, LibraryScope, OperationLog, OperationPreview, OperationPreviewResult, RuleExecutionSummary } from "../types/domain";
+import type {
+  CleanupRestoreProgressPayload,
+  CleanupRestorePreviewItem,
+  CleanupRestoreResult,
+  CleanupTrashItem,
+  FileRecord,
+  LibraryScope,
+  OperationLog,
+  OperationPreview,
+  OperationPreviewResult,
+  RuleExecutionSummary
+} from "../types/domain";
 import { applyPreviewNameOverride, createOperationPreviews, readableError } from "../utils/viewHelpers";
 import { useAppStore } from "./useAppStore";
 import { useFileLibraryStore } from "./useFileLibraryStore";
 import { useRulesStore } from "./useRulesStore";
 import { useOrganizeDecisionStore } from "./useOrganizeDecisionStore";
 import { organizeScopeKey, validateOrganizeFileName } from "../views/organize/organizeModel";
-import { resolveOperationRestoreSelection } from "../views/history/historyModel";
+import {
+  createRestoreExecutionIntent,
+  resolveCleanupRestoreSelection,
+  resolveOperationRestoreSelection,
+  resolveRestoreExecutionIds,
+  restoreIntentMatchesResolution,
+  type RestoreExecutionIntent,
+  type RestoreResultSummary
+} from "../views/history/historyModel";
 
 export const MAX_LOGS = 500;
 
@@ -17,6 +36,11 @@ export type PreviewExecutionIntent =
   | { source: "organize"; scopeKey: string; allowedPreviewIds: Set<string>; initialAllowedCount: number; sessionId: string }
   | { source: "general" }
   | null;
+
+export type RestoreConfirmationOutcome<T> =
+  | { status: "executed"; value: T }
+  | { status: "stale"; intent: RestoreExecutionIntent }
+  | { status: "rejected"; message: string };
 
 export function previewsForExecutionIntent(previews: readonly OperationPreview[], intent: PreviewExecutionIntent) {
   return intent?.source === "organize"
@@ -139,7 +163,14 @@ export interface OperationQueueStore {
   previewActionCount: number;
   lastExecutionLogs: OperationLog[];
   lastRestoreResult: OperationLog[];
+  lastRestoreSummary: RestoreResultSummary | null;
+  cleanupRestoreResult: CleanupRestoreResult | null;
+  cleanupRestoreProgress: CleanupRestoreProgressPayload | null;
+  cleanupRestoreJobId: string | null;
+  cleanupRestoreError: string;
+  restoreTechnicalError: string;
   restoreError: string;
+  restoreIntent: RestoreExecutionIntent | null;
   executionIntent: PreviewExecutionIntent;
   executionError: string;
   previewRequestId: number;
@@ -162,13 +193,73 @@ export interface OperationQueueStore {
   clearExecutionIntent: () => void;
   runDispatch: (confirmed: boolean) => Promise<RuleExecutionSummary>;
   executeSelected: (confirmed: boolean) => Promise<OperationLog[]>;
-  restoreOperationLogs: (logsOrIds: OperationLog[] | string[]) => Promise<OperationLog[]>;
+  prepareOperationRestoreIntent: (selectedIds: ReadonlySet<string> | readonly string[]) => Promise<RestoreExecutionIntent | null>;
+  prepareCleanupRestoreIntent: (items: readonly CleanupTrashItem[]) => Promise<RestoreExecutionIntent | null>;
+  confirmOperationRestore: (sessionId: string) => Promise<RestoreConfirmationOutcome<OperationLog[]>>;
+  confirmCleanupRestore: (sessionId: string) => Promise<RestoreConfirmationOutcome<CleanupRestoreResult>>;
+  invalidateRestoreIntent: () => void;
   cancelOperations: () => Promise<void>;
+  cancelCleanupRestore: () => Promise<void>;
   onRenamePreview: (id: string, name: string) => void;
 }
 
 function currentT() {
   return makeTranslator(useAppStore.getState().language);
+}
+
+function createRestoreSessionId(source: "operation_logs" | "cleanup_trash") {
+  const suffix = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+  return `restore-${source}-${Date.now()}-${suffix}`;
+}
+
+function localizedRestoreError(error: unknown, t: ReturnType<typeof currentT>) {
+  const technical = readableError(error);
+  const normalized = technical.toLocaleLowerCase();
+  let message = t("restoreErrorGeneric");
+  if (normalized.includes("target file already exists") || normalized.includes("original path already exists") || normalized.includes("already exists") || normalized.includes("原路径已有文件")) {
+    message = t("restoreErrorTargetExists");
+  } else if (normalized.includes("source file does not exist") || normalized.includes("safe trash path is missing") || normalized.includes("not found") || normalized.includes("不存在") || normalized.includes("缺失")) {
+    message = t("restoreErrorSourceMissing");
+  } else if (normalized.includes("permission") || normalized.includes("access denied") || normalized.includes("权限")) {
+    message = t("restoreErrorPermission");
+  } else if (normalized.includes("in use") || normalized.includes("occupied") || normalized.includes("被占用")) {
+    message = t("restoreErrorOccupied");
+  } else if (normalized.includes("no longer restorable") || normalized.includes("blocked") || normalized.includes("阻止")) {
+    message = t("restoreErrorBlocked");
+  } else if (normalized.includes("already been restored") || normalized.includes("already restored") || normalized.includes("已经恢复")) {
+    message = t("restoreErrorAlreadyRestored");
+  } else if (normalized.includes("still being processed") || normalized.includes("processing") || normalized.includes("处理中")) {
+    message = t("restoreErrorProcessing");
+  } else if (normalized.includes("canceled") || normalized.includes("cancelled") || normalized.includes("取消")) {
+    message = t("restoreErrorCanceled");
+  }
+  return { message, technical };
+}
+
+function summarizeOperationRestore(logs: readonly OperationLog[], excluded: number): RestoreResultSummary {
+  return {
+    requested: logs.length + excluded,
+    restored: logs.filter((log) => log.restore_status === "restored").length,
+    failed: logs.filter((log) => log.restore_status === "failed").length,
+    skipped: logs.filter((log) => log.status === "skipped").length,
+    canceled: logs.filter((log) => log.restore_status === "canceled").length,
+    conflicts: 0,
+    missing: logs.filter((log) => log.restore_status === "unavailable" && /missing|缺失/i.test(log.restore_error ?? "")).length,
+    excluded
+  };
+}
+
+function summarizeCleanupRestore(result: CleanupRestoreResult, excluded: number): RestoreResultSummary {
+  return {
+    requested: result.restored + result.conflicts + result.missing + result.failed + result.canceled + excluded,
+    restored: result.restored,
+    failed: result.failed,
+    skipped: 0,
+    canceled: result.canceled,
+    conflicts: result.conflicts,
+    missing: result.missing,
+    excluded
+  };
 }
 
 function applyOverrides(
@@ -246,7 +337,14 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
   previewActionCount: 0,
   lastExecutionLogs: [],
   lastRestoreResult: [],
+  lastRestoreSummary: null,
+  cleanupRestoreResult: null,
+  cleanupRestoreProgress: null,
+  cleanupRestoreJobId: null,
+  cleanupRestoreError: "",
+  restoreTechnicalError: "",
   restoreError: "",
+  restoreIntent: null,
   executionIntent: null,
   executionError: "",
   previewRequestId: 0,
@@ -553,31 +651,117 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       });
     }
   },
-  restoreOperationLogs: async (logsOrIds) => {
+  prepareOperationRestoreIntent: async (selectedIds) => {
     const t = currentT();
-    const requestedIds = logsOrIds.map((value) => typeof value === "string" ? value : value.id);
-    if (!requestedIds.length) return [];
+    const requestedIds = [...new Set(selectedIds instanceof Set ? [...selectedIds] : selectedIds)];
+    if (!requestedIds.length) return null;
+    try {
+      const authoritativeLogs = await get().refreshOperationLogs();
+      const resolution = resolveOperationRestoreSelection(authoritativeLogs, requestedIds);
+      const intent = createRestoreExecutionIntent(
+        "operation_logs",
+        resolution,
+        createRestoreSessionId("operation_logs")
+      );
+      set({
+        restoreIntent: intent,
+        restoreError: resolution.executableCount ? "" : t("restoreNoExecutableSelected"),
+        restoreTechnicalError: "",
+        lastRestoreResult: [],
+        lastRestoreSummary: null,
+        cleanupRestoreResult: null,
+        cleanupRestoreError: ""
+      });
+      return resolution.executableCount ? intent : null;
+    } catch (error) {
+      const copy = localizedRestoreError(error, t);
+      set({ restoreError: copy.message, restoreTechnicalError: copy.technical });
+      useAppStore.getState().showError(copy.message);
+      return null;
+    }
+  },
+  prepareCleanupRestoreIntent: async (items) => {
+    const t = currentT();
+    const selectedIds = [...new Set(items.map((item) => item.id))];
+    if (!selectedIds.length) return null;
+    try {
+      const batchIds = [...new Set(items.map((item) => item.batchId).filter(Boolean))];
+      const previews = (await Promise.all(batchIds.map((batchId) => tauriApi.previewRestoreCleanupTrash(batchId))))
+        .flatMap((preview) => preview.items);
+      const resolution = resolveCleanupRestoreSelection(previews, selectedIds);
+      const intent = {
+        ...createRestoreExecutionIntent(
+          "cleanup_trash",
+          resolution,
+          createRestoreSessionId("cleanup_trash")
+        ),
+        batchIds: new Set(batchIds)
+      } satisfies RestoreExecutionIntent;
+      set({
+        restoreIntent: intent,
+        restoreError: resolution.executableCount ? "" : t("restoreNoExecutableSelected"),
+        restoreTechnicalError: "",
+        lastRestoreResult: [],
+        lastRestoreSummary: null,
+        cleanupRestoreResult: null,
+        cleanupRestoreError: ""
+      });
+      return resolution.executableCount ? intent : null;
+    } catch (error) {
+      const copy = localizedRestoreError(error, t);
+      set({ cleanupRestoreError: copy.message, restoreTechnicalError: copy.technical });
+      useAppStore.getState().showError(copy.message);
+      return null;
+    }
+  },
+  confirmOperationRestore: async (sessionId) => {
+    const t = currentT();
+    const intent = get().restoreIntent;
+    if (!intent || intent.source !== "operation_logs" || intent.sessionId !== sessionId) {
+      const message = t("historyRestoreSessionExpired");
+      set({ restoreError: message, restoreTechnicalError: "" });
+      return { status: "rejected", message };
+    }
 
     let authoritativeLogs: OperationLog[];
     try {
       authoritativeLogs = await get().refreshOperationLogs();
     } catch (error) {
-      const message = readableError(error);
-      set({ restoreError: message, lastRestoreResult: [] });
-      useAppStore.getState().showError(message);
-      return [];
+      const copy = localizedRestoreError(error, t);
+      set({ restoreError: copy.message, restoreTechnicalError: copy.technical });
+      useAppStore.getState().showError(copy.message);
+      return { status: "rejected", message: copy.message };
     }
-    const selection = resolveOperationRestoreSelection(authoritativeLogs, requestedIds);
-    const logs = selection.executable;
-    set({ restoreError: "", lastRestoreResult: [] });
+
+    const resolution = resolveOperationRestoreSelection(authoritativeLogs, intent.selectedIds);
+    if (!restoreIntentMatchesResolution(intent, resolution)) {
+      const nextIntent = createRestoreExecutionIntent(
+        "operation_logs",
+        resolution,
+        createRestoreSessionId("operation_logs"),
+        Date.now(),
+        intent.revision + 1
+      );
+      set({ restoreIntent: nextIntent, restoreError: t("historyRestoreEligibilityChanged"), restoreTechnicalError: "" });
+      return { status: "stale", intent: nextIntent };
+    }
+
+    const actualIds = resolveRestoreExecutionIds(intent.selectedIds, intent, resolution.executableIds);
+    const logsById = new Map(resolution.executable.map((log) => [log.id, log]));
+    const logs = actualIds.map((id) => logsById.get(id)).filter((log): log is OperationLog => Boolean(log));
     if (!logs.length) {
-      set({ restoreError: t("restoreNoExecutableSelected") });
-      return [];
+      const message = t("restoreNoExecutableSelected");
+      set({ restoreError: message });
+      return { status: "rejected", message };
     }
 
     set({
       activeOperationKind: "restore",
       isOperationCanceling: false,
+      restoreError: "",
+      restoreTechnicalError: "",
+      lastRestoreResult: [],
+      lastRestoreSummary: null,
       operationProgress: {
         kind: "restore",
         batchId: logs[0]?.batch_id ?? "",
@@ -590,26 +774,31 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
     try {
       const result = await tauriApi.restoreMoves(logs);
       const updatedById = new Map(result.logs.map((log) => [log.id, log]));
+      const summary = summarizeOperationRestore(result.logs, intent.excludedCount);
       set((state) => ({
         operationLogs: state.operationLogs.map((log) => updatedById.get(log.id) ?? log),
         lastRestoreResult: result.logs,
-        restoreError: result.failed > 0 ? `${t("failed")}: ${result.failed.toLocaleString()}` : ""
+        lastRestoreSummary: summary,
+        restoreIntent: null,
+        restoreError: "",
+        restoreTechnicalError: ""
       }));
-      await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
+      await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery).catch(() => undefined);
       const previewScope = get().previewScope;
-      if (previewScope) await get().refreshPreviewsForScope(previewScope);
-      const canceled = result.logs.every((log) => log.restore_status === "canceled");
-      if (result.failed > 0) {
-        useAppStore.getState().showError(`${t("failed")}: ${result.failed.toLocaleString()}`);
+      if (previewScope) await get().refreshPreviewsForScope(previewScope).catch(() => undefined);
+      if (summary.failed > 0) {
+        useAppStore.getState().showError(`${t("historyRestoreFailed")}: ${summary.failed.toLocaleString()}`);
+      } else if (summary.canceled > 0 && summary.restored === 0) {
+        useAppStore.getState().showSuccess(t("operationCanceled"));
       } else {
-        useAppStore.getState().showSuccess(canceled ? t("operationCanceled") : `${t("restored")}: ${result.restored.toLocaleString()}`);
+        useAppStore.getState().showSuccess(`${t("restored")}: ${summary.restored.toLocaleString()}`);
       }
-      return result.logs;
+      return { status: "executed", value: result.logs };
     } catch (error) {
-      const message = readableError(error);
-      set({ restoreError: message, lastRestoreResult: [] });
-      useAppStore.getState().showError(message);
-      return [];
+      const copy = localizedRestoreError(error, t);
+      set({ restoreError: copy.message, restoreTechnicalError: copy.technical });
+      useAppStore.getState().showError(copy.message);
+      return { status: "rejected", message: copy.message };
     } finally {
       set({
         activeOperationKind: null,
@@ -618,6 +807,110 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       });
     }
   },
+  confirmCleanupRestore: async (sessionId) => {
+    const t = currentT();
+    const intent = get().restoreIntent;
+    if (!intent || intent.source !== "cleanup_trash" || intent.sessionId !== sessionId) {
+      const message = t("historyRestoreSessionExpired");
+      set({ cleanupRestoreError: message, restoreTechnicalError: "" });
+      return { status: "rejected", message };
+    }
+    try {
+      const batchIds = [...(intent.batchIds ?? [])];
+      const previews = (await Promise.all(batchIds.map((batchId) => tauriApi.previewRestoreCleanupTrash(batchId))))
+        .flatMap((preview) => preview.items);
+      const resolution = resolveCleanupRestoreSelection(previews, intent.selectedIds);
+      if (!restoreIntentMatchesResolution(intent, resolution)) {
+        const nextIntent = {
+          ...createRestoreExecutionIntent(
+            "cleanup_trash",
+            resolution,
+            createRestoreSessionId("cleanup_trash"),
+            Date.now(),
+            intent.revision + 1
+          ),
+          batchIds: new Set(batchIds)
+        } satisfies RestoreExecutionIntent;
+        set({ restoreIntent: nextIntent, cleanupRestoreError: t("historyRestoreEligibilityChanged"), restoreTechnicalError: "" });
+        return { status: "stale", intent: nextIntent };
+      }
+
+      const actualIds = resolveRestoreExecutionIds(intent.selectedIds, intent, resolution.executableIds);
+      if (!actualIds.length) {
+        const message = t("restoreNoExecutableSelected");
+        set({ cleanupRestoreError: message });
+        return { status: "rejected", message };
+      }
+
+      const jobId = createRestoreSessionId("cleanup_trash");
+      set({
+        cleanupRestoreJobId: jobId,
+        cleanupRestoreProgress: {
+          jobId,
+          processed: 0,
+          total: actualIds.length,
+          currentItemId: actualIds[0] ?? null,
+          currentPath: null,
+          restored: 0,
+          conflicts: 0,
+          missing: 0,
+          failed: 0,
+          canceled: 0,
+          cancelRequested: false
+        },
+        cleanupRestoreResult: null,
+        cleanupRestoreError: "",
+        restoreTechnicalError: ""
+      });
+
+      let unlisten: UnlistenFn | undefined;
+      try {
+        const listen = (tauriApi as typeof tauriApi & {
+          onCleanupRestoreProgress?: (handler: (payload: CleanupRestoreProgressPayload, event: unknown) => void) => Promise<UnlistenFn>;
+        }).onCleanupRestoreProgress;
+        if (typeof listen === "function") {
+          unlisten = await listen((payload) => {
+            if (get().cleanupRestoreJobId === payload.jobId) set({ cleanupRestoreProgress: payload });
+          });
+        }
+        const result = await tauriApi.restoreCleanupTrashItems(actualIds, jobId);
+        const summary = summarizeCleanupRestore(result, intent.excludedCount);
+        set({
+          cleanupRestoreResult: result,
+          lastRestoreSummary: summary,
+          restoreIntent: null,
+          cleanupRestoreError: "",
+          restoreTechnicalError: ""
+        });
+        await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery).catch(() => undefined);
+        await get().refreshOperationLogs().catch(() => undefined);
+        const previewScope = get().previewScope;
+        if (previewScope) await get().refreshPreviewsForScope(previewScope).catch(() => undefined);
+        if (result.failed > 0) {
+          useAppStore.getState().showError(`${t("historyRestoreFailed")}: ${result.failed.toLocaleString()}`);
+        } else if (result.canceled > 0 && result.restored === 0) {
+          useAppStore.getState().showSuccess(t("historyCleanupCanceled"));
+        } else {
+          useAppStore.getState().showSuccess(`${t("restored")}: ${result.restored.toLocaleString()}`);
+        }
+        return { status: "executed", value: result };
+      } catch (error) {
+        const copy = localizedRestoreError(error, t);
+        set({ cleanupRestoreError: copy.message, restoreTechnicalError: copy.technical });
+        useAppStore.getState().showError(copy.message);
+        return { status: "rejected", message: copy.message };
+      } finally {
+        await unlisten?.();
+        set({ cleanupRestoreProgress: null, cleanupRestoreJobId: null });
+      }
+    } catch (error) {
+      const copy = localizedRestoreError(error, t);
+      set({ cleanupRestoreError: copy.message, restoreTechnicalError: copy.technical });
+      useAppStore.getState().showError(copy.message);
+      return { status: "rejected", message: copy.message };
+    }
+  },
+  invalidateRestoreIntent: () => set({ restoreIntent: null }),
   cancelOperations: async () => {
     if (!get().activeOperationKind) return;
     set({ isOperationCanceling: true });
@@ -626,6 +919,22 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
     } catch (error) {
       set({ isOperationCanceling: false });
       useAppStore.getState().showError(readableError(error));
+    }
+  },
+  cancelCleanupRestore: async () => {
+    const jobId = get().cleanupRestoreJobId;
+    if (!jobId) return;
+    set((state) => ({
+      cleanupRestoreProgress: state.cleanupRestoreProgress
+        ? { ...state.cleanupRestoreProgress, cancelRequested: true }
+        : state.cleanupRestoreProgress
+    }));
+    try {
+      await tauriApi.cancelCleanupRestore(jobId);
+    } catch (error) {
+      const copy = localizedRestoreError(error, currentT());
+      set({ cleanupRestoreError: copy.message, restoreTechnicalError: copy.technical, cleanupRestoreProgress: get().cleanupRestoreProgress ? { ...get().cleanupRestoreProgress!, cancelRequested: false } : null });
+      useAppStore.getState().showError(copy.message);
     }
   },
   onRenamePreview: (id, name) => {

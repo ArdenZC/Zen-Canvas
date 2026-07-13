@@ -53,15 +53,16 @@ pub use settings::{
     get_app_settings, get_settings, save_app_settings, save_settings, AppSettings, OrganizeRootMode,
 };
 pub use storage_analyzer::{
-    cancel_storage_cleanup_scan, get_storage_cleanup_candidate_page,
+    cancel_cleanup_restore, cancel_storage_cleanup_scan, get_storage_cleanup_candidate_page,
     get_storage_cleanup_scan_status, list_cleanup_trash_batches,
     move_cleanup_candidates_to_safe_trash, move_cleanup_candidates_to_trash,
-    preview_cleanup_candidates, preview_cleanup_operations, preview_restore_cleanup_trash,
-    restore_cleanup_trash_items, reveal_storage_candidate, scan_storage_cleanup,
-    start_storage_cleanup_scan, CleanupActionKind, CleanupExecutionLog, CleanupExecutionResult,
-    CleanupPreviewItem, CleanupRestoreLog, CleanupRestorePreview, CleanupRestoreResult,
-    CleanupTier, CleanupTrashBatch, CleanupTrashItem, StorageAnalysis, StorageCandidate,
-    StorageCleanupCompleted, StorageCleanupJobMessage, StorageCleanupProgress,
+    preview_cleanup_candidates, preview_cleanup_operations, preview_cleanup_restore_item_for_test,
+    preview_restore_cleanup_trash, restore_cleanup_trash_items, reveal_storage_candidate,
+    scan_storage_cleanup, start_storage_cleanup_scan, CleanupActionKind, CleanupExecutionLog,
+    CleanupExecutionResult, CleanupPreviewItem, CleanupRestoreLog, CleanupRestorePreview,
+    CleanupRestorePreviewItem, CleanupRestoreProgressPayload, CleanupRestoreResult,
+    CleanupRestoreState, CleanupTier, CleanupTrashBatch, CleanupTrashItem, StorageAnalysis,
+    StorageCandidate, StorageCleanupCompleted, StorageCleanupJobMessage, StorageCleanupProgress,
     StorageCleanupScanStatus, StorageCleanupState,
 };
 pub use watcher::{

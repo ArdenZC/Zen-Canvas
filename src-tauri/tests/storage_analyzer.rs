@@ -1,6 +1,10 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -12,7 +16,8 @@ use zen_canvas_tauri::storage_analyzer::{
     get_storage_cleanup_scan_status_for_test, is_forbidden_storage_path_for_test,
     move_cleanup_candidates_to_safe_trash_for_candidates,
     move_cleanup_candidates_to_trash_for_candidates, preview_cleanup_operations_for_candidates,
-    reconcile_pending_cleanup_journal, restore_cleanup_trash_items_for_db,
+    preview_cleanup_restore_item_for_test, reconcile_pending_cleanup_journal,
+    restore_cleanup_trash_items_for_db, restore_cleanup_trash_items_for_db_with_cancel_for_test,
     start_storage_cleanup_scan_for_test, validate_cleanup_roots_for_test, CleanupActionKind,
     CleanupTier, StorageCandidate, StorageCleanupProgress, StorageCleanupState,
 };
@@ -657,6 +662,65 @@ fn restore_cleanup_trash_items_blocks_conflicts_and_marks_missing_trash_paths() 
     assert_eq!(missing.missing, 1);
     let missing_item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
     assert_eq!(missing_item.status, "missing");
+}
+
+#[test]
+fn cleanup_restore_preview_marks_filesystem_conflicts_and_missing_sources() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+
+    let executable = preview_cleanup_restore_item_for_test(item.clone());
+    assert!(executable.can_restore);
+    assert_eq!(executable.blocking_reason, None);
+
+    write_file(&safe_path.join("conflict.txt"), 16);
+    let conflict = preview_cleanup_restore_item_for_test(item.clone());
+    assert!(!conflict.can_restore);
+    assert_eq!(conflict.blocking_reason.as_deref(), Some("conflict"));
+
+    fs::remove_dir_all(&safe_path).expect("remove conflict path");
+    let trash_path = PathBuf::from(&item.trash_path);
+    if trash_path.is_dir() {
+        fs::remove_dir_all(&trash_path).expect("remove trash path");
+    } else if trash_path.exists() {
+        fs::remove_file(&trash_path).expect("remove trash path");
+    }
+    let missing = preview_cleanup_restore_item_for_test(item);
+    assert!(!missing.can_restore);
+    assert_eq!(missing.blocking_reason.as_deref(), Some("missing"));
+}
+
+#[test]
+fn cleanup_restore_cancellation_skips_remaining_items_without_moving_files() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    let cancel = Arc::new(AtomicBool::new(true));
+
+    let result = restore_cleanup_trash_items_for_db_with_cancel_for_test(
+        vec![item.id.clone()],
+        &db,
+        Arc::clone(&cancel),
+    )
+    .expect("canceled restore");
+
+    assert_eq!(result.restored, 0);
+    assert_eq!(result.canceled, 1);
+    assert_eq!(result.logs[0].status, "canceled");
+    assert!(!safe_path.exists());
+    assert!(Path::new(&item.trash_path).exists());
+    assert!(cancel.load(Ordering::Relaxed));
 }
 
 fn test_dir() -> PathBuf {

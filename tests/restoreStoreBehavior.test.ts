@@ -29,7 +29,7 @@ describe("restore store authoritative selection", () => {
     api.restoreMoves.mockReset();
     api.cancelOperations.mockReset().mockResolvedValue(undefined);
     useFileLibraryStore.setState({ refresh: vi.fn(async () => undefined) });
-    useOperationQueueStore.setState({ operationLogs: [], lastRestoreResult: [], restoreError: "", operationProgress: null, activeOperationKind: null });
+    useOperationQueueStore.setState({ operationLogs: [], lastRestoreResult: [], restoreError: "", restoreTechnicalError: "", restoreIntent: null, operationProgress: null, activeOperationKind: null });
   });
 
   it("sends only the authoritative executable intersection", async () => {
@@ -37,9 +37,12 @@ describe("restore store authoritative selection", () => {
     const blocked = log("blocked", { can_restore: false });
     api.getOperationLogs.mockResolvedValue([ok, blocked]);
     api.restoreMoves.mockResolvedValue({ logs: [{ ...ok, restore_status: "restored" }], restored: 1, failed: 0 });
-    const result = await useOperationQueueStore.getState().restoreOperationLogs(["ok", "ok", "blocked", "stale"]);
+    const intent = await useOperationQueueStore.getState().prepareOperationRestoreIntent(["ok", "ok", "blocked", "stale"]);
+    expect([...intent!.allowedIds]).toEqual(["ok"]);
+    const result = await useOperationQueueStore.getState().confirmOperationRestore(intent!.sessionId);
     expect(api.restoreMoves).toHaveBeenCalledWith([ok]);
-    expect(result[0].restore_status).toBe("restored");
+    expect(result.status).toBe("executed");
+    expect(result.status === "executed" && result.value[0].restore_status).toBe("restored");
     expect(useOperationQueueStore.getState().lastRestoreResult[0].id).toBe("ok");
   });
 
@@ -47,8 +50,10 @@ describe("restore store authoritative selection", () => {
     const ok = log("ok");
     api.getOperationLogs.mockResolvedValue([ok]);
     api.restoreMoves.mockRejectedValue(new Error("conflict"));
-    expect(await useOperationQueueStore.getState().restoreOperationLogs(["ok"])).toEqual([]);
-    expect(useOperationQueueStore.getState().restoreError).toContain("conflict");
+    const intent = await useOperationQueueStore.getState().prepareOperationRestoreIntent(["ok"]);
+    expect(await useOperationQueueStore.getState().confirmOperationRestore(intent!.sessionId)).toMatchObject({ status: "rejected" });
+    expect(useOperationQueueStore.getState().restoreError).toBeTruthy();
+    expect(useOperationQueueStore.getState().restoreTechnicalError).toContain("conflict");
     expect(useOperationQueueStore.getState().operationProgress).toBeNull();
   });
 });

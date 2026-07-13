@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   acquireModalIsolation,
   ensureModalHost,
   isUsableFocusTarget,
+  registerModal,
   resetModalInfrastructureForTests,
   restoreDialogFocus
 } from "../src/components/modal/ModalPortal";
@@ -59,5 +60,32 @@ describe("global modal infrastructure", () => {
     const restored = restoreDialogFocus(previous, null, "#heading");
     expect(restored).toBe(fallback);
     expect(document.activeElement).toBe(fallback);
+  });
+
+  it("routes Escape and focus containment through the top modal only", () => {
+    const lower = document.createElement("div");
+    const upper = document.createElement("div");
+    lower.innerHTML = '<button type="button">Lower</button>';
+    upper.innerHTML = '<button type="button">Upper</button>';
+    document.body.append(lower, upper);
+    const lowerEscape = vi.fn();
+    const upperEscape = vi.fn();
+    const releaseLower = registerModal("lower", { element: lower, restoreTarget: null, onEscape: lowerEscape });
+    const releaseUpper = registerModal("upper", { element: upper, restoreTarget: null, onEscape: upperEscape });
+
+    expect(lower.getAttribute("aria-hidden")).toBe("true");
+    expect(upper.getAttribute("aria-hidden")).toBeNull();
+    expect(lower.dataset.modalTop).toBe("false");
+    expect(upper.dataset.modalTop).toBe("true");
+    expect(Number(upper.style.zIndex)).toBeGreaterThan(Number(lower.style.zIndex));
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(upperEscape).toHaveBeenCalledTimes(1);
+    expect(lowerEscape).not.toHaveBeenCalled();
+
+    releaseUpper();
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(lowerEscape).toHaveBeenCalledTimes(1);
+    releaseLower();
   });
 });

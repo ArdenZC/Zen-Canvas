@@ -1,7 +1,7 @@
-import { createElement, useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { createElement, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import type { Variants } from "motion/react";
 import { CircleCheck, ShieldAlert, Trash2 } from "lucide-react";
-import { ModalPortal, restoreDialogFocus } from "../../components/modal/ModalPortal";
+import { ModalPortal } from "../../components/modal/ModalPortal";
 import {
   appPanel as appPanelClass,
   buttonSecondary,
@@ -335,7 +335,6 @@ export function ConfirmDialog({
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 }) {
-  const dialogRef = useRef<HTMLDivElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement | null>(null);
   const onCancelRef = useRef(onCancel);
   const isProcessingRef = useRef(isProcessing);
@@ -346,38 +345,6 @@ export function ConfirmDialog({
   onCancelRef.current = onCancel;
   isProcessingRef.current = isProcessing;
   restoreFocusRef.current = restoreFocus;
-  useEffect(() => {
-    if (!open) return;
-    const previous = document.activeElement;
-    const focusFrame = requestAnimationFrame(() => cancelRef.current?.focus());
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !isProcessingRef.current) {
-        event.preventDefault();
-        onCancelRef.current();
-      }
-      if (event.key !== "Tab" || !dialogRef.current) return;
-      const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-      );
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      cancelAnimationFrame(focusFrame);
-      document.removeEventListener("keydown", handleKeyDown);
-      requestAnimationFrame(() => restoreDialogFocus(previous, restoreFocusRef.current?.()));
-    };
-  }, [open]);
-
   if (!open) return null;
 
   const ToneIcon = tone === "danger" ? Trash2 : tone === "warning" ? ShieldAlert : CircleCheck;
@@ -389,14 +356,18 @@ export function ConfirmDialog({
 
   return createElement(
     ModalPortal,
-    null,
-    createElement(
+    {
+      initialFocusRef: cancelRef,
+      restoreFocus,
+      onEscape: () => {
+        if (!isProcessingRef.current) onCancelRef.current();
+      },
+      children: createElement(
       "div",
       { className: "fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-4 backdrop-blur-sm" },
       createElement(
         "div",
         {
-          ref: dialogRef,
           className: cn(elevatedPanel, "grid w-full max-w-md gap-4 p-5"),
           role: tone === "default" ? "dialog" : "alertdialog",
           "aria-modal": "true",
@@ -427,6 +398,7 @@ export function ConfirmDialog({
         )
       )
     )
+    }
   );
 }
 

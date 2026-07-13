@@ -32,6 +32,7 @@ fn main() {
             app.manage(AIClassificationCancellationToken::default());
             app.manage(FileWatcherManager::default());
             app.manage(zen_canvas_tauri::storage_analyzer::StorageCleanupState::default());
+            app.manage(zen_canvas_tauri::storage_analyzer::CleanupRestoreState::default());
             app.manage(zen_canvas_tauri::app_control::GlobalHotkeyStatusState::default());
             zen_canvas_tauri::app_control::setup_tray(app).map_err(io::Error::other)?;
             zen_canvas_tauri::app_control::setup_search_window(app).map_err(io::Error::other)?;
@@ -118,7 +119,8 @@ fn main() {
             zen_canvas_tauri::storage_analyzer::move_cleanup_candidates_to_safe_trash,
             zen_canvas_tauri::storage_analyzer::list_cleanup_trash_batches,
             zen_canvas_tauri::storage_analyzer::preview_restore_cleanup_trash,
-            zen_canvas_tauri::storage_analyzer::restore_cleanup_trash_items
+            zen_canvas_tauri::storage_analyzer::restore_cleanup_trash_items,
+            zen_canvas_tauri::storage_analyzer::cancel_cleanup_restore
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Zen Canvas");
