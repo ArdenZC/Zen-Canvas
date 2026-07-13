@@ -1,0 +1,163 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { makeTranslator } from "../src/i18n";
+import { operationConfirmationTone, resolveExecutableSelectedPreviews } from "../src/store/useOperationQueueStore";
+import type { OperationPreview } from "../src/types/domain";
+import { formatPreviewDisplayPath, groupOperationPreviews } from "../src/utils/viewHelpers";
+import { PreviewFileRow } from "../src/views/timeline/PreviewFileRow";
+
+const read = (file: string) => readFileSync(resolve(file), "utf8");
+
+function preview(id: string, overrides: Partial<OperationPreview> = {}): OperationPreview {
+  return {
+    id,
+    fileId: `file-${id}`,
+    operation_type: "move",
+    source_path: `C:/Users/Zen/Downloads/${id}.txt`,
+    target_path: `C:/Users/Zen/ZenCanvas/20_Areas/Work/${id}.txt`,
+    old_name: `${id}.txt`,
+    new_name: `${id}.txt`,
+    status: "pending",
+    risk_level: "Normal",
+    confidence: 0.9,
+    requires_confirmation: false,
+    selected_by_default: true,
+    is_executable: true,
+    editable_new_name: true,
+    ...overrides,
+    reason: overrides.reason ?? "test"
+  };
+}
+
+describe("Organize Suggestions v4.2 hardening", () => {
+  it("keeps button and dialog counts bound to the same executable selection used by the store", () => {
+    const timeline = read("src/views/timeline/TimelineView.tsx");
+    const store = read("src/store/useOperationQueueStore.ts");
+    const good = preview("good");
+    const invalid = preview("invalid", { new_name: "bad?.txt" });
+    const resolved = resolveExecutableSelectedPreviews([good, invalid], new Set([good.id, invalid.id]), null);
+
+    expect(resolved.selectedCount).toBe(2);
+    expect(resolved.operations).toEqual([good]);
+    expect(timeline).toContain("const executableSelectedCount = selectedOperations.length");
+    expect(timeline).toContain('disabled={!executableSelectedCount || isExecuting}');
+    expect(timeline).toContain('replace("{count}", selectedOperations.length.toLocaleString())');
+    expect(store).toContain("resolveExecutableSelectedPreviews(displayPreviews, selectedOperationIds, executionIntent)");
+  });
+
+  it("changes executable count immediately when a selected file name becomes invalid and valid again", () => {
+    const selectedIds = new Set(["rename"]);
+    expect(resolveExecutableSelectedPreviews([preview("rename")], selectedIds, null).operations).toHaveLength(1);
+    expect(resolveExecutableSelectedPreviews([preview("rename", { new_name: "bad?.txt" })], selectedIds, null).operations).toHaveLength(0);
+    expect(resolveExecutableSelectedPreviews([preview("rename", { new_name: "restored.txt" })], selectedIds, null).operations).toHaveLength(1);
+  });
+
+  it("excludes blocked, backend-inexecutable, stale, and non-whitelisted selections", () => {
+    const allowed = preview("allowed");
+    const blocked = preview("blocked", { is_executable: false, blocking_reason: "source changed" });
+    const injected = preview("injected");
+    const intent = { source: "organize" as const, scopeKey: "all", allowedPreviewIds: new Set([allowed.id, blocked.id]), initialAllowedCount: 2, sessionId: "v42" };
+    const resolved = resolveExecutableSelectedPreviews([allowed, blocked, injected], new Set([allowed.id, blocked.id, injected.id, "stale"]), intent);
+    expect(resolved.operations).toEqual([allowed]);
+    expect(resolved).toMatchObject({ blockedCount: 1, outsideWhitelistCount: 1, unavailableCount: 1 });
+  });
+
+  it("uses default, warning, and danger semantics from the actual executable set", () => {
+    expect(operationConfirmationTone([preview("normal")])).toBe("default");
+    expect(operationConfirmationTone([preview("sensitive", { risk_level: "Sensitive" })])).toBe("warning");
+    expect(operationConfirmationTone([preview("duplicate", { is_duplicate: true })])).toBe("warning");
+    expect(operationConfirmationTone([preview("system", { risk_level: "System" })])).toBe("warning");
+    expect(operationConfirmationTone([preview("confirm", { requires_confirmation: true })])).toBe("warning");
+    expect(operationConfirmationTone([preview("trash", { operation_type: "move_to_trash" })])).toBe("danger");
+    expect(operationConfirmationTone([
+      preview("sensitive-priority", { risk_level: "Sensitive" }),
+      preview("trash-priority", { operation_type: "move_to_trash" })
+    ])).toBe("danger");
+  });
+
+  it("localizes logical category paths without changing real nonstandard paths or internal keys", () => {
+    const zh = makeTranslator("zh");
+    const en = makeTranslator("en");
+    expect(formatPreviewDisplayPath("C:/ZenCanvas/40_Archive/Archive/report.docx", zh)).toBe("C:\\ZenCanvas\\归档保存\\归档\\report.docx");
+    expect(formatPreviewDisplayPath("/ZenCanvas/20_Areas/Work/report.docx", zh)).toBe("/ZenCanvas/长期分类/工作/report.docx");
+    expect(formatPreviewDisplayPath("/ZenCanvas/90_Temporary/Downloads/setup.exe", zh)).toBe("/ZenCanvas/临时整理/下载/setup.exe");
+    expect(formatPreviewDisplayPath("/ZenCanvas/40_Archive/Archive/report.docx", en)).toBe("/ZenCanvas/Archive/Archive/report.docx");
+    expect(formatPreviewDisplayPath("D:/Clients/Real_Archive/report.docx", zh)).toBe("D:\\Clients\\Real_Archive\\report.docx");
+    expect(formatPreviewDisplayPath("/srv/Real_Archive/report.docx", en)).toBe("/srv/Real_Archive/report.docx");
+  });
+
+  it("keeps canonical keys for grouping while exposing only localized display fields", () => {
+    const groups = groupOperationPreviews([preview("archive", { target_path: "C:/ZenCanvas/40_Archive/Archive/report.docx" })], makeTranslator("zh"));
+    expect(groups[0].key).toBe("40_Archive");
+    expect(groups[0].rawPath).toBe("40_Archive");
+    expect(groups[0].displayName).toBe("归档保存");
+    expect(groups[0].displayPath).not.toContain("40_Archive");
+    expect(groups[0].subgroups[0].displayPath).toBe("归档保存 / 归档");
+
+    const realGroups = groupOperationPreviews([preview("real", { target_path: "D:/Clients/Real_Archive/report.docx" })], makeTranslator("zh"));
+    expect(realGroups[0].key).toContain("real:");
+    expect(realGroups[0].displayName).toBe("Real Archive");
+    expect(realGroups[0].displayPath).toBe("D:\\Clients\\Real_Archive");
+  });
+
+  it("does not expose internal directory keys in rendered Preview text, title, or labels", () => {
+    const markup = renderToStaticMarkup(createElement(PreviewFileRow, {
+      preview: preview("localized", { target_path: "C:/ZenCanvas/40_Archive/Archive/report.docx" }),
+      isSelected: true,
+      toggle: () => undefined,
+      onRenamePreview: () => undefined,
+      t: makeTranslator("zh")
+    }));
+    expect(markup).not.toContain("40_Archive");
+    expect(markup).toContain("归档保存");
+  });
+
+  it("provides an explicit narrow details mode with Escape and focus restoration", () => {
+    const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
+    const inspector = read("src/views/organize/OrganizeSuggestionInspector.tsx");
+    expect(view).toContain('useState<"list" | "details">("list")');
+    expect(view).toContain('aria-controls="organize-inspector"');
+    expect(view).toContain("openInspectorDetails()");
+    expect(view).toContain('setNarrowPane("details")');
+    expect(view).toContain("requestAnimationFrame(() => inspectorRef.current?.focus())");
+    expect(view).toContain('setNarrowPane("list")');
+    expect(view).toContain("requestAnimationFrame(() => listRef.current?.focus())");
+    expect(view).not.toContain("max-[1100px]:overflow-auto");
+    expect(inspector).toContain('event.key === "Escape"');
+    expect(inspector).toContain("overflow-y-auto overflow-x-hidden overscroll-contain");
+    expect(inspector).toContain('aria-keyshortcuts="Escape"');
+    expect(inspector).toContain('t("organizeDetailsForFile")');
+  });
+
+  it("preserves ordinary and batch Space behavior and AI user-correction protection", () => {
+    const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
+    const inspector = read("src/views/organize/OrganizeSuggestionInspector.tsx");
+    expect(view).toContain('organizeSpaceAction(batchMode) === "toggle-batch"');
+    expect(view).toContain('else applyDecision(activeSuggestion, "accepted")');
+    expect(view).toContain("force: true, allowOverwriteUserCorrections: false, limit: AI_ANALYSIS_LIMIT");
+    expect(view).toContain("displayedPreview?.new_name !== suggestion.editedName");
+    expect(inspector).toContain("userFacingMatchedRules(suggestion, t)");
+    expect(inspector).toContain("userFacingContext(suggestion, t)");
+    expect(inspector).toContain("userFacingTechnicalBasis(suggestion, t)");
+    expect(inspector).not.toContain("file.matched_rules.join");
+  });
+
+  it("keeps dialog focus semantics, tabular numbers, token tones, and native confirms out", () => {
+    const dialog = read("src/views/shared/ui.ts");
+    const timeline = read("src/views/timeline/TimelineView.tsx");
+    expect(dialog).toContain('event.key !== "Tab"');
+    expect(dialog).toContain('event.key === "Escape"');
+    expect(dialog).toContain("previous?.focus()");
+    expect(dialog).toContain("bg-[var(--zc-overlay)]");
+    expect(dialog).toContain("glassButtonWarning");
+    expect(timeline).toContain("tabular-nums");
+    for (const source of [dialog, timeline, read("src/views/organize/OrganizeSuggestionsView.tsx")]) {
+      expect(source).not.toContain("window.confirm");
+      expect(source).not.toContain("globalThis.confirm");
+      expect(source).not.toContain("scale-");
+    }
+  });
+});
