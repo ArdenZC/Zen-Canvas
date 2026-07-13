@@ -308,6 +308,22 @@ describe("operation queue store callbacks", () => {
     expect(apiMocks.executeMoves).toHaveBeenCalledWith([allowed]);
   });
 
+  it("applies the final whitelist, availability, blocking, and name-validity intersection before execution", async () => {
+    const allowed = preview("intersection-allowed", true);
+    const blocked = { ...preview("intersection-blocked", true), is_executable: false, blocking_reason: "protected" };
+    const invalid = { ...preview("intersection-invalid", true), new_name: "bad?.txt" };
+    const unavailable = { ...preview("intersection-unavailable", true), status: "failed" as const };
+    const outside = preview("intersection-outside", true);
+    useOperationQueueStore.setState({ displayPreviews: [allowed, blocked, invalid, unavailable, outside] });
+    useOperationQueueStore.getState().startOrganizePreviewSession("all", new Set([allowed.id, blocked.id, invalid.id, unavailable.id]));
+    useOperationQueueStore.setState({ selectedOperationIds: new Set([allowed.id, blocked.id, invalid.id, unavailable.id, outside.id, "missing-preview"]) });
+
+    await useOperationQueueStore.getState().executeSelected(true);
+
+    expect(apiMocks.executeMoves).toHaveBeenCalledOnce();
+    expect(apiMocks.executeMoves).toHaveBeenCalledWith([allowed]);
+  });
+
   it("does not execute a preview with an invalid edited file name", async () => {
     const invalid = preview("invalid", true);
     useOperationQueueStore.setState({ previews: [invalid], displayPreviews: [invalid], selectedOperationIds: new Set([invalid.id]) });

@@ -9,27 +9,29 @@ import { compactPath, formatDisplayPath, formatPreviewDisplayPath } from "../../
 import { ToneBadge, itemMotion } from "../shared/ui";
 import { validateOrganizeFileName } from "../organize/organizeModel";
 import { riskLabel } from "../vault/components/FileLibraryList";
-import { isPreviewBackendApproved, isPreviewExecutable } from "../../store/useOperationQueueStore";
+import { resolvePreviewEligibility, type PreviewExecutionIntent } from "../../store/useOperationQueueStore";
 
 export const PreviewFileRow = memo(function PreviewFileRow({
   preview,
   isSelected,
+  executionIntent,
   toggle,
   onRenamePreview,
   t
 }: {
   preview: OperationPreview;
   isSelected: boolean;
+  executionIntent?: PreviewExecutionIntent;
   toggle: (id: string) => void;
   onRenamePreview: (id: string, name: string) => void;
   t: Translator;
 }) {
-  const blocked = !isPreviewBackendApproved(preview);
   const trashOperation = preview.operation_type === "move_to_trash";
   const nameError = trashOperation ? null : validateOrganizeFileName(preview.new_name);
-  const executable = isPreviewExecutable(preview);
-  const executionStatus = blocked ? "blocked" : executable ? "executable" : "invalid-name";
-  const executionStatusLabel = blocked ? t("operationBlocked") : nameError ? t("operationInvalidName") : t("operationExecutable");
+  const eligibility = resolvePreviewEligibility(preview, executionIntent ?? null);
+  const blocked = eligibility.reason === "blocked" || eligibility.reason === "unavailable" || eligibility.reason === "outsideWhitelist";
+  const executionStatus = eligibility.executable ? "executable" : eligibility.reason === "invalidName" ? "invalid-name" : eligibility.reason === "unavailable" ? "unavailable" : eligibility.reason === "outsideWhitelist" ? "outside-whitelist" : "blocked";
+  const executionStatusLabel = eligibility.executable ? t("operationExecutable") : eligibility.reason === "invalidName" ? t("operationInvalidName") : eligibility.reason === "unavailable" ? t("unavailable") : eligibility.reason === "outsideWhitelist" ? t("organizeOutsideWhitelist") : t("operationBlocked");
 
   return (
     <motion.div
@@ -43,7 +45,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
     >
       <input
         type="checkbox"
-        disabled={blocked}
+        disabled={!isSelected && !eligibility.executable}
         checked={isSelected}
         onChange={() => toggle(preview.id)}
         aria-label={`${t("selectOperation")} · ${preview.old_name}`}
@@ -88,7 +90,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
           <input
             className={cn(inputSurface, "mt-2 w-full")}
             value={preview.new_name}
-            disabled={!preview.editable_new_name || blocked}
+            disabled={!preview.editable_new_name || eligibility.reason === "unavailable" || eligibility.reason === "outsideWhitelist"}
             onChange={(event) => onRenamePreview(preview.id, event.target.value)}
             aria-label={t("newFileName")}
             aria-invalid={Boolean(nameError)}

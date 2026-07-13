@@ -27,16 +27,40 @@ export function isPreviewBackendApproved(preview: OperationPreview): boolean {
   return preview.status === "pending" && preview.is_executable !== false && !preview.blocking_reason;
 }
 
+export type PreviewExclusionReason = "invalidName" | "blocked" | "outsideWhitelist" | "unavailable";
+
+export type PreviewEligibility =
+  | { executable: true; reason: null }
+  | { executable: false; reason: PreviewExclusionReason };
+
+export function resolvePreviewEligibility(
+  preview: OperationPreview,
+  intent: PreviewExecutionIntent
+): PreviewEligibility {
+  if (intent?.source === "organize" && !intent.allowedPreviewIds.has(preview.id)) {
+    return { executable: false, reason: "outsideWhitelist" };
+  }
+  if (preview.status !== "pending") {
+    return { executable: false, reason: "unavailable" };
+  }
+  if (preview.is_executable === false || Boolean(preview.blocking_reason)) {
+    return { executable: false, reason: "blocked" };
+  }
+  if (preview.operation_type !== "move_to_trash" && validateOrganizeFileName(preview.new_name) !== null) {
+    return { executable: false, reason: "invalidName" };
+  }
+  return { executable: true, reason: null };
+}
+
 export function isPreviewExecutable(preview: OperationPreview): boolean {
-  return isPreviewBackendApproved(preview)
-    && (preview.operation_type === "move_to_trash" || validateOrganizeFileName(preview.new_name) === null);
+  return resolvePreviewEligibility(preview, null).executable;
 }
 
 export function selectionForPreviewGroup(current: Set<string>, previews: readonly OperationPreview[], select: boolean, intent: PreviewExecutionIntent) {
   const next = new Set(current);
   for (const preview of previewsForExecutionIntent(previews, intent)) {
     if (select) {
-      if (isPreviewExecutable(preview)) next.add(preview.id);
+      if (resolvePreviewEligibility(preview, intent).executable) next.add(preview.id);
     } else {
       next.delete(preview.id);
     }
@@ -59,7 +83,6 @@ export function resolveExecutableSelectedPreviews(
   selectedIds: ReadonlySet<string>,
   intent: PreviewExecutionIntent
 ): ExecutablePreviewSelection {
-  const allowed = intent?.source === "organize" ? intent.allowedPreviewIds : null;
   const selectedPreviews: OperationPreview[] = [];
   const presentIds = new Set<string>();
   for (const preview of previews) {
@@ -74,23 +97,18 @@ export function resolveExecutableSelectedPreviews(
   let unavailableCount = 0;
 
   for (const preview of selectedPreviews) {
-    if (allowed && !allowed.has(preview.id)) {
+    const eligibility = resolvePreviewEligibility(preview, intent);
+    if (eligibility.executable) {
+      operations.push(preview);
+    } else if (eligibility.reason === "outsideWhitelist") {
       outsideWhitelistCount += 1;
-      continue;
-    }
-    if (preview.status !== "pending") {
+    } else if (eligibility.reason === "unavailable") {
       unavailableCount += 1;
-      continue;
-    }
-    if (!isPreviewBackendApproved(preview)) {
+    } else if (eligibility.reason === "blocked") {
       blockedCount += 1;
-      continue;
-    }
-    if (!isPreviewExecutable(preview)) {
+    } else {
       invalidNameCount += 1;
-      continue;
     }
-    operations.push(preview);
   }
   unavailableCount += [...selectedIds].filter((id) => !presentIds.has(id)).length;
   const excludedCount = outsideWhitelistCount + blockedCount + invalidNameCount + unavailableCount;

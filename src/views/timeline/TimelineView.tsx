@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import type { OperationProgressPayload } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
-import { isPreviewBackendApproved, isPreviewExecutable, operationConfirmationTone, operationNeedsCleanupConfirmation, previewsForExecutionIntent, resolveExecutableSelectedPreviews, selectionForPreviewGroup, useOperationQueueStore } from "../../store/useOperationQueueStore";
+import { operationConfirmationTone, operationNeedsCleanupConfirmation, previewsForExecutionIntent, resolveExecutableSelectedPreviews, resolvePreviewEligibility, selectionForPreviewGroup, useOperationQueueStore } from "../../store/useOperationQueueStore";
 import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { groupOperationPreviews, compactPath, formatDisplayPath, libraryScopeLabel } from "../../utils/viewHelpers";
@@ -48,7 +48,7 @@ export function TimelineView() {
   const visiblePreviews = previewsForExecutionIntent(displayPreviews, executionIntent);
   function toggle(id: string) {
     const preview = visiblePreviews.find((item) => item.id === id);
-    if (!preview || (!selectedIds.has(id) && !isPreviewExecutable(preview))) return;
+    if (!preview || (!selectedIds.has(id) && !resolvePreviewEligibility(preview, executionIntent).executable)) return;
     const next = new Set(selectedIds);
     if (next.has(id)) next.delete(id);
     else next.add(id);
@@ -56,8 +56,8 @@ export function TimelineView() {
   }
 
   const groups = groupOperationPreviews(visiblePreviews, t);
-  const backendApprovedCount = visiblePreviews.filter(isPreviewBackendApproved).length;
-  const blockedCount = visiblePreviews.length - backendApprovedCount;
+  const executableCount = visiblePreviews.filter((preview) => resolvePreviewEligibility(preview, executionIntent).executable).length;
+  const blockedCount = visiblePreviews.filter((preview) => resolvePreviewEligibility(preview, executionIntent).reason === "blocked").length;
   const confirmationCount = visiblePreviews.filter((preview) => preview.requires_confirmation).length;
   const autoCreateParentCount = visiblePreviews.filter(
     (preview) => preview.operation_type !== "move_to_trash" && preview.will_create_parent
@@ -127,7 +127,7 @@ export function TimelineView() {
             <PreviewCount label={t("previewTotalSuggestions")} value={coveredTotal} />
             <PreviewCount label={t("selectedOperations")} value={selectedCount} />
             <PreviewCount label={t("organizeExecutableSelected")} value={executableSelectedCount} />
-            <PreviewCount label={t("executableItems")} value={backendApprovedCount} />
+            <PreviewCount label={t("executableItems")} value={executableCount} />
             <PreviewCount label={t("blockedItems")} value={blockedCount} />
             <PreviewCount label={t("confirmationItems")} value={confirmationCount} />
             <PreviewCount label={t("autoCreateFolders")} value={autoCreateParentCount} />
@@ -198,14 +198,14 @@ export function TimelineView() {
         ) : (
           <div className="grid gap-4">
             {groups.map((group) => {
-              const selectable = group.items.filter(isPreviewExecutable);
+              const selectable = group.items.filter((preview) => resolvePreviewEligibility(preview, executionIntent).executable);
               const allSelected = selectable.length > 0 && selectable.every((item) => selectedIds.has(item.id));
               const selectedInGroupIds = new Set(group.items.filter((item) => selectedIds.has(item.id)).map((item) => item.id));
               const selectedInGroup = selectedInGroupIds.size;
               const executableSelectedInGroup = resolveExecutableSelectedPreviews(group.items, selectedInGroupIds, executionIntent).operations.length;
               const groupDisabledDescriptionId = `group-disabled-${group.key}`;
               return (
-                <section className={cn(interactiveRow({ disabled: selectable.length === 0 }), "grid gap-3 p-4")} key={group.key}>
+                <section className={cn(interactiveRow(), selectable.length === 0 && "opacity-75", "grid gap-3 p-4")} key={group.key}>
                   <label className={cn("grid grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-3", selectable.length > 0 && "cursor-pointer")}>
                     <input
                       type="checkbox"
@@ -245,6 +245,7 @@ export function TimelineView() {
                         <VirtualPreviewFileRows
                           previews={subgroup.items}
                           selectedIds={selectedIds}
+                          executionIntent={executionIntent}
                           toggle={toggle}
                           onRenamePreview={onRenamePreview}
                           t={t}
@@ -296,12 +297,14 @@ function PreviewCount({ label, value }: { label: string; value: number }) {
 function VirtualPreviewFileRows({
   previews,
   selectedIds,
+  executionIntent,
   toggle,
   onRenamePreview,
   t
 }: {
   previews: OperationPreview[];
   selectedIds: Set<string>;
+  executionIntent: import("../../store/useOperationQueueStore").PreviewExecutionIntent;
   toggle: (id: string) => void;
   onRenamePreview: (id: string, name: string) => void;
   t: Translator;
@@ -317,7 +320,7 @@ function VirtualPreviewFileRows({
     return (
       <div className="grid gap-3">
         {previews.map((preview) => (
-          <PreviewFileRow key={preview.id} preview={preview} isSelected={selectedIds.has(preview.id)} toggle={toggle} onRenamePreview={onRenamePreview} t={t} />
+          <PreviewFileRow key={preview.id} preview={preview} isSelected={selectedIds.has(preview.id)} executionIntent={executionIntent} toggle={toggle} onRenamePreview={onRenamePreview} t={t} />
         ))}
       </div>
     );
@@ -336,7 +339,7 @@ function VirtualPreviewFileRows({
               style={{ transform: `translateY(${virtualRow.start}px)` }}
               role="listitem"
             >
-              <PreviewFileRow preview={preview} isSelected={selectedIds.has(preview.id)} toggle={toggle} onRenamePreview={onRenamePreview} t={t} />
+              <PreviewFileRow preview={preview} isSelected={selectedIds.has(preview.id)} executionIntent={executionIntent} toggle={toggle} onRenamePreview={onRenamePreview} t={t} />
             </div>
           );
         })}
