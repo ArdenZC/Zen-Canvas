@@ -40,12 +40,12 @@ describe("preview execute safety UI", () => {
     expect(timeline).toContain("PreviewCount label={t(\"confirmationItems\")}");
     expect(timeline).toContain("PreviewCount label={t(\"autoCreateFolders\")}");
     expect(timeline).toContain("operationConfirmationTone(selectedOperations)");
-    expect(timeline).toContain("resolveExecutableSelectedPreviews(visiblePreviews, selectedIds, executionIntent)");
+    expect(timeline).toContain("resolveExecutableSelectedPreviews(displayPreviews, selectedIds, executionIntent)");
     expect(timeline).toContain('t("executeSelectedWithCount")');
     expect(timeline).toContain("executableSelectedCount.toLocaleString()");
-    expect(timeline).toContain("disabled={executable.length === 0}");
+    expect(timeline).toContain("disabled={selectable.length === 0}");
     expect(timeline).toContain("groupDisabledDescriptionId");
-    expect(timeline).toContain("aria-describedby={executable.length === 0 ? groupDisabledDescriptionId : undefined}");
+    expect(timeline).toContain("aria-describedby={selectable.length === 0 ? groupDisabledDescriptionId : undefined}");
     expect(timeline).toContain('t("groupNoExecutableItems")');
     expect(timeline).toContain('t("operationProgressTitle")');
     expect(timeline).toContain("glassButtonWarning");
@@ -66,6 +66,8 @@ describe("preview execute safety UI", () => {
     expect(t("operationMoveRename")).toBe("移动并重命名");
     expect(t("operationBlocked")).toBe("已阻止");
     expect(t("operationExecutable")).toBe("可执行");
+    expect(t("operationInvalidName")).toBe("文件名无效");
+    expect(t("executableItems")).toBe("基础可执行项");
     expect(t("operationNeedsConfirmation")).toBe("需确认");
     expect(t("selectOperation")).toBe("选择操作");
 
@@ -85,6 +87,7 @@ describe("preview execute safety UI", () => {
     expect(row).not.toContain("items-stretch");
     expect(row).toContain('t("operationBlocked")');
     expect(row).toContain('t("operationExecutable")');
+    expect(row).toContain('t("operationInvalidName")');
     expect(row).toContain('t("operationNeedsConfirmation")');
     expect(row).toContain('aria-label={`${t("selectOperation")} · ${preview.old_name}`}');
     expect(row).toContain("minmax(0,1fr)");

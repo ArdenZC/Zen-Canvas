@@ -43,6 +43,7 @@ describe("Organize Suggestions v4.2 hardening", () => {
     expect(resolved.selectedCount).toBe(2);
     expect(resolved.operations).toEqual([good]);
     expect(timeline).toContain("const executableSelectedCount = selectedOperations.length");
+    expect(timeline).toContain("resolveExecutableSelectedPreviews(displayPreviews, selectedIds, executionIntent)");
     expect(timeline).toContain('disabled={!executableSelectedCount || isExecuting}');
     expect(timeline).toContain('replace("{count}", selectedOperations.length.toLocaleString())');
     expect(store).toContain("resolveExecutableSelectedPreviews(displayPreviews, selectedOperationIds, executionIntent)");
@@ -53,6 +54,20 @@ describe("Organize Suggestions v4.2 hardening", () => {
     expect(resolveExecutableSelectedPreviews([preview("rename")], selectedIds, null).operations).toHaveLength(1);
     expect(resolveExecutableSelectedPreviews([preview("rename", { new_name: "bad?.txt" })], selectedIds, null).operations).toHaveLength(0);
     expect(resolveExecutableSelectedPreviews([preview("rename", { new_name: "restored.txt" })], selectedIds, null).operations).toHaveLength(1);
+  });
+
+  it("renders invalid names as a distinct non-success execution state", () => {
+    const markup = renderToStaticMarkup(createElement(PreviewFileRow, {
+      preview: preview("invalid-row", { new_name: "bad?.txt" }),
+      isSelected: true,
+      toggle: () => undefined,
+      onRenamePreview: () => undefined,
+      t: makeTranslator("zh")
+    }));
+    expect(markup).toContain('data-preview-execution-state="invalid-name"');
+    expect(markup).toContain("文件名无效");
+    expect(markup).not.toContain('data-preview-execution-state="executable"');
+    expect(markup).toContain('aria-invalid="true"');
   });
 
   it("excludes blocked, backend-inexecutable, stale, and non-whitelisted selections", () => {

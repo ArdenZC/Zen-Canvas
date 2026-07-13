@@ -9,7 +9,7 @@ import { compactPath, formatDisplayPath, formatPreviewDisplayPath } from "../../
 import { ToneBadge, itemMotion } from "../shared/ui";
 import { validateOrganizeFileName } from "../organize/organizeModel";
 import { riskLabel } from "../vault/components/FileLibraryList";
-import { isPreviewExecutable } from "../../store/useOperationQueueStore";
+import { isPreviewBackendApproved, isPreviewExecutable } from "../../store/useOperationQueueStore";
 
 export const PreviewFileRow = memo(function PreviewFileRow({
   preview,
@@ -24,9 +24,12 @@ export const PreviewFileRow = memo(function PreviewFileRow({
   onRenamePreview: (id: string, name: string) => void;
   t: Translator;
 }) {
-  const blocked = !isPreviewExecutable(preview);
+  const blocked = !isPreviewBackendApproved(preview);
   const trashOperation = preview.operation_type === "move_to_trash";
   const nameError = trashOperation ? null : validateOrganizeFileName(preview.new_name);
+  const executable = isPreviewExecutable(preview);
+  const executionStatus = blocked ? "blocked" : executable ? "executable" : "invalid-name";
+  const executionStatusLabel = blocked ? t("operationBlocked") : nameError ? t("operationInvalidName") : t("operationExecutable");
 
   return (
     <motion.div
@@ -54,9 +57,11 @@ export const PreviewFileRow = memo(function PreviewFileRow({
               {operationLabel(preview.operation_type, t)} / {percent(preview.confidence)}
             </span>
           </div>
-          <ToneBadge tone={blocked ? "danger" : "success"}>
-            {blocked ? t("operationBlocked") : t("operationExecutable")}
-          </ToneBadge>
+          <span role="status" aria-label={executionStatusLabel} data-preview-execution-state={executionStatus}>
+            <ToneBadge tone={blocked ? "danger" : nameError ? "warning" : "success"}>
+              {executionStatusLabel}
+            </ToneBadge>
+          </span>
         </div>
 
         <div className="mt-2 flex flex-wrap gap-1 text-[11px]">

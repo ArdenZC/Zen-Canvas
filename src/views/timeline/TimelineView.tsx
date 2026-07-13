@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import type { OperationProgressPayload } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
-import { isPreviewExecutable, operationConfirmationTone, operationNeedsCleanupConfirmation, previewsForExecutionIntent, resolveExecutableSelectedPreviews, selectionForPreviewGroup, useOperationQueueStore } from "../../store/useOperationQueueStore";
+import { isPreviewBackendApproved, isPreviewExecutable, operationConfirmationTone, operationNeedsCleanupConfirmation, previewsForExecutionIntent, resolveExecutableSelectedPreviews, selectionForPreviewGroup, useOperationQueueStore } from "../../store/useOperationQueueStore";
 import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { groupOperationPreviews, compactPath, formatDisplayPath, libraryScopeLabel } from "../../utils/viewHelpers";
@@ -27,7 +27,7 @@ import { PreviewFileRow } from "./PreviewFileRow";
 export function TimelineView() {
   const { t, setView } = useChromeContext();
   const scope = useFileLibraryStore((state) => state.scope);
-  const previews = useOperationQueueStore((state) => state.displayPreviews);
+  const displayPreviews = useOperationQueueStore((state) => state.displayPreviews);
   const executionIntent = useOperationQueueStore((state) => state.executionIntent);
   const previewScope = useOperationQueueStore((state) => state.previewScope);
   const previewTotal = useOperationQueueStore((state) => state.previewTotal);
@@ -45,10 +45,10 @@ export function TimelineView() {
   const isOperationCanceling = useOperationQueueStore((state) => state.isOperationCanceling);
   const cancelOperations = useOperationQueueStore((state) => state.cancelOperations);
   const [confirmExecute, setConfirmExecute] = useState(false);
-  const visiblePreviews = previewsForExecutionIntent(previews, executionIntent);
+  const visiblePreviews = previewsForExecutionIntent(displayPreviews, executionIntent);
   function toggle(id: string) {
     const preview = visiblePreviews.find((item) => item.id === id);
-    if (!preview || !isPreviewExecutable(preview)) return;
+    if (!preview || (!selectedIds.has(id) && !isPreviewExecutable(preview))) return;
     const next = new Set(selectedIds);
     if (next.has(id)) next.delete(id);
     else next.add(id);
@@ -56,8 +56,8 @@ export function TimelineView() {
   }
 
   const groups = groupOperationPreviews(visiblePreviews, t);
-  const executableCount = visiblePreviews.filter(isPreviewExecutable).length;
-  const blockedCount = visiblePreviews.length - executableCount;
+  const backendApprovedCount = visiblePreviews.filter(isPreviewBackendApproved).length;
+  const blockedCount = visiblePreviews.length - backendApprovedCount;
   const confirmationCount = visiblePreviews.filter((preview) => preview.requires_confirmation).length;
   const autoCreateParentCount = visiblePreviews.filter(
     (preview) => preview.operation_type !== "move_to_trash" && preview.will_create_parent
@@ -66,7 +66,7 @@ export function TimelineView() {
   const isExecuting = Boolean(executeProgress);
   const scopeText = libraryScopeLabel(previewScope ?? scope, t("allIndexedFiles"), t("noFolderSelected"));
   const coveredTotal = executionIntent?.source === "organize" ? visiblePreviews.length : previewTotal || visiblePreviews.length;
-  const executionSelection = resolveExecutableSelectedPreviews(visiblePreviews, selectedIds, executionIntent);
+  const executionSelection = resolveExecutableSelectedPreviews(displayPreviews, selectedIds, executionIntent);
   const selectedCount = executionSelection.selectedCount;
   const selectedOperations = executionSelection.operations;
   const executableSelectedCount = selectedOperations.length;
@@ -127,7 +127,7 @@ export function TimelineView() {
             <PreviewCount label={t("previewTotalSuggestions")} value={coveredTotal} />
             <PreviewCount label={t("selectedOperations")} value={selectedCount} />
             <PreviewCount label={t("organizeExecutableSelected")} value={executableSelectedCount} />
-            <PreviewCount label={t("executableItems")} value={executableCount} />
+            <PreviewCount label={t("executableItems")} value={backendApprovedCount} />
             <PreviewCount label={t("blockedItems")} value={blockedCount} />
             <PreviewCount label={t("confirmationItems")} value={confirmationCount} />
             <PreviewCount label={t("autoCreateFolders")} value={autoCreateParentCount} />
@@ -198,23 +198,23 @@ export function TimelineView() {
         ) : (
           <div className="grid gap-4">
             {groups.map((group) => {
-              const executable = group.items.filter(isPreviewExecutable);
-              const allSelected = executable.length > 0 && executable.every((item) => selectedIds.has(item.id));
+              const selectable = group.items.filter(isPreviewExecutable);
+              const allSelected = selectable.length > 0 && selectable.every((item) => selectedIds.has(item.id));
               const selectedInGroupIds = new Set(group.items.filter((item) => selectedIds.has(item.id)).map((item) => item.id));
               const selectedInGroup = selectedInGroupIds.size;
               const executableSelectedInGroup = resolveExecutableSelectedPreviews(group.items, selectedInGroupIds, executionIntent).operations.length;
               const groupDisabledDescriptionId = `group-disabled-${group.key}`;
               return (
-                <section className={cn(interactiveRow({ disabled: executable.length === 0 }), "grid gap-3 p-4")} key={group.key}>
-                  <label className={cn("grid grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-3", executable.length > 0 && "cursor-pointer")}>
+                <section className={cn(interactiveRow({ disabled: selectable.length === 0 }), "grid gap-3 p-4")} key={group.key}>
+                  <label className={cn("grid grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-3", selectable.length > 0 && "cursor-pointer")}>
                     <input
                       type="checkbox"
                       checked={allSelected}
-                      disabled={executable.length === 0}
-                      aria-describedby={executable.length === 0 ? groupDisabledDescriptionId : undefined}
+                      disabled={selectable.length === 0}
+                      aria-describedby={selectable.length === 0 ? groupDisabledDescriptionId : undefined}
                       onChange={() => {
                         const shouldSelect = !allSelected;
-                        setSelectedIds(selectionForPreviewGroup(selectedIds, executable, shouldSelect, executionIntent));
+                        setSelectedIds(selectionForPreviewGroup(selectedIds, group.items, shouldSelect, executionIntent));
                       }}
                     />
                     <Folder size={20} />
@@ -226,7 +226,7 @@ export function TimelineView() {
                       {t("organizeGroupSelectionCompact").replace("{selected}", selectedInGroup.toLocaleString()).replace("{executable}", executableSelectedInGroup.toLocaleString())}
                     </em>
                   </label>
-                  {executable.length === 0 && (
+                  {selectable.length === 0 && (
                     <p id={groupDisabledDescriptionId} className="text-xs text-[var(--muted)]">
                       {t("groupNoExecutableItems")}
                     </p>
