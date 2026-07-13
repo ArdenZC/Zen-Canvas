@@ -54,6 +54,7 @@ export function OrganizeSuggestionsView() {
   const [batchIds, setBatchIds] = useState<Set<string>>(new Set());
   const [targetFileId, setTargetFileId] = useState<string | null>(null);
   const [confirmReanalysis, setConfirmReanalysis] = useState(false);
+  const [narrowPane, setNarrowPane] = useState<"list" | "details">("list");
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceError, setWorkspaceError] = useState(false);
   const [analysisFailed, setAnalysisFailed] = useState(false);
@@ -121,7 +122,10 @@ export function OrganizeSuggestionsView() {
 
   useEffect(() => {
     for (const suggestion of suggestions) {
-      if (suggestion.decision === "edited" && suggestion.preview && suggestion.editedName && suggestion.preview.new_name !== suggestion.editedName) {
+      const displayedPreview = suggestion.preview
+        ? useOperationQueueStore.getState().displayPreviews.find((preview) => preview.id === suggestion.preview?.id)
+        : null;
+      if (suggestion.decision === "edited" && suggestion.preview && suggestion.editedName && displayedPreview?.new_name !== suggestion.editedName) {
         onRenamePreview(suggestion.preview.id, suggestion.editedName);
       }
     }
@@ -165,7 +169,7 @@ export function OrganizeSuggestionsView() {
       return;
     } else if (event.key === "Enter") {
       event.preventDefault();
-      inspectorRef.current?.focus();
+      openInspectorDetails();
       return;
     } else return;
     event.preventDefault();
@@ -174,6 +178,17 @@ export function OrganizeSuggestionsView() {
       setActiveId(next.file.id);
       document.getElementById(`organize-suggestion-${next.file.id}`)?.scrollIntoView({ block: "nearest" });
     }
+  }
+
+  function openInspectorDetails() {
+    if (!activeSuggestion) return;
+    setNarrowPane("details");
+    requestAnimationFrame(() => inspectorRef.current?.focus());
+  }
+
+  function returnToSuggestionList() {
+    setNarrowPane("list");
+    requestAnimationFrame(() => listRef.current?.focus());
   }
 
   function toggleBatch(fileId: string) {
@@ -264,12 +279,16 @@ export function OrganizeSuggestionsView() {
         <StateBlock tone="neutral" title={t("organizeEmptyTitle")} description={t("organizeEmptyDesc")} secondaryAction={<button className={buttonSecondary} onClick={() => void analyzePending()}>{t("organizeAnalyzePending")}</button>} />
       ) : (
         <>
-          <section className={cn(contentSurface, "grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_360px] overflow-hidden max-[1100px]:grid-cols-1 max-[1100px]:overflow-auto")}>
-            <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden max-[1100px]:min-h-[360px]">
+          <section className={cn(contentSurface, "grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_360px] overflow-hidden max-[1100px]:grid-cols-1")} data-narrow-pane={narrowPane}>
+            <div id="organize-suggestion-pane" className={cn("grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden", narrowPane === "details" && "max-[1100px]:hidden")}>
+              <div className="hidden items-center justify-between gap-3 border-b border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3 py-2 max-[1100px]:flex">
+                <span className="min-w-0 truncate text-xs text-[var(--zc-text-secondary)]">{activeSuggestion?.file.name}</span>
+                <button className={cn(buttonSecondary, "min-h-8 shrink-0 px-3 py-1.5 text-xs")} type="button" aria-controls="organize-inspector" aria-label={activeSuggestion ? t("organizeDetailsForFile").replace("{name}", activeSuggestion.file.name) : t("organizeViewFileDetails")} onClick={openInspectorDetails}><FolderSearch size={14} aria-hidden="true" />{t("organizeViewFileDetails")}</button>
+              </div>
               {batchMode ? <OrganizeBatchToolbar selectedCount={batchIds.size} safeCount={safeBatchSuggestions.length} keepableCount={keepableBatchSuggestions.length} clearableCount={clearableBatchSuggestions.length} blockedCount={blockedBatchCount} needsReviewCount={needsReviewBatchCount} t={t} onAcceptSafe={() => applyBatch("accepted")} onKeep={() => applyBatch("kept")} onClear={() => applyBatch("undecided")} onExit={() => { setBatchMode(false); setBatchIds(new Set()); requestAnimationFrame(() => listRef.current?.focus()); }} /> : <div className="border-b border-[var(--zc-divider)] px-3 py-2 text-xs text-[var(--zc-text-tertiary)]">{t("organizeClickOnlyViews")}</div>}
               <OrganizeSuggestionList suggestions={suggestions} activeId={activeSuggestion?.file.id ?? ""} batchMode={batchMode} batchIds={batchIds} t={t} onActivate={setActiveId} onToggleBatch={toggleBatch} onKeyDown={handleListKeyDown} listRef={listRef} />
             </div>
-            <OrganizeSuggestionInspector suggestion={activeSuggestion} t={t} inspectorRef={inspectorRef} onAccept={() => applyDecision(activeSuggestion, "accepted")} onKeep={() => applyDecision(activeSuggestion, "kept")} onEdit={() => activeSuggestion && setTargetFileId(activeSuggestion.file.id)} onClear={() => activeSuggestion && clearDecision(scope, activeSuggestion.file, activeSuggestion.preview)} onReturnToList={() => listRef.current?.focus()} />
+            <OrganizeSuggestionInspector suggestion={activeSuggestion} t={t} inspectorRef={inspectorRef} narrowVisible={narrowPane === "details"} onAccept={() => applyDecision(activeSuggestion, "accepted")} onKeep={() => applyDecision(activeSuggestion, "kept")} onEdit={() => activeSuggestion && setTargetFileId(activeSuggestion.file.id)} onClear={() => activeSuggestion && clearDecision(scope, activeSuggestion.file, activeSuggestion.preview)} onReturnToList={returnToSuggestionList} />
           </section>
           <OrganizeDecisionBar summary={summary} t={t} onPreview={openPreview} />
         </>

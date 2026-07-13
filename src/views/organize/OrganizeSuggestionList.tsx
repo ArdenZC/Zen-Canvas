@@ -2,7 +2,7 @@ import { Archive, File, FileCode2, FileImage, FileText, Music2, Package, Video }
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 import type { Translator } from "../../types/ui";
-import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
+import { compactPath, formatDisplayPath, formatPreviewDisplayPath } from "../../utils/viewHelpers";
 import { cn } from "../../utils/tw";
 import type { OrganizeDecision, OrganizeSuggestion } from "./organizeModel";
 
@@ -134,7 +134,7 @@ function SuggestionRow({
           {suggestion.preview?.requires_confirmation ? <span className="shrink-0 text-[11px] text-[var(--zc-warning-text)]">{t("organizeNeedsConfirmation")}</span> : null}
         </div>
         <span className="block truncate text-xs text-[var(--zc-text-secondary)]" title={formatDisplayPath(suggestion.file.path)}>{compactPath(formatDisplayPath(suggestion.file.directory), 54)}</span>
-        <span className="block truncate text-[11px] text-[var(--zc-text-tertiary)]" title={target ? formatDisplayPath(target) : undefined}>{target ? `${t("organizeTargetShort")}: ${compactPath(formatDisplayPath(target), 54)}` : t("organizeTargetUnavailable")}</span>
+        <span className="block truncate text-[11px] text-[var(--zc-text-tertiary)]" title={target ? formatPreviewDisplayPath(target, t) : undefined}>{target ? `${t("organizeTargetShort")}: ${compactPath(formatPreviewDisplayPath(target, t), 54)}` : t("organizeTargetUnavailable")}</span>
       </div>
       <DecisionBadge decision={suggestion.decision} t={t} />
     </div>

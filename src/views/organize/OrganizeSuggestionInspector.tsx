@@ -1,7 +1,7 @@
-import { FileSearch, ShieldAlert } from "lucide-react";
+import { ArrowLeft, FileSearch, ShieldAlert } from "lucide-react";
 import type { RefObject } from "react";
 import type { Translator } from "../../types/ui";
-import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
+import { compactPath, formatDisplayPath, formatPreviewDisplayPath } from "../../utils/viewHelpers";
 import { lifecycleLabel, purposeLabel, riskLabel, typeLabel } from "../vault/components/FileLibraryList";
 import { buttonGhost, buttonSecondary, cn } from "../../utils/tw";
 import { DecisionBadge } from "./OrganizeSuggestionList";
@@ -11,6 +11,7 @@ export function OrganizeSuggestionInspector({
   suggestion,
   t,
   inspectorRef,
+  narrowVisible,
   onAccept,
   onKeep,
   onEdit,
@@ -20,6 +21,7 @@ export function OrganizeSuggestionInspector({
   suggestion: OrganizeSuggestion | null;
   t: Translator;
   inspectorRef: RefObject<HTMLElement | null>;
+  narrowVisible: boolean;
   onAccept: () => void;
   onKeep: () => void;
   onEdit: () => void;
@@ -28,7 +30,7 @@ export function OrganizeSuggestionInspector({
 }) {
   if (!suggestion) {
     return (
-      <aside ref={inspectorRef} tabIndex={-1} className="grid min-h-64 place-items-center border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-5 text-center max-[1100px]:border-l-0 max-[1100px]:border-t">
+      <aside id="organize-inspector" ref={inspectorRef} tabIndex={-1} className={cn("grid min-h-64 place-items-center border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-5 text-center max-[1100px]:border-l-0", !narrowVisible && "max-[1100px]:hidden")} aria-label={t("organizeFileDetails")}>
         <div className="grid max-w-xs gap-2">
           <FileSearch size={24} className="mx-auto text-[var(--zc-info-text)]" aria-hidden="true" />
           <strong>{t("organizeInspectorEmptyTitle")}</strong>
@@ -42,8 +44,9 @@ export function OrganizeSuggestionInspector({
   const targetPath = effectiveTargetPath(suggestion);
   const blockingText = organizeBlockingText(suggestion, t);
   return (
-    <aside ref={inspectorRef} tabIndex={-1} className="min-h-0 overflow-auto border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-4 max-[1100px]:border-l-0 max-[1100px]:border-t" aria-labelledby="organize-inspector-title" aria-keyshortcuts="Escape" onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); onReturnToList(); } }}>
+    <aside id="organize-inspector" ref={inspectorRef} tabIndex={-1} className={cn("min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-4 max-[1100px]:border-l-0", !narrowVisible && "max-[1100px]:hidden")} aria-labelledby="organize-inspector-title" aria-label={t("organizeDetailsForFile").replace("{name}", file.name)} aria-keyshortcuts="Escape" onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); onReturnToList(); } }}>
       <div className="grid gap-4">
+        <button type="button" className={cn(buttonGhost, "hidden min-h-8 w-fit px-2 py-1.5 text-xs max-[1100px]:inline-flex")} aria-controls="organize-suggestion-pane" onClick={onReturnToList}><ArrowLeft size={14} aria-hidden="true" />{t("organizeBackToFileList")}</button>
         <div className="grid min-h-32 place-items-center gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] px-4 py-5 text-center">
           <FileSearch size={28} className="text-[var(--zc-info-text)]" aria-hidden="true" />
           <strong className="text-sm text-[var(--zc-text-primary)]">{typeLabel(file, t)}</strong>
@@ -60,7 +63,7 @@ export function OrganizeSuggestionInspector({
 
         <dl className="grid gap-3 text-sm">
           <InspectorField label={t("organizeCurrentPath")} value={formatDisplayPath(file.path)} />
-          <InspectorField label={t("organizeSuggestedTarget")} value={targetPath ? formatDisplayPath(targetPath) : t("organizeTargetUnavailable")} tone={targetPath ? "normal" : "warning"} />
+          <InspectorField label={t("organizeSuggestedTarget")} value={targetPath ? formatPreviewDisplayPath(targetPath, t) : t("organizeTargetUnavailable")} tone={targetPath ? "normal" : "warning"} />
           <InspectorField label={t("organizeSuggestedAction")} value={preview ? operationLabel(preview.operation_type, t) : t("organizeNoExecutableAction")} />
           <InspectorField label={t("organizeWhySuggested")} value={userFacingReason(suggestion, t)} />
           <InspectorField label={t("lifecycle")} value={lifecycleLabel(file, t)} />
@@ -90,9 +93,9 @@ export function OrganizeSuggestionInspector({
           <summary className="cursor-pointer font-medium text-[var(--zc-text-secondary)]">{t("organizeAdvancedAnalysis")}</summary>
           <dl className="mt-3 grid gap-3">
             <InspectorField label={t("confidence")} value={`${Math.round(file.confidence * 100)}%`} />
-            <InspectorField label={t("organizeMatchedRules")} value={file.matched_rules.length ? file.matched_rules.join(", ") : t("unknown")} />
-            <InspectorField label={t("organizeContextSignal")} value={file.context || t("unknown")} />
-            <InspectorField label={t("organizeTechnicalBasis")} value={file.classification_reason || preview?.reason || t("unknown")} />
+            <InspectorField label={t("organizeMatchedRules")} value={userFacingMatchedRules(suggestion, t)} />
+            <InspectorField label={t("organizeContextSignal")} value={userFacingContext(suggestion, t)} />
+            <InspectorField label={t("organizeTechnicalBasis")} value={userFacingTechnicalBasis(suggestion, t)} />
             <InspectorField label={t("organizeExecutionRecheck")} value={t("organizeExecutionRecheckDesc")} />
           </dl>
         </details>
@@ -107,6 +110,24 @@ function userFacingReason(suggestion: OrganizeSuggestion, t: Translator) {
   if (suggestion.file.confidence < 0.7) return t("organizeLowConfidenceDesc");
   if (suggestion.preview) return t("organizeReasonFromAnalysis");
   return t("organizeReasonUnavailable");
+}
+
+function userFacingTechnicalBasis(suggestion: OrganizeSuggestion, t: Translator) {
+  const basis = suggestion.file.classification_reason || suggestion.preview?.reason || "";
+  if (!basis) return t("unknown");
+  return /\b(?:browser|qa)\s+mock\b/i.test(basis) ? t("organizeTechnicalBasisAvailable") : basis;
+}
+
+function userFacingMatchedRules(suggestion: OrganizeSuggestion, t: Translator) {
+  const rules = suggestion.file.matched_rules.filter((rule) => !/\bmock\b/i.test(rule));
+  if (rules.length) return rules.join(", ");
+  return suggestion.file.matched_rules.length ? t("organizeAnalysisRulesAvailable") : t("unknown");
+}
+
+function userFacingContext(suggestion: OrganizeSuggestion, t: Translator) {
+  const context = suggestion.file.context;
+  if (!context) return t("unknown");
+  return /\bmock\b/i.test(context) ? t("organizeContextAvailable") : context;
 }
 
 function InspectorField({ label, value, tone = "normal" }: { label: string; value: string; tone?: "normal" | "warning" }) {
