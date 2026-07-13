@@ -59,39 +59,64 @@ export function delay(ms: number) {
 }
 
 export function groupOperationPreviews(previews: OperationPreview[], t: Translator) {
-  const groups = new Map<string, { path: string; items: OperationPreview[]; subgroups: Map<string, { path: string; items: OperationPreview[] }> }>();
+  const groups = new Map<string, { rawPath: string; displayName: string; displayPath: string; items: OperationPreview[]; subgroups: Map<string, { rawPath: string; displayName: string; displayPath: string; items: OperationPreview[] }> }>();
   for (const preview of previews) {
     const directory = pathDirLike(preview.target_path);
     const relativeParts = relativeOrganizeParts(directory);
     const firstSegment = relativeParts[0] ?? folderNameLike(directory);
-    const mainKey = canonicalPreviewMainKey(firstSegment);
-    const subgroupParts = isCanonicalPreviewMain(firstSegment) ? relativeParts.slice(1) : relativeParts;
+    const logicalPath = isCanonicalPreviewMain(firstSegment);
+    const mainKey = logicalPath ? canonicalPreviewMainKey(firstSegment) : `real:${normalizePathLike(directory)}`;
+    const subgroupParts = logicalPath ? relativeParts.slice(1) : [];
     const subgroupKey = subgroupParts.length ? subgroupParts.join("/") : "__root__";
-    const mainPath = mainKey;
+    const mainPath = logicalPath ? mainKey : directory;
+    const mainDisplayName = logicalPath ? previewMainFolderLabel(mainKey, t) : prettyFolderName(folderNameLike(directory));
+    const mainDisplayPath = logicalPath ? previewMainFolderLabel(mainKey, t) : formatDisplayPath(directory);
     const subgroupPath = subgroupKey === "__root__" ? directory : `${mainKey}/${subgroupKey}`;
+    const subgroupDisplayName = subgroupKey === "__root__" ? t("previewRootFiles") : previewSubgroupLabel(subgroupKey, t);
+    const subgroupDisplayPath = subgroupKey === "__root__"
+      ? mainDisplayPath
+      : `${mainDisplayPath} / ${previewSubgroupLabel(subgroupKey, t)}`;
     const group = groups.get(mainKey) ?? {
-      path: mainPath,
+      rawPath: mainPath,
+      displayName: mainDisplayName,
+      displayPath: mainDisplayPath,
       items: [],
-      subgroups: new Map<string, { path: string; items: OperationPreview[] }>()
+      subgroups: new Map<string, { rawPath: string; displayName: string; displayPath: string; items: OperationPreview[] }>()
     };
     group.items.push(preview);
-    const subgroup = group.subgroups.get(subgroupKey) ?? { path: subgroupPath, items: [] };
+    const subgroup = group.subgroups.get(subgroupKey) ?? { rawPath: subgroupPath, displayName: subgroupDisplayName, displayPath: subgroupDisplayPath, items: [] };
     subgroup.items.push(preview);
     group.subgroups.set(subgroupKey, subgroup);
     groups.set(mainKey, group);
   }
   return [...groups.entries()].map(([key, group]) => ({
     key,
-    path: group.path,
-    name: previewMainFolderLabel(key, t),
+    rawPath: group.rawPath,
+    displayName: group.displayName,
+    displayPath: group.displayPath,
     items: group.items,
     subgroups: [...group.subgroups.entries()].map(([subKey, subgroup]) => ({
       key: subKey,
-      path: subgroup.path,
-      name: subKey === "__root__" ? t("previewRootFiles") : previewSubgroupLabel(subKey, t),
+      rawPath: subgroup.rawPath,
+      displayName: subgroup.displayName,
+      displayPath: subgroup.displayPath,
       items: subgroup.items
     }))
   }));
+}
+
+export function formatPreviewDisplayPath(path: string, t: Translator): string {
+  const displayPath = formatDisplayPath(path);
+  const tokens = displayPath.split(/([\\/]+)/);
+  let insideLogicalPath = false;
+  return tokens.map((token) => {
+    if (!token || /^[\\/]+$/.test(token)) return token;
+    if (isCanonicalPreviewMain(token)) {
+      insideLogicalPath = true;
+      return previewMainFolderLabel(token, t);
+    }
+    return insideLogicalPath ? previewSubgroupLabel(token, t) : token;
+  }).join("");
 }
 
 export function relativeZenCanvasParts(directory: string): string[] {
@@ -229,7 +254,7 @@ export function previewSubgroupLabel(value: string, t: Translator): string {
   const lifecycleKeys: Record<string, Parameters<Translator>[0]> = {
     inbox: "libraryLifecycleInbox", active: "libraryLifecycleActive", reference: "libraryLifecycleReference",
     archive: "libraryLifecycleArchive", disposable: "libraryLifecycleDisposable", duplicate: "libraryLifecycleDuplicate",
-    sensitive: "libraryLifecycleSensitive"
+    sensitive: "libraryLifecycleSensitive", work: "libraryPurposeWork", downloads: "previewDownloadsFolder", download: "previewDownloadsFolder"
   };
   return value.split("/").map((part) => {
     const normalized = part.replace(/^\d+_/, "").toLowerCase();

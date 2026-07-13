@@ -39,9 +39,10 @@ describe("preview execute safety UI", () => {
     expect(timeline).toContain("PreviewCount label={t(\"blockedItems\")}");
     expect(timeline).toContain("PreviewCount label={t(\"confirmationItems\")}");
     expect(timeline).toContain("PreviewCount label={t(\"autoCreateFolders\")}");
-    expect(timeline).toContain('tone={trashSelectionCount ? "danger" : "warning"}');
+    expect(timeline).toContain("operationConfirmationTone(selectedOperations)");
+    expect(timeline).toContain("resolveExecutableSelectedPreviews(visiblePreviews, selectedIds, executionIntent)");
     expect(timeline).toContain('t("executeSelectedWithCount")');
-    expect(timeline).toContain("selectedCount.toLocaleString()");
+    expect(timeline).toContain("executableSelectedCount.toLocaleString()");
     expect(timeline).toContain("disabled={executable.length === 0}");
     expect(timeline).toContain("groupDisabledDescriptionId");
     expect(timeline).toContain("aria-describedby={executable.length === 0 ? groupDisabledDescriptionId : undefined}");
@@ -76,7 +77,7 @@ describe("preview execute safety UI", () => {
     expect(row).toContain('t("targetPath")');
     expect(row).toContain('path={preview.source_path}');
     expect(row).toContain('path={preview.target_path}');
-    expect(row).toContain("displayPath = formatDisplayPath(path)");
+    expect(row).toContain("localizeLogicalPath ? formatPreviewDisplayPath(path, t) : formatDisplayPath(path)");
     expect(row).toContain("compactPath(displayPath");
     expect(row).toContain("title={displayPath}");
     expect(row).toContain("items-start");

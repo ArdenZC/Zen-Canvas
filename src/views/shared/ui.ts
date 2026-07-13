@@ -1,5 +1,6 @@
 import { createElement, useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import type { Variants } from "motion/react";
+import { CircleCheck, ShieldAlert, Trash2 } from "lucide-react";
 import {
   appPanel as appPanelClass,
   buttonSecondary,
@@ -10,6 +11,7 @@ import {
   elevatedPanel,
   glassButtonDanger,
   glassButtonPrimary,
+  glassButtonWarning,
   infoSurface,
   sectionTitle,
   softPanel as softPanelClass,
@@ -309,9 +311,10 @@ export function IconButton({
 
 export function ConfirmDialog({
   open,
-  tone = "warning",
+  tone = "default",
   title,
   description,
+  emphasis,
   confirmLabel,
   cancelLabel,
   isProcessing = false,
@@ -319,9 +322,10 @@ export function ConfirmDialog({
   onCancel
 }: {
   open: boolean;
-  tone?: "warning" | "danger";
+  tone?: "default" | "warning" | "danger";
   title: string;
   description?: string;
+  emphasis?: string;
   confirmLabel: string;
   cancelLabel: string;
   isProcessing?: boolean;
@@ -332,6 +336,7 @@ export function ConfirmDialog({
   const cancelRef = useRef<HTMLButtonElement | null>(null);
   const titleId = useId();
   const descriptionId = useId();
+  const emphasisId = useId();
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -365,27 +370,42 @@ export function ConfirmDialog({
 
   if (!open) return null;
 
+  const ToneIcon = tone === "danger" ? Trash2 : tone === "warning" ? ShieldAlert : CircleCheck;
+  const emphasisClass = tone === "danger"
+    ? dangerSurface
+    : tone === "warning"
+      ? warningSurface
+      : "rounded-[var(--zc-radius-field)] border border-[var(--zc-neutral-border)] bg-[var(--zc-neutral-soft)] px-3 py-2 text-[var(--zc-neutral-text)]";
+
   return createElement(
     "div",
-    { className: "fixed inset-0 z-50 grid place-items-center bg-slate-950/28 p-4 backdrop-blur-sm" },
+    { className: "fixed inset-0 z-50 grid place-items-center bg-[var(--zc-overlay)] p-4 backdrop-blur-sm" },
     createElement(
       "div",
       {
         ref: dialogRef,
         className: cn(elevatedPanel, "grid w-full max-w-md gap-4 p-5"),
-        role: "alertdialog",
+        role: tone === "default" ? "dialog" : "alertdialog",
         "aria-modal": "true",
         "aria-labelledby": titleId,
-        "aria-describedby": description ? descriptionId : undefined
+        "aria-describedby": [description ? descriptionId : "", emphasis ? emphasisId : ""].filter(Boolean).join(" ") || undefined
       },
       createElement(
         "div",
         null,
         createElement("h2", { id: titleId, className: sectionHeading }, title),
         description
-          ? createElement("p", { id: descriptionId, className: cn(sectionDescription, "whitespace-pre-line") }, description)
+          ? createElement("p", { id: descriptionId, className: cn(sectionDescription, "whitespace-pre-line tabular-nums") }, description)
           : null
       ),
+      emphasis
+        ? createElement(
+            "div",
+            { id: emphasisId, className: cn(emphasisClass, "flex items-start gap-2 text-sm font-medium") },
+            createElement(ToneIcon, { size: 18, className: "mt-0.5 shrink-0", "aria-hidden": "true" }),
+            createElement("span", null, emphasis)
+          )
+        : null,
       createElement(
         "div",
         { className: "flex flex-wrap justify-end gap-2" },
@@ -398,7 +418,7 @@ export function ConfirmDialog({
           "button",
           {
             type: "button",
-            className: tone === "danger" ? glassButtonDanger : glassButtonPrimary,
+            className: cn(tone === "danger" ? glassButtonDanger : tone === "warning" ? glassButtonWarning : glassButtonPrimary, "tabular-nums"),
             onClick: onConfirm,
             disabled: isProcessing
           },

@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import type { OperationProgressPayload } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
-import { previewsForExecutionIntent, selectionForPreviewGroup, useOperationQueueStore } from "../../store/useOperationQueueStore";
+import { isPreviewExecutable, operationConfirmationTone, operationNeedsCleanupConfirmation, previewsForExecutionIntent, resolveExecutableSelectedPreviews, selectionForPreviewGroup, useOperationQueueStore } from "../../store/useOperationQueueStore";
 import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { groupOperationPreviews, compactPath, formatDisplayPath, libraryScopeLabel } from "../../utils/viewHelpers";
@@ -21,7 +21,7 @@ import {
   sectionHeading,
   softPanel
 } from "../shared/ui";
-import { operationResultState, summarizeOperationLogs, validateOrganizeFileName } from "../organize/organizeModel";
+import { operationResultState, summarizeOperationLogs } from "../organize/organizeModel";
 import { PreviewFileRow } from "./PreviewFileRow";
 
 export function TimelineView() {
@@ -48,7 +48,7 @@ export function TimelineView() {
   const visiblePreviews = previewsForExecutionIntent(previews, executionIntent);
   function toggle(id: string) {
     const preview = visiblePreviews.find((item) => item.id === id);
-    if (!preview || preview.is_executable === false) return;
+    if (!preview || !isPreviewExecutable(preview)) return;
     const next = new Set(selectedIds);
     if (next.has(id)) next.delete(id);
     else next.add(id);
@@ -56,7 +56,7 @@ export function TimelineView() {
   }
 
   const groups = groupOperationPreviews(visiblePreviews, t);
-  const executableCount = visiblePreviews.filter((preview) => preview.is_executable !== false).length;
+  const executableCount = visiblePreviews.filter(isPreviewExecutable).length;
   const blockedCount = visiblePreviews.length - executableCount;
   const confirmationCount = visiblePreviews.filter((preview) => preview.requires_confirmation).length;
   const autoCreateParentCount = visiblePreviews.filter(
@@ -66,19 +66,35 @@ export function TimelineView() {
   const isExecuting = Boolean(executeProgress);
   const scopeText = libraryScopeLabel(previewScope ?? scope, t("allIndexedFiles"), t("noFolderSelected"));
   const coveredTotal = executionIntent?.source === "organize" ? visiblePreviews.length : previewTotal || visiblePreviews.length;
-  const selectedCount = selectedIds.size;
-  const selectedOperations = visiblePreviews.filter((preview) => selectedIds.has(preview.id) && preview.is_executable !== false)
-    .filter((preview) => preview.operation_type === "move_to_trash" || validateOrganizeFileName(preview.new_name) === null);
+  const executionSelection = resolveExecutableSelectedPreviews(visiblePreviews, selectedIds, executionIntent);
+  const selectedCount = executionSelection.selectedCount;
+  const selectedOperations = executionSelection.operations;
+  const executableSelectedCount = selectedOperations.length;
+  const confirmationTone = operationConfirmationTone(selectedOperations);
   const trashSelectionCount = selectedOperations.filter((preview) => preview.operation_type === "move_to_trash").length;
   const sensitiveSelectionCount = selectedOperations.filter((preview) => preview.risk_level === "Sensitive").length;
   const systemSelectionCount = selectedOperations.filter((preview) => preview.risk_level === "System").length;
   const duplicateSelectionCount = selectedOperations.filter((preview) => preview.is_duplicate).length;
   const confirmationSelectionCount = selectedOperations.filter((preview) => preview.requires_confirmation).length;
   const createParentSelectionCount = selectedOperations.filter((preview) => preview.will_create_parent).length;
+  const lowConfidenceSelectionCount = selectedOperations.filter((preview) => preview.confidence < 0.7).length;
+  const warningSelectionCount = selectedOperations.filter(operationNeedsCleanupConfirmation).length;
   const resultSummary = summarizeOperationLogs(lastExecutionLogs);
   const resultState = operationResultState(resultSummary, Boolean(executionError));
   const ResultIcon = resultState === "success" ? CheckCircle2 : resultState === "canceled" || resultState === "no-changes" ? CircleSlash2 : TriangleAlert;
-  const executeButtonLabel = t("executeSelectedWithCount").replace("{count}", selectedCount.toLocaleString());
+  const executeButtonLabel = t("executeSelectedWithCount").replace("{count}", executableSelectedCount.toLocaleString());
+  const confirmationTitle = confirmationTone === "danger"
+    ? t("confirmMoveToTrashTitle")
+    : confirmationTone === "warning"
+      ? t("organizeExecuteRiskConfirmTitle")
+      : t("organizeExecuteNormalConfirmTitle");
+  const confirmationEmphasis = confirmationTone === "danger"
+    ? t("organizeTrashConfirmEmphasis").replace("{count}", trashSelectionCount.toLocaleString())
+    : sensitiveSelectionCount > 0
+      ? t("organizeSensitiveConfirmEmphasis").replace("{count}", sensitiveSelectionCount.toLocaleString())
+      : confirmationTone === "warning"
+        ? t("organizeRiskConfirmEmphasis").replace("{count}", warningSelectionCount.toLocaleString())
+        : t("organizeNormalConfirmEmphasis");
 
   return (
     <div className={pageSurface}>
@@ -91,7 +107,7 @@ export function TimelineView() {
             {executionIntent?.source === "organize" ? <p className="mt-1 text-sm text-[var(--zc-info-text)]">{t("organizePreviewAcceptedOnly")}</p> : null}
             <p className="mt-2 truncate text-xs text-[var(--muted)]">{t("currentOrganizeScope")}: {scopeText}</p>
           </div>
-          <button className={glassButtonPrimary} onClick={() => setConfirmExecute(true)} disabled={!selectedOperations.length || isExecuting}>
+          <button className={cn(glassButtonPrimary, "tabular-nums")} onClick={() => setConfirmExecute(true)} disabled={!executableSelectedCount || isExecuting}>
             <Play size={16} />
             <span>{isExecuting ? t("executingOperations") : executeButtonLabel}</span>
           </button>
@@ -110,12 +126,24 @@ export function TimelineView() {
           <dl className={cn(contentSurface, "grid grid-cols-2 divide-x divide-y divide-[var(--zc-divider)] overflow-hidden text-sm sm:grid-cols-3 sm:divide-y-0")}>
             <PreviewCount label={t("previewTotalSuggestions")} value={coveredTotal} />
             <PreviewCount label={t("selectedOperations")} value={selectedCount} />
+            <PreviewCount label={t("organizeExecutableSelected")} value={executableSelectedCount} />
             <PreviewCount label={t("executableItems")} value={executableCount} />
             <PreviewCount label={t("blockedItems")} value={blockedCount} />
             <PreviewCount label={t("confirmationItems")} value={confirmationCount} />
             <PreviewCount label={t("autoCreateFolders")} value={autoCreateParentCount} />
           </dl>
         </div>
+        {executionSelection.excludedCount > 0 ? (
+          <NoticeBanner tone="warning" title={t("organizeSelectionExcludedTitle")}>
+            {t("organizeSelectionExcludedDesc")
+              .replace("{selected}", selectedCount.toLocaleString())
+              .replace("{executable}", executableSelectedCount.toLocaleString())
+              .replace("{invalid}", executionSelection.invalidNameCount.toLocaleString())
+              .replace("{blocked}", executionSelection.blockedCount.toLocaleString())
+              .replace("{outside}", executionSelection.outsideWhitelistCount.toLocaleString())
+              .replace("{unavailable}", executionSelection.unavailableCount.toLocaleString())}
+          </NoticeBanner>
+        ) : null}
         {previewTruncated && (
           <NoticeBanner tone="warning">
             {t("previewTruncatedWarning")
@@ -170,9 +198,11 @@ export function TimelineView() {
         ) : (
           <div className="grid gap-4">
             {groups.map((group) => {
-              const executable = group.items.filter((item) => item.is_executable !== false);
+              const executable = group.items.filter(isPreviewExecutable);
               const allSelected = executable.length > 0 && executable.every((item) => selectedIds.has(item.id));
-              const selectedInGroup = executable.filter((item) => selectedIds.has(item.id)).length;
+              const selectedInGroupIds = new Set(group.items.filter((item) => selectedIds.has(item.id)).map((item) => item.id));
+              const selectedInGroup = selectedInGroupIds.size;
+              const executableSelectedInGroup = resolveExecutableSelectedPreviews(group.items, selectedInGroupIds, executionIntent).operations.length;
               const groupDisabledDescriptionId = `group-disabled-${group.key}`;
               return (
                 <section className={cn(interactiveRow({ disabled: executable.length === 0 }), "grid gap-3 p-4")} key={group.key}>
@@ -189,11 +219,11 @@ export function TimelineView() {
                     />
                     <Folder size={20} />
                     <div>
-                      <strong className="block text-sm">{group.name}</strong>
-                    <span className="block truncate text-xs text-[var(--muted)]">{formatDisplayPath(group.path)}</span>
+                      <strong className="block text-sm">{group.displayName}</strong>
+                    <span className="block truncate text-xs text-[var(--muted)]" title={group.displayPath}>{group.displayPath}</span>
                     </div>
-                    <em className="rounded-full border border-[var(--line)] px-2 py-1 text-xs not-italic text-[var(--muted)]">
-                      {selectedInGroup.toLocaleString()} / {executable.length.toLocaleString()}
+                    <em className="rounded-full border border-[var(--line)] px-2 py-1 text-xs not-italic tabular-nums text-[var(--muted)]" title={t("organizeGroupSelectionSummary").replace("{selected}", selectedInGroup.toLocaleString()).replace("{executable}", executableSelectedInGroup.toLocaleString())}>
+                      {t("organizeGroupSelectionCompact").replace("{selected}", selectedInGroup.toLocaleString()).replace("{executable}", executableSelectedInGroup.toLocaleString())}
                     </em>
                   </label>
                   {executable.length === 0 && (
@@ -207,8 +237,8 @@ export function TimelineView() {
                         <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 pb-2">
                           <Folder size={16} />
                           <div>
-                            <strong className="block text-sm">{subgroup.name}</strong>
-                            <span className="block truncate text-xs text-[var(--muted)]">{formatDisplayPath(subgroup.path)}</span>
+                            <strong className="block text-sm">{subgroup.displayName}</strong>
+                            <span className="block truncate text-xs text-[var(--muted)]" title={subgroup.displayPath}>{subgroup.displayPath}</span>
                           </div>
                           <em className="text-xs not-italic text-[var(--muted)]">{subgroup.items.length}</em>
                         </div>
@@ -235,19 +265,21 @@ export function TimelineView() {
       </section>
       <ConfirmDialog
         open={confirmExecute}
-        tone={trashSelectionCount ? "danger" : "warning"}
-        title={trashSelectionCount ? t("confirmMoveToTrashTitle") : t("organizeExecuteConfirmTitle")}
+        tone={confirmationTone}
+        title={confirmationTitle}
         description={[
-          trashSelectionCount ? t("confirmMoveToTrashDesc") : "",
+          confirmationTone === "danger" ? t("confirmMoveToTrashDesc") : confirmationTone === "warning" ? t("organizeExecuteRiskConfirmDesc") : t("organizeExecuteNormalConfirmDesc"),
           t("organizeExecuteConfirmDesc").replace("{count}", selectedOperations.length.toLocaleString()),
-          t("organizeExecuteRiskSummary")
+          confirmationTone !== "default" ? t("organizeExecuteRiskSummary")
             .replace("{confirmation}", confirmationSelectionCount.toLocaleString())
             .replace("{sensitive}", sensitiveSelectionCount.toLocaleString())
             .replace("{system}", systemSelectionCount.toLocaleString())
             .replace("{duplicate}", duplicateSelectionCount.toLocaleString())
             .replace("{trash}", trashSelectionCount.toLocaleString())
             .replace("{folders}", createParentSelectionCount.toLocaleString())
+            .replace("{lowConfidence}", lowConfidenceSelectionCount.toLocaleString()) : ""
         ].filter(Boolean).join("\n")}
+        emphasis={confirmationEmphasis}
         confirmLabel={t("organizeExecuteConfirmAction").replace("{count}", selectedOperations.length.toLocaleString())}
         cancelLabel={t("cancel")}
         onCancel={() => setConfirmExecute(false)}

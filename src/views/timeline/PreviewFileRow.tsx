@@ -5,10 +5,11 @@ import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { percent } from "../../utils/format";
 import { cn, inputSurface } from "../../utils/tw";
-import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
+import { compactPath, formatDisplayPath, formatPreviewDisplayPath } from "../../utils/viewHelpers";
 import { ToneBadge, itemMotion } from "../shared/ui";
 import { validateOrganizeFileName } from "../organize/organizeModel";
 import { riskLabel } from "../vault/components/FileLibraryList";
+import { isPreviewExecutable } from "../../store/useOperationQueueStore";
 
 export const PreviewFileRow = memo(function PreviewFileRow({
   preview,
@@ -23,7 +24,7 @@ export const PreviewFileRow = memo(function PreviewFileRow({
   onRenamePreview: (id: string, name: string) => void;
   t: Translator;
 }) {
-  const blocked = preview.is_executable === false;
+  const blocked = !isPreviewExecutable(preview);
   const trashOperation = preview.operation_type === "move_to_trash";
   const nameError = trashOperation ? null : validateOrganizeFileName(preview.new_name);
 
@@ -74,8 +75,8 @@ export const PreviewFileRow = memo(function PreviewFileRow({
         {preview.reason ? <p className="mt-2 text-xs text-[var(--muted)]">{t("organizeReasonFromAnalysis")}</p> : null}
 
         <div className="mt-2 grid min-w-0 gap-2 xl:grid-cols-2">
-          <PathBlock label={t("sourcePath")} path={preview.source_path} tone="source" />
-          <PathBlock label={t("targetPath")} path={preview.target_path} tone="target" />
+          <PathBlock label={t("sourcePath")} path={preview.source_path} tone="source" t={t} />
+          <PathBlock label={t("targetPath")} path={preview.target_path} tone="target" t={t} localizeLogicalPath />
         </div>
 
         {!trashOperation && (
@@ -95,8 +96,8 @@ export const PreviewFileRow = memo(function PreviewFileRow({
   );
 });
 
-function PathBlock({ label, path, tone }: { label: string; path: string; tone: "source" | "target" }) {
-  const displayPath = formatDisplayPath(path);
+function PathBlock({ label, path, tone, t, localizeLogicalPath = false }: { label: string; path: string; tone: "source" | "target"; t: Translator; localizeLogicalPath?: boolean }) {
+  const displayPath = localizeLogicalPath ? formatPreviewDisplayPath(path, t) : formatDisplayPath(path);
   return (
     <div
       className={cn(
