@@ -376,7 +376,14 @@ export function OperationProgressPanel({
           {progress.processed.toLocaleString()} / {progress.total.toLocaleString()}
         </span>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-white/50 dark:bg-white/10">
+      <div
+        className="h-2 overflow-hidden rounded-full bg-white/50 dark:bg-white/10"
+        role="progressbar"
+        aria-label={progress.kind === "restore" ? t("restoring") : t("operationProgressTitle")}
+        aria-valuemin={0}
+        aria-valuemax={progress.total}
+        aria-valuenow={Math.min(progress.total, progress.processed)}
+      >
         <div
           className="h-full rounded-full bg-[var(--zc-primary)] transition-[width] motion-reduce:transition-none"
           style={{ width: `${Math.round(ratio * 100)}%` }}

@@ -9,6 +9,7 @@ import { useFileLibraryStore } from "./useFileLibraryStore";
 import { useRulesStore } from "./useRulesStore";
 import { useOrganizeDecisionStore } from "./useOrganizeDecisionStore";
 import { organizeScopeKey, validateOrganizeFileName } from "../views/organize/organizeModel";
+import { resolveOperationRestoreSelection } from "../views/history/historyModel";
 
 export const MAX_LOGS = 500;
 
@@ -137,6 +138,8 @@ export interface OperationQueueStore {
   previewHasMore: boolean;
   previewActionCount: number;
   lastExecutionLogs: OperationLog[];
+  lastRestoreResult: OperationLog[];
+  restoreError: string;
   executionIntent: PreviewExecutionIntent;
   executionError: string;
   previewRequestId: number;
@@ -148,6 +151,7 @@ export interface OperationQueueStore {
   unlistener?: UnlistenFn;
   initializeOperationQueue: () => Promise<void>;
   loadPersistedOperationLogs: () => Promise<void>;
+  refreshOperationLogs: () => Promise<OperationLog[]>;
   syncPreviews: (files: FileRecord[]) => void;
   setPreviewResult: (result: OperationPreviewResult, scope: LibraryScope) => void;
   refreshPreviewsForScope: (scope: LibraryScope) => Promise<OperationPreviewResult>;
@@ -158,7 +162,7 @@ export interface OperationQueueStore {
   clearExecutionIntent: () => void;
   runDispatch: (confirmed: boolean) => Promise<RuleExecutionSummary>;
   executeSelected: (confirmed: boolean) => Promise<OperationLog[]>;
-  restoreOperationLogs: (logs: OperationLog[]) => Promise<void>;
+  restoreOperationLogs: (logsOrIds: OperationLog[] | string[]) => Promise<OperationLog[]>;
   cancelOperations: () => Promise<void>;
   onRenamePreview: (id: string, name: string) => void;
 }
@@ -241,6 +245,8 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
   previewHasMore: false,
   previewActionCount: 0,
   lastExecutionLogs: [],
+  lastRestoreResult: [],
+  restoreError: "",
   executionIntent: null,
   executionError: "",
   previewRequestId: 0,
@@ -279,6 +285,11 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
     } catch (error) {
       useAppStore.getState().showError(readableError(error));
     }
+  },
+  refreshOperationLogs: async () => {
+    const persistedLogs = await tauriApi.getOperationLogs(MAX_LOGS);
+    set((state) => ({ operationLogs: mergeOperationLogs(persistedLogs, state.operationLogs) }));
+    return persistedLogs;
   },
   syncPreviews: (files) => {
     const previews = createOperationPreviews(files);
@@ -542,9 +553,27 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       });
     }
   },
-  restoreOperationLogs: async (logs) => {
+  restoreOperationLogs: async (logsOrIds) => {
     const t = currentT();
-    if (!logs.length) return;
+    const requestedIds = logsOrIds.map((value) => typeof value === "string" ? value : value.id);
+    if (!requestedIds.length) return [];
+
+    let authoritativeLogs: OperationLog[];
+    try {
+      authoritativeLogs = await get().refreshOperationLogs();
+    } catch (error) {
+      const message = readableError(error);
+      set({ restoreError: message, lastRestoreResult: [] });
+      useAppStore.getState().showError(message);
+      return [];
+    }
+    const selection = resolveOperationRestoreSelection(authoritativeLogs, requestedIds);
+    const logs = selection.executable;
+    set({ restoreError: "", lastRestoreResult: [] });
+    if (!logs.length) {
+      set({ restoreError: t("restoreNoExecutableSelected") });
+      return [];
+    }
 
     set({
       activeOperationKind: "restore",
@@ -562,7 +591,9 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       const result = await tauriApi.restoreMoves(logs);
       const updatedById = new Map(result.logs.map((log) => [log.id, log]));
       set((state) => ({
-        operationLogs: state.operationLogs.map((log) => updatedById.get(log.id) ?? log)
+        operationLogs: state.operationLogs.map((log) => updatedById.get(log.id) ?? log),
+        lastRestoreResult: result.logs,
+        restoreError: result.failed > 0 ? `${t("failed")}: ${result.failed.toLocaleString()}` : ""
       }));
       await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
       const previewScope = get().previewScope;
@@ -573,8 +604,12 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       } else {
         useAppStore.getState().showSuccess(canceled ? t("operationCanceled") : `${t("restored")}: ${result.restored.toLocaleString()}`);
       }
+      return result.logs;
     } catch (error) {
-      useAppStore.getState().showError(readableError(error));
+      const message = readableError(error);
+      set({ restoreError: message, lastRestoreResult: [] });
+      useAppStore.getState().showError(message);
+      return [];
     } finally {
       set({
         activeOperationKind: null,

@@ -47,7 +47,7 @@ export type SuggestedAction =
 
 export type DispatchZone = "CoreAssets" | "QuietArchive" | "PrivacyVault" | "CleanupLane";
 export type SearchSourceType = "user_space" | "folder" | "cloud" | "external";
-export type RestoreStatus = "not_restored" | "restored" | "failed" | "unavailable" | "canceled";
+export type RestoreStatus = "not_restored" | "pending" | "restored" | "failed" | "unavailable" | "canceled";
 export type CleanupTier = "Safe" | "Review" | "Caution";
 export type CleanupActionKind = "MoveToTrash" | "Reveal" | "UninstallAdvice" | "AppInternalCleanup" | "None";
 export type OperationType = "move" | "rename" | "move_rename" | "move_to_trash";
