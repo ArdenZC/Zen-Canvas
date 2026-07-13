@@ -8,6 +8,7 @@ import { compactPath, formatDisplayPath } from "../../../utils/viewHelpers";
 import { buttonSecondary, cn, floatingSurface, glassButtonPrimary } from "../../../utils/tw";
 import { filePreviewKind, selectionSummary } from "../fileLibraryModel";
 import { purposeLabel, typeLabel } from "./FileLibraryList";
+import { ModalPortal, restoreDialogFocus } from "../../../components/modal/ModalPortal";
 
 export function FileLibraryInspector({
   selectedIds,
@@ -69,13 +70,16 @@ export function FileLibraryPreviewDialog({
   onReveal: (path: string) => void;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!file) return;
-    closeRef.current?.focus();
+    const previous = document.activeElement;
+    const focusFrame = requestAnimationFrame(() => closeRef.current?.focus());
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key === "Tab") {
@@ -94,19 +98,24 @@ export function FileLibraryPreviewDialog({
       }
     };
     document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [file, onClose]);
+    return () => {
+      cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleKeyDown);
+      requestAnimationFrame(() => restoreDialogFocus(previous));
+    };
+  }, [file]);
 
   if (!file) return null;
   return (
-    <div className="fixed inset-0 z-40 grid place-items-center bg-black/20 p-5" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <ModalPortal>
+    <div className="fixed inset-0 z-40 grid place-items-center bg-black/20 p-5" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
       <section className={cn(floatingSurface, "grid w-full max-w-xl gap-4 p-5")} role="dialog" aria-modal="true" aria-labelledby="library-preview-title">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{previewTitle(file, t)}</p>
             <h2 id="library-preview-title" className="mt-1 truncate text-lg font-semibold text-[var(--zc-text-primary)]" title={file.name}>{file.name}</h2>
           </div>
-          <button ref={closeRef} type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--zc-radius-control)] text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]" aria-label={t("libraryPreviewClose")} title={t("libraryPreviewClose")} onClick={onClose}>
+          <button ref={closeRef} type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--zc-radius-control)] text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]" aria-label={t("libraryPreviewClose")} title={t("libraryPreviewClose")} onClick={onCloseRef.current}>
             <X size={17} />
           </button>
         </div>
@@ -118,6 +127,7 @@ export function FileLibraryPreviewDialog({
         <p className="text-xs text-[var(--zc-text-tertiary)]">{formatDate(file.modified_at, language)} · {formatBytes(file.size)}</p>
       </section>
     </div>
+    </ModalPortal>
   );
 }
 

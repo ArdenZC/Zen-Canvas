@@ -61,7 +61,9 @@ describe("App Shell v4", () => {
   });
 
   it("keeps background content inert, restores Spotlight focus, and does not inject scan actions", () => {
-    expect(appShell).toContain("inert={isCommandOpen ? true : undefined}");
+    expect(appShell).toContain("APP_SHELL_CONTENT_ID");
+    expect(appShell).toContain("<ModalHost />");
+    expect(appShell).not.toContain("inert={isCommandOpen ? true : undefined}");
     expect(appShell).toContain("restoreFocusRef={spotlightTriggerRef}");
     expect(appShell).not.toContain("handleChooseFolders");
     expect(appShell).not.toContain("handleScan");

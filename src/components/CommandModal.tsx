@@ -11,9 +11,10 @@ import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { compactPath, formatDisplayPath, readableError } from "../utils/viewHelpers";
 import { IconButton, StateBlock, ToneBadge, quietText } from "../views/shared/ui";
+import { ModalPortal, restoreDialogFocus } from "./modal/ModalPortal";
 import { createCommandRegistry, executeSpotlightCommand, queryCommandRegistry, requestSettingsSection, type SpotlightCommand } from "./spotlight/commandRegistry";
 import { buildRecentGroups, groupSpotlightResults, mergeSpotlightResults, type SpotlightResult } from "./spotlight/spotlightModel";
-import { cycleDialogFocus, restoreDialogFocus } from "./spotlight/focusTrap";
+import { cycleDialogFocus } from "./spotlight/focusTrap";
 
 const keyBadge =
   "flex items-center justify-center rounded border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[var(--zc-text-tertiary)] shadow-sm";
@@ -204,10 +205,11 @@ export function CommandModal({
   const showScopeMeta = Boolean(searchScopeLabel && !isStandaloneCollapsed);
 
   useEffect(() => {
-    const previous = restoreFocusRef?.current ?? (document.activeElement as HTMLElement | null);
-    inputRef.current?.focus();
+    const previous = document.activeElement;
+    const focusFrame = requestAnimationFrame(() => inputRef.current?.focus());
     return () => {
-      if (!standalone) restoreDialogFocus(restoreFocusRef?.current ?? previous);
+      cancelAnimationFrame(focusFrame);
+      if (!standalone) requestAnimationFrame(() => restoreDialogFocus(previous, restoreFocusRef?.current));
     };
   }, [inputRef, restoreFocusRef, standalone]);
 
@@ -392,7 +394,7 @@ export function CommandModal({
     return <FileText size={20} strokeWidth={1.5} />;
   }
 
-  return (
+  const content = (
     <div
       className={cn(
         standalone
@@ -559,6 +561,8 @@ export function CommandModal({
       </motion.div>
     </div>
   );
+
+  return standalone ? content : <ModalPortal>{content}</ModalPortal>;
 }
 
 function SpotlightResultGroups({

@@ -3,6 +3,7 @@ import type { Translator } from "../../types/ui";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
 import { buttonSecondary, cn, floatingSurface, glassButtonPrimary, inputSurface } from "../../utils/tw";
 import { validateOrganizeFileName, type OrganizeSuggestion } from "./organizeModel";
+import { ModalPortal, restoreDialogFocus } from "../../components/modal/ModalPortal";
 
 export function OrganizeTargetDialog({ suggestion, t, onSave, onClose }: { suggestion: OrganizeSuggestion | null; t: Translator; onSave: (name: string) => void; onClose: () => void }) {
   const [name, setName] = useState("");
@@ -10,16 +11,18 @@ export function OrganizeTargetDialog({ suggestion, t, onSave, onClose }: { sugge
   const inputRef = useRef<HTMLInputElement | null>(null);
   const titleId = useId();
   const descriptionId = useId();
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!suggestion) return;
     setName(suggestion.editedName || suggestion.preview?.new_name || suggestion.file.name);
-    const previous = document.activeElement as HTMLElement | null;
-    requestAnimationFrame(() => inputRef.current?.focus());
+    const previous = document.activeElement;
+    const focusFrame = requestAnimationFrame(() => inputRef.current?.focus());
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab" || !dialogRef.current) return;
@@ -32,16 +35,18 @@ export function OrganizeTargetDialog({ suggestion, t, onSave, onClose }: { sugge
     };
     document.addEventListener("keydown", onKeyDown);
     return () => {
+      cancelAnimationFrame(focusFrame);
       document.removeEventListener("keydown", onKeyDown);
-      previous?.focus();
+      requestAnimationFrame(() => restoreDialogFocus(previous));
     };
-  }, [onClose, suggestion]);
+  }, [suggestion]);
 
   if (!suggestion) return null;
   const error = validateOrganizeFileName(name);
   const errorMessage = error ? t(error === "empty" ? "organizeNameErrorEmpty" : error === "reserved" ? "organizeNameErrorReserved" : "organizeNameErrorUnsafe") : "";
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/25 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <ModalPortal>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/25 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
       <div ref={dialogRef} className={cn(floatingSurface, "grid w-full max-w-lg gap-4 p-5")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
         <div>
           <h2 id={titleId} className="text-lg font-semibold text-[var(--zc-text-primary)]">{t("organizeTargetDialogTitle")}</h2>
@@ -62,5 +67,6 @@ export function OrganizeTargetDialog({ suggestion, t, onSave, onClose }: { sugge
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }

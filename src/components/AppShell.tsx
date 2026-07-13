@@ -35,6 +35,7 @@ import { cn, statusToast, toastTone } from "../utils/tw";
 import { compactPath, libraryScopeLabel, readableError } from "../utils/viewHelpers";
 import { PageHeader, pageFrame, softPanel, viewStage } from "../views/shared/ui";
 import { organizeScopeKey } from "../views/organize/organizeModel";
+import { APP_SHELL_CONTENT_ID, ModalHost } from "./modal/ModalPortal";
 
 const ScannerView = lazy(() => import("../views/scanner/ScannerView").then((module) => ({ default: module.ScannerView })));
 const StorageCleanupView = lazy(() => import("../views/cleanup/StorageCleanupView").then((module) => ({ default: module.StorageCleanupView })));
@@ -103,7 +104,8 @@ export function AppShell() {
   return (
     <div className={appRoot}>
       <AmbientMesh />
-      <header className={titlebar} inert={isCommandOpen ? true : undefined}>
+      <div id={APP_SHELL_CONTENT_ID} className="contents">
+      <header className={titlebar}>
         <div className="flex items-center justify-start">
           {!isWindows ? <MacWindowControls /> : null}
         </div>
@@ -118,7 +120,7 @@ export function AppShell() {
           {isWindows ? <WindowsControls /> : null}
         </div>
       </header>
-      <div className={workspaceShell} inert={isCommandOpen ? true : undefined}>
+      <div className={workspaceShell}>
         <Sidebar groups={groups} />
         <main className={workspaceClass}>
           <ShellViewHeading view={view} activeLabel={activeLabel} headingDescription={headingDescription} />
@@ -134,6 +136,8 @@ export function AppShell() {
       {isCloseChoiceOpen && (
         <CloseChoiceDialog t={t} onCancel={onCancelCloseChoice} onChoose={resolveCloseChoice} />
       )}
+      </div>
+      <ModalHost />
     </div>
   );
 }

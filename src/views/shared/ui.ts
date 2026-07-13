@@ -1,6 +1,7 @@
 import { createElement, useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 import type { Variants } from "motion/react";
 import { CircleCheck, ShieldAlert, Trash2 } from "lucide-react";
+import { ModalPortal, restoreDialogFocus } from "../../components/modal/ModalPortal";
 import {
   appPanel as appPanelClass,
   buttonSecondary,
@@ -335,7 +336,6 @@ export function ConfirmDialog({
   onCancel: () => void;
 }) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
-  const overlayRef = useRef<HTMLDivElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement | null>(null);
   const onCancelRef = useRef(onCancel);
   const isProcessingRef = useRef(isProcessing);
@@ -348,21 +348,8 @@ export function ConfirmDialog({
   restoreFocusRef.current = restoreFocus;
   useEffect(() => {
     if (!open) return;
-    const previous = document.activeElement as HTMLElement | null;
-    const overlay = overlayRef.current;
-    const backgroundSiblings = overlay?.parentElement
-      ? [...overlay.parentElement.children].filter((element): element is HTMLElement => element instanceof HTMLElement && element !== overlay)
-      : [];
-    const backgroundState = backgroundSiblings.map((element) => ({
-      element,
-      inert: element.inert,
-      ariaHidden: element.getAttribute("aria-hidden")
-    }));
-    for (const sibling of backgroundSiblings) {
-      sibling.inert = true;
-      sibling.setAttribute("aria-hidden", "true");
-    }
-    cancelRef.current?.focus();
+    const previous = document.activeElement;
+    const focusFrame = requestAnimationFrame(() => cancelRef.current?.focus());
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && !isProcessingRef.current) {
         event.preventDefault();
@@ -385,26 +372,9 @@ export function ConfirmDialog({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => {
+      cancelAnimationFrame(focusFrame);
       document.removeEventListener("keydown", handleKeyDown);
-      for (const { element, inert, ariaHidden } of backgroundState) {
-        element.inert = inert;
-        if (ariaHidden === null) element.removeAttribute("aria-hidden");
-        else element.setAttribute("aria-hidden", ariaHidden);
-      }
-      const previousUsable = previous !== document.body
-        && previous !== document.documentElement
-        && previous?.isConnected
-        && !previous.matches(":disabled, [hidden], [aria-hidden='true']")
-        && !previous.closest("[inert]");
-      const target = previousUsable
-        ? previous
-        : restoreFocusRef.current?.()
-          ?? document.querySelector<HTMLElement>("[data-dialog-focus-fallback]:not([disabled])")
-          ?? document.querySelector<HTMLElement>("main h1, main h2, [role='main'] h1, [role='main'] h2");
-      if (target?.isConnected) {
-        if (!target.matches("button, input, select, textarea, a[href], [tabindex]")) target.tabIndex = -1;
-        target.focus();
-      }
+      requestAnimationFrame(() => restoreDialogFocus(previous, restoreFocusRef.current?.()));
     };
   }, [open]);
 
@@ -418,51 +388,42 @@ export function ConfirmDialog({
       : "rounded-[var(--zc-radius-field)] border border-[var(--zc-neutral-border)] bg-[var(--zc-neutral-soft)] px-3 py-2 text-[var(--zc-neutral-text)]";
 
   return createElement(
-    "div",
-    { ref: overlayRef, className: "fixed inset-0 z-50 grid place-items-center bg-[var(--zc-overlay)] p-4 backdrop-blur-sm" },
+    ModalPortal,
+    null,
     createElement(
       "div",
-      {
-        ref: dialogRef,
-        className: cn(elevatedPanel, "grid w-full max-w-md gap-4 p-5"),
-        role: tone === "default" ? "dialog" : "alertdialog",
-        "aria-modal": "true",
-        "aria-labelledby": titleId,
-        "aria-describedby": [description ? descriptionId : "", emphasis ? emphasisId : ""].filter(Boolean).join(" ") || undefined
-      },
+      { className: "fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-4 backdrop-blur-sm" },
       createElement(
         "div",
-        null,
-        createElement("h2", { id: titleId, className: sectionHeading }, title),
-        description
-          ? createElement("p", { id: descriptionId, className: cn(sectionDescription, "whitespace-pre-line tabular-nums") }, description)
-          : null
-      ),
-      emphasis
-        ? createElement(
-            "div",
-            { id: emphasisId, className: cn(emphasisClass, "flex items-start gap-2 text-sm font-medium") },
-            createElement(ToneIcon, { size: 18, className: "mt-0.5 shrink-0", "aria-hidden": "true" }),
-            createElement("span", null, emphasis)
-          )
-        : null,
-      createElement(
-        "div",
-        { className: "flex flex-wrap justify-end gap-2" },
+        {
+          ref: dialogRef,
+          className: cn(elevatedPanel, "grid w-full max-w-md gap-4 p-5"),
+          role: tone === "default" ? "dialog" : "alertdialog",
+          "aria-modal": "true",
+          "aria-labelledby": titleId,
+          "aria-describedby": [description ? descriptionId : "", emphasis ? emphasisId : ""].filter(Boolean).join(" ") || undefined
+        },
         createElement(
-          "button",
-          { ref: cancelRef, type: "button", className: buttonSecondary, onClick: onCancel, disabled: isProcessing },
-          cancelLabel
+          "div",
+          null,
+          createElement("h2", { id: titleId, className: sectionHeading }, title),
+          description
+            ? createElement("p", { id: descriptionId, className: cn(sectionDescription, "whitespace-pre-line tabular-nums") }, description)
+            : null
         ),
+        emphasis
+          ? createElement(
+              "div",
+              { id: emphasisId, className: cn(emphasisClass, "flex items-start gap-2 text-sm font-medium") },
+              createElement(ToneIcon, { size: 18, className: "mt-0.5 shrink-0", "aria-hidden": "true" }),
+              createElement("span", null, emphasis)
+            )
+          : null,
         createElement(
-          "button",
-          {
-            type: "button",
-            className: cn(tone === "danger" ? glassButtonDanger : tone === "warning" ? glassButtonWarning : glassButtonPrimary, "tabular-nums"),
-            onClick: onConfirm,
-            disabled: isProcessing
-          },
-          confirmLabel
+          "div",
+          { className: "flex flex-wrap justify-end gap-2" },
+          createElement("button", { ref: cancelRef, type: "button", className: buttonSecondary, onClick: onCancel, disabled: isProcessing }, cancelLabel),
+          createElement("button", { type: "button", className: cn(tone === "danger" ? glassButtonDanger : tone === "warning" ? glassButtonWarning : glassButtonPrimary, "tabular-nums"), onClick: onConfirm, disabled: isProcessing }, confirmLabel)
         )
       )
     )

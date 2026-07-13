@@ -182,8 +182,8 @@ describe("Organize Suggestions v4.2 hardening", () => {
     const timeline = read("src/views/timeline/TimelineView.tsx");
     expect(dialog).toContain('event.key !== "Tab"');
     expect(dialog).toContain('event.key === "Escape"');
-    expect(dialog).toContain("previousUsable");
-    expect(dialog).toContain("restoreFocusRef.current?.()");
+    expect(dialog).toContain("restoreDialogFocus(previous, restoreFocusRef.current?.())");
+    expect(dialog).toContain("ModalPortal");
     expect(dialog).toContain("bg-[var(--zc-overlay)]");
     expect(dialog).toContain("glassButtonWarning");
     expect(timeline).toContain("tabular-nums");
