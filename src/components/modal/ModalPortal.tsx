@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import { Fragment, useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createContext, Fragment, useContext, useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 
 export const APP_SHELL_CONTENT_ID = "app-shell-content";
 export const MODAL_HOST_ID = "modal-host";
@@ -9,6 +9,7 @@ export interface ModalStackEntry {
   element: HTMLElement | null;
   restoreTarget: HTMLElement | null;
   openedAt: number;
+  nestingDepth?: number;
   onEscape?: () => void;
   preferredRestore?: () => HTMLElement | null;
 }
@@ -20,19 +21,26 @@ type ModalSnapshot = {
 };
 
 let modalCount = 0;
+let modalSequence = 0;
 let modalSnapshots: ModalSnapshot[] = [];
 let observer: MutationObserver | null = null;
 let modalStack: ModalStackEntry[] = [];
 let globalKeydownAttached = false;
+let globalFocusinAttached = false;
+const ModalNestingContext = createContext(0);
 
 export function ensureModalHost(): HTMLElement | null {
   if (typeof document === "undefined") return null;
   const existing = document.getElementById(MODAL_HOST_ID);
-  if (existing instanceof HTMLElement) return existing;
-  const host = document.createElement("div");
+  const host = existing instanceof HTMLElement ? existing : document.createElement("div");
   host.id = MODAL_HOST_ID;
   host.dataset.modalHost = "true";
-  document.body.appendChild(host);
+  host.style.position = "fixed";
+  host.style.inset = "0";
+  host.style.pointerEvents = "none";
+  host.style.isolation = "isolate";
+  host.style.zIndex = "1000";
+  if (!host.isConnected) document.body.appendChild(host);
   return host;
 }
 
@@ -77,7 +85,10 @@ export function acquireModalIsolation() {
   } else {
     isolateContentRoot();
   }
+  let released = false;
   return () => {
+    if (released) return;
+    released = true;
     modalCount = Math.max(0, modalCount - 1);
     if (modalCount !== 0) return;
     stopIsolationObserver();
@@ -102,16 +113,17 @@ function isHiddenByAncestor(element: HTMLElement) {
   return false;
 }
 
-export function isUsableFocusTarget(element: HTMLElement | null): element is HTMLElement {
+export function isUsableFocusTarget(element: HTMLElement | null, allowZeroGeometry = false): element is HTMLElement {
   if (typeof document === "undefined" || !element || !element.isConnected || element === document.body || element === document.documentElement) return false;
   if (element.matches(":disabled, [disabled], [hidden], [aria-disabled='true']")) return false;
   if (isHiddenByAncestor(element)) return false;
   const style = window.getComputedStyle(element);
   if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") return false;
   const rects = Array.from(element.getClientRects());
-  if (!rects.length && !isNaturallyFocusable(element)) return false;
+  if (!rects.length && !allowZeroGeometry) return false;
+  if (!rects.length && allowZeroGeometry) return isNaturallyFocusable(element);
   const hasVisibleRect = rects.some((rect) => rect.width > 0 || rect.height > 0) || element.clientWidth > 0 || element.clientHeight > 0;
-  return hasVisibleRect || isNaturallyFocusable(element);
+  return hasVisibleRect || (allowZeroGeometry && isNaturallyFocusable(element));
 }
 
 function isNaturallyFocusable(element: HTMLElement) {
@@ -119,8 +131,8 @@ function isNaturallyFocusable(element: HTMLElement) {
 }
 
 /** Focuses a semantic fallback without leaving a permanent tabindex on it. */
-export function focusWithTemporaryTabIndex(element: HTMLElement | null) {
-  if (!isUsableFocusTarget(element)) return false;
+export function focusWithTemporaryTabIndex(element: HTMLElement | null, allowZeroGeometry = false) {
+  if (!isUsableFocusTarget(element, allowZeroGeometry)) return false;
   const shouldTemporarilyTab = !isNaturallyFocusable(element) && element.tabIndex < 0;
   const hadTabIndex = element.hasAttribute("tabindex");
   const originalTabIndex = element.getAttribute("tabindex");
@@ -134,21 +146,23 @@ export function focusWithTemporaryTabIndex(element: HTMLElement | null) {
   return focused;
 }
 
-function focusableIn(element: HTMLElement | null) {
+function focusableIn(element: HTMLElement | null, allowZeroGeometry = false) {
   if (!element) return [];
   return Array.from(element.querySelectorAll<HTMLElement>(
     'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
-  )).filter(isUsableFocusTarget);
+  )).filter((candidate) => isUsableFocusTarget(candidate, allowZeroGeometry));
 }
 
 function focusModalEntry(entry: ModalStackEntry | undefined, preferred: HTMLElement | null = null) {
   if (!entry?.element) return false;
-  if (preferred && entry.element.contains(preferred) && focusWithTemporaryTabIndex(preferred)) return true;
+  if (preferred && entry.element.contains(preferred) && focusWithTemporaryTabIndex(preferred, true)) return true;
   const autofocus = entry.element.querySelector<HTMLElement>("[autofocus]");
-  if (focusWithTemporaryTabIndex(autofocus)) return true;
-  const first = focusableIn(entry.element)[0];
-  if (focusWithTemporaryTabIndex(first)) return true;
-  return focusWithTemporaryTabIndex(entry.element);
+  if (focusWithTemporaryTabIndex(autofocus, true)) return true;
+  const first = focusableIn(entry.element)[0] ?? entry.element.querySelector<HTMLElement>(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
+  );
+  if (focusWithTemporaryTabIndex(first, true)) return true;
+  return focusWithTemporaryTabIndex(entry.element, true);
 }
 
 export function restoreDialogFocus(
@@ -184,7 +198,14 @@ function syncModalStack() {
     const top = index === topIndex;
     element.dataset.modalIndex = String(index);
     element.dataset.modalTop = top ? "true" : "false";
+    element.dataset.modalDepth = String(entry.nestingDepth ?? 0);
     element.style.zIndex = String(1000 + index);
+    element.style.position = "fixed";
+    element.style.inset = "0";
+    element.style.isolation = "isolate";
+    element.style.pointerEvents = top ? "auto" : "none";
+    const content = element.querySelector<HTMLElement>("[data-modal-content]");
+    if (content) content.style.pointerEvents = top ? "auto" : "none";
     element.inert = !top;
     if (top) element.removeAttribute("aria-hidden");
     else element.setAttribute("aria-hidden", "true");
@@ -201,10 +222,10 @@ function handleModalKeyDown(event: KeyboardEvent) {
     return;
   }
   if (event.key !== "Tab") return;
-  const focusable = focusableIn(top.element);
+  const focusable = focusableIn(top.element, true);
   if (!focusable.length) {
     event.preventDefault();
-    focusWithTemporaryTabIndex(top.element);
+    focusWithTemporaryTabIndex(top.element, true);
     return;
   }
   const first = focusable[0];
@@ -212,13 +233,13 @@ function handleModalKeyDown(event: KeyboardEvent) {
   const active = document.activeElement as HTMLElement | null;
   if (!top.element.contains(active)) {
     event.preventDefault();
-    focusWithTemporaryTabIndex(event.shiftKey ? last : first);
+    focusWithTemporaryTabIndex(event.shiftKey ? last : first, true);
   } else if (event.shiftKey && active === first) {
     event.preventDefault();
-    focusWithTemporaryTabIndex(last);
+    focusWithTemporaryTabIndex(last, true);
   } else if (!event.shiftKey && active === last) {
     event.preventDefault();
-    focusWithTemporaryTabIndex(first);
+    focusWithTemporaryTabIndex(first, true);
   }
 }
 
@@ -226,6 +247,26 @@ function startModalKeydownListener() {
   if (globalKeydownAttached || typeof document === "undefined") return;
   document.addEventListener("keydown", handleModalKeyDown);
   globalKeydownAttached = true;
+}
+
+function handleModalFocusIn(event: FocusEvent) {
+  const top = modalStack[modalStack.length - 1];
+  const target = event.target instanceof HTMLElement ? event.target : null;
+  if (!top?.element || !target || top.element.contains(target)) return;
+  event.preventDefault();
+  requestAnimationFrame(() => focusModalEntry(top));
+}
+
+function startModalFocusinListener() {
+  if (globalFocusinAttached || typeof document === "undefined") return;
+  document.addEventListener("focusin", handleModalFocusIn, true);
+  globalFocusinAttached = true;
+}
+
+function stopModalFocusinListener() {
+  if (!globalFocusinAttached || typeof document === "undefined") return;
+  document.removeEventListener("focusin", handleModalFocusIn, true);
+  globalFocusinAttached = false;
 }
 
 function stopModalKeydownListener() {
@@ -239,10 +280,12 @@ export function registerModal(
   options: Omit<ModalStackEntry, "id" | "openedAt"> = { element: null, restoreTarget: null }
 ) {
   modalStack = modalStack.filter((entry) => entry.id !== id);
-  const entry: ModalStackEntry = { id, openedAt: Date.now(), ...options };
+  const entry: ModalStackEntry = { id, openedAt: ++modalSequence, ...options };
   modalStack.push(entry);
+  modalStack.sort((left, right) => (left.nestingDepth ?? 0) - (right.nestingDepth ?? 0) || left.openedAt - right.openedAt);
   syncModalStack();
   startModalKeydownListener();
+  startModalFocusinListener();
   return () => unregisterModal(id);
 }
 
@@ -250,20 +293,29 @@ export function unregisterModal(id: string) {
   const index = modalStack.findIndex((entry) => entry.id === id);
   if (index < 0) return;
   const [removed] = modalStack.splice(index, 1);
+  const removedWasTop = index === modalStack.length;
   const nextTop = modalStack[modalStack.length - 1];
   syncModalStack();
-  if (nextTop) {
+  if (nextTop && removedWasTop) {
     requestAnimationFrame(() => focusModalEntry(nextTop, removed.restoreTarget));
-  } else {
+  } else if (!nextTop) {
     requestAnimationFrame(() => restoreDialogFocus(removed.restoreTarget, removed.preferredRestore?.() ?? null));
     stopModalKeydownListener();
+    stopModalFocusinListener();
   }
   if (removed.element?.isConnected) {
     removed.element.inert = false;
     removed.element.removeAttribute("aria-hidden");
     delete removed.element.dataset.modalIndex;
     delete removed.element.dataset.modalTop;
+    delete removed.element.dataset.modalDepth;
     removed.element.style.zIndex = "";
+    removed.element.style.position = "";
+    removed.element.style.inset = "";
+    removed.element.style.isolation = "";
+    removed.element.style.pointerEvents = "";
+    const content = removed.element.querySelector<HTMLElement>("[data-modal-content]");
+    if (content) content.style.pointerEvents = "";
   }
 }
 
@@ -299,6 +351,7 @@ export function ModalHost() {
 export function ModalPortal({ children, modalId, onEscape, initialFocusRef, restoreFocus }: ModalPortalProps) {
   const [host] = useState(() => ensureModalHost());
   const [inline, setInline] = useState(() => typeof document !== "undefined" && !findContentRoot());
+  const parentNestingDepth = useContext(ModalNestingContext);
   const generatedId = useId();
   const id = modalId ?? `modal-${generatedId.replace(/:/g, "-")}`;
   const layerRef = useRef<HTMLDivElement | null>(null);
@@ -322,6 +375,7 @@ export function ModalPortal({ children, modalId, onEscape, initialFocusRef, rest
     const unregister = registerModal(id, {
       element: layer,
       restoreTarget: previousFocusRef.current,
+      nestingDepth: parentNestingDepth + 1,
       onEscape: () => onEscapeRef.current?.(),
       preferredRestore: () => preferredRestoreRef.current?.() ?? null
     });
@@ -336,7 +390,7 @@ export function ModalPortal({ children, modalId, onEscape, initialFocusRef, rest
     };
   }, [host, id, inline]);
 
-  const layer = <div ref={layerRef} data-modal-layer="true">{children}</div>;
+  const layer = <div ref={layerRef} data-modal-layer="true" data-modal-id={id} style={{ position: "fixed", inset: 0, isolation: "isolate", pointerEvents: "auto" }}><div data-modal-content="true" style={{ pointerEvents: "auto" }}><ModalNestingContext.Provider value={parentNestingDepth + 1}>{children}</ModalNestingContext.Provider></div></div>;
   if (typeof document === "undefined" || inline) return <Fragment>{layer}</Fragment>;
   return host ? createPortal(layer, host) : <Fragment>{layer}</Fragment>;
 }
@@ -348,10 +402,19 @@ export function resetModalInfrastructureForTests() {
     entry.element.removeAttribute("aria-hidden");
     delete entry.element.dataset.modalIndex;
     delete entry.element.dataset.modalTop;
+    delete entry.element.dataset.modalDepth;
     entry.element.style.zIndex = "";
+    entry.element.style.position = "";
+    entry.element.style.inset = "";
+    entry.element.style.isolation = "";
+    entry.element.style.pointerEvents = "";
+    const content = entry.element.querySelector<HTMLElement>("[data-modal-content]");
+    if (content) content.style.pointerEvents = "";
   }
   modalStack = [];
+  modalSequence = 0;
   stopModalKeydownListener();
+  stopModalFocusinListener();
   modalCount = 0;
   stopIsolationObserver();
   for (const snapshot of modalSnapshots) {
@@ -361,4 +424,5 @@ export function resetModalInfrastructureForTests() {
     else snapshot.element.setAttribute("aria-hidden", snapshot.ariaHidden);
   }
   modalSnapshots = [];
+  document.getElementById(MODAL_HOST_ID)?.remove();
 }

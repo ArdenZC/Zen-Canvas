@@ -32,6 +32,10 @@ let root: Root;
 let narrowMatches = true;
 const narrowListeners = new Set<(event: MediaQueryListEvent) => void>();
 
+function markVisible(element: HTMLElement) {
+  element.getClientRects = () => [{ width: 10, height: 10, top: 0, left: 0, right: 10, bottom: 10, x: 0, y: 0, toJSON() { return {}; } }] as unknown as DOMRectList;
+}
+
 function preview(id: string, overrides: Partial<OperationPreview> = {}): OperationPreview {
   return {
     id,
@@ -292,6 +296,7 @@ describe("organize v4.2.1 component interactions", () => {
     }
     render(createElement(Harness));
     const trigger = buttonWithText("Open warning");
+    markVisible(trigger);
     trigger.focus();
     await act(async () => trigger.click());
     const dialog = container.querySelector<HTMLElement>('[role="alertdialog"]')!;
