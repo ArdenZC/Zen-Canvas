@@ -43,6 +43,9 @@ export interface LibraryPageCollection {
   complete: boolean;
 }
 
+export const LIBRARY_COLLECTION_MAX_PAGES = 200;
+export const LIBRARY_COLLECTION_MAX_FILES = 10_000;
+
 export function appendLibraryPage(current: FileQueryResult, next: FileQueryResult): FileQueryResult {
   return {
     ...next,
@@ -67,13 +70,27 @@ export async function collectLibraryPages(
   isCurrentRequest: () => boolean = () => true
 ): Promise<LibraryPageCollection | null> {
   let page = firstPage;
+  let pages = 1;
+  const seenFileIds = new Set(page.files.map((file) => file.id));
   onPage?.(page);
   while (libraryPageHasMore(page)) {
-    const next = await fetchPage(page.offset + page.files.length);
+    if (pages >= LIBRARY_COLLECTION_MAX_PAGES || page.files.length >= LIBRARY_COLLECTION_MAX_FILES) {
+      return { page, complete: false };
+    }
+    const nextOffset = page.offset + page.files.length;
+    const next = await fetchPage(nextOffset);
     if (!isCurrentRequest()) return null;
     if (!next.files.length) return { page, complete: false };
-    page = appendLibraryPage(page, next);
+    if (next.offset < nextOffset) return { page, complete: false };
+    const newFiles = next.files.filter((file) => !seenFileIds.has(file.id));
+    if (!newFiles.length) return { page, complete: false };
+    const availableSlots = LIBRARY_COLLECTION_MAX_FILES - page.files.length;
+    const boundedFiles = newFiles.slice(0, availableSlots);
+    for (const file of boundedFiles) seenFileIds.add(file.id);
+    page = appendLibraryPage(page, { ...next, files: boundedFiles });
+    pages += 1;
     onPage?.(page);
+    if (boundedFiles.length < newFiles.length) return { page, complete: false };
   }
   return { page, complete: true };
 }

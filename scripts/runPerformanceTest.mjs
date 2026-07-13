@@ -29,6 +29,10 @@ const appViews = viewFiles.map(read).join("\n");
 const app = read("src/App.tsx");
 const appShell = read("src/components/AppShell.tsx");
 const fileLibraryStore = read("src/store/useFileLibraryStore.ts");
+const fileLibraryView = read("src/views/vault/VaultView.tsx");
+const fileLibraryList = read("src/views/vault/components/FileLibraryList.tsx");
+const fileLibraryModel = read("src/views/vault/fileLibraryModel.ts");
+const virtualization = read("src/utils/virtualization.ts");
 const runtimeUi = [app, appShell, appViews].join("\n");
 const api = read("src/api/tauriApi.ts");
 const dbFiles = [
@@ -61,8 +65,11 @@ assert(api.includes("getPagedFiles"), "Tauri API must expose getPagedFiles.");
 assert(api.includes("getStatsSummary"), "Tauri API must expose getStatsSummary.");
 assert(!api.includes("fetchDatabase"), "Tauri API must not expose giant fetchDatabase.");
 assert(!db.includes("fetch_database"), "Rust backend must not register fetch_database.");
-assert(appViews.includes("IntersectionObserver"), "File library must lazy-load with IntersectionObserver.");
 assert(fileLibraryStore.includes("LIBRARY_PAGE_SIZE = 50"), "File library page size should remain bounded at 50.");
+assert(fileLibraryList.includes("useVirtualizer") && fileLibraryList.includes("shouldTriggerLoadMore") && fileLibraryList.includes("onLoadMore"), "File library must combine virtualization with incremental load-more triggering.");
+assert(fileLibraryView.includes("tauriApi.getPagedFiles(LIBRARY_PAGE_SIZE, nextOffset") && fileLibraryView.includes("onLoadMore={() => void loadPage(page.files.length, true)}"), "File library must request bounded next pages from the current loaded offset.");
+assert(virtualization.includes("!hasMore || isLoading || rowCount <= 0") && virtualization.includes("lastVisibleRowIndex >= rowCount - 1 - threshold"), "File library load-more trigger must stop when complete or already loading.");
+assert(fileLibraryModel.includes("LIBRARY_COLLECTION_MAX_PAGES") && fileLibraryModel.includes("LIBRARY_COLLECTION_MAX_FILES") && fileLibraryModel.includes("if (!newFiles.length)"), "Advanced library collection must retain page, entry, and no-progress bounds.");
 assert(!runtimeUi.includes("demoData"), "Runtime UI must not depend on demo data.");
 assert(!runtimeUi.includes("window.fileManager"), "Runtime UI must not depend on Electron preload APIs.");
 assert(!runtimeUi.includes("snapshot"), "Runtime UI must not keep an all-files snapshot.");
@@ -74,6 +81,17 @@ if (!process.exitCode) {
   console.log("Architecture guard passed: paged IPC, bounded library loading, and no legacy full snapshot path.");
 } else {
   process.exit(process.exitCode);
+}
+
+console.log("Running bounded file-library behavior checks...");
+const vitest = spawnSync(
+  process.execPath,
+  [path.join(root, "node_modules/vitest/vitest.mjs"), "run", "tests/fileLibraryPagination.test.ts", "tests/virtualization.test.ts"],
+  { cwd: root, stdio: "inherit" },
+);
+if (vitest.error || vitest.status !== 0) {
+  console.error(vitest.error ? `File-library behavior checks failed to start: ${vitest.error.message}` : `File-library behavior checks failed with exit code ${vitest.status}.`);
+  process.exit(vitest.status ?? 1);
 }
 
 console.log("Running SQLite/FTS benchmark...");
