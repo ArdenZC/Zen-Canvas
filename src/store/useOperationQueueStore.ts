@@ -26,6 +26,7 @@ import {
   resolveOperationRestoreSelection,
   resolveRestoreExecutionIds,
   restoreIntentMatchesResolution,
+  type CleanupPreviewAuthority,
   type RestoreExecutionIntent,
   type RestoreResultSummary
 } from "../views/history/historyModel";
@@ -686,9 +687,13 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
     if (!selectedIds.length) return null;
     try {
       const batchIds = [...new Set(items.map((item) => item.batchId).filter(Boolean))];
-      const previews = (await Promise.all(batchIds.map((batchId) => tauriApi.previewRestoreCleanupTrash(batchId))))
-        .flatMap((preview) => preview.items);
-      const resolution = resolveCleanupRestoreSelection(previews, selectedIds);
+      const previews = await Promise.all(batchIds.map((batchId) => tauriApi.previewRestoreCleanupTrash(batchId)));
+      const authoritativeItems = items;
+      const authorities = new Map<string, CleanupPreviewAuthority>();
+      for (const preview of previews) {
+        for (const item of preview.items) authorities.set(item.id, { state: "ready", preview: item });
+      }
+      const resolution = resolveCleanupRestoreSelection(authoritativeItems, selectedIds, authorities);
       const intent = {
         ...createRestoreExecutionIntent(
           "cleanup_trash",
@@ -817,9 +822,15 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
     }
     try {
       const batchIds = [...(intent.batchIds ?? [])];
-      const previews = (await Promise.all(batchIds.map((batchId) => tauriApi.previewRestoreCleanupTrash(batchId))))
-        .flatMap((preview) => preview.items);
-      const resolution = resolveCleanupRestoreSelection(previews, intent.selectedIds);
+      const previews = await Promise.all(batchIds.map((batchId) => tauriApi.previewRestoreCleanupTrash(batchId)));
+      const authorities = new Map<string, CleanupPreviewAuthority>();
+      for (const preview of previews) {
+        for (const item of preview.items) authorities.set(item.id, { state: "ready", preview: item });
+      }
+      const authoritativeItems = [...intent.selectedIds]
+        .map((id) => authorities.get(id)?.preview)
+        .filter((item): item is CleanupRestorePreviewItem => Boolean(item));
+      const resolution = resolveCleanupRestoreSelection(authoritativeItems, intent.selectedIds, authorities);
       if (!restoreIntentMatchesResolution(intent, resolution)) {
         const nextIntent = {
           ...createRestoreExecutionIntent(

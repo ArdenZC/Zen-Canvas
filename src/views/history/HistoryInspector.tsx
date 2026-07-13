@@ -9,6 +9,7 @@ import { mutedText, rowSurface } from "../shared/ui";
 import {
   cleanupRestoreEligibility,
   cleanupBatchRestorableCount,
+  type CleanupPreviewState,
   historyTime,
   isRestorableCleanupTrashItem,
   isRestorableLog,
@@ -55,11 +56,38 @@ export function restoreEligibilityLabel(log: OperationLog, t: Translator) {
 
 export function operationStatusLabel(log: OperationLog, t: Translator) {
   if (log.restore_status === "restored") return t("historyStatusRestored");
-  if (log.restore_status === "canceled") return t("historyStatusCanceled");
-  if (log.restore_status === "failed") return t("historyStatusFailed");
+  if (log.restore_status === "canceled") return t("historyStatusRestoreCanceled");
+  if (log.restore_status === "failed") return t("historyStatusRestoreFailed");
+  return operationExecutionStatusLabel(log, t);
+}
+
+function operationExecutionStatusLabel(log: OperationLog, t: Translator) {
   if (log.status === "failed") return t("historyStatusFailed");
   if (log.status === "skipped") return t("historyStatusSkipped");
   return t("historyStatusSuccess");
+}
+
+function operationRestoreStatusLabel(log: OperationLog, t: Translator) {
+  if (log.restore_status === "restored") return t("historyStatusRestored");
+  if (log.restore_status === "canceled") return t("historyStatusRestoreCanceled");
+  if (log.restore_status === "failed") return t("historyStatusRestoreFailed");
+  if (log.restore_status === "pending") return t("historyEligibilityPending");
+  if (log.restore_status === "unavailable") return t("historyStatusUnavailable");
+  return t("historyStatusNotRestored");
+}
+
+function batchStateLabel(value: OperationHistoryBatch["executionState"] | OperationHistoryBatch["restoreState"], t: Translator) {
+  if (value === "success") return t("historyStatusSuccess");
+  if (value === "partial") return t("historyStatusPartial");
+  if (value === "failed") return t("historyStatusFailed");
+  if (value === "skipped") return t("historyStatusSkipped");
+  if (value === "canceled" || value === "restore_canceled") return t("historyStatusRestoreCanceled");
+  if (value === "restored") return t("historyStatusRestored");
+  if (value === "partially_restored") return t("historyStatusPartiallyRestored");
+  if (value === "restorable") return t("historyStatusRestorable");
+  if (value === "restore_failed") return t("historyStatusRestoreFailed");
+  if (value === "not_restored") return t("historyStatusNotRestored");
+  return t("historyStatusUnavailable");
 }
 
 export function operationTypeLabel(log: OperationLog, t: Translator) {
@@ -126,7 +154,7 @@ export function HistoryInspector({
         {onBack && <button type="button" className={buttonSecondary} onClick={onBack} aria-label={t("historyInspectorBack")}><ArrowLeft size={16} /></button>}
         <div className="min-w-0">
           <h2 id="history-inspector-title" className="text-base font-semibold">{t("historyInspector")}</h2>
-          <p className={cn(mutedText, "mt-1 tabular-nums")}>{batch.total} · {batch.success} {t("historyStatusSuccess")} · {batch.failed} {t("historyStatusFailed")} · {batch.restorable} {t("restorable")}</p>
+          <p className={cn(mutedText, "mt-1 tabular-nums")}>{batch.total} · {t("historyOperationStatus")}: {batchStateLabel(batch.executionState, t)} · {t("historyRestoreStatus")}: {batchStateLabel(batch.restoreState, t)} · {batch.success} {t("historyStatusSuccess")} · {batch.failed} {t("historyStatusFailed")} · {batch.restorable} {t("restorable")}</p>
         </div>
       </div>
       <div className="grid gap-2" role="list" aria-label={t("historyInspector")}>
@@ -149,7 +177,8 @@ export function HistoryInspector({
                   <div className="flex flex-wrap items-center gap-2">
                     <strong className="truncate text-sm" title={operationDisplayName(log)}>{operationDisplayName(log)}</strong>
                     <span className="text-xs text-[var(--muted)]">{operationTypeLabel(log, t)}</span>
-                    <span className="rounded-full border border-[var(--zc-border)] px-2 py-0.5 text-[11px] text-[var(--muted)]">{operationStatusLabel(log, t)}</span>
+                    <span className="rounded-full border border-[var(--zc-border)] px-2 py-0.5 text-[11px] text-[var(--muted)]">{t("historyOperationStatus")}: {operationExecutionStatusLabel(log, t)}</span>
+                    <span className="rounded-full border border-[var(--zc-border)] px-2 py-0.5 text-[11px] text-[var(--muted)]">{t("historyRestoreStatus")}: {operationRestoreStatusLabel(log, t)}</span>
                   </div>
                   <dl className="mt-2 grid gap-1.5 sm:grid-cols-2">
                     <DetailRow label={t("historyCreatedAt")} value={formatDate(log.created_at, t)} />
@@ -177,8 +206,11 @@ export function HistoryInspector({
   );
 }
 
-function cleanupStatusLabel(item: CleanupTrashItem, preview: CleanupRestorePreviewItem | undefined, t: Translator) {
-  const eligibility = cleanupRestoreEligibility(preview ?? item);
+function cleanupStatusLabel(item: CleanupTrashItem, preview: CleanupRestorePreviewItem | undefined, previewState: CleanupPreviewState, t: Translator) {
+  if (previewState === "loading") return t("cleanupPreviewLoading");
+  if (previewState === "failed") return t("cleanupPreviewFailed");
+  if (previewState === "unavailable" || !preview) return t("cleanupPreviewUnavailable");
+  const eligibility = cleanupRestoreEligibility(preview, previewState);
   if (eligibility.executable) return t("cleanupTrashMoved");
   if (eligibility.reason === "conflict") return t("historyCleanupConflict");
   if (eligibility.reason === "missing") return t("historyCleanupMissing");
@@ -191,12 +223,20 @@ function cleanupStatusLabel(item: CleanupTrashItem, preview: CleanupRestorePrevi
 export function CleanupInspector({
   batch,
   previewById,
+  previewState,
+  previewError,
+  onRetry,
+  onBack,
   selectedIds,
   onToggle,
   t
 }: {
   batch: CleanupTrashBatch | undefined;
   previewById: ReadonlyMap<string, CleanupRestorePreviewItem>;
+  previewState: CleanupPreviewState;
+  previewError?: string;
+  onRetry?: () => void;
+  onBack?: () => void;
   selectedIds: ReadonlySet<string>;
   onToggle: (item: CleanupTrashItem, checked: boolean) => void;
   t: Translator;
@@ -227,35 +267,37 @@ export function CleanupInspector({
   return (
     <section className="grid gap-3" aria-labelledby="cleanup-inspector-title">
       <div>
-        <h2 id="cleanup-inspector-title" className="text-base font-semibold">{t("historyCleanupScope")}</h2>
+        <div className="flex items-start gap-2">{onBack && <button type="button" className={buttonSecondary} onClick={onBack} aria-label={t("historyInspectorBack")}><ArrowLeft size={16} /></button>}<h2 id="cleanup-inspector-title" className="text-base font-semibold">{t("historyCleanupScope")}</h2></div>
         <p className={cn(mutedText, "mt-1")}>{t("historyCleanupRestoreDesc")}</p>
+        {previewState !== "ready" && <div className={cn("mt-2 flex flex-wrap items-center gap-2 rounded-[var(--zc-radius-control)] border px-3 py-2 text-xs", previewState === "failed" ? "border-[var(--zc-danger-border)] text-[var(--zc-danger-text)]" : "border-[var(--zc-control-border)] text-[var(--muted)]")} role="status"><span>{previewState === "loading" ? t("cleanupPreviewLoading") : previewState === "failed" ? t("cleanupPreviewFailed") : t("cleanupPreviewUnavailable")}</span>{previewError && <button type="button" className="text-[var(--zc-primary)]" title={previewError} onClick={() => setTechnicalOpen((current) => new Set(current).add("__preview__"))}>{t("historyRestoreShowTechnical")}</button>}{onRetry && <button type="button" className={buttonSecondary} disabled={previewState === "loading"} onClick={onRetry}>{t("cleanupPreviewRetry")}</button>}{technicalOpen.has("__preview__") && previewError && <pre className="basis-full whitespace-pre-wrap break-words">{previewError}</pre>}</div>}
       </div>
       <div className="grid gap-2" role="list">
         {batch.items.map((item) => {
           const preview = previewById.get(item.id);
-          const eligible = isRestorableCleanupTrashItem(item, preview);
+          const eligible = previewState === "ready" && Boolean(preview) && isRestorableCleanupTrashItem(item, preview, previewState);
           const currentPath = item.status === "restored" ? item.originalPath : item.trashPath;
           const technical = technicalOpen.has(item.id);
-          const rawMessage = item.message || preview?.blockingReason || "";
+          const rawMessage = previewState === "failed" ? previewError || "" : item.message || preview?.blockingReason || "";
           return (
             <div key={item.id} className={cn(rowSurface, "grid gap-2")} role="listitem">
               <div className="flex items-start gap-3">
                 <input
                   type="checkbox"
-                  aria-label={`${t("historySelectItem")}: ${item.name}`}
-                  checked={selectedIds.has(item.id)}
-                  onChange={(event) => onToggle(item, event.currentTarget.checked)}
+                    aria-label={`${t("historySelectItem")}: ${item.name}`}
+                    checked={selectedIds.has(item.id)}
+                    disabled={previewState !== "ready" || !preview}
+                    onChange={(event) => onToggle(item, event.currentTarget.checked)}
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2"><RotateCcw size={15} aria-hidden="true" /><strong className="truncate text-sm" title={item.name}>{item.name}</strong></div>
                   <dl className="mt-2 grid gap-1.5 sm:grid-cols-2">
                     <DetailRow label={t("historyCreatedAt")} value={formatDate(item.movedAt, t)} />
-                    <DetailRow label={t("historyRestoreEligibility")} value={cleanupStatusLabel(item, preview, t)} />
+                    <DetailRow label={t("historyRestoreEligibility")} value={cleanupStatusLabel(item, preview, previewState, t)} />
                     <DetailRow label={t("historyCleanupOriginalPath")} value={compactPath(formatDisplayPath(item.originalPath), 68)} title={formatDisplayPath(item.originalPath)} />
                     <DetailRow label={t("historyCleanupCurrentPath")} value={compactPath(formatDisplayPath(currentPath), 68)} title={formatDisplayPath(currentPath)} />
                   </dl>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                    <span className={cn("font-medium", eligible ? "text-[var(--zc-success-text)]" : "text-[var(--muted)]")}>{cleanupStatusLabel(item, preview, t)}</span>
+                    <span className={cn("font-medium", eligible ? "text-[var(--zc-success-text)]" : "text-[var(--muted)]")}>{cleanupStatusLabel(item, preview, previewState, t)}</span>
                     {rawMessage && <button type="button" className="text-[var(--zc-primary)]" aria-expanded={technical} onClick={() => toggleTechnical(item.id)}>{technical ? t("historyRestoreHideTechnical") : t("historyRestoreShowTechnical")}</button>}
                   </div>
                   {revealError[item.id] && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{revealError[item.id]}</p>}
@@ -270,7 +312,7 @@ export function CleanupInspector({
           );
         })}
       </div>
-      <p className={cn(mutedText, "tabular-nums")}>{replaceCount(t("historyBatchItems"), cleanupBatchRestorableCount(batch, [...previewById.values()]))} {t("restorable")}</p>
+      <p className={cn(mutedText, "tabular-nums")}>{previewState === "ready" ? replaceCount(t("historyBatchItems"), cleanupBatchRestorableCount(batch, [...previewById.values()])) : t("cleanupPreviewUnavailable")}{previewState === "ready" && ` ${t("restorable")}`}</p>
     </section>
   );
 }

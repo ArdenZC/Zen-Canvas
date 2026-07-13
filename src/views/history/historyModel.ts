@@ -32,6 +32,14 @@ export type CleanupRestoreEligibilityReason =
   | "pending"
   | "unavailable";
 
+export type CleanupPreviewState = "loading" | "ready" | "failed" | "unavailable";
+
+export interface CleanupPreviewAuthority {
+  state: CleanupPreviewState;
+  preview?: CleanupRestorePreviewItem;
+  error?: string | null;
+}
+
 export interface RestoreEligibility {
   executable: boolean;
   reason: RestoreEligibilityReason;
@@ -158,39 +166,42 @@ function cleanupReasonFromBlockingReason(reason: string | null | undefined): Cle
 }
 
 export function cleanupRestoreEligibility(
-  item: CleanupRestorePreviewItem | CleanupTrashItem
+  preview?: CleanupRestorePreviewItem,
+  state: CleanupPreviewState = preview ? "ready" : "unavailable"
 ): { executable: boolean; reason: CleanupRestoreEligibilityReason } {
-  if ("canRestore" in item && item.canRestore !== undefined) {
-    if (item.canRestore) return { executable: true, reason: "restorable" };
-    return { executable: false, reason: cleanupReasonFromBlockingReason(item.blockingReason) };
-  }
-  if (item.status === "moved") return { executable: true, reason: "restorable" };
-  if (item.status === "restored") return { executable: false, reason: "alreadyRestored" };
-  if (item.status === "missing") return { executable: false, reason: "missing" };
-  if (item.status === "failed") return { executable: false, reason: "failed" };
-  if (item.status === "pending") return { executable: false, reason: "pending" };
-  return { executable: false, reason: "unavailable" };
+  if (state !== "ready" || !preview) return { executable: false, reason: "unavailable" };
+  if (preview.canRestore) return { executable: true, reason: "restorable" };
+  return { executable: false, reason: cleanupReasonFromBlockingReason(preview.blockingReason) };
 }
 
 export function isRestorableCleanupTrashItem(
   item: CleanupTrashItem,
-  preview?: CleanupRestorePreviewItem
+  preview?: CleanupRestorePreviewItem,
+  state: CleanupPreviewState = preview ? "ready" : "unavailable"
 ) {
-  return cleanupRestoreEligibility(preview ?? item).executable;
+  void item;
+  return cleanupRestoreEligibility(preview, state).executable;
 }
 
-function cleanupFingerprint(items: readonly CleanupRestorePreviewItem[], ids: readonly string[]) {
+function cleanupFingerprint(
+  items: readonly CleanupTrashItem[],
+  ids: readonly string[],
+  authorities?: ReadonlyMap<string, CleanupPreviewAuthority>
+) {
   const byId = new Map(items.map((item) => [item.id, item]));
   return ids
     .map((id) => {
       const item = byId.get(id);
       if (!item) return `${id}|missing`;
+      const authority = authorities?.get(id);
+      const preview = authority?.preview ?? ("canRestore" in item && "blockingReason" in item ? item as CleanupRestorePreviewItem : undefined);
       return [
         id,
         item.batchId,
         item.status,
-        item.canRestore,
-        item.blockingReason ?? "",
+        authority?.state ?? (preview ? "ready" : "unavailable"),
+        preview?.canRestore ?? "unknown",
+        preview?.blockingReason ?? "",
         item.originalPath,
         item.trashPath,
         item.message ?? ""
@@ -212,8 +223,9 @@ export interface CleanupSelectionResolution {
 }
 
 export function resolveCleanupRestoreSelection(
-  items: readonly CleanupRestorePreviewItem[],
-  selectedIds: ReadonlySet<string> | readonly string[]
+  items: readonly CleanupTrashItem[],
+  selectedIds: ReadonlySet<string> | readonly string[],
+  authorities?: ReadonlyMap<string, CleanupPreviewAuthority>
 ): CleanupSelectionResolution {
   const ids = uniqueIds(selectedIds);
   const byId = new Map(items.map((item) => [item.id, item]));
@@ -227,8 +239,12 @@ export function resolveCleanupRestoreSelection(
       increment(reasonCounts, "unavailable");
       continue;
     }
-    const eligibility = cleanupRestoreEligibility(item);
-    if (eligibility.executable) executable.push(item);
+    const embeddedPreview = "canRestore" in item && "blockingReason" in item ? item as CleanupRestorePreviewItem : undefined;
+    const authority = authorities?.get(id);
+    const preview = authority?.preview ?? embeddedPreview;
+    const state = authority?.state ?? (preview ? "ready" : "unavailable");
+    const eligibility = cleanupRestoreEligibility(preview, state);
+    if (eligibility.executable && preview) executable.push(preview);
     else increment(reasonCounts, eligibility.reason);
   }
   return {
@@ -240,7 +256,7 @@ export function resolveCleanupRestoreSelection(
     excludedCount: ids.length - executable.length,
     missingIds,
     reasonCounts,
-    fingerprint: cleanupFingerprint(items, ids)
+    fingerprint: cleanupFingerprint(items, ids, authorities)
   };
 }
 
@@ -338,17 +354,25 @@ export interface OperationHistoryBatch {
   restored: number;
   restorable: number;
   excluded: number;
+  executionState: HistoryExecutionState;
+  restoreState: HistoryRestoreState;
   state: HistoryBatchState;
 }
+
+export type HistoryExecutionState = "success" | "partial" | "failed" | "skipped" | "canceled" | "unavailable";
+export type HistoryRestoreState = "not_restored" | "restorable" | "partially_restored" | "restored" | "restore_failed" | "restore_canceled" | "unavailable";
 
 export type HistoryBatchState =
   | "success"
   | "partial"
   | "failed"
   | "skipped"
+  | "canceled"
   | "restorable"
   | "partially_restored"
   | "restored"
+  | "restore_failed"
+  | "restore_canceled"
   | "unavailable";
 
 function timeValue(value: string | number | null | undefined) {
@@ -364,28 +388,52 @@ export function historyTime(value: string | number | null | undefined) {
   return timeValue(value);
 }
 
-export function resolveHistoryBatchState(logs: readonly OperationLog[]): HistoryBatchState {
+export function resolveHistoryBatchExecutionState(logs: readonly OperationLog[]): HistoryExecutionState {
   if (!logs.length) return "unavailable";
-  const restored = logs.filter((log) => log.restore_status === "restored").length;
-  if (restored === logs.length) return "restored";
-  if (restored > 0) return "partially_restored";
-  if (logs.every(isRestorableLog)) return "restorable";
-
   const success = logs.filter((log) => log.status === "success").length;
   const failed = logs.filter((log) => log.status === "failed").length;
   const skipped = logs.filter((log) => log.status === "skipped").length;
-  const canceled = logs.filter((log) => log.restore_status === "canceled").length;
   if (success === logs.length) return "success";
   if (failed === logs.length) return "failed";
-  if (skipped + canceled === logs.length) return "skipped";
-  if (success > 0 && failed + skipped + canceled > 0) return "partial";
+  if (skipped === logs.length) return "skipped";
+  if (success > 0 && failed + skipped > 0) return "partial";
   if (new Set(logs.map((log) => log.status)).size > 1) return "partial";
-  if (logs.some(isRestorableLog)) return "restorable";
   return "unavailable";
+}
+
+export function resolveHistoryBatchRestoreState(logs: readonly OperationLog[]): HistoryRestoreState {
+  if (!logs.length) return "unavailable";
+  const restored = logs.filter((log) => log.restore_status === "restored").length;
+  const failed = logs.filter((log) => log.restore_status === "failed").length;
+  const canceled = logs.filter((log) => log.restore_status === "canceled").length;
+  if (restored === logs.length) return "restored";
+  if (failed > 0) return "restore_failed";
+  if (canceled > 0) return "restore_canceled";
+  if (restored > 0) return "partially_restored";
+  if (logs.some(isRestorableLog)) return "restorable";
+  if (logs.every((log) => log.restore_status === "not_restored" || log.restore_status === "unavailable")) {
+    return logs.some((log) => log.restore_status === "unavailable") ? "unavailable" : "not_restored";
+  }
+  return "unavailable";
+}
+
+export function resolveHistoryBatchState(logs: readonly OperationLog[]): HistoryBatchState {
+  if (!logs.length) return "unavailable";
+  const executionState = resolveHistoryBatchExecutionState(logs);
+  const restoreState = resolveHistoryBatchRestoreState(logs);
+  if (executionState === "success") {
+    if (restoreState === "restored" || restoreState === "partially_restored" || restoreState === "restorable" || restoreState === "restore_failed" || restoreState === "restore_canceled") return restoreState;
+    return executionState;
+  }
+  // Keep an original failure/partial execution visible even when a restore
+  // anomaly exists; the list renders restoreState beside this value.
+  return executionState;
 }
 
 function buildOperationBatch(id: string, entries: readonly OperationLog[]): OperationHistoryBatch {
   const batchLogs = [...entries].sort((a, b) => timeValue(b.created_at) - timeValue(a.created_at));
+  const executionState = resolveHistoryBatchExecutionState(batchLogs);
+  const restoreState = resolveHistoryBatchRestoreState(batchLogs);
   return {
     id,
     createdAt: batchLogs[0]?.created_at ?? "",
@@ -398,6 +446,8 @@ function buildOperationBatch(id: string, entries: readonly OperationLog[]): Oper
     restored: batchLogs.filter((log) => log.restore_status === "restored").length,
     restorable: batchLogs.filter(isRestorableLog).length,
     excluded: batchLogs.filter((log) => !isRestorableLog(log)).length,
+    executionState,
+    restoreState,
     state: resolveHistoryBatchState(batchLogs)
   };
 }
@@ -423,6 +473,7 @@ export type HistoryFilter =
   | "restored"
   | "success"
   | "failed"
+  | "restoreFailed"
   | "skipped"
   | "canceled"
   | "needsReview";
@@ -432,7 +483,8 @@ export function historyFilterMatchesLog(log: OperationLog, filter: HistoryFilter
   if (filter === "restorable") return isRestorableLog(log);
   if (filter === "restored") return log.restore_status === "restored";
   if (filter === "success") return log.status === "success";
-  if (filter === "failed") return log.status === "failed" || log.restore_status === "failed";
+  if (filter === "failed") return log.status === "failed";
+  if (filter === "restoreFailed") return log.restore_status === "failed";
   if (filter === "skipped") return log.status === "skipped";
   if (filter === "canceled") return log.restore_status === "canceled";
   const reason = restoreEligibility(log).reason;
@@ -481,10 +533,14 @@ export function filterHistoryBatches(
 
 export function cleanupBatchRestorableCount(
   batch: CleanupTrashBatch,
-  previews: readonly CleanupRestorePreviewItem[] = []
+  previews: readonly CleanupRestorePreviewItem[] = [],
+  authorities?: ReadonlyMap<string, CleanupPreviewAuthority>
 ) {
   const previewById = new Map(previews.map((item) => [item.id, item]));
-  return batch.items.filter((item) => isRestorableCleanupTrashItem(item, previewById.get(item.id))).length;
+  return batch.items.filter((item) => {
+    const authority = authorities?.get(item.id);
+    return isRestorableCleanupTrashItem(item, authority?.preview ?? previewById.get(item.id), authority?.state);
+  }).length;
 }
 
 export function groupCleanupBatches(batches: readonly CleanupTrashBatch[]) {
@@ -502,7 +558,8 @@ export function matchesCleanupTrashSearch(item: CleanupTrashItem, query: string)
 export function filterCleanupBatches(
   batches: readonly CleanupTrashBatch[],
   query: string,
-  previews: readonly CleanupRestorePreviewItem[] = []
+  previews: readonly CleanupRestorePreviewItem[] = [],
+  authorities?: ReadonlyMap<string, CleanupPreviewAuthority>
 ) {
   const previewById = new Map(previews.map((item) => [item.id, item]));
   return batches
@@ -513,7 +570,10 @@ export function filterCleanupBatches(
         items,
         totalItems: items.length,
         totalSize: items.reduce((total, item) => total + item.size, 0),
-        restorable: items.filter((item) => isRestorableCleanupTrashItem(item, previewById.get(item.id))).length
+        restorable: items.filter((item) => {
+          const authority = authorities?.get(item.id);
+          return isRestorableCleanupTrashItem(item, authority?.preview ?? previewById.get(item.id), authority?.state);
+        }).length
       };
     })
     .filter((batch) => batch.items.length > 0);
@@ -531,15 +591,26 @@ export interface HistorySummary {
 export function resolveHistorySummary(
   logs: readonly OperationLog[],
   cleanupItems: readonly CleanupTrashItem[] = [],
-  cleanupPreviews: readonly CleanupRestorePreviewItem[] = []
+  cleanupPreviews: readonly CleanupRestorePreviewItem[] = [],
+  authorities?: ReadonlyMap<string, CleanupPreviewAuthority>
 ): HistorySummary {
   const previewById = new Map(cleanupPreviews.map((item) => [item.id, item]));
   const operationRestorable = logs.filter(isRestorableLog).length;
-  const cleanupRestorable = cleanupItems.filter((item) => isRestorableCleanupTrashItem(item, previewById.get(item.id))).length;
+  const cleanupRestorable = cleanupItems.filter((item) => {
+    const authority = authorities?.get(item.id);
+    return isRestorableCleanupTrashItem(item, authority?.preview ?? previewById.get(item.id), authority?.state);
+  }).length;
   const restored = logs.filter((log) => log.restore_status === "restored").length
     + cleanupItems.filter((item) => item.status === "restored").length;
   const unavailable = logs.filter((log) => !isRestorableLog(log) && log.restore_status !== "restored").length
-    + cleanupItems.filter((item) => !isRestorableCleanupTrashItem(item, previewById.get(item.id)) && item.status !== "restored").length;
+    + cleanupItems.filter((item) => {
+      const authority = authorities?.get(item.id);
+      const preview = authority?.preview ?? previewById.get(item.id);
+      const state = authority?.state ?? (preview ? "ready" : "unavailable");
+      return state === "ready"
+        && !isRestorableCleanupTrashItem(item, preview, state)
+        && item.status !== "restored";
+    }).length;
   return {
     operations: logs.length,
     operationRestorable,

@@ -23,10 +23,18 @@ import {
   resolveOperationRestoreSelection,
   selectionForOperationBatch,
   type HistoryFilter,
+  type CleanupPreviewAuthority,
+  type CleanupPreviewState,
   type OperationHistoryBatch
 } from "../history/historyModel";
 
 type ViewFilter = HistoryFilter | "cleanup";
+
+type CleanupPreviewRecord = {
+  state: CleanupPreviewState;
+  items: CleanupRestorePreviewItem[];
+  error: string;
+};
 
 function replace(text: string, values: Record<string, string | number>) {
   return Object.entries(values).reduce((result, [key, value]) => result.replace(`{${key}}`, String(value)), text);
@@ -67,7 +75,7 @@ export function RestoreView() {
   const cleanupRestoreError = useOperationQueueStore((state) => state.cleanupRestoreError);
   const restoreTechnicalError = useOperationQueueStore((state) => state.restoreTechnicalError);
   const [cleanupBatches, setCleanupBatches] = useState<CleanupTrashBatch[]>([]);
-  const [cleanupPreviewItems, setCleanupPreviewItems] = useState<CleanupRestorePreviewItem[]>([]);
+  const [cleanupPreviewByBatch, setCleanupPreviewByBatch] = useState<Record<string, CleanupPreviewRecord>>({});
   const [cleanupLoadError, setCleanupLoadError] = useState("");
   const [activeBatchId, setActiveBatchId] = useState("");
   const [activeCleanupBatchId, setActiveCleanupBatchId] = useState("");
@@ -80,16 +88,42 @@ export function RestoreView() {
   const [narrowPane, setNarrowPane] = useState<"list" | "details">("list");
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
   const confirmTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const inspectorScrollRef = useRef<HTMLDivElement | null>(null);
+  const pageScrollRef = useRef<HTMLDivElement | null>(null);
+  const historyListRef = useRef<HTMLDivElement | null>(null);
+  const cleanupListRef = useRef<HTMLDivElement | null>(null);
+  const cleanupRefreshGeneration = useRef(0);
   const isNarrow = useMediaQuery("(max-width: 980px)");
 
   const operationBatches = useMemo(() => {
     const grouped = groupOperationLogs(logs);
     return filterHistoryBatches(grouped, query, filter === "cleanup" ? "all" : filter);
   }, [filter, logs, query]);
+  const cleanupPreviewItems = useMemo(
+    () => Object.values(cleanupPreviewByBatch).flatMap((record) => record.state === "ready" ? record.items : []),
+    [cleanupPreviewByBatch]
+  );
+  const cleanupPreviewById = useMemo(
+    () => new Map(cleanupPreviewItems.map((item) => [item.id, item])),
+    [cleanupPreviewItems]
+  );
+  const cleanupAuthoritiesById = useMemo(() => {
+    const authorities = new Map<string, CleanupPreviewAuthority>();
+    for (const batch of cleanupBatches) {
+      const record = cleanupPreviewByBatch[batch.id];
+      const previewById = new Map((record?.items ?? []).map((item) => [item.id, item]));
+      for (const item of batch.items) {
+        authorities.set(item.id, {
+          state: record?.state ?? "unavailable",
+          preview: record?.state === "ready" ? previewById.get(item.id) : undefined,
+          error: record?.error || null
+        });
+      }
+    }
+    return authorities;
+  }, [cleanupBatches, cleanupPreviewByBatch]);
   const cleanup = useMemo(
-    () => filterCleanupBatches(groupCleanupBatches(cleanupBatches), query, cleanupPreviewItems),
-    [cleanupBatches, cleanupPreviewItems, query]
+    () => filterCleanupBatches(groupCleanupBatches(cleanupBatches), query, cleanupPreviewItems, cleanupAuthoritiesById),
+    [cleanupAuthoritiesById, cleanupBatches, cleanupPreviewItems, query]
   );
   const activeBatch = operationBatches.find((batch) => batch.id === activeBatchId) ?? operationBatches[0];
   const activeCleanupBatch = cleanup.find((batch) => batch.id === activeCleanupBatchId) ?? cleanup[0];
@@ -98,12 +132,8 @@ export function RestoreView() {
     [logs, selectedOperationIds]
   );
   const cleanupSelection = useMemo(
-    () => resolveCleanupRestoreSelection(cleanupPreviewItems, selectedCleanupIds),
-    [cleanupPreviewItems, selectedCleanupIds]
-  );
-  const cleanupPreviewById = useMemo(
-    () => new Map(cleanupPreviewItems.map((item) => [item.id, item])),
-    [cleanupPreviewItems]
+    () => resolveCleanupRestoreSelection(cleanupBatches.flatMap((batch) => batch.items), selectedCleanupIds, cleanupAuthoritiesById),
+    [cleanupAuthoritiesById, cleanupBatches, selectedCleanupIds]
   );
   const selectedCleanupItems = useMemo(
     () => cleanup.flatMap((batch) => batch.items).filter((item) => selectedCleanupIds.has(item.id)),
@@ -115,33 +145,58 @@ export function RestoreView() {
   const executableCount = selectedResolution.executableCount;
   const excludedCount = selectedResolution.excludedCount;
   const summary = useMemo(
-    () => resolveHistorySummary(logs, cleanupBatches.flatMap((batch) => batch.items), cleanupPreviewItems),
-    [cleanupBatches, cleanupPreviewItems, logs]
+    () => resolveHistorySummary(logs, cleanupBatches.flatMap((batch) => batch.items), cleanupPreviewItems, cleanupAuthoritiesById),
+    [cleanupAuthoritiesById, cleanupBatches, cleanupPreviewItems, logs]
   );
   const restoreProgress = operationProgress?.kind === "restore" ? operationProgress : null;
   const busy = Boolean(restoreProgress) || Boolean(cleanupRestoreProgress) || isPreparing || activeOperationKind === "restore";
   const showCleanup = filter === "cleanup";
   const visibleError = selectedMode === "cleanup_trash" ? cleanupRestoreError : restoreError;
 
+  const loadCleanupPreview = useCallback(async (batchId: string, generation = cleanupRefreshGeneration.current) => {
+    setCleanupPreviewByBatch((current) => ({
+      ...current,
+      [batchId]: { state: "loading", items: [], error: "" }
+    }));
+    try {
+      const preview = await tauriApi.previewRestoreCleanupTrash(batchId);
+      if (generation !== cleanupRefreshGeneration.current) return;
+      setCleanupPreviewByBatch((current) => ({
+        ...current,
+        [batchId]: { state: "ready", items: preview.items, error: "" }
+      }));
+      return true;
+    } catch (error) {
+      if (generation !== cleanupRefreshGeneration.current) return false;
+      const message = error instanceof Error ? error.message : String(error);
+      setCleanupPreviewByBatch((current) => ({
+        ...current,
+        [batchId]: { state: "failed", items: [], error: message }
+      }));
+      return false;
+    }
+  }, []);
+
   const refreshCleanup = useCallback(async () => {
+    const generation = cleanupRefreshGeneration.current + 1;
+    cleanupRefreshGeneration.current = generation;
     try {
       setCleanupLoadError("");
       const batches = await tauriApi.listCleanupTrashBatches();
-      const previews = await Promise.all(
-        batches.map(async (batch) => {
-          try {
-            return await tauriApi.previewRestoreCleanupTrash(batch.id);
-          } catch {
-            return { batchId: batch.id, items: [] };
-          }
-        })
-      );
+      if (generation !== cleanupRefreshGeneration.current) return;
       setCleanupBatches(batches);
-      setCleanupPreviewItems(previews.flatMap((preview) => preview.items));
+      setCleanupPreviewByBatch(Object.fromEntries(batches.map((batch) => [batch.id, { state: "loading", items: [], error: "" }])));
+      const results = await Promise.all(batches.map((batch) => loadCleanupPreview(batch.id, generation)));
+      if (generation === cleanupRefreshGeneration.current && results.some((result) => result === false)) {
+        setCleanupLoadError(t("cleanupPreviewFailed"));
+      }
     } catch (error) {
+      if (generation !== cleanupRefreshGeneration.current) return;
       setCleanupLoadError(error instanceof Error ? error.message : String(error));
+      setCleanupBatches([]);
+      setCleanupPreviewByBatch({});
     }
-  }, []);
+  }, [loadCleanupPreview, t]);
 
   useEffect(() => {
     void refreshOperationLogs().catch(() => undefined);
@@ -161,7 +216,7 @@ export function RestoreView() {
   }, [isNarrow]);
 
   useEffect(() => {
-    inspectorScrollRef.current?.scrollTo?.({ top: 0 });
+    pageScrollRef.current?.scrollTo?.({ top: 0 });
   }, [activeBatch?.id, activeCleanupBatch?.id, filter]);
 
   useEffect(() => {
@@ -178,10 +233,16 @@ export function RestoreView() {
       if (event.key !== "Escape") return;
       event.preventDefault();
       setNarrowPane("list");
+      requestAnimationFrame(() => (showCleanup ? cleanupListRef.current : historyListRef.current)?.focus());
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [confirmOpen, isNarrow, narrowPane]);
+  }, [confirmOpen, isNarrow, narrowPane, showCleanup]);
+
+  function returnToList() {
+    setNarrowPane("list");
+    requestAnimationFrame(() => (showCleanup ? cleanupListRef.current : historyListRef.current)?.focus());
+  }
 
   function toggleBatch(batch: OperationHistoryBatch, checked: boolean) {
     invalidateRestoreIntent();
@@ -201,6 +262,7 @@ export function RestoreView() {
   }
 
   function toggleCleanup(item: CleanupTrashItem, checked: boolean) {
+    if ((cleanupPreviewByBatch[item.batchId]?.state ?? "unavailable") !== "ready") return;
     invalidateRestoreIntent();
     setSelectedOperationIds(new Set());
     setSelectedCleanupIds((current) => {
@@ -259,6 +321,7 @@ export function RestoreView() {
     { value: "restored", key: "historyFilterRestored" },
     { value: "success", key: "historyFilterSuccess" },
     { value: "failed", key: "historyFilterFailed" },
+    { value: "restoreFailed", key: "historyFilterRestoreFailed" },
     { value: "skipped", key: "historyFilterSkipped" },
     { value: "canceled", key: "historyFilterCanceled" },
     { value: "needsReview", key: "historyFilterNeedsReview" },
@@ -273,8 +336,8 @@ export function RestoreView() {
   const confirmError = visibleError && restoreIntent ? `\n${visibleError}` : undefined;
 
   return (
-    <div className={pageSurface}>
-      <div className="mx-auto grid max-w-[1500px] gap-5">
+    <div ref={pageScrollRef} className={cn(pageSurface, "overflow-x-hidden overflow-y-auto") }>
+      <div className="mx-auto grid min-h-full max-w-[1500px] content-start gap-5 pb-4">
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2"><History size={20} className="text-[var(--zc-primary)]" aria-hidden="true" /><h2 className="text-xl font-semibold">{t("historyWorkspaceTitle")}</h2></div>
@@ -292,7 +355,7 @@ export function RestoreView() {
           ].map((card) => <div key={card.label} className={cn(contentPanel, "p-3")}><span className="block text-xs text-[var(--muted)]">{card.label}</span><strong className="mt-1 block text-lg tabular-nums">{card.value}</strong><span className="mt-1 block truncate text-[11px] text-[var(--muted)]" title={card.hint}>{card.hint}</span></div>)}
         </div>
 
-        <section className={cn(panelSurface, "grid gap-4 p-4 lg:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.2fr)]")}>
+        <section className={cn(panelSurface, "grid gap-4 overflow-visible p-4 lg:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.2fr)]")}>
           <div className={cn("grid min-w-0 gap-3", isNarrow && narrowPane === "details" && "hidden")}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">{showCleanup ? t("historyCleanupScope") : t("historyBatches")}</h2>
@@ -302,16 +365,20 @@ export function RestoreView() {
             <div className="flex max-w-full flex-wrap gap-1" role="group" aria-label={t("historyBatches")}>
               {filterButtons.map(({ value, key }) => <button key={value} type="button" className={cn(buttonGhost, "shrink-0", filter === value && "bg-[var(--zc-primary-soft)] text-[var(--zc-primary)]")} onClick={() => changeFilter(value)}>{t(key)}</button>)}
             </div>
-            {!showCleanup && operationBatches.length > 0 && <HistoryBatchList batches={operationBatches} activeBatchId={activeBatch?.id ?? ""} selectedIds={selectedOperationIds} onActiveBatch={(id) => { setActiveBatchId(id); if (isNarrow) setNarrowPane("details"); }} onToggleBatch={toggleBatch} t={t} />}
+            {!showCleanup && operationBatches.length > 0 && <HistoryBatchList listRef={historyListRef} batches={operationBatches} activeBatchId={activeBatch?.id ?? ""} selectedIds={selectedOperationIds} onActiveBatch={(id) => { setActiveBatchId(id); if (isNarrow) setNarrowPane("details"); }} onToggleBatch={toggleBatch} t={t} />}
             {!showCleanup && operationBatches.length === 0 && <div className={emptyState}>{query ? t("historyNoMatches") : t("historyNoRecords")}</div>}
-            {showCleanup && cleanup.length > 0 && <div className="grid gap-2">{cleanup.map((batch) => <button key={batch.id} type="button" className={cn(rowButton, batch.id === activeCleanupBatch?.id && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)]")} onClick={() => { setActiveCleanupBatchId(batch.id); if (isNarrow) setNarrowPane("details"); }}><span className="min-w-0 text-left"><strong className="block text-sm">{formatDate(batch.createdAt, t)}</strong><span className="block truncate text-xs text-[var(--muted)]">{batch.totalItems} · {formatBytes(batch.totalSize)} · {cleanupBatchRestorableCount(batch, cleanupPreviewItems)} {t("restorable")}</span></span><Trash2 size={15} aria-hidden="true" /></button>)}</div>}
+            {showCleanup && cleanup.length > 0 && <div ref={cleanupListRef} className="grid gap-2" tabIndex={0}>{cleanup.map((batch) => {
+              const previewState = cleanupPreviewByBatch[batch.id]?.state ?? "unavailable";
+              const previewFailed = previewState === "failed" || previewState === "unavailable";
+              return <button key={batch.id} type="button" className={cn(rowButton, batch.id === activeCleanupBatch?.id && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)]")} onClick={() => { setActiveCleanupBatchId(batch.id); if (isNarrow) setNarrowPane("details"); }}><span className="min-w-0 text-left"><strong className="block text-sm">{formatDate(batch.createdAt, t)}</strong><span className="block truncate text-xs text-[var(--muted)]">{batch.totalItems} · {formatBytes(batch.totalSize)} · {previewFailed ? t("cleanupPreviewUnavailable") : previewState === "loading" ? t("cleanupPreviewLoading") : `${cleanupBatchRestorableCount(batch, cleanupPreviewItems, cleanupAuthoritiesById)} ${t("restorable")}`}</span></span><Trash2 size={15} aria-hidden="true" /></button>;
+            })}</div>}
             {showCleanup && cleanup.length === 0 && <div className={emptyState}>{query ? t("historyNoMatches") : cleanupLoadError || t("cleanupTrashEmpty")}</div>}
           </div>
 
-          <div ref={inspectorScrollRef} className={cn("min-w-0 max-h-[min(72vh,760px)] overflow-y-auto", isNarrow && narrowPane === "list" && "hidden")}>
+          <div className={cn("min-w-0", isNarrow && narrowPane === "list" && "hidden")}>
             {showCleanup
-              ? <CleanupInspector batch={activeCleanupBatch} previewById={cleanupPreviewById} selectedIds={selectedCleanupIds} onToggle={toggleCleanup} t={t} />
-              : <HistoryInspector batch={activeBatch} selectedIds={selectedOperationIds} onToggle={toggleOperation} onBack={isNarrow ? () => setNarrowPane("list") : undefined} t={t} />}
+              ? <CleanupInspector batch={activeCleanupBatch} previewById={cleanupPreviewById} previewState={activeCleanupBatch ? cleanupPreviewByBatch[activeCleanupBatch.id]?.state ?? "unavailable" : "unavailable"} previewError={activeCleanupBatch ? cleanupPreviewByBatch[activeCleanupBatch.id]?.error : undefined} onRetry={activeCleanupBatch ? () => void loadCleanupPreview(activeCleanupBatch.id) : undefined} onBack={isNarrow ? returnToList : undefined} selectedIds={selectedCleanupIds} onToggle={toggleCleanup} t={t} />
+              : <HistoryInspector batch={activeBatch} selectedIds={selectedOperationIds} onToggle={toggleOperation} onBack={isNarrow ? returnToList : undefined} t={t} />}
           </div>
         </section>
 
