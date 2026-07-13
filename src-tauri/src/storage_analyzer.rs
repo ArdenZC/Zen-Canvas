@@ -5,9 +5,10 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap, HashSet},
     env, fs,
     hash::{Hash, Hasher},
+    panic::{catch_unwind, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -237,12 +238,33 @@ pub struct CleanupRestoreState {
 #[derive(Default)]
 struct CleanupRestoreStateInner {
     jobs: Mutex<HashMap<String, CleanupRestoreJob>>,
+    next_sequence: AtomicU64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CleanupRestoreJobStatus {
+    Running,
+    Completed,
+    Canceled,
+    Failed,
+}
+
+impl CleanupRestoreJobStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Canceled => "canceled",
+            Self::Failed => "failed",
+        }
+    }
 }
 
 #[derive(Clone)]
 struct CleanupRestoreJob {
     cancel_flag: Arc<AtomicBool>,
-    status: String,
+    status: CleanupRestoreJobStatus,
+    sequence: u64,
 }
 
 impl CleanupRestoreState {
@@ -252,26 +274,30 @@ impl CleanupRestoreState {
             .jobs
             .lock()
             .map_err(|_| "Cleanup restore job state is unavailable.".to_string())?;
-        if jobs.values().any(|job| job.status == "running") {
+        if jobs
+            .values()
+            .any(|job| job.status == CleanupRestoreJobStatus::Running)
+        {
             return Err("Another cleanup restore is already running.".to_string());
         }
         let cancel_flag = Arc::new(AtomicBool::new(false));
+        let sequence = self.inner.next_sequence.fetch_add(1, Ordering::Relaxed);
         jobs.insert(
             job_id,
             CleanupRestoreJob {
                 cancel_flag: Arc::clone(&cancel_flag),
-                status: "running".to_string(),
+                status: CleanupRestoreJobStatus::Running,
+                sequence,
             },
         );
-        if jobs.len() > 8 {
-            let completed = jobs
+        while jobs.len() > MAX_RETAINED_CLEANUP_JOBS {
+            let oldest = jobs
                 .iter()
-                .filter(|(_, job)| job.status != "running")
-                .map(|(id, _)| id.clone())
-                .collect::<Vec<_>>();
-            for id in completed.into_iter().take(jobs.len().saturating_sub(8)) {
-                jobs.remove(&id);
-            }
+                .filter(|(_, job)| job.status != CleanupRestoreJobStatus::Running)
+                .min_by_key(|(_, job)| job.sequence)
+                .map(|(id, _)| id.clone());
+            let Some(oldest) = oldest else { break };
+            jobs.remove(&oldest);
         }
         Ok(cancel_flag)
     }
@@ -285,22 +311,110 @@ impl CleanupRestoreState {
         let job = jobs
             .get(job_id)
             .ok_or_else(|| format!("Cleanup restore job not found: {job_id}"))?;
-        if job.status == "running" {
+        if job.status == CleanupRestoreJobStatus::Running {
             job.cancel_flag.store(true, Ordering::Relaxed);
         }
         Ok(())
     }
 
-    fn finish_job(&self, job_id: &str, canceled: bool) -> Result<(), String> {
+    fn finish_job(&self, job_id: &str, status: CleanupRestoreJobStatus) -> Result<(), String> {
         let mut jobs = self
             .inner
             .jobs
             .lock()
             .map_err(|_| "Cleanup restore job state is unavailable.".to_string())?;
         if let Some(job) = jobs.get_mut(job_id) {
-            job.status = if canceled { "canceled" } else { "completed" }.to_string();
+            if job.status == CleanupRestoreJobStatus::Running {
+                job.status = status;
+            }
         }
         Ok(())
+    }
+
+    pub fn status_for_test(&self, job_id: &str) -> Option<CleanupRestoreJobStatus> {
+        self.inner
+            .jobs
+            .lock()
+            .ok()?
+            .get(job_id)
+            .map(|job| job.status)
+    }
+
+    pub fn start_job_for_test(&self, job_id: impl Into<String>) -> Result<Arc<AtomicBool>, String> {
+        self.start_job(job_id.into())
+    }
+
+    pub fn cancel_job_for_test(&self, job_id: &str) -> Result<(), String> {
+        self.cancel_job(job_id)
+    }
+
+    pub fn finish_job_for_test(
+        &self,
+        job_id: &str,
+        status: CleanupRestoreJobStatus,
+    ) -> Result<(), String> {
+        self.finish_job(job_id, status)
+    }
+}
+
+struct CleanupRestoreJobGuard {
+    state: CleanupRestoreState,
+    job_id: String,
+    finished: bool,
+}
+
+impl CleanupRestoreJobGuard {
+    fn new(state: CleanupRestoreState, job_id: String) -> Self {
+        Self {
+            state,
+            job_id,
+            finished: false,
+        }
+    }
+
+    fn finish(&mut self, status: CleanupRestoreJobStatus) {
+        let _ = self.state.finish_job(&self.job_id, status);
+        self.finished = true;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CleanupRestoreTestOutcome {
+    Completed,
+    Canceled,
+    Failed,
+    Panic,
+}
+
+pub fn run_cleanup_restore_job_for_test(
+    state: &CleanupRestoreState,
+    job_id: &str,
+    outcome: CleanupRestoreTestOutcome,
+) -> Result<(), String> {
+    state.start_job_for_test(job_id.to_string())?;
+    let state = state.clone();
+    let job_id = job_id.to_string();
+    let result = catch_unwind(AssertUnwindSafe(move || {
+        let mut guard = CleanupRestoreJobGuard::new(state, job_id);
+        match outcome {
+            CleanupRestoreTestOutcome::Completed => {
+                guard.finish(CleanupRestoreJobStatus::Completed)
+            }
+            CleanupRestoreTestOutcome::Canceled => guard.finish(CleanupRestoreJobStatus::Canceled),
+            CleanupRestoreTestOutcome::Failed => guard.finish(CleanupRestoreJobStatus::Failed),
+            CleanupRestoreTestOutcome::Panic => panic!("simulated cleanup restore worker panic"),
+        }
+    }));
+    result.map_err(|_| "simulated cleanup restore worker panic".to_string())
+}
+
+impl Drop for CleanupRestoreJobGuard {
+    fn drop(&mut self) {
+        if !self.finished {
+            let _ = self
+                .state
+                .finish_job(&self.job_id, CleanupRestoreJobStatus::Failed);
+        }
     }
 }
 
@@ -751,9 +865,12 @@ pub async fn restore_cleanup_trash_items<R: Runtime>(
     let job_id = job_id.unwrap_or_else(|| new_id("cleanup-restore"));
     let cancel_flag = state.start_job(job_id.clone())?;
     let state = state.inner().clone();
+    let state_for_join_error = state.clone();
     let db = db.inner().clone();
+    let job_id_for_join = job_id.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         let emitter = TauriCleanupRestoreProgressEmitter::new(app);
+        let mut guard = CleanupRestoreJobGuard::new(state, job_id.clone());
         let result = restore_cleanup_trash_items_for_db_with_progress(
             item_ids,
             &db,
@@ -761,23 +878,29 @@ pub async fn restore_cleanup_trash_items<R: Runtime>(
             job_id.clone(),
             &emitter,
         );
-        let canceled = result
-            .as_ref()
-            .map(|value| value.canceled > 0)
-            .unwrap_or(false);
-        let _ = state.finish_job(&job_id, canceled);
+        let status = match result.as_ref() {
+            Ok(value) if value.canceled > 0 => CleanupRestoreJobStatus::Canceled,
+            Ok(_) => CleanupRestoreJobStatus::Completed,
+            Err(_) => CleanupRestoreJobStatus::Failed,
+        };
+        guard.finish(status);
         result
     })
     .await
-    .map_err(|error| format!("Cleanup restore worker failed: {error}"))?;
+    .map_err(|error| {
+        let _ = state_for_join_error.finish_job(&job_id_for_join, CleanupRestoreJobStatus::Failed);
+        format!("Cleanup restore worker failed: {error}")
+    })?;
     result
 }
 
 #[tauri::command]
-pub fn cancel_cleanup_restore(
+pub fn cancel_cleanup_restore<R: Runtime>(
+    window: WebviewWindow<R>,
     job_id: String,
     state: State<'_, CleanupRestoreState>,
 ) -> Result<(), String> {
+    require_main_window(&window)?;
     state.cancel_job(&job_id)
 }
 
@@ -813,11 +936,19 @@ pub fn preview_cleanup_restore_item_for_test(item: CleanupTrashItem) -> CleanupR
 }
 
 fn require_main_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
-    if window.label() == "main" {
+    if is_main_window_label(window.label()) {
         Ok(())
     } else {
         Err("This cleanup operation is only available from the main window.".to_string())
     }
+}
+
+fn is_main_window_label(label: &str) -> bool {
+    label == "main"
+}
+
+pub fn is_main_window_label_for_test(label: &str) -> bool {
+    is_main_window_label(label)
 }
 
 pub fn analyze_storage_roots_for_test(
