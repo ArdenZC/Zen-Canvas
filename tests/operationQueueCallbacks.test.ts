@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LibraryScope, OperationLog, OperationPreview } from "../src/types/domain";
-import { operationNeedsCleanupConfirmation, previewsForExecutionIntent, selectionForPreviewGroup, useOperationQueueStore } from "../src/store/useOperationQueueStore";
+import { operationConfirmationTone, operationNeedsCleanupConfirmation, previewsForExecutionIntent, resolveExecutableSelectedPreviews, selectionForPreviewGroup, useOperationQueueStore } from "../src/store/useOperationQueueStore";
 import { useFileLibraryStore } from "../src/store/useFileLibraryStore";
 import { useRulesStore } from "../src/store/useRulesStore";
 import { useAppStore } from "../src/store/useAppStore";
@@ -275,6 +275,24 @@ describe("operation queue store callbacks", () => {
     expect(operationNeedsCleanupConfirmation({ ...preview("confirm", true), requires_confirmation: true })).toBe(true);
     expect(operationNeedsCleanupConfirmation({ ...preview("sensitive", true), risk_level: "Sensitive" })).toBe(true);
     expect(operationNeedsCleanupConfirmation({ ...preview("system", true), risk_level: "System" })).toBe(true);
+    expect(operationNeedsCleanupConfirmation({ ...preview("low", true), confidence: 0.6 })).toBe(true);
+    expect(operationNeedsCleanupConfirmation({ ...preview("parent", true), will_create_parent: true })).toBe(true);
+  });
+
+  it("classifies normal, warning, and trash confirmation tones with trash taking priority", () => {
+    const normal = { ...preview("normal-tone", true), requires_confirmation: false };
+    const sensitive = { ...normal, id: "sensitive-tone", risk_level: "Sensitive" as const };
+    const duplicate = { ...normal, id: "duplicate-tone", is_duplicate: true };
+    const system = { ...normal, id: "system-tone", risk_level: "System" as const };
+    const requiresConfirmation = { ...normal, id: "confirm-tone", requires_confirmation: true };
+    const trash = { ...normal, id: "trash-tone", operation_type: "move_to_trash" as const };
+    expect(operationConfirmationTone([normal])).toBe("default");
+    expect(operationConfirmationTone([sensitive])).toBe("warning");
+    expect(operationConfirmationTone([duplicate])).toBe("warning");
+    expect(operationConfirmationTone([system])).toBe("warning");
+    expect(operationConfirmationTone([requiresConfirmation])).toBe("warning");
+    expect(operationConfirmationTone([trash])).toBe("danger");
+    expect(operationConfirmationTone([sensitive, trash])).toBe("danger");
   });
 
   it("never sends blocked previews to the backend", async () => {
@@ -337,6 +355,19 @@ describe("operation queue store callbacks", () => {
     expect(useOperationQueueStore.getState().displayPreviews[0].new_name).toBe("renamed.txt");
   });
 
+  it("keeps repeated Preview rename synchronization idempotent", () => {
+    const operation = preview("rename-idempotent", true);
+    useOrganizeDecisionStore.setState({ decisions: { [`all::${operation.fileId}`]: { fileId: operation.fileId, scopeKey: "all", signature: "stable", state: "accepted" } } });
+    useOperationQueueStore.setState({ previews: [operation], displayPreviews: [operation] });
+    useOperationQueueStore.getState().startOrganizePreviewSession("all", new Set([operation.id]));
+    useOperationQueueStore.getState().onRenamePreview(operation.id, "renamed.txt");
+    const overrides = useOperationQueueStore.getState().previewNameOverrides;
+    const decisions = useOrganizeDecisionStore.getState().decisions;
+    useOperationQueueStore.getState().onRenamePreview(operation.id, "renamed.txt");
+    expect(useOperationQueueStore.getState().previewNameOverrides).toBe(overrides);
+    expect(useOrganizeDecisionStore.getState().decisions).toBe(decisions);
+  });
+
   it("keeps general Preview renames in the operation override without creating organize decisions", () => {
     const operation = preview("general-rename", true);
     useOperationQueueStore.setState({ previews: [operation], displayPreviews: [operation], executionIntent: { source: "general" } });
@@ -365,18 +396,69 @@ describe("operation queue store callbacks", () => {
     expect(useOperationQueueStore.getState().selectedOperationIds).toEqual(new Set([operation.id]));
   });
 
-  it("loads only requested file previews and stops when a page adds no matches", async () => {
+  it("continues past 100 unrelated previews and finds a target on the second page", async () => {
     const wanted = preview("wanted", true);
-    const unrelated = preview("unrelated", true);
+    const unrelated = Array.from({ length: 100 }, (_, index) => preview(`unrelated-${index}`, true));
     apiMocks.getOperationPreviewsForScope
-      .mockResolvedValueOnce(previewResult([wanted, unrelated], true))
-      .mockResolvedValueOnce(previewResult([unrelated], true));
+      .mockResolvedValueOnce(previewResult(unrelated, true, 0, 101))
+      .mockResolvedValueOnce(previewResult([wanted], false, 100, 101));
 
-    const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set([wanted.fileId, "missing-file"]));
+    const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set([wanted.fileId]));
 
     expect(result?.previews).toEqual([wanted]);
     expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledTimes(2);
+    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenNthCalledWith(2, { kind: "all" }, undefined, 100, 100);
     expect(useOperationQueueStore.getState().previews).toEqual([wanted]);
+  });
+
+  it("stops a repeated preview page without looping", async () => {
+    const unrelated = preview("repeat", true);
+    apiMocks.getOperationPreviewsForScope.mockResolvedValue(previewResult([unrelated], true, 0, 10));
+    const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
+    expect(result?.previews).toEqual([]);
+    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops safely on an empty page", async () => {
+    apiMocks.getOperationPreviewsForScope.mockResolvedValue(previewResult([], true, 0, 10));
+    await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
+    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledOnce();
+  });
+
+  it("stops when an authoritative next offset does not advance", async () => {
+    apiMocks.getOperationPreviewsForScope.mockResolvedValue({ ...previewResult([preview("stalled", true)], true, 0, 10), nextOffset: 0 });
+    await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
+    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledOnce();
+  });
+
+  it("stops immediately after finding every target even when hasMore is true", async () => {
+    const wanted = preview("complete", true);
+    apiMocks.getOperationPreviewsForScope.mockResolvedValue(previewResult([wanted], true, 0, 200));
+    const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set([wanted.fileId]));
+    expect(result?.previews).toEqual([wanted]);
+    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledOnce();
+  });
+
+  it("deduplicates preview ids while preserving first-seen backend order", async () => {
+    const first = preview("first-target", true, "file-first");
+    const second = preview("second-target", true, "file-second");
+    apiMocks.getOperationPreviewsForScope
+      .mockResolvedValueOnce(previewResult([first], true, 0, 2))
+      .mockResolvedValueOnce(previewResult([first, second], false, 1, 2));
+    const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["file-first", "file-second"]));
+    expect(result?.previews.map((item) => item.id)).toEqual([first.id, second.id]);
+  });
+
+  it("resolves the exact executable selection shared by UI and store", () => {
+    const allowed = preview("allowed-count", true);
+    const invalid = { ...preview("invalid-count", true), new_name: "bad?name.txt" };
+    const blocked = { ...preview("blocked-count", true), is_executable: false };
+    const outside = preview("outside-count", true);
+    const intent = { source: "organize" as const, scopeKey: "all", allowedPreviewIds: new Set([allowed.id, invalid.id, blocked.id]), initialAllowedCount: 3, sessionId: "count" };
+    const result = resolveExecutableSelectedPreviews([allowed, invalid, blocked, outside], new Set([allowed.id, invalid.id, blocked.id, outside.id, "stale"]), intent);
+    expect(result.operations).toEqual([allowed]);
+    expect(result).toMatchObject({ selectedCount: 5, excludedCount: 4, outsideWhitelistCount: 1, blockedCount: 1, invalidNameCount: 1, unavailableCount: 1 });
+    expect(resolveExecutableSelectedPreviews([{ ...invalid, new_name: "valid.txt" }], new Set([invalid.id]), null).operations).toHaveLength(1);
   });
 
   it("does not let a late old-scope preview request overwrite a newer scope", async () => {
@@ -431,8 +513,8 @@ function log(id: string, status: OperationLog["status"], canRestore = false): Op
   };
 }
 
-function previewResult(previews: OperationPreview[], hasMore = false) {
-  return { previews, total: previews.length, limit: previews.length || 100, offset: 0, truncated: hasMore, hasMore };
+function previewResult(previews: OperationPreview[], hasMore = false, offset = 0, total = previews.length) {
+  return { previews, total, limit: previews.length || 100, offset, truncated: hasMore, hasMore };
 }
 
 function deferred<T>() {

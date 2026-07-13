@@ -87,6 +87,7 @@ export const useOrganizeDecisionStore = create<OrganizeDecisionStore>((set, get)
     const key = `${scopeKey}::${preview.fileId || preview.file_id}`;
     const existing = get().decisions[key];
     if (!existing) return false;
+    if (existing.state === "edited" && existing.editedName === editedName) return true;
     set((current) => ({ decisions: { ...current.decisions, [key]: { ...existing, state: "edited", editedName } } }));
     return true;
   }

@@ -69,12 +69,14 @@ export function organizeDecisionSignature(file: FileRecord, preview: OperationPr
     preview?.operation_type ?? "",
     normalizePathLike(preview?.source_path ?? ""),
     normalizePathLike(preview?.target_path ?? ""),
-    String(preview?.is_executable !== false)
+    preview?.status ?? "",
+    String(preview?.is_executable !== false),
+    preview?.blocking_reason ?? ""
   ].join("\u001f");
 }
 
 export function initialOrganizeDecision(file: FileRecord, preview: OperationPreview | null): OrganizeDecision {
-  if (file.is_deleted || file.is_stale || preview?.is_executable === false) return "blocked";
+  if (file.is_deleted || file.is_stale || (preview && (preview.status !== "pending" || preview.is_executable === false || Boolean(preview.blocking_reason)))) return "blocked";
   if (
     file.risk_level === "Sensitive"
     || file.lifecycle === "Sensitive"
@@ -101,8 +103,8 @@ export function buildOrganizeSuggestions(
     const effectivePreview = preview && record?.editedName
       ? applyPreviewNameOverride(preview, record.editedName)
       : preview;
-    const canAccept = Boolean(preview && preview.is_executable !== false && decision !== "blocked");
-    const canEdit = Boolean(preview?.editable_new_name && preview.is_executable !== false && decision !== "blocked");
+    const canAccept = Boolean(preview && preview.status === "pending" && preview.is_executable !== false && !preview.blocking_reason && decision !== "blocked");
+    const canEdit = Boolean(preview?.editable_new_name && preview.status === "pending" && preview.is_executable !== false && !preview.blocking_reason && decision !== "blocked");
     return {
       file,
       preview,
@@ -119,6 +121,7 @@ export function buildOrganizeSuggestions(
 export function isSafeBatchSuggestion(file: FileRecord, preview: OperationPreview | null): boolean {
   return Boolean(
     preview
+    && preview.status === "pending"
     && preview.is_executable !== false
     && !preview.requires_confirmation
     && !preview.blocking_reason
@@ -138,7 +141,7 @@ export function canSetOrganizeDecision(
   state: OrganizeDecision,
   editedName?: string
 ): boolean {
-  if (suggestion.decision === "blocked" || suggestion.preview?.is_executable === false) {
+  if (suggestion.decision === "blocked" || (suggestion.preview && (suggestion.preview.status !== "pending" || suggestion.preview.is_executable === false || Boolean(suggestion.preview.blocking_reason)))) {
     return state === "blocked";
   }
   if (state === "accepted") return suggestion.canAccept;
@@ -156,7 +159,9 @@ export function summarizeOrganizeDecisions(suggestions: readonly OrganizeSuggest
     if (suggestion.decision === "blocked") summary.blocked += 1;
     if (
       (suggestion.decision === "accepted" || suggestion.decision === "edited")
+      && suggestion.effectivePreview?.status === "pending"
       && suggestion.effectivePreview?.is_executable !== false
+      && !suggestion.effectivePreview?.blocking_reason
     ) summary.executable += 1;
   }
   return summary;
@@ -165,7 +170,7 @@ export function summarizeOrganizeDecisions(suggestions: readonly OrganizeSuggest
 export function previewIdsForOrganizeDecisions(suggestions: readonly OrganizeSuggestion[]): Set<string> {
   return new Set(suggestions
     .filter((suggestion) => suggestion.decision === "accepted" || suggestion.decision === "edited")
-    .filter((suggestion) => suggestion.effectivePreview?.is_executable !== false)
+    .filter((suggestion) => suggestion.effectivePreview?.status === "pending" && suggestion.effectivePreview?.is_executable !== false && !suggestion.effectivePreview?.blocking_reason)
     .map((suggestion) => suggestion.effectivePreview?.id)
     .filter((id): id is string => Boolean(id)));
 }
