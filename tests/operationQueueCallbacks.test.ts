@@ -317,6 +317,13 @@ describe("operation queue store callbacks", () => {
     expect(apiMocks.executeMoves).not.toHaveBeenCalled();
   });
 
+  it("does not newly group-select invalid names but can deselect an already invalid item", () => {
+    const valid = preview("group-valid", true);
+    const invalid = { ...preview("group-invalid", true), new_name: "bad?.txt" };
+    expect(selectionForPreviewGroup(new Set(), [valid, invalid], true, null)).toEqual(new Set([valid.id]));
+    expect(selectionForPreviewGroup(new Set([valid.id, invalid.id]), [valid, invalid], false, null)).toEqual(new Set());
+  });
+
   it("enforces an organize execution whitelist against injected selections", async () => {
     const accepted = preview("accepted", true);
     const kept = preview("kept", true);
@@ -406,6 +413,7 @@ describe("operation queue store callbacks", () => {
     const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set([wanted.fileId]));
 
     expect(result?.previews).toEqual([wanted]);
+    expect(result?.truncated).toBe(false);
     expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledTimes(2);
     expect(apiMocks.getOperationPreviewsForScope).toHaveBeenNthCalledWith(2, { kind: "all" }, undefined, 100, 100);
     expect(useOperationQueueStore.getState().previews).toEqual([wanted]);
@@ -416,19 +424,22 @@ describe("operation queue store callbacks", () => {
     apiMocks.getOperationPreviewsForScope.mockResolvedValue(previewResult([unrelated], true, 0, 10));
     const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
     expect(result?.previews).toEqual([]);
+    expect(result?.truncated).toBe(true);
     expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledTimes(2);
   });
 
   it("stops safely on an empty page", async () => {
     apiMocks.getOperationPreviewsForScope.mockResolvedValue(previewResult([], true, 0, 10));
-    await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
+    const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
     expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledOnce();
+    expect(result?.truncated).toBe(false);
   });
 
   it("stops when an authoritative next offset does not advance", async () => {
     apiMocks.getOperationPreviewsForScope.mockResolvedValue({ ...previewResult([preview("stalled", true)], true, 0, 10), nextOffset: 0 });
-    await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
+    const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
     expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledOnce();
+    expect(result?.truncated).toBe(true);
   });
 
   it("stops immediately after finding every target even when hasMore is true", async () => {
@@ -436,7 +447,31 @@ describe("operation queue store callbacks", () => {
     apiMocks.getOperationPreviewsForScope.mockResolvedValue(previewResult([wanted], true, 0, 200));
     const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set([wanted.fileId]));
     expect(result?.previews).toEqual([wanted]);
+    expect(result?.truncated).toBe(false);
     expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledOnce();
+  });
+
+  it("does not truncate when the backend naturally completes with targets still absent", async () => {
+    apiMocks.getOperationPreviewsForScope.mockResolvedValue(previewResult([preview("unrelated-natural", true)], false, 0, 1));
+    const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
+    expect(result?.truncated).toBe(false);
+  });
+
+  it("marks a missing-target scan truncated at the page safety limit", async () => {
+    apiMocks.getOperationPreviewsForScope.mockImplementation((_scope, _action, _limit, offset) =>
+      Promise.resolve(previewResult([preview(`page-${offset}`, true)], true, offset, 10_000))
+    );
+    const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
+    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledTimes(24);
+    expect(result?.truncated).toBe(true);
+  });
+
+  it("marks a missing-target scan truncated at the entry safety limit", async () => {
+    const oversizedPage = Array.from({ length: 12_000 }, (_, index) => preview(`entry-${index}`, true));
+    apiMocks.getOperationPreviewsForScope.mockResolvedValue(previewResult(oversizedPage, true, 0, 20_000));
+    const result = await useOperationQueueStore.getState().refreshPreviewsForFiles({ kind: "all" }, new Set(["missing"]));
+    expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledOnce();
+    expect(result?.truncated).toBe(true);
   });
 
   it("deduplicates preview ids while preserving first-seen backend order", async () => {
@@ -458,6 +493,7 @@ describe("operation queue store callbacks", () => {
     const result = resolveExecutableSelectedPreviews([allowed, invalid, blocked, outside], new Set([allowed.id, invalid.id, blocked.id, outside.id, "stale"]), intent);
     expect(result.operations).toEqual([allowed]);
     expect(result).toMatchObject({ selectedCount: 5, excludedCount: 4, outsideWhitelistCount: 1, blockedCount: 1, invalidNameCount: 1, unavailableCount: 1 });
+    expect(result.excludedCount).toBe(result.outsideWhitelistCount + result.blockedCount + result.invalidNameCount + result.unavailableCount);
     expect(resolveExecutableSelectedPreviews([{ ...invalid, new_name: "valid.txt" }], new Set([invalid.id]), null).operations).toHaveLength(1);
   });
 

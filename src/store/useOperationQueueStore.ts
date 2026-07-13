@@ -23,16 +23,23 @@ export function previewsForExecutionIntent(previews: readonly OperationPreview[]
     : [...previews];
 }
 
-export function isPreviewExecutable(preview: OperationPreview): boolean {
+export function isPreviewBackendApproved(preview: OperationPreview): boolean {
   return preview.status === "pending" && preview.is_executable !== false && !preview.blocking_reason;
+}
+
+export function isPreviewExecutable(preview: OperationPreview): boolean {
+  return isPreviewBackendApproved(preview)
+    && (preview.operation_type === "move_to_trash" || validateOrganizeFileName(preview.new_name) === null);
 }
 
 export function selectionForPreviewGroup(current: Set<string>, previews: readonly OperationPreview[], select: boolean, intent: PreviewExecutionIntent) {
   const next = new Set(current);
   for (const preview of previewsForExecutionIntent(previews, intent)) {
-    if (!isPreviewExecutable(preview)) continue;
-    if (select) next.add(preview.id);
-    else next.delete(preview.id);
+    if (select) {
+      if (isPreviewExecutable(preview)) next.add(preview.id);
+    } else {
+      next.delete(preview.id);
+    }
   }
   return next;
 }
@@ -53,29 +60,44 @@ export function resolveExecutableSelectedPreviews(
   intent: PreviewExecutionIntent
 ): ExecutablePreviewSelection {
   const allowed = intent?.source === "organize" ? intent.allowedPreviewIds : null;
-  const selectedPreviews = previews.filter((preview) => selectedIds.has(preview.id));
-  const selectedPreviewIds = new Set(selectedPreviews.map((preview) => preview.id));
-  const outsideWhitelistCount = allowed
-    ? selectedPreviews.filter((preview) => !allowed.has(preview.id)).length
-    : 0;
-  const eligible = allowed
-    ? selectedPreviews.filter((preview) => allowed.has(preview.id))
-    : selectedPreviews;
-  const unavailablePreviews = eligible.filter((preview) => preview.status !== "pending");
-  const active = eligible.filter((preview) => preview.status === "pending");
-  const blockedCount = active.filter((preview) => preview.is_executable === false || Boolean(preview.blocking_reason)).length;
-  const executable = active.filter(isPreviewExecutable);
-  const invalidNameCount = executable.filter(
-    (preview) => preview.operation_type !== "move_to_trash" && validateOrganizeFileName(preview.new_name) !== null
-  ).length;
-  const operations = executable.filter(
-    (preview) => preview.operation_type === "move_to_trash" || validateOrganizeFileName(preview.new_name) === null
-  );
-  const unavailableCount = [...selectedIds].filter((id) => !selectedPreviewIds.has(id)).length + unavailablePreviews.length;
+  const selectedPreviews: OperationPreview[] = [];
+  const presentIds = new Set<string>();
+  for (const preview of previews) {
+    if (!selectedIds.has(preview.id) || presentIds.has(preview.id)) continue;
+    selectedPreviews.push(preview);
+    presentIds.add(preview.id);
+  }
+  const operations: OperationPreview[] = [];
+  let outsideWhitelistCount = 0;
+  let blockedCount = 0;
+  let invalidNameCount = 0;
+  let unavailableCount = 0;
+
+  for (const preview of selectedPreviews) {
+    if (allowed && !allowed.has(preview.id)) {
+      outsideWhitelistCount += 1;
+      continue;
+    }
+    if (preview.status !== "pending") {
+      unavailableCount += 1;
+      continue;
+    }
+    if (!isPreviewBackendApproved(preview)) {
+      blockedCount += 1;
+      continue;
+    }
+    if (!isPreviewExecutable(preview)) {
+      invalidNameCount += 1;
+      continue;
+    }
+    operations.push(preview);
+  }
+  unavailableCount += [...selectedIds].filter((id) => !presentIds.has(id)).length;
+  const excludedCount = outsideWhitelistCount + blockedCount + invalidNameCount + unavailableCount;
   return {
     operations,
     selectedCount: selectedIds.size,
-    excludedCount: selectedIds.size - operations.length,
+    excludedCount,
     outsideWhitelistCount,
     blockedCount,
     invalidNameCount,
@@ -304,15 +326,27 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
     const matchedFileIds = new Set<string>();
     const limit = Math.min(500, Math.max(100, fileIds.size));
     let offset = 0;
-    let hasMore = true;
     let pages = 0;
     let scannedEntries = 0;
     const maxPages = 24;
     const maxEntries = 12_000;
-    while (hasMore && matchedFileIds.size < fileIds.size && pages < maxPages && scannedEntries < maxEntries) {
+    type PreviewScanStopReason = "all-targets-found" | "backend-complete" | "empty-page" | "repeated-page" | "offset-stalled" | "page-limit" | "entry-limit";
+    let stopReason: PreviewScanStopReason | null = fileIds.size === 0 ? "all-targets-found" : null;
+    while (!stopReason) {
+      if (pages >= maxPages) {
+        stopReason = "page-limit";
+        break;
+      }
+      if (scannedEntries >= maxEntries) {
+        stopReason = "entry-limit";
+        break;
+      }
       const page = await tauriApi.getOperationPreviewsForScope(scope, undefined, limit, offset);
       if (get().previewRequestId !== requestId) return null;
-      if (!page.previews.length) break;
+      if (!page.previews.length) {
+        stopReason = "empty-page";
+        break;
+      }
       let newPreviewIds = 0;
       for (const preview of page.previews) {
         if (!scannedPreviewIds.has(preview.id)) {
@@ -327,16 +361,39 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       }
       pages += 1;
       scannedEntries += page.previews.length;
-      hasMore = page.hasMore;
-      if (!hasMore || matchedFileIds.size >= fileIds.size || newPreviewIds === 0) break;
+      if (matchedFileIds.size >= fileIds.size) {
+        stopReason = "all-targets-found";
+        break;
+      }
+      if (!page.hasMore) {
+        stopReason = "backend-complete";
+        break;
+      }
+      if (newPreviewIds === 0) {
+        stopReason = "repeated-page";
+        break;
+      }
+      if (scannedEntries >= maxEntries) {
+        stopReason = "entry-limit";
+        break;
+      }
+      if (pages >= maxPages) {
+        stopReason = "page-limit";
+        break;
+      }
       const authoritativeNextOffset = (page as OperationPreviewResult & { nextOffset?: number }).nextOffset;
       const nextOffset = authoritativeNextOffset ?? page.offset + page.previews.length;
-      if (!Number.isFinite(nextOffset) || nextOffset <= offset) break;
+      if (!Number.isFinite(nextOffset) || nextOffset <= offset) {
+        stopReason = "offset-stalled";
+        break;
+      }
       offset = nextOffset;
     }
     if (get().previewRequestId !== requestId) return null;
     const previews = [...matched.values()];
-    const result: OperationPreviewResult = { previews, total: previews.length, limit, offset: 0, truncated: hasMore, hasMore: false };
+    const truncated = matchedFileIds.size < fileIds.size
+      && (stopReason === "repeated-page" || stopReason === "offset-stalled" || stopReason === "page-limit" || stopReason === "entry-limit");
+    const result: OperationPreviewResult = { previews, total: previews.length, limit, offset: 0, truncated, hasMore: false };
     get().setPreviewResult(result, scope);
     return result;
   },

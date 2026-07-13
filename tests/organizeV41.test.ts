@@ -29,8 +29,10 @@ describe("Organize Suggestions v4.1 interaction contracts", () => {
     const store = read("src/store/useOperationQueueStore.ts");
     expect(view).toContain("refreshPreviewsForFiles");
     expect(view).not.toContain("while (useOperationQueueStore.getState().previewHasMore)");
-    expect(store).toContain("pages < maxPages");
-    expect(store).toContain("scannedEntries < maxEntries");
+    expect(store).toContain("pages >= maxPages");
+    expect(store).toContain('stopReason = "page-limit"');
+    expect(store).toContain("scannedEntries >= maxEntries");
+    expect(store).toContain('stopReason = "entry-limit"');
     expect(store).toContain("newPreviewIds === 0");
     expect(store).toContain("scannedPreviewIds");
     expect(store).toContain("previewRequestId !== requestId");
