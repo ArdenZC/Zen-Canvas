@@ -45,6 +45,7 @@ export function TimelineView() {
   const isOperationCanceling = useOperationQueueStore((state) => state.isOperationCanceling);
   const cancelOperations = useOperationQueueStore((state) => state.cancelOperations);
   const [confirmExecute, setConfirmExecute] = useState(false);
+  const executeButtonRef = useRef<HTMLButtonElement | null>(null);
   const visiblePreviews = previewsForExecutionIntent(displayPreviews, executionIntent);
   function toggle(id: string) {
     const preview = visiblePreviews.find((item) => item.id === id);
@@ -107,7 +108,7 @@ export function TimelineView() {
             {executionIntent?.source === "organize" ? <p className="mt-1 text-sm text-[var(--zc-info-text)]">{t("organizePreviewAcceptedOnly")}</p> : null}
             <p className="mt-2 truncate text-xs text-[var(--muted)]">{t("currentOrganizeScope")}: {scopeText}</p>
           </div>
-          <button className={cn(glassButtonPrimary, "tabular-nums")} onClick={() => setConfirmExecute(true)} disabled={!executableSelectedCount || isExecuting}>
+          <button ref={executeButtonRef} data-dialog-focus-fallback className={cn(glassButtonPrimary, "tabular-nums")} onClick={() => setConfirmExecute(true)} disabled={!executableSelectedCount || isExecuting}>
             <Play size={16} />
             <span>{isExecuting ? t("executingOperations") : executeButtonLabel}</span>
           </button>
@@ -283,6 +284,7 @@ export function TimelineView() {
         emphasis={confirmationEmphasis}
         confirmLabel={t("organizeExecuteConfirmAction").replace("{count}", selectedOperations.length.toLocaleString())}
         cancelLabel={t("cancel")}
+        restoreFocus={() => executeButtonRef.current}
         onCancel={() => setConfirmExecute(false)}
         onConfirm={() => { setConfirmExecute(false); void executeSelected(true); }}
       />

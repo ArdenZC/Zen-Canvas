@@ -103,6 +103,7 @@ function SuggestionRow({
     <div
       id={`organize-suggestion-${suggestion.file.id}`}
       role="listitem"
+      tabIndex={active ? -1 : undefined}
       aria-current={active ? "true" : undefined}
       aria-label={`${suggestion.file.name} · ${decisionLabel(suggestion.decision, t)}`}
       data-organize-decision={suggestion.decision}

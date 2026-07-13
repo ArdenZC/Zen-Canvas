@@ -25,6 +25,7 @@ import {
 } from "./organizeModel";
 
 const AI_ANALYSIS_LIMIT = 100;
+const NARROW_ORGANIZE_QUERY = "(max-width: 1100px)";
 
 export function OrganizeSuggestionsView() {
   const { t, setView } = useChromeContext();
@@ -55,6 +56,7 @@ export function OrganizeSuggestionsView() {
   const [targetFileId, setTargetFileId] = useState<string | null>(null);
   const [confirmReanalysis, setConfirmReanalysis] = useState(false);
   const [narrowPane, setNarrowPane] = useState<"list" | "details">("list");
+  const isNarrowLayout = useNarrowOrganizeLayout();
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceError, setWorkspaceError] = useState(false);
   const [analysisFailed, setAnalysisFailed] = useState(false);
@@ -111,6 +113,10 @@ export function OrganizeSuggestionsView() {
   useEffect(() => {
     if (inspectorRef.current) inspectorRef.current.scrollTop = 0;
   }, [activeSuggestion?.file.id]);
+
+  useEffect(() => {
+    if (!isNarrowLayout && narrowPane !== "list") setNarrowPane("list");
+  }, [isNarrowLayout, narrowPane]);
 
   useEffect(() => {
     if (!suggestions.length) {
@@ -181,14 +187,20 @@ export function OrganizeSuggestionsView() {
   }
 
   function openInspectorDetails() {
-    if (!activeSuggestion) return;
+    if (!activeSuggestion || !isNarrowLayout) return;
     setNarrowPane("details");
     requestAnimationFrame(() => inspectorRef.current?.focus());
   }
 
   function returnToSuggestionList() {
+    if (!isNarrowLayout) return;
     setNarrowPane("list");
-    requestAnimationFrame(() => listRef.current?.focus());
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const activeRow = activeSuggestion ? document.getElementById(`organize-suggestion-${activeSuggestion.file.id}`) : null;
+        (activeRow ?? listRef.current)?.focus();
+      });
+    });
   }
 
   function toggleBatch(fileId: string) {
@@ -279,16 +291,16 @@ export function OrganizeSuggestionsView() {
         <StateBlock tone="neutral" title={t("organizeEmptyTitle")} description={t("organizeEmptyDesc")} secondaryAction={<button className={buttonSecondary} onClick={() => void analyzePending()}>{t("organizeAnalyzePending")}</button>} />
       ) : (
         <>
-          <section className={cn(contentSurface, "grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_360px] overflow-hidden max-[1100px]:grid-cols-1")} data-narrow-pane={narrowPane}>
-            <div id="organize-suggestion-pane" className={cn("grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden", narrowPane === "details" && "max-[1100px]:hidden")}>
-              <div className="hidden items-center justify-between gap-3 border-b border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3 py-2 max-[1100px]:flex">
+          <section className={cn(contentSurface, "grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_360px] overflow-hidden max-[1100px]:grid-cols-1")} data-narrow-pane={isNarrowLayout ? narrowPane : undefined}>
+            <div id="organize-suggestion-pane" className={cn("grid min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden", isNarrowLayout && narrowPane === "details" && "hidden")}>
+              {isNarrowLayout ? <div className="flex items-center justify-between gap-3 border-b border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3 py-2">
                 <span className="min-w-0 truncate text-xs text-[var(--zc-text-secondary)]">{activeSuggestion?.file.name}</span>
                 <button className={cn(buttonSecondary, "min-h-8 shrink-0 px-3 py-1.5 text-xs")} type="button" aria-controls="organize-inspector" aria-label={activeSuggestion ? t("organizeDetailsForFile").replace("{name}", activeSuggestion.file.name) : t("organizeViewFileDetails")} onClick={openInspectorDetails}><FolderSearch size={14} aria-hidden="true" />{t("organizeViewFileDetails")}</button>
-              </div>
+              </div> : null}
               {batchMode ? <OrganizeBatchToolbar selectedCount={batchIds.size} safeCount={safeBatchSuggestions.length} keepableCount={keepableBatchSuggestions.length} clearableCount={clearableBatchSuggestions.length} blockedCount={blockedBatchCount} needsReviewCount={needsReviewBatchCount} t={t} onAcceptSafe={() => applyBatch("accepted")} onKeep={() => applyBatch("kept")} onClear={() => applyBatch("undecided")} onExit={() => { setBatchMode(false); setBatchIds(new Set()); requestAnimationFrame(() => listRef.current?.focus()); }} /> : <div className="border-b border-[var(--zc-divider)] px-3 py-2 text-xs text-[var(--zc-text-tertiary)]">{t("organizeClickOnlyViews")}</div>}
               <OrganizeSuggestionList suggestions={suggestions} activeId={activeSuggestion?.file.id ?? ""} batchMode={batchMode} batchIds={batchIds} t={t} onActivate={setActiveId} onToggleBatch={toggleBatch} onKeyDown={handleListKeyDown} listRef={listRef} />
             </div>
-            <OrganizeSuggestionInspector suggestion={activeSuggestion} t={t} inspectorRef={inspectorRef} narrowVisible={narrowPane === "details"} onAccept={() => applyDecision(activeSuggestion, "accepted")} onKeep={() => applyDecision(activeSuggestion, "kept")} onEdit={() => activeSuggestion && setTargetFileId(activeSuggestion.file.id)} onClear={() => activeSuggestion && clearDecision(scope, activeSuggestion.file, activeSuggestion.preview)} onReturnToList={returnToSuggestionList} />
+            <OrganizeSuggestionInspector suggestion={activeSuggestion} t={t} inspectorRef={inspectorRef} isNarrowLayout={isNarrowLayout} narrowVisible={narrowPane === "details"} onAccept={() => applyDecision(activeSuggestion, "accepted")} onKeep={() => applyDecision(activeSuggestion, "kept")} onEdit={() => activeSuggestion && setTargetFileId(activeSuggestion.file.id)} onClear={() => activeSuggestion && clearDecision(scope, activeSuggestion.file, activeSuggestion.preview)} onReturnToList={returnToSuggestionList} />
           </section>
           <OrganizeDecisionBar summary={summary} t={t} onPreview={openPreview} />
         </>
@@ -298,4 +310,23 @@ export function OrganizeSuggestionsView() {
       <ConfirmDialog open={confirmReanalysis} tone="warning" title={t("organizeReanalyzeConfirmTitle")} description={t("organizeReanalyzeConfirmDesc")} confirmLabel={t("organizeReanalyzeConfirmAction")} cancelLabel={t("cancel")} onCancel={() => setConfirmReanalysis(false)} onConfirm={() => void rerunAnalysis()} />
     </div>
   );
+}
+
+function useNarrowOrganizeLayout() {
+  const readMatch = () => typeof window !== "undefined"
+    && (window.matchMedia?.(NARROW_ORGANIZE_QUERY).matches ?? window.innerWidth <= 1100);
+  const [matches, setMatches] = useState(readMatch);
+  useEffect(() => {
+    const mediaQuery = window.matchMedia?.(NARROW_ORGANIZE_QUERY);
+    const update = (event?: MediaQueryListEvent) => setMatches(event?.matches ?? mediaQuery?.matches ?? window.innerWidth <= 1100);
+    const updateFromResize = () => update();
+    update();
+    if (mediaQuery) mediaQuery.addEventListener("change", update);
+    else window.addEventListener("resize", updateFromResize);
+    return () => {
+      if (mediaQuery) mediaQuery.removeEventListener("change", update);
+      else window.removeEventListener("resize", updateFromResize);
+    };
+  }, []);
+  return matches;
 }

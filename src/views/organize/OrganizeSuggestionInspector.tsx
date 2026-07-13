@@ -11,6 +11,7 @@ export function OrganizeSuggestionInspector({
   suggestion,
   t,
   inspectorRef,
+  isNarrowLayout,
   narrowVisible,
   onAccept,
   onKeep,
@@ -21,6 +22,7 @@ export function OrganizeSuggestionInspector({
   suggestion: OrganizeSuggestion | null;
   t: Translator;
   inspectorRef: RefObject<HTMLElement | null>;
+  isNarrowLayout: boolean;
   narrowVisible: boolean;
   onAccept: () => void;
   onKeep: () => void;
@@ -30,7 +32,7 @@ export function OrganizeSuggestionInspector({
 }) {
   if (!suggestion) {
     return (
-      <aside id="organize-inspector" ref={inspectorRef} tabIndex={-1} className={cn("grid min-h-64 place-items-center border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-5 text-center max-[1100px]:border-l-0", !narrowVisible && "max-[1100px]:hidden")} aria-label={t("organizeFileDetails")}>
+      <aside id="organize-inspector" ref={inspectorRef} tabIndex={-1} className={cn("grid min-h-64 place-items-center bg-[var(--zc-surface-subtle)] p-5 text-center", isNarrowLayout ? !narrowVisible && "hidden" : "border-l border-[var(--zc-divider)]")} aria-label={t("organizeFileDetails")}>
         <div className="grid max-w-xs gap-2">
           <FileSearch size={24} className="mx-auto text-[var(--zc-info-text)]" aria-hidden="true" />
           <strong>{t("organizeInspectorEmptyTitle")}</strong>
@@ -44,9 +46,9 @@ export function OrganizeSuggestionInspector({
   const targetPath = effectiveTargetPath(suggestion);
   const blockingText = organizeBlockingText(suggestion, t);
   return (
-    <aside id="organize-inspector" ref={inspectorRef} tabIndex={-1} className={cn("min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-4 max-[1100px]:border-l-0", !narrowVisible && "max-[1100px]:hidden")} aria-labelledby="organize-inspector-title" aria-label={t("organizeDetailsForFile").replace("{name}", file.name)} aria-keyshortcuts="Escape" onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); onReturnToList(); } }}>
+    <aside id="organize-inspector" ref={inspectorRef} tabIndex={-1} className={cn("min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain bg-[var(--zc-surface-subtle)] p-4", isNarrowLayout ? !narrowVisible && "hidden" : "border-l border-[var(--zc-divider)]")} aria-labelledby="organize-inspector-title" aria-label={t("organizeDetailsForFile").replace("{name}", file.name)} aria-keyshortcuts={isNarrowLayout ? "Escape" : undefined} onKeyDown={(event) => { if (isNarrowLayout && event.key === "Escape") { event.preventDefault(); onReturnToList(); } }}>
       <div className="grid gap-4">
-        <button type="button" className={cn(buttonGhost, "hidden min-h-8 w-fit px-2 py-1.5 text-xs max-[1100px]:inline-flex")} aria-controls="organize-suggestion-pane" onClick={onReturnToList}><ArrowLeft size={14} aria-hidden="true" />{t("organizeBackToFileList")}</button>
+        {isNarrowLayout && narrowVisible ? <button type="button" className={cn(buttonGhost, "min-h-8 w-fit px-2 py-1.5 text-xs")} aria-controls="organize-suggestion-pane" onClick={onReturnToList}><ArrowLeft size={14} aria-hidden="true" />{t("organizeBackToFileList")}</button> : null}
         <div className="grid min-h-32 place-items-center gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] px-4 py-5 text-center">
           <FileSearch size={28} className="text-[var(--zc-info-text)]" aria-hidden="true" />
           <strong className="text-sm text-[var(--zc-text-primary)]">{typeLabel(file, t)}</strong>

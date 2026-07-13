@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { makeTranslator } from "../src/i18n";
-import { operationConfirmationTone, resolveExecutableSelectedPreviews } from "../src/store/useOperationQueueStore";
+import { operationConfirmationTone, resolveExecutableSelectedPreviews, resolvePreviewEligibility } from "../src/store/useOperationQueueStore";
 import type { OperationPreview } from "../src/types/domain";
 import { formatPreviewDisplayPath, groupOperationPreviews } from "../src/utils/viewHelpers";
 import { PreviewFileRow } from "../src/views/timeline/PreviewFileRow";
@@ -80,6 +80,23 @@ describe("Organize Suggestions v4.2 hardening", () => {
     expect(resolved).toMatchObject({ blockedCount: 1, outsideWhitelistCount: 1, unavailableCount: 1 });
   });
 
+  it("assigns one prioritized exclusion reason to every non-executable selection", () => {
+    const invalid = preview("invalid-reason", { new_name: "bad?.txt" });
+    const blocked = preview("blocked-reason", { is_executable: false, blocking_reason: "protected" });
+    const unavailable = preview("unavailable-reason", { status: "failed", is_executable: false, new_name: "bad?.txt" });
+    const outside = preview("outside-reason", { status: "failed", is_executable: false, new_name: "bad?.txt" });
+    const intent = { source: "organize" as const, scopeKey: "all", allowedPreviewIds: new Set([invalid.id, blocked.id, unavailable.id]), initialAllowedCount: 3, sessionId: "exclusive" };
+
+    expect(resolvePreviewEligibility(invalid, intent).reason).toBe("invalidName");
+    expect(resolvePreviewEligibility(blocked, intent).reason).toBe("blocked");
+    expect(resolvePreviewEligibility(unavailable, intent).reason).toBe("unavailable");
+    expect(resolvePreviewEligibility(outside, intent).reason).toBe("outsideWhitelist");
+
+    const resolved = resolveExecutableSelectedPreviews([invalid, blocked, unavailable, outside], new Set([invalid.id, blocked.id, unavailable.id, outside.id]), intent);
+    expect(resolved.operations).toEqual([]);
+    expect(resolved).toMatchObject({ selectedCount: 4, invalidNameCount: 1, blockedCount: 1, unavailableCount: 1, outsideWhitelistCount: 1, excludedCount: 4 });
+  });
+
   it("uses default, warning, and danger semantics from the actual executable set", () => {
     expect(operationConfirmationTone([preview("normal")])).toBe("default");
     expect(operationConfirmationTone([preview("sensitive", { risk_level: "Sensitive" })])).toBe("warning");
@@ -139,11 +156,11 @@ describe("Organize Suggestions v4.2 hardening", () => {
     expect(view).toContain('setNarrowPane("details")');
     expect(view).toContain("requestAnimationFrame(() => inspectorRef.current?.focus())");
     expect(view).toContain('setNarrowPane("list")');
-    expect(view).toContain("requestAnimationFrame(() => listRef.current?.focus())");
+    expect(view).toContain("activeRow ?? listRef.current");
     expect(view).not.toContain("max-[1100px]:overflow-auto");
     expect(inspector).toContain('event.key === "Escape"');
     expect(inspector).toContain("overflow-y-auto overflow-x-hidden overscroll-contain");
-    expect(inspector).toContain('aria-keyshortcuts="Escape"');
+    expect(inspector).toContain('aria-keyshortcuts={isNarrowLayout ? "Escape" : undefined}');
     expect(inspector).toContain('t("organizeDetailsForFile")');
   });
 
@@ -165,7 +182,8 @@ describe("Organize Suggestions v4.2 hardening", () => {
     const timeline = read("src/views/timeline/TimelineView.tsx");
     expect(dialog).toContain('event.key !== "Tab"');
     expect(dialog).toContain('event.key === "Escape"');
-    expect(dialog).toContain("previous?.focus()");
+    expect(dialog).toContain("previousUsable");
+    expect(dialog).toContain("restoreFocusRef.current?.()");
     expect(dialog).toContain("bg-[var(--zc-overlay)]");
     expect(dialog).toContain("glassButtonWarning");
     expect(timeline).toContain("tabular-nums");

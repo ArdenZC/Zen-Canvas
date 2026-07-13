@@ -318,6 +318,7 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel,
   isProcessing = false,
+  restoreFocus,
   onConfirm,
   onCancel
 }: {
@@ -329,22 +330,43 @@ export function ConfirmDialog({
   confirmLabel: string;
   cancelLabel: string;
   isProcessing?: boolean;
+  restoreFocus?: () => HTMLElement | null;
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
 }) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const onCancelRef = useRef(onCancel);
+  const isProcessingRef = useRef(isProcessing);
+  const restoreFocusRef = useRef(restoreFocus);
   const titleId = useId();
   const descriptionId = useId();
   const emphasisId = useId();
+  onCancelRef.current = onCancel;
+  isProcessingRef.current = isProcessing;
+  restoreFocusRef.current = restoreFocus;
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
+    const overlay = overlayRef.current;
+    const backgroundSiblings = overlay?.parentElement
+      ? [...overlay.parentElement.children].filter((element): element is HTMLElement => element instanceof HTMLElement && element !== overlay)
+      : [];
+    const backgroundState = backgroundSiblings.map((element) => ({
+      element,
+      inert: element.inert,
+      ariaHidden: element.getAttribute("aria-hidden")
+    }));
+    for (const sibling of backgroundSiblings) {
+      sibling.inert = true;
+      sibling.setAttribute("aria-hidden", "true");
+    }
     cancelRef.current?.focus();
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !isProcessing) {
+      if (event.key === "Escape" && !isProcessingRef.current) {
         event.preventDefault();
-        onCancel();
+        onCancelRef.current();
       }
       if (event.key !== "Tab" || !dialogRef.current) return;
       const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
@@ -364,9 +386,27 @@ export function ConfirmDialog({
     document.addEventListener("keydown", handleKeyDown);
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      previous?.focus();
+      for (const { element, inert, ariaHidden } of backgroundState) {
+        element.inert = inert;
+        if (ariaHidden === null) element.removeAttribute("aria-hidden");
+        else element.setAttribute("aria-hidden", ariaHidden);
+      }
+      const previousUsable = previous !== document.body
+        && previous !== document.documentElement
+        && previous?.isConnected
+        && !previous.matches(":disabled, [hidden], [aria-hidden='true']")
+        && !previous.closest("[inert]");
+      const target = previousUsable
+        ? previous
+        : restoreFocusRef.current?.()
+          ?? document.querySelector<HTMLElement>("[data-dialog-focus-fallback]:not([disabled])")
+          ?? document.querySelector<HTMLElement>("main h1, main h2, [role='main'] h1, [role='main'] h2");
+      if (target?.isConnected) {
+        if (!target.matches("button, input, select, textarea, a[href], [tabindex]")) target.tabIndex = -1;
+        target.focus();
+      }
     };
-  }, [isProcessing, onCancel, open]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -379,7 +419,7 @@ export function ConfirmDialog({
 
   return createElement(
     "div",
-    { className: "fixed inset-0 z-50 grid place-items-center bg-[var(--zc-overlay)] p-4 backdrop-blur-sm" },
+    { ref: overlayRef, className: "fixed inset-0 z-50 grid place-items-center bg-[var(--zc-overlay)] p-4 backdrop-blur-sm" },
     createElement(
       "div",
       {
