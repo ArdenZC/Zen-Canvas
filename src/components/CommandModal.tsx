@@ -145,6 +145,7 @@ export function CommandModal({
   const [commandIndexStatus, setCommandIndexStatus] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [inputFocused, setInputFocused] = useState(false);
+  const settingsCommandSectionRef = useRef<string | null>(null);
   const enqueueBackgroundIndexRoots = useBackgroundIndexerStore((state) => state.enqueueRoots);
   const isBackgroundIndexing = useBackgroundIndexerStore((state) => state.isBackgroundIndexing);
   const currentBackgroundRoot = useBackgroundIndexerStore((state) => state.currentRoot);
@@ -335,6 +336,7 @@ export function CommandModal({
         });
         return;
       }
+      settingsCommandSectionRef.current = command.settingsSection ?? null;
       executeSpotlightCommand(command, { setView, requestSettingsSection, onClose });
     } catch (error) {
       const message = readableError(error);
@@ -543,7 +545,19 @@ export function CommandModal({
     </div>
   );
 
-  return standalone ? content : <ModalPortal initialFocusRef={inputRef} restoreFocus={() => restoreFocusRef?.current ?? null} onEscape={onClose}>{content}</ModalPortal>;
+  function restoreSpotlightFocus() {
+    const requestedSection = settingsCommandSectionRef.current;
+    if (requestedSection) {
+      const sectionId = requestedSection === "settings-search-scope" ? "settings-search" : requestedSection;
+      return document.querySelector<HTMLElement>(`#${sectionId} [data-settings-section-heading]`)
+        ?? document.querySelector<HTMLElement>(`#${sectionId}`)
+        ?? restoreFocusRef?.current
+        ?? null;
+    }
+    return restoreFocusRef?.current ?? null;
+  }
+
+  return standalone ? content : <ModalPortal initialFocusRef={inputRef} restoreFocus={restoreSpotlightFocus} onEscape={onClose}>{content}</ModalPortal>;
 }
 
 function SpotlightResultGroups({

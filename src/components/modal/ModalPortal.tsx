@@ -171,8 +171,8 @@ export function restoreDialogFocus(
   fallbackSelector = "[data-dialog-focus-fallback]"
 ) {
   const candidates: HTMLElement[] = [];
-  if (previous instanceof HTMLElement) candidates.push(previous);
   if (preferred) candidates.push(preferred);
+  if (previous instanceof HTMLElement) candidates.push(previous);
   if (typeof document !== "undefined") {
     candidates.push(...Array.from(document.querySelectorAll<HTMLElement>(fallbackSelector)));
     candidates.push(...Array.from(document.querySelectorAll<HTMLElement>("main button:not([disabled]), [role='main'] button:not([disabled])")));
