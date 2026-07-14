@@ -273,8 +273,8 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
       const savedRule = await tauriApi.saveUserRule(rule);
       upsertRule(savedRule);
     } catch (error) {
-      upsertRule(rule);
-      showError(`规则已保存到本地缓存，但同步 SQLite 失败：${readableError(error)}`);
+      showError(`规则未保存，SQLite 同步失败：${readableError(error)}`);
+      throw error;
     }
   }, [showError, upsertRule]);
   const toggleRuleEnabled = useCallback(async (rule: Rule, enabled: boolean) => {
@@ -284,7 +284,7 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
       saveUserRule: tauriApi.saveUserRule,
       upsertRule,
       onSyncError: (error) => {
-        showError(`规则已更新到本地缓存，但同步 SQLite 失败：${readableError(error)}`);
+        showError(`规则状态未更新，SQLite 同步失败：${readableError(error)}`);
       }
     });
   }, [showError, upsertRule]);
