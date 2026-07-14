@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderPlus, Keyboard, Play, Trash2 } from "lucide-react";
+import packageInfo from "../../../package.json";
 import { tauriApi } from "../../api/tauriApi";
 import { useChromeContext, useSettingsContext } from "../../contexts/AppContexts";
 import {
@@ -40,40 +41,43 @@ import {
 } from "./aiSettingsModel";
 import { acceleratorFromKeyboardEvent, formatHotkeyLabel, isValidSearchHotkey } from "../../utils/hotkeys";
 import { compactPath, normalizePathLike, readableError } from "../../utils/viewHelpers";
-import { buttonIconDanger, buttonSecondary, cn, glassButton, inputSurface, selectSurface } from "../../utils/tw";
+import { buttonIconDanger, buttonSecondary, cn, glassButton } from "../../utils/tw";
 import {
   ConfirmDialog,
-  ControlGroup,
-  NoticeBanner,
-  SegmentedControl,
-  StateBlock,
-  SwitchButton,
-  SwitchField,
-  ToneBadge,
   compactInteractiveRow,
-  formRow,
-  formSection,
-  metadataText,
-  pageSurface,
-  panelSurface,
-  quietText,
-  softPanel,
+  quietText
 } from "../shared/ui";
+import {
+  SettingsControlGroup,
+  SettingsDisclosure,
+  SettingsEmptyState,
+  SettingsInlineMessage,
+  SettingsLayout,
+  SettingsRow,
+  SettingsSection,
+  SettingsSegmentedControl,
+  SettingsSelect,
+  SettingsSwitch,
+  SettingsSwitchControl,
+  SettingsTextField,
+  settingsField
+} from "./components/SettingsPrimitives";
 
 type StatusTone = "success" | "warning";
+type AIUserMode = "off" | "local" | "cloud";
 type FolderDeleteConfirmState =
   | { kind: "scan"; root: ScanRootSetting }
   | { kind: "search"; root: SearchRootSetting };
 
 const DEVELOPER_MODE_STORAGE_KEY = "zc-developer-mode";
 const SETTINGS_SECTION_IDS = [
+  "settings-general",
   "settings-appearance",
   "settings-files-scan",
   "settings-search",
-  "settings-privacy",
-  "settings-general",
   "settings-automation",
   "settings-ai",
+  "settings-privacy",
   "settings-about"
 ] as const;
 const AI_CLASSIFICATION_PRESET_IDS = ["fast", "standard", "detailed", "custom"] as const;
@@ -98,6 +102,31 @@ const AI_PROVIDER_LABEL_KEYS: Record<AIProviderPresetId, Parameters<Translator>[
 
 function aiProviderLabel(preset: AIProviderPreset, t: Translator) {
   return t(AI_PROVIDER_LABEL_KEYS[preset.id]);
+}
+
+function aiUserMode(settings: AISettings): AIUserMode {
+  if (!settings.enabled) return "off";
+  return settings.provider === "ollama" ? "local" : "cloud";
+}
+
+function userProviderValue(settings: AISettings): "deepseek" | "openai_compatible" | "ollama" | "custom" {
+  if (settings.provider === "ollama") return "ollama";
+  if (settings.preset === "deepseek") return "deepseek";
+  if (settings.preset === "custom_openai_compatible") return "custom";
+  return "openai_compatible";
+}
+
+function applyProviderPreset(settings: AISettings, preset: AIProviderPreset): AISettings {
+  return {
+    ...settings,
+    enabled: settings.enabled,
+    provider: preset.providerKind,
+    preset: preset.id,
+    baseUrl: preset.defaultBaseUrl,
+    chatPath: preset.defaultChatPath,
+    model: preset.defaultModel,
+    apiKey: settings.apiKey
+  };
 }
 
 function readDeveloperMode() {
@@ -172,13 +201,14 @@ export function SettingsView() {
   const [aiPresets, setAiPresets] = useState<AIProviderPreset[]>([]);
   const [isLoadingAISettings, setIsLoadingAISettings] = useState(false);
   const [isSavingAISettings, setIsSavingAISettings] = useState(false);
+  const [aiSettingsSaveError, setAiSettingsSaveError] = useState(false);
   const [isTestingAIConnection, setIsTestingAIConnection] = useState(false);
   const [aiConnectionStatus, setAiConnectionStatus] = useState<{ tone: StatusTone; message: string } | null>(null);
   const [aiDebugTarget, setAiDebugTarget] = useState("");
   const [isDebuggingAI, setIsDebuggingAI] = useState(false);
   const [aiDebugStatus, setAiDebugStatus] = useState<{ tone: StatusTone; message: string } | null>(null);
   const [aiDebugResult, setAiDebugResult] = useState<AIDebugClassificationResult | null>(null);
-  const [activeSettingsSection, setActiveSettingsSection] = useState("settings-appearance");
+  const [activeSettingsSection, setActiveSettingsSection] = useState("settings-general");
   const [developerMode, setDeveloperMode] = useState(readDeveloperMode);
   const hotkeyCaptureRef = useRef<HTMLDivElement | null>(null);
   const settingsScrollRef = useRef<HTMLDivElement | null>(null);
@@ -199,13 +229,18 @@ export function SettingsView() {
     { id: "settings-about", label: t("settingsAbout") }
   ];
 
-  function focusSettingsSection(sectionId: string) {
+  function focusSettingsSection(sectionId: string, options: { focusContent?: boolean } = {}) {
     const targetId = sectionId === "settings-search-scope" ? "settings-search" : sectionId;
     setActiveSettingsSection(targetId);
+    if (options.focusContent === false) return;
     window.requestAnimationFrame(() => {
-      const section = settingsScrollRef.current?.querySelector<HTMLElement>(`#${targetId}`);
-      section?.scrollIntoView({ block: "start" });
-      section?.focus({ preventScroll: true });
+      const container = settingsScrollRef.current;
+      const section = container?.querySelector<HTMLElement>(`#${targetId}`);
+      if (container && section) {
+        container.scrollTop += section.getBoundingClientRect().top - container.getBoundingClientRect().top;
+      }
+      const heading = section?.querySelector<HTMLElement>("[data-settings-section-heading]");
+      (heading ?? section)?.focus({ preventScroll: true });
     });
   }
 
@@ -310,6 +345,7 @@ export function SettingsView() {
         setAiPresets(presets);
         setAiSettings(settings);
         setPersistedAISettings(settings);
+        setAiSettingsSaveError(false);
         publishAIProcessingMode({ enabled: settings.enabled, provider: settings.provider });
       })
       .catch((error) => {
@@ -329,6 +365,17 @@ export function SettingsView() {
   function showStatus(message: string, tone: StatusTone = "success") {
     setSettingsStatus(message);
     setSettingsStatusTone(tone);
+  }
+
+  async function pickFolder(title: string) {
+    try {
+      const selectedPath = await open({ directory: true, multiple: false, title });
+      const path = Array.isArray(selectedPath) ? selectedPath[0] : selectedPath;
+      return path?.trim() || null;
+    } catch (error) {
+      showStatus(`${t("folderPickerFailed")}：${readableError(error)}`, "warning");
+      return null;
+    }
   }
 
   async function updateCloseBehavior(next: CloseBehavior) {
@@ -360,13 +407,8 @@ export function SettingsView() {
   }
 
   async function addDefaultScanFolder() {
-    const selectedPath = await open({
-      directory: true,
-      multiple: false,
-      title: t("folderPickerTitle")
-    });
-    const path = Array.isArray(selectedPath) ? selectedPath[0] : selectedPath;
-    if (!path?.trim()) return;
+    const path = await pickFolder(t("folderPickerTitle"));
+    if (!path) return;
 
     const saved = await setDefaultScanFolders(upsertDefaultScanRoot(defaultScanFolders, path));
     if (saved) {
@@ -386,6 +428,7 @@ export function SettingsView() {
     if (saved) {
       showStatus(`${t("settingsSavedInline")} · ${t("defaultScanFoldersRestartHint")}`);
     }
+    return saved;
   }
 
   async function updateSearchScopeMode(next: SearchScopeMode) {
@@ -403,13 +446,8 @@ export function SettingsView() {
   }
 
   async function chooseOrganizeRootPath() {
-    const selectedPath = await open({
-      directory: true,
-      multiple: false,
-      title: t("organizeRootPickerTitle")
-    });
-    const path = Array.isArray(selectedPath) ? selectedPath[0] : selectedPath;
-    if (!path?.trim()) return;
+    const path = await pickFolder(t("organizeRootPickerTitle"));
+    if (!path) return;
 
     const saved = await setOrganizeRootPath(path);
     if (saved) {
@@ -425,13 +463,8 @@ export function SettingsView() {
   }
 
   async function addCustomSearchRoot() {
-    const selectedPath = await open({
-      directory: true,
-      multiple: false,
-      title: t("folderPickerTitle")
-    });
-    const path = Array.isArray(selectedPath) ? selectedPath[0] : selectedPath;
-    if (!path?.trim()) return;
+    const path = await pickFolder(t("folderPickerTitle"));
+    if (!path) return;
 
     const saved = await setCustomSearchRoots(upsertSearchRoot(customSearchRoots, path));
     if (saved) {
@@ -453,18 +486,17 @@ export function SettingsView() {
     if (saved) {
       showStatus(t("settingsSavedInline"));
     }
+    return saved;
   }
 
   async function confirmFolderDelete() {
     if (!folderDeleteConfirm || isDeletingFolderConfig) return;
     setIsDeletingFolderConfig(true);
     try {
-      if (folderDeleteConfirm.kind === "scan") {
-        await deleteScanRoot(folderDeleteConfirm.root);
-      } else {
-        await deleteSearchRoot(folderDeleteConfirm.root);
-      }
-      setFolderDeleteConfirm(null);
+      const saved = folderDeleteConfirm.kind === "scan"
+        ? await deleteScanRoot(folderDeleteConfirm.root)
+        : await deleteSearchRoot(folderDeleteConfirm.root);
+      if (saved) setFolderDeleteConfirm(null);
     } finally {
       setIsDeletingFolderConfig(false);
     }
@@ -528,35 +560,57 @@ export function SettingsView() {
 
   function updateAISettings(partial: Partial<AISettings>) {
     if (isSavingAISettings) return;
+    setAiSettingsSaveError(false);
     setAiConnectionStatus(null);
     setAiDebugStatus(null);
     setAiSettings((current) => current ? { ...current, ...partial } : current);
   }
 
   function applyClassificationPreset(mode: Exclude<AIClassificationPresetId, "custom">) {
+    setAiSettingsSaveError(false);
     setAiConnectionStatus(null);
     setAiDebugStatus(null);
     setAiSettings((current) => current ? applyAIClassificationPreset(current, mode) : current);
   }
 
+  function updateAIUserMode(mode: AIUserMode) {
+    setAiSettingsSaveError(false);
+    setAiConnectionStatus(null);
+    setAiSettings((current) => {
+      if (!current) return current;
+      if (mode === "off") return { ...current, enabled: false };
+
+      const targetPreset = mode === "local"
+        ? aiPresets.find((preset) => preset.providerKind === "ollama")
+        : aiPresets.find((preset) => preset.providerKind !== "ollama" && preset.id === current.preset)
+          ?? aiPresets.find((preset) => preset.providerKind !== "ollama" && preset.id === "deepseek")
+          ?? aiPresets.find((preset) => preset.providerKind !== "ollama");
+      return targetPreset ? applyProviderPreset({ ...current, enabled: true }, targetPreset) : { ...current, enabled: true };
+    });
+  }
+
   function selectAIPreset(presetId: AIProviderPresetId) {
     const preset = aiPresets.find((item) => item.id === presetId);
+    setAiSettingsSaveError(false);
     setAiConnectionStatus(null);
     setAiDebugStatus(null);
     setAiSettings((current) => {
       if (!preset) return current ? { ...current, preset: presetId } : current;
       const fallback = current ?? defaultAISettingsFromPreset(preset);
       if (!fallback) return fallback;
-      return {
-        ...fallback,
-        preset: preset.id,
-        provider: preset.providerKind,
-        baseUrl: preset.defaultBaseUrl,
-        chatPath: preset.defaultChatPath,
-        model: preset.defaultModel,
-        apiKey: fallback.apiKey
-      };
+      return applyProviderPreset(fallback, preset);
     });
+  }
+
+  function selectUserProvider(value: "deepseek" | "openai_compatible" | "ollama" | "custom") {
+    if (value === "deepseek" || value === "ollama" || value === "custom") {
+      selectAIPreset(value === "custom" ? "custom_openai_compatible" : value);
+      return;
+    }
+    const currentCloudPreset = aiSettings && aiSettings.provider !== "ollama" && aiSettings.preset !== "deepseek" && aiSettings.preset !== "custom_openai_compatible"
+      ? aiSettings.preset
+      : "custom_openai_compatible";
+    selectAIPreset(currentCloudPreset as AIProviderPresetId);
   }
 
   async function saveAISettings() {
@@ -565,17 +619,20 @@ export function SettingsView() {
     const requestId = ++aiSaveRequestRef.current;
     const previous = persistedAISettings;
     setIsSavingAISettings(true);
+    setAiSettingsSaveError(false);
     setAiConnectionStatus(null);
     try {
       const saved = await tauriApi.saveAISettings(next);
       if (requestId !== aiSaveRequestRef.current) return;
       setAiSettings(saved);
       setPersistedAISettings(saved);
+      setAiSettingsSaveError(false);
       publishAIProcessingMode({ enabled: saved.enabled, provider: saved.provider });
       showStatus(t("aiSettingsSaved"));
     } catch (error) {
       if (requestId !== aiSaveRequestRef.current) return;
       if (previous) setAiSettings(previous);
+      setAiSettingsSaveError(true);
       setAiConnectionStatus({
         tone: "warning",
         message: sanitizeAIStatusMessage(`${t("aiSettingsSaveFailed")}：${readableError(error)}`, previous?.apiKey ?? aiSettings.apiKey)
@@ -638,47 +695,55 @@ export function SettingsView() {
 
   return (
     <>
-    <div ref={settingsScrollRef} className={cn(pageSurface, "overflow-auto")}>
-      <section className={cn(panelSurface, "mx-auto grid w-full max-w-[1180px] gap-4")}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <p className={cn(quietText, "max-w-2xl")}>{t("settingsDesc")}</p>
-          {settingsStatus && settingsStatusTone === "success" ? (
-            <span className={cn(quietText, "rounded-full border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-3 py-1.5")} aria-live="polite">
-              {settingsStatus}
-            </span>
-          ) : null}
+    <SettingsLayout
+      sections={settingsSections}
+      activeSectionId={activeSettingsSection}
+      sectionLabel={t("settingsSectionsLabel")}
+      onSectionChange={(sectionId, options) => focusSettingsSection(sectionId, options)}
+      scrollRef={settingsScrollRef}
+    >
+        <div className="grid gap-2">
+          <p className="max-w-2xl text-sm leading-6 text-[var(--zc-text-secondary)]">{t("settingsDesc")}</p>
+          {settingsStatus ? <SettingsInlineMessage tone={settingsStatusTone === "warning" ? "warning" : "success"}>{settingsStatus}</SettingsInlineMessage> : null}
         </div>
 
-        {settingsStatus && settingsStatusTone === "warning" ? (
-          <NoticeBanner tone="warning">{settingsStatus}</NoticeBanner>
-        ) : null}
+        <SettingsSection id="settings-general" title={t("settingsGeneral")} description={t("settingsGeneralDesc")}>
+          <SettingsControlGroup title={t("settingsWindowBehavior")} description={t("settingsWindowBehaviorDesc")}>
+            <SettingsRow label={t("closeBehavior")} description={t("closeBehaviorDesc")}>
+              <SettingsSegmentedControl
+                value={closeBehavior}
+                ariaLabel={t("closeBehavior")}
+                options={[
+                  { value: "ask", label: t("askEveryTime") },
+                  { value: "minimize", label: t("minimizeToTray") },
+                  { value: "quit", label: t("quitApp") }
+                ]}
+                onChange={(next) => void updateCloseBehavior(next)}
+              />
+            </SettingsRow>
+          </SettingsControlGroup>
 
-        <div className={cn(softPanel, "grid gap-2 p-2")}>
-          <span className={cn(quietText, "px-2")}>{t("settingsSectionsLabel")}</span>
-          <nav className="grid grid-cols-2 gap-1 sm:grid-cols-4 xl:grid-cols-8" aria-label={t("settingsSectionsLabel")}>
-            {settingsSections.map((section) => (
-              <button
-                key={section.id}
-                type="button"
-                className={cn(
-                  "min-h-9 rounded-[var(--zc-radius-control)] px-2 py-1.5 text-sm font-medium transition-[background,color,box-shadow]",
-                  activeSettingsSection === section.id
-                    ? "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] shadow-sm"
-                    : "text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]"
-                )}
-                aria-pressed={activeSettingsSection === section.id}
-                onClick={() => focusSettingsSection(section.id)}
-              >
-                {section.label}
-              </button>
-            ))}
-          </nav>
-        </div>
+          <SettingsControlGroup title={t("settingsStartup")} description={t("settingsStartupDesc")}>
+            <SettingsSwitch
+              id="settings-background-index-startup"
+              label={t("backgroundIndexOnStartup")}
+              description={t("backgroundIndexOnStartupDesc")}
+              checked={backgroundIndexOnStartup}
+              onChange={(next) => void updateBackgroundIndexOnStartup(next)}
+            />
+            <SettingsSwitch
+              id="settings-launch-at-login"
+              label={t("launchAtLogin")}
+              description={t("launchAtLoginDesc")}
+              checked={launchAtLogin}
+              onChange={(next) => void updateLaunchAtLogin(next)}
+            />
+          </SettingsControlGroup>
+        </SettingsSection>
 
-        <ControlGroup id="settings-appearance" title={t("settingsAppearanceLanguage")} description={t("settingsAppearanceLanguageDesc")}>
-          <div className={formRow}>
-            <div><strong className="block text-sm">{t("language")}</strong><span className={metadataText}>{t("languageDesc")}</span></div>
-            <SegmentedControl
+        <SettingsSection id="settings-appearance" title={t("settingsAppearance")} description={t("settingsAppearanceDesc")}>
+          <SettingsRow label={t("language")} description={t("languageDesc")}>
+            <SettingsSegmentedControl
               value={language}
               ariaLabel={t("language")}
               options={[
@@ -687,10 +752,9 @@ export function SettingsView() {
               ]}
               onChange={setLanguage}
             />
-          </div>
-          <div id="settings-appearance-theme" tabIndex={-1} className={cn(formRow, "outline-none")}>
-            <div><strong className="block text-sm">{t("appearance")}</strong><span className={metadataText}>{t("appearanceDesc")}</span></div>
-            <SegmentedControl
+          </SettingsRow>
+          <SettingsRow label={t("appearance")} description={t("appearanceDesc")}>
+            <SettingsSegmentedControl
               value={theme}
               ariaLabel={t("appearance")}
               options={[
@@ -700,10 +764,9 @@ export function SettingsView() {
               ]}
               onChange={setTheme}
             />
-          </div>
-          <div className={formRow}>
-            <div><strong className="block text-sm">{t("folderNaming")}</strong><span className={metadataText}>{t("folderNamingDesc")}</span></div>
-            <SegmentedControl
+          </SettingsRow>
+          <SettingsRow label={t("folderNaming")} description={t("folderNamingDesc")}>
+            <SettingsSegmentedControl
               value={folderNamingLanguage}
               ariaLabel={t("folderNaming")}
               options={[
@@ -712,31 +775,33 @@ export function SettingsView() {
               ]}
               onChange={(next) => void updateFolderNamingLanguage(next)}
             />
-          </div>
-        </ControlGroup>
+          </SettingsRow>
+        </SettingsSection>
 
-        <div id="settings-files-scan" tabIndex={-1} className="grid gap-4 outline-none">
-        <ControlGroup title={t("settingsScanRoots")} description={t("settingsScanRootsDesc")}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className={quietText}>{t("defaultScanFoldersRestartHint")}</span>
-            <button className={buttonSecondary} onClick={() => void addDefaultScanFolder()}>
-              <FolderPlus size={15} />
-              <span>{t("addScanFolder")}</span>
-            </button>
-          </div>
+        <SettingsSection id="settings-files-scan" title={t("settingsFilesScan")} description={t("settingsFilesScanDesc")}>
+        <SettingsControlGroup title={t("settingsScanRoots")} description={t("settingsScanRootsDesc")}>
+          {defaultScanFolders.length ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className={quietText}>{t("defaultScanFoldersRestartHint")}</span>
+              <button className={buttonSecondary} onClick={() => void addDefaultScanFolder()}>
+                <FolderPlus size={15} />
+                <span>{t("addScanFolder")}</span>
+              </button>
+            </div>
+          ) : null}
           <div className="grid gap-2">
             {defaultScanFolders.length ? defaultScanFolders.map((root) => (
               <div key={root.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
-                <div className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_auto] md:items-center">
+                <div className="grid min-w-0 gap-3 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-center">
                   <div className="min-w-0 text-left">
-                    <strong className="block truncate text-sm">{root.label}</strong>
-                    <span className="block truncate text-xs leading-5 text-[var(--muted)]" title={root.path}>{compactPath(root.path, 72)}</span>
+                    <label htmlFor={`scan-root-${root.id}`} className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{root.label}</label>
+                    <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={root.path}>{compactPath(root.path, 72)}</span>
                   </div>
-                  <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
-                    <SwitchButton
+                  <div className="flex flex-wrap items-center justify-start gap-2 min-[720px]:justify-end">
+                    <SettingsSwitchControl
+                      id={`scan-root-${root.id}`}
                       checked={root.enabled}
                       label={root.enabled ? t("disableScanFolder") : t("enableScanFolder")}
-                      statusLabel={root.enabled ? t("enabled") : t("disabled")}
                       onChange={(next) => void setScanRootEnabled(root, next)}
                     />
                     <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void scanRootNow(root)} title={t("scanNow")}>
@@ -750,7 +815,7 @@ export function SettingsView() {
                 </div>
               </div>
             )) : (
-              <StateBlock title={t("defaultScanFolders")} description={t("noDefaultScanFolders")} primaryAction={(
+              <SettingsEmptyState title={t("defaultScanFolders")} description={t("noDefaultScanFolders")} action={(
                 <button className={buttonSecondary} onClick={() => void addDefaultScanFolder()}>
                   <FolderPlus size={15} />
                   <span>{t("addScanFolder")}</span>
@@ -758,22 +823,19 @@ export function SettingsView() {
               )} />
             )}
           </div>
-        </ControlGroup>
+        </SettingsControlGroup>
 
-        <ControlGroup title={t("settingsOrganizeRoot")} description={t("settingsOrganizeRootDesc")}>
-          <div className={formRow}>
-            <div>
-              <strong className="block text-sm">{t("settingsOrganizeRoot")}</strong>
-              <span className={metadataText}>
-                {organizeRootMode === "current_folder"
-                  ? t("organizeRootCurrentDesc")
-                  : organizeRootMode === "zen_canvas_folder"
-                    ? t("organizeRootZenCanvasDesc")
-                    : t("organizeRootCustomDesc")}
-              </span>
-              <span className={metadataText}>{t("organizePreviewStillRequired")}</span>
-            </div>
-            <SegmentedControl
+        <SettingsControlGroup title={t("settingsOrganizeRoot")} description={t("settingsOrganizeRootDesc")}>
+          <SettingsRow
+            label={t("settingsOrganizeRoot")}
+            description={organizeRootMode === "current_folder"
+              ? t("organizeRootCurrentDesc")
+              : organizeRootMode === "zen_canvas_folder"
+                ? t("organizeRootZenCanvasDesc")
+                : t("organizeRootCustomDesc")}
+            hint={t("organizePreviewStillRequired")}
+          >
+            <SettingsSegmentedControl
               value={organizeRootMode}
               ariaLabel={t("settingsOrganizeRoot")}
               options={[
@@ -783,16 +845,12 @@ export function SettingsView() {
               ]}
               onChange={(next) => void updateOrganizeRootMode(next)}
             />
-          </div>
+          </SettingsRow>
           {organizeRootMode === "custom_root" ? (
-            <div className={formRow}>
-              <div>
-                <strong className="block text-sm">{t("organizeRootCustomRoot")}</strong>
-                <span className={metadataText}>{t("organizeRootCustomDesc")}</span>
-              </div>
-              <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 md:justify-end">
+            <SettingsRow label={t("organizeRootCustomRoot")} description={t("organizeRootCustomDesc")}>
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <input
-                  className={cn(inputSurface, "min-w-[220px] flex-1 md:w-[360px]")}
+                  className={cn(settingsField, "min-w-0 flex-1")}
                   value={organizeRootPath ?? ""}
                   onChange={(event) => void updateOrganizeRootPath(event.target.value)}
                   placeholder={t("organizeRootPathPlaceholder")}
@@ -803,27 +861,23 @@ export function SettingsView() {
                   <span>{t("chooseFolders")}</span>
                 </button>
               </div>
-            </div>
+            </SettingsRow>
           ) : null}
-        </ControlGroup>
-        </div>
+        </SettingsControlGroup>
+        </SettingsSection>
 
-        <ControlGroup id="settings-search" title={t("settingsSearch")} description={t("settingsSearchDesc")}>
-          <div className={formRow}>
-            <div>
-              <strong className="block text-sm">{t("searchHotkey")}</strong>
-              <span className={metadataText}>{t("searchHotkeyDesc")}</span>
-            </div>
+        <SettingsSection id="settings-search" title={t("settingsSearch")} description={t("settingsSearchDesc")}>
+          <SettingsRow label={t("searchHotkey")} description={t("searchHotkeyDesc")}>
             <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
-              <span className="rounded-xl border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-3 py-1.5 text-sm font-medium text-[var(--ink)]">{hotkey}</span>
+              <kbd className="rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3 py-2 text-sm font-medium text-[var(--zc-text-primary)]">{hotkey}</kbd>
               <button className={cn(buttonSecondary, isRecordingHotkey && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)] text-[var(--zc-primary-text)]")} onClick={() => setIsRecordingHotkey(true)}>
                 <Keyboard size={14} />
                 <span>{t("changeHotkey")}</span>
               </button>
             </div>
-          </div>
+          </SettingsRow>
           {isRecordingHotkey && (
-            <NoticeBanner tone="info" title={t("hotkeyCaptureTitle")}>
+            <SettingsInlineMessage>
               <div
                 ref={hotkeyCaptureRef}
                 className="mt-2 grid gap-2 rounded-xl border border-[var(--zc-info-border)] bg-[var(--zc-info-soft)] px-3 py-3 outline-none focus-visible:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)]"
@@ -833,10 +887,10 @@ export function SettingsView() {
                 <span className={quietText}>{t("hotkeyCaptureCurrent")}: {recordingHotkeyPreview || hotkey}</span>
                 <span className={quietText}>Esc: {t("cancel")}</span>
               </div>
-            </NoticeBanner>
+            </SettingsInlineMessage>
           )}
           {globalHotkeyError ? (
-            <NoticeBanner tone="warning">{t("hotkeyConflictHint")}</NoticeBanner>
+            <SettingsInlineMessage tone="warning">{t("hotkeyConflictHint")}</SettingsInlineMessage>
           ) : (
             <span className={quietText}>{t("hotkeyActiveHint")}</span>
           )}
@@ -852,9 +906,8 @@ export function SettingsView() {
               </button>
             ))}
           </div>
-          <div id="settings-search-scope" tabIndex={-1} className={cn(formRow, "outline-none")}>
-            <div><strong className="block text-sm">{t("searchScopeSettings")}</strong><span className={metadataText}>{t("searchScopeSettingsDesc")}</span></div>
-            <SegmentedControl
+          <SettingsRow label={t("searchScopeSettings")} description={t("searchScopeSettingsDesc")}>
+            <SettingsSegmentedControl
               value={searchScopeMode}
               ariaLabel={t("searchScopeSettings")}
               options={[
@@ -864,28 +917,30 @@ export function SettingsView() {
               ]}
               onChange={(next) => void updateSearchScopeMode(next)}
             />
-          </div>
+          </SettingsRow>
           <span className={quietText}>{t("searchLocalIndexBoundary")}</span>
           {searchScopeMode === "custom_roots" && (
             <div className="grid gap-2">
-              <div className="flex justify-end">
-                <button className={buttonSecondary} onClick={() => void addCustomSearchRoot()}>
-                  <FolderPlus size={15} />
-                  <span>{t("addSearchFolder")}</span>
-                </button>
-              </div>
+              {customSearchRoots.length ? (
+                <div className="flex justify-end">
+                  <button className={buttonSecondary} onClick={() => void addCustomSearchRoot()}>
+                    <FolderPlus size={15} />
+                    <span>{t("addSearchFolder")}</span>
+                  </button>
+                </div>
+              ) : null}
               {customSearchRoots.length ? customSearchRoots.map((root) => (
                 <div key={root.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
-                  <div className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_auto] md:items-center">
+                  <div className="grid min-w-0 gap-3 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-center">
                     <div className="min-w-0 text-left">
-                      <strong className="block truncate text-sm">{root.label}</strong>
-                      <span className="block truncate text-xs leading-5 text-[var(--muted)]" title={root.path}>{compactPath(root.path, 72)}</span>
+                      <label htmlFor={`search-root-${root.id}`} className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{root.label}</label>
+                      <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={root.path}>{compactPath(root.path, 72)}</span>
                     </div>
-                    <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
-                      <SwitchButton
+                    <div className="flex flex-wrap items-center justify-start gap-2 min-[720px]:justify-end">
+                      <SettingsSwitchControl
+                        id={`search-root-${root.id}`}
                         checked={root.enabled}
                         label={root.enabled ? t("disableSearchFolder") : t("enableSearchFolder")}
-                        statusLabel={root.enabled ? t("enabled") : t("disabled")}
                         onChange={(next) => void setSearchRootEnabled(root, next)}
                       />
                       <button
@@ -909,7 +964,7 @@ export function SettingsView() {
                   </div>
                 </div>
               )) : (
-                <StateBlock title={t("searchScopeCustomRoots")} description={t("searchScopeCustomEmpty")} primaryAction={(
+                <SettingsEmptyState title={t("searchScopeCustomRoots")} description={t("searchScopeCustomEmpty")} action={(
                   <button className={buttonSecondary} onClick={() => void addCustomSearchRoot()}>
                     <FolderPlus size={15} />
                     <span>{t("addSearchFolder")}</span>
@@ -919,12 +974,10 @@ export function SettingsView() {
             </div>
           )}
           {(isBackgroundIndexing || pendingBackgroundRoots.length > 0 || completedBackgroundRoots.length > 0 || failedBackgroundRoots.length > 0) ? (
-            <div className={cn(softPanel, "grid gap-1.5 p-3 text-sm")} aria-live="polite">
+            <SettingsInlineMessage tone={failedBackgroundRoots.length ? "warning" : isBackgroundIndexing ? "info" : "success"}>
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <strong className="text-[var(--ink)]">{t("backgroundIndexingTitle")}</strong>
-                <ToneBadge tone={isBackgroundIndexing ? "info" : failedBackgroundRoots.length ? "warning" : "success"}>
-                  {isBackgroundIndexing ? t("backgroundIndexingRunning") : t("backgroundIndexingIdle")}
-                </ToneBadge>
+                <strong>{t("backgroundIndexingTitle")}</strong>
+                <span className="text-xs">{isBackgroundIndexing ? t("backgroundIndexingRunning") : t("backgroundIndexingIdle")}</span>
               </div>
               {currentBackgroundRoot ? (
                 <span className={quietText}>{t("backgroundIndexingCurrent")}: {compactPath(currentBackgroundRoot, 76)}</span>
@@ -938,367 +991,206 @@ export function SettingsView() {
               {failedBackgroundRoots[0] ? (
                 <span className={quietText}>{t("backgroundIndexingFailed")}: {compactPath(failedBackgroundRoots[0].path, 76)}</span>
               ) : null}
-            </div>
+            </SettingsInlineMessage>
           ) : null}
           <span className={quietText}>{t("searchScopeDoesNotChangeLibrary")}</span>
-        </ControlGroup>
+        </SettingsSection>
 
-        <ControlGroup id="settings-privacy" title={t("settingsSafetyRestore")} description={t("settingsSafetyRestoreDesc")}>
-          <div className={formRow}>
-            <div><strong className="block text-sm">{t("logRetention")}</strong><span className={metadataText}>{t("logRetentionDesc")}</span></div>
-            <SegmentedControl
+        <SettingsSection id="settings-automation" title={t("settingsAutomation")} description={t("settingsAutomationDesc")}>
+          <SettingsInlineMessage>{t("automationSafetyBoundary")}</SettingsInlineMessage>
+          <SettingsRow label={t("automationManualRuleSet")} description={t("automationSettingsDescription")}>
+            <button className={buttonSecondary} onClick={() => setView("rules")}>{t("automationRules")}</button>
+          </SettingsRow>
+        </SettingsSection>
+
+        <SettingsSection id="settings-ai" title={t("settingsAI")} description={t("settingsAIDesc")}>
+          {isLoadingAISettings || !aiSettings ? (
+            <SettingsEmptyState title={t("aiSettingsLoading")} description={t("aiSettingsLoadingDesc")} />
+          ) : (
+            <fieldset disabled={isSavingAISettings} aria-busy={isSavingAISettings} className="grid min-w-0 gap-0">
+              <SettingsRow label={t("aiModeLabel")} description={t(aiUserMode(aiSettings) === "off" ? "modeAIDisabledDesc" : aiUserMode(aiSettings) === "local" ? "modeAILocalDesc" : "modeAICloudDesc")}>
+                <SettingsSegmentedControl
+                  value={aiUserMode(aiSettings)}
+                  ariaLabel={t("aiModeLabel")}
+                  options={[
+                    { value: "off", label: t("modeAIDisabled") },
+                    { value: "local", label: t("modeAILocal") },
+                    { value: "cloud", label: t("modeAICloud") }
+                  ]}
+                  onChange={updateAIUserMode}
+                />
+              </SettingsRow>
+              <SettingsSwitch
+                id="settings-ai-cleanup"
+                label={t("aiCleanupEnabledLabel")}
+                description={t("aiCleanupEnabledDesc")}
+                checked={aiSettings.cleanupAiEnabled}
+                onChange={(next) => updateAISettings({ cleanupAiEnabled: next })}
+              />
+              <SettingsSelect
+                id="settings-ai-provider"
+                label={t("aiProviderPreset")}
+                description={t("aiProviderPresetDesc")}
+                value={userProviderValue(aiSettings)}
+                options={[
+                  { value: "deepseek", label: t("aiProviderDeepSeek") },
+                  { value: "openai_compatible", label: t("aiProviderOpenaiCompatible") },
+                  { value: "ollama", label: t("aiProviderOllama") },
+                  { value: "custom", label: t("aiProviderCustom") }
+                ]}
+                onChange={selectUserProvider}
+              />
+              <SettingsRow label={t("aiClassificationPresets")} description={t("aiClassificationPresetsDesc")}>
+                <SettingsSegmentedControl
+                  value={activeAIClassificationPreset}
+                  ariaLabel={t("aiClassificationPresets")}
+                  options={AI_CLASSIFICATION_PRESET_IDS.map((presetId) => ({ value: presetId, label: t(AI_CLASSIFICATION_LABEL_KEYS[presetId]) }))}
+                  onChange={(presetId) => { if (presetId !== "custom") applyClassificationPreset(presetId); }}
+                />
+              </SettingsRow>
+              <SettingsInlineMessage tone={aiSettings.enabled && aiSettings.provider !== "ollama" && !aiSettings.apiKeyConfigured ? "warning" : "info"}>
+                {aiSettings.enabled && aiSettings.provider !== "ollama" && !aiSettings.apiKeyConfigured ? t("aiConfigurationIncomplete") : t(aiUserMode(aiSettings) === "off" ? "modeAIDisabledDesc" : aiUserMode(aiSettings) === "local" ? "modeAILocalDesc" : "modeAICloudDesc")}
+              </SettingsInlineMessage>
+              {aiConnectionStatus ? <SettingsInlineMessage tone={aiConnectionStatus.tone}>{aiConnectionStatus.message}</SettingsInlineMessage> : null}
+              {developerMode ? (
+                <SettingsDisclosure title={t("advancedSettings")} description={t("developerModeDesc")}>
+                  <SettingsControlGroup title={t("aiAdvancedConnection")} description={t("aiAdvancedConnectionDesc")}>
+                    <SettingsSelect
+                      id="settings-ai-advanced-provider"
+                      label={t("aiProviderPreset")}
+                      value={aiSettings.preset}
+                      options={aiPresets.map((preset) => ({ value: preset.id, label: aiProviderLabel(preset, t) }))}
+                      onChange={selectAIPreset}
+                    />
+                    <div className="grid min-w-0 gap-4 min-[720px]:grid-cols-2">
+                      <SettingsTextField id="settings-ai-base-url" label={t("aiBaseUrlLabel")} value={aiSettings.baseUrl} onChange={(value) => updateAISettings({ baseUrl: value })} />
+                      <SettingsTextField id="settings-ai-chat-path" label={t("aiChatPathLabel")} value={aiSettings.chatPath} onChange={(value) => updateAISettings({ chatPath: value })} />
+                      {aiSettings.provider === "ollama" ? (
+                        <SettingsInlineMessage>{t("aiLocalApiKeyHint")}</SettingsInlineMessage>
+                      ) : (
+                        <SettingsTextField
+                          id="settings-ai-api-key"
+                          label={t("aiApiKeyLabel")}
+                          type="password"
+                          value={aiSettings.apiKey}
+                          onChange={(value) => updateAISettings({ apiKey: value })}
+                          placeholder={aiSettings.apiKeyConfigured ? t("aiStoredApiKeyPlaceholder") : t("aiEmptyApiKeyPlaceholder")}
+                        />
+                      )}
+                      <SettingsTextField id="settings-ai-model" label={t("aiModelLabel")} value={aiSettings.model} onChange={(value) => updateAISettings({ model: value })} />
+                    </div>
+                  </SettingsControlGroup>
+                  <SettingsControlGroup title={t("aiAdvancedPerformance")} description={t("aiAdvancedPerformanceDesc")}>
+                    <div className="grid min-w-0 gap-4 min-[720px]:grid-cols-2">
+                      <SettingsTextField id="settings-ai-batch-size" label={t("aiBatchSizeLabel")} description={t("aiBatchSizeDesc")} type="number" value={String(aiSettings.batchSize)} onChange={(value) => updateAISettings({ batchSize: Math.max(1, Number(value) || 1) })} />
+                      <SettingsTextField id="settings-ai-concurrency" label={t("aiConcurrencyLabel")} description={t("aiConcurrencyDesc")} type="number" value={String(aiSettings.classificationConcurrency)} onChange={(value) => updateAISettings({ classificationConcurrency: Math.min(4, Math.max(1, Number(value) || 1)) })} />
+                      <SettingsTextField id="settings-ai-max-tokens" label={t("aiMaxTokensLabel")} type="number" value={String(aiSettings.maxTokens)} onChange={(value) => updateAISettings({ maxTokens: Math.max(512, Number(value) || 512) })} />
+                      <SettingsTextField id="settings-ai-timeout" label={t("aiTimeoutLabel")} type="number" value={String(aiSettings.timeoutSeconds)} onChange={(value) => updateAISettings({ timeoutSeconds: Math.max(1, Number(value) || 1) })} />
+                    </div>
+                  </SettingsControlGroup>
+                  <SettingsControlGroup title={t("aiAdvancedPrivacy")} description={t("aiAdvancedPrivacyDesc")}>
+                    <SettingsSwitch id="settings-ai-learned-rules" label={t("aiLearnedRulesLabel")} description={t("aiLearnedRulesDesc")} checked={useLearnedRulesAsAutoRules} onChange={(next) => void updateSettings({ useLearnedRulesAsAutoRules: next })} />
+                    <SettingsSwitch id="settings-ai-legacy-rules" label={t("aiLegacyRulesLabel")} description={t("aiLegacyRulesDesc")} checked={useLegacyBuiltinClassificationRules} onChange={(next) => void updateSettings({ useLegacyBuiltinClassificationRules: next })} />
+                    <SettingsSwitch id="settings-ai-force-json" label={t("aiForceJsonLabel")} description={t("aiForceJsonDesc")} checked={aiSettings.forceJsonOutput} onChange={(next) => updateAISettings({ forceJsonOutput: next })} />
+                    <SettingsSwitch id="settings-ai-thinking" label={t("aiThinkingLabel")} description={t("aiThinkingDesc")} checked={aiSettings.enableThinking} onChange={(next) => updateAISettings({ enableThinking: next })} />
+                    <SettingsSwitch id="settings-ai-send-full-path" label={t("aiSendFullPathLabel")} description={t("aiSendFullPathDesc")} checked={aiSettings.sendFullPath} onChange={(next) => updateAISettings({ sendFullPath: next })} />
+                    <SettingsSwitch id="settings-ai-send-parent-path" label={t("aiSendParentPathLabel")} description={t("aiSendParentPathDesc")} checked={aiSettings.sendParentPath} onChange={(next) => updateAISettings({ sendParentPath: next })} />
+                    <SettingsTextField id="settings-ai-reasoning-effort" label={t("aiReasoningEffortLabel")} value={aiSettings.reasoningEffort ?? ""} onChange={(value) => updateAISettings({ reasoningEffort: value || null })} placeholder={t("aiReasoningPlaceholder")} />
+                    <label className="grid min-w-0 gap-1.5">
+                      <span className="text-sm font-medium text-[var(--zc-text-primary)]">{t("aiExtraBodyLabel")}</span>
+                      <textarea className={cn(settingsField, "min-h-24 resize-y py-2 font-mono")} value={aiSettings.extraBodyJson ?? ""} onChange={(event) => updateAISettings({ extraBodyJson: event.target.value || null })} placeholder={t("aiExtraBodyPlaceholder")} />
+                      <span className={quietText}>{t("aiSecretsHint")}</span>
+                    </label>
+                  </SettingsControlGroup>
+                  {aiSettings.preset === "deepseek" && ["deepseek-chat", "deepseek-reasoner"].includes(aiSettings.model.trim()) ? <SettingsInlineMessage tone="warning">{t("aiOldModelWarning")}</SettingsInlineMessage> : null}
+                  {(aiSettings.provider === "ollama" || aiSettings.model.toLowerCase().includes("qwen3")) ? <SettingsInlineMessage tone="warning">{t("aiQwenWarning")}</SettingsInlineMessage> : null}
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <button className={buttonSecondary} onClick={() => void testAIConnection()} disabled={isTestingAIConnection || isSavingAISettings}>
+                      {isTestingAIConnection ? t("aiTestingConnection") : t("aiTestConnection")}
+                    </button>
+                  </div>
+                  <SettingsDisclosure title={t("aiDebugTitle")} description={t("aiDebugWarning")}>
+                    {selectedLibraryFile ? (
+                      <div className="grid gap-1 border-b border-[var(--zc-divider)] pb-3 text-xs text-[var(--zc-text-secondary)]">
+                        <span className="font-medium text-[var(--zc-text-primary)]">{t("aiSelectedFile")}</span>
+                        <span>{selectedLibraryFile.name}</span>
+                        <span title={selectedLibraryFile.path}>{compactPath(selectedLibraryFile.path, 96)}</span>
+                      </div>
+                    ) : <span className={quietText}>{t("aiNoSelectedFile")}</span>}
+                    <div className="grid min-w-0 gap-3 min-[720px]:grid-cols-[minmax(0,1fr)_auto_auto] min-[720px]:items-end">
+                      <SettingsTextField id="settings-ai-debug-target" label={t("aiDebugTargetLabel")} value={aiDebugTarget} onChange={setAiDebugTarget} placeholder={t("aiDebugTargetPlaceholder")} />
+                      <button className={buttonSecondary} onClick={() => setAiDebugTarget(selectedLibraryFile?.id ?? "")} disabled={!selectedLibraryFile || isDebuggingAI}>{t("aiUseSelectedFile")}</button>
+                      <button className={buttonSecondary} onClick={() => void debugAIClassificationOnce()} disabled={isDebuggingAI || !aiDebugTarget.trim()}>{isDebuggingAI ? t("aiDebugging") : t("aiDebugSingleFile")}</button>
+                    </div>
+                    {aiDebugStatus ? <SettingsInlineMessage tone={aiDebugStatus.tone}>{sanitizeAIStatusMessage(aiDebugStatus.message, aiSettings.apiKey)}</SettingsInlineMessage> : null}
+                    {aiDebugResult ? (
+                      <div className="grid gap-3 text-xs text-[var(--zc-text-secondary)]">
+                        <div className="grid gap-1 border-b border-[var(--zc-divider)] pb-3">
+                          <span>Provider: {aiDebugResult.provider} / {aiDebugResult.preset}</span>
+                          <span>Model: {aiDebugResult.model}</span>
+                          <span>Endpoint: {aiDebugResult.baseUrl}{aiDebugResult.chatPath}</span>
+                          <span>HTTP: {aiDebugResult.httpStatus} · response_format: {String(aiDebugResult.requestUsedResponseFormat)} · thinking: {aiDebugResult.requestUsedThinkingField ?? "—"}</span>
+                          <span>Max tokens: {aiDebugResult.maxTokens} · Batch size: {aiDebugResult.batchSize} · Parse stage: {aiDebugResult.parseStage}</span>
+                          <span>refId: {aiDebugResult.refId || "—"} · real file id: {aiDebugResult.realFileId || "—"}</span>
+                          <span>Path: {compactPath(aiDebugResult.path, 96)}</span>
+                          <span>Model returned refId/id: {aiDebugResult.modelReturnedRefId ?? "—"} / {aiDebugResult.modelReturnedId ?? "—"} · idMappingMatched: {String(aiDebugResult.idMappingMatched)}</span>
+                          <span>Missing optional fields: {aiDebugResult.missingOptionalFields.length ? aiDebugResult.missingOptionalFields.join(", ") : "—"} · fallbackApplied: {String(aiDebugResult.fallbackApplied)}</span>
+                          <span>Item parse warnings: {aiDebugResult.itemParseWarnings.length ? aiDebugResult.itemParseWarnings.join("; ") : "—"}</span>
+                        </div>
+                        <DebugPreviewBlock label="response summary" value={aiDebugResult.providerResponseSummary} apiKey={aiSettings.apiKey} />
+                        <DebugPreviewBlock label="raw response preview" value={aiDebugResult.rawResponsePreview} apiKey={aiSettings.apiKey} />
+                        <DebugPreviewBlock label="message content preview" value={aiDebugResult.messageContentPreview} apiKey={aiSettings.apiKey} />
+                        <DebugPreviewBlock label="reasoning content preview" value={aiDebugResult.reasoningContentPreview} apiKey={aiSettings.apiKey} />
+                        <DebugPreviewBlock label="extracted content preview" value={aiDebugResult.extractedContentPreview} apiKey={aiSettings.apiKey} />
+                        <DebugPreviewBlock label="cleaned content preview" value={aiDebugResult.cleanedContentPreview} apiKey={aiSettings.apiKey} />
+                        <DebugPreviewBlock label="parse error" value={aiDebugResult.parseError ?? ""} apiKey={aiSettings.apiKey} />
+                      </div>
+                    ) : null}
+                  </SettingsDisclosure>
+                </SettingsDisclosure>
+              ) : <SettingsInlineMessage>{t("developerModeDesc")}</SettingsInlineMessage>}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--zc-divider)] py-4">
+                <span className={quietText} role="status" aria-live="polite" data-ai-settings-state={aiSettingsSaveError ? "error" : aiSettingsDirty ? "unsaved" : "applied"}>{aiSettingsSaveError ? t("aiSettingsSaveFailed") : aiSettingsDirty ? t("aiUnsavedChanges") : t("aiSettingsApplied")}</span>
+                <button type="button" className={buttonSecondary} onClick={() => void saveAISettings()} disabled={!aiSettingsDirty || isSavingAISettings || isTestingAIConnection}>{isSavingAISettings ? t("aiSavingSettings") : t("aiSaveSettings")}</button>
+              </div>
+            </fieldset>
+          )}
+        </SettingsSection>
+
+        <SettingsSection id="settings-privacy" title={t("settingsPrivacy")} description={t("settingsPrivacyDesc")}>
+          <SettingsInlineMessage>{t("privacyLine")}</SettingsInlineMessage>
+          <SettingsRow label={t("logRetention")} description={t("logRetentionDesc")}>
+            <SettingsSegmentedControl
               value={String(restoreRetentionDays)}
               ariaLabel={t("logRetention")}
               options={([15, 30, 60, 90] as RestoreRetentionDays[]).map((days) => ({ value: String(days), label: `${days} ${t("days")}` }))}
               onChange={(next) => void updateRestoreRetentionDays(Number(next) as RestoreRetentionDays)}
             />
-          </div>
-        </ControlGroup>
+          </SettingsRow>
+          <SettingsInlineMessage>{t("settingsSafetyRestoreDesc")}</SettingsInlineMessage>
+        </SettingsSection>
 
-        <div id="settings-general" tabIndex={-1} className="grid gap-4 outline-none">
-        <ControlGroup title={t("settingsWindowBehavior")} description={t("settingsWindowBehaviorDesc")}>
-          <div className={formRow}>
-            <div><strong className="block text-sm">{t("closeBehavior")}</strong><span className={metadataText}>{t("closeBehaviorDesc")}</span></div>
-            <SegmentedControl
-              value={closeBehavior}
-              ariaLabel={t("closeBehavior")}
-              options={[
-                { value: "ask", label: t("askEveryTime") },
-                { value: "minimize", label: t("minimizeToTray") },
-                { value: "quit", label: t("quitApp") }
-              ]}
-              onChange={(next) => void updateCloseBehavior(next)}
-            />
-          </div>
-        </ControlGroup>
-
-        <ControlGroup title={t("settingsStartup")} description={t("settingsStartupDesc")}>
-          <SwitchField
-            label={t("backgroundIndexOnStartup")}
-            description={t("backgroundIndexOnStartupDesc")}
-            checked={backgroundIndexOnStartup}
-            onChange={(next) => void updateBackgroundIndexOnStartup(next)}
-            statusLabel={backgroundIndexOnStartup ? t("enabled") : t("disabled")}
-          />
-          <SwitchField
-            label={t("launchAtLogin")}
-            description={t("launchAtLoginDesc")}
-            checked={launchAtLogin}
-            onChange={(next) => void updateLaunchAtLogin(next)}
-            statusLabel={launchAtLogin ? t("enabled") : t("disabled")}
-          />
-        </ControlGroup>
-        </div>
-
-        <ControlGroup id="settings-automation" title={t("settingsAutomation")} description={t("settingsAutomationDesc")}>
-          <NoticeBanner tone="info">{t("automationSafetyBoundary")}</NoticeBanner>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className={metadataText}>{t("automationManualRuleSet")}</span>
-            <button className={buttonSecondary} onClick={() => setView("rules")}>{t("automationRules")}</button>
-          </div>
-        </ControlGroup>
-
-        <div id="settings-ai" tabIndex={-1} className="outline-none">
-        <ControlGroup title={t("settingsAI")} description={t("settingsAIDesc")}>
-          {isLoadingAISettings || !aiSettings ? (
-            <StateBlock title={t("aiSettingsLoading")} description={t("aiSettingsLoadingDesc")} />
-          ) : (
-            <div className="grid gap-4">
-              <fieldset disabled={isSavingAISettings} aria-busy={isSavingAISettings} className="grid min-w-0 gap-4">
-              <SwitchField
-                label={t("aiEnabledLabel")}
-                description={t("aiEnabledDesc")}
-                checked={aiSettings.enabled}
-                onChange={(next) => updateAISettings({ enabled: next })}
-                statusLabel={aiSettings.enabled ? t("enabled") : t("disabled")}
-              />
-              <SwitchField
-                label={t("aiCleanupEnabledLabel")}
-                description={t("aiCleanupEnabledDesc")}
-                checked={aiSettings.cleanupAiEnabled}
-                onChange={(next) => updateAISettings({ cleanupAiEnabled: next })}
-                statusLabel={aiSettings.cleanupAiEnabled ? t("enabled") : t("disabled")}
-              />
-              {developerMode ? (
-              <details open className={cn(softPanel, "grid gap-3 p-3")}>
-                <summary className="cursor-pointer text-sm font-semibold text-[var(--ink)]">{t("advancedSettings")}</summary>
-                <div className="grid gap-4">
-              <div className={cn(softPanel, "grid gap-2 p-3")}>
-                <strong className="text-sm text-[var(--ink)]">{t("aiClassificationPresets")}</strong>
-                <span className={quietText}>{t("aiClassificationPresetsDesc")}</span>
-                <div role="radiogroup" aria-label={t("aiClassificationPresets")} className="flex flex-wrap gap-2">
-                  {AI_CLASSIFICATION_PRESET_IDS.map((presetId, index) => {
-                    const selected = activeAIClassificationPreset === presetId;
-                    return (
-                      <button
-                        key={presetId}
-                        type="button"
-                        role="radio"
-                        aria-checked={selected}
-                        tabIndex={selected ? 0 : -1}
-                        data-ai-classification-preset={presetId}
-                        className={cn(buttonSecondary, selected && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)] text-[var(--zc-primary-text)]")}
-                        onClick={() => { if (presetId !== "custom") applyClassificationPreset(presetId); }}
-                        onKeyDown={(event) => {
-                          if (event.key !== "ArrowRight" && event.key !== "ArrowDown" && event.key !== "ArrowLeft" && event.key !== "ArrowUp") return;
-                          event.preventDefault();
-                          const delta = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
-                          const nextId = AI_CLASSIFICATION_PRESET_IDS[(index + delta + AI_CLASSIFICATION_PRESET_IDS.length) % AI_CLASSIFICATION_PRESET_IDS.length];
-                          const group = event.currentTarget.parentElement;
-                          window.requestAnimationFrame(() => group?.querySelector<HTMLButtonElement>(`[data-ai-classification-preset="${nextId}"]`)?.focus());
-                          if (nextId !== "custom") applyClassificationPreset(nextId);
-                        }}
-                      >
-                        {t(AI_CLASSIFICATION_LABEL_KEYS[presetId])}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className={formRow}>
-                <div>
-                  <strong className="block text-sm">{t("aiProviderPreset")}</strong>
-                  <span className={metadataText}>{t("aiProviderPresetDesc")}</span>
-                </div>
-                <select
-                  className={cn(selectSurface, "min-w-[260px]")}
-                  value={aiSettings.preset}
-                  onChange={(event) => selectAIPreset(event.target.value as AIProviderPresetId)}
-                >
-                  {aiPresets.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {aiProviderLabel(preset, t)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                <TextField label={t("aiBaseUrlLabel")} value={aiSettings.baseUrl} onChange={(value) => updateAISettings({ baseUrl: value })} />
-                <TextField label={t("aiChatPathLabel")} value={aiSettings.chatPath} onChange={(value) => updateAISettings({ chatPath: value })} />
-                {aiSettings.provider === "ollama" ? (
-                  <div className={cn(softPanel, "p-3 text-sm text-[var(--muted)]")}>{t("aiLocalApiKeyHint")}</div>
-                ) : (
-                  <TextField
-                    label={t("aiApiKeyLabel")}
-                    type="password"
-                    value={aiSettings.apiKey}
-                    onChange={(value) => updateAISettings({ apiKey: value })}
-                    placeholder={aiSettings.apiKeyConfigured ? t("aiStoredApiKeyPlaceholder") : t("aiEmptyApiKeyPlaceholder")}
-                  />
-                )}
-                <TextField label={t("aiModelLabel")} value={aiSettings.model} onChange={(value) => updateAISettings({ model: value })} />
-                <NumberField
-                  label={t("aiBatchSizeLabel")}
-                  description={t("aiBatchSizeDesc")}
-                  value={aiSettings.batchSize}
-                  min={1}
-                  onChange={(value) => updateAISettings({ batchSize: value })}
-                />
-                <NumberField
-                  label={t("aiConcurrencyLabel")}
-                  description={t("aiConcurrencyDesc")}
-                  value={aiSettings.classificationConcurrency}
-                  min={1}
-                  onChange={(value) => updateAISettings({ classificationConcurrency: Math.min(4, Math.max(1, value)) })}
-                />
-                <NumberField
-                  label={t("aiMaxTokensLabel")}
-                  value={aiSettings.maxTokens}
-                  min={512}
-                  onChange={(value) => updateAISettings({ maxTokens: value })}
-                />
-                <NumberField label={t("aiTimeoutLabel")} value={aiSettings.timeoutSeconds} min={1} onChange={(value) => updateAISettings({ timeoutSeconds: value })} />
-              </div>
-              <NoticeBanner tone="info">
-                {t("aiLearningHint")}
-              </NoticeBanner>
-              <div className="grid gap-3 md:grid-cols-2">
-                <SwitchField
-                  label={t("aiLearnedRulesLabel")}
-                  description={t("aiLearnedRulesDesc")}
-                  checked={useLearnedRulesAsAutoRules}
-                  onChange={(next) => void updateSettings({ useLearnedRulesAsAutoRules: next })}
-                  statusLabel={useLearnedRulesAsAutoRules ? t("enabled") : t("disabled")}
-                />
-                <SwitchField
-                  label={t("aiLegacyRulesLabel")}
-                  description={t("aiLegacyRulesDesc")}
-                  checked={useLegacyBuiltinClassificationRules}
-                  onChange={(next) => void updateSettings({ useLegacyBuiltinClassificationRules: next })}
-                  statusLabel={useLegacyBuiltinClassificationRules ? t("enabled") : t("disabled")}
-                />
-              </div>
-              {aiSettings.preset === "deepseek" && ["deepseek-chat", "deepseek-reasoner"].includes(aiSettings.model.trim()) ? (
-                <NoticeBanner tone="warning">{t("aiOldModelWarning")}</NoticeBanner>
-              ) : null}
-              {(aiSettings.provider === "ollama" || aiSettings.model.toLowerCase().includes("qwen3")) ? (
-                <NoticeBanner tone="warning">{t("aiQwenWarning")}</NoticeBanner>
-              ) : null}
-              <div className="grid gap-3 md:grid-cols-2">
-                <SwitchField
-                  label={t("aiForceJsonLabel")}
-                  description={t("aiForceJsonDesc")}
-                  checked={aiSettings.forceJsonOutput}
-                  onChange={(next) => updateAISettings({ forceJsonOutput: next })}
-                  statusLabel={aiSettings.forceJsonOutput ? t("enabled") : t("disabled")}
-                />
-                <SwitchField
-                  label={t("aiThinkingLabel")}
-                  description={t("aiThinkingDesc")}
-                  checked={aiSettings.enableThinking}
-                  onChange={(next) => updateAISettings({ enableThinking: next })}
-                  statusLabel={aiSettings.enableThinking ? t("enabled") : t("disabled")}
-                />
-                <TextField
-                  label={t("aiReasoningEffortLabel")}
-                  value={aiSettings.reasoningEffort ?? ""}
-                  onChange={(value) => updateAISettings({ reasoningEffort: value || null })}
-                  placeholder={t("aiReasoningPlaceholder")}
-                />
-                <SwitchField
-                  label={t("aiSendFullPathLabel")}
-                  description={t("aiSendFullPathDesc")}
-                  checked={aiSettings.sendFullPath}
-                  onChange={(next) => updateAISettings({ sendFullPath: next })}
-                  statusLabel={aiSettings.sendFullPath ? t("enabled") : t("disabled")}
-                />
-                <SwitchField
-                  label={t("aiSendParentPathLabel")}
-                  description={t("aiSendParentPathDesc")}
-                  checked={aiSettings.sendParentPath}
-                  onChange={(next) => updateAISettings({ sendParentPath: next })}
-                  statusLabel={aiSettings.sendParentPath ? t("enabled") : t("disabled")}
-                />
-              </div>
-              <div className="grid gap-2">
-                <label className="grid gap-1">
-                  <span className="text-sm font-medium text-[var(--ink)]">{t("aiExtraBodyLabel")}</span>
-                  <textarea
-                    className={cn(inputSurface, "min-h-24 resize-y py-2 font-mono")}
-                    value={aiSettings.extraBodyJson ?? ""}
-                    onChange={(event) => updateAISettings({ extraBodyJson: event.target.value || null })}
-                    placeholder={t("aiExtraBodyPlaceholder")}
-                  />
-                </label>
-                <span className={quietText}>{t("aiSecretsHint")}</span>
-              </div>
-              {aiConnectionStatus ? (
-                <NoticeBanner tone={aiConnectionStatus.tone}>{aiConnectionStatus.message}</NoticeBanner>
-              ) : null}
-              <div className="flex flex-wrap justify-end gap-2">
-                <button className={buttonSecondary} onClick={() => void testAIConnection()} disabled={isTestingAIConnection || isSavingAISettings}>
-                  {isTestingAIConnection ? t("aiTestingConnection") : t("aiTestConnection")}
-                </button>
-              </div>
-              <details className={cn(softPanel, "grid gap-3 p-3")}>
-                <summary className="cursor-pointer text-sm font-semibold text-[var(--ink)]">{t("aiDebugTitle")}</summary>
-                <div className="mt-3 grid gap-3">
-                  <NoticeBanner tone="warning">
-                    {t("aiDebugWarning")}
-                  </NoticeBanner>
-                  {selectedLibraryFile ? (
-                    <div className={cn(softPanel, "grid gap-1 p-3 text-xs text-[var(--muted)]")}>
-                      <span className="font-medium text-[var(--ink)]">{t("aiSelectedFile")}</span>
-                      <span>{selectedLibraryFile.name}</span>
-                      <span title={selectedLibraryFile.path}>{compactPath(selectedLibraryFile.path, 96)}</span>
-                    </div>
-                  ) : (
-                    <span className={quietText}>{t("aiNoSelectedFile")}</span>
-                  )}
-                  <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto_auto] md:items-end">
-                    <TextField
-                      label={t("aiDebugTargetLabel")}
-                      value={aiDebugTarget}
-                      onChange={setAiDebugTarget}
-                      placeholder={t("aiDebugTargetPlaceholder")}
-                    />
-                    <button
-                      className={buttonSecondary}
-                      onClick={() => setAiDebugTarget(selectedLibraryFile?.id ?? "")}
-                      disabled={!selectedLibraryFile || isDebuggingAI}
-                    >
-                      {t("aiUseSelectedFile")}
-                    </button>
-                    <button
-                      className={buttonSecondary}
-                      onClick={() => void debugAIClassificationOnce()}
-                      disabled={isDebuggingAI || !aiDebugTarget.trim()}
-                    >
-                      {isDebuggingAI ? t("aiDebugging") : t("aiDebugSingleFile")}
-                    </button>
-                  </div>
-                  {aiDebugStatus ? (
-                    <NoticeBanner tone={aiDebugStatus.tone}>{sanitizeAIStatusMessage(aiDebugStatus.message, aiSettings.apiKey)}</NoticeBanner>
-                  ) : null}
-                  {aiDebugResult ? (
-                    <div className="grid gap-3">
-                      <div className={cn(softPanel, "grid gap-1 p-3 text-xs text-[var(--muted)]")}>
-                        <span>Provider: {aiDebugResult.provider} / {aiDebugResult.preset}</span>
-                        <span>Model: {aiDebugResult.model}</span>
-                        <span>Endpoint: {aiDebugResult.baseUrl}{aiDebugResult.chatPath}</span>
-                        <span>HTTP: {aiDebugResult.httpStatus} · response_format: {String(aiDebugResult.requestUsedResponseFormat)} · thinking: {aiDebugResult.requestUsedThinkingField ?? "—"}</span>
-                        <span>Max tokens: {aiDebugResult.maxTokens} · Batch size: {aiDebugResult.batchSize} · Parse stage: {aiDebugResult.parseStage}</span>
-                        <span>refId: {aiDebugResult.refId || "—"} · real file id: {aiDebugResult.realFileId || "—"}</span>
-                        <span>Path: {compactPath(aiDebugResult.path, 96)}</span>
-                        <span>Model returned refId/id: {aiDebugResult.modelReturnedRefId ?? "—"} / {aiDebugResult.modelReturnedId ?? "—"} · idMappingMatched: {String(aiDebugResult.idMappingMatched)}</span>
-                        <span>Missing optional fields: {aiDebugResult.missingOptionalFields.length ? aiDebugResult.missingOptionalFields.join(", ") : "—"} · fallbackApplied: {String(aiDebugResult.fallbackApplied)}</span>
-                        <span>Item parse warnings: {aiDebugResult.itemParseWarnings.length ? aiDebugResult.itemParseWarnings.join("; ") : "—"}</span>
-                      </div>
-                      <DebugPreviewBlock label="response summary" value={aiDebugResult.providerResponseSummary} apiKey={aiSettings.apiKey} />
-                      <DebugPreviewBlock label="raw response preview" value={aiDebugResult.rawResponsePreview} apiKey={aiSettings.apiKey} />
-                      <DebugPreviewBlock label="message content preview" value={aiDebugResult.messageContentPreview} apiKey={aiSettings.apiKey} />
-                      <DebugPreviewBlock label="reasoning content preview" value={aiDebugResult.reasoningContentPreview} apiKey={aiSettings.apiKey} />
-                      <DebugPreviewBlock label="extracted content preview" value={aiDebugResult.extractedContentPreview} apiKey={aiSettings.apiKey} />
-                      <DebugPreviewBlock label="cleaned content preview" value={aiDebugResult.cleanedContentPreview} apiKey={aiSettings.apiKey} />
-                      <DebugPreviewBlock label="parse error" value={aiDebugResult.parseError ?? ""} apiKey={aiSettings.apiKey} />
-                    </div>
-                  ) : null}
-                </div>
-              </details>
-                </div>
-              </details>
-              ) : (
-                <NoticeBanner tone="info">{t("developerModeDesc")}</NoticeBanner>
-              )}
-              </fieldset>
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-3 py-2">
-                <span className={quietText} role="status" aria-live="polite" data-ai-settings-state={aiSettingsDirty ? "unsaved" : "applied"}>
-                  {aiSettingsDirty ? t("aiUnsavedChanges") : t("aiSettingsApplied")}
-                </span>
-                <button type="button" className={buttonSecondary} onClick={() => void saveAISettings()} disabled={!aiSettingsDirty || isSavingAISettings || isTestingAIConnection}>
-                  {isSavingAISettings ? t("aiSavingSettings") : t("aiSaveSettings")}
-                </button>
-              </div>
+        <SettingsSection id="settings-about" title={t("settingsAbout")} description={t("settingsAboutDesc")}>
+          <SettingsControlGroup title={t("aboutBuildInfo")} description={t("aboutBuildInfoDesc")}>
+            <SettingsRow label={t("appName")} description={t("developerReleaseDesc")}>
+              <span className="text-sm font-medium text-[var(--zc-text-primary)]">v{packageInfo.version}</span>
+            </SettingsRow>
+            <SettingsRow label={t("aboutProjectLink")} description={t("aboutProjectLinkDesc")}>
+              <a className={buttonSecondary} href={packageInfo.homepage} target="_blank" rel="noreferrer">
+                {t("aboutOpenProject")}
+              </a>
+            </SettingsRow>
+          </SettingsControlGroup>
+          <SettingsSwitch id="settings-developer-mode" label={t("developerMode")} description={t("developerModeDesc")} checked={developerMode} onChange={setDeveloperModePreference} />
+          <SettingsControlGroup title={t("searchSources")} description={t("searchSourcesDesc")}>
+            <SettingsInlineMessage>{t("localOnly")}</SettingsInlineMessage>
+            <div className="grid gap-1 text-sm">
+              <strong className="text-[var(--zc-text-primary)]">{t("excludedDirs")}</strong>
+              <span className="text-sm leading-6 text-[var(--zc-text-secondary)]">node_modules, .git, target, dist, build</span>
             </div>
-          )}
-        </ControlGroup>
-        </div>
-
-        <details id="settings-about" tabIndex={-1} className={cn(formSection, "group", "outline-none")}>
-          <summary className="cursor-pointer text-sm font-semibold text-[var(--ink)]">{t("settingsDeveloperRelease")}</summary>
-          <div className="mt-3 grid gap-3">
-            <p className={metadataText}>{t("developerReleaseDesc")}</p>
-            <SwitchField
-              label={t("developerMode")}
-              description={t("developerModeDesc")}
-              checked={developerMode}
-              onChange={setDeveloperModePreference}
-              statusLabel={developerMode ? t("enabled") : t("disabled")}
-            />
-            <div className={cn(softPanel, "grid gap-2 p-3")}>
-              <div className={formRow}>
-                <div><strong className="block text-sm">{t("searchSources")}</strong><span className={metadataText}>{t("searchSourcesDesc")}</span></div>
-                <ToneBadge tone="info">{t("localOnly")}</ToneBadge>
-              </div>
-              <div>
-                <strong className="block text-sm">{t("excludedDirs")}</strong>
-                <span className={metadataText}>node_modules, .git, target, dist, build</span>
-              </div>
-            </div>
-          </div>
-        </details>
-      </section>
-    </div>
+          </SettingsControlGroup>
+        </SettingsSection>
+    </SettingsLayout>
     <ConfirmDialog
       open={Boolean(folderDeleteConfirm)}
       tone="warning"
@@ -1322,61 +1214,6 @@ function normalizeSettingsRoot(path: string) {
   return normalizePathLike(path.trim());
 }
 
-function TextField({
-  label,
-  value,
-  onChange,
-  type = "text",
-  placeholder
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-  placeholder?: string;
-}) {
-  return (
-    <label className="grid gap-1">
-      <span className="text-sm font-medium text-[var(--ink)]">{label}</span>
-      <input
-        className={inputSurface}
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
-  );
-}
-
-function NumberField({
-  label,
-  description,
-  value,
-  min,
-  onChange
-}: {
-  label: string;
-  description?: string;
-  value: number;
-  min: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="grid gap-1">
-      <span className="text-sm font-medium text-[var(--ink)]">{label}</span>
-      {description ? <span className={quietText}>{description}</span> : null}
-      <input
-        className={inputSurface}
-        type="number"
-        min={min}
-        value={value}
-        onChange={(event) => onChange(Math.max(min, Number(event.target.value) || min))}
-      />
-    </label>
-  );
-}
-
 function DebugPreviewBlock({
   label,
   value,
@@ -1389,8 +1226,8 @@ function DebugPreviewBlock({
   const displayValue = sanitizeAIStatusMessage(value || "—", apiKey);
   return (
     <label className="grid gap-1">
-      <span className="text-sm font-medium text-[var(--ink)]">{label}</span>
-      <pre className={cn(inputSurface, "max-h-72 overflow-auto whitespace-pre-wrap break-words p-3 text-xs leading-5")}>
+      <span className="text-sm font-medium text-[var(--zc-text-primary)]">{label}</span>
+      <pre className={cn(settingsField, "max-h-72 overflow-auto whitespace-pre-wrap break-words p-3 text-xs leading-5")}>
         {displayValue}
       </pre>
     </label>
