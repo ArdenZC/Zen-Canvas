@@ -319,6 +319,7 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel,
   isProcessing = false,
+  errorMessage,
   restoreFocus,
   onConfirm,
   onCancel
@@ -331,6 +332,7 @@ export function ConfirmDialog({
   confirmLabel: string;
   cancelLabel: string;
   isProcessing?: boolean;
+  errorMessage?: string;
   restoreFocus?: () => HTMLElement | null;
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
@@ -382,6 +384,9 @@ export function ConfirmDialog({
             ? createElement("p", { id: descriptionId, className: cn(sectionDescription, "whitespace-pre-line tabular-nums") }, description)
             : null
         ),
+        errorMessage
+          ? createElement("p", { className: "text-sm text-[var(--zc-danger-text)]", role: "alert", "aria-live": "assertive" }, errorMessage)
+          : null,
         emphasis
           ? createElement(
               "div",

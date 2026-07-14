@@ -128,7 +128,7 @@ export function HistoryBatchList({
             className={cn(
               "grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 rounded-[var(--zc-radius-field)] border px-3 py-3 text-left transition-colors",
               active
-                ? "border-[var(--zc-border)] bg-[var(--zc-surface-selected)] shadow-[inset_2px_0_0_var(--zc-primary)]"
+                 ? "border-[var(--zc-neutral-border)] bg-[var(--zc-neutral-soft)] shadow-[inset_2px_0_0_var(--zc-primary)]"
                 : "border-transparent hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-raised)]"
             )}
             onClick={() => onActiveBatch(batch.id)}
@@ -139,7 +139,7 @@ export function HistoryBatchList({
                 <span className={cn("shrink-0", batch.executionState === "failed" || batch.restoreState === "restore_failed" ? "text-[var(--zc-danger-text)]" : batch.restoreState === "restored" ? "text-[var(--zc-success-text)]" : "text-[var(--zc-primary)]")}><BatchStateIcon state={batch.state} /></span>
                 <strong className="truncate text-sm">{historyTime(batch.createdAt) ? new Date(historyTime(batch.createdAt)).toLocaleString() : t("historyTimeUnavailable")}</strong>
               </div>
-              <span className="mt-1 block truncate text-xs text-[var(--muted)]" title={first?.path_after || first?.target_path}>
+              <span className="mt-1 line-clamp-2 block break-words text-xs text-[var(--muted)]" title={first?.path_after || first?.target_path}>
                 {first ? formatDisplayPath(first.path_after || first.target_path) : t("historyBatch")}
               </span>
               <span className="mt-1 block text-xs text-[var(--muted)]">

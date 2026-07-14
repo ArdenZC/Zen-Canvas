@@ -97,12 +97,12 @@ describe("rule persistence helpers", () => {
     const removeRule = vi.fn();
     const onSyncError = vi.fn();
 
-    await persistUserRuleDelete({
+    await expect(persistUserRuleDelete({
       rule: user,
       deleteUserRule,
       removeRule,
       onSyncError
-    });
+    })).rejects.toThrow("sqlite offline");
 
     expect(deleteUserRule).toHaveBeenCalledWith("user-rule");
     expect(removeRule).not.toHaveBeenCalled();

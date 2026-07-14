@@ -93,7 +93,7 @@ export function RestoreView() {
   const historyListRef = useRef<HTMLDivElement | null>(null);
   const cleanupListRef = useRef<HTMLDivElement | null>(null);
   const cleanupRefreshGeneration = useRef(0);
-  const isNarrow = useMediaQuery("(max-width: 980px)");
+  const isNarrow = useMediaQuery("(max-width: 1023px)");
 
   const operationBatches = useMemo(() => {
     const grouped = groupOperationLogs(logs);
@@ -344,14 +344,15 @@ export function RestoreView() {
             <div className="flex items-center gap-2"><History size={20} className="text-[var(--zc-primary)]" aria-hidden="true" /><h2 className="text-xl font-semibold">{t("historyWorkspaceTitle")}</h2></div>
             <p className={cn(mutedText, "mt-1 max-w-2xl")}>{t("historyWorkspaceDesc")}</p>
           </div>
-          <div className="flex max-w-xl items-start gap-2 rounded-[var(--zc-radius-control)] border border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] px-3 py-2 text-xs leading-5 text-[var(--zc-success-text)]"><ShieldCheck size={16} className="mt-0.5 shrink-0" aria-hidden="true" />{t("historySafetyBoundary")}</div>
+          <div className="flex max-h-12 max-w-xl items-start gap-2 overflow-hidden rounded-[var(--zc-radius-control)] border border-[var(--zc-neutral-border)] bg-[var(--zc-neutral-soft)] px-3 py-2 text-xs leading-5 text-[var(--zc-neutral-text)]"><ShieldCheck size={16} className="mt-0.5 shrink-0" aria-hidden="true" />{t("historySafetyBoundary")}</div>
         </header>
 
         <div className={cn(contentPanel, "flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3")}>
           {[
             { label: t("historySummaryOperations"), value: summary.operations },
             { label: t("historySummaryRestorable"), value: summary.restorable },
-            { label: t("historySummaryRestored"), value: summary.restored }
+            { label: t("historySummaryRestored"), value: summary.restored },
+            { label: t("historySummaryExcluded"), value: summary.unavailable }
           ].map((item) => <div key={item.label} className="flex items-baseline gap-2"><span className="text-xs text-[var(--muted)]">{item.label}</span><strong className="text-base tabular-nums">{item.value}</strong></div>)}
         </div>
 

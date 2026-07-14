@@ -8,22 +8,26 @@ function read(relativePath: string) {
 }
 
 describe("automation workspace source contract", () => {
-  it("is a responsive list-detail workspace with supported trigger disclosure", () => {
+  it("is a responsive list-detail workspace with page-level environment disclosure", () => {
     const view = read("src/views/rules/RulesView.tsx");
+    const list = read("src/views/rules/AutomationRuleList.tsx");
+    const inspector = read("src/views/rules/AutomationRuleInspector.tsx");
     const t = makeTranslator("zh");
 
     expect(t("automationWorkspaceTitle")).toBe("自动化工作区");
-    expect(view).toContain('useMediaQuery("(max-width: 980px)")');
-    expect(view).toContain('role="listbox"');
-    expect(view).toContain('event.key === "ArrowDown"');
-    expect(view).toContain('event.key === "Enter"');
-    expect(view).toContain('event.key === " "');
+    expect(view).toContain('useMediaQuery("(max-width: 1023px)")');
+    expect(list).toContain('role="list"');
+    expect(list).not.toContain('role="listbox"');
+    expect(list).not.toContain('role="option"');
+    expect(list).toContain('event.key === "ArrowDown"');
     expect(view).toContain('event.key !== "Escape"');
-    expect(view).toContain("listRef.current?.focus()");
+    expect(list).toContain("data-rule-row-content");
+    expect(view).toContain("focusRuleContent");
     expect(view).toContain('setNarrowPane("list")');
-    expect(view).toContain("userRules.length > 1 ? listRef.current : createRef.current");
-    expect(view).toContain('t("automationScheduleTrigger")');
-    expect(view).toContain('available={false}');
+    expect(view).toContain("emptyCreateRef.current");
+    expect(inspector).toContain('t("automationScheduleTrigger")');
+    expect(inspector).toContain('available={false}');
+    expect(inspector).toContain('t("automationCurrentFileLibraryScope")');
   });
 
   it("runs only classification suggestions and routes review to Organize", () => {
@@ -42,6 +46,7 @@ describe("automation workspace source contract", () => {
     const dialog = read("src/views/automation/AutomationRuleDialog.tsx");
     expect(view).toContain("AutomationRuleDialog");
     expect(view).toContain("ConfirmDialog");
+    expect(view).toContain("errorMessage");
     expect(dialog).toContain("ModalPortal");
     expect(dialog).toContain("discardOpen");
     expect(dialog).toContain("validateRuleDraft");

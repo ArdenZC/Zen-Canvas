@@ -97,7 +97,9 @@ export function AppShell() {
   if (isSearchMode) return <SearchWindow />;
 
   const groups = navGroups(t);
-  const activeLabel = groups.flatMap((group) => group.items).find((item) => item.id === view)?.label ?? viewLabel(view, t);
+  const activeLabel = view === "rules"
+    ? t("automationWorkspaceTitle")
+    : groups.flatMap((group) => group.items).find((item) => item.id === view)?.label ?? viewLabel(view, t);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
   const headingDescription = viewDescription(view, stats, scope, scopeText, view === "preview" && executionIntent?.source === "organize" ? executionIntent.allowedPreviewIds.size : previewActionCount, t);
 

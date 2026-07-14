@@ -133,6 +133,6 @@ export async function persistUserRuleDelete({
     return true;
   } catch (error) {
     onSyncError?.(error, rule);
-    return false;
+    throw error;
   }
 }

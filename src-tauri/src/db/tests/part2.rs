@@ -667,6 +667,27 @@
     }
 
     #[test]
+    fn save_user_rule_rejects_incompatible_condition_matrix_values() {
+        let cases = [
+            ("size", "contains", Value::String("100".to_string())),
+            ("modified_at", "olderThanDays", Value::Number(serde_json::Number::from_f64(1.5).expect("number"))),
+            ("file_type", "contains", Value::String("Image".to_string())),
+            ("risk_level", "equals", Value::String("Caution".to_string())),
+            ("is_duplicate", "is", Value::String("true".to_string()))
+        ];
+
+        for (index, (field, operator, value)) in cases.into_iter().enumerate() {
+            let db = Database::open(test_db_path()).expect("open test database");
+            let mut rule = user_rule_for_persistence(&format!("rule-matrix-{index}"), "Matrix", 200.0);
+            rule.groups[0].conditions[0].field = field.to_string();
+            rule.groups[0].conditions[0].operator = operator.to_string();
+            rule.groups[0].conditions[0].value = value;
+
+            db.save_user_rule(rule).expect_err("reject incompatible condition");
+        }
+    }
+
+    #[test]
     fn save_user_rule_rejects_unsafe_move_target() {
         let db = Database::open(test_db_path()).expect("open test database");
         let mut rule = user_rule_for_persistence("rule-target", "Target", 200.0);

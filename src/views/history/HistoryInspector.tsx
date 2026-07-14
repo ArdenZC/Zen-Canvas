@@ -109,7 +109,7 @@ function operationOriginalPath(log: OperationLog) {
 }
 
 function DetailRow({ label, value, title, path = false }: { label: string; value: string; title?: string; path?: boolean }) {
-  return <div className="grid min-w-0 gap-0.5"><dt className="text-[11px] font-semibold text-[var(--zc-text-tertiary)]">{label}</dt><dd className={cn("min-w-0 text-xs text-[var(--muted)]", path ? "break-all font-mono leading-5" : "truncate")} title={title ?? value}>{value || "-"}</dd></div>;
+  return <div className="grid min-w-0 gap-0.5"><dt className="text-[11px] font-semibold text-[var(--zc-text-tertiary)]">{label}</dt><dd className={cn("min-w-0 text-xs text-[var(--muted)]", path ? "line-clamp-2 break-words font-mono leading-5" : "truncate")} title={title ?? value}>{value || "-"}</dd></div>;
 }
 
 export function HistoryInspector({
@@ -152,9 +152,14 @@ export function HistoryInspector({
     <section aria-labelledby="history-inspector-title" className="grid gap-3">
       <div className="flex items-start gap-3">
         {onBack && <button type="button" className={buttonSecondary} onClick={onBack} aria-label={t("historyInspectorBack")}><ArrowLeft size={16} /></button>}
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h2 id="history-inspector-title" className="text-base font-semibold">{t("historyInspector")}</h2>
-          <p className={cn(mutedText, "mt-1 tabular-nums")}>{batch.total} · {t("historyOperationStatus")}: {batchStateLabel(batch.executionState, t)} · {t("historyRestoreStatus")}: {batchStateLabel(batch.restoreState, t)} · {batch.success} {t("historyStatusSuccess")} · {batch.failed} {t("historyStatusFailed")} · {batch.restorable} {t("restorable")}</p>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+            <div className="grid gap-0.5"><span className="text-[var(--muted)]">{t("historySummaryOperations")}</span><strong className="tabular-nums">{batch.total}</strong></div>
+            <div className="grid gap-0.5"><span className="text-[var(--muted)]">{t("historyOperationStatus")}</span><strong>{batchStateLabel(batch.executionState, t)}</strong></div>
+            <div className="grid gap-0.5"><span className="text-[var(--muted)]">{t("historyRestoreStatus")}</span><strong>{batchStateLabel(batch.restoreState, t)}</strong></div>
+            <div className="grid gap-0.5"><span className="text-[var(--muted)]">{t("historySummaryRestorable")}</span><strong className="tabular-nums">{batch.restorable}</strong></div>
+          </div>
         </div>
       </div>
       <div className="grid gap-2" role="list" aria-label={t("historyInspector")}>
@@ -175,7 +180,7 @@ export function HistoryInspector({
                 />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <strong className="truncate text-sm" title={operationDisplayName(log)}>{operationDisplayName(log)}</strong>
+                    <strong className="truncate text-sm" title={`${operationDisplayName(log)} · ${formatDisplayPath(currentPath)}`}>{operationDisplayName(log)}</strong>
                     <span className="text-xs text-[var(--muted)]">{operationTypeLabel(log, t)}</span>
                     <span className="rounded-full border border-[var(--zc-border)] px-2 py-0.5 text-[11px] text-[var(--muted)]">{t("historyOperationStatus")}: {operationExecutionStatusLabel(log, t)}</span>
                     <span className="rounded-full border border-[var(--zc-border)] px-2 py-0.5 text-[11px] text-[var(--muted)]">{t("historyRestoreStatus")}: {operationRestoreStatusLabel(log, t)}</span>
