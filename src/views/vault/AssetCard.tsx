@@ -112,7 +112,7 @@ function compactBadges(file: FileRecord, t: Translator): Array<{ label: string; 
     });
   }
   if (file.matched_rules.some((rule) => rule.startsWith("ai:"))) badges.push({ label: "AI", tone: "info" });
-  if (file.confidence < 0.65) badges.push({ label: "低置信度", tone: "amber" });
+  if (file.confidence < 0.65) badges.push({ label: t("libraryConfidenceLow"), tone: "amber" });
   if (file.is_duplicate) badges.push({ label: t("libraryDuplicateFiles"), tone: "amber" });
   if (file.requires_confirmation) badges.push({ label: t("needsReview"), tone: "amber" });
 

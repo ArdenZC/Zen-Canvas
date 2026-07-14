@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { activateCommandNavigation, isSortingPreviewShortcut } from "../src/components/CommandModal";
+import { makeTranslator } from "../src/i18n";
 import { applySearchNavigation } from "../src/utils/searchNavigation";
 import { DEFAULT_SEARCH_HOTKEY, formatHotkeyLabel } from "../src/utils/hotkeys";
 
@@ -88,6 +89,15 @@ describe("spotlight search navigation", () => {
     expect(commandModal).not.toContain("tauriApi.getPagedFiles(12, 0, trimmedSearch");
     expect(appShell).toContain("resolveEffectiveSearchScope");
     expect(appShell).toContain("searchScope={effectiveSearchScope}");
+  });
+
+  it("uses folder-aware wording, plural-safe counts, and shared file icons", () => {
+    const commandModal = readFileSync(resolve("src/components/CommandModal.tsx"), "utf8");
+    const en = makeTranslator("en");
+    expect(en("globalSearch")).toBe("Search folders, files, actions, or settings");
+    expect(commandModal).toContain("formatCount(t, visibleResults.length");
+    expect(commandModal).toContain("<FileTypeIcon file={file}");
+    expect(commandModal).toContain("<FileTypeIcon file={file} size={17}");
   });
 
   it("falls back to the library for an invalid runtime view payload", () => {

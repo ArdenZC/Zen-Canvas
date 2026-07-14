@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ArrowLeft, ExternalLink, FileWarning, RotateCcw } from "lucide-react";
 import { tauriApi } from "../../api/tauriApi";
+import { formatCount } from "../../i18n";
 import type { CleanupRestorePreviewItem, CleanupTrashBatch, CleanupTrashItem, OperationLog } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { buttonGhost, buttonSecondary, cn } from "../../utils/tw";
@@ -17,10 +18,6 @@ import {
   type OperationHistoryBatch
 } from "./historyModel";
 import { operationDisplayName } from "./HistoryBatchList";
-
-function replaceCount(text: string, count: number) {
-  return text.replace("{count}", String(count));
-}
 
 function formatDate(value: string, t: Translator) {
   const timestamp = historyTime(value);
@@ -317,7 +314,7 @@ export function CleanupInspector({
           );
         })}
       </div>
-      <p className={cn(mutedText, "tabular-nums")}>{previewState === "ready" ? replaceCount(t("historyBatchItems"), cleanupBatchRestorableCount(batch, [...previewById.values()])) : t("cleanupPreviewUnavailable")}{previewState === "ready" && ` ${t("restorable")}`}</p>
+      <p className={cn(mutedText, "tabular-nums")}>{previewState === "ready" ? formatCount(t, cleanupBatchRestorableCount(batch, [...previewById.values()]), { zero: "historyBatchItemsZero", one: "historyBatchItemsOne", other: "historyBatchItemsOther" }) : t("cleanupPreviewUnavailable")}{previewState === "ready" && ` ${t("restorable")}`}</p>
     </section>
   );
 }

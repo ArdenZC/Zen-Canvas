@@ -1,4 +1,4 @@
-import { AlertTriangle, Archive, File, FileCode2, FileImage, FileText, Folder, Music2, Package, Video } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { FileRecord } from "../../../types/domain";
@@ -9,7 +9,7 @@ import { formatBytes, formatDate } from "../../../utils/format";
 import { compactPath, formatDisplayPath } from "../../../utils/viewHelpers";
 import { buttonSecondary, cn, virtualList, virtualSpacer } from "../../../utils/tw";
 import { shouldTriggerLoadMore } from "../../../utils/virtualization";
-import { filePreviewKind } from "../fileLibraryModel";
+import { fileIconForRecord } from "../../../components/FileTypeIcon";
 
 const ROW_HEIGHT = 52;
 
@@ -137,7 +137,7 @@ function FileLibraryRow({
   onDoubleClick: (event: React.MouseEvent<HTMLDivElement>) => void;
   onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => void;
 }) {
-  const Icon = fileIcon(file);
+  const Icon = fileIconForRecord(file);
   const missing = file.is_deleted || file.is_stale;
   const path = compactPath(formatDisplayPath(file.directory), 54);
   return (
@@ -160,7 +160,7 @@ function FileLibraryRow({
     >
       <div className="flex min-w-0 items-center gap-2.5">
         <span className="relative grid h-8 w-8 shrink-0 place-items-center rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-secondary)]" aria-hidden="true">
-          <Icon size={17} />
+          <Icon size={17} aria-hidden="true" />
           {missing ? <AlertTriangle size={13} className="absolute -right-1 -top-1 rounded-full bg-[var(--zc-surface)] text-[var(--zc-warning-text)]" /> : null}
         </span>
         <div className="min-w-0">
@@ -173,19 +173,6 @@ function FileLibraryRow({
       <span className="truncate text-right text-xs tabular-nums text-[var(--zc-text-primary)]">{formatBytes(file.size)}</span>
     </div>
   );
-}
-
-function fileIcon(file: FileRecord) {
-  const kind = filePreviewKind(file);
-  if (kind === "image") return FileImage;
-  if (kind === "text") return FileCode2;
-  if (kind === "audio") return Music2;
-  if (kind === "video") return Video;
-  if (kind === "archive") return Archive;
-  if (kind === "folder") return Folder;
-  if (file.file_type === "Installer") return Package;
-  if (file.file_type === "Document") return FileText;
-  return File;
 }
 
 export function typeLabel(file: FileRecord, t: Translator) {

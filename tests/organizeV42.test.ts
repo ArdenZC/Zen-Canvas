@@ -177,6 +177,24 @@ describe("Organize Suggestions v4.2 hardening", () => {
     expect(inspector).not.toContain("file.matched_rules.join");
   });
 
+  it("uses natural suggestion copy, one decision badge, and the shared file icon", () => {
+    const list = read("src/views/organize/OrganizeSuggestionList.tsx");
+    const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
+    const inspector = read("src/views/organize/OrganizeSuggestionInspector.tsx");
+    const en = makeTranslator("en");
+    expect(en("organizeAnalyzePending")).toBe("Analyze unreviewed files");
+    expect(en("organizeReanalyzeScope")).toBe("Reanalyze all files in this scope");
+    expect(en("organizeTargetUnavailable")).toBe("No safe destination is currently available");
+    expect(en("organizeNoExecutableAction")).toBe("No file action is currently proposed");
+    expect(en("organizeReasonUnavailable")).toBe("There is not enough information to make a reliable suggestion");
+    expect(en("organizeSafetyHint")).toBe("Files are moved only after you review the Preview and explicitly confirm execution.");
+    expect(list).toContain("FileTypeIcon");
+    expect(list).toContain("<DecisionBadge");
+    expect(list).not.toContain('t("organizeNeedsConfirmation")');
+    expect(view).toContain('t("organizeSafetyHint")');
+    expect(inspector).toContain('t("organizeTargetUnavailable")');
+  });
+
   it("keeps dialog focus semantics, tabular numbers, token tones, and native confirms out", () => {
     const dialog = read("src/views/shared/ui.ts");
     const timeline = read("src/views/timeline/TimelineView.tsx");

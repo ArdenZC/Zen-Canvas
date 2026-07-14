@@ -174,8 +174,9 @@ export function selectionSummary(files: FileRecord[]) {
 
 export type FilePreviewKind = "image" | "pdf" | "text" | "audio" | "video" | "archive" | "folder" | "unsupported";
 
-export function filePreviewKind(file: FileRecord): FilePreviewKind {
+export function filePreviewKind(file: Pick<FileRecord, "file_type" | "extension"> & Partial<Pick<FileRecord, "is_deleted" | "is_stale">>): FilePreviewKind {
   const extension = file.extension.toLowerCase().replace(/^\./, "");
+  if (file.file_type.toLocaleLowerCase() === "folder") return "folder";
   if (file.file_type === "Image" || ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(extension)) return "image";
   if (extension === "pdf") return "pdf";
   if (file.file_type === "Code" || ["txt", "md", "json", "ts", "tsx", "js", "jsx", "rs", "py", "css", "html"].includes(extension)) return "text";

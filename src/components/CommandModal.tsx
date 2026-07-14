@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type * as React from "react";
-import { Activity, Archive, ChevronRight, Clock3, Code, CornerDownLeft, FileText, Folder, Image as ImageIcon, LayoutGrid, Radar, Search, Video, X } from "lucide-react";
+import { Activity, ChevronRight, Clock3, CornerDownLeft, LayoutGrid, Radar, Search, X } from "lucide-react";
 import { motion } from "motion/react";
 import { tauriApi } from "../api/tauriApi";
 import type { FileRecord, LibraryScope, OperationLog } from "../types/domain";
 import type { Translator, View } from "../types/ui";
+import { formatCount } from "../i18n";
 import { buttonSecondary, cn, toneClasses } from "../utils/tw";
 import { useBackgroundIndexerStore } from "../store/useBackgroundIndexerStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
@@ -12,6 +13,7 @@ import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { compactPath, formatDisplayPath, readableError } from "../utils/viewHelpers";
 import { IconButton, StateBlock, ToneBadge, quietText } from "../views/shared/ui";
 import { ModalPortal } from "./modal/ModalPortal";
+import { FileTypeIcon } from "./FileTypeIcon";
 import { createCommandRegistry, executeSpotlightCommand, queryCommandRegistry, requestSettingsSection, type SpotlightCommand } from "./spotlight/commandRegistry";
 import { buildRecentGroups, groupSpotlightResults, mergeSpotlightResults, type SpotlightResult } from "./spotlight/spotlightModel";
 
@@ -382,15 +384,6 @@ export function CommandModal({
     return "slate";
   }
 
-  function getIcon(fileType: string) {
-    const type = (fileType || "").toLowerCase();
-    if (type === "folder") return <Folder size={20} strokeWidth={1.5} />;
-    if (type === "video" || type === "mp4") return <Video size={20} strokeWidth={1.5} />;
-    if (type === "image" || type === "png" || type === "jpg") return <ImageIcon size={20} strokeWidth={1.5} />;
-    if (type === "code" || type === "ts" || type === "js" || type === "tsx" || type === "json") return <Code size={20} strokeWidth={1.5} />;
-    return <FileText size={20} strokeWidth={1.5} />;
-  }
-
   const content = (
     <div
       className={cn(
@@ -507,12 +500,11 @@ export function CommandModal({
                 t={t}
                 onChoose={chooseResult}
                 onActivate={setActiveIndex}
-                getIcon={getIcon}
                 getResultTone={getResultTone}
               />
             </div>
             <div className={commandFooter}>
-              <span>{t("matchesFound").replace("{count}", String(visibleResults.length))}</span>
+              <span>{formatCount(t, visibleResults.length, { zero: "matchesFoundZero", one: "matchesFoundOne", other: "matchesFoundOther" })}</span>
               <div className={shortcutHints}>
                 <ShortcutHint badge={<CornerDownLeft className="w-3 h-3" />} label={t("commandOpenHint")} />
                 <ShortcutHint badge="↑↓" label={t("commandNavigateHint")} />
@@ -562,7 +554,6 @@ function SpotlightResultGroups({
   t,
   onChoose,
   onActivate,
-  getIcon,
   getResultTone
 }: {
   groups: ReturnType<typeof groupSpotlightResults>;
@@ -572,7 +563,6 @@ function SpotlightResultGroups({
   t: Translator;
   onChoose: (result: SpotlightResult) => void;
   onActivate: (index: number) => void;
-  getIcon: (fileType: string) => React.ReactNode;
   getResultTone: (file: FileRecord) => string;
 }) {
   return (
@@ -623,12 +613,12 @@ function SpotlightResultGroups({
                   onMouseEnter={() => onActivate(index)}
                 >
                   <span className={cn(commandFileIcon, toneClasses(tone))}>
-                    {getIcon(file.extension ? file.extension.replace(".", "") : file.file_type)}
+                    <FileTypeIcon file={file} size={20} />
                   </span>
                   <span className="grid min-w-0 gap-1.5">
                     <strong className={commandFileName}><HighlightText text={file.name} highlight={highlight} /></strong>
                     <span className={commandFileMeta} title={formatDisplayPath(file.path)}>{compactPath(formatDisplayPath(file.path), 74)}</span>
-                    <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <span className="flex min-w-0 flex-wrap items-center gap-1.5">
                       <ToneBadge tone={tone as any}>{file.purpose}</ToneBadge>
                       <ToneBadge tone="slate">{extension}</ToneBadge>
                       {file.risk_level !== "Normal" && <ToneBadge tone={file.risk_level === "Sensitive" ? "red" : "amber"}>{file.risk_level === "Sensitive" ? t("sensitiveLabel") : file.risk_level}</ToneBadge>}
@@ -676,16 +666,16 @@ function CommandIdleGroups({
           <IdleGroup title={group.label} key={group.type}>
             {group.type === "recent-files"
               ? group.items.map((file) => (
-                  <IdleAction key={file.id} icon={Archive} label={file.name} onClick={() => onOpenFile(file)} />
+                  <IdleAction key={file.id} icon={<FileTypeIcon file={file} size={17} className="text-[var(--zc-primary)]" />} label={file.name} onClick={() => onOpenFile(file)} />
                 ))
               : group.items.map((operation) => (
-                  <IdleAction key={operation.id} icon={Clock3} label={operationLabel(operation)} onClick={() => onOpen("restore")} />
+                  <IdleAction key={operation.id} icon={<Clock3 size={17} className="text-[var(--zc-primary)]" aria-hidden="true" />} label={operationLabel(operation)} onClick={() => onOpen("restore")} />
                 ))}
           </IdleGroup>
         ))}
         <IdleGroup title={t("spotlightCommonTasks")}>
-          <IdleAction icon={Radar} label={t("overview")} onClick={() => onOpen("scanner")} />
-          <IdleAction icon={LayoutGrid} label={t("organizeSuggestions")} onClick={() => onOpen("organize")} />
+          <IdleAction icon={<Radar size={17} className="text-[var(--zc-primary)]" aria-hidden="true" />} label={t("overview")} onClick={() => onOpen("scanner")} />
+          <IdleAction icon={<LayoutGrid size={17} className="text-[var(--zc-primary)]" aria-hidden="true" />} label={t("organizeSuggestions")} onClick={() => onOpen("organize")} />
         </IdleGroup>
       </div>
       <div className={commandBackgroundStatus} role="status" aria-label={t("spotlightBackgroundTasks")}>
@@ -712,17 +702,17 @@ function IdleGroup({ title, children }: { title: string; children: React.ReactNo
 }
 
 function IdleAction({
-  icon: Icon,
+  icon,
   label,
   onClick
 }: {
-  icon: typeof Archive;
+  icon: React.ReactNode;
   label: string;
   onClick: () => void;
 }) {
   return (
     <button className={commandIdleAction} onClick={onClick}>
-      <Icon size={17} className="text-[var(--zc-primary)]" />
+      {icon}
       <span>{label}</span>
       <ChevronRight size={15} className="ml-auto text-[var(--zc-text-tertiary)]" />
     </button>

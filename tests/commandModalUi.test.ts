@@ -22,21 +22,21 @@ describe("command modal spotlight polish", () => {
 
   it("uses purpose-driven result tones and dynamic file icons", () => {
     const commandModal = read("src/components/CommandModal.tsx");
+    const icon = read("src/components/FileTypeIcon.tsx");
 
-    expect(commandModal).toContain("FileText, Folder, Image as ImageIcon, LayoutGrid, Radar");
-    expect(commandModal).toContain("function getIcon(fileType: string)");
-    expect(commandModal).toContain('if (type === "folder") return <Folder size={20} strokeWidth={1.5} />');
-    expect(commandModal).toContain('if (type === "video" || type === "mp4") return <Video size={20} strokeWidth={1.5} />');
-    expect(commandModal).toContain('if (type === "image" || type === "png" || type === "jpg") return <ImageIcon size={20} strokeWidth={1.5} />');
-    expect(commandModal).toContain('if (type === "code" || type === "ts" || type === "js" || type === "tsx" || type === "json") return <Code size={20} strokeWidth={1.5} />');
-    expect(commandModal).toContain("return <FileText size={20} strokeWidth={1.5} />");
+    expect(commandModal).toContain("FileTypeIcon");
+    expect(icon).toContain("fileIconForRecord");
+    expect(icon).toContain("aria-hidden=\"true\"");
+    expect(icon).toContain("if (kind === \"folder\") return Folder");
+    expect(icon).toContain("if (kind === \"archive\") return Archive");
+    expect(icon).toContain("if (file.file_type === \"Installer\") return Package");
     expect(commandModal).toContain('const purpose = (file.purpose || "").toLowerCase()');
     expect(commandModal).toContain('purpose.includes("strategy") || purpose.includes("finance") || file.lifecycle === "Archive"');
     expect(commandModal).toContain('purpose.includes("media") || purpose.includes("image")');
     expect(commandModal).toContain('purpose.includes("code") || purpose.includes("script")');
     expect(commandModal).toContain('purpose.includes("doc") || purpose.includes("text")');
     expect(commandModal).toContain('file.risk_level === "Sensitive" || purpose.includes("sensitive")');
-    expect(commandModal).toContain('{getIcon(file.extension ? file.extension.replace(".", "") : file.file_type)}');
+    expect(commandModal).toContain('<FileTypeIcon file={file} size={20} />');
     expect(commandModal).toContain('<ToneBadge tone={tone as any}>{file.purpose}</ToneBadge>');
     expect(commandModal).toContain('<ToneBadge tone={file.risk_level === "Sensitive" ? "red" : "amber"}>');
     expect(commandModal).toContain('<ToneBadge tone="amber">{t("libraryDuplicateFiles")}</ToneBadge>');
@@ -130,7 +130,7 @@ describe("command modal spotlight polish", () => {
     expect(zh("commandTypingTitle")).toBe("正在准备搜索");
     expect(zh("commandScopedEmptyTitle")).toBe("当前搜索范围为空");
     expect(zh("commandOpenHint")).toBe("打开结果");
-    expect(zh("globalSearch")).toBe("搜索文件、操作或设置");
+    expect(zh("globalSearch")).toBe("搜索文件夹、文件、操作或设置");
     expect(zh("commandPlaceholder")).toBe("搜索文件、文件夹、操作或设置");
     expect(zh("smartMatches")).toBe("智能匹配");
     expect(zh("unknown")).toBe("未分类或未知类型");

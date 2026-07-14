@@ -31,6 +31,13 @@ import type {
   SearchRootSetting,
   SearchScopeMode
 } from "../../types/domain";
+import type { Translator } from "../../types/ui";
+import {
+  aiSettingsEqual,
+  applyAIClassificationPreset,
+  resolveAIClassificationPreset,
+  type AIClassificationPresetId
+} from "./aiSettingsModel";
 import { acceleratorFromKeyboardEvent, formatHotkeyLabel, isValidSearchHotkey } from "../../utils/hotkeys";
 import { compactPath, normalizePathLike, readableError } from "../../utils/viewHelpers";
 import { buttonIconDanger, buttonSecondary, cn, glassButton, inputSurface, selectSurface } from "../../utils/tw";
@@ -51,7 +58,6 @@ import {
   panelSurface,
   quietText,
   softPanel,
-  SectionTitle
 } from "../shared/ui";
 
 type StatusTone = "success" | "warning";
@@ -60,6 +66,39 @@ type FolderDeleteConfirmState =
   | { kind: "search"; root: SearchRootSetting };
 
 const DEVELOPER_MODE_STORAGE_KEY = "zc-developer-mode";
+const SETTINGS_SECTION_IDS = [
+  "settings-appearance",
+  "settings-files-scan",
+  "settings-search",
+  "settings-privacy",
+  "settings-general",
+  "settings-automation",
+  "settings-ai",
+  "settings-about"
+] as const;
+const AI_CLASSIFICATION_PRESET_IDS = ["fast", "standard", "detailed", "custom"] as const;
+const AI_CLASSIFICATION_LABEL_KEYS: Record<typeof AI_CLASSIFICATION_PRESET_IDS[number], Parameters<Translator>[0]> = {
+  fast: "aiPresetFast",
+  standard: "aiPresetStandard",
+  detailed: "aiPresetDetailed",
+  custom: "aiPresetCustom"
+};
+const AI_PROVIDER_LABEL_KEYS: Record<AIProviderPresetId, Parameters<Translator>[0]> = {
+  deepseek: "aiProviderDeepSeek",
+  kimi: "aiProviderKimi",
+  qwen_dashscope: "aiProviderQwenDashscope",
+  zhipu_glm: "aiProviderZhipuGlm",
+  minimax: "aiProviderMinimax",
+  baichuan: "aiProviderBaichuan",
+  doubao_ark: "aiProviderDoubaoArk",
+  siliconflow: "aiProviderSiliconflow",
+  custom_openai_compatible: "aiProviderCustomOpenai",
+  ollama: "aiProviderOllama"
+};
+
+function aiProviderLabel(preset: AIProviderPreset, t: Translator) {
+  return t(AI_PROVIDER_LABEL_KEYS[preset.id]);
+}
 
 function readDeveloperMode() {
   try {
@@ -128,6 +167,7 @@ export function SettingsView() {
   const [folderDeleteConfirm, setFolderDeleteConfirm] = useState<FolderDeleteConfirmState | null>(null);
   const [isDeletingFolderConfig, setIsDeletingFolderConfig] = useState(false);
   const [aiSettings, setAiSettings] = useState<AISettings | null>(null);
+  const [persistedAISettings, setPersistedAISettings] = useState<AISettings | null>(null);
   const publishAIProcessingMode = useAIProcessingModeStore((state) => state.publish);
   const [aiPresets, setAiPresets] = useState<AIProviderPreset[]>([]);
   const [isLoadingAISettings, setIsLoadingAISettings] = useState(false);
@@ -141,6 +181,12 @@ export function SettingsView() {
   const [activeSettingsSection, setActiveSettingsSection] = useState("settings-appearance");
   const [developerMode, setDeveloperMode] = useState(readDeveloperMode);
   const hotkeyCaptureRef = useRef<HTMLDivElement | null>(null);
+  const settingsScrollRef = useRef<HTMLDivElement | null>(null);
+  const settingsScrollFrameRef = useRef<number | null>(null);
+  const aiSaveRequestRef = useRef(0);
+
+  const aiSettingsDirty = Boolean(aiSettings && persistedAISettings && !aiSettingsEqual(aiSettings, persistedAISettings));
+  const activeAIClassificationPreset = aiSettings ? resolveAIClassificationPreset(aiSettings) : "custom";
 
   const settingsSections = [
     { id: "settings-general", label: t("settingsGeneral") },
@@ -154,9 +200,10 @@ export function SettingsView() {
   ];
 
   function focusSettingsSection(sectionId: string) {
-    setActiveSettingsSection(sectionId);
+    const targetId = sectionId === "settings-search-scope" ? "settings-search" : sectionId;
+    setActiveSettingsSection(targetId);
     window.requestAnimationFrame(() => {
-      const section = document.getElementById(sectionId);
+      const section = settingsScrollRef.current?.querySelector<HTMLElement>(`#${targetId}`);
       section?.scrollIntoView({ block: "start" });
       section?.focus({ preventScroll: true });
     });
@@ -172,19 +219,9 @@ export function SettingsView() {
   }
 
   useEffect(() => {
-    function focusSection(sectionId: string) {
-      window.setTimeout(() => {
-        const targetSection = sectionId === "settings-appearance" ? "settings-appearance" : sectionId === "settings-search-scope" ? "settings-search" : sectionId;
-        setActiveSettingsSection(targetSection);
-        const section = document.getElementById(sectionId) ?? document.getElementById(targetSection);
-        section?.scrollIntoView({ block: "start" });
-        section?.focus({ preventScroll: true });
-      }, 0);
-    }
-
     function handleSectionRequest(event: Event) {
       const sectionId = (event as CustomEvent<string>).detail;
-      if (sectionId) focusSection(sectionId);
+      if (sectionId) focusSettingsSection(sectionId);
     }
 
     window.addEventListener(SETTINGS_SECTION_EVENT, handleSectionRequest);
@@ -192,12 +229,44 @@ export function SettingsView() {
       const pendingSection = window.sessionStorage.getItem(SETTINGS_SECTION_EVENT);
       if (pendingSection) {
         window.sessionStorage.removeItem(SETTINGS_SECTION_EVENT);
-        focusSection(pendingSection);
+        focusSettingsSection(pendingSection);
       }
     } catch {
       // In-memory events still work when storage is unavailable.
     }
     return () => window.removeEventListener(SETTINGS_SECTION_EVENT, handleSectionRequest);
+  }, []);
+
+  useEffect(() => {
+    const container = settingsScrollRef.current;
+    if (!container) return undefined;
+
+    const updateActiveSection = () => {
+      settingsScrollFrameRef.current = null;
+      const containerRect = container.getBoundingClientRect();
+      const sections = SETTINGS_SECTION_IDS
+        .map((id) => container.querySelector<HTMLElement>(`#${id}`))
+        .filter((section): section is HTMLElement => Boolean(section));
+      if (!sections.length) return;
+      const atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 1;
+      const nextSection = atBottom
+        ? sections[sections.length - 1]
+        : [...sections].reverse().find((section) => section.getBoundingClientRect().top <= containerRect.top + 1) ?? sections[0];
+      setActiveSettingsSection((current) => current === nextSection.id ? current : nextSection.id);
+    };
+
+    const scheduleUpdate = () => {
+      if (settingsScrollFrameRef.current !== null) return;
+      settingsScrollFrameRef.current = window.requestAnimationFrame(updateActiveSection);
+    };
+
+    container.addEventListener("scroll", scheduleUpdate, { passive: true });
+    scheduleUpdate();
+    return () => {
+      container.removeEventListener("scroll", scheduleUpdate);
+      if (settingsScrollFrameRef.current !== null) window.cancelAnimationFrame(settingsScrollFrameRef.current);
+      settingsScrollFrameRef.current = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -240,6 +309,7 @@ export function SettingsView() {
         if (disposed) return;
         setAiPresets(presets);
         setAiSettings(settings);
+        setPersistedAISettings(settings);
         publishAIProcessingMode({ enabled: settings.enabled, provider: settings.provider });
       })
       .catch((error) => {
@@ -252,6 +322,7 @@ export function SettingsView() {
       });
     return () => {
       disposed = true;
+      aiSaveRequestRef.current += 1;
     };
   }, [publishAIProcessingMode]);
 
@@ -456,39 +527,16 @@ export function SettingsView() {
   }
 
   function updateAISettings(partial: Partial<AISettings>) {
+    if (isSavingAISettings) return;
     setAiConnectionStatus(null);
     setAiDebugStatus(null);
     setAiSettings((current) => current ? { ...current, ...partial } : current);
   }
 
-  function applyAIClassificationPreset(mode: "fast" | "standard" | "detailed") {
-    if (mode === "fast") {
-      updateAISettings({
-        batchSize: 20,
-        classificationConcurrency: 2,
-        maxTokens: 1024,
-        sendFullPath: false,
-        sendParentPath: true
-      });
-      return;
-    }
-    if (mode === "detailed") {
-      updateAISettings({
-        batchSize: 5,
-        classificationConcurrency: 1,
-        maxTokens: 2048,
-        sendFullPath: true,
-        sendParentPath: true
-      });
-      return;
-    }
-    updateAISettings({
-      batchSize: 10,
-      classificationConcurrency: 2,
-      maxTokens: 1024,
-      sendFullPath: false,
-      sendParentPath: true
-    });
+  function applyClassificationPreset(mode: Exclude<AIClassificationPresetId, "custom">) {
+    setAiConnectionStatus(null);
+    setAiDebugStatus(null);
+    setAiSettings((current) => current ? applyAIClassificationPreset(current, mode) : current);
   }
 
   function selectAIPreset(presetId: AIProviderPresetId) {
@@ -506,9 +554,7 @@ export function SettingsView() {
         baseUrl: preset.defaultBaseUrl,
         chatPath: preset.defaultChatPath,
         model: preset.defaultModel,
-        apiKey: fallback.apiKey,
-        batchSize: preset.providerKind === "ollama" ? 5 : 10,
-        classificationConcurrency: preset.providerKind === "ollama" ? 1 : 2
+        apiKey: fallback.apiKey
       };
     });
   }
@@ -516,20 +562,26 @@ export function SettingsView() {
   async function saveAISettings() {
     if (!aiSettings || isSavingAISettings) return;
     const next = normalizeAISettingsForSave(aiSettings);
+    const requestId = ++aiSaveRequestRef.current;
+    const previous = persistedAISettings;
     setIsSavingAISettings(true);
     setAiConnectionStatus(null);
     try {
       const saved = await tauriApi.saveAISettings(next);
+      if (requestId !== aiSaveRequestRef.current) return;
       setAiSettings(saved);
+      setPersistedAISettings(saved);
       publishAIProcessingMode({ enabled: saved.enabled, provider: saved.provider });
       showStatus(t("aiSettingsSaved"));
     } catch (error) {
+      if (requestId !== aiSaveRequestRef.current) return;
+      if (previous) setAiSettings(previous);
       setAiConnectionStatus({
         tone: "warning",
-        message: sanitizeAIStatusMessage(`${t("aiSettingsSaveFailed")}：${readableError(error)}`, aiSettings.apiKey)
+        message: sanitizeAIStatusMessage(`${t("aiSettingsSaveFailed")}：${readableError(error)}`, previous?.apiKey ?? aiSettings.apiKey)
       });
     } finally {
-      setIsSavingAISettings(false);
+      if (requestId === aiSaveRequestRef.current) setIsSavingAISettings(false);
     }
   }
 
@@ -586,10 +638,10 @@ export function SettingsView() {
 
   return (
     <>
-    <div className={cn(pageSurface, "overflow-auto")}>
+    <div ref={settingsScrollRef} className={cn(pageSurface, "overflow-auto")}>
       <section className={cn(panelSurface, "mx-auto grid w-full max-w-[1180px] gap-4")}>
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <SectionTitle title={t("settings")} body={t("settingsDesc")} />
+          <p className={cn(quietText, "max-w-2xl")}>{t("settingsDesc")}</p>
           {settingsStatus && settingsStatusTone === "success" ? (
             <span className={cn(quietText, "rounded-full border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-3 py-1.5")} aria-live="polite">
               {settingsStatus}
@@ -630,8 +682,8 @@ export function SettingsView() {
               value={language}
               ariaLabel={t("language")}
               options={[
-                { value: "zh", label: "中文" },
-                { value: "en", label: "English" }
+                { value: "zh", label: t("languageChinese") },
+                { value: "en", label: t("languageEnglish") }
               ]}
               onChange={setLanguage}
             />
@@ -952,6 +1004,7 @@ export function SettingsView() {
             <StateBlock title={t("aiSettingsLoading")} description={t("aiSettingsLoadingDesc")} />
           ) : (
             <div className="grid gap-4">
+              <fieldset disabled={isSavingAISettings} aria-busy={isSavingAISettings} className="grid min-w-0 gap-4">
               <SwitchField
                 label={t("aiEnabledLabel")}
                 description={t("aiEnabledDesc")}
@@ -973,10 +1026,33 @@ export function SettingsView() {
               <div className={cn(softPanel, "grid gap-2 p-3")}>
                 <strong className="text-sm text-[var(--ink)]">{t("aiClassificationPresets")}</strong>
                 <span className={quietText}>{t("aiClassificationPresetsDesc")}</span>
-                <div className="flex flex-wrap gap-2">
-                  <button className={buttonSecondary} onClick={() => applyAIClassificationPreset("fast")}>{t("aiPresetFast")}</button>
-                  <button className={buttonSecondary} onClick={() => applyAIClassificationPreset("standard")}>{t("aiPresetStandard")}</button>
-                  <button className={buttonSecondary} onClick={() => applyAIClassificationPreset("detailed")}>{t("aiPresetDetailed")}</button>
+                <div role="radiogroup" aria-label={t("aiClassificationPresets")} className="flex flex-wrap gap-2">
+                  {AI_CLASSIFICATION_PRESET_IDS.map((presetId, index) => {
+                    const selected = activeAIClassificationPreset === presetId;
+                    return (
+                      <button
+                        key={presetId}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        tabIndex={selected ? 0 : -1}
+                        data-ai-classification-preset={presetId}
+                        className={cn(buttonSecondary, selected && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)] text-[var(--zc-primary-text)]")}
+                        onClick={() => { if (presetId !== "custom") applyClassificationPreset(presetId); }}
+                        onKeyDown={(event) => {
+                          if (event.key !== "ArrowRight" && event.key !== "ArrowDown" && event.key !== "ArrowLeft" && event.key !== "ArrowUp") return;
+                          event.preventDefault();
+                          const delta = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
+                          const nextId = AI_CLASSIFICATION_PRESET_IDS[(index + delta + AI_CLASSIFICATION_PRESET_IDS.length) % AI_CLASSIFICATION_PRESET_IDS.length];
+                          const group = event.currentTarget.parentElement;
+                          window.requestAnimationFrame(() => group?.querySelector<HTMLButtonElement>(`[data-ai-classification-preset="${nextId}"]`)?.focus());
+                          if (nextId !== "custom") applyClassificationPreset(nextId);
+                        }}
+                      >
+                        {t(AI_CLASSIFICATION_LABEL_KEYS[presetId])}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
               <div className={formRow}>
@@ -991,28 +1067,28 @@ export function SettingsView() {
                 >
                   {aiPresets.map((preset) => (
                     <option key={preset.id} value={preset.id}>
-                      {preset.label}
+                      {aiProviderLabel(preset, t)}
                     </option>
                   ))}
                 </select>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
-                <TextField label="Base URL" value={aiSettings.baseUrl} onChange={(value) => updateAISettings({ baseUrl: value })} />
-                <TextField label="Chat Path" value={aiSettings.chatPath} onChange={(value) => updateAISettings({ chatPath: value })} />
+                <TextField label={t("aiBaseUrlLabel")} value={aiSettings.baseUrl} onChange={(value) => updateAISettings({ baseUrl: value })} />
+                <TextField label={t("aiChatPathLabel")} value={aiSettings.chatPath} onChange={(value) => updateAISettings({ chatPath: value })} />
                 {aiSettings.provider === "ollama" ? (
                   <div className={cn(softPanel, "p-3 text-sm text-[var(--muted)]")}>{t("aiLocalApiKeyHint")}</div>
                 ) : (
                   <TextField
-                    label="API Key"
+                    label={t("aiApiKeyLabel")}
                     type="password"
                     value={aiSettings.apiKey}
                     onChange={(value) => updateAISettings({ apiKey: value })}
                     placeholder={aiSettings.apiKeyConfigured ? t("aiStoredApiKeyPlaceholder") : t("aiEmptyApiKeyPlaceholder")}
                   />
                 )}
-                <TextField label="Model" value={aiSettings.model} onChange={(value) => updateAISettings({ model: value })} />
+                <TextField label={t("aiModelLabel")} value={aiSettings.model} onChange={(value) => updateAISettings({ model: value })} />
                 <NumberField
-                  label="Batch Size"
+                  label={t("aiBatchSizeLabel")}
                   description={t("aiBatchSizeDesc")}
                   value={aiSettings.batchSize}
                   min={1}
@@ -1026,12 +1102,12 @@ export function SettingsView() {
                   onChange={(value) => updateAISettings({ classificationConcurrency: Math.min(4, Math.max(1, value)) })}
                 />
                 <NumberField
-                  label="Max Tokens"
+                  label={t("aiMaxTokensLabel")}
                   value={aiSettings.maxTokens}
                   min={512}
                   onChange={(value) => updateAISettings({ maxTokens: value })}
                 />
-                <NumberField label="Timeout Seconds" value={aiSettings.timeoutSeconds} min={1} onChange={(value) => updateAISettings({ timeoutSeconds: value })} />
+                <NumberField label={t("aiTimeoutLabel")} value={aiSettings.timeoutSeconds} min={1} onChange={(value) => updateAISettings({ timeoutSeconds: value })} />
               </div>
               <NoticeBanner tone="info">
                 {t("aiLearningHint")}
@@ -1074,7 +1150,7 @@ export function SettingsView() {
                   statusLabel={aiSettings.enableThinking ? t("enabled") : t("disabled")}
                 />
                 <TextField
-                  label="Reasoning Effort"
+                  label={t("aiReasoningEffortLabel")}
                   value={aiSettings.reasoningEffort ?? ""}
                   onChange={(value) => updateAISettings({ reasoningEffort: value || null })}
                   placeholder={t("aiReasoningPlaceholder")}
@@ -1112,9 +1188,6 @@ export function SettingsView() {
               <div className="flex flex-wrap justify-end gap-2">
                 <button className={buttonSecondary} onClick={() => void testAIConnection()} disabled={isTestingAIConnection || isSavingAISettings}>
                   {isTestingAIConnection ? t("aiTestingConnection") : t("aiTestConnection")}
-                </button>
-                <button className={buttonSecondary} onClick={() => void saveAISettings()} disabled={isSavingAISettings || isTestingAIConnection}>
-                  {isSavingAISettings ? t("aiSavingSettings") : t("aiSaveSettings")}
                 </button>
               </div>
               <details className={cn(softPanel, "grid gap-3 p-3")}>
@@ -1163,13 +1236,13 @@ export function SettingsView() {
                         <span>Provider: {aiDebugResult.provider} / {aiDebugResult.preset}</span>
                         <span>Model: {aiDebugResult.model}</span>
                         <span>Endpoint: {aiDebugResult.baseUrl}{aiDebugResult.chatPath}</span>
-                        <span>HTTP: {aiDebugResult.httpStatus} · response_format: {String(aiDebugResult.requestUsedResponseFormat)} · thinking: {aiDebugResult.requestUsedThinkingField ?? "未使用"}</span>
-                        <span>Max Tokens: {aiDebugResult.maxTokens} · Batch Size: {aiDebugResult.batchSize} · Parse Stage: {aiDebugResult.parseStage}</span>
-                        <span>refId: {aiDebugResult.refId || "未生成"} · real file id: {aiDebugResult.realFileId || "未匹配"}</span>
+                        <span>HTTP: {aiDebugResult.httpStatus} · response_format: {String(aiDebugResult.requestUsedResponseFormat)} · thinking: {aiDebugResult.requestUsedThinkingField ?? "—"}</span>
+                        <span>Max tokens: {aiDebugResult.maxTokens} · Batch size: {aiDebugResult.batchSize} · Parse stage: {aiDebugResult.parseStage}</span>
+                        <span>refId: {aiDebugResult.refId || "—"} · real file id: {aiDebugResult.realFileId || "—"}</span>
                         <span>Path: {compactPath(aiDebugResult.path, 96)}</span>
-                        <span>Model returned refId/id: {aiDebugResult.modelReturnedRefId ?? "空"} / {aiDebugResult.modelReturnedId ?? "空"} · idMappingMatched: {String(aiDebugResult.idMappingMatched)}</span>
-                        <span>missingOptionalFields: {aiDebugResult.missingOptionalFields.length ? aiDebugResult.missingOptionalFields.join(", ") : "无"} · fallbackApplied: {String(aiDebugResult.fallbackApplied)}</span>
-                        <span>itemParseWarnings: {aiDebugResult.itemParseWarnings.length ? aiDebugResult.itemParseWarnings.join("；") : "无"}</span>
+                        <span>Model returned refId/id: {aiDebugResult.modelReturnedRefId ?? "—"} / {aiDebugResult.modelReturnedId ?? "—"} · idMappingMatched: {String(aiDebugResult.idMappingMatched)}</span>
+                        <span>Missing optional fields: {aiDebugResult.missingOptionalFields.length ? aiDebugResult.missingOptionalFields.join(", ") : "—"} · fallbackApplied: {String(aiDebugResult.fallbackApplied)}</span>
+                        <span>Item parse warnings: {aiDebugResult.itemParseWarnings.length ? aiDebugResult.itemParseWarnings.join("; ") : "—"}</span>
                       </div>
                       <DebugPreviewBlock label="response summary" value={aiDebugResult.providerResponseSummary} apiKey={aiSettings.apiKey} />
                       <DebugPreviewBlock label="raw response preview" value={aiDebugResult.rawResponsePreview} apiKey={aiSettings.apiKey} />
@@ -1187,6 +1260,15 @@ export function SettingsView() {
               ) : (
                 <NoticeBanner tone="info">{t("developerModeDesc")}</NoticeBanner>
               )}
+              </fieldset>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-3 py-2">
+                <span className={quietText} role="status" aria-live="polite" data-ai-settings-state={aiSettingsDirty ? "unsaved" : "applied"}>
+                  {aiSettingsDirty ? t("aiUnsavedChanges") : t("aiSettingsApplied")}
+                </span>
+                <button type="button" className={buttonSecondary} onClick={() => void saveAISettings()} disabled={!aiSettingsDirty || isSavingAISettings || isTestingAIConnection}>
+                  {isSavingAISettings ? t("aiSavingSettings") : t("aiSaveSettings")}
+                </button>
+              </div>
             </div>
           )}
         </ControlGroup>
@@ -1327,8 +1409,8 @@ function defaultAISettingsFromPreset(preset?: AIProviderPreset): AISettings | nu
     model: preset.defaultModel,
     temperature: 0,
     maxTokens: 1024,
-    batchSize: preset.providerKind === "ollama" ? 5 : 10,
-    classificationConcurrency: preset.providerKind === "ollama" ? 1 : 2,
+    batchSize: 10,
+    classificationConcurrency: 2,
     timeoutSeconds: 120,
     sendFullPath: false,
     sendParentPath: true,

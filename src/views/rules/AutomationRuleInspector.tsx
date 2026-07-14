@@ -61,6 +61,6 @@ export function CurrentEnvironment({ scope, t }: { scope: ReturnType<typeof scop
       <InspectorItem label={t("automationTrigger")} value={t("automationTriggerWatchedChange")} hint={t("automationTriggerHint")} />
       <InspectorItem label={t("automationConfirmationPolicy")} value={t("automationSuggestionsOnly")} hint={t("automationPreviewRequiredHint")} />
     </div>
-    <div className="grid gap-2 border-t border-[var(--zc-divider)] pt-3"><h3 className="text-sm font-semibold">{t("automationCapabilities")}</h3><p className={mutedText}>{t("automationCapabilitiesDesc")}</p><div className="grid gap-2 text-sm"><Availability label={t("automationWatchedTrigger")} available t={t} /><Availability label={t("automationManualTrigger")} available t={t} /><Availability label={t("automationScheduleTrigger")} available={false} t={t} /><Availability label={t("automationPersistedHistory")} available={false} t={t} /></div></div>
+    <div className="grid gap-2 border-t border-[var(--zc-divider)] pt-3"><h3 className="text-sm font-semibold">{t("automationCapabilities")}</h3><p className={mutedText}>{t("automationCapabilitiesDesc")}</p><div className="grid gap-2 text-sm"><Availability label={t("automationWatchedTrigger")} available t={t} /><Availability label={t("automationManualTrigger")} available t={t} /></div></div>
   </section>;
 }

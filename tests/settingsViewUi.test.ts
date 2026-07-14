@@ -91,4 +91,28 @@ describe("settings view UI", () => {
     expect(settingsView).toContain('t("developerModeDesc")');
     expect(settingsView).toContain("setTimeout");
   });
+
+  it("keeps AI settings fail-closed, visibly dirty, localized, and keyboard-selectable", () => {
+    const settingsView = read("src/views/settings/SettingsView.tsx");
+    const en = makeTranslator("en");
+
+    expect(settingsView).toContain("data-ai-settings-state={aiSettingsDirty ? \"unsaved\" : \"applied\"}");
+    expect(settingsView).toContain("disabled={!aiSettingsDirty || isSavingAISettings || isTestingAIConnection}");
+    expect(settingsView).toContain("aiSettingsSaveFailed");
+    expect(settingsView).toContain("setAiSettings(previous)");
+    expect(settingsView).toContain('role="radiogroup"');
+    expect(settingsView).toContain('role="radio"');
+    expect(settingsView).toContain("aria-checked={selected}");
+    expect(settingsView).toContain("AI_CLASSIFICATION_PRESET_IDS");
+    expect(settingsView).toContain("aiProviderLabel(preset, t)");
+    expect(settingsView).toContain("apiKey: fallback.apiKey");
+    expect(settingsView).not.toContain("batchSize: preset.providerKind");
+    expect(settingsView).toContain('scrollIntoView({ block: "start" })');
+    expect(settingsView).toContain('container.addEventListener("scroll", scheduleUpdate');
+    expect(en("languageDesc")).not.toMatch(/[\u3400-\u9fff]/);
+    expect(en("globalSearch")).toContain("folders");
+    expect(en("aiChatPathLabel")).toBe("Chat endpoint path");
+    expect(en("aiBatchSizeLabel")).toBe("Batch size");
+    expect(en("aiTimeoutLabel")).toBe("Timeout (seconds)");
+  });
 });

@@ -28,8 +28,8 @@ describe("automation workspace source contract", () => {
     expect(view).toContain("emptyCreateRef.current");
     expect(view).toContain("enabledUserRules");
     expect(view).toContain("automationManualRuleSet");
-    expect(inspector).toContain('t("automationScheduleTrigger")');
-    expect(inspector).toContain('available={false}');
+    expect(inspector).toContain('t("automationCapabilities")');
+    expect(inspector).not.toContain('available={false}');
     expect(inspector).toContain('t("automationCurrentFileLibraryScope")');
   });
 

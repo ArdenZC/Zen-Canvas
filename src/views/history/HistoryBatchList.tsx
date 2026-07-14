@@ -2,6 +2,7 @@ import { useEffect, useRef, type RefObject } from "react";
 import { AlertCircle, Check, ChevronRight, Circle, CircleOff, RotateCcw } from "lucide-react";
 import type { Translator } from "../../types/ui";
 import type { OperationLog } from "../../types/domain";
+import { formatCount } from "../../i18n";
 import { cn } from "../../utils/tw";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
 import { historyTime, type OperationHistoryBatch } from "./historyModel";
@@ -143,7 +144,7 @@ export function HistoryBatchList({
                 {first ? compactPath(formatDisplayPath(first.path_after || first.target_path), 88) : t("historyBatch")}
               </span>
               <span className="mt-1 block text-xs text-[var(--muted)]">
-                {t("historyBatchItems").replace("{count}", String(batch.total))} · {executionStateLabel(batch, t)} · {restoreStateLabel(batch, t)} · {batch.restorable} {t("restorable")}
+                {formatCount(t, batch.total, { zero: "historyBatchItemsZero", one: "historyBatchItemsOne", other: "historyBatchItemsOther" })} · {executionStateLabel(batch, t)} · {restoreStateLabel(batch, t)} · {batch.restorable} {t("restorable")}
               </span>
               {(batch.failed > 0 || batch.skipped > 0) && <span className="mt-1 block text-[11px] tabular-nums text-[var(--muted)]">{t("historyStatusFailed")}: {batch.failed} · {t("historyStatusSkipped")}: {batch.skipped}</span>}
             </div>

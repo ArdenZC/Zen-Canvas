@@ -1,4 +1,4 @@
-import { Archive, File, FileCode2, FileImage, FileText, Folder, Info, Music2, Package, TriangleAlert, Video, X } from "lucide-react";
+import { Info, TriangleAlert, X } from "lucide-react";
 import { useRef, type ReactNode } from "react";
 import type { FileRecord } from "../../../types/domain";
 import type { Language } from "../../../i18n";
@@ -9,6 +9,7 @@ import { buttonSecondary, cn, floatingSurface, glassButtonPrimary } from "../../
 import { filePreviewKind, selectionSummary } from "../fileLibraryModel";
 import { purposeLabel, typeLabel } from "./FileLibraryList";
 import { ModalPortal } from "../../../components/modal/ModalPortal";
+import { FileTypeIcon } from "../../../components/FileTypeIcon";
 
 export function FileLibraryInspector({
   selectedIds,
@@ -200,26 +201,13 @@ function InspectorField({ label, value, title, tone = "normal" }: { label: strin
 function PreviewSurface({ file, t }: { file: FileRecord; t: Translator }) {
   const missing = file.is_deleted || file.is_stale;
   const kind = missing ? "unsupported" : filePreviewKind(file);
-  const Icon = missing ? TriangleAlert : previewIcon(kind);
   return (
     <div className="grid min-h-36 place-items-center gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] px-4 py-5 text-center" data-library-preview-kind={kind}>
-      <Icon size={30} className={missing ? "text-[var(--zc-warning-text)]" : "text-[var(--zc-info-text)]"} aria-hidden="true" />
+      {missing ? <TriangleAlert size={30} className="text-[var(--zc-warning-text)]" aria-hidden="true" /> : <FileTypeIcon file={file} size={30} className="text-[var(--zc-info-text)]" />}
       <strong className="text-sm text-[var(--zc-text-primary)]">{missing ? t("libraryFileUnavailableTitle") : previewTitle(file, t)}</strong>
       <span className="max-w-xs text-xs leading-5 text-[var(--zc-text-secondary)]">{missing ? t("libraryFileUnavailableDesc") : t("libraryPreviewUnavailable")}</span>
     </div>
   );
-}
-
-function previewIcon(kind: ReturnType<typeof filePreviewKind>) {
-  if (kind === "image") return FileImage;
-  if (kind === "pdf") return FileText;
-  if (kind === "text") return FileCode2;
-  if (kind === "audio") return Music2;
-  if (kind === "video") return Video;
-  if (kind === "archive") return Archive;
-  if (kind === "folder") return Folder;
-  if (kind === "unsupported") return Info;
-  return Package;
 }
 
 function previewTitle(file: FileRecord, t: Translator) {

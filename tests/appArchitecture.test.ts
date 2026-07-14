@@ -95,9 +95,8 @@ describe("app render architecture", () => {
 
     expect(settings).toContain('description={t("aiBatchSizeDesc")}');
     expect(settings).toContain('label={t("aiConcurrencyLabel")}');
-    expect(settings).toContain('{t("aiPresetFast")}');
-    expect(settings).toContain('{t("aiPresetStandard")}');
-    expect(settings).toContain('{t("aiPresetDetailed")}');
+    expect(settings).toContain("AI_CLASSIFICATION_LABEL_KEYS");
+    expect(settings).toContain("t(AI_CLASSIFICATION_LABEL_KEYS[presetId])");
     expect(settings).toContain('description={t("aiLearnedRulesDesc")}');
     expect(settings).toContain('label={t("aiLegacyRulesLabel")}');
     expect(settings).toContain('description={t("aiLegacyRulesDesc")}');

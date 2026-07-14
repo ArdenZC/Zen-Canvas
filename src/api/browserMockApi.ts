@@ -905,8 +905,15 @@ function mockSettings(settings?: AppSettings): AppSettings {
   };
 }
 
+let mockAISettingsState: AISettings | null = null;
+
 function mockAISettings(settings?: AISettings): AISettings {
-  return settings ?? {
+  if (settings) {
+    mockAISettingsState = { ...settings };
+    return { ...mockAISettingsState };
+  }
+  if (mockAISettingsState) return { ...mockAISettingsState };
+  return {
     enabled: false,
     provider: "openai_compatible",
     preset: "deepseek",
@@ -932,16 +939,16 @@ function mockAISettings(settings?: AISettings): AISettings {
 
 function mockAIProviderPresets(): AIProviderPreset[] {
   return [
-    ["deepseek", "DeepSeek，推荐", "https://api.deepseek.com", "deepseek-v4-flash", true, true, true],
+    ["deepseek", "DeepSeek — Recommended", "https://api.deepseek.com", "deepseek-v4-flash", true, true, true],
     ["kimi", "Kimi / Moonshot", "https://api.moonshot.cn/v1", "kimi-k2.7-code-highspeed", true, false, false],
-    ["qwen_dashscope", "通义千问 / DashScope", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus", false, false, false],
-    ["zhipu_glm", "智谱 GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4.5", false, false, false],
+    ["qwen_dashscope", "Qwen / DashScope", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus", false, false, false],
+    ["zhipu_glm", "Zhipu GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4.5", false, false, false],
     ["minimax", "MiniMax", "https://api.minimax.chat/v1", "", false, false, false],
-    ["baichuan", "百川", "", "", false, false, false],
-    ["doubao_ark", "豆包 / 火山方舟", "https://ark.cn-beijing.volces.com/api/v3", "", false, false, false],
-    ["siliconflow", "硅基流动", "https://api.siliconflow.cn/v1", "", false, false, false],
-    ["custom_openai_compatible", "自定义 OpenAI-compatible", "", "", false, false, false],
-    ["ollama", "Ollama 本地模型", "http://localhost:11434", "qwen3:8b", false, true, false]
+    ["baichuan", "Baichuan", "", "", false, false, false],
+    ["doubao_ark", "Doubao / Volcengine Ark", "https://ark.cn-beijing.volces.com/api/v3", "", false, false, false],
+    ["siliconflow", "SiliconFlow", "https://api.siliconflow.cn/v1", "", false, false, false],
+    ["custom_openai_compatible", "Custom OpenAI-compatible", "", "", false, false, false],
+    ["ollama", "Ollama — Local model", "http://localhost:11434", "qwen3:8b", false, true, false]
   ].map(([id, label, defaultBaseUrl, defaultModel, supportsResponseFormat, supportsThinking, supportsReasoningEffort]) => ({
     id: id as AIProviderPreset["id"],
     label: String(label),
@@ -957,7 +964,7 @@ function mockAIProviderPresets(): AIProviderPreset[] {
 }
 
 function mockAIConnectionTest(settings?: AISettings): AIConnectionTestResult {
-  const resolved = mockAISettings(settings);
+  const resolved = settings ? { ...settings } : mockAISettings();
   return {
     ok: true,
     message: "{\"ok\":true}",

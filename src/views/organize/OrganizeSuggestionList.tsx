@@ -1,9 +1,9 @@
-import { Archive, File, FileCode2, FileImage, FileText, Music2, Package, Video } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
 import type { Translator } from "../../types/ui";
 import { compactPath, formatDisplayPath, formatPreviewDisplayPath } from "../../utils/viewHelpers";
 import { cn } from "../../utils/tw";
+import { FileTypeIcon } from "../../components/FileTypeIcon";
 import type { OrganizeDecision, OrganizeSuggestion } from "./organizeModel";
 
 const ROW_HEIGHT = 76;
@@ -97,7 +97,6 @@ function SuggestionRow({
   onActivate: () => void;
   onToggleBatch: () => void;
 }) {
-  const Icon = suggestionIcon(suggestion);
   const target = suggestion.effectivePreview?.target_path || suggestion.file.suggested_target_path;
   return (
     <div
@@ -126,13 +125,12 @@ function SuggestionRow({
           />
         ) : null}
         <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-secondary)]" aria-hidden="true">
-          <Icon size={17} />
+          <FileTypeIcon file={suggestion.file} size={17} />
         </span>
       </div>
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
           <strong className="min-w-0 truncate text-sm text-[var(--zc-text-primary)]">{suggestion.file.name}</strong>
-          {suggestion.preview?.requires_confirmation ? <span className="shrink-0 text-[11px] text-[var(--zc-warning-text)]">{t("organizeNeedsConfirmation")}</span> : null}
         </div>
         <span className="block truncate text-xs text-[var(--zc-text-secondary)]" title={formatDisplayPath(suggestion.file.path)}>{compactPath(formatDisplayPath(suggestion.file.directory), 54)}</span>
         <span className="block truncate text-[11px] text-[var(--zc-text-tertiary)]" title={target ? formatPreviewDisplayPath(target, t) : undefined}>{target ? `${t("organizeTargetShort")}: ${compactPath(formatPreviewDisplayPath(target, t), 54)}` : t("organizeTargetUnavailable")}</span>
@@ -163,16 +161,4 @@ export function decisionLabel(decision: OrganizeDecision, t: Translator) {
     "needs-review": "organizeDecisionNeedsReview"
   }[decision] as Parameters<Translator>[0];
   return t(key);
-}
-
-function suggestionIcon(suggestion: OrganizeSuggestion) {
-  const type = suggestion.file.file_type;
-  if (type === "Image") return FileImage;
-  if (type === "Video") return Video;
-  if (type === "Audio") return Music2;
-  if (type === "Code") return FileCode2;
-  if (type === "ArchivePackage") return Archive;
-  if (type === "Installer") return Package;
-  if (type === "Document" || type === "Spreadsheet" || type === "Presentation") return FileText;
-  return File;
 }
