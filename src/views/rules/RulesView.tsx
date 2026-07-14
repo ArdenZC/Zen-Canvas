@@ -1,570 +1,207 @@
-import { memo, useMemo, useRef, useState } from "react";
-import { motion } from "motion/react";
-import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Activity, ArrowLeft, CirclePause, Eye, Pencil, Play, Plus, RefreshCw, ShieldCheck, Trash2, Zap } from "lucide-react";
 import { tauriApi } from "../../api/tauriApi";
 import { useChromeContext, useRulesContext } from "../../contexts/AppContexts";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useAppStore } from "../../store/useAppStore";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
-import type { Lifecycle, Purpose, Rule, RuleCondition, RuleConditionGroup, RuleOperator } from "../../types/domain";
-import type { Translator } from "../../types/ui";
-import { nowIso, readableError } from "../../utils/viewHelpers";
-import { buttonIconDanger, buttonSecondary, cn, glassButton, glassButtonPrimary, glassButtonWarning, inputSurface, selectSurface } from "../../utils/tw";
-import {
-  ConfirmDialog,
-  NoticeBanner,
-  StateBlock,
-  ToneBadge,
-  compactInteractiveRow,
-  contentPanel,
-  formGrid,
-  itemMotion,
-  listMotion,
-  pageSurface,
-  panelSurface,
-  quietText,
-  segmented,
-  softPanel,
-  toggleSwitch,
-  SectionTitle
-} from "../shared/ui";
-import {
-  RULE_FIELD_OPTIONS,
-  RULE_LIFECYCLE_OPTIONS,
-  RULE_LOGIC_OPTIONS,
-  RULE_OPERATOR_OPTIONS,
-  RULE_PURPOSE_OPTIONS,
-  buildRuleFromBuilderDraft,
-  createRuleCondition,
-  createRuleGroup
-} from "./ruleBuilder";
+import type { Rule } from "../../types/domain";
+import { readableError } from "../../utils/viewHelpers";
+import { buttonGhost, buttonIconDanger, buttonSecondary, cn, contentPanel, emptyState, glassButtonPrimary } from "../../utils/tw";
+import { AutomationRuleDialog } from "../automation/AutomationRuleDialog";
+import { automationOverview, ruleActionSummary, ruleConditionSummary, scopeSummary, type AutomationRunState } from "../automation/automationModel";
+import { ConfirmDialog, mutedText, pageSurface, panelSurface, toggleSwitch } from "../shared/ui";
 
-type ConfirmState =
-  | { kind: "deleteRule"; rule: Rule }
-  | { kind: "reapplyRules" };
+type Confirmation = { kind: "delete"; rule: Rule } | { kind: "run" } | null;
 
 export function RulesView() {
-  const { t, onError } = useChromeContext();
-  const {
-    rules,
-    saveRule: onSave,
-    toggleRuleEnabled: onToggleRuleEnabled,
-    deleteRule: onDeleteRule
-  } = useRulesContext();
-  const [name, setName] = useState("Screenshots to Inbox");
-  const [rootOperator, setRootOperator] = useState<RuleOperator>("AND");
-  const [groups, setGroups] = useState<RuleConditionGroup[]>(() => [createRuleGroup()]);
-  const [purpose, setPurpose] = useState<Purpose>("Temporary");
-  const [lifecycle, setLifecycle] = useState<Lifecycle>("Inbox");
-  const [weight, setWeight] = useState(76);
-  const [isReapplyingRules, setIsReapplyingRules] = useState(false);
-  const [isConfirming, setIsConfirming] = useState(false);
-  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
-  const [reapplyStatus, setReapplyStatus] = useState("");
-  const reapplyLockedRef = useRef(false);
-  const systemRules = useMemo(() => rules.filter((rule) => rule.source === "system"), [rules]);
-  const userRules = useMemo(() => rules.filter((rule) => rule.source !== "system"), [rules]);
-  const expectedResultText = t("ruleExpectedResultIntro")
-    .replace("{purpose}", purpose)
-    .replace("{lifecycle}", lifecycle);
+  const { t, setView, onError } = useChromeContext();
+  const { rules, saveRule, toggleRuleEnabled, deleteRule } = useRulesContext();
+  const scope = useFileLibraryStore((state) => state.scope);
+  const needsReview = useFileLibraryStore((state) => state.organizeQueueTotal);
+  const isLoadingReview = useFileLibraryStore((state) => state.isLoadingOrganizeQueue);
+  const userRules = useMemo(() => rules.filter((rule) => rule.source === "user"), [rules]);
+  const overview = useMemo(() => automationOverview(rules, needsReview), [needsReview, rules]);
+  const [activeId, setActiveId] = useState("");
+  const [editorRule, setEditorRule] = useState<Rule | "new" | null>(null);
+  const [confirmation, setConfirmation] = useState<Confirmation>(null);
+  const [runState, setRunState] = useState<AutomationRunState>({ kind: "idle" });
+  const [narrowPane, setNarrowPane] = useState<"list" | "details">("list");
+  const [busyRuleId, setBusyRuleId] = useState("");
+  const isNarrow = useMediaQuery("(max-width: 980px)");
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const createRef = useRef<HTMLButtonElement | null>(null);
+  const editRef = useRef<HTMLButtonElement | null>(null);
+  const generationRef = useRef(0);
+  const activeRule = userRules.find((rule) => rule.id === activeId) ?? userRules[0];
+  const scopeInfo = scopeSummary(scope);
 
-  function updateGroupOperator(groupId: string, nextOperator: RuleOperator) {
-    setGroups((current) =>
-      current.map((group) => (group.id === groupId ? { ...group, operator: nextOperator } : group))
-    );
+  useEffect(() => {
+    if (!activeId || !userRules.some((rule) => rule.id === activeId)) setActiveId(userRules[0]?.id ?? "");
+  }, [activeId, userRules]);
+
+  useEffect(() => () => { generationRef.current += 1; }, []);
+  useEffect(() => { if (!isNarrow) setNarrowPane("list"); }, [isNarrow]);
+  useEffect(() => {
+    if (!isNarrow || narrowPane !== "details" || editorRule !== null || confirmation) return;
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      returnToList();
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [confirmation, editorRule, isNarrow, narrowPane]);
+
+  function selectRule(rule: Rule) {
+    setActiveId(rule.id);
+    if (isNarrow) setNarrowPane("details");
   }
 
-  function updateCondition(groupId: string, conditionId: string, patch: Partial<RuleCondition>) {
-    setGroups((current) =>
-      current.map((group) =>
-        group.id === groupId
-          ? {
-              ...group,
-              conditions: group.conditions.map((condition) =>
-                condition.id === conditionId ? { ...condition, ...patch } : condition
-              )
-            }
-          : group
-      )
-    );
+  function handleListKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (!userRules.length) return;
+    const current = Math.max(0, userRules.findIndex((rule) => rule.id === activeRule?.id));
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      selectRule(userRules[(current + delta + userRules.length) % userRules.length]);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      if (activeRule) selectRule(activeRule);
+    } else if (event.key === " ") {
+      event.preventDefault();
+      if (activeRule) void toggle(activeRule, !activeRule.enabled);
+    }
   }
 
-  function addCondition(groupId: string) {
-    setGroups((current) =>
-      current.map((group) =>
-        group.id === groupId
-          ? { ...group, conditions: [...group.conditions, createRuleCondition({ value: "" })] }
-          : group
-      )
-    );
-  }
-
-  function removeCondition(groupId: string, conditionId: string) {
-    setGroups((current) =>
-      current.map((group) =>
-        group.id === groupId && group.conditions.length > 1
-          ? { ...group, conditions: group.conditions.filter((condition) => condition.id !== conditionId) }
-          : group
-      )
-    );
-  }
-
-  function addGroup() {
-    setGroups((current) => [...current, createRuleGroup({ value: "" })]);
-  }
-
-  function removeGroup(groupId: string) {
-    setGroups((current) =>
-      current.length > 1 ? current.filter((group) => group.id !== groupId) : current
-    );
-  }
-
-  async function submit() {
+  async function toggle(rule: Rule, enabled: boolean) {
+    if (busyRuleId) return;
+    setBusyRuleId(rule.id);
     try {
-      const now = nowIso();
-      await onSave(buildRuleFromBuilderDraft({
-        name,
-        rootOperator,
-        groups,
-        purpose,
-        lifecycle,
-        weight,
-        now
-      }));
-      setConfirmState({ kind: "reapplyRules" });
+      await toggleRuleEnabled(rule, enabled);
     } catch (error) {
       onError(readableError(error));
+    } finally {
+      setBusyRuleId("");
     }
+  }
+
+  async function save(next: Rule) {
+    await saveRule(next);
+    setActiveId(next.id);
+  }
+
+  async function confirmAction() {
+    if (!confirmation) return;
+    if (confirmation.kind === "delete") {
+      const id = confirmation.rule.id;
+      await deleteRule(confirmation.rule);
+      setConfirmation(null);
+      if (activeId === id) setActiveId("");
+      return;
+    }
+    setConfirmation(null);
+    await reapplyRulesToCurrentScope();
   }
 
   async function reapplyRulesToCurrentScope() {
-    if (reapplyLockedRef.current) return;
-    reapplyLockedRef.current = true;
-    setIsReapplyingRules(true);
-    setReapplyStatus("");
-
+    const generation = ++generationRef.current;
+    setRunState({ kind: "running" });
     try {
-      const scope = useFileLibraryStore.getState().scope;
-      const summary = await tauriApi.executeRulesForScope(
-        scope,
-        rules,
-        "all_changed_or_rule_changed"
-      );
-      await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
-      setReapplyStatus(
-        `${t("rulesReapplied")}: ${summary.updated.toLocaleString()} / ${summary.scanned.toLocaleString()} (${t("skipped")}: ${summary.skipped.toLocaleString()})`
-      );
+      const summary = await tauriApi.executeRulesForScope(scope, rules, "all_changed_or_rule_changed");
+      await Promise.all([
+        useFileLibraryStore.getState().loadOrganizeQueue(scope),
+        useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery)
+      ]);
+      if (generation !== generationRef.current) return;
+      setRunState({ kind: "completed", ...summary });
     } catch (error) {
-      onError(readableError(error));
-    } finally {
-      reapplyLockedRef.current = false;
-      setIsReapplyingRules(false);
+      if (generation !== generationRef.current) return;
+      setRunState({ kind: "failed", message: readableError(error) });
     }
   }
 
-  async function handleToggleRuleEnabled(rule: Rule, enabled: boolean) {
-    await onToggleRuleEnabled?.(rule, enabled);
-    setConfirmState({ kind: "reapplyRules" });
+  function returnToList() {
+    setNarrowPane("list");
+    requestAnimationFrame(() => listRef.current?.focus());
   }
 
-  async function confirmDeleteRule(rule: Rule) {
-    await onDeleteRule?.(rule);
-    setConfirmState({ kind: "reapplyRules" });
-  }
+  return <>
+    <div className={pageSurface}>
+      <div className="mx-auto grid w-full max-w-[1480px] content-start gap-5 pb-5">
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div><div className="flex items-center gap-2"><Zap size={20} className="text-[var(--zc-primary)]" /><h1 className="text-xl font-semibold">{t("automationWorkspaceTitle")}</h1></div><p className={cn(mutedText, "mt-1 max-w-3xl")}>{t("automationWorkspaceDesc")}</p></div>
+          <button ref={createRef} type="button" className={glassButtonPrimary} onClick={() => setEditorRule("new")}><Plus size={16} />{t("automationCreateRule")}</button>
+        </header>
 
-  async function handleConfirmDialog() {
-    if (!confirmState || isConfirming) return;
-    setIsConfirming(true);
-    try {
-      if (confirmState.kind === "deleteRule") {
-        await confirmDeleteRule(confirmState.rule);
-      } else {
-        await reapplyRulesToCurrentScope();
-        setConfirmState(null);
-      }
-    } finally {
-      setIsConfirming(false);
-    }
-  }
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+          {[
+            [t("automationTotal"), overview.total],
+            [t("automationEnabled"), overview.enabled],
+            [t("automationPaused"), overview.paused],
+            [t("automationNeedsReview"), isLoadingReview ? "…" : overview.needsReview]
+          ].map(([label, value]) => <div key={String(label)} className={cn(contentPanel, "p-3")}><span className="block text-xs text-[var(--muted)]">{label}</span><strong className="mt-1 block text-lg tabular-nums">{value}</strong></div>)}
+        </div>
 
-  const confirmDialogTitle =
-    confirmState?.kind === "deleteRule" ? t("confirmDeleteRuleTitle") : t("confirmReapplyRulesTitle");
-  const confirmDialogDescription =
-    confirmState?.kind === "deleteRule" ? t("confirmDeleteRule") : t("reapplyRulesSafetyDesc");
-  const confirmDialogLabel =
-    confirmState?.kind === "deleteRule" ? t("deleteRule") : t("continueRunAutoRules");
+        <section className={cn(panelSurface, "grid gap-4 p-4 lg:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)]")}>
+          <div className={cn("grid min-w-0 content-start gap-3", isNarrow && narrowPane === "details" && "hidden")}>
+            <div className="flex items-center justify-between"><div><h2 className="text-sm font-semibold">{t("automationRules")}</h2><p className={mutedText}>{t("automationRulesDesc")}</p></div><span className="text-xs tabular-nums text-[var(--muted)]">{userRules.length}</span></div>
+            {userRules.length ? <div ref={listRef} role="listbox" aria-label={t("automationRules")} tabIndex={0} className="grid gap-1 outline-none" onKeyDown={handleListKeyDown}>
+              {userRules.map((rule) => {
+                const active = rule.id === activeRule?.id;
+                return <div key={rule.id} role="option" aria-selected={active} className={cn("grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-[var(--zc-radius-field)] border px-3 py-3 transition-colors", active ? "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)]" : "border-transparent hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)]")} onClick={() => selectRule(rule)}>
+                  <button type="button" className="min-w-0 text-left" tabIndex={-1} onClick={() => selectRule(rule)}><strong className="block truncate text-sm">{rule.name}</strong><span className="mt-1 block truncate text-xs text-[var(--muted)]">{rule.enabled ? t("automationRunning") : t("automationPaused")}: {ruleConditionSummary(rule, t)}</span></button>
+                  <button type="button" role="switch" aria-checked={rule.enabled} aria-label={rule.enabled ? t("disableRule") : t("enableRule")} className={toggleSwitch(rule.enabled)} disabled={busyRuleId === rule.id} onClick={(event) => { event.stopPropagation(); void toggle(rule, !rule.enabled); }}><i /></button>
+                </div>;
+              })}
+            </div> : <div className={cn(emptyState, "grid gap-3")}><div><strong className="block">{t("automationEmptyTitle")}</strong><span className="mt-1 block text-sm text-[var(--muted)]">{t("automationEmptyDesc")}</span></div><button type="button" className={glassButtonPrimary} onClick={() => setEditorRule("new")}><Plus size={16} />{t("createFirstRule")}</button></div>}
 
-  return (
-    <>
-      <div className={pageSurface}>
-        <div className="mx-auto grid w-full max-w-[1180px] grid-cols-1 gap-4 2xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.1fr)]">
-          <section id="rule-builder" className={cn(panelSurface, "grid gap-3")}>
-          <SectionTitle title={t("ruleBuilder")} body={t("customDesc")} />
-
-          <section className={cn(contentPanel, "grid gap-3 p-3")}>
-            <SectionTitle title={t("ruleBasicInfo")} body={t("ruleLayerDesc")} />
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span>{t("whenFile")}</span>
-              <ToneBadge tone="info">{groups.length} {t("ruleGroups")}</ToneBadge>
-              <ToneBadge tone="success">{rootOperator}</ToneBadge>
-              <span>{t("thenSendTo")}</span>
-              <ToneBadge tone="info">{purpose}</ToneBadge>
-            </div>
-            <div className={formGrid}>
-              <label>{t("ruleName")}<input className={inputSurface} value={name} onChange={(event) => setName(event.target.value)} /></label>
-              <div className="grid gap-1.5 text-sm font-medium text-[var(--muted)]">
-                <span>{t("rootOperator")}</span>
-                <div className={ruleSegmentedClass} role="group" aria-label={t("rootOperator")}>
-                  {RULE_LOGIC_OPTIONS.map((item) => (
-                    <button
-                      key={item}
-                      type="button"
-                      className={ruleSegmentButton(rootOperator === item)}
-                      aria-pressed={rootOperator === item}
-                      onClick={() => setRootOperator(item)}
-                    >
-                      {item}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <label>{t("weight")}<input className={inputSurface} type="number" value={weight} onChange={(event) => setWeight(Number(event.target.value))} /></label>
-            </div>
-          </section>
-
-          <section className={cn(contentPanel, "grid gap-3 p-3")}>
-            <SectionTitle title={t("ruleConditions")} body={t("safeModeDesc")} />
-            <div className="grid gap-3">
-              {groups.map((group, groupIndex) => (
-                <div key={group.id} className={cn(softPanel, "grid gap-3 p-3")}>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <strong className="block text-sm">{t("ruleGroup")} {groupIndex + 1}</strong>
-                      <span className={quietText}>{group.conditions.length} {t("conditions")}</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={quietText}>{t("groupOperator")}</span>
-                      <div className={ruleSegmentedClass} role="group" aria-label={`${t("ruleGroup")} ${groupIndex + 1} ${t("groupOperator")}`}>
-                        {RULE_LOGIC_OPTIONS.map((item) => (
-                          <button
-                            key={item}
-                            type="button"
-                            className={ruleSegmentButton(group.operator === item)}
-                            aria-pressed={group.operator === item}
-                            onClick={() => updateGroupOperator(group.id, item)}
-                          >
-                            {item}
-                          </button>
-                        ))}
-                      </div>
-                      <button
-                        type="button"
-                        className={buttonIconDanger}
-                        disabled={groups.length <= 1}
-                        aria-label={t("deleteGroup")}
-                        title={t("deleteGroup")}
-                        onClick={() => removeGroup(group.id)}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="grid gap-2">
-                    {group.conditions.map((condition) => (
-                      <div key={condition.id} className="grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto] lg:items-center">
-                        <select
-                          className={selectSurface}
-                          value={condition.field}
-                          aria-label={t("field")}
-                          onChange={(event) => updateCondition(group.id, condition.id, { field: event.target.value as RuleCondition["field"] })}
-                        >
-                          {RULE_FIELD_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-                        </select>
-                        <select
-                          className={selectSurface}
-                          value={condition.operator}
-                          aria-label={t("operator")}
-                          onChange={(event) => updateCondition(group.id, condition.id, { operator: event.target.value as RuleCondition["operator"] })}
-                        >
-                          {RULE_OPERATOR_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-                        </select>
-                        <input
-                          className={inputSurface}
-                          value={String(condition.value)}
-                          aria-label={t("value")}
-                          onChange={(event) => updateCondition(group.id, condition.id, { value: event.target.value })}
-                        />
-                        <button
-                          type="button"
-                          className={buttonIconDanger}
-                          disabled={group.conditions.length <= 1}
-                          aria-label={t("deleteCondition")}
-                          title={t("deleteCondition")}
-                          onClick={() => removeCondition(group.id, condition.id)}
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <button type="button" className={buttonSecondary} onClick={() => addCondition(group.id)}>
-                    <Plus size={15} />
-                    {t("addCondition")}
-                  </button>
-                </div>
-              ))}
-              <button type="button" className={buttonSecondary} onClick={addGroup}>
-                <Plus size={15} />
-                {t("addGroup")}
-              </button>
-            </div>
-          </section>
-
-          <section className={cn(contentPanel, "grid gap-3 p-3")}>
-            <SectionTitle title={t("ruleActions")} body={t("thenSendTo")} />
-            <div className={formGrid}>
-              <label>{t("purpose")}<select className={selectSurface} value={purpose} onChange={(event) => setPurpose(event.target.value as Purpose)}>{RULE_PURPOSE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-              <label>{t("lifecycle")}<select className={selectSurface} value={lifecycle} onChange={(event) => setLifecycle(event.target.value as Lifecycle)}>{RULE_LIFECYCLE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-            </div>
-          </section>
-
-          <NoticeBanner tone="info" title={t("ruleExpectedResult")}>
-            <div className="grid gap-2">
-              <span>{expectedResultText}</span>
-              <span>{t("ruleNoAutoMove")} · {t("rulePreviewRequired")}</span>
-            </div>
-          </NoticeBanner>
-
-          <button className={glassButtonPrimary} onClick={submit}>
-            <Plus size={17} />
-            {t("saveRule")}
-          </button>
-          </section>
-
-          <section className={cn(panelSurface, "grid gap-3")}>
-          <SectionTitle title={t("strategy")} body={t("ruleLayerDesc")} />
-          <div className={cn(softPanel, "grid gap-3 p-3")}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <strong className="block text-sm">{t("reapplyRules")}</strong>
-                <span className={quietText}>{t("reapplyRulesSafetyDesc")}</span>
-              </div>
-              <button
-                type="button"
-                className={glassButtonWarning}
-                disabled={isReapplyingRules}
-                onClick={() => setConfirmState({ kind: "reapplyRules" })}
-              >
-                <RefreshCw size={15} className={cn(isReapplyingRules && "animate-spin")} />
-                {t("reapplyRules")}
-              </button>
-            </div>
-            {reapplyStatus ? <span className={quietText}>{reapplyStatus}</span> : null}
+            <section className="mt-2 grid gap-3 border-t border-[var(--zc-divider)] pt-4">
+              <div className="flex items-start gap-2"><ShieldCheck size={17} className="mt-0.5 shrink-0 text-[var(--zc-success-text)]" /><div><strong className="text-sm">{t("automationSafetyTitle")}</strong><p className={mutedText}>{t("automationSafetyBoundary")}</p></div></div>
+              <button type="button" className={buttonSecondary} onClick={() => setConfirmation({ kind: "run" })} disabled={runState.kind === "running" || overview.enabled === 0}><RefreshCw size={15} className={cn(runState.kind === "running" && "animate-spin")} />{t("automationRunNow")}</button>
+              <RunFeedback state={runState} t={t} />
+            </section>
           </div>
 
-          <div className="grid gap-4">
-            <RuleSection
-              title={t("systemRuleTemplates")}
-              description={t("systemRuleTemplatesDesc")}
-              emptyTitle={t("systemRuleTemplates")}
-              emptyDescription={t("systemRulesEmptyDesc")}
-              rules={systemRules}
-              t={t}
-            />
-            <RuleSection
-              title={t("userRules")}
-              description={t("userRulesDesc")}
-              emptyTitle={t("userRules")}
-              emptyDescription={t("userRulesEmptyDesc")}
-              emptyActionLabel={t("createFirstRule")}
-              rules={userRules}
-              onToggleRuleEnabled={handleToggleRuleEnabled}
-              onRequestDeleteRule={(rule) => setConfirmState({ kind: "deleteRule", rule })}
-              t={t}
-            />
+          <div className={cn("min-w-0", isNarrow && narrowPane === "list" && "hidden")}>
+            {activeRule ? <section className="grid gap-5" aria-labelledby="automation-inspector-title">
+              <header className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start gap-2">{isNarrow && <button type="button" className={buttonSecondary} aria-label={t("automationBackToRules")} onClick={returnToList}><ArrowLeft size={16} /></button>}<div className="min-w-0"><h2 id="automation-inspector-title" className="truncate text-lg font-semibold">{activeRule.name}</h2><p className={cn(mutedText, "mt-1")}>{activeRule.enabled ? t("automationRunningDesc") : t("automationPausedDesc")}</p></div></div>
+                <div className="flex shrink-0 items-center gap-1"><button ref={editRef} type="button" className={buttonGhost} onClick={() => setEditorRule(activeRule)}><Pencil size={15} />{t("automationEditRule")}</button><button type="button" className={buttonIconDanger} aria-label={t("deleteRule")} title={t("deleteRule")} onClick={() => setConfirmation({ kind: "delete", rule: activeRule })}><Trash2 size={15} /></button></div>
+              </header>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <InspectorItem icon={<Activity size={16} />} label={t("automationTrigger")} value={t("automationTriggerWatchedChange")} hint={t("automationTriggerHint")} />
+                <InspectorItem icon={activeRule.enabled ? <Play size={16} /> : <CirclePause size={16} />} label={t("automationStatus")} value={activeRule.enabled ? t("automationRunning") : t("automationPaused")} hint={activeRule.enabled ? t("automationRunningDesc") : t("automationPausedDesc")} />
+                <InspectorItem label={t("automationScope")} value={scopeInfo.kind === "all" ? t("automationScopeAll") : t("automationScopeRoots").replace("{count}", String(scopeInfo.roots.length))} hint={scopeInfo.roots.join(" · ") || t("automationScopeAllHint")} />
+                <InspectorItem label={t("automationConfirmationPolicy")} value={t("automationSuggestionsOnly")} hint={t("automationPreviewRequiredHint")} />
+              </div>
+
+              <section className="grid gap-2 border-t border-[var(--zc-divider)] pt-4"><h3 className="text-sm font-semibold">{t("automationLogic")}</h3><p className="rounded-[var(--zc-radius-field)] bg-[var(--zc-surface-subtle)] p-3 text-sm"><span className="text-[var(--muted)]">{t("automationWhen")}</span> {ruleConditionSummary(activeRule, t)}<br /><span className="text-[var(--muted)]">{t("automationThen")}</span> {ruleActionSummary(activeRule, t)}</p></section>
+              <section className="grid gap-2 border-t border-[var(--zc-divider)] pt-4"><h3 className="text-sm font-semibold">{t("automationAvailability")}</h3><div className="grid gap-2 text-sm"><Availability label={t("automationWatchedTrigger")} available t={t} /><Availability label={t("automationManualTrigger")} available t={t} /><Availability label={t("automationScheduleTrigger")} available={false} t={t} /><Availability label={t("automationPersistedHistory")} available={false} t={t} /></div></section>
+              <button type="button" className={buttonSecondary} onClick={() => setView("organize")}><Eye size={16} />{t("automationOpenReview")}</button>
+            </section> : <div className={emptyState}>{t("automationNoSelection")}</div>}
           </div>
-          </section>
-        </div>
+        </section>
       </div>
+    </div>
 
-      <ConfirmDialog
-        open={Boolean(confirmState)}
-        tone={confirmState?.kind === "deleteRule" ? "danger" : "warning"}
-        title={confirmDialogTitle}
-        description={confirmDialogDescription}
-        confirmLabel={confirmDialogLabel}
-        cancelLabel={t("cancel")}
-        isProcessing={isConfirming || isReapplyingRules}
-        onCancel={() => setConfirmState(null)}
-        onConfirm={handleConfirmDialog}
-      />
-    </>
-  );
+    <AutomationRuleDialog open={editorRule !== null} rule={editorRule && editorRule !== "new" ? editorRule : undefined} t={t} restoreFocus={() => editorRule === "new" ? createRef.current : editRef.current} onClose={() => setEditorRule(null)} onSave={save} />
+    <ConfirmDialog open={Boolean(confirmation)} tone={confirmation?.kind === "delete" ? "danger" : "warning"} title={confirmation?.kind === "delete" ? t("confirmDeleteRuleTitle") : t("confirmReapplyRulesTitle")} description={confirmation?.kind === "delete" ? t("automationDeleteDesc") : t("automationRunConfirmDesc")} emphasis={confirmation?.kind === "delete" ? t("automationDeleteHistorySafe") : t("automationSafetyBoundary")} confirmLabel={confirmation?.kind === "delete" ? t("deleteRule") : t("automationRunNow")} cancelLabel={t("cancel")} isProcessing={runState.kind === "running"} onCancel={() => setConfirmation(null)} onConfirm={() => void confirmAction()} />
+  </>;
 }
 
-function RuleSection({
-  title,
-  description,
-  emptyTitle,
-  emptyDescription,
-  emptyActionLabel,
-  rules,
-  onToggleRuleEnabled,
-  onRequestDeleteRule,
-  t
-}: {
-  title: string;
-  description: string;
-  emptyTitle: string;
-  emptyDescription?: string;
-  emptyActionLabel?: string;
-  rules: Rule[];
-  onToggleRuleEnabled?: (rule: Rule, enabled: boolean) => Promise<void> | void;
-  onRequestDeleteRule?: (rule: Rule) => void;
-  t: Translator;
-}) {
-  return (
-    <section className={cn(contentPanel, "grid gap-3 p-3")}>
-      <div>
-        <h3 className="m-0 text-base font-semibold text-[var(--ink)]">{title}</h3>
-        <p className={quietText}>{description}</p>
-      </div>
-      {rules.length ? (
-        <VirtualRuleList
-          rules={rules}
-          onToggleRuleEnabled={onToggleRuleEnabled}
-          onRequestDeleteRule={onRequestDeleteRule}
-          t={t}
-        />
-      ) : (
-        <StateBlock
-          title={emptyTitle}
-          description={emptyDescription ?? description}
-          density="compact"
-          primaryAction={emptyActionLabel ? (
-            <a className={buttonSecondary} href="#rule-builder">
-              <Plus size={15} />
-              {emptyActionLabel}
-            </a>
-          ) : undefined}
-        />
-      )}
-    </section>
-  );
+function InspectorItem({ icon, label, value, hint }: { icon?: React.ReactNode; label: string; value: string; hint: string }) {
+  return <div className={cn(contentPanel, "grid content-start gap-1 p-3")}><div className="flex items-center gap-2 text-xs text-[var(--muted)]">{icon}{label}</div><strong className="mt-1 text-sm">{value}</strong><span className="text-xs leading-5 text-[var(--muted)]" title={hint}>{hint}</span></div>;
 }
 
-function VirtualRuleList({
-  rules,
-  onToggleRuleEnabled,
-  onRequestDeleteRule,
-  t
-}: {
-  rules: Rule[];
-  onToggleRuleEnabled?: (rule: Rule, enabled: boolean) => Promise<void> | void;
-  onRequestDeleteRule?: (rule: Rule) => void;
-  t: Translator;
-}) {
-  return (
-    <motion.div className="grid gap-2" variants={listMotion} initial="hidden" animate="show">
-      {rules.map((rule) => (
-        <RuleRow
-          key={rule.id}
-          rule={rule}
-          onToggleEnabled={onToggleRuleEnabled}
-          onRequestDeleteRule={onRequestDeleteRule}
-          t={t}
-        />
-      ))}
-    </motion.div>
-  );
+function Availability({ label, available, t }: { label: string; available: boolean; t: ReturnType<typeof useChromeContext>["t"] }) {
+  return <div className="flex items-center justify-between gap-3 rounded-[var(--zc-radius-control)] border border-[var(--zc-border)] px-3 py-2"><span>{label}</span><span className={available ? "text-[var(--zc-success-text)]" : "text-[var(--muted)]"}>{available ? t("automationAvailable") : t("automationUnavailable")}</span></div>;
 }
 
-const RuleRow = memo(function RuleRow({
-  rule,
-  onToggleEnabled,
-  onRequestDeleteRule,
-  t
-}: {
-  rule: Rule;
-  onToggleEnabled?: (rule: Rule, enabled: boolean) => Promise<void> | void;
-  onRequestDeleteRule?: (rule: Rule) => void;
-  t: Translator;
-}) {
-  const canToggle = rule.source === "user" && Boolean(onToggleEnabled);
-  const canDelete = rule.source === "user" && Boolean(onRequestDeleteRule);
-  const toggleLabel = canToggle
-    ? rule.enabled
-      ? t("disableRule")
-      : t("enableRule")
-    : t("systemRuleLocked");
-  const deleteLabel = canDelete ? t("deleteRule") : t("systemRuleCannotDelete");
-  const sourceTone = rule.source === "system" ? "info" : "success";
-  const stateTone = rule.enabled ? "success" : "slate";
-
-  return (
-    <motion.div
-      className={cn(
-        compactInteractiveRow({ disabled: rule.source === "system" }),
-        "grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-3"
-      )}
-      layout
-      variants={itemMotion}
-    >
-      <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <strong className="truncate text-sm">{rule.name}</strong>
-          <ToneBadge tone={rule.source === "system" ? "info" : "success"}>
-            {rule.source === "system" ? t("lockedTemplate") : t("editableRule")}
-          </ToneBadge>
-        </div>
-        <span className="block truncate text-xs text-[var(--muted)]">
-          weight {rule.weight} / priority {rule.priority}
-        </span>
-      </div>
-      <ToneBadge tone={sourceTone}>{rule.source}</ToneBadge>
-      <ToneBadge tone={stateTone}>{rule.enabled ? t("enabled") : t("disabled")}</ToneBadge>
-      <button
-        type="button"
-        className={toggleSwitch(rule.enabled)}
-        disabled={!canToggle}
-        role="switch"
-        aria-checked={rule.enabled}
-        aria-label={toggleLabel}
-        title={toggleLabel}
-        onClick={(event) => {
-          event.stopPropagation();
-          if (!canToggle) return;
-          void onToggleEnabled?.(rule, !rule.enabled);
-        }}
-      >
-        <i />
-      </button>
-      <button
-        type="button"
-        className={buttonIconDanger}
-        disabled={!canDelete}
-        aria-label={deleteLabel}
-        title={deleteLabel}
-        onClick={(event) => {
-          event.stopPropagation();
-          if (!canDelete) return;
-          onRequestDeleteRule?.(rule);
-        }}
-      >
-        <Trash2 size={15} />
-      </button>
-    </motion.div>
-  );
-});
-
-const ruleSegmentedClass = cn(
-  segmented,
-  "bg-[var(--surface-soft)] p-0.5"
-);
-
-function ruleSegmentButton(active: boolean): string {
-  return cn(
-    "inline-flex min-h-8 items-center justify-center rounded-lg px-3 py-1.5 text-sm font-medium text-[var(--muted)] transition-[background,border-color,color,box-shadow] hover:bg-[var(--surface)] hover:text-[var(--ink)]",
-    active && "bg-blue-500/12 text-[var(--ink)] shadow-[inset_0_0_0_1px_rgba(59,130,246,0.18)]"
-  );
+function RunFeedback({ state, t }: { state: AutomationRunState; t: ReturnType<typeof useChromeContext>["t"] }) {
+  if (state.kind === "idle") return <p className={mutedText}>{t("automationNoPersistedRun")}</p>;
+  if (state.kind === "running") return <p className={mutedText} role="status">{t("automationRunInProgress")}</p>;
+  if (state.kind === "failed") return <p className="text-xs text-[var(--zc-danger-text)]" role="alert">{t("automationRunFailed")}: {state.message}</p>;
+  return <p className={mutedText} role="status">{t("automationRunComplete").replace("{updated}", String(state.updated)).replace("{scanned}", String(state.scanned)).replace("{skipped}", String(state.skipped))}{state.warning ? ` · ${state.warning}` : ""}</p>;
 }
-
