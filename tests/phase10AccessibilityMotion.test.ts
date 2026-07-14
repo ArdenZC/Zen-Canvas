@@ -29,6 +29,7 @@ describe("phase 10 motion and accessibility contracts", () => {
     const sharedUi = read("src/views/shared/ui.ts");
     const commandModal = read("src/components/CommandModal.tsx");
     const settingsView = read("src/views/settings/SettingsView.tsx");
+    const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");
     const rulesList = read("src/views/rules/AutomationRuleList.tsx");
 
     expect(sharedUi).toContain('"aria-label": label');
@@ -41,8 +42,12 @@ describe("phase 10 motion and accessibility contracts", () => {
     expect(commandModal).toContain('role="combobox"');
     expect(commandModal).toContain('role="listbox"');
     expect(commandModal).toContain('role="option"');
-    expect(settingsView).toContain("SwitchButton");
-    expect(settingsView).toContain("statusLabel={root.enabled ? t(\"enabled\") : t(\"disabled\")}");
+    expect(settingsPrimitives).toContain('role="switch"');
+    expect(settingsPrimitives).toContain("aria-checked={checked}");
+    expect(settingsPrimitives).toContain('role="radiogroup"');
+    expect(settingsPrimitives).toContain('event.key === "ArrowRight"');
+    expect(settingsView).toContain("SettingsSwitchControl");
+    expect(settingsView).not.toContain("statusLabel={root.enabled ? t(\"enabled\") : t(\"disabled\")}");
     expect(rulesList).toContain("role=\"switch\"");
     expect(rulesList).toContain("aria-checked={rule.enabled}");
   });

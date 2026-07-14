@@ -62,6 +62,18 @@ describe("global modal infrastructure", () => {
     expect(document.activeElement).toBe(fallback);
   });
 
+  it("prefers an explicit restore target over the previously focused element", () => {
+    const previous = document.getElementById("trigger") as HTMLElement;
+    const preferred = document.getElementById("heading") as HTMLElement;
+    visible(previous);
+    visible(preferred);
+
+    const restored = restoreDialogFocus(previous, preferred, "#missing");
+
+    expect(restored).toBe(preferred);
+    expect(document.activeElement).toBe(preferred);
+  });
+
   it("routes Escape and focus containment through the top modal only", () => {
     const lower = document.createElement("div");
     const upper = document.createElement("div");

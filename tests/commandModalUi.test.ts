@@ -155,4 +155,13 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).toContain("aria-selected={active}");
     expect(commandModal).toContain('scrollIntoView({ block: "nearest" })');
   });
+
+  it("restores Spotlight setting commands to their target section heading", () => {
+    const commandModal = read("src/components/CommandModal.tsx");
+
+    expect(commandModal).toContain("settingsCommandSectionRef");
+    expect(commandModal).toContain('requestedSection === "settings-search-scope" ? "settings-search" : requestedSection');
+    expect(commandModal).toContain('[data-settings-section-heading]');
+    expect(commandModal).toContain("restoreSpotlightFocus");
+  });
 });
