@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { History, RotateCcw, Search, ShieldCheck, Trash2 } from "lucide-react";
+import { History, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
 import { tauriApi } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
@@ -11,6 +11,7 @@ import { OperationProgressPanel } from "../timeline/TimelineView";
 import { ConfirmDialog, mutedText, pageSurface, panelSurface } from "../shared/ui";
 import { HistoryBatchList } from "../history/HistoryBatchList";
 import { CleanupInspector, HistoryInspector } from "../history/HistoryInspector";
+import { HistorySearchField } from "../history/HistorySearchField";
 import {
   cleanupBatchRestorableCount,
   filterCleanupBatches,
@@ -356,12 +357,12 @@ export function RestoreView() {
         </div>
 
         <section className={cn(panelSurface, "grid gap-4 overflow-visible p-4 lg:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.2fr)]")}>
-          <div className={cn("grid min-w-0 gap-3", isNarrow && narrowPane === "details" && "hidden")}>
+          <div className={cn("grid min-w-0 content-start gap-3", isNarrow && narrowPane === "details" && "hidden")}>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold">{showCleanup ? t("historyCleanupScope") : t("historyBatches")}</h2>
               <span className="text-xs text-[var(--muted)] tabular-nums">{showCleanup ? cleanup.length : operationBatches.length}</span>
             </div>
-            <label className="relative block"><Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" aria-hidden="true" /><input value={query} onChange={(event) => setQuery(event.currentTarget.value)} className="w-full rounded-[var(--zc-radius-field)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] py-2 pl-9 pr-3 text-sm" placeholder={t("historySearchPlaceholder")} aria-label={t("historySearchPlaceholder")} /></label>
+            <HistorySearchField mode={showCleanup ? "cleanup" : "operation"} value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t("historySearchPlaceholder")} />
             <div className="flex max-w-full flex-wrap gap-1" role="group" aria-label={t("historyBatches")}>
               {filterButtons.map(({ value, key }) => <button key={value} type="button" className={cn(buttonGhost, "shrink-0", filter === value && "bg-[var(--zc-primary-soft)] text-[var(--zc-primary)]")} onClick={() => changeFilter(value)}>{t(key)}</button>)}
             </div>
