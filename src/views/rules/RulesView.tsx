@@ -98,6 +98,10 @@ export function RulesView() {
       await deleteRule(confirmation.rule);
       setConfirmation(null);
       if (activeId === id) setActiveId("");
+      if (isNarrow) {
+        setNarrowPane("list");
+        requestAnimationFrame(() => (userRules.length > 1 ? listRef.current : createRef.current)?.focus());
+      }
       return;
     }
     setConfirmation(null);

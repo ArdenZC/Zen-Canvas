@@ -20,6 +20,8 @@ describe("automation workspace source contract", () => {
     expect(view).toContain('event.key === " "');
     expect(view).toContain('event.key !== "Escape"');
     expect(view).toContain("listRef.current?.focus()");
+    expect(view).toContain('setNarrowPane("list")');
+    expect(view).toContain("userRules.length > 1 ? listRef.current : createRef.current");
     expect(view).toContain('t("automationScheduleTrigger")');
     expect(view).toContain('available={false}');
   });
