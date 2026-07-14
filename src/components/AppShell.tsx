@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
 import { CommandModal } from "./CommandModal";
+import { OnboardingDialog } from "./OnboardingDialog";
 import { ViewErrorBoundary } from "./ErrorBoundary";
 import { AmbientMesh, CloseChoiceDialog, ZenMark } from "./ShellChrome";
 import { requestSettingsSection } from "./spotlight/commandRegistry";
@@ -138,6 +139,7 @@ export function AppShell() {
       {isCloseChoiceOpen && (
         <CloseChoiceDialog t={t} onCancel={onCancelCloseChoice} onChoose={resolveCloseChoice} />
       )}
+      <OnboardingDialog />
       </div>
       <ModalHost />
     </div>

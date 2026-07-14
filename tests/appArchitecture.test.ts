@@ -90,18 +90,23 @@ describe("app render architecture", () => {
 
   it("describes AI batch size as per-request and exposes cleanup AI settings", () => {
     const settings = read("src/views/settings/SettingsView.tsx");
+    const i18n = read("src/i18n.ts");
     const browserMock = read("src/api/browserMockApi.ts");
 
-    expect(settings).toContain("DeepSeek / 国产模型建议 10");
-    expect(settings).toContain("AI 分类并发数");
-    expect(settings).toContain("快速");
-    expect(settings).toContain("标准");
-    expect(settings).toContain("精细");
-    expect(settings).toContain("默认情况下，学习习惯只会作为 AI 分类参考");
-    expect(settings).toContain("使用旧版内置分类规则");
-    expect(settings).toContain("AI-first 模式下建议关闭");
-    expect(settings).toContain("启用 AI 空间清理分析");
-    expect(settings).toContain("AI 空间清理分析只增强候选项的风险说明和建议，不会直接删除文件，也不会绕过 Safe Trash。");
+    expect(settings).toContain('description={t("aiBatchSizeDesc")}');
+    expect(settings).toContain('label={t("aiConcurrencyLabel")}');
+    expect(settings).toContain('{t("aiPresetFast")}');
+    expect(settings).toContain('{t("aiPresetStandard")}');
+    expect(settings).toContain('{t("aiPresetDetailed")}');
+    expect(settings).toContain('description={t("aiLearnedRulesDesc")}');
+    expect(settings).toContain('label={t("aiLegacyRulesLabel")}');
+    expect(settings).toContain('description={t("aiLegacyRulesDesc")}');
+    expect(settings).toContain('label={t("aiCleanupEnabledLabel")}');
+    expect(settings).toContain('description={t("aiCleanupEnabledDesc")}');
+    expect(i18n).toContain("DeepSeek / 国产模型建议 10");
+    expect(i18n).toContain("AI 分类并发数");
+    expect(i18n).toContain("AI-first 模式下建议关闭");
+    expect(i18n).toContain("AI 空间清理分析只增强候选项的风险说明和建议，不会直接删除文件，也不会绕过 Safe Trash。");
     expect(settings).toContain("cleanupAiEnabled: true");
     expect(browserMock).toContain("cleanupAiEnabled: true");
   });

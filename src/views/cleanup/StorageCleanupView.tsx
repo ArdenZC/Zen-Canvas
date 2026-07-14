@@ -100,6 +100,7 @@ function StorageCleanupPanel({
 }: Props & { t: Translator; onError?: (message: string) => void }) {
   const store = useStorageCleanupStore();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [reviewConfirmCandidate, setReviewConfirmCandidate] = useState<StorageCandidate | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const analysis = initialAnalysis ?? store.analysis;
   const selectedRoots = initialRoots ?? store.selectedRoots;
@@ -294,10 +295,16 @@ function StorageCleanupPanel({
   function toggleSafeCandidate(candidate: StorageCandidate) {
     if (initialAnalysis) return;
     if (!selectedCleanupIds.has(candidate.id) && candidate.tier === "Review") {
-      const confirmed = globalThis.confirm?.("这是需要人工判断的清理项，AI/规则无法保证删除后完全无影响。继续加入 Safe Trash 前，请确认你已经检查过风险说明。") ?? false;
-      if (!confirmed) return;
+      setReviewConfirmCandidate(candidate);
+      return;
     }
     useStorageCleanupStore.getState().toggleCleanupCandidate(candidate);
+  }
+
+  function confirmReviewCandidate() {
+    if (!reviewConfirmCandidate) return;
+    useStorageCleanupStore.getState().toggleCleanupCandidate(reviewConfirmCandidate);
+    setReviewConfirmCandidate(null);
   }
 
   function reportError(errorValue: unknown) {
@@ -633,6 +640,17 @@ function StorageCleanupPanel({
         onConfirm={moveSelectedToSafeTrash}
         onCancel={() => setConfirmOpen(false)}
       />
+      <ConfirmDialog
+        open={Boolean(reviewConfirmCandidate)}
+        tone="warning"
+        title={t("storageCleanupReviewConfirmTitle")}
+        description={reviewConfirmCandidate ? `${reviewConfirmCandidate.name}\n${reviewConfirmCandidate.reason}${reviewConfirmCandidate.risk_note ? `\n${reviewConfirmCandidate.risk_note}` : ""}` : undefined}
+        emphasis={t("storageCleanupReviewConfirmEmphasis")}
+        confirmLabel={t("storageCleanupSelectForTrash")}
+        cancelLabel={t("cancel")}
+        onConfirm={confirmReviewCandidate}
+        onCancel={() => setReviewConfirmCandidate(null)}
+      />
     </>
   );
 }
@@ -867,13 +885,13 @@ function readableCleanupAIError(error: unknown) {
   if (message.includes("AI 空间清理分析") || message.includes("AI 清理分析")) return "请开启 AI 空间清理分析。";
   if (message.includes("AI 未启用") || message.includes("启用 AI")) return "请先在设置中启用 AI。";
   if (isCleanupRateLimitError(normalized)) {
-    return withCleanupProviderDetail("模型服务请求过快或达到限流，请降低 Batch Size 或稍后重试。", message);
+    return withCleanupProviderDetail("模型服务请求过快或达到限流，请减少本次处理数量或稍后重试。", message);
   }
   if (isCleanupTimeoutError(normalized)) {
-    return withCleanupProviderDetail("模型请求超时，请降低 Batch Size、减少本次处理数量，或提高 Timeout Seconds。", message);
+    return withCleanupProviderDetail("模型请求超时，请减少本次处理数量、稍后重试，或改用更稳定的模型。", message);
   }
   if (isCleanupHttpStatus(normalized, 400)) {
-    return withCleanupProviderDetail("模型服务拒绝了请求参数，请检查 response_format、thinking、extraBodyJson 或模型名。", message);
+    return withCleanupProviderDetail("模型服务拒绝了请求参数，请检查 AI 服务配置后重试。", message);
   }
   if (isCleanupHttpStatus(normalized, 401) || isCleanupHttpStatus(normalized, 403)) {
     return withCleanupProviderDetail("模型服务认证或权限失败，请检查 API Key 和模型权限。", message);
@@ -882,7 +900,7 @@ function readableCleanupAIError(error: unknown) {
   if (hasCleanupProviderDetail(normalized)) return message;
   if (normalized.includes("request failed") || normalized.includes("ollama") || normalized.includes("network")) return "无法连接到模型服务，请检查 Base URL、Chat Path、网络和 API Key。";
   if (normalized.includes("invalid json") || normalized.includes("not valid json") || normalized.includes("json")) {
-    return "模型没有返回有效 JSON，请换用更稳定的模型或关闭 thinking。";
+    return "模型没有返回有效结果，请换用更稳定的模型或稍后重试。";
   }
   if (
     normalized.includes("unsupported value") ||

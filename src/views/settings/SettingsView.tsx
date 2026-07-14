@@ -59,12 +59,23 @@ type FolderDeleteConfirmState =
   | { kind: "scan"; root: ScanRootSetting }
   | { kind: "search"; root: SearchRootSetting };
 
+const DEVELOPER_MODE_STORAGE_KEY = "zc-developer-mode";
+
+function readDeveloperMode() {
+  try {
+    return window.localStorage.getItem(DEVELOPER_MODE_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
 export function SettingsView() {
   const {
     language,
     setLanguage,
     theme,
     setTheme,
+    setView,
     platform,
     closeBehavior,
     setCloseBehavior,
@@ -127,12 +138,45 @@ export function SettingsView() {
   const [isDebuggingAI, setIsDebuggingAI] = useState(false);
   const [aiDebugStatus, setAiDebugStatus] = useState<{ tone: StatusTone; message: string } | null>(null);
   const [aiDebugResult, setAiDebugResult] = useState<AIDebugClassificationResult | null>(null);
+  const [activeSettingsSection, setActiveSettingsSection] = useState("settings-appearance");
+  const [developerMode, setDeveloperMode] = useState(readDeveloperMode);
   const hotkeyCaptureRef = useRef<HTMLDivElement | null>(null);
+
+  const settingsSections = [
+    { id: "settings-general", label: t("settingsGeneral") },
+    { id: "settings-appearance", label: t("settingsAppearance") },
+    { id: "settings-files-scan", label: t("settingsFilesScan") },
+    { id: "settings-search", label: t("settingsSearch") },
+    { id: "settings-automation", label: t("settingsAutomation") },
+    { id: "settings-ai", label: t("settingsAI") },
+    { id: "settings-privacy", label: t("settingsPrivacy") },
+    { id: "settings-about", label: t("settingsAbout") }
+  ];
+
+  function focusSettingsSection(sectionId: string) {
+    setActiveSettingsSection(sectionId);
+    window.requestAnimationFrame(() => {
+      const section = document.getElementById(sectionId);
+      section?.scrollIntoView({ block: "start" });
+      section?.focus({ preventScroll: true });
+    });
+  }
+
+  function setDeveloperModePreference(next: boolean) {
+    setDeveloperMode(next);
+    try {
+      window.localStorage.setItem(DEVELOPER_MODE_STORAGE_KEY, String(next));
+    } catch {
+      // Optional local preference; advanced controls remain fail-closed when storage is unavailable.
+    }
+  }
 
   useEffect(() => {
     function focusSection(sectionId: string) {
       window.setTimeout(() => {
-        const section = document.getElementById(sectionId);
+        const targetSection = sectionId === "settings-appearance" ? "settings-appearance" : sectionId === "settings-search-scope" ? "settings-search" : sectionId;
+        setActiveSettingsSection(targetSection);
+        const section = document.getElementById(sectionId) ?? document.getElementById(targetSection);
         section?.scrollIntoView({ block: "start" });
         section?.focus({ preventScroll: true });
       }, 0);
@@ -200,7 +244,7 @@ export function SettingsView() {
       })
       .catch((error) => {
         if (!disposed) {
-          setAiConnectionStatus({ tone: "warning", message: `AI 设置加载失败：${readableError(error)}` });
+          setAiConnectionStatus({ tone: "warning", message: `${t("aiSettingsLoadFailed")}：${readableError(error)}` });
         }
       })
       .finally(() => {
@@ -478,11 +522,11 @@ export function SettingsView() {
       const saved = await tauriApi.saveAISettings(next);
       setAiSettings(saved);
       publishAIProcessingMode({ enabled: saved.enabled, provider: saved.provider });
-      showStatus("AI 设置已保存");
+      showStatus(t("aiSettingsSaved"));
     } catch (error) {
       setAiConnectionStatus({
         tone: "warning",
-        message: sanitizeAIStatusMessage(`AI 设置保存失败：${readableError(error)}`, aiSettings.apiKey)
+        message: sanitizeAIStatusMessage(`${t("aiSettingsSaveFailed")}：${readableError(error)}`, aiSettings.apiKey)
       });
     } finally {
       setIsSavingAISettings(false);
@@ -498,12 +542,12 @@ export function SettingsView() {
       const result = await tauriApi.testAIProviderConnection(next);
       setAiConnectionStatus({
         tone: "success",
-        message: aiConnectionSuccessMessage(result)
+        message: aiConnectionSuccessMessage(result, t("aiConnectionSucceeded"))
       });
     } catch (error) {
       setAiConnectionStatus({
         tone: "warning",
-        message: sanitizeAIStatusMessage(`连接测试失败：${readableError(error)}`, aiSettings.apiKey)
+        message: sanitizeAIStatusMessage(`${t("aiConnectionTestFailed")}：${readableError(error)}`, aiSettings.apiKey)
       });
     } finally {
       setIsTestingAIConnection(false);
@@ -514,7 +558,7 @@ export function SettingsView() {
     if (!aiSettings || isDebuggingAI) return;
     const target = aiDebugTarget.trim();
     if (!target) {
-      setAiDebugStatus({ tone: "warning", message: "请输入文件 ID 或完整路径，或使用当前选中文件。" });
+      setAiDebugStatus({ tone: "warning", message: t("aiDebugMissingTarget") });
       return;
     }
 
@@ -527,13 +571,13 @@ export function SettingsView() {
       setAiDebugStatus({
         tone: result.success ? "success" : "warning",
         message: result.success
-          ? "AI 调试完成：模型返回已按分类 JSON 解析成功。"
-          : `AI 调试完成：${result.parseError ?? "模型返回未能解析为分类 JSON。"}`
+          ? t("aiDebugSucceeded")
+          : `${t("aiDebugFinished")}：${result.parseError ?? t("aiDebugParseFailed")}`
       });
     } catch (error) {
       setAiDebugStatus({
         tone: "warning",
-        message: sanitizeAIStatusMessage(`AI 调试失败：${readableError(error)}`, aiSettings.apiKey)
+        message: sanitizeAIStatusMessage(`${t("aiDebugFinished")}：${readableError(error)}`, aiSettings.apiKey)
       });
     } finally {
       setIsDebuggingAI(false);
@@ -547,7 +591,7 @@ export function SettingsView() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <SectionTitle title={t("settings")} body={t("settingsDesc")} />
           {settingsStatus && settingsStatusTone === "success" ? (
-            <span className={cn(quietText, "rounded-full border border-[var(--line)] bg-white/24 px-3 py-1.5 dark:bg-white/5")} aria-live="polite">
+            <span className={cn(quietText, "rounded-full border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-3 py-1.5")} aria-live="polite">
               {settingsStatus}
             </span>
           ) : null}
@@ -557,7 +601,29 @@ export function SettingsView() {
           <NoticeBanner tone="warning">{settingsStatus}</NoticeBanner>
         ) : null}
 
-        <ControlGroup title={t("settingsAppearanceLanguage")} description={t("settingsAppearanceLanguageDesc")}>
+        <div className={cn(softPanel, "grid gap-2 p-2")}>
+          <span className={cn(quietText, "px-2")}>{t("settingsSectionsLabel")}</span>
+          <nav className="grid grid-cols-2 gap-1 sm:grid-cols-4 xl:grid-cols-8" aria-label={t("settingsSectionsLabel")}>
+            {settingsSections.map((section) => (
+              <button
+                key={section.id}
+                type="button"
+                className={cn(
+                  "min-h-9 rounded-[var(--zc-radius-control)] px-2 py-1.5 text-sm font-medium transition-[background,color,box-shadow]",
+                  activeSettingsSection === section.id
+                    ? "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] shadow-sm"
+                    : "text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]"
+                )}
+                aria-pressed={activeSettingsSection === section.id}
+                onClick={() => focusSettingsSection(section.id)}
+              >
+                {section.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        <ControlGroup id="settings-appearance" title={t("settingsAppearanceLanguage")} description={t("settingsAppearanceLanguageDesc")}>
           <div className={formRow}>
             <div><strong className="block text-sm">{t("language")}</strong><span className={metadataText}>{t("languageDesc")}</span></div>
             <SegmentedControl
@@ -570,7 +636,7 @@ export function SettingsView() {
               onChange={setLanguage}
             />
           </div>
-          <div id="settings-appearance" tabIndex={-1} className={cn(formRow, "outline-none")}>
+          <div id="settings-appearance-theme" tabIndex={-1} className={cn(formRow, "outline-none")}>
             <div><strong className="block text-sm">{t("appearance")}</strong><span className={metadataText}>{t("appearanceDesc")}</span></div>
             <SegmentedControl
               value={theme}
@@ -597,6 +663,7 @@ export function SettingsView() {
           </div>
         </ControlGroup>
 
+        <div id="settings-files-scan" tabIndex={-1} className="grid gap-4 outline-none">
         <ControlGroup title={t("settingsScanRoots")} description={t("settingsScanRootsDesc")}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <span className={quietText}>{t("defaultScanFoldersRestartHint")}</span>
@@ -687,16 +754,17 @@ export function SettingsView() {
             </div>
           ) : null}
         </ControlGroup>
+        </div>
 
-        <ControlGroup title={t("settingsSearch")} description={t("settingsSearchDesc")}>
+        <ControlGroup id="settings-search" title={t("settingsSearch")} description={t("settingsSearchDesc")}>
           <div className={formRow}>
             <div>
               <strong className="block text-sm">{t("searchHotkey")}</strong>
               <span className={metadataText}>{t("searchHotkeyDesc")}</span>
             </div>
             <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
-              <span className="rounded-xl border border-[var(--line)] bg-white/25 px-3 py-1.5 text-sm font-medium text-[var(--ink)] dark:bg-white/5">{hotkey}</span>
-              <button className={cn(buttonSecondary, isRecordingHotkey && "border-blue-400/45 bg-blue-500/10 text-blue-700 dark:text-blue-200")} onClick={() => setIsRecordingHotkey(true)}>
+              <span className="rounded-xl border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-3 py-1.5 text-sm font-medium text-[var(--ink)]">{hotkey}</span>
+              <button className={cn(buttonSecondary, isRecordingHotkey && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)] text-[var(--zc-primary-text)]")} onClick={() => setIsRecordingHotkey(true)}>
                 <Keyboard size={14} />
                 <span>{t("changeHotkey")}</span>
               </button>
@@ -706,7 +774,7 @@ export function SettingsView() {
             <NoticeBanner tone="info" title={t("hotkeyCaptureTitle")}>
               <div
                 ref={hotkeyCaptureRef}
-                className="mt-2 grid gap-2 rounded-xl border border-blue-400/50 bg-blue-500/8 px-3 py-3 outline-none focus-visible:shadow-[0_0_0_3px_rgba(59,130,246,0.16)]"
+                className="mt-2 grid gap-2 rounded-xl border border-[var(--zc-info-border)] bg-[var(--zc-info-soft)] px-3 py-3 outline-none focus-visible:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)]"
                 tabIndex={0}
               >
                 <span>{t("recordingHotkey")}</span>
@@ -723,7 +791,7 @@ export function SettingsView() {
           <div className="flex flex-wrap gap-2">
             {["CmdOrCtrl+K", "CmdOrCtrl+Shift+K", "Alt+Space", "CmdOrCtrl+Alt+Space"].map((accelerator) => (
               <button
-                className={cn(glassButton, searchHotkey === accelerator && "border-blue-400/50 bg-blue-500/10 text-blue-700 dark:text-blue-200")}
+                className={cn(glassButton, searchHotkey === accelerator && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)] text-[var(--zc-primary-text)]")}
                 key={accelerator}
                 aria-pressed={searchHotkey === accelerator}
                 onClick={() => void updateSearchHotkey(accelerator)}
@@ -823,7 +891,7 @@ export function SettingsView() {
           <span className={quietText}>{t("searchScopeDoesNotChangeLibrary")}</span>
         </ControlGroup>
 
-        <ControlGroup title={t("settingsSafetyRestore")} description={t("settingsSafetyRestoreDesc")}>
+        <ControlGroup id="settings-privacy" title={t("settingsSafetyRestore")} description={t("settingsSafetyRestoreDesc")}>
           <div className={formRow}>
             <div><strong className="block text-sm">{t("logRetention")}</strong><span className={metadataText}>{t("logRetentionDesc")}</span></div>
             <SegmentedControl
@@ -835,6 +903,7 @@ export function SettingsView() {
           </div>
         </ControlGroup>
 
+        <div id="settings-general" tabIndex={-1} className="grid gap-4 outline-none">
         <ControlGroup title={t("settingsWindowBehavior")} description={t("settingsWindowBehaviorDesc")}>
           <div className={formRow}>
             <div><strong className="block text-sm">{t("closeBehavior")}</strong><span className={metadataText}>{t("closeBehaviorDesc")}</span></div>
@@ -867,40 +936,53 @@ export function SettingsView() {
             statusLabel={launchAtLogin ? t("enabled") : t("disabled")}
           />
         </ControlGroup>
+        </div>
+
+        <ControlGroup id="settings-automation" title={t("settingsAutomation")} description={t("settingsAutomationDesc")}>
+          <NoticeBanner tone="info">{t("automationSafetyBoundary")}</NoticeBanner>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className={metadataText}>{t("automationManualRuleSet")}</span>
+            <button className={buttonSecondary} onClick={() => setView("rules")}>{t("automationRules")}</button>
+          </div>
+        </ControlGroup>
 
         <div id="settings-ai" tabIndex={-1} className="outline-none">
-        <ControlGroup title="AI 模型服务" description="选择国产模型或本地 Ollama，可测试连接并调试单个文件的模型原始返回。">
+        <ControlGroup title={t("settingsAI")} description={t("settingsAIDesc")}>
           {isLoadingAISettings || !aiSettings ? (
-            <StateBlock title="正在加载 AI 设置" description="从本地配置读取模型服务商预设。" />
+            <StateBlock title={t("aiSettingsLoading")} description={t("aiSettingsLoadingDesc")} />
           ) : (
             <div className="grid gap-4">
               <SwitchField
-                label="启用 AI"
-                description="仅控制后续 AI 功能开关；本阶段不会自动分类或清理文件。"
+                label={t("aiEnabledLabel")}
+                description={t("aiEnabledDesc")}
                 checked={aiSettings.enabled}
                 onChange={(next) => updateAISettings({ enabled: next })}
                 statusLabel={aiSettings.enabled ? t("enabled") : t("disabled")}
               />
               <SwitchField
-                label="启用 AI 空间清理分析"
-                description="AI 空间清理分析只增强候选项的风险说明和建议，不会直接删除文件，也不会绕过 Safe Trash。"
+                label={t("aiCleanupEnabledLabel")}
+                description={t("aiCleanupEnabledDesc")}
                 checked={aiSettings.cleanupAiEnabled}
                 onChange={(next) => updateAISettings({ cleanupAiEnabled: next })}
                 statusLabel={aiSettings.cleanupAiEnabled ? t("enabled") : t("disabled")}
               />
+              {developerMode ? (
+              <details open className={cn(softPanel, "grid gap-3 p-3")}>
+                <summary className="cursor-pointer text-sm font-semibold text-[var(--ink)]">{t("advancedSettings")}</summary>
+                <div className="grid gap-4">
               <div className={cn(softPanel, "grid gap-2 p-3")}>
-                <strong className="text-sm text-[var(--ink)]">AI 分类模式预设</strong>
-                <span className={quietText}>快速 / 标准 / 精细会填充 Batch Size、并发数、Max Tokens 和路径隐私参数，不会覆盖 API Key。</span>
+                <strong className="text-sm text-[var(--ink)]">{t("aiClassificationPresets")}</strong>
+                <span className={quietText}>{t("aiClassificationPresetsDesc")}</span>
                 <div className="flex flex-wrap gap-2">
-                  <button className={buttonSecondary} onClick={() => applyAIClassificationPreset("fast")}>快速</button>
-                  <button className={buttonSecondary} onClick={() => applyAIClassificationPreset("standard")}>标准</button>
-                  <button className={buttonSecondary} onClick={() => applyAIClassificationPreset("detailed")}>精细</button>
+                  <button className={buttonSecondary} onClick={() => applyAIClassificationPreset("fast")}>{t("aiPresetFast")}</button>
+                  <button className={buttonSecondary} onClick={() => applyAIClassificationPreset("standard")}>{t("aiPresetStandard")}</button>
+                  <button className={buttonSecondary} onClick={() => applyAIClassificationPreset("detailed")}>{t("aiPresetDetailed")}</button>
                 </div>
               </div>
               <div className={formRow}>
                 <div>
-                  <strong className="block text-sm">模型服务商 preset</strong>
-                  <span className={metadataText}>DeepSeek 为默认推荐；切换 preset 会填充 URL、路径和默认模型，不覆盖 API Key。</span>
+                  <strong className="block text-sm">{t("aiProviderPreset")}</strong>
+                  <span className={metadataText}>{t("aiProviderPresetDesc")}</span>
                 </div>
                 <select
                   className={cn(selectSurface, "min-w-[260px]")}
@@ -918,27 +1000,27 @@ export function SettingsView() {
                 <TextField label="Base URL" value={aiSettings.baseUrl} onChange={(value) => updateAISettings({ baseUrl: value })} />
                 <TextField label="Chat Path" value={aiSettings.chatPath} onChange={(value) => updateAISettings({ chatPath: value })} />
                 {aiSettings.provider === "ollama" ? (
-                  <div className={cn(softPanel, "p-3 text-sm text-[var(--muted)]")}>Ollama 本地模型不需要 API Key；该字段可为空。</div>
+                  <div className={cn(softPanel, "p-3 text-sm text-[var(--muted)]")}>{t("aiLocalApiKeyHint")}</div>
                 ) : (
                   <TextField
                     label="API Key"
                     type="password"
                     value={aiSettings.apiKey}
                     onChange={(value) => updateAISettings({ apiKey: value })}
-                    placeholder={aiSettings.apiKeyConfigured ? "已安全保存在系统凭据库；输入新值可替换" : "不会在页面明文显示"}
+                    placeholder={aiSettings.apiKeyConfigured ? t("aiStoredApiKeyPlaceholder") : t("aiEmptyApiKeyPlaceholder")}
                   />
                 )}
                 <TextField label="Model" value={aiSettings.model} onChange={(value) => updateAISettings({ model: value })} />
                 <NumberField
                   label="Batch Size"
-                  description="Batch Size 是每次请求模型处理的文件数，不是本次总处理数量。DeepSeek / 国产模型建议 10，过大会增加超时、限流或 JSON 不完整风险。"
+                  description={t("aiBatchSizeDesc")}
                   value={aiSettings.batchSize}
                   min={1}
                   onChange={(value) => updateAISettings({ batchSize: value })}
                 />
                 <NumberField
-                  label="AI 分类并发数"
-                  description="同时请求模型的批次数。DeepSeek / 国产模型建议 2，过高可能触发限流。"
+                  label={t("aiConcurrencyLabel")}
+                  description={t("aiConcurrencyDesc")}
                   value={aiSettings.classificationConcurrency}
                   min={1}
                   onChange={(value) => updateAISettings({ classificationConcurrency: Math.min(4, Math.max(1, value)) })}
@@ -952,41 +1034,41 @@ export function SettingsView() {
                 <NumberField label="Timeout Seconds" value={aiSettings.timeoutSeconds} min={1} onChange={(value) => updateAISettings({ timeoutSeconds: value })} />
               </div>
               <NoticeBanner tone="info">
-                学习习惯会记录你的确认和纠正。默认情况下，学习习惯只会作为 AI 分类参考，不会训练模型，也不会自动移动文件。
+                {t("aiLearningHint")}
               </NoticeBanner>
               <div className="grid gap-3 md:grid-cols-2">
                 <SwitchField
-                  label="将学习习惯作为自动规则执行"
-                  description="默认情况下，学习习惯只会作为 AI 分类参考。开启后，它会参与自动规则执行，可能影响已有分类建议。"
+                  label={t("aiLearnedRulesLabel")}
+                  description={t("aiLearnedRulesDesc")}
                   checked={useLearnedRulesAsAutoRules}
                   onChange={(next) => void updateSettings({ useLearnedRulesAsAutoRules: next })}
                   statusLabel={useLearnedRulesAsAutoRules ? t("enabled") : t("disabled")}
                 />
                 <SwitchField
-                  label="使用旧版内置分类规则"
-                  description="旧版内置规则会按文件名、扩展名和路径进行固定分类。AI-first 模式下建议关闭，否则可能与 AI 分类结果不一致。"
+                  label={t("aiLegacyRulesLabel")}
+                  description={t("aiLegacyRulesDesc")}
                   checked={useLegacyBuiltinClassificationRules}
                   onChange={(next) => void updateSettings({ useLegacyBuiltinClassificationRules: next })}
                   statusLabel={useLegacyBuiltinClassificationRules ? t("enabled") : t("disabled")}
                 />
               </div>
               {aiSettings.preset === "deepseek" && ["deepseek-chat", "deepseek-reasoner"].includes(aiSettings.model.trim()) ? (
-                <NoticeBanner tone="warning">DeepSeek 旧模型名仍允许输入，但建议改用 deepseek-v4-flash 或 deepseek-v4-pro。</NoticeBanner>
+                <NoticeBanner tone="warning">{t("aiOldModelWarning")}</NoticeBanner>
               ) : null}
               {(aiSettings.provider === "ollama" || aiSettings.model.toLowerCase().includes("qwen3")) ? (
-                <NoticeBanner tone="warning">Qwen3 是 thinking 模型，文件分类建议关闭 thinking，否则可能返回非 JSON 内容。</NoticeBanner>
+                <NoticeBanner tone="warning">{t("aiQwenWarning")}</NoticeBanner>
               ) : null}
               <div className="grid gap-3 md:grid-cols-2">
                 <SwitchField
-                  label="Force JSON Output"
-                  description="优先使用 response_format；不支持时仅通过 prompt 约束 JSON。"
+                  label={t("aiForceJsonLabel")}
+                  description={t("aiForceJsonDesc")}
                   checked={aiSettings.forceJsonOutput}
                   onChange={(next) => updateAISettings({ forceJsonOutput: next })}
                   statusLabel={aiSettings.forceJsonOutput ? t("enabled") : t("disabled")}
                 />
                 <SwitchField
-                  label="Enable Thinking"
-                  description="仅在支持的模型服务中传递 thinking / reasoning 配置。"
+                  label={t("aiThinkingLabel")}
+                  description={t("aiThinkingDesc")}
                   checked={aiSettings.enableThinking}
                   onChange={(next) => updateAISettings({ enableThinking: next })}
                   statusLabel={aiSettings.enableThinking ? t("enabled") : t("disabled")}
@@ -995,18 +1077,18 @@ export function SettingsView() {
                   label="Reasoning Effort"
                   value={aiSettings.reasoningEffort ?? ""}
                   onChange={(value) => updateAISettings({ reasoningEffort: value || null })}
-                  placeholder="例如 low / medium / high"
+                  placeholder={t("aiReasoningPlaceholder")}
                 />
                 <SwitchField
-                  label="发送完整路径"
-                  description="后续 AI 分类提示词可使用完整路径。"
+                  label={t("aiSendFullPathLabel")}
+                  description={t("aiSendFullPathDesc")}
                   checked={aiSettings.sendFullPath}
                   onChange={(next) => updateAISettings({ sendFullPath: next })}
                   statusLabel={aiSettings.sendFullPath ? t("enabled") : t("disabled")}
                 />
                 <SwitchField
-                  label="发送父目录"
-                  description="后续 AI 分类提示词可使用父目录信息。"
+                  label={t("aiSendParentPathLabel")}
+                  description={t("aiSendParentPathDesc")}
                   checked={aiSettings.sendParentPath}
                   onChange={(next) => updateAISettings({ sendParentPath: next })}
                   statusLabel={aiSettings.sendParentPath ? t("enabled") : t("disabled")}
@@ -1014,62 +1096,62 @@ export function SettingsView() {
               </div>
               <div className="grid gap-2">
                 <label className="grid gap-1">
-                  <span className="text-sm font-medium text-[var(--ink)]">Extra Body JSON（高级选项）</span>
+                  <span className="text-sm font-medium text-[var(--ink)]">{t("aiExtraBodyLabel")}</span>
                   <textarea
                     className={cn(inputSurface, "min-h-24 resize-y py-2 font-mono")}
                     value={aiSettings.extraBodyJson ?? ""}
                     onChange={(event) => updateAISettings({ extraBodyJson: event.target.value || null })}
-                    placeholder='例如 { "thinking": { "type": "enabled" } }'
+                    placeholder={t("aiExtraBodyPlaceholder")}
                   />
                 </label>
-                <span className={quietText}>不会打印 API Key；错误信息会尝试脱敏当前 API Key。</span>
+                <span className={quietText}>{t("aiSecretsHint")}</span>
               </div>
               {aiConnectionStatus ? (
                 <NoticeBanner tone={aiConnectionStatus.tone}>{aiConnectionStatus.message}</NoticeBanner>
               ) : null}
               <div className="flex flex-wrap justify-end gap-2">
                 <button className={buttonSecondary} onClick={() => void testAIConnection()} disabled={isTestingAIConnection || isSavingAISettings}>
-                  {isTestingAIConnection ? "测试中..." : "测试连接"}
+                  {isTestingAIConnection ? t("aiTestingConnection") : t("aiTestConnection")}
                 </button>
                 <button className={buttonSecondary} onClick={() => void saveAISettings()} disabled={isSavingAISettings || isTestingAIConnection}>
-                  {isSavingAISettings ? "保存中..." : "保存 AI 设置"}
+                  {isSavingAISettings ? t("aiSavingSettings") : t("aiSaveSettings")}
                 </button>
               </div>
               <details className={cn(softPanel, "grid gap-3 p-3")}>
-                <summary className="cursor-pointer text-sm font-semibold text-[var(--ink)]">AI 调试</summary>
+                <summary className="cursor-pointer text-sm font-semibold text-[var(--ink)]">{t("aiDebugTitle")}</summary>
                 <div className="mt-3 grid gap-3">
                   <NoticeBanner tone="warning">
-                    调试信息可能包含文件名和路径，请不要截图公开或提交到 GitHub。此功能只读取单个文件的模型返回，不写 files 表，不进入整理预览，也不会移动文件。
+                    {t("aiDebugWarning")}
                   </NoticeBanner>
                   {selectedLibraryFile ? (
                     <div className={cn(softPanel, "grid gap-1 p-3 text-xs text-[var(--muted)]")}>
-                      <span className="font-medium text-[var(--ink)]">当前文件库选中文件</span>
+                      <span className="font-medium text-[var(--ink)]">{t("aiSelectedFile")}</span>
                       <span>{selectedLibraryFile.name}</span>
                       <span title={selectedLibraryFile.path}>{compactPath(selectedLibraryFile.path, 96)}</span>
                     </div>
                   ) : (
-                    <span className={quietText}>文件库当前没有选中文件，可手动粘贴文件 ID 或完整路径。</span>
+                    <span className={quietText}>{t("aiNoSelectedFile")}</span>
                   )}
                   <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_auto_auto] md:items-end">
                     <TextField
-                      label="文件 ID 或完整路径"
+                      label={t("aiDebugTargetLabel")}
                       value={aiDebugTarget}
                       onChange={setAiDebugTarget}
-                      placeholder="可粘贴文件路径，例如 F:\\work\\xxx.docx，也可以使用文件库中的 file id"
+                      placeholder={t("aiDebugTargetPlaceholder")}
                     />
                     <button
                       className={buttonSecondary}
                       onClick={() => setAiDebugTarget(selectedLibraryFile?.id ?? "")}
                       disabled={!selectedLibraryFile || isDebuggingAI}
                     >
-                      使用当前选中文件
+                      {t("aiUseSelectedFile")}
                     </button>
                     <button
                       className={buttonSecondary}
                       onClick={() => void debugAIClassificationOnce()}
                       disabled={isDebuggingAI || !aiDebugTarget.trim()}
                     >
-                      {isDebuggingAI ? "调试中..." : "调试单个文件 AI 返回"}
+                      {isDebuggingAI ? t("aiDebugging") : t("aiDebugSingleFile")}
                     </button>
                   </div>
                   {aiDebugStatus ? (
@@ -1100,15 +1182,27 @@ export function SettingsView() {
                   ) : null}
                 </div>
               </details>
+                </div>
+              </details>
+              ) : (
+                <NoticeBanner tone="info">{t("developerModeDesc")}</NoticeBanner>
+              )}
             </div>
           )}
         </ControlGroup>
         </div>
 
-        <details className={cn(formSection, "group")}>
+        <details id="settings-about" tabIndex={-1} className={cn(formSection, "group", "outline-none")}>
           <summary className="cursor-pointer text-sm font-semibold text-[var(--ink)]">{t("settingsDeveloperRelease")}</summary>
           <div className="mt-3 grid gap-3">
             <p className={metadataText}>{t("developerReleaseDesc")}</p>
+            <SwitchField
+              label={t("developerMode")}
+              description={t("developerModeDesc")}
+              checked={developerMode}
+              onChange={setDeveloperModePreference}
+              statusLabel={developerMode ? t("enabled") : t("disabled")}
+            />
             <div className={cn(softPanel, "grid gap-2 p-3")}>
               <div className={formRow}>
                 <div><strong className="block text-sm">{t("searchSources")}</strong><span className={metadataText}>{t("searchSourcesDesc")}</span></div>
@@ -1210,7 +1304,7 @@ function DebugPreviewBlock({
   value: string | null | undefined;
   apiKey: string;
 }) {
-  const displayValue = sanitizeAIStatusMessage(value || "（空）", apiKey);
+  const displayValue = sanitizeAIStatusMessage(value || "—", apiKey);
   return (
     <label className="grid gap-1">
       <span className="text-sm font-medium text-[var(--ink)]">{label}</span>
@@ -1271,8 +1365,8 @@ function sanitizeAIStatusMessage(message: string, apiKey: string) {
   return trimmed ? message.split(trimmed).join("[redacted]") : message;
 }
 
-function aiConnectionSuccessMessage(result: AIConnectionTestResult) {
+function aiConnectionSuccessMessage(result: AIConnectionTestResult, successLabel: string) {
   const provider = result.provider === "ollama" ? "Ollama" : "OpenAI-compatible";
-  const model = result.model || "unknown model";
-  return `连接成功：${provider} / ${model} / ${result.elapsedMs}ms`;
+  const model = result.model || "—";
+  return `${successLabel}: ${provider} / ${model} / ${result.elapsedMs}ms`;
 }

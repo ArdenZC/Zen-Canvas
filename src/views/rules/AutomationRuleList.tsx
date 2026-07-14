@@ -77,7 +77,7 @@ export function AutomationRuleList({ rules, activeId, busyRuleIds, toggleErrorId
               disabled={busy}
               onClick={(event) => { event.stopPropagation(); onToggle(rule, !rule.enabled); }}
               onKeyDown={(event) => event.stopPropagation()}
-            ><i />{busy && <LoaderCircle size={13} aria-hidden="true" className="absolute right-1 top-1/2 -translate-y-1/2 animate-spin text-white/90" />}{busy && <span className="sr-only">{t("loading")}</span>}</button>
+            ><i />{busy && <LoaderCircle size={13} aria-hidden="true" className="absolute right-1 top-1/2 -translate-y-1/2 animate-spin text-[var(--zc-primary-contrast)]" />}{busy && <span className="sr-only">{t("loading")}</span>}</button>
           </li>
         );
       })}

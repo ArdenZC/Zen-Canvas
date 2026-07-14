@@ -78,24 +78,24 @@ export const metricLabel = "text-xs font-semibold uppercase tracking-[0.12em] te
 export const metadataText = "text-sm leading-6 text-[var(--muted)]";
 export const mutedText = metadataText;
 export const quietText = "text-xs leading-5 text-[var(--quiet)]";
-export const dangerText = "text-sm font-medium text-red-700 dark:text-red-200";
-export const warningText = "text-sm font-medium text-amber-800 dark:text-amber-200";
-export const successText = "text-sm font-medium text-emerald-700 dark:text-emerald-200";
+export const dangerText = "text-sm font-medium text-[var(--zc-danger-text)]";
+export const warningText = "text-sm font-medium text-[var(--zc-warning-text)]";
+export const successText = "text-sm font-medium text-[var(--zc-success-text)]";
 
 export const formGrid = "grid grid-cols-2 gap-3 [&_label]:grid [&_label]:gap-1.5 [&_label]:text-sm [&_label]:font-medium [&_label]:text-[var(--muted)]";
 export const segmented = "inline-flex max-w-full flex-wrap items-center gap-1 rounded-xl border border-[var(--line)] bg-[var(--surface-soft)] p-1";
 
 export function segmentButton(active: boolean): string {
   return cn(
-    "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:bg-white/48 hover:text-[var(--ink)] dark:hover:bg-white/10",
-    active && "bg-blue-600 text-white shadow-sm hover:bg-blue-600 hover:text-white dark:bg-blue-500 dark:hover:bg-blue-500"
+    "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--ink)]",
+    active && "bg-[var(--zc-primary)] text-[var(--zc-primary-contrast)] shadow-sm hover:bg-[var(--zc-primary-hover)] hover:text-[var(--zc-primary-contrast)]"
   );
 }
 
 export function toggleSwitch(on: boolean): string {
   return cn(
-    "relative h-7 w-12 shrink-0 rounded-full border border-slate-500/65 bg-slate-300/95 shadow-inner transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/55 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200/60 disabled:opacity-55 dark:border-slate-500 dark:bg-slate-700 dark:disabled:border-slate-700 dark:disabled:bg-slate-800/60 [&_i]:absolute [&_i]:left-1 [&_i]:top-1 [&_i]:h-5 [&_i]:w-5 [&_i]:rounded-full [&_i]:bg-white [&_i]:shadow-[0_1px_4px_rgba(15,23,42,0.28)] [&_i]:ring-1 [&_i]:ring-slate-900/10 [&_i]:transition dark:[&_i]:bg-slate-50",
-    on && "border-blue-700/80 bg-blue-600 shadow-blue-600/20 dark:border-blue-300/70 dark:bg-blue-500 [&_i]:translate-x-5 [&_i]:ring-blue-900/20"
+    "relative h-7 w-12 shrink-0 rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] shadow-inner transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)] disabled:cursor-not-allowed disabled:border-[var(--zc-control-border)] disabled:bg-[var(--zc-surface-subtle)] disabled:opacity-55 [&_i]:absolute [&_i]:left-1 [&_i]:top-1 [&_i]:h-5 [&_i]:w-5 [&_i]:rounded-full [&_i]:bg-[var(--zc-surface)] [&_i]:shadow-sm [&_i]:ring-1 [&_i]:ring-[var(--zc-border)] [&_i]:transition",
+    on && "border-[var(--zc-primary)] bg-[var(--zc-primary)] shadow-[0_2px_8px_var(--zc-primary-soft)] [&_i]:translate-x-5 [&_i]:ring-[var(--zc-primary-pressed)]"
   );
 }
 
@@ -132,7 +132,7 @@ export function SwitchButton({
     statusLabel
       ? createElement(
           "span",
-          { className: cn("min-w-10 text-xs font-medium", checked ? "text-blue-700 dark:text-blue-200" : "text-[var(--muted)]") },
+          { className: cn("min-w-10 text-xs font-medium", checked ? "text-[var(--zc-primary-text)]" : "text-[var(--muted)]") },
           statusLabel
         )
       : null
@@ -150,8 +150,8 @@ export function interactiveRow(options: { selected?: boolean; disabled?: boolean
   return cn(
     rowSurface,
     "transition-[background,border-color,box-shadow,color,opacity]",
-    !options.disabled && "hover:border-blue-400/28 hover:bg-[var(--surface)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.28)] dark:hover:bg-slate-700/70",
-    options.selected && "border-blue-400/55 bg-blue-500/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_0_0_3px_rgba(59,130,246,0.06)]",
+    !options.disabled && "hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] hover:shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight)]",
+    options.selected && "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight),0_0_0_3px_var(--zc-focus-ring-soft)]",
     options.disabled && "pointer-events-none opacity-55"
   );
 }
@@ -160,8 +160,8 @@ export function compactInteractiveRow(options: { selected?: boolean; disabled?: 
   return cn(
     compactRowSurface,
     "transition-[background,border-color,box-shadow,color,opacity]",
-    !options.disabled && "hover:border-blue-400/28 hover:bg-[var(--surface)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.24)] dark:hover:bg-slate-700/70",
-    options.selected && "border-blue-400/55 bg-blue-500/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.24)]",
+    !options.disabled && "hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] hover:shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight)]",
+    options.selected && "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight)]",
     options.disabled && "pointer-events-none opacity-55"
   );
 }
@@ -228,11 +228,11 @@ export function StateBlock({
 }) {
   const toneClass =
     tone === "error"
-      ? "border-red-400/35 bg-red-500/8"
+      ? "border-[var(--zc-danger-border)] bg-[var(--zc-danger-soft)]"
       : tone === "warning"
-        ? "border-amber-400/35 bg-amber-500/8"
+        ? "border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)]"
         : tone === "info"
-          ? "border-blue-400/30 bg-blue-500/8"
+          ? "border-[var(--zc-info-border)] bg-[var(--zc-info-soft)]"
           : "border-[var(--line)] bg-[var(--surface-soft)]";
   const isCompact = density === "compact";
 
@@ -410,15 +410,17 @@ export function ConfirmDialog({
 export function ControlGroup({
   title,
   description,
+  id,
   children
 }: {
   title: string;
   description?: string;
+  id?: string;
   children: ReactNode;
 }) {
   return createElement(
     "section",
-    { className: formSection },
+    { id, tabIndex: id ? -1 : undefined, className: cn(formSection, id && "outline-none") },
     createElement(
       "div",
       null,

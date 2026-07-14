@@ -42,8 +42,8 @@ export const AssetCard = memo(function AssetCard({
       className={cn(
         contentPanel,
         "group relative grid h-[156px] cursor-pointer grid-rows-[auto_auto_1fr] gap-2 overflow-hidden p-3 text-left transition-[background,border-color,box-shadow,color]",
-        "hover:border-blue-400/24 hover:bg-[var(--surface-strong)] hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.24)] dark:hover:bg-slate-700/70",
-        isSelected && "border-blue-400/38 bg-blue-500/8 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.08)]"
+        "hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] hover:shadow-[inset_0_1px_0_var(--zc-brand-canvas-highlight)]",
+        isSelected && "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] shadow-[inset_0_0_0_1px_var(--zc-focus-ring-soft)]"
       )}
       layout={false}
       variants={itemMotion}
@@ -55,7 +55,7 @@ export const AssetCard = memo(function AssetCard({
     >
       <button
         type="button"
-        className="absolute right-2.5 top-2.5 grid h-7 w-7 place-items-center rounded-lg border border-[var(--line)] bg-[var(--surface-strong)] text-[var(--muted)] opacity-0 shadow-sm transition-[background,border-color,color,opacity] hover:border-blue-400/50 hover:bg-blue-500/10 hover:text-blue-600 focus:opacity-100 group-hover:opacity-100 dark:hover:text-blue-300"
+        className="absolute right-2.5 top-2.5 grid h-7 w-7 place-items-center rounded-lg border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-secondary)] opacity-0 shadow-sm transition-[background,border-color,color,opacity] hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-primary-text)] focus:opacity-100 group-hover:opacity-100"
         aria-label={t("revealPhysical")}
         title={t("revealPhysical")}
         onClick={(event) => {
@@ -122,12 +122,12 @@ function compactBadges(file: FileRecord, t: Translator): Array<{ label: string; 
 function miniBadgeClass(tone: MiniBadgeTone) {
   return cn(
     "inline-flex max-w-[8rem] items-center truncate rounded-md border px-1.5 py-0.5 text-[10px] font-medium leading-4",
-    tone === "green" && "border-emerald-400/24 bg-emerald-500/8 text-emerald-700 dark:text-emerald-200",
-    tone === "amber" && "border-amber-400/28 bg-amber-500/8 text-amber-700 dark:text-amber-200",
-    tone === "red" && "border-red-400/28 bg-red-500/8 text-red-700 dark:text-red-200",
-    tone === "purple" && "border-violet-400/24 bg-violet-500/8 text-violet-700 dark:text-violet-200",
-    tone === "info" && "border-blue-400/22 bg-blue-500/8 text-blue-700 dark:text-blue-200",
-    tone === "slate" && "border-[var(--line-dark)] bg-[var(--surface-soft)] text-[var(--muted)]"
+    tone === "green" && "border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] text-[var(--zc-success-text)]",
+    tone === "amber" && "border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)]",
+    tone === "red" && "border-[var(--zc-danger-border)] bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]",
+    tone === "purple" && "border-[var(--zc-purple-border)] bg-[var(--zc-purple-soft)] text-[var(--zc-purple-text)]",
+    tone === "info" && "border-[var(--zc-info-border)] bg-[var(--zc-info-soft)] text-[var(--zc-info-text)]",
+    tone === "slate" && "border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] text-[var(--zc-text-secondary)]"
   );
 }
 

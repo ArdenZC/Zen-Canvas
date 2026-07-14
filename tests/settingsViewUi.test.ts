@@ -47,6 +47,15 @@ describe("settings view UI", () => {
     expect(settingsView).toContain('t("settingsWindowBehavior")');
     expect(settingsView).toContain('t("settingsStartup")');
     expect(settingsView).toContain('t("settingsDeveloperRelease")');
+    expect(settingsView).toContain("settingsSectionsLabel");
+    expect(settingsView).toContain('useState("settings-appearance")');
+    expect(settingsView).toContain('id="settings-general"');
+    expect(settingsView).toContain('id="settings-appearance"');
+    expect(settingsView).toContain('id="settings-files-scan"');
+    expect(settingsView).toContain('id="settings-automation"');
+    expect(settingsView).toContain('id="settings-ai"');
+    expect(settingsView).toContain('id="settings-privacy"');
+    expect(settingsView).toContain('id="settings-about"');
     expect(settingsView).not.toContain("statusToast");
   });
 
@@ -77,6 +86,9 @@ describe("settings view UI", () => {
     expect(settingsView).toContain('t("confirmDeleteScanFolderDesc")');
     expect(settingsView).toContain('t("confirmDeleteSearchFolderDesc")');
     expect(settingsView).toContain("<details");
+    expect(settingsView).toContain('DEVELOPER_MODE_STORAGE_KEY = "zc-developer-mode"');
+    expect(settingsView).toContain('developerMode ? (');
+    expect(settingsView).toContain('t("developerModeDesc")');
     expect(settingsView).toContain("setTimeout");
   });
 });

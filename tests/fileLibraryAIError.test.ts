@@ -17,20 +17,21 @@ describe("AI classification error messages", () => {
     );
 
     expect(message).toContain("限流");
-    expect(message).toContain("降低并发数");
-    expect(message).toContain("Batch Size");
+    expect(message).toContain("减少本次处理数量");
+    expect(message).not.toContain("Batch Size");
     expect(message).toContain("HTTP 429");
     expect(message).not.toContain("检查 API Key");
   });
 
-  it("shows timeout guidance with batch size and timeout settings", () => {
+  it("shows timeout guidance without exposing engineering setting names", () => {
     const message = readableAIClassificationError(
       new Error("AI classification batch 2/10 failed. Provider error: request timeout")
     );
 
     expect(message).toContain("模型请求超时");
-    expect(message).toContain("降低 Batch Size");
-    expect(message).toContain("提高 Timeout Seconds");
+    expect(message).toContain("改用更稳定的模型");
+    expect(message).not.toContain("Batch Size");
+    expect(message).not.toContain("Timeout Seconds");
   });
 
   it("shows parameter guidance for HTTP 400", () => {
@@ -39,8 +40,9 @@ describe("AI classification error messages", () => {
     );
 
     expect(message).toContain("模型服务拒绝了请求参数");
-    expect(message).toContain("response_format");
-    expect(message).toContain("thinking");
+    expect(message).toContain("检查 AI 服务配置后重试");
+    expect(message).not.toContain("response_format");
+    expect(message).not.toContain("thinking");
   });
 
   it("preserves concrete provider diagnostics", () => {
