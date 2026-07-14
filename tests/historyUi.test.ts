@@ -16,9 +16,10 @@ describe("history refinement UI contracts", () => {
     expect(restore).toContain('t("historySafetyBoundary")');
     expect(batchList).not.toContain("break-all");
     expect(batchList).toContain("line-clamp-2");
+    expect(batchList).toContain("compactPath");
     expect(batchList).toContain("title={first?.path_after || first?.target_path}");
     expect(inspector).not.toContain("break-all");
-    expect(inspector).toContain("line-clamp-2 break-words");
+    expect(inspector).toContain("break-words font-mono");
     expect(inspector).toContain("title={title ?? value}");
   });
 

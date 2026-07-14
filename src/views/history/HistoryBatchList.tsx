@@ -3,7 +3,7 @@ import { AlertCircle, Check, ChevronRight, Circle, CircleOff, RotateCcw } from "
 import type { Translator } from "../../types/ui";
 import type { OperationLog } from "../../types/domain";
 import { cn } from "../../utils/tw";
-import { formatDisplayPath } from "../../utils/viewHelpers";
+import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
 import { historyTime, type OperationHistoryBatch } from "./historyModel";
 
 function executionStateLabel(batch: OperationHistoryBatch, t: Translator) {
@@ -139,8 +139,8 @@ export function HistoryBatchList({
                 <span className={cn("shrink-0", batch.executionState === "failed" || batch.restoreState === "restore_failed" ? "text-[var(--zc-danger-text)]" : batch.restoreState === "restored" ? "text-[var(--zc-success-text)]" : "text-[var(--zc-primary)]")}><BatchStateIcon state={batch.state} /></span>
                 <strong className="truncate text-sm">{historyTime(batch.createdAt) ? new Date(historyTime(batch.createdAt)).toLocaleString() : t("historyTimeUnavailable")}</strong>
               </div>
-              <span className="mt-1 line-clamp-2 block break-words text-xs text-[var(--muted)]" title={first?.path_after || first?.target_path}>
-                {first ? formatDisplayPath(first.path_after || first.target_path) : t("historyBatch")}
+              <span className="mt-1 line-clamp-2 block min-w-0 break-words text-xs text-[var(--muted)] [overflow-wrap:anywhere]" title={first?.path_after || first?.target_path} aria-label={first ? formatDisplayPath(first.path_after || first.target_path) : t("historyBatch")}>
+                {first ? compactPath(formatDisplayPath(first.path_after || first.target_path), 88) : t("historyBatch")}
               </span>
               <span className="mt-1 block text-xs text-[var(--muted)]">
                 {t("historyBatchItems").replace("{count}", String(batch.total))} · {executionStateLabel(batch, t)} · {restoreStateLabel(batch, t)} · {batch.restorable} {t("restorable")}

@@ -109,7 +109,7 @@ function operationOriginalPath(log: OperationLog) {
 }
 
 function DetailRow({ label, value, title, path = false }: { label: string; value: string; title?: string; path?: boolean }) {
-  return <div className="grid min-w-0 gap-0.5"><dt className="text-[11px] font-semibold text-[var(--zc-text-tertiary)]">{label}</dt><dd className={cn("min-w-0 text-xs text-[var(--muted)]", path ? "line-clamp-2 break-words font-mono leading-5" : "truncate")} title={title ?? value}>{value || "-"}</dd></div>;
+  return <div className="grid min-w-0 gap-0.5"><dt className="text-[11px] font-semibold text-[var(--zc-text-tertiary)]">{label}</dt><dd className={cn("min-w-0 text-xs text-[var(--muted)]", path ? "break-words font-mono leading-5 [overflow-wrap:anywhere]" : "truncate")} title={title ?? value}>{value || "-"}</dd></div>;
 }
 
 export function HistoryInspector({
