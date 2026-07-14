@@ -8,19 +8,19 @@ import {
   type RuleDraftValidation
 } from "../rules/ruleBuilder";
 
-export type AutomationRunState =
-  | { kind: "idle" }
-  | { kind: "running" }
-  | { kind: "completed"; scanned: number; updated: number; skipped: number; needsConfirmation: number; warning?: string }
-  | { kind: "failed"; message: string }
-  | { kind: "stale" };
-
 export interface AutomationRunContext {
   generationId: number;
   scopeSignature: string;
   enabledRuleVersion: string;
   triggerTime: string;
 }
+
+export type AutomationRunState =
+  | { kind: "idle" }
+  | { kind: "running"; context: AutomationRunContext }
+  | { kind: "completed"; context: AutomationRunContext; scanned: number; updated: number; skipped: number; needsConfirmation: number; warning?: string }
+  | { kind: "failed"; context: AutomationRunContext; message: string }
+  | { kind: "stale"; context?: AutomationRunContext };
 
 export function automationOverview(rules: Rule[], needsReview: number) {
   const editable = rules.filter((rule) => rule.source === "user");
@@ -112,6 +112,7 @@ export function conditionValueLabel(condition: RuleCondition, t: Translator) {
 }
 
 export function conditionSummary(condition: RuleCondition, t: Translator) {
+  if (!validateRuleDraft("rule", [{ id: "summary", operator: "AND", conditions: [condition] }]).valid) return t("automationConditionIncomplete");
   return `${conditionFieldLabel(condition.field, t)} ${conditionOperatorLabel(condition.operator, t)} ${conditionValueLabel(condition, t)}`;
 }
 
@@ -141,7 +142,7 @@ export function draftActionSummary(purpose: Purpose, lifecycle: Lifecycle, t: Tr
 }
 
 export function draftConditionSummary(groups: Rule["groups"], rootOperator: Rule["root_operator"], t: Translator) {
-  if (!groups.length) return t("automationNoConditions");
+  if (!groups.length || groups.some((group) => !group.conditions.length)) return t("automationConditionIncomplete");
   return groups
     .map((group) => group.conditions.map((condition) => conditionSummary(condition, t)).join(` ${t(group.operator === "AND" ? "automationLogicAnd" : "automationLogicOr")} `))
     .join(` ${t(rootOperator === "AND" ? "automationLogicAnd" : "automationLogicOr")} `);

@@ -19,17 +19,21 @@ type HarnessProps = {
   initialRules?: Rule[];
   deleteMode?: "success" | "false" | "throw";
   toggleGate?: Promise<void>;
-  onToggle?: () => void;
+  toggleGateByRule?: Partial<Record<string, Promise<void>>>;
+  toggleFailureIds?: string[];
+  onToggle?: (id: string) => void;
 };
 
-function RulesHarness({ initialRules: configuredRules, deleteMode = "success", toggleGate, onToggle }: HarnessProps) {
+function RulesHarness({ initialRules: configuredRules, deleteMode = "success", toggleGate, toggleGateByRule, toggleFailureIds = [], onToggle }: HarnessProps) {
   const [rules, setRules] = useState(() => configuredRules ?? initialRules);
   const value: RulesContextValue = {
     rules,
     saveRule: async (next) => setRules((current) => current.map((rule) => rule.id === next.id ? next : rule)),
     toggleRuleEnabled: async (rule, enabled) => {
-      onToggle?.();
+      onToggle?.(rule.id);
+      if (toggleGateByRule?.[rule.id]) await toggleGateByRule[rule.id];
       if (toggleGate) await toggleGate;
+      if (toggleFailureIds.includes(rule.id)) throw new Error("sqlite offline");
       setRules((current) => current.map((item) => item.id === rule.id ? { ...item, enabled } : item));
     },
     deleteRule: async (rule) => {
@@ -56,6 +60,18 @@ function rule(id: string, name: string, enabled: boolean): Rule {
     created_at: "2026-07-14T00:00:00Z",
     updated_at: "2026-07-14T00:00:00Z"
   };
+}
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
+  input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
+}
+
+function makeFocusable(element: HTMLElement) {
+  Object.defineProperty(element, "getClientRects", {
+    configurable: true,
+    value: () => [{ width: 120, height: 40, top: 0, left: 0, right: 120, bottom: 40 }]
+  });
 }
 
 describe("automation rule workspace behavior", () => {
@@ -88,6 +104,18 @@ describe("automation rule workspace behavior", () => {
 
   async function renderRules(props: HarnessProps = {}) {
     await act(async () => root.render(createElement(RulesHarness, props)));
+  }
+
+  async function completeRun(props: HarnessProps = {}) {
+    vi.spyOn(tauriApi, "executeRulesForScope").mockResolvedValue({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 });
+    vi.spyOn(useFileLibraryStore.getState(), "loadOrganizeQueue").mockResolvedValue();
+    vi.spyOn(useFileLibraryStore.getState(), "refresh").mockResolvedValue();
+    await renderRules(props);
+    const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("suggestions"))!;
+    await act(async () => run.click());
+    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("suggestions"))!;
+    await act(async () => confirm.click());
+    await act(async () => Promise.resolve());
   }
 
   function rowButtons() {
@@ -169,9 +197,9 @@ describe("automation rule workspace behavior", () => {
     await renderRules();
 
     const openRunConfirmation = async () => {
-      const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("Generate suggestions"))!;
+      const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("suggestions"))!;
       await act(async () => run.click());
-      const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("Generate suggestions"))!;
+      const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("suggestions"))!;
       await act(async () => confirm.click());
     };
 
@@ -195,9 +223,9 @@ describe("automation rule workspace behavior", () => {
     let resolveToggle!: () => void;
     const toggleGate = new Promise<void>((resolve) => { resolveToggle = resolve; });
     await renderRules({ toggleGate });
-    const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("Generate suggestions"))!;
+    const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("suggestions"))!;
     await act(async () => run.click());
-    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("Generate suggestions"))!;
+    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("suggestions"))!;
     await act(async () => confirm.click());
 
     const firstSwitch = document.querySelector<HTMLButtonElement>('[role="switch"]')!;
@@ -205,22 +233,214 @@ describe("automation rule workspace behavior", () => {
     resolveToggle();
     await act(async () => { await toggleGate; await Promise.resolve(); });
     await act(async () => { pendingRun.resolve(); await pendingRun.promise; });
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("Run result is stale");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous generated result has expired");
     expect(document.querySelector('[role="status"]')?.textContent).not.toContain("Updated 1");
   });
 
-  it("keeps the narrow layout contract on the 1023px boundary", async () => {
+  it("marks a completed result stale after a rule edit", async () => {
+    await completeRun();
+    const edit = document.querySelector<HTMLButtonElement>('button[aria-label="Edit rule"]')!;
+    edit.focus();
+    await act(async () => edit.click());
+    const name = document.querySelector<HTMLInputElement>('input[value="First rule"]')!;
+    await act(async () => setInputValue(name, "Edited rule"));
+    const save = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Save rule")!;
+    await act(async () => save.click());
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous generated result has expired");
+  });
+
+  it("marks a completed result stale after a rule toggle", async () => {
+    await completeRun();
+    await act(async () => document.querySelector<HTMLButtonElement>('[role="switch"]')!.click());
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous generated result has expired");
+  });
+
+  it("marks a completed result stale after a rule delete", async () => {
+    await completeRun({ initialRules: [rule("only-rule", "Only rule", true)] });
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Delete rule"]')!.click());
+    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent === "Delete rule")!;
+    await act(async () => confirm.click());
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous generated result has expired");
+  });
+
+  it("marks a completed result stale after a scope change", async () => {
+    await completeRun();
+    act(() => useFileLibraryStore.getState().setScope({ kind: "roots", roots: ["C:/changed-scope"] }));
+    await act(async () => Promise.resolve());
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous generated result has expired");
+  });
+
+  it("keeps a stale state after the old response resolves", async () => {
+    const pending = deferred({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 });
+    vi.spyOn(tauriApi, "executeRulesForScope").mockReturnValue(pending.promise);
+    vi.spyOn(useFileLibraryStore.getState(), "loadOrganizeQueue").mockResolvedValue();
+    vi.spyOn(useFileLibraryStore.getState(), "refresh").mockResolvedValue();
+    await renderRules();
+    const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("suggestions"))!;
+    await act(async () => run.click());
+    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("suggestions"))!;
+    await act(async () => confirm.click());
+    act(() => useFileLibraryStore.getState().setScope({ kind: "roots", roots: ["C:/stale-scope"] }));
+    await act(async () => Promise.resolve());
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous generated result has expired");
+    await act(async () => { pending.resolve(); await pending.promise; await Promise.resolve(); });
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("previous generated result has expired");
+    expect(document.querySelector('[role="status"]')?.textContent).not.toContain("Updated 1");
+  });
+
+  it("keeps the narrow layout contract on the 1180px boundary", async () => {
     Object.defineProperty(window, "matchMedia", { configurable: true, value: undefined });
-    Object.defineProperty(window, "innerWidth", { value: 1023, writable: true, configurable: true });
+    Object.defineProperty(window, "innerWidth", { value: 1179, writable: true, configurable: true });
     await renderRules();
     await act(async () => rowButtons()[0].click());
     expect(document.querySelector('button[aria-label="Back to rules"]')).toBeTruthy();
 
     await act(async () => root.unmount());
     root = createRoot(document.getElementById("test-root")!);
-    Object.defineProperty(window, "innerWidth", { value: 1024, writable: true, configurable: true });
+    Object.defineProperty(window, "innerWidth", { value: 1180, writable: true, configurable: true });
     await renderRules();
     expect(document.querySelector('button[aria-label="Back to rules"]')).toBeNull();
+  });
+
+  it("restores focus to each real automation dialog trigger", async () => {
+    await renderRules();
+    const topCreate = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Create rule")!;
+    makeFocusable(topCreate);
+    topCreate.focus();
+    await act(async () => topCreate.click());
+    const cancelNew = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Cancel")!;
+    await act(async () => cancelNew.click());
+    expect(document.activeElement).toBe(topCreate);
+
+    await act(async () => {
+      const firstRow = rowButtons()[0];
+      firstRow.click();
+    });
+    const edit = document.querySelector<HTMLButtonElement>('button[aria-label="Edit rule"]')!;
+    makeFocusable(edit);
+    edit.focus();
+    await act(async () => edit.click());
+    const cancelEdit = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Cancel")!;
+    await act(async () => cancelEdit.click());
+    expect(document.activeElement).toBe(edit);
+  });
+
+  it("restores focus to the empty-state create trigger", async () => {
+    await renderRules({ initialRules: [] });
+    const emptyCreate = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Create first rule")!;
+    makeFocusable(emptyCreate);
+    emptyCreate.focus();
+    await act(async () => emptyCreate.click());
+    const cancel = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Cancel")!;
+    await act(async () => cancel.click());
+    expect(document.activeElement).toBe(emptyCreate);
+  });
+
+  it("restores the trigger after close, Escape, save, and discarded changes", async () => {
+    await renderRules();
+    const topCreate = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Create rule")!;
+    makeFocusable(topCreate);
+
+    topCreate.focus();
+    await act(async () => topCreate.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click());
+    expect(document.activeElement).toBe(topCreate);
+
+    topCreate.focus();
+    await act(async () => topCreate.click());
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(document.activeElement).toBe(topCreate);
+
+    topCreate.focus();
+    await act(async () => topCreate.click());
+    const [name, value] = Array.from(document.querySelectorAll<HTMLInputElement>('input:not([type="number"])'));
+    await act(async () => {
+      setInputValue(name, "Saved rule");
+      setInputValue(value, "report");
+    });
+    const save = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Save rule")!;
+    await act(async () => save.click());
+    expect(document.activeElement).toBe(topCreate);
+
+    topCreate.focus();
+    await act(async () => topCreate.click());
+    const dirtyName = Array.from(document.querySelectorAll<HTMLInputElement>('input:not([type="number"])'))[0];
+    await act(async () => setInputValue(dirtyName, "Discarded rule"));
+    await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Close"]')!.click());
+    const discard = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent === "Discard changes")!;
+    await act(async () => discard.click());
+    await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); });
+    expect(document.activeElement).toBe(topCreate);
+  });
+
+  it("allows two different rules to toggle concurrently and keeps each busy state independent", async () => {
+    let resolveA!: () => void;
+    let resolveB!: () => void;
+    const gateA = new Promise<void>((resolve) => { resolveA = resolve; });
+    const gateB = new Promise<void>((resolve) => { resolveB = resolve; });
+    const onToggle = vi.fn();
+    await renderRules({ toggleGateByRule: { "rule-a": gateA, "rule-b": gateB }, onToggle });
+    const switches = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="switch"]'));
+
+    await act(async () => {
+      switches()[0].click();
+      switches()[1].click();
+      await Promise.resolve();
+    });
+    expect(onToggle).toHaveBeenCalledWith("rule-a");
+    expect(onToggle).toHaveBeenCalledWith("rule-b");
+    expect(switches()[0].disabled).toBe(true);
+    expect(switches()[1].disabled).toBe(true);
+    expect(switches()[0].getAttribute("aria-busy")).toBe("true");
+    expect(switches()[1].getAttribute("aria-busy")).toBe("true");
+
+    await act(async () => { resolveA(); await gateA; await Promise.resolve(); });
+    expect(switches()[0].disabled).toBe(false);
+    expect(switches()[1].disabled).toBe(true);
+    expect(switches()[0].getAttribute("aria-checked")).toBe("false");
+    expect(switches()[1].getAttribute("aria-checked")).toBe("true");
+
+    await act(async () => { resolveB(); await gateB; await Promise.resolve(); });
+    expect(switches()[1].disabled).toBe(false);
+    expect(switches()[1].getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("isolates a toggle failure to its own row while another rule remains busy", async () => {
+    let resolveB!: () => void;
+    const gateB = new Promise<void>((resolve) => { resolveB = resolve; });
+    await renderRules({ toggleGateByRule: { "rule-b": gateB }, toggleFailureIds: ["rule-a"] });
+    const switches = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[role="switch"]'));
+
+    await act(async () => {
+      switches()[0].click();
+      switches()[1].click();
+      await Promise.resolve();
+    });
+    expect(document.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("Rule state could not be saved");
+    expect(switches()[0].disabled).toBe(false);
+    expect(switches()[1].disabled).toBe(true);
+    expect(switches()[1].getAttribute("aria-busy")).toBe("true");
+
+    await act(async () => { resolveB(); await gateB; await Promise.resolve(); });
+    expect(document.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(switches()[0].getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("passes only enabled user rules to the manual execution API", async () => {
+    const systemRule = { ...rule("system-a", "System rule", true), source: "system" as const };
+    const execute = vi.spyOn(tauriApi, "executeRulesForScope").mockResolvedValue({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 });
+    vi.spyOn(useFileLibraryStore.getState(), "loadOrganizeQueue").mockResolvedValue();
+    vi.spyOn(useFileLibraryStore.getState(), "refresh").mockResolvedValue();
+    await renderRules({ initialRules: [rule("rule-a", "First rule", true), systemRule] });
+
+    const run = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("suggestions"))!;
+    await act(async () => run.click());
+    const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("suggestions"))!;
+    await act(async () => confirm.click());
+    await act(async () => Promise.resolve());
+    expect(execute).toHaveBeenCalledWith(expect.anything(), [expect.objectContaining({ id: "rule-a", source: "user" })], "all_changed_or_rule_changed");
+    expect(execute.mock.calls[0][1]).not.toEqual(expect.arrayContaining([expect.objectContaining({ source: "system" })]));
   });
 });
 

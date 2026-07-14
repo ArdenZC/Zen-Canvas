@@ -15,7 +15,8 @@ describe("automation workspace source contract", () => {
     const t = makeTranslator("zh");
 
     expect(t("automationWorkspaceTitle")).toBe("自动化工作区");
-    expect(view).toContain('useMediaQuery("(max-width: 1023px)")');
+    expect(view).toContain('useMediaQuery("(max-width: 1179px)")');
+    expect(view).toContain("min-[1180px]:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)]");
     expect(list).toContain('role="list"');
     expect(list).not.toContain('role="listbox"');
     expect(list).not.toContain('role="option"');
@@ -25,6 +26,8 @@ describe("automation workspace source contract", () => {
     expect(view).toContain("focusRuleContent");
     expect(view).toContain('setNarrowPane("list")');
     expect(view).toContain("emptyCreateRef.current");
+    expect(view).toContain("enabledUserRules");
+    expect(view).toContain("automationManualRuleSet");
     expect(inspector).toContain('t("automationScheduleTrigger")');
     expect(inspector).toContain('available={false}');
     expect(inspector).toContain('t("automationCurrentFileLibraryScope")');

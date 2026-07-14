@@ -208,7 +208,7 @@ export function AutomationRuleDialog({ open, rule, t, restoreFocus, onClose, onS
         enabled: rule?.enabled,
         now: rule?.created_at ?? now
       });
-      next.priority = rule?.priority ?? draft.priority;
+      next.priority = draft.priority;
       next.enabled = rule?.enabled ?? false;
       next.created_at = rule?.created_at ?? next.created_at;
       next.updated_at = now;
@@ -233,7 +233,7 @@ export function AutomationRuleDialog({ open, rule, t, restoreFocus, onClose, onS
             <button ref={closeRef} type="button" className={buttonGhost} aria-label={t("close")} onClick={requestClose}><X size={17} /></button>
           </header>
           <div className="grid gap-5 overflow-y-auto p-5">
-            <section className="grid gap-3 rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3" aria-live="polite">
+            <section className="grid gap-3 rounded-[var(--zc-radius-field)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3">
               <strong className="text-sm">{t("automationSummaryTitle")}</strong>
               <p className="text-sm"><span className="text-[var(--muted)]">{t("automationWhen")}</span> {draftConditionSummary(draft.groups, draft.rootOperator, t)}</p>
               <p className="text-sm"><span className="text-[var(--muted)]">{t("automationThen")}</span> {draftActionSummary(draft.purpose, draft.lifecycle, t)}</p>
@@ -261,6 +261,7 @@ export function AutomationRuleDialog({ open, rule, t, restoreFocus, onClose, onS
 
             {advanced && <section id={`${titleId}-advanced-editor`} className="grid gap-3" aria-label={t("automationAdvanced")}>
               <div className="grid gap-2 sm:grid-cols-2"><label className="grid gap-1 text-xs text-[var(--muted)]">{t("rootOperator")}<select className={selectSurface} value={draft.rootOperator} onChange={(event) => setDraft((current) => ({ ...current, rootOperator: event.target.value as RuleOperator }))}>{RULE_LOGIC_OPTIONS.map((value) => <option key={value} value={value}>{t(value === "AND" ? "automationLogicAnd" : "automationLogicOr")}</option>)}</select></label><label className="grid gap-1 text-xs text-[var(--muted)]">{t("automationWeight")}<input className={inputSurface} type="number" min={0} max={100} step="any" value={Number.isFinite(draft.weight) ? draft.weight : ""} aria-invalid={Boolean((submitAttempted || touched.weight) && validation.weight)} onBlur={() => setTouched((current) => ({ ...current, weight: true }))} onChange={(event) => setDraft((current) => ({ ...current, weight: event.target.value === "" ? Number.NaN : Number(event.target.value) }))} /></label></div>
+              <p className={cn(mutedText, "text-xs")}>{t("automationWeightPriorityHint")}</p>
               {(submitAttempted || touched.weight) && validation.weight && <p className="text-xs text-[var(--zc-danger-text)]" role="alert">{t("automationWeightInvalid")}</p>}
               <label className="grid gap-1 text-xs text-[var(--muted)]">{t("automationPriority")}<input className={inputSurface} type="number" min={0} max={1000} step="any" value={Number.isFinite(draft.priority) ? draft.priority : ""} aria-invalid={Boolean((submitAttempted || touched.priority) && validation.priority)} onBlur={() => setTouched((current) => ({ ...current, priority: true }))} onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value === "" ? Number.NaN : Number(event.target.value) }))} /></label>
               {(submitAttempted || touched.priority) && validation.priority && <p className="text-xs text-[var(--zc-danger-text)]" role="alert">{t("automationPriorityInvalid")}</p>}

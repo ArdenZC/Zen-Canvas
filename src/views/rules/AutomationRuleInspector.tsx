@@ -24,7 +24,7 @@ export function AutomationRuleInspector({ rule, isNarrow, editRef, onBack, onEdi
   isNarrow: boolean;
   editRef?: RefObject<HTMLButtonElement | null>;
   onBack: () => void;
-  onEdit: () => void;
+  onEdit: (trigger: HTMLButtonElement) => void;
   onDelete: () => void;
   onOpenReview: () => void;
   t: Translator;
@@ -32,15 +32,15 @@ export function AutomationRuleInspector({ rule, isNarrow, editRef, onBack, onEdi
   return <section className="grid gap-5" aria-labelledby="automation-inspector-title">
     <header className="flex items-start justify-between gap-3">
       <div className="flex min-w-0 items-start gap-2">{isNarrow && <button type="button" className={buttonSecondary} aria-label={t("automationBackToRules")} onClick={onBack}><ArrowLeft size={16} /></button>}<div className="min-w-0"><h2 id="automation-inspector-title" className="truncate text-lg font-semibold">{rule.name}</h2><p className={cn(mutedText, "mt-1")}>{rule.enabled ? t("automationEnabledDesc") : t("automationPausedDesc")}</p></div></div>
-      <div className="flex shrink-0 items-center gap-1"><button ref={editRef} type="button" className={buttonGhost} aria-label={t("automationEditRule")} onClick={onEdit}><Pencil size={15} />{t("automationEditRule")}</button><button type="button" className={buttonIconDanger} aria-label={t("deleteRule")} title={t("deleteRule")} onClick={onDelete}><Trash2 size={15} /></button></div>
+      <div className="flex shrink-0 items-center gap-1"><button ref={editRef} type="button" className={buttonGhost} aria-label={t("automationEditRule")} onClick={(event) => onEdit(event.currentTarget)}><Pencil size={15} />{t("automationEditRule")}</button><button type="button" className={buttonIconDanger} aria-label={t("deleteRule")} title={t("deleteRule")} onClick={onDelete}><Trash2 size={15} /></button></div>
     </header>
 
     <section className="grid gap-3" aria-labelledby="automation-rule-config-title">
       <h3 id="automation-rule-config-title" className="text-sm font-semibold">{t("automationRuleConfiguration")}</h3>
       <div className="grid gap-3 sm:grid-cols-2">
         <InspectorItem icon={rule.enabled ? <Play size={16} /> : <CirclePause size={16} />} label={t("automationStatus")} value={rule.enabled ? t("automationEnabled") : t("automationPaused")} hint={rule.enabled ? t("automationEnabledDesc") : t("automationPausedDesc")} />
-        <InspectorItem label={t("automationWeight")} value={String(rule.weight)} />
-        <InspectorItem label={t("automationPriority")} value={String(rule.priority)} />
+        <InspectorItem label={t("automationWeight")} value={String(rule.weight)} hint={t("automationWeightHint")} />
+        <InspectorItem label={t("automationPriority")} value={String(rule.priority)} hint={t("automationPriorityHint")} />
         <InspectorItem label={t("automationCreatedAt")} value={formatDate(rule.created_at)} />
         <InspectorItem label={t("automationUpdatedAt")} value={formatDate(rule.updated_at)} />
       </div>

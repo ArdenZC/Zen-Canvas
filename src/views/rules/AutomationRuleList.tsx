@@ -1,4 +1,5 @@
 import { useRef, type KeyboardEvent, type RefObject } from "react";
+import { LoaderCircle } from "lucide-react";
 import type { Rule } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { cn } from "../../utils/tw";
@@ -12,11 +13,11 @@ export function focusRuleContent(listRef: RefObject<HTMLUListElement | null>, id
   return Boolean(target);
 }
 
-export function AutomationRuleList({ rules, activeId, busyRuleId, toggleErrorId, listRef, onSelect, onFocus, onToggle, t }: {
+export function AutomationRuleList({ rules, activeId, busyRuleIds, toggleErrorIds, listRef, onSelect, onFocus, onToggle, t }: {
   rules: readonly Rule[];
   activeId: string;
-  busyRuleId: string;
-  toggleErrorId: string;
+  busyRuleIds: ReadonlySet<string>;
+  toggleErrorIds: ReadonlySet<string>;
   listRef: RefObject<HTMLUListElement | null>;
   onSelect: (rule: Rule) => void;
   onFocus: (rule: Rule) => void;
@@ -47,6 +48,7 @@ export function AutomationRuleList({ rules, activeId, busyRuleId, toggleErrorId,
     <ul ref={listRef} role="list" aria-label={t("automationRules")} className="grid gap-1 outline-none">
       {rules.map((rule, index) => {
         const active = rule.id === activeId;
+        const busy = busyRuleIds.has(rule.id);
         return (
           <li key={rule.id} className={cn("grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-[var(--zc-radius-field)] border px-3 py-3 transition-colors", active ? "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)]" : "border-transparent hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-hover)]")}>
             <button
@@ -62,18 +64,20 @@ export function AutomationRuleList({ rules, activeId, busyRuleId, toggleErrorId,
             >
               <strong className="block truncate text-sm">{rule.name}</strong>
               <span className="mt-1 block truncate text-xs text-[var(--muted)]">{rule.enabled ? t("automationEnabled") : t("automationPaused")}: {ruleConditionSummary(rule, t)}</span>
-              {toggleErrorId === rule.id && <span className="mt-1 block text-xs text-[var(--zc-danger-text)]" role="alert">{t("automationToggleFailed")}</span>}
+              {toggleErrorIds.has(rule.id) && <span className="mt-1 block text-xs text-[var(--zc-danger-text)]" role="alert">{t("automationToggleFailed")}</span>}
             </button>
             <button
               type="button"
               role="switch"
               aria-checked={rule.enabled}
+              aria-busy={busy}
               aria-label={rule.enabled ? t("disableRule") : t("enableRule")}
-              className={toggleSwitch(rule.enabled)}
-              disabled={busyRuleId === rule.id}
+              data-loading={busy ? "true" : undefined}
+              className={cn(toggleSwitch(rule.enabled), busy && "cursor-wait")}
+              disabled={busy}
               onClick={(event) => { event.stopPropagation(); onToggle(rule, !rule.enabled); }}
               onKeyDown={(event) => event.stopPropagation()}
-            ><i /></button>
+            ><i />{busy && <LoaderCircle size={13} aria-hidden="true" className="absolute right-1 top-1/2 -translate-y-1/2 animate-spin text-white/90" />}{busy && <span className="sr-only">{t("loading")}</span>}</button>
           </li>
         );
       })}

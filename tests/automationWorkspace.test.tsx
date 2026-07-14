@@ -6,7 +6,7 @@ import { resetModalInfrastructureForTests } from "../src/components/modal/ModalP
 import { makeTranslator } from "../src/i18n";
 import type { Rule } from "../src/types/domain";
 import { AutomationRuleDialog } from "../src/views/automation/AutomationRuleDialog";
-import { acceptsAutomationRunResult, automationOverview, createAutomationRunContext, ruleActionSummary, ruleConditionSummary, validateRuleDraft } from "../src/views/automation/automationModel";
+import { acceptsAutomationRunResult, automationOverview, createAutomationRunContext, draftConditionSummary, ruleActionSummary, ruleConditionSummary, validateRuleDraft } from "../src/views/automation/automationModel";
 import { normalizeConditionForField, validateRuleCondition } from "../src/views/rules/ruleBuilder";
 
 const t = makeTranslator("en");
@@ -49,6 +49,8 @@ describe("automation workspace behavior", () => {
     expect(ruleActionSummary(sample, t)).toBe("Temporary · Inbox");
     expect(validateRuleDraft("", sample.groups)).toMatchObject({ name: "required" });
     expect(validateRuleDraft("ok", [{ ...sample.groups[0], conditions: [{ ...sample.groups[0].conditions[0], value: "" }] }])).toMatchObject({ conditions: "required" });
+    expect(draftConditionSummary([{ ...sample.groups[0], conditions: [{ ...sample.groups[0].conditions[0], value: "" }] }], "AND", t)).toBe("Condition is incomplete");
+    expect(draftConditionSummary([], "AND", t)).toBe("Condition is incomplete");
   });
 
   it("localizes builder options and keeps invalid drafts unsavable until required fields are valid", async () => {
@@ -96,6 +98,20 @@ describe("automation workspace behavior", () => {
     expect(onSave).toHaveBeenCalledOnce();
     expect(onSave.mock.calls[0][0]).toMatchObject({ id: "rule-1", name: "Screenshot inbox", enabled: true, priority: 75, action: { purpose: "Temporary", lifecycle: "Inbox" } });
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("persists edited priority and explains the backend scoring order", async () => {
+    const onSave = vi.fn(async (_rule: Rule) => undefined);
+    root = createRoot(document.getElementById("test-root")!);
+    await act(async () => root!.render(<AutomationRuleDialog open rule={sample} t={t} onClose={vi.fn()} onSave={onSave} />));
+    const advancedToggle = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes("Advanced conditions"))!;
+    await act(async () => advancedToggle.click());
+    expect(document.body.textContent).toContain("Matching candidates are ordered by combined score");
+    const priority = document.querySelector<HTMLInputElement>('input[type="number"][max="1000"]')!;
+    await act(async () => setInputValue(priority, "333"));
+    const save = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Save rule")!;
+    await act(async () => save.click());
+    expect(onSave.mock.calls[0][0]).toMatchObject({ priority: 333 });
   });
 
   it("opens a stacked discard confirmation for dirty close and keeps edits when canceled", async () => {
@@ -159,6 +175,13 @@ describe("automation workspace behavior", () => {
     expect(document.querySelector('[aria-label="Advanced conditions"]')).toBeTruthy();
     await act(async () => advancedToggle.click());
     expect(document.querySelector<HTMLInputElement>('input[value="One draft"]')).toBeTruthy();
+  });
+
+  it("does not make the live rule summary an assertive per-keystroke announcement", async () => {
+    root = createRoot(document.getElementById("test-root")!);
+    await act(async () => root!.render(<AutomationRuleDialog open t={t} onClose={vi.fn()} onSave={vi.fn(async (_rule: Rule) => undefined)} />));
+    const summary = document.querySelector("section")!;
+    expect(summary.hasAttribute("aria-live")).toBe(false);
   });
 
   it("starts new rules paused, keeps edit state, and retains the modal after save failure", async () => {
