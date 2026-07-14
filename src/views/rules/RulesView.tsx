@@ -69,6 +69,12 @@ export function RulesView() {
   }, [activeId, userRules]);
 
   useEffect(() => {
+    if (userRules.length > 0 || editorRule || confirmation) return;
+    const frame = requestAnimationFrame(() => emptyCreateRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [confirmation, editorRule, userRules.length]);
+
+  useEffect(() => {
     generationRef.current += 1;
     runContextRef.current = null;
     setRunState((current) => current.kind === "running" ? { kind: "stale" } : current);
