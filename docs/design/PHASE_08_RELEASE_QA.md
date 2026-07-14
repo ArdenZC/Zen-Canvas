@@ -293,5 +293,6 @@ Browser QA 使用 Vite 本地页面的 Browser mock 数据，只用于验证 DOM
 ## 13. 交付记录
 
 - 提交策略：独立、语义清晰的普通提交；不 amend、不 rebase、不 force push。
-- 实现提交、最终本地 SHA、远端 SHA 和工作区状态在正常 push 完成后补齐。
+- 实现提交：`da4cb173addff34264e271603de7971eb155892f`（`fix(ui): close phase 8.0.1 state and responsive gaps`）。
+- 本文档随后以独立 QA 记录提交；最终本地 SHA、远端 SHA 和工作区状态以正常 push 后的交付报告为准。
 - 安装器：`F:\Coding\Zen-Canvas\src-tauri\target\release\bundle\nsis\Zen Canvas_0.1.39_x64-setup.exe`，SHA-256 `31707508B00387BF0707476A28D4A4032B73EB219087883E2771912A84DD4416`；安装器不提交。
