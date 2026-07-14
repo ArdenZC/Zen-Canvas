@@ -106,15 +106,15 @@ describe("app render architecture", () => {
     expect(browserMock).toContain("cleanupAiEnabled: true");
   });
 
-  it("keeps automatic rule execution behind advanced warning copy", () => {
+  it("keeps automatic rule execution behind explicit confirmation and the current safety boundary", () => {
     const rulesView = read("src/views/rules/RulesView.tsx");
     const i18n = read("src/i18n.ts");
 
-    expect(rulesView).toContain("continueRunAutoRules");
-    expect(i18n).toContain("自动规则，高级功能");
-    expect(i18n).toContain("可能覆盖 AI 分类结果");
-    expect(i18n).toContain("默认不会覆盖用户手动确认或纠正过的结果");
-    expect(i18n).toContain("继续执行自动规则");
+    expect(rulesView).toContain('setConfirmation({ kind: "run" })');
+    expect(rulesView).toContain("ConfirmDialog");
+    expect(i18n).toContain("自动化只写入建议");
+    expect(i18n).toContain("不会直接移动、重命名、删除或覆盖文件");
+    expect(i18n).toContain("执行仍需进入预览确认");
   });
 
   it("does not register main-window runtime side effects in search mode", () => {

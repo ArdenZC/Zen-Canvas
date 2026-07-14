@@ -65,8 +65,8 @@ describe("phase 10 motion and accessibility contracts", () => {
     expect(settingsView).toContain('aria-label={t("deleteScanFolder")}');
     expect(settingsView).toContain('title={t("deleteSearchFolder")}');
     expect(settingsView).toContain('aria-label={t("deleteSearchFolder")}');
-    expect(rulesView).toContain('title={deleteLabel}');
-    expect(rulesView).toContain('aria-label={deleteLabel}');
+    expect(rulesView).toContain('title={t("deleteRule")}');
+    expect(rulesView).toContain('aria-label={t("deleteRule")}');
   });
 
   it("keeps the File Library list and Inspector readable at the minimum desktop width", () => {
