@@ -4,7 +4,7 @@ import { tauriApi } from "../../api/tauriApi";
 import type { CleanupRestorePreviewItem, CleanupTrashBatch, CleanupTrashItem, OperationLog } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { buttonGhost, buttonSecondary, cn } from "../../utils/tw";
-import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
+import { formatDisplayPath } from "../../utils/viewHelpers";
 import { mutedText, rowSurface } from "../shared/ui";
 import {
   cleanupRestoreEligibility,
@@ -108,8 +108,8 @@ function operationOriginalPath(log: OperationLog) {
   return log.path_before || log.source_path || log.path_after || log.target_path;
 }
 
-function DetailRow({ label, value, title }: { label: string; value: string; title?: string }) {
-  return <div className="grid min-w-0 gap-0.5"><dt className="text-[11px] font-semibold text-[var(--zc-text-tertiary)]">{label}</dt><dd className="min-w-0 truncate text-xs text-[var(--muted)]" title={title ?? value}>{value || "-"}</dd></div>;
+function DetailRow({ label, value, title, path = false }: { label: string; value: string; title?: string; path?: boolean }) {
+  return <div className="grid min-w-0 gap-0.5"><dt className="text-[11px] font-semibold text-[var(--zc-text-tertiary)]">{label}</dt><dd className={cn("min-w-0 text-xs text-[var(--muted)]", path ? "break-all font-mono leading-5" : "truncate")} title={title ?? value}>{value || "-"}</dd></div>;
 }
 
 export function HistoryInspector({
@@ -183,8 +183,8 @@ export function HistoryInspector({
                   <dl className="mt-2 grid gap-1.5 sm:grid-cols-2">
                     <DetailRow label={t("historyCreatedAt")} value={formatDate(log.created_at, t)} />
                     <DetailRow label={t("historyRestoreEligibility")} value={restoreEligibilityLabel(log, t)} />
-                    <DetailRow label={t("historyOriginalPath")} value={compactPath(formatDisplayPath(originalPath), 68)} title={formatDisplayPath(originalPath)} />
-                    <DetailRow label={t("historyCurrentPath")} value={compactPath(formatDisplayPath(currentPath), 68)} title={formatDisplayPath(currentPath)} />
+                    <DetailRow path label={t("historyOriginalPath")} value={formatDisplayPath(originalPath)} />
+                    <DetailRow path label={t("historyCurrentPath")} value={formatDisplayPath(currentPath)} />
                   </dl>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                     <span className={cn("font-medium", eligible ? "text-[var(--zc-success-text)]" : "text-[var(--muted)]")}>{restoreEligibilityLabel(log, t)}</span>
@@ -293,8 +293,8 @@ export function CleanupInspector({
                   <dl className="mt-2 grid gap-1.5 sm:grid-cols-2">
                     <DetailRow label={t("historyCreatedAt")} value={formatDate(item.movedAt, t)} />
                     <DetailRow label={t("historyRestoreEligibility")} value={cleanupStatusLabel(item, preview, previewState, t)} />
-                    <DetailRow label={t("historyCleanupOriginalPath")} value={compactPath(formatDisplayPath(item.originalPath), 68)} title={formatDisplayPath(item.originalPath)} />
-                    <DetailRow label={t("historyCleanupCurrentPath")} value={compactPath(formatDisplayPath(currentPath), 68)} title={formatDisplayPath(currentPath)} />
+                    <DetailRow path label={t("historyCleanupOriginalPath")} value={formatDisplayPath(item.originalPath)} />
+                    <DetailRow path label={t("historyCleanupCurrentPath")} value={formatDisplayPath(currentPath)} />
                   </dl>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                     <span className={cn("font-medium", eligible ? "text-[var(--zc-success-text)]" : "text-[var(--muted)]")}>{cleanupStatusLabel(item, preview, previewState, t)}</span>

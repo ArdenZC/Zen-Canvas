@@ -344,16 +344,15 @@ export function RestoreView() {
             <div className="flex items-center gap-2"><History size={20} className="text-[var(--zc-primary)]" aria-hidden="true" /><h2 className="text-xl font-semibold">{t("historyWorkspaceTitle")}</h2></div>
             <p className={cn(mutedText, "mt-1 max-w-2xl")}>{t("historyWorkspaceDesc")}</p>
           </div>
-          <div className="flex items-center gap-2 text-xs text-[var(--muted)]"><ShieldCheck size={16} aria-hidden="true" />{t("restoreDesc")}</div>
+          <div className="flex max-w-xl items-start gap-2 rounded-[var(--zc-radius-control)] border border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] px-3 py-2 text-xs leading-5 text-[var(--zc-success-text)]"><ShieldCheck size={16} className="mt-0.5 shrink-0" aria-hidden="true" />{t("historySafetyBoundary")}</div>
         </header>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className={cn(contentPanel, "flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3")}>
           {[
-            { label: t("historySummaryOperations"), value: summary.operations, hint: `${summary.operationRestorable} ${t("restorable")}` },
-            { label: t("historySummaryRestorable"), value: summary.restorable, hint: `${t("historySummaryOperationRestorable")}: ${summary.operationRestorable} · ${t("historySummaryCleanupRestorable")}: ${summary.cleanupRestorable}` },
-            { label: t("historySummaryRestored"), value: summary.restored, hint: t("historyRestoreSuccess") },
-            { label: t("historySummaryExcluded"), value: summary.unavailable, hint: t("historyStatusUnavailable") }
-          ].map((card) => <div key={card.label} className={cn(contentPanel, "p-3")}><span className="block text-xs text-[var(--muted)]">{card.label}</span><strong className="mt-1 block text-lg tabular-nums">{card.value}</strong><span className="mt-1 block truncate text-[11px] text-[var(--muted)]" title={card.hint}>{card.hint}</span></div>)}
+            { label: t("historySummaryOperations"), value: summary.operations },
+            { label: t("historySummaryRestorable"), value: summary.restorable },
+            { label: t("historySummaryRestored"), value: summary.restored }
+          ].map((item) => <div key={item.label} className="flex items-baseline gap-2"><span className="text-xs text-[var(--muted)]">{item.label}</span><strong className="text-base tabular-nums">{item.value}</strong></div>)}
         </div>
 
         <section className={cn(panelSurface, "grid gap-4 overflow-visible p-4 lg:grid-cols-[minmax(260px,0.8fr)_minmax(0,1.2fr)]")}>
@@ -364,7 +363,7 @@ export function RestoreView() {
             </div>
             <HistorySearchField mode={showCleanup ? "cleanup" : "operation"} value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t("historySearchPlaceholder")} />
             <div className="flex max-w-full flex-wrap gap-1" role="group" aria-label={t("historyBatches")}>
-              {filterButtons.map(({ value, key }) => <button key={value} type="button" className={cn(buttonGhost, "shrink-0", filter === value && "bg-[var(--zc-primary-soft)] text-[var(--zc-primary)]")} onClick={() => changeFilter(value)}>{t(key)}</button>)}
+              {filterButtons.map(({ value, key }) => <button key={value} type="button" aria-pressed={filter === value} className={cn(buttonGhost, "shrink-0", filter === value && "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] shadow-[inset_0_0_0_1px_var(--zc-control-border)]")} onClick={() => changeFilter(value)}>{t(key)}</button>)}
             </div>
             {!showCleanup && operationBatches.length > 0 && <HistoryBatchList listRef={historyListRef} batches={operationBatches} activeBatchId={activeBatch?.id ?? ""} selectedIds={selectedOperationIds} onActiveBatch={(id) => { setActiveBatchId(id); if (isNarrow) setNarrowPane("details"); }} onToggleBatch={toggleBatch} t={t} />}
             {!showCleanup && operationBatches.length === 0 && <div className={emptyState}>{query ? t("historyNoMatches") : t("historyNoRecords")}</div>}

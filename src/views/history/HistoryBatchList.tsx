@@ -128,7 +128,7 @@ export function HistoryBatchList({
             className={cn(
               "grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 rounded-[var(--zc-radius-field)] border px-3 py-3 text-left transition-colors",
               active
-                ? "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)]"
+                ? "border-[var(--zc-border)] bg-[var(--zc-surface-selected)] shadow-[inset_2px_0_0_var(--zc-primary)]"
                 : "border-transparent hover:border-[var(--zc-border)] hover:bg-[var(--zc-surface-raised)]"
             )}
             onClick={() => onActiveBatch(batch.id)}
@@ -145,7 +145,7 @@ export function HistoryBatchList({
               <span className="mt-1 block text-xs text-[var(--muted)]">
                 {t("historyBatchItems").replace("{count}", String(batch.total))} · {executionStateLabel(batch, t)} · {restoreStateLabel(batch, t)} · {batch.restorable} {t("restorable")}
               </span>
-              <span className="mt-1 block text-[11px] tabular-nums text-[var(--muted)]">{t("historyStatusSuccess")}: {batch.success} · {t("historyStatusFailed")}: {batch.failed} · {t("historyStatusSkipped")}: {batch.skipped} · {t("historyStatusRestored")}: {batch.restored}</span>
+              {(batch.failed > 0 || batch.skipped > 0) && <span className="mt-1 block text-[11px] tabular-nums text-[var(--muted)]">{t("historyStatusFailed")}: {batch.failed} · {t("historyStatusSkipped")}: {batch.skipped}</span>}
             </div>
             <ChevronRight size={16} className="mt-1 text-[var(--muted)]" aria-hidden="true" />
             {selected > 0 && <span className="col-start-2 text-xs font-medium text-[var(--zc-primary)]">{t("historyBatchSelected").replace("{count}", String(selected))}</span>}
