@@ -8,6 +8,7 @@ import {
   resetModalInfrastructureForTests,
   restoreDialogFocus
 } from "../src/components/modal/ModalPortal";
+import { findSpotlightSettingsRestoreTarget } from "../src/components/CommandModal";
 
 function visible(element: HTMLElement) {
   element.getClientRects = () => [{ width: 10, height: 10, top: 0, left: 0, right: 10, bottom: 10, x: 0, y: 0, toJSON() { return {}; } }] as unknown as DOMRectList;
@@ -72,6 +73,32 @@ describe("global modal infrastructure", () => {
 
     expect(restored).toBe(preferred);
     expect(document.activeElement).toBe(preferred);
+  });
+
+  it("restores theme, search scope, and AI Spotlight commands to their section headings", () => {
+    const fallback = document.getElementById("trigger") as HTMLElement;
+    visible(fallback);
+    const settings = document.createElement("div");
+    settings.innerHTML = `
+      <section id="settings-appearance"><h2 data-settings-section-heading>Appearance</h2></section>
+      <section id="settings-search"><h2 data-settings-section-heading>Search</h2></section>
+      <section id="settings-ai"><h2 data-settings-section-heading>AI</h2></section>
+    `;
+    document.body.appendChild(settings);
+    for (const heading of settings.querySelectorAll<HTMLElement>("[data-settings-section-heading]")) visible(heading);
+
+    const cases = [
+      ["settings-appearance", "settings-appearance"],
+      ["settings-search-scope", "settings-search"],
+      ["settings-ai", "settings-ai"]
+    ] as const;
+
+    for (const [requested, expectedSection] of cases) {
+      const target = findSpotlightSettingsRestoreTarget(requested, fallback);
+      const restored = restoreDialogFocus(fallback, target, "#missing");
+      expect(restored).toBe(settings.querySelector(`#${expectedSection} [data-settings-section-heading]`));
+      expect(document.activeElement).toBe(restored);
+    }
   });
 
   it("routes Escape and focus containment through the top modal only", () => {

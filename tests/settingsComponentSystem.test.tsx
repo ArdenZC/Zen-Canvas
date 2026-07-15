@@ -1,17 +1,21 @@
 // @vitest-environment happy-dom
 
-import { act, useState } from "react";
+import { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   SettingsEmptyState,
+  SettingsInlineMessage,
   SettingsLayout,
+  SettingsSection,
   SettingsSectionNav,
   SettingsSegmentedControl,
   SettingsDisclosure,
   SettingsSwitch,
-  SettingsSwitchControl
+  SettingsSwitchControl,
+  scrollSettingsSectionIntoView
 } from "../src/views/settings/components/SettingsPrimitives";
+import { SettingsSecretField } from "../src/views/settings/components/SettingsSecretField";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -21,6 +25,13 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    callback(0);
+    return 1;
+  });
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
+  if (!HTMLElement.prototype.scrollIntoView) HTMLElement.prototype.scrollIntoView = () => undefined;
+  vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(() => undefined);
 });
 
 afterEach(() => {
@@ -68,20 +79,55 @@ describe("settings component system", () => {
     expect(document.activeElement).toBe(radios[1]);
   });
 
-  it("exposes a real switch without duplicating visible On/Off copy", async () => {
+  it("activates the native switch exactly once from its track, thumb, and visible label", async () => {
     const onChange = vi.fn();
+    function Harness() {
+      const [checked, setChecked] = useState(false);
+      return <SettingsSwitch id="scan-root" label="Scan folder" checked={checked} onChange={(next) => { onChange(next); setChecked(next); }} />;
+    }
+
     await act(async () => {
-      root.render(<SettingsSwitchControl id="scan-root" label="Scan folder" checked={false} onChange={onChange} />);
+      root.render(<Harness />);
     });
 
     const input = container.querySelector<HTMLInputElement>('[role="switch"]');
+    const track = container.querySelector<HTMLElement>("[data-settings-switch-track]");
+    const thumb = container.querySelector<HTMLElement>("[data-settings-switch-thumb]");
+    const visibleLabel = container.querySelector<HTMLLabelElement>('label[for="scan-root"]:not([data-settings-switch-control])');
     expect(input).not.toBeNull();
     expect(input?.getAttribute("aria-label")).toBe("Scan folder");
     expect(input?.getAttribute("aria-checked")).toBe("false");
-    expect(container.textContent).toBe("");
+    expect(container.textContent).toBe("Scan folder");
+    expect(container.textContent).not.toMatch(/\b(On|Off)\b/);
 
-    await act(async () => input?.click());
+    await act(async () => track?.click());
     expect(onChange).toHaveBeenCalledWith(true);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(input?.getAttribute("aria-checked")).toBe("true");
+
+    await act(async () => thumb?.click());
+    expect(onChange).toHaveBeenLastCalledWith(false);
+    expect(onChange).toHaveBeenCalledTimes(2);
+
+    await act(async () => visibleLabel?.click());
+    expect(onChange).toHaveBeenLastCalledWith(true);
+    expect(onChange).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps a disabled switch inert from both track and label", async () => {
+    const onChange = vi.fn();
+    await act(async () => {
+      root.render(<SettingsSwitch id="disabled-root" label="Disabled folder" checked={false} disabled onChange={onChange} />);
+    });
+
+    const track = container.querySelector<HTMLElement>("[data-settings-switch-track]");
+    const visibleLabel = container.querySelector<HTMLLabelElement>('label[for="disabled-root"]:not([data-settings-switch-control])');
+    await act(async () => {
+      track?.click();
+      visibleLabel?.click();
+    });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(container.querySelector<HTMLInputElement>('[role="switch"]')?.disabled).toBe(true);
   });
 
   it("keeps switch labels clickable and advanced disclosures collapsed by default", async () => {
@@ -135,6 +181,162 @@ describe("settings component system", () => {
     expect(buttons[1].getAttribute("aria-current")).toBe("location");
     expect(buttons[1].tabIndex).toBe(0);
     expect(document.activeElement).toBe(buttons[1]);
+  });
+
+  it("scrolls section content for arrow, Home, and End navigation while keeping focus in the nav", async () => {
+    const sectionIds = ["general", "appearance", "ai"];
+    function Harness() {
+      const [activeSectionId, setActiveSectionId] = useState("general");
+      const scrollRef = useRef<HTMLDivElement | null>(null);
+      const navigate = (sectionId: string, options?: { focusContent?: boolean }) => {
+        setActiveSectionId(sectionId);
+        window.requestAnimationFrame(() => scrollSettingsSectionIntoView(scrollRef.current, sectionId, options));
+      };
+      return (
+        <SettingsLayout
+          sections={sectionIds.map((id) => ({ id, label: id }))}
+          activeSectionId={activeSectionId}
+          sectionLabel="Sections"
+          onSectionChange={navigate}
+          scrollRef={scrollRef}
+        >
+          {sectionIds.map((id) => <SettingsSection key={id} id={id} title={id}>{id} content</SettingsSection>)}
+        </SettingsLayout>
+      );
+    }
+
+    await act(async () => root.render(<Harness />));
+    const scrollOwner = container.querySelector<HTMLElement>("[data-settings-scroll-container]")!;
+    const navShell = container.querySelector<HTMLElement>("[data-settings-section-nav-shell]")!;
+    Object.defineProperties(scrollOwner, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 1600 }
+    });
+    scrollOwner.getBoundingClientRect = () => ({ top: 0, left: 0, width: 900, height: 400, right: 900, bottom: 400, x: 0, y: 0, toJSON() { return {}; } } as DOMRect);
+    navShell.getBoundingClientRect = () => ({ top: 0, left: 0, width: 900, height: 40, right: 900, bottom: 40, x: 0, y: 0, toJSON() { return {}; } } as DOMRect);
+    sectionIds.forEach((id, index) => {
+      const section = container.querySelector<HTMLElement>(`#${id}`)!;
+      section.getBoundingClientRect = () => {
+        const top = 48 + index * 500 - scrollOwner.scrollTop;
+        return { top, left: 0, width: 800, height: 400, right: 800, bottom: top + 400, x: 0, y: top, toJSON() { return {}; } } as DOMRect;
+      };
+    });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+
+    const buttons = () => [...container.querySelectorAll<HTMLButtonElement>("[data-settings-section]")];
+    buttons()[0].focus();
+    await act(async () => buttons()[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    expect(scrollOwner.scrollTop).toBe(500);
+    expect(buttons()[1].getAttribute("aria-current")).toBe("location");
+    expect(document.activeElement).toBe(buttons()[1]);
+
+    await act(async () => buttons()[1].dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+    expect(scrollOwner.scrollTop).toBe(1000);
+    expect(document.activeElement).toBe(buttons()[2]);
+
+    await act(async () => buttons()[2].dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+    expect(scrollOwner.scrollTop).toBe(0);
+    expect(document.activeElement).toBe(buttons()[0]);
+
+    await act(async () => buttons()[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
+    expect(scrollOwner.scrollTop).toBe(1000);
+    expect(document.activeElement).toBe(buttons()[2]);
+    expect(document.documentElement.scrollTop).toBe(0);
+    expect(document.body.scrollTop).toBe(0);
+  });
+
+  it("scrolls and focuses the target heading for mouse section navigation", async () => {
+    function Harness() {
+      const [activeSectionId, setActiveSectionId] = useState("general");
+      const scrollRef = useRef<HTMLDivElement | null>(null);
+      return (
+        <SettingsLayout
+          sections={[{ id: "general", label: "General" }, { id: "ai", label: "AI" }]}
+          activeSectionId={activeSectionId}
+          sectionLabel="Sections"
+          onSectionChange={(sectionId, options) => {
+            setActiveSectionId(sectionId);
+            window.requestAnimationFrame(() => scrollSettingsSectionIntoView(scrollRef.current, sectionId, options));
+          }}
+          scrollRef={scrollRef}
+        >
+          <SettingsSection id="general" title="General">General</SettingsSection>
+          <SettingsSection id="ai" title="AI">AI</SettingsSection>
+        </SettingsLayout>
+      );
+    }
+
+    await act(async () => root.render(<Harness />));
+    const scrollOwner = container.querySelector<HTMLElement>("[data-settings-scroll-container]")!;
+    const navShell = container.querySelector<HTMLElement>("[data-settings-section-nav-shell]")!;
+    scrollOwner.getBoundingClientRect = () => ({ top: 0, left: 0, width: 900, height: 400, right: 900, bottom: 400, x: 0, y: 0, toJSON() { return {}; } } as DOMRect);
+    navShell.getBoundingClientRect = () => ({ top: 0, left: 0, width: 900, height: 40, right: 900, bottom: 40, x: 0, y: 0, toJSON() { return {}; } } as DOMRect);
+    const aiSection = container.querySelector<HTMLElement>("#ai")!;
+    aiSection.getBoundingClientRect = () => ({ top: 548 - scrollOwner.scrollTop, left: 0, width: 800, height: 400, right: 800, bottom: 948 - scrollOwner.scrollTop, x: 0, y: 548 - scrollOwner.scrollTop, toJSON() { return {}; } } as DOMRect);
+
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="ai"]')?.click());
+    expect(scrollOwner.scrollTop).toBe(500);
+    expect(container.querySelector('[data-settings-section="ai"]')?.getAttribute("aria-current")).toBe("location");
+    expect(document.activeElement).toBe(container.querySelector("#ai-heading"));
+  });
+
+  it("keeps disabled segmented controls inert and correctly exposed", async () => {
+    const onChange = vi.fn();
+    await act(async () => root.render(
+      <SettingsSegmentedControl value="off" ariaLabel="AI mode" disabled options={[{ value: "off", label: "Off" }, { value: "cloud", label: "Cloud" }]} onChange={onChange} />
+    ));
+    const group = container.querySelector('[role="radiogroup"]');
+    const radios = [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
+    expect(group?.getAttribute("aria-disabled")).toBe("true");
+    expect(radios.every((radio) => radio.disabled && radio.tabIndex === -1)).toBe(true);
+    await act(async () => {
+      radios[0].click();
+      radios[0].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("uses live-region roles only when explicitly requested", async () => {
+    await act(async () => root.render(
+      <>
+        <SettingsInlineMessage>Static guidance</SettingsInlineMessage>
+        <SettingsInlineMessage role="status">Saved</SettingsInlineMessage>
+        <SettingsInlineMessage role="alert" tone="warning">Failed</SettingsInlineMessage>
+      </>
+    ));
+    const messages = [...container.querySelectorAll<HTMLElement>("div")].filter((element) => ["Static guidance", "Saved", "Failed"].includes(element.textContent ?? ""));
+    expect(messages[0].hasAttribute("role")).toBe(false);
+    expect(messages[1].getAttribute("role")).toBe("status");
+    expect(messages[2].getAttribute("role")).toBe("alert");
+  });
+
+  it("reveals and hides API keys locally without exposing the value in text nodes", async () => {
+    const secret = "TEST_SECRET_DO_NOT_EXPOSE";
+    const onChange = vi.fn();
+    await act(async () => root.render(
+      <SettingsSecretField id="api-key" label="API key" value={secret} showLabel="Show API key" hideLabel="Hide API key" onChange={onChange} />
+    ));
+    const input = container.querySelector<HTMLInputElement>("#api-key")!;
+    const toggle = container.querySelector<HTMLButtonElement>("[data-settings-secret-toggle]")!;
+    expect(input.type).toBe("password");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(container.textContent).not.toContain(secret);
+    await act(async () => toggle.click());
+    expect(input.type).toBe("text");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(toggle.getAttribute("aria-label")).toBe("Hide API key");
+    await act(async () => toggle.click());
+    expect(input.type).toBe("password");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => root.render(
+      <SettingsSecretField id="api-key" label="API key" value={secret} showLabel="Show API key" hideLabel="Hide API key" disabled onChange={onChange} />
+    ));
+    const disabledToggle = container.querySelector<HTMLButtonElement>("[data-settings-secret-toggle]")!;
+    expect(disabledToggle.disabled).toBe(true);
+    await act(async () => disabledToggle.click());
+    expect(container.querySelector<HTMLInputElement>("#api-key")?.type).toBe("password");
   });
 
   it("renders a single scroll owner and an empty-state primary action", async () => {

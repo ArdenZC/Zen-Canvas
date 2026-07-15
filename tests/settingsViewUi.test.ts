@@ -40,7 +40,13 @@ describe("settings view UI", () => {
     expect(settingsPrimitives).toContain('min-[1180px]:grid-cols-[minmax(190px,220px)_minmax(0,960px)]');
     expect(settingsPrimitives).toContain('role="radiogroup"');
     expect(settingsPrimitives).toContain('role="switch"');
+    expect(settingsPrimitives).toContain("data-settings-switch-track");
+    expect(settingsPrimitives).toContain("data-settings-switch-thumb");
     expect(settingsPrimitives).toContain('aria-current={active ? "location" : undefined}');
+    expect(settingsPrimitives).toContain('scrollIntoView({ block: "nearest", inline: "nearest" })');
+    expect(settingsPrimitives).toContain("sticky top-0 z-20");
+    expect(settingsPrimitives).toContain("min-[1180px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)]");
+    expect(settingsPrimitives).not.toContain("min-[720px]:grid-cols");
     expect(settingsView).toContain('t("settingsAppearance")');
     expect(settingsView).toContain('t("settingsScanRoots")');
     expect(settingsView).toContain('t("settingsSearch")');
@@ -123,7 +129,7 @@ describe("settings view UI", () => {
     const en = makeTranslator("en");
 
     expect(settingsView).toContain("data-ai-settings-state={aiSettingsSaveError ? \"error\" : aiSettingsDirty ? \"unsaved\" : \"applied\"}");
-    expect(settingsView).toContain("aiSettingsSaveError ? t(\"aiSettingsSaveFailed\")");
+    expect(settingsView).toContain("aiSettingsSaveError ? t(\"aiSettingsRetainedAfterFailure\")");
     expect(settingsView).toContain("disabled={!aiSettingsDirty || isSavingAISettings || isTestingAIConnection}");
     expect(settingsView).toContain("aiSettingsSaveFailed");
     expect(settingsView).toContain("setAiSettings(previous)");
@@ -134,15 +140,20 @@ describe("settings view UI", () => {
     expect(settingsView).toContain("aiProviderLabel(preset, t)");
     expect(settingsView).toContain("apiKey: settings.apiKey");
     expect(settingsView).not.toContain("batchSize: preset.providerKind");
-    expect(settingsView).toContain("container.scrollTop += section.getBoundingClientRect().top - container.getBoundingClientRect().top");
+    expect(settingsView).toContain("scrollSettingsSectionIntoView(settingsScrollRef.current, targetId, options)");
     expect(settingsView).toContain('container.addEventListener("scroll", scheduleUpdate');
     expect(settingsView).toContain("developerMode ? (");
     expect(settingsView).toContain('t("aiAdvancedConnection")');
+    expect(settingsView).toContain("SettingsSecretField");
+    expect(settingsView).toContain("disabled={aiDependentControlsDisabled}");
+    expect(settingsView).not.toContain("min-[720px]:grid-cols");
     expect(settingsView).not.toContain("aiModeForSettings");
     expect(en("languageDesc")).not.toMatch(/[\u3400-\u9fff]/);
     expect(en("globalSearch")).toContain("folders");
     expect(en("aiChatPathLabel")).toBe("Chat endpoint path");
     expect(en("aiBatchSizeLabel")).toBe("Batch size");
     expect(en("aiTimeoutLabel")).toBe("Timeout (seconds)");
+    expect(en("showApiKey")).toBe("Show API key");
+    expect(en("hideApiKey")).toBe("Hide API key");
   });
 });
