@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject, type WheelEvent } from "react";
 import { cn } from "../../../utils/tw";
 
 export type SettingsSectionOption = {
@@ -26,11 +26,32 @@ export function scrollSettingsSectionIntoView(
   if (!container) return null;
   const section = container.querySelector<HTMLElement>(`#${sectionId}`);
   if (!section) return null;
+  const firstSection = container.querySelector<HTMLElement>("[data-settings-section-content]");
   const targetTop = settingsSectionContentTop(container);
-  container.scrollTop = Math.max(0, container.scrollTop + section.getBoundingClientRect().top - targetTop);
+  container.scrollTop = section === firstSection
+    ? 0
+    : Math.max(0, container.scrollTop + section.getBoundingClientRect().top - targetTop);
   const heading = section.querySelector<HTMLElement>("[data-settings-section-heading]");
   if (options.focusContent !== false) (heading ?? section).focus({ preventScroll: true });
   return { section, heading };
+}
+
+export function centerSettingsNavItem(nav: HTMLElement | null, item: HTMLElement | null) {
+  if (!nav || !item || nav.scrollWidth <= nav.clientWidth) return;
+  const target = item.offsetLeft - (nav.clientWidth - item.offsetWidth) / 2;
+  nav.scrollLeft = Math.max(0, Math.min(target, nav.scrollWidth - nav.clientWidth));
+}
+
+export function activeSettingsSectionId(container: HTMLElement, sectionIds: readonly string[]) {
+  const sections = sectionIds
+    .map((id) => container.querySelector<HTMLElement>(`#${id}`))
+    .filter((section): section is HTMLElement => Boolean(section));
+  if (!sections.length) return null;
+  if (container.scrollHeight <= container.clientHeight) return sections[0].id;
+  if (container.scrollTop + container.clientHeight >= container.scrollHeight - 1) return sections[sections.length - 1].id;
+  const contentTop = settingsSectionContentTop(container);
+  const activationLine = contentTop + Math.min(240, Math.max(72, container.clientHeight * 0.4));
+  return [...sections].reverse().find((section) => section.getBoundingClientRect().top <= activationLine)?.id ?? sections[0].id;
 }
 
 const focusVisible =
@@ -90,12 +111,22 @@ export function SettingsSectionNav({
   sectionLabel: string;
 }) {
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const navRef = useRef<HTMLElement | null>(null);
+  const activeIndex = sections.findIndex((section) => section.id === activeSectionId);
 
   useEffect(() => {
-    const activeIndex = sections.findIndex((section) => section.id === activeSectionId);
     if (activeIndex < 0) return;
-    buttonRefs.current[activeIndex]?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [activeSectionId]);
+    centerSettingsNavItem(navRef.current, buttonRefs.current[activeIndex]);
+  }, [activeIndex]);
+
+  function handleWheel(event: WheelEvent<HTMLElement>) {
+    const nav = navRef.current;
+    if (!nav || nav.scrollWidth <= nav.clientWidth) return;
+    const delta = Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (!delta) return;
+    event.preventDefault();
+    nav.scrollLeft += delta;
+  }
 
   function moveFocus(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     const isNext = event.key === "ArrowRight" || event.key === "ArrowDown";
@@ -120,14 +151,17 @@ export function SettingsSectionNav({
       <p className="mb-2 hidden px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--zc-text-tertiary)] min-[1180px]:block">
         {sectionLabel}
       </p>
-      <nav
-        aria-label={sectionLabel}
-        data-settings-section-nav
-        className="flex max-w-full gap-1 overflow-x-auto overscroll-contain pb-1 min-[1180px]:grid min-[1180px]:overflow-visible min-[1180px]:pb-0"
-      >
-        {sections.map((section, index) => {
-          const active = activeSectionId === section.id;
-          return (
+      <div className="relative min-w-0">
+        <nav
+          ref={navRef}
+          aria-label={sectionLabel}
+          data-settings-section-nav
+          className="flex max-w-full gap-1 overflow-x-auto overscroll-contain pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-[1180px]:grid min-[1180px]:overflow-visible min-[1180px]:pb-0"
+          onWheel={handleWheel}
+        >
+          {sections.map((section, index) => {
+            const active = activeSectionId === section.id;
+            return (
             <button
               key={section.id}
               ref={(element) => { buttonRefs.current[index] = element; }}
@@ -147,9 +181,12 @@ export function SettingsSectionNav({
             >
               {section.label}
             </button>
-          );
-        })}
-      </nav>
+            );
+          })}
+        </nav>
+        <span data-settings-nav-fade="start" aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 w-5 bg-gradient-to-r from-[var(--zc-surface)] to-transparent min-[1180px]:hidden" />
+        <span data-settings-nav-fade="end" aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-0 w-5 bg-gradient-to-l from-[var(--zc-surface)] to-transparent min-[1180px]:hidden" />
+      </div>
     </aside>
   );
 }
@@ -238,13 +275,15 @@ export function SettingsSegmentedControl<T extends string>({
   options,
   ariaLabel,
   onChange,
-  disabled = false
+  disabled = false,
+  layout = "wrap"
 }: {
   value: T;
   options: Array<{ value: T; label: string }>;
   ariaLabel: string;
   onChange: (value: T) => void;
   disabled?: boolean;
+  layout?: "wrap" | "three-option-responsive";
 }) {
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
@@ -270,7 +309,8 @@ export function SettingsSegmentedControl<T extends string>({
       aria-label={ariaLabel}
       aria-disabled={disabled || undefined}
       className={cn(
-        "flex max-w-full flex-wrap gap-1 rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-1",
+        "max-w-full gap-1 rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-1",
+        layout === "three-option-responsive" ? "grid grid-cols-1 min-[1180px]:grid-cols-3" : "flex flex-wrap",
         disabled && "cursor-not-allowed opacity-60"
       )}
     >
@@ -287,6 +327,7 @@ export function SettingsSegmentedControl<T extends string>({
             tabIndex={disabled ? -1 : selected ? 0 : -1}
             className={cn(
               "min-h-8 shrink-0 whitespace-nowrap rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm font-medium text-[var(--zc-text-secondary)]",
+              layout === "three-option-responsive" && "w-full",
               "transition-[background,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
               "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
               "disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--zc-text-secondary)]",
@@ -438,15 +479,23 @@ export function SettingsDisclosure({
   title,
   description,
   children,
-  defaultOpen = false
+  defaultOpen = false,
+  open,
+  onOpenChange
 }: {
   title: string;
   description?: string;
   children: ReactNode;
   defaultOpen?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   return (
-    <details open={defaultOpen || undefined} className="group grid min-w-0 gap-3 border-t border-[var(--zc-divider)] pt-4">
+    <details
+      open={open ?? (defaultOpen || undefined)}
+      onToggle={(event) => onOpenChange?.(event.currentTarget.open)}
+      className="group grid min-w-0 gap-3 border-t border-[var(--zc-divider)] pt-4"
+    >
       <summary className={cn("flex cursor-pointer list-none items-start justify-between gap-3 text-sm font-semibold text-[var(--zc-text-primary)]", focusVisible)}>
         <span className="min-w-0">
           <span className="block">{title}</span>

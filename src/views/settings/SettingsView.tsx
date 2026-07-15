@@ -60,8 +60,8 @@ import {
   SettingsSwitch,
   SettingsSwitchControl,
   SettingsTextField,
+  activeSettingsSectionId,
   scrollSettingsSectionIntoView,
-  settingsSectionContentTop,
   settingsField
 } from "./components/SettingsPrimitives";
 import { SettingsSecretField } from "./components/SettingsSecretField";
@@ -90,24 +90,7 @@ const AI_CLASSIFICATION_LABEL_KEYS: Record<typeof AI_CLASSIFICATION_PRESET_IDS[n
   detailed: "aiPresetDetailed",
   custom: "aiPresetCustom"
 };
-const AI_PROVIDER_LABEL_KEYS: Record<AIProviderPresetId, Parameters<Translator>[0]> = {
-  deepseek: "aiProviderDeepSeek",
-  kimi: "aiProviderKimi",
-  qwen_dashscope: "aiProviderQwenDashscope",
-  zhipu_glm: "aiProviderZhipuGlm",
-  minimax: "aiProviderMinimax",
-  baichuan: "aiProviderBaichuan",
-  doubao_ark: "aiProviderDoubaoArk",
-  siliconflow: "aiProviderSiliconflow",
-  custom_openai_compatible: "aiProviderCustomOpenai",
-  ollama: "aiProviderOllama"
-};
-
-function aiProviderLabel(preset: AIProviderPreset, t: Translator) {
-  return t(AI_PROVIDER_LABEL_KEYS[preset.id]);
-}
-
-function aiUserMode(settings: AISettings): AIUserMode {
+function aiUserMode(settings: Pick<AISettings, "enabled" | "provider">): AIUserMode {
   if (!settings.enabled) return "off";
   return settings.provider === "ollama" ? "local" : "cloud";
 }
@@ -200,6 +183,8 @@ export function SettingsView() {
   const [isDeletingFolderConfig, setIsDeletingFolderConfig] = useState(false);
   const [aiSettings, setAiSettings] = useState<AISettings | null>(null);
   const [persistedAISettings, setPersistedAISettings] = useState<AISettings | null>(null);
+  const runtimeAISettings = useAIProcessingModeStore((state) => state.settings);
+  const runtimeAIStatus = useAIProcessingModeStore((state) => state.status);
   const publishAIProcessingMode = useAIProcessingModeStore((state) => state.publish);
   const [aiPresets, setAiPresets] = useState<AIProviderPreset[]>([]);
   const [isLoadingAISettings, setIsLoadingAISettings] = useState(false);
@@ -213,14 +198,19 @@ export function SettingsView() {
   const [aiDebugResult, setAiDebugResult] = useState<AIDebugClassificationResult | null>(null);
   const [activeSettingsSection, setActiveSettingsSection] = useState("settings-general");
   const [developerMode, setDeveloperMode] = useState(readDeveloperMode);
+  const [aiAdvancedOpen, setAiAdvancedOpen] = useState(false);
+  const [secretRevealResetVersion, setSecretRevealResetVersion] = useState(0);
   const hotkeyCaptureRef = useRef<HTMLDivElement | null>(null);
   const settingsScrollRef = useRef<HTMLDivElement | null>(null);
   const settingsScrollFrameRef = useRef<number | null>(null);
+  const pendingInitialSectionRef = useRef(false);
   const aiSaveRequestRef = useRef(0);
 
   const aiSettingsDirty = Boolean(aiSettings && persistedAISettings && !aiSettingsEqual(aiSettings, persistedAISettings));
   const activeAIClassificationPreset = aiSettings ? resolveAIClassificationPreset(aiSettings) : "custom";
   const aiDependentControlsDisabled = !aiSettings?.enabled;
+  const runtimeAIUserMode = runtimeAISettings ? aiUserMode(runtimeAISettings) : persistedAISettings ? aiUserMode(persistedAISettings) : "off";
+  const draftAIUserMode = aiSettings ? aiUserMode(aiSettings) : "off";
 
   const settingsSections = [
     { id: "settings-general", label: t("settingsGeneral") },
@@ -243,6 +233,7 @@ export function SettingsView() {
 
   function setDeveloperModePreference(next: boolean) {
     setDeveloperMode(next);
+    if (!next) setAiAdvancedOpen(false);
     try {
       window.localStorage.setItem(DEVELOPER_MODE_STORAGE_KEY, String(next));
     } catch {
@@ -257,14 +248,22 @@ export function SettingsView() {
     }
 
     window.addEventListener(SETTINGS_SECTION_EVENT, handleSectionRequest);
+    let hasPendingSection = false;
     try {
       const pendingSection = window.sessionStorage.getItem(SETTINGS_SECTION_EVENT);
       if (pendingSection) {
+        hasPendingSection = true;
+        pendingInitialSectionRef.current = true;
         window.sessionStorage.removeItem(SETTINGS_SECTION_EVENT);
         focusSettingsSection(pendingSection);
       }
     } catch {
       // In-memory events still work when storage is unavailable.
+    }
+    if (!hasPendingSection) {
+      const container = settingsScrollRef.current;
+      if (container) container.scrollTop = 0;
+      setActiveSettingsSection("settings-general");
     }
     return () => window.removeEventListener(SETTINGS_SECTION_EVENT, handleSectionRequest);
   }, []);
@@ -275,16 +274,13 @@ export function SettingsView() {
 
     const updateActiveSection = () => {
       settingsScrollFrameRef.current = null;
-      const contentTop = settingsSectionContentTop(container);
-      const sections = SETTINGS_SECTION_IDS
-        .map((id) => container.querySelector<HTMLElement>(`#${id}`))
-        .filter((section): section is HTMLElement => Boolean(section));
-      if (!sections.length) return;
-      const atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 1;
-      const nextSection = atBottom
-        ? sections[sections.length - 1]
-        : [...sections].reverse().find((section) => section.getBoundingClientRect().top <= contentTop + 1) ?? sections[0];
-      setActiveSettingsSection((current) => current === nextSection.id ? current : nextSection.id);
+      if (pendingInitialSectionRef.current) {
+        pendingInitialSectionRef.current = false;
+        return;
+      }
+      const nextSectionId = activeSettingsSectionId(container, SETTINGS_SECTION_IDS);
+      if (!nextSectionId) return;
+      setActiveSettingsSection((current) => current === nextSectionId ? current : nextSectionId);
     };
 
     const scheduleUpdate = () => {
@@ -628,16 +624,17 @@ export function SettingsView() {
       setPersistedAISettings(saved);
       setAiSettingsSaveError(false);
       publishAIProcessingMode({ enabled: saved.enabled, provider: saved.provider });
-      showStatus(t("aiSettingsSaved"));
+      setAiConnectionStatus({ tone: "success", role: "status", message: t("aiSettingsSaved") });
+      setSecretRevealResetVersion((version) => version + 1);
     } catch (error) {
       if (requestId !== aiSaveRequestRef.current) return;
-      if (previous) setAiSettings(previous);
       setAiSettingsSaveError(true);
       setAiConnectionStatus({
         tone: "warning",
         role: "alert",
         message: sanitizeAIStatusMessage(`${t("aiSettingsSaveFailed")}：${readableError(error)}`, previous?.apiKey ?? aiSettings.apiKey)
       });
+      setSecretRevealResetVersion((version) => version + 1);
     } finally {
       if (requestId === aiSaveRequestRef.current) setIsSavingAISettings(false);
     }
@@ -1015,11 +1012,44 @@ export function SettingsView() {
           {isLoadingAISettings || !aiSettings ? (
             <SettingsEmptyState title={t("aiSettingsLoading")} description={t("aiSettingsLoadingDesc")} />
           ) : (
-            <fieldset disabled={isSavingAISettings} aria-busy={isSavingAISettings} className="grid min-w-0 gap-0">
+            <fieldset
+              disabled={isSavingAISettings}
+              aria-busy={isSavingAISettings}
+              className="grid min-w-0 gap-0"
+              data-ai-runtime-status={runtimeAIStatus}
+              data-ai-runtime-mode={runtimeAIUserMode}
+              data-ai-saved-mode={persistedAISettings ? aiUserMode(persistedAISettings) : "loading"}
+              data-ai-draft-mode={draftAIUserMode}
+              data-ai-dirty={aiSettingsDirty}
+              data-ai-saving={isSavingAISettings}
+            >
+              <div
+                data-ai-save-bar
+                className="sticky top-[53px] z-10 grid min-w-0 gap-2 rounded-[var(--zc-radius-field)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] px-3 py-3 shadow-[var(--zc-shadow-card)] min-[1180px]:top-4 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center"
+              >
+                <div className="grid min-w-0 gap-1">
+                  <strong className="text-sm text-[var(--zc-text-primary)]">
+                    {t("aiCurrentActiveMode").replace("{mode}", t(runtimeAIUserMode === "off" ? "modeAIDisabled" : runtimeAIUserMode === "local" ? "modeAILocal" : "modeAICloud"))}
+                  </strong>
+                  {aiSettingsDirty ? (
+                    <span className="text-xs leading-5 text-[var(--zc-warning-text)]" data-ai-unsaved-draft>
+                      {t("aiUnsavedDraftMode").replace("{mode}", t(draftAIUserMode === "off" ? "modeAIDisabled" : draftAIUserMode === "local" ? "modeAILocal" : "modeAICloud"))}
+                    </span>
+                  ) : (
+                    <span className={quietText} data-ai-settings-state="applied">{t("aiSettingsApplied")}</span>
+                  )}
+                  {aiSettingsSaveError ? <span className={quietText} data-ai-settings-state="error">{t("aiSettingsRetainedAfterFailure")}</span> : null}
+                  {aiConnectionStatus ? <SettingsInlineMessage tone={aiConnectionStatus.tone} role={aiConnectionStatus.role}>{aiConnectionStatus.message}</SettingsInlineMessage> : null}
+                </div>
+                <button type="button" className={buttonSecondary} onClick={() => void saveAISettings()} disabled={!aiSettingsDirty || isSavingAISettings || isTestingAIConnection}>
+                  {isSavingAISettings ? t("aiSavingSettings") : t("aiSaveSettings")}
+                </button>
+              </div>
               <SettingsRow label={t("aiModeLabel")} description={t(aiUserMode(aiSettings) === "off" ? "modeAIDisabledDesc" : aiUserMode(aiSettings) === "local" ? "modeAILocalDesc" : "modeAICloudDesc")}>
                 <SettingsSegmentedControl
                   value={aiUserMode(aiSettings)}
                   ariaLabel={t("aiModeLabel")}
+                  layout="three-option-responsive"
                   options={[
                     { value: "off", label: t("modeAIDisabled") },
                     { value: "local", label: t("modeAILocal") },
@@ -1066,18 +1096,9 @@ export function SettingsView() {
                     ? t(aiUserMode(aiSettings) === "local" ? "modeAILocalDesc" : "modeAICloudDesc")
                     : t("aiDisabledConfigurationPreserved")}
               </SettingsInlineMessage>
-              {aiConnectionStatus ? <SettingsInlineMessage tone={aiConnectionStatus.tone} role={aiConnectionStatus.role}>{aiConnectionStatus.message}</SettingsInlineMessage> : null}
               {developerMode ? (
-                <SettingsDisclosure title={t("advancedSettings")} description={t("developerModeDesc")}>
+                <SettingsDisclosure title={t("advancedSettings")} description={t("developerModeDesc")} open={aiAdvancedOpen} onOpenChange={setAiAdvancedOpen}>
                   <SettingsControlGroup title={t("aiAdvancedConnection")} description={t("aiAdvancedConnectionDesc")}>
-                    <SettingsSelect
-                      id="settings-ai-advanced-provider"
-                      label={t("aiProviderPreset")}
-                      value={aiSettings.preset}
-                      options={aiPresets.map((preset) => ({ value: preset.id, label: aiProviderLabel(preset, t) }))}
-                      disabled={aiDependentControlsDisabled}
-                      onChange={selectAIPreset}
-                    />
                     <div className="grid min-w-0 gap-4 min-[1180px]:grid-cols-2">
                       <SettingsTextField id="settings-ai-base-url" label={t("aiBaseUrlLabel")} value={aiSettings.baseUrl} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ baseUrl: value })} />
                       <SettingsTextField id="settings-ai-chat-path" label={t("aiChatPathLabel")} value={aiSettings.chatPath} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ chatPath: value })} />
@@ -1093,6 +1114,7 @@ export function SettingsView() {
                           hideLabel={t("hideApiKey")}
                           onChange={(value) => updateAISettings({ apiKey: value })}
                           placeholder={aiSettings.apiKeyConfigured ? t("aiStoredApiKeyPlaceholder") : t("aiEmptyApiKeyPlaceholder")}
+                          resetKey={`${activeSettingsSection}:${draftAIUserMode}:${developerMode}:${aiAdvancedOpen}:${aiSettings.provider}:${aiSettings.preset}:${secretRevealResetVersion}`}
                         />
                       )}
                       <SettingsTextField id="settings-ai-model" label={t("aiModelLabel")} value={aiSettings.model} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ model: value })} />
@@ -1167,17 +1189,6 @@ export function SettingsView() {
                   </SettingsDisclosure>
                 </SettingsDisclosure>
               ) : <p className={quietText}>{t("developerModeDesc")}</p>}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--zc-divider)] py-4">
-                <span
-                  className={quietText}
-                  role={aiSettingsSaveError ? undefined : "status"}
-                  aria-live={aiSettingsSaveError ? undefined : "polite"}
-                  data-ai-settings-state={aiSettingsSaveError ? "error" : aiSettingsDirty ? "unsaved" : "applied"}
-                >
-                  {aiSettingsSaveError ? t("aiSettingsRetainedAfterFailure") : aiSettingsDirty ? t("aiUnsavedChanges") : t("aiSettingsApplied")}
-                </span>
-                <button type="button" className={buttonSecondary} onClick={() => void saveAISettings()} disabled={!aiSettingsDirty || isSavingAISettings || isTestingAIConnection}>{isSavingAISettings ? t("aiSavingSettings") : t("aiSaveSettings")}</button>
-              </div>
             </fieldset>
           )}
         </SettingsSection>

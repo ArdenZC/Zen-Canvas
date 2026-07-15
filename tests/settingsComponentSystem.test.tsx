@@ -13,6 +13,7 @@ import {
   SettingsDisclosure,
   SettingsSwitch,
   SettingsSwitchControl,
+  activeSettingsSectionId,
   scrollSettingsSectionIntoView
 } from "../src/views/settings/components/SettingsPrimitives";
 import { SettingsSecretField } from "../src/views/settings/components/SettingsSecretField";
@@ -41,6 +42,22 @@ afterEach(() => {
 });
 
 describe("settings component system", () => {
+  it("switches the active section at the visibility boundary instead of leaving a previous tail active", () => {
+    const scrollOwner = document.createElement("div");
+    scrollOwner.innerHTML = '<div data-settings-section-nav-shell></div><section id="general"></section><section id="privacy"></section>';
+    Object.defineProperties(scrollOwner, {
+      clientHeight: { configurable: true, value: 500 },
+      scrollHeight: { configurable: true, value: 1600 },
+      scrollTop: { configurable: true, writable: true, value: 600 }
+    });
+    scrollOwner.getBoundingClientRect = () => ({ top: 0, left: 0, width: 900, height: 500, right: 900, bottom: 500, x: 0, y: 0, toJSON() { return {}; } } as DOMRect);
+    scrollOwner.querySelector<HTMLElement>("[data-settings-section-nav-shell]")!.getBoundingClientRect = () => ({ top: 0, left: 0, width: 900, height: 48, right: 900, bottom: 48, x: 0, y: 0, toJSON() { return {}; } } as DOMRect);
+    scrollOwner.querySelector<HTMLElement>("#general")!.getBoundingClientRect = () => ({ top: -500, left: 0, width: 900, height: 620, right: 900, bottom: 120, x: 0, y: -500, toJSON() { return {}; } } as DOMRect);
+    scrollOwner.querySelector<HTMLElement>("#privacy")!.getBoundingClientRect = () => ({ top: 150, left: 0, width: 900, height: 500, right: 900, bottom: 650, x: 0, y: 150, toJSON() { return {}; } } as DOMRect);
+
+    expect(activeSettingsSectionId(scrollOwner, ["general", "privacy"])).toBe("privacy");
+  });
+
   it("keeps segmented controls as roving, arrow-key radio groups", async () => {
     const onChange = vi.fn();
     function Harness() {
@@ -171,6 +188,15 @@ describe("settings component system", () => {
 
     await act(async () => root.render(<Harness />));
     const buttons = [...container.querySelectorAll<HTMLButtonElement>("[data-settings-section]")];
+    const nav = container.querySelector<HTMLElement>("[data-settings-section-nav]")!;
+    Object.defineProperties(nav, {
+      clientWidth: { configurable: true, value: 180 },
+      scrollWidth: { configurable: true, value: 420 }
+    });
+    Object.defineProperties(buttons[1], {
+      offsetLeft: { configurable: true, value: 260 },
+      offsetWidth: { configurable: true, value: 100 }
+    });
     expect(buttons[0].getAttribute("aria-current")).toBe("location");
     expect(buttons[0].tabIndex).toBe(0);
     expect(buttons[1].tabIndex).toBe(-1);
@@ -181,6 +207,15 @@ describe("settings component system", () => {
     expect(buttons[1].getAttribute("aria-current")).toBe("location");
     expect(buttons[1].tabIndex).toBe(0);
     expect(document.activeElement).toBe(buttons[1]);
+    expect(nav.scrollLeft).toBe(220);
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+
+    await act(async () => nav.dispatchEvent(new WheelEvent("wheel", { deltaY: 30, bubbles: true, cancelable: true })));
+    expect(nav.scrollLeft).toBe(250);
+
+    await act(async () => buttons[1].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })));
+    expect(buttons[0].getAttribute("aria-current")).toBe("location");
+    expect(document.activeElement).toBe(buttons[0]);
   });
 
   it("scrolls section content for arrow, Home, and End navigation while keeping focus in the nav", async () => {
@@ -312,7 +347,7 @@ describe("settings component system", () => {
   });
 
   it("reveals and hides API keys locally without exposing the value in text nodes", async () => {
-    const secret = "TEST_SECRET_DO_NOT_EXPOSE";
+    const secret = ["dynamic", "component", "sentinel", Math.random().toString(36).slice(2)].join("-");
     const onChange = vi.fn();
     await act(async () => root.render(
       <SettingsSecretField id="api-key" label="API key" value={secret} showLabel="Show API key" hideLabel="Hide API key" onChange={onChange} />
@@ -326,9 +361,22 @@ describe("settings component system", () => {
     expect(input.type).toBe("text");
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
     expect(toggle.getAttribute("aria-label")).toBe("Hide API key");
-    await act(async () => toggle.click());
-    expect(input.type).toBe("password");
-    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    await act(async () => root.render(
+      <SettingsSecretField id="api-key" label="API key" value={secret} showLabel="Show API key" hideLabel="Hide API key" resetKey="section-left" onChange={onChange} />
+    ));
+    expect(container.querySelector<HTMLInputElement>("#api-key")?.type).toBe("password");
+    const resetToggle = container.querySelector<HTMLButtonElement>("[data-settings-secret-toggle]")!;
+    await act(async () => resetToggle.click());
+    expect(container.querySelector<HTMLInputElement>("#api-key")?.type).toBe("text");
+    await act(async () => root.render(
+      <SettingsSecretField id="api-key" label="API key" value={secret} showLabel="Show API key" hideLabel="Hide API key" resetKey="save-finished" onChange={onChange} />
+    ));
+    expect(container.querySelector<HTMLInputElement>("#api-key")?.type).toBe("password");
+    await act(async () => root.render(null));
+    await act(async () => root.render(
+      <SettingsSecretField id="api-key" label="API key" value={secret} showLabel="Show API key" hideLabel="Hide API key" resetKey="remounted" onChange={onChange} />
+    ));
+    expect(container.querySelector<HTMLInputElement>("#api-key")?.type).toBe("password");
 
     await act(async () => root.render(
       <SettingsSecretField id="api-key" label="API key" value={secret} showLabel="Show API key" hideLabel="Hide API key" disabled onChange={onChange} />

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { cn } from "../../../utils/tw";
 import { settingsField } from "./SettingsPrimitives";
@@ -11,7 +11,8 @@ export function SettingsSecretField({
   showLabel,
   hideLabel,
   onChange,
-  disabled = false
+  disabled = false,
+  resetKey
 }: {
   id: string;
   label: string;
@@ -21,9 +22,14 @@ export function SettingsSecretField({
   hideLabel: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  resetKey?: string | number;
 }) {
   const [revealed, setRevealed] = useState(false);
   const toggleLabel = revealed ? hideLabel : showLabel;
+
+  useEffect(() => {
+    setRevealed(false);
+  }, [resetKey]);
 
   return (
     <div className="grid min-w-0 gap-1.5" data-settings-secret-field>

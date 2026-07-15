@@ -43,7 +43,10 @@ describe("settings view UI", () => {
     expect(settingsPrimitives).toContain("data-settings-switch-track");
     expect(settingsPrimitives).toContain("data-settings-switch-thumb");
     expect(settingsPrimitives).toContain('aria-current={active ? "location" : undefined}');
-    expect(settingsPrimitives).toContain('scrollIntoView({ block: "nearest", inline: "nearest" })');
+    expect(settingsPrimitives).toContain("centerSettingsNavItem");
+    expect(settingsPrimitives).not.toContain('scrollIntoView({ block: "nearest", inline: "nearest" })');
+    expect(settingsPrimitives).toContain("[scrollbar-width:none]");
+    expect(settingsPrimitives).toContain('data-settings-nav-fade="end"');
     expect(settingsPrimitives).toContain("sticky top-0 z-20");
     expect(settingsPrimitives).toContain("min-[1180px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)]");
     expect(settingsPrimitives).not.toContain("min-[720px]:grid-cols");
@@ -128,16 +131,20 @@ describe("settings view UI", () => {
     const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");
     const en = makeTranslator("en");
 
-    expect(settingsView).toContain("data-ai-settings-state={aiSettingsSaveError ? \"error\" : aiSettingsDirty ? \"unsaved\" : \"applied\"}");
-    expect(settingsView).toContain("aiSettingsSaveError ? t(\"aiSettingsRetainedAfterFailure\")");
+    expect(settingsView).toContain("data-ai-save-bar");
+    expect(settingsView).toContain("data-ai-runtime-mode={runtimeAIUserMode}");
+    expect(settingsView).toContain("data-ai-draft-mode={draftAIUserMode}");
+    expect(settingsView).toContain('data-ai-settings-state="error"');
     expect(settingsView).toContain("disabled={!aiSettingsDirty || isSavingAISettings || isTestingAIConnection}");
     expect(settingsView).toContain("aiSettingsSaveFailed");
-    expect(settingsView).toContain("setAiSettings(previous)");
+    expect(settingsView).not.toContain("setAiSettings(previous)");
+    expect(settingsView).toContain('layout="three-option-responsive"');
+    expect(settingsView).not.toContain("settings-ai-advanced-provider");
     expect(settingsPrimitives).toContain('role="radiogroup"');
     expect(settingsPrimitives).toContain('role="radio"');
     expect(settingsPrimitives).toContain("aria-checked={selected}");
     expect(settingsView).toContain("AI_CLASSIFICATION_PRESET_IDS");
-    expect(settingsView).toContain("aiProviderLabel(preset, t)");
+    expect(settingsView.match(/id="settings-ai-provider"/g)).toHaveLength(1);
     expect(settingsView).toContain("apiKey: settings.apiKey");
     expect(settingsView).not.toContain("batchSize: preset.providerKind");
     expect(settingsView).toContain("scrollSettingsSectionIntoView(settingsScrollRef.current, targetId, options)");
