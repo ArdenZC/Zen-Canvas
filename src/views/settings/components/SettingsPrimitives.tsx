@@ -1,4 +1,4 @@
-import { useRef, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 import { cn } from "../../../utils/tw";
 
 export type SettingsSectionOption = {
@@ -9,6 +9,29 @@ export type SettingsSectionOption = {
 type SectionChangeOptions = {
   focusContent?: boolean;
 };
+
+export function settingsSectionContentTop(container: HTMLElement) {
+  const containerRect = container.getBoundingClientRect();
+  const navShell = container.querySelector<HTMLElement>("[data-settings-section-nav-shell]");
+  const navRect = navShell?.getBoundingClientRect();
+  const horizontalNav = Boolean(navRect && navRect.width >= containerRect.width * 0.75);
+  return containerRect.top + (horizontalNav && navRect ? navRect.height + 8 : 0);
+}
+
+export function scrollSettingsSectionIntoView(
+  container: HTMLElement | null,
+  sectionId: string,
+  options: SectionChangeOptions = {}
+) {
+  if (!container) return null;
+  const section = container.querySelector<HTMLElement>(`#${sectionId}`);
+  if (!section) return null;
+  const targetTop = settingsSectionContentTop(container);
+  container.scrollTop = Math.max(0, container.scrollTop + section.getBoundingClientRect().top - targetTop);
+  const heading = section.querySelector<HTMLElement>("[data-settings-section-heading]");
+  if (options.focusContent !== false) (heading ?? section).focus({ preventScroll: true });
+  return { section, heading };
+}
 
 const focusVisible =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
@@ -68,6 +91,12 @@ export function SettingsSectionNav({
 }) {
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
+  useEffect(() => {
+    const activeIndex = sections.findIndex((section) => section.id === activeSectionId);
+    if (activeIndex < 0) return;
+    buttonRefs.current[activeIndex]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeSectionId]);
+
   function moveFocus(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     const isNext = event.key === "ArrowRight" || event.key === "ArrowDown";
     const isPrevious = event.key === "ArrowLeft" || event.key === "ArrowUp";
@@ -84,14 +113,17 @@ export function SettingsSectionNav({
   }
 
   return (
-    <aside className="min-w-0 min-[1180px]:sticky min-[1180px]:top-4 min-[1180px]:self-start">
-      <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--zc-text-tertiary)]">
+    <aside
+      data-settings-section-nav-shell
+      className="sticky top-0 z-20 min-w-0 border-b border-[var(--zc-divider)] bg-[var(--zc-surface)] py-2 min-[1180px]:top-4 min-[1180px]:self-start min-[1180px]:border-b-0 min-[1180px]:bg-transparent min-[1180px]:py-0"
+    >
+      <p className="mb-2 hidden px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--zc-text-tertiary)] min-[1180px]:block">
         {sectionLabel}
       </p>
       <nav
         aria-label={sectionLabel}
         data-settings-section-nav
-        className="flex max-w-full gap-1 overflow-x-auto overscroll-contain pb-1 min-[1180px]:grid min-[1180px]:overflow-visible"
+        className="flex max-w-full gap-1 overflow-x-auto overscroll-contain pb-1 min-[1180px]:grid min-[1180px]:overflow-visible min-[1180px]:pb-0"
       >
         {sections.map((section, index) => {
           const active = activeSectionId === section.id;
@@ -186,7 +218,7 @@ export function SettingsRow({
   className?: string;
 }) {
   return (
-    <div className={cn("grid min-w-0 gap-3 border-b border-[var(--zc-divider)] py-4 last:border-b-0 min-[720px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)] min-[720px]:items-start", className)}>
+    <div className={cn("grid min-w-0 gap-3 border-b border-[var(--zc-divider)] py-4 last:border-b-0 min-[1180px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)] min-[1180px]:items-start", className)}>
       <div className="min-w-0">
         {id ? (
           <label htmlFor={id} className="block text-sm font-medium text-[var(--zc-text-primary)]">{label}</label>
@@ -196,7 +228,7 @@ export function SettingsRow({
         {description ? <span className="mt-1 block max-w-[600px] text-sm leading-6 text-[var(--zc-text-secondary)]">{description}</span> : null}
         {hint ? <span className="mt-1 block max-w-[600px] text-xs leading-5 text-[var(--zc-text-tertiary)]">{hint}</span> : null}
       </div>
-      <div className="min-w-0 min-[720px]:justify-self-end min-[720px]:w-full min-[720px]:max-w-[360px]">{children}</div>
+      <div className="min-w-0 min-[1180px]:w-full min-[1180px]:max-w-[360px] min-[1180px]:justify-self-end">{children}</div>
     </div>
   );
 }
@@ -205,16 +237,19 @@ export function SettingsSegmentedControl<T extends string>({
   value,
   options,
   ariaLabel,
-  onChange
+  onChange,
+  disabled = false
 }: {
   value: T;
   options: Array<{ value: T; label: string }>;
   ariaLabel: string;
   onChange: (value: T) => void;
+  disabled?: boolean;
 }) {
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    if (disabled) return;
     const isNext = event.key === "ArrowRight" || event.key === "ArrowDown";
     const isPrevious = event.key === "ArrowLeft" || event.key === "ArrowUp";
     if (!isNext && !isPrevious && event.key !== "Home" && event.key !== "End") return;
@@ -230,7 +265,15 @@ export function SettingsSegmentedControl<T extends string>({
   }
 
   return (
-    <div role="radiogroup" aria-label={ariaLabel} className="flex max-w-full flex-wrap gap-1 rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-1">
+    <div
+      role="radiogroup"
+      aria-label={ariaLabel}
+      aria-disabled={disabled || undefined}
+      className={cn(
+        "flex max-w-full flex-wrap gap-1 rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-1",
+        disabled && "cursor-not-allowed opacity-60"
+      )}
+    >
       {options.map((option, index) => {
         const selected = option.value === value;
         return (
@@ -240,15 +283,17 @@ export function SettingsSegmentedControl<T extends string>({
             type="button"
             role="radio"
             aria-checked={selected}
-            tabIndex={selected ? 0 : -1}
+            disabled={disabled}
+            tabIndex={disabled ? -1 : selected ? 0 : -1}
             className={cn(
               "min-h-8 shrink-0 whitespace-nowrap rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm font-medium text-[var(--zc-text-secondary)]",
               "transition-[background,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
               "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
+              "disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--zc-text-secondary)]",
               focusVisible,
               selected && "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] shadow-[inset_0_-2px_0_var(--zc-primary)]"
             )}
-            onClick={() => onChange(option.value)}
+            onClick={() => { if (!disabled) onChange(option.value); }}
             onKeyDown={(event) => handleKeyDown(event, index)}
           >
             {option.label}
@@ -297,7 +342,14 @@ export function SettingsSwitchControl({
   disabled?: boolean;
 }) {
   return (
-    <span className="flex min-h-10 items-center justify-end">
+    <label
+      htmlFor={id}
+      data-settings-switch-control
+      className={cn(
+        "relative flex min-h-10 w-fit items-center justify-end justify-self-end",
+        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+      )}
+    >
       <input
         id={id}
         type="checkbox"
@@ -311,15 +363,20 @@ export function SettingsSwitchControl({
       />
       <span
         aria-hidden="true"
+        data-settings-switch-track
         className={cn(
           "relative h-7 w-12 rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] transition-[background,border-color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
-          "after:absolute after:left-1 after:top-1 after:h-5 after:w-5 after:rounded-full after:bg-[var(--zc-surface)] after:shadow-sm after:ring-1 after:ring-[var(--zc-border)] after:transition-transform",
-          "peer-checked:border-[var(--zc-primary)] peer-checked:bg-[var(--zc-primary)] peer-checked:after:translate-x-5 peer-checked:after:ring-[var(--zc-primary-pressed)]",
+          "peer-checked:border-[var(--zc-primary)] peer-checked:bg-[var(--zc-primary)]",
           "peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--zc-focus-ring)]",
-          "peer-disabled:cursor-not-allowed peer-disabled:opacity-60"
+          "peer-disabled:cursor-not-allowed peer-disabled:!border-[var(--zc-control-border)] peer-disabled:!bg-[var(--zc-surface-subtle)]"
         )}
       />
-    </span>
+      <span
+        aria-hidden="true"
+        data-settings-switch-thumb
+        className="pointer-events-auto absolute left-1 top-1/2 h-5 w-5 -translate-y-1/2 rounded-full bg-[var(--zc-surface)] shadow-sm ring-1 ring-[var(--zc-border)] transition-[transform,box-shadow] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] peer-checked:translate-x-5 peer-checked:ring-[var(--zc-primary-pressed)] peer-disabled:!ring-[var(--zc-control-border)]"
+      />
+    </label>
   );
 }
 
@@ -425,7 +482,7 @@ export function SettingsEmptyState({
 export function SettingsInlineMessage({
   tone = "info",
   children,
-  role = "status"
+  role
 }: {
   tone?: "info" | "success" | "warning" | "danger";
   children: ReactNode;

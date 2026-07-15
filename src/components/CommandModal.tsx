@@ -72,6 +72,14 @@ const SEARCH_RESULT_LIMIT = 80;
 const standaloneSearchWindowCollapsedHeight = 160;
 const standaloneSearchWindowExpandedHeight = 660;
 
+export function findSpotlightSettingsRestoreTarget(requestedSection: string | null, fallback: HTMLElement | null = null) {
+  if (!requestedSection) return fallback;
+  const sectionId = requestedSection === "settings-search-scope" ? "settings-search" : requestedSection;
+  return document.querySelector<HTMLElement>(`#${sectionId} [data-settings-section-heading]`)
+    ?? document.querySelector<HTMLElement>(`#${sectionId}`)
+    ?? fallback;
+}
+
 export function filesForCurrentQuery(currentQuery: string, resultQuery: string, files: FileRecord[]) {
   return currentQuery === resultQuery ? files : [];
 }
@@ -546,15 +554,7 @@ export function CommandModal({
   );
 
   function restoreSpotlightFocus() {
-    const requestedSection = settingsCommandSectionRef.current;
-    if (requestedSection) {
-      const sectionId = requestedSection === "settings-search-scope" ? "settings-search" : requestedSection;
-      return document.querySelector<HTMLElement>(`#${sectionId} [data-settings-section-heading]`)
-        ?? document.querySelector<HTMLElement>(`#${sectionId}`)
-        ?? restoreFocusRef?.current
-        ?? null;
-    }
-    return restoreFocusRef?.current ?? null;
+    return findSpotlightSettingsRestoreTarget(settingsCommandSectionRef.current, restoreFocusRef?.current ?? null);
   }
 
   return standalone ? content : <ModalPortal initialFocusRef={inputRef} restoreFocus={restoreSpotlightFocus} onEscape={onClose}>{content}</ModalPortal>;

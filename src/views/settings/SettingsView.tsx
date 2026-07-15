@@ -60,8 +60,11 @@ import {
   SettingsSwitch,
   SettingsSwitchControl,
   SettingsTextField,
+  scrollSettingsSectionIntoView,
+  settingsSectionContentTop,
   settingsField
 } from "./components/SettingsPrimitives";
+import { SettingsSecretField } from "./components/SettingsSecretField";
 
 type StatusTone = "success" | "warning";
 type AIUserMode = "off" | "local" | "cloud";
@@ -203,10 +206,10 @@ export function SettingsView() {
   const [isSavingAISettings, setIsSavingAISettings] = useState(false);
   const [aiSettingsSaveError, setAiSettingsSaveError] = useState(false);
   const [isTestingAIConnection, setIsTestingAIConnection] = useState(false);
-  const [aiConnectionStatus, setAiConnectionStatus] = useState<{ tone: StatusTone; message: string } | null>(null);
+  const [aiConnectionStatus, setAiConnectionStatus] = useState<{ tone: StatusTone; message: string; role?: "status" | "alert" } | null>(null);
   const [aiDebugTarget, setAiDebugTarget] = useState("");
   const [isDebuggingAI, setIsDebuggingAI] = useState(false);
-  const [aiDebugStatus, setAiDebugStatus] = useState<{ tone: StatusTone; message: string } | null>(null);
+  const [aiDebugStatus, setAiDebugStatus] = useState<{ tone: StatusTone; message: string; role?: "status" | "alert" } | null>(null);
   const [aiDebugResult, setAiDebugResult] = useState<AIDebugClassificationResult | null>(null);
   const [activeSettingsSection, setActiveSettingsSection] = useState("settings-general");
   const [developerMode, setDeveloperMode] = useState(readDeveloperMode);
@@ -217,6 +220,7 @@ export function SettingsView() {
 
   const aiSettingsDirty = Boolean(aiSettings && persistedAISettings && !aiSettingsEqual(aiSettings, persistedAISettings));
   const activeAIClassificationPreset = aiSettings ? resolveAIClassificationPreset(aiSettings) : "custom";
+  const aiDependentControlsDisabled = !aiSettings?.enabled;
 
   const settingsSections = [
     { id: "settings-general", label: t("settingsGeneral") },
@@ -232,15 +236,8 @@ export function SettingsView() {
   function focusSettingsSection(sectionId: string, options: { focusContent?: boolean } = {}) {
     const targetId = sectionId === "settings-search-scope" ? "settings-search" : sectionId;
     setActiveSettingsSection(targetId);
-    if (options.focusContent === false) return;
     window.requestAnimationFrame(() => {
-      const container = settingsScrollRef.current;
-      const section = container?.querySelector<HTMLElement>(`#${targetId}`);
-      if (container && section) {
-        container.scrollTop += section.getBoundingClientRect().top - container.getBoundingClientRect().top;
-      }
-      const heading = section?.querySelector<HTMLElement>("[data-settings-section-heading]");
-      (heading ?? section)?.focus({ preventScroll: true });
+      scrollSettingsSectionIntoView(settingsScrollRef.current, targetId, options);
     });
   }
 
@@ -278,7 +275,7 @@ export function SettingsView() {
 
     const updateActiveSection = () => {
       settingsScrollFrameRef.current = null;
-      const containerRect = container.getBoundingClientRect();
+      const contentTop = settingsSectionContentTop(container);
       const sections = SETTINGS_SECTION_IDS
         .map((id) => container.querySelector<HTMLElement>(`#${id}`))
         .filter((section): section is HTMLElement => Boolean(section));
@@ -286,7 +283,7 @@ export function SettingsView() {
       const atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 1;
       const nextSection = atBottom
         ? sections[sections.length - 1]
-        : [...sections].reverse().find((section) => section.getBoundingClientRect().top <= containerRect.top + 1) ?? sections[0];
+        : [...sections].reverse().find((section) => section.getBoundingClientRect().top <= contentTop + 1) ?? sections[0];
       setActiveSettingsSection((current) => current === nextSection.id ? current : nextSection.id);
     };
 
@@ -350,7 +347,7 @@ export function SettingsView() {
       })
       .catch((error) => {
         if (!disposed) {
-          setAiConnectionStatus({ tone: "warning", message: `${t("aiSettingsLoadFailed")}：${readableError(error)}` });
+          setAiConnectionStatus({ tone: "warning", role: "alert", message: `${t("aiSettingsLoadFailed")}：${readableError(error)}` });
         }
       })
       .finally(() => {
@@ -580,6 +577,9 @@ export function SettingsView() {
       if (!current) return current;
       if (mode === "off") return { ...current, enabled: false };
 
+      if (mode === "local" && current.provider === "ollama") return { ...current, enabled: true };
+      if (mode === "cloud" && current.provider !== "ollama") return { ...current, enabled: true };
+
       const targetPreset = mode === "local"
         ? aiPresets.find((preset) => preset.providerKind === "ollama")
         : aiPresets.find((preset) => preset.providerKind !== "ollama" && preset.id === current.preset)
@@ -635,6 +635,7 @@ export function SettingsView() {
       setAiSettingsSaveError(true);
       setAiConnectionStatus({
         tone: "warning",
+        role: "alert",
         message: sanitizeAIStatusMessage(`${t("aiSettingsSaveFailed")}：${readableError(error)}`, previous?.apiKey ?? aiSettings.apiKey)
       });
     } finally {
@@ -651,11 +652,13 @@ export function SettingsView() {
       const result = await tauriApi.testAIProviderConnection(next);
       setAiConnectionStatus({
         tone: "success",
+        role: "status",
         message: aiConnectionSuccessMessage(result, t("aiConnectionSucceeded"))
       });
     } catch (error) {
       setAiConnectionStatus({
         tone: "warning",
+        role: "alert",
         message: sanitizeAIStatusMessage(`${t("aiConnectionTestFailed")}：${readableError(error)}`, aiSettings.apiKey)
       });
     } finally {
@@ -667,7 +670,7 @@ export function SettingsView() {
     if (!aiSettings || isDebuggingAI) return;
     const target = aiDebugTarget.trim();
     if (!target) {
-      setAiDebugStatus({ tone: "warning", message: t("aiDebugMissingTarget") });
+      setAiDebugStatus({ tone: "warning", role: "alert", message: t("aiDebugMissingTarget") });
       return;
     }
 
@@ -679,6 +682,7 @@ export function SettingsView() {
       setAiDebugResult(result);
       setAiDebugStatus({
         tone: result.success ? "success" : "warning",
+        role: result.success ? "status" : "alert",
         message: result.success
           ? t("aiDebugSucceeded")
           : `${t("aiDebugFinished")}：${result.parseError ?? t("aiDebugParseFailed")}`
@@ -686,6 +690,7 @@ export function SettingsView() {
     } catch (error) {
       setAiDebugStatus({
         tone: "warning",
+        role: "alert",
         message: sanitizeAIStatusMessage(`${t("aiDebugFinished")}：${readableError(error)}`, aiSettings.apiKey)
       });
     } finally {
@@ -704,7 +709,7 @@ export function SettingsView() {
     >
         <div className="grid gap-2">
           <p className="max-w-2xl text-sm leading-6 text-[var(--zc-text-secondary)]">{t("settingsDesc")}</p>
-          {settingsStatus ? <SettingsInlineMessage tone={settingsStatusTone === "warning" ? "warning" : "success"}>{settingsStatus}</SettingsInlineMessage> : null}
+          {settingsStatus ? <SettingsInlineMessage tone={settingsStatusTone === "warning" ? "warning" : "success"} role={settingsStatusTone === "warning" ? "alert" : "status"}>{settingsStatus}</SettingsInlineMessage> : null}
         </div>
 
         <SettingsSection id="settings-general" title={t("settingsGeneral")} description={t("settingsGeneralDesc")}>
@@ -792,12 +797,12 @@ export function SettingsView() {
           <div className="grid gap-2">
             {defaultScanFolders.length ? defaultScanFolders.map((root) => (
               <div key={root.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
-                <div className="grid min-w-0 gap-3 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-center">
+                <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center">
                   <div className="min-w-0 text-left">
                     <label htmlFor={`scan-root-${root.id}`} className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{root.label}</label>
                     <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={root.path}>{compactPath(root.path, 72)}</span>
                   </div>
-                  <div className="flex flex-wrap items-center justify-start gap-2 min-[720px]:justify-end">
+                  <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
                     <SettingsSwitchControl
                       id={`scan-root-${root.id}`}
                       checked={root.enabled}
@@ -868,7 +873,7 @@ export function SettingsView() {
 
         <SettingsSection id="settings-search" title={t("settingsSearch")} description={t("settingsSearchDesc")}>
           <SettingsRow label={t("searchHotkey")} description={t("searchHotkeyDesc")}>
-            <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+            <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
               <kbd className="rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3 py-2 text-sm font-medium text-[var(--zc-text-primary)]">{hotkey}</kbd>
               <button className={cn(buttonSecondary, isRecordingHotkey && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)] text-[var(--zc-primary-text)]")} onClick={() => setIsRecordingHotkey(true)}>
                 <Keyboard size={14} />
@@ -877,7 +882,7 @@ export function SettingsView() {
             </div>
           </SettingsRow>
           {isRecordingHotkey && (
-            <SettingsInlineMessage>
+            <SettingsInlineMessage role="status">
               <div
                 ref={hotkeyCaptureRef}
                 className="mt-2 grid gap-2 rounded-xl border border-[var(--zc-info-border)] bg-[var(--zc-info-soft)] px-3 py-3 outline-none focus-visible:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)]"
@@ -890,7 +895,7 @@ export function SettingsView() {
             </SettingsInlineMessage>
           )}
           {globalHotkeyError ? (
-            <SettingsInlineMessage tone="warning">{t("hotkeyConflictHint")}</SettingsInlineMessage>
+            <SettingsInlineMessage tone="warning" role="alert">{t("hotkeyConflictHint")}</SettingsInlineMessage>
           ) : (
             <span className={quietText}>{t("hotkeyActiveHint")}</span>
           )}
@@ -931,12 +936,12 @@ export function SettingsView() {
               ) : null}
               {customSearchRoots.length ? customSearchRoots.map((root) => (
                 <div key={root.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
-                  <div className="grid min-w-0 gap-3 min-[720px]:grid-cols-[minmax(0,1fr)_auto] min-[720px]:items-center">
+                  <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center">
                     <div className="min-w-0 text-left">
                       <label htmlFor={`search-root-${root.id}`} className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{root.label}</label>
                       <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={root.path}>{compactPath(root.path, 72)}</span>
                     </div>
-                    <div className="flex flex-wrap items-center justify-start gap-2 min-[720px]:justify-end">
+                    <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
                       <SettingsSwitchControl
                         id={`search-root-${root.id}`}
                         checked={root.enabled}
@@ -974,7 +979,10 @@ export function SettingsView() {
             </div>
           )}
           {(isBackgroundIndexing || pendingBackgroundRoots.length > 0 || completedBackgroundRoots.length > 0 || failedBackgroundRoots.length > 0) ? (
-            <SettingsInlineMessage tone={failedBackgroundRoots.length ? "warning" : isBackgroundIndexing ? "info" : "success"}>
+            <SettingsInlineMessage
+              tone={failedBackgroundRoots.length ? "warning" : isBackgroundIndexing ? "info" : "success"}
+              role={failedBackgroundRoots.length ? "alert" : "status"}
+            >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <strong>{t("backgroundIndexingTitle")}</strong>
                 <span className="text-xs">{isBackgroundIndexing ? t("backgroundIndexingRunning") : t("backgroundIndexingIdle")}</span>
@@ -997,7 +1005,7 @@ export function SettingsView() {
         </SettingsSection>
 
         <SettingsSection id="settings-automation" title={t("settingsAutomation")} description={t("settingsAutomationDesc")}>
-          <SettingsInlineMessage>{t("automationSafetyBoundary")}</SettingsInlineMessage>
+          <p className={quietText}>{t("automationSafetyBoundary")}</p>
           <SettingsRow label={t("automationManualRuleSet")} description={t("automationSettingsDescription")}>
             <button className={buttonSecondary} onClick={() => setView("rules")}>{t("automationRules")}</button>
           </SettingsRow>
@@ -1025,6 +1033,7 @@ export function SettingsView() {
                 label={t("aiCleanupEnabledLabel")}
                 description={t("aiCleanupEnabledDesc")}
                 checked={aiSettings.cleanupAiEnabled}
+                disabled={aiDependentControlsDisabled}
                 onChange={(next) => updateAISettings({ cleanupAiEnabled: next })}
               />
               <SettingsSelect
@@ -1032,6 +1041,7 @@ export function SettingsView() {
                 label={t("aiProviderPreset")}
                 description={t("aiProviderPresetDesc")}
                 value={userProviderValue(aiSettings)}
+                disabled={aiDependentControlsDisabled}
                 options={[
                   { value: "deepseek", label: t("aiProviderDeepSeek") },
                   { value: "openai_compatible", label: t("aiProviderOpenaiCompatible") },
@@ -1045,13 +1055,18 @@ export function SettingsView() {
                   value={activeAIClassificationPreset}
                   ariaLabel={t("aiClassificationPresets")}
                   options={AI_CLASSIFICATION_PRESET_IDS.map((presetId) => ({ value: presetId, label: t(AI_CLASSIFICATION_LABEL_KEYS[presetId]) }))}
+                  disabled={aiDependentControlsDisabled}
                   onChange={(presetId) => { if (presetId !== "custom") applyClassificationPreset(presetId); }}
                 />
               </SettingsRow>
               <SettingsInlineMessage tone={aiSettings.enabled && aiSettings.provider !== "ollama" && !aiSettings.apiKeyConfigured ? "warning" : "info"}>
-                {aiSettings.enabled && aiSettings.provider !== "ollama" && !aiSettings.apiKeyConfigured ? t("aiConfigurationIncomplete") : t(aiUserMode(aiSettings) === "off" ? "modeAIDisabledDesc" : aiUserMode(aiSettings) === "local" ? "modeAILocalDesc" : "modeAICloudDesc")}
+                {aiSettings.enabled && aiSettings.provider !== "ollama" && !aiSettings.apiKeyConfigured
+                  ? t("aiConfigurationIncomplete")
+                  : aiSettings.enabled
+                    ? t(aiUserMode(aiSettings) === "local" ? "modeAILocalDesc" : "modeAICloudDesc")
+                    : t("aiDisabledConfigurationPreserved")}
               </SettingsInlineMessage>
-              {aiConnectionStatus ? <SettingsInlineMessage tone={aiConnectionStatus.tone}>{aiConnectionStatus.message}</SettingsInlineMessage> : null}
+              {aiConnectionStatus ? <SettingsInlineMessage tone={aiConnectionStatus.tone} role={aiConnectionStatus.role}>{aiConnectionStatus.message}</SettingsInlineMessage> : null}
               {developerMode ? (
                 <SettingsDisclosure title={t("advancedSettings")} description={t("developerModeDesc")}>
                   <SettingsControlGroup title={t("aiAdvancedConnection")} description={t("aiAdvancedConnectionDesc")}>
@@ -1060,52 +1075,55 @@ export function SettingsView() {
                       label={t("aiProviderPreset")}
                       value={aiSettings.preset}
                       options={aiPresets.map((preset) => ({ value: preset.id, label: aiProviderLabel(preset, t) }))}
+                      disabled={aiDependentControlsDisabled}
                       onChange={selectAIPreset}
                     />
-                    <div className="grid min-w-0 gap-4 min-[720px]:grid-cols-2">
-                      <SettingsTextField id="settings-ai-base-url" label={t("aiBaseUrlLabel")} value={aiSettings.baseUrl} onChange={(value) => updateAISettings({ baseUrl: value })} />
-                      <SettingsTextField id="settings-ai-chat-path" label={t("aiChatPathLabel")} value={aiSettings.chatPath} onChange={(value) => updateAISettings({ chatPath: value })} />
+                    <div className="grid min-w-0 gap-4 min-[1180px]:grid-cols-2">
+                      <SettingsTextField id="settings-ai-base-url" label={t("aiBaseUrlLabel")} value={aiSettings.baseUrl} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ baseUrl: value })} />
+                      <SettingsTextField id="settings-ai-chat-path" label={t("aiChatPathLabel")} value={aiSettings.chatPath} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ chatPath: value })} />
                       {aiSettings.provider === "ollama" ? (
-                        <SettingsInlineMessage>{t("aiLocalApiKeyHint")}</SettingsInlineMessage>
+                        <span className={quietText}>{t("aiLocalApiKeyHint")}</span>
                       ) : (
-                        <SettingsTextField
+                        <SettingsSecretField
                           id="settings-ai-api-key"
                           label={t("aiApiKeyLabel")}
-                          type="password"
                           value={aiSettings.apiKey}
+                          disabled={aiDependentControlsDisabled}
+                          showLabel={t("showApiKey")}
+                          hideLabel={t("hideApiKey")}
                           onChange={(value) => updateAISettings({ apiKey: value })}
                           placeholder={aiSettings.apiKeyConfigured ? t("aiStoredApiKeyPlaceholder") : t("aiEmptyApiKeyPlaceholder")}
                         />
                       )}
-                      <SettingsTextField id="settings-ai-model" label={t("aiModelLabel")} value={aiSettings.model} onChange={(value) => updateAISettings({ model: value })} />
+                      <SettingsTextField id="settings-ai-model" label={t("aiModelLabel")} value={aiSettings.model} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ model: value })} />
                     </div>
                   </SettingsControlGroup>
                   <SettingsControlGroup title={t("aiAdvancedPerformance")} description={t("aiAdvancedPerformanceDesc")}>
-                    <div className="grid min-w-0 gap-4 min-[720px]:grid-cols-2">
-                      <SettingsTextField id="settings-ai-batch-size" label={t("aiBatchSizeLabel")} description={t("aiBatchSizeDesc")} type="number" value={String(aiSettings.batchSize)} onChange={(value) => updateAISettings({ batchSize: Math.max(1, Number(value) || 1) })} />
-                      <SettingsTextField id="settings-ai-concurrency" label={t("aiConcurrencyLabel")} description={t("aiConcurrencyDesc")} type="number" value={String(aiSettings.classificationConcurrency)} onChange={(value) => updateAISettings({ classificationConcurrency: Math.min(4, Math.max(1, Number(value) || 1)) })} />
-                      <SettingsTextField id="settings-ai-max-tokens" label={t("aiMaxTokensLabel")} type="number" value={String(aiSettings.maxTokens)} onChange={(value) => updateAISettings({ maxTokens: Math.max(512, Number(value) || 512) })} />
-                      <SettingsTextField id="settings-ai-timeout" label={t("aiTimeoutLabel")} type="number" value={String(aiSettings.timeoutSeconds)} onChange={(value) => updateAISettings({ timeoutSeconds: Math.max(1, Number(value) || 1) })} />
+                    <div className="grid min-w-0 gap-4 min-[1180px]:grid-cols-2">
+                      <SettingsTextField id="settings-ai-batch-size" label={t("aiBatchSizeLabel")} description={t("aiBatchSizeDesc")} type="number" value={String(aiSettings.batchSize)} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ batchSize: Math.max(1, Number(value) || 1) })} />
+                      <SettingsTextField id="settings-ai-concurrency" label={t("aiConcurrencyLabel")} description={t("aiConcurrencyDesc")} type="number" value={String(aiSettings.classificationConcurrency)} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ classificationConcurrency: Math.min(4, Math.max(1, Number(value) || 1)) })} />
+                      <SettingsTextField id="settings-ai-max-tokens" label={t("aiMaxTokensLabel")} type="number" value={String(aiSettings.maxTokens)} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ maxTokens: Math.max(512, Number(value) || 512) })} />
+                      <SettingsTextField id="settings-ai-timeout" label={t("aiTimeoutLabel")} type="number" value={String(aiSettings.timeoutSeconds)} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ timeoutSeconds: Math.max(1, Number(value) || 1) })} />
                     </div>
                   </SettingsControlGroup>
                   <SettingsControlGroup title={t("aiAdvancedPrivacy")} description={t("aiAdvancedPrivacyDesc")}>
-                    <SettingsSwitch id="settings-ai-learned-rules" label={t("aiLearnedRulesLabel")} description={t("aiLearnedRulesDesc")} checked={useLearnedRulesAsAutoRules} onChange={(next) => void updateSettings({ useLearnedRulesAsAutoRules: next })} />
-                    <SettingsSwitch id="settings-ai-legacy-rules" label={t("aiLegacyRulesLabel")} description={t("aiLegacyRulesDesc")} checked={useLegacyBuiltinClassificationRules} onChange={(next) => void updateSettings({ useLegacyBuiltinClassificationRules: next })} />
-                    <SettingsSwitch id="settings-ai-force-json" label={t("aiForceJsonLabel")} description={t("aiForceJsonDesc")} checked={aiSettings.forceJsonOutput} onChange={(next) => updateAISettings({ forceJsonOutput: next })} />
-                    <SettingsSwitch id="settings-ai-thinking" label={t("aiThinkingLabel")} description={t("aiThinkingDesc")} checked={aiSettings.enableThinking} onChange={(next) => updateAISettings({ enableThinking: next })} />
-                    <SettingsSwitch id="settings-ai-send-full-path" label={t("aiSendFullPathLabel")} description={t("aiSendFullPathDesc")} checked={aiSettings.sendFullPath} onChange={(next) => updateAISettings({ sendFullPath: next })} />
-                    <SettingsSwitch id="settings-ai-send-parent-path" label={t("aiSendParentPathLabel")} description={t("aiSendParentPathDesc")} checked={aiSettings.sendParentPath} onChange={(next) => updateAISettings({ sendParentPath: next })} />
-                    <SettingsTextField id="settings-ai-reasoning-effort" label={t("aiReasoningEffortLabel")} value={aiSettings.reasoningEffort ?? ""} onChange={(value) => updateAISettings({ reasoningEffort: value || null })} placeholder={t("aiReasoningPlaceholder")} />
+                    <SettingsSwitch id="settings-ai-learned-rules" label={t("aiLearnedRulesLabel")} description={t("aiLearnedRulesDesc")} checked={useLearnedRulesAsAutoRules} disabled={aiDependentControlsDisabled} onChange={(next) => void updateSettings({ useLearnedRulesAsAutoRules: next })} />
+                    <SettingsSwitch id="settings-ai-legacy-rules" label={t("aiLegacyRulesLabel")} description={t("aiLegacyRulesDesc")} checked={useLegacyBuiltinClassificationRules} disabled={aiDependentControlsDisabled} onChange={(next) => void updateSettings({ useLegacyBuiltinClassificationRules: next })} />
+                    <SettingsSwitch id="settings-ai-force-json" label={t("aiForceJsonLabel")} description={t("aiForceJsonDesc")} checked={aiSettings.forceJsonOutput} disabled={aiDependentControlsDisabled} onChange={(next) => updateAISettings({ forceJsonOutput: next })} />
+                    <SettingsSwitch id="settings-ai-thinking" label={t("aiThinkingLabel")} description={t("aiThinkingDesc")} checked={aiSettings.enableThinking} disabled={aiDependentControlsDisabled} onChange={(next) => updateAISettings({ enableThinking: next })} />
+                    <SettingsSwitch id="settings-ai-send-full-path" label={t("aiSendFullPathLabel")} description={t("aiSendFullPathDesc")} checked={aiSettings.sendFullPath} disabled={aiDependentControlsDisabled} onChange={(next) => updateAISettings({ sendFullPath: next })} />
+                    <SettingsSwitch id="settings-ai-send-parent-path" label={t("aiSendParentPathLabel")} description={t("aiSendParentPathDesc")} checked={aiSettings.sendParentPath} disabled={aiDependentControlsDisabled} onChange={(next) => updateAISettings({ sendParentPath: next })} />
+                    <SettingsTextField id="settings-ai-reasoning-effort" label={t("aiReasoningEffortLabel")} value={aiSettings.reasoningEffort ?? ""} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ reasoningEffort: value || null })} placeholder={t("aiReasoningPlaceholder")} />
                     <label className="grid min-w-0 gap-1.5">
                       <span className="text-sm font-medium text-[var(--zc-text-primary)]">{t("aiExtraBodyLabel")}</span>
-                      <textarea className={cn(settingsField, "min-h-24 resize-y py-2 font-mono")} value={aiSettings.extraBodyJson ?? ""} onChange={(event) => updateAISettings({ extraBodyJson: event.target.value || null })} placeholder={t("aiExtraBodyPlaceholder")} />
+                      <textarea className={cn(settingsField, "min-h-24 resize-y py-2 font-mono")} value={aiSettings.extraBodyJson ?? ""} disabled={aiDependentControlsDisabled} onChange={(event) => updateAISettings({ extraBodyJson: event.target.value || null })} placeholder={t("aiExtraBodyPlaceholder")} />
                       <span className={quietText}>{t("aiSecretsHint")}</span>
                     </label>
                   </SettingsControlGroup>
                   {aiSettings.preset === "deepseek" && ["deepseek-chat", "deepseek-reasoner"].includes(aiSettings.model.trim()) ? <SettingsInlineMessage tone="warning">{t("aiOldModelWarning")}</SettingsInlineMessage> : null}
                   {(aiSettings.provider === "ollama" || aiSettings.model.toLowerCase().includes("qwen3")) ? <SettingsInlineMessage tone="warning">{t("aiQwenWarning")}</SettingsInlineMessage> : null}
                   <div className="flex flex-wrap justify-end gap-2">
-                    <button className={buttonSecondary} onClick={() => void testAIConnection()} disabled={isTestingAIConnection || isSavingAISettings}>
+                    <button className={buttonSecondary} onClick={() => void testAIConnection()} disabled={aiDependentControlsDisabled || isTestingAIConnection || isSavingAISettings}>
                       {isTestingAIConnection ? t("aiTestingConnection") : t("aiTestConnection")}
                     </button>
                   </div>
@@ -1117,12 +1135,12 @@ export function SettingsView() {
                         <span title={selectedLibraryFile.path}>{compactPath(selectedLibraryFile.path, 96)}</span>
                       </div>
                     ) : <span className={quietText}>{t("aiNoSelectedFile")}</span>}
-                    <div className="grid min-w-0 gap-3 min-[720px]:grid-cols-[minmax(0,1fr)_auto_auto] min-[720px]:items-end">
-                      <SettingsTextField id="settings-ai-debug-target" label={t("aiDebugTargetLabel")} value={aiDebugTarget} onChange={setAiDebugTarget} placeholder={t("aiDebugTargetPlaceholder")} />
-                      <button className={buttonSecondary} onClick={() => setAiDebugTarget(selectedLibraryFile?.id ?? "")} disabled={!selectedLibraryFile || isDebuggingAI}>{t("aiUseSelectedFile")}</button>
-                      <button className={buttonSecondary} onClick={() => void debugAIClassificationOnce()} disabled={isDebuggingAI || !aiDebugTarget.trim()}>{isDebuggingAI ? t("aiDebugging") : t("aiDebugSingleFile")}</button>
+                    <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto_auto] min-[1180px]:items-end">
+                      <SettingsTextField id="settings-ai-debug-target" label={t("aiDebugTargetLabel")} value={aiDebugTarget} disabled={aiDependentControlsDisabled} onChange={setAiDebugTarget} placeholder={t("aiDebugTargetPlaceholder")} />
+                      <button className={buttonSecondary} onClick={() => setAiDebugTarget(selectedLibraryFile?.id ?? "")} disabled={aiDependentControlsDisabled || !selectedLibraryFile || isDebuggingAI}>{t("aiUseSelectedFile")}</button>
+                      <button className={buttonSecondary} onClick={() => void debugAIClassificationOnce()} disabled={aiDependentControlsDisabled || isDebuggingAI || !aiDebugTarget.trim()}>{isDebuggingAI ? t("aiDebugging") : t("aiDebugSingleFile")}</button>
                     </div>
-                    {aiDebugStatus ? <SettingsInlineMessage tone={aiDebugStatus.tone}>{sanitizeAIStatusMessage(aiDebugStatus.message, aiSettings.apiKey)}</SettingsInlineMessage> : null}
+                    {aiDebugStatus ? <SettingsInlineMessage tone={aiDebugStatus.tone} role={aiDebugStatus.role}>{sanitizeAIStatusMessage(aiDebugStatus.message, aiSettings.apiKey)}</SettingsInlineMessage> : null}
                     {aiDebugResult ? (
                       <div className="grid gap-3 text-xs text-[var(--zc-text-secondary)]">
                         <div className="grid gap-1 border-b border-[var(--zc-divider)] pb-3">
@@ -1148,9 +1166,16 @@ export function SettingsView() {
                     ) : null}
                   </SettingsDisclosure>
                 </SettingsDisclosure>
-              ) : <SettingsInlineMessage>{t("developerModeDesc")}</SettingsInlineMessage>}
+              ) : <p className={quietText}>{t("developerModeDesc")}</p>}
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--zc-divider)] py-4">
-                <span className={quietText} role="status" aria-live="polite" data-ai-settings-state={aiSettingsSaveError ? "error" : aiSettingsDirty ? "unsaved" : "applied"}>{aiSettingsSaveError ? t("aiSettingsSaveFailed") : aiSettingsDirty ? t("aiUnsavedChanges") : t("aiSettingsApplied")}</span>
+                <span
+                  className={quietText}
+                  role={aiSettingsSaveError ? undefined : "status"}
+                  aria-live={aiSettingsSaveError ? undefined : "polite"}
+                  data-ai-settings-state={aiSettingsSaveError ? "error" : aiSettingsDirty ? "unsaved" : "applied"}
+                >
+                  {aiSettingsSaveError ? t("aiSettingsRetainedAfterFailure") : aiSettingsDirty ? t("aiUnsavedChanges") : t("aiSettingsApplied")}
+                </span>
                 <button type="button" className={buttonSecondary} onClick={() => void saveAISettings()} disabled={!aiSettingsDirty || isSavingAISettings || isTestingAIConnection}>{isSavingAISettings ? t("aiSavingSettings") : t("aiSaveSettings")}</button>
               </div>
             </fieldset>
@@ -1158,7 +1183,7 @@ export function SettingsView() {
         </SettingsSection>
 
         <SettingsSection id="settings-privacy" title={t("settingsPrivacy")} description={t("settingsPrivacyDesc")}>
-          <SettingsInlineMessage>{t("privacyLine")}</SettingsInlineMessage>
+          <p className={quietText}>{t("privacyLine")}</p>
           <SettingsRow label={t("logRetention")} description={t("logRetentionDesc")}>
             <SettingsSegmentedControl
               value={String(restoreRetentionDays)}
@@ -1167,7 +1192,7 @@ export function SettingsView() {
               onChange={(next) => void updateRestoreRetentionDays(Number(next) as RestoreRetentionDays)}
             />
           </SettingsRow>
-          <SettingsInlineMessage>{t("settingsSafetyRestoreDesc")}</SettingsInlineMessage>
+          <p className={quietText}>{t("settingsSafetyRestoreDesc")}</p>
         </SettingsSection>
 
         <SettingsSection id="settings-about" title={t("settingsAbout")} description={t("settingsAboutDesc")}>
@@ -1183,7 +1208,7 @@ export function SettingsView() {
           </SettingsControlGroup>
           <SettingsSwitch id="settings-developer-mode" label={t("developerMode")} description={t("developerModeDesc")} checked={developerMode} onChange={setDeveloperModePreference} />
           <SettingsControlGroup title={t("searchSources")} description={t("searchSourcesDesc")}>
-            <SettingsInlineMessage>{t("localOnly")}</SettingsInlineMessage>
+            <p className={quietText}>{t("localOnly")}</p>
             <div className="grid gap-1 text-sm">
               <strong className="text-[var(--zc-text-primary)]">{t("excludedDirs")}</strong>
               <span className="text-sm leading-6 text-[var(--zc-text-secondary)]">node_modules, .git, target, dist, build</span>
