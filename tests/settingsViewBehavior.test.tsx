@@ -371,6 +371,7 @@ describe("settings view behavior", () => {
     expect(save.disabled).toBe(true);
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
     expect(container.querySelector('[role="status"]')?.textContent).toContain("AI settings saved");
+    expect(container.querySelector("[data-ai-status-region]")?.querySelectorAll('[role="status"]')).toHaveLength(1);
   });
 
   it("has one editable provider and hides a revealed API key on provider, section, mode, advanced, and save transitions", async () => {
@@ -433,5 +434,11 @@ describe("settings view behavior", () => {
     const developerSwitch = container.querySelector<HTMLInputElement>("#settings-developer-mode")!;
     await act(async () => developerSwitch.click());
     expect(container.querySelector("#settings-ai-api-key")).toBeNull();
+
+    await act(async () => root.render(null));
+    window.localStorage.setItem("zc-developer-mode", "true");
+    await act(async () => root.render(<SettingsView />));
+    await flushEffects();
+    expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.type).toBe("password");
   });
 });

@@ -37,7 +37,9 @@ describe("settings view UI", () => {
     expect(settingsView).toContain("SettingsSegmentedControl");
     expect(settingsView).toContain("SettingsSwitch");
     expect(settingsPrimitives).toContain('data-settings-scroll-container');
-    expect(settingsPrimitives).toContain('min-[1180px]:grid-cols-[minmax(190px,220px)_minmax(0,960px)]');
+    expect(settingsPrimitives).toContain('data-settings-layout-grid');
+    expect(settingsPrimitives).toContain('min-[1180px]:grid-cols-[200px_minmax(0,1fr)]');
+    expect(settingsPrimitives).toContain('max-w-[1240px]');
     expect(settingsPrimitives).toContain('role="radiogroup"');
     expect(settingsPrimitives).toContain('role="switch"');
     expect(settingsPrimitives).toContain("data-settings-switch-track");
@@ -49,6 +51,7 @@ describe("settings view UI", () => {
     expect(settingsPrimitives).toContain('data-settings-nav-fade="end"');
     expect(settingsPrimitives).toContain("sticky top-0 z-20");
     expect(settingsPrimitives).toContain("min-[1180px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)]");
+    expect(settingsPrimitives).toContain("min-[1180px]:grid-cols-[minmax(220px,1fr)_minmax(0,480px)]");
     expect(settingsPrimitives).not.toContain("min-[720px]:grid-cols");
     expect(settingsView).toContain('t("settingsAppearance")');
     expect(settingsView).toContain('t("settingsScanRoots")');
@@ -139,6 +142,9 @@ describe("settings view UI", () => {
     expect(settingsView).toContain("aiSettingsSaveFailed");
     expect(settingsView).not.toContain("setAiSettings(previous)");
     expect(settingsView).toContain('layout="three-option-responsive"');
+    expect(settingsView).toContain('controlWidth="wide"');
+    expect(settingsView).toContain("data-ai-status-region");
+    expect(settingsView).toContain("data-ai-advanced-connection-grid");
     expect(settingsView).not.toContain("settings-ai-advanced-provider");
     expect(settingsPrimitives).toContain('role="radiogroup"');
     expect(settingsPrimitives).toContain('role="radio"');

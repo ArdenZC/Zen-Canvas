@@ -1025,7 +1025,7 @@ export function SettingsView() {
             >
               <div
                 data-ai-save-bar
-                className="sticky top-[53px] z-10 grid min-w-0 gap-2 rounded-[var(--zc-radius-field)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] px-3 py-3 shadow-[var(--zc-shadow-card)] min-[1180px]:top-4 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center"
+                className="sticky top-[53px] z-10 grid min-w-0 gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] py-3 min-[1180px]:top-4 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center"
               >
                 <div className="grid min-w-0 gap-1">
                   <strong className="text-sm text-[var(--zc-text-primary)]">
@@ -1035,17 +1035,25 @@ export function SettingsView() {
                     <span className="text-xs leading-5 text-[var(--zc-warning-text)]" data-ai-unsaved-draft>
                       {t("aiUnsavedDraftMode").replace("{mode}", t(draftAIUserMode === "off" ? "modeAIDisabled" : draftAIUserMode === "local" ? "modeAILocal" : "modeAICloud"))}
                     </span>
-                  ) : (
-                    <span className={quietText} data-ai-settings-state="applied">{t("aiSettingsApplied")}</span>
-                  )}
-                  {aiSettingsSaveError ? <span className={quietText} data-ai-settings-state="error">{t("aiSettingsRetainedAfterFailure")}</span> : null}
-                  {aiConnectionStatus ? <SettingsInlineMessage tone={aiConnectionStatus.tone} role={aiConnectionStatus.role}>{aiConnectionStatus.message}</SettingsInlineMessage> : null}
+                  ) : null}
                 </div>
                 <button type="button" className={buttonSecondary} onClick={() => void saveAISettings()} disabled={!aiSettingsDirty || isSavingAISettings || isTestingAIConnection}>
                   {isSavingAISettings ? t("aiSavingSettings") : t("aiSaveSettings")}
                 </button>
               </div>
-              <SettingsRow label={t("aiModeLabel")} description={t(aiUserMode(aiSettings) === "off" ? "modeAIDisabledDesc" : aiUserMode(aiSettings) === "local" ? "modeAILocalDesc" : "modeAICloudDesc")}>
+              {aiConnectionStatus ? (
+                <div data-ai-status-region className="min-w-0 py-3">
+                  <SettingsInlineMessage tone={aiConnectionStatus.tone} role={aiConnectionStatus.role}>
+                    <span className="block min-w-0 [overflow-wrap:anywhere]">{aiConnectionStatus.message}</span>
+                    {aiSettingsSaveError ? (
+                      <span className="mt-1 block text-xs leading-5" data-ai-settings-state="error">
+                        {t("aiSettingsRetainedAfterFailure")}
+                      </span>
+                    ) : null}
+                  </SettingsInlineMessage>
+                </div>
+              ) : null}
+              <SettingsRow controlWidth="wide" label={t("aiModeLabel")} description={t(aiUserMode(aiSettings) === "off" ? "modeAIDisabledDesc" : aiUserMode(aiSettings) === "local" ? "modeAILocalDesc" : "modeAICloudDesc")}>
                 <SettingsSegmentedControl
                   value={aiUserMode(aiSettings)}
                   ariaLabel={t("aiModeLabel")}
@@ -1099,7 +1107,7 @@ export function SettingsView() {
               {developerMode ? (
                 <SettingsDisclosure title={t("advancedSettings")} description={t("developerModeDesc")} open={aiAdvancedOpen} onOpenChange={setAiAdvancedOpen}>
                   <SettingsControlGroup title={t("aiAdvancedConnection")} description={t("aiAdvancedConnectionDesc")}>
-                    <div className="grid min-w-0 gap-4 min-[1180px]:grid-cols-2">
+                    <div data-ai-advanced-connection-grid className="grid min-w-0 gap-4 min-[1180px]:grid-cols-2">
                       <SettingsTextField id="settings-ai-base-url" label={t("aiBaseUrlLabel")} value={aiSettings.baseUrl} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ baseUrl: value })} />
                       <SettingsTextField id="settings-ai-chat-path" label={t("aiChatPathLabel")} value={aiSettings.chatPath} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ chatPath: value })} />
                       {aiSettings.provider === "ollama" ? (

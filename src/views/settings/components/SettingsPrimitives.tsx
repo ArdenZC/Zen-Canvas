@@ -86,14 +86,17 @@ export function SettingsLayout({
 }) {
   return (
     <div ref={scrollRef} data-settings-scroll-container className="h-full min-h-0 min-w-0 overflow-auto overscroll-contain pr-1">
-      <div className="mx-auto grid w-full max-w-[1200px] min-w-0 gap-5 px-1 pb-8 min-[1180px]:grid-cols-[minmax(190px,220px)_minmax(0,960px)] min-[1180px]:items-start">
+      <div
+        data-settings-layout-grid
+        className="mx-auto grid w-full max-w-[1240px] min-w-0 gap-5 px-1 pb-8 min-[1180px]:grid-cols-[200px_minmax(0,1fr)] min-[1180px]:items-start min-[1180px]:gap-[clamp(2rem,3vw,2.75rem)]"
+      >
         <SettingsSectionNav
           sections={sections}
           activeSectionId={activeSectionId}
           onSectionChange={onSectionChange}
           sectionLabel={sectionLabel}
         />
-        <div className="grid min-w-0 gap-7">{children}</div>
+        <div data-settings-content className="grid min-w-0 gap-7">{children}</div>
       </div>
     </div>
   );
@@ -156,7 +159,7 @@ export function SettingsSectionNav({
           ref={navRef}
           aria-label={sectionLabel}
           data-settings-section-nav
-          className="flex max-w-full gap-1 overflow-x-auto overscroll-contain pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-[1180px]:grid min-[1180px]:overflow-visible min-[1180px]:pb-0"
+          className="flex max-w-full scroll-px-5 gap-1 overflow-x-auto overscroll-contain px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden min-[1180px]:grid min-[1180px]:overflow-visible min-[1180px]:px-0 min-[1180px]:pb-0"
           onWheel={handleWheel}
         >
           {sections.map((section, index) => {
@@ -245,7 +248,8 @@ export function SettingsRow({
   description,
   hint,
   children,
-  className
+  className,
+  controlWidth = "default"
 }: {
   id?: string;
   label: string;
@@ -253,9 +257,19 @@ export function SettingsRow({
   hint?: string;
   children: ReactNode;
   className?: string;
+  controlWidth?: "default" | "wide";
 }) {
   return (
-    <div className={cn("grid min-w-0 gap-3 border-b border-[var(--zc-divider)] py-4 last:border-b-0 min-[1180px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)] min-[1180px]:items-start", className)}>
+    <div
+      data-settings-row
+      className={cn(
+        "grid min-w-0 gap-3 border-b border-[var(--zc-divider)] py-4 last:border-b-0 min-[1180px]:items-start",
+        controlWidth === "wide"
+          ? "min-[1180px]:grid-cols-[minmax(220px,1fr)_minmax(0,480px)]"
+          : "min-[1180px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)]",
+        className
+      )}
+    >
       <div className="min-w-0">
         {id ? (
           <label htmlFor={id} className="block text-sm font-medium text-[var(--zc-text-primary)]">{label}</label>
@@ -265,7 +279,10 @@ export function SettingsRow({
         {description ? <span className="mt-1 block max-w-[600px] text-sm leading-6 text-[var(--zc-text-secondary)]">{description}</span> : null}
         {hint ? <span className="mt-1 block max-w-[600px] text-xs leading-5 text-[var(--zc-text-tertiary)]">{hint}</span> : null}
       </div>
-      <div className="min-w-0 min-[1180px]:w-full min-[1180px]:max-w-[360px] min-[1180px]:justify-self-end">{children}</div>
+      <div className={cn(
+        "min-w-0 min-[1180px]:w-full min-[1180px]:justify-self-end",
+        controlWidth === "wide" ? "min-[1180px]:max-w-[480px]" : "min-[1180px]:max-w-[360px]"
+      )}>{children}</div>
     </div>
   );
 }
@@ -306,6 +323,7 @@ export function SettingsSegmentedControl<T extends string>({
   return (
     <div
       role="radiogroup"
+      data-settings-segmented-control
       aria-label={ariaLabel}
       aria-disabled={disabled || undefined}
       className={cn(
@@ -326,8 +344,8 @@ export function SettingsSegmentedControl<T extends string>({
             disabled={disabled}
             tabIndex={disabled ? -1 : selected ? 0 : -1}
             className={cn(
-              "min-h-8 shrink-0 whitespace-nowrap rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm font-medium text-[var(--zc-text-secondary)]",
-              layout === "three-option-responsive" && "w-full",
+              "min-h-8 min-w-0 shrink-0 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm font-medium text-[var(--zc-text-secondary)]",
+              layout === "three-option-responsive" ? "w-full whitespace-normal text-center leading-5" : "whitespace-nowrap",
               "transition-[background,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
               "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
               "disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[var(--zc-text-secondary)]",

@@ -7,6 +7,7 @@ import {
   SettingsEmptyState,
   SettingsInlineMessage,
   SettingsLayout,
+  SettingsRow,
   SettingsSection,
   SettingsSectionNav,
   SettingsSegmentedControl,
@@ -42,6 +43,47 @@ afterEach(() => {
 });
 
 describe("settings component system", () => {
+  it("renders a bounded wide layout and lets long three-option labels wrap inside their row", async () => {
+    await act(async () => root.render(
+      <SettingsLayout
+        sections={[{ id: "ai", label: "AI" }]}
+        activeSectionId="ai"
+        sectionLabel="Sections"
+        onSectionChange={vi.fn()}
+      >
+        <SettingsSection id="ai" title="AI">
+          <SettingsRow controlWidth="wide" label="AI mode">
+            <SettingsSegmentedControl
+              value="off"
+              ariaLabel="AI mode"
+              layout="three-option-responsive"
+              options={[
+                { value: "off", label: "AI is off" },
+                { value: "local", label: "Using a local model" },
+                { value: "cloud", label: "Using cloud AI" }
+              ]}
+              onChange={vi.fn()}
+            />
+          </SettingsRow>
+        </SettingsSection>
+      </SettingsLayout>
+    ));
+
+    const layout = container.querySelector<HTMLElement>("[data-settings-layout-grid]")!;
+    const content = container.querySelector<HTMLElement>("[data-settings-content]")!;
+    const row = container.querySelector<HTMLElement>("[data-settings-row]")!;
+    const group = container.querySelector<HTMLElement>("[data-settings-segmented-control]")!;
+    const radios = [...group.querySelectorAll<HTMLButtonElement>('[role="radio"]')];
+
+    expect(layout.className).toContain("max-w-[1240px]");
+    expect(layout.className).toContain("grid-cols-[200px_minmax(0,1fr)]");
+    expect(content.className).toContain("min-w-0");
+    expect(row.className).toContain("grid-cols-[minmax(220px,1fr)_minmax(0,480px)]");
+    expect(group.className).toContain("grid-cols-3");
+    expect(radios.every((radio) => radio.className.includes("min-w-0") && radio.className.includes("whitespace-normal"))).toBe(true);
+    expect(radios.every((radio) => !radio.className.includes("whitespace-nowrap"))).toBe(true);
+  });
+
   it("switches the active section at the visibility boundary instead of leaving a previous tail active", () => {
     const scrollOwner = document.createElement("div");
     scrollOwner.innerHTML = '<div data-settings-section-nav-shell></div><section id="general"></section><section id="privacy"></section>';
@@ -216,6 +258,47 @@ describe("settings component system", () => {
     await act(async () => buttons[1].dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })));
     expect(buttons[0].getAttribute("aria-current")).toBe("location");
     expect(document.activeElement).toBe(buttons[0]);
+  });
+
+  it("keeps the first and last narrow navigation items outside the fade gutters", async () => {
+    function Harness() {
+      const [activeSectionId, setActiveSectionId] = useState("general");
+      return (
+        <SettingsSectionNav
+          sections={[
+            { id: "general", label: "General" },
+            { id: "appearance", label: "Appearance" },
+            { id: "about", label: "About" }
+          ]}
+          activeSectionId={activeSectionId}
+          sectionLabel="Sections"
+          onSectionChange={setActiveSectionId}
+        />
+      );
+    }
+
+    await act(async () => root.render(<Harness />));
+    const nav = container.querySelector<HTMLElement>("[data-settings-section-nav]")!;
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>("[data-settings-section]")];
+    Object.defineProperties(nav, {
+      clientWidth: { configurable: true, value: 180 },
+      scrollWidth: { configurable: true, value: 500 }
+    });
+    [20, 190, 400].forEach((left, index) => Object.defineProperties(buttons[index], {
+      offsetLeft: { configurable: true, value: left },
+      offsetWidth: { configurable: true, value: 80 }
+    }));
+
+    expect(nav.className).toContain("scroll-px-5");
+    expect(nav.className).toContain("px-5");
+    buttons[0].focus();
+    await act(async () => buttons[0].dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true })));
+    expect(document.activeElement).toBe(buttons[2]);
+    expect(nav.scrollLeft).toBe(320);
+
+    await act(async () => buttons[2].dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+    expect(document.activeElement).toBe(buttons[0]);
+    expect(nav.scrollLeft).toBe(0);
   });
 
   it("scrolls section content for arrow, Home, and End navigation while keeping focus in the nav", async () => {
