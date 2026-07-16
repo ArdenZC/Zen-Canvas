@@ -47,7 +47,14 @@ export type SuggestedAction =
 
 export type DispatchZone = "CoreAssets" | "QuietArchive" | "PrivacyVault" | "CleanupLane";
 export type SearchSourceType = "user_space" | "folder" | "cloud" | "external";
-export type RestoreStatus = "not_restored" | "pending" | "restored" | "failed" | "unavailable" | "canceled";
+export type RestoreStatus =
+  | "not_restored"
+  | "pending"
+  | "restored"
+  | "failed"
+  | "unavailable"
+  | "canceled"
+  | "manual_review";
 export type CleanupTier = "Safe" | "Review" | "Caution";
 export type CleanupActionKind = "MoveToTrash" | "Reveal" | "UninstallAdvice" | "AppInternalCleanup" | "None";
 export type OperationType = "move" | "rename" | "move_rename" | "move_to_trash";
@@ -603,7 +610,7 @@ export interface OperationLog {
   target_path: string;
   old_name: string;
   new_name: string;
-  status: "success" | "failed" | "skipped";
+  status: "pending" | "success" | "failed" | "skipped" | "manual_review";
   error_message: string | null;
   created_at: string;
   can_undo: boolean;
@@ -615,6 +622,11 @@ export interface OperationLog {
   restored_at: string | null;
   restore_status: RestoreStatus;
   restore_error: string | null;
+  source_size?: number | null;
+  source_modified_ns?: string | null;
+  source_platform_file_id?: string | null;
+  source_quick_hash?: string | null;
+  target_platform_file_id?: string | null;
 }
 
 export interface ExecuteOperationRequest {

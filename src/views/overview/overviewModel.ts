@@ -96,7 +96,7 @@ export interface OverviewActivity {
   createdAt: string;
   title: string;
   description: string;
-  status: "success" | "failed" | "skipped";
+  status: OperationLog["status"];
   destination: null;
 }
 
@@ -134,6 +134,8 @@ export function operationActivityTitle(
   status: OperationLog["status"],
   t: Translator
 ) {
+  if (status === "manual_review") return t("overviewActivityManualReview");
+  if (status === "pending") return t("overviewActivityPending");
   const normalized = operationType.toLowerCase();
   const type = normalized.includes("restore")
     ? "restore"

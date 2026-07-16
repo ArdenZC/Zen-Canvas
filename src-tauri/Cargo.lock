@@ -6099,6 +6099,7 @@ dependencies = [
  "time",
  "trash",
  "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

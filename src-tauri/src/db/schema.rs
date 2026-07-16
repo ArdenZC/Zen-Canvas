@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 17;
+const CURRENT_SCHEMA_VERSION: i32 = 18;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -461,6 +461,35 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
                 ],
             )?;
             set_schema_version(conn, 17)?;
+        }
+        if version < 18 {
+            execute_column_migrations(
+                conn,
+                &[
+                    "ALTER TABLE operation_logs ADD COLUMN source_size INTEGER;",
+                    "ALTER TABLE operation_logs ADD COLUMN source_modified_ns TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN source_platform_file_id TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN source_quick_hash TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN target_platform_file_id TEXT;",
+                ],
+            )?;
+            conn.execute_batch(
+                r#"
+                DROP TRIGGER IF EXISTS operation_logs_status_guard_insert;
+                DROP TRIGGER IF EXISTS operation_logs_status_guard_update;
+                CREATE TRIGGER operation_logs_status_guard_insert
+                BEFORE INSERT ON operation_logs
+                WHEN NEW.status NOT IN ('pending', 'success', 'failed', 'skipped', 'manual_review')
+                  OR NEW.restore_status NOT IN ('not_restored', 'pending', 'restored', 'failed', 'unavailable', 'canceled', 'manual_review')
+                BEGIN SELECT RAISE(ABORT, 'invalid operation log status'); END;
+                CREATE TRIGGER operation_logs_status_guard_update
+                BEFORE UPDATE OF status, restore_status ON operation_logs
+                WHEN NEW.status NOT IN ('pending', 'success', 'failed', 'skipped', 'manual_review')
+                  OR NEW.restore_status NOT IN ('not_restored', 'pending', 'restored', 'failed', 'unavailable', 'canceled', 'manual_review')
+                BEGIN SELECT RAISE(ABORT, 'invalid operation log status'); END;
+                "#,
+            )?;
+            set_schema_version(conn, 18)?;
         }
         Ok(())
     })();

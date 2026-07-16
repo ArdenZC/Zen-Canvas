@@ -71,6 +71,11 @@
             restored_at: None,
             restore_status: "not_restored".to_string(),
             restore_error: None,
+            source_size: None,
+            source_modified_ns: None,
+            source_platform_file_id: None,
+            source_quick_hash: None,
+            target_platform_file_id: None,
         }
     }
 
