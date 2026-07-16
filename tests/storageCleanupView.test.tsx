@@ -171,6 +171,9 @@ describe("StorageCleanupView", () => {
     expect(source).toContain("cancelStorageCleanupScan");
     expect(source).toContain("moveCleanupCandidatesToSafeTrash");
     expect(source).toContain("ConfirmDialog");
+    expect(source).toContain("storageCleanupReviewConfirmTitle");
+    expect(source).not.toContain("globalThis.confirm");
+    expect(source).not.toContain("window.confirm");
     expect(source).toContain("onReveal(candidate.path)");
     expect(source).toContain('t("storageCleanupMoveToSafeTrash")');
   });

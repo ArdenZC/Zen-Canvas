@@ -5,9 +5,10 @@ use std::{
     collections::{hash_map::DefaultHasher, HashMap, HashSet},
     env, fs,
     hash::{Hash, Hasher},
+    panic::{catch_unwind, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -22,6 +23,7 @@ const STORAGE_CLEANUP_PROGRESS_EVENT: &str = "storage-cleanup-progress";
 const STORAGE_CLEANUP_COMPLETED_EVENT: &str = "storage-cleanup-completed";
 const STORAGE_CLEANUP_FAILED_EVENT: &str = "storage-cleanup-failed";
 const STORAGE_CLEANUP_CANCELLED_EVENT: &str = "storage-cleanup-cancelled";
+pub const CLEANUP_RESTORE_PROGRESS_EVENT: &str = "cleanup-restore-progress";
 const STORAGE_CLEANUP_EMIT_INTERVAL: Duration = Duration::from_millis(300);
 const STORAGE_CLEANUP_EMIT_ENTRY_INTERVAL: u64 = 100;
 
@@ -174,7 +176,16 @@ pub struct CleanupTrashBatch {
 #[serde(rename_all = "camelCase")]
 pub struct CleanupRestorePreview {
     pub batch_id: String,
-    pub items: Vec<CleanupTrashItem>,
+    pub items: Vec<CleanupRestorePreviewItem>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupRestorePreviewItem {
+    #[serde(flatten)]
+    pub item: CleanupTrashItem,
+    pub can_restore: bool,
+    pub blocking_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -194,12 +205,245 @@ pub struct CleanupRestoreResult {
     pub conflicts: usize,
     pub missing: usize,
     pub failed: usize,
+    pub canceled: usize,
     pub logs: Vec<CleanupRestoreLog>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupRestoreProgressPayload {
+    pub job_id: String,
+    pub processed: usize,
+    pub total: usize,
+    pub current_item_id: Option<String>,
+    pub current_path: Option<String>,
+    pub restored: usize,
+    pub conflicts: usize,
+    pub missing: usize,
+    pub failed: usize,
+    pub canceled: usize,
+    pub cancel_requested: bool,
 }
 
 #[derive(Clone, Default)]
 pub struct StorageCleanupState {
     inner: Arc<StorageCleanupStateInner>,
+}
+
+#[derive(Clone, Default)]
+pub struct CleanupRestoreState {
+    inner: Arc<CleanupRestoreStateInner>,
+}
+
+#[derive(Default)]
+struct CleanupRestoreStateInner {
+    jobs: Mutex<HashMap<String, CleanupRestoreJob>>,
+    next_sequence: AtomicU64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CleanupRestoreJobStatus {
+    Running,
+    Completed,
+    Canceled,
+    Failed,
+}
+
+impl CleanupRestoreJobStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Canceled => "canceled",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Clone)]
+struct CleanupRestoreJob {
+    cancel_flag: Arc<AtomicBool>,
+    status: CleanupRestoreJobStatus,
+    sequence: u64,
+}
+
+impl CleanupRestoreState {
+    fn start_job(&self, job_id: String) -> Result<Arc<AtomicBool>, String> {
+        let mut jobs = self
+            .inner
+            .jobs
+            .lock()
+            .map_err(|_| "Cleanup restore job state is unavailable.".to_string())?;
+        if jobs
+            .values()
+            .any(|job| job.status == CleanupRestoreJobStatus::Running)
+        {
+            return Err("Another cleanup restore is already running.".to_string());
+        }
+        let cancel_flag = Arc::new(AtomicBool::new(false));
+        let sequence = self.inner.next_sequence.fetch_add(1, Ordering::Relaxed);
+        jobs.insert(
+            job_id,
+            CleanupRestoreJob {
+                cancel_flag: Arc::clone(&cancel_flag),
+                status: CleanupRestoreJobStatus::Running,
+                sequence,
+            },
+        );
+        while jobs.len() > MAX_RETAINED_CLEANUP_JOBS {
+            let oldest = jobs
+                .iter()
+                .filter(|(_, job)| job.status != CleanupRestoreJobStatus::Running)
+                .min_by_key(|(_, job)| job.sequence)
+                .map(|(id, _)| id.clone());
+            let Some(oldest) = oldest else { break };
+            jobs.remove(&oldest);
+        }
+        Ok(cancel_flag)
+    }
+
+    fn cancel_job(&self, job_id: &str) -> Result<(), String> {
+        let jobs = self
+            .inner
+            .jobs
+            .lock()
+            .map_err(|_| "Cleanup restore job state is unavailable.".to_string())?;
+        let job = jobs
+            .get(job_id)
+            .ok_or_else(|| format!("Cleanup restore job not found: {job_id}"))?;
+        if job.status == CleanupRestoreJobStatus::Running {
+            job.cancel_flag.store(true, Ordering::Relaxed);
+        }
+        Ok(())
+    }
+
+    fn finish_job(&self, job_id: &str, status: CleanupRestoreJobStatus) -> Result<(), String> {
+        let mut jobs = self
+            .inner
+            .jobs
+            .lock()
+            .map_err(|_| "Cleanup restore job state is unavailable.".to_string())?;
+        if let Some(job) = jobs.get_mut(job_id) {
+            if job.status == CleanupRestoreJobStatus::Running {
+                job.status = status;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn status_for_test(&self, job_id: &str) -> Option<CleanupRestoreJobStatus> {
+        self.inner
+            .jobs
+            .lock()
+            .ok()?
+            .get(job_id)
+            .map(|job| job.status)
+    }
+
+    pub fn start_job_for_test(&self, job_id: impl Into<String>) -> Result<Arc<AtomicBool>, String> {
+        self.start_job(job_id.into())
+    }
+
+    pub fn cancel_job_for_test(&self, job_id: &str) -> Result<(), String> {
+        self.cancel_job(job_id)
+    }
+
+    pub fn finish_job_for_test(
+        &self,
+        job_id: &str,
+        status: CleanupRestoreJobStatus,
+    ) -> Result<(), String> {
+        self.finish_job(job_id, status)
+    }
+}
+
+struct CleanupRestoreJobGuard {
+    state: CleanupRestoreState,
+    job_id: String,
+    finished: bool,
+}
+
+impl CleanupRestoreJobGuard {
+    fn new(state: CleanupRestoreState, job_id: String) -> Self {
+        Self {
+            state,
+            job_id,
+            finished: false,
+        }
+    }
+
+    fn finish(&mut self, status: CleanupRestoreJobStatus) {
+        let _ = self.state.finish_job(&self.job_id, status);
+        self.finished = true;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CleanupRestoreTestOutcome {
+    Completed,
+    Canceled,
+    Failed,
+    Panic,
+}
+
+pub fn run_cleanup_restore_job_for_test(
+    state: &CleanupRestoreState,
+    job_id: &str,
+    outcome: CleanupRestoreTestOutcome,
+) -> Result<(), String> {
+    state.start_job_for_test(job_id.to_string())?;
+    let state = state.clone();
+    let job_id = job_id.to_string();
+    let result = catch_unwind(AssertUnwindSafe(move || {
+        let mut guard = CleanupRestoreJobGuard::new(state, job_id);
+        match outcome {
+            CleanupRestoreTestOutcome::Completed => {
+                guard.finish(CleanupRestoreJobStatus::Completed)
+            }
+            CleanupRestoreTestOutcome::Canceled => guard.finish(CleanupRestoreJobStatus::Canceled),
+            CleanupRestoreTestOutcome::Failed => guard.finish(CleanupRestoreJobStatus::Failed),
+            CleanupRestoreTestOutcome::Panic => panic!("simulated cleanup restore worker panic"),
+        }
+    }));
+    result.map_err(|_| "simulated cleanup restore worker panic".to_string())
+}
+
+impl Drop for CleanupRestoreJobGuard {
+    fn drop(&mut self) {
+        if !self.finished {
+            let _ = self
+                .state
+                .finish_job(&self.job_id, CleanupRestoreJobStatus::Failed);
+        }
+    }
+}
+
+trait CleanupRestoreProgressEmitter {
+    fn emit_progress(&self, payload: CleanupRestoreProgressPayload);
+}
+
+struct NoopCleanupRestoreProgressEmitter;
+
+impl CleanupRestoreProgressEmitter for NoopCleanupRestoreProgressEmitter {
+    fn emit_progress(&self, _payload: CleanupRestoreProgressPayload) {}
+}
+
+struct TauriCleanupRestoreProgressEmitter<R: Runtime> {
+    app: AppHandle<R>,
+}
+
+impl<R: Runtime> TauriCleanupRestoreProgressEmitter<R> {
+    fn new(app: AppHandle<R>) -> Self {
+        Self { app }
+    }
+}
+
+impl<R: Runtime> CleanupRestoreProgressEmitter for TauriCleanupRestoreProgressEmitter<R> {
+    fn emit_progress(&self, payload: CleanupRestoreProgressPayload) {
+        if let Err(error) = self.app.emit(CLEANUP_RESTORE_PROGRESS_EVENT, payload) {
+            eprintln!("Cleanup restore progress event failed: {error}");
+        }
+    }
 }
 
 #[derive(Default)]
@@ -599,25 +843,112 @@ pub fn preview_restore_cleanup_trash(
     let items = db
         .cleanup_trash_items_for_batch(&batch_id)
         .map_err(|error| error.to_string())?;
-    Ok(CleanupRestorePreview { batch_id, items })
+    Ok(CleanupRestorePreview {
+        batch_id,
+        items: items
+            .into_iter()
+            .map(cleanup_restore_preview_item)
+            .collect(),
+    })
 }
 
 #[tauri::command]
-pub fn restore_cleanup_trash_items<R: Runtime>(
+pub async fn restore_cleanup_trash_items<R: Runtime>(
     window: WebviewWindow<R>,
     item_ids: Vec<String>,
+    job_id: Option<String>,
+    app: AppHandle<R>,
     db: State<'_, Database>,
+    state: State<'_, CleanupRestoreState>,
 ) -> Result<CleanupRestoreResult, String> {
     require_main_window(&window)?;
-    restore_cleanup_trash_items_for_db(item_ids, db.inner())
+    let job_id = job_id.unwrap_or_else(|| new_id("cleanup-restore"));
+    let cancel_flag = state.start_job(job_id.clone())?;
+    let state = state.inner().clone();
+    let state_for_join_error = state.clone();
+    let db = db.inner().clone();
+    let job_id_for_join = job_id.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let emitter = TauriCleanupRestoreProgressEmitter::new(app);
+        let mut guard = CleanupRestoreJobGuard::new(state, job_id.clone());
+        let result = restore_cleanup_trash_items_for_db_with_progress(
+            item_ids,
+            &db,
+            cancel_flag,
+            job_id.clone(),
+            &emitter,
+        );
+        let status = match result.as_ref() {
+            Ok(value) if value.canceled > 0 => CleanupRestoreJobStatus::Canceled,
+            Ok(_) => CleanupRestoreJobStatus::Completed,
+            Err(_) => CleanupRestoreJobStatus::Failed,
+        };
+        guard.finish(status);
+        result
+    })
+    .await
+    .map_err(|error| {
+        let _ = state_for_join_error.finish_job(&job_id_for_join, CleanupRestoreJobStatus::Failed);
+        format!("Cleanup restore worker failed: {error}")
+    })?;
+    result
+}
+
+#[tauri::command]
+pub fn cancel_cleanup_restore<R: Runtime>(
+    window: WebviewWindow<R>,
+    job_id: String,
+    state: State<'_, CleanupRestoreState>,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    state.cancel_job(&job_id)
+}
+
+fn cleanup_restore_preview_item(item: CleanupTrashItem) -> CleanupRestorePreviewItem {
+    let status = item.status.to_ascii_lowercase();
+    let blocking_reason = match status.as_str() {
+        "restored" => Some("already restored".to_string()),
+        "pending" => Some("pending".to_string()),
+        "missing" => Some("missing".to_string()),
+        "failed" => Some("failed".to_string()),
+        "moved" => {
+            let original_exists = Path::new(&item.original_path).exists();
+            let trash_exists = Path::new(&item.trash_path).exists();
+            if original_exists {
+                Some("conflict".to_string())
+            } else if !trash_exists {
+                Some("missing".to_string())
+            } else {
+                None
+            }
+        }
+        _ => Some("unavailable".to_string()),
+    };
+    CleanupRestorePreviewItem {
+        can_restore: blocking_reason.is_none(),
+        blocking_reason,
+        item,
+    }
+}
+
+pub fn preview_cleanup_restore_item_for_test(item: CleanupTrashItem) -> CleanupRestorePreviewItem {
+    cleanup_restore_preview_item(item)
 }
 
 fn require_main_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
-    if window.label() == "main" {
+    if is_main_window_label(window.label()) {
         Ok(())
     } else {
         Err("This cleanup operation is only available from the main window.".to_string())
     }
+}
+
+fn is_main_window_label(label: &str) -> bool {
+    label == "main"
+}
+
+pub fn is_main_window_label_for_test(label: &str) -> bool {
+    is_main_window_label(label)
 }
 
 pub fn analyze_storage_roots_for_test(
@@ -920,32 +1251,140 @@ pub fn restore_cleanup_trash_items_for_db(
     item_ids: Vec<String>,
     db: &Database,
 ) -> Result<CleanupRestoreResult, String> {
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    let emitter = NoopCleanupRestoreProgressEmitter;
+    restore_cleanup_trash_items_for_db_with_progress(
+        item_ids,
+        db,
+        cancel_flag,
+        new_id("cleanup-restore-test"),
+        &emitter,
+    )
+}
+
+pub fn restore_cleanup_trash_items_for_db_with_cancel_for_test(
+    item_ids: Vec<String>,
+    db: &Database,
+    cancel_flag: Arc<AtomicBool>,
+) -> Result<CleanupRestoreResult, String> {
+    let emitter = NoopCleanupRestoreProgressEmitter;
+    restore_cleanup_trash_items_for_db_with_progress(
+        item_ids,
+        db,
+        cancel_flag,
+        new_id("cleanup-restore-test"),
+        &emitter,
+    )
+}
+
+fn restore_cleanup_trash_items_for_db_with_progress(
+    item_ids: Vec<String>,
+    db: &Database,
+    cancel_flag: Arc<AtomicBool>,
+    job_id: String,
+    emitter: &impl CleanupRestoreProgressEmitter,
+) -> Result<CleanupRestoreResult, String> {
+    let total = item_ids.len();
     let mut result = CleanupRestoreResult {
         restored: 0,
         conflicts: 0,
         missing: 0,
         failed: 0,
+        canceled: 0,
         logs: Vec::new(),
+    };
+    let progress_context = CleanupRestoreProgressContext {
+        job_id: &job_id,
+        total,
+        cancel_flag: &cancel_flag,
     };
 
     for item_id in item_ids {
+        let mut current_path = None;
+        if cancel_flag.load(Ordering::Relaxed) {
+            result.canceled += 1;
+            result.logs.push(CleanupRestoreLog {
+                item_id: item_id.clone(),
+                original_path: String::new(),
+                trash_path: String::new(),
+                status: "canceled".to_string(),
+                message: "Cleanup restore canceled.".to_string(),
+            });
+            emit_cleanup_restore_progress(
+                emitter,
+                &progress_context,
+                result.logs.len(),
+                Some(item_id),
+                current_path,
+                &result,
+            );
+            continue;
+        }
+
         let Some(mut item) = db
             .cleanup_trash_item(&item_id)
             .map_err(|error| error.to_string())?
         else {
             result.failed += 1;
             result.logs.push(CleanupRestoreLog {
-                item_id,
+                item_id: item_id.clone(),
                 original_path: String::new(),
                 trash_path: String::new(),
                 status: "failed".to_string(),
                 message: "Cleanup trash item was not found.".to_string(),
             });
+            emit_cleanup_restore_progress(
+                emitter,
+                &progress_context,
+                result.logs.len(),
+                Some(item_id),
+                current_path,
+                &result,
+            );
             continue;
         };
 
         let original = PathBuf::from(&item.original_path);
         let trash_path = PathBuf::from(&item.trash_path);
+        current_path = Some(normalize_path(&trash_path));
+        if cancel_flag.load(Ordering::Relaxed) {
+            result.canceled += 1;
+            result.logs.push(CleanupRestoreLog {
+                item_id: item.id,
+                original_path: normalize_path(&original),
+                trash_path: normalize_path(&trash_path),
+                status: "canceled".to_string(),
+                message: "Cleanup restore canceled.".to_string(),
+            });
+            emit_cleanup_restore_progress(
+                emitter,
+                &progress_context,
+                result.logs.len(),
+                Some(item_id),
+                current_path,
+                &result,
+            );
+            continue;
+        }
+        if item.status != "moved" {
+            result.failed += 1;
+            result.logs.push(CleanupRestoreLog {
+                item_id: item.id,
+                original_path: normalize_path(&original),
+                trash_path: normalize_path(&trash_path),
+                status: "failed".to_string(),
+                message: "Cleanup trash item is no longer restorable.".to_string(),
+            });
+            emit_cleanup_restore_progress(
+                emitter,
+                &progress_context,
+                result.logs.len(),
+                Some(item_id),
+                current_path,
+                &result,
+            );
+            continue;
+        }
         if !trash_path.exists() {
             item.status = "missing".to_string();
             item.message = Some("Safe trash path is missing.".to_string());
@@ -959,6 +1398,14 @@ pub fn restore_cleanup_trash_items_for_db(
                 status: "missing".to_string(),
                 message: "Safe trash path is missing.".to_string(),
             });
+            emit_cleanup_restore_progress(
+                emitter,
+                &progress_context,
+                result.logs.len(),
+                Some(item_id),
+                current_path,
+                &result,
+            );
             continue;
         }
         if original.exists() {
@@ -970,6 +1417,14 @@ pub fn restore_cleanup_trash_items_for_db(
                 status: "conflict".to_string(),
                 message: "Restore is blocked because the original path already exists.".to_string(),
             });
+            emit_cleanup_restore_progress(
+                emitter,
+                &progress_context,
+                result.logs.len(),
+                Some(item_id),
+                current_path,
+                &result,
+            );
             continue;
         }
 
@@ -1004,9 +1459,46 @@ pub fn restore_cleanup_trash_items_for_db(
                 });
             }
         }
+        emit_cleanup_restore_progress(
+            emitter,
+            &progress_context,
+            result.logs.len(),
+            Some(item_id),
+            current_path,
+            &result,
+        );
     }
 
     Ok(result)
+}
+
+struct CleanupRestoreProgressContext<'a> {
+    job_id: &'a str,
+    total: usize,
+    cancel_flag: &'a AtomicBool,
+}
+
+fn emit_cleanup_restore_progress(
+    emitter: &impl CleanupRestoreProgressEmitter,
+    context: &CleanupRestoreProgressContext<'_>,
+    processed: usize,
+    current_item_id: Option<String>,
+    current_path: Option<String>,
+    result: &CleanupRestoreResult,
+) {
+    emitter.emit_progress(CleanupRestoreProgressPayload {
+        job_id: context.job_id.to_string(),
+        processed,
+        total: context.total,
+        current_item_id,
+        current_path,
+        restored: result.restored,
+        conflicts: result.conflicts,
+        missing: result.missing,
+        failed: result.failed,
+        canceled: result.canceled,
+        cancel_requested: context.cancel_flag.load(Ordering::Relaxed),
+    });
 }
 
 pub fn reconcile_pending_cleanup_journal(db: &Database) -> Result<usize, String> {
@@ -1980,11 +2472,6 @@ fn safe_trash_item_path(
 }
 
 fn preferred_safe_trash_root(source: &Path) -> Option<PathBuf> {
-    let text = normalize_path(source);
-    if text.get(1..3) == Some(":/") {
-        let drive = &text[..3];
-        return Some(PathBuf::from(drive).join(".zen-canvas-trash"));
-    }
     source
         .parent()
         .map(|parent| parent.join(".zen-canvas-trash"))

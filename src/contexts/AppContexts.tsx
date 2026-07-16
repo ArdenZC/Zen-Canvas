@@ -38,7 +38,7 @@ export interface RulesContextValue {
   rules: Rule[];
   saveRule: (rule: Rule) => Promise<void>;
   toggleRuleEnabled: (rule: Rule, enabled: boolean) => Promise<void>;
-  deleteRule: (rule: Rule) => Promise<void>;
+  deleteRule: (rule: Rule) => Promise<boolean>;
 }
 
 export interface ChromeContextValue extends ReturnType<typeof useAppChrome>, ReturnType<typeof useWindowBehavior> {

@@ -68,6 +68,7 @@ describe("tauriApi", () => {
     await tauriApi.listCleanupTrashBatches();
     await tauriApi.previewRestoreCleanupTrash("batch-1");
     await tauriApi.restoreCleanupTrashItems(["item-1"]);
+    await tauriApi.cancelCleanupRestore("cleanup-job-1");
 
     expect(apiMocks.invoke).toHaveBeenNthCalledWith(1, "scan_storage_cleanup", {
       roots: ["F:/Downloads"]
@@ -104,7 +105,11 @@ describe("tauriApi", () => {
       batchId: "batch-1"
     });
     expect(apiMocks.invoke).toHaveBeenNthCalledWith(13, "restore_cleanup_trash_items", {
-      itemIds: ["item-1"]
+      itemIds: ["item-1"],
+      jobId: null
+    });
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(14, "cancel_cleanup_restore", {
+      jobId: "cleanup-job-1"
     });
   });
 
@@ -138,6 +143,14 @@ describe("tauriApi", () => {
     expect(apiMocks.invoke).toHaveBeenNthCalledWith(2, "register_global_search_hotkey", {
       accelerator: "Alt+Space"
     });
+  });
+
+  it("subscribes to the native global-search fallback event", async () => {
+    apiMocks.listen.mockResolvedValueOnce(() => undefined);
+
+    await tauriApi.onGlobalSearchRequested(() => undefined);
+
+    expect(apiMocks.listen).toHaveBeenCalledWith("global-search-requested", expect.any(Function));
   });
 
   it("falls back to browser mock data when the Tauri runtime is unavailable in dev", async () => {

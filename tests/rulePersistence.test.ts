@@ -52,7 +52,7 @@ describe("rule persistence helpers", () => {
     expect(toggledSystem.find((item) => item.id === "system-rule")?.enabled).toBe(true);
   });
 
-  it("falls back to local upsert when SQLite toggle sync fails", async () => {
+  it("fails closed without activating an unsynced toggle when SQLite sync fails", async () => {
     const user = rule("user-rule", "User", "user");
     const saveUserRule = vi.fn(async () => {
       throw new Error("sqlite offline");
@@ -60,25 +60,21 @@ describe("rule persistence helpers", () => {
     const upsertRule = vi.fn();
     const onSyncError = vi.fn();
 
-    await persistRuleEnabledToggle({
+    await expect(persistRuleEnabledToggle({
       rule: user,
       enabled: false,
       saveUserRule,
       upsertRule,
       onSyncError,
       nowIso: () => "2026-06-21T03:00:00Z"
-    });
+    })).rejects.toThrow("sqlite offline");
 
     expect(saveUserRule).toHaveBeenCalledWith({
       ...user,
       enabled: false,
       updated_at: "2026-06-21T03:00:00Z"
     });
-    expect(upsertRule).toHaveBeenCalledWith({
-      ...user,
-      enabled: false,
-      updated_at: "2026-06-21T03:00:00Z"
-    });
+    expect(upsertRule).not.toHaveBeenCalled();
     expect(onSyncError).toHaveBeenCalledOnce();
   });
 
@@ -101,12 +97,12 @@ describe("rule persistence helpers", () => {
     const removeRule = vi.fn();
     const onSyncError = vi.fn();
 
-    await persistUserRuleDelete({
+    await expect(persistUserRuleDelete({
       rule: user,
       deleteUserRule,
       removeRule,
       onSyncError
-    });
+    })).rejects.toThrow("sqlite offline");
 
     expect(deleteUserRule).toHaveBeenCalledWith("user-rule");
     expect(removeRule).not.toHaveBeenCalled();

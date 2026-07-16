@@ -1,570 +1,277 @@
-import { memo, useMemo, useRef, useState } from "react";
-import { motion } from "motion/react";
-import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Plus, RefreshCw, ShieldCheck, Zap } from "lucide-react";
 import { tauriApi } from "../../api/tauriApi";
+import { isUsableFocusTarget } from "../../components/modal/ModalPortal";
 import { useChromeContext, useRulesContext } from "../../contexts/AppContexts";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useAppStore } from "../../store/useAppStore";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
-import type { Lifecycle, Purpose, Rule, RuleCondition, RuleConditionGroup, RuleOperator } from "../../types/domain";
-import type { Translator } from "../../types/ui";
-import { nowIso, readableError } from "../../utils/viewHelpers";
-import { buttonIconDanger, buttonSecondary, cn, glassButton, glassButtonPrimary, glassButtonWarning, inputSurface, selectSurface } from "../../utils/tw";
+import type { Rule } from "../../types/domain";
+import { buttonSecondary, cn, contentPanel, emptyState, glassButtonPrimary } from "../../utils/tw";
+import { AutomationRuleDialog } from "../automation/AutomationRuleDialog";
 import {
-  ConfirmDialog,
-  NoticeBanner,
-  StateBlock,
-  ToneBadge,
-  compactInteractiveRow,
-  contentPanel,
-  formGrid,
-  itemMotion,
-  listMotion,
-  pageSurface,
-  panelSurface,
-  quietText,
-  segmented,
-  softPanel,
-  toggleSwitch,
-  SectionTitle
-} from "../shared/ui";
-import {
-  RULE_FIELD_OPTIONS,
-  RULE_LIFECYCLE_OPTIONS,
-  RULE_LOGIC_OPTIONS,
-  RULE_OPERATOR_OPTIONS,
-  RULE_PURPOSE_OPTIONS,
-  buildRuleFromBuilderDraft,
-  createRuleCondition,
-  createRuleGroup
-} from "./ruleBuilder";
+  acceptsAutomationRunResult,
+  automationOverview,
+  createAutomationRunContext,
+  enabledRulesVersion,
+  libraryScopeSignature,
+  scopeSummary,
+  type AutomationRunContext,
+  type AutomationRunState
+} from "../automation/automationModel";
+import { ConfirmDialog, mutedText, pageSurface, panelSurface } from "../shared/ui";
+import { AutomationRuleInspector, CurrentEnvironment } from "./AutomationRuleInspector";
+import { AutomationRuleList, focusRuleContent } from "./AutomationRuleList";
+import { AutomationRunFeedback } from "./AutomationRunFeedback";
 
-type ConfirmState =
-  | { kind: "deleteRule"; rule: Rule }
-  | { kind: "reapplyRules" };
+type Confirmation = { kind: "delete"; rule: Rule } | { kind: "run" } | null;
 
 export function RulesView() {
-  const { t, onError } = useChromeContext();
-  const {
-    rules,
-    saveRule: onSave,
-    toggleRuleEnabled: onToggleRuleEnabled,
-    deleteRule: onDeleteRule
-  } = useRulesContext();
-  const [name, setName] = useState("Screenshots to Inbox");
-  const [rootOperator, setRootOperator] = useState<RuleOperator>("AND");
-  const [groups, setGroups] = useState<RuleConditionGroup[]>(() => [createRuleGroup()]);
-  const [purpose, setPurpose] = useState<Purpose>("Temporary");
-  const [lifecycle, setLifecycle] = useState<Lifecycle>("Inbox");
-  const [weight, setWeight] = useState(76);
-  const [isReapplyingRules, setIsReapplyingRules] = useState(false);
-  const [isConfirming, setIsConfirming] = useState(false);
-  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
-  const [reapplyStatus, setReapplyStatus] = useState("");
-  const reapplyLockedRef = useRef(false);
-  const systemRules = useMemo(() => rules.filter((rule) => rule.source === "system"), [rules]);
-  const userRules = useMemo(() => rules.filter((rule) => rule.source !== "system"), [rules]);
-  const expectedResultText = t("ruleExpectedResultIntro")
-    .replace("{purpose}", purpose)
-    .replace("{lifecycle}", lifecycle);
+  const { t, setView } = useChromeContext();
+  const { rules, saveRule, toggleRuleEnabled, deleteRule } = useRulesContext();
+  const scope = useFileLibraryStore((state) => state.scope);
+  const needsReview = useFileLibraryStore((state) => state.organizeQueueTotal);
+  const isLoadingReview = useFileLibraryStore((state) => state.isLoadingOrganizeQueue);
+  const userRules = useMemo(() => rules.filter((rule) => rule.source === "user"), [rules]);
+  const enabledUserRules = useMemo(() => userRules.filter((rule) => rule.enabled), [userRules]);
+  const overview = useMemo(() => automationOverview(userRules, needsReview), [needsReview, userRules]);
+  const scopeSignature = useMemo(() => libraryScopeSignature(scope), [scope]);
+  const currentEnabledRuleVersion = useMemo(() => enabledRulesVersion(enabledUserRules), [enabledUserRules]);
+  const ruleMutationSignature = useMemo(() => JSON.stringify(userRules), [userRules]);
+  const [activeId, setActiveId] = useState("");
+  const [editorRule, setEditorRule] = useState<Rule | "new" | null>(null);
+  const [confirmation, setConfirmation] = useState<Confirmation>(null);
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [runState, setRunState] = useState<AutomationRunState>({ kind: "idle" });
+  const [narrowPane, setNarrowPane] = useState<"list" | "details">("list");
+  const [busyRuleIds, setBusyRuleIds] = useState<Set<string>>(() => new Set());
+  const [toggleErrorIds, setToggleErrorIds] = useState<Set<string>>(() => new Set());
+  const isNarrow = useMediaQuery("(max-width: 1179px)");
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const createRef = useRef<HTMLButtonElement | null>(null);
+  const emptyCreateRef = useRef<HTMLButtonElement | null>(null);
+  const editRef = useRef<HTMLButtonElement | null>(null);
+  const workspaceTitleRef = useRef<HTMLHeadingElement | null>(null);
+  const dialogTriggerRef = useRef<HTMLElement | null>(null);
+  const editorWasOpenRef = useRef(false);
+  const generationRef = useRef(0);
+  const mountedRef = useRef(false);
+  const runContextRef = useRef<AutomationRunContext | null>(null);
+  const scopeSignatureRef = useRef(scopeSignature);
+  const enabledRuleVersionRef = useRef(currentEnabledRuleVersion);
+  scopeSignatureRef.current = scopeSignature;
+  enabledRuleVersionRef.current = currentEnabledRuleVersion;
+  const activeRule = userRules.find((rule) => rule.id === activeId) ?? userRules[0];
 
-  function updateGroupOperator(groupId: string, nextOperator: RuleOperator) {
-    setGroups((current) =>
-      current.map((group) => (group.id === groupId ? { ...group, operator: nextOperator } : group))
-    );
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; generationRef.current += 1; runContextRef.current = null; };
+  }, []);
+
+  useEffect(() => {
+    if (!activeId || !userRules.some((rule) => rule.id === activeId)) setActiveId(userRules[0]?.id ?? "");
+  }, [activeId, userRules]);
+
+  useEffect(() => {
+    const wasOpen = editorWasOpenRef.current;
+    editorWasOpenRef.current = editorRule !== null;
+    if (!wasOpen || editorRule !== null) return;
+    const frame = requestAnimationFrame(() => restoreAutomationFocus()?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [activeId, editorRule, userRules.length]);
+
+  useEffect(() => {
+    generationRef.current += 1;
+    setRunState((current) => current.kind === "running" || current.kind === "completed"
+      ? { kind: "stale", context: current.context }
+      : current);
+  }, [ruleMutationSignature, scopeSignature]);
+
+  useEffect(() => { if (!isNarrow) setNarrowPane("list"); }, [isNarrow]);
+
+  useEffect(() => {
+    if (!isNarrow || narrowPane !== "details" || editorRule !== null || confirmation) return;
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      returnToList();
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [confirmation, editorRule, isNarrow, narrowPane, activeId]);
+
+  function selectRule(rule: Rule) {
+    setActiveId(rule.id);
+    if (isNarrow) setNarrowPane("details");
   }
 
-  function updateCondition(groupId: string, conditionId: string, patch: Partial<RuleCondition>) {
-    setGroups((current) =>
-      current.map((group) =>
-        group.id === groupId
-          ? {
-              ...group,
-              conditions: group.conditions.map((condition) =>
-                condition.id === conditionId ? { ...condition, ...patch } : condition
-              )
-            }
-          : group
-      )
-    );
+  function focusRule(rule: Rule) {
+    setActiveId(rule.id);
   }
 
-  function addCondition(groupId: string) {
-    setGroups((current) =>
-      current.map((group) =>
-        group.id === groupId
-          ? { ...group, conditions: [...group.conditions, createRuleCondition({ value: "" })] }
-          : group
-      )
-    );
+  function openRuleEditor(next: Rule | "new", trigger?: HTMLElement | null) {
+    dialogTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setEditorRule(next);
   }
 
-  function removeCondition(groupId: string, conditionId: string) {
-    setGroups((current) =>
-      current.map((group) =>
-        group.id === groupId && group.conditions.length > 1
-          ? { ...group, conditions: group.conditions.filter((condition) => condition.id !== conditionId) }
-          : group
-      )
-    );
+  function restoreAutomationFocus() {
+    const currentRow = activeId
+      ? Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>("[data-rule-row-content]") ?? [])
+        .find((button) => button.dataset.ruleId === activeId) ?? null
+      : null;
+    return [dialogTriggerRef.current, currentRow, emptyCreateRef.current, createRef.current, workspaceTitleRef.current]
+      .find((element) => isUsableFocusTarget(element, true)) ?? null;
   }
 
-  function addGroup() {
-    setGroups((current) => [...current, createRuleGroup({ value: "" })]);
-  }
-
-  function removeGroup(groupId: string) {
-    setGroups((current) =>
-      current.length > 1 ? current.filter((group) => group.id !== groupId) : current
-    );
-  }
-
-  async function submit() {
+  async function toggle(rule: Rule, enabled: boolean) {
+    if (busyRuleIds.has(rule.id)) return;
+    setBusyRuleIds((current) => new Set(current).add(rule.id));
+    setToggleErrorIds((current) => {
+      const next = new Set(current);
+      next.delete(rule.id);
+      return next;
+    });
     try {
-      const now = nowIso();
-      await onSave(buildRuleFromBuilderDraft({
-        name,
-        rootOperator,
-        groups,
-        purpose,
-        lifecycle,
-        weight,
-        now
-      }));
-      setConfirmState({ kind: "reapplyRules" });
-    } catch (error) {
-      onError(readableError(error));
+      await toggleRuleEnabled(rule, enabled);
+    } catch {
+      setToggleErrorIds((current) => new Set(current).add(rule.id));
+    } finally {
+      setBusyRuleIds((current) => {
+        const next = new Set(current);
+        next.delete(rule.id);
+        return next;
+      });
+    }
+  }
+
+  async function save(next: Rule) {
+    await saveRule(next);
+    setActiveId(next.id);
+  }
+
+  async function confirmAction() {
+    if (!confirmation) return;
+    if (confirmation.kind === "delete") {
+      if (deleteBusy) return;
+      const { rule } = confirmation;
+      const index = userRules.findIndex((item) => item.id === rule.id);
+      const focusId = userRules[index + 1]?.id ?? userRules[index - 1]?.id ?? "";
+      setDeleteBusy(true);
+      setDeleteError("");
+      try {
+        const deleted = await deleteRule(rule);
+        if (!deleted) {
+          setDeleteError(t("ruleDeleteFailed"));
+          return;
+        }
+        setConfirmation(null);
+        setDeleteError("");
+        setActiveId(focusId);
+        if (isNarrow) setNarrowPane("list");
+        requestAnimationFrame(() => {
+          if (focusId && focusRuleContent(listRef, focusId)) return;
+          (emptyCreateRef.current ?? createRef.current)?.focus();
+        });
+      } catch {
+        setDeleteError(t("ruleDeleteFailed"));
+      } finally {
+        setDeleteBusy(false);
+      }
+      return;
+    }
+    setConfirmation(null);
+    await reapplyRulesToCurrentScope();
+  }
+
+  function runResultIsCurrent(context: AutomationRunContext) {
+    return acceptsAutomationRunResult(context, mountedRef.current, generationRef.current, scopeSignatureRef.current, enabledRuleVersionRef.current);
+  }
+
+  function markStaleIfCurrent(context: AutomationRunContext) {
+    if (mountedRef.current && runContextRef.current?.generationId === context.generationId) {
+      setRunState((current) => current.kind === "stale" || current.kind === "running" || current.kind === "completed"
+        ? { kind: "stale", context }
+        : current);
     }
   }
 
   async function reapplyRulesToCurrentScope() {
-    if (reapplyLockedRef.current) return;
-    reapplyLockedRef.current = true;
-    setIsReapplyingRules(true);
-    setReapplyStatus("");
-
+    const generationId = generationRef.current + 1;
+    generationRef.current = generationId;
+    const context = createAutomationRunContext(generationId, scope, enabledUserRules);
+    runContextRef.current = context;
+    setRunState({ kind: "running", context });
     try {
-      const scope = useFileLibraryStore.getState().scope;
-      const summary = await tauriApi.executeRulesForScope(
-        scope,
-        rules,
-        "all_changed_or_rule_changed"
-      );
-      await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
-      setReapplyStatus(
-        `${t("rulesReapplied")}: ${summary.updated.toLocaleString()} / ${summary.scanned.toLocaleString()} (${t("skipped")}: ${summary.skipped.toLocaleString()})`
-      );
-    } catch (error) {
-      onError(readableError(error));
-    } finally {
-      reapplyLockedRef.current = false;
-      setIsReapplyingRules(false);
-    }
-  }
-
-  async function handleToggleRuleEnabled(rule: Rule, enabled: boolean) {
-    await onToggleRuleEnabled?.(rule, enabled);
-    setConfirmState({ kind: "reapplyRules" });
-  }
-
-  async function confirmDeleteRule(rule: Rule) {
-    await onDeleteRule?.(rule);
-    setConfirmState({ kind: "reapplyRules" });
-  }
-
-  async function handleConfirmDialog() {
-    if (!confirmState || isConfirming) return;
-    setIsConfirming(true);
-    try {
-      if (confirmState.kind === "deleteRule") {
-        await confirmDeleteRule(confirmState.rule);
-      } else {
-        await reapplyRulesToCurrentScope();
-        setConfirmState(null);
+      const summary = await tauriApi.executeRulesForScope(scope, enabledUserRules, "all_changed_or_rule_changed");
+      if (!runResultIsCurrent(context)) {
+        markStaleIfCurrent(context);
+        return;
       }
-    } finally {
-      setIsConfirming(false);
+      await Promise.all([
+        useFileLibraryStore.getState().loadOrganizeQueue(scope),
+        useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery)
+      ]);
+      if (!runResultIsCurrent(context)) {
+        markStaleIfCurrent(context);
+        return;
+      }
+      setRunState({ kind: "completed", context, ...summary });
+    } catch {
+      if (runResultIsCurrent(context)) setRunState({ kind: "failed", context, message: t("automationRunFailed") });
     }
   }
 
-  const confirmDialogTitle =
-    confirmState?.kind === "deleteRule" ? t("confirmDeleteRuleTitle") : t("confirmReapplyRulesTitle");
-  const confirmDialogDescription =
-    confirmState?.kind === "deleteRule" ? t("confirmDeleteRule") : t("reapplyRulesSafetyDesc");
-  const confirmDialogLabel =
-    confirmState?.kind === "deleteRule" ? t("deleteRule") : t("continueRunAutoRules");
+  function returnToList() {
+    setNarrowPane("list");
+    requestAnimationFrame(() => {
+      if (activeId && focusRuleContent(listRef, activeId)) return;
+      (emptyCreateRef.current ?? createRef.current)?.focus();
+    });
+  }
 
-  return (
-    <>
-      <div className={pageSurface}>
-        <div className="mx-auto grid w-full max-w-[1180px] grid-cols-1 gap-4 2xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.1fr)]">
-          <section id="rule-builder" className={cn(panelSurface, "grid gap-3")}>
-          <SectionTitle title={t("ruleBuilder")} body={t("customDesc")} />
+  return <>
+    <div className={pageSurface}>
+      <div className="mx-auto grid w-full max-w-[1480px] content-start gap-5 pb-5">
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div><div className="flex items-center gap-2"><Zap size={18} className="text-[var(--zc-primary)]" /><h2 ref={workspaceTitleRef} tabIndex={-1} className="text-lg font-semibold">{t("automationRules")}</h2></div><p className={cn(mutedText, "mt-1 max-w-3xl")}>{t("automationRulesDesc")}</p></div>
+          <button ref={createRef} type="button" className={userRules.length ? glassButtonPrimary : buttonSecondary} onClick={(event) => openRuleEditor("new", event.currentTarget)}><Plus size={16} />{t("automationCreateRule")}</button>
+        </header>
 
-          <section className={cn(contentPanel, "grid gap-3 p-3")}>
-            <SectionTitle title={t("ruleBasicInfo")} body={t("ruleLayerDesc")} />
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span>{t("whenFile")}</span>
-              <ToneBadge tone="info">{groups.length} {t("ruleGroups")}</ToneBadge>
-              <ToneBadge tone="success">{rootOperator}</ToneBadge>
-              <span>{t("thenSendTo")}</span>
-              <ToneBadge tone="info">{purpose}</ToneBadge>
-            </div>
-            <div className={formGrid}>
-              <label>{t("ruleName")}<input className={inputSurface} value={name} onChange={(event) => setName(event.target.value)} /></label>
-              <div className="grid gap-1.5 text-sm font-medium text-[var(--muted)]">
-                <span>{t("rootOperator")}</span>
-                <div className={ruleSegmentedClass} role="group" aria-label={t("rootOperator")}>
-                  {RULE_LOGIC_OPTIONS.map((item) => (
-                    <button
-                      key={item}
-                      type="button"
-                      className={ruleSegmentButton(rootOperator === item)}
-                      aria-pressed={rootOperator === item}
-                      onClick={() => setRootOperator(item)}
-                    >
-                      {item}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <label>{t("weight")}<input className={inputSurface} type="number" value={weight} onChange={(event) => setWeight(Number(event.target.value))} /></label>
-            </div>
-          </section>
+        <div className="grid grid-cols-2 gap-2 min-[1180px]:grid-cols-4">
+          {[
+            [t("automationTotal"), overview.total],
+            [t("automationEnabled"), overview.enabled],
+            [t("automationPaused"), overview.paused],
+            [t("automationNeedsReview"), isLoadingReview ? "…" : overview.needsReview]
+          ].map(([label, value]) => <div key={String(label)} className={cn(contentPanel, "p-3")}><span className="block text-xs text-[var(--muted)]">{label}</span><strong className="mt-1 block text-lg tabular-nums">{value}</strong></div>)}
+        </div>
+        <p className={cn(mutedText, "-mt-3 text-xs")}>{t("automationNeedsReviewHint")}</p>
 
-          <section className={cn(contentPanel, "grid gap-3 p-3")}>
-            <SectionTitle title={t("ruleConditions")} body={t("safeModeDesc")} />
-            <div className="grid gap-3">
-              {groups.map((group, groupIndex) => (
-                <div key={group.id} className={cn(softPanel, "grid gap-3 p-3")}>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <strong className="block text-sm">{t("ruleGroup")} {groupIndex + 1}</strong>
-                      <span className={quietText}>{group.conditions.length} {t("conditions")}</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className={quietText}>{t("groupOperator")}</span>
-                      <div className={ruleSegmentedClass} role="group" aria-label={`${t("ruleGroup")} ${groupIndex + 1} ${t("groupOperator")}`}>
-                        {RULE_LOGIC_OPTIONS.map((item) => (
-                          <button
-                            key={item}
-                            type="button"
-                            className={ruleSegmentButton(group.operator === item)}
-                            aria-pressed={group.operator === item}
-                            onClick={() => updateGroupOperator(group.id, item)}
-                          >
-                            {item}
-                          </button>
-                        ))}
-                      </div>
-                      <button
-                        type="button"
-                        className={buttonIconDanger}
-                        disabled={groups.length <= 1}
-                        aria-label={t("deleteGroup")}
-                        title={t("deleteGroup")}
-                        onClick={() => removeGroup(group.id)}
-                      >
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="grid gap-2">
-                    {group.conditions.map((condition) => (
-                      <div key={condition.id} className="grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto] lg:items-center">
-                        <select
-                          className={selectSurface}
-                          value={condition.field}
-                          aria-label={t("field")}
-                          onChange={(event) => updateCondition(group.id, condition.id, { field: event.target.value as RuleCondition["field"] })}
-                        >
-                          {RULE_FIELD_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-                        </select>
-                        <select
-                          className={selectSurface}
-                          value={condition.operator}
-                          aria-label={t("operator")}
-                          onChange={(event) => updateCondition(group.id, condition.id, { operator: event.target.value as RuleCondition["operator"] })}
-                        >
-                          {RULE_OPERATOR_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-                        </select>
-                        <input
-                          className={inputSurface}
-                          value={String(condition.value)}
-                          aria-label={t("value")}
-                          onChange={(event) => updateCondition(group.id, condition.id, { value: event.target.value })}
-                        />
-                        <button
-                          type="button"
-                          className={buttonIconDanger}
-                          disabled={group.conditions.length <= 1}
-                          aria-label={t("deleteCondition")}
-                          title={t("deleteCondition")}
-                          onClick={() => removeCondition(group.id, condition.id)}
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <button type="button" className={buttonSecondary} onClick={() => addCondition(group.id)}>
-                    <Plus size={15} />
-                    {t("addCondition")}
-                  </button>
-                </div>
-              ))}
-              <button type="button" className={buttonSecondary} onClick={addGroup}>
-                <Plus size={15} />
-                {t("addGroup")}
-              </button>
-            </div>
-          </section>
+        <section className={cn(panelSurface, "grid gap-4 p-4 min-[1180px]:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)]")}>
+          <div className={cn("grid min-w-0 content-start gap-3", isNarrow && narrowPane === "details" && "hidden")}>
+            <div className="flex items-center justify-between"><div><h2 className="text-sm font-semibold">{t("automationRules")}</h2><p className={mutedText}>{t("automationRulesDesc")}</p></div><span className="text-xs tabular-nums text-[var(--muted)]">{userRules.length}</span></div>
+             {userRules.length ? <AutomationRuleList rules={userRules} activeId={activeRule?.id ?? ""} busyRuleIds={busyRuleIds} toggleErrorIds={toggleErrorIds} listRef={listRef} onSelect={selectRule} onFocus={focusRule} onToggle={(rule, enabled) => void toggle(rule, enabled)} t={t} /> : <div className={cn(emptyState, "grid gap-3")}><div><strong className="block">{t("automationEmptyTitle")}</strong><span className="mt-1 block text-sm text-[var(--muted)]">{t("automationEmptyDesc")}</span></div><button ref={emptyCreateRef} type="button" className={glassButtonPrimary} onClick={(event) => openRuleEditor("new", event.currentTarget)}><Plus size={16} />{t("createFirstRule")}</button></div>}
 
-          <section className={cn(contentPanel, "grid gap-3 p-3")}>
-            <SectionTitle title={t("ruleActions")} body={t("thenSendTo")} />
-            <div className={formGrid}>
-              <label>{t("purpose")}<select className={selectSurface} value={purpose} onChange={(event) => setPurpose(event.target.value as Purpose)}>{RULE_PURPOSE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-              <label>{t("lifecycle")}<select className={selectSurface} value={lifecycle} onChange={(event) => setLifecycle(event.target.value as Lifecycle)}>{RULE_LIFECYCLE_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
-            </div>
-          </section>
-
-          <NoticeBanner tone="info" title={t("ruleExpectedResult")}>
-            <div className="grid gap-2">
-              <span>{expectedResultText}</span>
-              <span>{t("ruleNoAutoMove")} · {t("rulePreviewRequired")}</span>
-            </div>
-          </NoticeBanner>
-
-          <button className={glassButtonPrimary} onClick={submit}>
-            <Plus size={17} />
-            {t("saveRule")}
-          </button>
-          </section>
-
-          <section className={cn(panelSurface, "grid gap-3")}>
-          <SectionTitle title={t("strategy")} body={t("ruleLayerDesc")} />
-          <div className={cn(softPanel, "grid gap-3 p-3")}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <strong className="block text-sm">{t("reapplyRules")}</strong>
-                <span className={quietText}>{t("reapplyRulesSafetyDesc")}</span>
-              </div>
-              <button
-                type="button"
-                className={glassButtonWarning}
-                disabled={isReapplyingRules}
-                onClick={() => setConfirmState({ kind: "reapplyRules" })}
-              >
-                <RefreshCw size={15} className={cn(isReapplyingRules && "animate-spin")} />
-                {t("reapplyRules")}
-              </button>
-            </div>
-            {reapplyStatus ? <span className={quietText}>{reapplyStatus}</span> : null}
+            <section className="mt-2 grid gap-3 border-t border-[var(--zc-divider)] pt-4">
+              <div className="flex items-start gap-2"><ShieldCheck size={17} className="mt-0.5 shrink-0 text-[var(--zc-success-text)]" /><div><strong className="text-sm">{t("automationSafetyTitle")}</strong><p className={mutedText}>{t("automationSafetyBoundary")}</p></div></div>
+              <p className={cn(mutedText, "text-xs")}>{t("automationManualRuleSet")}</p>
+              <button type="button" className={buttonSecondary} onClick={() => setConfirmation({ kind: "run" })} disabled={runState.kind === "running" || overview.enabled === 0}><RefreshCw size={15} className={cn(runState.kind === "running" && "animate-spin")} />{runState.kind === "stale" ? t("automationRegenerateSuggestions") : t("automationRunNow")}</button>
+              {overview.enabled === 0 && <p className={mutedText}>{t("automationNoEnabledRules")}</p>}
+              <AutomationRunFeedback state={runState} t={t} onRegenerate={() => setConfirmation({ kind: "run" })} />
+            </section>
           </div>
 
-          <div className="grid gap-4">
-            <RuleSection
-              title={t("systemRuleTemplates")}
-              description={t("systemRuleTemplatesDesc")}
-              emptyTitle={t("systemRuleTemplates")}
-              emptyDescription={t("systemRulesEmptyDesc")}
-              rules={systemRules}
-              t={t}
-            />
-            <RuleSection
-              title={t("userRules")}
-              description={t("userRulesDesc")}
-              emptyTitle={t("userRules")}
-              emptyDescription={t("userRulesEmptyDesc")}
-              emptyActionLabel={t("createFirstRule")}
-              rules={userRules}
-              onToggleRuleEnabled={handleToggleRuleEnabled}
-              onRequestDeleteRule={(rule) => setConfirmState({ kind: "deleteRule", rule })}
-              t={t}
-            />
+          <div className={cn("min-w-0", isNarrow && narrowPane === "list" && "hidden")}>
+              {activeRule ? <AutomationRuleInspector rule={activeRule} isNarrow={isNarrow} editRef={editRef} onBack={returnToList} onEdit={(trigger) => openRuleEditor(activeRule, trigger)} onDelete={() => { setDeleteError(""); setConfirmation({ kind: "delete", rule: activeRule }); }} onOpenReview={() => setView("organize")} t={t} /> : <div className={emptyState}>{t("automationNoSelection")}</div>}
           </div>
-          </section>
-        </div>
+        </section>
+
+        <CurrentEnvironment scope={scopeSummary(scope)} t={t} />
       </div>
+    </div>
 
-      <ConfirmDialog
-        open={Boolean(confirmState)}
-        tone={confirmState?.kind === "deleteRule" ? "danger" : "warning"}
-        title={confirmDialogTitle}
-        description={confirmDialogDescription}
-        confirmLabel={confirmDialogLabel}
-        cancelLabel={t("cancel")}
-        isProcessing={isConfirming || isReapplyingRules}
-        onCancel={() => setConfirmState(null)}
-        onConfirm={handleConfirmDialog}
-      />
-    </>
-  );
+    <AutomationRuleDialog open={editorRule !== null} rule={editorRule && editorRule !== "new" ? editorRule : undefined} t={t} restoreFocus={restoreAutomationFocus} onClose={() => setEditorRule(null)} onSave={save} />
+    <ConfirmDialog open={Boolean(confirmation)} tone={confirmation?.kind === "delete" ? "danger" : "warning"} title={confirmation?.kind === "delete" ? t("confirmDeleteRuleTitle") : t("confirmReapplyRulesTitle")} description={confirmation?.kind === "delete" ? t("automationDeleteDesc") : t("automationRunConfirmDesc").replace("{count}", String(enabledUserRules.length))} emphasis={confirmation?.kind === "delete" ? t("automationDeleteHistorySafe") : t("automationSafetyBoundary")} errorMessage={confirmation?.kind === "delete" ? deleteError : undefined} confirmLabel={confirmation?.kind === "delete" ? t("deleteRule") : (runState.kind === "stale" ? t("automationRegenerateSuggestions") : t("automationRunNow"))} cancelLabel={t("cancel")} isProcessing={confirmation?.kind === "delete" ? deleteBusy : runState.kind === "running"} onCancel={() => { if (!deleteBusy) { setDeleteError(""); setConfirmation(null); } }} onConfirm={() => void confirmAction()} />
+  </>;
 }
-
-function RuleSection({
-  title,
-  description,
-  emptyTitle,
-  emptyDescription,
-  emptyActionLabel,
-  rules,
-  onToggleRuleEnabled,
-  onRequestDeleteRule,
-  t
-}: {
-  title: string;
-  description: string;
-  emptyTitle: string;
-  emptyDescription?: string;
-  emptyActionLabel?: string;
-  rules: Rule[];
-  onToggleRuleEnabled?: (rule: Rule, enabled: boolean) => Promise<void> | void;
-  onRequestDeleteRule?: (rule: Rule) => void;
-  t: Translator;
-}) {
-  return (
-    <section className={cn(contentPanel, "grid gap-3 p-3")}>
-      <div>
-        <h3 className="m-0 text-base font-semibold text-[var(--ink)]">{title}</h3>
-        <p className={quietText}>{description}</p>
-      </div>
-      {rules.length ? (
-        <VirtualRuleList
-          rules={rules}
-          onToggleRuleEnabled={onToggleRuleEnabled}
-          onRequestDeleteRule={onRequestDeleteRule}
-          t={t}
-        />
-      ) : (
-        <StateBlock
-          title={emptyTitle}
-          description={emptyDescription ?? description}
-          density="compact"
-          primaryAction={emptyActionLabel ? (
-            <a className={buttonSecondary} href="#rule-builder">
-              <Plus size={15} />
-              {emptyActionLabel}
-            </a>
-          ) : undefined}
-        />
-      )}
-    </section>
-  );
-}
-
-function VirtualRuleList({
-  rules,
-  onToggleRuleEnabled,
-  onRequestDeleteRule,
-  t
-}: {
-  rules: Rule[];
-  onToggleRuleEnabled?: (rule: Rule, enabled: boolean) => Promise<void> | void;
-  onRequestDeleteRule?: (rule: Rule) => void;
-  t: Translator;
-}) {
-  return (
-    <motion.div className="grid gap-2" variants={listMotion} initial="hidden" animate="show">
-      {rules.map((rule) => (
-        <RuleRow
-          key={rule.id}
-          rule={rule}
-          onToggleEnabled={onToggleRuleEnabled}
-          onRequestDeleteRule={onRequestDeleteRule}
-          t={t}
-        />
-      ))}
-    </motion.div>
-  );
-}
-
-const RuleRow = memo(function RuleRow({
-  rule,
-  onToggleEnabled,
-  onRequestDeleteRule,
-  t
-}: {
-  rule: Rule;
-  onToggleEnabled?: (rule: Rule, enabled: boolean) => Promise<void> | void;
-  onRequestDeleteRule?: (rule: Rule) => void;
-  t: Translator;
-}) {
-  const canToggle = rule.source === "user" && Boolean(onToggleEnabled);
-  const canDelete = rule.source === "user" && Boolean(onRequestDeleteRule);
-  const toggleLabel = canToggle
-    ? rule.enabled
-      ? t("disableRule")
-      : t("enableRule")
-    : t("systemRuleLocked");
-  const deleteLabel = canDelete ? t("deleteRule") : t("systemRuleCannotDelete");
-  const sourceTone = rule.source === "system" ? "info" : "success";
-  const stateTone = rule.enabled ? "success" : "slate";
-
-  return (
-    <motion.div
-      className={cn(
-        compactInteractiveRow({ disabled: rule.source === "system" }),
-        "grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] items-center gap-3"
-      )}
-      layout
-      variants={itemMotion}
-    >
-      <div className="min-w-0">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <strong className="truncate text-sm">{rule.name}</strong>
-          <ToneBadge tone={rule.source === "system" ? "info" : "success"}>
-            {rule.source === "system" ? t("lockedTemplate") : t("editableRule")}
-          </ToneBadge>
-        </div>
-        <span className="block truncate text-xs text-[var(--muted)]">
-          weight {rule.weight} / priority {rule.priority}
-        </span>
-      </div>
-      <ToneBadge tone={sourceTone}>{rule.source}</ToneBadge>
-      <ToneBadge tone={stateTone}>{rule.enabled ? t("enabled") : t("disabled")}</ToneBadge>
-      <button
-        type="button"
-        className={toggleSwitch(rule.enabled)}
-        disabled={!canToggle}
-        role="switch"
-        aria-checked={rule.enabled}
-        aria-label={toggleLabel}
-        title={toggleLabel}
-        onClick={(event) => {
-          event.stopPropagation();
-          if (!canToggle) return;
-          void onToggleEnabled?.(rule, !rule.enabled);
-        }}
-      >
-        <i />
-      </button>
-      <button
-        type="button"
-        className={buttonIconDanger}
-        disabled={!canDelete}
-        aria-label={deleteLabel}
-        title={deleteLabel}
-        onClick={(event) => {
-          event.stopPropagation();
-          if (!canDelete) return;
-          onRequestDeleteRule?.(rule);
-        }}
-      >
-        <Trash2 size={15} />
-      </button>
-    </motion.div>
-  );
-});
-
-const ruleSegmentedClass = cn(
-  segmented,
-  "bg-[var(--surface-soft)] p-0.5"
-);
-
-function ruleSegmentButton(active: boolean): string {
-  return cn(
-    "inline-flex min-h-8 items-center justify-center rounded-lg px-3 py-1.5 text-sm font-medium text-[var(--muted)] transition-[background,border-color,color,box-shadow] hover:bg-[var(--surface)] hover:text-[var(--ink)]",
-    active && "bg-blue-500/12 text-[var(--ink)] shadow-[inset_0_0_0_1px_rgba(59,130,246,0.18)]"
-  );
-}
-

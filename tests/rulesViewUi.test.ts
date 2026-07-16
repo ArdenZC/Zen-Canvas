@@ -7,62 +7,52 @@ function read(relativePath: string) {
   return readFileSync(resolve(relativePath), "utf8");
 }
 
-describe("rules view UI", () => {
-  it("separates system templates from editable user rules and removes window.confirm", () => {
-    const rulesView = read("src/views/rules/RulesView.tsx");
-    const sharedUi = read("src/views/shared/ui.ts");
+describe("automation workspace source contract", () => {
+  it("is a responsive list-detail workspace with page-level environment disclosure", () => {
+    const view = read("src/views/rules/RulesView.tsx");
+    const list = read("src/views/rules/AutomationRuleList.tsx");
+    const inspector = read("src/views/rules/AutomationRuleInspector.tsx");
     const t = makeTranslator("zh");
 
-    expect(t("systemRuleTemplates")).toBe("系统规则模板");
-    expect(t("userRules")).toBe("用户规则");
-    expect(t("lockedTemplate")).toBe("锁定模板");
-    expect(t("editableRule")).toBe("可编辑规则");
-    expect(t("confirmDeleteRuleTitle")).toBe("删除这条规则？");
-    expect(t("confirmReapplyRulesTitle")).toBe("执行自动规则？");
-
-    expect(sharedUi).toContain("ConfirmDialog");
-    expect(rulesView).toContain("ConfirmDialog");
-    expect(rulesView).toContain("systemRules");
-    expect(rulesView).toContain("userRules");
-    expect(rulesView).toContain('t("systemRuleTemplates")');
-    expect(rulesView).toContain('t("userRules")');
-    expect(rulesView).toContain('t("lockedTemplate")');
-    expect(rulesView).toContain('t("editableRule")');
-    expect(rulesView).toContain("buttonIconDanger");
-    expect(rulesView).not.toContain("window.confirm");
+    expect(t("automationWorkspaceTitle")).toBe("自动化工作区");
+    expect(view).toContain('useMediaQuery("(max-width: 1179px)")');
+    expect(view).toContain("min-[1180px]:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)]");
+    expect(list).toContain('role="list"');
+    expect(list).not.toContain('role="listbox"');
+    expect(list).not.toContain('role="option"');
+    expect(list).toContain('event.key === "ArrowDown"');
+    expect(view).toContain('event.key !== "Escape"');
+    expect(list).toContain("data-rule-row-content");
+    expect(view).toContain("focusRuleContent");
+    expect(view).toContain('setNarrowPane("list")');
+    expect(view).toContain("emptyCreateRef.current");
+    expect(view).toContain("enabledUserRules");
+    expect(view).toContain("automationManualRuleSet");
+    expect(inspector).toContain('t("automationCapabilities")');
+    expect(inspector).not.toContain('available={false}');
+    expect(inspector).toContain('t("automationCurrentFileLibraryScope")');
   });
 
-  it("makes the builder readable with sections and an expected-result summary", () => {
-    const rulesView = read("src/views/rules/RulesView.tsx");
-    const t = makeTranslator("zh");
+  it("runs only classification suggestions and routes review to Organize", () => {
+    const view = read("src/views/rules/RulesView.tsx");
+    expect(view).toContain("executeRulesForScope");
+    expect(view).toContain('setView("organize")');
+    expect(view).not.toContain("executeSelected");
+    expect(view).not.toContain("executeMoves");
+    expect(view).not.toContain("window.confirm");
+    expect(view).not.toContain("window.prompt");
+    expect(view).not.toContain("window.alert");
+  });
 
-    expect(t("ruleBasicInfo")).toBe("基本信息");
-    expect(t("ruleConditions")).toBe("条件");
-    expect(t("ruleActions")).toBe("动作");
-    expect(t("ruleExpectedResult")).toBe("预期结果摘要");
-    expect(t("ruleNoAutoMove")).toBe("不会自动移动文件");
-    expect(t("rulePreviewRequired")).toBe("需要进入预览确认");
-    expect(t("reapplyRulesSafetyDesc")).toContain("可能覆盖 AI 分类结果");
-    expect(t("reapplyRulesSafetyDesc")).toContain("默认不会覆盖用户手动确认或纠正过的结果");
-    expect(t("ruleNoAutoMove")).toContain("不会自动移动文件");
-    expect(t("rulePreviewRequired")).toContain("需要进入预览确认");
-
-    expect(rulesView).toContain('t("ruleBasicInfo")');
-    expect(rulesView).toContain('t("ruleConditions")');
-    expect(rulesView).toContain('t("ruleActions")');
-    expect(rulesView).toContain('t("ruleExpectedResult")');
-    expect(rulesView).toContain('t("ruleNoAutoMove")');
-    expect(rulesView).toContain('t("rulePreviewRequired")');
-    expect(rulesView).toContain("expectedResultText");
-    expect(rulesView).toContain("<div className={pageSurface}>");
-    expect(rulesView).not.toContain("2xl:overflow-hidden");
-    expect(rulesView).not.toContain("grid min-h-0 gap-4 overflow-auto");
-    expect(rulesView).toContain("buttonIconDanger");
-    expect(rulesView).toContain('aria-label={t("deleteCondition")}');
-    expect(rulesView).toContain("aria-pressed={rootOperator === item}");
-    expect(rulesView).toContain("aria-pressed={group.operator === item}");
-    expect(rulesView).toContain("NoticeBanner");
-    expect(rulesView).toContain("buttonSecondary");
-    expect(rulesView).toContain("glassButtonWarning");
+  it("uses app modals for editing, dirty close, running, and deletion confirmation", () => {
+    const view = read("src/views/rules/RulesView.tsx");
+    const dialog = read("src/views/automation/AutomationRuleDialog.tsx");
+    expect(view).toContain("AutomationRuleDialog");
+    expect(view).toContain("ConfirmDialog");
+    expect(view).toContain("errorMessage");
+    expect(dialog).toContain("ModalPortal");
+    expect(dialog).toContain("discardOpen");
+    expect(dialog).toContain("validateRuleDraft");
+    expect(dialog).toContain('aria-modal="true"');
   });
 });

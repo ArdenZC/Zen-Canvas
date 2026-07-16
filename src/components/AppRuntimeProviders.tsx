@@ -34,7 +34,6 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   const setTheme = useAppStore((state) => state.setTheme);
   const view = useAppStore((state) => state.view);
   const setView = useAppStore((state) => state.setView);
-  const showSuccess = useAppStore((state) => state.showSuccess);
   const showError = useAppStore((state) => state.showError);
   const enqueueBackgroundIndexRoots = useBackgroundIndexerStore((state) => state.enqueueRoots);
   const rules = useRulesStore((state) => state.rules);
@@ -54,6 +53,7 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     (error: unknown) => `${t("settingsSaveFailed")}：${readableError(error)}`,
     [t]
   );
+  const formatRuleSyncError = useCallback(() => t("ruleSyncFailed"), [t]);
   const reportWindowActionError = useCallback(
     (error: unknown) => showError(`${t("windowActionFailed")}：${readableError(error)}`),
     [showError, t]
@@ -87,7 +87,8 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     isDatabaseReady: true,
     rules,
     hydrateUserRulesFromSQLite,
-    onError: showError
+    onError: showError,
+    formatSyncError: formatRuleSyncError
   });
   useFsWatcher({ onRefreshData: refreshCurrentQuery, onError: showError, rules, enabled: !isSearchMode });
 
@@ -140,6 +141,27 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
       unlisten?.();
     };
   }, [isSearchMode, setView, showError]);
+
+  useEffect(() => {
+    if (isSearchMode) return;
+
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
+    void tauriApi.onGlobalSearchRequested(() => {
+      setIsCommandOpen(true);
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    }).catch((error) => {
+      if (!disposed) showError(readableError(error));
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [isSearchMode, setIsCommandOpen, showError]);
 
   useEffect(() => {
     if (isSearchMode) return;
@@ -269,46 +291,28 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   } = windowBehavior;
 
   const saveRule = useCallback(async (rule: Rule) => {
-    try {
-      const savedRule = await tauriApi.saveUserRule(rule);
-      upsertRule(savedRule);
-    } catch (error) {
-      upsertRule(rule);
-      showError(`规则已保存到本地缓存，但同步 SQLite 失败：${readableError(error)}`);
-    }
-  }, [showError, upsertRule]);
+    const savedRule = await tauriApi.saveUserRule(rule);
+    upsertRule(savedRule);
+  }, [upsertRule]);
   const toggleRuleEnabled = useCallback(async (rule: Rule, enabled: boolean) => {
     await persistRuleEnabledToggle({
       rule,
       enabled,
       saveUserRule: tauriApi.saveUserRule,
-      upsertRule,
-      onSyncError: (error) => {
-        showError(`规则已更新到本地缓存，但同步 SQLite 失败：${readableError(error)}`);
-      }
+      upsertRule
     });
-  }, [showError, upsertRule]);
+  }, [upsertRule]);
   const deleteRule = useCallback(async (rule: Rule) => {
     if (rule.source !== "user") {
-      showError(t("systemRuleCannotDelete"));
-      return;
+      return false;
     }
 
-    const deleted = await persistUserRuleDelete({
+    return persistUserRuleDelete({
       rule,
       deleteUserRule: tauriApi.deleteUserRule,
-      removeRule: removeUserRule,
-      onNotDeleted: () => {
-        showError("规则不存在或不是用户规则");
-      },
-      onSyncError: (error) => {
-        showError(`${t("ruleDeleteFailed")}：${readableError(error)}`);
-      }
+      removeRule: removeUserRule
     });
-    if (deleted) {
-      showSuccess(t("ruleDeleted"));
-    }
-  }, [removeUserRule, showError, showSuccess, t]);
+  }, [removeUserRule]);
 
   const settingsContextValue = useMemo(() => ({
     settings: appSettings,

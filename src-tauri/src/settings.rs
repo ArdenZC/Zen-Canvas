@@ -151,7 +151,7 @@ where
 }
 
 fn default_scan_roots() -> Vec<ScanRootSetting> {
-    default_scan_roots_for_home(dirs::home_dir().as_deref())
+    Vec::new()
 }
 
 fn default_search_roots() -> Vec<SearchRootSetting> {
@@ -168,17 +168,6 @@ fn default_background_index_on_startup() -> bool {
 
 fn default_search_scope_mode() -> String {
     "all".to_string()
-}
-
-fn default_scan_roots_for_home(home: Option<&Path>) -> Vec<ScanRootSetting> {
-    let Some(home) = home else {
-        return Vec::new();
-    };
-
-    ["Desktop", "Downloads", "Documents"]
-        .into_iter()
-        .map(|label| legacy_scan_root(label, Some(home), true))
-        .collect()
 }
 
 fn scan_roots_from_values(values: Vec<Value>, home: Option<&Path>) -> Vec<ScanRootSetting> {

@@ -6,12 +6,18 @@ import { describe, expect, it } from "vitest";
 import { makeTranslator } from "../src/i18n";
 import type { OperationPreview } from "../src/types/domain";
 import { PreviewFileRow } from "../src/views/timeline/PreviewFileRow";
+import { previewSubgroupLabel } from "../src/utils/viewHelpers";
 
 function read(relativePath: string) {
   return readFileSync(resolve(relativePath), "utf8");
 }
 
 describe("preview execute safety UI", () => {
+  it("localizes lifecycle-like preview subgroup names", () => {
+    expect(previewSubgroupLabel("Archive", makeTranslator("zh"))).toBe("归档");
+    expect(previewSubgroupLabel("Duplicate/Sensitive", makeTranslator("zh"))).toBe("重复 / 敏感");
+    expect(previewSubgroupLabel("Archive", makeTranslator("en"))).toBe("Archive");
+  });
   it("uses shared primitives for the execution safety summary and progress state", () => {
     const timeline = read("src/views/timeline/TimelineView.tsx");
     const t = makeTranslator("zh");
@@ -24,24 +30,30 @@ describe("preview execute safety UI", () => {
     expect(t("operationCreatesParent")).toBe("会创建父目录");
     expect(t("operationProgressTitle")).toBe("正在执行已选操作");
 
-    expect(timeline).toContain("MetricCard");
+    expect(timeline).toContain("PreviewCount");
     expect(timeline).toContain("NoticeBanner");
     expect(timeline).toContain("StateBlock");
-    expect(timeline).toContain("MetricCard label={t(\"previewTotalSuggestions\")}");
-    expect(timeline).toContain("MetricCard label={t(\"selectedOperations\")}");
-    expect(timeline).toContain("MetricCard label={t(\"executableItems\")}");
-    expect(timeline).toContain("MetricCard label={t(\"blockedItems\")}");
-    expect(timeline).toContain("MetricCard label={t(\"confirmationItems\")}");
-    expect(timeline).toContain("MetricCard label={t(\"autoCreateFolders\")}");
-    expect(timeline).toContain('tone="warning"');
+    expect(timeline).toContain("PreviewCount label={t(\"previewTotalSuggestions\")}");
+    expect(timeline).toContain("PreviewCount label={t(\"selectedOperations\")}");
+    expect(timeline).toContain("PreviewCount label={t(\"executableItems\")}");
+    expect(timeline).toContain("PreviewCount label={t(\"blockedItems\")}");
+    expect(timeline).toContain("PreviewCount label={t(\"confirmationItems\")}");
+    expect(timeline).toContain("PreviewCount label={t(\"autoCreateFolders\")}");
+    expect(timeline).toContain("operationConfirmationTone(selectedOperations)");
+    expect(timeline).toContain("resolveExecutableSelectedPreviews(displayPreviews, selectedIds, executionIntent)");
     expect(timeline).toContain('t("executeSelectedWithCount")');
-    expect(timeline).toContain("selectedCount.toLocaleString()");
-    expect(timeline).toContain("disabled={executable.length === 0}");
+    expect(timeline).toContain("executableSelectedCount.toLocaleString()");
+    expect(timeline).toContain("disabled={selectable.length === 0}");
     expect(timeline).toContain("groupDisabledDescriptionId");
-    expect(timeline).toContain("aria-describedby={executable.length === 0 ? groupDisabledDescriptionId : undefined}");
+    expect(timeline).toContain("aria-describedby={selectable.length === 0 ? groupDisabledDescriptionId : undefined}");
     expect(timeline).toContain('t("groupNoExecutableItems")');
     expect(timeline).toContain('t("operationProgressTitle")');
     expect(timeline).toContain("glassButtonWarning");
+    expect(timeline).toContain("ConfirmDialog");
+    expect(timeline).toContain("executeSelected(true)");
+    expect(timeline).not.toContain("window.confirm");
+    expect(timeline).not.toContain("globalThis.confirm");
+    expect(timeline).toContain('aria-live="polite"');
   });
 
   it("shows source and target paths as distinct bounded rows with operation state badges", () => {
@@ -54,17 +66,20 @@ describe("preview execute safety UI", () => {
     expect(t("operationMoveRename")).toBe("移动并重命名");
     expect(t("operationBlocked")).toBe("已阻止");
     expect(t("operationExecutable")).toBe("可执行");
+    expect(t("operationInvalidName")).toBe("文件名无效");
+    expect(t("executableItems")).toBe("基础可执行项");
     expect(t("operationNeedsConfirmation")).toBe("需确认");
     expect(t("selectOperation")).toBe("选择操作");
 
     expect(row).toContain("ToneBadge");
-    expect(row).toContain("compactInteractiveRow");
+    expect(row).toContain("border-b border-[var(--zc-divider)]");
+    expect(row).toContain("bg-[var(--zc-surface-selected)]");
     expect(row).toContain("operationLabel(preview.operation_type");
     expect(row).toContain('t("sourcePath")');
     expect(row).toContain('t("targetPath")');
     expect(row).toContain('path={preview.source_path}');
     expect(row).toContain('path={preview.target_path}');
-    expect(row).toContain("displayPath = formatDisplayPath(path)");
+    expect(row).toContain("localizeLogicalPath ? formatPreviewDisplayPath(path, t) : formatDisplayPath(path)");
     expect(row).toContain("compactPath(displayPath");
     expect(row).toContain("title={displayPath}");
     expect(row).toContain("items-start");
@@ -72,6 +87,7 @@ describe("preview execute safety UI", () => {
     expect(row).not.toContain("items-stretch");
     expect(row).toContain('t("operationBlocked")');
     expect(row).toContain('t("operationExecutable")');
+    expect(row).toContain('t("operationInvalidName")');
     expect(row).toContain('t("operationNeedsConfirmation")');
     expect(row).toContain('aria-label={`${t("selectOperation")} · ${preview.old_name}`}');
     expect(row).toContain("minmax(0,1fr)");
@@ -83,7 +99,7 @@ describe("preview execute safety UI", () => {
     expect(timeline).not.toContain("virtualRowClass");
     expect(timeline).toContain("overflow-auto");
     expect(timeline).not.toContain("max-h-96");
-    expect(row).toContain("gap-3 sm:grid-cols-[auto_auto_minmax(0,1fr)]");
+    expect(row).toContain("sm:grid-cols-[auto_auto_minmax(0,1fr)]");
     expect(row).toContain("grid min-w-0 gap-2 xl:grid-cols-2");
     expect(row).not.toContain("lg:grid-cols-2");
   });
@@ -122,6 +138,8 @@ describe("preview execute safety UI", () => {
     expect(markup).toContain("这不是永久删除");
     expect(markup).not.toContain("会创建父目录");
     expect(markup).not.toContain("aria-label=\"新文件名\"");
+    expect(markup).toContain("正常");
+    expect(markup).not.toContain("Browser mock preview");
   });
 
   it("adds timeline safety copy for trash cleanup operations", () => {

@@ -47,7 +47,7 @@ export type SuggestedAction =
 
 export type DispatchZone = "CoreAssets" | "QuietArchive" | "PrivacyVault" | "CleanupLane";
 export type SearchSourceType = "user_space" | "folder" | "cloud" | "external";
-export type RestoreStatus = "not_restored" | "restored" | "failed" | "unavailable" | "canceled";
+export type RestoreStatus = "not_restored" | "pending" | "restored" | "failed" | "unavailable" | "canceled";
 export type CleanupTier = "Safe" | "Review" | "Caution";
 export type CleanupActionKind = "MoveToTrash" | "Reveal" | "UninstallAdvice" | "AppInternalCleanup" | "None";
 export type OperationType = "move" | "rename" | "move_rename" | "move_to_trash";
@@ -460,6 +460,20 @@ export interface StorageCleanupProgress {
   totalSize: number;
 }
 
+export interface CleanupRestoreProgressPayload {
+  jobId: string;
+  processed: number;
+  total: number;
+  currentItemId: string | null;
+  currentPath: string | null;
+  restored: number;
+  conflicts: number;
+  missing: number;
+  failed: number;
+  canceled: number;
+  cancelRequested: boolean;
+}
+
 export interface StorageCleanupScanStatus {
   jobId: string;
   status: "running" | "completed" | "failed" | "cancelled";
@@ -539,14 +553,19 @@ export interface CleanupTrashBatch {
 
 export interface CleanupRestorePreview {
   batchId: string;
-  items: CleanupTrashItem[];
+  items: CleanupRestorePreviewItem[];
+}
+
+export interface CleanupRestorePreviewItem extends CleanupTrashItem {
+  canRestore: boolean;
+  blockingReason: string | null;
 }
 
 export interface CleanupRestoreLog {
   itemId: string;
   originalPath: string;
   trashPath: string;
-  status: "restored" | "conflict" | "missing" | "failed";
+  status: "restored" | "conflict" | "missing" | "failed" | "canceled";
   message: string;
 }
 
@@ -555,6 +574,7 @@ export interface CleanupRestoreResult {
   conflicts: number;
   missing: number;
   failed: number;
+  canceled: number;
   logs: CleanupRestoreLog[];
 }
 

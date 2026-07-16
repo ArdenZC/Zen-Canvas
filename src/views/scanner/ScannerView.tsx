@@ -1,35 +1,36 @@
-import type { CSSProperties, ReactNode } from "react";
-import { FolderSearch, RefreshCw, ShieldCheck, X } from "lucide-react";
-import type { ScanProgressPayload } from "../../api/tauriApi";
+import { useState } from "react";
 import { useChromeContext } from "../../contexts/AppContexts";
+import { useBackgroundIndexerStore } from "../../store/useBackgroundIndexerStore";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
+import { useOperationQueueStore } from "../../store/useOperationQueueStore";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
-import type { Translator } from "../../types/ui";
-import { formatBytes, percent } from "../../utils/format";
-import { compactPath, libraryScopeLabel } from "../../utils/viewHelpers";
-import { buttonSecondary, cn, glassButtonPrimary, glassButtonWarning } from "../../utils/tw";
+import { useStorageCleanupStore } from "../../store/useStorageCleanupStore";
+import { cn } from "../../utils/tw";
+import { PageHeader, pageSurface } from "../shared/ui";
+import { OverviewPriorityTask } from "../overview/OverviewPriorityTask";
+import { ScanTaskPanel } from "../overview/ScanTaskPanel";
+import { ScanCancelDialog } from "../overview/ScanCancelDialog";
 import {
-  NoticeBanner,
-  PageHeader,
-  StateBlock,
-  ToneBadge,
-  contentPanel,
-  inlineActions,
-  metadataText,
-  pageSurface,
-  quietText,
-  sectionDescription,
-  sectionHeading,
-  softPanel,
-  toolbarSurface
-} from "../shared/ui";
-
-type ScannerVisualState = "idle" | "scanning" | "canceling" | "canceled" | "completed" | "error";
+  OverviewBackgroundTaskList,
+  OverviewRecentActivityList,
+  OverviewSpaceSummary
+} from "../overview/OverviewSections";
+import {
+  buildOverviewSummary,
+  deriveOverviewScanState,
+  selectOverviewBackgroundTasks,
+  selectOverviewPriorityTask,
+  selectRecentOverviewActivity,
+  type OverviewPriorityTaskModel
+} from "../overview/overviewModel";
 
 export function ScannerView() {
-  const { t } = useChromeContext();
+  const { setView, t, language } = useChromeContext();
+  const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
   const scope = useFileLibraryStore((state) => state.scope);
   const stats = useFileLibraryStore((state) => state.stats);
+  const isClassifyingWithAI = useFileLibraryStore((state) => state.isClassifyingWithAI);
+  const aiClassificationProgress = useFileLibraryStore((state) => state.aiClassificationProgress);
   const selectedFolders = useScanManagerStore((state) => state.selectedFolders);
   const isScanning = useScanManagerStore((state) => state.isScanning);
   const isCancelingScan = useScanManagerStore((state) => state.isCancelingScan);
@@ -37,293 +38,117 @@ export function ScannerView() {
   const handleChooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
   const handleScan = useScanManagerStore((state) => state.handleScan);
   const cancelScan = useScanManagerStore((state) => state.cancelScan);
-  const scanProgress = scanState.progress;
-  const scopedTotalSize = stats.totalSize;
-  // 注意：此处计算的是"已索引数据占磁盘总容量的比例"（扫描覆盖率），
-  // 与后端 StatsSummary.diskUsageRatio（真实磁盘占用率 = 1 - 可用/总）含义不同。
-  const scannedDiskCoverageRatio = stats.diskTotalSize > 0 ? Math.min(1, scopedTotalSize / stats.diskTotalSize) : 0;
-  const clutterItems = stats.duplicateFiles + stats.largeFiles + stats.needsConfirmation;
-  const clutterRatio = stats.totalFiles > 0 ? Math.min(1, clutterItems / stats.totalFiles) : 0;
-  const scopeLabel = libraryScopeLabel(scope, t("allIndexedFiles"), selectedFolders[0] ?? t("userSpaceHint"));
-  const hasIndexedData = stats.totalFiles > 0 || scopedTotalSize > 0;
-  const visualState = scannerVisualState(scanState.status, isScanning, isCancelingScan, hasIndexedData);
-  const rootLabel = compactPath(scanProgress?.root ?? selectedFolders[0] ?? scopeLabel);
-  const statusLabel = scannerStatusLabel(visualState, t);
-  const statusDescription = scannerStatusDescription(visualState, {
-    files: scanProgress?.files ?? stats.totalFiles,
-    skipped: scanProgress?.skipped ?? 0,
-    path: rootLabel,
-    scopeLabel,
-    elapsedMs: scanProgress?.elapsedMs ?? 0,
-    t
+  const operationLogs = useOperationQueueStore((state) => state.operationLogs);
+  const operationProgress = useOperationQueueStore((state) => state.operationProgress);
+  const pendingRoots = useBackgroundIndexerStore((state) => state.pendingRoots);
+  const currentBackgroundRoot = useBackgroundIndexerStore((state) => state.currentRoot);
+  const isBackgroundIndexing = useBackgroundIndexerStore((state) => state.isBackgroundIndexing);
+  const failedRoots = useBackgroundIndexerStore((state) => state.failedRoots);
+  const enqueueBackgroundRoot = useBackgroundIndexerStore((state) => state.enqueueRoot);
+  const cleanupAnalysis = useStorageCleanupStore((state) => state.analysis);
+  const isCleanupScanning = useStorageCleanupStore((state) => state.isScanning);
+  const cleanupScanError = useStorageCleanupStore((state) => state.scanError);
+
+  const scanSnapshot = {
+    status: scanState.status,
+    isScanning,
+    isCanceling: isCancelingScan,
+    progress: scanState.progress,
+    error: scanState.error
+  };
+  const hasIndexedData = stats.totalFiles > 0 || stats.totalSize > 0;
+  const scanVisualState = deriveOverviewScanState(scanSnapshot, hasIndexedData);
+  const completedCleanupAnalysis = cleanupAnalysis && !isCleanupScanning && !cleanupScanError ? cleanupAnalysis : null;
+  const cleanupCandidateCount = completedCleanupAnalysis
+    ? completedCleanupAnalysis.candidate_total ?? completedCleanupAnalysis.candidates.length
+    : 0;
+  const priorityTask = selectOverviewPriorityTask({
+    scan: scanSnapshot,
+    stats,
+    cleanupCandidateCount,
+    reclaimableBytes: completedCleanupAnalysis?.reclaimable_estimate ?? 0,
+    indexNeedsUpdate: false
   });
+  const activities = selectRecentOverviewActivity(operationLogs, t);
+  const backgroundTasks = selectOverviewBackgroundTasks({
+    backgroundIndexing: isBackgroundIndexing,
+    currentRoot: currentBackgroundRoot,
+    pendingRoots,
+    failedRoots,
+    operationProgress,
+    aiProgress: aiClassificationProgress ? {
+      processed: aiClassificationProgress.processed,
+      total: aiClassificationProgress.total,
+      currentPath: aiClassificationProgress.currentFilePreview
+    } : null,
+    isClassifyingWithAI
+  });
+  const scopeRoots = scope.kind === "all" ? [] : scope.roots;
+  const overviewRoots = scopeRoots.length > 0 ? scopeRoots : selectedFolders;
+  const summary = buildOverviewSummary(stats, overviewRoots, t, language);
+  const scanFallbackPath = scanState.progress?.root || selectedFolders[0] || scopeRoots[0] || "";
+
+  function runPrimaryAction(task: OverviewPriorityTaskModel) {
+    if (task.kind === "review") {
+      setView("organize");
+      return;
+    }
+    if (task.kind === "cleanup") {
+      setView("cleanup");
+      return;
+    }
+    if (task.kind === "scan-active" || task.kind === "scan-canceling" || task.kind === "scan-partial") {
+      document.getElementById("overview-scan-task")?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    if (task.kind === "orderly") {
+      void handleChooseFolders();
+      return;
+    }
+    void handleScan();
+  }
+
+  async function confirmCancelScan() {
+    await cancelScan();
+    setIsCancelDialogOpen(false);
+  }
 
   return (
-    <div className={cn(pageSurface, "grid content-start gap-4")}>
-      <PageHeader
-        title={t("spaceScan")}
-        description={statusDescription}
-        meta={t("diskUsageInScope").replace("{size}", formatBytes(scopedTotalSize)).replace("{disk}", formatBytes(stats.diskTotalSize))}
+    <div className={cn(pageSurface, "grid content-start gap-5 pb-8")}>
+      <PageHeader title={t("overview")} description={t("overviewDescription")} />
+
+      <OverviewPriorityTask
+        task={priorityTask}
+        t={t}
+        onPrimary={() => runPrimaryAction(priorityTask)}
+        onChooseFolder={() => void handleChooseFolders()}
+        onCancel={() => setIsCancelDialogOpen(true)}
       />
-      <div className="grid content-start gap-4">
-        <StatusNotice visualState={visualState} error={scanState.error} warningCount={scanProgress?.errors ?? 0} />
 
-        <section className="grid min-h-0 gap-4 xl:grid-cols-[minmax(280px,0.9fr)_minmax(260px,0.7fr)]">
-          <div className={cn(toolbarSurface, "grid place-items-center gap-3 px-4 py-4 text-center")}>
-            <ScannerDisk
-              visualState={visualState}
-              statusLabel={statusLabel}
-              rootLabel={rootLabel}
-              fileCount={scanProgress?.files ?? stats.totalFiles}
-              skippedCount={scanProgress?.skipped ?? 0}
-              elapsedMs={scanProgress?.elapsedMs ?? 0}
-              coverageRatio={scannedDiskCoverageRatio}
-            />
-          </div>
+      <ScanTaskPanel
+        state={scanVisualState}
+        progress={scanState.progress}
+        error={scanState.error}
+        fallbackPath={scanFallbackPath}
+        t={t}
+        language={language}
+      />
 
-          <aside className="grid content-start gap-3">
-            {visualState === "idle" ? (
-              <StateBlock
-                tone="info"
-                title={t("scannerStartTitle")}
-                description={t("scannerLocalIndexSafety")}
-                primaryAction={
-                  <button className={glassButtonPrimary} onClick={handleScan}>
-                    <RefreshCw size={17} />
-                    <span>{t("scanCommon")}</span>
-                  </button>
-                }
-                secondaryAction={
-                  <button className={buttonSecondary} onClick={handleChooseFolders}>
-                    <FolderSearch size={17} />
-                    <span>{t("chooseFolders")}</span>
-                  </button>
-                }
-              />
-            ) : (
-              <ActionPanel
-                isScanning={isScanning}
-                isCancelingScan={isCancelingScan}
-                onScan={handleScan}
-                onCancel={cancelScan}
-                onChooseFolders={handleChooseFolders}
-              />
-            )}
+      <OverviewSpaceSummary summary={summary} t={t} />
+      <OverviewRecentActivityList activities={activities} t={t} language={language} />
+      <OverviewBackgroundTaskList
+        tasks={backgroundTasks}
+        t={t}
+        onRetryIndex={(path) => enqueueBackgroundRoot(path, { force: true })}
+      />
 
-            <ScopePanel title={t("scannerScopeTitle")} body={rootLabel || t("scannerNoRoot")} />
-            <NoticeBanner tone="info" title={t("scannerSafetyTitle")}>
-              {t("scannerLocalIndexSafety")}
-            </NoticeBanner>
-          </aside>
-        </section>
-
-        <section className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-2">
-          <ScannerSummaryChip label={t("scannerIndexedVolume")} value={formatBytes(scopedTotalSize)} hint={t("totalAnalysed")} />
-          <ScannerSummaryChip label={t("files")} value={stats.totalFiles.toLocaleString()} hint={scopeLabel} />
-          <ScannerSummaryChip label={t("needsReview")} value={stats.needsConfirmation.toLocaleString()} hint={t("confirmationItems")} />
-          <ScannerSummaryChip label={t("clutterRatio")} value={percent(clutterRatio)} hint={t("scannerCurrentViewHint")} />
-          <ScannerSummaryChip label={t("scannerReferenceDisk")} value={formatBytes(stats.diskTotalSize)} hint={t("scannerReferenceDiskHint")} />
-        </section>
-      </div>
+      <ScanCancelDialog
+        open={isCancelDialogOpen}
+        isCanceling={isCancelingScan}
+        t={t}
+        onConfirm={confirmCancelScan}
+        onCancel={() => setIsCancelDialogOpen(false)}
+      />
     </div>
   );
-}
-
-function ScannerSummaryChip({ label, value, hint }: { label: string; value: string; hint: string }) {
-  return (
-    <div className="grid min-w-0 gap-0.5 rounded-xl border border-[var(--line-dark)] bg-[var(--surface-soft)] px-3 py-2">
-      <span className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--quiet)]">{label}</span>
-      <strong className="truncate text-lg font-semibold tabular-nums text-[var(--ink)]">{value}</strong>
-      <span className="truncate text-xs leading-5 text-[var(--muted)]">{hint}</span>
-    </div>
-  );
-}
-
-function scannerVisualState(status: string, isScanning: boolean, isCancelingScan: boolean, hasIndexedData: boolean): ScannerVisualState {
-  if (isCancelingScan) return "canceling";
-  if (status === "error") return "error";
-  if (status === "canceled") return "canceled";
-  if (isScanning || status === "scanning") return "scanning";
-  if (status === "completed" || hasIndexedData) return "completed";
-  return "idle";
-}
-
-function StatusNotice({ visualState, error, warningCount }: { visualState: ScannerVisualState; error?: string | null; warningCount: number }) {
-  const { t } = useChromeContext();
-
-  if (visualState === "error") {
-    return (
-      <NoticeBanner tone="error" title={t("scannerStatusError")}>
-        {error ?? t("failed")}
-      </NoticeBanner>
-    );
-  }
-
-  if (visualState === "canceling") {
-    return <NoticeBanner tone="warning" title={t("scannerStatusCanceling")}>{t("scanCanceling")}</NoticeBanner>;
-  }
-
-  if (visualState === "canceled") {
-    return <NoticeBanner tone="warning" title={t("scannerStatusCanceled")}>{t("scanCanceled")}</NoticeBanner>;
-  }
-
-  if (warningCount > 0) {
-    return <NoticeBanner tone="warning">{t("scanWarnings").replace("{count}", warningCount.toLocaleString())}</NoticeBanner>;
-  }
-
-  return null;
-}
-
-function ActionPanel({
-  isScanning,
-  isCancelingScan,
-  onScan,
-  onCancel,
-  onChooseFolders
-}: {
-  isScanning: boolean;
-  isCancelingScan: boolean;
-  onScan: () => void;
-  onCancel: () => void;
-  onChooseFolders: () => void;
-}) {
-  const { t } = useChromeContext();
-
-  return (
-    <div className={cn(contentPanel, "grid gap-3 p-4")}>
-      <div>
-        <h2 className={sectionHeading}>{t("spaceScan")}</h2>
-        <p className={sectionDescription}>{t("folderPickerSubtitle")}</p>
-      </div>
-      <div className={inlineActions}>
-        <button className={glassButtonPrimary} onClick={onScan} disabled={isScanning}>
-          <RefreshCw size={18} className={isScanning ? "animate-spin" : ""} />
-          <span>{isScanning ? t("scanning") : t("scanCommon")}</span>
-        </button>
-        {(isScanning || isCancelingScan) && (
-          <button className={glassButtonWarning} onClick={onCancel} disabled={isCancelingScan}>
-            <X size={18} />
-            <span>{isCancelingScan ? t("scanCanceling") : t("cancelScan")}</span>
-          </button>
-        )}
-        <button className={buttonSecondary} onClick={onChooseFolders} disabled={isScanning}>
-          <FolderSearch size={18} />
-          <span>{t("chooseFolders")}</span>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function ScannerDisk({
-  visualState,
-  statusLabel,
-  rootLabel,
-  fileCount,
-  skippedCount,
-  elapsedMs,
-  coverageRatio
-}: {
-  visualState: ScannerVisualState;
-  statusLabel: string;
-  rootLabel: string;
-  fileCount: number;
-  skippedCount: number;
-  elapsedMs: number;
-  coverageRatio: number;
-}) {
-  const { t } = useChromeContext();
-  const progress = Math.round(coverageRatio * 100);
-  const tone = visualState === "canceling" || visualState === "canceled" ? "amber" : visualState === "error" ? "red" : visualState === "completed" ? "green" : "blue";
-
-  return (
-    <div className="grid justify-items-center gap-4">
-      <div
-        className={cn(
-          "grid h-[clamp(180px,26vw,240px)] w-[clamp(180px,26vw,240px)] max-w-[64vw] place-items-center rounded-full p-3 shadow-[var(--shadow-strong)] transition-[background,border-color,box-shadow]",
-          visualState === "scanning" && "animate-pulse shadow-blue-500/15",
-          visualState === "canceling" && "shadow-amber-500/15",
-          visualState === "error" && "shadow-red-500/12"
-        )}
-        style={{ background: scannerDiskBackground(visualState, progress) } as CSSProperties}
-      >
-        <div className="grid h-full w-full place-items-center rounded-full border border-[var(--line)] bg-[var(--surface)] p-5 backdrop-blur-3xl">
-          <div className="grid justify-items-center gap-2 text-center">
-            <ToneBadge tone={visualState === "canceling" ? "amber" : tone}>{statusLabel}</ToneBadge>
-            <strong className="text-4xl font-semibold tabular-nums tracking-[-0.03em] text-[var(--ink)]">{fileCount.toLocaleString()}</strong>
-            <span className={quietText}>{t("files")}</span>
-            <p className="max-w-40 truncate text-sm font-medium text-[var(--ink)]">{rootLabel || t("scannerNoRoot")}</p>
-            <span className={metadataText}>
-              {t("scannerElapsed").replace("{time}", formatElapsed(elapsedMs))}
-              {skippedCount > 0 ? ` · ${t("skipped")}: ${skippedCount.toLocaleString()}` : ""}
-            </span>
-          </div>
-        </div>
-      </div>
-      <p className={cn(metadataText, "max-w-xl text-center")}>{diskSupportText(visualState, progress, t)}</p>
-    </div>
-  );
-}
-
-function ScopePanel({ title, body }: { title: string; body: ReactNode }) {
-  return (
-    <div className={cn(softPanel, "grid gap-2 p-4")}>
-      <div className="flex items-center gap-2">
-        <ShieldCheck size={16} className="text-blue-600 dark:text-blue-300" />
-        <h2 className={sectionHeading}>{title}</h2>
-      </div>
-      <p className={cn(metadataText, "break-words")}>{body}</p>
-    </div>
-  );
-}
-
-function scannerStatusLabel(visualState: ScannerVisualState, t: Translator): string {
-  if (visualState === "scanning") return t("scannerStatusScanning");
-  if (visualState === "canceling") return t("scannerStatusCanceling");
-  if (visualState === "canceled") return t("scannerStatusCanceled");
-  if (visualState === "completed") return t("scannerStatusCompleted");
-  if (visualState === "error") return t("scannerStatusError");
-  return t("scannerStatusIdle");
-}
-
-function scannerStatusDescription(
-  visualState: ScannerVisualState,
-  context: { files: number; skipped: number; path: string; scopeLabel: string; elapsedMs: number; t: Translator }
-): string {
-  if (visualState === "scanning" || visualState === "canceling") {
-    return context.t("scanProgressLine")
-      .replace("{files}", context.files.toLocaleString())
-      .replace("{skipped}", context.skipped.toLocaleString())
-      .replace("{path}", context.path);
-  }
-
-  if (visualState === "canceled") return context.t("scanCanceled");
-  if (visualState === "error") return context.t("scannerStatusError");
-  if (visualState === "idle") return context.t("scannerLocalIndexSafety");
-  return context.scopeLabel;
-}
-
-function scannerDiskBackground(visualState: ScannerVisualState, progress: number): string {
-  if (visualState === "scanning") return "linear-gradient(135deg, rgba(59,130,246,0.36), rgba(16,185,129,0.18))";
-  if (visualState === "canceling" || visualState === "canceled") return "linear-gradient(135deg, rgba(245,158,11,0.30), rgba(251,191,36,0.12))";
-  if (visualState === "error") return "linear-gradient(135deg, rgba(239,68,68,0.28), rgba(248,113,113,0.10))";
-  return `conic-gradient(#3b82f6 0 ${progress}%, rgba(59,130,246,0.10) ${progress}% 100%)`;
-}
-
-function diskSupportText(visualState: ScannerVisualState, progress: number, t: Translator): string {
-  if (visualState === "idle") return t("scannerLocalIndexSafety");
-  if (visualState === "canceling") return t("scanCanceling");
-  if (visualState === "canceled") return t("scanCanceled");
-  if (visualState === "error") return t("scannerStatusError");
-  if (visualState === "scanning") return t("scannerReferenceDiskHint");
-  return `${t("scannerReferenceDiskHint")} · ${percent(progress / 100)}`;
-}
-
-function formatElapsed(elapsedMs: number): string {
-  if (elapsedMs <= 0) return "0s";
-  const seconds = Math.floor(elapsedMs / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const remainder = seconds % 60;
-  if (minutes <= 0) return `${seconds}s`;
-  return `${minutes}m ${remainder}s`;
 }

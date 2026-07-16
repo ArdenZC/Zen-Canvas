@@ -101,8 +101,8 @@ export async function persistRuleEnabledToggle({
     const savedRule = await saveUserRule(nextRule);
     upsertRule(savedRule);
   } catch (error) {
-    upsertRule(nextRule);
     onSyncError?.(error, nextRule);
+    throw error;
   }
 }
 
@@ -133,6 +133,6 @@ export async function persistUserRuleDelete({
     return true;
   } catch (error) {
     onSyncError?.(error, rule);
-    return false;
+    throw error;
   }
 }

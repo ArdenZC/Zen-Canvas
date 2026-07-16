@@ -31,24 +31,24 @@ describe("ui empty and command states", () => {
     expect(commandModal).toContain('id="command-results"');
     expect(commandModal).toContain('role="listbox"');
     expect(commandModal).toContain('role="option"');
-    expect(commandModal).toContain("aria-selected={index === activeIndex}");
+    expect(commandModal).toContain("aria-selected={active}");
     expect(commandModal).toContain("id={`command-result-${index}`}");
   });
 
   it("shows explicit empty current scan scope guidance in library and hub views", () => {
     const vault = read("src/views/vault/VaultView.tsx");
-    const hub = read("src/views/hub/HubView.tsx");
+    const organize = read("src/views/organize/OrganizeSuggestionsView.tsx");
     const t = makeTranslator("zh");
 
     expect(t("noCurrentScanTitle")).toBe("还没有当前扫描目录");
     expect(t("noOrganizeScopeTitle")).toBe("当前没有扫描范围");
     expect(vault).toContain("isEmptyCurrentScanScope");
     expect(vault).toContain('t("noCurrentScanTitle")');
-    expect(vault).toContain('t("chooseFolderScan")');
+    expect(vault).toContain('t("libraryGoToOverview")');
     expect(vault).toContain('setScope({ kind: "all" })');
-    expect(hub).toContain("isEmptyCurrentScanScope");
-    expect(hub).toContain('t("noOrganizeScopeTitle")');
-    expect(hub).toContain('t("viewAllIndexedFiles")');
+    expect(organize).toContain("isEmptyCurrentScanScope");
+    expect(organize).toContain('t("noOrganizeScopeTitle")');
+    expect(organize).toContain('t("viewAllIndexedFiles")');
   });
 
   it("shows the current library filter next to the library result count", () => {
@@ -57,13 +57,13 @@ describe("ui empty and command states", () => {
 
     expect(t("currentLibraryFilter")).toBe("当前筛选");
     expect(t("libraryFilterReview")).toBe("需要确认");
-    expect(vault).toContain('t("currentLibraryFilter")');
-    expect(vault).toContain("activeFilterLabel");
+    expect(vault).toContain("activeFilterCount");
+    expect(vault).toContain('t("libraryFilterButton")');
   });
 
   it("frames the file library as a scoped local asset browser", () => {
     const vault = read("src/views/vault/VaultView.tsx");
-    const assetCard = read("src/views/vault/AssetCard.tsx");
+    const list = read("src/views/vault/components/FileLibraryList.tsx");
     const t = makeTranslator("zh");
 
     expect(t("libraryNoScanTitle")).toBe("还没有索引文件");
@@ -75,22 +75,18 @@ describe("ui empty and command states", () => {
     expect(vault).toContain("search bar");
     expect(vault).toContain("result count");
     expect(vault).toContain("StateBlock");
-    expect(vault).toContain("filterDotClass");
     expect(vault).toContain("remainingCount = Math.max(0, page.total - page.files.length)");
-    expect(vault).toContain("remainingDisplayCount = Math.min(LIBRARY_PAGE_SIZE, remainingCount)");
-    expect(vault).not.toContain("Math.min(LIBRARY_PAGE_SIZE, files.length)");
+    expect(list).toContain("remainingDisplayCount = Math.min(LIBRARY_PAGE_SIZE, remainingCount)");
+    expect(vault).toContain("FileLibraryFilterPopover");
+    expect(vault).toContain("aria-expanded={isFilterOpen}");
+    expect(vault).not.toContain("AssetCard");
     expect(vault).not.toContain("NoticeBanner");
     expect(vault).not.toContain("ToneBadge");
-    expect(vault).toContain("aria-pressed={libraryFilter === filter.key}");
     expect(vault).not.toContain("emptyState");
     expect(vault).not.toContain("h-[calc(");
-    expect(assetCard).toContain("miniBadgeClass");
-    expect(assetCard).not.toContain("ToneBadge");
-    expect(assetCard).toContain("formatDisplayPath");
-    expect(assetCard).toContain("compactPath(formatDisplayPath(file.path");
-    expect(assetCard).toContain('title={t("revealPhysical")}');
-    expect(assetCard).toContain('aria-label={t("revealPhysical")}');
-    expect(assetCard).not.toContain("toneClasses");
+    expect(list).toContain("formatDisplayPath");
+    expect(list).toContain("compactPath(formatDisplayPath(file.directory)");
+    expect(list).toContain('role="option"');
   });
 
   it("shows a guided empty preview state with navigation actions", () => {

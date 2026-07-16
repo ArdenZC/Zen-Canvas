@@ -1,108 +1,135 @@
-import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import type { FileRecord } from "../src/types/domain";
-import { deriveHubFileModel, groupFilesByHubBucket } from "../src/views/hub/HubView";
+import { beforeEach, describe, expect, it } from "vitest";
+import type { FileRecord, LibraryScope, OperationPreview } from "../src/types/domain";
+import { useOrganizeDecisionStore } from "../src/store/useOrganizeDecisionStore";
+import {
+  buildOrganizeSuggestions,
+  isSafeBatchSuggestion,
+  previewIdsForOrganizeDecisions,
+  operationResultState,
+  organizeSpaceAction,
+  summarizeOperationLogs,
+  validateOrganizeFileName
+} from "../src/views/organize/organizeModel";
 
-describe("HubView file buckets", () => {
-  it("groups classified files into the same bucket rules used by HubView", () => {
-    const files = [
-      file({ id: "actionable", name: "core.pdf", suggested_action: "Move", suggested_target_path: "/test/Work", confidence: 0.9 }),
-      file({ id: "review", name: "review.pdf", suggested_action: "Review", requires_confirmation: true }),
-      file({ id: "keep", name: "keep.pdf", suggested_action: "Keep" }),
-      file({ id: "delete", name: "delete.log", suggested_action: "DeleteCandidate" }),
-      file({ id: "privacy", name: "passport.pdf", risk_level: "Sensitive" })
-    ];
+const scope: LibraryScope = { kind: "all" };
 
-    const grouped = groupFilesByHubBucket(files);
+describe("Organize Suggestions decision workbench", () => {
+  beforeEach(() => useOrganizeDecisionStore.setState({ decisions: {} }));
 
-    expect(grouped.Actionable.map((item) => item.id)).toEqual(["actionable"]);
-    expect(grouped.Review.map((item) => item.id)).toEqual(["review"]);
-    expect(grouped.Keep.map((item) => item.id)).toEqual(["keep"]);
-    expect(grouped.Cleanup.map((item) => item.id)).toEqual(["delete"]);
-    expect(grouped.Sensitive.map((item) => item.id)).toEqual(["privacy"]);
+  it("separates selection from an explicit decision and preserves it within a scope", () => {
+    const item = file();
+    const operation = preview();
+    const store = useOrganizeDecisionStore.getState();
+    store.syncSuggestions(scope, [item], [operation]);
+    expect(buildOrganizeSuggestions([item], [operation], scope, useOrganizeDecisionStore.getState().decisions)[0].decision).toBe("undecided");
+    expect(store.setDecision(scope, item, operation, "accepted")).toBe(true);
+    expect(buildOrganizeSuggestions([item], [operation], scope, useOrganizeDecisionStore.getState().decisions)[0].decision).toBe("accepted");
+    expect(buildOrganizeSuggestions([item], [operation], { kind: "current_scan", roots: ["C:/Data"] }, useOrganizeDecisionStore.getState().decisions)[0].decision).toBe("undecided");
   });
 
-  it("derives pending and bucketed hub files in one pass", () => {
-    const files = [
-      file({ id: "pending", name: "pending.pdf", classification_status: "unclassified" }),
-      file({ id: "actionable", name: "core.pdf", suggested_action: "Move", suggested_target_path: "/test/Work", confidence: 0.9 }),
-      file({ id: "keep", name: "archive.zip", suggested_action: "Keep" }),
-      file({ id: "review", name: "cleanup.tmp", suggested_action: "Review" })
-    ];
-
-    const model = deriveHubFileModel(files);
-
-    expect(model.pendingFiles.map((item) => item.id)).toEqual(["pending"]);
-    expect(model.bucketedFiles.Actionable.map((item) => item.id)).toEqual(["actionable"]);
-    expect(model.bucketedFiles.Keep.map((item) => item.id)).toEqual(["keep"]);
-    expect(model.bucketedFiles.Review.map((item) => item.id)).toEqual(["review"]);
-    expect(model.bucketedFiles.Sensitive).toEqual([]);
-    expect(model.classifiedCount).toBe(3);
-    expect(model.actionablePreviewCount).toBe(1);
-    expect(model.requiresConfirmationCount).toBe(1);
-    expect(model.keepCount).toBe(1);
+  it("resets a saved decision when authoritative preview semantics change", () => {
+    const item = file();
+    const store = useOrganizeDecisionStore.getState();
+    store.syncSuggestions(scope, [item], [preview()]);
+    store.setDecision(scope, item, preview(), "accepted");
+    store.syncSuggestions(scope, [item], [preview({ id: "preview-new", target_path: "C:/Data/New/file.txt" })]);
+    expect(buildOrganizeSuggestions([item], [preview({ id: "preview-new", target_path: "C:/Data/New/file.txt" })], scope, useOrganizeDecisionStore.getState().decisions)[0].decision).toBe("undecided");
   });
 
-  it("keeps Smart Dispatch framed as a non-destructive review workbench", () => {
-    const hubView = fs.readFileSync(path.join(process.cwd(), "src/views/hub/HubView.tsx"), "utf8");
+  it("keeps a preview rename in the organize decision as the single edited state", () => {
+    const item = file();
+    const operation = preview();
+    const store = useOrganizeDecisionStore.getState();
+    store.syncSuggestions(scope, [item], [operation]);
+    store.setDecision(scope, item, operation, "accepted");
+    expect(useOrganizeDecisionStore.getState().setEditedNameForPreview("all", operation, "renamed.txt")).toBe(true);
+    expect(buildOrganizeSuggestions([item], [operation], scope, useOrganizeDecisionStore.getState().decisions)[0]).toMatchObject({ decision: "edited", editedName: "renamed.txt" });
+    expect(useOrganizeDecisionStore.getState().setEditedNameForPreview("all", operation, "../unsafe.txt")).toBe(false);
+  });
 
-    expect(hubView).toContain("pageFrame");
-    expect(hubView).toContain("contentPanel");
-    expect(hubView).toContain("softPanel");
-    expect(hubView).toContain("SummaryChip");
-    expect(hubView.indexOf('t("runDispatch")')).toBeLessThan(hubView.indexOf("<FileCardList"));
-    expect(hubView).toContain("StateBlock");
-    expect(hubView).toContain("NoticeBanner");
-    expect(hubView).toContain("ToneBadge");
-    expect(hubView).toContain("IconButton");
-    expect(hubView).toContain("interactiveRow");
-    expect(hubView).toContain("HUB_BUCKET_PREVIEW_LIMIT");
-    expect(hubView).toContain("本次最多处理");
-    expect(hubView).toContain("可进入预览");
-    expect(hubView).toContain("需人工确认");
-    expect(hubView).toContain("保留不动");
-    expect(hubView).toContain("清理候选");
-    expect(hubView).not.toContain("max-h-64");
-    expect(hubView).not.toContain("grid max-h-64 gap-2 overflow-auto pr-1");
-    expect(hubView).toContain('t("hubSafetyHint")');
-    expect(hubView).toContain('t("hubPendingDesc")');
-    expect(hubView).toContain('t("hubBucketSuggestionHint")');
-    expect(hubView).toContain('t("hubEmptyBucket")');
-    expect(hubView).not.toContain("emptyState");
-    expect(hubView).not.toContain("toneClasses");
+  it("blocks sensitive items and only batch-accepts strict safe suggestions", () => {
+    const sensitive = file({ risk_level: "Sensitive", lifecycle: "Sensitive" });
+    expect(buildOrganizeSuggestions([sensitive], [preview()], scope, {})[0].decision).toBe("needs-review");
+    expect(isSafeBatchSuggestion(sensitive, preview())).toBe(false);
+    expect(isSafeBatchSuggestion(file({ confidence: 0.9 }), preview())).toBe(true);
+    expect(isSafeBatchSuggestion(file({ confidence: 0.9 }), preview({ requires_confirmation: true }))).toBe(false);
+  });
+
+  it("only sends accepted or edited authoritative preview ids forward", () => {
+    const files = [
+      file({ id: "accepted" }), file({ id: "edited" }), file({ id: "kept" }), file({ id: "undecided" }),
+      file({ id: "review", is_duplicate: true }), file({ id: "blocked", is_deleted: true })
+    ];
+    const operations = files.map((item) => preview({ id: `preview-${item.id}`, fileId: item.id }));
+    const store = useOrganizeDecisionStore.getState();
+    store.syncSuggestions(scope, files, operations);
+    store.setDecision(scope, files[0], operations[0], "accepted");
+    store.setDecision(scope, files[1], operations[1], "edited", "edited.txt");
+    store.setDecision(scope, files[2], operations[2], "kept");
+    expect([...previewIdsForOrganizeDecisions(buildOrganizeSuggestions(files, operations, scope, useOrganizeDecisionStore.getState().decisions))]).toEqual(["preview-accepted", "preview-edited"]);
+  });
+
+  it("rejects unsafe and reserved destination names", () => {
+    expect(validateOrganizeFileName("report.txt")).toBeNull();
+    expect(validateOrganizeFileName("../report.txt")).toBe("unsafe");
+    expect(validateOrganizeFileName("CON.txt")).toBe("reserved");
+    expect(validateOrganizeFileName("folder/report.txt")).toBe("unsafe");
+    expect(validateOrganizeFileName("report.txt ")).toBe("unsafe");
+    expect(validateOrganizeFileName("report.")).toBe("unsafe");
+  });
+
+  it("maps Space to acceptance normally and checkbox toggling in batch mode", () => {
+    expect(organizeSpaceAction(false)).toBe("accept");
+    expect(organizeSpaceAction(true)).toBe("toggle-batch");
+  });
+
+  it("distinguishes complete, partial, failed, canceled, and empty execution results", () => {
+    expect(operationResultState({ success: 2, skipped: 0, failed: 0, restorable: 0 })).toBe("success");
+    expect(operationResultState({ success: 1, skipped: 1, failed: 0, restorable: 0 })).toBe("partial");
+    expect(operationResultState({ success: 0, skipped: 0, failed: 2, restorable: 0 })).toBe("failed");
+    expect(operationResultState({ success: 0, skipped: 2, failed: 0, restorable: 0 })).toBe("canceled");
+    expect(operationResultState({ success: 0, skipped: 0, failed: 0, restorable: 0 })).toBe("no-changes");
+    expect(operationResultState({ success: 0, skipped: 0, failed: 0, restorable: 0 }, true)).toBe("failed");
+  });
+
+  it("reports restorable results only from successful reversible logs", () => {
+    const logs = [operationLog("restorable", "success", true), operationLog("fixed", "success", false), operationLog("failed", "failed", true)];
+    expect(summarizeOperationLogs(logs)).toEqual({ success: 2, skipped: 0, failed: 1, restorable: 1 });
+  });
+
+  it("keeps the Hub as a thin route and removes engineering controls from the user surface", () => {
+    const hub = fs.readFileSync(path.join(process.cwd(), "src/views/hub/HubView.tsx"), "utf8");
+    const view = fs.readFileSync(path.join(process.cwd(), "src/views/organize/OrganizeSuggestionsView.tsx"), "utf8");
+    expect(hub).toContain("OrganizeSuggestionsView");
+    expect(view).toContain("pendingOnly: true");
+    expect(view).toContain("allowOverwriteUserCorrections: false");
+    expect(view).not.toMatch(/temperature|top_p|modelName|endpoint/i);
+    expect(view).not.toContain("window.confirm");
   });
 });
 
-function file(overrides: Partial<FileRecord>): FileRecord {
+function file(overrides: Partial<FileRecord> = {}): FileRecord {
   return {
-    id: "file",
-    name: "file.txt",
-    path: "/test/file.txt",
-    directory: "/test",
-    extension: "txt",
-    size: 128,
-    file_type: "Document",
-    purpose: "Unknown",
-    lifecycle: "Inbox",
-    context: "",
-    risk_level: "Normal",
-    hash: null,
-    created_at: "2026-06-21T00:00:00Z",
-    modified_at: "2026-06-21T00:00:00Z",
-    scanned_at: "2026-06-21T00:00:00Z",
-    last_seen_at: "2026-06-21T00:00:00Z",
-    is_hidden: false,
-    is_deleted: false,
-    is_duplicate: false,
-    suggested_action: "Keep",
-    suggested_target_path: "",
-    suggested_name: "",
-    confidence: 0.5,
-    classification_reason: "",
-    classification_status: "classified",
-    matched_rules: [],
-    requires_confirmation: false,
+    id: "file-1", name: "file.txt", path: "C:/Data/file.txt", directory: "C:/Data", extension: "txt", size: 128,
+    file_type: "Document", purpose: "Work", lifecycle: "Active", context: "", risk_level: "Normal", hash: null,
+    created_at: "2026-07-01T00:00:00Z", modified_at: "2026-07-01T00:00:00Z", scanned_at: "2026-07-01T00:00:00Z", last_seen_at: "2026-07-01T00:00:00Z",
+    is_hidden: false, is_deleted: false, is_duplicate: false, suggested_action: "Move", suggested_target_path: "C:/Data/Work/file.txt", suggested_name: "file.txt",
+    confidence: 0.9, classification_reason: "work context", classification_status: "classified", matched_rules: [], requires_confirmation: false,
     ...overrides
   };
+}
+
+function preview(overrides: Partial<OperationPreview> = {}): OperationPreview {
+  return {
+    id: "preview-1", fileId: "file-1", operation_type: "move", source_path: "C:/Data/file.txt", target_path: "C:/Data/Work/file.txt",
+    old_name: "file.txt", new_name: "file.txt", status: "pending", risk_level: "Normal", confidence: 0.9,
+    requires_confirmation: false, reason: "work context", is_executable: true, editable_new_name: true,
+    ...overrides
+  };
+}
+
+function operationLog(id: string, status: "success" | "failed" | "skipped", canRestore: boolean) {
+  return { id, batch_id: "batch", operation_type: "move", source_path: "C:/a", target_path: "C:/b", old_name: "a", new_name: "b", status, error_message: null, created_at: "2026-07-12T00:00:00Z", can_undo: canRestore, path_before: "C:/a", path_after: "C:/b", name_before: "a", name_after: "b", can_restore: canRestore, restored_at: null, restore_status: "not_restored" as const, restore_error: null };
 }

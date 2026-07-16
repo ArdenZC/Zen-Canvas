@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { activateCommandNavigation, isSortingPreviewShortcut } from "../src/components/CommandModal";
+import { makeTranslator } from "../src/i18n";
 import { applySearchNavigation } from "../src/utils/searchNavigation";
 import { DEFAULT_SEARCH_HOTKEY, formatHotkeyLabel } from "../src/utils/hotkeys";
 
@@ -77,13 +78,33 @@ describe("spotlight search navigation", () => {
     expect(commandModal).toContain("searchScope");
     expect(commandModal).toContain("const SEARCH_RESULT_LIMIT = 80");
     expect(commandModal).toContain("tauriApi.searchFiles(trimmedSearch, SEARCH_RESULT_LIMIT, searchScope)");
-    expect(commandModal).toContain("const visibleResults = useMemo(() => results, [results])");
+    expect(commandModal).toContain("mergeSpotlightResults(currentFileResults, commandResults)");
+    expect(commandModal).toContain("filesForCurrentQuery(trimmedSearch, fileResultState.query, fileResultState.files)");
+    expect(commandModal).toContain('setFileResultState({ query: trimmedSearch, files: [] })');
+    expect(commandModal).toContain("queryCommandRegistry(trimmedSearch, commandRegistry)");
+    expect(commandModal).toContain("groupSpotlightResults(visibleResults, t)");
     expect(commandModal).not.toContain("results.slice(0, 12)");
     expect(commandModal).toContain("scrollIntoView({ block: \"nearest\" })");
     expect(commandModal).toContain("max-h-[50vh] overflow-y-auto p-2");
     expect(commandModal).not.toContain("tauriApi.getPagedFiles(12, 0, trimmedSearch");
     expect(appShell).toContain("resolveEffectiveSearchScope");
     expect(appShell).toContain("searchScope={effectiveSearchScope}");
+  });
+
+  it("opens in-window Spotlight when the native search window falls back", () => {
+    const runtimeProviders = readFileSync(resolve("src/components/AppRuntimeProviders.tsx"), "utf8");
+
+    expect(runtimeProviders).toContain("tauriApi.onGlobalSearchRequested");
+    expect(runtimeProviders).toContain("setIsCommandOpen(true)");
+  });
+
+  it("uses folder-aware wording, plural-safe counts, and shared file icons", () => {
+    const commandModal = readFileSync(resolve("src/components/CommandModal.tsx"), "utf8");
+    const en = makeTranslator("en");
+    expect(en("globalSearch")).toBe("Search folders, files, actions, or settings");
+    expect(commandModal).toContain("formatCount(t, visibleResults.length");
+    expect(commandModal).toContain("<FileTypeIcon file={file}");
+    expect(commandModal).toContain("<FileTypeIcon file={file} size={17}");
   });
 
   it("falls back to the library for an invalid runtime view payload", () => {

@@ -22,21 +22,21 @@ describe("command modal spotlight polish", () => {
 
   it("uses purpose-driven result tones and dynamic file icons", () => {
     const commandModal = read("src/components/CommandModal.tsx");
+    const icon = read("src/components/FileTypeIcon.tsx");
 
-    expect(commandModal).toContain("Folder, Video, Image as ImageIcon, Code, FileText");
-    expect(commandModal).toContain("function getIcon(fileType: string)");
-    expect(commandModal).toContain('if (type === "folder") return <Folder size={20} strokeWidth={1.5} />');
-    expect(commandModal).toContain('if (type === "video" || type === "mp4") return <Video size={20} strokeWidth={1.5} />');
-    expect(commandModal).toContain('if (type === "image" || type === "png" || type === "jpg") return <ImageIcon size={20} strokeWidth={1.5} />');
-    expect(commandModal).toContain('if (type === "code" || type === "ts" || type === "js" || type === "tsx" || type === "json") return <Code size={20} strokeWidth={1.5} />');
-    expect(commandModal).toContain("return <FileText size={20} strokeWidth={1.5} />");
+    expect(commandModal).toContain("FileTypeIcon");
+    expect(icon).toContain("fileIconForRecord");
+    expect(icon).toContain("aria-hidden=\"true\"");
+    expect(icon).toContain("if (kind === \"folder\") return Folder");
+    expect(icon).toContain("if (kind === \"archive\") return Archive");
+    expect(icon).toContain("if (file.file_type === \"Installer\") return Package");
     expect(commandModal).toContain('const purpose = (file.purpose || "").toLowerCase()');
     expect(commandModal).toContain('purpose.includes("strategy") || purpose.includes("finance") || file.lifecycle === "Archive"');
     expect(commandModal).toContain('purpose.includes("media") || purpose.includes("image")');
     expect(commandModal).toContain('purpose.includes("code") || purpose.includes("script")');
     expect(commandModal).toContain('purpose.includes("doc") || purpose.includes("text")');
     expect(commandModal).toContain('file.risk_level === "Sensitive" || purpose.includes("sensitive")');
-    expect(commandModal).toContain('{getIcon(file.extension ? file.extension.replace(".", "") : file.file_type)}');
+    expect(commandModal).toContain('<FileTypeIcon file={file} size={20} />');
     expect(commandModal).toContain('<ToneBadge tone={tone as any}>{file.purpose}</ToneBadge>');
     expect(commandModal).toContain('<ToneBadge tone={file.risk_level === "Sensitive" ? "red" : "amber"}>');
     expect(commandModal).toContain('<ToneBadge tone="amber">{t("libraryDuplicateFiles")}</ToneBadge>');
@@ -58,18 +58,18 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).not.toContain("scale-");
   });
 
-  it("uses the standalone glass spotlight alignment and spring motion contract", () => {
+  it("uses the standalone floating Spotlight alignment and restrained motion contract", () => {
     const commandModal = read("src/components/CommandModal.tsx");
 
     expect(commandModal).toContain(
-      '"w-full overflow-hidden bg-white dark:bg-neutral-900 shadow-2xl ring-1 ring-neutral-200 dark:ring-white/10"'
+      '"w-full overflow-hidden border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-spotlight)] backdrop-blur-xl"'
     );
     expect(commandModal).not.toContain("transition-[border-radius]");
     expect(commandModal).toContain(
       'relative z-10 flex h-full w-full items-start justify-center bg-transparent pt-8 px-8'
     );
     expect(commandModal).toContain(
-      'fixed inset-0 z-40 flex items-start justify-center bg-neutral-900/40 px-5 pt-[15vh] sm:pt-[20vh] backdrop-blur-md'
+      'fixed inset-0 z-40 flex items-start justify-center bg-[var(--zc-overlay)] px-5 pt-[15vh] backdrop-blur-sm sm:pt-[20vh]'
     );
     expect(commandModal).toContain("<motion.div");
     expect(commandModal).toContain("layout");
@@ -77,10 +77,11 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).toContain('window.removeEventListener("blur", handleBlur)');
     expect(commandModal).toContain("const handleBlur = () => onClose();");
     expect(commandModal).toContain("}, [standalone, onClose]);");
-    expect(commandModal).toContain("initial={{ opacity: 0, scale: 0.95, y: 10 }}");
-    expect(commandModal).toContain("animate={{ opacity: 1, scale: 1, y: 0 }}");
-    expect(commandModal).toContain("exit={{ opacity: 0, scale: 0.95, y: 10 }}");
-    expect(commandModal).toContain('transition={{ type: "spring", damping: 25, stiffness: 300 }}');
+    expect(commandModal).toContain("initial={{ opacity: 0, y: 8 }}");
+    expect(commandModal).toContain("animate={{ opacity: 1, y: 0 }}");
+    expect(commandModal).toContain("exit={{ opacity: 0, y: 8 }}");
+    expect(commandModal).toContain("transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}");
+    expect(commandModal).not.toContain("scale:");
   });
 
   it("uses polished shortcut badges and active result text treatment", () => {
@@ -91,12 +92,17 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).not.toContain("font-sans font-medium");
     expect(commandModal).toContain('function ShortcutHint({ badge, label }: { badge: React.ReactNode; label: string })');
     expect(commandModal).toContain('<ShortcutHint badge={<CornerDownLeft className="w-3 h-3" />} label={t("commandOpenHint")} />');
-    expect(commandModal).toContain('<ShortcutHint badge="↑↓" label="to navigate" />');
-    expect(commandModal).toContain('<ShortcutHint badge="ESC" label="to close" />');
-    expect(commandModal).toContain('cn(commandFileName, index === activeIndex ? "text-blue-900 dark:text-blue-100" : "")');
+    expect(commandModal).toContain('<ShortcutHint badge="↑↓" label={t("commandNavigateHint")} />');
+    expect(commandModal).toContain('<ShortcutHint badge="ESC" label={t("commandCloseHint")} />');
+    expect(commandModal).toContain('<strong className={commandFileName}>');
+    expect(commandModal).toContain('className="text-[var(--zc-primary)]"');
     expect(commandModal).not.toContain('ShortcutHint badge="↵"');
     expect(commandModal).not.toContain("badge={locateKey}");
     expect(commandModal).not.toContain("badge={sortingPreviewKey}");
+    expect(commandModal).not.toContain("to navigate");
+    expect(commandModal).not.toContain("to close");
+    expect(commandModal).toContain('"bg-transparent font-semibold text-[var(--zc-primary-text)]"');
+    expect(commandModal).not.toContain('bg-[var(--zc-primary-soft)] px-1 text-[var(--zc-primary-text)]');
   });
 
   it("keeps standalone idle spotlight collapsed to the search pill", () => {
@@ -124,8 +130,38 @@ describe("command modal spotlight polish", () => {
     expect(zh("commandTypingTitle")).toBe("正在准备搜索");
     expect(zh("commandScopedEmptyTitle")).toBe("当前搜索范围为空");
     expect(zh("commandOpenHint")).toBe("打开结果");
+    expect(zh("globalSearch")).toBe("搜索文件夹、文件、操作或设置");
+    expect(zh("commandPlaceholder")).toBe("搜索文件、文件夹、操作或设置");
+    expect(zh("smartMatches")).toBe("智能匹配");
+    expect(zh("unknown")).toBe("未分类或未知类型");
+    for (const forbidden of ["Smart Matches", "Unknown", "生命周期维度", "控制指令"]) {
+      expect([zh("globalSearch"), zh("commandPlaceholder"), zh("smartMatches"), zh("unknown")].join(" ")).not.toContain(forbidden);
+    }
     expect(en("commandIdleTitle")).toBe("Type to search");
     expect(en("commandScopedEmptyTitle")).toBe("This search scope is empty");
     expect(en("commandClearSearch")).toBe("Clear Spotlight search");
+  });
+
+  it("keeps clear, escape, focus, active descendant, selection, and scrolling semantics", () => {
+    const commandModal = read("src/components/CommandModal.tsx");
+
+    expect(commandModal).toContain('aria-label={t("commandClearSearch")}');
+    expect(commandModal).toContain('title={t("commandClearSearch")}');
+    expect(commandModal).toContain("<ModalPortal initialFocusRef={inputRef}");
+    expect(commandModal).toContain("initialFocusRef={inputRef}");
+    expect(commandModal).toContain("onEscape={onClose}");
+    expect(commandModal).not.toContain("cycleDialogFocus");
+    expect(commandModal).toContain("aria-activedescendant={activeResultId}");
+    expect(commandModal).toContain("aria-selected={active}");
+    expect(commandModal).toContain('scrollIntoView({ block: "nearest" })');
+  });
+
+  it("restores Spotlight setting commands to their target section heading", () => {
+    const commandModal = read("src/components/CommandModal.tsx");
+
+    expect(commandModal).toContain("settingsCommandSectionRef");
+    expect(commandModal).toContain('requestedSection === "settings-search-scope" ? "settings-search" : requestedSection');
+    expect(commandModal).toContain('[data-settings-section-heading]');
+    expect(commandModal).toContain("restoreSpotlightFocus");
   });
 });

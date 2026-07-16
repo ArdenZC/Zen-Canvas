@@ -1,19 +1,26 @@
-import { useEffect, useMemo, useState, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type * as React from "react";
-import { ChevronRight, File, Search, X, Folder, Video, Image as ImageIcon, Code, FileText, CornerDownLeft } from "lucide-react";
+import { Activity, ChevronRight, Clock3, CornerDownLeft, LayoutGrid, Radar, Search, X } from "lucide-react";
 import { motion } from "motion/react";
 import { tauriApi } from "../api/tauriApi";
-import type { FileRecord, LibraryScope } from "../types/domain";
+import type { FileRecord, LibraryScope, OperationLog } from "../types/domain";
 import type { Translator, View } from "../types/ui";
+import { formatCount } from "../i18n";
 import { buttonSecondary, cn, toneClasses } from "../utils/tw";
 import { useBackgroundIndexerStore } from "../store/useBackgroundIndexerStore";
+import { useFileLibraryStore } from "../store/useFileLibraryStore";
+import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { compactPath, formatDisplayPath, readableError } from "../utils/viewHelpers";
 import { IconButton, StateBlock, ToneBadge, quietText } from "../views/shared/ui";
+import { ModalPortal } from "./modal/ModalPortal";
+import { FileTypeIcon } from "./FileTypeIcon";
+import { createCommandRegistry, executeSpotlightCommand, queryCommandRegistry, requestSettingsSection, type SpotlightCommand } from "./spotlight/commandRegistry";
+import { buildRecentGroups, groupSpotlightResults, mergeSpotlightResults, type SpotlightResult } from "./spotlight/spotlightModel";
 
 const keyBadge =
-  "flex items-center justify-center px-1.5 py-0.5 rounded bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-white/10 shadow-sm font-mono font-medium text-neutral-500 dark:text-neutral-400 text-[10px]";
+  "flex items-center justify-center rounded border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[var(--zc-text-tertiary)] shadow-sm";
 const commandShellBase =
-  "w-full overflow-hidden bg-white dark:bg-neutral-900 shadow-2xl ring-1 ring-neutral-200 dark:ring-white/10";
+  "w-full overflow-hidden border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-spotlight)] backdrop-blur-xl";
 const commandShellCollapsed =
   "h-16 w-full max-w-[720px] rounded-full";
 const commandShellExpanded =
@@ -22,44 +29,60 @@ const commandShellDialogWidth = "max-w-[720px]";
 const commandShellStandaloneExpanded = "w-full max-w-[720px]";
 
 const commandInputRowBase =
-  "relative flex h-16 min-h-16 items-center gap-3 border-b border-neutral-100 px-4 transition-colors dark:border-white/10";
+  "relative flex h-16 min-h-16 items-center gap-3 border-b border-[var(--zc-divider)] px-4 transition-colors";
 const commandInputRowCollapsed =
   "relative flex h-16 min-h-16 items-center gap-3 border-b-0 px-4 transition-colors";
 const commandInputRowFocused = "";
 
 const commandSearchIcon =
-  "w-5 h-5 text-neutral-400 shrink-0 grid place-items-center";
+  "grid h-5 w-5 shrink-0 place-items-center text-[var(--zc-primary)]";
 
 const commandInput =
-  "command-input h-full min-w-0 flex-1 bg-transparent text-lg text-neutral-900 outline-none placeholder:text-neutral-400 focus:outline-none focus-visible:outline-none dark:text-neutral-100 dark:placeholder:text-neutral-500";
+  "command-input h-full min-w-0 flex-1 bg-transparent text-lg text-[var(--zc-text-primary)] outline-none placeholder:text-[var(--zc-text-tertiary)] focus:outline-none focus-visible:outline-none";
 
 const commandResultsShell = "grid min-h-0 gap-0";
 const commandResultsBody = "max-h-[50vh] overflow-y-auto p-2";
-const commandResultsHeader = "px-3 py-2 text-xs font-semibold text-neutral-400 uppercase tracking-wider flex items-center justify-between";
+const commandResultsHeader = "flex items-center justify-between px-3 py-2 text-xs font-semibold text-[var(--zc-text-tertiary)]";
 
 const commandResultsList = "flex flex-col gap-1";
 const commandResultItemBase =
-  "w-full grid grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-4 px-3 py-3 rounded-xl transition-all duration-150 text-left";
+  "grid w-full grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-4 rounded-[var(--zc-radius-field)] px-3 py-3 text-left transition-[background,box-shadow] duration-[var(--zc-duration-fast)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]";
 const commandResultItemActive =
-  "bg-blue-50 dark:bg-blue-500/10 ring-1 ring-blue-500/20";
+  "bg-[var(--zc-surface-selected)] shadow-[inset_0_0_0_1px_var(--zc-primary-soft)]";
 const commandResultItemInactive =
-  "hover:bg-neutral-50 dark:hover:bg-white/5";
+  "hover:bg-[var(--zc-surface-hover)]";
 
 const commandFileIcon =
   "flex shrink-0 items-center justify-center w-10 h-10 rounded-lg border";
-const commandFileName = "text-sm font-medium truncate transition-colors text-neutral-900 dark:text-neutral-100";
-const commandFileMeta = "text-xs text-neutral-500 dark:text-neutral-400 truncate";
+const commandFileName = "truncate text-sm font-medium text-[var(--zc-text-primary)] transition-colors";
+const commandFileMeta = "truncate text-xs text-[var(--zc-text-secondary)]";
 
 const commandFooter =
-  "flex items-center justify-between px-4 py-3 bg-neutral-50 dark:bg-white/[0.02] border-t border-neutral-100 dark:border-white/10 text-xs text-neutral-500 dark:text-neutral-400";
+  "flex items-center justify-between border-t border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-4 py-3 text-xs text-[var(--zc-text-secondary)]";
 const shortcutHints = "flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1";
 const shortcutHint = "inline-flex min-w-0 items-center gap-1 whitespace-nowrap";
-const shortcutHintLabel = "hidden max-w-24 truncate text-neutral-500 sm:inline dark:text-neutral-400";
+const shortcutHintLabel = "hidden max-w-24 truncate text-[var(--zc-text-secondary)] sm:inline";
 const highlightMark =
-  "rounded-sm bg-blue-100/50 px-1 text-blue-700 dark:bg-blue-500/30 dark:text-blue-200";
+  "bg-transparent font-semibold text-[var(--zc-primary-text)]";
+const commandIdleGroups = "grid gap-3 px-4 py-3";
+const commandIdleGroup = "grid gap-1 border-b border-[var(--zc-divider)] pb-3 last:border-b-0 last:pb-0";
+const commandIdleAction = "flex min-h-10 items-center gap-3 rounded-[var(--zc-radius-control)] px-2.5 text-left text-sm text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]";
+const commandBackgroundStatus = "flex min-h-9 items-center gap-2 border-t border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-4 text-xs text-[var(--zc-text-secondary)]";
 const SEARCH_RESULT_LIMIT = 80;
 const standaloneSearchWindowCollapsedHeight = 160;
 const standaloneSearchWindowExpandedHeight = 660;
+
+export function findSpotlightSettingsRestoreTarget(requestedSection: string | null, fallback: HTMLElement | null = null) {
+  if (!requestedSection) return fallback;
+  const sectionId = requestedSection === "settings-search-scope" ? "settings-search" : requestedSection;
+  return document.querySelector<HTMLElement>(`#${sectionId} [data-settings-section-heading]`)
+    ?? document.querySelector<HTMLElement>(`#${sectionId}`)
+    ?? fallback;
+}
+
+export function filesForCurrentQuery(currentQuery: string, resultQuery: string, files: FileRecord[]) {
+  return currentQuery === resultQuery ? files : [];
+}
 
 export async function activateCommandNavigation({
   standalone,
@@ -107,7 +130,8 @@ export function CommandModal({
   searchScope,
   searchScopeLabel,
   searchScopeEmptyMessage,
-  standalone = false
+  standalone = false,
+  restoreFocusRef
 }: {
   inputRef: RefObject<HTMLInputElement | null>;
   setView: (view: View) => void;
@@ -120,17 +144,36 @@ export function CommandModal({
   searchScopeLabel?: string;
   searchScopeEmptyMessage?: string;
   standalone?: boolean;
+  restoreFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   const [search, setSearch] = useState("");
-  const [results, setResults] = useState<FileRecord[]>([]);
+  const [fileResultState, setFileResultState] = useState<{ query: string; files: FileRecord[] }>({ query: "", files: [] });
   const [queryState, setQueryState] = useState<"idle" | "pending" | "done" | "failed">("idle");
   const [commandError, setCommandError] = useState("");
   const [commandIndexStatus, setCommandIndexStatus] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [inputFocused, setInputFocused] = useState(false);
+  const settingsCommandSectionRef = useRef<string | null>(null);
   const enqueueBackgroundIndexRoots = useBackgroundIndexerStore((state) => state.enqueueRoots);
+  const isBackgroundIndexing = useBackgroundIndexerStore((state) => state.isBackgroundIndexing);
+  const currentBackgroundRoot = useBackgroundIndexerStore((state) => state.currentRoot);
+  const pendingBackgroundRoots = useBackgroundIndexerStore((state) => state.pendingRoots.length);
+  const libraryFiles = useFileLibraryStore((state) => state.libraryPage.files);
+  const operationLogs = useOperationQueueStore((state) => state.operationLogs);
   const trimmedSearch = search.trim();
-  const showResults = trimmedSearch.length > 0 && results.length > 0;
+  const currentFileResults = filesForCurrentQuery(trimmedSearch, fileResultState.query, fileResultState.files);
+  const commandRegistry = useMemo(() => createCommandRegistry(t), [t]);
+  const commandResults = useMemo(
+    () => queryCommandRegistry(trimmedSearch, commandRegistry),
+    [commandRegistry, trimmedSearch]
+  );
+  const visibleResults = useMemo(
+    () => mergeSpotlightResults(currentFileResults, commandResults),
+    [commandResults, currentFileResults]
+  );
+  const resultGroups = useMemo(() => groupSpotlightResults(visibleResults, t), [t, visibleResults]);
+  const recentGroups = useMemo(() => buildRecentGroups(libraryFiles, operationLogs, t), [libraryFiles, operationLogs, t]);
+  const showResults = trimmedSearch.length > 0 && visibleResults.length > 0;
   const activeResultId = showResults ? `command-result-${activeIndex}` : undefined;
   const isScopedEmpty = Boolean(searchScopeEmptyMessage);
   const isCustomRootNoResults =
@@ -138,7 +181,7 @@ export function CommandModal({
     && searchScope.roots.length > 0
     && trimmedSearch.length > 0
     && queryState === "done"
-    && results.length === 0;
+    && visibleResults.length === 0;
   const statusTitle =
     queryState === "pending"
       ? t("commandTypingTitle")
@@ -167,8 +210,16 @@ export function CommandModal({
     && queryState === "idle"
     && !isScopedEmpty;
   const shouldShowIdleState = !standalone && !trimmedSearch;
-  const shouldShowStateBlock = !showResults && (queryState !== "idle" || shouldShowIdleState || isScopedEmpty);
+  const shouldShowStateBlock = !showResults && (queryState !== "idle" || isScopedEmpty);
   const showScopeMeta = Boolean(searchScopeLabel && !isStandaloneCollapsed);
+
+  useEffect(() => {
+    if (!standalone) return;
+    const focusFrame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => {
+      cancelAnimationFrame(focusFrame);
+    };
+  }, [inputRef, standalone]);
 
   useEffect(() => {
     if (!standalone) return;
@@ -184,7 +235,7 @@ export function CommandModal({
 
   useEffect(() => {
     if (!trimmedSearch) {
-      setResults([]);
+      setFileResultState({ query: "", files: [] });
       setQueryState("idle");
       setCommandError("");
       setActiveIndex(0);
@@ -195,23 +246,24 @@ export function CommandModal({
     setCommandError("");
     setCommandIndexStatus("");
     if (searchScopeEmptyMessage) {
-      setResults([]);
+      setFileResultState({ query: trimmedSearch, files: [] });
       setQueryState("done");
       setActiveIndex(0);
       return;
     }
+    setFileResultState({ query: trimmedSearch, files: [] });
     setQueryState("pending");
     const timer = window.setTimeout(() => {
       tauriApi.searchFiles(trimmedSearch, SEARCH_RESULT_LIMIT, searchScope)
         .then((files) => {
           if (cancelled) return;
-          setResults(files);
+          setFileResultState({ query: trimmedSearch, files });
           setQueryState("done");
           setActiveIndex(0);
         })
         .catch(() => {
           if (cancelled) return;
-          setResults([]);
+          setFileResultState({ query: trimmedSearch, files: [] });
           setQueryState("failed");
           setCommandError(t("commandSearchFailed"));
         });
@@ -222,8 +274,6 @@ export function CommandModal({
       window.clearTimeout(timer);
     };
   }, [searchScope, searchScopeEmptyMessage, t, trimmedSearch]);
-
-  const visibleResults = useMemo(() => results, [results]);
 
   useEffect(() => {
     if (!showResults || !activeResultId) return;
@@ -281,10 +331,57 @@ export function CommandModal({
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }
 
+  async function chooseCommand(command: SpotlightCommand) {
+    try {
+      if (standalone) {
+        await activateCommandNavigation({
+          standalone,
+          view: command.view,
+          fileId: null,
+          setView,
+          setSelectedFileId,
+          onClose
+        });
+        return;
+      }
+      settingsCommandSectionRef.current = command.settingsSection ?? null;
+      executeSpotlightCommand(command, { setView, requestSettingsSection, onClose });
+    } catch (error) {
+      const message = readableError(error);
+      setCommandError(message);
+      onError?.(message);
+    }
+  }
+
+  function chooseResult(result: SpotlightResult) {
+    if (result.kind === "file") void chooseFile(result.file);
+    else void chooseCommand(result);
+  }
+
   function indexSearchScopeRoots() {
     if (searchScope?.kind !== "roots") return;
     enqueueBackgroundIndexRoots(searchScope.roots);
     setCommandIndexStatus(t("commandIndexQueued"));
+  }
+
+  function openIdleDestination(view: View) {
+    void activateCommandNavigation({
+      standalone,
+      view,
+      fileId: null,
+      setView,
+      setSelectedFileId,
+      onClose
+    }).catch((error) => {
+      const message = readableError(error);
+      setCommandError(message);
+      onError?.(message);
+    });
+  }
+
+  function openSearchScopeSettings() {
+    const command = commandRegistry.find((item) => item.id === "search-scope-settings");
+    if (command) void chooseCommand(command);
   }
 
   function getResultTone(file: FileRecord) {
@@ -297,21 +394,12 @@ export function CommandModal({
     return "slate";
   }
 
-  function getIcon(fileType: string) {
-    const type = (fileType || "").toLowerCase();
-    if (type === "folder") return <Folder size={20} strokeWidth={1.5} />;
-    if (type === "video" || type === "mp4") return <Video size={20} strokeWidth={1.5} />;
-    if (type === "image" || type === "png" || type === "jpg") return <ImageIcon size={20} strokeWidth={1.5} />;
-    if (type === "code" || type === "ts" || type === "js" || type === "tsx" || type === "json") return <Code size={20} strokeWidth={1.5} />;
-    return <FileText size={20} strokeWidth={1.5} />;
-  }
-
-  return (
+  const content = (
     <div
       className={cn(
         standalone
           ? "relative z-10 flex h-full w-full items-start justify-center bg-transparent pt-8 px-8"
-          : "fixed inset-0 z-40 flex items-start justify-center bg-neutral-900/40 px-5 pt-[15vh] sm:pt-[20vh] backdrop-blur-md"
+          : "fixed inset-0 z-40 flex items-start justify-center bg-[var(--zc-overlay)] px-5 pt-[15vh] backdrop-blur-sm sm:pt-[20vh]"
       )}
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
@@ -322,10 +410,10 @@ export function CommandModal({
           isStandaloneCollapsed ? commandShellCollapsed : commandShellExpanded,
           !isStandaloneCollapsed && (standalone ? commandShellStandaloneExpanded : commandShellDialogWidth)
         )}
-        initial={{ opacity: 0, scale: 0.95, y: 10 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 10 }}
-        transition={{ type: "spring", damping: 25, stiffness: 300 }}
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 8 }}
+        transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
         role={standalone ? "search" : "dialog"}
         aria-modal={standalone ? undefined : true}
         aria-label={t("globalSearch")}
@@ -343,9 +431,10 @@ export function CommandModal({
             event.preventDefault();
             setActiveIndex((index) => Math.max(index - 1, 0));
           }
-          if (event.key === "Enter" && event.altKey && visibleResults[activeIndex]) {
+          const activeResult = visibleResults[activeIndex];
+          if (event.key === "Enter" && event.altKey && activeResult?.kind === "file") {
             event.preventDefault();
-            void revealFile(visibleResults[activeIndex]);
+            void revealFile(activeResult.file);
             return;
           }
           if (isSortingPreviewShortcut(event)) {
@@ -353,11 +442,10 @@ export function CommandModal({
             void openSortingPreview();
             return;
           }
-          if (event.key === "Enter" && visibleResults[activeIndex]) {
+          if (event.key === "Enter" && activeResult) {
             event.preventDefault();
-            void chooseFile(visibleResults[activeIndex]);
+            chooseResult(activeResult);
           }
-          if (event.key === "Escape") onClose();
         }}
       >
         <div
@@ -385,7 +473,7 @@ export function CommandModal({
           />
           {search && (
             <IconButton
-              className="h-8 w-8 rounded-lg border-transparent bg-transparent text-neutral-500 shadow-none hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-neutral-100"
+              className="h-8 w-8 rounded-lg border-transparent bg-transparent text-[var(--zc-text-secondary)] shadow-none hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]"
               onClick={clearSearch}
               aria-label={t("commandClearSearch")}
               title={t("commandClearSearch")}
@@ -396,9 +484,15 @@ export function CommandModal({
           <kbd className={cn(keyBadge, "hidden sm:inline-flex")}>ESC</kbd>
         </div>
         {showScopeMeta && (
-          <div className="flex items-center justify-between gap-3 border-b border-neutral-100 px-4 py-2 text-[11px] leading-tight text-neutral-500 dark:border-white/10 dark:text-neutral-400">
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--zc-divider)] px-4 py-2 text-[11px] leading-tight text-[var(--zc-text-secondary)]">
             <span className="min-w-0 truncate">{searchScopeLabel}</span>
-            <span className="hidden shrink-0 sm:inline">{t("commandScopeMeta")}</span>
+            <button
+              className="hidden shrink-0 rounded-md px-2 py-1 font-medium text-[var(--zc-primary-text)] hover:bg-[var(--zc-primary-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)] sm:inline"
+              onClick={openSearchScopeSettings}
+              aria-label={t("openSearchScopeSettings")}
+            >
+              {t("commandScopeMeta")}
+            </button>
           </div>
         )}
         {showResults && (
@@ -408,55 +502,37 @@ export function CommandModal({
                 <span>{t("smartMatches")}</span>
                 <span className={cn(quietText, "hidden sm:inline")}>{t("commandKeyboardHint")}</span>
               </div>
-              <div id="command-results" role="listbox" className={commandResultsList}>
-                {visibleResults.map((file, index) => {
-                  const tone = getResultTone(file);
-                  const extension = file.extension ? file.extension.replace(".", "").toUpperCase() : file.file_type;
-                  return (
-                    <button
-                      key={file.id}
-                      id={`command-result-${index}`}
-                      role="option"
-                      aria-selected={index === activeIndex}
-                      className={cn(
-                        commandResultItemBase,
-                        index === activeIndex ? commandResultItemActive : commandResultItemInactive
-                      )}
-                      onClick={() => void chooseFile(file)}
-                      onMouseEnter={() => setActiveIndex(index)}
-                    >
-                      <span className={cn(commandFileIcon, toneClasses(tone))}>
-                        {getIcon(file.extension ? file.extension.replace(".", "") : file.file_type)}
-                      </span>
-                      <span className="grid min-w-0 gap-1.5">
-                        <strong className={cn(commandFileName, index === activeIndex ? "text-blue-900 dark:text-blue-100" : "")}>
-                          <HighlightText text={file.name} highlight={trimmedSearch} />
-                        </strong>
-                        <span className={commandFileMeta} title={formatDisplayPath(file.path)}>{compactPath(formatDisplayPath(file.path), 74)}</span>
-                        <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                          <ToneBadge tone={tone as any}>{file.purpose}</ToneBadge>
-                          <ToneBadge tone="slate">{extension}</ToneBadge>
-                          {file.risk_level !== "Normal" && <ToneBadge tone={file.risk_level === "Sensitive" ? "red" : "amber"}>{file.risk_level === "Sensitive" ? t("sensitiveLabel") : file.risk_level}</ToneBadge>}
-                          {file.is_duplicate && <ToneBadge tone="amber">{t("libraryDuplicateFiles")}</ToneBadge>}
-                        </span>
-                      </span>
-                      <span className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-                        {index === activeIndex && <ChevronRight className="text-blue-500" size={16} />}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              <SpotlightResultGroups
+                groups={resultGroups}
+                results={visibleResults}
+                activeIndex={activeIndex}
+                highlight={trimmedSearch}
+                t={t}
+                onChoose={chooseResult}
+                onActivate={setActiveIndex}
+                getResultTone={getResultTone}
+              />
             </div>
             <div className={commandFooter}>
-              <span>{t("matchesFound").replace("{count}", String(visibleResults.length))}</span>
+              <span>{formatCount(t, visibleResults.length, { zero: "matchesFoundZero", one: "matchesFoundOne", other: "matchesFoundOther" })}</span>
               <div className={shortcutHints}>
                 <ShortcutHint badge={<CornerDownLeft className="w-3 h-3" />} label={t("commandOpenHint")} />
-                <ShortcutHint badge="↑↓" label="to navigate" />
-                <ShortcutHint badge="ESC" label="to close" />
+                <ShortcutHint badge="↑↓" label={t("commandNavigateHint")} />
+                <ShortcutHint badge="ESC" label={t("commandCloseHint")} />
               </div>
             </div>
           </div>
+        )}
+        {shouldShowIdleState && (
+          <CommandIdleGroups
+            t={t}
+            isBackgroundIndexing={isBackgroundIndexing}
+            currentBackgroundRoot={currentBackgroundRoot}
+            pendingBackgroundRoots={pendingBackgroundRoots}
+            recentGroups={recentGroups}
+            onOpen={openIdleDestination}
+            onOpenFile={(file) => void chooseFile(file)}
+          />
         )}
         {shouldShowStateBlock && (
           <div className="px-4 py-4" aria-live={queryState === "failed" ? "assertive" : "polite"} role={queryState === "failed" ? "alert" : "status"}>
@@ -475,6 +551,185 @@ export function CommandModal({
         )}
       </motion.div>
     </div>
+  );
+
+  function restoreSpotlightFocus() {
+    return findSpotlightSettingsRestoreTarget(settingsCommandSectionRef.current, restoreFocusRef?.current ?? null);
+  }
+
+  return standalone ? content : <ModalPortal initialFocusRef={inputRef} restoreFocus={restoreSpotlightFocus} onEscape={onClose}>{content}</ModalPortal>;
+}
+
+function SpotlightResultGroups({
+  groups,
+  results,
+  activeIndex,
+  highlight,
+  t,
+  onChoose,
+  onActivate,
+  getResultTone
+}: {
+  groups: ReturnType<typeof groupSpotlightResults>;
+  results: SpotlightResult[];
+  activeIndex: number;
+  highlight: string;
+  t: Translator;
+  onChoose: (result: SpotlightResult) => void;
+  onActivate: (index: number) => void;
+  getResultTone: (file: FileRecord) => string;
+}) {
+  return (
+    <div id="command-results" role="listbox" className="grid gap-2">
+      {groups.map((group) => (
+        <section className="grid gap-1" key={group.type} aria-label={group.label}>
+          <h3 className={commandResultsHeader}>{group.label}</h3>
+          <div className={commandResultsList}>
+            {group.items.map((result) => {
+              const index = results.indexOf(result);
+              const active = index === activeIndex;
+              if (result.kind === "command") {
+                return (
+                  <button
+                    key={`command:${result.id}`}
+                    id={`command-result-${index}`}
+                    role="option"
+                    aria-selected={active}
+                    data-result-kind="command"
+                    className={cn(commandResultItemBase, active ? commandResultItemActive : commandResultItemInactive)}
+                    onClick={() => onChoose(result)}
+                    onMouseEnter={() => onActivate(index)}
+                  >
+                    <span className="grid h-10 w-10 place-items-center rounded-lg bg-[var(--zc-primary-soft)] text-[var(--zc-primary-text)]">
+                      <Search size={18} />
+                    </span>
+                    <span className="grid min-w-0 gap-1">
+                      <strong className={commandFileName}><HighlightText text={result.label} highlight={highlight} /></strong>
+                      <span className={commandFileMeta}>{result.description}</span>
+                    </span>
+                    <ChevronRight className={active ? "text-[var(--zc-primary)]" : "text-[var(--zc-text-tertiary)]"} size={16} />
+                  </button>
+                );
+              }
+
+              const file = result.file;
+              const tone = getResultTone(file);
+              const extension = file.extension ? file.extension.replace(".", "").toUpperCase() : file.file_type;
+              return (
+                <button
+                  key={result.id}
+                  id={`command-result-${index}`}
+                  role="option"
+                  aria-selected={active}
+                  data-result-kind="file"
+                  className={cn(commandResultItemBase, active ? commandResultItemActive : commandResultItemInactive)}
+                  onClick={() => onChoose(result)}
+                  onMouseEnter={() => onActivate(index)}
+                >
+                  <span className={cn(commandFileIcon, toneClasses(tone))}>
+                    <FileTypeIcon file={file} size={20} />
+                  </span>
+                  <span className="grid min-w-0 gap-1.5">
+                    <strong className={commandFileName}><HighlightText text={file.name} highlight={highlight} /></strong>
+                    <span className={commandFileMeta} title={formatDisplayPath(file.path)}>{compactPath(formatDisplayPath(file.path), 74)}</span>
+                <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <ToneBadge tone={tone as any}>{file.purpose}</ToneBadge>
+                      <ToneBadge tone="slate">{extension}</ToneBadge>
+                      {file.risk_level !== "Normal" && <ToneBadge tone={file.risk_level === "Sensitive" ? "red" : "amber"}>{file.risk_level === "Sensitive" ? t("sensitiveLabel") : file.risk_level}</ToneBadge>}
+                      {file.is_duplicate && <ToneBadge tone="amber">{t("libraryDuplicateFiles")}</ToneBadge>}
+                    </span>
+                  </span>
+                  <ChevronRight className={active ? "text-[var(--zc-primary)]" : "text-[var(--zc-text-tertiary)]"} size={16} />
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function CommandIdleGroups({
+  t,
+  isBackgroundIndexing,
+  currentBackgroundRoot,
+  pendingBackgroundRoots,
+  recentGroups,
+  onOpen,
+  onOpenFile
+}: {
+  t: Translator;
+  isBackgroundIndexing: boolean;
+  currentBackgroundRoot: string | null;
+  pendingBackgroundRoots: number;
+  recentGroups: ReturnType<typeof buildRecentGroups>;
+  onOpen: (view: View) => void;
+  onOpenFile: (file: FileRecord) => void;
+}) {
+  const backgroundDescription = isBackgroundIndexing && currentBackgroundRoot
+    ? compactPath(formatDisplayPath(currentBackgroundRoot), 42)
+    : pendingBackgroundRoots > 0
+      ? t("spotlightPendingTasks").replace("{count}", String(pendingBackgroundRoots))
+      : t("spotlightNoBackgroundTasks");
+
+  return (
+    <>
+      <div className={commandIdleGroups} aria-label={t("commandIdleTitle")}>
+        {recentGroups.map((group) => (
+          <IdleGroup title={group.label} key={group.type}>
+            {group.type === "recent-files"
+              ? group.items.map((file) => (
+                  <IdleAction key={file.id} icon={<FileTypeIcon file={file} size={17} className="text-[var(--zc-primary)]" />} label={file.name} onClick={() => onOpenFile(file)} />
+                ))
+              : group.items.map((operation) => (
+                  <IdleAction key={operation.id} icon={<Clock3 size={17} className="text-[var(--zc-primary)]" aria-hidden="true" />} label={operationLabel(operation)} onClick={() => onOpen("restore")} />
+                ))}
+          </IdleGroup>
+        ))}
+        <IdleGroup title={t("spotlightCommonTasks")}>
+          <IdleAction icon={<Radar size={17} className="text-[var(--zc-primary)]" aria-hidden="true" />} label={t("overview")} onClick={() => onOpen("scanner")} />
+          <IdleAction icon={<LayoutGrid size={17} className="text-[var(--zc-primary)]" aria-hidden="true" />} label={t("organizeSuggestions")} onClick={() => onOpen("organize")} />
+        </IdleGroup>
+      </div>
+      <div className={commandBackgroundStatus} role="status" aria-label={t("spotlightBackgroundTasks")}>
+        <Activity size={15} className={isBackgroundIndexing ? "animate-pulse text-[var(--zc-primary)]" : "text-[var(--zc-text-tertiary)]"} />
+        <span className="min-w-0 truncate">{backgroundDescription}</span>
+      </div>
+    </>
+  );
+}
+
+function operationLabel(operation: OperationLog) {
+  const from = operation.old_name || operation.name_before || operation.source_path;
+  const to = operation.new_name || operation.name_after || operation.target_path;
+  return from && to && from !== to ? `${from} → ${to}` : to || from || operation.operation_type;
+}
+
+function IdleGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className={commandIdleGroup}>
+      <h3 className="px-2 text-xs font-semibold text-[var(--zc-text-tertiary)]">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function IdleAction({
+  icon,
+  label,
+  onClick
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button className={commandIdleAction} onClick={onClick}>
+      {icon}
+      <span>{label}</span>
+      <ChevronRight size={15} className="ml-auto text-[var(--zc-text-tertiary)]" />
+    </button>
   );
 }
 

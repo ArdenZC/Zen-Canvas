@@ -29,20 +29,27 @@ describe("phase 10 motion and accessibility contracts", () => {
     const sharedUi = read("src/views/shared/ui.ts");
     const commandModal = read("src/components/CommandModal.tsx");
     const settingsView = read("src/views/settings/SettingsView.tsx");
-    const rulesView = read("src/views/rules/RulesView.tsx");
+    const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");
+    const rulesList = read("src/views/rules/AutomationRuleList.tsx");
 
     expect(sharedUi).toContain('"aria-label": label');
     expect(sharedUi).toContain('"aria-checked": checked');
     expect(sharedUi).toContain('"aria-pressed": value === option.value');
-    expect(commandModal).not.toContain('event.key === "Tab"');
-    expect(commandModal).toContain('event.key === "Enter" && visibleResults[activeIndex]');
+    expect(commandModal).toContain("ModalPortal");
+    expect(commandModal).toContain("onEscape={onClose}");
+    expect(commandModal).not.toContain("cycleDialogFocus");
+    expect(commandModal).toContain('event.key === "Enter" && activeResult');
     expect(commandModal).toContain('role="combobox"');
     expect(commandModal).toContain('role="listbox"');
     expect(commandModal).toContain('role="option"');
-    expect(settingsView).toContain("SwitchButton");
-    expect(settingsView).toContain("statusLabel={root.enabled ? t(\"enabled\") : t(\"disabled\")}");
-    expect(rulesView).toContain("role=\"switch\"");
-    expect(rulesView).toContain("aria-checked={rule.enabled}");
+    expect(settingsPrimitives).toContain('role="switch"');
+    expect(settingsPrimitives).toContain("aria-checked={checked}");
+    expect(settingsPrimitives).toContain('role="radiogroup"');
+    expect(settingsPrimitives).toContain('event.key === "ArrowRight"');
+    expect(settingsView).toContain("SettingsSwitchControl");
+    expect(settingsView).not.toContain("statusLabel={root.enabled ? t(\"enabled\") : t(\"disabled\")}");
+    expect(rulesList).toContain("role=\"switch\"");
+    expect(rulesList).toContain("aria-checked={rule.enabled}");
   });
 
   it("keeps icon-only and dangerous actions labelled", () => {
@@ -50,7 +57,7 @@ describe("phase 10 motion and accessibility contracts", () => {
     const appShell = read("src/components/AppShell.tsx");
     const assetCard = read("src/views/vault/AssetCard.tsx");
     const settingsView = read("src/views/settings/SettingsView.tsx");
-    const rulesView = read("src/views/rules/RulesView.tsx");
+    const rulesInspector = read("src/views/rules/AutomationRuleInspector.tsx");
     const commandModal = read("src/components/CommandModal.tsx");
 
     expect(shellChrome).toContain("aria-label={themeLabel}");
@@ -63,18 +70,20 @@ describe("phase 10 motion and accessibility contracts", () => {
     expect(settingsView).toContain('aria-label={t("deleteScanFolder")}');
     expect(settingsView).toContain('title={t("deleteSearchFolder")}');
     expect(settingsView).toContain('aria-label={t("deleteSearchFolder")}');
-    expect(rulesView).toContain('title={deleteLabel}');
-    expect(rulesView).toContain('aria-label={deleteLabel}');
+    expect(rulesInspector).toContain('title={t("deleteRule")}');
+    expect(rulesInspector).toContain('aria-label={t("deleteRule")}');
   });
 
-  it("keeps library asset cards readable at the minimum desktop width", () => {
+  it("keeps the File Library list and Inspector readable at the minimum desktop width", () => {
     const vaultView = read("src/views/vault/VaultView.tsx");
-    const assetCard = read("src/views/vault/AssetCard.tsx");
+    const list = read("src/views/vault/components/FileLibraryList.tsx");
+    const inspector = read("src/views/vault/components/FileLibraryInspector.tsx");
 
-    expect(vaultView).toContain("Math.floor(width / 260)");
-    expect(vaultView).toContain("minmax(260px,1fr)");
-    expect(assetCard).toContain("overflow-hidden");
-    expect(assetCard).toContain("max-w-full");
+    expect(vaultView).toContain("max-[1100px]:grid-cols-1");
+    expect(list).toContain("min-w-[560px]");
+    expect(list).toContain("max-[1100px]:min-w-0");
+    expect(list).toContain('role="listbox"');
+    expect(inspector).toContain("max-w-xl");
   });
 });
 

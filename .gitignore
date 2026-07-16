@@ -12,3 +12,4 @@ src-tauri/gen/
 .vite/
 .DS_Store
 Thumbs.db
+.codex/

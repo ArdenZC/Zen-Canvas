@@ -1,5 +1,6 @@
 use super::super::*;
 use rusqlite::{params, OptionalExtension, Row};
+use serde_json::Value;
 use std::time::{SystemTime, UNIX_EPOCH};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
@@ -153,9 +154,24 @@ fn validate_user_rule(rule: &Rule) -> Result<(), DbError> {
         "is_duplicate",
         "risk_level",
     ];
-    const TEXT_OPERATORS: &[&str] = &["contains", "equals", "is", "startsWith", "endsWith"];
-    const NUMBER_OPERATORS: &[&str] = &["greaterThan", "lessThan"];
+    const TEXT_FIELDS: &[&str] = &["name", "extension", "path", "directory"];
+    const TEXT_OPERATORS: &[&str] = &["contains", "equals", "startsWith", "endsWith"];
+    const ENUM_OPERATORS: &[&str] = &["equals", "is"];
+    const NUMBER_OPERATORS: &[&str] = &["equals", "greaterThan", "lessThan"];
     const DATE_OPERATORS: &[&str] = &["olderThanDays", "newerThanDays"];
+    const FILE_TYPES: &[&str] = &[
+        "Document",
+        "Image",
+        "Video",
+        "Audio",
+        "Code",
+        "ArchivePackage",
+        "Installer",
+        "Spreadsheet",
+        "Presentation",
+        "Other",
+    ];
+    const RISK_LEVELS: &[&str] = &["Normal", "Sensitive", "System", "Unknown"];
 
     for group in &rule.groups {
         if group.id.trim().is_empty() || group.id.len() > 128 || group.conditions.len() > 32 {
@@ -184,32 +200,100 @@ fn validate_user_rule(rule: &Rule) -> Result<(), DbError> {
                     "Rule condition field is invalid.".to_string(),
                 ));
             }
-            let value = condition.value.as_str().map(str::trim);
-            if matches!(value, Some("")) || condition.value.is_null() {
+            if condition.value.is_null() {
                 return Err(DbError::Validation(
                     "Rule condition value is required.".to_string(),
                 ));
             }
-            if value.is_some_and(|value| value.len() > 1024) {
+            if condition
+                .value
+                .as_str()
+                .is_some_and(|value| value.trim().is_empty())
+            {
+                return Err(DbError::Validation(
+                    "Rule condition value is required.".to_string(),
+                ));
+            }
+            if condition
+                .value
+                .as_str()
+                .is_some_and(|value| value.len() > 1024)
+            {
                 return Err(DbError::Validation(
                     "Rule condition value is too long.".to_string(),
                 ));
             }
-            let allowed = match condition.field.as_str() {
+
+            match condition.field.as_str() {
+                field if TEXT_FIELDS.contains(&field) => {
+                    if !TEXT_OPERATORS.contains(&condition.operator.as_str())
+                        || condition.value.as_str().is_none()
+                    {
+                        return Err(DbError::Validation(
+                            "Rule condition operator or value is invalid for its field."
+                                .to_string(),
+                        ));
+                    }
+                }
+                "file_type" => {
+                    if !ENUM_OPERATORS.contains(&condition.operator.as_str())
+                        || !condition
+                            .value
+                            .as_str()
+                            .is_some_and(|value| FILE_TYPES.contains(&value))
+                    {
+                        return Err(DbError::Validation(
+                            "Rule condition operator or value is invalid for its field."
+                                .to_string(),
+                        ));
+                    }
+                }
+                "risk_level" => {
+                    if !ENUM_OPERATORS.contains(&condition.operator.as_str())
+                        || !condition
+                            .value
+                            .as_str()
+                            .is_some_and(|value| RISK_LEVELS.contains(&value))
+                    {
+                        return Err(DbError::Validation(
+                            "Rule condition operator or value is invalid for its field."
+                                .to_string(),
+                        ));
+                    }
+                }
                 "size" => {
-                    TEXT_OPERATORS.contains(&condition.operator.as_str())
-                        || NUMBER_OPERATORS.contains(&condition.operator.as_str())
+                    if !NUMBER_OPERATORS.contains(&condition.operator.as_str())
+                        || !non_negative_finite_number(&condition.value)
+                    {
+                        return Err(DbError::Validation(
+                            "Rule size condition must be a finite non-negative number.".to_string(),
+                        ));
+                    }
                 }
                 "modified_at" => {
-                    TEXT_OPERATORS.contains(&condition.operator.as_str())
-                        || DATE_OPERATORS.contains(&condition.operator.as_str())
+                    if !DATE_OPERATORS.contains(&condition.operator.as_str())
+                        || !non_negative_integer(&condition.value)
+                    {
+                        return Err(DbError::Validation(
+                            "Rule modified-day condition must be a non-negative integer."
+                                .to_string(),
+                        ));
+                    }
                 }
-                _ => TEXT_OPERATORS.contains(&condition.operator.as_str()),
-            };
-            if !allowed {
-                return Err(DbError::Validation(
-                    "Rule condition operator is invalid for its field.".to_string(),
-                ));
+                "is_duplicate" => {
+                    if !matches!(condition.operator.as_str(), "equals" | "is")
+                        || !condition.value.is_boolean()
+                    {
+                        return Err(DbError::Validation(
+                            "Rule duplicate condition must be a boolean.".to_string(),
+                        ));
+                    }
+                }
+                _ => {
+                    return Err(DbError::Validation(
+                        "Rule condition field is invalid.".to_string(),
+                    ))
+                }
             }
         }
     }
@@ -263,6 +347,28 @@ fn validate_user_rule(rule: &Rule) -> Result<(), DbError> {
         ));
     }
     Ok(())
+}
+
+fn non_negative_finite_number(value: &Value) -> bool {
+    let number = value.as_f64().or_else(|| {
+        value
+            .as_str()
+            .and_then(|text| text.trim().parse::<f64>().ok())
+    });
+    number.is_some_and(|number| number.is_finite() && number >= 0.0)
+}
+
+fn non_negative_integer(value: &Value) -> bool {
+    let number = value
+        .as_i64()
+        .map(|number| number as f64)
+        .or_else(|| value.as_f64())
+        .or_else(|| {
+            value
+                .as_str()
+                .and_then(|text| text.trim().parse::<f64>().ok())
+        });
+    number.is_some_and(|number| number.is_finite() && number >= 0.0 && number.fract() == 0.0)
 }
 
 fn validate_optional_rule_action_value(value: Option<&str>, field: &str) -> Result<(), DbError> {

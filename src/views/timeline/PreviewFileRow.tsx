@@ -5,37 +5,47 @@ import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { percent } from "../../utils/format";
 import { cn, inputSurface } from "../../utils/tw";
-import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
-import { ToneBadge, compactInteractiveRow, itemMotion } from "../shared/ui";
+import { compactPath, formatDisplayPath, formatPreviewDisplayPath } from "../../utils/viewHelpers";
+import { ToneBadge, itemMotion } from "../shared/ui";
+import { validateOrganizeFileName } from "../organize/organizeModel";
+import { riskLabel } from "../vault/components/FileLibraryList";
+import { resolvePreviewEligibility, type PreviewExecutionIntent } from "../../store/useOperationQueueStore";
 
 export const PreviewFileRow = memo(function PreviewFileRow({
   preview,
   isSelected,
+  executionIntent,
   toggle,
   onRenamePreview,
   t
 }: {
   preview: OperationPreview;
   isSelected: boolean;
+  executionIntent?: PreviewExecutionIntent;
   toggle: (id: string) => void;
   onRenamePreview: (id: string, name: string) => void;
   t: Translator;
 }) {
-  const blocked = preview.is_executable === false;
   const trashOperation = preview.operation_type === "move_to_trash";
+  const nameError = trashOperation ? null : validateOrganizeFileName(preview.new_name);
+  const eligibility = resolvePreviewEligibility(preview, executionIntent ?? null);
+  const blocked = eligibility.reason === "blocked" || eligibility.reason === "unavailable" || eligibility.reason === "outsideWhitelist";
+  const executionStatus = eligibility.executable ? "executable" : eligibility.reason === "invalidName" ? "invalid-name" : eligibility.reason === "unavailable" ? "unavailable" : eligibility.reason === "outsideWhitelist" ? "outside-whitelist" : "blocked";
+  const executionStatusLabel = eligibility.executable ? t("operationExecutable") : eligibility.reason === "invalidName" ? t("operationInvalidName") : eligibility.reason === "unavailable" ? t("unavailable") : eligibility.reason === "outsideWhitelist" ? t("organizeOutsideWhitelist") : t("operationBlocked");
 
   return (
     <motion.div
       className={cn(
-        compactInteractiveRow({ selected: isSelected, disabled: blocked }),
-        "grid items-start gap-3 sm:grid-cols-[auto_auto_minmax(0,1fr)]"
+        "grid items-start gap-3 border-b border-[var(--zc-divider)] px-2 py-3 transition-[background,color] sm:grid-cols-[auto_auto_minmax(0,1fr)]",
+        isSelected && "bg-[var(--zc-surface-selected)]",
+        blocked && "opacity-65"
       )}
       layout={false}
       variants={itemMotion}
     >
       <input
         type="checkbox"
-        disabled={blocked}
+        disabled={!isSelected && !eligibility.executable}
         checked={isSelected}
         onChange={() => toggle(preview.id)}
         aria-label={`${t("selectOperation")} · ${preview.old_name}`}
@@ -49,19 +59,19 @@ export const PreviewFileRow = memo(function PreviewFileRow({
               {operationLabel(preview.operation_type, t)} / {percent(preview.confidence)}
             </span>
           </div>
-          <ToneBadge tone={blocked ? "danger" : "success"}>
-            {blocked ? t("operationBlocked") : t("operationExecutable")}
-          </ToneBadge>
+          <span role="status" aria-label={executionStatusLabel} data-preview-execution-state={executionStatus}>
+            <ToneBadge tone={blocked ? "danger" : nameError ? "warning" : "success"}>
+              {executionStatusLabel}
+            </ToneBadge>
+          </span>
         </div>
 
         <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
-          <ToneBadge tone={riskTone(preview.risk_level)}>{preview.risk_level}</ToneBadge>
+          <ToneBadge tone={riskTone(preview.risk_level)}>{riskLabel(preview.risk_level, t)}</ToneBadge>
           {preview.requires_confirmation && (
             <ToneBadge tone="warning">{t("operationNeedsConfirmation")}</ToneBadge>
           )}
-          {preview.blocking_reason && (
-            <ToneBadge tone="danger">{preview.blocking_reason}</ToneBadge>
-          )}
+          {preview.blocking_reason ? <ToneBadge tone="danger">{t("operationBlocked")}</ToneBadge> : null}
           {!trashOperation && preview.will_create_parent && (
             <ToneBadge tone="info">{t("operationCreatesParent")}</ToneBadge>
           )}
@@ -69,40 +79,39 @@ export const PreviewFileRow = memo(function PreviewFileRow({
         {trashOperation && (
           <p className="mt-2 text-xs text-[var(--muted)]">{t("operationMoveToTrashRisk")}</p>
         )}
-        {preview.reason && (
-          <p className="mt-2 text-xs text-[var(--muted)]">
-            {t("reason")}：{preview.reason}
-          </p>
-        )}
+        {preview.reason ? <p className="mt-2 text-xs text-[var(--muted)]">{t("organizeReasonFromAnalysis")}</p> : null}
 
         <div className="mt-2 grid min-w-0 gap-2 xl:grid-cols-2">
-          <PathBlock label={t("sourcePath")} path={preview.source_path} tone="source" />
-          <PathBlock label={t("targetPath")} path={preview.target_path} tone="target" />
+          <PathBlock label={t("sourcePath")} path={preview.source_path} tone="source" t={t} />
+          <PathBlock label={t("targetPath")} path={preview.target_path} tone="target" t={t} localizeLogicalPath />
         </div>
 
         {!trashOperation && (
           <input
             className={cn(inputSurface, "mt-2 w-full")}
             value={preview.new_name}
-            disabled={!preview.editable_new_name || blocked}
+            disabled={!preview.editable_new_name || eligibility.reason === "unavailable" || eligibility.reason === "outsideWhitelist"}
             onChange={(event) => onRenamePreview(preview.id, event.target.value)}
             aria-label={t("newFileName")}
+            aria-invalid={Boolean(nameError)}
+            aria-describedby={nameError ? `preview-name-error-${preview.id}` : undefined}
           />
         )}
+        {nameError ? <p id={`preview-name-error-${preview.id}`} className="mt-1 text-xs text-[var(--zc-danger-text)]" role="alert">{t(nameError === "empty" ? "organizeNameErrorEmpty" : nameError === "reserved" ? "organizeNameErrorReserved" : "organizeNameErrorUnsafe")}</p> : null}
       </div>
     </motion.div>
   );
 });
 
-function PathBlock({ label, path, tone }: { label: string; path: string; tone: "source" | "target" }) {
-  const displayPath = formatDisplayPath(path);
+function PathBlock({ label, path, tone, t, localizeLogicalPath = false }: { label: string; path: string; tone: "source" | "target"; t: Translator; localizeLogicalPath?: boolean }) {
+  const displayPath = localizeLogicalPath ? formatPreviewDisplayPath(path, t) : formatDisplayPath(path);
   return (
     <div
       className={cn(
         "min-w-0 rounded-lg border px-2 py-1.5",
         tone === "source"
-          ? "border-slate-400/20 bg-slate-500/8"
-          : "border-blue-400/24 bg-blue-500/8"
+          ? "border-[var(--zc-divider)] bg-[var(--zc-neutral-soft)]"
+          : "border-[var(--zc-info-border)] bg-[var(--zc-info-soft)]"
       )}
       title={displayPath}
     >

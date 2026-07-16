@@ -1,6 +1,10 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -10,11 +14,14 @@ use zen_canvas_tauri::storage_analyzer::{
     analyze_storage_roots_for_test, classify_candidate_for_test,
     cleanup_preview_items_for_candidates, default_scan_roots_for_test,
     get_storage_cleanup_scan_status_for_test, is_forbidden_storage_path_for_test,
-    move_cleanup_candidates_to_safe_trash_for_candidates,
+    is_main_window_label_for_test, move_cleanup_candidates_to_safe_trash_for_candidates,
     move_cleanup_candidates_to_trash_for_candidates, preview_cleanup_operations_for_candidates,
-    reconcile_pending_cleanup_journal, restore_cleanup_trash_items_for_db,
-    start_storage_cleanup_scan_for_test, validate_cleanup_roots_for_test, CleanupActionKind,
-    CleanupTier, StorageCandidate, StorageCleanupProgress, StorageCleanupState,
+    preview_cleanup_restore_item_for_test, reconcile_pending_cleanup_journal,
+    restore_cleanup_trash_items_for_db, restore_cleanup_trash_items_for_db_with_cancel_for_test,
+    run_cleanup_restore_job_for_test, start_storage_cleanup_scan_for_test,
+    validate_cleanup_roots_for_test, CleanupActionKind, CleanupRestoreJobStatus,
+    CleanupRestoreState, CleanupRestoreTestOutcome, CleanupTier, StorageCandidate,
+    StorageCleanupProgress, StorageCleanupState,
 };
 
 #[test]
@@ -539,6 +546,7 @@ fn move_cleanup_candidates_to_safe_trash_records_and_restores_items() {
     let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
     assert_eq!(item.original_path, safe.path);
     assert_eq!(item.status, "moved");
+    assert!(Path::new(&item.trash_path).starts_with(root.join(".zen-canvas-trash")));
     assert!(Path::new(&item.trash_path).exists());
 
     let restore =
@@ -657,6 +665,123 @@ fn restore_cleanup_trash_items_blocks_conflicts_and_marks_missing_trash_paths() 
     assert_eq!(missing.missing, 1);
     let missing_item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
     assert_eq!(missing_item.status, "missing");
+}
+
+#[test]
+fn cleanup_restore_preview_marks_filesystem_conflicts_and_missing_sources() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+
+    let executable = preview_cleanup_restore_item_for_test(item.clone());
+    assert!(executable.can_restore);
+    assert_eq!(executable.blocking_reason, None);
+
+    write_file(&safe_path.join("conflict.txt"), 16);
+    let conflict = preview_cleanup_restore_item_for_test(item.clone());
+    assert!(!conflict.can_restore);
+    assert_eq!(conflict.blocking_reason.as_deref(), Some("conflict"));
+
+    fs::remove_dir_all(&safe_path).expect("remove conflict path");
+    let trash_path = PathBuf::from(&item.trash_path);
+    if trash_path.is_dir() {
+        fs::remove_dir_all(&trash_path).expect("remove trash path");
+    } else if trash_path.exists() {
+        fs::remove_file(&trash_path).expect("remove trash path");
+    }
+    let missing = preview_cleanup_restore_item_for_test(item);
+    assert!(!missing.can_restore);
+    assert_eq!(missing.blocking_reason.as_deref(), Some("missing"));
+}
+
+#[test]
+fn cleanup_restore_cancellation_skips_remaining_items_without_moving_files() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    let cancel = Arc::new(AtomicBool::new(true));
+
+    let result = restore_cleanup_trash_items_for_db_with_cancel_for_test(
+        vec![item.id.clone()],
+        &db,
+        Arc::clone(&cancel),
+    )
+    .expect("canceled restore");
+
+    assert_eq!(result.restored, 0);
+    assert_eq!(result.canceled, 1);
+    assert_eq!(result.logs[0].status, "canceled");
+    assert!(!safe_path.exists());
+    assert!(Path::new(&item.trash_path).exists());
+    assert!(cancel.load(Ordering::Relaxed));
+}
+
+#[test]
+fn cleanup_restore_jobs_release_running_state_on_all_terminal_paths() {
+    let state = CleanupRestoreState::default();
+    state
+        .start_job_for_test("running")
+        .expect("start running job");
+    assert_eq!(
+        state.status_for_test("running"),
+        Some(CleanupRestoreJobStatus::Running)
+    );
+    assert!(state.start_job_for_test("second").is_err());
+    assert!(state.cancel_job_for_test("running").is_ok());
+    assert!(state.cancel_job_for_test("running").is_ok());
+    state
+        .finish_job_for_test("running", CleanupRestoreJobStatus::Canceled)
+        .expect("finish canceled job");
+    assert_eq!(
+        state.status_for_test("running"),
+        Some(CleanupRestoreJobStatus::Canceled)
+    );
+    assert!(state.cancel_job_for_test("running").is_ok());
+    assert!(state.cancel_job_for_test("forged-storage-job").is_err());
+
+    run_cleanup_restore_job_for_test(&state, "completed", CleanupRestoreTestOutcome::Completed)
+        .expect("completed job");
+    run_cleanup_restore_job_for_test(&state, "failed", CleanupRestoreTestOutcome::Failed)
+        .expect("failed job");
+    assert_eq!(
+        state.status_for_test("failed"),
+        Some(CleanupRestoreJobStatus::Failed)
+    );
+    assert!(
+        run_cleanup_restore_job_for_test(&state, "panic", CleanupRestoreTestOutcome::Panic)
+            .is_err()
+    );
+    assert_eq!(
+        state.status_for_test("panic"),
+        Some(CleanupRestoreJobStatus::Failed)
+    );
+
+    for index in 0..10 {
+        let id = format!("retained-{index}");
+        run_cleanup_restore_job_for_test(&state, &id, CleanupRestoreTestOutcome::Completed)
+            .expect("retained job");
+    }
+    assert!(state.status_for_test("retained-0").is_none());
+    assert_eq!(
+        state.status_for_test("retained-9"),
+        Some(CleanupRestoreJobStatus::Completed)
+    );
+}
+
+#[test]
+fn cleanup_restore_cancellation_requires_the_main_window_label() {
+    assert!(is_main_window_label_for_test("main"));
+    assert!(!is_main_window_label_for_test("secondary"));
 }
 
 fn test_dir() -> PathBuf {

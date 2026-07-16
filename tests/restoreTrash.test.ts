@@ -16,8 +16,9 @@ describe("restore view cleanup safe trash", () => {
     expect(t("cleanupTrashRestoreBlockedDesc")).toContain("原路径已有文件");
     expect(t("storageCleanupRestoreFromTrash")).toContain("恢复记录");
     expect(source).toContain("listCleanupTrashBatches");
-    expect(source).toContain("restoreCleanupTrashItems");
-    expect(source).toContain("cleanupTrashBatches");
-    expect(source).toContain('t("cleanupTrashRecords")');
+    expect(source).toContain("prepareCleanupRestoreIntent");
+    expect(source).toContain("confirmCleanupRestore");
+    expect(source).toContain("cleanupBatches");
+    expect(source).toContain('t("historyCleanupScope")');
   });
 });

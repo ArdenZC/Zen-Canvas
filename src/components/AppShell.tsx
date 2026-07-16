@@ -1,37 +1,42 @@
 import {
   Archive,
   Clock3,
-  Eraser,
-  FolderSearch,
+  Cloud,
+  Cpu,
   LayoutGrid,
-  ListChecks,
+  LoaderCircle,
   LockKeyhole,
   Minus,
   Radar,
-  RefreshCw,
   Search,
   Settings,
   SlidersHorizontal,
   Square,
+  TriangleAlert,
   X
 } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
 import { CommandModal } from "./CommandModal";
+import { OnboardingDialog } from "./OnboardingDialog";
 import { ViewErrorBoundary } from "./ErrorBoundary";
-import { AmbientMesh, CloseChoiceDialog, TitlebarTools, ZenMark } from "./ShellChrome";
+import { AmbientMesh, CloseChoiceDialog, ZenMark } from "./ShellChrome";
+import { requestSettingsSection } from "./spotlight/commandRegistry";
 import { useChromeContext, useSettingsContext } from "../contexts/AppContexts";
 import { resolveEffectiveSearchScope } from "../hooks/useAppSettings";
 import { hideToBackground } from "../hooks/useWindowBehavior";
 import { useAppStore } from "../store/useAppStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
+import { useOrganizeDecisionStore } from "../store/useOrganizeDecisionStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
-import { useScanManagerStore } from "../store/useScanManagerStore";
+import { resolveAIProcessingMode, useAIProcessingModeStore, type AIProcessingModeState } from "../store/useAIProcessingModeStore";
 import type { AppSettings, DashboardStats, LibraryScope } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { formatDate } from "../utils/format";
-import { cn, glassButton, glassButtonPrimary, statusToast, toastTone } from "../utils/tw";
+import { cn, statusToast, toastTone } from "../utils/tw";
 import { compactPath, libraryScopeLabel, readableError } from "../utils/viewHelpers";
-import { PageHeader, inlineActions, pageFrame, softPanel, viewStage } from "../views/shared/ui";
+import { PageHeader, pageFrame, softPanel, viewStage } from "../views/shared/ui";
+import { organizeScopeKey } from "../views/organize/organizeModel";
+import { APP_SHELL_CONTENT_ID, ModalHost } from "./modal/ModalPortal";
 
 const ScannerView = lazy(() => import("../views/scanner/ScannerView").then((module) => ({ default: module.ScannerView })));
 const StorageCleanupView = lazy(() => import("../views/cleanup/StorageCleanupView").then((module) => ({ default: module.StorageCleanupView })));
@@ -43,31 +48,31 @@ const RestoreView = lazy(() => import("../views/restore/RestoreView").then((modu
 const SettingsView = lazy(() => import("../views/settings/SettingsView").then((module) => ({ default: module.SettingsView })));
 
 const appRoot =
-  cn(pageFrame, "relative h-screen min-h-[680px] min-w-[980px] bg-[var(--bg)] text-[var(--ink)]");
+  cn(pageFrame, "relative h-screen min-h-0 min-w-0 bg-[var(--zc-canvas)] text-[var(--zc-text-primary)]");
 const searchWindowRoot =
-  "relative h-full w-full overflow-hidden bg-transparent text-[var(--ink)]";
+  "relative h-full w-full overflow-hidden bg-transparent text-[var(--zc-text-primary)]";
 const titlebar =
-  "relative z-30 grid h-12 grid-cols-[minmax(208px,240px)_1fr_minmax(208px,240px)] items-center border-b border-[var(--line-dark)] bg-[var(--surface)] px-4 backdrop-blur-xl [-webkit-app-region:drag]";
+  "relative z-30 grid h-12 grid-cols-[228px_minmax(0,1fr)_228px] items-center border-b border-[var(--zc-divider)] bg-[var(--zc-titlebar)] px-4 backdrop-blur-xl [-webkit-app-region:drag] max-[1100px]:grid-cols-[176px_minmax(0,1fr)_176px] max-[720px]:grid-cols-[0_minmax(0,1fr)_auto] max-[720px]:px-2";
 const noDrag = "[-webkit-app-region:no-drag]";
 const spotlightButton =
-  "mx-auto grid h-8 w-[min(42vw,420px)] min-w-64 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-full border border-[var(--line-dark)] bg-[var(--surface-soft)] px-3 text-xs text-[var(--muted)] shadow-sm transition-[background,border-color,box-shadow,color] hover:border-blue-400/24 hover:bg-[var(--surface-strong)] hover:shadow-[0_0_0_3px_rgba(59,130,246,0.055)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500/50 [&_kbd]:rounded-md [&_kbd]:border [&_kbd]:border-[var(--line-dark)] [&_kbd]:bg-[var(--surface-soft)] [&_kbd]:px-1.5 [&_kbd]:py-0.5 [&_kbd]:text-[11px] [&_kbd]:font-medium [&_kbd]:text-[var(--quiet)]";
-const workspaceShell = "relative z-10 grid min-h-0 flex-1 grid-cols-[minmax(220px,248px)_minmax(0,1fr)]";
+  "mx-auto grid h-8 w-[min(42vw,440px)] min-w-64 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded-full border border-[var(--zc-control-border)] bg-[var(--zc-surface-subtle)] px-3 text-xs text-[var(--zc-text-secondary)] shadow-sm transition-[background,border-color,box-shadow,color] duration-[var(--zc-duration-fast)] hover:border-[var(--zc-control-border-hover)] hover:bg-[var(--zc-surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)] [&_kbd]:rounded-md [&_kbd]:border [&_kbd]:border-[var(--zc-divider)] [&_kbd]:bg-[var(--zc-surface)] [&_kbd]:px-1.5 [&_kbd]:py-0.5 [&_kbd]:text-[11px] [&_kbd]:font-medium [&_kbd]:text-[var(--zc-text-tertiary)]";
+const workspaceShell = "relative z-10 grid min-h-0 flex-1 grid-cols-[228px_minmax(0,1fr)] max-[1100px]:grid-cols-[176px_minmax(0,1fr)]";
 const sidebarClass =
-  "flex min-h-0 flex-col gap-5 border-r border-[var(--line-dark)] bg-[var(--surface)] px-4 py-5 backdrop-blur-xl";
+  "flex min-h-0 flex-col gap-5 overflow-x-hidden overflow-y-auto overscroll-contain border-r border-[var(--zc-divider)] bg-[var(--zc-sidebar)] px-4 py-5 backdrop-blur-xl";
 const navItemBase =
-  "flex min-h-10 w-full items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:bg-[var(--surface-soft)] hover:text-[var(--ink)] dark:hover:bg-slate-700/70";
-const navItemActive = "border-blue-400/24 bg-blue-500/9 text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.28)]";
-const workspaceClass = "flex min-h-0 min-w-0 flex-col overflow-hidden px-5 py-5";
+  "relative flex min-h-10 w-full items-center gap-3 rounded-[var(--zc-radius-control)] border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--zc-text-secondary)] transition-[background,border-color,color] duration-[var(--zc-duration-fast)] before:absolute before:left-0 before:top-2 before:h-6 before:w-0.5 before:rounded-full before:bg-[var(--zc-primary)] before:opacity-0 hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zc-focus-ring)]";
+const navItemActive = "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] before:opacity-100";
+const workspaceClass = "flex min-h-0 min-w-[720px] flex-col overflow-hidden px-5 py-5 max-[1100px]:min-w-0 max-[1100px]:px-3";
 const viewStageClass = viewStage;
 const windowsControlButton =
-  "grid h-8 w-10 place-items-center text-[var(--muted)] transition-[background,color] hover:bg-[var(--surface-soft)] hover:text-[var(--ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-500/45";
+  "grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]";
 const windowsCloseButton =
-  "grid h-8 w-10 place-items-center text-[var(--muted)] transition-[background,color] hover:bg-red-500/85 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-red-400/60";
+  "grid h-12 w-11 place-items-center text-[var(--zc-text-secondary)] transition-[background,color] hover:bg-[var(--zc-window-close-hover)] hover:text-[var(--zc-window-close-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]";
 const macControlButton = "grid h-6 w-6 place-items-center rounded-full";
-const navGroupTitle = "px-3 pt-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--quiet)]";
+const navGroupTitle = "px-3 pt-2 text-[11px] font-semibold text-[var(--zc-text-tertiary)]";
 
 type NavItem = { id: View; label: string; icon: typeof Radar };
-type NavGroup = { id: "workspace" | "system"; label: string; items: NavItem[] };
+type NavGroup = { id: "primary" | "advanced"; label: string; items: NavItem[] };
 
 export function AppShell() {
   const {
@@ -84,37 +89,44 @@ export function AppShell() {
   } = useChromeContext();
   const stats = useFileLibraryStore((state) => state.stats);
   const scope = useFileLibraryStore((state) => state.scope);
-  const previewActionCount = useOperationQueueStore((state) => state.previewActionCount);
+  const decisions = useOrganizeDecisionStore((state) => state.decisions);
+  const organizeFiles = useFileLibraryStore((state) => state.organizeQueue);
+  const previewActionCount = organizePendingCount(scope, organizeFiles.map((file) => file.id), decisions);
+  const executionIntent = useOperationQueueStore((state) => state.executionIntent);
+  const spotlightTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   if (isSearchMode) return <SearchWindow />;
 
   const groups = navGroups(t);
-  const activeLabel = groups.flatMap((group) => group.items).find((item) => item.id === view)?.label ?? t("spaceScan");
+  const activeLabel = view === "rules"
+    ? t("automationWorkspaceTitle")
+    : groups.flatMap((group) => group.items).find((item) => item.id === view)?.label ?? viewLabel(view, t);
   const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
-  const headingDescription = viewDescription(view, stats, scopeText, previewActionCount, t);
+  const headingDescription = viewDescription(view, stats, scope, scopeText, view === "preview" && executionIntent?.source === "organize" ? executionIntent.allowedPreviewIds.size : previewActionCount, t);
 
   return (
     <div className={appRoot}>
       <AmbientMesh />
+      <div id={APP_SHELL_CONTENT_ID} className="contents">
       <header className={titlebar}>
         <div className="flex items-center justify-start">
-          {!isWindows ? <MacWindowControls /> : <ChromeTools />}
+          {!isWindows ? <MacWindowControls /> : null}
         </div>
         <div className="flex items-center justify-center">
-          <button className={cn(spotlightButton, noDrag)} onClick={() => setIsCommandOpen(true)}>
-            <Search size={15} className="text-blue-500/85" />
+          <button ref={spotlightTriggerRef} className={cn(spotlightButton, noDrag)} onClick={() => setIsCommandOpen(true)}>
+            <Search size={15} className="text-[var(--zc-primary)]" />
             <span className="min-w-0 truncate text-left">{t("globalSearch")}</span>
             <kbd>{hotkeyLabel}</kbd>
           </button>
         </div>
         <div className="flex items-center justify-end">
-          {!isWindows ? <ChromeTools /> : <WindowsControls />}
+          {isWindows ? <WindowsControls /> : null}
         </div>
       </header>
       <div className={workspaceShell}>
         <Sidebar groups={groups} />
         <main className={workspaceClass}>
-          <ViewHeading activeLabel={activeLabel} headingDescription={headingDescription} />
+          <ShellViewHeading view={view} activeLabel={activeLabel} headingDescription={headingDescription} />
           <ToastContainer />
           <div className={viewStageClass}>
             <ViewErrorBoundary key={view}>
@@ -123,10 +135,13 @@ export function AppShell() {
           </div>
         </main>
       </div>
-      {isCommandOpen && <CommandLauncher />}
+      {isCommandOpen && <CommandLauncher restoreFocusRef={spotlightTriggerRef} />}
       {isCloseChoiceOpen && (
         <CloseChoiceDialog t={t} onCancel={onCancelCloseChoice} onChoose={resolveCloseChoice} />
       )}
+      <OnboardingDialog />
+      </div>
+      <ModalHost />
     </div>
   );
 }
@@ -139,7 +154,13 @@ function SearchWindow() {
   );
 }
 
-function CommandLauncher({ standalone = false }: { standalone?: boolean }) {
+function CommandLauncher({
+  standalone = false,
+  restoreFocusRef
+}: {
+  standalone?: boolean;
+  restoreFocusRef?: React.RefObject<HTMLElement | null>;
+}) {
   const { commandInputRef, setView, setIsCommandOpen, platform, onError, t } = useChromeContext();
   const { settings } = useSettingsContext();
   const currentLibraryScope = useFileLibraryStore((state) => state.scope);
@@ -173,6 +194,7 @@ function CommandLauncher({ standalone = false }: { standalone?: boolean }) {
       searchScopeLabel={searchScopeLabel}
       searchScopeEmptyMessage={searchScopeEmptyMessage}
       standalone={standalone}
+      restoreFocusRef={restoreFocusRef}
     />
   );
 }
@@ -206,34 +228,19 @@ function commandSearchScopeEmptyMessage(settings: AppSettings, currentLibrarySco
   return "";
 }
 
-function ChromeTools() {
-  const { language, theme, effectiveTheme, setLanguage, setTheme, t } = useChromeContext();
-
-  return (
-    <TitlebarTools
-      language={language}
-      theme={theme}
-      effectiveTheme={effectiveTheme}
-      setLanguage={setLanguage}
-      setTheme={setTheme}
-      t={t}
-    />
-  );
-}
-
 function MacWindowControls() {
   const { handleWindowAction, t } = useChromeContext();
 
   return (
     <div className={cn("flex items-center gap-1", noDrag)} aria-label="Window controls">
       <button className={macControlButton} onClick={() => handleWindowAction("close")} aria-label={t("close")}>
-        <span className="h-3 w-3 rounded-full bg-red-500 shadow-sm" />
+        <span className="h-3 w-3 rounded-full bg-[var(--zc-window-mac-close)] shadow-sm" />
       </button>
       <button className={macControlButton} onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")}>
-        <span className="h-3 w-3 rounded-full bg-amber-400 shadow-sm" />
+        <span className="h-3 w-3 rounded-full bg-[var(--zc-window-mac-minimize)] shadow-sm" />
       </button>
       <button className={macControlButton} onClick={() => handleWindowAction("maximize")} aria-label={t("maximize")}>
-        <span className="h-3 w-3 rounded-full bg-emerald-500 shadow-sm" />
+        <span className="h-3 w-3 rounded-full bg-[var(--zc-window-mac-maximize)] shadow-sm" />
       </button>
     </div>
   );
@@ -243,7 +250,7 @@ function WindowsControls() {
   const { handleWindowAction, t } = useChromeContext();
 
   return (
-    <div className={cn("flex items-center overflow-hidden rounded-lg border border-[var(--line-dark)] bg-[var(--surface-soft)]", noDrag)} aria-label="Window controls">
+    <div className={cn("flex h-12 items-center", noDrag)} aria-label="Window controls">
       <button className={windowsControlButton} onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")}>
         <Minus size={15} strokeWidth={1.6} />
       </button>
@@ -259,7 +266,22 @@ function WindowsControls() {
 
 function Sidebar({ groups }: { groups: NavGroup[] }) {
   const { view, setView, t } = useChromeContext();
-  const previewActionCount = useOperationQueueStore((state) => state.previewActionCount);
+  const scope = useFileLibraryStore((state) => state.scope);
+  const organizeFiles = useFileLibraryStore((state) => state.organizeQueue);
+  const decisions = useOrganizeDecisionStore((state) => state.decisions);
+  const previewActionCount = organizePendingCount(scope, organizeFiles.map((file) => file.id), decisions);
+  const aiModeStatus = useAIProcessingModeStore((state) => state.status);
+  const aiModeSettings = useAIProcessingModeStore((state) => state.settings);
+  const aiModeError = useAIProcessingModeStore((state) => state.error);
+  const loadAIProcessingMode = useAIProcessingModeStore((state) => state.load);
+
+  useEffect(() => {
+    void loadAIProcessingMode();
+  }, [loadAIProcessingMode]);
+
+  function openAISettings() {
+    openAIProcessingModeSettings(setView, requestSettingsSection);
+  }
 
   return (
     <aside className={sidebarClass}>
@@ -267,12 +289,12 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
         <ZenMark />
         <div>
           <strong className="block text-base font-semibold">{t("appName")}</strong>
-          <span className="block text-xs text-[var(--muted)]">{t("appSubtitle")}</span>
+          <span className="block text-xs text-[var(--zc-text-secondary)]">{t("appSubtitle")}</span>
         </div>
       </div>
       <nav className="flex flex-1 flex-col gap-3">
         {groups.map((group) => (
-          <section className="grid gap-1 border-t border-[var(--line-dark)] pt-3 first:border-t-0 first:pt-0" key={group.id}>
+          <section className="grid gap-1 border-t border-[var(--zc-divider)] pt-3 first:border-t-0 first:pt-0" key={group.id}>
             <span className={navGroupTitle}>{group.label}</span>
             {group.items.map((item) => (
               <button
@@ -283,8 +305,8 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
               >
                 <item.icon size={18} />
                 <span>{item.label}</span>
-                {item.id === "preview" && previewActionCount > 0 && (
-                  <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500/10 px-1 text-[11px] font-medium text-red-600 dark:text-red-300" aria-label={`${previewActionCount} pending`}>
+                {item.id === "organize" && previewActionCount > 0 && (
+                  <span className="ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--zc-warning-soft)] px-1 text-[11px] font-medium text-[var(--zc-warning-text)]" aria-label={t("organizePendingBadge").replace("{count}", previewActionCount.toLocaleString())}>
                     {previewActionCount}
                   </span>
                 )}
@@ -293,49 +315,29 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
           </section>
         ))}
       </nav>
-      <div className={cn(softPanel, "mt-auto flex items-start gap-3 p-3 text-sm")}>
-        <LockKeyhole size={17} className="mt-0.5 text-blue-500/75" />
-        <div>
-          <strong className="block text-sm text-[var(--ink)]">{t("localOnly")}</strong>
-          <span className="block text-xs leading-5 text-[var(--muted)]">{t("privacyLine")}</span>
-        </div>
-      </div>
+      <AIProcessingModeStatus
+        state={{ status: aiModeStatus, settings: aiModeSettings, error: aiModeError }}
+        t={t}
+        onCheckSettings={openAISettings}
+      />
     </aside>
   );
 }
 
-function ViewHeading({
+export function ShellViewHeading({
+  view,
   activeLabel,
-  headingDescription
+  headingDescription,
+  actions
 }: {
+  view: View;
   activeLabel: string;
   headingDescription: string;
+  actions?: React.ReactNode;
 }) {
-  const { view, t } = useChromeContext();
-  const isScanning = useScanManagerStore((state) => state.isScanning);
-  const handleChooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
-  const handleScan = useScanManagerStore((state) => state.handleScan);
-
   if (view === "scanner") return null;
 
-  return (
-    <PageHeader
-      title={activeLabel}
-      description={headingDescription}
-      actions={
-        <div className={inlineActions}>
-          <button className={glassButton} onClick={handleChooseFolders} disabled={isScanning}>
-            <FolderSearch size={17} />
-            <span>{t("chooseFolders")}</span>
-          </button>
-          <button className={glassButtonPrimary} onClick={handleScan} disabled={isScanning}>
-            <RefreshCw size={17} className={isScanning ? "animate-spin" : ""} />
-            <span>{t("scanCommon")}</span>
-          </button>
-        </div>
-      }
-    />
-  );
+  return <PageHeader title={activeLabel} description={headingDescription} actions={actions} />;
 }
 
 function ToastContainer() {
@@ -361,7 +363,7 @@ function ToastContainer() {
 
   if (toast.type === "success") {
     return (
-      <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-full border border-emerald-400/25 bg-[var(--surface-strong)] px-3 py-2 text-xs font-medium text-emerald-700 shadow-[var(--shadow)] backdrop-blur-xl dark:text-emerald-200" role="status">
+      <div className="fixed bottom-5 right-5 z-50 max-w-sm rounded-full border border-[var(--zc-success-border)] bg-[var(--zc-success-soft)] px-3 py-2 text-xs font-medium text-[var(--zc-success-text)] shadow-[var(--zc-shadow-raised)] backdrop-blur-xl" role="status">
         {toast.message}
       </div>
     );
@@ -389,9 +391,72 @@ function AppViewContent() {
   return <Suspense fallback={<div className={softPanel}>{t("loading")}</div>}>{content}</Suspense>;
 }
 
+function organizePendingCount(scope: LibraryScope, fileIds: string[], decisions: Record<string, { state: string }>) {
+  const scopeKey = organizeScopeKey(scope);
+  return fileIds.filter((fileId) => {
+    const state = decisions[`${scopeKey}::${fileId}`]?.state;
+    return state === "undecided" || state === "needs-review";
+  }).length;
+}
+
+export function AIProcessingModeStatus({
+  state,
+  t,
+  onCheckSettings
+}: {
+  state: AIProcessingModeState;
+  t: Translator;
+  onCheckSettings?: () => void;
+}) {
+  const mode = sidebarMode(state, t);
+  return (
+    <div className={cn(softPanel, "mt-auto flex items-start gap-3 p-3 text-sm")} data-ai-processing-mode={resolveAIProcessingMode(state)}>
+      <AIProcessingModeIcon mode={mode.id} />
+      <div className="min-w-0 flex-1">
+        <strong className="block text-sm text-[var(--zc-text-primary)]">{mode.title}</strong>
+        <span className="block text-xs leading-5 text-[var(--zc-text-secondary)]">{mode.description}</span>
+        {mode.id === "failed" && onCheckSettings ? (
+          <button
+            className="mt-1 rounded px-1 py-0.5 text-xs font-semibold text-[var(--zc-warning-text)] hover:bg-[var(--zc-warning-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]"
+            onClick={onCheckSettings}
+          >
+            {t("modeCheckSettings")}
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function AIProcessingModeIcon({ mode }: { mode: ReturnType<typeof resolveAIProcessingMode> }) {
+  const iconClass = "mt-0.5 shrink-0";
+  if (mode === "loading") {
+    return <LoaderCircle data-ai-mode-icon="loader" size={17} className={cn(iconClass, "animate-spin text-[var(--zc-info-text)]")} />;
+  }
+  if (mode === "failed") {
+    return <TriangleAlert data-ai-mode-icon="warning" size={17} className={cn(iconClass, "text-[var(--zc-warning-text)]")} />;
+  }
+  if (mode === "disabled") {
+    return <LockKeyhole data-ai-mode-icon="disabled" size={17} className={cn(iconClass, "text-[var(--zc-neutral-text)]")} />;
+  }
+  if (mode === "local") {
+    return <Cpu data-ai-mode-icon="local" size={17} className={cn(iconClass, "text-[var(--zc-success-text)]")} />;
+  }
+  return <Cloud data-ai-mode-icon="cloud" size={17} className={cn(iconClass, "text-[var(--zc-info-text)]")} />;
+}
+
+export function openAIProcessingModeSettings(
+  setView: (view: View) => void,
+  openSection: (sectionId: string) => void
+) {
+  setView("settings");
+  openSection("settings-ai");
+}
+
 function viewDescription(
   view: View,
   stats: DashboardStats,
+  scope: LibraryScope,
   scopeText: string,
   previewActionCount: number,
   t: Translator
@@ -404,7 +469,7 @@ function viewDescription(
     case "organize":
       return `${t("currentOrganizeScope")}: ${scopeText} · ${t("viewDescOrganize")}`;
     case "library":
-      return `${t("currentScope")}: ${scopeText} · ${stats.totalFiles.toLocaleString()} ${t("files")}`;
+      return fileLibraryHeadingDescription(scope, stats.totalFiles, scopeText, t);
     case "preview":
       return previewActionCount > 0
         ? `${previewActionCount.toLocaleString()} ${t("items")} · ${t("viewDescPreview")}`
@@ -421,24 +486,52 @@ function viewDescription(
 function navGroups(t: Translator): NavGroup[] {
   return [
     {
-      id: "workspace",
-      label: t("navWorkspace"),
+      id: "primary",
+      label: t("navPrimary"),
       items: [
-        { id: "scanner", label: t("spaceScan"), icon: Radar },
-        { id: "cleanup", label: t("storageCleanup"), icon: Eraser },
-        { id: "organize", label: t("smartDispatch"), icon: LayoutGrid },
+        { id: "scanner", label: t("overview"), icon: Radar },
         { id: "library", label: t("fileLibrary"), icon: Archive },
-        { id: "preview", label: t("previewExecute"), icon: ListChecks }
+        { id: "organize", label: t("organizeSuggestions"), icon: LayoutGrid },
+        { id: "restore", label: t("history"), icon: Clock3 }
       ]
     },
     {
-      id: "system",
-      label: t("navSystem"),
+      id: "advanced",
+      label: t("navAdvanced"),
       items: [
-        { id: "rules", label: t("ruleEngine"), icon: SlidersHorizontal },
-        { id: "restore", label: t("restoreRecords"), icon: Clock3 },
+        { id: "rules", label: t("automation"), icon: SlidersHorizontal },
         { id: "settings", label: t("settings"), icon: Settings }
       ]
     }
   ];
+}
+
+export function fileLibraryHeadingDescription(
+  scope: LibraryScope,
+  scopedTotal: number,
+  scopeText: string,
+  t: Translator
+) {
+  const prefix = `${t("currentScope")}: ${scopeText}`;
+  return scope.kind === "current_scan" && scope.roots.length === 0
+    ? prefix
+    : `${prefix} · ${scopedTotal.toLocaleString()} ${t("files")}`;
+}
+
+function viewLabel(view: View, t: Translator) {
+  if (view === "cleanup") return t("storageCleanup");
+  if (view === "preview") return t("previewExecute");
+  return t("overview");
+}
+
+function sidebarMode(
+  state: AIProcessingModeState,
+  t: Translator
+) {
+  const mode = resolveAIProcessingMode(state);
+  if (mode === "loading") return { id: mode, title: t("modeLoading"), description: t("modeLoadingDesc") };
+  if (mode === "failed") return { id: mode, title: t("modeFailed"), description: t("modeFailedDesc") };
+  if (mode === "disabled") return { id: mode, title: t("modeAIDisabled"), description: t("modeAIDisabledDesc") };
+  if (mode === "local") return { id: mode, title: t("modeAILocal"), description: t("modeAILocalDesc") };
+  return { id: mode, title: t("modeAICloud"), description: t("modeAICloudDesc") };
 }

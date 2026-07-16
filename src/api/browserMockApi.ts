@@ -36,6 +36,11 @@ import type {
 
 const now = "2026-07-06T09:00:00.000Z";
 
+type MockCleanupRestoreState = Pick<CleanupTrashBatch["items"][number], "status" | "restoredAt" | "message">;
+
+const mockCleanupCreatedAt = Date.now().toString();
+const mockCleanupRestoreState = new Map<string, MockCleanupRestoreState>();
+
 const mockFiles: FileRecord[] = [
   file({
     id: "mock-report",
@@ -127,6 +132,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "init_db":
     case "cancel_scan":
     case "cancel_operations":
+    case "cancel_cleanup_restore":
     case "cancel_ai_classification":
     case "reveal_in_folder":
     case "reveal_storage_candidate":
@@ -156,9 +162,9 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "execute_moves":
       return { logs: [], batch_id: "browser-mock-batch" } satisfies ExecuteOperationResult as T;
     case "restore_moves":
-      return { logs: [], restored: 0, failed: 0 } satisfies RestoreMovesResult as T;
+      return mockRestoreMoves(args) as T;
     case "get_operation_logs":
-      return [] satisfies OperationLog[] as T;
+      return mockOperationLogs().slice(0, Number(args?.limit ?? 500)) as T;
     case "get_operation_previews_for_scope":
       return mockOperationPreviews(args) as T;
     case "scan_storage_cleanup":
@@ -180,18 +186,16 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "list_cleanup_trash_batches":
       return mockCleanupTrashBatches() as T;
     case "preview_restore_cleanup_trash":
-      return {
-        batchId: String(args?.batchId ?? "browser-cleanup-batch"),
-        items: mockCleanupTrashBatches()[0]?.items ?? []
-      } satisfies CleanupRestorePreview as T;
+      {
+        const batchId = String(args?.batchId ?? "browser-cleanup-batch");
+        const batch = mockCleanupTrashBatches().find((item) => item.id === batchId);
+        return {
+          batchId,
+          items: (batch?.items ?? []).map((item) => mockCleanupRestorePreviewItem(item))
+        } satisfies CleanupRestorePreview as T;
+      }
     case "restore_cleanup_trash_items":
-      return {
-        restored: Array.isArray(args?.itemIds) ? args.itemIds.length : 0,
-        conflicts: 0,
-        missing: 0,
-        failed: 0,
-        logs: []
-      } satisfies CleanupRestoreResult as T;
+      return mockCleanupRestoreResult(args) as T;
     case "preview_cleanup_candidates":
       return mockCleanupPreviewCandidates(args) as T;
     case "preview_cleanup_operations":
@@ -446,6 +450,150 @@ function mockStorageAnalysis(): StorageAnalysis {
   };
 }
 
+let mockOperationLogState: OperationLog[] | null = null;
+
+function mockOperationLogs(): OperationLog[] {
+  if (mockOperationLogState) return mockOperationLogState;
+  const makeLog = (overrides: Partial<OperationLog>): OperationLog => ({
+    id: "history-default",
+    batch_id: "history-batch-a",
+    operation_type: "move",
+    source_path: "C:/Users/Zen/Documents/example.txt",
+    target_path: "C:/Users/Zen/Documents/Organized/example.txt",
+    old_name: "example.txt",
+    new_name: "example.txt",
+    status: "success",
+    error_message: null,
+    created_at: now,
+    can_undo: true,
+    path_before: "C:/Users/Zen/Documents/example.txt",
+    path_after: "C:/Users/Zen/Documents/Organized/example.txt",
+    name_before: "example.txt",
+    name_after: "example.txt",
+    can_restore: true,
+    restored_at: null,
+    restore_status: "not_restored",
+    restore_error: null,
+    ...overrides
+  });
+  mockOperationLogState = [
+    makeLog({
+      id: "history-a-restored",
+      batch_id: "history-batch-a",
+      old_name: "brief-final.pdf",
+      new_name: "brief-final.pdf",
+      source_path: "C:/Users/Zen/Documents/brief-final.pdf",
+      target_path: "C:/Users/Zen/Documents/Work/brief-final.pdf",
+      path_before: "C:/Users/Zen/Documents/brief-final.pdf",
+      path_after: "C:/Users/Zen/Documents/Work/brief-final.pdf",
+      restore_status: "restored",
+      restored_at: "2026-07-06T09:08:00.000Z",
+      can_restore: false
+    }),
+    makeLog({
+      id: "history-a-restorable",
+      batch_id: "history-batch-a",
+      old_name: "brief-draft.pdf",
+      new_name: "brief-draft.pdf",
+      source_path: "C:/Users/Zen/Documents/brief-draft.pdf",
+      target_path: "C:/Users/Zen/Documents/Work/brief-draft.pdf",
+      path_before: "C:/Users/Zen/Documents/brief-draft.pdf",
+      path_after: "C:/Users/Zen/Documents/Work/brief-draft.pdf"
+    }),
+    makeLog({
+      id: "history-a-failed",
+      batch_id: "history-batch-a",
+      status: "failed",
+      old_name: "brief-locked.pdf",
+      new_name: "brief-locked.pdf",
+      can_restore: false,
+      restore_status: "failed",
+      restore_error: "The previous operation failed before it created a restorable journal entry."
+    }),
+    makeLog({
+      id: "history-a-skipped",
+      batch_id: "history-batch-a",
+      status: "skipped",
+      old_name: "brief-skipped.pdf",
+      new_name: "brief-skipped.pdf",
+      can_restore: false,
+      restore_status: "unavailable",
+      restore_error: "The item was skipped and has no restore source."
+    }),
+    makeLog({
+      id: "history-b-restorable",
+      batch_id: "history-batch-b",
+      old_name: "photo-2026.png",
+      new_name: "photo-2026.png",
+      source_path: "C:/Users/Zen/Pictures/photo-2026.png",
+      target_path: "C:/Users/Zen/Pictures/Archive/photo-2026.png",
+      path_before: "C:/Users/Zen/Pictures/photo-2026.png",
+      path_after: "C:/Users/Zen/Pictures/Archive/photo-2026.png"
+    }),
+    makeLog({
+      id: "history-b-missing",
+      batch_id: "history-batch-b",
+      old_name: "missing-source.docx",
+      new_name: "missing-source.docx",
+      path_before: "",
+      path_after: "",
+      can_restore: false,
+      restore_status: "unavailable",
+      restore_error: "The source file is missing from the restore journal."
+    }),
+    makeLog({
+      id: "history-b-canceled",
+      batch_id: "history-batch-b",
+      old_name: "canceled-upload.zip",
+      new_name: "canceled-upload.zip",
+      can_restore: false,
+      restore_status: "canceled",
+      restore_error: "Restore was canceled before this item was processed."
+    }),
+    makeLog({
+      id: "history-c-restorable",
+      batch_id: "history-batch-c",
+      old_name: "design-system.fig",
+      new_name: "design-system.fig",
+      source_path: "C:/Users/Zen/Projects/design-system.fig",
+      target_path: "C:/Users/Zen/Projects/Archive/design-system.fig",
+      path_before: "C:/Users/Zen/Projects/design-system.fig",
+      path_after: "C:/Users/Zen/Projects/Archive/design-system.fig"
+    })
+  ];
+  return mockOperationLogState;
+}
+
+function mockRestoreMoves(args?: Record<string, unknown>): RestoreMovesResult {
+  const ids = Array.isArray((args?.request as Record<string, unknown> | undefined)?.logIds)
+    ? ((args?.request as Record<string, unknown>).logIds as unknown[]).map(String)
+    : [];
+  const source = mockOperationLogs();
+  const logs = ids
+    .map((id) => source.find((log) => log.id === id))
+    .filter((log): log is OperationLog => Boolean(log))
+    .map((log) => {
+      const outcome: OperationLog["restore_status"] = log.id === "history-a-restorable"
+        ? "restored"
+        : log.id === "history-b-restorable"
+          ? "failed"
+          : "canceled";
+      return {
+        ...log,
+        can_restore: false,
+        restored_at: outcome === "restored" ? now : null,
+        restore_status: outcome,
+        restore_error: outcome === "failed" ? "The destination path is occupied by another file." : outcome === "canceled" ? "Restore was canceled before this item was processed." : null
+      };
+    });
+  mockOperationLogState = source.map((log) => logs.find((updated) => updated.id === log.id) ?? log);
+  return {
+    logs,
+    restored: logs.filter((log) => log.restore_status === "restored").length,
+    failed: logs.filter((log) => log.restore_status === "failed").length
+  };
+}
+
 function mockStorageCleanupStatus(jobId: string): StorageCleanupScanStatus {
   return {
     jobId,
@@ -537,31 +685,144 @@ function mockAnalyzeCleanupCandidatesWithAI(args?: Record<string, unknown>): Sto
 }
 
 function mockCleanupTrashBatches(): CleanupTrashBatch[] {
-  const movedAt = Date.now().toString();
+  const movedAt = mockCleanupCreatedAt;
+  const items: CleanupTrashBatch["items"] = [
+    {
+      id: "browser-cleanup-restorable-0",
+      batchId: "browser-cleanup-batch",
+      originalPath: "C:/Users/Zen/Projects/demo/node_modules",
+      trashPath: "C:/Users/Zen/.zen-canvas-trash/items/browser-cleanup-batch/item-0/node_modules",
+      name: "node_modules",
+      size: 1_850_000_000,
+      movedAt,
+      restoredAt: null,
+      status: "moved",
+      message: "Moved to Zen Canvas Safe Trash."
+    },
+    {
+      id: "browser-cleanup-restorable-1",
+      batchId: "browser-cleanup-batch",
+      originalPath: "C:/Users/Zen/Projects/demo/dist",
+      trashPath: "C:/Users/Zen/.zen-canvas-trash/items/browser-cleanup-batch/item-1/dist",
+      name: "dist",
+      size: 120_000_000,
+      movedAt,
+      restoredAt: null,
+      status: "moved",
+      message: "Moved to Zen Canvas Safe Trash."
+    },
+    {
+      id: "browser-cleanup-conflict",
+      batchId: "browser-cleanup-batch",
+      originalPath: "C:/Users/Zen/Projects/demo/cache",
+      trashPath: "C:/Users/Zen/.zen-canvas-trash/items/browser-cleanup-batch/item-2/cache",
+      name: "cache",
+      size: 12_000_000,
+      movedAt,
+      restoredAt: null,
+      status: "moved",
+      message: "Restore blocked because the original path already exists."
+    },
+    {
+      id: "browser-cleanup-missing",
+      batchId: "browser-cleanup-batch",
+      originalPath: "C:/Users/Zen/Projects/demo/temp",
+      trashPath: "C:/Users/Zen/.zen-canvas-trash/items/browser-cleanup-batch/item-3/temp",
+      name: "temp",
+      size: 8_000_000,
+      movedAt,
+      restoredAt: null,
+      status: "missing",
+      message: "Safe trash path is missing."
+    },
+    {
+      id: "browser-cleanup-restored",
+      batchId: "browser-cleanup-batch",
+      originalPath: "C:/Users/Zen/Projects/demo/old-build",
+      trashPath: "C:/Users/Zen/.zen-canvas-trash/items/browser-cleanup-batch/item-4/old-build",
+      name: "old-build",
+      size: 14_000_000,
+      movedAt,
+      restoredAt: "2026-07-06T09:12:00.000Z",
+      status: "restored",
+      message: "Restored from Zen Canvas Safe Trash."
+    }
+  ];
   return [
     {
       id: "browser-cleanup-batch",
       createdAt: movedAt,
       root: "C:/Users/Zen/Projects/demo",
-      totalItems: 1,
-      totalSize: 1_850_000_000,
+      totalItems: 5,
+      totalSize: 2_004_000_000,
       status: "success",
-      items: [
-        {
-          id: "browser-cleanup-item-0",
-          batchId: "browser-cleanup-batch",
-          originalPath: "C:/Users/Zen/Projects/demo/node_modules",
-          trashPath: "C:/Users/Zen/.zen-canvas-trash/items/browser-cleanup-batch/item-0/node_modules",
-          name: "node_modules",
-          size: 1_850_000_000,
-          movedAt,
-          restoredAt: null,
-          status: "moved",
-          message: "Moved to Zen Canvas Safe Trash."
-        }
-      ]
+      items: items.map((item) => ({
+        ...item,
+        ...(mockCleanupRestoreState.get(item.id) ?? {})
+      }))
     }
   ];
+}
+
+function mockCleanupRestorePreviewItem(item: CleanupTrashBatch["items"][number]): CleanupRestorePreview["items"][number] {
+  const blockingReason = item.id === "browser-cleanup-conflict"
+    ? "conflict"
+    : item.id === "browser-cleanup-missing"
+      ? "missing"
+      : item.status === "restored"
+        ? "already restored"
+        : item.status === "moved"
+          ? null
+          : item.status;
+  return {
+    ...item,
+    canRestore: blockingReason === null,
+    blockingReason
+  };
+}
+
+function mockCleanupRestoreResult(args?: Record<string, unknown>): CleanupRestoreResult {
+  const ids = Array.isArray(args?.itemIds) ? args.itemIds.map(String) : [];
+  const logs = ids.map((itemId) => {
+    const item = mockCleanupTrashBatches()[0]?.items.find((candidate) => candidate.id === itemId);
+    const status: CleanupRestoreResult["logs"][number]["status"] = item?.id === "browser-cleanup-conflict"
+      ? "conflict"
+      : item?.status === "missing"
+        ? "missing"
+        : item?.id === "browser-cleanup-restorable-1"
+          ? "failed"
+          : item?.status === "moved"
+            ? "restored"
+            : "failed";
+    if (item && status === "restored") {
+      mockCleanupRestoreState.set(item.id, {
+        status: "restored",
+        restoredAt: new Date().toISOString(),
+        message: "Restored from Zen Canvas Safe Trash."
+      });
+    }
+    return {
+      itemId,
+      originalPath: item?.originalPath ?? "",
+      trashPath: item?.trashPath ?? "",
+      status,
+      message: status === "conflict"
+        ? "The destination path is occupied by another file."
+        : status === "missing"
+          ? "The safe trash source is missing."
+          : status === "failed"
+            ? "Restore failed."
+            : "Restored from Zen Canvas Safe Trash."
+    };
+  });
+  return {
+    restored: logs.filter((log) => log.status === "restored").length,
+    conflicts: logs.filter((log) => log.status === "conflict").length,
+    missing: logs.filter((log) => log.status === "missing").length,
+    failed: logs.filter((log) => log.status === "failed").length,
+    canceled: 0,
+    logs
+  };
 }
 
 function mockCleanupPreviewCandidates(args?: Record<string, unknown>): CleanupPreviewItem[] {
@@ -644,8 +905,15 @@ function mockSettings(settings?: AppSettings): AppSettings {
   };
 }
 
+let mockAISettingsState: AISettings | null = null;
+
 function mockAISettings(settings?: AISettings): AISettings {
-  return settings ?? {
+  if (settings) {
+    mockAISettingsState = { ...settings };
+    return { ...mockAISettingsState };
+  }
+  if (mockAISettingsState) return { ...mockAISettingsState };
+  return {
     enabled: false,
     provider: "openai_compatible",
     preset: "deepseek",
@@ -671,16 +939,16 @@ function mockAISettings(settings?: AISettings): AISettings {
 
 function mockAIProviderPresets(): AIProviderPreset[] {
   return [
-    ["deepseek", "DeepSeek，推荐", "https://api.deepseek.com", "deepseek-v4-flash", true, true, true],
+    ["deepseek", "DeepSeek — Recommended", "https://api.deepseek.com", "deepseek-v4-flash", true, true, true],
     ["kimi", "Kimi / Moonshot", "https://api.moonshot.cn/v1", "kimi-k2.7-code-highspeed", true, false, false],
-    ["qwen_dashscope", "通义千问 / DashScope", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus", false, false, false],
-    ["zhipu_glm", "智谱 GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4.5", false, false, false],
+    ["qwen_dashscope", "Qwen / DashScope", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus", false, false, false],
+    ["zhipu_glm", "Zhipu GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4.5", false, false, false],
     ["minimax", "MiniMax", "https://api.minimax.chat/v1", "", false, false, false],
-    ["baichuan", "百川", "", "", false, false, false],
-    ["doubao_ark", "豆包 / 火山方舟", "https://ark.cn-beijing.volces.com/api/v3", "", false, false, false],
-    ["siliconflow", "硅基流动", "https://api.siliconflow.cn/v1", "", false, false, false],
-    ["custom_openai_compatible", "自定义 OpenAI-compatible", "", "", false, false, false],
-    ["ollama", "Ollama 本地模型", "http://localhost:11434", "qwen3:8b", false, true, false]
+    ["baichuan", "Baichuan", "", "", false, false, false],
+    ["doubao_ark", "Doubao / Volcengine Ark", "https://ark.cn-beijing.volces.com/api/v3", "", false, false, false],
+    ["siliconflow", "SiliconFlow", "https://api.siliconflow.cn/v1", "", false, false, false],
+    ["custom_openai_compatible", "Custom OpenAI-compatible", "", "", false, false, false],
+    ["ollama", "Ollama — Local model", "http://localhost:11434", "qwen3:8b", false, true, false]
   ].map(([id, label, defaultBaseUrl, defaultModel, supportsResponseFormat, supportsThinking, supportsReasoningEffort]) => ({
     id: id as AIProviderPreset["id"],
     label: String(label),
@@ -696,7 +964,7 @@ function mockAIProviderPresets(): AIProviderPreset[] {
 }
 
 function mockAIConnectionTest(settings?: AISettings): AIConnectionTestResult {
-  const resolved = mockAISettings(settings);
+  const resolved = settings ? { ...settings } : mockAISettings();
   return {
     ok: true,
     message: "{\"ok\":true}",

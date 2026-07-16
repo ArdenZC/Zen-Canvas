@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { tauriApi } from "../api/tauriApi";
 import { migrateLocalUserRulesToSQLite, userRulesFrom } from "../store/rulePersistence";
 import type { Rule } from "../types/domain";
-import { readableError } from "../utils/viewHelpers";
 
 interface UseRulePersistenceOptions {
   enabled?: boolean;
@@ -10,6 +9,7 @@ interface UseRulePersistenceOptions {
   rules: Rule[];
   hydrateUserRulesFromSQLite: (sqliteRules: Rule[], replaceUserRuleIds?: string[]) => void;
   onError: (message: string) => void;
+  formatSyncError: () => string;
 }
 
 export function useRulePersistence({
@@ -17,7 +17,8 @@ export function useRulePersistence({
   isDatabaseReady,
   rules,
   hydrateUserRulesFromSQLite,
-  onError
+  onError,
+  formatSyncError
 }: UseRulePersistenceOptions) {
   const hasHydrated = useRef(false);
   const [retryAttempt, setRetryAttempt] = useState(0);
@@ -52,9 +53,9 @@ export function useRulePersistence({
         if (cancelled) return;
         hydrateUserRulesFromSQLite(savedRules, replaceUserRuleIds);
         hasHydrated.current = true;
-      } catch (error) {
+      } catch {
         if (!cancelled) {
-          onError(`规则已保留在本地缓存，但同步 SQLite 失败：${readableError(error)}`);
+          onError(formatSyncError());
           const delay = Math.min(30_000, 1_000 * 2 ** Math.min(retryAttempt, 5));
           retryTimer = setTimeout(() => setRetryAttempt((attempt) => attempt + 1), delay);
         }
@@ -67,5 +68,5 @@ export function useRulePersistence({
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [enabled, hydrateUserRulesFromSQLite, isDatabaseReady, onError, retryAttempt, rules]);
+  }, [enabled, formatSyncError, hydrateUserRulesFromSQLite, isDatabaseReady, onError, retryAttempt, rules]);
 }

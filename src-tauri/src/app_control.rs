@@ -34,6 +34,8 @@ const SEARCH_WINDOW_EXPANDED_HEIGHT: f64 = 660.0;
 #[cfg(feature = "desktop-runtime")]
 const SEARCH_NAVIGATE_EVENT: &str = "search-navigate";
 #[cfg(feature = "desktop-runtime")]
+const GLOBAL_SEARCH_REQUESTED_EVENT: &str = "global-search-requested";
+#[cfg(feature = "desktop-runtime")]
 const GLOBAL_HOTKEY_REGISTRATION_FAILED_EVENT: &str = "global-hotkey-registration-failed";
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -116,6 +118,7 @@ pub fn quit_app<R: Runtime>(app: AppHandle<R>) {
 #[cfg(feature = "desktop-runtime")]
 pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        window.unminimize()?;
         window.show()?;
         window.set_focus()?;
     }
@@ -459,15 +462,46 @@ fn resize_search_window_for_state<R: Runtime>(
 #[cfg(feature = "desktop-runtime")]
 pub fn toggle_search_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     if let Some(window) = app.get_webview_window(SEARCH_WINDOW_LABEL) {
-        if window.is_visible()? {
-            window.hide()?;
-        } else {
-            resize_search_window_for_state(app, false)?;
-            window.show()?;
-            window.set_focus()?;
+        let visibility = match window.is_visible() {
+            Ok(is_visible) => Some(is_visible),
+            Err(error) => {
+                eprintln!(
+                    "Read search window visibility failed; opening Spotlight in the main window: {error}"
+                );
+                None
+            }
+        };
+        match search_window_action(visibility) {
+            SearchWindowAction::ShowStandalone => {
+                resize_search_window_for_state(app, false)?;
+                window.show()?;
+                window.set_focus()?;
+            }
+            SearchWindowAction::HideStandalone => window.hide()?,
+            SearchWindowAction::ShowMainFallback => {
+                show_main_window(app)?;
+                app.emit_to(MAIN_WINDOW_LABEL, GLOBAL_SEARCH_REQUESTED_EVENT, ())?;
+            }
         }
     }
     Ok(())
+}
+
+#[cfg(any(feature = "desktop-runtime", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SearchWindowAction {
+    ShowStandalone,
+    HideStandalone,
+    ShowMainFallback,
+}
+
+#[cfg(any(feature = "desktop-runtime", test))]
+fn search_window_action(is_visible: Option<bool>) -> SearchWindowAction {
+    match is_visible {
+        Some(true) => SearchWindowAction::HideStandalone,
+        Some(false) => SearchWindowAction::ShowStandalone,
+        None => SearchWindowAction::ShowMainFallback,
+    }
 }
 
 #[cfg(feature = "desktop-runtime")]
@@ -541,6 +575,22 @@ mod tests {
     #[test]
     fn search_window_url_targets_standalone_search_mode() {
         assert_eq!(search_window_url(), "index.html?mode=search");
+    }
+
+    #[test]
+    fn search_hotkey_shows_window_when_visibility_cannot_be_read() {
+        assert_eq!(
+            search_window_action(None),
+            SearchWindowAction::ShowMainFallback
+        );
+        assert_eq!(
+            search_window_action(Some(false)),
+            SearchWindowAction::ShowStandalone
+        );
+        assert_eq!(
+            search_window_action(Some(true)),
+            SearchWindowAction::HideStandalone
+        );
     }
 
     #[test]

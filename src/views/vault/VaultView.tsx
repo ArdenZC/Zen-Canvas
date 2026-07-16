@@ -1,44 +1,38 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { motion } from "motion/react";
-import { FolderSearch, Layers, Plus, Search } from "lucide-react";
+import { ChevronDown, FolderSearch, Layers, Search, SlidersHorizontal } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { tauriApi } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useDebounce } from "../../hooks/useDebounce";
 import { useAppStore } from "../../store/useAppStore";
-import { LIBRARY_PAGE_SIZE, useFileLibraryStore } from "../../store/useFileLibraryStore";
+import { emptyPage, LIBRARY_PAGE_SIZE, useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
-import type {
-  ClassificationCorrectionRequest,
-  FileRecord,
-  FileType,
-  Lifecycle,
-  LibraryFilter,
-  LibraryScope,
-  Purpose,
-  RiskLevel,
-  SuggestedAction
-} from "../../types/domain";
-import type { Translator } from "../../types/ui";
-import { libraryScopeLabel, readableError } from "../../utils/viewHelpers";
-import { shouldTriggerLoadMore, shouldVirtualizeList } from "../../utils/virtualization";
-import { buttonSecondary, cn, glassButtonPrimary, inputSurface, virtualList, virtualSpacer } from "../../utils/tw";
+import type { FileRecord, LibraryFilter } from "../../types/domain";
+import { libraryScopeLabel } from "../../utils/viewHelpers";
+import { buttonGhost, buttonSecondary, buttonSubtle, cn, glassButtonPrimary, inputSurface, raisedSurface } from "../../utils/tw";
+import { StateBlock, pageFrame } from "../shared/ui";
+import { FileClassificationDetails } from "./components/FileClassificationDetails";
+import { FileLibraryFilterPopover } from "./components/FileLibraryFilterPopover";
+import { FileLibraryInspector, FileLibraryPreviewDialog, libraryRevealLabel } from "./components/FileLibraryInspector";
+import { FileLibraryList } from "./components/FileLibraryList";
 import {
-  StateBlock,
-  inlineActions,
-  listMotion,
-  metadataText,
-  pageFrame,
-  quietText,
-  toolbarSurface
-} from "../shared/ui";
-import { AssetCard } from "./AssetCard";
+  defaultLibrarySort,
+  classifyLibraryError,
+  collectLibraryPages,
+  emptyLibraryAdvancedFilters,
+  filterLibraryFiles,
+  libraryPageHasMore,
+  moveFocusIndex,
+  selectionForRowClick,
+  sortLibraryFiles,
+  type LibraryAdvancedFilters,
+  type LibrarySort,
+  type LibrarySortKey
+} from "./fileLibraryModel";
 
-const ASSET_GRID_MAX_COLUMNS = 5;
-const ASSET_GRID_ROW_HEIGHT = 172;
+type ContextMenuState = { file: FileRecord; x: number; y: number };
 
 export function VaultView() {
-  const { onError, setView, t } = useChromeContext();
+  const { onError, setView, t, language } = useChromeContext();
   const searchQuery = useAppStore((state) => state.searchQuery);
   const setSearchQuery = useAppStore((state) => state.setSearchQuery);
   const debouncedSearchQuery = useDebounce(searchQuery, 300);
@@ -53,683 +47,470 @@ export function VaultView() {
   const libraryFilter = useFileLibraryStore((state) => state.libraryFilter);
   const setLibraryFilter = useFileLibraryStore((state) => state.setLibraryFilter);
   const handleChooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
+  const [advancedFilters, setAdvancedFilters] = useState<LibraryAdvancedFilters>(emptyLibraryAdvancedFilters);
+  const [sort, setSort] = useState<LibrarySort>(defaultLibrarySort);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [isSortOpen, setIsSortOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [errorKind, setErrorKind] = useState<"permission" | "load" | null>(null);
+  const [filterScanInProgress, setFilterScanInProgress] = useState(false);
+  const [filterScanComplete, setFilterScanComplete] = useState(true);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [focusedId, setFocusedId] = useState("");
+  const [anchorIndex, setAnchorIndex] = useState(-1);
+  const [previewFile, setPreviewFile] = useState<FileRecord | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const requestIdRef = useRef(0);
-  const hasMore = page.files.length < page.total;
+  const didMountRef = useRef(false);
+  const filterButtonRef = useRef<HTMLButtonElement | null>(null);
+  const sortButtonRef = useRef<HTMLButtonElement | null>(null);
+  const scopeSignature = `${scope.kind}:${scope.kind === "all" ? "" : scope.roots.join("\n")}`;
+  const hasAdvancedFilters = Object.entries(advancedFilters).some(([key, value]) => {
+    if (key === "duplicateOnly" || key === "reviewOnly") return value === true;
+    return value !== "all";
+  });
+  const filteredFiles = useMemo(
+    () => filterLibraryFiles(page.files, libraryFilter, advancedFilters),
+    [advancedFilters, libraryFilter, page.files]
+  );
+  const visibleFiles = useMemo(() => sortLibraryFiles(filteredFiles, sort), [filteredFiles, sort]);
+  const selectedFiles = selectedIds.map((id) => page.files.find((file) => file.id === id)).filter((file): file is FileRecord => Boolean(file));
+  const hasMore = libraryPageHasMore(page);
   const remainingCount = Math.max(0, page.total - page.files.length);
-  const selectedFile = page.files.find((file) => file.id === selectedFileId) ?? page.files[0];
+  const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
+  const isEmptyCurrentScanScope = scope.kind === "current_scan" && scope.roots.length === 0;
+  const sortScopeComplete = !hasMore && !filterScanInProgress && (!hasAdvancedFilters || filterScanComplete);
+  const showOpenedSort = page.files.some((file) => Boolean(file.last_opened_at));
+  const sortOptions = useMemo(() => {
+    const options: Array<{ key: LibrarySortKey; label: string }> = [
+      { key: "name", label: t("librarySortName") },
+      { key: "modified_at", label: t("librarySortModified") },
+      { key: "size", label: t("librarySortSize") },
+      { key: "confidence", label: t("librarySortConfidence") }
+    ];
+    if (showOpenedSort) options.splice(3, 0, { key: "last_opened_at", label: t("librarySortOpened") });
+    return options;
+  }, [showOpenedSort, t]);
+  const currentSortLabel = sortOptions.find((option) => option.key === sort.key)?.label ?? t("librarySortModified");
+  const sortScopeDescriptionId = !sortScopeComplete ? "library-sort-scope-description" : undefined;
 
   const loadPage = useCallback(async (offset: number, append: boolean) => {
     const requestId = ++requestIdRef.current;
+    if (scope.kind === "current_scan" && scope.roots.length === 0) {
+      setPage(emptyPage);
+      setSelectedFileId("");
+      setIsLoading(false);
+      setErrorKind(null);
+      setFilterScanInProgress(false);
+      setFilterScanComplete(true);
+      return;
+    }
     setIsLoading(true);
-    setError("");
+    setErrorKind(null);
+    setFilterScanInProgress(!append && hasAdvancedFilters);
+    setFilterScanComplete(!hasAdvancedFilters);
     try {
       const filters = libraryFilter === "all" ? undefined : { libraryFilter };
-      const next = await tauriApi.getPagedFiles(LIBRARY_PAGE_SIZE, offset, debouncedSearchQuery, scope, filters);
+      const fetchPage = (nextOffset: number) => tauriApi.getPagedFiles(LIBRARY_PAGE_SIZE, nextOffset, debouncedSearchQuery, scope, filters);
+      const next = await fetchPage(offset);
       if (requestId !== requestIdRef.current) return;
       setPage((current) => append
         ? { ...next, files: [...current.files, ...next.files], offset: current.offset }
         : next
       );
-      if (!append && next.files[0]) setSelectedFileId(next.files[0].id);
+      if (!append && next.files[0]) {
+        const currentSelectedId = useFileLibraryStore.getState().selectedFileId;
+        const nextSelectedId = currentSelectedId && next.files.some((file) => file.id === currentSelectedId)
+          ? currentSelectedId
+          : next.files[0].id;
+        setSelectedFileId(nextSelectedId);
+        setFocusedId(nextSelectedId);
+      }
+      if (!append && hasAdvancedFilters) {
+        const collected = await collectLibraryPages(
+          next,
+          fetchPage,
+          (current) => {
+            if (requestId === requestIdRef.current && current.files.length > next.files.length) setPage(current);
+          },
+          () => requestId === requestIdRef.current
+        );
+        if (!collected) return;
+        setFilterScanComplete(collected.complete);
+        setFilterScanInProgress(!collected.complete);
+      }
       await loadStats(scope);
     } catch (caught) {
-      if (requestId === requestIdRef.current) setError(caught instanceof Error ? caught.message : String(caught));
+      if (requestId === requestIdRef.current) {
+        setErrorKind(classifyLibraryError(caught));
+        setFilterScanInProgress(false);
+        setFilterScanComplete(false);
+      }
     } finally {
       if (requestId === requestIdRef.current) setIsLoading(false);
     }
-  }, [debouncedSearchQuery, libraryFilter, loadStats, scope, setPage, setSelectedFileId]);
+  }, [debouncedSearchQuery, hasAdvancedFilters, libraryFilter, loadStats, scope, setPage, setSelectedFileId]);
+
+  useEffect(() => {
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
+    requestIdRef.current += 1;
+    setPage(emptyPage);
+    setSelectedIds([]);
+    setFocusedId("");
+    setAnchorIndex(-1);
+    setSelectedFileId("");
+    setFilterScanInProgress(hasAdvancedFilters);
+    setFilterScanComplete(!hasAdvancedFilters);
+  }, [hasAdvancedFilters, libraryFilter, scopeSignature, searchQuery, setPage, setSelectedFileId]);
 
   useEffect(() => {
     void loadPage(0, false);
   }, [loadPage]);
 
-  const loadMore = useCallback(() => {
-    void loadPage(page.files.length, true);
-  }, [loadPage, page.files.length]);
-
-  const filters = useMemo(() => [
-    { key: "all", label: t("libraryAllFiles"), description: t("libraryAllFilesDesc"), tone: "slate" },
-    { key: "active", label: t("libraryActiveFiles"), description: t("libraryActiveFilesDesc"), tone: "green" },
-    { key: "archive", label: t("libraryArchiveFiles"), description: t("libraryArchiveFilesDesc"), tone: "purple" },
-    { key: "review", label: t("libraryReviewFiles"), description: t("libraryReviewFilesDesc"), tone: "amber" },
-    { key: "duplicate", label: t("libraryDuplicateFiles"), description: t("libraryDuplicateFilesDesc"), tone: "amber" },
-    { key: "sensitive", label: t("librarySensitiveFiles"), description: t("librarySensitiveFilesDesc"), tone: "red" }
-  ] satisfies Array<{ key: LibraryFilter; label: string; description: string; tone: "blue" | "green" | "amber" | "red" | "slate" | "purple" }>, [t]);
-  const scopeText = libraryScopeLabel(scope, t("allIndexedFiles"), t("noFolderSelected"));
-  const scopedSearchPlaceholder = scope.kind === "all" ? t("librarySearchPlaceholder") : t("librarySearchPlaceholderScoped");
-  const isEmptyCurrentScanScope = scope.kind === "current_scan" && scope.roots.length === 0;
-  const activeFilterLabel = filters.find((filter) => filter.key === libraryFilter)?.label ?? t("libraryFilterAll");
-  const activeFilterDescription = filters.find((filter) => filter.key === libraryFilter)?.description ?? "";
-  const libraryState = resolveLibraryState({
-    error,
-    isEmptyCurrentScanScope,
-    isLoading,
-    lastScannedAt: stats.lastScannedAt,
-    libraryFilter,
-    pageTotal: page.total,
-    scope,
-    searchQuery
-  });
-
-  return (
-    <div className={cn(pageFrame, "gap-3 overflow-hidden")}>
-      <section className={cn(toolbarSurface, "grid shrink-0 gap-2 px-3 py-2")}>
-        <div data-section="scope bar" className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-          <div className="min-w-0 text-sm">
-            <span className={quietText}>{t("currentScope")}</span>
-            <strong className="ml-2 inline-block max-w-[52vw] truncate align-bottom text-[var(--ink)]">{scopeText}</strong>
-          </div>
-          <div className={inlineActions}>
-            {scope.kind !== "all" && (
-              <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => setScope({ kind: "all" })}>
-                <Layers size={15} />
-                <span>{t("viewAllIndexedFiles")}</span>
-              </button>
-            )}
-            <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void handleChooseFolders()}>
-              <FolderSearch size={15} />
-              <span>{t("switchScanDirectory")}</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="grid min-w-0 gap-2 xl:grid-cols-[minmax(260px,360px)_minmax(0,1fr)] xl:items-center">
-          <label data-section="search bar" className={cn(inputSurface, "flex min-h-9 items-center gap-2 px-3")}>
-            <Search size={15} className="text-[var(--muted)]" />
-            <input
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder={scopedSearchPlaceholder}
-              className="min-w-0 flex-1 bg-transparent outline-none"
-              aria-label={t("search")}
-            />
-          </label>
-          <div data-section="filter toolbar" className="flex min-w-0 flex-wrap items-center gap-1.5">
-            {filters.map((filter) => {
-              const active = libraryFilter === filter.key;
-              return (
-                <button
-                  key={filter.key}
-                  className={filterPillClass(active, filter.tone)}
-                  onClick={() => setLibraryFilter(filter.key)}
-                  aria-pressed={libraryFilter === filter.key}
-                  title={filter.description}
-                >
-                  <span className={filterDotClass(filter.tone)} aria-hidden="true" />
-                  <span className="truncate">{filter.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <div data-section="result count" className="flex flex-wrap items-center justify-between gap-2 text-xs">
-          <span className={metadataText}>
-            {t("libraryShowing").replace("{visible}", String(page.files.length)).replace("{total}", String(page.total))}
-            {" / "}
-            {t("currentLibraryFilter")}: <strong className="text-[var(--ink)]">{activeFilterLabel}</strong>
-          </span>
-          <span className={quietText}>{isLoading ? t("libraryLoadingResults") : activeFilterDescription || t("libraryScopeHint")}</span>
-        </div>
-
-        <div data-section="ai classification handoff" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--line-dark)] bg-[var(--surface-soft)] px-3 py-2">
-          <div className="min-w-0">
-            <strong className="block text-sm text-[var(--ink)]">分类建议</strong>
-            <span className={quietText}>这里用于查看 AI reason、confidence、建议路径，并确认或纠正单个文件。</span>
-          </div>
-          <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => setView("organize")}>
-            去智能整理中重新分类
-          </button>
-        </div>
-
-        {selectedFile ? <SelectedFileClassificationDetails file={selectedFile} /> : null}
-      </section>
-
-      {libraryState ? (
-        <StateBlock
-          tone={libraryState.tone}
-          title={libraryState.title}
-          description={libraryState.description}
-          primaryAction={libraryState.primaryAction}
-          secondaryAction={libraryState.secondaryAction}
-        />
-      ) : (
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <VirtualAssetGrid
-            files={page.files}
-            hasMore={hasMore}
-            isLoading={isLoading}
-            remainingCount={remainingCount}
-            onLoadMore={loadMore}
-            onError={onError}
-            selectedFileId={selectedFileId}
-            setSelectedFileId={setSelectedFileId}
-            t={t}
-          />
-        </div>
-      )}
-    </div>
-  );
-
-  function resolveLibraryState({
-    error,
-    isEmptyCurrentScanScope,
-    isLoading,
-    lastScannedAt,
-    libraryFilter,
-    pageTotal,
-    scope,
-    searchQuery
-  }: {
-    error: string;
-    isEmptyCurrentScanScope: boolean;
-    isLoading: boolean;
-    lastScannedAt: string | null;
-    libraryFilter: LibraryFilter;
-    pageTotal: number;
-    scope: LibraryScope;
-    searchQuery: string;
-  }) {
-    if (error) {
-      return {
-        tone: "error" as const,
-        title: t("libraryLoadFailedTitle"),
-        description: error
-      };
-    }
-    if (isLoading && pageTotal === 0) {
-      return {
-        tone: "info" as const,
-        title: t("libraryLoadingResults"),
-        description: t("libraryScopeHint")
-      };
-    }
+  useEffect(() => {
     if (isEmptyCurrentScanScope) {
-      return {
-        tone: "info" as const,
-        title: t("noCurrentScanTitle"),
-        description: t("noCurrentScanDesc"),
-        primaryAction: (
-          <button className={glassButtonPrimary} onClick={() => void handleChooseFolders()}>
-            <FolderSearch size={16} />
-            <span>{t("chooseFolderScan")}</span>
-          </button>
-        ),
-        secondaryAction: (
-          <button className={buttonSecondary} onClick={() => setScope({ kind: "all" })}>
-            <Layers size={16} />
-            <span>{t("viewAllIndexedFiles")}</span>
-          </button>
-        )
-      };
+      if (selectedIds.length > 0) setSelectedIds([]);
+      if (focusedId) setFocusedId("");
+      return;
     }
-    if (pageTotal > 0) return null;
-    if (searchQuery.trim()) {
-      return {
-        tone: "neutral" as const,
-        title: t("libraryNoSearchTitle"),
-        description: t("libraryNoSearchDesc")
-      };
+    if (selectedIds.length === 0) {
+      const nextId = selectedFileId && visibleFiles.some((file) => file.id === selectedFileId)
+        ? selectedFileId
+        : visibleFiles[0]?.id ?? "";
+      if (nextId) {
+        setSelectedIds([nextId]);
+        setFocusedId(nextId);
+        setAnchorIndex(page.files.findIndex((file) => file.id === nextId));
+      } else if (filterScanComplete) {
+        setSelectedFileId("");
+      }
     }
-    if (libraryFilter !== "all") {
-      return {
-        tone: "neutral" as const,
-        title: t("libraryNoFilterTitle"),
-        description: t("libraryNoFilterDesc")
-      };
+  }, [filterScanComplete, focusedId, isEmptyCurrentScanScope, page.files, selectedFileId, selectedIds.length, setSelectedFileId, visibleFiles]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const closeOnPointer = () => setContextMenu(null);
+    const closeOnKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeContextMenu();
+      }
+    };
+    document.addEventListener("pointerdown", closeOnPointer);
+    document.addEventListener("keydown", closeOnKey);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnPointer);
+      document.removeEventListener("keydown", closeOnKey);
+    };
+  }, [contextMenu]);
+
+  function closeFilterPopover() {
+    setIsFilterOpen(false);
+    requestAnimationFrame(() => filterButtonRef.current?.focus());
+  }
+
+  function closeSortPopover() {
+    setIsSortOpen(false);
+    requestAnimationFrame(() => sortButtonRef.current?.focus());
+  }
+
+  function closeContextMenu() {
+    setContextMenu(null);
+    requestAnimationFrame(focusList);
+  }
+
+  function clearFilters() {
+    setLibraryFilter("all");
+    setAdvancedFilters(emptyLibraryAdvancedFilters);
+    clearSelection();
+  }
+
+  function focusList() {
+    document.querySelector<HTMLElement>('[role="listbox"]')?.focus();
+  }
+
+  function updateSelection(nextIds: string[], nextFocusedId: string, nextAnchorIndex: number) {
+    setSelectedIds(nextIds);
+    setFocusedId(nextFocusedId);
+    setAnchorIndex(nextAnchorIndex);
+    setSelectedFileId(nextFocusedId || nextIds[0] || "");
+  }
+
+  function selectRow(event: MouseEvent<HTMLDivElement>, index: number) {
+    const ids = visibleFiles.map((file) => file.id);
+    const next = selectionForRowClick(ids, index, {
+      additive: event.metaKey || event.ctrlKey,
+      range: event.shiftKey,
+      anchorIndex,
+      selectedIds
+    });
+    updateSelection(next.selectedIds, next.focusedId, next.anchorIndex);
+    setContextMenu(null);
+  }
+
+  function selectAll() {
+    const ids = visibleFiles.map((file) => file.id);
+    updateSelection(ids, ids[0] ?? "", ids.length ? 0 : -1);
+  }
+
+  function clearSelection() {
+    updateSelection([], "", -1);
+  }
+
+  async function revealFile(path: string) {
+    try {
+      await tauriApi.revealInFolder(path);
+    } catch {
+      onError(t("libraryActionFailed"));
     }
-    if (!lastScannedAt && scope.kind === "all") {
-      return {
-        tone: "info" as const,
-        title: t("libraryNoScanTitle"),
-        description: t("libraryNoScanDesc"),
-        primaryAction: (
-          <button className={glassButtonPrimary} onClick={() => void handleChooseFolders()}>
-            <FolderSearch size={16} />
-            <span>{t("chooseFolderScan")}</span>
-          </button>
-        )
-      };
-    }
+  }
+
+  function openPreview(file: FileRecord | undefined) {
+    if (!file) return;
+    setContextMenu(null);
+    setPreviewFile(file);
+  }
+
+  function positionContextMenu(anchorX: number, anchorY: number) {
+    const width = 260;
+    const height = 236;
     return {
-      tone: "neutral" as const,
-      title: t("libraryNoScopeFilesTitle"),
-      description: t("libraryNoScopeFilesDesc"),
-      secondaryAction: (
-        <button className={buttonSecondary} onClick={() => setScope({ kind: "all" })}>
-          <Layers size={16} />
-          <span>{t("viewAllIndexedFiles")}</span>
-        </button>
-      )
+      x: Math.max(8, Math.min(anchorX, window.innerWidth - width - 8)),
+      y: Math.max(8, Math.min(anchorY, window.innerHeight - height - 8))
     };
   }
-}
 
-function SelectedFileClassificationDetails({ file }: { file: FileRecord }) {
-  const isAI = file.matched_rules.some((rule) => rule.startsWith("ai:"));
-  const isLowConfidence = file.confidence < 0.65;
-  const refresh = useFileLibraryStore((state) => state.refresh);
-  const searchQuery = useAppStore((state) => state.searchQuery);
-  const showSuccess = useAppStore((state) => state.showSuccess);
-  const showError = useAppStore((state) => state.showError);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [correction, setCorrection] = useState<ClassificationCorrectionRequest>(() => correctionFromFile(file));
+  function openContextMenu(file: FileRecord, anchorX?: number, anchorY?: number) {
+    const row = document.getElementById(`library-row-${file.id}`);
+    const rect = row?.getBoundingClientRect();
+    const position = positionContextMenu(anchorX ?? rect?.left ?? 8, anchorY ?? rect?.bottom ?? 8);
+    setContextMenu({ file, ...position });
+  }
 
-  useEffect(() => {
-    setCorrection(correctionFromFile(file));
-    setIsEditing(false);
-  }, [file.id]);
-
-  async function confirmClassification() {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    try {
-      await tauriApi.confirmClassification(file.id);
-      await refresh(searchQuery);
-      showSuccess("已确认，并会用于后续学习。");
-    } catch (error) {
-      showError(readableError(error));
-    } finally {
-      setIsSubmitting(false);
+  function handleListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.target !== event.currentTarget) return;
+    const ids = visibleFiles.map((file) => file.id);
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
+      event.preventDefault();
+      selectAll();
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (contextMenu) {
+        setContextMenu(null);
+      } else if (previewFile) {
+        setPreviewFile(null);
+        focusList();
+      } else {
+        clearSelection();
+      }
+      return;
+    }
+    if (event.key === "ContextMenu" || (event.shiftKey && (event.key === "F10" || event.key === "ContextMenu"))) {
+      event.preventDefault();
+      const focusedIndex = Math.max(0, ids.indexOf(focusedId));
+      const file = visibleFiles[focusedIndex] ?? visibleFiles[0];
+      if (file) {
+        if (!selectedIds.includes(file.id)) {
+          const next = selectionForRowClick(ids, focusedIndex, { selectedIds });
+          updateSelection(next.selectedIds, next.focusedId, next.anchorIndex);
+        }
+        openContextMenu(file);
+      }
+      return;
+    }
+    const isArrow = event.key === "ArrowUp" || event.key === "ArrowDown" || event.key === "Home" || event.key === "End";
+    if (isArrow) {
+      event.preventDefault();
+      const currentIndex = Math.max(0, ids.indexOf(focusedId));
+      const nextIndex = moveFocusIndex(currentIndex, ids.length, event.key as "ArrowUp" | "ArrowDown" | "Home" | "End");
+      if (nextIndex < 0) return;
+      if (event.shiftKey) {
+        const next = selectionForRowClick(ids, nextIndex, { range: true, anchorIndex: anchorIndex >= 0 ? anchorIndex : currentIndex, selectedIds });
+        updateSelection(next.selectedIds, next.focusedId, next.anchorIndex);
+      } else {
+        const next = selectionForRowClick(ids, nextIndex, { selectedIds });
+        updateSelection(next.selectedIds, next.focusedId, next.anchorIndex);
+      }
+      document.getElementById(`library-row-${ids[nextIndex]}`)?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    const isSpace = event.key === " " || event.key === "Space";
+    if (event.key === "Enter") {
+      event.preventDefault();
+      openPreview(visibleFiles.find((file) => file.id === focusedId) ?? visibleFiles[0]);
+      return;
+    }
+    if (isSpace) {
+      event.preventDefault();
+      openPreview(visibleFiles.find((file) => file.id === focusedId) ?? visibleFiles[0]);
     }
   }
 
-  async function submitCorrection() {
-    if (isSubmitting) return;
-    setIsSubmitting(true);
-    try {
-      await tauriApi.correctClassification(file.id, correction);
-      await refresh(searchQuery);
-      setIsEditing(false);
-      showSuccess("已学习你的分类习惯。");
-    } catch (error) {
-      showError(readableError(error));
-    } finally {
-      setIsSubmitting(false);
+  function handleContextMenu(event: MouseEvent<HTMLDivElement>, index: number) {
+    event.preventDefault();
+    const file = visibleFiles[index];
+    if (!file) return;
+    if (!selectedIds.includes(file.id)) {
+      const next = selectionForRowClick(visibleFiles.map((item) => item.id), index, { selectedIds });
+      updateSelection(next.selectedIds, next.focusedId, next.anchorIndex);
     }
+    openContextMenu(file, event.clientX, event.clientY);
   }
+
+  function libraryState() {
+    if (errorKind) return {
+      tone: "error" as const,
+      title: errorKind === "permission" ? t("libraryPermissionState") : t("libraryLoadFailedTitle"),
+      description: errorKind === "permission" ? t("libraryPermissionDesc") : t("libraryLoadFailedDesc"),
+      primaryAction: <button className={buttonSecondary} onClick={() => void loadPage(0, false)}>{t("libraryRetry")}</button>
+    };
+    if (isLoading && page.total === 0) return { tone: "info" as const, title: t("libraryLoadingResults"), description: t("libraryScopeHint") };
+    if (!stats.lastScannedAt && scope.kind === "all") return { tone: "info" as const, title: t("libraryNoScanTitle"), description: t("libraryNoScanDesc"), primaryAction: <button className={glassButtonPrimary} onClick={() => setView("scanner")}><Layers size={16} />{t("libraryGoToOverview")}</button> };
+    if (isEmptyCurrentScanScope) return { tone: "info" as const, title: t("noCurrentScanTitle"), description: t("noCurrentScanDesc"), primaryAction: <button className={glassButtonPrimary} onClick={() => setView("scanner")}><Layers size={16} />{t("libraryGoToOverview")}</button>, secondaryAction: <button className={buttonSecondary} onClick={() => setScope({ kind: "all" })}>{t("viewAllIndexedFiles")}</button> };
+    if (filterScanInProgress && visibleFiles.length === 0) return { tone: "info" as const, title: t("libraryFilteringTitle"), description: t("libraryFilteringDesc") };
+    if (page.total > 0 && visibleFiles.length === 0) return { tone: "neutral" as const, title: hasAdvancedFilters ? t("libraryNoFilterTitle") : t("libraryNoSearchTitle"), description: hasAdvancedFilters ? t("libraryNoFilterDesc") : t("libraryNoSearchDesc") };
+    if (page.total > 0) return null;
+    if (searchQuery.trim()) return { tone: "neutral" as const, title: t("libraryNoSearchTitle"), description: t("libraryNoSearchDesc") };
+    if (libraryFilter !== "all" || hasAdvancedFilters) return { tone: "neutral" as const, title: t("libraryNoFilterTitle"), description: t("libraryNoFilterDesc") };
+    return { tone: "neutral" as const, title: t("libraryNoScopeFilesTitle"), description: t("libraryNoScopeFilesDesc"), secondaryAction: <button className={buttonSecondary} onClick={() => setScope({ kind: "all" })}>{t("viewAllIndexedFiles")}</button> };
+  }
+
+  const state = libraryState();
+  const activeFilterCount = (libraryFilter !== "all" ? 1 : 0) + Object.values(advancedFilters).filter((value) => value !== "all" && value !== false).length;
+  const isNoIndexState = !stats.lastScannedAt && scope.kind === "all" && page.total === 0 && !isLoading && !errorKind;
+  const showLibraryControls = !isNoIndexState;
 
   return (
-    <section className="grid gap-2 rounded-xl border border-[var(--line-dark)] bg-[var(--surface-soft)] px-3 py-2 text-xs">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <strong className="truncate text-sm text-[var(--ink)]">{file.name}</strong>
-        {isAI ? <InlineBadge tone="info">AI</InlineBadge> : null}
-        {file.requires_confirmation ? <InlineBadge tone="warning">需确认</InlineBadge> : null}
-        {isLowConfidence ? <InlineBadge tone="warning">低置信度</InlineBadge> : null}
-        <InlineBadge tone={file.suggested_action === "Review" ? "warning" : "success"}>{file.suggested_action}</InlineBadge>
-      </div>
-      <div className="grid gap-1 md:grid-cols-2">
-        <span className="truncate text-[var(--muted)]" title={file.suggested_target_path || "无"}>
-          建议路径：<strong className="font-medium text-[var(--ink)]">{file.suggested_target_path || "无"}</strong>
-        </span>
-        <span className="text-[var(--muted)]">
-          置信度：<strong className="font-medium text-[var(--ink)]">{Math.round(file.confidence * 100)}%</strong>
-        </span>
-        <span className="truncate text-[var(--muted)]" title={file.matched_rules.join(", ") || "无"}>
-          来源：<strong className="font-medium text-[var(--ink)]">{isAI ? "AI" : file.matched_rules.join(", ") || "无"}</strong>
-        </span>
-        <span className="truncate text-[var(--muted)]" title={file.classification_reason}>
-          原因：<strong className="font-medium text-[var(--ink)]">{file.classification_reason || "无"}</strong>
-        </span>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <button className={buttonSecondary} onClick={() => void confirmClassification()} disabled={isSubmitting}>
-          确认分类正确
-        </button>
-        <button className={buttonSecondary} onClick={() => setIsEditing((value) => !value)} disabled={isSubmitting}>
-          修改分类
-        </button>
-        <span className={quietText}>确认或修改后，Zen Canvas 会用于学习以后类似文件的分类习惯。</span>
-      </div>
-      {isEditing && (
-        <div className="grid gap-2 rounded-lg border border-[var(--line)] bg-[var(--surface)] p-3">
-          <div className="grid gap-2 md:grid-cols-2">
-            <CorrectionSelect
-              label="fileType"
-              value={correction.fileType}
-              options={FILE_TYPE_OPTIONS}
-              onChange={(fileType) => setCorrection((current) => ({ ...current, fileType }))}
-            />
-            <CorrectionSelect
-              label="purpose"
-              value={correction.purpose}
-              options={PURPOSE_OPTIONS}
-              onChange={(purpose) => setCorrection((current) => ({ ...current, purpose }))}
-            />
-            <CorrectionSelect
-              label="lifecycle"
-              value={correction.lifecycle}
-              options={LIFECYCLE_OPTIONS}
-              onChange={(lifecycle) => setCorrection((current) => ({ ...current, lifecycle }))}
-            />
-            <CorrectionSelect
-              label="riskLevel"
-              value={correction.riskLevel}
-              options={RISK_LEVEL_OPTIONS}
-              onChange={(riskLevel) => setCorrection((current) => ({ ...current, riskLevel }))}
-            />
-            <CorrectionSelect
-              label="suggestedAction"
-              value={correction.suggestedAction}
-              options={SUGGESTED_ACTION_OPTIONS}
-              onChange={(suggestedAction) => setCorrection((current) => ({ ...current, suggestedAction }))}
-            />
-            <label className="grid gap-1">
-              <span className={metadataText}>context</span>
-              <input
-                className={inputSurface}
-                value={correction.context}
-                onChange={(event) => setCorrection((current) => ({ ...current, context: event.target.value }))}
-              />
-            </label>
-            <label className="grid gap-1">
-              <span className={metadataText}>targetTemplate</span>
-              <input
-                className={inputSurface}
-                placeholder="Teaching/Scala"
-                value={correction.targetTemplate}
-                onChange={(event) => setCorrection((current) => ({ ...current, targetTemplate: event.target.value }))}
-              />
-            </label>
-            <label className="grid gap-1">
-              <span className={metadataText}>suggestedName</span>
-              <input
-                className={inputSurface}
-                value={correction.suggestedName ?? ""}
-                onChange={(event) => setCorrection((current) => ({ ...current, suggestedName: event.target.value }))}
-              />
-            </label>
-          </div>
-          <label className="grid gap-1">
-            <span className={metadataText}>reason</span>
-            <input
-              className={inputSurface}
-              value={correction.reason ?? ""}
-              onChange={(event) => setCorrection((current) => ({ ...current, reason: event.target.value }))}
-            />
-          </label>
-          <div className="flex flex-wrap gap-2">
-            <button className={glassButtonPrimary} onClick={() => void submitCorrection()} disabled={isSubmitting}>
-              以后类似文件都这样处理
-            </button>
-            <button className={buttonSecondary} onClick={() => setIsEditing(false)} disabled={isSubmitting}>
-              取消
-            </button>
+    <div className={cn(pageFrame, "gap-3 overflow-x-hidden")}>
+      <section className={cn(raisedSurface, "relative z-20 grid shrink-0 gap-2 px-3 py-2")}>
+        <div data-section="scope bar" className="flex min-w-0 flex-wrap items-center justify-end gap-2" aria-label={scopeText}>
+          <div className="flex flex-wrap items-center gap-2">
+            {scope.kind !== "all" && !isEmptyCurrentScanScope ? <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => setScope({ kind: "all" })}><Layers size={15} />{t("viewAllIndexedFiles")}</button> : null}
+            <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => void handleChooseFolders()}><FolderSearch size={15} />{t("switchScanDirectory")}</button>
           </div>
         </div>
-      )}
-    </section>
+        {showLibraryControls ? <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <label data-section="search bar" className={cn(inputSurface, "flex min-h-9 min-w-[min(100%,320px)] flex-1 items-center gap-2 px-3")}>
+            <Search size={15} className="shrink-0 text-[var(--zc-text-tertiary)]" aria-hidden="true" />
+            <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={scope.kind === "all" ? t("librarySearchPlaceholder") : t("librarySearchPlaceholderScoped")} className="min-w-0 flex-1 bg-transparent outline-none" aria-label={t("search")} />
+          </label>
+          <div className="relative" data-section="filter toolbar">
+            <button ref={filterButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isFilterOpen} aria-controls="library-filter-popover" aria-haspopup="dialog" onClick={() => { setIsFilterOpen((value) => !value); setIsSortOpen(false); }} onKeyDown={(event) => { if (event.key === "Escape" && isFilterOpen) { event.preventDefault(); closeFilterPopover(); } }}><SlidersHorizontal size={15} />{t("libraryFilterButton")}{activeFilterCount ? <span className="tabular-nums text-[var(--zc-primary)]">{activeFilterCount}</span> : null}</button>
+             {isFilterOpen ? <div id="library-filter-popover"><FileLibraryFilterPopover libraryFilter={libraryFilter} filters={advancedFilters} t={t} onLibraryFilterChange={(value) => { setLibraryFilter(value); clearSelection(); }} onFiltersChange={(value) => { setAdvancedFilters((current) => ({ ...current, ...value })); clearSelection(); }} onClear={clearFilters} onClose={closeFilterPopover} /></div> : null}
+          </div>
+          <div className="relative">
+            <button ref={sortButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isSortOpen} aria-haspopup="menu" aria-describedby={sortScopeDescriptionId} title={!sortScopeComplete ? t("librarySortLoadedOnly") : undefined} onClick={() => { setIsSortOpen((value) => !value); setIsFilterOpen(false); }} onKeyDown={(event) => { if (event.key === "Escape" && isSortOpen) { event.preventDefault(); closeSortPopover(); } }}><span>{currentSortLabel}</span><ChevronDown size={14} /></button>
+             {isSortOpen ? <div className="absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" role="menu" aria-label={t("librarySort")} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); closeSortPopover(); } }}>
+              {!sortScopeComplete ? <p id="library-sort-scope-description" className="px-3 pb-1 text-xs text-[var(--zc-text-tertiary)]">{t("librarySortLoadedOnly")}</p> : null}
+              <div className="grid gap-1">
+                {sortOptions.map((option, index) => <button autoFocus={index === 0} key={option.key} role="menuitemradio" aria-checked={sort.key === option.key} className={cn("flex min-h-9 items-center justify-between rounded-[var(--zc-radius-control)] px-3 text-left text-sm", sort.key === option.key ? "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]")} onClick={() => { setSort({ key: option.key, direction: sort.key === option.key && sort.direction === "desc" ? "asc" : "desc" }); closeSortPopover(); }}>{option.label}<span className="text-xs">{sort.key === option.key ? sort.direction === "desc" ? "↓" : "↑" : ""}</span></button>)}
+                <button role="menuitem" className="border-t border-[var(--zc-divider)] px-3 pt-2 text-left text-xs text-[var(--zc-text-secondary)]" onClick={() => setSort((current) => ({ ...current, direction: current.direction === "desc" ? "asc" : "desc" }))}>{sort.direction === "desc" ? t("librarySortDescending") : t("librarySortAscending")}</button>
+              </div>
+            </div> : null}
+          </div>
+        </div> : null}
+        {showLibraryControls ? <div data-section="applied filters" className="flex min-h-0 flex-wrap items-center gap-1.5" aria-label={t("libraryAppliedFilters")}>
+          {libraryFilter !== "all" ? <FilterChip label={filterLabel(libraryFilter, t)} onRemove={() => setLibraryFilter("all")} /> : null}
+          {advancedFilters.fileType !== "all" ? <FilterChip label={t(`libraryType${advancedFilters.fileType === "ArchivePackage" ? "Archive" : advancedFilters.fileType}` as Parameters<typeof t>[0])} onRemove={() => setAdvancedFilters((current) => ({ ...current, fileType: "all" }))} /> : null}
+          {advancedFilters.lifecycle !== "all" ? <FilterChip label={t(`libraryLifecycle${advancedFilters.lifecycle}` as Parameters<typeof t>[0])} onRemove={() => setAdvancedFilters((current) => ({ ...current, lifecycle: "all" }))} /> : null}
+          {advancedFilters.riskLevel !== "all" ? <FilterChip label={t(`libraryRisk${advancedFilters.riskLevel}` as Parameters<typeof t>[0])} onRemove={() => setAdvancedFilters((current) => ({ ...current, riskLevel: "all" }))} /> : null}
+          {advancedFilters.size !== "all" ? <FilterChip label={t(`libraryFilter${advancedFilters.size[0].toUpperCase()}${advancedFilters.size.slice(1)}` as Parameters<typeof t>[0])} onRemove={() => setAdvancedFilters((current) => ({ ...current, size: "all" }))} /> : null}
+          {advancedFilters.modified !== "all" ? <FilterChip label={t(advancedFilters.modified === "7d" ? "libraryFilterRecent7" : advancedFilters.modified === "30d" ? "libraryFilterRecent30" : "libraryFilterOlder")} onRemove={() => setAdvancedFilters((current) => ({ ...current, modified: "all" }))} /> : null}
+          {advancedFilters.duplicateOnly ? <FilterChip label={t("libraryFilterDuplicateOnly")} onRemove={() => setAdvancedFilters((current) => ({ ...current, duplicateOnly: false }))} /> : null}
+          {advancedFilters.reviewOnly ? <FilterChip label={t("libraryFilterReviewOnly")} onRemove={() => setAdvancedFilters((current) => ({ ...current, reviewOnly: false }))} /> : null}
+        </div> : null}
+        {showLibraryControls ? <div data-section="result count" className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--zc-text-tertiary)]">
+          <span>{filterScanInProgress
+            ? t("libraryFilteringIndexedFiles")
+            : t(hasAdvancedFilters ? "libraryShowingFiltered" : "libraryShowing").replace("{visible}", String(visibleFiles.length)).replace("{total}", String(page.total))}</span>
+          <span>{selectedIds.length ? t("librarySelectedLoadedCount").replace("{count}", String(selectedIds.length)) : t("libraryScopeHint")}</span>
+        </div> : null}
+      </section>
+
+      <div className={cn("grid min-h-0 flex-1 gap-4 overflow-hidden max-[1100px]:grid-cols-1 max-[1100px]:overflow-auto", showInspectorLayout(isNoIndexState))}>
+        <section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>
+          {state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={visibleFiles} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore && !filterScanInProgress} isLoading={isLoading || filterScanInProgress} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); openPreview(visibleFiles[index]); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadPage(page.files.length, true)} />}
+        </section>
+        {!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} language={language} t={t} onPreview={openPreview} onReveal={(path) => void revealFile(path)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} classificationDetails={selectedFiles[0] ? <FileClassificationDetails file={selectedFiles[0]} t={t} /> : null} /> : null}
+      </div>
+
+      <p className="sr-only" aria-live="polite" aria-atomic="true">{selectedIds.length ? t("librarySelectedLoadedCount").replace("{count}", String(selectedIds.length)) : ""}</p>
+      {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={closeContextMenu} onPreview={() => openPreview(contextMenu.file)} onReveal={() => void revealFile(contextMenu.file.path)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
+      <FileLibraryPreviewDialog file={previewFile} language={language} t={t} onClose={() => { setPreviewFile(null); focusList(); }} onReveal={(path) => void revealFile(path)} />
+    </div>
   );
 }
 
-function CorrectionSelect<T extends string>({
-  label,
-  value,
-  options,
-  onChange
-}: {
-  label: string;
-  value: T;
-  options: readonly T[];
-  onChange: (value: T) => void;
-}) {
-  return (
-    <label className="grid gap-1">
-      <span className={metadataText}>{label}</span>
-      <select className={inputSurface} value={value} onChange={(event) => onChange(event.target.value as T)}>
-        {options.map((option) => (
-          <option key={option} value={option}>
-            {option}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
+function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return <button type="button" className="inline-flex min-h-7 items-center gap-1 rounded-md border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-2 text-xs text-[var(--zc-text-secondary)] hover:border-[var(--zc-control-border-hover)] hover:text-[var(--zc-text-primary)]" onClick={onRemove} aria-label={`${label} ×`}>{label} <span aria-hidden="true">×</span></button>;
 }
 
-function correctionFromFile(file: FileRecord): ClassificationCorrectionRequest {
-  return {
-    fileType: file.file_type,
-    purpose: file.purpose,
-    lifecycle: file.lifecycle,
-    context: file.context,
-    riskLevel: file.risk_level,
-    suggestedAction: file.suggested_action,
-    targetTemplate: relativeTargetTemplate(file.suggested_target_path),
-    suggestedName: file.suggested_name || undefined,
-    reason: file.classification_reason || undefined
-  };
-}
-
-function relativeTargetTemplate(path: string) {
-  const value = path.trim().replace(/\\/g, "/");
-  if (!value || value.startsWith("/") || value.startsWith("//") || /^[A-Za-z]:\//.test(value)) {
-    return "";
-  }
-  return value;
-}
-
-const FILE_TYPE_OPTIONS: readonly FileType[] = [
-  "Document",
-  "Image",
-  "Video",
-  "Audio",
-  "Code",
-  "ArchivePackage",
-  "Installer",
-  "Spreadsheet",
-  "Presentation",
-  "Other"
-];
-const PURPOSE_OPTIONS: readonly Purpose[] = [
-  "Project",
-  "Teaching",
-  "Study",
-  "Work",
-  "Personal",
-  "Career",
-  "Finance",
-  "Identity",
-  "Media",
-  "Installer",
-  "Temporary",
-  "Archive",
-  "Unknown"
-];
-const LIFECYCLE_OPTIONS: readonly Lifecycle[] = [
-  "Inbox",
-  "Active",
-  "Reference",
-  "Archive",
-  "Disposable",
-  "Duplicate",
-  "Sensitive"
-];
-const RISK_LEVEL_OPTIONS: readonly RiskLevel[] = ["Normal", "Sensitive", "System", "Unknown"];
-const SUGGESTED_ACTION_OPTIONS: readonly SuggestedAction[] = [
-  "Keep",
-  "Rename",
-  "Move",
-  "MoveAndRename",
-  "Archive",
-  "Review",
-  "DeleteCandidate"
-];
-
-function InlineBadge({ tone, children }: { tone: "info" | "warning" | "success"; children: string }) {
-  return <span className={inlineBadgeClass(tone)}>{children}</span>;
-}
-
-function inlineBadgeClass(tone: "info" | "warning" | "success") {
-  return cn(
-    "inline-flex max-w-[9rem] items-center truncate rounded-full border px-2 py-0.5 text-[10px] font-medium leading-4",
-    tone === "info" && "border-blue-400/22 bg-blue-500/8 text-blue-700 dark:text-blue-200",
-    tone === "warning" && "border-amber-400/28 bg-amber-500/8 text-amber-700 dark:text-amber-200",
-    tone === "success" && "border-emerald-400/24 bg-emerald-500/8 text-emerald-700 dark:text-emerald-200"
-  );
-}
-
-function filterPillClass(active: boolean, tone: "blue" | "green" | "amber" | "red" | "slate" | "purple") {
-  return cn(
-    "inline-flex min-h-8 max-w-full items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-[background,border-color,color,box-shadow]",
-    active
-      ? "border-blue-400/55 bg-blue-500/12 text-[var(--ink)] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]"
-      : "border-[var(--line-dark)] bg-[var(--surface-soft)] text-[var(--muted)] hover:border-blue-400/30 hover:bg-[var(--surface)] hover:text-[var(--ink)]",
-    tone === "red" && !active && "text-red-700 dark:text-red-200",
-    tone === "amber" && !active && "text-amber-700 dark:text-amber-200"
-  );
-}
-
-function filterDotClass(tone: "blue" | "green" | "amber" | "red" | "slate" | "purple") {
-  if (tone === "green") return "h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500";
-  if (tone === "amber") return "h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500";
-  if (tone === "red") return "h-1.5 w-1.5 shrink-0 rounded-full bg-red-500";
-  if (tone === "purple") return "h-1.5 w-1.5 shrink-0 rounded-full bg-violet-500";
-  if (tone === "slate") return "h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400";
-  return "h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500";
-}
-
-function VirtualAssetGrid({
-  files,
-  hasMore,
-  isLoading,
-  remainingCount,
-  onLoadMore,
-  onError,
-  selectedFileId,
-  setSelectedFileId,
-  t
-}: {
-  files: FileRecord[];
-  hasMore: boolean;
-  isLoading: boolean;
-  remainingCount: number;
-  onLoadMore: () => void;
-  onError: (message: string) => void;
-  selectedFileId?: string;
-  setSelectedFileId: (id: string) => void;
-  t: Translator;
-}) {
-  const parentRef = useRef<HTMLDivElement | null>(null);
-  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
-  const [columns, setColumns] = useState(3);
-  const shouldVirtualize = shouldVirtualizeList(files.length);
-  const rowCount = Math.ceil(files.length / columns);
-  const rowVirtualizer = useVirtualizer({
-    count: rowCount,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => ASSET_GRID_ROW_HEIGHT,
-    overscan: 4
-  });
-  const lastVisibleRowIndex = rowVirtualizer.getVirtualItems().at(-1)?.index ?? -1;
-  const remainingDisplayCount = Math.min(LIBRARY_PAGE_SIZE, remainingCount);
+function LibraryContextMenu({ context, t, onClose, onPreview, onReveal, onViewSuggestions, onClearSelection }: { context: ContextMenuState; t: ReturnType<typeof import("../../i18n").makeTranslator>; onClose: () => void; onPreview: () => void; onReveal: () => void; onViewSuggestions: () => void; onClearSelection: () => void }) {
+  const itemRefs = useRef<HTMLButtonElement[]>([]);
+  const items = [
+    { label: t("libraryPreview"), action: onPreview },
+    { label: libraryRevealLabel(t), action: () => { onReveal(); onClose(); } },
+    { label: t("libraryViewSuggestions"), action: () => { onViewSuggestions(); onClose(); } },
+    { label: t("libraryClearSelection"), action: () => { onClearSelection(); onClose(); } }
+  ];
 
   useEffect(() => {
-    const node = parentRef.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => {
-      const width = entry.contentRect.width;
-      const nextColumns = Math.max(1, Math.min(ASSET_GRID_MAX_COLUMNS, Math.floor(width / 260)));
-      setColumns(nextColumns || 1);
-    });
-    observer.observe(node);
-    return () => observer.disconnect();
+    itemRefs.current[0]?.focus();
   }, []);
 
-  useEffect(() => {
-    if (shouldTriggerLoadMore(lastVisibleRowIndex, rowCount, hasMore, isLoading)) {
-      onLoadMore();
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const focusable = itemRefs.current.filter(Boolean);
+    const activeIndex = focusable.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
     }
-  }, [hasMore, isLoading, lastVisibleRowIndex, onLoadMore, rowCount]);
-
-  useEffect(() => {
-    const root = parentRef.current;
-    const sentinel = loadMoreSentinelRef.current;
-    if (!root || !sentinel || !hasMore || isLoading || typeof IntersectionObserver === "undefined") return;
-
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        onLoadMore();
-      }
-    }, {
-      root,
-      rootMargin: "420px"
-    });
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [hasMore, isLoading, onLoadMore]);
-
-  const handleScroll = useCallback(() => {
-    const node = parentRef.current;
-    if (!node || !hasMore || isLoading) return;
-    if (node.scrollTop + node.clientHeight >= node.scrollHeight - 420) onLoadMore();
-  }, [hasMore, isLoading, onLoadMore]);
-
-  if (!shouldVirtualize) {
-    return (
-      <section ref={parentRef} className={cn("h-full min-h-0 pr-1", virtualList)} onScroll={handleScroll}>
-        <motion.div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3" variants={listMotion} initial="hidden" animate="show">
-          {files.map((file) => (
-            <AssetCard
-              file={file}
-              isSelected={selectedFileId === file.id}
-              key={file.id}
-              onError={onError}
-              setSelectedFileId={setSelectedFileId}
-              t={t}
-            />
-          ))}
-        </motion.div>
-        <div ref={loadMoreSentinelRef} className="h-px" aria-hidden="true" />
-        {hasMore && (
-          <button className={cn(buttonSecondary, "mx-auto my-3 flex min-h-9 px-3 py-1.5 text-xs")} onClick={onLoadMore} disabled={isLoading}>
-            <Plus size={15} />
-            {t("loadMoreFiles").replace("{count}", String(remainingDisplayCount))}
-          </button>
-        )}
-      </section>
-    );
+    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      if (!focusable.length) return;
+      const nextIndex = event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? focusable.length - 1
+          : event.key === "ArrowDown"
+            ? (activeIndex + 1 + focusable.length) % focusable.length
+            : (activeIndex - 1 + focusable.length) % focusable.length;
+      focusable[nextIndex]?.focus();
+      return;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      if (!focusable.length) return;
+      focusable[event.shiftKey
+        ? (activeIndex - 1 + focusable.length) % focusable.length
+        : (activeIndex + 1) % focusable.length]?.focus();
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (activeIndex >= 0) items[activeIndex]?.action();
+    }
   }
 
-  return (
-    <section ref={parentRef} className={cn("h-full min-h-0 pr-1", virtualList)} onScroll={handleScroll}>
-      <div className={virtualSpacer} style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
-        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-          const start = virtualRow.index * columns;
-          const rowFiles = files.slice(start, start + columns);
-          return (
-            <div
-              className="absolute left-0 top-0 grid w-full gap-3"
-              key={virtualRow.key}
-              style={{
-                gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-                height: `${virtualRow.size}px`,
-                transform: `translateY(${virtualRow.start}px)`
-              }}
-            >
-              {rowFiles.map((file) => (
-                <AssetCard
-                  file={file}
-                  isSelected={selectedFileId === file.id}
-                  key={file.id}
-                  onError={onError}
-                  setSelectedFileId={setSelectedFileId}
-                  t={t}
-                />
-              ))}
-            </div>
-          );
-        })}
-      </div>
-      <div ref={loadMoreSentinelRef} className="h-px" aria-hidden="true" />
-      {hasMore && (
-        <button className={cn(buttonSecondary, "mx-auto my-3 flex min-h-9 px-3 py-1.5 text-xs")} onClick={onLoadMore} disabled={isLoading}>
-          <Plus size={15} />
-          {t("loadMoreFiles").replace("{count}", String(remainingDisplayCount))}
-        </button>
-      )}
-    </section>
-  );
+  return <div className="fixed z-50 grid max-h-screen min-w-52 gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" style={{ left: context.x, top: context.y }} role="menu" aria-label={t("libraryContextMenu")} tabIndex={-1} onKeyDown={handleKeyDown} onPointerDown={(event) => event.stopPropagation()}>
+    <p className="truncate px-3 py-1 text-xs font-semibold text-[var(--zc-text-tertiary)]" title={context.file.name}>{context.file.name}</p>
+    {items.map((item, index) => <button key={item.label} ref={(element) => { if (element) itemRefs.current[index] = element; }} type="button" role="menuitem" className={menuItemClass} onClick={item.action}>{item.label}</button>)}
+  </div>;
+}
+
+const menuItemClass = "flex min-h-9 items-center rounded-[var(--zc-radius-control)] px-3 text-left text-sm text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]";
+
+function showInspectorLayout(noIndex: boolean) {
+  return noIndex ? "grid-cols-1" : "grid-cols-[minmax(0,1fr)_360px]";
+}
+
+function filterLabel(filter: LibraryFilter, t: ReturnType<typeof import("../../i18n").makeTranslator>) {
+  const key = filter === "all" ? "libraryFilterAll" : filter === "active" ? "libraryFilterActive" : filter === "archive" ? "libraryFilterArchive" : filter === "review" ? "libraryFilterReview" : filter === "duplicate" ? "libraryFilterDuplicate" : "libraryFilterSensitive";
+  return t(key);
 }

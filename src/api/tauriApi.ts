@@ -8,6 +8,7 @@ import type {
   AISettings,
   AppSettings,
   ClassificationCorrectionRequest,
+  CleanupRestoreProgressPayload,
   CleanupRestorePreview,
   CleanupRestoreResult,
   CleanupTrashBatch,
@@ -260,8 +261,12 @@ export const tauriApi = {
     return invokeCommand<CleanupRestorePreview>("preview_restore_cleanup_trash", { batchId });
   },
 
-  restoreCleanupTrashItems(itemIds: string[]): Promise<CleanupRestoreResult> {
-    return invokeCommand<CleanupRestoreResult>("restore_cleanup_trash_items", { itemIds });
+  restoreCleanupTrashItems(itemIds: string[], jobId?: string): Promise<CleanupRestoreResult> {
+    return invokeCommand<CleanupRestoreResult>("restore_cleanup_trash_items", { itemIds, jobId: jobId ?? null });
+  },
+
+  cancelCleanupRestore(jobId: string): Promise<void> {
+    return invokeCommand<void>("cancel_cleanup_restore", { jobId });
   },
 
   executeRulesOnInbox(rules: Rule[]): Promise<RuleExecutionSummary> {
@@ -420,8 +425,16 @@ export const tauriApi = {
     return listenTo("operation-progress", handler);
   },
 
+  onCleanupRestoreProgress(handler: EventHandler<CleanupRestoreProgressPayload>): Promise<UnlistenFn> {
+    return listenTo("cleanup-restore-progress", handler);
+  },
+
   onSearchNavigate(handler: EventHandler<SearchNavigatePayload>): Promise<UnlistenFn> {
     return listenTo("search-navigate", handler);
+  },
+
+  onGlobalSearchRequested(handler: EventHandler<null>): Promise<UnlistenFn> {
+    return listenTo("global-search-requested", handler);
   },
 
   onGlobalHotkeyRegistrationFailed(handler: EventHandler<GlobalHotkeyErrorPayload>): Promise<UnlistenFn> {
