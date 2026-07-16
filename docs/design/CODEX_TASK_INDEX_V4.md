@@ -37,7 +37,7 @@ Codex 每次开始任务前必须按以下顺序阅读：
 | 07 | `CODEX_TASK_07_AUTOMATION_SETTINGS_V4.md` | 自然语言自动化、设置和首次使用 | 待执行 |
 | 08 | `CODEX_TASK_08_FINAL_POLISH_QA_V4.md` | 全局状态、跨平台、性能、无障碍与发布验收 | 待执行 |
 | 09 | `CODEX_TASK_09_NATIVE_INTEGRATION_RC.md` | 原生集成、真实文件闭环与候选发布验收 | 已完成（Windows RC；安装/DPI/跨平台限制见 closeout） |
-| 10 | `CODEX_TASK_10_RELEASE_READINESS.md` | 最终代码审查、安装门禁与发布准备 | 执行中 |
+| 10 | `CODEX_TASK_10_RELEASE_READINESS.md` | 最终代码审查、安装门禁与发布准备 | 已完成 |
 
 ---
 

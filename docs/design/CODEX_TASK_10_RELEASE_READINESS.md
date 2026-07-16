@@ -1,5 +1,7 @@
 # Codex 任务 10：Final Code Review, Installation Gate & Release Readiness
 
+**状态：已完成（PR Ready；Windows RC 保持；公开发布门禁未通过）**
+
 ## 任务定位
 
 Stage 10 是 Zen Canvas v4 在进入人工合并评审前的最后工程门禁。它不增加功能、不重构 UI、不修改版本、数据库结构或文件执行安全模型，只完成 Stage 9 全量审查、Windows 安装与辅助技术实机门禁、签名准备、RC 文档和未合并 PR。
