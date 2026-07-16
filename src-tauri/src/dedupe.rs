@@ -1,4 +1,7 @@
-use crate::db::{Database, DbError};
+use crate::{
+    db::{Database, DbError},
+    ids::new_job_id,
+};
 use rusqlite::params;
 use serde::Serialize;
 use std::{
@@ -6,7 +9,7 @@ use std::{
     fs::File,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -19,7 +22,6 @@ pub const DEDUPE_COMPLETE_EVENT: &str = "dedupe-complete";
 
 const DEDUPE_BATCH_SIZE: usize = 500;
 const DEDUPE_EMIT_INTERVAL: Duration = Duration::from_millis(200);
-static DEDUPE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone, Default)]
 pub struct DedupeJobManager(Arc<Mutex<DedupeJobs>>);
@@ -641,7 +643,7 @@ impl DedupeProgress {
 }
 
 fn next_dedupe_job_id() -> String {
-    format!("dedupe-{}", DEDUPE_SEQUENCE.fetch_add(1, Ordering::Relaxed))
+    new_job_id("dedupe")
 }
 
 #[cfg(test)]

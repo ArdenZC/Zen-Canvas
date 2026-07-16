@@ -45,6 +45,7 @@ thiserror = "2"
 time = { version = "0.3", features = ["formatting"] }
 trash = "5"
 url = "2"
+uuid = { version = "1", features = ["v4", "v7"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

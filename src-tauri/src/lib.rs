@@ -3,6 +3,7 @@ pub mod app_control;
 pub mod db;
 pub mod dedupe;
 pub mod file_ops;
+pub mod ids;
 pub mod path_filter;
 pub mod runtime_capabilities;
 pub mod scanner;
@@ -48,8 +49,8 @@ pub use file_ops::{
 };
 pub use runtime_capabilities::{get_runtime_capabilities, RuntimeCapabilities};
 pub use scanner::{
-    cancel_scan, scan_directory, ScanBatchPayload, ScanJobManager, ScanProgressPayload,
-    ScanSummary, ScannedEntry,
+    cancel_scan, create_scan_job_id, scan_directory, ScanBatchPayload, ScanJobManager,
+    ScanProgressPayload, ScanSummary, ScannedEntry,
 };
 pub use settings::{
     get_app_settings, get_settings, get_versioned_app_settings, save_app_settings,

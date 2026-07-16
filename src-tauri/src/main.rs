@@ -105,6 +105,7 @@ fn main() {
             zen_canvas_tauri::app_control::get_global_hotkey_status,
             zen_canvas_tauri::app_control::register_global_search_hotkey,
             zen_canvas_tauri::scanner::scan_directory,
+            zen_canvas_tauri::scanner::create_scan_job_id,
             zen_canvas_tauri::scanner::cancel_scan,
             zen_canvas_tauri::dedupe::cancel_dedupe,
             zen_canvas_tauri::file_ops::reveal_in_folder,

@@ -47,12 +47,6 @@ export function isCurrentDedupeEvent(
     && (dedupeJobId === null || payload.dedupeJobId === dedupeJobId);
 }
 
-function createScanJobId(kind: "foreground" | "background") {
-  const suffix = globalThis.crypto?.randomUUID?.()
-    ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `scan-${kind}-${suffix}`;
-}
-
 export interface ScanManagerStore {
   selectedFolders: string[];
   defaultScanRoots: ScanRootSetting[];
@@ -237,7 +231,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
       const completedScanRoots: string[] = [];
       for (const [index, path] of scanRoots.entries()) {
         if (scanJobCanceled) break;
-        activeScanJobId = createScanJobId("foreground");
+        activeScanJobId = await tauriApi.createScanJobId("foreground");
         if (index === scanRoots.length - 1) {
           activeDedupeParentScanJobId = activeScanJobId;
           activeDedupeJobId = null;

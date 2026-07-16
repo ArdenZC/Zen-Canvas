@@ -111,7 +111,7 @@ async function processBackgroundQueue() {
     }));
 
     try {
-      const jobId = createBackgroundScanJobId();
+      const jobId = await tauriApi.createScanJobId("background");
       activeBackgroundJobId = jobId;
       await tauriApi.startScan(root, false, jobId, "background", true);
       if (!isCancelingBackgroundQueue) {
@@ -141,12 +141,6 @@ async function processBackgroundQueue() {
       }));
     }
   }
-}
-
-function createBackgroundScanJobId() {
-  const suffix = globalThis.crypto?.randomUUID?.()
-    ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return `scan-background-${suffix}`;
 }
 
 function delay(ms: number) {

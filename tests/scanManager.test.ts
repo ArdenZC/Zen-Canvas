@@ -68,6 +68,7 @@ describe("scan manager progress callbacks", () => {
     expect(storeSource).toContain("activeScanJobId");
     expect(storeSource).toContain("progress.jobId !== activeScanJobId");
     expect(scanPaths).toContain("scanJobCanceled = false");
+    expect(scanPaths).toContain('await tauriApi.createScanJobId("foreground")');
     expect(scanPaths).toContain("if (scanJobCanceled) break");
     expect(scanPaths.indexOf("if (scanJobCanceled) break"))
       .toBeLessThan(scanPaths.indexOf("tauriApi.startScan("));

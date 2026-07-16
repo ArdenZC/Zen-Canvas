@@ -11,6 +11,7 @@ import {
 import { useScanManagerStore } from "../src/store/useScanManagerStore";
 
 const apiMocks = vi.hoisted(() => ({
+  createScanJobId: vi.fn(),
   startScan: vi.fn(),
   getPagedFiles: vi.fn(),
   getStatsSummary: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 vi.mock("../src/api/tauriApi", () => ({
   tauriApi: {
+    createScanJobId: apiMocks.createScanJobId,
     startScan: apiMocks.startScan,
     getPagedFiles: apiMocks.getPagedFiles,
     getStatsSummary: apiMocks.getStatsSummary
@@ -72,6 +74,7 @@ function installLocalStorage() {
 describe("library scope store", () => {
   beforeEach(() => {
     installLocalStorage();
+    apiMocks.createScanJobId.mockReset().mockResolvedValue("scan-foreground-test");
     apiMocks.startScan.mockReset().mockResolvedValue(scanSummary);
     apiMocks.getPagedFiles.mockReset().mockResolvedValue(page());
     apiMocks.getStatsSummary.mockReset().mockResolvedValue(stats());

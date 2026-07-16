@@ -3,6 +3,7 @@ use crate::db::{
     DbError, InsertFileRequest,
 };
 use crate::dedupe::{spawn_duplicate_detection, DedupeJobManager};
+use crate::ids::new_job_id;
 use crate::path_filter::is_ignored_dir_name;
 use jwalk::{ClientState, DirEntry, WalkDir};
 use serde::Serialize;
@@ -27,6 +28,15 @@ const SCAN_PROGRESS_EVENT: &str = "scan-progress";
 const SCAN_COMPLETE_EVENT: &str = "scan-complete";
 const SCAN_CANCELED_EVENT: &str = "scan-canceled";
 const SCAN_ERROR_EVENT: &str = "scan-error";
+
+#[tauri::command]
+pub fn create_scan_job_id(job_kind: String) -> Result<String, String> {
+    match job_kind.trim() {
+        "foreground" => Ok(new_job_id("scan-foreground")),
+        "background" => Ok(new_job_id("scan-background")),
+        _ => Err("Scan job kind must be foreground or background.".to_string()),
+    }
+}
 
 #[derive(Debug, Error)]
 enum ScanError {
@@ -624,6 +634,17 @@ fn should_run_stale_cleanup(cancelled: bool) -> bool {
 mod tests {
     use super::*;
     use std::{ffi::OsStr, sync::atomic::AtomicBool, time::Duration};
+
+    #[test]
+    fn backend_issues_authoritative_uuid_scan_job_ids() {
+        let foreground = create_scan_job_id("foreground".to_string()).expect("foreground id");
+        let background = create_scan_job_id("background".to_string()).expect("background id");
+
+        assert!(foreground.starts_with("scan-foreground-"));
+        assert!(background.starts_with("scan-background-"));
+        assert_ne!(foreground, background);
+        assert!(create_scan_job_id("forged".to_string()).is_err());
+    }
 
     #[test]
     fn should_skip_dir_matches_case_insensitive_generated_variants() {

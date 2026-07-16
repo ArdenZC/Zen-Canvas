@@ -149,6 +149,8 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockStats() as T;
     case "search_files":
       return searchMockFiles(String(args?.query ?? ""), Number(args?.limit ?? 12)) as T;
+    case "create_scan_job_id":
+      return `scan-${args?.jobKind === "background" ? "background" : "foreground"}-${globalThis.crypto.randomUUID()}` as T;
     case "scan_directory":
       return {
         jobId: String(args?.jobId ?? "browser-mock-scan"),

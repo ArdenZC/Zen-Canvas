@@ -1,10 +1,12 @@
-use crate::db::{Database, DbError, OperationPreviewDto, OperationPreviewScopeResult};
+use crate::{
+    db::{Database, DbError, OperationPreviewDto, OperationPreviewScopeResult},
+    ids::new_job_id,
+};
 use rusqlite::{params, OptionalExtension, Row};
 use serde::Serialize;
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     env, fs,
-    hash::{Hash, Hasher},
     panic::{catch_unwind, AssertUnwindSafe},
     path::{Component, Path, PathBuf},
     sync::{
@@ -811,7 +813,7 @@ pub fn start_storage_cleanup_scan<R: Runtime>(
 ) -> Result<String, String> {
     let app_data_dir = app.path().app_data_dir().ok();
     let roots = validate_cleanup_roots(roots)?;
-    let job_id = new_id("storage-cleanup-scan");
+    let job_id = new_job_id("storage-cleanup-scan");
     let cancel_flag = state.start_job(job_id.clone(), &roots)?;
     let state = state.inner().clone();
     let job_id_for_task = job_id.clone();
@@ -968,7 +970,7 @@ pub async fn restore_cleanup_trash_items<R: Runtime>(
     state: State<'_, CleanupRestoreState>,
 ) -> Result<CleanupRestoreResult, String> {
     require_main_window(&window)?;
-    let job_id = job_id.unwrap_or_else(|| new_id("cleanup-restore"));
+    let job_id = job_id.unwrap_or_else(|| new_job_id("cleanup-restore"));
     let cancel_flag = state.start_job(job_id.clone())?;
     let state = state.inner().clone();
     let state_for_join_error = state.clone();
@@ -1076,7 +1078,7 @@ pub fn start_storage_cleanup_scan_for_test(
     roots: Vec<PathBuf>,
     state: &StorageCleanupState,
 ) -> Result<String, String> {
-    let job_id = new_id("storage-cleanup-scan-test");
+    let job_id = new_job_id("storage-cleanup-scan-test");
     let cancel_flag = state.start_job(job_id.clone(), &roots)?;
     let state = state.clone();
     let job_id_for_task = job_id.clone();
@@ -1248,7 +1250,7 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
         .iter()
         .map(|candidate| (candidate.id.as_str(), candidate))
         .collect::<HashMap<_, _>>();
-    let batch_id = new_id("cleanup-safe-trash");
+    let batch_id = new_job_id("cleanup-safe-trash");
     let moved_at = current_timestamp_ms().to_string();
     let mut result = CleanupExecutionResult {
         moved: 0,
@@ -1481,7 +1483,7 @@ pub fn restore_cleanup_trash_items_for_db(
         item_ids,
         db,
         cancel_flag,
-        new_id("cleanup-restore-test"),
+        new_job_id("cleanup-restore-test"),
         &emitter,
     )
 }
@@ -1496,7 +1498,7 @@ pub fn restore_cleanup_trash_items_for_db_with_cancel_for_test(
         item_ids,
         db,
         cancel_flag,
-        new_id("cleanup-restore-test"),
+        new_job_id("cleanup-restore-test"),
         &emitter,
     )
 }
@@ -3241,12 +3243,8 @@ fn cleanup_trash_item_from_row(row: &Row<'_>) -> rusqlite::Result<CleanupTrashIt
     })
 }
 
-fn candidate_item_id(candidate: &StorageCandidate, index: usize) -> String {
-    let mut hasher = DefaultHasher::new();
-    candidate.id.hash(&mut hasher);
-    candidate.path.hash(&mut hasher);
-    index.hash(&mut hasher);
-    format!("cleanup-item-{:016x}", hasher.finish())
+fn candidate_item_id(_candidate: &StorageCandidate, _index: usize) -> String {
+    new_job_id("cleanup-item")
 }
 
 fn safe_trash_item_path(
@@ -3390,10 +3388,7 @@ fn staging_path_for(target: &Path) -> PathBuf {
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("item");
-    target.with_file_name(format!(
-        ".{name}.zencanvas-stage-{}",
-        current_timestamp_ms()
-    ))
+    target.with_file_name(format!(".{name}.{}", new_job_id("zencanvas-stage")))
 }
 
 fn copy_path(source: &Path, target: &Path) -> Result<(), String> {
@@ -3756,25 +3751,17 @@ fn is_same_or_child(path: &str, parent: &str) -> bool {
 }
 
 fn candidate_id(path: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    normalize_compare_text(path).hash(&mut hasher);
-    format!("storage-{:016x}", hasher.finish())
+    let digest = blake3::hash(normalize_compare_text(path).as_bytes())
+        .to_hex()
+        .to_string();
+    format!("storage-{}", &digest[..32])
 }
 
 fn candidate_id_for_job(job_id: &str, path: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    job_id.hash(&mut hasher);
-    normalize_compare_text(path).hash(&mut hasher);
-    format!("storage-{:016x}", hasher.finish())
-}
-
-fn new_id(prefix: &str) -> String {
-    let timestamp = current_timestamp_ms();
-    let mut hasher = DefaultHasher::new();
-    prefix.hash(&mut hasher);
-    timestamp.hash(&mut hasher);
-    std::thread::current().id().hash(&mut hasher);
-    format!("{prefix}-{timestamp}-{:016x}", hasher.finish())
+    let digest = blake3::hash(format!("{job_id}\0{}", normalize_compare_text(path)).as_bytes())
+        .to_hex()
+        .to_string();
+    format!("storage-{}", &digest[..32])
 }
 
 fn current_timestamp_ms() -> u128 {

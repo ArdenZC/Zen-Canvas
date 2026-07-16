@@ -3,10 +3,7 @@ use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::State;
-
-static LEARNING_ID_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -723,13 +720,8 @@ fn stable_id(value: &str) -> String {
         .collect()
 }
 
-fn new_learning_id(prefix: &str, file_id: &str) -> String {
-    format!(
-        "{prefix}-{}-{}-{}",
-        current_unix_seconds(),
-        LEARNING_ID_SEQUENCE.fetch_add(1, Ordering::Relaxed),
-        stable_id(file_id)
-    )
+fn new_learning_id(prefix: &str, _file_id: &str) -> String {
+    crate::ids::new_job_id(prefix)
 }
 
 fn current_rule_timestamp() -> String {

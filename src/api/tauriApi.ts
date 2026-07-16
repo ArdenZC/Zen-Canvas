@@ -180,6 +180,10 @@ export const tauriApi = {
     return invokeCommand<ScanSummary>("scan_directory", { path, includeEntries, jobId, jobKind, runDedupe });
   },
 
+  createScanJobId(jobKind: "foreground" | "background"): Promise<string> {
+    return invokeCommand<string>("create_scan_job_id", { jobKind });
+  },
+
   cancelScan(jobId: string): Promise<void> {
     return invokeCommand<void>("cancel_scan", { jobId });
   },
