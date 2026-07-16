@@ -215,8 +215,8 @@ pub fn move_file(source_path: String, target_path: String) -> Result<FileOperati
     let source = validate_source_path(&PathBuf::from(source_path))?;
     let target = validate_target_path(&PathBuf::from(target_path))?;
 
-    ensure_not_protected(&source)?;
-    ensure_not_protected(&target)?;
+    ensure_general_file_operation_allowed(&source)?;
+    ensure_general_file_operation_allowed(&target)?;
     move_file_no_overwrite(&source, &target)?;
 
     Ok(FileOperationResult {
@@ -586,8 +586,8 @@ pub fn rename_file(source_path: String, new_name: String) -> Result<FileOperatio
         return Err(FileOpError::TargetExists.to_string());
     }
 
-    ensure_not_protected(&source)?;
-    ensure_not_protected(&target)?;
+    ensure_general_file_operation_allowed(&source)?;
+    ensure_general_file_operation_allowed(&target)?;
     move_file_no_overwrite(&source, &target)?;
 
     Ok(FileOperationResult {
@@ -896,10 +896,10 @@ fn restore_operation_log(
         Err(error) => return mark_restore_failed(log, error),
     };
 
-    if let Err(error) = ensure_not_protected(&source) {
+    if let Err(error) = ensure_general_file_operation_allowed(&source) {
         return mark_restore_failed(log, error);
     }
-    if let Err(error) = ensure_not_protected(&target) {
+    if let Err(error) = ensure_general_file_operation_allowed(&target) {
         return mark_restore_failed(log, error);
     }
     if let Err(error) = move_file_no_overwrite_with_cancel(&source, &target, cancel_flag) {
@@ -1009,8 +1009,20 @@ fn validate_source_path(path: &Path) -> Result<PathBuf, String> {
     if !path.is_absolute() {
         return Err(FileOpError::RelativePath.to_string());
     }
+    if path.to_string_lossy().contains('\0')
+        || path
+            .components()
+            .any(|component| component == Component::ParentDir)
+    {
+        return Err(FileOpError::UnsafePathTraversal.to_string());
+    }
     if !path.exists() {
         return Err(FileOpError::SourceMissing.to_string());
+    }
+    let metadata =
+        fs::symlink_metadata(path).map_err(|error| FileOpError::Io(error).to_string())?;
+    if metadata.file_type().is_symlink() {
+        return Err(FileOpError::ProtectedPath(normalize_path(path)).to_string());
     }
 
     let source = path
@@ -1019,6 +1031,7 @@ fn validate_source_path(path: &Path) -> Result<PathBuf, String> {
     if !source.is_file() {
         return Err(FileOpError::SourceNotFile.to_string());
     }
+    ensure_general_file_operation_allowed(&source)?;
 
     Ok(source)
 }
@@ -1062,13 +1075,13 @@ fn validate_target_path_with_parent_policy(
         if !allow_create_parent {
             return Err(FileOpError::TargetParentMissing.to_string());
         }
-        ensure_not_protected(parent)?;
+        ensure_general_file_operation_allowed(parent)?;
         fs::create_dir_all(parent).map_err(|error| FileOpError::Io(error).to_string())?;
     }
     let parent = parent
         .canonicalize()
         .map_err(|_| FileOpError::TargetParentMissing.to_string())?;
-    ensure_not_protected(&parent)?;
+    ensure_general_file_operation_allowed(&parent)?;
 
     Ok(parent.join(name))
 }
@@ -1083,8 +1096,8 @@ fn move_file_with_parent_policy_with_cancel(
     let target =
         validate_target_path_with_parent_policy(&PathBuf::from(target_path), allow_create_parent)?;
 
-    ensure_not_protected(&source)?;
-    ensure_not_protected(&target)?;
+    ensure_general_file_operation_allowed(&source)?;
+    ensure_general_file_operation_allowed(&target)?;
     move_file_no_overwrite_with_cancel(&source, &target, cancel_flag)?;
 
     Ok(FileOperationResult {
@@ -1140,10 +1153,18 @@ fn validate_cleanup_trash_source(
     let source = path
         .canonicalize()
         .map_err(|error| FileOpError::Io(error).to_string())?;
-    if crate::storage_analyzer::is_cleanup_execution_forbidden(&source, app_data_dir) {
-        return Err(FileOpError::ProtectedPath(normalize_path(&source)).to_string());
-    }
+    ensure_cleanup_operation_allowed(&source, app_data_dir)?;
     Ok(source)
+}
+
+fn ensure_cleanup_operation_allowed(
+    path: &Path,
+    app_data_dir: Option<&Path>,
+) -> Result<(), String> {
+    if crate::storage_analyzer::is_cleanup_execution_forbidden(path, app_data_dir) {
+        return Err(FileOpError::ProtectedPath(normalize_path(path)).to_string());
+    }
+    Ok(())
 }
 
 fn validate_safe_file_name(name: &str) -> Result<(), String> {
@@ -1356,9 +1377,13 @@ fn should_copy_fallback(error: &io::Error) -> bool {
     )
 }
 
-fn ensure_not_protected(path: &Path) -> Result<(), String> {
+fn ensure_general_file_operation_allowed(path: &Path) -> Result<(), String> {
+    ensure_general_file_operation_allowed_for_os(path, env::consts::OS)
+}
+
+fn ensure_general_file_operation_allowed_for_os(path: &Path, os: &str) -> Result<(), String> {
     let normalized = normalize_for_compare(path);
-    for root in protected_roots() {
+    for root in general_file_operation_protected_roots_for_os(os) {
         let protected = normalize_for_compare(&root);
         if normalized == protected || normalized.starts_with(&format!("{protected}/")) {
             return Err(FileOpError::ProtectedPath(normalize_path(&root)).to_string());
@@ -1367,10 +1392,15 @@ fn ensure_not_protected(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn protected_roots() -> Vec<PathBuf> {
+#[cfg(test)]
+fn general_file_operation_protected_roots() -> Vec<PathBuf> {
+    general_file_operation_protected_roots_for_os(env::consts::OS)
+}
+
+fn general_file_operation_protected_roots_for_os(os: &str) -> Vec<PathBuf> {
     let mut roots = Vec::new();
 
-    if cfg!(windows) {
+    if os == "windows" {
         let drive = env::var("SystemDrive").unwrap_or_else(|_| "C:".to_string());
         for dir in [
             "Windows",
@@ -1385,19 +1415,16 @@ fn protected_roots() -> Vec<PathBuf> {
         ] {
             roots.push(PathBuf::from(format!("{drive}\\{dir}")));
         }
-    } else if cfg!(target_os = "macos") {
+    } else if os == "macos" {
         roots.extend([
             PathBuf::from("/System"),
             PathBuf::from("/Library"),
+            PathBuf::from("/Applications"),
             PathBuf::from("/bin"),
             PathBuf::from("/sbin"),
             PathBuf::from("/usr"),
             PathBuf::from("/etc"),
-            PathBuf::from("/private/etc"),
-            PathBuf::from("/private/var/db"),
-            PathBuf::from("/private/var/root"),
-            PathBuf::from("/private/var/protected"),
-            PathBuf::from("/private/var/vm"),
+            PathBuf::from("/private"),
         ]);
     } else {
         roots.extend([
@@ -1498,7 +1525,7 @@ mod tests {
             atomic::{AtomicBool, Ordering},
             Arc,
         },
-        time::{SystemTime, UNIX_EPOCH},
+        time::{Duration, SystemTime, UNIX_EPOCH},
     };
 
     #[test]
@@ -1880,13 +1907,109 @@ mod tests {
 
     #[test]
     fn validate_target_path_rejects_protected_parent() {
-        let Some(protected_root) = protected_roots().into_iter().find(|root| root.exists()) else {
+        let Some(protected_root) = general_file_operation_protected_roots()
+            .into_iter()
+            .find(|root| root.exists())
+        else {
             return;
         };
         let target = protected_root.join("zencanvas-should-not-write.txt");
 
         let error = validate_target_path_with_parent_policy(&target, false)
             .expect_err("protected parent should be rejected");
+
+        assert!(error.contains("protected system location"));
+    }
+
+    #[test]
+    fn general_file_operation_rejects_symlink_source() {
+        let root = test_dir();
+        let target = root.join("target.txt");
+        let link = root.join("source-link.txt");
+        fs::write(&target, "target").expect("write target");
+        if create_file_symlink_for_test(&target, &link).is_err() {
+            return;
+        }
+
+        let error = validate_source_path(&link).expect_err("symlink source must be rejected");
+
+        assert!(error.contains("protected system location"));
+    }
+
+    #[test]
+    fn general_file_operation_rejects_parent_segments_in_source() {
+        let root = test_dir();
+        let target = root.join("target.txt");
+        let nested = root.join("nested");
+        fs::create_dir_all(&nested).expect("nested dir");
+        fs::write(&target, "target").expect("write target");
+        let aliased = nested.join("..").join("target.txt");
+
+        let error = validate_source_path(&aliased).expect_err("parent segment must be rejected");
+
+        assert!(error.contains("unsafe parent traversal"));
+    }
+
+    #[test]
+    fn general_move_rejects_private_var_log() {
+        let error = ensure_general_file_operation_allowed_for_os(
+            Path::new("/private/var/log/example.log"),
+            "macos",
+        )
+        .expect_err("macOS private paths must be protected");
+
+        assert!(error.contains("protected system location"));
+    }
+
+    #[test]
+    fn general_rename_rejects_applications() {
+        let error = ensure_general_file_operation_allowed_for_os(
+            Path::new("/Applications/Example.app/file"),
+            "macos",
+        )
+        .expect_err("macOS Applications paths must be protected");
+
+        assert!(error.contains("protected system location"));
+    }
+
+    #[test]
+    fn general_restore_rejects_protected_destination() {
+        let error = ensure_general_file_operation_allowed_for_os(
+            Path::new("/Applications/Restored.app/file"),
+            "macos",
+        )
+        .expect_err("restore destinations in Applications must be protected");
+
+        assert!(error.contains("protected system location"));
+    }
+
+    #[test]
+    fn cleanup_exception_does_not_affect_general_move() {
+        let error = ensure_general_file_operation_allowed_for_os(
+            Path::new("/private/tmp/zen-canvas/example.tmp"),
+            "macos",
+        )
+        .expect_err("cleanup temp exceptions must not relax general moves");
+
+        assert!(error.contains("protected system location"));
+    }
+
+    #[test]
+    fn symlink_parent_cannot_escape_protected_root() {
+        let Some(protected_root) = general_file_operation_protected_roots()
+            .into_iter()
+            .find(|root| root.is_dir())
+        else {
+            return;
+        };
+        let root = test_dir();
+        let link = root.join("protected-link");
+        if create_directory_symlink_for_test(&protected_root, &link).is_err() {
+            return;
+        }
+
+        let error = validate_target_path(&link.join("escape.txt"))
+            .expect_err("symlink parent must not escape into a protected root");
 
         assert!(error.contains("protected system location"));
     }
@@ -1950,6 +2073,15 @@ mod tests {
         let root = test_dir();
         let source = root.join("trash-me.txt");
         fs::write(&source, "temporary").expect("write source");
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .open(&source)
+            .expect("open temporary source");
+        file.set_times(
+            fs::FileTimes::new()
+                .set_modified(SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60)),
+        )
+        .expect("age temporary source");
 
         let result = execute_moves_core(ExecuteMovesRequest {
             operations: vec![OperationPreviewRequest {
@@ -2703,6 +2835,17 @@ mod tests {
         #[cfg(windows)]
         {
             std::os::windows::fs::symlink_file(target, link)
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link)
+        }
+    }
+
+    fn create_directory_symlink_for_test(target: &Path, link: &Path) -> io::Result<()> {
+        #[cfg(windows)]
+        {
+            std::os::windows::fs::symlink_dir(target, link)
         }
         #[cfg(unix)]
         {

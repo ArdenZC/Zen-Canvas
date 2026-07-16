@@ -1690,6 +1690,22 @@ pub fn is_cleanup_execution_forbidden(path: &Path, app_data_dir: Option<&Path>) 
         return true;
     }
 
+    if is_current_user_temp_path(path) {
+        let metadata = match fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(_) => return true,
+        };
+        let stats = collect_temp_tree_stats(path);
+        let candidate = classify_system_temp_candidate(
+            path,
+            stats.size,
+            temp_entry_facts(path, metadata.is_dir(), stats),
+        );
+        if !candidate.trash_allowed {
+            return true;
+        }
+    }
+
     let extension = path
         .extension()
         .and_then(|value| value.to_str())
@@ -1902,12 +1918,14 @@ fn analyze_storage_roots_with_progress<F>(
 where
     F: FnMut(StorageCleanupProgress) -> Result<(), String>,
 {
+    let root_contexts = build_cleanup_root_contexts(&roots);
     let scan_roots = roots
         .iter()
         .map(|root| normalize_for_compare(root))
         .collect::<HashSet<_>>();
     let mut context = ScanContext {
         scan_roots,
+        root_contexts,
         excluded_paths,
         candidates: Vec::new(),
         denied_paths: Vec::new(),
@@ -1945,7 +1963,7 @@ where
             continue;
         }
         total_size =
-            total_size.saturating_add(scan_path_size(&root, &mut context, &mut on_progress));
+            total_size.saturating_add(scan_path_stats(&root, &mut context, &mut on_progress).size);
     }
 
     context.emit_progress(&mut on_progress, true)?;
@@ -2013,8 +2031,76 @@ fn storage_analysis_page(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CleanupRootKind {
+    UserSelected,
+    SystemTemp,
+    UserCache,
+    Downloads,
+    DevelopmentCache,
+}
+
+#[derive(Debug, Clone)]
+struct CleanupRootContext {
+    canonical_root: PathBuf,
+    kind: CleanupRootKind,
+}
+
+fn cleanup_root_kind_for(
+    root: &Path,
+    current_temp: &Path,
+    user_cache: Option<&Path>,
+    downloads: Option<&Path>,
+) -> CleanupRootKind {
+    let normalized = normalize_for_compare(root);
+    let temp = normalize_for_compare(current_temp);
+    if is_same_or_child(&normalized, &temp) {
+        return CleanupRootKind::SystemTemp;
+    }
+    if downloads.is_some_and(|path| is_same_or_child(&normalized, &normalize_for_compare(path))) {
+        return CleanupRootKind::Downloads;
+    }
+    let lower_name = root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if is_package_cache_path(&normalized, &lower_name) {
+        return CleanupRootKind::DevelopmentCache;
+    }
+    if user_cache.is_some_and(|path| is_same_or_child(&normalized, &normalize_for_compare(path))) {
+        return CleanupRootKind::UserCache;
+    }
+    CleanupRootKind::UserSelected
+}
+
+fn build_cleanup_root_contexts(roots: &[PathBuf]) -> Vec<CleanupRootContext> {
+    let current_temp = env::temp_dir()
+        .canonicalize()
+        .unwrap_or_else(|_| env::temp_dir());
+    let user_cache = dirs::cache_dir().and_then(|path| path.canonicalize().ok());
+    let downloads = dirs::download_dir().and_then(|path| path.canonicalize().ok());
+    roots
+        .iter()
+        .map(|root| {
+            let canonical_root = root.canonicalize().unwrap_or_else(|_| root.clone());
+            let kind = cleanup_root_kind_for(
+                &canonical_root,
+                &current_temp,
+                user_cache.as_deref(),
+                downloads.as_deref(),
+            );
+            CleanupRootContext {
+                canonical_root,
+                kind,
+            }
+        })
+        .collect()
+}
+
 struct ScanContext {
     scan_roots: HashSet<String>,
+    root_contexts: Vec<CleanupRootContext>,
     excluded_paths: Vec<PathBuf>,
     candidates: Vec<StorageCandidate>,
     denied_paths: Vec<String>,
@@ -2026,6 +2112,18 @@ struct ScanContext {
 }
 
 impl ScanContext {
+    fn root_kind_for(&self, path: &Path) -> CleanupRootKind {
+        let normalized = normalize_for_compare(path);
+        self.root_contexts
+            .iter()
+            .filter(|context| {
+                is_same_or_child(&normalized, &normalize_for_compare(&context.canonical_root))
+            })
+            .max_by_key(|context| context.canonical_root.components().count())
+            .map(|context| context.kind)
+            .unwrap_or(CleanupRootKind::UserSelected)
+    }
+
     fn is_cancelled(&mut self) -> bool {
         let cancelled = self
             .cancel_flag
@@ -2112,48 +2210,90 @@ fn validate_cleanup_roots(roots: Vec<String>) -> Result<Vec<PathBuf>, String> {
     Ok(validated)
 }
 
-fn scan_path_size<F>(path: &Path, context: &mut ScanContext, on_progress: &mut F) -> u64
+#[derive(Debug, Clone, Copy)]
+struct ScanPathStats {
+    size: u64,
+    latest_modified: Option<SystemTime>,
+    ownership: TempOwnership,
+    has_special_entry: bool,
+}
+
+impl Default for ScanPathStats {
+    fn default() -> Self {
+        Self {
+            size: 0,
+            latest_modified: None,
+            ownership: TempOwnership::Unknown,
+            has_special_entry: true,
+        }
+    }
+}
+
+impl ScanPathStats {
+    fn include(&mut self, child: ScanPathStats) {
+        self.size = self.size.saturating_add(child.size);
+        self.latest_modified = match (self.latest_modified, child.latest_modified) {
+            (Some(left), Some(right)) => Some(left.max(right)),
+            (None, value) | (value, None) => value,
+        };
+        self.ownership = self.ownership.merge(child.ownership);
+        self.has_special_entry |= child.has_special_entry;
+    }
+}
+
+fn scan_path_stats<F>(path: &Path, context: &mut ScanContext, on_progress: &mut F) -> ScanPathStats
 where
     F: FnMut(StorageCleanupProgress) -> Result<(), String>,
 {
     if context.is_cancelled() {
-        return 0;
+        return ScanPathStats::default();
     }
     if is_forbidden_storage_path(path, &context.excluded_paths) {
         context.denied_paths.push(normalize_path(path));
-        return 0;
+        return ScanPathStats::default();
     }
 
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(_) => {
             context.denied_paths.push(normalize_path(path));
-            return 0;
+            return ScanPathStats::default();
         }
     };
 
     if metadata.file_type().is_symlink() {
         context.denied_paths.push(normalize_path(path));
-        return 0;
+        return ScanPathStats::default();
     }
 
     if metadata.is_file() {
         let size = metadata.len();
+        let stats = ScanPathStats {
+            size,
+            latest_modified: metadata.modified().ok(),
+            ownership: temp_ownership(&metadata),
+            has_special_entry: !matches!(temp_entry_kind(&metadata), TempEntryKind::RegularFile),
+        };
         let _ = context.record_progress(path, size, on_progress);
-        maybe_record_candidate(path, size, false, context);
-        return size;
+        maybe_record_candidate(path, false, stats, context);
+        return stats;
     }
 
     if !metadata.is_dir() {
-        return 0;
+        return ScanPathStats::default();
     }
 
-    let mut size = 0_u64;
+    let mut stats = ScanPathStats {
+        size: 0,
+        latest_modified: metadata.modified().ok(),
+        ownership: temp_ownership(&metadata),
+        has_special_entry: false,
+    };
     let entries = match fs::read_dir(path) {
         Ok(entries) => entries,
         Err(_) => {
             context.denied_paths.push(normalize_path(path));
-            return 0;
+            return ScanPathStats::default();
         }
     };
 
@@ -2161,20 +2301,31 @@ where
         if context.is_cancelled() {
             break;
         }
-        size = size.saturating_add(scan_path_size(&entry.path(), context, on_progress));
+        stats.include(scan_path_stats(&entry.path(), context, on_progress));
     }
 
     let _ = context.record_progress(path, 0, on_progress);
-    maybe_record_candidate(path, size, true, context);
-    size
+    maybe_record_candidate(path, true, stats, context);
+    stats
 }
 
-fn maybe_record_candidate(path: &Path, size: u64, is_dir: bool, context: &mut ScanContext) {
+fn maybe_record_candidate(
+    path: &Path,
+    is_dir: bool,
+    stats: ScanPathStats,
+    context: &mut ScanContext,
+) {
+    let size = stats.size;
     if size == 0 || context.scan_roots.contains(&normalize_for_compare(path)) {
         return;
     }
 
-    let candidate = classify_candidate(path, size);
+    let root_kind = context.root_kind_for(path);
+    let candidate = if root_kind == CleanupRootKind::SystemTemp {
+        classify_system_temp_candidate(path, size, temp_entry_facts(path, is_dir, stats))
+    } else {
+        classify_candidate_without_temp_text(path, size)
+    };
     let is_large = if is_dir {
         size >= LARGE_DIR_THRESHOLD
     } else {
@@ -2188,7 +2339,234 @@ fn maybe_record_candidate(path: &Path, size: u64, is_dir: bool, context: &mut Sc
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TempOwnership {
+    CurrentUser,
+    OtherUser,
+    Unknown,
+}
+
+impl TempOwnership {
+    fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::OtherUser, _) | (_, Self::OtherUser) => Self::OtherUser,
+            (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
+            _ => Self::CurrentUser,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(unix), allow(dead_code))]
+enum TempEntryKind {
+    RegularFile,
+    Directory,
+    Symlink,
+    Socket,
+    Pipe,
+    Device,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TempEntryFacts {
+    age: Option<Duration>,
+    ownership: TempOwnership,
+    kind: TempEntryKind,
+    database_like: bool,
+}
+
+fn classify_system_temp_candidate(
+    path: &Path,
+    size: u64,
+    facts: TempEntryFacts,
+) -> StorageCandidate {
+    let normalized = normalize_path(path);
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(normalized.as_str())
+        .to_string();
+    let (tier, reason, suggested_action, risk_note) = if facts.database_like {
+        (
+            CleanupTier::Caution,
+            "Database-like temporary content may still contain active application state."
+                .to_string(),
+            CleanupActionKind::Reveal,
+            Some("Use the owning application's cleanup controls.".to_string()),
+        )
+    } else if !matches!(
+        facts.kind,
+        TempEntryKind::RegularFile | TempEntryKind::Directory
+    ) {
+        (
+            CleanupTier::Caution,
+            "Special filesystem entries are not eligible for automated cleanup.".to_string(),
+            CleanupActionKind::None,
+            Some("Sockets, pipes, devices, and symlinks must not be moved to trash.".to_string()),
+        )
+    } else if facts.ownership == TempOwnership::OtherUser {
+        (
+            CleanupTier::Caution,
+            "Temporary content is owned by another user.".to_string(),
+            CleanupActionKind::None,
+            Some("Zen Canvas will not offer cleanup for another user's files.".to_string()),
+        )
+    } else if facts.ownership == TempOwnership::Unknown {
+        (
+            CleanupTier::Review,
+            "Temporary content ownership could not be verified.".to_string(),
+            CleanupActionKind::Reveal,
+            Some("Ownership must be verified before cleanup.".to_string()),
+        )
+    } else if facts
+        .age
+        .is_some_and(|age| age >= Duration::from_secs(7 * 24 * 60 * 60))
+    {
+        (
+            CleanupTier::Safe,
+            "Current-user temporary content has not changed for at least 7 days.".to_string(),
+            CleanupActionKind::MoveToTrash,
+            None,
+        )
+    } else {
+        (
+            CleanupTier::Review,
+            "Recent temporary content may still be in use by an application.".to_string(),
+            CleanupActionKind::Reveal,
+            Some("Only temporary content older than 7 days is selected by default.".to_string()),
+        )
+    };
+    let trash_allowed = tier == CleanupTier::Safe;
+    StorageCandidate {
+        id: candidate_id(&normalized),
+        path: normalized,
+        name,
+        size,
+        tier,
+        category: "Temporary files".to_string(),
+        reason,
+        suggested_action,
+        risk_note,
+        trash_allowed,
+        selected_by_default: trash_allowed,
+    }
+}
+
+fn temp_entry_facts(path: &Path, is_dir: bool, stats: ScanPathStats) -> TempEntryFacts {
+    let metadata = fs::symlink_metadata(path).ok();
+    let mut kind = metadata.as_ref().map(temp_entry_kind).unwrap_or(if is_dir {
+        TempEntryKind::Directory
+    } else {
+        TempEntryKind::Device
+    });
+    if stats.has_special_entry {
+        kind = TempEntryKind::Device;
+    }
+    let modified = stats
+        .latest_modified
+        .or_else(|| metadata.as_ref().and_then(|value| value.modified().ok()));
+    let age = modified.and_then(|time| SystemTime::now().duration_since(time).ok());
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    TempEntryFacts {
+        age,
+        ownership: stats.ownership,
+        kind,
+        database_like: is_database_extension(&extension),
+    }
+}
+
+fn collect_temp_tree_stats(path: &Path) -> ScanPathStats {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(_) => return ScanPathStats::default(),
+    };
+    let kind = temp_entry_kind(&metadata);
+    let mut stats = ScanPathStats {
+        size: if metadata.is_file() {
+            metadata.len()
+        } else {
+            0
+        },
+        latest_modified: metadata.modified().ok(),
+        ownership: temp_ownership(&metadata),
+        has_special_entry: !matches!(kind, TempEntryKind::RegularFile | TempEntryKind::Directory),
+    };
+    if metadata.is_dir() {
+        let entries = match fs::read_dir(path) {
+            Ok(entries) => entries,
+            Err(_) => return ScanPathStats::default(),
+        };
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(_) => return ScanPathStats::default(),
+            };
+            stats.include(collect_temp_tree_stats(&entry.path()));
+        }
+    }
+    stats
+}
+
+fn temp_entry_kind(metadata: &fs::Metadata) -> TempEntryKind {
+    let file_type = metadata.file_type();
+    if file_type.is_symlink() {
+        return TempEntryKind::Symlink;
+    }
+    if file_type.is_file() {
+        return TempEntryKind::RegularFile;
+    }
+    if file_type.is_dir() {
+        return TempEntryKind::Directory;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt;
+        if file_type.is_socket() {
+            return TempEntryKind::Socket;
+        }
+        if file_type.is_fifo() {
+            return TempEntryKind::Pipe;
+        }
+        if file_type.is_block_device() || file_type.is_char_device() {
+            return TempEntryKind::Device;
+        }
+    }
+    TempEntryKind::Device
+}
+
+#[cfg(unix)]
+fn temp_ownership(metadata: &fs::Metadata) -> TempOwnership {
+    use std::os::unix::fs::MetadataExt;
+    let current_uid = unsafe { libc::geteuid() };
+    if metadata.uid() == current_uid {
+        TempOwnership::CurrentUser
+    } else {
+        TempOwnership::OtherUser
+    }
+}
+
+#[cfg(not(unix))]
+fn temp_ownership(_metadata: &fs::Metadata) -> TempOwnership {
+    TempOwnership::CurrentUser
+}
+
 fn classify_candidate(path: &Path, size: u64) -> StorageCandidate {
+    classify_candidate_with_temp_text(path, size, true)
+}
+
+fn classify_candidate_without_temp_text(path: &Path, size: u64) -> StorageCandidate {
+    classify_candidate_with_temp_text(path, size, false)
+}
+
+fn classify_candidate_with_temp_text(
+    path: &Path,
+    size: u64,
+    allow_temp_text: bool,
+) -> StorageCandidate {
     let normalized = normalize_path(path);
     let lower = normalized.to_ascii_lowercase();
     let name = path
@@ -2258,7 +2636,7 @@ fn classify_candidate(path: &Path, size: u64) -> StorageCandidate {
                     .to_string(),
             ),
         )
-    } else if is_temp_path(&lower) {
+    } else if allow_temp_text && is_temp_path(&lower) {
         (
             CleanupTier::Safe,
             "Temporary files".to_string(),
@@ -2332,7 +2710,7 @@ fn classify_candidate(path: &Path, size: u64) -> StorageCandidate {
         && suggested_action == CleanupActionKind::MoveToTrash
         && !is_forbidden_storage_path(path, &[]);
     let selected_by_default = trash_allowed
-        && (is_temp_path(&lower)
+        && ((allow_temp_text && is_temp_path(&lower))
             || is_package_cache_path(&lower, &lower_name)
             || lower_name == "node_modules");
 
@@ -2778,13 +3156,28 @@ fn is_forbidden_storage_path(path: &Path, excluded_paths: &[PathBuf]) -> bool {
     excluded_paths
         .iter()
         .any(|excluded| is_same_or_child(&lower, &normalize_for_compare(excluded)))
-        || is_system_path_text(&lower)
+        || (!is_current_user_temp_path(path) && is_system_path_text(&lower))
         || is_zen_canvas_safe_trash_path_text(&lower)
         || lower.contains("/programdata")
         || lower.contains("/startlan/zen canvas")
         || lower.ends_with("/zen-canvas.sqlite3")
         || lower.ends_with("/zen-canvas.sqlite")
         || lower.ends_with("/zen-canvas.db")
+}
+
+fn is_current_user_temp_path(path: &Path) -> bool {
+    let temp = match env::temp_dir().canonicalize() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+    let candidate = match path.canonicalize() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+    is_same_or_child(
+        &normalize_for_compare(&candidate),
+        &normalize_for_compare(&temp),
+    )
 }
 
 fn is_zen_canvas_safe_trash_path_text(lower: &str) -> bool {
@@ -2795,50 +3188,47 @@ fn is_zen_canvas_safe_trash_path_text(lower: &str) -> bool {
 }
 
 fn is_system_path_text(lower: &str) -> bool {
-    if cfg!(target_os = "macos")
-        && (lower == "/tmp"
-            || lower.starts_with("/tmp/")
-            || lower == "/var/folders"
-            || lower.starts_with("/var/folders/")
-            || lower == "/private/tmp"
-            || lower.starts_with("/private/tmp/")
-            || lower == "/private/var/folders"
-            || lower.starts_with("/private/var/folders/"))
-    {
-        return false;
-    }
-    lower.starts_with("c:/windows")
-        || lower.contains("/windows/system32")
-        || lower.contains("/windows/winsxs")
-        || lower.contains("/system volume information")
-        || lower.contains("/$recycle.bin")
+    is_system_path_text_for_os(lower, env::consts::OS)
+}
+
+fn is_system_path_text_for_os(value: &str, os: &str) -> bool {
+    let normalized = value.replace('\\', "/");
+    let comparable = if os == "windows" || os == "macos" {
+        normalized.to_ascii_lowercase()
+    } else {
+        normalized
+    };
+    let unix_system_prefix = if os == "macos" {
+        comparable.starts_with("/system/")
+    } else {
+        comparable.starts_with("/System/")
+    };
+    comparable.starts_with("c:/windows")
+        || comparable.contains("/windows/system32")
+        || comparable.contains("/windows/winsxs")
+        || comparable.contains("/system volume information")
+        || comparable.contains("/$recycle.bin")
         || matches!(
-            lower,
-            "/" | "/System"
-                | "/Library"
-                | "/Applications"
-                | "/system"
+            comparable.as_str(),
+            "/" | "/system"
+                | "/library"
+                | "/applications"
                 | "/usr"
                 | "/etc"
                 | "/var"
                 | "/bin"
                 | "/sbin"
-                | "/library"
-                | "/applications"
                 | "/private"
         )
-        || lower.starts_with("/System/")
-        || lower.starts_with("/Library/")
-        || lower.starts_with("/Applications/")
-        || lower.starts_with("/system/")
-        || lower.starts_with("/usr/")
-        || lower.starts_with("/etc/")
-        || lower.starts_with("/var/")
-        || lower.starts_with("/bin/")
-        || lower.starts_with("/sbin/")
-        || lower.starts_with("/library/")
-        || lower.starts_with("/applications/")
-        || lower.starts_with("/private/")
+        || unix_system_prefix
+        || comparable.starts_with("/usr/")
+        || comparable.starts_with("/etc/")
+        || comparable.starts_with("/var/")
+        || comparable.starts_with("/bin/")
+        || comparable.starts_with("/sbin/")
+        || comparable.starts_with("/library/")
+        || comparable.starts_with("/applications/")
+        || comparable.starts_with("/private/")
 }
 
 fn is_program_files_path_text(lower: &str) -> bool {
@@ -3056,6 +3446,193 @@ fn current_timestamp_ms() -> u128 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod temp_safety_tests {
+    use super::*;
+
+    #[test]
+    fn current_user_old_temp_file_is_safe_and_selected() {
+        let candidate = classify_system_temp_candidate(
+            Path::new("/tmp/zen-canvas-old.tmp"),
+            128,
+            TempEntryFacts {
+                age: Some(Duration::from_secs(8 * 24 * 60 * 60)),
+                ownership: TempOwnership::CurrentUser,
+                kind: TempEntryKind::RegularFile,
+                database_like: false,
+            },
+        );
+
+        assert_eq!(candidate.tier, CleanupTier::Safe);
+        assert!(candidate.trash_allowed);
+        assert!(candidate.selected_by_default);
+    }
+
+    #[test]
+    fn current_user_recent_temp_file_is_review_only() {
+        let candidate = classify_system_temp_candidate(
+            Path::new("/tmp/zen-canvas-new.tmp"),
+            128,
+            TempEntryFacts {
+                age: Some(Duration::from_secs(12 * 60 * 60)),
+                ownership: TempOwnership::CurrentUser,
+                kind: TempEntryKind::RegularFile,
+                database_like: false,
+            },
+        );
+
+        assert_eq!(candidate.tier, CleanupTier::Review);
+        assert!(!candidate.trash_allowed);
+        assert!(!candidate.selected_by_default);
+    }
+
+    #[test]
+    fn temp_database_is_caution_even_when_old() {
+        let candidate = classify_system_temp_candidate(
+            Path::new("/tmp/cache.sqlite"),
+            128,
+            TempEntryFacts {
+                age: Some(Duration::from_secs(30 * 24 * 60 * 60)),
+                ownership: TempOwnership::CurrentUser,
+                kind: TempEntryKind::RegularFile,
+                database_like: true,
+            },
+        );
+
+        assert_eq!(candidate.tier, CleanupTier::Caution);
+        assert!(!candidate.trash_allowed);
+    }
+
+    #[test]
+    fn unverifiable_or_foreign_temp_ownership_is_not_trashable() {
+        for ownership in [TempOwnership::Unknown, TempOwnership::OtherUser] {
+            let candidate = classify_system_temp_candidate(
+                Path::new("/tmp/unowned.tmp"),
+                128,
+                TempEntryFacts {
+                    age: Some(Duration::from_secs(30 * 24 * 60 * 60)),
+                    ownership,
+                    kind: TempEntryKind::RegularFile,
+                    database_like: false,
+                },
+            );
+
+            assert_ne!(candidate.tier, CleanupTier::Safe);
+            assert!(!candidate.trash_allowed);
+            assert!(!candidate.selected_by_default);
+        }
+    }
+
+    #[test]
+    fn special_temp_file_types_are_not_trashable() {
+        for kind in [
+            TempEntryKind::Symlink,
+            TempEntryKind::Socket,
+            TempEntryKind::Pipe,
+            TempEntryKind::Device,
+        ] {
+            let candidate = classify_system_temp_candidate(
+                Path::new("/tmp/special.tmp"),
+                128,
+                TempEntryFacts {
+                    age: Some(Duration::from_secs(30 * 24 * 60 * 60)),
+                    ownership: TempOwnership::CurrentUser,
+                    kind,
+                    database_like: false,
+                },
+            );
+
+            assert_eq!(candidate.tier, CleanupTier::Caution);
+            assert!(!candidate.trash_allowed);
+        }
+    }
+
+    #[test]
+    fn only_current_real_temp_root_gets_system_temp_context() {
+        let current_temp = Path::new("/private/var/folders/current/T");
+
+        assert_eq!(
+            cleanup_root_kind_for(
+                Path::new("/private/var/folders/current/T/scan"),
+                current_temp,
+                None,
+                None,
+            ),
+            CleanupRootKind::SystemTemp
+        );
+        assert_eq!(
+            cleanup_root_kind_for(
+                Path::new("/private/var/folders/another/T"),
+                current_temp,
+                None,
+                None,
+            ),
+            CleanupRootKind::UserSelected
+        );
+        assert_eq!(
+            cleanup_root_kind_for(Path::new("/private/var/folders"), current_temp, None, None),
+            CleanupRootKind::UserSelected
+        );
+    }
+
+    #[test]
+    fn linux_tmp_uses_system_temp_context_when_it_is_the_real_temp_root() {
+        assert_eq!(
+            cleanup_root_kind_for(Path::new("/tmp/session"), Path::new("/tmp"), None, None),
+            CleanupRootKind::SystemTemp
+        );
+    }
+
+    #[test]
+    fn macos_var_folders_outside_current_temp_remain_protected() {
+        for path in [
+            "/var/folders",
+            "/var/folders/another-user/T",
+            "/private/var/folders",
+            "/private/var/folders/another-user/T",
+            "/private/var/db",
+        ] {
+            assert!(
+                is_system_path_text_for_os(path, "macos"),
+                "expected macOS system path to remain protected: {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn temp_directory_age_uses_newest_child_mtime() {
+        let now = SystemTime::now();
+        let mut directory = ScanPathStats {
+            size: 0,
+            latest_modified: Some(now - Duration::from_secs(10 * 24 * 60 * 60)),
+            ownership: TempOwnership::CurrentUser,
+            has_special_entry: false,
+        };
+        directory.include(ScanPathStats {
+            size: 128,
+            latest_modified: Some(now - Duration::from_secs(2 * 60 * 60)),
+            ownership: TempOwnership::CurrentUser,
+            has_special_entry: false,
+        });
+        let age = directory
+            .latest_modified
+            .and_then(|modified| now.duration_since(modified).ok());
+        let candidate = classify_system_temp_candidate(
+            Path::new("/tmp/directory"),
+            directory.size,
+            TempEntryFacts {
+                age,
+                ownership: TempOwnership::CurrentUser,
+                kind: TempEntryKind::Directory,
+                database_like: false,
+            },
+        );
+
+        assert_eq!(candidate.tier, CleanupTier::Review);
+        assert!(!candidate.selected_by_default);
+    }
 }
 
 fn normalize_for_compare(path: &Path) -> String {

@@ -6080,6 +6080,7 @@ dependencies = [
  "dirs 5.0.1",
  "jwalk",
  "keyring",
+ "libc",
  "notify",
  "r2d2",
  "r2d2_sqlite",

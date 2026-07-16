@@ -46,6 +46,9 @@ time = { version = "0.3", features = ["formatting"] }
 trash = "5"
 url = "2"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
 
