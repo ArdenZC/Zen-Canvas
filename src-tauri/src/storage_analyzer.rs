@@ -1293,6 +1293,11 @@ fn restore_cleanup_trash_items_for_db_with_progress(
         canceled: 0,
         logs: Vec::new(),
     };
+    let progress_context = CleanupRestoreProgressContext {
+        job_id: &job_id,
+        total,
+        cancel_flag: &cancel_flag,
+    };
 
     for item_id in item_ids {
         let mut current_path = None;
@@ -1307,13 +1312,11 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             });
             emit_cleanup_restore_progress(
                 emitter,
-                &job_id,
+                &progress_context,
                 result.logs.len(),
-                total,
                 Some(item_id),
                 current_path,
                 &result,
-                &cancel_flag,
             );
             continue;
         }
@@ -1332,13 +1335,11 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             });
             emit_cleanup_restore_progress(
                 emitter,
-                &job_id,
+                &progress_context,
                 result.logs.len(),
-                total,
                 Some(item_id),
                 current_path,
                 &result,
-                &cancel_flag,
             );
             continue;
         };
@@ -1357,13 +1358,11 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             });
             emit_cleanup_restore_progress(
                 emitter,
-                &job_id,
+                &progress_context,
                 result.logs.len(),
-                total,
                 Some(item_id),
                 current_path,
                 &result,
-                &cancel_flag,
             );
             continue;
         }
@@ -1378,13 +1377,11 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             });
             emit_cleanup_restore_progress(
                 emitter,
-                &job_id,
+                &progress_context,
                 result.logs.len(),
-                total,
                 Some(item_id),
                 current_path,
                 &result,
-                &cancel_flag,
             );
             continue;
         }
@@ -1403,13 +1400,11 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             });
             emit_cleanup_restore_progress(
                 emitter,
-                &job_id,
+                &progress_context,
                 result.logs.len(),
-                total,
                 Some(item_id),
                 current_path,
                 &result,
-                &cancel_flag,
             );
             continue;
         }
@@ -1424,13 +1419,11 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             });
             emit_cleanup_restore_progress(
                 emitter,
-                &job_id,
+                &progress_context,
                 result.logs.len(),
-                total,
                 Some(item_id),
                 current_path,
                 &result,
-                &cancel_flag,
             );
             continue;
         }
@@ -1468,33 +1461,35 @@ fn restore_cleanup_trash_items_for_db_with_progress(
         }
         emit_cleanup_restore_progress(
             emitter,
-            &job_id,
+            &progress_context,
             result.logs.len(),
-            total,
             Some(item_id),
             current_path,
             &result,
-            &cancel_flag,
         );
     }
 
     Ok(result)
 }
 
+struct CleanupRestoreProgressContext<'a> {
+    job_id: &'a str,
+    total: usize,
+    cancel_flag: &'a AtomicBool,
+}
+
 fn emit_cleanup_restore_progress(
     emitter: &impl CleanupRestoreProgressEmitter,
-    job_id: &str,
+    context: &CleanupRestoreProgressContext<'_>,
     processed: usize,
-    total: usize,
     current_item_id: Option<String>,
     current_path: Option<String>,
     result: &CleanupRestoreResult,
-    cancel_flag: &AtomicBool,
 ) {
     emitter.emit_progress(CleanupRestoreProgressPayload {
-        job_id: job_id.to_string(),
+        job_id: context.job_id.to_string(),
         processed,
-        total,
+        total: context.total,
         current_item_id,
         current_path,
         restored: result.restored,
@@ -1502,7 +1497,7 @@ fn emit_cleanup_restore_progress(
         missing: result.missing,
         failed: result.failed,
         canceled: result.canceled,
-        cancel_requested: cancel_flag.load(Ordering::Relaxed),
+        cancel_requested: context.cancel_flag.load(Ordering::Relaxed),
     });
 }
 

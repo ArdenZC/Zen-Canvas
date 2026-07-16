@@ -13,6 +13,16 @@ function tokenValue(source: string, name: string) {
   return source.match(new RegExp(`--${name}:\\s*([^;]+);`))?.[1].trim() ?? "";
 }
 
+function brandMarkVariant(source: string, variant: string, nextVariant?: string) {
+  const normalizedSource = source.replace(/\r\n?/g, "\n");
+  const boundary = nextVariant
+    ? `\\n\\s*\\},\\n\\s*${nextVariant}:`
+    : "\\n\\s*\\}";
+  return normalizedSource.match(
+    new RegExp(`${variant}:\\s*\\{([\\s\\S]*?)${boundary}`)
+  )?.[1] ?? "";
+}
+
 function relativeLuminance(hex: string) {
   const match = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
   if (!match) throw new Error(`Expected a six-digit hex color, received: ${hex}`);
@@ -167,9 +177,9 @@ describe("Design Foundation v4", () => {
   });
 
   it("uses optical BrandMark variants without collapsing the micro mark into a glow", () => {
-    const micro = brandMark.match(/micro:\s*\{([\s\S]*?)\n\s*\},\n\s*sidebar:/)?.[1] ?? "";
-    const sidebar = brandMark.match(/sidebar:\s*\{([\s\S]*?)\n\s*\},\n\s*app:/)?.[1] ?? "";
-    const app = brandMark.match(/app:\s*\{([\s\S]*?)\n\s*\}/)?.[1] ?? "";
+    const micro = brandMarkVariant(brandMark, "micro", "sidebar");
+    const sidebar = brandMarkVariant(brandMark, "sidebar", "app");
+    const app = brandMarkVariant(brandMark, "app");
 
     expect(micro).not.toContain("backdrop-blur");
     expect(micro).not.toContain("shadow-");
@@ -181,6 +191,21 @@ describe("Design Foundation v4", () => {
     expect(sidebar).not.toMatch(/backdrop-blur-(?:sm|md|lg|xl|2xl|3xl)/);
     expect(app).toContain("backdrop-blur-[4px]");
     expect(app).not.toContain("backdrop-blur-md");
+  });
+
+  it("extracts BrandMark variants identically from LF and CRLF source", () => {
+    const lfSource = brandMark.replace(/\r\n?/g, "\n");
+    const crlfSource = lfSource.replace(/\n/g, "\r\n");
+
+    for (const [variant, nextVariant] of [
+      ["micro", "sidebar"],
+      ["sidebar", "app"],
+      ["app", undefined]
+    ] as const) {
+      expect(brandMarkVariant(crlfSource, variant, nextVariant)).toBe(
+        brandMarkVariant(lfSource, variant, nextVariant)
+      );
+    }
   });
 
   it("uses high-opacity, blue-tinted BrandMark canvas surfaces in both themes", () => {
