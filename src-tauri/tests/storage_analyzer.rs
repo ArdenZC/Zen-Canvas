@@ -144,6 +144,82 @@ fn storage_cleanup_scan_accepts_user_selected_temp_directory() {
 }
 
 #[test]
+fn cleanup_roots_are_deduplicated_after_canonicalization() {
+    let root = test_dir();
+    let aliased = root.join(".");
+
+    let roots = validate_cleanup_roots_for_test(vec![
+        root.to_string_lossy().into_owned(),
+        aliased.to_string_lossy().into_owned(),
+    ])
+    .expect("canonical cleanup roots");
+
+    assert_eq!(roots, vec![root.canonicalize().expect("canonical root")]);
+}
+
+#[test]
+fn cleanup_roots_reject_wildcards_and_parent_traversal_before_filesystem_access() {
+    let root = test_dir();
+    for invalid in [
+        root.join("*"),
+        root.join("?"),
+        root.join("child").join(".."),
+    ] {
+        let error = validate_cleanup_roots_for_test(vec![invalid.to_string_lossy().into_owned()])
+            .expect_err("invalid cleanup root syntax must be rejected");
+        assert!(
+            error.contains("unsupported path characters")
+                || error.contains("parent-directory traversal"),
+            "unexpected error: {error}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn cleanup_roots_reject_nul_before_filesystem_access() {
+    let error = validate_cleanup_roots_for_test(vec!["/tmp/invalid\0root".to_string()])
+        .expect_err("NUL cleanup root must be rejected");
+
+    assert!(error.contains("unsupported path characters"));
+}
+
+#[test]
+fn cleanup_root_symlinks_to_system_directories_are_rejected() {
+    let root = test_dir();
+    let link = root.join("root-link");
+    let target = if cfg!(windows) {
+        PathBuf::from("C:/Windows")
+    } else if cfg!(target_os = "macos") {
+        PathBuf::from("/System")
+    } else {
+        PathBuf::from("/etc")
+    };
+    if create_directory_symlink_for_test(&target, &link).is_err() {
+        return;
+    }
+
+    let result = validate_cleanup_roots_for_test(vec![link.to_string_lossy().into_owned()]);
+    fs::remove_dir(&link).expect("remove system directory symlink");
+    let error = result.expect_err("symlink cleanup root must be rejected");
+
+    assert!(error.to_ascii_lowercase().contains("symlink"));
+}
+
+#[test]
+fn cleanup_root_symlink_to_current_temp_is_not_automatically_allowed() {
+    let root = test_dir();
+    let link = root.join("temp-link");
+    if create_directory_symlink_for_test(&std::env::temp_dir(), &link).is_err() {
+        return;
+    }
+
+    let result = validate_cleanup_roots_for_test(vec![link.to_string_lossy().into_owned()]);
+    fs::remove_dir(&link).expect("remove temp directory symlink");
+    assert!(result.is_err());
+}
+
+#[test]
 fn current_user_recent_temp_file_is_not_default_safe_in_real_scan() {
     let root = current_temp_test_dir();
     let recent = root.join("recent.tmp");
@@ -1071,6 +1147,16 @@ fn write_file(path: &Path, size: usize) {
         fs::create_dir_all(parent).expect("parent dir");
     }
     fs::write(path, vec![b'x'; size]).expect("write file");
+}
+
+#[cfg(windows)]
+fn create_directory_symlink_for_test(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_dir(target, link)
+}
+
+#[cfg(unix)]
+fn create_directory_symlink_for_test(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
 }
 
 fn cleanup_candidate_root(label: &str, count: usize) -> PathBuf {

@@ -6,7 +6,7 @@ use std::{
     env, fs,
     hash::{Hash, Hasher},
     panic::{catch_unwind, AssertUnwindSafe},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
@@ -2042,8 +2042,18 @@ enum CleanupRootKind {
 
 #[derive(Debug, Clone)]
 struct CleanupRootContext {
+    requested_root: PathBuf,
     canonical_root: PathBuf,
     kind: CleanupRootKind,
+}
+
+impl CleanupRootContext {
+    fn matches(&self, path: &str) -> bool {
+        let normalized_path = normalize_compare_text(path);
+        [&self.requested_root, &self.canonical_root]
+            .into_iter()
+            .any(|root| is_same_or_child(&normalized_path, &normalize_for_compare(root)))
+    }
 }
 
 fn cleanup_root_kind_for(
@@ -2091,6 +2101,7 @@ fn build_cleanup_root_contexts(roots: &[PathBuf]) -> Vec<CleanupRootContext> {
                 downloads.as_deref(),
             );
             CleanupRootContext {
+                requested_root: root.clone(),
                 canonical_root,
                 kind,
             }
@@ -2116,9 +2127,7 @@ impl ScanContext {
         let normalized = normalize_for_compare(path);
         self.root_contexts
             .iter()
-            .filter(|context| {
-                is_same_or_child(&normalized, &normalize_for_compare(&context.canonical_root))
-            })
+            .filter(|context| context.matches(&normalized))
             .max_by_key(|context| context.canonical_root.components().count())
             .map(|context| context.kind)
             .unwrap_or(CleanupRootKind::UserSelected)
@@ -2180,27 +2189,7 @@ fn validate_cleanup_roots(roots: Vec<String>) -> Result<Vec<PathBuf>, String> {
         .map(|root| root.trim().to_string())
         .filter(|root| !root.is_empty())
         .map(PathBuf::from)
-        .map(|root| {
-            if !root.is_absolute() {
-                return Err(format!(
-                    "Cleanup scope must be an absolute path: {}",
-                    normalize_path(&root)
-                ));
-            }
-            if is_forbidden_storage_path(&root, &[]) {
-                return Err(format!(
-                    "Cleanup scope is protected and cannot be scanned: {}",
-                    normalize_path(&root)
-                ));
-            }
-            if !root.exists() {
-                return Err(format!(
-                    "Cleanup scope does not exist: {}",
-                    normalize_path(&root)
-                ));
-            }
-            Ok(root)
-        })
+        .map(validate_cleanup_root)
         .collect::<Result<Vec<_>, _>>()?;
 
     dedupe_paths(&mut validated);
@@ -2208,6 +2197,56 @@ fn validate_cleanup_roots(roots: Vec<String>) -> Result<Vec<PathBuf>, String> {
         return Err("Choose a disk or folder before scanning storage cleanup.".to_string());
     }
     Ok(validated)
+}
+
+fn validate_cleanup_root(root: PathBuf) -> Result<PathBuf, String> {
+    let root_text = root.as_os_str().to_string_lossy();
+    if root_text.contains('\0') || root_text.contains('*') || root_text.contains('?') {
+        return Err(format!(
+            "Cleanup scope contains unsupported path characters: {}",
+            normalize_path(&root)
+        ));
+    }
+    if root
+        .components()
+        .any(|component| component == Component::ParentDir)
+    {
+        return Err(format!(
+            "Cleanup scope cannot contain parent-directory traversal: {}",
+            normalize_path(&root)
+        ));
+    }
+    if !root.is_absolute() {
+        return Err(format!(
+            "Cleanup scope must be an absolute path: {}",
+            normalize_path(&root)
+        ));
+    }
+    let metadata = fs::symlink_metadata(&root).map_err(|error| {
+        format!(
+            "Cleanup scope cannot be inspected: {} ({error})",
+            normalize_path(&root)
+        )
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!(
+            "Cleanup scope cannot be a symlink: {}",
+            normalize_path(&root)
+        ));
+    }
+    let canonical = root.canonicalize().map_err(|error| {
+        format!(
+            "Cleanup scope cannot be canonicalized: {} ({error})",
+            normalize_path(&root)
+        )
+    })?;
+    if is_forbidden_storage_path(&canonical, &[]) {
+        return Err(format!(
+            "Cleanup scope is protected and cannot be scanned: {}",
+            normalize_path(&canonical)
+        ));
+    }
+    Ok(canonical)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -3453,6 +3492,32 @@ mod temp_safety_tests {
     use super::*;
 
     #[test]
+    fn cleanup_root_context_matches_requested_and_canonical_aliases() {
+        let context = CleanupRootContext {
+            requested_root: PathBuf::from("/var/folders/user/T/job"),
+            canonical_root: PathBuf::from("/private/var/folders/user/T/job"),
+            kind: CleanupRootKind::SystemTemp,
+        };
+
+        assert!(context.matches("/var/folders/user/T/job/old.tmp"));
+        assert!(context.matches("/private/var/folders/user/T/job/old.tmp"));
+        assert!(!context.matches("/private/var/folders/other/T/job/old.tmp"));
+    }
+
+    #[test]
+    fn cleanup_root_context_matches_windows_short_path_alias() {
+        let context = CleanupRootContext {
+            requested_root: PathBuf::from("C:/Users/RUNNER~1/AppData/Local/Temp/job"),
+            canonical_root: PathBuf::from("C:/Users/runneradmin/AppData/Local/Temp/job"),
+            kind: CleanupRootKind::SystemTemp,
+        };
+
+        assert!(context.matches("c:/users/runner~1/appdata/local/temp/job/old.tmp"));
+        assert!(context.matches("c:/users/runneradmin/appdata/local/temp/job/old.tmp"));
+        assert!(!context.matches("c:/users/other/appdata/local/temp/job/old.tmp"));
+    }
+
+    #[test]
     fn current_user_old_temp_file_is_safe_and_selected() {
         let candidate = classify_system_temp_candidate(
             Path::new("/tmp/zen-canvas-old.tmp"),
@@ -3598,6 +3663,13 @@ mod temp_safety_tests {
                 is_system_path_text_for_os(path, "macos"),
                 "expected macOS system path to remain protected: {path}"
             );
+        }
+    }
+
+    #[test]
+    fn macos_system_path_case_variants_remain_protected() {
+        for path in ["/sYsTeM", "/LIBRARY/Application Support", "/aPpLiCaTiOnS"] {
+            assert!(is_system_path_text_for_os(path, "macos"));
         }
     }
 
