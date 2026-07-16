@@ -190,7 +190,7 @@ pub struct Rule {
     pub id: String,
     pub name: String,
     #[serde(default)]
-    pub source: String,
+    pub source: RuleSource,
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
@@ -198,7 +198,7 @@ pub struct Rule {
     #[serde(default)]
     pub weight: f64,
     #[serde(default = "default_or", alias = "rootOperator")]
-    pub root_operator: String,
+    pub root_operator: RuleOperator,
     #[serde(default)]
     pub groups: Vec<RuleConditionGroup>,
     #[serde(default)]
@@ -213,7 +213,7 @@ pub struct Rule {
 pub struct RuleConditionGroup {
     pub id: String,
     #[serde(default = "default_and")]
-    pub operator: String,
+    pub operator: RuleOperator,
     #[serde(default)]
     pub conditions: Vec<RuleCondition>,
 }
@@ -221,23 +221,23 @@ pub struct RuleConditionGroup {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RuleCondition {
     pub id: String,
-    pub field: String,
-    pub operator: String,
+    pub field: ConditionField,
+    pub operator: ConditionOperator,
     pub value: Value,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct RuleAction {
     #[serde(default)]
-    pub purpose: Option<String>,
+    pub purpose: Option<Purpose>,
     #[serde(default)]
-    pub lifecycle: Option<String>,
+    pub lifecycle: Option<Lifecycle>,
     #[serde(default)]
     pub context: Option<String>,
     #[serde(default, alias = "riskLevel")]
-    pub risk_level: Option<String>,
+    pub risk_level: Option<RiskLevel>,
     #[serde(default, alias = "suggestedAction")]
-    pub suggested_action: Option<String>,
+    pub suggested_action: Option<SuggestedAction>,
     #[serde(default, alias = "targetTemplate")]
     pub target_template: Option<String>,
     #[serde(default, alias = "renameTemplate")]
@@ -357,10 +357,166 @@ fn default_true() -> bool {
     true
 }
 
-fn default_or() -> String {
-    "OR".to_string()
+fn default_or() -> RuleOperator {
+    RuleOperator::Or
 }
 
-fn default_and() -> String {
-    "AND".to_string()
+fn default_and() -> RuleOperator {
+    RuleOperator::And
+}
+macro_rules! domain_enum {
+    ($name:ident { $($variant:ident => $value:literal),+ $(,)? }) => {
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub enum $name {
+            $($variant,)+
+            Invalid(String),
+        }
+
+        impl $name {
+            pub fn as_str(&self) -> &str {
+                match self {
+                    $(Self::$variant => $value,)+
+                    Self::Invalid(value) => value,
+                }
+            }
+            pub fn is_invalid(&self) -> bool { matches!(self, Self::Invalid(_)) }
+
+            fn from_value(value: String) -> Self {
+                match value.as_str() {
+                    $($value => Self::$variant,)+
+                    _ => Self::Invalid(value),
+                }
+            }
+        }
+
+        impl std::ops::Deref for $name {
+            type Target = str;
+            fn deref(&self) -> &Self::Target { self.as_str() }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str(self.as_str())
+            }
+        }
+
+        impl From<String> for $name {
+            fn from(value: String) -> Self { Self::from_value(value) }
+        }
+
+        impl From<&str> for $name {
+            fn from(value: &str) -> Self { Self::from_value(value.to_string()) }
+        }
+
+        impl Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_str(self.as_str())
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let value = String::deserialize(deserializer)?;
+                Ok(Self::from_value(value))
+            }
+        }
+    };
+}
+
+domain_enum!(Purpose {
+    Project => "Project", Teaching => "Teaching", Study => "Study", Work => "Work",
+    Personal => "Personal", Career => "Career", Finance => "Finance", Identity => "Identity",
+    Media => "Media", Installer => "Installer", Temporary => "Temporary", Archive => "Archive",
+    Document => "Document", DuplicateReview => "Duplicate Review", Unknown => "Unknown"
+});
+domain_enum!(Lifecycle {
+    Inbox => "Inbox", Active => "Active", Reference => "Reference", Archive => "Archive",
+    Disposable => "Disposable", Duplicate => "Duplicate", Sensitive => "Sensitive",
+    TrashReview => "TrashReview", Unknown => "Unknown"
+});
+domain_enum!(RiskLevel {
+    Normal => "Normal", Sensitive => "Sensitive", System => "System", Caution => "Caution",
+    Unknown => "Unknown"
+});
+domain_enum!(SuggestedAction {
+    Keep => "Keep", Rename => "Rename", Move => "Move", MoveAndRename => "MoveAndRename",
+    Archive => "Archive", Review => "Review", DeleteCandidate => "DeleteCandidate",
+    Unknown => "Unknown"
+});
+domain_enum!(RuleSource {
+    System => "system", User => "user", Session => "session", Ai => "ai",
+    Learned => "learned", Unknown => "unknown"
+});
+domain_enum!(RuleOperator {
+    And => "AND", Or => "OR", Unknown => "UNKNOWN"
+});
+domain_enum!(ConditionField {
+    Name => "name", Extension => "extension", FileType => "file_type", Path => "path",
+    Directory => "directory", Size => "size", ModifiedAt => "modified_at",
+    IsDuplicate => "is_duplicate", RiskLevel => "risk_level", Unknown => "unknown"
+});
+domain_enum!(ConditionOperator {
+    Contains => "contains", Equals => "equals", StartsWith => "startsWith",
+    EndsWith => "endsWith", Is => "is", GreaterThan => "greaterThan",
+    LessThan => "lessThan", OlderThanDays => "olderThanDays",
+    NewerThanDays => "newerThanDays", Unknown => "unknown"
+});
+
+impl Default for RuleSource {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+impl Default for RuleOperator {
+    fn default() -> Self {
+        Self::And
+    }
+}
+
+#[cfg(test)]
+mod domain_enum_tests {
+    use super::*;
+
+    #[test]
+    fn rule_domain_enums_serialize_with_frontend_values() {
+        assert_eq!(
+            serde_json::to_string(&Purpose::Project).unwrap(),
+            r#""Project""#
+        );
+        assert_eq!(
+            serde_json::to_string(&Lifecycle::Reference).unwrap(),
+            r#""Reference""#
+        );
+        assert_eq!(
+            serde_json::to_string(&RiskLevel::System).unwrap(),
+            r#""System""#
+        );
+        assert_eq!(
+            serde_json::to_string(&SuggestedAction::MoveAndRename).unwrap(),
+            r#""MoveAndRename""#
+        );
+        assert_eq!(
+            serde_json::to_string(&RuleSource::Learned).unwrap(),
+            r#""learned""#
+        );
+        assert_eq!(serde_json::to_string(&RuleOperator::Or).unwrap(), r#""OR""#);
+        assert_eq!(
+            serde_json::to_string(&ConditionField::ModifiedAt).unwrap(),
+            r#""modified_at""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ConditionOperator::OlderThanDays).unwrap(),
+            r#""olderThanDays""#
+        );
+    }
+
+    #[test]
+    fn invalid_domain_values_remain_typed_until_validation_or_migration() {
+        let field: ConditionField = serde_json::from_str(r#""not-a-field""#).unwrap();
+        let action: SuggestedAction = serde_json::from_str(r#""not-an-action""#).unwrap();
+
+        assert!(field.is_invalid());
+        assert!(action.is_invalid());
+    }
 }

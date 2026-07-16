@@ -236,27 +236,27 @@
         Rule {
             id: id.to_string(),
             name: name.to_string(),
-            source: "user".to_string(),
+            source: "user".into(),
             enabled: true,
             priority: 200.0,
             weight: 100.0,
-            root_operator: "OR".to_string(),
+            root_operator: "OR".into(),
             groups: vec![RuleConditionGroup {
                 id: format!("{id}-group"),
-                operator: "AND".to_string(),
+                operator: "AND".into(),
                 conditions: vec![RuleCondition {
                     id: format!("{id}-condition"),
-                    field: "name".to_string(),
-                    operator: "contains".to_string(),
+                    field: "name".into(),
+                    operator: "contains".into(),
                     value: Value::String("special".to_string()),
                 }],
             }],
             action: RuleAction {
-                purpose: Some(purpose.to_string()),
-                lifecycle: Some("Inbox".to_string()),
+                purpose: Some(purpose.into()),
+                lifecycle: Some("Inbox".into()),
                 context: Some("D1 Test".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Keep".to_string()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Keep".into()),
                 target_template: None,
                 rename_template: None,
             },
@@ -269,27 +269,27 @@
         Rule {
             id: id.to_string(),
             name: name.to_string(),
-            source: "user".to_string(),
+            source: "user".into(),
             enabled: true,
             priority,
             weight: 42.5,
-            root_operator: "AND".to_string(),
+            root_operator: "AND".into(),
             groups: vec![RuleConditionGroup {
                 id: format!("{id}-group"),
-                operator: "AND".to_string(),
+                operator: "AND".into(),
                 conditions: vec![RuleCondition {
                     id: format!("{id}-condition"),
-                    field: "extension".to_string(),
-                    operator: "equals".to_string(),
+                    field: "extension".into(),
+                    operator: "equals".into(),
                     value: Value::String("pdf".to_string()),
                 }],
             }],
             action: RuleAction {
-                purpose: Some("Document".to_string()),
-                lifecycle: Some("Archive".to_string()),
+                purpose: Some("Document".into()),
+                lifecycle: Some("Archive".into()),
                 context: Some("Persistence Test".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("{home}/Archive".to_string()),
                 rename_template: Some("{name}".to_string()),
             },
@@ -301,7 +301,7 @@
     fn assert_rule_matches(actual: &Rule, expected: &Rule) {
         assert_eq!(actual.id, expected.id);
         assert_eq!(actual.name, expected.name);
-        assert_eq!(actual.source, "user");
+        assert_eq!(actual.source.as_str(), "user");
         assert_eq!(actual.enabled, expected.enabled);
         assert_eq!(actual.priority, expected.priority);
         assert_eq!(actual.weight, expected.weight);

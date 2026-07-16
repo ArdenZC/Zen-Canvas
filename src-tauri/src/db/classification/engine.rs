@@ -354,9 +354,10 @@ fn active_rules_for_manual_rules(rules: Vec<Rule>, settings: &AppSettings) -> Ve
         .into_iter()
         .filter(|rule| rule.enabled)
         .filter(|rule| {
-            rule.source == "user"
-                || (settings.use_learned_rules_as_auto_rules && rule.source == "learned")
-                || (settings.use_legacy_builtin_classification_rules && rule.source == "system")
+            rule.source == RuleSource::User
+                || (settings.use_learned_rules_as_auto_rules && rule.source == RuleSource::Learned)
+                || (settings.use_legacy_builtin_classification_rules
+                    && rule.source == RuleSource::System)
         });
     if settings.use_legacy_builtin_classification_rules {
         legacy_builtin_classification_rules()
@@ -581,7 +582,7 @@ fn classify_indexed_file(
     let mut risk_level = action
         .risk_level
         .clone()
-        .unwrap_or_else(|| default_if_empty(&row.risk_level, "Unknown"));
+        .unwrap_or_else(|| default_if_empty(&row.risk_level, "Unknown").into());
     let safety_guard_applied = safety
         .action
         .risk_level
@@ -592,7 +593,7 @@ fn classify_indexed_file(
             .action
             .risk_level
             .clone()
-            .unwrap_or_else(|| "Sensitive".to_string());
+            .unwrap_or_else(|| "Sensitive".into());
         if !matched_rule_names
             .iter()
             .any(|rule| rule == "safety_guard:sensitive_or_system")
@@ -601,11 +602,12 @@ fn classify_indexed_file(
         }
     }
     let suggested_action = safe_action(
-        &action
+        action
             .suggested_action
             .clone()
-            .unwrap_or_else(|| default_if_empty(&row.suggested_action, "Keep")),
-        &risk_level,
+            .unwrap_or_else(|| default_if_empty(&row.suggested_action, "Keep").into())
+            .as_str(),
+        risk_level.as_str(),
     );
     let suggested_target_path = build_target_path(
         row,
@@ -615,7 +617,7 @@ fn classify_indexed_file(
         &OrganizeRootConfig::from(settings),
     );
     let suggested_name = build_suggested_name(row, action.rename_template.as_deref());
-    let requires_confirmation = risk_level == "Sensitive"
+    let requires_confirmation = risk_level.as_str() == "Sensitive"
         || has_conflict
         || confidence < 0.65
         || suggested_action == "Review"
@@ -626,16 +628,18 @@ fn classify_indexed_file(
         purpose: action
             .purpose
             .clone()
-            .unwrap_or_else(|| default_if_empty(&row.purpose, "Unknown")),
+            .unwrap_or_else(|| default_if_empty(&row.purpose, "Unknown").into())
+            .to_string(),
         lifecycle: action
             .lifecycle
             .clone()
-            .unwrap_or_else(|| default_if_empty(&row.lifecycle, "Inbox")),
+            .unwrap_or_else(|| default_if_empty(&row.lifecycle, "Inbox").into())
+            .to_string(),
         context: action
             .context
             .clone()
             .unwrap_or_else(|| row.context.clone()),
-        risk_level: risk_level.clone(),
+        risk_level: risk_level.to_string(),
         suggested_action,
         suggested_target_path,
         suggested_name,
@@ -643,7 +647,7 @@ fn classify_indexed_file(
         classification_reason: build_classification_reason(
             &matched_rule_names,
             has_conflict,
-            &risk_level,
+            risk_level.as_str(),
         ),
         classification_status: CLASSIFICATION_STATUS_CLASSIFIED.to_string(),
         matched_rules: serde_json::to_string(&matched_rule_names)?,
@@ -668,10 +672,10 @@ fn evaluate_rule(rule: &Rule, row: &IndexedFileRow, file_type: &str) -> bool {
         .iter()
         .map(|group| evaluate_group(group, row, file_type))
         .collect::<Vec<_>>();
-    if rule.root_operator.eq_ignore_ascii_case("AND") {
-        results.iter().all(|value| *value)
-    } else {
-        results.iter().any(|value| *value)
+    match &rule.root_operator {
+        RuleOperator::And => results.iter().all(|value| *value),
+        RuleOperator::Or => results.iter().any(|value| *value),
+        RuleOperator::Unknown | RuleOperator::Invalid(_) => false,
     }
 }
 
@@ -684,10 +688,10 @@ fn evaluate_group(group: &RuleConditionGroup, row: &IndexedFileRow, file_type: &
         .iter()
         .map(|condition| evaluate_condition(condition, row, file_type))
         .collect::<Vec<_>>();
-    if group.operator.eq_ignore_ascii_case("OR") {
-        results.iter().any(|value| *value)
-    } else {
-        results.iter().all(|value| *value)
+    match &group.operator {
+        RuleOperator::Or => results.iter().any(|value| *value),
+        RuleOperator::And => results.iter().all(|value| *value),
+        RuleOperator::Unknown | RuleOperator::Invalid(_) => false,
     }
 }
 
@@ -802,10 +806,10 @@ fn safe_action(action: &str, risk_level: &str) -> String {
 fn fallback_classification(row: &IndexedFileRow) -> BuiltinClassification {
     BuiltinClassification {
         action: RuleAction {
-            purpose: Some(default_if_empty(&row.purpose, "Unknown")),
-            lifecycle: Some(default_if_empty(&row.lifecycle, "Inbox")),
-            risk_level: Some(default_if_empty(&row.risk_level, "Unknown")),
-            suggested_action: Some(default_if_empty(&row.suggested_action, "Keep")),
+            purpose: Some(default_if_empty(&row.purpose, "Unknown").into()),
+            lifecycle: Some(default_if_empty(&row.lifecycle, "Inbox").into()),
+            risk_level: Some(default_if_empty(&row.risk_level, "Unknown").into()),
+            suggested_action: Some(default_if_empty(&row.suggested_action, "Keep").into()),
             target_template: (!row.suggested_target_path.trim().is_empty())
                 .then(|| row.suggested_target_path.clone()),
             context: Some(row.context.clone()),

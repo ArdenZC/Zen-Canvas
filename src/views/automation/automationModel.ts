@@ -118,6 +118,9 @@ export function conditionSummary(condition: RuleCondition, t: Translator) {
 
 export function ruleConditionSummary(rule: Rule, t: Translator) {
   if (!rule.groups.length) return t("automationNoConditions");
+  if (rule.root_operator === "UNKNOWN" || rule.groups.some((group) => group.operator === "UNKNOWN")) {
+    return t("automationConditionIncomplete");
+  }
   return rule.groups
     .map((group) => group.conditions.map((condition) => conditionSummary(condition, t)).join(` ${t(group.operator === "AND" ? "automationLogicAnd" : "automationLogicOr")} `))
     .join(` ${t(rule.root_operator === "AND" ? "automationLogicAnd" : "automationLogicOr")} `);
@@ -142,7 +145,9 @@ export function draftActionSummary(purpose: Purpose, lifecycle: Lifecycle, t: Tr
 }
 
 export function draftConditionSummary(groups: Rule["groups"], rootOperator: Rule["root_operator"], t: Translator) {
-  if (!groups.length || groups.some((group) => !group.conditions.length)) return t("automationConditionIncomplete");
+  if (rootOperator === "UNKNOWN" || !groups.length || groups.some((group) => group.operator === "UNKNOWN" || !group.conditions.length)) {
+    return t("automationConditionIncomplete");
+  }
   return groups
     .map((group) => group.conditions.map((condition) => conditionSummary(condition, t)).join(` ${t(group.operator === "AND" ? "automationLogicAnd" : "automationLogicOr")} `))
     .join(` ${t(rootOperator === "AND" ? "automationLogicAnd" : "automationLogicOr")} `);

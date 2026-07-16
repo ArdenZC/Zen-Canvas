@@ -53,6 +53,12 @@ describe("automation workspace behavior", () => {
     expect(draftConditionSummary([], "AND", t)).toBe("Condition is incomplete");
   });
 
+  it("does not render migrated unknown logic as OR", () => {
+    const unknownLogic = { ...sample, root_operator: "UNKNOWN" as const };
+    expect(ruleConditionSummary(unknownLogic, t)).toBe("Condition is incomplete");
+    expect(draftConditionSummary(sample.groups, "UNKNOWN", t)).toBe("Condition is incomplete");
+  });
+
   it("localizes builder options and keeps invalid drafts unsavable until required fields are valid", async () => {
     const onSave = vi.fn(async (_rule: Rule) => undefined);
     root = createRoot(document.getElementById("test-root")!);

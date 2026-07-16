@@ -7,6 +7,7 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 impl Database {
     pub fn get_user_rules(&self) -> Result<Vec<Rule>, DbError> {
         let conn = self.conn()?;
+        migrate_invalid_rule_domain_values(&conn)?;
         let mut stmt = conn.prepare(
             r#"
             SELECT
@@ -37,7 +38,7 @@ impl Database {
 
     pub fn save_user_rule(&self, rule: Rule) -> Result<Rule, DbError> {
         let mut rule = rule;
-        rule.source = "user".to_string();
+        rule.source = RuleSource::User;
         validate_user_rule(&rule)?;
         let now = current_timestamp_iso();
         if rule.created_at.trim().is_empty() {
@@ -84,7 +85,7 @@ impl Database {
                 bool_to_i64(rule.enabled),
                 rule.priority,
                 rule.weight,
-                rule.root_operator,
+                rule.root_operator.as_str(),
                 groups_json,
                 action_json,
                 rule.created_at,
@@ -108,6 +109,138 @@ impl Database {
         )?;
         Ok(deleted > 0)
     }
+}
+
+fn migrate_invalid_rule_domain_values(conn: &rusqlite::Connection) -> Result<(), DbError> {
+    let migrations = [
+        (
+            "purpose",
+            "'Project','Teaching','Study','Work','Personal','Career','Finance','Identity','Media','Installer','Temporary','Archive','Document','Duplicate Review','Unknown'",
+        ),
+        (
+            "lifecycle",
+            "'Inbox','Active','Reference','Archive','Disposable','Duplicate','Sensitive','TrashReview','Unknown'",
+        ),
+        (
+            "risk_level",
+            "'Normal','Sensitive','System','Caution','Unknown'",
+        ),
+        (
+            "suggested_action",
+            "'Keep','Rename','Move','MoveAndRename','Archive','Review','DeleteCandidate','Unknown'",
+        ),
+    ];
+    for (field, allowed) in migrations {
+        let sql = format!(
+            "UPDATE rules SET action_json = json_set(action_json, '$.{field}', 'Unknown') \
+             WHERE source = 'user' AND json_type(action_json, '$.{field}') = 'text' \
+             AND json_extract(action_json, '$.{field}') NOT IN ({allowed})"
+        );
+        let changed = conn.execute(&sql, [])?;
+        if changed > 0 {
+            eprintln!(
+                "migration warning: mapped {changed} invalid rule {field} value(s) to Unknown"
+            );
+        }
+    }
+    conn.execute(
+        "UPDATE rules SET source = 'unknown' WHERE source NOT IN ('system', 'user', 'session', 'ai', 'learned', 'unknown')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE rules SET root_operator = 'UNKNOWN' WHERE root_operator NOT IN ('AND', 'OR', 'UNKNOWN')",
+        [],
+    )?;
+
+    let mut stmt = conn.prepare("SELECT id, groups_json FROM rules")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(stmt);
+    for (id, groups_json) in rows {
+        let Ok(mut groups) = serde_json::from_str::<Value>(&groups_json) else {
+            continue;
+        };
+        let mut changed = false;
+        if let Some(group_values) = groups.as_array_mut() {
+            for group in group_values {
+                let Some(group_object) = group.as_object_mut() else {
+                    continue;
+                };
+                let operator = group_object
+                    .get("operator")
+                    .and_then(Value::as_str)
+                    .unwrap_or("UNKNOWN");
+                if !matches!(operator, "AND" | "OR" | "UNKNOWN") {
+                    group_object
+                        .insert("operator".to_string(), Value::String("UNKNOWN".to_string()));
+                    changed = true;
+                }
+                let Some(conditions) = group_object
+                    .get_mut("conditions")
+                    .and_then(Value::as_array_mut)
+                else {
+                    continue;
+                };
+                for condition in conditions {
+                    let Some(condition_object) = condition.as_object_mut() else {
+                        continue;
+                    };
+                    let field = condition_object
+                        .get("field")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown");
+                    if !matches!(
+                        field,
+                        "name"
+                            | "extension"
+                            | "file_type"
+                            | "path"
+                            | "directory"
+                            | "size"
+                            | "modified_at"
+                            | "is_duplicate"
+                            | "risk_level"
+                            | "unknown"
+                    ) {
+                        condition_object
+                            .insert("field".to_string(), Value::String("unknown".to_string()));
+                        changed = true;
+                    }
+                    let operator = condition_object
+                        .get("operator")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown");
+                    if !matches!(
+                        operator,
+                        "contains"
+                            | "equals"
+                            | "startsWith"
+                            | "endsWith"
+                            | "is"
+                            | "greaterThan"
+                            | "lessThan"
+                            | "olderThanDays"
+                            | "newerThanDays"
+                            | "unknown"
+                    ) {
+                        condition_object
+                            .insert("operator".to_string(), Value::String("unknown".to_string()));
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if changed {
+            conn.execute(
+                "UPDATE rules SET groups_json = ?2 WHERE id = ?1",
+                params![id, serde_json::to_string(&groups)?],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn validate_user_rule(rule: &Rule) -> Result<(), DbError> {
@@ -171,7 +304,7 @@ fn validate_user_rule(rule: &Rule) -> Result<(), DbError> {
         "Presentation",
         "Other",
     ];
-    const RISK_LEVELS: &[&str] = &["Normal", "Sensitive", "System", "Unknown"];
+    const RISK_LEVELS: &[&str] = &["Normal", "Sensitive", "System", "Caution", "Unknown"];
 
     for group in &rule.groups {
         if group.id.trim().is_empty() || group.id.len() > 128 || group.conditions.len() > 32 {
@@ -298,6 +431,34 @@ fn validate_user_rule(rule: &Rule) -> Result<(), DbError> {
         }
     }
 
+    if rule
+        .action
+        .purpose
+        .as_ref()
+        .is_some_and(Purpose::is_invalid)
+    {
+        return Err(DbError::Validation("Rule purpose is invalid.".to_string()));
+    }
+    if rule
+        .action
+        .lifecycle
+        .as_ref()
+        .is_some_and(Lifecycle::is_invalid)
+    {
+        return Err(DbError::Validation(
+            "Rule lifecycle is invalid.".to_string(),
+        ));
+    }
+    if rule
+        .action
+        .risk_level
+        .as_ref()
+        .is_some_and(RiskLevel::is_invalid)
+    {
+        return Err(DbError::Validation(
+            "Rule risk level is invalid.".to_string(),
+        ));
+    }
     if let Some(action) = rule.action.suggested_action.as_deref() {
         if !matches!(
             action,
@@ -313,7 +474,10 @@ fn validate_user_rule(rule: &Rule) -> Result<(), DbError> {
     validate_optional_rule_action_value(rule.action.lifecycle.as_deref(), "lifecycle")?;
     validate_optional_rule_action_value(rule.action.context.as_deref(), "context")?;
     if let Some(risk_level) = rule.action.risk_level.as_deref() {
-        if !matches!(risk_level, "Normal" | "Sensitive" | "Caution" | "Unknown") {
+        if !matches!(
+            risk_level,
+            "Normal" | "Sensitive" | "System" | "Caution" | "Unknown"
+        ) {
             return Err(DbError::Validation(
                 "Rule risk level is invalid.".to_string(),
             ));
@@ -418,16 +582,53 @@ fn rule_from_row(row: &Row<'_>) -> rusqlite::Result<RuleSqlRow> {
 }
 
 fn rule_from_sql_row(row: RuleSqlRow) -> Result<Rule, DbError> {
+    let mut action = serde_json::from_str::<RuleAction>(&row.action_json)?;
+    if action.purpose.as_ref().is_some_and(Purpose::is_invalid) {
+        eprintln!(
+            "migration warning: rule {} has invalid purpose; mapped to Unknown",
+            row.id
+        );
+        action.purpose = Some(Purpose::Unknown);
+    }
+    if action.lifecycle.as_ref().is_some_and(Lifecycle::is_invalid) {
+        eprintln!(
+            "migration warning: rule {} has invalid lifecycle; mapped to Unknown",
+            row.id
+        );
+        action.lifecycle = Some(Lifecycle::Unknown);
+    }
+    if action
+        .risk_level
+        .as_ref()
+        .is_some_and(RiskLevel::is_invalid)
+    {
+        eprintln!(
+            "migration warning: rule {} has invalid risk level; mapped to Unknown",
+            row.id
+        );
+        action.risk_level = Some(RiskLevel::Unknown);
+    }
+    if action
+        .suggested_action
+        .as_ref()
+        .is_some_and(SuggestedAction::is_invalid)
+    {
+        eprintln!(
+            "migration warning: rule {} has invalid suggested action; mapped to Unknown",
+            row.id
+        );
+        action.suggested_action = Some(SuggestedAction::Unknown);
+    }
     Ok(Rule {
         id: row.id,
         name: row.name,
-        source: row.source,
+        source: row.source.into(),
         enabled: row.enabled,
         priority: row.priority,
         weight: row.weight,
-        root_operator: row.root_operator,
+        root_operator: row.root_operator.into(),
         groups: serde_json::from_str::<Vec<RuleConditionGroup>>(&row.groups_json)?,
-        action: serde_json::from_str::<RuleAction>(&row.action_json)?,
+        action,
         created_at: row.created_at,
         updated_at: row.updated_at,
     })

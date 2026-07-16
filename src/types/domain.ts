@@ -23,6 +23,8 @@ export type Purpose =
   | "Installer"
   | "Temporary"
   | "Archive"
+  | "Document"
+  | "Duplicate Review"
   | "Unknown";
 
 export type Lifecycle =
@@ -32,9 +34,11 @@ export type Lifecycle =
   | "Archive"
   | "Disposable"
   | "Duplicate"
-  | "Sensitive";
+  | "Sensitive"
+  | "TrashReview"
+  | "Unknown";
 
-export type RiskLevel = "Normal" | "Sensitive" | "System" | "Unknown";
+export type RiskLevel = "Normal" | "Sensitive" | "System" | "Caution" | "Unknown";
 
 export type SuggestedAction =
   | "Keep"
@@ -43,7 +47,8 @@ export type SuggestedAction =
   | "MoveAndRename"
   | "Archive"
   | "Review"
-  | "DeleteCandidate";
+  | "DeleteCandidate"
+  | "Unknown";
 
 export type DispatchZone = "CoreAssets" | "QuietArchive" | "PrivacyVault" | "CleanupLane";
 export type SearchSourceType = "user_space" | "folder" | "cloud" | "external";
@@ -316,8 +321,8 @@ export interface ScanRoot {
   summarized_count?: number;
 }
 
-export type RuleSource = "system" | "user" | "session" | "ai" | "learned";
-export type RuleOperator = "AND" | "OR";
+export type RuleSource = "system" | "user" | "session" | "ai" | "learned" | "unknown";
+export type RuleOperator = "AND" | "OR" | "UNKNOWN";
 
 export type ConditionField =
   | "name"
@@ -328,7 +333,8 @@ export type ConditionField =
   | "size"
   | "modified_at"
   | "is_duplicate"
-  | "risk_level";
+  | "risk_level"
+  | "unknown";
 
 export type ConditionOperator =
   | "contains"
@@ -339,7 +345,8 @@ export type ConditionOperator =
   | "lessThan"
   | "olderThanDays"
   | "newerThanDays"
-  | "is";
+  | "is"
+  | "unknown";
 
 export interface RuleCondition {
   id: string;

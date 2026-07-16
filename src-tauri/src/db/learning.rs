@@ -311,11 +311,11 @@ fn learned_rule_from_snapshot(
         };
         groups.push(RuleConditionGroup {
             id: format!("learned_group_{}", stable_id(keyword)),
-            operator: "AND".to_string(),
+            operator: "AND".into(),
             conditions: vec![RuleCondition {
                 id: format!("learned_condition_{}", stable_id(keyword)),
-                field: field.to_string(),
-                operator: operator.to_string(),
+                field: field.into(),
+                operator: operator.into(),
                 value,
             }],
         });
@@ -323,11 +323,11 @@ fn learned_rule_from_snapshot(
 
     let now = current_rule_timestamp();
     let action = RuleAction {
-        purpose: Some(snapshot.purpose.clone()),
-        lifecycle: Some(snapshot.lifecycle.clone()),
+        purpose: Some(snapshot.purpose.clone().into()),
+        lifecycle: Some(snapshot.lifecycle.clone().into()),
         context: (!snapshot.context.trim().is_empty()).then(|| snapshot.context.clone()),
-        risk_level: Some(snapshot.risk_level.clone()),
-        suggested_action: Some(snapshot.suggested_action.clone()),
+        risk_level: Some(snapshot.risk_level.clone().into()),
+        suggested_action: Some(snapshot.suggested_action.clone().into()),
         target_template: target_template
             .map(str::trim)
             .filter(|value| !value.is_empty())
@@ -341,11 +341,11 @@ fn learned_rule_from_snapshot(
             stable_id(&format!("{}:{}", snapshot.file_id, keywords.join("|")))
         ),
         name: format!("learned: {}", keywords.join(", ")),
-        source: "learned".to_string(),
+        source: "learned".into(),
         enabled: false,
         priority: 88.0,
         weight: 85.0,
-        root_operator: "OR".to_string(),
+        root_operator: "OR".into(),
         groups,
         action,
         created_at: now.clone(),
@@ -463,7 +463,7 @@ fn insert_learned_rule(conn: &rusqlite::Transaction<'_>, rule: &Rule) -> Result<
             rule.name,
             rule.priority,
             rule.weight,
-            rule.root_operator,
+            rule.root_operator.as_str(),
             serde_json::to_string(&rule.groups)?,
             serde_json::to_string(&rule.action)?,
             rule.created_at,
