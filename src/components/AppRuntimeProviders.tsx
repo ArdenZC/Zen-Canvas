@@ -228,6 +228,7 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   );
   const setSearchHotkey = useCallback(
     async (next: string) => {
+      const previous = appSettings.searchHotkey;
       try {
         const status = await tauriApi.registerGlobalSearchHotkey(next);
         useAppStore.getState().setGlobalHotkeyError(status.error ?? "");
@@ -243,9 +244,24 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
       }
 
       const savedSettings = await updateSettings({ searchHotkey: next });
-      return savedSettings.searchHotkey === next;
+      if (savedSettings.searchHotkey === next) return true;
+
+      try {
+        const rollbackStatus = await tauriApi.registerGlobalSearchHotkey(previous);
+        useAppStore.getState().setGlobalHotkeyError(rollbackStatus.error ?? "");
+        if (!rollbackStatus.registered) {
+          const message = rollbackStatus.error ?? "Failed to restore the previous global hotkey.";
+          useAppStore.getState().setGlobalHotkeyError(message);
+          showError(message);
+        }
+      } catch (error) {
+        const message = `Failed to restore the previous global hotkey: ${readableError(error)}`;
+        useAppStore.getState().setGlobalHotkeyError(message);
+        showError(message);
+      }
+      return false;
     },
-    [showError, updateSettings]
+    [appSettings.searchHotkey, showError, updateSettings]
   );
   const setSearchScopeMode = useCallback(
     async (next: SearchScopeMode) => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -8,9 +8,11 @@ import {
   enabledScanRootPaths,
   enabledSearchRootPaths,
   mergeAppSettings,
+  reconcileFailedSettingsSave,
   removeSearchRoot,
   removeDefaultScanRoot,
   resolveEffectiveSearchScope,
+  saveSettingsIntent,
   toggleSearchRoot,
   toggleDefaultScanRoot,
   upsertSearchRoot,
@@ -18,6 +20,40 @@ import {
 } from "../src/hooks/useAppSettings";
 
 describe("app settings helpers", () => {
+  it("sends the caller's expected revision without silently overwriting a conflict", async () => {
+    const saveSettings = vi.fn().mockRejectedValue(new Error("settings_revision_conflict"));
+    const getSettings = vi.fn();
+
+    await expect(saveSettingsIntent(
+      { getSettings, saveSettings },
+      { settings: DEFAULT_APP_SETTINGS, revision: 6 },
+      { restoreRetentionDays: 90 }
+    )).rejects.toThrow("settings_revision_conflict");
+
+    expect(saveSettings).toHaveBeenCalledTimes(1);
+    expect(getSettings).not.toHaveBeenCalled();
+    expect(saveSettings).toHaveBeenCalledWith({
+      settings: { ...DEFAULT_APP_SETTINGS, restoreRetentionDays: 90 },
+      expectedRevision: 6
+    });
+  });
+
+  it("surfaces a queued save failure and reconciles the latest database revision", async () => {
+    const latest = { settings: DEFAULT_APP_SETTINGS, revision: 9 };
+    const getSettings = vi.fn().mockResolvedValue(latest);
+    const onError = vi.fn();
+
+    const reconciled = await reconcileFailedSettingsSave(
+      { getSettings },
+      new Error("settings_revision_conflict"),
+      onError,
+      (error) => String(error)
+    );
+
+    expect(reconciled).toEqual(latest);
+    expect(getSettings).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith("Error: settings_revision_conflict");
+  });
   it("matches the backend default settings shape", () => {
     expect(DEFAULT_APP_SETTINGS).toEqual({
       closeBehavior: "ask",

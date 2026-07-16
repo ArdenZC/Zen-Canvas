@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { tauriApi } from "../api/tauriApi";
-import type { AppSettings, LibraryScope, ScanRootSetting, SearchRootSetting } from "../types/domain";
+import type {
+  AppSettings,
+  LibraryScope,
+  ScanRootSetting,
+  SearchRootSetting,
+  VersionedAppSettings
+} from "../types/domain";
 import { DEFAULT_SEARCH_HOTKEY } from "../utils/hotkeys";
 import { normalizePathLike, readableError } from "../utils/viewHelpers";
 
@@ -27,6 +33,33 @@ interface UseAppSettingsOptions {
   onError: (message: string) => void;
   formatLoadError?: (error: unknown) => string;
   formatSaveError?: (error: unknown) => string;
+}
+
+type SettingsPersistenceApi = Pick<typeof tauriApi, "getSettings" | "saveSettings">;
+
+export async function reconcileFailedSettingsSave(
+  api: Pick<typeof tauriApi, "getSettings">,
+  error: unknown,
+  onError: (message: string) => void,
+  formatSaveError: (error: unknown) => string
+): Promise<VersionedAppSettings | null> {
+  onError(formatSaveError(error));
+  try {
+    return await api.getSettings();
+  } catch {
+    return null;
+  }
+}
+
+export async function saveSettingsIntent(
+  api: SettingsPersistenceApi,
+  base: VersionedAppSettings,
+  partial: Partial<AppSettings>
+): Promise<VersionedAppSettings> {
+  return api.saveSettings({
+    settings: mergeAppSettings(base.settings, partial),
+    expectedRevision: base.revision
+  });
 }
 
 export function mergeAppSettings(
@@ -209,7 +242,18 @@ export function useAppSettings({
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_APP_SETTINGS);
   const [isLoadingSettings, setIsLoadingSettings] = useState(false);
   const latestSettingsRef = useRef(DEFAULT_APP_SETTINGS);
+  const persistedSettingsRef = useRef(DEFAULT_APP_SETTINGS);
+  const settingsRevisionRef = useRef(0);
   const saveRequestIdRef = useRef(0);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isDatabaseReady) return;
@@ -219,10 +263,12 @@ export function useAppSettings({
     async function loadSettings() {
       setIsLoadingSettings(true);
       try {
-        const loadedSettings = await tauriApi.getSettings();
+        const loaded = await tauriApi.getSettings();
         if (!cancelled) {
-          latestSettingsRef.current = loadedSettings;
-          setSettings(loadedSettings);
+          settingsRevisionRef.current = loaded.revision;
+          persistedSettingsRef.current = loaded.settings;
+          latestSettingsRef.current = loaded.settings;
+          setSettings(loaded.settings);
         }
       } catch (error) {
         if (!cancelled) {
@@ -246,27 +292,54 @@ export function useAppSettings({
     async (partial: Partial<AppSettings>) => {
       const requestId = saveRequestIdRef.current + 1;
       saveRequestIdRef.current = requestId;
-      const previousSettings = latestSettingsRef.current;
-      const nextSettings = mergeAppSettings(previousSettings, partial);
+      const previousOptimisticSettings = latestSettingsRef.current;
+      const nextSettings = mergeAppSettings(previousOptimisticSettings, partial);
 
       latestSettingsRef.current = nextSettings;
       setSettings(nextSettings);
 
-      try {
-        const savedSettings = await tauriApi.saveSettings(nextSettings);
-        if (requestId === saveRequestIdRef.current) {
-          latestSettingsRef.current = savedSettings;
-          setSettings(savedSettings);
+      const saveIntent = async () => {
+        try {
+          const saved = await saveSettingsIntent(
+            tauriApi,
+            {
+              settings: persistedSettingsRef.current,
+              revision: settingsRevisionRef.current
+            },
+            partial
+          );
+          persistedSettingsRef.current = saved.settings;
+          settingsRevisionRef.current = saved.revision;
+          if (mountedRef.current && requestId === saveRequestIdRef.current) {
+            latestSettingsRef.current = saved.settings;
+            setSettings(saved.settings);
+          }
+          return saved.settings;
+        } catch (error) {
+            const latest = await reconcileFailedSettingsSave(
+              tauriApi,
+              error,
+              onError,
+              formatSaveError
+            );
+            if (latest) {
+              persistedSettingsRef.current = latest.settings;
+              settingsRevisionRef.current = latest.revision;
+            }
+            if (mountedRef.current && requestId === saveRequestIdRef.current) {
+              latestSettingsRef.current = persistedSettingsRef.current;
+              setSettings(persistedSettingsRef.current);
+            }
+            return persistedSettingsRef.current;
         }
-        return savedSettings;
-      } catch (error) {
-        if (requestId === saveRequestIdRef.current) {
-          latestSettingsRef.current = previousSettings;
-          setSettings(previousSettings);
-          onError(formatSaveError(error));
-        }
-        return latestSettingsRef.current;
-      }
+      };
+
+      const queued = saveQueueRef.current.then(saveIntent, saveIntent);
+      saveQueueRef.current = queued.then(
+        () => undefined,
+        () => undefined
+      );
+      return queued;
     },
     [formatSaveError, onError]
   );

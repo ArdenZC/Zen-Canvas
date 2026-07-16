@@ -52,7 +52,9 @@ pub use scanner::{
     ScanSummary, ScannedEntry,
 };
 pub use settings::{
-    get_app_settings, get_settings, save_app_settings, save_settings, AppSettings, OrganizeRootMode,
+    get_app_settings, get_settings, get_versioned_app_settings, save_app_settings,
+    save_app_settings_cas, save_settings, AppSettings, OrganizeRootMode, SaveSettingsRequest,
+    VersionedAppSettings,
 };
 pub use storage_analyzer::{
     cancel_cleanup_restore, cancel_storage_cleanup_scan, get_storage_cleanup_candidate_page,

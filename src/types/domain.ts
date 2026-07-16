@@ -243,6 +243,16 @@ export interface AppSettings {
   useLearnedRulesAsAutoRules: boolean;
 }
 
+export interface VersionedAppSettings {
+  settings: AppSettings;
+  revision: number;
+}
+
+export interface SaveSettingsRequest {
+  settings: AppSettings;
+  expectedRevision: number;
+}
+
 export interface FileRecord {
   id: string;
   name: string;

@@ -23,6 +23,8 @@ import type {
   Rule,
   RuleExecutionMode,
   RuleExecutionSummary,
+  SaveSettingsRequest,
+  VersionedAppSettings,
   StorageAnalysis,
   StorageCandidate,
   StorageCleanupScanStatus
@@ -222,8 +224,9 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "delete_user_rule":
       return true as T;
     case "get_settings":
+      return getMockVersionedSettings() as T;
     case "save_settings":
-      return mockSettings(args?.settings as AppSettings | undefined) as T;
+      return saveMockVersionedSettings(args?.request as SaveSettingsRequest) as T;
     case "get_ai_settings":
       return mockAISettings() as T;
     case "get_runtime_capabilities":
@@ -908,6 +911,25 @@ function mockSettings(settings?: AppSettings): AppSettings {
     useLegacyBuiltinClassificationRules: false,
     useLearnedRulesAsAutoRules: false
   };
+}
+
+let persistedMockSettings: AppSettings | undefined;
+let mockSettingsRevision = 0;
+
+function getMockVersionedSettings(): VersionedAppSettings {
+  return {
+    settings: persistedMockSettings ?? mockSettings(),
+    revision: mockSettingsRevision
+  };
+}
+
+function saveMockVersionedSettings(request: SaveSettingsRequest): VersionedAppSettings {
+  if (request.expectedRevision !== mockSettingsRevision) {
+    throw new Error("settings_revision_conflict");
+  }
+  persistedMockSettings = request.settings;
+  mockSettingsRevision += 1;
+  return getMockVersionedSettings();
 }
 
 let mockAISettingsState: AISettings | null = null;
