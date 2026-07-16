@@ -11,6 +11,60 @@ use std::{
 
 static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+#[test]
+fn schema_18_adds_safe_trash_identity_columns() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("create current database");
+    drop(db);
+    let conn = rusqlite::Connection::open(&path).expect("open sqlite");
+    conn.execute_batch(
+        r#"
+        ALTER TABLE cleanup_trash_items DROP COLUMN source_modified_ns;
+        ALTER TABLE cleanup_trash_items DROP COLUMN source_platform_file_id;
+        ALTER TABLE cleanup_trash_items DROP COLUMN source_quick_hash;
+        ALTER TABLE cleanup_trash_items DROP COLUMN trash_modified_ns;
+        ALTER TABLE cleanup_trash_items DROP COLUMN trash_platform_volume_id;
+        ALTER TABLE cleanup_trash_items DROP COLUMN trash_platform_file_id;
+        ALTER TABLE cleanup_trash_items DROP COLUMN trash_quick_hash;
+        ALTER TABLE cleanup_trash_items DROP COLUMN identity_status;
+        PRAGMA user_version = 18;
+        "#,
+    )
+    .expect("downgrade fixture to schema 18");
+    drop(conn);
+
+    Database::open(&path).expect("migrate schema 18 database");
+    let conn = rusqlite::Connection::open(&path).expect("inspect migrated database");
+    let columns = conn
+        .prepare("PRAGMA table_info(cleanup_trash_items)")
+        .expect("prepare columns")
+        .query_map([], |row| row.get::<_, String>(1))
+        .expect("query columns")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect columns");
+    let version: i64 = conn
+        .query_row("SELECT user_version FROM pragma_user_version", [], |row| {
+            row.get(0)
+        })
+        .expect("schema version");
+
+    assert_eq!(version, 19);
+    assert!(columns.iter().any(|column| column == "source_modified_ns"));
+    assert!(columns
+        .iter()
+        .any(|column| column == "source_platform_file_id"));
+    assert!(columns.iter().any(|column| column == "source_quick_hash"));
+    assert!(columns.iter().any(|column| column == "trash_modified_ns"));
+    assert!(columns
+        .iter()
+        .any(|column| column == "trash_platform_volume_id"));
+    assert!(columns
+        .iter()
+        .any(|column| column == "trash_platform_file_id"));
+    assert!(columns.iter().any(|column| column == "trash_quick_hash"));
+    assert!(columns.iter().any(|column| column == "identity_status"));
+}
+
 use zen_canvas_tauri::db::Database;
 use zen_canvas_tauri::storage_analyzer::{
     analyze_storage_roots_for_test, candidates_by_job_and_ids_for_test,
@@ -195,9 +249,8 @@ fn cleanup_root_symlinks_to_system_directories_are_rejected() {
     } else {
         PathBuf::from("/etc")
     };
-    if create_directory_symlink_for_test(&target, &link).is_err() {
-        return;
-    }
+    create_directory_symlink_for_test(&target, &link)
+        .expect("create protected cleanup-root symlink fixture");
 
     let result = validate_cleanup_roots_for_test(vec![link.to_string_lossy().into_owned()]);
     fs::remove_dir(&link).expect("remove system directory symlink");
@@ -210,9 +263,8 @@ fn cleanup_root_symlinks_to_system_directories_are_rejected() {
 fn cleanup_root_symlink_to_current_temp_is_not_automatically_allowed() {
     let root = test_dir();
     let link = root.join("temp-link");
-    if create_directory_symlink_for_test(&std::env::temp_dir(), &link).is_err() {
-        return;
-    }
+    create_directory_symlink_for_test(&std::env::temp_dir(), &link)
+        .expect("create temp-root symlink fixture");
 
     let result = validate_cleanup_roots_for_test(vec![link.to_string_lossy().into_owned()]);
     fs::remove_dir(&link).expect("remove temp directory symlink");
@@ -868,6 +920,9 @@ fn move_cleanup_candidates_to_safe_trash_records_and_restores_items() {
     let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
     assert_eq!(item.original_path, safe.path);
     assert_eq!(item.status, "moved");
+    assert_eq!(item.identity_status, "verified");
+    assert!(item.trash_quick_hash.is_some());
+    assert!(item.trash_platform_volume_id.is_some());
     assert!(Path::new(&item.trash_path).starts_with(root.join(".zen-canvas-trash")));
     assert!(Path::new(&item.trash_path).exists());
 
@@ -901,6 +956,73 @@ fn pending_safe_trash_journal_reconciles_a_completed_move_after_restart() {
     assert_eq!(reconciled, 1);
     assert_eq!(batch.status, "success");
     assert_eq!(batch.items[0].status, "moved");
+}
+
+#[test]
+fn pending_safe_trash_rejects_replaced_trash_identity() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let mut item = db.list_cleanup_trash_batches().expect("batches")[0].items[0].clone();
+    item.status = "pending".to_string();
+    db.update_cleanup_trash_item_status(&item)
+        .expect("mark pending");
+    fs::remove_dir_all(&item.trash_path).expect("remove moved trash item");
+    let replacement = Path::new(&item.trash_path).join("package").join("index.js");
+    fs::create_dir_all(replacement.parent().expect("replacement parent"))
+        .expect("create replacement parent");
+    fs::write(&replacement, vec![0x7f; 128]).expect("write unrelated replacement");
+
+    reconcile_pending_cleanup_journal(&db).expect("reconcile cleanup");
+    let recovered = db.list_cleanup_trash_batches().expect("batches after")[0].items[0].clone();
+    let restore = restore_cleanup_trash_items_for_db(vec![recovered.id.clone()], &db)
+        .expect("reject unsafe restore");
+
+    assert_eq!(recovered.status, "failed");
+    assert!(recovered
+        .message
+        .as_deref()
+        .unwrap_or_default()
+        .contains("identity"));
+    assert_eq!(restore.restored, 0);
+    assert_eq!(restore.failed, 1);
+    assert!(!Path::new(&recovered.original_path).exists());
+}
+
+#[test]
+fn restore_safe_trash_rejects_identity_replaced_after_successful_move() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let item = db.list_cleanup_trash_batches().expect("batches")[0].items[0].clone();
+    assert_eq!(item.status, "moved");
+    fs::remove_dir_all(&item.trash_path).expect("remove moved trash item");
+    let replacement = Path::new(&item.trash_path).join("package").join("index.js");
+    fs::create_dir_all(replacement.parent().expect("replacement parent"))
+        .expect("create replacement parent");
+    fs::write(&replacement, vec![0x55; 128]).expect("write unrelated replacement");
+
+    let restore = restore_cleanup_trash_items_for_db(vec![item.id.clone()], &db)
+        .expect("reject replaced trash item");
+    let updated = db.list_cleanup_trash_batches().expect("updated batches")[0].items[0].clone();
+
+    assert_eq!(restore.restored, 0);
+    assert_eq!(restore.failed, 1);
+    assert_eq!(updated.status, "failed");
+    assert!(updated
+        .message
+        .as_deref()
+        .unwrap_or_default()
+        .contains("identity"));
+    assert!(!Path::new(&item.original_path).exists());
 }
 
 #[test]
@@ -1019,6 +1141,98 @@ fn cleanup_restore_preview_marks_filesystem_conflicts_and_missing_sources() {
     let missing = preview_cleanup_restore_item_for_test(item);
     assert!(!missing.can_restore);
     assert_eq!(missing.blocking_reason.as_deref(), Some("missing"));
+}
+
+#[test]
+fn cleanup_restore_preview_and_execution_reject_replacement_after_preview() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    assert!(preview_cleanup_restore_item_for_test(item.clone()).can_restore);
+
+    fs::remove_dir_all(&item.trash_path).expect("remove previewed trash item");
+    let replacement = Path::new(&item.trash_path).join("package").join("index.js");
+    fs::create_dir_all(replacement.parent().expect("replacement parent"))
+        .expect("create replacement parent");
+    fs::write(&replacement, vec![0x44; 128]).expect("write same-size replacement");
+
+    let second_preview = preview_cleanup_restore_item_for_test(item.clone());
+    assert!(!second_preview.can_restore);
+    assert_eq!(
+        second_preview.blocking_reason.as_deref(),
+        Some("replacement_detected")
+    );
+    let restore = restore_cleanup_trash_items_for_db(vec![item.id], &db)
+        .expect("block replacement after preview");
+    assert_eq!(restore.restored, 0);
+    assert_eq!(restore.failed, 1);
+    assert!(!safe_path.exists());
+}
+
+#[test]
+fn cleanup_restore_rejects_same_content_with_a_different_platform_identity() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    let original_bytes = fs::read(Path::new(&item.trash_path).join("package").join("index.js"))
+        .expect("read moved bytes");
+    fs::remove_dir_all(&item.trash_path).expect("remove moved object");
+    let replacement = Path::new(&item.trash_path).join("package").join("index.js");
+    fs::create_dir_all(replacement.parent().expect("replacement parent"))
+        .expect("create replacement parent");
+    fs::write(&replacement, original_bytes).expect("write identical replacement");
+
+    let preview = preview_cleanup_restore_item_for_test(item.clone());
+    let restore = restore_cleanup_trash_items_for_db(vec![item.id], &db)
+        .expect("reject different platform identity");
+
+    assert!(!preview.can_restore);
+    assert_eq!(
+        preview.blocking_reason.as_deref(),
+        Some("replacement_detected")
+    );
+    assert_eq!(restore.restored, 0);
+    assert_eq!(restore.failed, 1);
+    assert!(!safe_path.exists());
+}
+
+#[test]
+fn legacy_safe_trash_identity_is_manual_review_only() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let mut item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    item.identity_status = "legacy_unverified".to_string();
+    item.trash_modified_ns = None;
+    item.trash_platform_volume_id = None;
+    item.trash_platform_file_id = None;
+    item.trash_quick_hash = None;
+    db.update_cleanup_trash_item_status(&item)
+        .expect("persist legacy identity fixture");
+
+    let preview = preview_cleanup_restore_item_for_test(item.clone());
+    let restore = restore_cleanup_trash_items_for_db(vec![item.id], &db)
+        .expect("block legacy identity restore");
+
+    assert!(!preview.can_restore);
+    assert_eq!(preview.blocking_reason.as_deref(), Some("manual_review"));
+    assert_eq!(restore.restored, 0);
+    assert_eq!(restore.failed, 1);
+    assert!(!safe_path.exists());
 }
 
 #[test]
