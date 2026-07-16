@@ -640,7 +640,10 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       }
       return result.logs;
     } catch (error) {
-      const message = readableError(error);
+      const technicalMessage = readableError(error);
+      const message = /authoritative preview/i.test(technicalMessage)
+        ? t("organizePreviewInvalidated")
+        : technicalMessage;
       set({ executionError: message });
       useAppStore.getState().showError(message);
       return [];

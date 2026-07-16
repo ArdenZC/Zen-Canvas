@@ -18,6 +18,7 @@ export function createCommandRegistry(t: Translator): SpotlightCommand[] {
     command("overview", t("overview"), t("commandOverviewDesc"), ["概览", "overview", "扫描", "scan"], "actions", "scanner"),
     command("library", t("fileLibrary"), t("commandLibraryDesc"), ["文件", "library", "files"], "actions", "library"),
     command("suggestions", t("organizeSuggestions"), t("commandSuggestionsDesc"), ["整理", "建议", "organize", "suggestions"], "actions", "organize"),
+    command("cleanup", t("storageCleanup"), t("commandCleanupDesc"), ["清理", "空间", "cleanup", "storage", "safe trash"], "actions", "cleanup"),
     command("history", t("history"), t("commandHistoryDesc"), ["历史", "恢复", "history", "restore"], "history", "restore"),
     command("automation", t("automation"), t("commandAutomationDesc"), ["自动化", "规则", "automation", "rules"], "actions", "rules"),
     command("settings", t("settings"), t("commandSettingsDesc"), ["设置", "偏好", "settings"], "settings", "settings"),

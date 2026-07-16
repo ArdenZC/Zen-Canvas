@@ -171,7 +171,7 @@ export function TimelineView() {
               <ResultIcon className={cn("mt-0.5 shrink-0", resultState === "success" ? "text-[var(--zc-success-text)]" : resultState === "failed" ? "text-[var(--zc-danger-text)]" : "text-[var(--zc-warning-text)]")} size={20} aria-hidden="true" />
               <div>
                 <h3 id="organize-result-title" className="font-semibold text-[var(--zc-text-primary)]">{t(resultState === "success" ? "organizeResultSuccessTitle" : resultState === "partial" ? "organizeResultPartialTitle" : resultState === "failed" ? "organizeResultFailedTitle" : resultState === "canceled" ? "organizeResultCanceledTitle" : "organizeResultNoChangesTitle")}</h3>
-                <p className="mt-1 text-sm text-[var(--zc-text-secondary)]">{t("organizeResultSummary").replace("{success}", resultSummary.success.toLocaleString()).replace("{skipped}", resultSummary.skipped.toLocaleString()).replace("{failed}", resultSummary.failed.toLocaleString())}</p>
+                {lastExecutionLogs.length ? <p className="mt-1 text-sm text-[var(--zc-text-secondary)]">{t("organizeResultSummary").replace("{success}", resultSummary.success.toLocaleString()).replace("{skipped}", resultSummary.skipped.toLocaleString()).replace("{failed}", resultSummary.failed.toLocaleString())}</p> : null}
                 {executionError ? <p className="mt-1 text-sm text-[var(--zc-danger-text)]">{executionError}</p> : null}
               </div>
             </div>

@@ -2477,11 +2477,6 @@ fn safe_trash_item_path(
 }
 
 fn preferred_safe_trash_root(source: &Path) -> Option<PathBuf> {
-    let text = normalize_path(source);
-    if text.get(1..3) == Some(":/") {
-        let drive = &text[..3];
-        return Some(PathBuf::from(drive).join(".zen-canvas-trash"));
-    }
     source
         .parent()
         .map(|parent| parent.join(".zen-canvas-trash"))

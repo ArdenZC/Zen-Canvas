@@ -1147,7 +1147,8 @@ fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPrevie
     };
     let is_sensitive = row.risk_level == "Sensitive";
     let requires_confirmation = row.requires_confirmation || row.confidence < 0.7 || is_sensitive;
-    let is_executable = !is_sensitive;
+    let target_exists = Path::new(&target_path).exists();
+    let is_executable = !is_sensitive && !target_exists;
     let target_parent_exists = Path::new(&target_path)
         .parent()
         .map(|parent| parent.exists())
@@ -1170,8 +1171,13 @@ fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPrevie
         reason: row.classification_reason,
         selected_by_default: Some(is_executable && !requires_confirmation),
         is_executable: Some(is_executable),
-        blocking_reason: is_sensitive
-            .then(|| "Sensitive files require manual confirmation.".to_string()),
+        blocking_reason: if is_sensitive {
+            Some("Sensitive files require manual confirmation.".to_string())
+        } else if target_exists {
+            Some("Target path already exists; Zen Canvas will not overwrite it.".to_string())
+        } else {
+            None
+        },
         editable_new_name: Some(true),
         target_parent_exists: Some(target_parent_exists),
         will_create_parent: Some(!target_parent_exists),

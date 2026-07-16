@@ -433,6 +433,10 @@ export const tauriApi = {
     return listenTo("search-navigate", handler);
   },
 
+  onGlobalSearchRequested(handler: EventHandler<null>): Promise<UnlistenFn> {
+    return listenTo("global-search-requested", handler);
+  },
+
   onGlobalHotkeyRegistrationFailed(handler: EventHandler<GlobalHotkeyErrorPayload>): Promise<UnlistenFn> {
     return listenTo("global-hotkey-registration-failed", handler);
   },

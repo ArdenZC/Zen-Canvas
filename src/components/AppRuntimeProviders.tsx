@@ -148,6 +148,27 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
+    void tauriApi.onGlobalSearchRequested(() => {
+      setIsCommandOpen(true);
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    }).catch((error) => {
+      if (!disposed) showError(readableError(error));
+    });
+
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [isSearchMode, setIsCommandOpen, showError]);
+
+  useEffect(() => {
+    if (isSearchMode) return;
+
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+
     void tauriApi.onGlobalHotkeyRegistrationFailed((payload) => {
       useAppStore.getState().setGlobalHotkeyError(payload.message);
     }).then((dispose) => {
