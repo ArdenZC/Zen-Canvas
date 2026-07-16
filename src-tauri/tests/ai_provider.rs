@@ -73,8 +73,8 @@ fn ai_settings_roundtrip_uses_separate_settings_row_and_normalizes_paths() {
         chat_path: " chat/completions ".to_string(),
         api_key: " moonshot-secret ".to_string(),
         model: " kimi-k2.6 ".to_string(),
-        timeout_seconds: 0,
-        batch_size: 0,
+        timeout_seconds: 1,
+        batch_size: 1,
         ..AISettings::default()
     };
 
@@ -385,7 +385,7 @@ fn openai_raw_chat_returns_request_diagnostics_without_api_key() {
 }
 
 #[test]
-fn deepseek_chat_does_not_override_user_supplied_thinking_body() {
+fn deepseek_chat_rejects_user_override_of_provider_thinking_body() {
     let server = TestServer::start(
         200,
         r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#,
@@ -404,7 +404,7 @@ fn deepseek_chat_does_not_override_user_supplied_thinking_body() {
         .expect("chat response");
 
     let body: Value = serde_json::from_str(&server.request().body).expect("json body");
-    assert_eq!(body["thinking"]["type"], "custom");
+    assert_eq!(body["thinking"]["type"], "disabled");
 }
 
 #[test]

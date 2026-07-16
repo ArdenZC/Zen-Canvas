@@ -1108,8 +1108,8 @@ export function SettingsView() {
                 <SettingsDisclosure title={t("advancedSettings")} description={t("developerModeDesc")} open={aiAdvancedOpen} onOpenChange={setAiAdvancedOpen}>
                   <SettingsControlGroup title={t("aiAdvancedConnection")} description={t("aiAdvancedConnectionDesc")}>
                     <div data-ai-advanced-connection-grid className="grid min-w-0 gap-4 min-[1180px]:grid-cols-2">
-                      <SettingsTextField id="settings-ai-base-url" label={t("aiBaseUrlLabel")} value={aiSettings.baseUrl} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ baseUrl: value })} />
-                      <SettingsTextField id="settings-ai-chat-path" label={t("aiChatPathLabel")} value={aiSettings.chatPath} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ chatPath: value })} />
+                      <SettingsTextField id="settings-ai-base-url" label={t("aiBaseUrlLabel")} value={aiSettings.baseUrl} maxLength={2048} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ baseUrl: value })} />
+                      <SettingsTextField id="settings-ai-chat-path" label={t("aiChatPathLabel")} value={aiSettings.chatPath} maxLength={512} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ chatPath: value })} />
                       {aiSettings.provider === "ollama" ? (
                         <span className={quietText}>{t("aiLocalApiKeyHint")}</span>
                       ) : (
@@ -1125,15 +1125,15 @@ export function SettingsView() {
                           resetKey={`${activeSettingsSection}:${draftAIUserMode}:${developerMode}:${aiAdvancedOpen}:${aiSettings.provider}:${aiSettings.preset}:${secretRevealResetVersion}`}
                         />
                       )}
-                      <SettingsTextField id="settings-ai-model" label={t("aiModelLabel")} value={aiSettings.model} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ model: value })} />
+                      <SettingsTextField id="settings-ai-model" label={t("aiModelLabel")} value={aiSettings.model} maxLength={200} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ model: value })} />
                     </div>
                   </SettingsControlGroup>
                   <SettingsControlGroup title={t("aiAdvancedPerformance")} description={t("aiAdvancedPerformanceDesc")}>
                     <div className="grid min-w-0 gap-4 min-[1180px]:grid-cols-2">
-                      <SettingsTextField id="settings-ai-batch-size" label={t("aiBatchSizeLabel")} description={t("aiBatchSizeDesc")} type="number" value={String(aiSettings.batchSize)} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ batchSize: Math.max(1, Number(value) || 1) })} />
-                      <SettingsTextField id="settings-ai-concurrency" label={t("aiConcurrencyLabel")} description={t("aiConcurrencyDesc")} type="number" value={String(aiSettings.classificationConcurrency)} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ classificationConcurrency: Math.min(4, Math.max(1, Number(value) || 1)) })} />
-                      <SettingsTextField id="settings-ai-max-tokens" label={t("aiMaxTokensLabel")} type="number" value={String(aiSettings.maxTokens)} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ maxTokens: Math.max(512, Number(value) || 512) })} />
-                      <SettingsTextField id="settings-ai-timeout" label={t("aiTimeoutLabel")} type="number" value={String(aiSettings.timeoutSeconds)} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ timeoutSeconds: Math.max(1, Number(value) || 1) })} />
+                      <SettingsTextField id="settings-ai-batch-size" label={t("aiBatchSizeLabel")} description={t("aiBatchSizeDesc")} type="number" value={String(aiSettings.batchSize)} min={1} max={100} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ batchSize: Math.min(100, Math.max(1, Number(value) || 1)) })} />
+                      <SettingsTextField id="settings-ai-concurrency" label={t("aiConcurrencyLabel")} description={t("aiConcurrencyDesc")} type="number" value={String(aiSettings.classificationConcurrency)} min={1} max={4} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ classificationConcurrency: Math.min(4, Math.max(1, Number(value) || 1)) })} />
+                      <SettingsTextField id="settings-ai-max-tokens" label={t("aiMaxTokensLabel")} type="number" value={String(aiSettings.maxTokens)} min={512} max={32768} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ maxTokens: Math.min(32768, Math.max(512, Number(value) || 512)) })} />
+                      <SettingsTextField id="settings-ai-timeout" label={t("aiTimeoutLabel")} type="number" value={String(aiSettings.timeoutSeconds)} min={1} max={600} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ timeoutSeconds: Math.min(600, Math.max(1, Number(value) || 1)) })} />
                     </div>
                   </SettingsControlGroup>
                   <SettingsControlGroup title={t("aiAdvancedPrivacy")} description={t("aiAdvancedPrivacyDesc")}>
@@ -1143,10 +1143,10 @@ export function SettingsView() {
                     <SettingsSwitch id="settings-ai-thinking" label={t("aiThinkingLabel")} description={t("aiThinkingDesc")} checked={aiSettings.enableThinking} disabled={aiDependentControlsDisabled} onChange={(next) => updateAISettings({ enableThinking: next })} />
                     <SettingsSwitch id="settings-ai-send-full-path" label={t("aiSendFullPathLabel")} description={t("aiSendFullPathDesc")} checked={aiSettings.sendFullPath} disabled={aiDependentControlsDisabled} onChange={(next) => updateAISettings({ sendFullPath: next })} />
                     <SettingsSwitch id="settings-ai-send-parent-path" label={t("aiSendParentPathLabel")} description={t("aiSendParentPathDesc")} checked={aiSettings.sendParentPath} disabled={aiDependentControlsDisabled} onChange={(next) => updateAISettings({ sendParentPath: next })} />
-                    <SettingsTextField id="settings-ai-reasoning-effort" label={t("aiReasoningEffortLabel")} value={aiSettings.reasoningEffort ?? ""} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ reasoningEffort: value || null })} placeholder={t("aiReasoningPlaceholder")} />
+                    <SettingsTextField id="settings-ai-reasoning-effort" label={t("aiReasoningEffortLabel")} value={aiSettings.reasoningEffort ?? ""} maxLength={64} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ reasoningEffort: value || null })} placeholder={t("aiReasoningPlaceholder")} />
                     <label className="grid min-w-0 gap-1.5">
                       <span className="text-sm font-medium text-[var(--zc-text-primary)]">{t("aiExtraBodyLabel")}</span>
-                      <textarea className={cn(settingsField, "min-h-24 resize-y py-2 font-mono")} value={aiSettings.extraBodyJson ?? ""} disabled={aiDependentControlsDisabled} onChange={(event) => updateAISettings({ extraBodyJson: event.target.value || null })} placeholder={t("aiExtraBodyPlaceholder")} />
+                      <textarea className={cn(settingsField, "min-h-24 resize-y py-2 font-mono")} value={aiSettings.extraBodyJson ?? ""} maxLength={16384} disabled={aiDependentControlsDisabled} onChange={(event) => updateAISettings({ extraBodyJson: event.target.value || null })} placeholder={t("aiExtraBodyPlaceholder")} />
                       <span className={quietText}>{t("aiSecretsHint")}</span>
                     </label>
                   </SettingsControlGroup>
@@ -1312,12 +1312,12 @@ function normalizeAISettingsForSave(settings: AISettings): AISettings {
     chatPath: chatPath ? `/${chatPath.replace(/^\/+/g, "")}` : "/chat/completions",
     apiKey: settings.apiKey.trim(),
     model: settings.model.trim(),
-    batchSize: Math.max(1, Math.floor(settings.batchSize || 1)),
+    batchSize: Math.min(100, Math.max(1, Math.floor(settings.batchSize || 1))),
     classificationConcurrency: settings.provider === "ollama"
       ? 1
       : Math.min(4, Math.max(1, Math.floor(settings.classificationConcurrency || 1))),
-    timeoutSeconds: Math.max(1, Math.floor(settings.timeoutSeconds || 1)),
-    maxTokens: Math.max(1, Math.floor(settings.maxTokens || 1)),
+    timeoutSeconds: Math.min(600, Math.max(1, Math.floor(settings.timeoutSeconds || 1))),
+    maxTokens: Math.min(32768, Math.max(512, Math.floor(settings.maxTokens || 512))),
     reasoningEffort: settings.reasoningEffort?.trim() || null,
     extraBodyJson: settings.extraBodyJson?.trim() || null
   };

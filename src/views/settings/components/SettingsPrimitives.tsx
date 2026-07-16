@@ -473,6 +473,9 @@ export function SettingsTextField({
   onChange,
   type = "text",
   placeholder,
+  min,
+  max,
+  maxLength,
   disabled = false
 }: {
   id?: string;
@@ -482,13 +485,16 @@ export function SettingsTextField({
   onChange: (value: string) => void;
   type?: string;
   placeholder?: string;
+  min?: number;
+  max?: number;
+  maxLength?: number;
   disabled?: boolean;
 }) {
   return (
     <label className="grid min-w-0 gap-1.5">
       <span className="text-sm font-medium text-[var(--zc-text-primary)]">{label}</span>
       {description ? <span className="text-xs leading-5 text-[var(--zc-text-tertiary)]">{description}</span> : null}
-      <input id={id} className={cn(settingsField, "w-full")} type={type} value={value} placeholder={placeholder} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
+      <input id={id} className={cn(settingsField, "w-full")} type={type} value={value} placeholder={placeholder} min={min} max={max} maxLength={maxLength} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }

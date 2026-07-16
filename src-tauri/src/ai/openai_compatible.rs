@@ -132,8 +132,7 @@ impl OpenAICompatibleProvider {
             );
         }
 
-        // Advanced override: user-provided extra_body_json is merged last and can override
-        // provider fields intentionally. The settings UI labels this as an advanced option.
+        // Advanced fields may extend the request, but core request semantics stay authoritative.
         merge_extra_body(
             &mut body,
             self.settings.extra_body_json.as_deref(),
@@ -299,6 +298,20 @@ fn merge_extra_body(
         ));
     };
     for (key, value) in extra {
+        if matches!(
+            key.as_str(),
+            "model"
+                | "messages"
+                | "stream"
+                | "temperature"
+                | "max_tokens"
+                | "max_completion_tokens"
+                | "response_format"
+                | "thinking"
+                | "reasoning_effort"
+        ) {
+            continue;
+        }
         body.insert(key, value);
     }
     Ok(())
@@ -556,6 +569,42 @@ fn redact_api_key(message: &str, api_key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extra_body_cannot_override_reserved_fields() {
+        let mut body = Map::from_iter([
+            ("model".to_string(), json!("trusted-model")),
+            (
+                "messages".to_string(),
+                json!([{"role":"user","content":"safe"}]),
+            ),
+            ("temperature".to_string(), json!(0.2)),
+            ("max_tokens".to_string(), json!(1024)),
+            ("response_format".to_string(), json!({"type":"json_object"})),
+        ]);
+
+        merge_extra_body(
+            &mut body,
+            Some(r#"{"model":"attacker","messages":[],"stream":true,"temperature":2,"max_tokens":999999,"max_completion_tokens":999999,"response_format":{"type":"text"},"thinking":{"type":"enabled"},"reasoning_effort":"high","safe_extension":true}"#),
+            "",
+        )
+        .expect("merge safe extension fields");
+
+        assert_eq!(body["model"], "trusted-model");
+        assert_eq!(body["messages"][0]["content"], "safe");
+        assert_eq!(body["temperature"], 0.2);
+        assert_eq!(body["max_tokens"], 1024);
+        assert_eq!(body["response_format"]["type"], "json_object");
+        for key in [
+            "stream",
+            "max_completion_tokens",
+            "thinking",
+            "reasoning_effort",
+        ] {
+            assert!(!body.contains_key(key), "{key}");
+        }
+        assert_eq!(body["safe_extension"], true);
+    }
 
     #[test]
     fn parse_openai_content_reads_normal_string_content() {
