@@ -167,8 +167,6 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockOperationLogs().slice(0, Number(args?.limit ?? 500)) as T;
     case "get_operation_previews_for_scope":
       return mockOperationPreviews(args) as T;
-    case "scan_storage_cleanup":
-      return mockStorageAnalysis() as T;
     case "start_storage_cleanup_scan":
       return "browser-mock-storage-cleanup-job" as T;
     case "get_storage_cleanup_scan_status":

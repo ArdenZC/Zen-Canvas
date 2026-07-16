@@ -448,7 +448,6 @@ impl<R: Runtime> CleanupRestoreProgressEmitter for TauriCleanupRestoreProgressEm
 
 #[derive(Default)]
 struct StorageCleanupStateInner {
-    latest_candidates: Mutex<HashMap<String, StorageCandidate>>,
     jobs: Mutex<HashMap<String, StorageCleanupJob>>,
     active_job_id: Mutex<Option<String>>,
 }
@@ -457,44 +456,114 @@ struct StorageCleanupStateInner {
 struct StorageCleanupJob {
     status: StorageCleanupScanStatus,
     cancel_flag: Arc<AtomicBool>,
+    candidates_by_id: HashMap<String, StorageCandidate>,
+    consumed_ids: HashSet<String>,
 }
 
 impl StorageCleanupState {
-    fn replace_candidates(&self, candidates: &[StorageCandidate]) -> Result<(), String> {
-        let mut cache = self
+    pub(crate) fn candidates_by_job_and_ids(
+        &self,
+        job_id: &str,
+        ids: &[String],
+    ) -> Result<Vec<StorageCandidate>, String> {
+        let jobs = self
             .inner
-            .latest_candidates
+            .jobs
             .lock()
-            .map_err(|_| "Storage cleanup cache is unavailable.".to_string())?;
-        cache.clear();
-        cache.extend(
-            candidates
-                .iter()
-                .cloned()
-                .map(|candidate| (candidate.id.clone(), candidate)),
-        );
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+        let job = jobs
+            .get(job_id)
+            .ok_or_else(|| format!("Storage cleanup scan job not found: {job_id}"))?;
+        if job.status.status != "completed" {
+            return Err(format!(
+                "Storage cleanup scan job is not completed: {job_id}"
+            ));
+        }
+        let mut seen = HashSet::with_capacity(ids.len());
+        ids.iter()
+            .map(|id| {
+                if !seen.insert(id.as_str()) {
+                    return Err(format!(
+                        "Storage cleanup candidate request contains duplicate ID: {id}"
+                    ));
+                }
+                if job.consumed_ids.contains(id) {
+                    return Err(format!(
+                        "Storage cleanup candidate was already consumed for job {job_id}: {id}"
+                    ));
+                }
+                job.candidates_by_id.get(id).cloned().ok_or_else(|| {
+                    format!("Storage cleanup candidate does not belong to job {job_id}: {id}")
+                })
+            })
+            .collect()
+    }
+
+    fn mark_candidates_consumed(&self, job_id: &str, ids: &[String]) -> Result<(), String> {
+        let mut jobs = self
+            .inner
+            .jobs
+            .lock()
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+        let job = jobs
+            .get_mut(job_id)
+            .ok_or_else(|| format!("Storage cleanup scan job not found: {job_id}"))?;
+        for id in ids {
+            if !job.candidates_by_id.contains_key(id) {
+                return Err(format!(
+                    "Storage cleanup candidate does not belong to job {job_id}: {id}"
+                ));
+            }
+        }
+        job.consumed_ids.extend(ids.iter().cloned());
         Ok(())
     }
 
-    pub(crate) fn candidates_by_id(&self, ids: &[String]) -> Result<Vec<StorageCandidate>, String> {
-        let cache = self
+    pub(crate) fn update_candidates_for_job(
+        &self,
+        job_id: &str,
+        candidates: &[StorageCandidate],
+    ) -> Result<(), String> {
+        let mut jobs = self
             .inner
-            .latest_candidates
+            .jobs
             .lock()
-            .map_err(|_| "Storage cleanup cache is unavailable.".to_string())?;
-        Ok(ids.iter().filter_map(|id| cache.get(id).cloned()).collect())
-    }
-
-    pub(crate) fn update_candidates(&self, candidates: &[StorageCandidate]) -> Result<(), String> {
-        let mut cache = self
-            .inner
-            .latest_candidates
-            .lock()
-            .map_err(|_| "Storage cleanup cache is unavailable.".to_string())?;
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+        let job = jobs
+            .get_mut(job_id)
+            .ok_or_else(|| format!("Storage cleanup scan job not found: {job_id}"))?;
+        if job.status.status != "completed" {
+            return Err(format!(
+                "Storage cleanup scan job is not completed: {job_id}"
+            ));
+        }
         for candidate in candidates {
-            if cache.contains_key(&candidate.id) {
-                cache.insert(candidate.id.clone(), candidate.clone());
+            if !job.candidates_by_id.contains_key(&candidate.id) {
+                return Err(format!(
+                    "Storage cleanup candidate does not belong to job {job_id}: {}",
+                    candidate.id
+                ));
             }
+        }
+        let analysis = job
+            .status
+            .analysis
+            .as_mut()
+            .ok_or_else(|| format!("Completed storage cleanup job not found: {job_id}"))?;
+        for candidate in candidates {
+            let stored = analysis
+                .candidates
+                .iter_mut()
+                .find(|stored| stored.id == candidate.id)
+                .ok_or_else(|| {
+                    format!(
+                        "Storage cleanup candidate does not belong to job {job_id}: {}",
+                        candidate.id
+                    )
+                })?;
+            *stored = candidate.clone();
+            job.candidates_by_id
+                .insert(candidate.id.clone(), candidate.clone());
         }
         Ok(())
     }
@@ -527,6 +596,8 @@ impl StorageCleanupState {
             StorageCleanupJob {
                 status,
                 cancel_flag: Arc::clone(&cancel_flag),
+                candidates_by_id: HashMap::new(),
+                consumed_ids: HashSet::new(),
             },
         );
         if jobs.len() > MAX_RETAINED_CLEANUP_JOBS {
@@ -602,21 +673,40 @@ impl StorageCleanupState {
         Ok(())
     }
 
-    fn complete_job(&self, job_id: &str, analysis: StorageAnalysis) -> Result<(), String> {
-        self.replace_candidates(&analysis.candidates)?;
+    fn complete_job(
+        &self,
+        job_id: &str,
+        mut analysis: StorageAnalysis,
+    ) -> Result<StorageAnalysis, String> {
         let mut jobs = self
             .inner
             .jobs
             .lock()
             .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
-        if let Some(job) = jobs.get_mut(job_id) {
-            job.status.status = "completed".to_string();
-            job.status.progress.total_size = analysis.total_size;
-            job.status.analysis = Some(analysis);
-            job.status.completed_at = Some(current_timestamp_ms().to_string());
+        let job = jobs
+            .get_mut(job_id)
+            .ok_or_else(|| format!("Storage cleanup scan job not found: {job_id}"))?;
+        for candidate in &mut analysis.candidates {
+            candidate.id = candidate_id_for_job(job_id, &candidate.path);
         }
+        job.candidates_by_id = analysis
+            .candidates
+            .iter()
+            .cloned()
+            .map(|candidate| (candidate.id.clone(), candidate))
+            .collect();
+        job.status.status = "completed".to_string();
+        job.status.progress.total_size = analysis.total_size;
+        job.status.analysis = Some(analysis);
+        job.status.completed_at = Some(current_timestamp_ms().to_string());
+        let completed_page = storage_analysis_page(
+            job.status.analysis.as_ref().expect("completed analysis"),
+            0,
+            STORAGE_CLEANUP_PAGE_SIZE,
+        );
+        drop(jobs);
         self.clear_active_job(job_id)?;
-        Ok(())
+        Ok(completed_page)
     }
 
     fn fail_job(&self, job_id: &str, message: String) -> Result<(), String> {
@@ -698,28 +788,6 @@ impl StorageCleanupState {
 }
 
 #[tauri::command]
-pub async fn scan_storage_cleanup<R: Runtime>(
-    roots: Vec<String>,
-    app: AppHandle<R>,
-    state: State<'_, StorageCleanupState>,
-) -> Result<StorageAnalysis, String> {
-    let app_data_dir = app.path().app_data_dir().ok();
-    let roots = validate_cleanup_roots(roots)?;
-    let analysis = tauri::async_runtime::spawn_blocking(move || {
-        analyze_storage_roots(roots, app_data_dir.into_iter().collect())
-    })
-    .await
-    .map_err(|error| format!("storage cleanup scan task failed: {error}"))??;
-
-    state.replace_candidates(&analysis.candidates)?;
-    Ok(storage_analysis_page(
-        &analysis,
-        0,
-        STORAGE_CLEANUP_PAGE_SIZE,
-    ))
-}
-
-#[tauri::command]
 pub fn start_storage_cleanup_scan<R: Runtime>(
     roots: Vec<String>,
     app: AppHandle<R>,
@@ -777,40 +845,51 @@ pub fn reveal_storage_candidate(path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn preview_cleanup_candidates(
+    job_id: String,
     ids: Vec<String>,
     state: State<'_, StorageCleanupState>,
 ) -> Result<Vec<CleanupPreviewItem>, String> {
-    let candidates = state.candidates_by_id(&ids)?;
+    let candidates = state.candidates_by_job_and_ids(&job_id, &ids)?;
     cleanup_preview_items_for_candidates(ids, &candidates)
 }
 
 #[tauri::command]
 pub fn preview_cleanup_operations<R: Runtime>(
+    job_id: String,
     ids: Vec<String>,
     app: AppHandle<R>,
     state: State<'_, StorageCleanupState>,
 ) -> Result<OperationPreviewScopeResult, String> {
     let app_data_dir = app.path().app_data_dir().ok();
-    let candidates = state.candidates_by_id(&ids)?;
+    let candidates = state.candidates_by_job_and_ids(&job_id, &ids)?;
     preview_cleanup_operations_for_candidates(ids, &candidates, app_data_dir.as_deref())
 }
 
 #[tauri::command]
 pub fn move_cleanup_candidates_to_trash<R: Runtime>(
     window: WebviewWindow<R>,
+    job_id: String,
     ids: Vec<String>,
     app: AppHandle<R>,
     state: State<'_, StorageCleanupState>,
 ) -> Result<CleanupExecutionResult, String> {
     require_main_window(&window)?;
     let app_data_dir = app.path().app_data_dir().ok();
-    let candidates = state.candidates_by_id(&ids)?;
-    move_cleanup_candidates_to_trash_for_candidates(ids, &candidates, app_data_dir.as_deref())
+    let candidates = state.candidates_by_job_and_ids(&job_id, &ids)?;
+    let result = move_cleanup_candidates_to_trash_for_candidates(
+        ids.clone(),
+        &candidates,
+        app_data_dir.as_deref(),
+    )?;
+    let consumed = successful_cleanup_ids(&ids, &result);
+    state.mark_candidates_consumed(&job_id, &consumed)?;
+    Ok(result)
 }
 
 #[tauri::command]
 pub fn move_cleanup_candidates_to_safe_trash<R: Runtime>(
     window: WebviewWindow<R>,
+    job_id: String,
     ids: Vec<String>,
     app: AppHandle<R>,
     db: State<'_, Database>,
@@ -818,13 +897,24 @@ pub fn move_cleanup_candidates_to_safe_trash<R: Runtime>(
 ) -> Result<CleanupExecutionResult, String> {
     require_main_window(&window)?;
     let app_data_dir = app.path().app_data_dir().ok();
-    let candidates = state.candidates_by_id(&ids)?;
-    move_cleanup_candidates_to_safe_trash_for_candidates(
-        ids,
+    let candidates = state.candidates_by_job_and_ids(&job_id, &ids)?;
+    let result = move_cleanup_candidates_to_safe_trash_for_candidates(
+        ids.clone(),
         &candidates,
         db.inner(),
         app_data_dir.as_deref(),
-    )
+    )?;
+    let consumed = successful_cleanup_ids(&ids, &result);
+    state.mark_candidates_consumed(&job_id, &consumed)?;
+    Ok(result)
+}
+
+fn successful_cleanup_ids(ids: &[String], result: &CleanupExecutionResult) -> Vec<String> {
+    ids.iter()
+        .zip(&result.logs)
+        .filter(|(_, log)| log.status == "success")
+        .map(|(id, _)| id.clone())
+        .collect()
 }
 
 #[tauri::command]
@@ -982,6 +1072,14 @@ pub fn start_storage_cleanup_scan_for_test(
     Ok(job_id)
 }
 
+pub fn start_storage_cleanup_job_state_for_test(
+    state: &StorageCleanupState,
+    job_id: &str,
+) -> Result<(), String> {
+    state.start_job(job_id.to_string(), &[])?;
+    Ok(())
+}
+
 pub fn cancel_storage_cleanup_scan_for_test(
     job_id: &str,
     state: &StorageCleanupState,
@@ -994,6 +1092,40 @@ pub fn get_storage_cleanup_scan_status_for_test(
     state: &StorageCleanupState,
 ) -> Result<StorageCleanupScanStatus, String> {
     state.job_status(job_id)
+}
+
+pub fn get_storage_cleanup_candidate_page_for_test(
+    state: &StorageCleanupState,
+    job_id: &str,
+    offset: usize,
+    limit: usize,
+) -> Result<StorageAnalysis, String> {
+    state.job_analysis_page(job_id, offset, limit)
+}
+
+pub fn candidates_by_job_and_ids_for_test(
+    state: &StorageCleanupState,
+    job_id: &str,
+    ids: &[String],
+) -> Result<Vec<StorageCandidate>, String> {
+    state.candidates_by_job_and_ids(job_id, ids)
+}
+
+pub fn mark_cleanup_candidates_consumed_for_test(
+    state: &StorageCleanupState,
+    job_id: &str,
+    ids: &[String],
+) -> Result<(), String> {
+    state.mark_candidates_consumed(job_id, ids)
+}
+
+pub fn store_completed_cleanup_analysis_for_test(
+    state: &StorageCleanupState,
+    job_id: &str,
+    analysis: StorageAnalysis,
+) -> Result<StorageAnalysis, String> {
+    state.start_job(job_id.to_string(), &[])?;
+    state.complete_job(job_id, analysis)
 }
 
 pub fn classify_candidate_for_test(path: &Path, size: u64) -> StorageCandidate {
@@ -1028,7 +1160,7 @@ pub fn move_cleanup_candidates_to_trash_for_candidates(
                 name: id,
                 size: 0,
                 status: "skipped".to_string(),
-                message: "Candidate id was not found in the latest storage cleanup scan."
+                message: "Candidate id was not found in the resolved storage cleanup job."
                     .to_string(),
                 item_id: None,
                 trash_path: None,
@@ -1045,7 +1177,7 @@ pub fn move_cleanup_candidates_to_trash_for_candidates(
                 size: candidate.size,
                 status: "skipped".to_string(),
                 message:
-                    "Only safe recycle-bin cleanup candidates from the latest scan can be moved."
+                    "Only safe recycle-bin cleanup candidates from the resolved job can be moved."
                         .to_string(),
                 item_id: None,
                 trash_path: None,
@@ -1725,14 +1857,21 @@ fn finish_storage_cleanup_scan_job<R: Runtime>(
             );
             let _ = analysis;
         }
-        Ok(analysis) => {
-            let completed = StorageCleanupCompleted {
-                job_id: job_id.clone(),
-                analysis: storage_analysis_page(&analysis, 0, STORAGE_CLEANUP_PAGE_SIZE),
-            };
-            let _ = state.complete_job(&job_id, analysis);
-            let _ = app.emit(STORAGE_CLEANUP_COMPLETED_EVENT, completed);
-        }
+        Ok(analysis) => match state.complete_job(&job_id, analysis) {
+            Ok(analysis) => {
+                let completed = StorageCleanupCompleted { job_id, analysis };
+                let _ = app.emit(STORAGE_CLEANUP_COMPLETED_EVENT, completed);
+            }
+            Err(error) => {
+                let _ = app.emit(
+                    STORAGE_CLEANUP_FAILED_EVENT,
+                    StorageCleanupJobMessage {
+                        job_id,
+                        message: error,
+                    },
+                );
+            }
+        },
         Err(error) => {
             let _ = state.fail_job(&job_id, error.clone());
             let _ = app.emit(
@@ -2892,6 +3031,13 @@ fn is_same_or_child(path: &str, parent: &str) -> bool {
 
 fn candidate_id(path: &str) -> String {
     let mut hasher = DefaultHasher::new();
+    normalize_compare_text(path).hash(&mut hasher);
+    format!("storage-{:016x}", hasher.finish())
+}
+
+fn candidate_id_for_job(job_id: &str, path: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    job_id.hash(&mut hasher);
     normalize_compare_text(path).hash(&mut hasher);
     format!("storage-{:016x}", hasher.finish())
 }

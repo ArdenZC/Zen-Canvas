@@ -108,7 +108,6 @@ fn main() {
             zen_canvas_tauri::file_ops::execute_moves,
             zen_canvas_tauri::file_ops::restore_moves,
             zen_canvas_tauri::file_ops::cancel_operations,
-            zen_canvas_tauri::storage_analyzer::scan_storage_cleanup,
             zen_canvas_tauri::storage_analyzer::start_storage_cleanup_scan,
             zen_canvas_tauri::storage_analyzer::get_storage_cleanup_scan_status,
             zen_canvas_tauri::storage_analyzer::get_storage_cleanup_candidate_page,
