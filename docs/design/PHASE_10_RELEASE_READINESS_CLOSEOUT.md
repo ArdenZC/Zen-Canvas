@@ -141,7 +141,9 @@ Open，等待人工审查，未启用自动合并。
 
 ## 34. 发布门禁结论
 
-PR Ready：是。Windows RC：通过。Windows 安装链本身通过，但因正式签名和干净 SmartScreen 信誉门禁未完成，Windows 公开安装发布门禁未通过；跨平台公开发布门禁未通过。
+Stage 10 当时的本地验证与 Windows 实机门禁通过，但首次 PR merge-ref 的远端 Windows Quality 和 macOS Quality 随后失败，因此当时写入的“PR Ready：是”属于过早结论。Stage 10.0.1 已分别修复 CRLF 源码测试和 Rust 1.96 Clippy 阻断，并以当前 PR Head 的 Windows、macOS 和 Dependency Audit 结果重新判定 PR Ready。详见 `PHASE_10_0_1_REMOTE_CI_CLOSEOUT.md`。
+
+Windows RC 保持通过。Windows 安装链本身通过，但因正式签名和干净 SmartScreen 信誉门禁未完成，Windows 公开安装发布门禁未通过；跨平台公开发布门禁未通过。
 
 ## 35. 未进入 Stage 11
 
