@@ -8,6 +8,7 @@ use std::io;
 use tauri::Manager;
 use tauri_plugin_autostart::ManagerExt;
 use zen_canvas_tauri::{
+    dedupe::DedupeJobManager,
     open_database, settings,
     watcher::{reload_file_watcher_for_settings, FileWatcherManager},
     AIClassificationCancellationToken, OperationCancellationToken, ScanJobManager,
@@ -28,6 +29,7 @@ fn main() {
                 .map_err(io::Error::other)?;
             app.manage(db.clone());
             app.manage(ScanJobManager::default());
+            app.manage(DedupeJobManager::default());
             app.manage(OperationCancellationToken::default());
             app.manage(AIClassificationCancellationToken::default());
             app.manage(FileWatcherManager::default());
@@ -104,6 +106,7 @@ fn main() {
             zen_canvas_tauri::app_control::register_global_search_hotkey,
             zen_canvas_tauri::scanner::scan_directory,
             zen_canvas_tauri::scanner::cancel_scan,
+            zen_canvas_tauri::dedupe::cancel_dedupe,
             zen_canvas_tauri::file_ops::reveal_in_folder,
             zen_canvas_tauri::file_ops::execute_moves,
             zen_canvas_tauri::file_ops::restore_moves,

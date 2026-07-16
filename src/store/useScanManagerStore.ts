@@ -3,6 +3,8 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
   tauriApi,
+  type DedupeCompletePayload,
+  type DedupeProgressPayload,
   type ScanBatchPayload,
   type ScanProgressPayload,
   type ScanSummary,
@@ -33,6 +35,17 @@ const initialScanState: ScanStateData = {
 
 let scanJobCanceled = false;
 let activeScanJobId: string | null = null;
+let activeDedupeParentScanJobId: string | null = null;
+let activeDedupeJobId: string | null = null;
+
+export function isCurrentDedupeEvent(
+  payload: Pick<DedupeProgressPayload, "dedupeJobId" | "parentScanJobId">,
+  parentScanJobId: string | null,
+  dedupeJobId: string | null
+) {
+  return payload.parentScanJobId === parentScanJobId
+    && (dedupeJobId === null || payload.dedupeJobId === dedupeJobId);
+}
 
 function createScanJobId(kind: "foreground" | "background") {
   const suffix = globalThis.crypto?.randomUUID?.()
@@ -162,6 +175,22 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
                 error: null
               }
             }));
+          }),
+          tauriApi.onDedupeProgress((payload) => {
+            if (!isCurrentDedupeEvent(payload, activeDedupeParentScanJobId, activeDedupeJobId)) {
+              return;
+            }
+            activeDedupeJobId ??= payload.dedupeJobId;
+          }),
+          tauriApi.onDedupeComplete((payload: DedupeCompletePayload) => {
+            if (!isCurrentDedupeEvent(payload, activeDedupeParentScanJobId, activeDedupeJobId)) {
+              return;
+            }
+            activeDedupeJobId = null;
+            activeDedupeParentScanJobId = null;
+            if (payload.status === "completed") {
+              void useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
+            }
           })
         ]);
         set({ listenersRegistered: true, registrationPromise: null, unlisteners });
@@ -209,6 +238,10 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
       for (const [index, path] of scanRoots.entries()) {
         if (scanJobCanceled) break;
         activeScanJobId = createScanJobId("foreground");
+        if (index === scanRoots.length - 1) {
+          activeDedupeParentScanJobId = activeScanJobId;
+          activeDedupeJobId = null;
+        }
         const summary = await tauriApi.startScan(
           path,
           false,
