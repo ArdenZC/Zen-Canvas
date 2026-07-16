@@ -28,6 +28,7 @@ import type {
   FolderNamingLanguage,
   OrganizeRootMode,
   RestoreRetentionDays,
+  RuntimeCapabilities,
   ScanRootSetting,
   SearchRootSetting,
   SearchScopeMode
@@ -187,6 +188,7 @@ export function SettingsView() {
   const runtimeAIStatus = useAIProcessingModeStore((state) => state.status);
   const publishAIProcessingMode = useAIProcessingModeStore((state) => state.publish);
   const [aiPresets, setAiPresets] = useState<AIProviderPreset[]>([]);
+  const [runtimeCapabilities, setRuntimeCapabilities] = useState<RuntimeCapabilities | null>(null);
   const [isLoadingAISettings, setIsLoadingAISettings] = useState(false);
   const [isSavingAISettings, setIsSavingAISettings] = useState(false);
   const [aiSettingsSaveError, setAiSettingsSaveError] = useState(false);
@@ -332,10 +334,11 @@ export function SettingsView() {
   useEffect(() => {
     let disposed = false;
     setIsLoadingAISettings(true);
-    void Promise.all([tauriApi.listAIProviderPresets(), tauriApi.getAISettings()])
-      .then(([presets, settings]) => {
+    void Promise.all([tauriApi.listAIProviderPresets(), tauriApi.getAISettings(), tauriApi.getRuntimeCapabilities()])
+      .then(([presets, settings, capabilities]) => {
         if (disposed) return;
         setAiPresets(presets);
+        setRuntimeCapabilities(capabilities);
         setAiSettings(settings);
         setPersistedAISettings(settings);
         setAiSettingsSaveError(false);
@@ -1174,7 +1177,7 @@ export function SettingsView() {
                       {isTestingAIConnection ? t("aiTestingConnection") : t("aiTestConnection")}
                     </button>
                   </div>
-                  <SettingsDisclosure title={t("aiDebugTitle")} description={t("aiDebugWarning")}>
+                  {runtimeCapabilities?.aiDebugAvailable ? <SettingsDisclosure title={t("aiDebugTitle")} description={t("aiDebugWarning")}>
                     {selectedLibraryFile ? (
                       <div className="grid gap-1 border-b border-[var(--zc-divider)] pb-3 text-xs text-[var(--zc-text-secondary)]">
                         <span className="font-medium text-[var(--zc-text-primary)]">{t("aiSelectedFile")}</span>
@@ -1211,7 +1214,7 @@ export function SettingsView() {
                         <DebugPreviewBlock label="parse error" value={aiDebugResult.parseError ?? ""} apiKey={aiSettings.apiKey} />
                       </div>
                     ) : null}
-                  </SettingsDisclosure>
+                  </SettingsDisclosure> : null}
                 </SettingsDisclosure>
               ) : <p className={quietText}>{t("developerModeDesc")}</p>}
             </fieldset>

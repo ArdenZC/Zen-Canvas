@@ -27,6 +27,11 @@ describe("tauriApi", () => {
     apiMocks.listen.mockReset().mockResolvedValue(() => undefined);
   });
 
+  it("reads backend runtime capabilities before exposing optional UI", async () => {
+    await tauriApi.getRuntimeCapabilities();
+    expect(apiMocks.invoke).toHaveBeenCalledWith("get_runtime_capabilities", undefined);
+  });
+
   it("sends paged library filters alongside query and scope", async () => {
     const scope: LibraryScope = { kind: "roots", roots: ["F:/Downloads"] };
 

@@ -122,6 +122,12 @@ export interface AIConnectionTestResult {
   elapsedMs: number;
 }
 
+export interface RuntimeCapabilities {
+  aiDebugAvailable: boolean;
+  realAIClassificationAvailable: boolean;
+  credentialStoreAvailable: boolean;
+}
+
 export interface AIDebugClassificationResult {
   provider: AIProviderKind;
   preset: AIProviderPresetId;

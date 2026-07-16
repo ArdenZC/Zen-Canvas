@@ -4,6 +4,7 @@ pub mod db;
 pub mod dedupe;
 pub mod file_ops;
 pub mod path_filter;
+pub mod runtime_capabilities;
 pub mod scanner;
 pub mod settings;
 pub mod storage_analyzer;
@@ -45,6 +46,7 @@ pub use file_ops::{
     OperationProgressPayload, OperationSelection, RestoreMovesByIdRequest, RestoreMovesRequest,
     RestoreMovesResult,
 };
+pub use runtime_capabilities::{get_runtime_capabilities, RuntimeCapabilities};
 pub use scanner::{
     cancel_scan, scan_directory, ScanBatchPayload, ScanJobManager, ScanProgressPayload,
     ScanSummary, ScannedEntry,

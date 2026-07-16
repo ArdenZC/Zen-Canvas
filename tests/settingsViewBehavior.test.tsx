@@ -8,6 +8,7 @@ import { requestSettingsSection } from "../src/components/spotlight/commandRegis
 
 const mocks = vi.hoisted(() => ({
   getAISettings: vi.fn(),
+  getRuntimeCapabilities: vi.fn(),
   listAIProviderPresets: vi.fn(),
   saveAISettings: vi.fn(),
   publishAIProcessingMode: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("../src/api/tauriApi", () => ({
   tauriApi: {
     getAISettings: mocks.getAISettings,
+    getRuntimeCapabilities: mocks.getRuntimeCapabilities,
     listAIProviderPresets: mocks.listAIProviderPresets,
     saveAISettings: mocks.saveAISettings,
     getGlobalHotkeyStatus: mocks.getGlobalHotkeyStatus,
@@ -216,6 +218,11 @@ beforeEach(async () => {
   });
   vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
   mocks.getAISettings.mockResolvedValue(initialAISettings());
+  mocks.getRuntimeCapabilities.mockResolvedValue({
+    aiDebugAvailable: true,
+    realAIClassificationAvailable: true,
+    credentialStoreAvailable: true
+  });
   mocks.listAIProviderPresets.mockResolvedValue([cloudPreset, customPreset, localPreset]);
   mocks.getGlobalHotkeyStatus.mockResolvedValue({ error: null });
   mocks.updateSettings.mockResolvedValue(true);
@@ -240,6 +247,21 @@ afterEach(() => {
 });
 
 describe("settings view behavior", () => {
+  it("hides AI debug when the runtime denies it even if developer mode is enabled", async () => {
+    await act(async () => root.render(null));
+    mocks.getRuntimeCapabilities.mockResolvedValue({
+      aiDebugAvailable: false,
+      realAIClassificationAvailable: true,
+      credentialStoreAvailable: true
+    });
+    await act(async () => root.render(<SettingsView />));
+    await flushEffects();
+
+    expect(container.textContent).not.toContain("Debug one file's AI response");
+    expect(container.textContent).toContain("Test connection");
+    expect(container.querySelector("#settings-ai-api-key")).not.toBeNull();
+  });
+
   it("keeps runtime Off while a Cloud draft is unsaved, then publishes Cloud only after success", async () => {
     await act(async () => root.render(null));
     mocks.runtimeState.settings = { enabled: false, provider: "openai_compatible" };

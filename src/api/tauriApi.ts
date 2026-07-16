@@ -25,6 +25,7 @@ import type {
   OperationPreview,
   OperationPreviewResult,
   RestoreMovesResult,
+  RuntimeCapabilities,
   Rule,
   RuleExecutionMode,
   RuleExecutionSummary,
@@ -337,6 +338,10 @@ export const tauriApi = {
 
   getAISettings(): Promise<AISettings> {
     return invokeCommand<AISettings>("get_ai_settings");
+  },
+
+  getRuntimeCapabilities(): Promise<RuntimeCapabilities> {
+    return invokeCommand<RuntimeCapabilities>("get_runtime_capabilities");
   },
 
   saveAISettings(settings: AISettings): Promise<AISettings> {

@@ -228,6 +228,12 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockSettings(args?.settings as AppSettings | undefined) as T;
     case "get_ai_settings":
       return mockAISettings() as T;
+    case "get_runtime_capabilities":
+      return {
+        aiDebugAvailable: true,
+        realAIClassificationAvailable: true,
+        credentialStoreAvailable: true
+      } as T;
     case "save_ai_settings":
       return mockAISettings(args?.settings as AISettings | undefined) as T;
     case "list_ai_provider_presets":
