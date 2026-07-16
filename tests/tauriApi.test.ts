@@ -145,6 +145,14 @@ describe("tauriApi", () => {
     });
   });
 
+  it("subscribes to the native global-search fallback event", async () => {
+    apiMocks.listen.mockResolvedValueOnce(() => undefined);
+
+    await tauriApi.onGlobalSearchRequested(() => undefined);
+
+    expect(apiMocks.listen).toHaveBeenCalledWith("global-search-requested", expect.any(Function));
+  });
+
   it("falls back to browser mock data when the Tauri runtime is unavailable in dev", async () => {
     apiMocks.invoke.mockRejectedValueOnce(new Error("Cannot read properties of undefined (reading 'invoke')"));
 

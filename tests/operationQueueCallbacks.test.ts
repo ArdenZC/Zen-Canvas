@@ -548,6 +548,18 @@ describe("operation queue store callbacks", () => {
     expect(useOperationQueueStore.getState().lastExecutionLogs).toEqual([]);
   });
 
+  it("turns stale authoritative preview errors into user-facing invalidation copy", async () => {
+    const operation = preview("stale-preview", true);
+    apiMocks.executeMoves.mockRejectedValue(new Error("No authoritative preview exists for op-stale."));
+    useOperationQueueStore.setState({ displayPreviews: [operation], selectedOperationIds: new Set([operation.id]) });
+
+    expect(await useOperationQueueStore.getState().executeSelected(true)).toEqual([]);
+    expect(useOperationQueueStore.getState().executionError).toBe(
+      "Some operations are no longer valid. Return to suggestions to review them again; stale operations will not run."
+    );
+    expect(useOperationQueueStore.getState().executionError).not.toContain("op-stale");
+  });
+
   it("clears previous execution results when a new organize session starts", () => {
     useOperationQueueStore.setState({ lastExecutionLogs: [log("old-result", "success", true)], executionError: "old error" });
     useOperationQueueStore.getState().startOrganizePreviewSession("all", new Set(["new-preview"]));

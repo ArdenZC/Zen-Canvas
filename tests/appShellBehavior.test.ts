@@ -117,6 +117,7 @@ describe("App Shell v4.1 behavior", () => {
       "overview",
       "library",
       "suggestions",
+      "cleanup",
       "history",
       "automation",
       "settings",

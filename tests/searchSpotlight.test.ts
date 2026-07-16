@@ -91,6 +91,13 @@ describe("spotlight search navigation", () => {
     expect(appShell).toContain("searchScope={effectiveSearchScope}");
   });
 
+  it("opens in-window Spotlight when the native search window falls back", () => {
+    const runtimeProviders = readFileSync(resolve("src/components/AppRuntimeProviders.tsx"), "utf8");
+
+    expect(runtimeProviders).toContain("tauriApi.onGlobalSearchRequested");
+    expect(runtimeProviders).toContain("setIsCommandOpen(true)");
+  });
+
   it("uses folder-aware wording, plural-safe counts, and shared file icons", () => {
     const commandModal = readFileSync(resolve("src/components/CommandModal.tsx"), "utf8");
     const en = makeTranslator("en");

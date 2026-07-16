@@ -34,7 +34,7 @@ fn new_database_creates_default_app_settings_row() {
     assert_eq!(version, 16);
     assert_eq!(settings.close_behavior, "ask");
     assert_eq!(settings.folder_naming_language, "en");
-    assert_default_scan_roots(&settings.default_scan_folders);
+    assert!(settings.default_scan_folders.is_empty());
     assert_eq!(settings.restore_retention_days, 30);
     assert!(!settings.launch_at_login);
     assert_eq!(settings.search_hotkey, "CmdOrCtrl+K");
@@ -72,7 +72,7 @@ fn schema_7_database_migrates_to_settings_without_losing_existing_rows() {
     assert_eq!(version, 16);
     assert_eq!(file_name, "legacy.pdf");
     assert_eq!(rule_name, "Legacy Rule");
-    assert_default_scan_roots(&default_settings.default_scan_folders);
+    assert!(default_settings.default_scan_folders.is_empty());
     assert_eq!(default_settings.search_hotkey, "CmdOrCtrl+K");
 }
 
@@ -141,7 +141,7 @@ fn legacy_string_default_scan_folders_load_as_absolute_scan_roots() {
 
     let loaded = get_app_settings(&db).expect("load migrated legacy settings");
 
-    assert_default_scan_roots(&loaded.default_scan_folders);
+    assert_legacy_scan_roots(&loaded.default_scan_folders);
     assert_eq!(loaded.search_hotkey, "CmdOrCtrl+K");
 }
 
@@ -323,7 +323,7 @@ fn scan_root(id: &str, path: &str, label: &str, enabled: bool) -> ScanRootSettin
     }
 }
 
-fn assert_default_scan_roots(roots: &[ScanRootSetting]) {
+fn assert_legacy_scan_roots(roots: &[ScanRootSetting]) {
     assert_eq!(roots.len(), 3);
     for label in ["Desktop", "Downloads", "Documents"] {
         let root = roots

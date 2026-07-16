@@ -207,6 +207,12 @@ describe("Overview v4", () => {
     expect(activityHtml).not.toMatch(/[月日]/);
   });
 
+  it("formats persisted epoch timestamps and fails closed for invalid dates", () => {
+    expect(formatDate("1784106796123", "en")).not.toBe("-");
+    expect(formatDate("1784106796", "en")).not.toBe("-");
+    expect(formatDate("not-a-date", "en")).toBe("-");
+  });
+
   it("uses five scan facts at wide widths and two columns below xl", () => {
     const source = readFileSync(resolve("src/views/overview/ScanTaskPanel.tsx"), "utf8");
     expect(source).toContain("sm:grid-cols-2 xl:grid-cols-5");

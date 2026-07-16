@@ -546,6 +546,7 @@ fn move_cleanup_candidates_to_safe_trash_records_and_restores_items() {
     let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
     assert_eq!(item.original_path, safe.path);
     assert_eq!(item.status, "moved");
+    assert!(Path::new(&item.trash_path).starts_with(root.join(".zen-canvas-trash")));
     assert!(Path::new(&item.trash_path).exists());
 
     let restore =

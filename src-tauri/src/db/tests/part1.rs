@@ -981,6 +981,61 @@
     }
 
     #[test]
+    fn get_operation_previews_for_scope_blocks_existing_target_paths() {
+        let root = test_dir();
+        let inbox = root.join("inbox");
+        let target_directory = root.join("organized").join("Media").join("Images");
+        let source = inbox.join("image.png");
+        let target = target_directory.join("image.png");
+        fs::create_dir_all(&inbox).expect("create inbox");
+        fs::create_dir_all(&target_directory).expect("create target directory");
+        fs::write(&source, b"source").expect("write source");
+        fs::write(&target, b"existing target").expect("write existing target");
+
+        let db = Database::open(test_db_path()).expect("open test database");
+        let source_text = normalized_test_path(&source);
+        let inbox_text = normalized_test_path(&inbox);
+        insert_test_file_at_path(
+            &db,
+            "file-target-conflict",
+            &source_text,
+            "image.png",
+            "png",
+            6,
+            1_900_000_000,
+        );
+        set_file_operation_suggestion(
+            &db,
+            &source_text,
+            "Move",
+            &normalized_test_path(&target_directory),
+            "image.png",
+            "Normal",
+            0.95,
+            false,
+        );
+
+        let result = db
+            .get_operation_previews_for_scope(
+                &LibraryScope::Roots { roots: vec![inbox_text] },
+                None,
+                Some(100),
+                Some(0),
+            )
+            .expect("scope previews");
+        let preview = result.previews.first().expect("conflict preview");
+
+        assert_eq!(preview.is_executable, Some(false));
+        assert_eq!(preview.selected_by_default, Some(false));
+        assert!(preview
+            .blocking_reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("already exists"));
+        assert_eq!(fs::read(&target).expect("read target"), b"existing target");
+    }
+
+    #[test]
     fn get_stats_summary_aggregates_files_and_types() {
         let db = Database::open(test_db_path()).expect("open test database");
         insert_test_file(&db, "file-1", "report.pdf", "pdf", 2_048, 1_800_000_000);
