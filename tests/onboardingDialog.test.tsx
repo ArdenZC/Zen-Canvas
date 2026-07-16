@@ -122,6 +122,17 @@ function flushAsync() {
 }
 
 describe("first-run onboarding", () => {
+  it("keeps first-run actions reachable in a 200% text viewport", async () => {
+    renderOnboarding();
+    await flushAsync();
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    const description = document.querySelector<HTMLElement>("#onboarding-description");
+    expect(dialog?.className).toContain("max-h-[calc(100dvh-2rem)]");
+    expect(dialog?.className).toContain("overflow-hidden");
+    expect(description?.className).toContain("overflow-y-auto");
+    expect(description?.className).toContain("overscroll-contain");
+  });
+
   let root: Root;
 let setView: ReturnType<typeof vi.fn<(view: string) => void>>;
   const nativeGetClientRects = HTMLElement.prototype.getClientRects;

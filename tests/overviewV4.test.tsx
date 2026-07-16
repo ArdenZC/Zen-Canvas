@@ -221,6 +221,16 @@ describe("Overview v4", () => {
     expect((source.match(/aria-live=/g) ?? [])).toHaveLength(1);
   });
 
+  it("keeps critical chrome and overview copy reachable at 200% text scale", () => {
+    const shell = readFileSync(resolve("src/components/AppShell.tsx"), "utf8");
+    const priority = readFileSync(resolve("src/views/overview/OverviewPriorityTask.tsx"), "utf8");
+    const sections = readFileSync(resolve("src/views/overview/OverviewSections.tsx"), "utf8");
+    expect(shell).toContain("max-[720px]:grid-cols-[0_minmax(0,1fr)_auto]");
+    expect(shell).toContain("overflow-y-auto overscroll-contain");
+    expect(priority).toContain("[overflow-wrap:anywhere]");
+    expect(sections).toContain("[overflow-wrap:anywhere]");
+  });
+
   it("hides background work when idle and exposes only real active or failed tasks", () => {
     expect(selectOverviewBackgroundTasks({ backgroundIndexing: false, pendingRoots: [], failedRoots: [], operationProgress: null, aiProgress: null, isClassifyingWithAI: false })).toEqual([]);
     const tasks = selectOverviewBackgroundTasks({

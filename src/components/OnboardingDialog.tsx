@@ -141,7 +141,7 @@ export function OnboardingDialog() {
   return (
     <ModalPortal modalId="onboarding-dialog" initialFocusRef={primaryRef} onEscape={dismiss}>
       <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[var(--zc-overlay)] p-4 backdrop-blur-sm sm:p-6">
-        <section className={cn(floatingSurface, "grid w-full max-w-2xl gap-5 p-5 sm:p-7")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
+        <section className={cn(floatingSurface, "grid max-h-[calc(100dvh-2rem)] w-full max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto_auto] gap-5 overflow-hidden p-5 sm:max-h-[calc(100dvh-3rem)] sm:p-7")} role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
           <header className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <BrandMark size="app" decorative />
@@ -153,7 +153,7 @@ export function OnboardingDialog() {
             <span className="shrink-0 text-xs font-medium text-[var(--zc-text-tertiary)]">{stepLabel}</span>
           </header>
 
-          <div id={descriptionId} className="min-h-[220px]">
+          <div id={descriptionId} className="min-h-0 overflow-y-auto overscroll-contain pr-1">
             {step === 0 ? (
               <div className="grid gap-5">
                 <div className="grid gap-2">

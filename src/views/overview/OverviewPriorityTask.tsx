@@ -33,7 +33,7 @@ export function OverviewPriorityTask({
         <div className="min-w-0 flex-1">
           <span className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{task.kind === "orderly" ? t("overviewCurrentStatusLabel") : t("overviewPriorityLabel")}</span>
           <h2 id="overview-priority-title" className="mt-1 text-xl font-semibold text-[var(--zc-text-primary)]">{content.title}</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--zc-text-secondary)]">
+          <p className="mt-1 min-w-0 max-w-full break-words text-sm leading-6 text-[var(--zc-text-secondary)] [overflow-wrap:anywhere]">
             {content.description}
           </p>
         </div>

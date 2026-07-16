@@ -10,7 +10,7 @@ export function OverviewSpaceSummary({ summary, t }: { summary: string; t: Trans
   return (
     <section className="grid gap-1 border-y border-[var(--zc-divider)] py-4" aria-labelledby="overview-summary-title">
       <h2 id="overview-summary-title" className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("overviewSpaceSummary")}</h2>
-      <p className="max-w-5xl text-sm leading-6 text-[var(--zc-text-secondary)]">{summary}</p>
+      <p className="min-w-0 max-w-full break-words text-sm leading-6 text-[var(--zc-text-secondary)] [overflow-wrap:anywhere]">{summary}</p>
     </section>
   );
 }
