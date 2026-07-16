@@ -13,7 +13,10 @@ use super::{
     },
     prompts::clean_ai_json_text,
     schema::{AIChatRequest, AIProviderKind, AIProviderOptions, AIProviderPresetId},
-    settings::{get_ai_settings_for_db, normalize_ai_settings, AISettings},
+    settings::{
+        get_ai_settings_for_db, get_ai_settings_with_store, normalize_ai_settings, AISettings,
+        CredentialStore, SystemCredentialStore,
+    },
 };
 use crate::db::{normalize_path_text, trim_trailing_path_separators, Database};
 
@@ -97,8 +100,18 @@ pub(crate) fn debug_ai_classification_once_for_db(
     target: &str,
     raw_provider: &dyn AIDebugRawProvider,
 ) -> Result<AIDebugClassificationResult, String> {
-    let settings =
-        normalize_ai_settings(get_ai_settings_for_db(db).map_err(|error| error.to_string())?);
+    debug_ai_classification_once_with_store(db, target, raw_provider, &SystemCredentialStore)
+}
+
+pub(crate) fn debug_ai_classification_once_with_store(
+    db: &Database,
+    target: &str,
+    raw_provider: &dyn AIDebugRawProvider,
+    credentials: &impl CredentialStore,
+) -> Result<AIDebugClassificationResult, String> {
+    let settings = normalize_ai_settings(
+        get_ai_settings_with_store(db, credentials).map_err(|error| error.to_string())?,
+    );
     if !settings.enabled {
         return Err("请先在设置中启用 AI。".to_string());
     }
@@ -381,18 +394,51 @@ fn sanitize_debug_text(text: &str, api_key: &str) -> String {
 mod tests {
     use crate::{
         ai::{
-            debug::{debug_ai_classification_once_for_db, AIDebugRawProvider},
+            debug::{debug_ai_classification_once_with_store, AIDebugRawProvider},
             openai_compatible::AIRawProviderResponse,
             schema::{AIChatRequest, AIProviderPresetId},
-            settings::{save_ai_settings_for_db, AISettings},
+            settings::{
+                save_ai_settings_with_store, AISettings, ApiKeyAction, InMemoryCredentialStore,
+            },
         },
         db::{Database, InsertFileRequest},
     };
     use rusqlite::{params, Connection};
     use std::{
+        cell::RefCell,
         path::PathBuf,
         time::{SystemTime, UNIX_EPOCH},
     };
+
+    thread_local! {
+        static TEST_CREDENTIALS: RefCell<InMemoryCredentialStore> =
+            RefCell::new(InMemoryCredentialStore::default());
+    }
+
+    fn save_ai_settings_for_db(
+        db: &Database,
+        settings: &AISettings,
+    ) -> Result<AISettings, crate::db::DbError> {
+        let mut settings = settings.clone();
+        settings.api_key_action = ApiKeyAction::Replace;
+        TEST_CREDENTIALS
+            .with(|credentials| save_ai_settings_with_store(db, &settings, &*credentials.borrow()))
+    }
+
+    fn debug_ai_classification_once_for_db(
+        db: &Database,
+        target: &str,
+        raw_provider: &dyn AIDebugRawProvider,
+    ) -> Result<super::AIDebugClassificationResult, String> {
+        TEST_CREDENTIALS.with(|credentials| {
+            debug_ai_classification_once_with_store(
+                db,
+                target,
+                raw_provider,
+                &*credentials.borrow(),
+            )
+        })
+    }
 
     #[test]
     fn debug_classification_does_not_write_files_table() {

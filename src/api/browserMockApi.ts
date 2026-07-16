@@ -227,6 +227,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "save_settings":
       return mockSettings(args?.settings as AppSettings | undefined) as T;
     case "get_ai_settings":
+      return mockAISettings() as T;
     case "save_ai_settings":
       return mockAISettings(args?.settings as AISettings | undefined) as T;
     case "list_ai_provider_presets":
@@ -906,10 +907,23 @@ function mockSettings(settings?: AppSettings): AppSettings {
 }
 
 let mockAISettingsState: AISettings | null = null;
+let mockApiKeyConfigured = false;
 
 function mockAISettings(settings?: AISettings): AISettings {
   if (settings) {
-    mockAISettingsState = { ...settings };
+    const action = settings.apiKeyAction ?? (settings.apiKey.trim() ? "replace" : "preserve");
+    if (action === "replace") {
+      if (!settings.apiKey.trim()) throw new Error("Replacing the AI API key requires a non-empty value.");
+      mockApiKeyConfigured = true;
+    } else if (action === "clear") {
+      mockApiKeyConfigured = false;
+    }
+    mockAISettingsState = {
+      ...settings,
+      apiKey: "",
+      apiKeyAction: "preserve",
+      apiKeyConfigured: mockApiKeyConfigured
+    };
     return { ...mockAISettingsState };
   }
   if (mockAISettingsState) return { ...mockAISettingsState };
@@ -920,6 +934,8 @@ function mockAISettings(settings?: AISettings): AISettings {
     baseUrl: "https://api.deepseek.com",
     chatPath: "/chat/completions",
     apiKey: "",
+    apiKeyAction: "preserve",
+    apiKeyConfigured: mockApiKeyConfigured,
     model: "deepseek-v4-flash",
     temperature: 0,
     maxTokens: 1024,

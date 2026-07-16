@@ -2,6 +2,10 @@ use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
     path::PathBuf,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Mutex,
+    },
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -18,10 +22,65 @@ use zen_canvas_tauri::ai::{
     schema::{AIChatMessage, AIChatRequest, AIProviderKind, AIProviderOptions, AIProviderPresetId},
     settings::test_ai_provider_connection_for_settings,
     settings::{
-        get_ai_settings_for_db, normalize_ai_settings, save_ai_settings_for_db, AISettings,
+        get_ai_settings_with_store, normalize_ai_settings, save_ai_settings_with_store, AISettings,
+        ApiKeyAction, CredentialStore, InMemoryCredentialStore, AI_SETTINGS_KEY,
     },
 };
 use zen_canvas_tauri::{db::Database, settings::get_app_settings};
+
+#[derive(Default)]
+struct ReadbackMismatchStore {
+    value: Mutex<Option<String>>,
+    reads: AtomicUsize,
+}
+
+impl ReadbackMismatchStore {
+    fn stored(&self) -> Option<String> {
+        self.value.lock().expect("credential mutex").clone()
+    }
+}
+
+impl CredentialStore for ReadbackMismatchStore {
+    fn set(&self, value: &str) -> Result<(), String> {
+        *self
+            .value
+            .lock()
+            .map_err(|_| "credential mutex".to_string())? = Some(value.to_string());
+        Ok(())
+    }
+
+    fn get(&self) -> Result<Option<String>, String> {
+        if self.reads.fetch_add(1, Ordering::SeqCst) == 0 {
+            Ok(self.stored())
+        } else {
+            Ok(Some("mismatched-readback".to_string()))
+        }
+    }
+
+    fn delete(&self) -> Result<(), String> {
+        *self
+            .value
+            .lock()
+            .map_err(|_| "credential mutex".to_string())? = None;
+        Ok(())
+    }
+}
+
+struct FailingReadStore;
+
+impl CredentialStore for FailingReadStore {
+    fn set(&self, _value: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn get(&self) -> Result<Option<String>, String> {
+        Err("credential backend unavailable".to_string())
+    }
+
+    fn delete(&self) -> Result<(), String> {
+        Ok(())
+    }
+}
 
 #[test]
 fn deepseek_preset_uses_openai_compatible_defaults_without_forcing_response_format() {
@@ -64,6 +123,7 @@ fn ai_settings_default_starts_disabled_on_deepseek() {
 #[test]
 fn ai_settings_roundtrip_uses_separate_settings_row_and_normalizes_paths() {
     let db = Database::open(test_db_path()).expect("open test database");
+    let credentials = InMemoryCredentialStore::default();
     let app_settings_before = get_app_settings(&db).expect("app settings before");
     let mut settings = AISettings {
         enabled: true,
@@ -72,20 +132,22 @@ fn ai_settings_roundtrip_uses_separate_settings_row_and_normalizes_paths() {
         base_url: " https://api.moonshot.cn/v1/ ".to_string(),
         chat_path: " chat/completions ".to_string(),
         api_key: " moonshot-secret ".to_string(),
+        api_key_action: zen_canvas_tauri::ai::settings::ApiKeyAction::Replace,
         model: " kimi-k2.6 ".to_string(),
         timeout_seconds: 1,
         batch_size: 1,
         ..AISettings::default()
     };
 
-    let saved = save_ai_settings_for_db(&db, &settings).expect("save ai settings");
+    let saved =
+        save_ai_settings_with_store(&db, &settings, &credentials).expect("save ai settings");
     settings.base_url = "https://api.moonshot.cn/v1".to_string();
     settings.chat_path = "/chat/completions".to_string();
     settings.api_key = "moonshot-secret".to_string();
     settings.model = "kimi-k2.6".to_string();
     settings.timeout_seconds = 1;
     settings.batch_size = 1;
-    let loaded = get_ai_settings_for_db(&db).expect("load ai settings");
+    let loaded = get_ai_settings_with_store(&db, &credentials).expect("load ai settings");
     let app_settings_after = get_app_settings(&db).expect("app settings after");
 
     assert_eq!(saved.base_url, settings.base_url);
@@ -105,8 +167,9 @@ fn ai_settings_roundtrip_uses_separate_settings_row_and_normalizes_paths() {
 #[test]
 fn missing_ai_settings_loads_deepseek_defaults_and_presets_list_has_all_ids() {
     let db = Database::open(test_db_path()).expect("open test database");
+    let credentials = InMemoryCredentialStore::default();
 
-    let settings = get_ai_settings_for_db(&db).expect("default ai settings");
+    let settings = get_ai_settings_with_store(&db, &credentials).expect("default ai settings");
     let ids = all_provider_presets()
         .into_iter()
         .map(|preset| preset.id)
@@ -119,6 +182,120 @@ fn missing_ai_settings_loads_deepseek_defaults_and_presets_list_has_all_ids() {
     assert!(ids.contains(&AIProviderPresetId::DeepSeek));
     assert!(ids.contains(&AIProviderPresetId::Ollama));
     assert!(ids.contains(&AIProviderPresetId::CustomOpenAICompatible));
+}
+
+#[test]
+fn ai_api_key_actions_are_explicit_and_sqlite_never_stores_plaintext() {
+    let db = Database::open(test_db_path()).expect("open test database");
+    let credentials = InMemoryCredentialStore::default();
+    credentials.set("existing-secret").expect("seed key");
+
+    let preserved = save_ai_settings_with_store(
+        &db,
+        &AISettings {
+            api_key: "ignored-value".to_string(),
+            api_key_action: ApiKeyAction::Preserve,
+            ..AISettings::default()
+        },
+        &credentials,
+    )
+    .expect("preserve key");
+    assert_eq!(preserved.api_key, "existing-secret");
+
+    let replaced = save_ai_settings_with_store(
+        &db,
+        &AISettings {
+            api_key: "replacement-secret".to_string(),
+            api_key_action: ApiKeyAction::Replace,
+            ..AISettings::default()
+        },
+        &credentials,
+    )
+    .expect("replace key");
+    assert_eq!(replaced.api_key, "replacement-secret");
+    assert_eq!(
+        credentials.get().unwrap().as_deref(),
+        Some("replacement-secret")
+    );
+
+    let cleared = save_ai_settings_with_store(
+        &db,
+        &AISettings {
+            api_key_action: ApiKeyAction::Clear,
+            ..AISettings::default()
+        },
+        &credentials,
+    )
+    .expect("clear key");
+    assert!(cleared.api_key.is_empty());
+    assert_eq!(credentials.get().unwrap(), None);
+
+    let conn = rusqlite::Connection::open(db.path()).expect("open sqlite");
+    let persisted: String = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = ?1",
+            rusqlite::params![AI_SETTINGS_KEY],
+            |row| row.get(0),
+        )
+        .expect("persisted AI settings");
+    assert!(!persisted.contains("existing-secret"));
+    assert!(!persisted.contains("replacement-secret"));
+}
+
+#[test]
+fn credential_replace_requires_matching_readback_and_rolls_back() {
+    let db = Database::open(test_db_path()).expect("open test database");
+    let credentials = ReadbackMismatchStore::default();
+    credentials.set("existing-secret").expect("seed key");
+
+    let error = save_ai_settings_with_store(
+        &db,
+        &AISettings {
+            api_key: "replacement-secret".to_string(),
+            api_key_action: ApiKeyAction::Replace,
+            ..AISettings::default()
+        },
+        &credentials,
+    )
+    .expect_err("mismatched read-back must fail");
+
+    assert!(error.to_string().contains("read-back verification failed"));
+    assert_eq!(credentials.stored().as_deref(), Some("existing-secret"));
+}
+
+#[test]
+fn credential_read_errors_are_not_reported_as_not_configured() {
+    let db = Database::open(test_db_path()).expect("open test database");
+    let error = get_ai_settings_with_store(&db, &FailingReadStore)
+        .expect_err("credential backend error must propagate");
+    assert!(error.to_string().contains("credential backend unavailable"));
+}
+
+#[test]
+fn credential_replace_rolls_back_when_database_save_fails() {
+    let db = Database::open(test_db_path()).expect("open test database");
+    let credentials = InMemoryCredentialStore::default();
+    credentials.set("existing-secret").expect("seed key");
+    let conn = rusqlite::Connection::open(db.path()).expect("open sqlite");
+    conn.execute("DROP TABLE app_settings", [])
+        .expect("force settings persistence failure");
+
+    let error = save_ai_settings_with_store(
+        &db,
+        &AISettings {
+            api_key: "replacement-secret".to_string(),
+            api_key_action: ApiKeyAction::Replace,
+            ..AISettings::default()
+        },
+        &credentials,
+    )
+    .expect_err("database failure must abort credential replacement");
+
+    assert!(error.to_string().contains("sqlite"));
+    assert_eq!(
+        credentials.get().unwrap().as_deref(),
+        Some("existing-secret")
+    );
 }
 
 #[test]

@@ -612,19 +612,29 @@ export function SettingsView() {
   async function saveAISettings() {
     if (!aiSettings || isSavingAISettings) return;
     const next = normalizeAISettingsForSave(aiSettings);
+    const requestedKeyAction = next.apiKeyAction ?? (next.apiKey ? "replace" : "preserve");
     const requestId = ++aiSaveRequestRef.current;
     const previous = persistedAISettings;
+    setAiSettings((current) => current ? { ...current, apiKey: "" } : current);
     setIsSavingAISettings(true);
     setAiSettingsSaveError(false);
     setAiConnectionStatus(null);
     try {
-      const saved = await tauriApi.saveAISettings(next);
+      await tauriApi.saveAISettings(next);
+      const saved = await tauriApi.getAISettings();
+      if (requestedKeyAction === "replace" && !saved.apiKeyConfigured) {
+        throw new Error(t("aiCredentialReadbackFailed"));
+      }
       if (requestId !== aiSaveRequestRef.current) return;
       setAiSettings(saved);
       setPersistedAISettings(saved);
       setAiSettingsSaveError(false);
       publishAIProcessingMode({ enabled: saved.enabled, provider: saved.provider });
-      setAiConnectionStatus({ tone: "success", role: "status", message: t("aiSettingsSaved") });
+      setAiConnectionStatus({
+        tone: "success",
+        role: "status",
+        message: requestedKeyAction === "replace" ? t("aiCredentialSaved") : t("aiSettingsSaved")
+      });
       setSecretRevealResetVersion((version) => version + 1);
     } catch (error) {
       if (requestId !== aiSaveRequestRef.current) return;
@@ -632,7 +642,7 @@ export function SettingsView() {
       setAiConnectionStatus({
         tone: "warning",
         role: "alert",
-        message: sanitizeAIStatusMessage(`${t("aiSettingsSaveFailed")}：${readableError(error)}`, previous?.apiKey ?? aiSettings.apiKey)
+        message: sanitizeAIStatusMessage(`${t("aiSettingsSaveFailed")}：${readableError(error)}`, next.apiKey || aiSettings.apiKey || previous?.apiKey || "")
       });
       setSecretRevealResetVersion((version) => version + 1);
     } finally {
@@ -1113,17 +1123,24 @@ export function SettingsView() {
                       {aiSettings.provider === "ollama" ? (
                         <span className={quietText}>{t("aiLocalApiKeyHint")}</span>
                       ) : (
-                        <SettingsSecretField
-                          id="settings-ai-api-key"
-                          label={t("aiApiKeyLabel")}
-                          value={aiSettings.apiKey}
-                          disabled={aiDependentControlsDisabled}
-                          showLabel={t("showApiKey")}
-                          hideLabel={t("hideApiKey")}
-                          onChange={(value) => updateAISettings({ apiKey: value })}
-                          placeholder={aiSettings.apiKeyConfigured ? t("aiStoredApiKeyPlaceholder") : t("aiEmptyApiKeyPlaceholder")}
-                          resetKey={`${activeSettingsSection}:${draftAIUserMode}:${developerMode}:${aiAdvancedOpen}:${aiSettings.provider}:${aiSettings.preset}:${secretRevealResetVersion}`}
-                        />
+                        <div className="grid min-w-0 gap-2">
+                          <SettingsSecretField
+                            id="settings-ai-api-key"
+                            label={t("aiApiKeyLabel")}
+                            value={aiSettings.apiKey}
+                            disabled={aiDependentControlsDisabled}
+                            showLabel={t("showApiKey")}
+                            hideLabel={t("hideApiKey")}
+                            onChange={(value) => updateAISettings({ apiKey: value, apiKeyAction: value ? "replace" : "preserve" })}
+                            placeholder={aiSettings.apiKeyConfigured ? t("aiStoredApiKeyPlaceholder") : t("aiEmptyApiKeyPlaceholder")}
+                            resetKey={`${activeSettingsSection}:${draftAIUserMode}:${developerMode}:${aiAdvancedOpen}:${aiSettings.provider}:${aiSettings.preset}:${secretRevealResetVersion}`}
+                          />
+                          {aiSettings.apiKeyConfigured ? (
+                            <button className={buttonSecondary} type="button" disabled={aiDependentControlsDisabled} onClick={() => updateAISettings({ apiKey: "", apiKeyAction: "clear" })}>
+                              {t("aiClearApiKey")}
+                            </button>
+                          ) : null}
+                        </div>
                       )}
                       <SettingsTextField id="settings-ai-model" label={t("aiModelLabel")} value={aiSettings.model} maxLength={200} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ model: value })} />
                     </div>
@@ -1287,6 +1304,7 @@ function defaultAISettingsFromPreset(preset?: AIProviderPreset): AISettings | nu
     baseUrl: preset.defaultBaseUrl,
     chatPath: preset.defaultChatPath || "/chat/completions",
     apiKey: "",
+    apiKeyAction: "preserve",
     model: preset.defaultModel,
     temperature: 0,
     maxTokens: 1024,

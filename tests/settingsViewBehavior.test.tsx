@@ -169,7 +169,8 @@ function initialAISettings(): AISettings {
     preset: "deepseek",
     baseUrl: "https://api.deepseek.com/custom",
     chatPath: "/chat/completions",
-    apiKey: secret,
+    apiKey: "",
+    apiKeyAction: "preserve",
     apiKeyConfigured: true,
     model: "preserved-model",
     temperature: 0,
@@ -196,6 +197,12 @@ async function flushEffects() {
     await Promise.resolve();
     await Promise.resolve();
   });
+}
+
+async function changeInput(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  setter?.call(input, value);
+  await act(async () => input.dispatchEvent(new Event("input", { bubbles: true })));
 }
 
 beforeEach(async () => {
@@ -249,6 +256,7 @@ describe("settings view behavior", () => {
     expect(mocks.publishAIProcessingMode).not.toHaveBeenCalled();
 
     mocks.saveAISettings.mockImplementation(async (next: AISettings) => next);
+    mocks.getAISettings.mockResolvedValue({ ...initialAISettings(), enabled: true });
     const save = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Save AI settings")!;
     await act(async () => save.click());
     await flushEffects();
@@ -301,7 +309,7 @@ describe("settings view behavior", () => {
     expect(apiKey.disabled).toBe(true);
     expect(model.disabled).toBe(true);
     expect(baseUrl.value).toBe("https://api.deepseek.com/custom");
-    expect(apiKey.value).toBe(secret);
+    expect(apiKey.value).toBe("");
     expect(model.value).toBe("preserved-model");
     expect(container.textContent).toContain("Existing provider and request settings are preserved");
     expect(container.querySelector<HTMLButtonElement>("button[type='button']:not([data-settings-secret-toggle])")?.disabled).toBe(false);
@@ -312,21 +320,40 @@ describe("settings view behavior", () => {
     await act(async () => cloud.click());
     expect(container.querySelector<HTMLInputElement>("#settings-ai-cleanup")?.disabled).toBe(false);
     expect(baseUrl.value).toBe("https://api.deepseek.com/custom");
-    expect(apiKey.value).toBe(secret);
+    expect(apiKey.value).toBe("");
     expect(model.value).toBe("preserved-model");
   });
 
   it("keeps the API key when the provider changes", async () => {
     const provider = container.querySelector<HTMLSelectElement>("#settings-ai-provider")!;
     const apiKey = container.querySelector<HTMLInputElement>("#settings-ai-api-key")!;
-    expect(apiKey.value).toBe(secret);
+    expect(apiKey.value).toBe("");
     provider.value = "custom";
     await act(async () => provider.dispatchEvent(new Event("change", { bubbles: true })));
-    expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.value).toBe(secret);
+    expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.value).toBe("");
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Clear saved API key")).toBe(true);
+  });
+
+  it("uses explicit key actions, clears the visible secret, and rejects failed read-back", async () => {
+    const apiKey = container.querySelector<HTMLInputElement>("#settings-ai-api-key")!;
+    await changeInput(apiKey, secret);
+    mocks.saveAISettings.mockImplementation(async (next: AISettings) => ({ ...next, apiKey: "" }));
+    mocks.getAISettings.mockResolvedValue({ ...initialAISettings(), apiKeyConfigured: false });
+
+    const save = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Save AI settings")!;
+    await act(async () => save.click());
+    await flushEffects();
+
+    expect(mocks.saveAISettings).toHaveBeenCalledWith(expect.objectContaining({ apiKey: secret, apiKeyAction: "replace" }));
+    expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.value).toBe("");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Credential read-back verification failed after saving");
+    expect(mocks.publishAIProcessingMode).not.toHaveBeenCalled();
   });
 
   it("retains a failed AI draft, keeps runtime unchanged, and exposes one redacted retryable alert", async () => {
     mocks.saveAISettings.mockRejectedValue(new Error(`backend rejected ${secret}`));
+    const apiKey = container.querySelector<HTMLInputElement>("#settings-ai-api-key")!;
+    await changeInput(apiKey, secret);
     const modeGroup = container.querySelector<HTMLElement>('[role="radiogroup"][aria-label="AI mode"]')!;
     const off = [...modeGroup.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((radio) => radio.textContent === "AI is off")!;
     await act(async () => off.click());
@@ -348,6 +375,7 @@ describe("settings view behavior", () => {
     expect(save.disabled).toBe(false);
 
     mocks.saveAISettings.mockResolvedValue({ ...initialAISettings(), enabled: false });
+    mocks.getAISettings.mockResolvedValue({ ...initialAISettings(), enabled: false });
     await act(async () => save.click());
     await flushEffects();
     expect(mocks.publishAIProcessingMode).toHaveBeenCalledWith({ enabled: false, provider: "openai_compatible" });
@@ -358,6 +386,7 @@ describe("settings view behavior", () => {
   it("publishes runtime only after save success and clears the dirty draft", async () => {
     const saved = { ...initialAISettings(), enabled: false };
     mocks.saveAISettings.mockResolvedValue(saved);
+    mocks.getAISettings.mockResolvedValue(saved);
     const modeGroup = container.querySelector<HTMLElement>('[role="radiogroup"][aria-label="AI mode"]')!;
     const off = [...modeGroup.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((radio) => radio.textContent === "AI is off")!;
     await act(async () => off.click());
@@ -415,6 +444,7 @@ describe("settings view behavior", () => {
     model.value = "saved-model";
     await act(async () => model.dispatchEvent(new Event("input", { bubbles: true })));
     mocks.saveAISettings.mockImplementation(async (next: AISettings) => next);
+    mocks.getAISettings.mockResolvedValue({ ...initialAISettings(), model: "saved-model" });
     const save = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Save AI settings")!;
     await act(async () => save.click());
     await flushEffects();
