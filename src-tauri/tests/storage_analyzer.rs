@@ -908,7 +908,7 @@ fn move_cleanup_candidates_to_safe_trash_records_and_restores_items() {
 
     let result = move_cleanup_candidates_to_safe_trash_for_candidates(
         vec![safe.id.clone()],
-        &[safe.clone()],
+        std::slice::from_ref(&safe),
         &db,
         None,
     )

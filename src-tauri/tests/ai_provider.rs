@@ -636,12 +636,14 @@ fn openai_compatible_respects_preset_without_response_format() {
 #[test]
 fn ollama_chat_uses_api_chat_stream_false_and_json_format() {
     let server = TestServer::start(200, r#"{"message":{"content":"{\"ok\":true}"}}"#);
-    let mut settings = AISettings::default();
-    settings.provider = AIProviderKind::Ollama;
-    settings.preset = AIProviderPresetId::Ollama;
-    settings.base_url = server.base_url.clone();
-    settings.chat_path = "/api/chat".to_string();
-    settings.model = "qwen3:8b".to_string();
+    let settings = AISettings {
+        provider: AIProviderKind::Ollama,
+        preset: AIProviderPresetId::Ollama,
+        base_url: server.base_url.clone(),
+        chat_path: "/api/chat".to_string(),
+        model: "qwen3:8b".to_string(),
+        ..AISettings::default()
+    };
     let provider = OllamaProvider::new(settings);
 
     let content = provider
@@ -665,13 +667,15 @@ fn ollama_chat_uses_api_chat_stream_false_and_json_format() {
 #[test]
 fn ollama_test_connection_clamps_small_max_tokens_to_512() {
     let server = TestServer::start(200, r#"{"message":{"content":"{\"ok\":true}"}}"#);
-    let mut settings = AISettings::default();
-    settings.provider = AIProviderKind::Ollama;
-    settings.preset = AIProviderPresetId::Ollama;
-    settings.base_url = server.base_url.clone();
-    settings.chat_path = "/api/chat".to_string();
-    settings.model = "qwen3:8b".to_string();
-    settings.max_tokens = 128;
+    let settings = AISettings {
+        provider: AIProviderKind::Ollama,
+        preset: AIProviderPresetId::Ollama,
+        base_url: server.base_url.clone(),
+        chat_path: "/api/chat".to_string(),
+        model: "qwen3:8b".to_string(),
+        max_tokens: 128,
+        ..AISettings::default()
+    };
     let provider = OllamaProvider::new(settings);
 
     provider.test_connection().expect("ollama connection");

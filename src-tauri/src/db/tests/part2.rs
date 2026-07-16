@@ -966,7 +966,7 @@
         assert_eq!(upserted, 1);
         assert_eq!(page.total, 1);
         assert_eq!(page.files[0].size, 11);
-        assert!(page.files[0].modified_at.len() > 0);
+        assert!(!page.files[0].modified_at.is_empty());
     }
 
     #[test]
@@ -988,7 +988,7 @@
             state_code: 0,
         })
         .expect("insert file");
-        db.remove_files_by_paths(&[path.clone()])
+        db.remove_files_by_paths(std::slice::from_ref(&path))
             .expect("mark stale");
 
         let upserted = upsert_files_by_paths_for_db(&db, &[file.to_string_lossy().into_owned()])

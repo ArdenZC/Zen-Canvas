@@ -1,6 +1,8 @@
     fn enable_legacy_builtin_rules(db: &Database) {
-        let mut settings = AppSettings::default();
-        settings.use_legacy_builtin_classification_rules = true;
+        let settings = AppSettings {
+            use_legacy_builtin_classification_rules: true,
+            ..AppSettings::default()
+        };
         save_app_settings(db, &settings).expect("enable legacy builtin classification rules");
     }
 
@@ -152,6 +154,7 @@
         .expect("set file review state");
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn set_file_operation_suggestion(
         db: &Database,
         path: &str,

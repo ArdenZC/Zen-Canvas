@@ -462,12 +462,14 @@ domain_enum!(ConditionOperator {
     NewerThanDays => "newerThanDays", Unknown => "unknown"
 });
 
+#[allow(clippy::derivable_impls)]
 impl Default for RuleSource {
     fn default() -> Self {
         Self::Unknown
     }
 }
 
+#[allow(clippy::derivable_impls)]
 impl Default for RuleOperator {
     fn default() -> Self {
         Self::And

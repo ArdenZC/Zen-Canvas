@@ -672,8 +672,10 @@ mod validation_tests {
 
     #[test]
     fn ai_provider_preset_and_chat_path_cannot_cross_security_boundaries() {
-        let mut settings = AISettings::default();
-        settings.provider = AIProviderKind::Ollama;
+        let mut settings = AISettings {
+            provider: AIProviderKind::Ollama,
+            ..AISettings::default()
+        };
         assert!(validate_ai_settings(&settings, true).is_err());
 
         settings.provider = AIProviderKind::OpenAICompatible;
@@ -718,8 +720,10 @@ mod validation_tests {
 
     #[test]
     fn ai_text_fields_enforce_length_limits() {
-        let mut settings = AISettings::default();
-        settings.model = "x".repeat(201);
+        let mut settings = AISettings {
+            model: "x".repeat(201),
+            ..AISettings::default()
+        };
         assert!(validate_ai_settings(&settings, true).is_err());
         settings.model = "model".to_string();
         settings.reasoning_effort = Some("x".repeat(65));

@@ -1801,7 +1801,7 @@ mod tests {
         )
         .expect("set suggestion");
         let preview = db
-            .get_operation_previews_by_file_ids(&[file_id.clone()])
+            .get_operation_previews_by_file_ids(std::slice::from_ref(&file_id))
             .expect("preview")
             .pop()
             .expect("operation preview");

@@ -84,18 +84,20 @@ fn schema_7_database_migrates_to_settings_without_losing_existing_rows() {
 #[test]
 fn app_settings_roundtrip_persists_single_json_row() {
     let db = Database::open(test_db_path()).expect("open test database");
-    let mut settings = AppSettings::default();
-    settings.close_behavior = "quit".to_string();
-    settings.folder_naming_language = "zh".to_string();
-    settings.default_scan_folders = vec![scan_root(
-        "downloads",
-        "/Users/zen/Downloads",
-        "Downloads",
-        true,
-    )];
-    settings.restore_retention_days = 90;
-    settings.launch_at_login = true;
-    settings.search_hotkey = "Alt+Space".to_string();
+    let settings = AppSettings {
+        close_behavior: "quit".to_string(),
+        folder_naming_language: "zh".to_string(),
+        default_scan_folders: vec![scan_root(
+            "downloads",
+            "/Users/zen/Downloads",
+            "Downloads",
+            true,
+        )],
+        restore_retention_days: 90,
+        launch_at_login: true,
+        search_hotkey: "Alt+Space".to_string(),
+        ..AppSettings::default()
+    };
 
     save_app_settings(&db, &settings).expect("save settings");
     let loaded = get_app_settings(&db).expect("load settings");
@@ -276,8 +278,10 @@ fn prune_operation_logs_removes_expired_logs_and_orphan_batches() {
 fn save_settings_with_launch_at_login_enables_autostart_before_persisting() {
     let db = Database::open(test_db_path()).expect("open test database");
     let controller = RecordingLaunchAtLoginController::new(false);
-    let mut settings = AppSettings::default();
-    settings.launch_at_login = true;
+    let settings = AppSettings {
+        launch_at_login: true,
+        ..AppSettings::default()
+    };
 
     save_app_settings_with_launch_at_login(&db, &settings, &controller).expect("save settings");
     let loaded = get_app_settings(&db).expect("load settings");
@@ -290,8 +294,10 @@ fn save_settings_with_launch_at_login_enables_autostart_before_persisting() {
 fn save_settings_with_launch_at_login_disables_autostart_before_persisting() {
     let db = Database::open(test_db_path()).expect("open test database");
     let controller = RecordingLaunchAtLoginController::new(true);
-    let mut settings = AppSettings::default();
-    settings.launch_at_login = true;
+    let mut settings = AppSettings {
+        launch_at_login: true,
+        ..AppSettings::default()
+    };
     save_app_settings(&db, &settings).expect("save enabled settings");
     settings.launch_at_login = false;
 
@@ -306,8 +312,10 @@ fn save_settings_with_launch_at_login_disables_autostart_before_persisting() {
 fn save_settings_with_launch_at_login_does_not_persist_when_autostart_sync_fails() {
     let db = Database::open(test_db_path()).expect("open test database");
     let controller = RecordingLaunchAtLoginController::new(false).fail_enable();
-    let mut settings = AppSettings::default();
-    settings.launch_at_login = true;
+    let settings = AppSettings {
+        launch_at_login: true,
+        ..AppSettings::default()
+    };
 
     let result = save_app_settings_with_launch_at_login(&db, &settings, &controller);
     let loaded = get_app_settings(&db).expect("load settings");
@@ -321,8 +329,10 @@ fn save_settings_with_launch_at_login_does_not_persist_when_autostart_sync_fails
 fn startup_launch_at_login_sync_uses_system_truth() {
     let db = Database::open(test_db_path()).expect("open test database");
     let controller = RecordingLaunchAtLoginController::new(false);
-    let mut settings = AppSettings::default();
-    settings.launch_at_login = true;
+    let settings = AppSettings {
+        launch_at_login: true,
+        ..AppSettings::default()
+    };
     save_app_settings(&db, &settings).expect("save stale settings");
 
     let synced =

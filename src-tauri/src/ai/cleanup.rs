@@ -694,7 +694,7 @@ mod tests {
         let original = safe_candidate("c1", "D:/Projects/demo/node_modules");
         let mut outputs = HashMap::new();
         outputs.insert("other".to_string(), move_to_trash_output("other"));
-        let merged = merge_ai_cleanup_results(&[original.clone()], &outputs, None);
+        let merged = merge_ai_cleanup_results(std::slice::from_ref(&original), &outputs, None);
         assert_eq!(merged[0].id, original.id);
         assert_eq!(merged[0].reason, original.reason);
     }

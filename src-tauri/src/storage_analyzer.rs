@@ -3772,6 +3772,7 @@ fn current_timestamp_ms() -> u128 {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod temp_safety_tests {
     use super::*;
 
