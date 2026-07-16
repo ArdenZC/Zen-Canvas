@@ -42,6 +42,9 @@ jobs:
           npm run typecheck
           npm test
 
+      - name: Remediation contract guard
+        run: npm run test:remediation
+
       - name: Rust format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
@@ -49,7 +52,30 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
 
       - name: Rust clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime -- -D warnings
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
+
+      - name: macOS path and temp policy regression
+        if: runner.os == 'macOS'
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime macos_
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime temp_safety_tests
+
+      - name: 100k search performance test
+        if: runner.os == 'Windows'
+        run: npm run test:performance
+
+      - name: npm audit
+        run: npm run security:audit
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: RustSec audit
+        run: npm run security:audit:rust
+
+      - name: Windows production build and NSIS package
+        if: runner.os == 'Windows'
+        run: npm run build
 
   dependency-audit:
     name: Dependency audit

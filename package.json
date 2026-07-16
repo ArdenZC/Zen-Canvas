@@ -11,11 +11,12 @@
     "dev": "tauri dev --features desktop-runtime",
     "build": "tauri build --features desktop-runtime",
     "test": "vitest run",
+    "test:remediation": "vitest run tests/remediationContract.test.ts",
     "test:performance": "node scripts/runPerformanceTest.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "security:audit": "npm audit --audit-level=high",
     "security:audit:rust": "cargo audit --file src-tauri/Cargo.lock",
-    "verify": "npm run typecheck && npm test && npm run test:performance && npm run build && npm run security:audit",
+    "verify": "npm run typecheck && npm test && npm run test:performance && npm run build && npm run security:audit && npm run security:audit:rust",
     "assets:brand": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generateBrandAssets.ps1"
   },
   "dependencies": {
