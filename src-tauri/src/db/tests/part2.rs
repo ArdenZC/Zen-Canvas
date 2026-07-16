@@ -744,7 +744,8 @@
 
     #[test]
     fn legacy_invalid_rule_values_load_as_unknown() {
-        let db = Database::open(test_db_path()).expect("open test database");
+        let path = test_db_path();
+        let db = Database::open(&path).expect("open test database");
         db.save_user_rule(user_rule_for_persistence("rule-legacy-enum", "Legacy", 200.0))
             .expect("save valid rule");
         let conn = Connection::open(db.path()).expect("open sqlite");
@@ -757,7 +758,12 @@
             ],
         )
         .expect("inject legacy invalid values");
+        conn.execute_batch("PRAGMA user_version = 19;")
+            .expect("downgrade enum migration fixture");
+        drop(conn);
+        drop(db);
 
+        let db = Database::open(&path).expect("migrate invalid rule domains");
         let rule = db.get_user_rules().expect("load migrated rules").remove(0);
 
         assert_eq!(rule.action.purpose.as_deref(), Some("Unknown"));
@@ -771,6 +777,7 @@
             rule.groups[0].conditions[0].operator,
             ConditionOperator::Unknown
         );
+        let conn = Connection::open(db.path()).expect("inspect migrated sqlite");
         let stored: String = conn
             .query_row(
                 "SELECT action_json FROM rules WHERE id = 'rule-legacy-enum'",
