@@ -235,7 +235,6 @@ export function SettingsView() {
 
   function setDeveloperModePreference(next: boolean) {
     setDeveloperMode(next);
-    if (!next) setAiAdvancedOpen(false);
     try {
       window.localStorage.setItem(DEVELOPER_MODE_STORAGE_KEY, String(next));
     } catch {
@@ -1117,8 +1116,12 @@ export function SettingsView() {
                     ? t(aiUserMode(aiSettings) === "local" ? "modeAILocalDesc" : "modeAICloudDesc")
                     : t("aiDisabledConfigurationPreserved")}
               </SettingsInlineMessage>
-              {developerMode ? (
-                <SettingsDisclosure title={t("advancedSettings")} description={t("developerModeDesc")} open={aiAdvancedOpen} onOpenChange={setAiAdvancedOpen}>
+              <SettingsDisclosure
+                title={t("advancedSettings")}
+                description={developerMode ? t("developerModeDesc") : t("aiAdvancedConnectionDesc")}
+                open={aiAdvancedOpen}
+                onOpenChange={setAiAdvancedOpen}
+              >
                   <SettingsControlGroup title={t("aiAdvancedConnection")} description={t("aiAdvancedConnectionDesc")}>
                     <div data-ai-advanced-connection-grid className="grid min-w-0 gap-4 min-[1180px]:grid-cols-2">
                       <SettingsTextField id="settings-ai-base-url" label={t("aiBaseUrlLabel")} value={aiSettings.baseUrl} maxLength={2048} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ baseUrl: value })} />
@@ -1148,7 +1151,8 @@ export function SettingsView() {
                       <SettingsTextField id="settings-ai-model" label={t("aiModelLabel")} value={aiSettings.model} maxLength={200} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ model: value })} />
                     </div>
                   </SettingsControlGroup>
-                  <SettingsControlGroup title={t("aiAdvancedPerformance")} description={t("aiAdvancedPerformanceDesc")}>
+                  {developerMode ? (<>
+                    <SettingsControlGroup title={t("aiAdvancedPerformance")} description={t("aiAdvancedPerformanceDesc")}>
                     <div className="grid min-w-0 gap-4 min-[1180px]:grid-cols-2">
                       <SettingsTextField id="settings-ai-batch-size" label={t("aiBatchSizeLabel")} description={t("aiBatchSizeDesc")} type="number" value={String(aiSettings.batchSize)} min={1} max={100} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ batchSize: Math.min(100, Math.max(1, Number(value) || 1)) })} />
                       <SettingsTextField id="settings-ai-concurrency" label={t("aiConcurrencyLabel")} description={t("aiConcurrencyDesc")} type="number" value={String(aiSettings.classificationConcurrency)} min={1} max={4} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ classificationConcurrency: Math.min(4, Math.max(1, Number(value) || 1)) })} />
@@ -1170,6 +1174,7 @@ export function SettingsView() {
                       <span className={quietText}>{t("aiSecretsHint")}</span>
                     </label>
                   </SettingsControlGroup>
+                  </>) : null}
                   {aiSettings.preset === "deepseek" && ["deepseek-chat", "deepseek-reasoner"].includes(aiSettings.model.trim()) ? <SettingsInlineMessage tone="warning">{t("aiOldModelWarning")}</SettingsInlineMessage> : null}
                   {(aiSettings.provider === "ollama" || aiSettings.model.toLowerCase().includes("qwen3")) ? <SettingsInlineMessage tone="warning">{t("aiQwenWarning")}</SettingsInlineMessage> : null}
                   <div className="flex flex-wrap justify-end gap-2">
@@ -1177,7 +1182,7 @@ export function SettingsView() {
                       {isTestingAIConnection ? t("aiTestingConnection") : t("aiTestConnection")}
                     </button>
                   </div>
-                  {runtimeCapabilities?.aiDebugAvailable ? <SettingsDisclosure title={t("aiDebugTitle")} description={t("aiDebugWarning")}>
+                  {developerMode && runtimeCapabilities?.aiDebugAvailable ? <SettingsDisclosure title={t("aiDebugTitle")} description={t("aiDebugWarning")}>
                     {selectedLibraryFile ? (
                       <div className="grid gap-1 border-b border-[var(--zc-divider)] pb-3 text-xs text-[var(--zc-text-secondary)]">
                         <span className="font-medium text-[var(--zc-text-primary)]">{t("aiSelectedFile")}</span>
@@ -1215,8 +1220,7 @@ export function SettingsView() {
                       </div>
                     ) : null}
                   </SettingsDisclosure> : null}
-                </SettingsDisclosure>
-              ) : <p className={quietText}>{t("developerModeDesc")}</p>}
+              </SettingsDisclosure>
             </fieldset>
           )}
         </SettingsSection>

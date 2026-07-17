@@ -49,6 +49,7 @@ pub struct AIChatRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AIConnectionTestResult {
     pub ok: bool,
     pub message: String,

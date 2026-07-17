@@ -262,6 +262,26 @@ describe("settings view behavior", () => {
     expect(container.querySelector("#settings-ai-api-key")).not.toBeNull();
   });
 
+  it("keeps credential and connection controls available when developer mode is disabled", async () => {
+    await act(async () => root.render(null));
+    window.localStorage.setItem("zc-developer-mode", "false");
+    mocks.getRuntimeCapabilities.mockResolvedValue({
+      aiDebugAvailable: false,
+      realAIClassificationAvailable: true,
+      credentialStoreAvailable: true
+    });
+    await act(async () => root.render(<SettingsView />));
+    await flushEffects();
+
+    expect(container.textContent).not.toContain("Debug one file's AI response");
+    expect(container.textContent).toContain("Advanced settings");
+    expect(container.textContent).toContain("Test connection");
+    expect(container.querySelector("#settings-ai-api-key")).not.toBeNull();
+    expect(container.querySelector("#settings-ai-base-url")).not.toBeNull();
+    expect(container.querySelector("#settings-ai-model")).not.toBeNull();
+    expect(container.querySelector("#settings-ai-batch-size")).toBeNull();
+  });
+
   it("keeps runtime Off while a Cloud draft is unsaved, then publishes Cloud only after success", async () => {
     await act(async () => root.render(null));
     mocks.runtimeState.settings = { enabled: false, provider: "openai_compatible" };
@@ -485,7 +505,8 @@ describe("settings view behavior", () => {
     await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="settings-about"]')?.click());
     const developerSwitch = container.querySelector<HTMLInputElement>("#settings-developer-mode")!;
     await act(async () => developerSwitch.click());
-    expect(container.querySelector("#settings-ai-api-key")).toBeNull();
+    expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.type).toBe("password");
+    expect(container.querySelector("#settings-ai-batch-size")).toBeNull();
 
     await act(async () => root.render(null));
     window.localStorage.setItem("zc-developer-mode", "true");

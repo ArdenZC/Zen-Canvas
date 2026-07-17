@@ -339,6 +339,9 @@ fn test_ai_provider_connection_for_settings_uses_short_json_probe_and_reports_el
     assert_eq!(result.preset, Some(AIProviderPresetId::DeepSeek));
     assert_eq!(result.model.as_deref(), Some("deepseek-v4-flash"));
     assert!(result.elapsed_ms <= 10_000);
+    let serialized = serde_json::to_value(&result).expect("serialize connection result");
+    assert!(serialized.get("elapsedMs").is_some());
+    assert!(serialized.get("elapsed_ms").is_none());
     assert!(body["messages"].to_string().contains(r#"{\"ok\":true}"#));
     assert!(body["messages"]
         .to_string()
