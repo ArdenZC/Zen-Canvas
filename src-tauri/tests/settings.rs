@@ -1,11 +1,16 @@
 use rusqlite::{params, Connection};
 use std::{
     path::{Path, PathBuf},
-    sync::{mpsc, Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc, Arc, Mutex,
+    },
     thread,
     time::Duration,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
 use zen_canvas_tauri::{
     db::Database,
     settings::{
@@ -579,9 +584,13 @@ impl LaunchAtLoginController for ConcurrentLaunchAtLoginController {
 }
 
 fn test_db_path() -> PathBuf {
+    let counter = TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_nanos();
-    std::env::temp_dir().join(format!("zen-canvas-settings-test-{nonce}.sqlite3"))
+    std::env::temp_dir().join(format!(
+        "zen-canvas-settings-test-{}-{counter}-{nonce}.sqlite3",
+        std::process::id()
+    ))
 }
