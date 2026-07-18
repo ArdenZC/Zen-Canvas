@@ -253,7 +253,7 @@ fn cleanup_root_symlinks_to_system_directories_are_rejected() {
         .expect("create protected cleanup-root symlink fixture");
 
     let result = validate_cleanup_roots_for_test(vec![link.to_string_lossy().into_owned()]);
-    fs::remove_dir(&link).expect("remove system directory symlink");
+    remove_directory_symlink_for_test(&link).expect("remove system directory symlink");
     let error = result.expect_err("symlink cleanup root must be rejected");
 
     assert!(error.to_ascii_lowercase().contains("symlink"));
@@ -267,7 +267,7 @@ fn cleanup_root_symlink_to_current_temp_is_not_automatically_allowed() {
         .expect("create temp-root symlink fixture");
 
     let result = validate_cleanup_roots_for_test(vec![link.to_string_lossy().into_owned()]);
-    fs::remove_dir(&link).expect("remove temp directory symlink");
+    remove_directory_symlink_for_test(&link).expect("remove temp directory symlink");
     assert!(result.is_err());
 }
 
@@ -339,9 +339,9 @@ fn temp_execution_revalidation_enforces_age_policy() {
 #[cfg(target_os = "macos")]
 #[test]
 fn storage_cleanup_only_accepts_the_current_macos_temp_root() {
-    let current_temp = std::env::temp_dir();
-    let current_temp_entry = current_temp.join("zen-canvas-test");
+    let current_temp_entry = current_temp_test_dir();
     assert!(!is_forbidden_storage_path_for_test(&current_temp_entry));
+    fs::remove_dir_all(&current_temp_entry).expect("remove current temp fixture");
 
     for path in [
         "/var/folders/another-user/T/zen-canvas-test",
@@ -1371,6 +1371,16 @@ fn create_directory_symlink_for_test(target: &Path, link: &Path) -> std::io::Res
 #[cfg(unix)]
 fn create_directory_symlink_for_test(target: &Path, link: &Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn remove_directory_symlink_for_test(link: &Path) -> std::io::Result<()> {
+    fs::remove_dir(link)
+}
+
+#[cfg(unix)]
+fn remove_directory_symlink_for_test(link: &Path) -> std::io::Result<()> {
+    fs::remove_file(link)
 }
 
 fn cleanup_candidate_root(label: &str, count: usize) -> PathBuf {
