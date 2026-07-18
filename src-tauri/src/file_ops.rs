@@ -1331,6 +1331,7 @@ impl OperationProgressBuffer {
         self.processed_since_emit += 1;
         let now = Instant::now();
         if processed == self.total
+            || processed.is_multiple_of(OPERATION_PROGRESS_BATCH_SIZE)
             || self.processed_since_emit >= OPERATION_PROGRESS_BATCH_SIZE
             || now.duration_since(self.last_emit_at) >= OPERATION_PROGRESS_EMIT_INTERVAL
         {

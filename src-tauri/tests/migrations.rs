@@ -2,6 +2,7 @@ use rusqlite::{params, Connection};
 use std::{
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
 };
 use zen_canvas_tauri::db::Database;
 
@@ -9,9 +10,13 @@ static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn test_db_path(label: &str) -> PathBuf {
     let sequence = TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock must be after unix epoch")
+        .as_nanos();
     std::env::temp_dir().join(format!(
-        "zen-canvas-migration-{label}-{}-{sequence}.sqlite3",
-        std::process::id()
+        "zen-canvas-migration-{label}-{}-{timestamp}-{sequence}.sqlite3",
+        std::process::id(),
     ))
 }
 
