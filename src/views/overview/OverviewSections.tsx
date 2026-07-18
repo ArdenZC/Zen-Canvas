@@ -25,9 +25,9 @@ export function OverviewRecentActivityList({ activities, t, language }: { activi
           <div key={activity.id} className="flex min-w-0 items-center gap-3 py-3">
             <span className={cn(
               "grid h-8 w-8 shrink-0 place-items-center rounded-[var(--zc-radius-control)]",
-              activity.status === "failed" ? "bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]" : "bg-[var(--zc-neutral-soft)] text-[var(--zc-neutral-text)]"
+              activity.status === "failed" || activity.status === "manual_review" ? "bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]" : "bg-[var(--zc-neutral-soft)] text-[var(--zc-neutral-text)]"
             )} aria-hidden="true">
-              {activity.status === "failed" ? <AlertTriangle size={16} /> : <History size={16} />}
+              {activity.status === "failed" || activity.status === "manual_review" ? <AlertTriangle size={16} /> : <History size={16} />}
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-[var(--zc-text-primary)]">{activity.title}</p>

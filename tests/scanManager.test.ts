@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { isCurrentDedupeEvent } from "../src/store/useScanManagerStore";
 
 describe("scan manager progress callbacks", () => {
+  it("accepts dedupe events only for the current parent scan and dedupe job", () => {
+    const current = { dedupeJobId: "dedupe-a", parentScanJobId: "scan-a" };
+
+    expect(isCurrentDedupeEvent(current, "scan-a", null)).toBe(true);
+    expect(isCurrentDedupeEvent(current, "scan-a", "dedupe-a")).toBe(true);
+    expect(isCurrentDedupeEvent(current, "scan-b", null)).toBe(false);
+    expect(isCurrentDedupeEvent(current, "scan-a", "dedupe-b")).toBe(false);
+  });
   it("does not refresh or reset scope from scan event callbacks", () => {
     const storeSource = readFileSync(
       resolve("src/store/useScanManagerStore.ts"),
@@ -59,6 +68,7 @@ describe("scan manager progress callbacks", () => {
     expect(storeSource).toContain("activeScanJobId");
     expect(storeSource).toContain("progress.jobId !== activeScanJobId");
     expect(scanPaths).toContain("scanJobCanceled = false");
+    expect(scanPaths).toContain('await tauriApi.createScanJobId("foreground")');
     expect(scanPaths).toContain("if (scanJobCanceled) break");
     expect(scanPaths.indexOf("if (scanJobCanceled) break"))
       .toBeLessThan(scanPaths.indexOf("tauriApi.startScan("));

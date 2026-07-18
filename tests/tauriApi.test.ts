@@ -16,6 +16,10 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 describe("tauriApi", () => {
+  it("does not expose the legacy unscoped cleanup scan", () => {
+    expect("scanStorageCleanup" in tauriApi).toBe(false);
+  });
+
   beforeEach(() => {
     delete (globalThis as typeof globalThis & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
     apiMocks.invoke.mockReset().mockResolvedValue({
@@ -25,6 +29,11 @@ describe("tauriApi", () => {
       offset: 0
     });
     apiMocks.listen.mockReset().mockResolvedValue(() => undefined);
+  });
+
+  it("reads backend runtime capabilities before exposing optional UI", async () => {
+    await tauriApi.getRuntimeCapabilities();
+    expect(apiMocks.invoke).toHaveBeenCalledWith("get_runtime_capabilities", undefined);
   });
 
   it("sends paged library filters alongside query and scope", async () => {
@@ -55,60 +64,61 @@ describe("tauriApi", () => {
   });
 
   it("calls storage cleanup commands with conservative arguments", async () => {
-    await tauriApi.scanStorageCleanup(["F:/Downloads"]);
     await tauriApi.startStorageCleanupScan(["F:/Downloads"]);
     await tauriApi.getStorageCleanupScanStatus("job-1");
     await tauriApi.cancelStorageCleanupScan("job-1");
     await tauriApi.revealStorageCandidate("F:/Downloads/big.zip");
-    await tauriApi.previewCleanupCandidates(["storage-safe-1"]);
-    await tauriApi.previewCleanupOperations(["storage-safe-1"]);
-    await tauriApi.analyzeCleanupCandidatesWithAI(["storage-safe-1"]);
-    await tauriApi.moveCleanupCandidatesToTrash(["storage-safe-1"]);
-    await tauriApi.moveCleanupCandidatesToSafeTrash(["storage-safe-1"]);
+    await tauriApi.previewCleanupCandidates("job-1", ["storage-safe-1"]);
+    await tauriApi.previewCleanupOperations("job-1", ["storage-safe-1"]);
+    await tauriApi.analyzeCleanupCandidatesWithAI("job-1", ["storage-safe-1"]);
+    await tauriApi.moveCleanupCandidatesToTrash("job-1", ["storage-safe-1"]);
+    await tauriApi.moveCleanupCandidatesToSafeTrash("job-1", ["storage-safe-1"]);
     await tauriApi.listCleanupTrashBatches();
     await tauriApi.previewRestoreCleanupTrash("batch-1");
     await tauriApi.restoreCleanupTrashItems(["item-1"]);
     await tauriApi.cancelCleanupRestore("cleanup-job-1");
 
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(1, "scan_storage_cleanup", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(1, "start_storage_cleanup_scan", {
       roots: ["F:/Downloads"]
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(2, "start_storage_cleanup_scan", {
-      roots: ["F:/Downloads"]
-    });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(3, "get_storage_cleanup_scan_status", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(2, "get_storage_cleanup_scan_status", {
       jobId: "job-1"
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(4, "cancel_storage_cleanup_scan", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(3, "cancel_storage_cleanup_scan", {
       jobId: "job-1"
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(5, "reveal_storage_candidate", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(4, "reveal_storage_candidate", {
       path: "F:/Downloads/big.zip"
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(6, "preview_cleanup_candidates", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(5, "preview_cleanup_candidates", {
+      jobId: "job-1",
       ids: ["storage-safe-1"]
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(7, "preview_cleanup_operations", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(6, "preview_cleanup_operations", {
+      jobId: "job-1",
       ids: ["storage-safe-1"]
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(8, "analyze_cleanup_candidates_with_ai", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(7, "analyze_cleanup_candidates_with_ai", {
+      jobId: "job-1",
       ids: ["storage-safe-1"]
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(9, "move_cleanup_candidates_to_trash", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(8, "move_cleanup_candidates_to_trash", {
+      jobId: "job-1",
       ids: ["storage-safe-1"]
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(10, "move_cleanup_candidates_to_safe_trash", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(9, "move_cleanup_candidates_to_safe_trash", {
+      jobId: "job-1",
       ids: ["storage-safe-1"]
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(11, "list_cleanup_trash_batches", undefined);
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(12, "preview_restore_cleanup_trash", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(10, "list_cleanup_trash_batches", undefined);
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(11, "preview_restore_cleanup_trash", {
       batchId: "batch-1"
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(13, "restore_cleanup_trash_items", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(12, "restore_cleanup_trash_items", {
       itemIds: ["item-1"],
       jobId: null
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(14, "cancel_cleanup_restore", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(13, "cancel_cleanup_restore", {
       jobId: "cleanup-job-1"
     });
   });

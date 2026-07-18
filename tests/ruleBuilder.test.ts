@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RuleConditionGroup } from "../src/types/domain";
-import { buildRuleFromBuilderDraft } from "../src/views/rules/ruleBuilder";
+import { buildRuleFromBuilderDraft, validateRuleCondition } from "../src/views/rules/ruleBuilder";
 
 describe("rule builder", () => {
   it("serializes root operator and nested condition groups without flattening", () => {
@@ -74,5 +74,22 @@ describe("rule builder", () => {
       weight: 50,
       now: "2026-07-10T00:00:00.000Z"
     })).toThrow("condition value is required");
+  });
+
+  it("keeps migrated unknown rule domains fail-closed", () => {
+    expect(validateRuleCondition({ id: "legacy", field: "unknown", operator: "unknown", value: "legacy" })).toBe("operator");
+    expect(() => buildRuleFromBuilderDraft({
+      name: "Legacy rule",
+      rootOperator: "UNKNOWN",
+      groups: [{
+        id: "legacy-group",
+        operator: "UNKNOWN",
+        conditions: [{ id: "legacy-condition", field: "name", operator: "contains", value: "invoice" }]
+      }],
+      purpose: "Unknown",
+      lifecycle: "Unknown",
+      weight: 50,
+      now: "2026-07-17T00:00:00.000Z"
+    })).toThrow("root operator is invalid");
   });
 });

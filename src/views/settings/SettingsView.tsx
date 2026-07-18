@@ -28,6 +28,7 @@ import type {
   FolderNamingLanguage,
   OrganizeRootMode,
   RestoreRetentionDays,
+  RuntimeCapabilities,
   ScanRootSetting,
   SearchRootSetting,
   SearchScopeMode
@@ -187,6 +188,7 @@ export function SettingsView() {
   const runtimeAIStatus = useAIProcessingModeStore((state) => state.status);
   const publishAIProcessingMode = useAIProcessingModeStore((state) => state.publish);
   const [aiPresets, setAiPresets] = useState<AIProviderPreset[]>([]);
+  const [runtimeCapabilities, setRuntimeCapabilities] = useState<RuntimeCapabilities | null>(null);
   const [isLoadingAISettings, setIsLoadingAISettings] = useState(false);
   const [isSavingAISettings, setIsSavingAISettings] = useState(false);
   const [aiSettingsSaveError, setAiSettingsSaveError] = useState(false);
@@ -233,7 +235,6 @@ export function SettingsView() {
 
   function setDeveloperModePreference(next: boolean) {
     setDeveloperMode(next);
-    if (!next) setAiAdvancedOpen(false);
     try {
       window.localStorage.setItem(DEVELOPER_MODE_STORAGE_KEY, String(next));
     } catch {
@@ -332,10 +333,11 @@ export function SettingsView() {
   useEffect(() => {
     let disposed = false;
     setIsLoadingAISettings(true);
-    void Promise.all([tauriApi.listAIProviderPresets(), tauriApi.getAISettings()])
-      .then(([presets, settings]) => {
+    void Promise.all([tauriApi.listAIProviderPresets(), tauriApi.getAISettings(), tauriApi.getRuntimeCapabilities()])
+      .then(([presets, settings, capabilities]) => {
         if (disposed) return;
         setAiPresets(presets);
+        setRuntimeCapabilities(capabilities);
         setAiSettings(settings);
         setPersistedAISettings(settings);
         setAiSettingsSaveError(false);
@@ -612,19 +614,29 @@ export function SettingsView() {
   async function saveAISettings() {
     if (!aiSettings || isSavingAISettings) return;
     const next = normalizeAISettingsForSave(aiSettings);
+    const requestedKeyAction = next.apiKeyAction ?? (next.apiKey ? "replace" : "preserve");
     const requestId = ++aiSaveRequestRef.current;
     const previous = persistedAISettings;
+    setAiSettings((current) => current ? { ...current, apiKey: "" } : current);
     setIsSavingAISettings(true);
     setAiSettingsSaveError(false);
     setAiConnectionStatus(null);
     try {
-      const saved = await tauriApi.saveAISettings(next);
+      await tauriApi.saveAISettings(next);
+      const saved = await tauriApi.getAISettings();
+      if (requestedKeyAction === "replace" && !saved.apiKeyConfigured) {
+        throw new Error(t("aiCredentialReadbackFailed"));
+      }
       if (requestId !== aiSaveRequestRef.current) return;
       setAiSettings(saved);
       setPersistedAISettings(saved);
       setAiSettingsSaveError(false);
       publishAIProcessingMode({ enabled: saved.enabled, provider: saved.provider });
-      setAiConnectionStatus({ tone: "success", role: "status", message: t("aiSettingsSaved") });
+      setAiConnectionStatus({
+        tone: "success",
+        role: "status",
+        message: requestedKeyAction === "replace" ? t("aiCredentialSaved") : t("aiSettingsSaved")
+      });
       setSecretRevealResetVersion((version) => version + 1);
     } catch (error) {
       if (requestId !== aiSaveRequestRef.current) return;
@@ -632,7 +644,7 @@ export function SettingsView() {
       setAiConnectionStatus({
         tone: "warning",
         role: "alert",
-        message: sanitizeAIStatusMessage(`${t("aiSettingsSaveFailed")}：${readableError(error)}`, previous?.apiKey ?? aiSettings.apiKey)
+        message: sanitizeAIStatusMessage(`${t("aiSettingsSaveFailed")}：${readableError(error)}`, next.apiKey || aiSettings.apiKey || previous?.apiKey || "")
       });
       setSecretRevealResetVersion((version) => version + 1);
     } finally {
@@ -1104,36 +1116,48 @@ export function SettingsView() {
                     ? t(aiUserMode(aiSettings) === "local" ? "modeAILocalDesc" : "modeAICloudDesc")
                     : t("aiDisabledConfigurationPreserved")}
               </SettingsInlineMessage>
-              {developerMode ? (
-                <SettingsDisclosure title={t("advancedSettings")} description={t("developerModeDesc")} open={aiAdvancedOpen} onOpenChange={setAiAdvancedOpen}>
+              <SettingsDisclosure
+                title={t("advancedSettings")}
+                description={developerMode ? t("developerModeDesc") : t("aiAdvancedConnectionDesc")}
+                open={aiAdvancedOpen}
+                onOpenChange={setAiAdvancedOpen}
+              >
                   <SettingsControlGroup title={t("aiAdvancedConnection")} description={t("aiAdvancedConnectionDesc")}>
                     <div data-ai-advanced-connection-grid className="grid min-w-0 gap-4 min-[1180px]:grid-cols-2">
-                      <SettingsTextField id="settings-ai-base-url" label={t("aiBaseUrlLabel")} value={aiSettings.baseUrl} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ baseUrl: value })} />
-                      <SettingsTextField id="settings-ai-chat-path" label={t("aiChatPathLabel")} value={aiSettings.chatPath} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ chatPath: value })} />
+                      <SettingsTextField id="settings-ai-base-url" label={t("aiBaseUrlLabel")} value={aiSettings.baseUrl} maxLength={2048} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ baseUrl: value })} />
+                      <SettingsTextField id="settings-ai-chat-path" label={t("aiChatPathLabel")} value={aiSettings.chatPath} maxLength={512} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ chatPath: value })} />
                       {aiSettings.provider === "ollama" ? (
                         <span className={quietText}>{t("aiLocalApiKeyHint")}</span>
                       ) : (
-                        <SettingsSecretField
-                          id="settings-ai-api-key"
-                          label={t("aiApiKeyLabel")}
-                          value={aiSettings.apiKey}
-                          disabled={aiDependentControlsDisabled}
-                          showLabel={t("showApiKey")}
-                          hideLabel={t("hideApiKey")}
-                          onChange={(value) => updateAISettings({ apiKey: value })}
-                          placeholder={aiSettings.apiKeyConfigured ? t("aiStoredApiKeyPlaceholder") : t("aiEmptyApiKeyPlaceholder")}
-                          resetKey={`${activeSettingsSection}:${draftAIUserMode}:${developerMode}:${aiAdvancedOpen}:${aiSettings.provider}:${aiSettings.preset}:${secretRevealResetVersion}`}
-                        />
+                        <div className="grid min-w-0 gap-2">
+                          <SettingsSecretField
+                            id="settings-ai-api-key"
+                            label={t("aiApiKeyLabel")}
+                            value={aiSettings.apiKey}
+                            disabled={aiDependentControlsDisabled}
+                            showLabel={t("showApiKey")}
+                            hideLabel={t("hideApiKey")}
+                            onChange={(value) => updateAISettings({ apiKey: value, apiKeyAction: value ? "replace" : "preserve" })}
+                            placeholder={aiSettings.apiKeyConfigured ? t("aiStoredApiKeyPlaceholder") : t("aiEmptyApiKeyPlaceholder")}
+                            resetKey={`${activeSettingsSection}:${draftAIUserMode}:${developerMode}:${aiAdvancedOpen}:${aiSettings.provider}:${aiSettings.preset}:${secretRevealResetVersion}`}
+                          />
+                          {aiSettings.apiKeyConfigured ? (
+                            <button className={buttonSecondary} type="button" disabled={aiDependentControlsDisabled} onClick={() => updateAISettings({ apiKey: "", apiKeyAction: "clear" })}>
+                              {t("aiClearApiKey")}
+                            </button>
+                          ) : null}
+                        </div>
                       )}
-                      <SettingsTextField id="settings-ai-model" label={t("aiModelLabel")} value={aiSettings.model} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ model: value })} />
+                      <SettingsTextField id="settings-ai-model" label={t("aiModelLabel")} value={aiSettings.model} maxLength={200} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ model: value })} />
                     </div>
                   </SettingsControlGroup>
-                  <SettingsControlGroup title={t("aiAdvancedPerformance")} description={t("aiAdvancedPerformanceDesc")}>
+                  {developerMode ? (<>
+                    <SettingsControlGroup title={t("aiAdvancedPerformance")} description={t("aiAdvancedPerformanceDesc")}>
                     <div className="grid min-w-0 gap-4 min-[1180px]:grid-cols-2">
-                      <SettingsTextField id="settings-ai-batch-size" label={t("aiBatchSizeLabel")} description={t("aiBatchSizeDesc")} type="number" value={String(aiSettings.batchSize)} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ batchSize: Math.max(1, Number(value) || 1) })} />
-                      <SettingsTextField id="settings-ai-concurrency" label={t("aiConcurrencyLabel")} description={t("aiConcurrencyDesc")} type="number" value={String(aiSettings.classificationConcurrency)} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ classificationConcurrency: Math.min(4, Math.max(1, Number(value) || 1)) })} />
-                      <SettingsTextField id="settings-ai-max-tokens" label={t("aiMaxTokensLabel")} type="number" value={String(aiSettings.maxTokens)} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ maxTokens: Math.max(512, Number(value) || 512) })} />
-                      <SettingsTextField id="settings-ai-timeout" label={t("aiTimeoutLabel")} type="number" value={String(aiSettings.timeoutSeconds)} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ timeoutSeconds: Math.max(1, Number(value) || 1) })} />
+                      <SettingsTextField id="settings-ai-batch-size" label={t("aiBatchSizeLabel")} description={t("aiBatchSizeDesc")} type="number" value={String(aiSettings.batchSize)} min={1} max={100} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ batchSize: Math.min(100, Math.max(1, Number(value) || 1)) })} />
+                      <SettingsTextField id="settings-ai-concurrency" label={t("aiConcurrencyLabel")} description={t("aiConcurrencyDesc")} type="number" value={String(aiSettings.classificationConcurrency)} min={1} max={4} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ classificationConcurrency: Math.min(4, Math.max(1, Number(value) || 1)) })} />
+                      <SettingsTextField id="settings-ai-max-tokens" label={t("aiMaxTokensLabel")} type="number" value={String(aiSettings.maxTokens)} min={512} max={32768} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ maxTokens: Math.min(32768, Math.max(512, Number(value) || 512)) })} />
+                      <SettingsTextField id="settings-ai-timeout" label={t("aiTimeoutLabel")} type="number" value={String(aiSettings.timeoutSeconds)} min={1} max={600} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ timeoutSeconds: Math.min(600, Math.max(1, Number(value) || 1)) })} />
                     </div>
                   </SettingsControlGroup>
                   <SettingsControlGroup title={t("aiAdvancedPrivacy")} description={t("aiAdvancedPrivacyDesc")}>
@@ -1143,13 +1167,14 @@ export function SettingsView() {
                     <SettingsSwitch id="settings-ai-thinking" label={t("aiThinkingLabel")} description={t("aiThinkingDesc")} checked={aiSettings.enableThinking} disabled={aiDependentControlsDisabled} onChange={(next) => updateAISettings({ enableThinking: next })} />
                     <SettingsSwitch id="settings-ai-send-full-path" label={t("aiSendFullPathLabel")} description={t("aiSendFullPathDesc")} checked={aiSettings.sendFullPath} disabled={aiDependentControlsDisabled} onChange={(next) => updateAISettings({ sendFullPath: next })} />
                     <SettingsSwitch id="settings-ai-send-parent-path" label={t("aiSendParentPathLabel")} description={t("aiSendParentPathDesc")} checked={aiSettings.sendParentPath} disabled={aiDependentControlsDisabled} onChange={(next) => updateAISettings({ sendParentPath: next })} />
-                    <SettingsTextField id="settings-ai-reasoning-effort" label={t("aiReasoningEffortLabel")} value={aiSettings.reasoningEffort ?? ""} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ reasoningEffort: value || null })} placeholder={t("aiReasoningPlaceholder")} />
+                    <SettingsTextField id="settings-ai-reasoning-effort" label={t("aiReasoningEffortLabel")} value={aiSettings.reasoningEffort ?? ""} maxLength={64} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ reasoningEffort: value || null })} placeholder={t("aiReasoningPlaceholder")} />
                     <label className="grid min-w-0 gap-1.5">
                       <span className="text-sm font-medium text-[var(--zc-text-primary)]">{t("aiExtraBodyLabel")}</span>
-                      <textarea className={cn(settingsField, "min-h-24 resize-y py-2 font-mono")} value={aiSettings.extraBodyJson ?? ""} disabled={aiDependentControlsDisabled} onChange={(event) => updateAISettings({ extraBodyJson: event.target.value || null })} placeholder={t("aiExtraBodyPlaceholder")} />
+                      <textarea className={cn(settingsField, "min-h-24 resize-y py-2 font-mono")} value={aiSettings.extraBodyJson ?? ""} maxLength={16384} disabled={aiDependentControlsDisabled} onChange={(event) => updateAISettings({ extraBodyJson: event.target.value || null })} placeholder={t("aiExtraBodyPlaceholder")} />
                       <span className={quietText}>{t("aiSecretsHint")}</span>
                     </label>
                   </SettingsControlGroup>
+                  </>) : null}
                   {aiSettings.preset === "deepseek" && ["deepseek-chat", "deepseek-reasoner"].includes(aiSettings.model.trim()) ? <SettingsInlineMessage tone="warning">{t("aiOldModelWarning")}</SettingsInlineMessage> : null}
                   {(aiSettings.provider === "ollama" || aiSettings.model.toLowerCase().includes("qwen3")) ? <SettingsInlineMessage tone="warning">{t("aiQwenWarning")}</SettingsInlineMessage> : null}
                   <div className="flex flex-wrap justify-end gap-2">
@@ -1157,7 +1182,7 @@ export function SettingsView() {
                       {isTestingAIConnection ? t("aiTestingConnection") : t("aiTestConnection")}
                     </button>
                   </div>
-                  <SettingsDisclosure title={t("aiDebugTitle")} description={t("aiDebugWarning")}>
+                  {developerMode && runtimeCapabilities?.aiDebugAvailable ? <SettingsDisclosure title={t("aiDebugTitle")} description={t("aiDebugWarning")}>
                     {selectedLibraryFile ? (
                       <div className="grid gap-1 border-b border-[var(--zc-divider)] pb-3 text-xs text-[var(--zc-text-secondary)]">
                         <span className="font-medium text-[var(--zc-text-primary)]">{t("aiSelectedFile")}</span>
@@ -1194,9 +1219,8 @@ export function SettingsView() {
                         <DebugPreviewBlock label="parse error" value={aiDebugResult.parseError ?? ""} apiKey={aiSettings.apiKey} />
                       </div>
                     ) : null}
-                  </SettingsDisclosure>
-                </SettingsDisclosure>
-              ) : <p className={quietText}>{t("developerModeDesc")}</p>}
+                  </SettingsDisclosure> : null}
+              </SettingsDisclosure>
             </fieldset>
           )}
         </SettingsSection>
@@ -1287,6 +1311,7 @@ function defaultAISettingsFromPreset(preset?: AIProviderPreset): AISettings | nu
     baseUrl: preset.defaultBaseUrl,
     chatPath: preset.defaultChatPath || "/chat/completions",
     apiKey: "",
+    apiKeyAction: "preserve",
     model: preset.defaultModel,
     temperature: 0,
     maxTokens: 1024,
@@ -1312,12 +1337,12 @@ function normalizeAISettingsForSave(settings: AISettings): AISettings {
     chatPath: chatPath ? `/${chatPath.replace(/^\/+/g, "")}` : "/chat/completions",
     apiKey: settings.apiKey.trim(),
     model: settings.model.trim(),
-    batchSize: Math.max(1, Math.floor(settings.batchSize || 1)),
+    batchSize: Math.min(100, Math.max(1, Math.floor(settings.batchSize || 1))),
     classificationConcurrency: settings.provider === "ollama"
       ? 1
       : Math.min(4, Math.max(1, Math.floor(settings.classificationConcurrency || 1))),
-    timeoutSeconds: Math.max(1, Math.floor(settings.timeoutSeconds || 1)),
-    maxTokens: Math.max(1, Math.floor(settings.maxTokens || 1)),
+    timeoutSeconds: Math.min(600, Math.max(1, Math.floor(settings.timeoutSeconds || 1))),
+    maxTokens: Math.min(32768, Math.max(512, Math.floor(settings.maxTokens || 512))),
     reasoningEffort: settings.reasoningEffort?.trim() || null,
     extraBodyJson: settings.extraBodyJson?.trim() || null
   };

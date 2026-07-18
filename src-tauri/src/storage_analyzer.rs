@@ -1,12 +1,14 @@
-use crate::db::{Database, DbError, OperationPreviewDto, OperationPreviewScopeResult};
+use crate::{
+    db::{Database, DbError, OperationPreviewDto, OperationPreviewScopeResult},
+    ids::new_job_id,
+};
 use rusqlite::{params, OptionalExtension, Row};
 use serde::Serialize;
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     env, fs,
-    hash::{Hash, Hasher},
     panic::{catch_unwind, AssertUnwindSafe},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
@@ -158,6 +160,22 @@ pub struct CleanupTrashItem {
     pub restored_at: Option<String>,
     pub status: String,
     pub message: Option<String>,
+    #[serde(skip_serializing)]
+    pub source_modified_ns: Option<String>,
+    #[serde(skip_serializing)]
+    pub source_platform_file_id: Option<String>,
+    #[serde(skip_serializing)]
+    pub source_quick_hash: Option<String>,
+    #[serde(skip_serializing)]
+    pub trash_modified_ns: Option<String>,
+    #[serde(skip_serializing)]
+    pub trash_platform_volume_id: Option<String>,
+    #[serde(skip_serializing)]
+    pub trash_platform_file_id: Option<String>,
+    #[serde(skip_serializing)]
+    pub trash_quick_hash: Option<String>,
+    #[serde(skip_serializing)]
+    pub identity_status: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -448,7 +466,6 @@ impl<R: Runtime> CleanupRestoreProgressEmitter for TauriCleanupRestoreProgressEm
 
 #[derive(Default)]
 struct StorageCleanupStateInner {
-    latest_candidates: Mutex<HashMap<String, StorageCandidate>>,
     jobs: Mutex<HashMap<String, StorageCleanupJob>>,
     active_job_id: Mutex<Option<String>>,
 }
@@ -457,44 +474,114 @@ struct StorageCleanupStateInner {
 struct StorageCleanupJob {
     status: StorageCleanupScanStatus,
     cancel_flag: Arc<AtomicBool>,
+    candidates_by_id: HashMap<String, StorageCandidate>,
+    consumed_ids: HashSet<String>,
 }
 
 impl StorageCleanupState {
-    fn replace_candidates(&self, candidates: &[StorageCandidate]) -> Result<(), String> {
-        let mut cache = self
+    pub(crate) fn candidates_by_job_and_ids(
+        &self,
+        job_id: &str,
+        ids: &[String],
+    ) -> Result<Vec<StorageCandidate>, String> {
+        let jobs = self
             .inner
-            .latest_candidates
+            .jobs
             .lock()
-            .map_err(|_| "Storage cleanup cache is unavailable.".to_string())?;
-        cache.clear();
-        cache.extend(
-            candidates
-                .iter()
-                .cloned()
-                .map(|candidate| (candidate.id.clone(), candidate)),
-        );
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+        let job = jobs
+            .get(job_id)
+            .ok_or_else(|| format!("Storage cleanup scan job not found: {job_id}"))?;
+        if job.status.status != "completed" {
+            return Err(format!(
+                "Storage cleanup scan job is not completed: {job_id}"
+            ));
+        }
+        let mut seen = HashSet::with_capacity(ids.len());
+        ids.iter()
+            .map(|id| {
+                if !seen.insert(id.as_str()) {
+                    return Err(format!(
+                        "Storage cleanup candidate request contains duplicate ID: {id}"
+                    ));
+                }
+                if job.consumed_ids.contains(id) {
+                    return Err(format!(
+                        "Storage cleanup candidate was already consumed for job {job_id}: {id}"
+                    ));
+                }
+                job.candidates_by_id.get(id).cloned().ok_or_else(|| {
+                    format!("Storage cleanup candidate does not belong to job {job_id}: {id}")
+                })
+            })
+            .collect()
+    }
+
+    fn mark_candidates_consumed(&self, job_id: &str, ids: &[String]) -> Result<(), String> {
+        let mut jobs = self
+            .inner
+            .jobs
+            .lock()
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+        let job = jobs
+            .get_mut(job_id)
+            .ok_or_else(|| format!("Storage cleanup scan job not found: {job_id}"))?;
+        for id in ids {
+            if !job.candidates_by_id.contains_key(id) {
+                return Err(format!(
+                    "Storage cleanup candidate does not belong to job {job_id}: {id}"
+                ));
+            }
+        }
+        job.consumed_ids.extend(ids.iter().cloned());
         Ok(())
     }
 
-    pub(crate) fn candidates_by_id(&self, ids: &[String]) -> Result<Vec<StorageCandidate>, String> {
-        let cache = self
+    pub(crate) fn update_candidates_for_job(
+        &self,
+        job_id: &str,
+        candidates: &[StorageCandidate],
+    ) -> Result<(), String> {
+        let mut jobs = self
             .inner
-            .latest_candidates
+            .jobs
             .lock()
-            .map_err(|_| "Storage cleanup cache is unavailable.".to_string())?;
-        Ok(ids.iter().filter_map(|id| cache.get(id).cloned()).collect())
-    }
-
-    pub(crate) fn update_candidates(&self, candidates: &[StorageCandidate]) -> Result<(), String> {
-        let mut cache = self
-            .inner
-            .latest_candidates
-            .lock()
-            .map_err(|_| "Storage cleanup cache is unavailable.".to_string())?;
+            .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
+        let job = jobs
+            .get_mut(job_id)
+            .ok_or_else(|| format!("Storage cleanup scan job not found: {job_id}"))?;
+        if job.status.status != "completed" {
+            return Err(format!(
+                "Storage cleanup scan job is not completed: {job_id}"
+            ));
+        }
         for candidate in candidates {
-            if cache.contains_key(&candidate.id) {
-                cache.insert(candidate.id.clone(), candidate.clone());
+            if !job.candidates_by_id.contains_key(&candidate.id) {
+                return Err(format!(
+                    "Storage cleanup candidate does not belong to job {job_id}: {}",
+                    candidate.id
+                ));
             }
+        }
+        let analysis = job
+            .status
+            .analysis
+            .as_mut()
+            .ok_or_else(|| format!("Completed storage cleanup job not found: {job_id}"))?;
+        for candidate in candidates {
+            let stored = analysis
+                .candidates
+                .iter_mut()
+                .find(|stored| stored.id == candidate.id)
+                .ok_or_else(|| {
+                    format!(
+                        "Storage cleanup candidate does not belong to job {job_id}: {}",
+                        candidate.id
+                    )
+                })?;
+            *stored = candidate.clone();
+            job.candidates_by_id
+                .insert(candidate.id.clone(), candidate.clone());
         }
         Ok(())
     }
@@ -527,6 +614,8 @@ impl StorageCleanupState {
             StorageCleanupJob {
                 status,
                 cancel_flag: Arc::clone(&cancel_flag),
+                candidates_by_id: HashMap::new(),
+                consumed_ids: HashSet::new(),
             },
         );
         if jobs.len() > MAX_RETAINED_CLEANUP_JOBS {
@@ -602,21 +691,40 @@ impl StorageCleanupState {
         Ok(())
     }
 
-    fn complete_job(&self, job_id: &str, analysis: StorageAnalysis) -> Result<(), String> {
-        self.replace_candidates(&analysis.candidates)?;
+    fn complete_job(
+        &self,
+        job_id: &str,
+        mut analysis: StorageAnalysis,
+    ) -> Result<StorageAnalysis, String> {
         let mut jobs = self
             .inner
             .jobs
             .lock()
             .map_err(|_| "Storage cleanup job state is unavailable.".to_string())?;
-        if let Some(job) = jobs.get_mut(job_id) {
-            job.status.status = "completed".to_string();
-            job.status.progress.total_size = analysis.total_size;
-            job.status.analysis = Some(analysis);
-            job.status.completed_at = Some(current_timestamp_ms().to_string());
+        let job = jobs
+            .get_mut(job_id)
+            .ok_or_else(|| format!("Storage cleanup scan job not found: {job_id}"))?;
+        for candidate in &mut analysis.candidates {
+            candidate.id = candidate_id_for_job(job_id, &candidate.path);
         }
+        job.candidates_by_id = analysis
+            .candidates
+            .iter()
+            .cloned()
+            .map(|candidate| (candidate.id.clone(), candidate))
+            .collect();
+        job.status.status = "completed".to_string();
+        job.status.progress.total_size = analysis.total_size;
+        job.status.analysis = Some(analysis);
+        job.status.completed_at = Some(current_timestamp_ms().to_string());
+        let completed_page = storage_analysis_page(
+            job.status.analysis.as_ref().expect("completed analysis"),
+            0,
+            STORAGE_CLEANUP_PAGE_SIZE,
+        );
+        drop(jobs);
         self.clear_active_job(job_id)?;
-        Ok(())
+        Ok(completed_page)
     }
 
     fn fail_job(&self, job_id: &str, message: String) -> Result<(), String> {
@@ -698,28 +806,6 @@ impl StorageCleanupState {
 }
 
 #[tauri::command]
-pub async fn scan_storage_cleanup<R: Runtime>(
-    roots: Vec<String>,
-    app: AppHandle<R>,
-    state: State<'_, StorageCleanupState>,
-) -> Result<StorageAnalysis, String> {
-    let app_data_dir = app.path().app_data_dir().ok();
-    let roots = validate_cleanup_roots(roots)?;
-    let analysis = tauri::async_runtime::spawn_blocking(move || {
-        analyze_storage_roots(roots, app_data_dir.into_iter().collect())
-    })
-    .await
-    .map_err(|error| format!("storage cleanup scan task failed: {error}"))??;
-
-    state.replace_candidates(&analysis.candidates)?;
-    Ok(storage_analysis_page(
-        &analysis,
-        0,
-        STORAGE_CLEANUP_PAGE_SIZE,
-    ))
-}
-
-#[tauri::command]
 pub fn start_storage_cleanup_scan<R: Runtime>(
     roots: Vec<String>,
     app: AppHandle<R>,
@@ -727,7 +813,7 @@ pub fn start_storage_cleanup_scan<R: Runtime>(
 ) -> Result<String, String> {
     let app_data_dir = app.path().app_data_dir().ok();
     let roots = validate_cleanup_roots(roots)?;
-    let job_id = new_id("storage-cleanup-scan");
+    let job_id = new_job_id("storage-cleanup-scan");
     let cancel_flag = state.start_job(job_id.clone(), &roots)?;
     let state = state.inner().clone();
     let job_id_for_task = job_id.clone();
@@ -777,40 +863,51 @@ pub fn reveal_storage_candidate(path: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn preview_cleanup_candidates(
+    job_id: String,
     ids: Vec<String>,
     state: State<'_, StorageCleanupState>,
 ) -> Result<Vec<CleanupPreviewItem>, String> {
-    let candidates = state.candidates_by_id(&ids)?;
+    let candidates = state.candidates_by_job_and_ids(&job_id, &ids)?;
     cleanup_preview_items_for_candidates(ids, &candidates)
 }
 
 #[tauri::command]
 pub fn preview_cleanup_operations<R: Runtime>(
+    job_id: String,
     ids: Vec<String>,
     app: AppHandle<R>,
     state: State<'_, StorageCleanupState>,
 ) -> Result<OperationPreviewScopeResult, String> {
     let app_data_dir = app.path().app_data_dir().ok();
-    let candidates = state.candidates_by_id(&ids)?;
+    let candidates = state.candidates_by_job_and_ids(&job_id, &ids)?;
     preview_cleanup_operations_for_candidates(ids, &candidates, app_data_dir.as_deref())
 }
 
 #[tauri::command]
 pub fn move_cleanup_candidates_to_trash<R: Runtime>(
     window: WebviewWindow<R>,
+    job_id: String,
     ids: Vec<String>,
     app: AppHandle<R>,
     state: State<'_, StorageCleanupState>,
 ) -> Result<CleanupExecutionResult, String> {
     require_main_window(&window)?;
     let app_data_dir = app.path().app_data_dir().ok();
-    let candidates = state.candidates_by_id(&ids)?;
-    move_cleanup_candidates_to_trash_for_candidates(ids, &candidates, app_data_dir.as_deref())
+    let candidates = state.candidates_by_job_and_ids(&job_id, &ids)?;
+    let result = move_cleanup_candidates_to_trash_for_candidates(
+        ids.clone(),
+        &candidates,
+        app_data_dir.as_deref(),
+    )?;
+    let consumed = successful_cleanup_ids(&ids, &result);
+    state.mark_candidates_consumed(&job_id, &consumed)?;
+    Ok(result)
 }
 
 #[tauri::command]
 pub fn move_cleanup_candidates_to_safe_trash<R: Runtime>(
     window: WebviewWindow<R>,
+    job_id: String,
     ids: Vec<String>,
     app: AppHandle<R>,
     db: State<'_, Database>,
@@ -818,13 +915,24 @@ pub fn move_cleanup_candidates_to_safe_trash<R: Runtime>(
 ) -> Result<CleanupExecutionResult, String> {
     require_main_window(&window)?;
     let app_data_dir = app.path().app_data_dir().ok();
-    let candidates = state.candidates_by_id(&ids)?;
-    move_cleanup_candidates_to_safe_trash_for_candidates(
-        ids,
+    let candidates = state.candidates_by_job_and_ids(&job_id, &ids)?;
+    let result = move_cleanup_candidates_to_safe_trash_for_candidates(
+        ids.clone(),
         &candidates,
         db.inner(),
         app_data_dir.as_deref(),
-    )
+    )?;
+    let consumed = successful_cleanup_ids(&ids, &result);
+    state.mark_candidates_consumed(&job_id, &consumed)?;
+    Ok(result)
+}
+
+fn successful_cleanup_ids(ids: &[String], result: &CleanupExecutionResult) -> Vec<String> {
+    ids.iter()
+        .zip(&result.logs)
+        .filter(|(_, log)| log.status == "success")
+        .map(|(id, _)| id.clone())
+        .collect()
 }
 
 #[tauri::command]
@@ -862,7 +970,7 @@ pub async fn restore_cleanup_trash_items<R: Runtime>(
     state: State<'_, CleanupRestoreState>,
 ) -> Result<CleanupRestoreResult, String> {
     require_main_window(&window)?;
-    let job_id = job_id.unwrap_or_else(|| new_id("cleanup-restore"));
+    let job_id = job_id.unwrap_or_else(|| new_job_id("cleanup-restore"));
     let cancel_flag = state.start_job(job_id.clone())?;
     let state = state.inner().clone();
     let state_for_join_error = state.clone();
@@ -918,6 +1026,10 @@ fn cleanup_restore_preview_item(item: CleanupTrashItem) -> CleanupRestorePreview
                 Some("conflict".to_string())
             } else if !trash_exists {
                 Some("missing".to_string())
+            } else if item.identity_status != "verified" {
+                Some("manual_review".to_string())
+            } else if !safe_trash_identity_matches(&item, Path::new(&item.trash_path)) {
+                Some("replacement_detected".to_string())
             } else {
                 None
             }
@@ -966,7 +1078,7 @@ pub fn start_storage_cleanup_scan_for_test(
     roots: Vec<PathBuf>,
     state: &StorageCleanupState,
 ) -> Result<String, String> {
-    let job_id = new_id("storage-cleanup-scan-test");
+    let job_id = new_job_id("storage-cleanup-scan-test");
     let cancel_flag = state.start_job(job_id.clone(), &roots)?;
     let state = state.clone();
     let job_id_for_task = job_id.clone();
@@ -982,6 +1094,14 @@ pub fn start_storage_cleanup_scan_for_test(
     Ok(job_id)
 }
 
+pub fn start_storage_cleanup_job_state_for_test(
+    state: &StorageCleanupState,
+    job_id: &str,
+) -> Result<(), String> {
+    state.start_job(job_id.to_string(), &[])?;
+    Ok(())
+}
+
 pub fn cancel_storage_cleanup_scan_for_test(
     job_id: &str,
     state: &StorageCleanupState,
@@ -994,6 +1114,40 @@ pub fn get_storage_cleanup_scan_status_for_test(
     state: &StorageCleanupState,
 ) -> Result<StorageCleanupScanStatus, String> {
     state.job_status(job_id)
+}
+
+pub fn get_storage_cleanup_candidate_page_for_test(
+    state: &StorageCleanupState,
+    job_id: &str,
+    offset: usize,
+    limit: usize,
+) -> Result<StorageAnalysis, String> {
+    state.job_analysis_page(job_id, offset, limit)
+}
+
+pub fn candidates_by_job_and_ids_for_test(
+    state: &StorageCleanupState,
+    job_id: &str,
+    ids: &[String],
+) -> Result<Vec<StorageCandidate>, String> {
+    state.candidates_by_job_and_ids(job_id, ids)
+}
+
+pub fn mark_cleanup_candidates_consumed_for_test(
+    state: &StorageCleanupState,
+    job_id: &str,
+    ids: &[String],
+) -> Result<(), String> {
+    state.mark_candidates_consumed(job_id, ids)
+}
+
+pub fn store_completed_cleanup_analysis_for_test(
+    state: &StorageCleanupState,
+    job_id: &str,
+    analysis: StorageAnalysis,
+) -> Result<StorageAnalysis, String> {
+    state.start_job(job_id.to_string(), &[])?;
+    state.complete_job(job_id, analysis)
 }
 
 pub fn classify_candidate_for_test(path: &Path, size: u64) -> StorageCandidate {
@@ -1028,7 +1182,7 @@ pub fn move_cleanup_candidates_to_trash_for_candidates(
                 name: id,
                 size: 0,
                 status: "skipped".to_string(),
-                message: "Candidate id was not found in the latest storage cleanup scan."
+                message: "Candidate id was not found in the resolved storage cleanup job."
                     .to_string(),
                 item_id: None,
                 trash_path: None,
@@ -1045,7 +1199,7 @@ pub fn move_cleanup_candidates_to_trash_for_candidates(
                 size: candidate.size,
                 status: "skipped".to_string(),
                 message:
-                    "Only safe recycle-bin cleanup candidates from the latest scan can be moved."
+                    "Only safe recycle-bin cleanup candidates from the resolved job can be moved."
                         .to_string(),
                 item_id: None,
                 trash_path: None,
@@ -1096,7 +1250,7 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
         .iter()
         .map(|candidate| (candidate.id.as_str(), candidate))
         .collect::<HashMap<_, _>>();
-    let batch_id = new_id("cleanup-safe-trash");
+    let batch_id = new_job_id("cleanup-safe-trash");
     let moved_at = current_timestamp_ms().to_string();
     let mut result = CleanupExecutionResult {
         moved: 0,
@@ -1155,17 +1309,41 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
             continue;
         }
 
+        let fingerprint = match crate::file_ops::file_identity_fingerprint(source) {
+            Ok(fingerprint) => fingerprint,
+            Err(error) => {
+                result.failed += 1;
+                result.logs.push(CleanupExecutionLog {
+                    path: candidate.path.clone(),
+                    name: candidate.name.clone(),
+                    size: candidate.size,
+                    status: "failed".to_string(),
+                    message: format!("Cannot journal Safe Trash source identity: {error}"),
+                    item_id: Some(item_id),
+                    trash_path: Some(trash_path_text),
+                });
+                continue;
+            }
+        };
         let item = CleanupTrashItem {
             id: item_id.clone(),
             batch_id: batch_id.clone(),
             original_path: candidate.path.clone(),
             trash_path: trash_path_text.clone(),
             name: candidate.name.clone(),
-            size: candidate.size,
+            size: fingerprint.size,
             moved_at: moved_at.clone(),
             restored_at: None,
             status: "pending".to_string(),
             message: Some("Pending move to Zen Canvas Safe Trash.".to_string()),
+            source_modified_ns: fingerprint.modified_ns.map(|value| value.to_string()),
+            source_platform_file_id: fingerprint.platform_file_id,
+            source_quick_hash: fingerprint.quick_hash,
+            trash_modified_ns: None,
+            trash_platform_volume_id: None,
+            trash_platform_file_id: None,
+            trash_quick_hash: None,
+            identity_status: "pending".to_string(),
         };
         items.push(item);
     }
@@ -1192,17 +1370,65 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                 Path::new(&item.original_path),
                 Path::new(&item.trash_path),
                 item.size,
+                item.source_quick_hash.as_deref(),
             );
             let (status, log_status, message) = match move_result {
                 Ok(()) => {
-                    result.moved += 1;
-                    (
-                        "moved",
-                        "success",
-                        "Moved to Zen Canvas Safe Trash.".to_string(),
-                    )
+                    match crate::file_ops::file_identity_fingerprint(Path::new(&item.trash_path)) {
+                        Ok(trash_fingerprint)
+                            if trash_fingerprint.size == item.size
+                                && trash_fingerprint.quick_hash == item.source_quick_hash =>
+                        {
+                            item.trash_modified_ns =
+                                trash_fingerprint.modified_ns.map(|value| value.to_string());
+                            item.trash_platform_volume_id = trash_fingerprint
+                                .platform_file_id
+                                .as_deref()
+                                .and_then(platform_volume_id);
+                            item.trash_platform_file_id = trash_fingerprint.platform_file_id;
+                            item.trash_quick_hash = trash_fingerprint.quick_hash;
+                            item.identity_status = "verified".to_string();
+                            result.moved += 1;
+                            (
+                                "moved",
+                                "success",
+                                "Moved to Zen Canvas Safe Trash and verified file identity."
+                                    .to_string(),
+                            )
+                        }
+                        Ok(trash_fingerprint) => {
+                            item.trash_modified_ns =
+                                trash_fingerprint.modified_ns.map(|value| value.to_string());
+                            item.trash_platform_volume_id = trash_fingerprint
+                                .platform_file_id
+                                .as_deref()
+                                .and_then(platform_volume_id);
+                            item.trash_platform_file_id = trash_fingerprint.platform_file_id;
+                            item.trash_quick_hash = trash_fingerprint.quick_hash;
+                            item.identity_status = "mismatch".to_string();
+                            result.failed += 1;
+                            (
+                            "failed",
+                            "failed",
+                            "Safe Trash destination identity did not match the journal; manual review is required."
+                                .to_string(),
+                        )
+                        }
+                        Err(error) => {
+                            item.identity_status = "unverifiable".to_string();
+                            result.failed += 1;
+                            (
+                            "failed",
+                            "failed",
+                            format!(
+                                "Safe Trash destination identity could not be verified; manual review is required: {error}"
+                            ),
+                        )
+                        }
+                    }
                 }
                 Err(error) => {
+                    item.identity_status = "move_failed".to_string();
                     result.failed += 1;
                     (
                         "failed",
@@ -1257,7 +1483,7 @@ pub fn restore_cleanup_trash_items_for_db(
         item_ids,
         db,
         cancel_flag,
-        new_id("cleanup-restore-test"),
+        new_job_id("cleanup-restore-test"),
         &emitter,
     )
 }
@@ -1272,7 +1498,7 @@ pub fn restore_cleanup_trash_items_for_db_with_cancel_for_test(
         item_ids,
         db,
         cancel_flag,
-        new_id("cleanup-restore-test"),
+        new_job_id("cleanup-restore-test"),
         &emitter,
     )
 }
@@ -1408,6 +1634,27 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             );
             continue;
         }
+        if !safe_trash_identity_matches(&item, &trash_path) {
+            item.status = "failed".to_string();
+            item.message = Some(if item.identity_status == "verified" {
+                "Safe Trash item identity changed; automatic restore is blocked for manual review."
+                    .to_string()
+            } else {
+                "Legacy Safe Trash item has no identity fingerprint; automatic restore is blocked for manual review."
+                    .to_string()
+            });
+            db.update_cleanup_trash_item_status(&item)
+                .map_err(|error| error.to_string())?;
+            result.failed += 1;
+            result.logs.push(CleanupRestoreLog {
+                item_id: item.id,
+                original_path: normalize_path(&original),
+                trash_path: normalize_path(&trash_path),
+                status: "failed".to_string(),
+                message: item.message.unwrap_or_default(),
+            });
+            continue;
+        }
         if original.exists() {
             result.conflicts += 1;
             result.logs.push(CleanupRestoreLog {
@@ -1428,21 +1675,48 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             continue;
         }
 
-        match move_path_to_restore_location(&trash_path, &original, item.size) {
+        match move_path_to_restore_location(
+            &trash_path,
+            &original,
+            item.size,
+            item.trash_quick_hash.as_deref(),
+        ) {
             Ok(()) => {
-                item.status = "restored".to_string();
-                item.restored_at = Some(current_timestamp_ms().to_string());
-                item.message = Some("Restored from Zen Canvas Safe Trash.".to_string());
-                db.update_cleanup_trash_item_status(&item)
-                    .map_err(|error| error.to_string())?;
-                result.restored += 1;
-                result.logs.push(CleanupRestoreLog {
-                    item_id: item.id,
-                    original_path: normalize_path(&original),
-                    trash_path: normalize_path(&trash_path),
-                    status: "restored".to_string(),
-                    message: "Restored from Zen Canvas Safe Trash.".to_string(),
-                });
+                let restored_identity = crate::file_ops::file_identity_fingerprint(&original);
+                if restored_identity.as_ref().is_ok_and(|fingerprint| {
+                    fingerprint.size == item.size && fingerprint.quick_hash == item.trash_quick_hash
+                }) {
+                    item.status = "restored".to_string();
+                    item.restored_at = Some(current_timestamp_ms().to_string());
+                    item.message = Some("Restored from Zen Canvas Safe Trash.".to_string());
+                    db.update_cleanup_trash_item_status(&item)
+                        .map_err(|error| error.to_string())?;
+                    result.restored += 1;
+                    result.logs.push(CleanupRestoreLog {
+                        item_id: item.id,
+                        original_path: normalize_path(&original),
+                        trash_path: normalize_path(&trash_path),
+                        status: "restored".to_string(),
+                        message: "Restored from Zen Canvas Safe Trash.".to_string(),
+                    });
+                } else {
+                    item.status = "failed".to_string();
+                    item.identity_status = "restore_mismatch".to_string();
+                    item.message = Some(
+                        "Restored path identity could not be verified; manual review is required."
+                            .to_string(),
+                    );
+                    db.update_cleanup_trash_item_status(&item)
+                        .map_err(|error| error.to_string())?;
+                    result.failed += 1;
+                    result.logs.push(CleanupRestoreLog {
+                        item_id: item.id,
+                        original_path: normalize_path(&original),
+                        trash_path: normalize_path(&trash_path),
+                        status: "failed".to_string(),
+                        message: item.message.clone().unwrap_or_default(),
+                    });
+                }
             }
             Err(error) => {
                 item.status = "failed".to_string();
@@ -1508,13 +1782,40 @@ pub fn reconcile_pending_cleanup_journal(db: &Database) -> Result<usize, String>
     for item in &mut items {
         let original_exists = Path::new(&item.original_path).exists();
         let trash_exists = Path::new(&item.trash_path).exists();
-        if !original_exists && trash_exists {
-            item.status = "moved".to_string();
-            item.message =
-                Some("Recovered an interrupted Safe Trash journal after restart.".to_string());
+        if !original_exists
+            && trash_exists
+            && pending_safe_trash_identity_matches(item, Path::new(&item.trash_path))
+        {
+            if let Ok(trash_fingerprint) =
+                crate::file_ops::file_identity_fingerprint(Path::new(&item.trash_path))
+            {
+                item.trash_modified_ns =
+                    trash_fingerprint.modified_ns.map(|value| value.to_string());
+                item.trash_platform_volume_id = trash_fingerprint
+                    .platform_file_id
+                    .as_deref()
+                    .and_then(platform_volume_id);
+                item.trash_platform_file_id = trash_fingerprint.platform_file_id;
+                item.trash_quick_hash = trash_fingerprint.quick_hash;
+                item.identity_status = "verified".to_string();
+                item.status = "moved".to_string();
+                item.message =
+                    Some("Recovered an interrupted Safe Trash journal after restart.".to_string());
+            } else {
+                item.identity_status = "unverifiable".to_string();
+                item.status = "failed".to_string();
+                item.message = Some(
+                    "Interrupted Safe Trash destination identity is unverifiable; manual review is required."
+                        .to_string(),
+                );
+            }
         } else {
             item.status = "failed".to_string();
-            item.message = Some(if original_exists && !trash_exists {
+            item.identity_status = "mismatch".to_string();
+            item.message = Some(if !original_exists && trash_exists {
+                "Interrupted Safe Trash move found a different file identity; manual review is required."
+                    .to_string()
+            } else if original_exists && !trash_exists {
                 "Safe Trash move was interrupted before the filesystem change.".to_string()
             } else {
                 "Interrupted Safe Trash move requires manual path review.".to_string()
@@ -1556,6 +1857,22 @@ pub fn is_cleanup_execution_forbidden(path: &Path, app_data_dir: Option<&Path>) 
         .unwrap_or(false)
     {
         return true;
+    }
+
+    if is_current_user_temp_path(path) {
+        let metadata = match fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(_) => return true,
+        };
+        let stats = collect_temp_tree_stats(path);
+        let candidate = classify_system_temp_candidate(
+            path,
+            stats.size,
+            temp_entry_facts(path, metadata.is_dir(), stats),
+        );
+        if !candidate.trash_allowed {
+            return true;
+        }
     }
 
     let extension = path
@@ -1725,14 +2042,21 @@ fn finish_storage_cleanup_scan_job<R: Runtime>(
             );
             let _ = analysis;
         }
-        Ok(analysis) => {
-            let completed = StorageCleanupCompleted {
-                job_id: job_id.clone(),
-                analysis: storage_analysis_page(&analysis, 0, STORAGE_CLEANUP_PAGE_SIZE),
-            };
-            let _ = state.complete_job(&job_id, analysis);
-            let _ = app.emit(STORAGE_CLEANUP_COMPLETED_EVENT, completed);
-        }
+        Ok(analysis) => match state.complete_job(&job_id, analysis) {
+            Ok(analysis) => {
+                let completed = StorageCleanupCompleted { job_id, analysis };
+                let _ = app.emit(STORAGE_CLEANUP_COMPLETED_EVENT, completed);
+            }
+            Err(error) => {
+                let _ = app.emit(
+                    STORAGE_CLEANUP_FAILED_EVENT,
+                    StorageCleanupJobMessage {
+                        job_id,
+                        message: error,
+                    },
+                );
+            }
+        },
         Err(error) => {
             let _ = state.fail_job(&job_id, error.clone());
             let _ = app.emit(
@@ -1763,12 +2087,14 @@ fn analyze_storage_roots_with_progress<F>(
 where
     F: FnMut(StorageCleanupProgress) -> Result<(), String>,
 {
+    let root_contexts = build_cleanup_root_contexts(&roots);
     let scan_roots = roots
         .iter()
         .map(|root| normalize_for_compare(root))
         .collect::<HashSet<_>>();
     let mut context = ScanContext {
         scan_roots,
+        root_contexts,
         excluded_paths,
         candidates: Vec::new(),
         denied_paths: Vec::new(),
@@ -1806,7 +2132,7 @@ where
             continue;
         }
         total_size =
-            total_size.saturating_add(scan_path_size(&root, &mut context, &mut on_progress));
+            total_size.saturating_add(scan_path_stats(&root, &mut context, &mut on_progress).size);
     }
 
     context.emit_progress(&mut on_progress, true)?;
@@ -1874,8 +2200,87 @@ fn storage_analysis_page(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CleanupRootKind {
+    UserSelected,
+    SystemTemp,
+    UserCache,
+    Downloads,
+    DevelopmentCache,
+}
+
+#[derive(Debug, Clone)]
+struct CleanupRootContext {
+    requested_root: PathBuf,
+    canonical_root: PathBuf,
+    kind: CleanupRootKind,
+}
+
+impl CleanupRootContext {
+    fn matches(&self, path: &str) -> bool {
+        let normalized_path = normalize_compare_text(path);
+        [&self.requested_root, &self.canonical_root]
+            .into_iter()
+            .any(|root| is_same_or_child(&normalized_path, &normalize_for_compare(root)))
+    }
+}
+
+fn cleanup_root_kind_for(
+    root: &Path,
+    current_temp: &Path,
+    user_cache: Option<&Path>,
+    downloads: Option<&Path>,
+) -> CleanupRootKind {
+    let normalized = normalize_for_compare(root);
+    let temp = normalize_for_compare(current_temp);
+    if is_same_or_child(&normalized, &temp) {
+        return CleanupRootKind::SystemTemp;
+    }
+    if downloads.is_some_and(|path| is_same_or_child(&normalized, &normalize_for_compare(path))) {
+        return CleanupRootKind::Downloads;
+    }
+    let lower_name = root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if is_package_cache_path(&normalized, &lower_name) {
+        return CleanupRootKind::DevelopmentCache;
+    }
+    if user_cache.is_some_and(|path| is_same_or_child(&normalized, &normalize_for_compare(path))) {
+        return CleanupRootKind::UserCache;
+    }
+    CleanupRootKind::UserSelected
+}
+
+fn build_cleanup_root_contexts(roots: &[PathBuf]) -> Vec<CleanupRootContext> {
+    let current_temp = env::temp_dir()
+        .canonicalize()
+        .unwrap_or_else(|_| env::temp_dir());
+    let user_cache = dirs::cache_dir().and_then(|path| path.canonicalize().ok());
+    let downloads = dirs::download_dir().and_then(|path| path.canonicalize().ok());
+    roots
+        .iter()
+        .map(|root| {
+            let canonical_root = root.canonicalize().unwrap_or_else(|_| root.clone());
+            let kind = cleanup_root_kind_for(
+                &canonical_root,
+                &current_temp,
+                user_cache.as_deref(),
+                downloads.as_deref(),
+            );
+            CleanupRootContext {
+                requested_root: root.clone(),
+                canonical_root,
+                kind,
+            }
+        })
+        .collect()
+}
+
 struct ScanContext {
     scan_roots: HashSet<String>,
+    root_contexts: Vec<CleanupRootContext>,
     excluded_paths: Vec<PathBuf>,
     candidates: Vec<StorageCandidate>,
     denied_paths: Vec<String>,
@@ -1887,6 +2292,16 @@ struct ScanContext {
 }
 
 impl ScanContext {
+    fn root_kind_for(&self, path: &Path) -> CleanupRootKind {
+        let normalized = normalize_for_compare(path);
+        self.root_contexts
+            .iter()
+            .filter(|context| context.matches(&normalized))
+            .max_by_key(|context| context.canonical_root.components().count())
+            .map(|context| context.kind)
+            .unwrap_or(CleanupRootKind::UserSelected)
+    }
+
     fn is_cancelled(&mut self) -> bool {
         let cancelled = self
             .cancel_flag
@@ -1943,27 +2358,7 @@ fn validate_cleanup_roots(roots: Vec<String>) -> Result<Vec<PathBuf>, String> {
         .map(|root| root.trim().to_string())
         .filter(|root| !root.is_empty())
         .map(PathBuf::from)
-        .map(|root| {
-            if !root.is_absolute() {
-                return Err(format!(
-                    "Cleanup scope must be an absolute path: {}",
-                    normalize_path(&root)
-                ));
-            }
-            if is_forbidden_storage_path(&root, &[]) {
-                return Err(format!(
-                    "Cleanup scope is protected and cannot be scanned: {}",
-                    normalize_path(&root)
-                ));
-            }
-            if !root.exists() {
-                return Err(format!(
-                    "Cleanup scope does not exist: {}",
-                    normalize_path(&root)
-                ));
-            }
-            Ok(root)
-        })
+        .map(validate_cleanup_root)
         .collect::<Result<Vec<_>, _>>()?;
 
     dedupe_paths(&mut validated);
@@ -1973,48 +2368,140 @@ fn validate_cleanup_roots(roots: Vec<String>) -> Result<Vec<PathBuf>, String> {
     Ok(validated)
 }
 
-fn scan_path_size<F>(path: &Path, context: &mut ScanContext, on_progress: &mut F) -> u64
+fn validate_cleanup_root(root: PathBuf) -> Result<PathBuf, String> {
+    let root_text = root.as_os_str().to_string_lossy();
+    if root_text.contains('\0') || root_text.contains('*') || root_text.contains('?') {
+        return Err(format!(
+            "Cleanup scope contains unsupported path characters: {}",
+            normalize_path(&root)
+        ));
+    }
+    if root
+        .components()
+        .any(|component| component == Component::ParentDir)
+    {
+        return Err(format!(
+            "Cleanup scope cannot contain parent-directory traversal: {}",
+            normalize_path(&root)
+        ));
+    }
+    if !root.is_absolute() {
+        return Err(format!(
+            "Cleanup scope must be an absolute path: {}",
+            normalize_path(&root)
+        ));
+    }
+    let metadata = fs::symlink_metadata(&root).map_err(|error| {
+        format!(
+            "Cleanup scope cannot be inspected: {} ({error})",
+            normalize_path(&root)
+        )
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err(format!(
+            "Cleanup scope cannot be a symlink: {}",
+            normalize_path(&root)
+        ));
+    }
+    let canonical = root.canonicalize().map_err(|error| {
+        format!(
+            "Cleanup scope cannot be canonicalized: {} ({error})",
+            normalize_path(&root)
+        )
+    })?;
+    if is_forbidden_storage_path(&canonical, &[]) {
+        return Err(format!(
+            "Cleanup scope is protected and cannot be scanned: {}",
+            normalize_path(&canonical)
+        ));
+    }
+    Ok(canonical)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ScanPathStats {
+    size: u64,
+    latest_modified: Option<SystemTime>,
+    ownership: TempOwnership,
+    has_special_entry: bool,
+}
+
+impl Default for ScanPathStats {
+    fn default() -> Self {
+        Self {
+            size: 0,
+            latest_modified: None,
+            ownership: TempOwnership::Unknown,
+            has_special_entry: true,
+        }
+    }
+}
+
+impl ScanPathStats {
+    fn include(&mut self, child: ScanPathStats) {
+        self.size = self.size.saturating_add(child.size);
+        self.latest_modified = match (self.latest_modified, child.latest_modified) {
+            (Some(left), Some(right)) => Some(left.max(right)),
+            (None, value) | (value, None) => value,
+        };
+        self.ownership = self.ownership.merge(child.ownership);
+        self.has_special_entry |= child.has_special_entry;
+    }
+}
+
+fn scan_path_stats<F>(path: &Path, context: &mut ScanContext, on_progress: &mut F) -> ScanPathStats
 where
     F: FnMut(StorageCleanupProgress) -> Result<(), String>,
 {
     if context.is_cancelled() {
-        return 0;
+        return ScanPathStats::default();
     }
     if is_forbidden_storage_path(path, &context.excluded_paths) {
         context.denied_paths.push(normalize_path(path));
-        return 0;
+        return ScanPathStats::default();
     }
 
     let metadata = match fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(_) => {
             context.denied_paths.push(normalize_path(path));
-            return 0;
+            return ScanPathStats::default();
         }
     };
 
     if metadata.file_type().is_symlink() {
         context.denied_paths.push(normalize_path(path));
-        return 0;
+        return ScanPathStats::default();
     }
 
     if metadata.is_file() {
         let size = metadata.len();
+        let stats = ScanPathStats {
+            size,
+            latest_modified: metadata.modified().ok(),
+            ownership: temp_ownership(&metadata),
+            has_special_entry: !matches!(temp_entry_kind(&metadata), TempEntryKind::RegularFile),
+        };
         let _ = context.record_progress(path, size, on_progress);
-        maybe_record_candidate(path, size, false, context);
-        return size;
+        maybe_record_candidate(path, false, stats, context);
+        return stats;
     }
 
     if !metadata.is_dir() {
-        return 0;
+        return ScanPathStats::default();
     }
 
-    let mut size = 0_u64;
+    let mut stats = ScanPathStats {
+        size: 0,
+        latest_modified: metadata.modified().ok(),
+        ownership: temp_ownership(&metadata),
+        has_special_entry: false,
+    };
     let entries = match fs::read_dir(path) {
         Ok(entries) => entries,
         Err(_) => {
             context.denied_paths.push(normalize_path(path));
-            return 0;
+            return ScanPathStats::default();
         }
     };
 
@@ -2022,20 +2509,31 @@ where
         if context.is_cancelled() {
             break;
         }
-        size = size.saturating_add(scan_path_size(&entry.path(), context, on_progress));
+        stats.include(scan_path_stats(&entry.path(), context, on_progress));
     }
 
     let _ = context.record_progress(path, 0, on_progress);
-    maybe_record_candidate(path, size, true, context);
-    size
+    maybe_record_candidate(path, true, stats, context);
+    stats
 }
 
-fn maybe_record_candidate(path: &Path, size: u64, is_dir: bool, context: &mut ScanContext) {
+fn maybe_record_candidate(
+    path: &Path,
+    is_dir: bool,
+    stats: ScanPathStats,
+    context: &mut ScanContext,
+) {
+    let size = stats.size;
     if size == 0 || context.scan_roots.contains(&normalize_for_compare(path)) {
         return;
     }
 
-    let candidate = classify_candidate(path, size);
+    let root_kind = context.root_kind_for(path);
+    let candidate = if root_kind == CleanupRootKind::SystemTemp {
+        classify_system_temp_candidate(path, size, temp_entry_facts(path, is_dir, stats))
+    } else {
+        classify_candidate_without_temp_text(path, size)
+    };
     let is_large = if is_dir {
         size >= LARGE_DIR_THRESHOLD
     } else {
@@ -2049,7 +2547,234 @@ fn maybe_record_candidate(path: &Path, size: u64, is_dir: bool, context: &mut Sc
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TempOwnership {
+    CurrentUser,
+    OtherUser,
+    Unknown,
+}
+
+impl TempOwnership {
+    fn merge(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::OtherUser, _) | (_, Self::OtherUser) => Self::OtherUser,
+            (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
+            _ => Self::CurrentUser,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(unix), allow(dead_code))]
+enum TempEntryKind {
+    RegularFile,
+    Directory,
+    Symlink,
+    Socket,
+    Pipe,
+    Device,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TempEntryFacts {
+    age: Option<Duration>,
+    ownership: TempOwnership,
+    kind: TempEntryKind,
+    database_like: bool,
+}
+
+fn classify_system_temp_candidate(
+    path: &Path,
+    size: u64,
+    facts: TempEntryFacts,
+) -> StorageCandidate {
+    let normalized = normalize_path(path);
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(normalized.as_str())
+        .to_string();
+    let (tier, reason, suggested_action, risk_note) = if facts.database_like {
+        (
+            CleanupTier::Caution,
+            "Database-like temporary content may still contain active application state."
+                .to_string(),
+            CleanupActionKind::Reveal,
+            Some("Use the owning application's cleanup controls.".to_string()),
+        )
+    } else if !matches!(
+        facts.kind,
+        TempEntryKind::RegularFile | TempEntryKind::Directory
+    ) {
+        (
+            CleanupTier::Caution,
+            "Special filesystem entries are not eligible for automated cleanup.".to_string(),
+            CleanupActionKind::None,
+            Some("Sockets, pipes, devices, and symlinks must not be moved to trash.".to_string()),
+        )
+    } else if facts.ownership == TempOwnership::OtherUser {
+        (
+            CleanupTier::Caution,
+            "Temporary content is owned by another user.".to_string(),
+            CleanupActionKind::None,
+            Some("Zen Canvas will not offer cleanup for another user's files.".to_string()),
+        )
+    } else if facts.ownership == TempOwnership::Unknown {
+        (
+            CleanupTier::Review,
+            "Temporary content ownership could not be verified.".to_string(),
+            CleanupActionKind::Reveal,
+            Some("Ownership must be verified before cleanup.".to_string()),
+        )
+    } else if facts
+        .age
+        .is_some_and(|age| age >= Duration::from_secs(7 * 24 * 60 * 60))
+    {
+        (
+            CleanupTier::Safe,
+            "Current-user temporary content has not changed for at least 7 days.".to_string(),
+            CleanupActionKind::MoveToTrash,
+            None,
+        )
+    } else {
+        (
+            CleanupTier::Review,
+            "Recent temporary content may still be in use by an application.".to_string(),
+            CleanupActionKind::Reveal,
+            Some("Only temporary content older than 7 days is selected by default.".to_string()),
+        )
+    };
+    let trash_allowed = tier == CleanupTier::Safe;
+    StorageCandidate {
+        id: candidate_id(&normalized),
+        path: normalized,
+        name,
+        size,
+        tier,
+        category: "Temporary files".to_string(),
+        reason,
+        suggested_action,
+        risk_note,
+        trash_allowed,
+        selected_by_default: trash_allowed,
+    }
+}
+
+fn temp_entry_facts(path: &Path, is_dir: bool, stats: ScanPathStats) -> TempEntryFacts {
+    let metadata = fs::symlink_metadata(path).ok();
+    let mut kind = metadata.as_ref().map(temp_entry_kind).unwrap_or(if is_dir {
+        TempEntryKind::Directory
+    } else {
+        TempEntryKind::Device
+    });
+    if stats.has_special_entry {
+        kind = TempEntryKind::Device;
+    }
+    let modified = stats
+        .latest_modified
+        .or_else(|| metadata.as_ref().and_then(|value| value.modified().ok()));
+    let age = modified.and_then(|time| SystemTime::now().duration_since(time).ok());
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    TempEntryFacts {
+        age,
+        ownership: stats.ownership,
+        kind,
+        database_like: is_database_extension(&extension),
+    }
+}
+
+fn collect_temp_tree_stats(path: &Path) -> ScanPathStats {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(_) => return ScanPathStats::default(),
+    };
+    let kind = temp_entry_kind(&metadata);
+    let mut stats = ScanPathStats {
+        size: if metadata.is_file() {
+            metadata.len()
+        } else {
+            0
+        },
+        latest_modified: metadata.modified().ok(),
+        ownership: temp_ownership(&metadata),
+        has_special_entry: !matches!(kind, TempEntryKind::RegularFile | TempEntryKind::Directory),
+    };
+    if metadata.is_dir() {
+        let entries = match fs::read_dir(path) {
+            Ok(entries) => entries,
+            Err(_) => return ScanPathStats::default(),
+        };
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(_) => return ScanPathStats::default(),
+            };
+            stats.include(collect_temp_tree_stats(&entry.path()));
+        }
+    }
+    stats
+}
+
+fn temp_entry_kind(metadata: &fs::Metadata) -> TempEntryKind {
+    let file_type = metadata.file_type();
+    if file_type.is_symlink() {
+        return TempEntryKind::Symlink;
+    }
+    if file_type.is_file() {
+        return TempEntryKind::RegularFile;
+    }
+    if file_type.is_dir() {
+        return TempEntryKind::Directory;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt;
+        if file_type.is_socket() {
+            return TempEntryKind::Socket;
+        }
+        if file_type.is_fifo() {
+            return TempEntryKind::Pipe;
+        }
+        if file_type.is_block_device() || file_type.is_char_device() {
+            return TempEntryKind::Device;
+        }
+    }
+    TempEntryKind::Device
+}
+
+#[cfg(unix)]
+fn temp_ownership(metadata: &fs::Metadata) -> TempOwnership {
+    use std::os::unix::fs::MetadataExt;
+    let current_uid = unsafe { libc::geteuid() };
+    if metadata.uid() == current_uid {
+        TempOwnership::CurrentUser
+    } else {
+        TempOwnership::OtherUser
+    }
+}
+
+#[cfg(not(unix))]
+fn temp_ownership(_metadata: &fs::Metadata) -> TempOwnership {
+    TempOwnership::CurrentUser
+}
+
 fn classify_candidate(path: &Path, size: u64) -> StorageCandidate {
+    classify_candidate_with_temp_text(path, size, true)
+}
+
+fn classify_candidate_without_temp_text(path: &Path, size: u64) -> StorageCandidate {
+    classify_candidate_with_temp_text(path, size, false)
+}
+
+fn classify_candidate_with_temp_text(
+    path: &Path,
+    size: u64,
+    allow_temp_text: bool,
+) -> StorageCandidate {
     let normalized = normalize_path(path);
     let lower = normalized.to_ascii_lowercase();
     let name = path
@@ -2119,7 +2844,7 @@ fn classify_candidate(path: &Path, size: u64) -> StorageCandidate {
                     .to_string(),
             ),
         )
-    } else if is_temp_path(&lower) {
+    } else if allow_temp_text && is_temp_path(&lower) {
         (
             CleanupTier::Safe,
             "Temporary files".to_string(),
@@ -2193,7 +2918,7 @@ fn classify_candidate(path: &Path, size: u64) -> StorageCandidate {
         && suggested_action == CleanupActionKind::MoveToTrash
         && !is_forbidden_storage_path(path, &[]);
     let selected_by_default = trash_allowed
-        && (is_temp_path(&lower)
+        && ((allow_temp_text && is_temp_path(&lower))
             || is_package_cache_path(&lower, &lower_name)
             || lower_name == "node_modules");
 
@@ -2262,9 +2987,12 @@ impl Database {
             let mut stmt = tx.prepare(
                 r#"
                 INSERT INTO cleanup_trash_items (
-                    id, batch_id, original_path, trash_path, name, size, moved_at, restored_at, status, message
+                    id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
+                    status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
+                    trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                    trash_quick_hash, identity_status
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
                 ON CONFLICT(id) DO UPDATE SET
                     batch_id = excluded.batch_id,
                     original_path = excluded.original_path,
@@ -2274,7 +3002,15 @@ impl Database {
                     moved_at = excluded.moved_at,
                     restored_at = excluded.restored_at,
                     status = excluded.status,
-                    message = excluded.message
+                    message = excluded.message,
+                    source_modified_ns = excluded.source_modified_ns,
+                    source_platform_file_id = excluded.source_platform_file_id,
+                    source_quick_hash = excluded.source_quick_hash,
+                    trash_modified_ns = excluded.trash_modified_ns,
+                    trash_platform_volume_id = excluded.trash_platform_volume_id,
+                    trash_platform_file_id = excluded.trash_platform_file_id,
+                    trash_quick_hash = excluded.trash_quick_hash,
+                    identity_status = excluded.identity_status
                 "#,
             )?;
             for item in &batch.items {
@@ -2288,7 +3024,15 @@ impl Database {
                     item.moved_at,
                     item.restored_at,
                     item.status,
-                    item.message
+                    item.message,
+                    item.source_modified_ns,
+                    item.source_platform_file_id,
+                    item.source_quick_hash,
+                    item.trash_modified_ns,
+                    item.trash_platform_volume_id,
+                    item.trash_platform_file_id,
+                    item.trash_quick_hash,
+                    item.identity_status
                 ])?;
             }
         }
@@ -2302,7 +3046,10 @@ impl Database {
             r#"
             SELECT b.id, b.created_at, b.root, b.total_items, b.total_size, b.status,
                    i.id, i.batch_id, i.original_path, i.trash_path, i.name, i.size,
-                   i.moved_at, i.restored_at, i.status, i.message
+                   i.moved_at, i.restored_at, i.status, i.message,
+                   i.source_modified_ns, i.source_platform_file_id, i.source_quick_hash,
+                   i.trash_modified_ns, i.trash_platform_volume_id, i.trash_platform_file_id,
+                   i.trash_quick_hash, i.identity_status
             FROM cleanup_trash_batches AS b
             LEFT JOIN cleanup_trash_items AS i ON i.batch_id = b.id
             ORDER BY CAST(b.created_at AS INTEGER) DESC, i.name COLLATE NOCASE ASC
@@ -2342,6 +3089,14 @@ impl Database {
                     restored_at: row.get(13)?,
                     status: row.get(14)?,
                     message: row.get(15)?,
+                    source_modified_ns: row.get(16)?,
+                    source_platform_file_id: row.get(17)?,
+                    source_quick_hash: row.get(18)?,
+                    trash_modified_ns: row.get(19)?,
+                    trash_platform_volume_id: row.get(20)?,
+                    trash_platform_file_id: row.get(21)?,
+                    trash_quick_hash: row.get(22)?,
+                    identity_status: row.get(23)?,
                 });
             }
         }
@@ -2355,7 +3110,10 @@ impl Database {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
             r#"
-            SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at, status, message
+            SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
+                   status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
+                   trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                   trash_quick_hash, identity_status
             FROM cleanup_trash_items
             WHERE batch_id = ?1
             ORDER BY name COLLATE NOCASE ASC
@@ -2369,7 +3127,10 @@ impl Database {
         let conn = self.conn()?;
         conn.query_row(
             r#"
-            SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at, status, message
+            SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
+                   status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
+                   trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                   trash_quick_hash, identity_status
             FROM cleanup_trash_items
             WHERE id = ?1
             "#,
@@ -2384,7 +3145,10 @@ impl Database {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
             r#"
-            SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at, status, message
+            SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
+                   status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
+                   trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                   trash_quick_hash, identity_status
             FROM cleanup_trash_items
             WHERE status = 'pending'
             ORDER BY moved_at ASC
@@ -2425,10 +3189,31 @@ impl Database {
             UPDATE cleanup_trash_items
             SET restored_at = ?2,
                 status = ?3,
-                message = ?4
+                message = ?4,
+                source_modified_ns = ?5,
+                source_platform_file_id = ?6,
+                source_quick_hash = ?7,
+                trash_modified_ns = ?8,
+                trash_platform_volume_id = ?9,
+                trash_platform_file_id = ?10,
+                trash_quick_hash = ?11,
+                identity_status = ?12
             WHERE id = ?1
             "#,
-            params![item.id, item.restored_at, item.status, item.message],
+            params![
+                item.id,
+                item.restored_at,
+                item.status,
+                item.message,
+                item.source_modified_ns,
+                item.source_platform_file_id,
+                item.source_quick_hash,
+                item.trash_modified_ns,
+                item.trash_platform_volume_id,
+                item.trash_platform_file_id,
+                item.trash_quick_hash,
+                item.identity_status
+            ],
         )?;
         Ok(())
     }
@@ -2447,15 +3232,19 @@ fn cleanup_trash_item_from_row(row: &Row<'_>) -> rusqlite::Result<CleanupTrashIt
         restored_at: row.get(7)?,
         status: row.get(8)?,
         message: row.get(9)?,
+        source_modified_ns: row.get(10)?,
+        source_platform_file_id: row.get(11)?,
+        source_quick_hash: row.get(12)?,
+        trash_modified_ns: row.get(13)?,
+        trash_platform_volume_id: row.get(14)?,
+        trash_platform_file_id: row.get(15)?,
+        trash_quick_hash: row.get(16)?,
+        identity_status: row.get(17)?,
     })
 }
 
-fn candidate_item_id(candidate: &StorageCandidate, index: usize) -> String {
-    let mut hasher = DefaultHasher::new();
-    candidate.id.hash(&mut hasher);
-    candidate.path.hash(&mut hasher);
-    index.hash(&mut hasher);
-    format!("cleanup-item-{:016x}", hasher.finish())
+fn candidate_item_id(_candidate: &StorageCandidate, _index: usize) -> String {
+    new_job_id("cleanup-item")
 }
 
 fn safe_trash_item_path(
@@ -2481,22 +3270,25 @@ fn move_path_to_safe_trash(
     source: &Path,
     trash_path: &Path,
     expected_size: u64,
+    expected_quick_hash: Option<&str>,
 ) -> Result<(), String> {
-    move_path_with_copy_fallback(source, trash_path, expected_size)
+    move_path_with_copy_fallback(source, trash_path, expected_size, expected_quick_hash)
 }
 
 fn move_path_to_restore_location(
     trash_path: &Path,
     original: &Path,
     expected_size: u64,
+    expected_quick_hash: Option<&str>,
 ) -> Result<(), String> {
-    move_path_with_copy_fallback(trash_path, original, expected_size)
+    move_path_with_copy_fallback(trash_path, original, expected_size, expected_quick_hash)
 }
 
 fn move_path_with_copy_fallback(
     source: &Path,
     target: &Path,
     expected_size: u64,
+    expected_quick_hash: Option<&str>,
 ) -> Result<(), String> {
     if target.exists() {
         return Err("target path already exists".to_string());
@@ -2522,6 +3314,16 @@ fn move_path_with_copy_fallback(
                     "copy verification failed: expected {expected_size} bytes, copied {copied_size} bytes"
                 ));
             }
+            if let Some(expected_hash) = expected_quick_hash {
+                let staged = crate::file_ops::file_identity_fingerprint(&stage)?;
+                if staged.quick_hash.as_deref() != Some(expected_hash) {
+                    let _ = remove_path(&stage);
+                    return Err(
+                        "copy verification failed: staged content identity did not match"
+                            .to_string(),
+                    );
+                }
+            }
             fs::rename(&stage, target).map_err(|error| {
                 let _ = remove_path(&stage);
                 format!("failed to commit staged safe-trash copy: {error}")
@@ -2532,15 +3334,61 @@ fn move_path_with_copy_fallback(
     Ok(())
 }
 
+fn platform_volume_id(platform_file_id: &str) -> Option<String> {
+    platform_file_id
+        .split_once(':')
+        .map(|(volume, _)| volume.to_string())
+}
+
+fn safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
+    if item.identity_status != "verified" {
+        return false;
+    }
+    let (Some(expected_hash), Ok(actual)) = (
+        item.trash_quick_hash.as_deref(),
+        crate::file_ops::file_identity_fingerprint(path),
+    ) else {
+        return false;
+    };
+    if actual.size != item.size || actual.quick_hash.as_deref() != Some(expected_hash) {
+        return false;
+    }
+    if let Some(expected_id) = item.trash_platform_file_id.as_deref() {
+        return actual.platform_file_id.as_deref() == Some(expected_id);
+    }
+    item.trash_modified_ns
+        .as_deref()
+        .and_then(|value| value.parse::<i128>().ok())
+        .zip(actual.modified_ns)
+        .is_some_and(|(expected, actual)| expected == actual)
+}
+
+fn pending_safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
+    let (Some(expected_hash), Ok(actual)) = (
+        item.source_quick_hash.as_deref(),
+        crate::file_ops::file_identity_fingerprint(path),
+    ) else {
+        return false;
+    };
+    if actual.size != item.size || actual.quick_hash.as_deref() != Some(expected_hash) {
+        return false;
+    }
+    if let Some(expected_id) = item.source_platform_file_id.as_deref() {
+        return actual.platform_file_id.as_deref() == Some(expected_id);
+    }
+    item.source_modified_ns
+        .as_deref()
+        .and_then(|value| value.parse::<i128>().ok())
+        .zip(actual.modified_ns)
+        .is_some_and(|(expected, actual)| expected == actual)
+}
+
 fn staging_path_for(target: &Path) -> PathBuf {
     let name = target
         .file_name()
         .and_then(|value| value.to_str())
         .unwrap_or("item");
-    target.with_file_name(format!(
-        ".{name}.zencanvas-stage-{}",
-        current_timestamp_ms()
-    ))
+    target.with_file_name(format!(".{name}.{}", new_job_id("zencanvas-stage")))
 }
 
 fn copy_path(source: &Path, target: &Path) -> Result<(), String> {
@@ -2639,13 +3487,28 @@ fn is_forbidden_storage_path(path: &Path, excluded_paths: &[PathBuf]) -> bool {
     excluded_paths
         .iter()
         .any(|excluded| is_same_or_child(&lower, &normalize_for_compare(excluded)))
-        || is_system_path_text(&lower)
+        || (!is_current_user_temp_path(path) && is_system_path_text(&lower))
         || is_zen_canvas_safe_trash_path_text(&lower)
         || lower.contains("/programdata")
         || lower.contains("/startlan/zen canvas")
         || lower.ends_with("/zen-canvas.sqlite3")
         || lower.ends_with("/zen-canvas.sqlite")
         || lower.ends_with("/zen-canvas.db")
+}
+
+fn is_current_user_temp_path(path: &Path) -> bool {
+    let temp = match env::temp_dir().canonicalize() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+    let candidate = match path.canonicalize() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+    is_same_or_child(
+        &normalize_for_compare(&candidate),
+        &normalize_for_compare(&temp),
+    )
 }
 
 fn is_zen_canvas_safe_trash_path_text(lower: &str) -> bool {
@@ -2656,50 +3519,47 @@ fn is_zen_canvas_safe_trash_path_text(lower: &str) -> bool {
 }
 
 fn is_system_path_text(lower: &str) -> bool {
-    if cfg!(target_os = "macos")
-        && (lower == "/tmp"
-            || lower.starts_with("/tmp/")
-            || lower == "/var/folders"
-            || lower.starts_with("/var/folders/")
-            || lower == "/private/tmp"
-            || lower.starts_with("/private/tmp/")
-            || lower == "/private/var/folders"
-            || lower.starts_with("/private/var/folders/"))
-    {
-        return false;
-    }
-    lower.starts_with("c:/windows")
-        || lower.contains("/windows/system32")
-        || lower.contains("/windows/winsxs")
-        || lower.contains("/system volume information")
-        || lower.contains("/$recycle.bin")
+    is_system_path_text_for_os(lower, env::consts::OS)
+}
+
+fn is_system_path_text_for_os(value: &str, os: &str) -> bool {
+    let normalized = value.replace('\\', "/");
+    let comparable = if os == "windows" || os == "macos" {
+        normalized.to_ascii_lowercase()
+    } else {
+        normalized
+    };
+    let unix_system_prefix = if os == "macos" {
+        comparable.starts_with("/system/")
+    } else {
+        comparable.starts_with("/System/")
+    };
+    comparable.starts_with("c:/windows")
+        || comparable.contains("/windows/system32")
+        || comparable.contains("/windows/winsxs")
+        || comparable.contains("/system volume information")
+        || comparable.contains("/$recycle.bin")
         || matches!(
-            lower,
-            "/" | "/System"
-                | "/Library"
-                | "/Applications"
-                | "/system"
+            comparable.as_str(),
+            "/" | "/system"
+                | "/library"
+                | "/applications"
                 | "/usr"
                 | "/etc"
                 | "/var"
                 | "/bin"
                 | "/sbin"
-                | "/library"
-                | "/applications"
                 | "/private"
         )
-        || lower.starts_with("/System/")
-        || lower.starts_with("/Library/")
-        || lower.starts_with("/Applications/")
-        || lower.starts_with("/system/")
-        || lower.starts_with("/usr/")
-        || lower.starts_with("/etc/")
-        || lower.starts_with("/var/")
-        || lower.starts_with("/bin/")
-        || lower.starts_with("/sbin/")
-        || lower.starts_with("/library/")
-        || lower.starts_with("/applications/")
-        || lower.starts_with("/private/")
+        || unix_system_prefix
+        || comparable.starts_with("/usr/")
+        || comparable.starts_with("/etc/")
+        || comparable.starts_with("/var/")
+        || comparable.starts_with("/bin/")
+        || comparable.starts_with("/sbin/")
+        || comparable.starts_with("/library/")
+        || comparable.starts_with("/applications/")
+        || comparable.starts_with("/private/")
 }
 
 fn is_program_files_path_text(lower: &str) -> bool {
@@ -2891,18 +3751,17 @@ fn is_same_or_child(path: &str, parent: &str) -> bool {
 }
 
 fn candidate_id(path: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    normalize_compare_text(path).hash(&mut hasher);
-    format!("storage-{:016x}", hasher.finish())
+    let digest = blake3::hash(normalize_compare_text(path).as_bytes())
+        .to_hex()
+        .to_string();
+    format!("storage-{}", &digest[..32])
 }
 
-fn new_id(prefix: &str) -> String {
-    let timestamp = current_timestamp_ms();
-    let mut hasher = DefaultHasher::new();
-    prefix.hash(&mut hasher);
-    timestamp.hash(&mut hasher);
-    std::thread::current().id().hash(&mut hasher);
-    format!("{prefix}-{timestamp}-{:016x}", hasher.finish())
+fn candidate_id_for_job(job_id: &str, path: &str) -> String {
+    let digest = blake3::hash(format!("{job_id}\0{}", normalize_compare_text(path)).as_bytes())
+        .to_hex()
+        .to_string();
+    format!("storage-{}", &digest[..32])
 }
 
 fn current_timestamp_ms() -> u128 {
@@ -2910,6 +3769,227 @@ fn current_timestamp_ms() -> u128 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)]
+mod temp_safety_tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_root_context_matches_requested_and_canonical_aliases() {
+        let context = CleanupRootContext {
+            requested_root: PathBuf::from("/var/folders/user/T/job"),
+            canonical_root: PathBuf::from("/private/var/folders/user/T/job"),
+            kind: CleanupRootKind::SystemTemp,
+        };
+
+        assert!(context.matches("/var/folders/user/T/job/old.tmp"));
+        assert!(context.matches("/private/var/folders/user/T/job/old.tmp"));
+        assert!(!context.matches("/private/var/folders/other/T/job/old.tmp"));
+    }
+
+    #[test]
+    fn cleanup_root_context_matches_windows_short_path_alias() {
+        let context = CleanupRootContext {
+            requested_root: PathBuf::from("C:/Users/RUNNER~1/AppData/Local/Temp/job"),
+            canonical_root: PathBuf::from("C:/Users/runneradmin/AppData/Local/Temp/job"),
+            kind: CleanupRootKind::SystemTemp,
+        };
+
+        assert!(context.matches("c:/users/runner~1/appdata/local/temp/job/old.tmp"));
+        assert!(context.matches("c:/users/runneradmin/appdata/local/temp/job/old.tmp"));
+        assert!(!context.matches("c:/users/other/appdata/local/temp/job/old.tmp"));
+    }
+
+    #[test]
+    fn current_user_old_temp_file_is_safe_and_selected() {
+        let candidate = classify_system_temp_candidate(
+            Path::new("/tmp/zen-canvas-old.tmp"),
+            128,
+            TempEntryFacts {
+                age: Some(Duration::from_secs(8 * 24 * 60 * 60)),
+                ownership: TempOwnership::CurrentUser,
+                kind: TempEntryKind::RegularFile,
+                database_like: false,
+            },
+        );
+
+        assert_eq!(candidate.tier, CleanupTier::Safe);
+        assert!(candidate.trash_allowed);
+        assert!(candidate.selected_by_default);
+    }
+
+    #[test]
+    fn current_user_recent_temp_file_is_review_only() {
+        let candidate = classify_system_temp_candidate(
+            Path::new("/tmp/zen-canvas-new.tmp"),
+            128,
+            TempEntryFacts {
+                age: Some(Duration::from_secs(12 * 60 * 60)),
+                ownership: TempOwnership::CurrentUser,
+                kind: TempEntryKind::RegularFile,
+                database_like: false,
+            },
+        );
+
+        assert_eq!(candidate.tier, CleanupTier::Review);
+        assert!(!candidate.trash_allowed);
+        assert!(!candidate.selected_by_default);
+    }
+
+    #[test]
+    fn temp_database_is_caution_even_when_old() {
+        let candidate = classify_system_temp_candidate(
+            Path::new("/tmp/cache.sqlite"),
+            128,
+            TempEntryFacts {
+                age: Some(Duration::from_secs(30 * 24 * 60 * 60)),
+                ownership: TempOwnership::CurrentUser,
+                kind: TempEntryKind::RegularFile,
+                database_like: true,
+            },
+        );
+
+        assert_eq!(candidate.tier, CleanupTier::Caution);
+        assert!(!candidate.trash_allowed);
+    }
+
+    #[test]
+    fn unverifiable_or_foreign_temp_ownership_is_not_trashable() {
+        for ownership in [TempOwnership::Unknown, TempOwnership::OtherUser] {
+            let candidate = classify_system_temp_candidate(
+                Path::new("/tmp/unowned.tmp"),
+                128,
+                TempEntryFacts {
+                    age: Some(Duration::from_secs(30 * 24 * 60 * 60)),
+                    ownership,
+                    kind: TempEntryKind::RegularFile,
+                    database_like: false,
+                },
+            );
+
+            assert_ne!(candidate.tier, CleanupTier::Safe);
+            assert!(!candidate.trash_allowed);
+            assert!(!candidate.selected_by_default);
+        }
+    }
+
+    #[test]
+    fn special_temp_file_types_are_not_trashable() {
+        for kind in [
+            TempEntryKind::Symlink,
+            TempEntryKind::Socket,
+            TempEntryKind::Pipe,
+            TempEntryKind::Device,
+        ] {
+            let candidate = classify_system_temp_candidate(
+                Path::new("/tmp/special.tmp"),
+                128,
+                TempEntryFacts {
+                    age: Some(Duration::from_secs(30 * 24 * 60 * 60)),
+                    ownership: TempOwnership::CurrentUser,
+                    kind,
+                    database_like: false,
+                },
+            );
+
+            assert_eq!(candidate.tier, CleanupTier::Caution);
+            assert!(!candidate.trash_allowed);
+        }
+    }
+
+    #[test]
+    fn only_current_real_temp_root_gets_system_temp_context() {
+        let current_temp = Path::new("/private/var/folders/current/T");
+
+        assert_eq!(
+            cleanup_root_kind_for(
+                Path::new("/private/var/folders/current/T/scan"),
+                current_temp,
+                None,
+                None,
+            ),
+            CleanupRootKind::SystemTemp
+        );
+        assert_eq!(
+            cleanup_root_kind_for(
+                Path::new("/private/var/folders/another/T"),
+                current_temp,
+                None,
+                None,
+            ),
+            CleanupRootKind::UserSelected
+        );
+        assert_eq!(
+            cleanup_root_kind_for(Path::new("/private/var/folders"), current_temp, None, None),
+            CleanupRootKind::UserSelected
+        );
+    }
+
+    #[test]
+    fn linux_tmp_uses_system_temp_context_when_it_is_the_real_temp_root() {
+        assert_eq!(
+            cleanup_root_kind_for(Path::new("/tmp/session"), Path::new("/tmp"), None, None),
+            CleanupRootKind::SystemTemp
+        );
+    }
+
+    #[test]
+    fn macos_var_folders_outside_current_temp_remain_protected() {
+        for path in [
+            "/var/folders",
+            "/var/folders/another-user/T",
+            "/private/var/folders",
+            "/private/var/folders/another-user/T",
+            "/private/var/db",
+        ] {
+            assert!(
+                is_system_path_text_for_os(path, "macos"),
+                "expected macOS system path to remain protected: {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn macos_system_path_case_variants_remain_protected() {
+        for path in ["/sYsTeM", "/LIBRARY/Application Support", "/aPpLiCaTiOnS"] {
+            assert!(is_system_path_text_for_os(path, "macos"));
+        }
+    }
+
+    #[test]
+    fn temp_directory_age_uses_newest_child_mtime() {
+        let now = SystemTime::now();
+        let mut directory = ScanPathStats {
+            size: 0,
+            latest_modified: Some(now - Duration::from_secs(10 * 24 * 60 * 60)),
+            ownership: TempOwnership::CurrentUser,
+            has_special_entry: false,
+        };
+        directory.include(ScanPathStats {
+            size: 128,
+            latest_modified: Some(now - Duration::from_secs(2 * 60 * 60)),
+            ownership: TempOwnership::CurrentUser,
+            has_special_entry: false,
+        });
+        let age = directory
+            .latest_modified
+            .and_then(|modified| now.duration_since(modified).ok());
+        let candidate = classify_system_temp_candidate(
+            Path::new("/tmp/directory"),
+            directory.size,
+            TempEntryFacts {
+                age,
+                ownership: TempOwnership::CurrentUser,
+                kind: TempEntryKind::Directory,
+                database_like: false,
+            },
+        );
+
+        assert_eq!(candidate.tier, CleanupTier::Review);
+        assert!(!candidate.selected_by_default);
+    }
 }
 
 fn normalize_for_compare(path: &Path) -> String {

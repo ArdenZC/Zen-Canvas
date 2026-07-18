@@ -24,7 +24,7 @@ export const RULE_FIELD_OPTIONS = [
   "risk_level"
 ] as const satisfies readonly ConditionField[];
 
-export const RULE_CONDITION_OPERATORS: Record<ConditionField, readonly ConditionOperator[]> = {
+export const RULE_CONDITION_OPERATORS: Partial<Record<ConditionField, readonly ConditionOperator[]>> = {
   name: ["contains", "equals", "startsWith", "endsWith"],
   extension: ["contains", "equals", "startsWith", "endsWith"],
   file_type: ["equals", "is"],
@@ -55,7 +55,7 @@ export const RULE_FILE_TYPE_OPTIONS = [
 export const RULE_RISK_LEVEL_OPTIONS = ["Normal", "Sensitive", "System", "Unknown"] as const satisfies readonly RiskLevel[];
 
 export type ConditionInputType = "text" | "number" | "select" | "boolean";
-export const RULE_CONDITION_INPUT_TYPES: Record<ConditionField, ConditionInputType> = {
+export const RULE_CONDITION_INPUT_TYPES: Partial<Record<ConditionField, ConditionInputType>> = {
   name: "text",
   extension: "text",
   file_type: "select",
@@ -101,11 +101,11 @@ export interface RuleBuilderDraft {
 }
 
 export function conditionOperatorsForField(field: ConditionField): readonly ConditionOperator[] {
-  return RULE_CONDITION_OPERATORS[field];
+  return RULE_CONDITION_OPERATORS[field] ?? [];
 }
 
 export function conditionInputType(field: ConditionField): ConditionInputType {
-  return RULE_CONDITION_INPUT_TYPES[field];
+  return RULE_CONDITION_INPUT_TYPES[field] ?? "text";
 }
 
 export function conditionOptions(field: ConditionField): readonly string[] {
@@ -133,7 +133,7 @@ function conditionValueCompatible(field: ConditionField, value: RuleCondition["v
 
 export function normalizeConditionForField(condition: RuleCondition, field: ConditionField): RuleCondition {
   const operators = conditionOperatorsForField(field);
-  const operator = operators.includes(condition.operator) ? condition.operator : operators[0];
+  const operator = operators.includes(condition.operator) ? condition.operator : operators[0] ?? "unknown";
   const value = conditionValueCompatible(field, condition.value) ? condition.value : defaultConditionValue(field);
   return { ...condition, field, operator, value };
 }
@@ -156,6 +156,7 @@ export function validateRuleCondition(condition: RuleCondition): ConditionValida
   if (!operators || !operators.includes(condition.operator)) return "operator";
 
   const inputType = RULE_CONDITION_INPUT_TYPES[field];
+  if (!inputType) return "operator";
   if (inputType === "text") return typeof condition.value === "string" && condition.value.trim() ? undefined : "required";
   if (inputType === "select") return typeof condition.value === "string" && conditionOptions(field).includes(condition.value) ? undefined : "option";
   if (inputType === "boolean") return typeof condition.value === "boolean" ? undefined : "boolean";
@@ -200,9 +201,11 @@ export function buildRuleFromBuilderDraft(draft: RuleBuilderDraft): Rule {
   if (validation.name === "tooLong") throw new Error("Rule name is too long.");
   if (validation.weight) throw new Error("Rule weight must be between 0 and 100.");
   if (validation.priority) throw new Error("Rule priority must be between 0 and 1000.");
+  if (!RULE_LOGIC_OPTIONS.some((operator) => operator === draft.rootOperator)) throw new Error("Rule root operator is invalid.");
   if (!draft.groups.length) throw new Error("At least one condition group is required.");
   if (draft.groups.some((group) => !group.conditions.length)) throw new Error("Each rule group requires at least one condition.");
   for (const group of draft.groups) {
+    if (!RULE_LOGIC_OPTIONS.some((operator) => operator === group.operator)) throw new Error("Rule group operator is invalid.");
     for (const condition of group.conditions) {
       const error = validation.conditionErrors[`${group.id}:${condition.id}`];
       if (!error) continue;

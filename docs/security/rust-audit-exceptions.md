@@ -1,15 +1,14 @@
 # Rust audit exceptions
 
-`npm run security:audit:rust` ignores two advisories until Tauri's `plist`
-dependency can adopt `quick-xml >= 0.41`:
+`npm run security:audit:rust` runs without advisory ignores. The former
+exceptions for the following advisories were removed after the transitive
+`plist` dependency was updated to a release using `quick-xml >= 0.41`:
 
 - `RUSTSEC-2026-0194`
 - `RUSTSEC-2026-0195`
 
-Both findings are currently reachable only through Tauri's build-time plist
-generation dependency. Zen Canvas does not parse user-controlled XML or plist
-input at runtime. These exceptions must be removed as soon as the upstream
-`plist` constraint moves beyond `quick-xml ^0.39.2`.
+Do not reintroduce ignores for these advisories. Dependency updates must keep
+the patched `quick-xml` line or fail the audit gate.
 
 `crossbeam-epoch` is locked to `0.9.20` or newer to address
 `RUSTSEC-2026-0204`.

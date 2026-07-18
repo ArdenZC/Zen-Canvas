@@ -183,27 +183,27 @@
         let duplicate_rule = Rule {
             id: "global-duplicate-rule".to_string(),
             name: "Global Duplicate Rule".to_string(),
-            source: "user".to_string(),
+            source: "user".into(),
             enabled: true,
             priority: 500.0,
             weight: 100.0,
-            root_operator: "AND".to_string(),
+            root_operator: "AND".into(),
             groups: vec![RuleConditionGroup {
                 id: "global-duplicate-rule-group".to_string(),
-                operator: "AND".to_string(),
+                operator: "AND".into(),
                 conditions: vec![RuleCondition {
                     id: "global-duplicate-rule-condition".to_string(),
-                    field: "is_duplicate".to_string(),
-                    operator: "equals".to_string(),
+                    field: "is_duplicate".into(),
+                    operator: "equals".into(),
                     value: Value::String("true".to_string()),
                 }],
             }],
             action: RuleAction {
-                purpose: Some("Duplicate Review".to_string()),
-                lifecycle: Some("Inbox".to_string()),
+                purpose: Some("Duplicate Review".into()),
+                lifecycle: Some("Inbox".into()),
                 context: Some("D1 Duplicate".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Review".to_string()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Review".into()),
                 target_template: None,
                 rename_template: None,
             },
@@ -624,12 +624,12 @@
         let rules = db.get_user_rules().expect("get user rules");
 
         assert_eq!(saved.id, rule.id);
-        assert_eq!(saved.source, "user");
+        assert_eq!(saved.source.as_str(), "user");
         assert_eq!(rules.len(), 1);
         assert_rule_matches(&rules[0], &saved);
         assert_eq!(rules[0].groups.len(), 1);
-        assert_eq!(rules[0].groups[0].operator, "AND");
-        assert_eq!(rules[0].groups[0].conditions[0].field, "extension");
+        assert_eq!(rules[0].groups[0].operator.as_str(), "AND");
+        assert_eq!(rules[0].groups[0].conditions[0].field.as_str(), "extension");
         assert_eq!(
             rules[0].groups[0].conditions[0].value,
             Value::String("pdf".to_string())
@@ -645,14 +645,14 @@
     fn save_user_rule_forces_source_user() {
         let db = Database::open(test_db_path()).expect("open test database");
         let mut rule = user_rule_for_persistence("rule-source", "Source", 200.0);
-        rule.source = "system".to_string();
+        rule.source = "system".into();
 
         let saved = db.save_user_rule(rule).expect("save user rule");
         let rules = db.get_user_rules().expect("get user rules");
 
-        assert_eq!(saved.source, "user");
+        assert_eq!(saved.source.as_str(), "user");
         assert_eq!(rules.len(), 1);
-        assert_eq!(rules[0].source, "user");
+        assert_eq!(rules[0].source.as_str(), "user");
     }
 
     #[test]
@@ -672,15 +672,15 @@
             ("size", "contains", Value::String("100".to_string())),
             ("modified_at", "olderThanDays", Value::Number(serde_json::Number::from_f64(1.5).expect("number"))),
             ("file_type", "contains", Value::String("Image".to_string())),
-            ("risk_level", "equals", Value::String("Caution".to_string())),
+            ("risk_level", "equals", Value::String("invalid-risk".to_string())),
             ("is_duplicate", "is", Value::String("true".to_string()))
         ];
 
         for (index, (field, operator, value)) in cases.into_iter().enumerate() {
             let db = Database::open(test_db_path()).expect("open test database");
             let mut rule = user_rule_for_persistence(&format!("rule-matrix-{index}"), "Matrix", 200.0);
-            rule.groups[0].conditions[0].field = field.to_string();
-            rule.groups[0].conditions[0].operator = operator.to_string();
+            rule.groups[0].conditions[0].field = field.into();
+            rule.groups[0].conditions[0].operator = operator.into();
             rule.groups[0].conditions[0].value = value;
 
             db.save_user_rule(rule).expect_err("reject incompatible condition");
@@ -688,10 +688,123 @@
     }
 
     #[test]
+    fn save_user_rule_rejects_invalid_domain_values() {
+        let db = Database::open(test_db_path()).expect("open test database");
+
+        let mut purpose = user_rule_for_persistence("rule-purpose", "Purpose", 200.0);
+        purpose.action.purpose = Some("not-a-purpose".into());
+        assert!(db
+            .save_user_rule(purpose)
+            .expect_err("reject invalid purpose")
+            .to_string()
+            .contains("purpose is invalid"));
+
+        let mut lifecycle = user_rule_for_persistence("rule-lifecycle", "Lifecycle", 200.0);
+        lifecycle.action.lifecycle = Some("not-a-lifecycle".into());
+        assert!(db
+            .save_user_rule(lifecycle)
+            .expect_err("reject invalid lifecycle")
+            .to_string()
+            .contains("lifecycle is invalid"));
+
+        let mut risk = user_rule_for_persistence("rule-risk", "Risk", 200.0);
+        risk.action.risk_level = Some("not-a-risk".into());
+        assert!(db
+            .save_user_rule(risk)
+            .expect_err("reject invalid risk")
+            .to_string()
+            .contains("risk level is invalid"));
+
+        let mut root = user_rule_for_persistence("rule-root-domain", "Root", 200.0);
+        root.root_operator = "XOR".into();
+        assert!(db
+            .save_user_rule(root)
+            .expect_err("reject invalid root operator")
+            .to_string()
+            .contains("root operator is invalid"));
+
+        let mut group = user_rule_for_persistence("rule-group-domain", "Group", 200.0);
+        group.groups[0].operator = "XOR".into();
+        assert!(db
+            .save_user_rule(group)
+            .expect_err("reject invalid group operator")
+            .to_string()
+            .contains("group operator is invalid"));
+
+        let mut condition =
+            user_rule_for_persistence("rule-condition-domain", "Condition", 200.0);
+        condition.groups[0].conditions[0].field = "bad-field".into();
+        condition.groups[0].conditions[0].operator = "bad-operator".into();
+        assert!(db
+            .save_user_rule(condition)
+            .expect_err("reject invalid condition domains")
+            .to_string()
+            .contains("condition field is invalid"));
+    }
+
+    #[test]
+    fn legacy_invalid_rule_values_load_as_unknown() {
+        let path = test_db_path();
+        let db = Database::open(&path).expect("open test database");
+        db.save_user_rule(user_rule_for_persistence("rule-legacy-enum", "Legacy", 200.0))
+            .expect("save valid rule");
+        let conn = Connection::open(db.path()).expect("open sqlite");
+        conn.execute(
+            "UPDATE rules SET root_operator = 'XOR', groups_json = ?2, action_json = ?3 WHERE id = ?1",
+            params![
+                "rule-legacy-enum",
+                r#"[{"id":"legacy-group","operator":"XOR","conditions":[{"id":"legacy-condition","field":"bad-field","operator":"bad-operator","value":"pdf"}]}]"#,
+                r#"{"purpose":"bad-purpose","lifecycle":"bad-lifecycle","risk_level":"bad-risk","suggested_action":"bad-action"}"#
+            ],
+        )
+        .expect("inject legacy invalid values");
+        conn.execute_batch("PRAGMA user_version = 19;")
+            .expect("downgrade enum migration fixture");
+        drop(conn);
+        drop(db);
+
+        let db = Database::open(&path).expect("migrate invalid rule domains");
+        let rule = db.get_user_rules().expect("load migrated rules").remove(0);
+
+        assert_eq!(rule.action.purpose.as_deref(), Some("Unknown"));
+        assert_eq!(rule.action.lifecycle.as_deref(), Some("Unknown"));
+        assert_eq!(rule.action.risk_level.as_deref(), Some("Unknown"));
+        assert_eq!(rule.action.suggested_action.as_deref(), Some("Unknown"));
+        assert_eq!(rule.root_operator, RuleOperator::Unknown);
+        assert_eq!(rule.groups[0].operator, RuleOperator::Unknown);
+        assert_eq!(rule.groups[0].conditions[0].field, ConditionField::Unknown);
+        assert_eq!(
+            rule.groups[0].conditions[0].operator,
+            ConditionOperator::Unknown
+        );
+        let conn = Connection::open(db.path()).expect("inspect migrated sqlite");
+        let stored: String = conn
+            .query_row(
+                "SELECT action_json FROM rules WHERE id = 'rule-legacy-enum'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read migrated action json");
+        assert!(!stored.contains("bad-purpose"));
+        assert_eq!(stored.matches("Unknown").count(), 4);
+        let (root_operator, groups_json): (String, String) = conn
+            .query_row(
+                "SELECT root_operator, groups_json FROM rules WHERE id = 'rule-legacy-enum'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("read migrated rule domains");
+        assert_eq!(root_operator, "UNKNOWN");
+        assert!(groups_json.contains("unknown"));
+        assert!(!groups_json.contains("XOR"));
+        assert!(!groups_json.contains("bad-field"));
+    }
+
+    #[test]
     fn save_user_rule_rejects_unsafe_move_target() {
         let db = Database::open(test_db_path()).expect("open test database");
         let mut rule = user_rule_for_persistence("rule-target", "Target", 200.0);
-        rule.action.suggested_action = Some("Move".to_string());
+        rule.action.suggested_action = Some("Move".into());
         rule.action.target_template = Some("../Secrets".to_string());
 
         let error = db.save_user_rule(rule).expect_err("reject unsafe target");
@@ -738,7 +851,7 @@
 
         rule.name = "After".to_string();
         rule.enabled = false;
-        rule.action.lifecycle = Some("TrashReview".to_string());
+        rule.action.lifecycle = Some("TrashReview".into());
         let saved = db.save_user_rule(rule.clone()).expect("update rule");
         let rules = db.get_user_rules().expect("get user rules");
 
@@ -853,7 +966,7 @@
         assert_eq!(upserted, 1);
         assert_eq!(page.total, 1);
         assert_eq!(page.files[0].size, 11);
-        assert!(page.files[0].modified_at.len() > 0);
+        assert!(!page.files[0].modified_at.is_empty());
     }
 
     #[test]
@@ -875,7 +988,7 @@
             state_code: 0,
         })
         .expect("insert file");
-        db.remove_files_by_paths(&[path.clone()])
+        db.remove_files_by_paths(std::slice::from_ref(&path))
             .expect("mark stale");
 
         let upserted = upsert_files_by_paths_for_db(&db, &[file.to_string_lossy().into_owned()])
@@ -1291,27 +1404,27 @@
         let user_rule = Rule {
             id: "user_resume_project".to_string(),
             name: "Resume project override".to_string(),
-            source: "user".to_string(),
+            source: "user".into(),
             enabled: true,
             priority: 150.0,
             weight: 96.0,
-            root_operator: "OR".to_string(),
+            root_operator: "OR".into(),
             groups: vec![RuleConditionGroup {
                 id: "resume_project_group".to_string(),
-                operator: "AND".to_string(),
+                operator: "AND".into(),
                 conditions: vec![RuleCondition {
                     id: "resume_name".to_string(),
-                    field: "name".to_string(),
-                    operator: "contains".to_string(),
+                    field: "name".into(),
+                    operator: "contains".into(),
                     value: Value::String("resume".to_string()),
                 }],
             }],
             action: RuleAction {
-                purpose: Some("Project".to_string()),
-                lifecycle: Some("Active".to_string()),
+                purpose: Some("Project".into()),
+                lifecycle: Some("Active".into()),
                 context: Some("Override".to_string()),
-                risk_level: Some("Normal".to_string()),
-                suggested_action: Some("Move".to_string()),
+                risk_level: Some("Normal".into()),
+                suggested_action: Some("Move".into()),
                 target_template: Some("20_Areas/Projects".to_string()),
                 rename_template: None,
             },

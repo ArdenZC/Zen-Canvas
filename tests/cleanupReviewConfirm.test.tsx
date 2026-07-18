@@ -39,7 +39,11 @@ describe("cleanup review confirmation", () => {
     document.body.innerHTML = '<div id="app-shell-content"></div><div id="test-root"></div>';
     HTMLElement.prototype.getClientRects = () => [{ width: 120, height: 40, top: 0, left: 0, right: 120, bottom: 40, x: 0, y: 0, toJSON() { return {}; } }] as unknown as DOMRectList;
     resetStorageCleanupStoreForTest();
-    useStorageCleanupStore.setState({ analysis: reviewAnalysis, selectedRoots: ["C:/Users/Zen/Downloads"] });
+    useStorageCleanupStore.setState({
+      analysis: reviewAnalysis,
+      displayedJobId: "job-1",
+      selectedRoots: ["C:/Users/Zen/Downloads"]
+    });
     root = createRoot(document.getElementById("test-root")!);
   });
 

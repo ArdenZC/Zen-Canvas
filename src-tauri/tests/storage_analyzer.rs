@@ -2,23 +2,82 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+static TEST_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[test]
+fn schema_18_adds_safe_trash_identity_columns() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("create current database");
+    drop(db);
+    let conn = rusqlite::Connection::open(&path).expect("open sqlite");
+    conn.execute_batch(
+        r#"
+        ALTER TABLE cleanup_trash_items DROP COLUMN source_modified_ns;
+        ALTER TABLE cleanup_trash_items DROP COLUMN source_platform_file_id;
+        ALTER TABLE cleanup_trash_items DROP COLUMN source_quick_hash;
+        ALTER TABLE cleanup_trash_items DROP COLUMN trash_modified_ns;
+        ALTER TABLE cleanup_trash_items DROP COLUMN trash_platform_volume_id;
+        ALTER TABLE cleanup_trash_items DROP COLUMN trash_platform_file_id;
+        ALTER TABLE cleanup_trash_items DROP COLUMN trash_quick_hash;
+        ALTER TABLE cleanup_trash_items DROP COLUMN identity_status;
+        PRAGMA user_version = 18;
+        "#,
+    )
+    .expect("downgrade fixture to schema 18");
+    drop(conn);
+
+    Database::open(&path).expect("migrate schema 18 database");
+    let conn = rusqlite::Connection::open(&path).expect("inspect migrated database");
+    let columns = conn
+        .prepare("PRAGMA table_info(cleanup_trash_items)")
+        .expect("prepare columns")
+        .query_map([], |row| row.get::<_, String>(1))
+        .expect("query columns")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect columns");
+    let version: i64 = conn
+        .query_row("SELECT user_version FROM pragma_user_version", [], |row| {
+            row.get(0)
+        })
+        .expect("schema version");
+
+    assert_eq!(version, 20);
+    assert!(columns.iter().any(|column| column == "source_modified_ns"));
+    assert!(columns
+        .iter()
+        .any(|column| column == "source_platform_file_id"));
+    assert!(columns.iter().any(|column| column == "source_quick_hash"));
+    assert!(columns.iter().any(|column| column == "trash_modified_ns"));
+    assert!(columns
+        .iter()
+        .any(|column| column == "trash_platform_volume_id"));
+    assert!(columns
+        .iter()
+        .any(|column| column == "trash_platform_file_id"));
+    assert!(columns.iter().any(|column| column == "trash_quick_hash"));
+    assert!(columns.iter().any(|column| column == "identity_status"));
+}
+
 use zen_canvas_tauri::db::Database;
 use zen_canvas_tauri::storage_analyzer::{
-    analyze_storage_roots_for_test, classify_candidate_for_test,
-    cleanup_preview_items_for_candidates, default_scan_roots_for_test,
-    get_storage_cleanup_scan_status_for_test, is_forbidden_storage_path_for_test,
-    is_main_window_label_for_test, move_cleanup_candidates_to_safe_trash_for_candidates,
+    analyze_storage_roots_for_test, candidates_by_job_and_ids_for_test,
+    classify_candidate_for_test, cleanup_preview_items_for_candidates, default_scan_roots_for_test,
+    get_storage_cleanup_candidate_page_for_test, get_storage_cleanup_scan_status_for_test,
+    is_forbidden_storage_path_for_test, is_main_window_label_for_test,
+    mark_cleanup_candidates_consumed_for_test,
+    move_cleanup_candidates_to_safe_trash_for_candidates,
     move_cleanup_candidates_to_trash_for_candidates, preview_cleanup_operations_for_candidates,
     preview_cleanup_restore_item_for_test, reconcile_pending_cleanup_journal,
     restore_cleanup_trash_items_for_db, restore_cleanup_trash_items_for_db_with_cancel_for_test,
-    run_cleanup_restore_job_for_test, start_storage_cleanup_scan_for_test,
+    run_cleanup_restore_job_for_test, start_storage_cleanup_job_state_for_test,
+    start_storage_cleanup_scan_for_test, store_completed_cleanup_analysis_for_test,
     validate_cleanup_roots_for_test, CleanupActionKind, CleanupRestoreJobStatus,
     CleanupRestoreState, CleanupRestoreTestOutcome, CleanupTier, StorageCandidate,
     StorageCleanupProgress, StorageCleanupState,
@@ -138,18 +197,160 @@ fn storage_cleanup_scan_accepts_user_selected_temp_directory() {
     assert!(result.is_ok());
 }
 
+#[test]
+fn cleanup_roots_are_deduplicated_after_canonicalization() {
+    let root = test_dir();
+    let aliased = root.join(".");
+
+    let roots = validate_cleanup_roots_for_test(vec![
+        root.to_string_lossy().into_owned(),
+        aliased.to_string_lossy().into_owned(),
+    ])
+    .expect("canonical cleanup roots");
+
+    assert_eq!(roots, vec![root.canonicalize().expect("canonical root")]);
+}
+
+#[test]
+fn cleanup_roots_reject_wildcards_and_parent_traversal_before_filesystem_access() {
+    let root = test_dir();
+    for invalid in [
+        root.join("*"),
+        root.join("?"),
+        root.join("child").join(".."),
+    ] {
+        let error = validate_cleanup_roots_for_test(vec![invalid.to_string_lossy().into_owned()])
+            .expect_err("invalid cleanup root syntax must be rejected");
+        assert!(
+            error.contains("unsupported path characters")
+                || error.contains("parent-directory traversal"),
+            "unexpected error: {error}"
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn cleanup_roots_reject_nul_before_filesystem_access() {
+    let error = validate_cleanup_roots_for_test(vec!["/tmp/invalid\0root".to_string()])
+        .expect_err("NUL cleanup root must be rejected");
+
+    assert!(error.contains("unsupported path characters"));
+}
+
+#[test]
+fn cleanup_root_symlinks_to_system_directories_are_rejected() {
+    let root = test_dir();
+    let link = root.join("root-link");
+    let target = if cfg!(windows) {
+        PathBuf::from("C:/Windows")
+    } else if cfg!(target_os = "macos") {
+        PathBuf::from("/System")
+    } else {
+        PathBuf::from("/etc")
+    };
+    create_directory_symlink_for_test(&target, &link)
+        .expect("create protected cleanup-root symlink fixture");
+
+    let result = validate_cleanup_roots_for_test(vec![link.to_string_lossy().into_owned()]);
+    remove_directory_symlink_for_test(&link).expect("remove system directory symlink");
+    let error = result.expect_err("symlink cleanup root must be rejected");
+
+    assert!(error.to_ascii_lowercase().contains("symlink"));
+}
+
+#[test]
+fn cleanup_root_symlink_to_current_temp_is_not_automatically_allowed() {
+    let root = test_dir();
+    let link = root.join("temp-link");
+    create_directory_symlink_for_test(&std::env::temp_dir(), &link)
+        .expect("create temp-root symlink fixture");
+
+    let result = validate_cleanup_roots_for_test(vec![link.to_string_lossy().into_owned()]);
+    remove_directory_symlink_for_test(&link).expect("remove temp directory symlink");
+    assert!(result.is_err());
+}
+
+#[test]
+fn current_user_recent_temp_file_is_not_default_safe_in_real_scan() {
+    let root = current_temp_test_dir();
+    let recent = root.join("recent.tmp");
+    write_file(&recent, 128);
+
+    let analysis =
+        analyze_storage_roots_for_test(vec![root], Vec::new()).expect("scan current temp child");
+
+    assert!(!analysis.candidates.iter().any(|candidate| {
+        candidate.path == recent.to_string_lossy().replace('\\', "/")
+            && candidate.tier == CleanupTier::Safe
+            && candidate.selected_by_default
+    }));
+}
+
+#[test]
+fn current_user_old_temp_file_is_safe_in_real_scan() {
+    let root = current_temp_test_dir();
+    let old = root.join("old.tmp");
+    write_file(&old, 128);
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(&old)
+        .expect("open old temp file");
+    file.set_times(
+        fs::FileTimes::new()
+            .set_modified(SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60)),
+    )
+    .expect("age temp file");
+
+    let analysis = analyze_storage_roots_for_test(vec![root], Vec::new())
+        .expect("scan aged current temp child");
+    let candidate = analysis
+        .candidates
+        .iter()
+        .find(|candidate| candidate.path == old.to_string_lossy().replace('\\', "/"))
+        .expect("old temp candidate");
+
+    assert_eq!(candidate.tier, CleanupTier::Safe);
+    assert!(candidate.trash_allowed);
+    assert!(candidate.selected_by_default);
+}
+
+#[test]
+fn temp_execution_revalidation_enforces_age_policy() {
+    let root = current_temp_test_dir();
+    let recent = root.join("recent-execution.tmp");
+    let old = root.join("old-execution.tmp");
+    write_file(&recent, 128);
+    write_file(&old, 128);
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(&old)
+        .expect("open old execution temp file");
+    file.set_times(
+        fs::FileTimes::new()
+            .set_modified(SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60)),
+    )
+    .expect("age execution temp file");
+
+    assert!(zen_canvas_tauri::storage_analyzer::is_cleanup_execution_forbidden(&recent, None));
+    assert!(!zen_canvas_tauri::storage_analyzer::is_cleanup_execution_forbidden(&old, None));
+}
+
 #[cfg(target_os = "macos")]
 #[test]
-fn storage_cleanup_accepts_both_macos_temp_path_forms() {
+fn storage_cleanup_only_accepts_the_current_macos_temp_root() {
+    let current_temp_entry = current_temp_test_dir();
+    assert!(!is_forbidden_storage_path_for_test(&current_temp_entry));
+    fs::remove_dir_all(&current_temp_entry).expect("remove current temp fixture");
+
     for path in [
-        "/tmp/zen-canvas-test",
-        "/var/folders/zen-canvas-test",
-        "/private/tmp/zen-canvas-test",
-        "/private/var/folders/zen-canvas-test",
+        "/var/folders/another-user/T/zen-canvas-test",
+        "/private/var/folders/another-user/T/zen-canvas-test",
+        "/private/var/db/zen-canvas-test",
     ] {
         assert!(
-            !is_forbidden_storage_path_for_test(Path::new(path)),
-            "expected macOS temp path {path} to remain eligible"
+            is_forbidden_storage_path_for_test(Path::new(path)),
+            "expected non-current macOS temp path {path} to remain protected"
         );
     }
 }
@@ -164,8 +365,14 @@ fn storage_cleanup_scan_job_can_report_progress_and_be_cancelled() {
 
     let job_id =
         start_storage_cleanup_scan_for_test(vec![root.clone()], &state).expect("start job");
-    thread::sleep(Duration::from_millis(30));
-    let started = get_storage_cleanup_scan_status_for_test(&job_id, &state).expect("status");
+    let mut started = get_storage_cleanup_scan_status_for_test(&job_id, &state).expect("status");
+    for _ in 0..20 {
+        if started.progress.scanned_entries > 0 || started.analysis.is_some() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(10));
+        started = get_storage_cleanup_scan_status_for_test(&job_id, &state).expect("status");
+    }
 
     assert_eq!(started.job_id, job_id);
     assert!(matches!(started.status.as_str(), "running" | "completed"));
@@ -196,6 +403,173 @@ fn storage_cleanup_progress_payload_serializes_camel_case() {
     assert_eq!(value["scannedEntries"], 7);
     assert_eq!(value["currentPath"], "C:/Users/Zen/file.tmp");
     assert_eq!(value["totalSize"], 99);
+}
+
+#[test]
+fn cleanup_job_a_cannot_execute_job_b_candidates() {
+    let state = StorageCleanupState::default();
+    let (job_a, candidate_a) = completed_cleanup_job(&state, "project-a");
+    let (job_b, candidate_b) = completed_cleanup_job(&state, "project-b");
+
+    let resolved =
+        candidates_by_job_and_ids_for_test(&state, &job_a, std::slice::from_ref(&candidate_a.id))
+            .expect("resolve job A candidate");
+    assert_eq!(resolved[0].id, candidate_a.id);
+
+    let error =
+        candidates_by_job_and_ids_for_test(&state, &job_a, std::slice::from_ref(&candidate_b.id))
+            .expect_err("job B candidate must not resolve through job A");
+    assert!(
+        error.contains("does not belong"),
+        "unexpected error: {error}"
+    );
+    assert_ne!(job_a, job_b);
+}
+
+#[test]
+fn cleanup_new_job_does_not_change_old_job_page() {
+    let state = StorageCleanupState::default();
+    let (job_a, _) = completed_cleanup_job(&state, "project-a");
+    let page_before = get_storage_cleanup_candidate_page_for_test(&state, &job_a, 0, 200)
+        .expect("job A page before job B");
+
+    let _ = completed_cleanup_job(&state, "project-b");
+    let page_after = get_storage_cleanup_candidate_page_for_test(&state, &job_a, 0, 200)
+        .expect("job A page after job B");
+
+    let before_ids = page_before
+        .candidates
+        .iter()
+        .map(|candidate| candidate.id.as_str())
+        .collect::<Vec<_>>();
+    let after_ids = page_after
+        .candidates
+        .iter()
+        .map(|candidate| candidate.id.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(after_ids, before_ids);
+}
+
+#[test]
+fn cleanup_missing_candidate_fails_whole_request() {
+    let state = StorageCleanupState::default();
+    let (job_id, candidate) = completed_cleanup_job(&state, "project-a");
+
+    let error = candidates_by_job_and_ids_for_test(
+        &state,
+        &job_id,
+        &[candidate.id, "storage-missing".to_string()],
+    )
+    .expect_err("one missing ID must fail the whole request");
+
+    assert!(
+        error.contains("does not belong"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn cleanup_duplicate_candidate_ids_are_rejected() {
+    let state = StorageCleanupState::default();
+    let (job_id, candidate) = completed_cleanup_job(&state, "project-a");
+
+    let error =
+        candidates_by_job_and_ids_for_test(&state, &job_id, &[candidate.id.clone(), candidate.id])
+            .expect_err("duplicate IDs must be rejected");
+
+    assert!(error.contains("duplicate"), "unexpected error: {error}");
+}
+
+#[test]
+fn cleanup_consumed_candidate_is_rejected_before_a_second_execution() {
+    let state = StorageCleanupState::default();
+    let (job_id, candidate) = completed_cleanup_job(&state, "project-a");
+    mark_cleanup_candidates_consumed_for_test(&state, &job_id, std::slice::from_ref(&candidate.id))
+        .expect("mark consumed");
+
+    let error =
+        candidates_by_job_and_ids_for_test(&state, &job_id, std::slice::from_ref(&candidate.id))
+            .expect_err("consumed candidate must fail before execution");
+    assert!(
+        error.contains("already consumed"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn cleanup_running_and_cancelled_jobs_cannot_resolve_candidates() {
+    let state = StorageCleanupState::default();
+    start_storage_cleanup_job_state_for_test(&state, "job-running").expect("start job state");
+
+    let running = candidates_by_job_and_ids_for_test(&state, "job-running", &[])
+        .expect_err("running job must not resolve candidates");
+    assert!(running.contains("not completed"));
+
+    zen_canvas_tauri::storage_analyzer::cancel_storage_cleanup_scan_for_test("job-running", &state)
+        .expect("cancel job state");
+    let cancelled = candidates_by_job_and_ids_for_test(&state, "job-running", &[])
+        .expect_err("cancelled job must not resolve candidates");
+    assert!(cancelled.contains("not completed"));
+}
+
+#[test]
+fn cleanup_candidate_resolution_preserves_request_order() {
+    let state = StorageCleanupState::default();
+    let (job_id, candidates) = completed_cleanup_job_with_candidates(&state, "ordered", 2);
+    let requested = vec![candidates[1].id.clone(), candidates[0].id.clone()];
+
+    let resolved = candidates_by_job_and_ids_for_test(&state, &job_id, &requested)
+        .expect("resolve candidates in request order");
+    let resolved_ids = resolved
+        .into_iter()
+        .map(|candidate| candidate.id)
+        .collect::<Vec<_>>();
+
+    assert_eq!(resolved_ids, requested);
+}
+
+#[test]
+fn cleanup_candidate_ids_are_scoped_to_jobs() {
+    let state = StorageCleanupState::default();
+    let root = cleanup_candidate_root("same-path", 1);
+    let job_a = start_storage_cleanup_scan_for_test(vec![root.clone()], &state).expect("job A");
+    let candidate_a = wait_for_completed_cleanup_job(&state, &job_a).candidates[0].clone();
+    let job_b = start_storage_cleanup_scan_for_test(vec![root], &state).expect("job B");
+    let candidate_b = wait_for_completed_cleanup_job(&state, &job_b).candidates[0].clone();
+
+    assert_ne!(candidate_a.id, candidate_b.id);
+}
+
+#[test]
+fn cleanup_completion_payload_uses_job_scoped_candidate_ids() {
+    let state = StorageCleanupState::default();
+    let root = cleanup_candidate_root("completion-payload", 1);
+    let analysis = analyze_storage_roots_for_test(vec![root], Vec::new()).expect("analysis");
+
+    let completed = store_completed_cleanup_analysis_for_test(&state, "job-completed", analysis)
+        .expect("store completed analysis");
+    let page = get_storage_cleanup_candidate_page_for_test(&state, "job-completed", 0, 200)
+        .expect("stored page");
+
+    assert_eq!(completed.candidates[0].id, page.candidates[0].id);
+}
+
+#[test]
+fn cleanup_evicted_job_cannot_resolve_candidates() {
+    let state = StorageCleanupState::default();
+    let (old_job, old_candidate) = completed_cleanup_job(&state, "oldest");
+    for index in 0..8 {
+        let _ = completed_cleanup_job(&state, &format!("newer-{index}"));
+    }
+
+    let error = candidates_by_job_and_ids_for_test(
+        &state,
+        &old_job,
+        std::slice::from_ref(&old_candidate.id),
+    )
+    .expect_err("evicted job must not resolve candidates");
+
+    assert!(error.contains("not found"), "unexpected error: {error}");
 }
 
 #[test]
@@ -463,7 +837,7 @@ fn cleanup_operation_preview_rejects_system_and_app_data_paths() {
 }
 
 #[test]
-fn move_cleanup_candidates_to_trash_only_allows_safe_latest_candidates() {
+fn move_cleanup_candidates_to_trash_only_allows_safe_resolved_candidates() {
     let root = test_dir();
     let safe_path = root.join("node_modules");
     write_file(&safe_path.join("package").join("index.js"), 128);
@@ -534,7 +908,7 @@ fn move_cleanup_candidates_to_safe_trash_records_and_restores_items() {
 
     let result = move_cleanup_candidates_to_safe_trash_for_candidates(
         vec![safe.id.clone()],
-        &[safe.clone()],
+        std::slice::from_ref(&safe),
         &db,
         None,
     )
@@ -546,6 +920,9 @@ fn move_cleanup_candidates_to_safe_trash_records_and_restores_items() {
     let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
     assert_eq!(item.original_path, safe.path);
     assert_eq!(item.status, "moved");
+    assert_eq!(item.identity_status, "verified");
+    assert!(item.trash_quick_hash.is_some());
+    assert!(item.trash_platform_volume_id.is_some());
     assert!(Path::new(&item.trash_path).starts_with(root.join(".zen-canvas-trash")));
     assert!(Path::new(&item.trash_path).exists());
 
@@ -579,6 +956,73 @@ fn pending_safe_trash_journal_reconciles_a_completed_move_after_restart() {
     assert_eq!(reconciled, 1);
     assert_eq!(batch.status, "success");
     assert_eq!(batch.items[0].status, "moved");
+}
+
+#[test]
+fn pending_safe_trash_rejects_replaced_trash_identity() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let mut item = db.list_cleanup_trash_batches().expect("batches")[0].items[0].clone();
+    item.status = "pending".to_string();
+    db.update_cleanup_trash_item_status(&item)
+        .expect("mark pending");
+    fs::remove_dir_all(&item.trash_path).expect("remove moved trash item");
+    let replacement = Path::new(&item.trash_path).join("package").join("index.js");
+    fs::create_dir_all(replacement.parent().expect("replacement parent"))
+        .expect("create replacement parent");
+    fs::write(&replacement, vec![0x7f; 128]).expect("write unrelated replacement");
+
+    reconcile_pending_cleanup_journal(&db).expect("reconcile cleanup");
+    let recovered = db.list_cleanup_trash_batches().expect("batches after")[0].items[0].clone();
+    let restore = restore_cleanup_trash_items_for_db(vec![recovered.id.clone()], &db)
+        .expect("reject unsafe restore");
+
+    assert_eq!(recovered.status, "failed");
+    assert!(recovered
+        .message
+        .as_deref()
+        .unwrap_or_default()
+        .contains("identity"));
+    assert_eq!(restore.restored, 0);
+    assert_eq!(restore.failed, 1);
+    assert!(!Path::new(&recovered.original_path).exists());
+}
+
+#[test]
+fn restore_safe_trash_rejects_identity_replaced_after_successful_move() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let item = db.list_cleanup_trash_batches().expect("batches")[0].items[0].clone();
+    assert_eq!(item.status, "moved");
+    fs::remove_dir_all(&item.trash_path).expect("remove moved trash item");
+    let replacement = Path::new(&item.trash_path).join("package").join("index.js");
+    fs::create_dir_all(replacement.parent().expect("replacement parent"))
+        .expect("create replacement parent");
+    fs::write(&replacement, vec![0x55; 128]).expect("write unrelated replacement");
+
+    let restore = restore_cleanup_trash_items_for_db(vec![item.id.clone()], &db)
+        .expect("reject replaced trash item");
+    let updated = db.list_cleanup_trash_batches().expect("updated batches")[0].items[0].clone();
+
+    assert_eq!(restore.restored, 0);
+    assert_eq!(restore.failed, 1);
+    assert_eq!(updated.status, "failed");
+    assert!(updated
+        .message
+        .as_deref()
+        .unwrap_or_default()
+        .contains("identity"));
+    assert!(!Path::new(&item.original_path).exists());
 }
 
 #[test]
@@ -700,6 +1144,98 @@ fn cleanup_restore_preview_marks_filesystem_conflicts_and_missing_sources() {
 }
 
 #[test]
+fn cleanup_restore_preview_and_execution_reject_replacement_after_preview() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    assert!(preview_cleanup_restore_item_for_test(item.clone()).can_restore);
+
+    fs::remove_dir_all(&item.trash_path).expect("remove previewed trash item");
+    let replacement = Path::new(&item.trash_path).join("package").join("index.js");
+    fs::create_dir_all(replacement.parent().expect("replacement parent"))
+        .expect("create replacement parent");
+    fs::write(&replacement, vec![0x44; 128]).expect("write same-size replacement");
+
+    let second_preview = preview_cleanup_restore_item_for_test(item.clone());
+    assert!(!second_preview.can_restore);
+    assert_eq!(
+        second_preview.blocking_reason.as_deref(),
+        Some("replacement_detected")
+    );
+    let restore = restore_cleanup_trash_items_for_db(vec![item.id], &db)
+        .expect("block replacement after preview");
+    assert_eq!(restore.restored, 0);
+    assert_eq!(restore.failed, 1);
+    assert!(!safe_path.exists());
+}
+
+#[test]
+fn cleanup_restore_rejects_same_content_with_a_different_platform_identity() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    let original_bytes = fs::read(Path::new(&item.trash_path).join("package").join("index.js"))
+        .expect("read moved bytes");
+    fs::remove_dir_all(&item.trash_path).expect("remove moved object");
+    let replacement = Path::new(&item.trash_path).join("package").join("index.js");
+    fs::create_dir_all(replacement.parent().expect("replacement parent"))
+        .expect("create replacement parent");
+    fs::write(&replacement, original_bytes).expect("write identical replacement");
+
+    let preview = preview_cleanup_restore_item_for_test(item.clone());
+    let restore = restore_cleanup_trash_items_for_db(vec![item.id], &db)
+        .expect("reject different platform identity");
+
+    assert!(!preview.can_restore);
+    assert_eq!(
+        preview.blocking_reason.as_deref(),
+        Some("replacement_detected")
+    );
+    assert_eq!(restore.restored, 0);
+    assert_eq!(restore.failed, 1);
+    assert!(!safe_path.exists());
+}
+
+#[test]
+fn legacy_safe_trash_identity_is_manual_review_only() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let mut item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    item.identity_status = "legacy_unverified".to_string();
+    item.trash_modified_ns = None;
+    item.trash_platform_volume_id = None;
+    item.trash_platform_file_id = None;
+    item.trash_quick_hash = None;
+    db.update_cleanup_trash_item_status(&item)
+        .expect("persist legacy identity fixture");
+
+    let preview = preview_cleanup_restore_item_for_test(item.clone());
+    let restore = restore_cleanup_trash_items_for_db(vec![item.id], &db)
+        .expect("block legacy identity restore");
+
+    assert!(!preview.can_restore);
+    assert_eq!(preview.blocking_reason.as_deref(), Some("manual_review"));
+    assert_eq!(restore.restored, 0);
+    assert_eq!(restore.failed, 1);
+    assert!(!safe_path.exists());
+}
+
+#[test]
 fn cleanup_restore_cancellation_skips_remaining_items_without_moving_files() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -789,8 +1325,30 @@ fn test_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_nanos();
-    let dir = std::env::temp_dir().join(format!("zen-canvas-storage-analyzer-test-{nonce}"));
+    let counter = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::current_dir()
+        .expect("current test directory")
+        .join("target")
+        .join("storage-analyzer-tests")
+        .join(format!(
+            "zen-canvas-storage-analyzer-test-{}-{nonce}-{counter}",
+            std::process::id()
+        ));
     fs::create_dir_all(&dir).expect("test dir");
+    dir
+}
+
+fn current_temp_test_dir() -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let counter = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!(
+        "zen-canvas-current-temp-test-{}-{nonce}-{counter}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&dir).expect("current temp test dir");
     dir
 }
 
@@ -803,4 +1361,72 @@ fn write_file(path: &Path, size: usize) {
         fs::create_dir_all(parent).expect("parent dir");
     }
     fs::write(path, vec![b'x'; size]).expect("write file");
+}
+
+#[cfg(windows)]
+fn create_directory_symlink_for_test(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_dir(target, link)
+}
+
+#[cfg(unix)]
+fn create_directory_symlink_for_test(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn remove_directory_symlink_for_test(link: &Path) -> std::io::Result<()> {
+    fs::remove_dir(link)
+}
+
+#[cfg(unix)]
+fn remove_directory_symlink_for_test(link: &Path) -> std::io::Result<()> {
+    fs::remove_file(link)
+}
+
+fn cleanup_candidate_root(label: &str, count: usize) -> PathBuf {
+    let root = test_dir();
+    for index in 0..count {
+        write_file(
+            &root
+                .join(format!("{label}-{index}"))
+                .join("node_modules")
+                .join("package")
+                .join("index.js"),
+            128,
+        );
+    }
+    root
+}
+
+fn completed_cleanup_job(state: &StorageCleanupState, label: &str) -> (String, StorageCandidate) {
+    let (job_id, candidates) = completed_cleanup_job_with_candidates(state, label, 1);
+    (job_id, candidates[0].clone())
+}
+
+fn completed_cleanup_job_with_candidates(
+    state: &StorageCleanupState,
+    label: &str,
+    count: usize,
+) -> (String, Vec<StorageCandidate>) {
+    let root = cleanup_candidate_root(label, count);
+    let job_id = start_storage_cleanup_scan_for_test(vec![root], state).expect("start cleanup job");
+    let analysis = wait_for_completed_cleanup_job(state, &job_id);
+    assert_eq!(analysis.candidates.len(), count);
+    (job_id, analysis.candidates)
+}
+
+fn wait_for_completed_cleanup_job(
+    state: &StorageCleanupState,
+    job_id: &str,
+) -> zen_canvas_tauri::storage_analyzer::StorageAnalysis {
+    for _ in 0..200 {
+        let status = get_storage_cleanup_scan_status_for_test(job_id, state).expect("job status");
+        match status.status.as_str() {
+            "completed" => return status.analysis.expect("completed analysis"),
+            "failed" => panic!("cleanup job failed: {:?}", status.error),
+            "cancelled" => panic!("cleanup job was cancelled"),
+            _ => thread::sleep(Duration::from_millis(5)),
+        }
+    }
+    panic!("cleanup job did not complete: {job_id}");
 }

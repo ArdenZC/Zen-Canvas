@@ -8,6 +8,7 @@ use std::io;
 use tauri::Manager;
 use tauri_plugin_autostart::ManagerExt;
 use zen_canvas_tauri::{
+    dedupe::DedupeJobManager,
     open_database, settings,
     watcher::{reload_file_watcher_for_settings, FileWatcherManager},
     AIClassificationCancellationToken, OperationCancellationToken, ScanJobManager,
@@ -28,6 +29,7 @@ fn main() {
                 .map_err(io::Error::other)?;
             app.manage(db.clone());
             app.manage(ScanJobManager::default());
+            app.manage(DedupeJobManager::default());
             app.manage(OperationCancellationToken::default());
             app.manage(AIClassificationCancellationToken::default());
             app.manage(FileWatcherManager::default());
@@ -95,6 +97,7 @@ fn main() {
             zen_canvas_tauri::ai::classification::classify_selected_files_with_ai,
             zen_canvas_tauri::ai::classification::cancel_ai_classification,
             zen_canvas_tauri::ai::debug::debug_ai_classification_once,
+            zen_canvas_tauri::runtime_capabilities::get_runtime_capabilities,
             zen_canvas_tauri::ai::cleanup::analyze_cleanup_candidates_with_ai,
             zen_canvas_tauri::app_control::quit_app,
             zen_canvas_tauri::app_control::activate_search_result,
@@ -102,12 +105,13 @@ fn main() {
             zen_canvas_tauri::app_control::get_global_hotkey_status,
             zen_canvas_tauri::app_control::register_global_search_hotkey,
             zen_canvas_tauri::scanner::scan_directory,
+            zen_canvas_tauri::scanner::create_scan_job_id,
             zen_canvas_tauri::scanner::cancel_scan,
+            zen_canvas_tauri::dedupe::cancel_dedupe,
             zen_canvas_tauri::file_ops::reveal_in_folder,
             zen_canvas_tauri::file_ops::execute_moves,
             zen_canvas_tauri::file_ops::restore_moves,
             zen_canvas_tauri::file_ops::cancel_operations,
-            zen_canvas_tauri::storage_analyzer::scan_storage_cleanup,
             zen_canvas_tauri::storage_analyzer::start_storage_cleanup_scan,
             zen_canvas_tauri::storage_analyzer::get_storage_cleanup_scan_status,
             zen_canvas_tauri::storage_analyzer::get_storage_cleanup_candidate_page,

@@ -33,7 +33,7 @@
         let db = Database::open(test_db_path()).expect("open test database");
         let log = operation_log("log-success", "batch-success", "success");
 
-        db.save_operation_logs("batch-success", &[log.clone()])
+        db.save_operation_logs("batch-success", std::slice::from_ref(&log))
             .expect("save operation logs");
         let logs = db.get_operation_logs(Some(10)).expect("operation logs");
 

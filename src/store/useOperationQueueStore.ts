@@ -14,7 +14,7 @@ import type {
   OperationPreviewResult,
   RuleExecutionSummary
 } from "../types/domain";
-import { applyPreviewNameOverride, createOperationPreviews, readableError } from "../utils/viewHelpers";
+import { applyPreviewNameOverride, createOperationPreviews, localId, readableError } from "../utils/viewHelpers";
 import { useAppStore } from "./useAppStore";
 import { useFileLibraryStore } from "./useFileLibraryStore";
 import { useRulesStore } from "./useRulesStore";
@@ -209,8 +209,7 @@ function currentT() {
 }
 
 function createRestoreSessionId(source: "operation_logs" | "cleanup_trash") {
-  const suffix = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
-  return `restore-${source}-${Date.now()}-${suffix}`;
+  return localId(`restore-${source}`);
 }
 
 function localizedRestoreError(error: unknown, t: ReturnType<typeof currentT>) {
@@ -568,7 +567,7 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
     return { selectedOperationIds: allowed ? new Set([...ids].filter((id) => allowed.has(id))) : ids };
   }),
   startOrganizePreviewSession: (scopeKey, allowedPreviewIds) => set({
-    executionIntent: { source: "organize", scopeKey, allowedPreviewIds: new Set(allowedPreviewIds), initialAllowedCount: allowedPreviewIds.size, sessionId: `${Date.now()}-${Math.random().toString(36).slice(2)}` },
+    executionIntent: { source: "organize", scopeKey, allowedPreviewIds: new Set(allowedPreviewIds), initialAllowedCount: allowedPreviewIds.size, sessionId: localId("organize-preview") },
     selectedOperationIds: new Set(allowedPreviewIds),
     lastExecutionLogs: [],
     executionError: ""

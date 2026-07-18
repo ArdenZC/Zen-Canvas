@@ -59,6 +59,7 @@ struct AICleanupAnalysisResponse {
 
 #[tauri::command]
 pub async fn analyze_cleanup_candidates_with_ai<R: Runtime>(
+    job_id: String,
     ids: Vec<String>,
     app: AppHandle<R>,
     db: State<'_, Database>,
@@ -70,13 +71,13 @@ pub async fn analyze_cleanup_candidates_with_ai<R: Runtime>(
     tauri::async_runtime::spawn_blocking(move || {
         let settings =
             normalize_ai_settings(get_ai_settings_for_db(&db).map_err(|error| error.to_string())?);
-        let candidates = state.candidates_by_id(&ids)?;
+        let candidates = state.candidates_by_job_and_ids(&job_id, &ids)?;
         let updated = analyze_cleanup_candidates_with_configured_provider(
             candidates,
             &settings,
             app_data_dir,
         )?;
-        state.update_candidates(&updated)?;
+        state.update_candidates_for_job(&job_id, &updated)?;
         Ok(updated)
     })
     .await
@@ -693,7 +694,7 @@ mod tests {
         let original = safe_candidate("c1", "D:/Projects/demo/node_modules");
         let mut outputs = HashMap::new();
         outputs.insert("other".to_string(), move_to_trash_output("other"));
-        let merged = merge_ai_cleanup_results(&[original.clone()], &outputs, None);
+        let merged = merge_ai_cleanup_results(std::slice::from_ref(&original), &outputs, None);
         assert_eq!(merged[0].id, original.id);
         assert_eq!(merged[0].reason, original.reason);
     }
@@ -811,7 +812,7 @@ mod tests {
             candidate_id: id.to_string(),
             tier: Some("Safe".to_string()),
             category: Some("AI category".to_string()),
-            suggested_action: Some("MoveToTrash".to_string()),
+            suggested_action: Some("MoveToTrash".into()),
             confidence: Some(0.95),
             reason: Some("AI reason.".to_string()),
             risk_note: Some("AI risk.".to_string()),

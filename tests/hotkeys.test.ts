@@ -72,6 +72,7 @@ describe("search hotkeys", () => {
       .toBeLessThan(setSearchHotkey.indexOf("updateSettings({ searchHotkey: next })"));
     expect(setSearchHotkey).toContain("if (!status.registered)");
     expect(setSearchHotkey).toContain("return false");
-    expect(setSearchHotkey).toContain("return savedSettings.searchHotkey === next");
+    expect(setSearchHotkey).toContain("registerGlobalSearchHotkey(previous)");
+    expect(setSearchHotkey).toContain("if (savedSettings.searchHotkey === next) return true");
   });
 });

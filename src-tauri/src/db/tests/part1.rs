@@ -50,9 +50,11 @@
     #[test]
     fn execute_rules_on_inbox_uses_persisted_chinese_folder_naming_for_new_classifications() {
         let db = Database::open(test_db_path()).expect("open test database");
-        let mut settings = AppSettings::default();
-        settings.folder_naming_language = "zh".to_string();
-        settings.use_legacy_builtin_classification_rules = true;
+        let settings = AppSettings {
+            folder_naming_language: "zh".to_string(),
+            use_legacy_builtin_classification_rules: true,
+            ..AppSettings::default()
+        };
         save_app_settings(&db, &settings).expect("save app settings");
         insert_test_file(
             &db,
@@ -79,9 +81,11 @@
     #[test]
     fn folder_naming_language_change_rebuilds_existing_media_suggestion_path() {
         let db = Database::open(test_db_path()).expect("open test database");
-        let mut settings = AppSettings::default();
-        settings.folder_naming_language = "en".to_string();
-        settings.use_legacy_builtin_classification_rules = true;
+        let mut settings = AppSettings {
+            folder_naming_language: "en".to_string(),
+            use_legacy_builtin_classification_rules: true,
+            ..AppSettings::default()
+        };
         save_app_settings(&db, &settings).expect("save english settings");
         insert_test_file(
             &db,
@@ -162,9 +166,11 @@
     #[test]
     fn zen_canvas_organize_root_mode_preserves_legacy_wrapper() {
         let db = Database::open(test_db_path()).expect("open test database");
-        let mut settings = AppSettings::default();
-        settings.organize_root_mode = OrganizeRootMode::ZenCanvasFolder;
-        settings.use_legacy_builtin_classification_rules = true;
+        let settings = AppSettings {
+            organize_root_mode: OrganizeRootMode::ZenCanvasFolder,
+            use_legacy_builtin_classification_rules: true,
+            ..AppSettings::default()
+        };
         save_app_settings(&db, &settings).expect("save app settings");
         insert_test_file_at_path(
             &db,
@@ -193,10 +199,12 @@
     #[test]
     fn custom_organize_root_mode_uses_configured_root_for_all_targets() {
         let db = Database::open(test_db_path()).expect("open test database");
-        let mut settings = AppSettings::default();
-        settings.organize_root_mode = OrganizeRootMode::CustomRoot;
-        settings.organize_root_path = Some("/tmp/Organized".to_string());
-        settings.use_legacy_builtin_classification_rules = true;
+        let settings = AppSettings {
+            organize_root_mode: OrganizeRootMode::CustomRoot,
+            organize_root_path: Some("/tmp/Organized".to_string()),
+            use_legacy_builtin_classification_rules: true,
+            ..AppSettings::default()
+        };
         save_app_settings(&db, &settings).expect("save app settings");
         insert_test_file_at_path(
             &db,
@@ -371,7 +379,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .expect("schema version"),
-            16
+            20
         );
         assert_eq!(
             conn.query_row(

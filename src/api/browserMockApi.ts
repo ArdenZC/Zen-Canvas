@@ -23,6 +23,8 @@ import type {
   Rule,
   RuleExecutionMode,
   RuleExecutionSummary,
+  SaveSettingsRequest,
+  VersionedAppSettings,
   StorageAnalysis,
   StorageCandidate,
   StorageCleanupScanStatus
@@ -147,6 +149,8 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockStats() as T;
     case "search_files":
       return searchMockFiles(String(args?.query ?? ""), Number(args?.limit ?? 12)) as T;
+    case "create_scan_job_id":
+      return `scan-${args?.jobKind === "background" ? "background" : "foreground"}-${globalThis.crypto.randomUUID()}` as T;
     case "scan_directory":
       return {
         jobId: String(args?.jobId ?? "browser-mock-scan"),
@@ -167,8 +171,6 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockOperationLogs().slice(0, Number(args?.limit ?? 500)) as T;
     case "get_operation_previews_for_scope":
       return mockOperationPreviews(args) as T;
-    case "scan_storage_cleanup":
-      return mockStorageAnalysis() as T;
     case "start_storage_cleanup_scan":
       return "browser-mock-storage-cleanup-job" as T;
     case "get_storage_cleanup_scan_status":
@@ -224,9 +226,17 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "delete_user_rule":
       return true as T;
     case "get_settings":
+      return getMockVersionedSettings() as T;
     case "save_settings":
-      return mockSettings(args?.settings as AppSettings | undefined) as T;
+      return saveMockVersionedSettings(args?.request as SaveSettingsRequest) as T;
     case "get_ai_settings":
+      return mockAISettings() as T;
+    case "get_runtime_capabilities":
+      return {
+        aiDebugAvailable: true,
+        realAIClassificationAvailable: true,
+        credentialStoreAvailable: true
+      } as T;
     case "save_ai_settings":
       return mockAISettings(args?.settings as AISettings | undefined) as T;
     case "list_ai_provider_presets":
@@ -905,11 +915,43 @@ function mockSettings(settings?: AppSettings): AppSettings {
   };
 }
 
+let persistedMockSettings: AppSettings | undefined;
+let mockSettingsRevision = 0;
+
+function getMockVersionedSettings(): VersionedAppSettings {
+  return {
+    settings: persistedMockSettings ?? mockSettings(),
+    revision: mockSettingsRevision
+  };
+}
+
+function saveMockVersionedSettings(request: SaveSettingsRequest): VersionedAppSettings {
+  if (request.expectedRevision !== mockSettingsRevision) {
+    throw new Error("settings_revision_conflict");
+  }
+  persistedMockSettings = request.settings;
+  mockSettingsRevision += 1;
+  return getMockVersionedSettings();
+}
+
 let mockAISettingsState: AISettings | null = null;
+let mockApiKeyConfigured = false;
 
 function mockAISettings(settings?: AISettings): AISettings {
   if (settings) {
-    mockAISettingsState = { ...settings };
+    const action = settings.apiKeyAction ?? (settings.apiKey.trim() ? "replace" : "preserve");
+    if (action === "replace") {
+      if (!settings.apiKey.trim()) throw new Error("Replacing the AI API key requires a non-empty value.");
+      mockApiKeyConfigured = true;
+    } else if (action === "clear") {
+      mockApiKeyConfigured = false;
+    }
+    mockAISettingsState = {
+      ...settings,
+      apiKey: "",
+      apiKeyAction: "preserve",
+      apiKeyConfigured: mockApiKeyConfigured
+    };
     return { ...mockAISettingsState };
   }
   if (mockAISettingsState) return { ...mockAISettingsState };
@@ -920,6 +962,8 @@ function mockAISettings(settings?: AISettings): AISettings {
     baseUrl: "https://api.deepseek.com",
     chatPath: "/chat/completions",
     apiKey: "",
+    apiKeyAction: "preserve",
+    apiKeyConfigured: mockApiKeyConfigured,
     model: "deepseek-v4-flash",
     temperature: 0,
     maxTokens: 1024,

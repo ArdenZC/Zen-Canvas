@@ -6,7 +6,6 @@ import type {
   AIDebugClassificationResult,
   AIProviderPreset,
   AISettings,
-  AppSettings,
   ClassificationCorrectionRequest,
   CleanupRestoreProgressPayload,
   CleanupRestorePreview,
@@ -25,15 +24,18 @@ import type {
   OperationPreview,
   OperationPreviewResult,
   RestoreMovesResult,
+  RuntimeCapabilities,
   Rule,
   RuleExecutionMode,
   RuleExecutionSummary,
+  SaveSettingsRequest,
   StorageAnalysis,
   StorageCandidate,
   StorageCleanupCompleted,
   StorageCleanupJobMessage,
   StorageCleanupProgress,
-  StorageCleanupScanStatus
+  StorageCleanupScanStatus,
+  VersionedAppSettings
 } from "../types/domain";
 import type { View } from "../types/ui";
 import type { SearchNavigatePayload } from "../utils/searchNavigation";
@@ -71,6 +73,22 @@ export interface ScanBatchPayload {
 }
 
 export type ScanSummary = ScanProgressPayload;
+
+export interface DedupeProgressPayload {
+  dedupeJobId: string;
+  parentScanJobId: string | null;
+  processed: number;
+  total: number;
+  status: "running";
+}
+
+export interface DedupeCompletePayload {
+  dedupeJobId: string;
+  parentScanJobId: string | null;
+  status: "completed" | "cancelled" | "failed";
+  success: boolean;
+  error: string | null;
+}
 
 export interface OperationProgressPayload {
   kind: "execute" | "restore";
@@ -162,8 +180,16 @@ export const tauriApi = {
     return invokeCommand<ScanSummary>("scan_directory", { path, includeEntries, jobId, jobKind, runDedupe });
   },
 
+  createScanJobId(jobKind: "foreground" | "background"): Promise<string> {
+    return invokeCommand<string>("create_scan_job_id", { jobKind });
+  },
+
   cancelScan(jobId: string): Promise<void> {
     return invokeCommand<void>("cancel_scan", { jobId });
+  },
+
+  cancelDedupe(jobId: string): Promise<void> {
+    return invokeCommand<void>("cancel_dedupe", { jobId });
   },
 
   executeMoves(operations: OperationPreview[]): Promise<ExecuteOperationResult> {
@@ -209,10 +235,6 @@ export const tauriApi = {
     return invokeCommand<void>("reveal_in_folder", { path });
   },
 
-  scanStorageCleanup(roots: string[]): Promise<StorageAnalysis> {
-    return invokeCommand<StorageAnalysis>("scan_storage_cleanup", { roots });
-  },
-
   startStorageCleanupScan(roots: string[]): Promise<string> {
     return invokeCommand<string>("start_storage_cleanup_scan", { roots });
   },
@@ -233,24 +255,24 @@ export const tauriApi = {
     return invokeCommand<void>("reveal_storage_candidate", { path });
   },
 
-  previewCleanupCandidates(ids: string[]): Promise<CleanupPreviewItem[]> {
-    return invokeCommand<CleanupPreviewItem[]>("preview_cleanup_candidates", { ids });
+  previewCleanupCandidates(jobId: string, ids: string[]): Promise<CleanupPreviewItem[]> {
+    return invokeCommand<CleanupPreviewItem[]>("preview_cleanup_candidates", { jobId, ids });
   },
 
-  previewCleanupOperations(ids: string[]): Promise<OperationPreviewResult> {
-    return invokeCommand<OperationPreviewResult>("preview_cleanup_operations", { ids });
+  previewCleanupOperations(jobId: string, ids: string[]): Promise<OperationPreviewResult> {
+    return invokeCommand<OperationPreviewResult>("preview_cleanup_operations", { jobId, ids });
   },
 
-  moveCleanupCandidatesToTrash(ids: string[]): Promise<CleanupExecutionResult> {
-    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_trash", { ids });
+  moveCleanupCandidatesToTrash(jobId: string, ids: string[]): Promise<CleanupExecutionResult> {
+    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_trash", { jobId, ids });
   },
 
-  moveCleanupCandidatesToSafeTrash(ids: string[]): Promise<CleanupExecutionResult> {
-    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_safe_trash", { ids });
+  moveCleanupCandidatesToSafeTrash(jobId: string, ids: string[]): Promise<CleanupExecutionResult> {
+    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_safe_trash", { jobId, ids });
   },
 
-  analyzeCleanupCandidatesWithAI(ids: string[]): Promise<StorageCandidate[]> {
-    return invokeCommand<StorageCandidate[]>("analyze_cleanup_candidates_with_ai", { ids });
+  analyzeCleanupCandidatesWithAI(jobId: string, ids: string[]): Promise<StorageCandidate[]> {
+    return invokeCommand<StorageCandidate[]>("analyze_cleanup_candidates_with_ai", { jobId, ids });
   },
 
   listCleanupTrashBatches(): Promise<CleanupTrashBatch[]> {
@@ -327,16 +349,20 @@ export const tauriApi = {
     return invokeCommand<boolean>("delete_user_rule", { id });
   },
 
-  getSettings(): Promise<AppSettings> {
-    return invokeCommand<AppSettings>("get_settings");
+  getSettings(): Promise<VersionedAppSettings> {
+    return invokeCommand<VersionedAppSettings>("get_settings");
   },
 
-  saveSettings(settings: AppSettings): Promise<AppSettings> {
-    return invokeCommand<AppSettings>("save_settings", { settings });
+  saveSettings(request: SaveSettingsRequest): Promise<VersionedAppSettings> {
+    return invokeCommand<VersionedAppSettings>("save_settings", { request });
   },
 
   getAISettings(): Promise<AISettings> {
     return invokeCommand<AISettings>("get_ai_settings");
+  },
+
+  getRuntimeCapabilities(): Promise<RuntimeCapabilities> {
+    return invokeCommand<RuntimeCapabilities>("get_runtime_capabilities");
   },
 
   saveAISettings(settings: AISettings): Promise<AISettings> {
@@ -419,6 +445,14 @@ export const tauriApi = {
 
   onScanError(handler: EventHandler<{ jobId: string; jobKind: "foreground" | "background"; root: string; path: string; message: string }>): Promise<UnlistenFn> {
     return listenTo("scan-error", handler);
+  },
+
+  onDedupeProgress(handler: EventHandler<DedupeProgressPayload>): Promise<UnlistenFn> {
+    return listenTo("dedupe-progress", handler);
+  },
+
+  onDedupeComplete(handler: EventHandler<DedupeCompletePayload>): Promise<UnlistenFn> {
+    return listenTo("dedupe-complete", handler);
   },
 
   onOperationProgress(handler: EventHandler<OperationProgressPayload>): Promise<UnlistenFn> {

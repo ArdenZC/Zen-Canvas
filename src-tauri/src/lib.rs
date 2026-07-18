@@ -3,7 +3,9 @@ pub mod app_control;
 pub mod db;
 pub mod dedupe;
 pub mod file_ops;
+pub mod ids;
 pub mod path_filter;
+pub mod runtime_capabilities;
 pub mod scanner;
 pub mod settings;
 pub mod storage_analyzer;
@@ -45,12 +47,15 @@ pub use file_ops::{
     OperationProgressPayload, OperationSelection, RestoreMovesByIdRequest, RestoreMovesRequest,
     RestoreMovesResult,
 };
+pub use runtime_capabilities::{get_runtime_capabilities, RuntimeCapabilities};
 pub use scanner::{
-    cancel_scan, scan_directory, ScanBatchPayload, ScanJobManager, ScanProgressPayload,
-    ScanSummary, ScannedEntry,
+    cancel_scan, create_scan_job_id, scan_directory, ScanBatchPayload, ScanJobManager,
+    ScanProgressPayload, ScanSummary, ScannedEntry,
 };
 pub use settings::{
-    get_app_settings, get_settings, save_app_settings, save_settings, AppSettings, OrganizeRootMode,
+    get_app_settings, get_settings, get_versioned_app_settings, save_app_settings,
+    save_app_settings_cas, save_settings, AppSettings, OrganizeRootMode, SaveSettingsRequest,
+    VersionedAppSettings,
 };
 pub use storage_analyzer::{
     cancel_cleanup_restore, cancel_storage_cleanup_scan, get_storage_cleanup_candidate_page,
@@ -58,9 +63,9 @@ pub use storage_analyzer::{
     move_cleanup_candidates_to_safe_trash, move_cleanup_candidates_to_trash,
     preview_cleanup_candidates, preview_cleanup_operations, preview_cleanup_restore_item_for_test,
     preview_restore_cleanup_trash, restore_cleanup_trash_items, reveal_storage_candidate,
-    run_cleanup_restore_job_for_test, scan_storage_cleanup, start_storage_cleanup_scan,
-    CleanupActionKind, CleanupExecutionLog, CleanupExecutionResult, CleanupPreviewItem,
-    CleanupRestoreJobStatus, CleanupRestoreLog, CleanupRestorePreview, CleanupRestorePreviewItem,
+    run_cleanup_restore_job_for_test, start_storage_cleanup_scan, CleanupActionKind,
+    CleanupExecutionLog, CleanupExecutionResult, CleanupPreviewItem, CleanupRestoreJobStatus,
+    CleanupRestoreLog, CleanupRestorePreview, CleanupRestorePreviewItem,
     CleanupRestoreProgressPayload, CleanupRestoreResult, CleanupRestoreState,
     CleanupRestoreTestOutcome, CleanupTier, CleanupTrashBatch, CleanupTrashItem, StorageAnalysis,
     StorageCandidate, StorageCleanupCompleted, StorageCleanupJobMessage, StorageCleanupProgress,

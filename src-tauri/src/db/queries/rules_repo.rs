@@ -37,7 +37,7 @@ impl Database {
 
     pub fn save_user_rule(&self, rule: Rule) -> Result<Rule, DbError> {
         let mut rule = rule;
-        rule.source = "user".to_string();
+        rule.source = RuleSource::User;
         validate_user_rule(&rule)?;
         let now = current_timestamp_iso();
         if rule.created_at.trim().is_empty() {
@@ -84,7 +84,7 @@ impl Database {
                 bool_to_i64(rule.enabled),
                 rule.priority,
                 rule.weight,
-                rule.root_operator,
+                rule.root_operator.as_str(),
                 groups_json,
                 action_json,
                 rule.created_at,
@@ -171,7 +171,7 @@ fn validate_user_rule(rule: &Rule) -> Result<(), DbError> {
         "Presentation",
         "Other",
     ];
-    const RISK_LEVELS: &[&str] = &["Normal", "Sensitive", "System", "Unknown"];
+    const RISK_LEVELS: &[&str] = &["Normal", "Sensitive", "System", "Caution", "Unknown"];
 
     for group in &rule.groups {
         if group.id.trim().is_empty() || group.id.len() > 128 || group.conditions.len() > 32 {
@@ -298,6 +298,34 @@ fn validate_user_rule(rule: &Rule) -> Result<(), DbError> {
         }
     }
 
+    if rule
+        .action
+        .purpose
+        .as_ref()
+        .is_some_and(Purpose::is_invalid)
+    {
+        return Err(DbError::Validation("Rule purpose is invalid.".to_string()));
+    }
+    if rule
+        .action
+        .lifecycle
+        .as_ref()
+        .is_some_and(Lifecycle::is_invalid)
+    {
+        return Err(DbError::Validation(
+            "Rule lifecycle is invalid.".to_string(),
+        ));
+    }
+    if rule
+        .action
+        .risk_level
+        .as_ref()
+        .is_some_and(RiskLevel::is_invalid)
+    {
+        return Err(DbError::Validation(
+            "Rule risk level is invalid.".to_string(),
+        ));
+    }
     if let Some(action) = rule.action.suggested_action.as_deref() {
         if !matches!(
             action,
@@ -313,7 +341,10 @@ fn validate_user_rule(rule: &Rule) -> Result<(), DbError> {
     validate_optional_rule_action_value(rule.action.lifecycle.as_deref(), "lifecycle")?;
     validate_optional_rule_action_value(rule.action.context.as_deref(), "context")?;
     if let Some(risk_level) = rule.action.risk_level.as_deref() {
-        if !matches!(risk_level, "Normal" | "Sensitive" | "Caution" | "Unknown") {
+        if !matches!(
+            risk_level,
+            "Normal" | "Sensitive" | "System" | "Caution" | "Unknown"
+        ) {
             return Err(DbError::Validation(
                 "Rule risk level is invalid.".to_string(),
             ));
@@ -418,16 +449,53 @@ fn rule_from_row(row: &Row<'_>) -> rusqlite::Result<RuleSqlRow> {
 }
 
 fn rule_from_sql_row(row: RuleSqlRow) -> Result<Rule, DbError> {
+    let mut action = serde_json::from_str::<RuleAction>(&row.action_json)?;
+    if action.purpose.as_ref().is_some_and(Purpose::is_invalid) {
+        eprintln!(
+            "migration warning: rule {} has invalid purpose; mapped to Unknown",
+            row.id
+        );
+        action.purpose = Some(Purpose::Unknown);
+    }
+    if action.lifecycle.as_ref().is_some_and(Lifecycle::is_invalid) {
+        eprintln!(
+            "migration warning: rule {} has invalid lifecycle; mapped to Unknown",
+            row.id
+        );
+        action.lifecycle = Some(Lifecycle::Unknown);
+    }
+    if action
+        .risk_level
+        .as_ref()
+        .is_some_and(RiskLevel::is_invalid)
+    {
+        eprintln!(
+            "migration warning: rule {} has invalid risk level; mapped to Unknown",
+            row.id
+        );
+        action.risk_level = Some(RiskLevel::Unknown);
+    }
+    if action
+        .suggested_action
+        .as_ref()
+        .is_some_and(SuggestedAction::is_invalid)
+    {
+        eprintln!(
+            "migration warning: rule {} has invalid suggested action; mapped to Unknown",
+            row.id
+        );
+        action.suggested_action = Some(SuggestedAction::Unknown);
+    }
     Ok(Rule {
         id: row.id,
         name: row.name,
-        source: row.source,
+        source: row.source.into(),
         enabled: row.enabled,
         priority: row.priority,
         weight: row.weight,
-        root_operator: row.root_operator,
+        root_operator: row.root_operator.into(),
         groups: serde_json::from_str::<Vec<RuleConditionGroup>>(&row.groups_json)?,
-        action: serde_json::from_str::<RuleAction>(&row.action_json)?,
+        action,
         created_at: row.created_at,
         updated_at: row.updated_at,
     })

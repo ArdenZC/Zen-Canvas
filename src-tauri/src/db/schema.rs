@@ -1,9 +1,10 @@
 use super::*;
 use rusqlite::{params, Connection, OptionalExtension};
+use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 16;
+const CURRENT_SCHEMA_VERSION: i32 = 20;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -445,6 +446,89 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         )?;
             set_schema_version(conn, 16)?;
         }
+        if version < 17 {
+            conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+            )?;
+            execute_column_migrations(
+                conn,
+                &["ALTER TABLE app_settings ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;"],
+            )?;
+            conn.execute(
+                "INSERT OR IGNORE INTO app_settings (key, value, revision) VALUES (?1, ?2, 0)",
+                params![
+                    crate::settings::APP_SETTINGS_KEY,
+                    crate::settings::default_settings_json()?
+                ],
+            )?;
+            set_schema_version(conn, 17)?;
+        }
+        if version < 18 {
+            execute_column_migrations(
+                conn,
+                &[
+                    "ALTER TABLE operation_logs ADD COLUMN source_size INTEGER;",
+                    "ALTER TABLE operation_logs ADD COLUMN source_modified_ns TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN source_platform_file_id TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN source_quick_hash TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN target_platform_file_id TEXT;",
+                ],
+            )?;
+            conn.execute_batch(
+                r#"
+                DROP TRIGGER IF EXISTS operation_logs_status_guard_insert;
+                DROP TRIGGER IF EXISTS operation_logs_status_guard_update;
+                CREATE TRIGGER operation_logs_status_guard_insert
+                BEFORE INSERT ON operation_logs
+                WHEN NEW.status NOT IN ('pending', 'success', 'failed', 'skipped', 'manual_review')
+                  OR NEW.restore_status NOT IN ('not_restored', 'pending', 'restored', 'failed', 'unavailable', 'canceled', 'manual_review')
+                BEGIN SELECT RAISE(ABORT, 'invalid operation log status'); END;
+                CREATE TRIGGER operation_logs_status_guard_update
+                BEFORE UPDATE OF status, restore_status ON operation_logs
+                WHEN NEW.status NOT IN ('pending', 'success', 'failed', 'skipped', 'manual_review')
+                  OR NEW.restore_status NOT IN ('not_restored', 'pending', 'restored', 'failed', 'unavailable', 'canceled', 'manual_review')
+                BEGIN SELECT RAISE(ABORT, 'invalid operation log status'); END;
+                "#,
+            )?;
+            set_schema_version(conn, 18)?;
+        }
+        if version < 19 {
+            execute_column_migrations(
+                conn,
+                &[
+                    "ALTER TABLE cleanup_trash_items ADD COLUMN source_modified_ns TEXT;",
+                    "ALTER TABLE cleanup_trash_items ADD COLUMN source_platform_file_id TEXT;",
+                    "ALTER TABLE cleanup_trash_items ADD COLUMN source_quick_hash TEXT;",
+                    "ALTER TABLE cleanup_trash_items ADD COLUMN trash_modified_ns TEXT;",
+                    "ALTER TABLE cleanup_trash_items ADD COLUMN trash_platform_volume_id TEXT;",
+                    "ALTER TABLE cleanup_trash_items ADD COLUMN trash_platform_file_id TEXT;",
+                    "ALTER TABLE cleanup_trash_items ADD COLUMN trash_quick_hash TEXT;",
+                    "ALTER TABLE cleanup_trash_items ADD COLUMN identity_status TEXT NOT NULL DEFAULT 'legacy_unverified';",
+                ],
+            )?;
+            set_schema_version(conn, 19)?;
+        }
+        if version < 20 {
+            migrate_invalid_rule_domain_values(conn)?;
+            conn.execute(
+                r#"
+                UPDATE operation_logs
+                SET can_restore = 0,
+                    restore_status = 'manual_review',
+                    restore_error = 'manual_review: legacy identity unavailable'
+                WHERE status = 'success'
+                  AND can_restore = 1
+                  AND (
+                    source_size IS NULL
+                    OR source_modified_ns IS NULL
+                    OR source_quick_hash IS NULL
+                    OR target_platform_file_id IS NULL
+                  )
+                "#,
+                [],
+            )?;
+            set_schema_version(conn, 20)?;
+        }
         Ok(())
     })();
     match migration_result {
@@ -457,6 +541,144 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             Err(error)
         }
     }
+}
+
+fn migrate_invalid_rule_domain_values(conn: &Connection) -> Result<(), DbError> {
+    let compatible_rules_columns = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('rules') WHERE name IN ('source', 'root_operator', 'groups_json', 'action_json')",
+        [],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if compatible_rules_columns != 4 {
+        return Ok(());
+    }
+    let migrations = [
+        (
+            "purpose",
+            "'Project','Teaching','Study','Work','Personal','Career','Finance','Identity','Media','Installer','Temporary','Archive','Document','Duplicate Review','Unknown'",
+        ),
+        (
+            "lifecycle",
+            "'Inbox','Active','Reference','Archive','Disposable','Duplicate','Sensitive','TrashReview','Unknown'",
+        ),
+        (
+            "risk_level",
+            "'Normal','Sensitive','System','Caution','Unknown'",
+        ),
+        (
+            "suggested_action",
+            "'Keep','Rename','Move','MoveAndRename','Archive','Review','DeleteCandidate','Unknown'",
+        ),
+    ];
+    for (field, allowed) in migrations {
+        conn.execute(
+            &format!(
+                "UPDATE rules SET action_json = json_set(action_json, '$.{field}', 'Unknown') \
+                 WHERE json_valid(action_json) \
+                 AND json_type(action_json, '$.{field}') = 'text' \
+                 AND json_extract(action_json, '$.{field}') NOT IN ({allowed})"
+            ),
+            [],
+        )?;
+    }
+    conn.execute(
+        "UPDATE rules SET source = 'unknown' WHERE source NOT IN ('system', 'user', 'session', 'ai', 'learned', 'unknown')",
+        [],
+    )?;
+    conn.execute(
+        "UPDATE rules SET root_operator = 'UNKNOWN' WHERE root_operator NOT IN ('AND', 'OR', 'UNKNOWN')",
+        [],
+    )?;
+
+    let mut stmt = conn.prepare("SELECT id, groups_json FROM rules")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(stmt);
+    for (id, groups_json) in rows {
+        let Ok(mut groups) = serde_json::from_str::<Value>(&groups_json) else {
+            continue;
+        };
+        let mut changed = false;
+        if let Some(group_values) = groups.as_array_mut() {
+            for group in group_values {
+                let Some(group_object) = group.as_object_mut() else {
+                    continue;
+                };
+                let operator = group_object
+                    .get("operator")
+                    .and_then(Value::as_str)
+                    .unwrap_or("UNKNOWN");
+                if !matches!(operator, "AND" | "OR" | "UNKNOWN") {
+                    group_object
+                        .insert("operator".to_string(), Value::String("UNKNOWN".to_string()));
+                    changed = true;
+                }
+                let Some(conditions) = group_object
+                    .get_mut("conditions")
+                    .and_then(Value::as_array_mut)
+                else {
+                    continue;
+                };
+                for condition in conditions {
+                    let Some(condition_object) = condition.as_object_mut() else {
+                        continue;
+                    };
+                    let field = condition_object
+                        .get("field")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown");
+                    if !matches!(
+                        field,
+                        "name"
+                            | "extension"
+                            | "file_type"
+                            | "path"
+                            | "directory"
+                            | "size"
+                            | "modified_at"
+                            | "is_duplicate"
+                            | "risk_level"
+                            | "unknown"
+                    ) {
+                        condition_object
+                            .insert("field".to_string(), Value::String("unknown".to_string()));
+                        changed = true;
+                    }
+                    let operator = condition_object
+                        .get("operator")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown");
+                    if !matches!(
+                        operator,
+                        "contains"
+                            | "equals"
+                            | "startsWith"
+                            | "endsWith"
+                            | "is"
+                            | "greaterThan"
+                            | "lessThan"
+                            | "olderThanDays"
+                            | "newerThanDays"
+                            | "unknown"
+                    ) {
+                        condition_object
+                            .insert("operator".to_string(), Value::String("unknown".to_string()));
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if changed {
+            conn.execute(
+                "UPDATE rules SET groups_json = ?2 WHERE id = ?1",
+                params![id, serde_json::to_string(&groups)?],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn execute_column_migrations(conn: &Connection, statements: &[&str]) -> Result<(), DbError> {

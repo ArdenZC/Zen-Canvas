@@ -8,6 +8,7 @@ import { requestSettingsSection } from "../src/components/spotlight/commandRegis
 
 const mocks = vi.hoisted(() => ({
   getAISettings: vi.fn(),
+  getRuntimeCapabilities: vi.fn(),
   listAIProviderPresets: vi.fn(),
   saveAISettings: vi.fn(),
   publishAIProcessingMode: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("../src/api/tauriApi", () => ({
   tauriApi: {
     getAISettings: mocks.getAISettings,
+    getRuntimeCapabilities: mocks.getRuntimeCapabilities,
     listAIProviderPresets: mocks.listAIProviderPresets,
     saveAISettings: mocks.saveAISettings,
     getGlobalHotkeyStatus: mocks.getGlobalHotkeyStatus,
@@ -169,7 +171,8 @@ function initialAISettings(): AISettings {
     preset: "deepseek",
     baseUrl: "https://api.deepseek.com/custom",
     chatPath: "/chat/completions",
-    apiKey: secret,
+    apiKey: "",
+    apiKeyAction: "preserve",
     apiKeyConfigured: true,
     model: "preserved-model",
     temperature: 0,
@@ -198,6 +201,12 @@ async function flushEffects() {
   });
 }
 
+async function changeInput(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+  setter?.call(input, value);
+  await act(async () => input.dispatchEvent(new Event("input", { bubbles: true })));
+}
+
 beforeEach(async () => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   window.localStorage.setItem("zc-developer-mode", "true");
@@ -209,6 +218,11 @@ beforeEach(async () => {
   });
   vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => undefined);
   mocks.getAISettings.mockResolvedValue(initialAISettings());
+  mocks.getRuntimeCapabilities.mockResolvedValue({
+    aiDebugAvailable: true,
+    realAIClassificationAvailable: true,
+    credentialStoreAvailable: true
+  });
   mocks.listAIProviderPresets.mockResolvedValue([cloudPreset, customPreset, localPreset]);
   mocks.getGlobalHotkeyStatus.mockResolvedValue({ error: null });
   mocks.updateSettings.mockResolvedValue(true);
@@ -233,6 +247,41 @@ afterEach(() => {
 });
 
 describe("settings view behavior", () => {
+  it("hides AI debug when the runtime denies it even if developer mode is enabled", async () => {
+    await act(async () => root.render(null));
+    mocks.getRuntimeCapabilities.mockResolvedValue({
+      aiDebugAvailable: false,
+      realAIClassificationAvailable: true,
+      credentialStoreAvailable: true
+    });
+    await act(async () => root.render(<SettingsView />));
+    await flushEffects();
+
+    expect(container.textContent).not.toContain("Debug one file's AI response");
+    expect(container.textContent).toContain("Test connection");
+    expect(container.querySelector("#settings-ai-api-key")).not.toBeNull();
+  });
+
+  it("keeps credential and connection controls available when developer mode is disabled", async () => {
+    await act(async () => root.render(null));
+    window.localStorage.setItem("zc-developer-mode", "false");
+    mocks.getRuntimeCapabilities.mockResolvedValue({
+      aiDebugAvailable: false,
+      realAIClassificationAvailable: true,
+      credentialStoreAvailable: true
+    });
+    await act(async () => root.render(<SettingsView />));
+    await flushEffects();
+
+    expect(container.textContent).not.toContain("Debug one file's AI response");
+    expect(container.textContent).toContain("Advanced settings");
+    expect(container.textContent).toContain("Test connection");
+    expect(container.querySelector("#settings-ai-api-key")).not.toBeNull();
+    expect(container.querySelector("#settings-ai-base-url")).not.toBeNull();
+    expect(container.querySelector("#settings-ai-model")).not.toBeNull();
+    expect(container.querySelector("#settings-ai-batch-size")).toBeNull();
+  });
+
   it("keeps runtime Off while a Cloud draft is unsaved, then publishes Cloud only after success", async () => {
     await act(async () => root.render(null));
     mocks.runtimeState.settings = { enabled: false, provider: "openai_compatible" };
@@ -249,6 +298,7 @@ describe("settings view behavior", () => {
     expect(mocks.publishAIProcessingMode).not.toHaveBeenCalled();
 
     mocks.saveAISettings.mockImplementation(async (next: AISettings) => next);
+    mocks.getAISettings.mockResolvedValue({ ...initialAISettings(), enabled: true });
     const save = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Save AI settings")!;
     await act(async () => save.click());
     await flushEffects();
@@ -301,7 +351,7 @@ describe("settings view behavior", () => {
     expect(apiKey.disabled).toBe(true);
     expect(model.disabled).toBe(true);
     expect(baseUrl.value).toBe("https://api.deepseek.com/custom");
-    expect(apiKey.value).toBe(secret);
+    expect(apiKey.value).toBe("");
     expect(model.value).toBe("preserved-model");
     expect(container.textContent).toContain("Existing provider and request settings are preserved");
     expect(container.querySelector<HTMLButtonElement>("button[type='button']:not([data-settings-secret-toggle])")?.disabled).toBe(false);
@@ -312,21 +362,40 @@ describe("settings view behavior", () => {
     await act(async () => cloud.click());
     expect(container.querySelector<HTMLInputElement>("#settings-ai-cleanup")?.disabled).toBe(false);
     expect(baseUrl.value).toBe("https://api.deepseek.com/custom");
-    expect(apiKey.value).toBe(secret);
+    expect(apiKey.value).toBe("");
     expect(model.value).toBe("preserved-model");
   });
 
   it("keeps the API key when the provider changes", async () => {
     const provider = container.querySelector<HTMLSelectElement>("#settings-ai-provider")!;
     const apiKey = container.querySelector<HTMLInputElement>("#settings-ai-api-key")!;
-    expect(apiKey.value).toBe(secret);
+    expect(apiKey.value).toBe("");
     provider.value = "custom";
     await act(async () => provider.dispatchEvent(new Event("change", { bubbles: true })));
-    expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.value).toBe(secret);
+    expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.value).toBe("");
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent === "Clear saved API key")).toBe(true);
+  });
+
+  it("uses explicit key actions, clears the visible secret, and rejects failed read-back", async () => {
+    const apiKey = container.querySelector<HTMLInputElement>("#settings-ai-api-key")!;
+    await changeInput(apiKey, secret);
+    mocks.saveAISettings.mockImplementation(async (next: AISettings) => ({ ...next, apiKey: "" }));
+    mocks.getAISettings.mockResolvedValue({ ...initialAISettings(), apiKeyConfigured: false });
+
+    const save = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Save AI settings")!;
+    await act(async () => save.click());
+    await flushEffects();
+
+    expect(mocks.saveAISettings).toHaveBeenCalledWith(expect.objectContaining({ apiKey: secret, apiKeyAction: "replace" }));
+    expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.value).toBe("");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("Credential read-back verification failed after saving");
+    expect(mocks.publishAIProcessingMode).not.toHaveBeenCalled();
   });
 
   it("retains a failed AI draft, keeps runtime unchanged, and exposes one redacted retryable alert", async () => {
     mocks.saveAISettings.mockRejectedValue(new Error(`backend rejected ${secret}`));
+    const apiKey = container.querySelector<HTMLInputElement>("#settings-ai-api-key")!;
+    await changeInput(apiKey, secret);
     const modeGroup = container.querySelector<HTMLElement>('[role="radiogroup"][aria-label="AI mode"]')!;
     const off = [...modeGroup.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((radio) => radio.textContent === "AI is off")!;
     await act(async () => off.click());
@@ -348,6 +417,7 @@ describe("settings view behavior", () => {
     expect(save.disabled).toBe(false);
 
     mocks.saveAISettings.mockResolvedValue({ ...initialAISettings(), enabled: false });
+    mocks.getAISettings.mockResolvedValue({ ...initialAISettings(), enabled: false });
     await act(async () => save.click());
     await flushEffects();
     expect(mocks.publishAIProcessingMode).toHaveBeenCalledWith({ enabled: false, provider: "openai_compatible" });
@@ -358,6 +428,7 @@ describe("settings view behavior", () => {
   it("publishes runtime only after save success and clears the dirty draft", async () => {
     const saved = { ...initialAISettings(), enabled: false };
     mocks.saveAISettings.mockResolvedValue(saved);
+    mocks.getAISettings.mockResolvedValue(saved);
     const modeGroup = container.querySelector<HTMLElement>('[role="radiogroup"][aria-label="AI mode"]')!;
     const off = [...modeGroup.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((radio) => radio.textContent === "AI is off")!;
     await act(async () => off.click());
@@ -415,6 +486,7 @@ describe("settings view behavior", () => {
     model.value = "saved-model";
     await act(async () => model.dispatchEvent(new Event("input", { bubbles: true })));
     mocks.saveAISettings.mockImplementation(async (next: AISettings) => next);
+    mocks.getAISettings.mockResolvedValue({ ...initialAISettings(), model: "saved-model" });
     const save = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Save AI settings")!;
     await act(async () => save.click());
     await flushEffects();
@@ -433,7 +505,8 @@ describe("settings view behavior", () => {
     await act(async () => container.querySelector<HTMLButtonElement>('[data-settings-section="settings-about"]')?.click());
     const developerSwitch = container.querySelector<HTMLInputElement>("#settings-developer-mode")!;
     await act(async () => developerSwitch.click());
-    expect(container.querySelector("#settings-ai-api-key")).toBeNull();
+    expect(container.querySelector<HTMLInputElement>("#settings-ai-api-key")?.type).toBe("password");
+    expect(container.querySelector("#settings-ai-batch-size")).toBeNull();
 
     await act(async () => root.render(null));
     window.localStorage.setItem("zc-developer-mode", "true");

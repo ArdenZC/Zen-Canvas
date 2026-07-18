@@ -47,6 +47,7 @@ export function aiSettingsSignature(settings: AISettings): string {
     settings.baseUrl,
     settings.chatPath,
     settings.apiKey,
+    settings.apiKeyAction ?? "preserve",
     settings.apiKeyConfigured ?? false,
     settings.model,
     settings.temperature,

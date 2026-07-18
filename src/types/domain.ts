@@ -23,6 +23,8 @@ export type Purpose =
   | "Installer"
   | "Temporary"
   | "Archive"
+  | "Document"
+  | "Duplicate Review"
   | "Unknown";
 
 export type Lifecycle =
@@ -32,9 +34,11 @@ export type Lifecycle =
   | "Archive"
   | "Disposable"
   | "Duplicate"
-  | "Sensitive";
+  | "Sensitive"
+  | "TrashReview"
+  | "Unknown";
 
-export type RiskLevel = "Normal" | "Sensitive" | "System" | "Unknown";
+export type RiskLevel = "Normal" | "Sensitive" | "System" | "Caution" | "Unknown";
 
 export type SuggestedAction =
   | "Keep"
@@ -43,11 +47,19 @@ export type SuggestedAction =
   | "MoveAndRename"
   | "Archive"
   | "Review"
-  | "DeleteCandidate";
+  | "DeleteCandidate"
+  | "Unknown";
 
 export type DispatchZone = "CoreAssets" | "QuietArchive" | "PrivacyVault" | "CleanupLane";
 export type SearchSourceType = "user_space" | "folder" | "cloud" | "external";
-export type RestoreStatus = "not_restored" | "pending" | "restored" | "failed" | "unavailable" | "canceled";
+export type RestoreStatus =
+  | "not_restored"
+  | "pending"
+  | "restored"
+  | "failed"
+  | "unavailable"
+  | "canceled"
+  | "manual_review";
 export type CleanupTier = "Safe" | "Review" | "Caution";
 export type CleanupActionKind = "MoveToTrash" | "Reveal" | "UninstallAdvice" | "AppInternalCleanup" | "None";
 export type OperationType = "move" | "rename" | "move_rename" | "move_to_trash";
@@ -95,6 +107,7 @@ export interface AISettings {
   baseUrl: string;
   chatPath: string;
   apiKey: string;
+  apiKeyAction?: "preserve" | "replace" | "clear";
   apiKeyConfigured?: boolean;
   model: string;
   temperature: number;
@@ -119,6 +132,12 @@ export interface AIConnectionTestResult {
   provider: AIProviderKind | null;
   preset: AIProviderPresetId | null;
   elapsedMs: number;
+}
+
+export interface RuntimeCapabilities {
+  aiDebugAvailable: boolean;
+  realAIClassificationAvailable: boolean;
+  credentialStoreAvailable: boolean;
 }
 
 export interface AIDebugClassificationResult {
@@ -236,6 +255,16 @@ export interface AppSettings {
   useLearnedRulesAsAutoRules: boolean;
 }
 
+export interface VersionedAppSettings {
+  settings: AppSettings;
+  revision: number;
+}
+
+export interface SaveSettingsRequest {
+  settings: AppSettings;
+  expectedRevision: number;
+}
+
 export interface FileRecord {
   id: string;
   name: string;
@@ -292,8 +321,8 @@ export interface ScanRoot {
   summarized_count?: number;
 }
 
-export type RuleSource = "system" | "user" | "session" | "ai" | "learned";
-export type RuleOperator = "AND" | "OR";
+export type RuleSource = "system" | "user" | "session" | "ai" | "learned" | "unknown";
+export type RuleOperator = "AND" | "OR" | "UNKNOWN";
 
 export type ConditionField =
   | "name"
@@ -304,7 +333,8 @@ export type ConditionField =
   | "size"
   | "modified_at"
   | "is_duplicate"
-  | "risk_level";
+  | "risk_level"
+  | "unknown";
 
 export type ConditionOperator =
   | "contains"
@@ -315,7 +345,8 @@ export type ConditionOperator =
   | "lessThan"
   | "olderThanDays"
   | "newerThanDays"
-  | "is";
+  | "is"
+  | "unknown";
 
 export interface RuleCondition {
   id: string;
@@ -586,7 +617,7 @@ export interface OperationLog {
   target_path: string;
   old_name: string;
   new_name: string;
-  status: "success" | "failed" | "skipped";
+  status: "pending" | "success" | "failed" | "skipped" | "manual_review";
   error_message: string | null;
   created_at: string;
   can_undo: boolean;
@@ -598,6 +629,11 @@ export interface OperationLog {
   restored_at: string | null;
   restore_status: RestoreStatus;
   restore_error: string | null;
+  source_size?: number | null;
+  source_modified_ns?: string | null;
+  source_platform_file_id?: string | null;
+  source_quick_hash?: string | null;
+  target_platform_file_id?: string | null;
 }
 
 export interface ExecuteOperationRequest {
