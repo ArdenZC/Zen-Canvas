@@ -203,7 +203,6 @@ fn atomic_rename_macos(source: &Path, target: &Path) -> Result<(), AtomicMoveErr
         .map_err(|_| AtomicMoveError::UnsafePath)?;
     let target = CString::new(target.as_os_str().as_encoded_bytes())
         .map_err(|_| AtomicMoveError::UnsafePath)?;
-    const RENAME_EXCL: libc::c_uint = 0x0002;
     unsafe extern "C" {
         fn renamex_np(
             from: *const libc::c_char,
@@ -211,7 +210,7 @@ fn atomic_rename_macos(source: &Path, target: &Path) -> Result<(), AtomicMoveErr
             flags: libc::c_uint,
         ) -> libc::c_int;
     }
-    let result = unsafe { renamex_np(source.as_ptr(), target.as_ptr(), RENAME_EXCL) };
+    let result = unsafe { renamex_np(source.as_ptr(), target.as_ptr(), libc::RENAME_EXCL) };
     if result == 0 {
         return Ok(());
     }

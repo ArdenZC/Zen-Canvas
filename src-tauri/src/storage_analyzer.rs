@@ -3734,6 +3734,7 @@ mod temp_safety_tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn cleanup_root_context_matches_windows_short_path_alias() {
         let context = CleanupRootContext {
             requested_root: PathBuf::from("C:/Users/RUNNER~1/AppData/Local/Temp/job"),

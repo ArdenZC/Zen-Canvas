@@ -2,6 +2,9 @@ use std::{
     fs, io,
     path::{Component, Path},
 };
+
+#[cfg(target_os = "macos")]
+use std::path::PathBuf;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -43,6 +46,9 @@ pub fn create_directory_chain_no_links(path: &Path) -> Result<(), PathGuardError
 fn create_directory_chain_unix(path: &Path) -> Result<(), PathGuardError> {
     use std::ffi::CString;
     use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
+
+    #[cfg(target_os = "macos")]
+    let path = prepare_macos_path(path)?;
 
     let root = fs::File::open("/")?;
     let mut parent = root;
@@ -94,6 +100,42 @@ fn create_directory_chain_unix(path: &Path) -> Result<(), PathGuardError> {
         parent = unsafe { fs::File::from_raw_fd(child.into_raw_fd()) };
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn prepare_macos_path(path: &Path) -> Result<PathBuf, PathGuardError> {
+    let mut original = PathBuf::new();
+    let mut resolved = PathBuf::new();
+
+    for component in path.components() {
+        let original_next = original.join(component.as_os_str());
+        match fs::symlink_metadata(&original_next) {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    if original_next != Path::new("/var") && original_next != Path::new("/tmp") {
+                        return Err(PathGuardError::ReparsePoint);
+                    }
+                    resolved = fs::canonicalize(&original_next)?;
+                } else {
+                    if !metadata.is_dir() {
+                        return Err(PathGuardError::UnsafePath);
+                    }
+                    resolved.push(component.as_os_str());
+                }
+                original = original_next;
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                resolved.push(
+                    path.strip_prefix(&original)
+                        .map_err(|_| PathGuardError::UnsafePath)?,
+                );
+                break;
+            }
+            Err(error) => return Err(PathGuardError::Io(error)),
+        }
+    }
+
+    Ok(resolved)
 }
 
 #[cfg(windows)]
