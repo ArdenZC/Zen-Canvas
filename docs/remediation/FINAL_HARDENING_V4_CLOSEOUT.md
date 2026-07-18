@@ -1,7 +1,7 @@
 # Final Hardening v4 closeout
 
-Branch: `codex/final-hardening-v4`  
-Base: `master`  
+Branch: `codex/final-hardening-v4`
+Base: `master`
 Release: none; installer signing and publication are outside this task.
 
 The implementation is intentionally fail-closed. A row without the complete

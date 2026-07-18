@@ -37,4 +37,3 @@ verified.
 The sample-hash regression deliberately changes the middle of a large file:
 the sample hash remains equal while the full hash changes. This proves that a
 sample collision cannot authorize a high-risk operation.
-
