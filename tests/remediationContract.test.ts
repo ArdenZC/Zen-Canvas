@@ -16,6 +16,7 @@ const capabilities = source("src-tauri/src/runtime_capabilities.rs");
 const api = source("src/api/tauriApi.ts");
 const packageJson = source("package.json");
 const workflows = source(".github/workflows/ci.yml") + source(".github/workflows/release-build.yml");
+const supportedPlatforms = source("docs/security/SUPPORTED_PLATFORMS.md");
 
 describe("remediation contracts", () => {
   it("requires jobId at every cleanup candidate command boundary", () => {
@@ -112,5 +113,14 @@ describe("remediation contracts", () => {
     expect(auditSurfaces).not.toContain("--ignore RUSTSEC-2026-0194");
     expect(auditSurfaces).not.toContain("--ignore RUSTSEC-2026-0195");
     expect(packageJson).toContain("cargo audit --file src-tauri/Cargo.lock");
+  });
+
+  it("keeps the supported-platform policy Windows/macOS-only", () => {
+    expect(supportedPlatforms).toContain("Windows");
+    expect(supportedPlatforms).toContain("macOS");
+    expect(supportedPlatforms).toMatch(/Linux is not a supported product platform/);
+    expect(workflows).toContain("os: [windows-latest, macos-latest]");
+    expect(workflows).not.toContain("ubuntu-latest");
+    expect(workflows).not.toContain("Linux Tauri dependencies");
   });
 });
