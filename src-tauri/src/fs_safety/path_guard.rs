@@ -42,7 +42,7 @@ pub fn create_directory_chain_no_links(path: &Path) -> Result<(), PathGuardError
 #[cfg(unix)]
 fn create_directory_chain_unix(path: &Path) -> Result<(), PathGuardError> {
     use std::ffi::CString;
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
 
     let root = fs::File::open("/")?;
     let mut parent = root;

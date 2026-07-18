@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, File},
     io::{self, Read, Seek, SeekFrom},
     path::Path,
     sync::atomic::{AtomicBool, Ordering as AtomicOrdering},
@@ -271,6 +271,7 @@ fn platform_file_id(_path: &Path, _metadata: &fs::Metadata) -> Option<String> {
 
 #[cfg(windows)]
 fn windows_file_identity(path: &Path) -> Option<(String, String)> {
+    use std::fs::OpenOptions;
     use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
     use windows_sys::Win32::Storage::FileSystem::{
         GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS,
