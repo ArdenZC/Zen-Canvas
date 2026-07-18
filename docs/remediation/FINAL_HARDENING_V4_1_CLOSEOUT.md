@@ -62,7 +62,7 @@ phase guards, and idempotent reopen.
   ignore entries.
 - `npm run build`: passed and produced the Windows x64 NSIS installer at
   `src-tauri/target/release/bundle/nsis/Zen Canvas_0.1.40_x64-setup.exe`.
-  SHA-256: `B5377D97AB894DF09716B5980E8253EF30185A0213B8D0C38EA0991F6F9DFC28`.
+  SHA-256: `6EDB55025BA584C18CFB32E8B9FCAC7CC7490ECBA2088BF5DF03358F1ED1EA98`.
   The installer is not digitally signed under the current repository release
   configuration.
 - Isolated Windows QA build used identifier
@@ -71,6 +71,16 @@ phase guards, and idempotent reopen.
   blocked by the host Computer Use runtime (`GetCursorPos: access denied`);
   no move, delete, restore, or real-AppData UI action was attempted.
 
-The final closeout still needs the final commit SHA, the Windows/macOS/Dependency
-Audit CI run and job conclusions, and the final PR evidence comment after the
-last commit is pushed. No release artifact is published by this task.
+## Final source and CI evidence
+
+- Final source hardening commit: `a10edbeb47c0e782856faacb9c7fc92cc3a7e74a`.
+- CI run `29656604239` passed on that source commit. Quality Windows job
+  `88111984389`, Quality macOS job `88111984350`, and Dependency Audit job
+  `88111984354` all concluded `success`. The workflow matrix contains only
+  `windows-latest` and `macos-latest`; there is no Ubuntu/Linux job.
+- The closeout document is a documentation-only follow-up to the source
+  hardening commit; no product code changed after the CI-verified source
+  commit. The PR remains Draft/Open with no merge, tag, release, or
+  auto-merge action.
+
+No release artifact is published by this task.
