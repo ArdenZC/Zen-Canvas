@@ -34,10 +34,11 @@ PR #7 is reference evidence only. Changes are replayed as narrow semantic patche
 
 - `npm run verify` passes: typecheck, 63 frontend test files / 446 tests, the 100k-file FTS benchmark, production build, NSIS packaging, npm audit, and cargo audit.
 - `cargo fmt -- --check` passes.
-- Desktop-runtime and default Rust test suites pass, including 295 library tests plus integration suites; the desktop-runtime suite adds the production-only capability coverage.
+- Desktop-runtime and default Rust test suites pass, including 297 library tests plus integration suites; the desktop-runtime suite adds the production-only capability coverage.
 - All-target clippy passes with warnings denied.
 - Cargo audit reports no vulnerability advisories. The remaining 15 allowed warnings are transitive maintenance or unmaintained warnings; the former `quick-xml` vulnerability ignores are absent.
-- The release-candidate installer is `src-tauri/target/release/bundle/nsis/Zen Canvas_0.1.40_x64-setup.exe`, SHA-256 `C0749D8C1F87273F67197088576AECA074FFA5C9369E3FAB62671F7BAC65C567`.
+- The release-candidate installer is `src-tauri/target/release/bundle/nsis/Zen Canvas_0.1.40_x64-setup.exe` (5,602,406 bytes), SHA-256 `B280537E549437D89639E487899D6B2C986F1285CE0EA78A385F917F72C523A1`.
+- GitHub Actions run `29633487804` passed Windows Quality, macOS Quality, and Dependency Audit on replacement PR #9. The macOS gate covers the current-user temp exception without relaxing other `/private` paths; Unix symlink fixtures now use platform-correct cleanup.
 
 ## Windows desktop smoke evidence
 
@@ -62,4 +63,4 @@ PR #7 is reference evidence only. Changes are replayed as narrow semantic patche
 
 - Operator-only API-key replacement/readback/restart verification.
 - Restore the user's original ordinary and Codex-virtualized AppData snapshots after smoke completion.
-- Push this branch, open the requested Draft PR, wait for Windows/macOS/dependency-audit CI, and close PR #7 as superseded only after the replacement PR is green.
+- Keep replacement PR #9 as a Draft, verify the final documentation-only head in CI, and close PR #7 as superseded. Do not tag, publish a Release, or merge.
