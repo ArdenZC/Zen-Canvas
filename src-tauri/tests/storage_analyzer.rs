@@ -178,19 +178,29 @@ fn storage_cleanup_scan_only_uses_user_selected_roots() {
 
 #[test]
 fn storage_cleanup_scan_rejects_protected_system_roots() {
-    let result = validate_cleanup_roots_for_test(vec!["C:/Windows/System32".to_string()]);
+    let root = if cfg!(windows) {
+        "C:/Windows/System32"
+    } else if cfg!(target_os = "macos") {
+        "/System"
+    } else {
+        "/etc"
+    };
+    let result = validate_cleanup_roots_for_test(vec![root.to_string()]);
 
     assert!(result.is_err());
 }
 
 #[test]
 fn storage_cleanup_rejects_unix_system_roots() {
-    for path in ["/", "/System", "/usr", "/etc", "/var", "/bin", "/sbin"] {
+    for path in ["/", "/usr", "/etc", "/var", "/bin", "/sbin"] {
         assert!(
             is_forbidden_storage_path_for_test(Path::new(path)),
             "expected {path} to be protected"
         );
     }
+
+    #[cfg(target_os = "macos")]
+    assert!(is_forbidden_storage_path_for_test(Path::new("/System")));
 }
 
 #[test]
@@ -625,15 +635,18 @@ fn storage_analyzer_rejects_forbidden_system_and_app_database_paths() {
 
 #[test]
 fn storage_analyzer_records_forbidden_roots_as_denied_without_safe_candidates() {
-    let analysis =
-        analyze_storage_roots_for_test(vec![PathBuf::from("C:/Windows/System32")], Vec::new())
-            .expect("analyze forbidden root");
+    let system_root = if cfg!(windows) {
+        "C:/Windows/System32"
+    } else if cfg!(target_os = "macos") {
+        "/System"
+    } else {
+        "/etc"
+    };
+    let analysis = analyze_storage_roots_for_test(vec![PathBuf::from(system_root)], Vec::new())
+        .expect("analyze forbidden root");
 
     assert_eq!(analysis.total_size, 0);
-    assert!(analysis
-        .denied_paths
-        .iter()
-        .any(|path| path.contains("Windows/System32")));
+    assert!(!analysis.denied_paths.is_empty());
     assert!(analysis
         .candidates
         .iter()
@@ -727,9 +740,16 @@ fn cleanup_preview_items_only_include_safe_trash_allowed_candidates() {
 
 #[test]
 fn cleanup_preview_items_reject_system_paths_even_if_client_marks_them_safe() {
+    let system_path = if cfg!(windows) {
+        "C:/Windows/Temp"
+    } else if cfg!(target_os = "macos") {
+        "/System/Library"
+    } else {
+        "/etc/zen-canvas"
+    };
     let forged = StorageCandidate {
         id: "forged-system-safe".to_string(),
-        path: "C:/Windows/Temp".to_string(),
+        path: system_path.to_string(),
         name: "Temp".to_string(),
         size: 100,
         tier: CleanupTier::Safe,

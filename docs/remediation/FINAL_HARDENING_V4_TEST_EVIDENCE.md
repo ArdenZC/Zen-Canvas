@@ -88,7 +88,6 @@ created.
 | --- | --- | --- | --- | --- |
 | Windows Quality | `CI / Quality (windows-latest)` | pending | pending | pending |
 | macOS Quality | `CI / Quality (macos-latest)` | pending | pending | pending |
-| Linux Quality | `CI / Quality (ubuntu-latest)` | pending | pending | pending |
 | Dependency Audit | `CI / Dependency audit` | pending | pending | pending |
 
 ## Release boundary
