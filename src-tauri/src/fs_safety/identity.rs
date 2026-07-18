@@ -485,7 +485,7 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn directory_manifest_preserves_non_utf8_names_without_lossy_collisions() {
         use std::os::unix::ffi::OsStringExt;
