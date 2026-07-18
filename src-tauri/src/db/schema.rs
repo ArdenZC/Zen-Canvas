@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 20;
+const CURRENT_SCHEMA_VERSION: i32 = 21;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -528,6 +528,40 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
                 [],
             )?;
             set_schema_version(conn, 20)?;
+        }
+        if version < 21 {
+            execute_column_migrations(
+                conn,
+                &[
+                    "ALTER TABLE operation_logs ADD COLUMN source_full_hash TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN target_full_hash TEXT;",
+                    "ALTER TABLE cleanup_trash_items ADD COLUMN source_full_hash TEXT;",
+                    "ALTER TABLE cleanup_trash_items ADD COLUMN trash_full_hash TEXT;",
+                ],
+            )?;
+            conn.execute(
+                r#"
+                UPDATE operation_logs
+                SET can_restore = 0,
+                    restore_status = 'manual_review',
+                    restore_error = 'manual_review: complete identity unavailable'
+                WHERE status = 'success'
+                  AND can_restore = 1
+                  AND (source_full_hash IS NULL OR target_full_hash IS NULL)
+                "#,
+                [],
+            )?;
+            conn.execute(
+                r#"
+                UPDATE cleanup_trash_items
+                SET identity_status = 'legacy_unverified',
+                    message = COALESCE(message, 'Complete identity is unavailable; manual review is required.')
+                WHERE status = 'moved'
+                  AND (source_full_hash IS NULL OR trash_full_hash IS NULL)
+                "#,
+                [],
+            )?;
+            set_schema_version(conn, 21)?;
         }
         Ok(())
     })();

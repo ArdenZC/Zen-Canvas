@@ -22,10 +22,12 @@ fn schema_18_adds_safe_trash_identity_columns() {
         ALTER TABLE cleanup_trash_items DROP COLUMN source_modified_ns;
         ALTER TABLE cleanup_trash_items DROP COLUMN source_platform_file_id;
         ALTER TABLE cleanup_trash_items DROP COLUMN source_quick_hash;
+        ALTER TABLE cleanup_trash_items DROP COLUMN source_full_hash;
         ALTER TABLE cleanup_trash_items DROP COLUMN trash_modified_ns;
         ALTER TABLE cleanup_trash_items DROP COLUMN trash_platform_volume_id;
         ALTER TABLE cleanup_trash_items DROP COLUMN trash_platform_file_id;
         ALTER TABLE cleanup_trash_items DROP COLUMN trash_quick_hash;
+        ALTER TABLE cleanup_trash_items DROP COLUMN trash_full_hash;
         ALTER TABLE cleanup_trash_items DROP COLUMN identity_status;
         PRAGMA user_version = 18;
         "#,
@@ -48,12 +50,13 @@ fn schema_18_adds_safe_trash_identity_columns() {
         })
         .expect("schema version");
 
-    assert_eq!(version, 20);
+    assert_eq!(version, 21);
     assert!(columns.iter().any(|column| column == "source_modified_ns"));
     assert!(columns
         .iter()
         .any(|column| column == "source_platform_file_id"));
     assert!(columns.iter().any(|column| column == "source_quick_hash"));
+    assert!(columns.iter().any(|column| column == "source_full_hash"));
     assert!(columns.iter().any(|column| column == "trash_modified_ns"));
     assert!(columns
         .iter()
@@ -62,6 +65,7 @@ fn schema_18_adds_safe_trash_identity_columns() {
         .iter()
         .any(|column| column == "trash_platform_file_id"));
     assert!(columns.iter().any(|column| column == "trash_quick_hash"));
+    assert!(columns.iter().any(|column| column == "trash_full_hash"));
     assert!(columns.iter().any(|column| column == "identity_status"));
 }
 

@@ -1,9 +1,9 @@
 use crate::{db::Database, ids::new_job_id};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use std::io::Read;
 use std::{
-    env,
-    fs::{self, OpenOptions},
-    io::{self, Read, Seek, SeekFrom, Write},
+    env, fs, io,
     path::{Component, Path, PathBuf},
     process::Command as ProcessCommand,
     sync::{
@@ -18,7 +18,6 @@ use thiserror::Error;
 pub const OPERATION_PROGRESS_EVENT: &str = "operation-progress";
 const OPERATION_PROGRESS_BATCH_SIZE: u64 = 10;
 const OPERATION_PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(200);
-const COPY_BUFFER_SIZE: usize = 1024 * 1024;
 
 #[derive(Debug, Error)]
 enum FileOpError {
@@ -122,7 +121,11 @@ pub struct OperationLogDto {
     #[serde(default)]
     pub source_quick_hash: Option<String>,
     #[serde(default)]
+    pub source_full_hash: Option<String>,
+    #[serde(default)]
     pub target_platform_file_id: Option<String>,
+    #[serde(default)]
+    pub target_full_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -377,10 +380,11 @@ fn execute_moves_with_persistence_with_progress_and_app_data(
         app_data_dir,
         batch_id,
         created_at,
+        Some(&source_fingerprints),
     );
 
     for (operation, log) in operations.iter().zip(result.logs.iter_mut()) {
-        if let Some(fingerprint) = source_fingerprints.get(&log.id) {
+        if let Some(fingerprint) = source_fingerprints.get(&operation.id) {
             apply_source_fingerprint(log, fingerprint);
         }
         if log.status != "success" {
@@ -388,6 +392,7 @@ fn execute_moves_with_persistence_with_progress_and_app_data(
         }
         if let Ok(target_fingerprint) = file_identity_fingerprint(Path::new(&log.path_after)) {
             log.target_platform_file_id = target_fingerprint.platform_file_id;
+            log.target_full_hash = target_fingerprint.full_hash;
         }
         if operation.operation_type == "move_to_trash" {
             continue;
@@ -441,6 +446,7 @@ fn execute_moves_core_with_progress_and_app_data(
         app_data_dir,
         batch_id,
         created_at,
+        None,
     )
 }
 
@@ -451,6 +457,7 @@ fn execute_moves_core_with_identity(
     app_data_dir: Option<PathBuf>,
     batch_id: String,
     created_at: String,
+    expected_fingerprints: Option<&std::collections::HashMap<String, FileIdentityFingerprint>>,
 ) -> ExecuteMovesResult {
     let total = request.operations.len() as u64;
     let mut progress = OperationProgressBuffer::new("execute", batch_id.clone(), total);
@@ -460,6 +467,9 @@ fn execute_moves_core_with_identity(
         let log = if is_operation_cancelled(&cancel_flag) {
             make_canceled_operation_log(&batch_id, &created_at, index, operation)
         } else {
+            let expected_identity = expected_fingerprints
+                .and_then(|fingerprints| fingerprints.get(&operation.id))
+                .map(expected_identity_from_fingerprint);
             execute_preview_operation_with_app_data(
                 &batch_id,
                 &created_at,
@@ -467,6 +477,7 @@ fn execute_moves_core_with_identity(
                 operation,
                 Some(cancel_flag.as_ref()),
                 app_data_dir.as_deref(),
+                expected_identity.as_ref(),
             )
         };
         let current_path = operation.source_path.clone();
@@ -481,105 +492,23 @@ fn execute_moves_core_with_identity(
 pub(crate) struct FileIdentityFingerprint {
     pub(crate) size: u64,
     pub(crate) modified_ns: Option<i128>,
+    pub(crate) platform_volume_id: Option<String>,
     pub(crate) platform_file_id: Option<String>,
     pub(crate) quick_hash: Option<String>,
+    pub(crate) full_hash: Option<String>,
 }
 
 pub(crate) fn file_identity_fingerprint(path: &Path) -> Result<FileIdentityFingerprint, String> {
-    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
-    if metadata.file_type().is_symlink() || (!metadata.is_file() && !metadata.is_dir()) {
-        return Err("unsupported source file type".to_string());
-    }
-    let (size, quick_hash) = quick_hash_path(path)?;
+    let identity =
+        crate::fs_safety::capture_identity(path, None).map_err(|error| error.to_string())?;
     Ok(FileIdentityFingerprint {
-        size,
-        modified_ns: metadata.modified().ok().and_then(|modified| {
-            modified
-                .duration_since(UNIX_EPOCH)
-                .ok()
-                .map(|duration| duration.as_nanos() as i128)
-        }),
-        platform_file_id: platform_file_id(path, &metadata),
-        quick_hash: Some(quick_hash),
+        size: identity.size,
+        modified_ns: identity.modified_ns,
+        platform_volume_id: identity.platform_volume_id,
+        platform_file_id: identity.platform_file_id,
+        quick_hash: identity.sample_hash,
+        full_hash: identity.full_hash,
     })
-}
-
-fn quick_hash_path(path: &Path) -> Result<(u64, String), String> {
-    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
-    if metadata.is_file() {
-        const SAMPLE_SIZE: u64 = 1024 * 1024;
-        let mut file = fs::File::open(path).map_err(|error| error.to_string())?;
-        let size = metadata.len();
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(&size.to_le_bytes());
-        let mut buffer = vec![0_u8; SAMPLE_SIZE.min(size) as usize];
-        file.read_exact(&mut buffer)
-            .map_err(|error| error.to_string())?;
-        hasher.update(&buffer);
-        if size > SAMPLE_SIZE * 2 {
-            file.seek(SeekFrom::End(-(SAMPLE_SIZE as i64)))
-                .map_err(|error| error.to_string())?;
-            buffer.resize(SAMPLE_SIZE as usize, 0);
-            file.read_exact(&mut buffer)
-                .map_err(|error| error.to_string())?;
-            hasher.update(&buffer);
-        } else if size > SAMPLE_SIZE {
-            let mut remainder = Vec::new();
-            file.read_to_end(&mut remainder)
-                .map_err(|error| error.to_string())?;
-            hasher.update(&remainder);
-        }
-        return Ok((size, hasher.finalize().to_hex().to_string()));
-    }
-    if metadata.is_dir() {
-        let mut entries = fs::read_dir(path)
-            .map_err(|error| error.to_string())?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| error.to_string())?;
-        entries.sort_by_key(|entry| entry.file_name());
-        let mut size = 0_u64;
-        let mut hasher = blake3::Hasher::new();
-        for entry in entries {
-            let entry_path = entry.path();
-            let entry_metadata = fs::symlink_metadata(&entry_path).map_err(|e| e.to_string())?;
-            if entry_metadata.file_type().is_symlink() {
-                return Err("directory identity contains a symlink".to_string());
-            }
-            let (child_size, child_hash) = quick_hash_path(&entry_path)?;
-            size = size.saturating_add(child_size);
-            hasher.update(entry.file_name().to_string_lossy().as_bytes());
-            hasher.update(&child_size.to_le_bytes());
-            hasher.update(child_hash.as_bytes());
-        }
-        return Ok((size, hasher.finalize().to_hex().to_string()));
-    }
-    Err("unsupported source file type".to_string())
-}
-
-#[cfg(unix)]
-fn platform_file_id(_path: &Path, metadata: &fs::Metadata) -> Option<String> {
-    use std::os::unix::fs::MetadataExt;
-    Some(format!("{}:{}", metadata.dev(), metadata.ino()))
-}
-
-#[cfg(windows)]
-fn platform_file_id(path: &Path, _metadata: &fs::Metadata) -> Option<String> {
-    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
-    use windows_sys::Win32::Storage::FileSystem::{
-        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS,
-    };
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-        .open(path)
-        .ok()?;
-    let mut info = unsafe { std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>() };
-    let success = unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) };
-    if success == 0 {
-        return None;
-    }
-    let file_index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
-    Some(format!("{}:{file_index}", info.dwVolumeSerialNumber))
 }
 
 fn apply_source_fingerprint(log: &mut OperationLogDto, fingerprint: &FileIdentityFingerprint) {
@@ -587,68 +516,77 @@ fn apply_source_fingerprint(log: &mut OperationLogDto, fingerprint: &FileIdentit
     log.source_modified_ns = fingerprint.modified_ns.map(|value| value.to_string());
     log.source_platform_file_id = fingerprint.platform_file_id.clone();
     log.source_quick_hash = fingerprint.quick_hash.clone();
+    log.source_full_hash = fingerprint.full_hash.clone();
 }
 
-fn journal_identity_matches(log: &OperationLogDto, path: &Path) -> bool {
-    log.source_size.is_some_and(|size| {
-        file_identity_matches(
-            path,
-            size,
-            log.source_modified_ns.as_deref(),
-            log.source_platform_file_id.as_deref(),
-            log.source_quick_hash.as_deref(),
-        )
+fn expected_identity_from_fingerprint(
+    fingerprint: &FileIdentityFingerprint,
+) -> crate::fs_safety::ExpectedFileIdentity {
+    crate::fs_safety::ExpectedFileIdentity {
+        size: fingerprint.size,
+        modified_ns: fingerprint.modified_ns,
+        platform_volume_id: fingerprint.platform_volume_id.clone(),
+        platform_file_id: fingerprint.platform_file_id.clone(),
+        sample_hash: fingerprint.quick_hash.clone(),
+        full_hash: fingerprint.full_hash.clone(),
+    }
+}
+
+fn expected_identity_from_log(
+    log: &OperationLogDto,
+) -> Option<crate::fs_safety::ExpectedFileIdentity> {
+    Some(crate::fs_safety::ExpectedFileIdentity {
+        size: log.source_size?,
+        modified_ns: log
+            .source_modified_ns
+            .as_deref()
+            .and_then(|value| value.parse::<i128>().ok()),
+        platform_volume_id: None,
+        platform_file_id: log.source_platform_file_id.clone(),
+        sample_hash: log.source_quick_hash.clone(),
+        full_hash: log.source_full_hash.clone(),
     })
 }
 
-pub(crate) fn file_identity_matches(
-    path: &Path,
-    expected_size: u64,
-    expected_modified_ns: Option<&str>,
-    expected_platform_file_id: Option<&str>,
-    expected_quick_hash: Option<&str>,
-) -> bool {
-    let Ok(actual) = file_identity_fingerprint(path) else {
+fn expected_restore_identity_from_log(
+    log: &OperationLogDto,
+) -> Option<crate::fs_safety::ExpectedFileIdentity> {
+    Some(crate::fs_safety::ExpectedFileIdentity {
+        size: log.source_size?,
+        modified_ns: None,
+        platform_volume_id: None,
+        platform_file_id: log
+            .target_platform_file_id
+            .clone()
+            .or_else(|| log.source_platform_file_id.clone()),
+        sample_hash: log.source_quick_hash.clone(),
+        full_hash: log.source_full_hash.clone(),
+    })
+}
+
+fn journal_identity_matches(log: &OperationLogDto, path: &Path) -> bool {
+    let Some(expected) = expected_identity_from_log(log) else {
         return false;
     };
-    if actual.size != expected_size {
+    if expected.full_hash.is_none() {
         return false;
     }
-    let platform_matches = expected_platform_file_id
-        .zip(actual.platform_file_id.as_deref())
-        .is_some_and(|(expected, actual)| expected == actual);
-    let hash_matches = expected_quick_hash
-        .zip(actual.quick_hash.as_deref())
-        .is_some_and(|(expected, actual)| expected == actual);
-    let modified_matches = expected_modified_ns
-        .and_then(|value| value.parse::<i128>().ok())
-        .zip(actual.modified_ns)
-        .is_some_and(|(expected, actual)| expected == actual);
-    platform_matches || (modified_matches && hash_matches)
+    crate::fs_safety::capture_identity(path, None)
+        .map(|actual| crate::fs_safety::identity_matches(&expected, &actual))
+        .unwrap_or(false)
 }
 
 fn operation_restore_identity_matches(log: &OperationLogDto, path: &Path) -> bool {
-    let (Some(expected_size), Some(expected_hash)) =
-        (log.source_size, log.source_quick_hash.as_deref())
-    else {
+    let Some(expected) = expected_restore_identity_from_log(log) else {
         return false;
     };
-    let Ok(actual) = file_identity_fingerprint(path) else {
+    if expected.full_hash.is_none() {
+        return false;
+    }
+    let Ok(actual) = crate::fs_safety::capture_identity(path, None) else {
         return false;
     };
-    if actual.size != expected_size || actual.quick_hash.as_deref() != Some(expected_hash) {
-        return false;
-    }
-    if let Some(expected_target_id) = log.target_platform_file_id.as_deref() {
-        return actual.platform_file_id.as_deref() == Some(expected_target_id);
-    }
-    file_identity_matches(
-        path,
-        expected_size,
-        log.source_modified_ns.as_deref(),
-        log.source_platform_file_id.as_deref(),
-        Some(expected_hash),
-    )
+    crate::fs_safety::identity_matches(&expected, &actual)
 }
 
 fn persist_pending_operation_journal(
@@ -679,7 +617,8 @@ fn persist_pending_operation_journal(
         .collect::<Result<Vec<_>, String>>()?;
     let fingerprints = logs
         .iter()
-        .map(|(log, fingerprint)| (log.id.clone(), fingerprint.clone()))
+        .zip(request.operations.iter())
+        .map(|((_, fingerprint), operation)| (operation.id.clone(), fingerprint.clone()))
         .collect::<std::collections::HashMap<_, _>>();
     let logs = logs.into_iter().map(|(log, _)| log).collect::<Vec<_>>();
     db.save_operation_logs(batch_id, &logs).map_err(|error| {
@@ -783,6 +722,15 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
 }
 
 pub fn rename_file(source_path: String, new_name: String) -> Result<FileOperationResult, String> {
+    rename_file_with_identity(source_path, new_name, None, None)
+}
+
+fn rename_file_with_identity(
+    source_path: String,
+    new_name: String,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    cancel_flag: Option<&AtomicBool>,
+) -> Result<FileOperationResult, String> {
     validate_safe_file_name(&new_name)?;
     let source = validate_source_path(&PathBuf::from(source_path))?;
     let parent = source
@@ -797,7 +745,7 @@ pub fn rename_file(source_path: String, new_name: String) -> Result<FileOperatio
 
     ensure_general_file_operation_allowed(&source)?;
     ensure_general_file_operation_allowed(&target)?;
-    move_file_no_overwrite(&source, &target)?;
+    move_file_no_overwrite_with_identity(&source, &target, expected_identity, cancel_flag)?;
 
     Ok(FileOperationResult {
         operation: "rename".to_string(),
@@ -821,6 +769,7 @@ fn execute_preview_operation(
         operation,
         cancel_flag,
         None,
+        None,
     )
 }
 
@@ -831,22 +780,41 @@ fn execute_preview_operation_with_app_data(
     operation: &OperationPreviewRequest,
     cancel_flag: Option<&AtomicBool>,
     app_data_dir: Option<&Path>,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
 ) -> OperationLogDto {
-    let source_fingerprint = file_identity_fingerprint(Path::new(&operation.source_path)).ok();
+    let source_fingerprint = expected_identity
+        .cloned()
+        .map(|identity| FileIdentityFingerprint {
+            size: identity.size,
+            modified_ns: identity.modified_ns,
+            platform_volume_id: identity.platform_volume_id,
+            platform_file_id: identity.platform_file_id,
+            quick_hash: identity.sample_hash,
+            full_hash: identity.full_hash,
+        })
+        .or_else(|| file_identity_fingerprint(Path::new(&operation.source_path)).ok());
     let status = if operation.is_executable == Some(false) {
         Err("Operation is not executable.".to_string())
     } else {
         match operation.operation_type.as_str() {
-            "rename" => rename_file(operation.source_path.clone(), operation.new_name.clone()),
-            "move" | "move_rename" => move_file_with_parent_policy_with_cancel(
+            "rename" => rename_file_with_identity(
+                operation.source_path.clone(),
+                operation.new_name.clone(),
+                expected_identity,
+                cancel_flag,
+            ),
+            "move" | "move_rename" => move_file_with_parent_policy_with_cancel_and_identity(
                 operation.source_path.clone(),
                 operation.target_path.clone(),
                 true,
                 cancel_flag,
+                expected_identity,
             ),
-            "move_to_trash" => {
-                move_to_trash_with_safety(operation.source_path.clone(), app_data_dir)
-            }
+            "move_to_trash" => move_to_trash_with_safety(
+                operation.source_path.clone(),
+                app_data_dir,
+                expected_identity,
+            ),
             other => Err(format!("Unsupported operation type: {other}")),
         }
     };
@@ -890,6 +858,7 @@ fn execute_preview_operation_with_app_data(
     if log.status == "success" {
         if let Ok(target_fingerprint) = file_identity_fingerprint(Path::new(&log.path_after)) {
             log.target_platform_file_id = target_fingerprint.platform_file_id;
+            log.target_full_hash = target_fingerprint.full_hash;
         }
     }
     log
@@ -1083,7 +1052,9 @@ fn make_operation_log(
         source_modified_ns: None,
         source_platform_file_id: None,
         source_quick_hash: None,
+        source_full_hash: None,
         target_platform_file_id: None,
+        target_full_hash: None,
     }
 }
 
@@ -1132,7 +1103,13 @@ fn restore_operation_log(
     if let Err(error) = ensure_general_file_operation_allowed(&target) {
         return mark_restore_failed(log, error);
     }
-    if let Err(error) = move_file_no_overwrite_with_cancel(&source, &target, cancel_flag) {
+    let expected_identity = expected_restore_identity_from_log(log);
+    if let Err(error) = move_file_no_overwrite_with_identity(
+        &source,
+        &target,
+        expected_identity.as_ref(),
+        cancel_flag,
+    ) {
         if is_operation_cancelled_error(&error) {
             return mark_restore_canceled(log);
         }
@@ -1177,12 +1154,6 @@ fn restore_progress_batch_id(_logs: &[OperationLogDto]) -> String {
 
 fn is_operation_cancelled(cancel_flag: &Arc<AtomicBool>) -> bool {
     cancel_flag.load(Ordering::Relaxed)
-}
-
-fn is_operation_cancelled_ref(cancel_flag: Option<&AtomicBool>) -> bool {
-    cancel_flag
-        .map(|flag| flag.load(Ordering::Relaxed))
-        .unwrap_or(false)
 }
 
 fn is_operation_cancelled_error(error: &str) -> bool {
@@ -1299,14 +1270,17 @@ fn validate_target_path_with_parent_policy(
         .parent()
         .ok_or(FileOpError::TargetParentMissing)
         .map_err(|error| error.to_string())?;
+    let existing_ancestor = canonicalize_nearest_existing_ancestor(parent)?;
+    ensure_general_file_operation_allowed(&existing_ancestor)?;
     if !parent.exists() {
         if !allow_create_parent {
             return Err(FileOpError::TargetParentMissing.to_string());
         }
-        let existing_ancestor = canonicalize_nearest_existing_ancestor(parent)?;
-        ensure_general_file_operation_allowed(&existing_ancestor)?;
-        fs::create_dir_all(parent).map_err(|error| FileOpError::Io(error).to_string())?;
+        crate::fs_safety::create_directory_chain_no_links(parent)
+            .map_err(|error| format!("target parent rejected: {error}"))?;
     }
+    crate::fs_safety::create_directory_chain_no_links(parent)
+        .map_err(|error| format!("target parent rejected: {error}"))?;
     let parent = parent
         .canonicalize()
         .map_err(|_| FileOpError::TargetParentMissing.to_string())?;
@@ -1335,11 +1309,12 @@ fn canonicalize_nearest_existing_ancestor(path: &Path) -> Result<PathBuf, String
         .map_err(|error| FileOpError::Io(error).to_string())
 }
 
-fn move_file_with_parent_policy_with_cancel(
+fn move_file_with_parent_policy_with_cancel_and_identity(
     source_path: String,
     target_path: String,
     allow_create_parent: bool,
     cancel_flag: Option<&AtomicBool>,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
 ) -> Result<FileOperationResult, String> {
     let source = validate_source_path(&PathBuf::from(source_path))?;
     let target =
@@ -1347,7 +1322,7 @@ fn move_file_with_parent_policy_with_cancel(
 
     ensure_general_file_operation_allowed(&source)?;
     ensure_general_file_operation_allowed(&target)?;
-    move_file_no_overwrite_with_cancel(&source, &target, cancel_flag)?;
+    move_file_no_overwrite_with_identity(&source, &target, expected_identity, cancel_flag)?;
 
     Ok(FileOperationResult {
         operation: "move".to_string(),
@@ -1359,8 +1334,16 @@ fn move_file_with_parent_policy_with_cancel(
 fn move_to_trash_with_safety(
     source_path: String,
     app_data_dir: Option<&Path>,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
 ) -> Result<FileOperationResult, String> {
     let source = validate_cleanup_trash_source(&PathBuf::from(source_path), app_data_dir)?;
+    if let Some(expected) = expected_identity {
+        let actual =
+            crate::fs_safety::capture_identity(&source, None).map_err(|error| error.to_string())?;
+        if !crate::fs_safety::identity_matches(expected, &actual) {
+            return Err("source_changed".to_string());
+        }
+    }
     trash::delete(&source).map_err(|error| FileOpError::Trash(error.to_string()).to_string())?;
 
     Ok(FileOperationResult {
@@ -1455,110 +1438,32 @@ fn validate_safe_file_name(name: &str) -> Result<(), String> {
 }
 
 fn move_file_no_overwrite(source: &Path, target: &Path) -> Result<(), String> {
-    move_file_no_overwrite_with_cancel(source, target, None)
+    move_file_no_overwrite_with_identity(source, target, None, None)
 }
 
-fn move_file_no_overwrite_with_cancel(
+fn move_file_no_overwrite_with_identity(
     source: &Path,
     target: &Path,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
     cancel_flag: Option<&AtomicBool>,
 ) -> Result<(), String> {
-    if target.exists() {
-        return Err(FileOpError::TargetExists.to_string());
-    }
-    if is_operation_cancelled_ref(cancel_flag) {
-        return Err(FileOpError::OperationCanceled.to_string());
-    }
-
-    match fs::rename(source, target) {
-        Ok(()) => Ok(()),
-        Err(rename_error) if rename_error.kind() == io::ErrorKind::AlreadyExists => {
-            Err(FileOpError::TargetExists.to_string())
-        }
-        Err(rename_error) if should_copy_fallback(&rename_error) => {
-            copy_then_delete_via_temp_with_cancel(source, target, cancel_flag)
-        }
-        Err(error) => Err(FileOpError::Io(error).to_string()),
-    }
+    crate::fs_safety::atomic_move_noreplace(source, target, expected_identity, cancel_flag)
+        .map(|_| ())
+        .map_err(map_atomic_move_error)
 }
 
+#[cfg(test)]
 fn copy_then_delete_via_temp_with_cancel(
     source: &Path,
     target: &Path,
     cancel_flag: Option<&AtomicBool>,
 ) -> Result<(), String> {
-    if target.exists() {
-        return Err(FileOpError::TargetExists.to_string());
-    }
-    if is_operation_cancelled_ref(cancel_flag) {
-        return Err(FileOpError::OperationCanceled.to_string());
-    }
-
-    let tmp = temp_path_for_target(target)?;
-    let mut target_committed = false;
-
-    let result = (|| {
-        copy_file_to_temp_with_cancel(source, &tmp, cancel_flag)?;
-        if is_operation_cancelled_ref(cancel_flag) {
-            return Err(FileOpError::OperationCanceled.to_string());
-        }
-        if target.exists() {
-            return Err(FileOpError::TargetExists.to_string());
-        }
-        fs::rename(&tmp, target).map_err(|error| FileOpError::Io(error).to_string())?;
-        target_committed = true;
-        fs::remove_file(source).map_err(|error| FileOpError::Io(error).to_string())?;
-        Ok(())
-    })();
-
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-        if target_committed && source.exists() {
-            let _ = fs::remove_file(target);
-        }
-    }
-
-    result
+    crate::fs_safety::copy_commit::copy_commit_move(source, target, None, cancel_flag)
+        .map_err(map_atomic_move_error)
 }
 
-fn copy_file_to_temp_with_cancel(
-    source: &Path,
-    tmp: &Path,
-    cancel_flag: Option<&AtomicBool>,
-) -> Result<(), String> {
-    let mut reader = fs::File::open(source).map_err(|error| FileOpError::Io(error).to_string())?;
-    let mut writer = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(tmp)
-        .map_err(|error| FileOpError::Io(error).to_string())?;
-
-    if let Err(error) = copy_stream_to_temp(&mut reader, &mut writer, cancel_flag, COPY_BUFFER_SIZE)
-    {
-        let _ = fs::remove_file(tmp);
-        return Err(error);
-    }
-    if is_operation_cancelled_ref(cancel_flag) {
-        let _ = fs::remove_file(tmp);
-        return Err(FileOpError::OperationCanceled.to_string());
-    }
-    if let Err(error) = writer.sync_all() {
-        let _ = fs::remove_file(tmp);
-        return Err(FileOpError::Io(error).to_string());
-    }
-    drop(writer);
-
-    if let Ok(permissions) = fs::metadata(source).map(|metadata| metadata.permissions()) {
-        if let Err(error) = fs::set_permissions(tmp, permissions) {
-            let _ = fs::remove_file(tmp);
-            return Err(FileOpError::Io(error).to_string());
-        }
-    }
-
-    Ok(())
-}
-
-fn copy_stream_to_temp<R: Read, W: Write>(
+#[cfg(test)]
+fn copy_stream_to_temp<R: Read, W: std::io::Write>(
     reader: &mut R,
     writer: &mut W,
     cancel_flag: Option<&AtomicBool>,
@@ -1566,65 +1471,47 @@ fn copy_stream_to_temp<R: Read, W: Write>(
 ) -> Result<u64, String> {
     let mut buffer = vec![0; buffer_size.max(1)];
     let mut copied = 0_u64;
-
     loop {
-        if is_operation_cancelled_ref(cancel_flag) {
+        if cancel_flag.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
             return Err(FileOpError::OperationCanceled.to_string());
         }
-
         let bytes_read = reader
             .read(&mut buffer)
             .map_err(|error| FileOpError::Io(error).to_string())?;
         if bytes_read == 0 {
             return Ok(copied);
         }
-
         writer
             .write_all(&buffer[..bytes_read])
             .map_err(|error| FileOpError::Io(error).to_string())?;
         copied += bytes_read as u64;
-
-        if is_operation_cancelled_ref(cancel_flag) {
+        if cancel_flag.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
             return Err(FileOpError::OperationCanceled.to_string());
         }
     }
 }
 
-fn temp_path_for_target(target: &Path) -> Result<PathBuf, String> {
-    let parent = target
-        .parent()
-        .ok_or(FileOpError::TargetParentMissing)
-        .map_err(|error| error.to_string())?;
-    let name = target
-        .file_name()
-        .and_then(|value| value.to_str())
-        .ok_or(FileOpError::UnsafeFileName)
-        .map_err(|error| error.to_string())?;
-    for attempt in 0..100 {
-        let candidate = parent.join(format!(
-            ".{name}.{}-{attempt}",
-            new_job_id("zencanvas-stage")
-        ));
-        if !candidate.exists() {
-            return Ok(candidate);
+fn map_atomic_move_error(error: crate::fs_safety::AtomicMoveError) -> String {
+    match error {
+        crate::fs_safety::AtomicMoveError::TargetExists => FileOpError::TargetExists.to_string(),
+        crate::fs_safety::AtomicMoveError::SourceMissing => FileOpError::SourceMissing.to_string(),
+        crate::fs_safety::AtomicMoveError::Cancelled => FileOpError::OperationCanceled.to_string(),
+        crate::fs_safety::AtomicMoveError::SourceChanged => "source_changed".to_string(),
+        crate::fs_safety::AtomicMoveError::UnsupportedAtomicNoReplace => {
+            "atomic_noreplace_unsupported".to_string()
         }
+        crate::fs_safety::AtomicMoveError::CopyVerificationFailed => {
+            "copy_verification_failed".to_string()
+        }
+        crate::fs_safety::AtomicMoveError::TargetCommittedSourceDeleteFailed(message) => {
+            format!("target_committed_source_delete_failed: {message}")
+        }
+        crate::fs_safety::AtomicMoveError::CrossDevice => "cross_device".to_string(),
+        crate::fs_safety::AtomicMoveError::UnsafePath => "unsafe_path".to_string(),
+        crate::fs_safety::AtomicMoveError::ReparsePoint => "reparse_point".to_string(),
+        crate::fs_safety::AtomicMoveError::Symlink => "symlink".to_string(),
+        crate::fs_safety::AtomicMoveError::Io(error) => FileOpError::Io(error).to_string(),
     }
-
-    Err(FileOpError::Io(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "could not allocate a temporary move target",
-    ))
-    .to_string())
-}
-
-fn should_copy_fallback(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::PermissionDenied | io::ErrorKind::Unsupported | io::ErrorKind::Other
-    ) || matches!(
-        error.raw_os_error(),
-        Some(1) | Some(17) | Some(18) | Some(50) | Some(95)
-    )
 }
 
 fn ensure_general_file_operation_allowed(path: &Path) -> Result<(), String> {
@@ -2639,7 +2526,9 @@ mod tests {
             source_modified_ns: None,
             source_platform_file_id: None,
             source_quick_hash: None,
+            source_full_hash: None,
             target_platform_file_id: None,
+            target_full_hash: None,
         };
 
         let restored = restore_moves_core(RestoreMovesRequest { logs: vec![log] });

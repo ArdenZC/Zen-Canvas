@@ -30,7 +30,7 @@ impl Database {
                 restore_status,
                 restore_error,
                 source_size, source_modified_ns, source_platform_file_id, source_quick_hash,
-                target_platform_file_id
+                source_full_hash, target_platform_file_id, target_full_hash
             FROM operation_logs
             ORDER BY created_at DESC
             LIMIT ?1
@@ -56,7 +56,7 @@ impl Database {
                 status, error_message, created_at, can_undo, path_before, path_after,
                 name_before, name_after, can_restore, restored_at, restore_status, restore_error,
                 source_size, source_modified_ns, source_platform_file_id, source_quick_hash,
-                target_platform_file_id
+                source_full_hash, target_platform_file_id, target_full_hash
             FROM operation_logs
             WHERE id = ?1
               AND status = 'success'
@@ -85,7 +85,7 @@ impl Database {
                 status, error_message, created_at, can_undo, path_before, path_after,
                 name_before, name_after, can_restore, restored_at, restore_status, restore_error,
                 source_size, source_modified_ns, source_platform_file_id, source_quick_hash,
-                target_platform_file_id
+                source_full_hash, target_platform_file_id, target_full_hash
             FROM operation_logs
             WHERE status = 'pending'
             ORDER BY created_at ASC
@@ -104,7 +104,7 @@ impl Database {
                 status, error_message, created_at, can_undo, path_before, path_after,
                 name_before, name_after, can_restore, restored_at, restore_status, restore_error,
                 source_size, source_modified_ns, source_platform_file_id, source_quick_hash,
-                target_platform_file_id
+                source_full_hash, target_platform_file_id, target_full_hash
             FROM operation_logs
             WHERE restore_status = 'pending'
             ORDER BY created_at ASC
@@ -200,9 +200,11 @@ impl Database {
                     source_modified_ns,
                     source_platform_file_id,
                     source_quick_hash,
-                    target_platform_file_id
+                    source_full_hash,
+                    target_platform_file_id,
+                    target_full_hash
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26)
                 ON CONFLICT(id) DO UPDATE SET
                     batch_id = excluded.batch_id,
                     operation_type = excluded.operation_type,
@@ -226,7 +228,9 @@ impl Database {
                     source_modified_ns = excluded.source_modified_ns,
                     source_platform_file_id = excluded.source_platform_file_id,
                     source_quick_hash = excluded.source_quick_hash,
-                    target_platform_file_id = excluded.target_platform_file_id
+                    source_full_hash = excluded.source_full_hash,
+                    target_platform_file_id = excluded.target_platform_file_id,
+                    target_full_hash = excluded.target_full_hash
                 "#,
             )?;
 
@@ -257,7 +261,9 @@ impl Database {
                     log.source_modified_ns,
                     log.source_platform_file_id,
                     log.source_quick_hash,
-                    log.target_platform_file_id
+                    log.source_full_hash,
+                    log.target_platform_file_id,
+                    log.target_full_hash
                 ])?;
             }
         }
@@ -369,7 +375,9 @@ fn operation_log_from_row(row: &Row<'_>) -> rusqlite::Result<OperationLogDto> {
         source_modified_ns: row.get(20)?,
         source_platform_file_id: row.get(21)?,
         source_quick_hash: row.get(22)?,
-        target_platform_file_id: row.get(23)?,
+        source_full_hash: row.get(23)?,
+        target_platform_file_id: row.get(24)?,
+        target_full_hash: row.get(25)?,
     })
 }
 

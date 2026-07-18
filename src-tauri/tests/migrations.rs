@@ -128,7 +128,7 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
         )
         .expect("read legacy trash identity state");
 
-    assert_eq!(version, 20);
+    assert_eq!(version, 21);
     assert!(settings_json.contains("minimize"));
     assert_eq!(revision, 0);
     assert_eq!(can_restore, 0);
@@ -136,7 +136,9 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
     assert!(restore_error.contains("legacy identity"));
     assert_eq!(identity_status, "legacy_unverified");
     assert!(column_names(&conn, "operation_logs").contains(&"source_quick_hash".to_string()));
+    assert!(column_names(&conn, "operation_logs").contains(&"source_full_hash".to_string()));
     assert!(column_names(&conn, "cleanup_trash_items").contains(&"trash_quick_hash".to_string()));
+    assert!(column_names(&conn, "cleanup_trash_items").contains(&"trash_full_hash".to_string()));
     assert_eq!(
         conn.query_row::<i64, _, _>(
             "SELECT COUNT(*) FROM operation_batches WHERE id = 'legacy-batch'",

@@ -167,6 +167,8 @@ pub struct CleanupTrashItem {
     #[serde(skip_serializing)]
     pub source_quick_hash: Option<String>,
     #[serde(skip_serializing)]
+    pub source_full_hash: Option<String>,
+    #[serde(skip_serializing)]
     pub trash_modified_ns: Option<String>,
     #[serde(skip_serializing)]
     pub trash_platform_volume_id: Option<String>,
@@ -174,6 +176,8 @@ pub struct CleanupTrashItem {
     pub trash_platform_file_id: Option<String>,
     #[serde(skip_serializing)]
     pub trash_quick_hash: Option<String>,
+    #[serde(skip_serializing)]
+    pub trash_full_hash: Option<String>,
     #[serde(skip_serializing)]
     pub identity_status: String,
 }
@@ -1339,10 +1343,12 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
             source_modified_ns: fingerprint.modified_ns.map(|value| value.to_string()),
             source_platform_file_id: fingerprint.platform_file_id,
             source_quick_hash: fingerprint.quick_hash,
+            source_full_hash: fingerprint.full_hash,
             trash_modified_ns: None,
             trash_platform_volume_id: None,
             trash_platform_file_id: None,
             trash_quick_hash: None,
+            trash_full_hash: None,
             identity_status: "pending".to_string(),
         };
         items.push(item);
@@ -1371,22 +1377,22 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                 Path::new(&item.trash_path),
                 item.size,
                 item.source_quick_hash.as_deref(),
+                item.source_full_hash.as_deref(),
             );
             let (status, log_status, message) = match move_result {
                 Ok(()) => {
                     match crate::file_ops::file_identity_fingerprint(Path::new(&item.trash_path)) {
                         Ok(trash_fingerprint)
                             if trash_fingerprint.size == item.size
-                                && trash_fingerprint.quick_hash == item.source_quick_hash =>
+                                && trash_fingerprint.quick_hash == item.source_quick_hash
+                                && trash_fingerprint.full_hash == item.source_full_hash =>
                         {
                             item.trash_modified_ns =
                                 trash_fingerprint.modified_ns.map(|value| value.to_string());
-                            item.trash_platform_volume_id = trash_fingerprint
-                                .platform_file_id
-                                .as_deref()
-                                .and_then(platform_volume_id);
+                            item.trash_platform_volume_id = trash_fingerprint.platform_volume_id;
                             item.trash_platform_file_id = trash_fingerprint.platform_file_id;
                             item.trash_quick_hash = trash_fingerprint.quick_hash;
+                            item.trash_full_hash = trash_fingerprint.full_hash;
                             item.identity_status = "verified".to_string();
                             result.moved += 1;
                             (
@@ -1399,12 +1405,10 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                         Ok(trash_fingerprint) => {
                             item.trash_modified_ns =
                                 trash_fingerprint.modified_ns.map(|value| value.to_string());
-                            item.trash_platform_volume_id = trash_fingerprint
-                                .platform_file_id
-                                .as_deref()
-                                .and_then(platform_volume_id);
+                            item.trash_platform_volume_id = trash_fingerprint.platform_volume_id;
                             item.trash_platform_file_id = trash_fingerprint.platform_file_id;
                             item.trash_quick_hash = trash_fingerprint.quick_hash;
+                            item.trash_full_hash = trash_fingerprint.full_hash;
                             item.identity_status = "mismatch".to_string();
                             result.failed += 1;
                             (
@@ -1680,11 +1684,14 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             &original,
             item.size,
             item.trash_quick_hash.as_deref(),
+            item.trash_full_hash.as_deref(),
         ) {
             Ok(()) => {
                 let restored_identity = crate::file_ops::file_identity_fingerprint(&original);
                 if restored_identity.as_ref().is_ok_and(|fingerprint| {
-                    fingerprint.size == item.size && fingerprint.quick_hash == item.trash_quick_hash
+                    fingerprint.size == item.size
+                        && fingerprint.quick_hash == item.trash_quick_hash
+                        && fingerprint.full_hash == item.trash_full_hash
                 }) {
                     item.status = "restored".to_string();
                     item.restored_at = Some(current_timestamp_ms().to_string());
@@ -1791,12 +1798,10 @@ pub fn reconcile_pending_cleanup_journal(db: &Database) -> Result<usize, String>
             {
                 item.trash_modified_ns =
                     trash_fingerprint.modified_ns.map(|value| value.to_string());
-                item.trash_platform_volume_id = trash_fingerprint
-                    .platform_file_id
-                    .as_deref()
-                    .and_then(platform_volume_id);
+                item.trash_platform_volume_id = trash_fingerprint.platform_volume_id;
                 item.trash_platform_file_id = trash_fingerprint.platform_file_id;
                 item.trash_quick_hash = trash_fingerprint.quick_hash;
+                item.trash_full_hash = trash_fingerprint.full_hash;
                 item.identity_status = "verified".to_string();
                 item.status = "moved".to_string();
                 item.message =
@@ -2989,10 +2994,10 @@ impl Database {
                 INSERT INTO cleanup_trash_items (
                     id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
                     status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
-                    trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
-                    trash_quick_hash, identity_status
+                    source_full_hash, trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                    trash_quick_hash, trash_full_hash, identity_status
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
                 ON CONFLICT(id) DO UPDATE SET
                     batch_id = excluded.batch_id,
                     original_path = excluded.original_path,
@@ -3006,10 +3011,12 @@ impl Database {
                     source_modified_ns = excluded.source_modified_ns,
                     source_platform_file_id = excluded.source_platform_file_id,
                     source_quick_hash = excluded.source_quick_hash,
+                    source_full_hash = excluded.source_full_hash,
                     trash_modified_ns = excluded.trash_modified_ns,
                     trash_platform_volume_id = excluded.trash_platform_volume_id,
                     trash_platform_file_id = excluded.trash_platform_file_id,
                     trash_quick_hash = excluded.trash_quick_hash,
+                    trash_full_hash = excluded.trash_full_hash,
                     identity_status = excluded.identity_status
                 "#,
             )?;
@@ -3028,10 +3035,12 @@ impl Database {
                     item.source_modified_ns,
                     item.source_platform_file_id,
                     item.source_quick_hash,
+                    item.source_full_hash,
                     item.trash_modified_ns,
                     item.trash_platform_volume_id,
                     item.trash_platform_file_id,
                     item.trash_quick_hash,
+                    item.trash_full_hash,
                     item.identity_status
                 ])?;
             }
@@ -3048,8 +3057,8 @@ impl Database {
                    i.id, i.batch_id, i.original_path, i.trash_path, i.name, i.size,
                    i.moved_at, i.restored_at, i.status, i.message,
                    i.source_modified_ns, i.source_platform_file_id, i.source_quick_hash,
-                   i.trash_modified_ns, i.trash_platform_volume_id, i.trash_platform_file_id,
-                   i.trash_quick_hash, i.identity_status
+                   i.source_full_hash, i.trash_modified_ns, i.trash_platform_volume_id, i.trash_platform_file_id,
+                   i.trash_quick_hash, i.trash_full_hash, i.identity_status
             FROM cleanup_trash_batches AS b
             LEFT JOIN cleanup_trash_items AS i ON i.batch_id = b.id
             ORDER BY CAST(b.created_at AS INTEGER) DESC, i.name COLLATE NOCASE ASC
@@ -3092,11 +3101,13 @@ impl Database {
                     source_modified_ns: row.get(16)?,
                     source_platform_file_id: row.get(17)?,
                     source_quick_hash: row.get(18)?,
-                    trash_modified_ns: row.get(19)?,
-                    trash_platform_volume_id: row.get(20)?,
-                    trash_platform_file_id: row.get(21)?,
-                    trash_quick_hash: row.get(22)?,
-                    identity_status: row.get(23)?,
+                    source_full_hash: row.get(19)?,
+                    trash_modified_ns: row.get(20)?,
+                    trash_platform_volume_id: row.get(21)?,
+                    trash_platform_file_id: row.get(22)?,
+                    trash_quick_hash: row.get(23)?,
+                    trash_full_hash: row.get(24)?,
+                    identity_status: row.get(25)?,
                 });
             }
         }
@@ -3112,8 +3123,8 @@ impl Database {
             r#"
             SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
                    status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
-                   trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
-                   trash_quick_hash, identity_status
+                   source_full_hash, trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                   trash_quick_hash, trash_full_hash, identity_status
             FROM cleanup_trash_items
             WHERE batch_id = ?1
             ORDER BY name COLLATE NOCASE ASC
@@ -3129,8 +3140,8 @@ impl Database {
             r#"
             SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
                    status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
-                   trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
-                   trash_quick_hash, identity_status
+                   source_full_hash, trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                   trash_quick_hash, trash_full_hash, identity_status
             FROM cleanup_trash_items
             WHERE id = ?1
             "#,
@@ -3147,8 +3158,8 @@ impl Database {
             r#"
             SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
                    status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
-                   trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
-                   trash_quick_hash, identity_status
+                   source_full_hash, trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                   trash_quick_hash, trash_full_hash, identity_status
             FROM cleanup_trash_items
             WHERE status = 'pending'
             ORDER BY moved_at ASC
@@ -3193,11 +3204,13 @@ impl Database {
                 source_modified_ns = ?5,
                 source_platform_file_id = ?6,
                 source_quick_hash = ?7,
-                trash_modified_ns = ?8,
-                trash_platform_volume_id = ?9,
-                trash_platform_file_id = ?10,
-                trash_quick_hash = ?11,
-                identity_status = ?12
+                source_full_hash = ?8,
+                trash_modified_ns = ?9,
+                trash_platform_volume_id = ?10,
+                trash_platform_file_id = ?11,
+                trash_quick_hash = ?12,
+                trash_full_hash = ?13,
+                identity_status = ?14
             WHERE id = ?1
             "#,
             params![
@@ -3208,10 +3221,12 @@ impl Database {
                 item.source_modified_ns,
                 item.source_platform_file_id,
                 item.source_quick_hash,
+                item.source_full_hash,
                 item.trash_modified_ns,
                 item.trash_platform_volume_id,
                 item.trash_platform_file_id,
                 item.trash_quick_hash,
+                item.trash_full_hash,
                 item.identity_status
             ],
         )?;
@@ -3235,11 +3250,13 @@ fn cleanup_trash_item_from_row(row: &Row<'_>) -> rusqlite::Result<CleanupTrashIt
         source_modified_ns: row.get(10)?,
         source_platform_file_id: row.get(11)?,
         source_quick_hash: row.get(12)?,
-        trash_modified_ns: row.get(13)?,
-        trash_platform_volume_id: row.get(14)?,
-        trash_platform_file_id: row.get(15)?,
-        trash_quick_hash: row.get(16)?,
-        identity_status: row.get(17)?,
+        source_full_hash: row.get(13)?,
+        trash_modified_ns: row.get(14)?,
+        trash_platform_volume_id: row.get(15)?,
+        trash_platform_file_id: row.get(16)?,
+        trash_quick_hash: row.get(17)?,
+        trash_full_hash: row.get(18)?,
+        identity_status: row.get(19)?,
     })
 }
 
@@ -3271,8 +3288,15 @@ fn move_path_to_safe_trash(
     trash_path: &Path,
     expected_size: u64,
     expected_quick_hash: Option<&str>,
+    expected_full_hash: Option<&str>,
 ) -> Result<(), String> {
-    move_path_with_copy_fallback(source, trash_path, expected_size, expected_quick_hash)
+    move_path_with_copy_fallback(
+        source,
+        trash_path,
+        expected_size,
+        expected_quick_hash,
+        expected_full_hash,
+    )
 }
 
 fn move_path_to_restore_location(
@@ -3280,8 +3304,15 @@ fn move_path_to_restore_location(
     original: &Path,
     expected_size: u64,
     expected_quick_hash: Option<&str>,
+    expected_full_hash: Option<&str>,
 ) -> Result<(), String> {
-    move_path_with_copy_fallback(trash_path, original, expected_size, expected_quick_hash)
+    move_path_with_copy_fallback(
+        trash_path,
+        original,
+        expected_size,
+        expected_quick_hash,
+        expected_full_hash,
+    )
 }
 
 fn move_path_with_copy_fallback(
@@ -3289,55 +3320,23 @@ fn move_path_with_copy_fallback(
     target: &Path,
     expected_size: u64,
     expected_quick_hash: Option<&str>,
+    expected_full_hash: Option<&str>,
 ) -> Result<(), String> {
-    if target.exists() {
-        return Err("target path already exists".to_string());
-    }
+    let expected = crate::fs_safety::ExpectedFileIdentity {
+        size: expected_size,
+        modified_ns: None,
+        platform_volume_id: None,
+        platform_file_id: None,
+        sample_hash: expected_quick_hash.map(str::to_string),
+        full_hash: expected_full_hash.map(str::to_string),
+    };
     if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        crate::fs_safety::create_directory_chain_no_links(parent)
+            .map_err(|error| format!("target parent rejected: {error}"))?;
     }
-    match fs::rename(source, target) {
-        Ok(()) => return Ok(()),
-        Err(_) => {
-            let stage = staging_path_for(target);
-            if stage.exists() {
-                let _ = remove_path(&stage);
-            }
-            if let Err(error) = copy_path(source, &stage) {
-                let _ = remove_path(&stage);
-                return Err(error);
-            }
-            let copied_size = path_size_for_verify(&stage)?;
-            if expected_size > 0 && copied_size != expected_size {
-                let _ = remove_path(&stage);
-                return Err(format!(
-                    "copy verification failed: expected {expected_size} bytes, copied {copied_size} bytes"
-                ));
-            }
-            if let Some(expected_hash) = expected_quick_hash {
-                let staged = crate::file_ops::file_identity_fingerprint(&stage)?;
-                if staged.quick_hash.as_deref() != Some(expected_hash) {
-                    let _ = remove_path(&stage);
-                    return Err(
-                        "copy verification failed: staged content identity did not match"
-                            .to_string(),
-                    );
-                }
-            }
-            fs::rename(&stage, target).map_err(|error| {
-                let _ = remove_path(&stage);
-                format!("failed to commit staged safe-trash copy: {error}")
-            })?;
-            remove_path(source)?;
-        }
-    }
-    Ok(())
-}
-
-fn platform_volume_id(platform_file_id: &str) -> Option<String> {
-    platform_file_id
-        .split_once(':')
-        .map(|(volume, _)| volume.to_string())
+    crate::fs_safety::atomic_move_noreplace(source, target, Some(&expected), None)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }
 
 fn safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
@@ -3345,16 +3344,19 @@ fn safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
         return false;
     }
     let (Some(expected_hash), Ok(actual)) = (
-        item.trash_quick_hash.as_deref(),
+        item.trash_full_hash.as_deref(),
         crate::file_ops::file_identity_fingerprint(path),
     ) else {
         return false;
     };
-    if actual.size != item.size || actual.quick_hash.as_deref() != Some(expected_hash) {
+    if actual.size != item.size || actual.full_hash.as_deref() != Some(expected_hash) {
         return false;
     }
     if let Some(expected_id) = item.trash_platform_file_id.as_deref() {
         return actual.platform_file_id.as_deref() == Some(expected_id);
+    }
+    if let Some(expected_volume) = item.trash_platform_volume_id.as_deref() {
+        return actual.platform_volume_id.as_deref() == Some(expected_volume);
     }
     item.trash_modified_ns
         .as_deref()
@@ -3365,12 +3367,12 @@ fn safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
 
 fn pending_safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
     let (Some(expected_hash), Ok(actual)) = (
-        item.source_quick_hash.as_deref(),
+        item.source_full_hash.as_deref(),
         crate::file_ops::file_identity_fingerprint(path),
     ) else {
         return false;
     };
-    if actual.size != item.size || actual.quick_hash.as_deref() != Some(expected_hash) {
+    if actual.size != item.size || actual.full_hash.as_deref() != Some(expected_hash) {
         return false;
     }
     if let Some(expected_id) = item.source_platform_file_id.as_deref() {
@@ -3381,58 +3383,6 @@ fn pending_safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> 
         .and_then(|value| value.parse::<i128>().ok())
         .zip(actual.modified_ns)
         .is_some_and(|(expected, actual)| expected == actual)
-}
-
-fn staging_path_for(target: &Path) -> PathBuf {
-    let name = target
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("item");
-    target.with_file_name(format!(".{name}.{}", new_job_id("zencanvas-stage")))
-}
-
-fn copy_path(source: &Path, target: &Path) -> Result<(), String> {
-    let metadata = fs::symlink_metadata(source).map_err(|error| error.to_string())?;
-    if metadata.file_type().is_symlink() {
-        return Err("refusing to copy symlink into safe trash".to_string());
-    }
-    if metadata.is_file() {
-        fs::copy(source, target).map_err(|error| error.to_string())?;
-        return Ok(());
-    }
-    if metadata.is_dir() {
-        fs::create_dir_all(target).map_err(|error| error.to_string())?;
-        for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
-            let entry = entry.map_err(|error| error.to_string())?;
-            copy_path(&entry.path(), &target.join(entry.file_name()))?;
-        }
-        return Ok(());
-    }
-    Err("unsupported file type for safe trash".to_string())
-}
-
-fn remove_path(path: &Path) -> Result<(), String> {
-    if path.is_dir() {
-        fs::remove_dir_all(path).map_err(|error| error.to_string())
-    } else {
-        fs::remove_file(path).map_err(|error| error.to_string())
-    }
-}
-
-fn path_size_for_verify(path: &Path) -> Result<u64, String> {
-    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
-    if metadata.is_file() {
-        return Ok(metadata.len());
-    }
-    if metadata.is_dir() {
-        let mut size = 0_u64;
-        for entry in fs::read_dir(path).map_err(|error| error.to_string())? {
-            let entry = entry.map_err(|error| error.to_string())?;
-            size = size.saturating_add(path_size_for_verify(&entry.path())?);
-        }
-        return Ok(size);
-    }
-    Ok(0)
 }
 
 fn default_scan_roots() -> Vec<PathBuf> {

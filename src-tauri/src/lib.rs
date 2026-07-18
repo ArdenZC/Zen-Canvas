@@ -3,6 +3,7 @@ pub mod app_control;
 pub mod db;
 pub mod dedupe;
 pub mod file_ops;
+pub mod fs_safety;
 pub mod ids;
 pub mod path_filter;
 pub mod runtime_capabilities;

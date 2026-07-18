@@ -77,7 +77,9 @@
             source_modified_ns: None,
             source_platform_file_id: None,
             source_quick_hash: None,
+            source_full_hash: None,
             target_platform_file_id: None,
+            target_full_hash: None,
         }
     }
 
