@@ -1632,10 +1632,32 @@ fn ensure_general_file_operation_allowed(path: &Path) -> Result<(), String> {
 }
 
 fn ensure_general_file_operation_allowed_for_os(path: &Path, os: &str) -> Result<(), String> {
+    let current_temp = if os == "macos" {
+        env::temp_dir().canonicalize().ok()
+    } else {
+        None
+    };
+    ensure_general_file_operation_allowed_for_os_with_temp(path, os, current_temp.as_deref())
+}
+
+fn ensure_general_file_operation_allowed_for_os_with_temp(
+    path: &Path,
+    os: &str,
+    current_temp: Option<&Path>,
+) -> Result<(), String> {
     let normalized = normalize_for_compare_for_os(path, os);
+    let is_current_macos_temp = os == "macos"
+        && current_temp.is_some_and(|temp| {
+            let normalized_temp = normalize_for_compare_for_os(temp, os);
+            normalized == normalized_temp || normalized.starts_with(&format!("{normalized_temp}/"))
+        });
+
     for root in general_file_operation_protected_roots_for_os(os) {
         let protected = normalize_for_compare_for_os(&root, os);
         if normalized == protected || normalized.starts_with(&format!("{protected}/")) {
+            if is_current_macos_temp {
+                continue;
+            }
             return Err(FileOpError::ProtectedPath(normalize_path(&root)).to_string());
         }
     }
@@ -2375,6 +2397,27 @@ mod tests {
             "macos",
         )
         .expect_err("cleanup temp exceptions must not relax general moves");
+
+        assert!(error.contains("protected system location"));
+    }
+
+    #[test]
+    fn general_operations_allow_only_the_current_macos_temp_root() {
+        let current_temp = Path::new("/private/var/folders/current/T");
+
+        ensure_general_file_operation_allowed_for_os_with_temp(
+            Path::new("/private/var/folders/current/T/zen-canvas/source.txt"),
+            "macos",
+            Some(current_temp),
+        )
+        .expect("the current macOS temp subtree should be usable");
+
+        let error = ensure_general_file_operation_allowed_for_os_with_temp(
+            Path::new("/private/var/folders/another/T/zen-canvas/source.txt"),
+            "macos",
+            Some(current_temp),
+        )
+        .expect_err("another macOS temp subtree must remain protected");
 
         assert!(error.contains("protected system location"));
     }

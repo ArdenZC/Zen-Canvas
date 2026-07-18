@@ -1860,7 +1860,7 @@ mod tests {
     use crate::ai::{
         provider::AIProviderError,
         schema::{AIConnectionTestResult, AIProviderPresetId},
-        settings::{save_ai_settings_for_db, AISettings},
+        settings::AISettings,
     };
     use crate::db::InsertFileRequest;
     use rusqlite::Connection;
@@ -2726,7 +2726,6 @@ mod tests {
         let db = test_db();
         insert_test_file(&db, "file-1", "/tmp/Scala期末复习题.pdf");
         let settings = enabled_settings();
-        save_ai_settings_for_db(&db, &settings).expect("save ai settings");
         let targets = collect_selected_ai_classification_targets(&db, &["file-1".to_string()])
             .expect("collect targets");
         let provider = StaticProvider {
