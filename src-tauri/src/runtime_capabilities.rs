@@ -12,11 +12,7 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
     RuntimeCapabilities {
         ai_debug_available,
         real_ai_classification_available: true,
-        credential_store_available: cfg!(any(
-            target_os = "windows",
-            target_os = "macos",
-            target_os = "linux"
-        )),
+        credential_store_available: cfg!(any(target_os = "windows", target_os = "macos")),
     }
 }
 

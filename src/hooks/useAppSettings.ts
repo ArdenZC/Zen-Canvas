@@ -315,9 +315,6 @@ export function useAppSettings({
             latestSettingsRef.current = loaded.settings;
             setSettings(loaded.settings);
           }
-        } else if (!cancelled && loadEpochRef.current === loadEpoch) {
-          settingsLoadPendingRef.current = false;
-          settingsLoadedRef.current = true;
         }
         return loaded;
       } catch (error) {

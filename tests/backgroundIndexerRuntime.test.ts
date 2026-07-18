@@ -93,6 +93,9 @@ describe("background indexer lifecycle", () => {
 
     start.resolve();
     await flushPromises();
+
+    expect(useBackgroundIndexerStore.getState().completedRoots).toEqual(["F:/hardening"]);
+    expect(runtimeMocks.refresh).toHaveBeenCalledTimes(1);
   });
 });
 

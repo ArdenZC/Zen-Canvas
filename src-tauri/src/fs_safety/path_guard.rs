@@ -3,6 +3,7 @@ use std::{
     path::{Component, Path},
 };
 
+use super::platform_support;
 #[cfg(target_os = "macos")]
 use std::path::PathBuf;
 use thiserror::Error;
@@ -15,9 +16,15 @@ pub enum PathGuardError {
     ReparsePoint,
     #[error("io: {0}")]
     Io(#[from] io::Error),
+    #[error("target_parent_identity_changed")]
+    IdentityChanged,
+    #[error("unsupported_platform_linux")]
+    UnsupportedPlatformLinux,
 }
 
 pub fn create_directory_chain_no_links(path: &Path) -> Result<(), PathGuardError> {
+    platform_support::ensure_supported_file_mutation()
+        .map_err(|_| PathGuardError::UnsupportedPlatformLinux)?;
     if !path.is_absolute()
         || path
             .components()
@@ -123,7 +130,7 @@ fn is_symlink_at(parent_fd: std::os::fd::RawFd, name: &std::ffi::CString) -> boo
 }
 
 #[cfg(target_os = "macos")]
-fn prepare_macos_path(path: &Path) -> Result<PathBuf, PathGuardError> {
+pub(crate) fn prepare_macos_path(path: &Path) -> Result<PathBuf, PathGuardError> {
     let mut original = PathBuf::new();
     let mut resolved = PathBuf::new();
 

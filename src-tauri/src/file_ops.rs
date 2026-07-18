@@ -127,6 +127,20 @@ pub struct OperationLogDto {
     pub target_platform_file_id: Option<String>,
     #[serde(default)]
     pub target_full_hash: Option<String>,
+    #[serde(default)]
+    pub source_claim_path: Option<String>,
+    #[serde(default = "default_operation_phase")]
+    pub operation_phase: String,
+    #[serde(default)]
+    pub claim_created_at: Option<String>,
+    #[serde(default)]
+    pub claim_platform_file_id: Option<String>,
+    #[serde(default)]
+    pub claim_full_hash: Option<String>,
+}
+
+fn default_operation_phase() -> String {
+    "completed".to_string()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -226,6 +240,8 @@ struct RevealCommand {
 }
 
 pub fn move_file(source_path: String, target_path: String) -> Result<FileOperationResult, String> {
+    crate::fs_safety::platform_support::ensure_supported_file_mutation()
+        .map_err(|error| error.to_string())?;
     let source = validate_source_path(&PathBuf::from(source_path))?;
     let target = validate_target_path(&PathBuf::from(target_path))?;
 
@@ -369,10 +385,12 @@ fn execute_moves_with_persistence_with_progress_and_app_data(
     emitter: &impl OperationProgressEmitter,
     app_data_dir: Option<PathBuf>,
 ) -> Result<ExecuteMovesResult, String> {
+    crate::fs_safety::platform_support::ensure_supported_file_mutation()
+        .map_err(|error| error.to_string())?;
     let operations = request.operations.clone();
     let batch_id = new_job_id("operation-batch");
     let created_at = current_timestamp_ms().to_string();
-    let source_fingerprints =
+    let prepared_operations =
         persist_pending_operation_journal(db, &request, &batch_id, &created_at)?;
     let mut result = execute_moves_core_with_identity(
         request,
@@ -381,12 +399,14 @@ fn execute_moves_with_persistence_with_progress_and_app_data(
         app_data_dir,
         batch_id,
         created_at,
-        Some(&source_fingerprints),
+        Some(&prepared_operations),
     );
 
     for (operation, log) in operations.iter().zip(result.logs.iter_mut()) {
-        if let Some(fingerprint) = source_fingerprints.get(&operation.id) {
-            apply_source_fingerprint(log, fingerprint);
+        if let Some(prepared) = prepared_operations.get(&operation.id) {
+            apply_source_fingerprint(log, &prepared.fingerprint);
+            log.source_claim_path = Some(normalize_path(&prepared.claim_path));
+            log.claim_created_at = Some(prepared.claim_created_at.clone());
         }
         if log.status != "success" {
             continue;
@@ -409,6 +429,10 @@ fn execute_moves_with_persistence_with_progress_and_app_data(
             eprintln!("{warning}");
             append_operation_log_error(log, warning);
         }
+    }
+
+    for log in &mut result.logs {
+        log.operation_phase = operation_phase_for_log(log).to_string();
     }
 
     db.save_operation_logs(&result.batch_id, &result.logs)
@@ -458,7 +482,7 @@ fn execute_moves_core_with_identity(
     app_data_dir: Option<PathBuf>,
     batch_id: String,
     created_at: String,
-    expected_fingerprints: Option<&std::collections::HashMap<String, FileIdentityFingerprint>>,
+    prepared_operations: Option<&std::collections::HashMap<String, PreparedOperation>>,
 ) -> ExecuteMovesResult {
     let total = request.operations.len() as u64;
     let mut progress = OperationProgressBuffer::new("execute", batch_id.clone(), total);
@@ -468,17 +492,20 @@ fn execute_moves_core_with_identity(
         let log = if is_operation_cancelled(&cancel_flag) {
             make_canceled_operation_log(&batch_id, &created_at, index, operation)
         } else {
-            let expected_identity = expected_fingerprints
-                .and_then(|fingerprints| fingerprints.get(&operation.id))
-                .map(expected_identity_from_fingerprint);
+            let prepared = prepared_operations.and_then(|items| items.get(&operation.id));
+            let expected_identity =
+                prepared.map(|item| expected_identity_from_fingerprint(&item.fingerprint));
             execute_preview_operation_with_app_data(
                 &batch_id,
                 &created_at,
                 index,
                 operation,
-                Some(cancel_flag.as_ref()),
-                app_data_dir.as_deref(),
-                expected_identity.as_ref(),
+                OperationExecutionContext {
+                    cancel_flag: Some(cancel_flag.as_ref()),
+                    app_data_dir: app_data_dir.as_deref(),
+                    expected_identity: expected_identity.as_ref(),
+                    planned_claim_path: prepared.map(|item| item.claim_path.as_path()),
+                },
             )
         };
         let current_path = operation.source_path.clone();
@@ -497,6 +524,15 @@ pub(crate) struct FileIdentityFingerprint {
     pub(crate) platform_file_id: Option<String>,
     pub(crate) quick_hash: Option<String>,
     pub(crate) full_hash: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedOperation {
+    fingerprint: FileIdentityFingerprint,
+    #[cfg(test)]
+    source_path: PathBuf,
+    claim_path: PathBuf,
+    claim_created_at: String,
 }
 
 pub(crate) fn file_identity_fingerprint(path: &Path) -> Result<FileIdentityFingerprint, String> {
@@ -595,7 +631,7 @@ fn persist_pending_operation_journal(
     request: &ExecuteMovesRequest,
     batch_id: &str,
     created_at: &str,
-) -> Result<std::collections::HashMap<String, FileIdentityFingerprint>, String> {
+) -> Result<std::collections::HashMap<String, PreparedOperation>, String> {
     let logs = request
         .operations
         .iter()
@@ -603,6 +639,11 @@ fn persist_pending_operation_journal(
         .map(|(index, operation)| {
             let fingerprint = file_identity_fingerprint(Path::new(&operation.source_path))
                 .map_err(|error| format!("cannot journal source identity: {error}"))?;
+            let claim_path = crate::fs_safety::source_claim::planned_claim_path(
+                Path::new(&operation.source_path),
+                &operation.id,
+            )
+            .map_err(|error| format!("cannot plan source claim: {error}"))?;
             let mut log = make_operation_log(
                 batch_id,
                 created_at,
@@ -613,18 +654,40 @@ fn persist_pending_operation_journal(
                 operation.target_path.clone(),
             );
             apply_source_fingerprint(&mut log, &fingerprint);
-            Ok((log, fingerprint))
+            log.source_claim_path = Some(normalize_path(&claim_path));
+            log.claim_created_at = Some(created_at.to_string());
+            log.claim_platform_file_id = fingerprint.platform_file_id.clone();
+            log.claim_full_hash = fingerprint.full_hash.clone();
+            log.operation_phase = "prepared".to_string();
+            Ok((
+                log,
+                PreparedOperation {
+                    fingerprint,
+                    #[cfg(test)]
+                    source_path: PathBuf::from(&operation.source_path),
+                    claim_path,
+                    claim_created_at: created_at.to_string(),
+                },
+            ))
         })
         .collect::<Result<Vec<_>, String>>()?;
     let fingerprints = logs
         .iter()
         .zip(request.operations.iter())
-        .map(|((_, fingerprint), operation)| (operation.id.clone(), fingerprint.clone()))
+        .map(|((_, prepared), operation)| (operation.id.clone(), prepared.clone()))
         .collect::<std::collections::HashMap<_, _>>();
     let logs = logs.into_iter().map(|(log, _)| log).collect::<Vec<_>>();
     db.save_operation_logs(batch_id, &logs).map_err(|error| {
         format!("failed to persist operation journal before execution: {error}")
     })?;
+    #[cfg(test)]
+    for prepared in fingerprints.values() {
+        crate::fs_safety::source_claim::run_claim_test_hook(
+            crate::fs_safety::source_claim::ClaimTestPoint::AfterJournalPreparedBeforeClaim,
+            &prepared.source_path,
+            &prepared.claim_path,
+        );
+    }
     Ok(fingerprints)
 }
 
@@ -637,26 +700,62 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
         .map_err(|error| error.to_string())?;
     let mut by_batch = std::collections::HashMap::<String, Vec<OperationLogDto>>::new();
     for mut log in pending {
-        let before_exists = Path::new(&log.path_before).exists();
-        let after_exists = Path::new(&log.path_after).exists();
-        if !before_exists
-            && after_exists
-            && journal_identity_matches(&log, Path::new(&log.path_after))
-        {
-            log.status = "success".to_string();
-            log.can_undo = log.operation_type != "move_to_trash";
-            log.can_restore = log.can_undo;
-            log.error_message =
-                Some("Recovered an interrupted operation journal after restart.".to_string());
-        } else {
-            log.status = "manual_review".to_string();
-            log.can_undo = false;
-            log.can_restore = false;
-            log.error_message = Some(if before_exists && !after_exists {
-                "Operation was interrupted before the filesystem move.".to_string()
-            } else {
-                "Interrupted operation requires manual path review.".to_string()
-            });
+        let before = Path::new(&log.path_before);
+        let after = Path::new(&log.path_after);
+        let claim = log.source_claim_path.as_deref().map(Path::new);
+        let before_matches = before.exists() && journal_identity_matches(&log, before);
+        let after_matches = after.exists() && journal_identity_matches(&log, after);
+        let claim_matches =
+            claim.is_some_and(|path| path.exists() && journal_identity_matches(&log, path));
+        match (before_matches, after_matches, claim_matches) {
+            (false, true, false) => {
+                log.status = "success".to_string();
+                log.operation_phase = "completed".to_string();
+                log.can_undo = log.operation_type != "move_to_trash";
+                log.can_restore = log.can_undo;
+                log.error_message =
+                    Some("Recovered an interrupted operation journal after restart.".to_string());
+            }
+            (true, false, false) => {
+                log.status = "manual_review".to_string();
+                log.operation_phase = "rolled_back".to_string();
+                log.can_undo = false;
+                log.can_restore = false;
+                log.error_message = Some(
+                    "Operation was interrupted before the filesystem move; manual review is required."
+                        .to_string(),
+                );
+            }
+            (false, false, true) => {
+                log.status = "manual_review".to_string();
+                log.operation_phase = "source_claimed".to_string();
+                log.can_undo = false;
+                log.can_restore = false;
+                log.error_message = Some(
+                    "Source claim was recovered without a committed target; manual review is required."
+                        .to_string(),
+                );
+            }
+            (false, true, true) => {
+                log.status = "manual_review".to_string();
+                log.operation_phase = "source_cleanup_pending".to_string();
+                log.can_undo = false;
+                log.can_restore = false;
+                log.error_message = Some(
+                    "Committed target and source claim were recovered together; source cleanup requires manual review."
+                        .to_string(),
+                );
+            }
+            _ => {
+                log.status = "manual_review".to_string();
+                log.operation_phase = "manual_review".to_string();
+                log.can_undo = false;
+                log.can_restore = false;
+                log.error_message = Some(
+                    "Interrupted operation has ambiguous or replaced identities; manual review is required."
+                        .to_string(),
+                );
+            }
         }
         by_batch.entry(log.batch_id.clone()).or_default().push(log);
     }
@@ -723,7 +822,9 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
 }
 
 pub fn rename_file(source_path: String, new_name: String) -> Result<FileOperationResult, String> {
-    rename_file_with_identity(source_path, new_name, None, None)
+    crate::fs_safety::platform_support::ensure_supported_file_mutation()
+        .map_err(|error| error.to_string())?;
+    rename_file_with_identity(source_path, new_name, None, None, None)
 }
 
 fn rename_file_with_identity(
@@ -731,6 +832,7 @@ fn rename_file_with_identity(
     new_name: String,
     expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
     cancel_flag: Option<&AtomicBool>,
+    planned_claim_path: Option<&Path>,
 ) -> Result<FileOperationResult, String> {
     validate_safe_file_name(&new_name)?;
     let source = validate_source_path(&PathBuf::from(source_path))?;
@@ -746,7 +848,13 @@ fn rename_file_with_identity(
 
     ensure_general_file_operation_allowed(&source)?;
     ensure_general_file_operation_allowed(&target)?;
-    move_file_no_overwrite_with_identity(&source, &target, expected_identity, cancel_flag)?;
+    move_file_no_overwrite_with_identity(
+        &source,
+        &target,
+        expected_identity,
+        planned_claim_path,
+        cancel_flag,
+    )?;
 
     Ok(FileOperationResult {
         operation: "rename".to_string(),
@@ -768,10 +876,20 @@ fn execute_preview_operation(
         created_at,
         index,
         operation,
-        cancel_flag,
-        None,
-        None,
+        OperationExecutionContext {
+            cancel_flag,
+            app_data_dir: None,
+            expected_identity: None,
+            planned_claim_path: None,
+        },
     )
+}
+
+struct OperationExecutionContext<'a> {
+    cancel_flag: Option<&'a AtomicBool>,
+    app_data_dir: Option<&'a Path>,
+    expected_identity: Option<&'a crate::fs_safety::ExpectedFileIdentity>,
+    planned_claim_path: Option<&'a Path>,
 }
 
 fn execute_preview_operation_with_app_data(
@@ -779,11 +897,10 @@ fn execute_preview_operation_with_app_data(
     created_at: &str,
     index: usize,
     operation: &OperationPreviewRequest,
-    cancel_flag: Option<&AtomicBool>,
-    app_data_dir: Option<&Path>,
-    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    context: OperationExecutionContext<'_>,
 ) -> OperationLogDto {
-    let source_fingerprint = expected_identity
+    let source_fingerprint = context
+        .expected_identity
         .cloned()
         .map(|identity| FileIdentityFingerprint {
             size: identity.size,
@@ -801,20 +918,24 @@ fn execute_preview_operation_with_app_data(
             "rename" => rename_file_with_identity(
                 operation.source_path.clone(),
                 operation.new_name.clone(),
-                expected_identity,
-                cancel_flag,
+                context.expected_identity,
+                context.cancel_flag,
+                context.planned_claim_path,
             ),
             "move" | "move_rename" => move_file_with_parent_policy_with_cancel_and_identity(
                 operation.source_path.clone(),
                 operation.target_path.clone(),
                 true,
-                cancel_flag,
-                expected_identity,
+                context.cancel_flag,
+                context.expected_identity,
+                context.planned_claim_path,
             ),
             "move_to_trash" => move_to_trash_with_safety(
                 operation.source_path.clone(),
-                app_data_dir,
-                expected_identity,
+                context.app_data_dir,
+                context.expected_identity,
+                context.planned_claim_path,
+                &operation.id,
             ),
             other => Err(format!("Unsupported operation type: {other}")),
         }
@@ -914,6 +1035,8 @@ fn restore_moves_with_persistence_with_progress(
     cancel_flag: Arc<AtomicBool>,
     emitter: &impl OperationProgressEmitter,
 ) -> Result<RestoreMovesResult, String> {
+    crate::fs_safety::platform_support::ensure_supported_file_mutation()
+        .map_err(|error| error.to_string())?;
     let log_ids = request
         .logs
         .iter()
@@ -1048,6 +1171,15 @@ fn make_operation_log(
         source_full_hash: None,
         target_platform_file_id: None,
         target_full_hash: None,
+        source_claim_path: None,
+        operation_phase: if status == "pending" {
+            "prepared".to_string()
+        } else {
+            "completed".to_string()
+        },
+        claim_created_at: None,
+        claim_platform_file_id: None,
+        claim_full_hash: None,
     }
 }
 
@@ -1056,6 +1188,23 @@ fn append_operation_log_error(log: &mut OperationLogDto, message: String) {
         Some(existing) if !existing.trim().is_empty() => format!("{existing}; {message}"),
         _ => message,
     });
+}
+
+fn operation_phase_for_log(log: &OperationLogDto) -> &'static str {
+    if log.status == "success" {
+        return "completed";
+    }
+    let error = log.error_message.as_deref().unwrap_or_default();
+    if error.contains("target_committed_source_delete_failed") {
+        "source_cleanup_pending"
+    } else if error.contains("source_claim")
+        || error.contains("source_changed")
+        || error.contains("target_parent_identity_changed")
+    {
+        "manual_review"
+    } else {
+        "rolled_back"
+    }
 }
 
 fn restore_operation_log(
@@ -1101,6 +1250,7 @@ fn restore_operation_log(
         &source,
         &target,
         expected_identity.as_ref(),
+        None,
         cancel_flag,
     ) {
         if is_operation_cancelled_error(&error) {
@@ -1308,6 +1458,7 @@ fn move_file_with_parent_policy_with_cancel_and_identity(
     allow_create_parent: bool,
     cancel_flag: Option<&AtomicBool>,
     expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
 ) -> Result<FileOperationResult, String> {
     let source = validate_source_path(&PathBuf::from(source_path))?;
     let target =
@@ -1315,7 +1466,13 @@ fn move_file_with_parent_policy_with_cancel_and_identity(
 
     ensure_general_file_operation_allowed(&source)?;
     ensure_general_file_operation_allowed(&target)?;
-    move_file_no_overwrite_with_identity(&source, &target, expected_identity, cancel_flag)?;
+    move_file_no_overwrite_with_identity(
+        &source,
+        &target,
+        expected_identity,
+        planned_claim_path,
+        cancel_flag,
+    )?;
 
     Ok(FileOperationResult {
         operation: "move".to_string(),
@@ -1328,22 +1485,76 @@ fn move_to_trash_with_safety(
     source_path: String,
     app_data_dir: Option<&Path>,
     expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
+    operation_id: &str,
 ) -> Result<FileOperationResult, String> {
     let source = validate_cleanup_trash_source(&PathBuf::from(source_path), app_data_dir)?;
-    if let Some(expected) = expected_identity {
-        let actual =
-            crate::fs_safety::capture_identity(&source, None).map_err(|error| error.to_string())?;
-        if !crate::fs_safety::identity_matches(expected, &actual) {
-            return Err("source_changed".to_string());
-        }
-    }
-    trash::delete(&source).map_err(|error| FileOpError::Trash(error.to_string()).to_string())?;
+    move_path_to_system_trash_with_safety(
+        &source,
+        expected_identity,
+        planned_claim_path,
+        operation_id,
+    )?;
 
     Ok(FileOperationResult {
         operation: "move_to_trash".to_string(),
         source_path: normalize_path(&source),
         target_path: "Recycle Bin".to_string(),
     })
+}
+
+pub(crate) fn move_path_to_system_trash_with_safety(
+    source: &Path,
+    expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
+    operation_id: &str,
+) -> Result<(), String> {
+    crate::fs_safety::platform_support::ensure_supported_cleanup_mutation()
+        .map_err(|error| error.to_string())?;
+    let expected = expected_identity
+        .cloned()
+        .or_else(|| {
+            file_identity_fingerprint(source)
+                .ok()
+                .map(|f| crate::fs_safety::ExpectedFileIdentity {
+                    size: f.size,
+                    modified_ns: f.modified_ns,
+                    platform_volume_id: f.platform_volume_id,
+                    platform_file_id: f.platform_file_id,
+                    sample_hash: f.quick_hash,
+                    full_hash: f.full_hash,
+                })
+        })
+        .ok_or_else(|| FileOpError::SourceMissing.to_string())?;
+    let claim_path = planned_claim_path
+        .map(Path::to_path_buf)
+        .or_else(|| crate::fs_safety::source_claim::planned_claim_path(source, operation_id).ok())
+        .ok_or_else(|| "source_claim_failed: unable to plan claim path".to_string())?;
+    let mut claim = crate::fs_safety::source_claim::claim_source_at(
+        source,
+        &expected,
+        &claim_path,
+        operation_id,
+        None,
+    )
+    .map_err(|error| error.to_string())?;
+
+    match trash::delete(claim.current_path()) {
+        Ok(()) if !claim.current_path().exists() => Ok(()),
+        Ok(()) => Err("source_claim_recovery_required: system trash path remains".to_string()),
+        Err(error) if claim.current_path().exists() => {
+            if let Err(rollback_error) = claim.rollback_to_original() {
+                return Err(format!(
+                    "source_claim_rollback_failed: {} (trash error: {})",
+                    rollback_error, error
+                ));
+            }
+            Err(FileOpError::Trash(error.to_string()).to_string())
+        }
+        Err(error) => Err(format!(
+            "source_claim_recovery_required: system trash move failed after claim: {error}"
+        )),
+    }
 }
 
 fn validate_cleanup_trash_source(
@@ -1431,18 +1642,25 @@ fn validate_safe_file_name(name: &str) -> Result<(), String> {
 }
 
 fn move_file_no_overwrite(source: &Path, target: &Path) -> Result<(), String> {
-    move_file_no_overwrite_with_identity(source, target, None, None)
+    move_file_no_overwrite_with_identity(source, target, None, None, None)
 }
 
 fn move_file_no_overwrite_with_identity(
     source: &Path,
     target: &Path,
     expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
     cancel_flag: Option<&AtomicBool>,
 ) -> Result<(), String> {
-    crate::fs_safety::atomic_move_noreplace(source, target, expected_identity, cancel_flag)
-        .map(|_| ())
-        .map_err(map_atomic_move_error)
+    crate::fs_safety::atomic_move_noreplace_with_claim_path(
+        source,
+        target,
+        expected_identity,
+        planned_claim_path,
+        cancel_flag,
+    )
+    .map(|_| ())
+    .map_err(map_atomic_move_error)
 }
 
 #[cfg(test)]
@@ -1498,6 +1716,39 @@ fn map_atomic_move_error(error: crate::fs_safety::AtomicMoveError) -> String {
         }
         crate::fs_safety::AtomicMoveError::TargetCommittedSourceDeleteFailed(message) => {
             format!("target_committed_source_delete_failed: {message}")
+        }
+        crate::fs_safety::AtomicMoveError::CrossVolumeDirectoryMoveUnsupported => {
+            "cross_volume_directory_move_unsupported".to_string()
+        }
+        crate::fs_safety::AtomicMoveError::CrossVolumeFileMoveUnsupportedOnMacos => {
+            "cross_volume_file_move_unsupported_on_macos".to_string()
+        }
+        crate::fs_safety::AtomicMoveError::AtomicSourceBindingUnsupported => {
+            "atomic_source_binding_unsupported".to_string()
+        }
+        crate::fs_safety::AtomicMoveError::UnsupportedPlatformLinux => {
+            "unsupported_platform_linux".to_string()
+        }
+        crate::fs_safety::AtomicMoveError::TargetParentIdentityChanged => {
+            "target_parent_identity_changed".to_string()
+        }
+        crate::fs_safety::AtomicMoveError::TargetParentDurabilityUnknown => {
+            "target_parent_durability_unknown".to_string()
+        }
+        crate::fs_safety::AtomicMoveError::DirectoryManifestNameEncodingFailed => {
+            "directory_manifest_name_encoding_failed".to_string()
+        }
+        crate::fs_safety::AtomicMoveError::SourceClaimFailed(message) => {
+            format!("source_claim_failed: {message}")
+        }
+        crate::fs_safety::AtomicMoveError::SourceClaimMismatch => {
+            "source_claim_mismatch".to_string()
+        }
+        crate::fs_safety::AtomicMoveError::SourceClaimRollbackFailed(message) => {
+            format!("source_claim_rollback_failed: {message}")
+        }
+        crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(message) => {
+            format!("source_claim_recovery_required: {message}")
         }
         crate::fs_safety::AtomicMoveError::CrossDevice => "cross_device".to_string(),
         crate::fs_safety::AtomicMoveError::UnsafePath => "unsafe_path".to_string(),
@@ -1623,21 +1874,6 @@ fn build_reveal_command(path: &Path) -> Result<RevealCommand, String> {
         });
     }
 
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        let directory = if path.is_dir() {
-            path
-        } else {
-            path.parent()
-                .filter(|parent| !parent.as_os_str().is_empty())
-                .unwrap_or(path)
-        };
-        return Ok(RevealCommand {
-            program: "xdg-open",
-            args: vec![directory.to_string_lossy().into_owned()],
-        });
-    }
-
     #[allow(unreachable_code)]
     Err("Reveal in folder is not supported on this platform.".to_string())
 }
@@ -1665,11 +1901,13 @@ mod tests {
     use std::{
         fs,
         sync::{
-            atomic::{AtomicBool, Ordering},
+            atomic::{AtomicBool, AtomicU64, Ordering},
             Arc,
         },
         time::{Duration, SystemTime, UNIX_EPOCH},
     };
+
+    static TEST_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn execute_selection_resolves_authoritative_paths_from_database() {
@@ -1874,6 +2112,38 @@ mod tests {
             assert_eq!(log.status, "manual_review");
             assert!(!log.can_restore);
         }
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn pending_operation_journal_marks_target_and_claim_as_source_cleanup_pending() {
+        let db = Database::open(test_db_path()).expect("open database");
+        let root = test_dir();
+        let source = root.join("before-claim-pending.txt");
+        let target = root.join("after-claim-pending.txt");
+        fs::write(&source, "hello").expect("write source");
+        let request = ExecuteMovesRequest {
+            operations: vec![preview_operation(0, &source, &target)],
+        };
+        persist_pending_operation_journal(&db, &request, "batch-claim-pending", "1")
+            .expect("persist pending journal");
+        let pending = db
+            .get_pending_operation_logs()
+            .expect("pending logs")
+            .remove(0);
+        let claim = PathBuf::from(pending.source_claim_path.expect("claim path"));
+
+        fs::hard_link(&source, &target).expect("create target hard link");
+        fs::hard_link(&source, &claim).expect("create claim hard link");
+        fs::remove_file(&source).expect("remove original source");
+
+        reconcile_pending_operation_journal(&db).expect("reconcile journal");
+        let log = db.get_operation_logs(Some(1)).expect("logs").remove(0);
+
+        assert_eq!(log.status, "manual_review");
+        assert_eq!(log.operation_phase, "source_cleanup_pending");
+        assert!(!log.can_restore);
+        assert!(!log.can_undo);
     }
 
     #[test]
@@ -2512,6 +2782,11 @@ mod tests {
             source_full_hash: None,
             target_platform_file_id: None,
             target_full_hash: None,
+            source_claim_path: None,
+            operation_phase: "completed".to_string(),
+            claim_created_at: None,
+            claim_platform_file_id: None,
+            claim_full_hash: None,
         };
 
         let restored = restore_moves_core(RestoreMovesRequest { logs: vec![log] });
@@ -2798,6 +3073,51 @@ mod tests {
         assert_eq!(page.files[0].extension, "txt");
         assert_eq!(page.files[0].suggested_action, "Keep");
         assert!(!page.files[0].requires_confirmation);
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    fn replace_source_after_journal_hook(
+        point: crate::fs_safety::source_claim::ClaimTestPoint,
+        source: &Path,
+        _claim: &Path,
+    ) {
+        if point == crate::fs_safety::source_claim::ClaimTestPoint::AfterJournalPreparedBeforeClaim
+        {
+            fs::write(source, b"replacement after journal").expect("replacement source");
+        }
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn pending_journal_source_replacement_is_manual_review_and_never_moves_replacement() {
+        let _serial = crate::fs_safety::source_claim::lock_claim_test_hooks();
+        let db = Database::open(test_db_path()).expect("open database");
+        let root = test_dir();
+        let source = root.join("source.txt");
+        let target = root.join("target.txt");
+        fs::write(&source, b"original").expect("source");
+        crate::fs_safety::source_claim::set_claim_test_hook(Some(
+            replace_source_after_journal_hook,
+        ));
+        let result = execute_moves_with_persistence(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![preview_operation(0, &source, &target)],
+            },
+        )
+        .expect("journaled execution");
+        crate::fs_safety::source_claim::set_claim_test_hook(None);
+
+        assert_eq!(result.logs[0].status, "failed");
+        assert_eq!(result.logs[0].operation_phase, "manual_review");
+        assert!(!target.exists());
+        assert_eq!(
+            fs::read(&source).expect("replacement source"),
+            b"replacement after journal"
+        );
+        let logs = db.get_operation_logs(Some(10)).expect("operation logs");
+        assert_eq!(logs[0].operation_phase, "manual_review");
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
@@ -3130,32 +3450,30 @@ mod tests {
         );
     }
 
-    #[cfg(all(unix, not(target_os = "macos")))]
-    #[test]
-    fn build_reveal_command_opens_parent_directory_on_linux() {
-        let command = build_reveal_command(Path::new("/home/example/Documents/sample.txt"))
-            .expect("reveal command");
-
-        assert_eq!(command.program, "xdg-open");
-        assert_eq!(command.args, vec!["/home/example/Documents"]);
-    }
-
     fn test_dir() -> PathBuf {
+        let sequence = TEST_FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        let dir = std::env::temp_dir().join(format!("zen-canvas-file-op-test-{nonce}"));
+        let dir = std::env::temp_dir().join(format!(
+            "zen-canvas-file-op-test-{}-{sequence}-{nonce}",
+            std::process::id()
+        ));
         fs::create_dir_all(&dir).expect("test dir");
         dir
     }
 
     fn test_db_path() -> PathBuf {
+        let sequence = TEST_FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("clock")
             .as_nanos();
-        std::env::temp_dir().join(format!("zen-canvas-file-op-db-test-{nonce}.sqlite3"))
+        std::env::temp_dir().join(format!(
+            "zen-canvas-file-op-db-test-{}-{sequence}-{nonce}.sqlite3",
+            std::process::id()
+        ))
     }
 
     fn insert_indexed_file(db: &Database, path: &Path, name: &str, extension: &str) {

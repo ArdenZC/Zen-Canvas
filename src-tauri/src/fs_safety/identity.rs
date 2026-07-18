@@ -1,4 +1,5 @@
 use std::{
+    ffi::OsStr,
     fs::{self, File},
     io::{self, Read, Seek, SeekFrom},
     path::Path,
@@ -28,6 +29,8 @@ pub enum IdentityError {
     Symlink,
     #[error("unsupported_file_type")]
     UnsupportedFileType,
+    #[error("directory_manifest_name_encoding_failed")]
+    DirectoryManifestNameEncodingFailed,
     #[error("identity_cancelled")]
     Cancelled,
     #[error("io: {0}")]
@@ -161,7 +164,15 @@ fn hash_file(
     size: u64,
     cancel: Option<&AtomicBool>,
 ) -> Result<(u64, String, String), IdentityError> {
-    let mut file = File::open(path)?;
+    hash_file_reader(File::open(path)?, size, cancel)
+}
+
+fn hash_file_reader(
+    mut file: File,
+    size: u64,
+    cancel: Option<&AtomicBool>,
+) -> Result<(u64, String, String), IdentityError> {
+    file.seek(SeekFrom::Start(0))?;
     let mut full_hasher = blake3::Hasher::new();
     full_hasher.update(b"file\0");
     full_hasher.update(&size.to_le_bytes());
@@ -209,14 +220,68 @@ fn hash_file(
     ))
 }
 
+pub(crate) fn capture_identity_from_handle(
+    handle: &File,
+    path_hint: &Path,
+    cancel: Option<&AtomicBool>,
+) -> Result<ExpectedFileIdentity, IdentityError> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+        };
+
+        let mut info = unsafe { std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>() };
+        if unsafe { GetFileInformationByHandle(handle.as_raw_handle(), &mut info) } == 0 {
+            return Err(IdentityError::Io(io::Error::last_os_error()));
+        }
+        let file_id =
+            (u64::from(info.nFileIndexHigh) << 32 | u64::from(info.nFileIndexLow)).to_string();
+        let volume_id = info.dwVolumeSerialNumber.to_string();
+        let metadata = fs::metadata(path_hint)?;
+        let is_directory = info.dwFileAttributes
+            & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY
+            != 0;
+        let (size, sample_hash, full_hash) = if is_directory {
+            hash_directory(path_hint, cancel)?
+        } else {
+            let size = (u64::from(info.nFileSizeHigh) << 32) | u64::from(info.nFileSizeLow);
+            hash_file_reader(handle.try_clone()?, size, cancel)?
+        };
+        Ok(ExpectedFileIdentity {
+            size,
+            modified_ns: modified_ns(&metadata),
+            platform_volume_id: Some(volume_id),
+            platform_file_id: Some(file_id),
+            sample_hash: Some(sample_hash),
+            full_hash: Some(full_hash),
+        })
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = handle;
+        capture_identity(path_hint, cancel)
+    }
+}
+
 fn hash_directory(
     path: &Path,
     cancel: Option<&AtomicBool>,
 ) -> Result<(u64, String, String), IdentityError> {
-    let mut entries = fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
-    entries.sort_by(|left, right| {
-        left.file_name()
-            .cmp(&right.file_name())
+    let entries = fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
+    let mut entries_with_names = entries
+        .into_iter()
+        .map(|entry| {
+            let name = entry.file_name();
+            let raw_name = raw_os_name_bytes(&name)?;
+            Ok((raw_name, entry))
+        })
+        .collect::<Result<Vec<_>, IdentityError>>()?;
+    entries_with_names.sort_by(|(left_name, left), (right_name, right)| {
+        left_name
+            .cmp(right_name)
             .then_with(|| left.path().cmp(&right.path()))
     });
     let mut size = 0_u64;
@@ -224,11 +289,10 @@ fn hash_directory(
     let mut full_hasher = blake3::Hasher::new();
     sample_hasher.update(b"directory\0");
     full_hasher.update(b"directory\0");
-    for entry in entries {
+    for (raw_name, entry) in entries_with_names {
         if is_cancelled(cancel) {
             return Err(IdentityError::Cancelled);
         }
-        let name = entry.file_name();
         let child_path = entry.path();
         let child = capture_identity(&child_path, cancel)?;
         let kind = if fs::symlink_metadata(&child_path)?.is_dir() {
@@ -236,22 +300,64 @@ fn hash_directory(
         } else {
             b"file\0".as_slice()
         };
-        let name_bytes = name.to_string_lossy();
         size = size.saturating_add(child.size);
-        for hasher in [&mut sample_hasher, &mut full_hasher] {
-            hasher.update(name_bytes.as_bytes());
-            hasher.update(&[0]);
-            hasher.update(kind);
-            hasher.update(&child.size.to_le_bytes());
-        }
-        sample_hasher.update(child.sample_hash.as_deref().unwrap_or_default().as_bytes());
-        full_hasher.update(child.full_hash.as_deref().unwrap_or_default().as_bytes());
+        update_directory_entry(
+            &mut sample_hasher,
+            &raw_name,
+            kind,
+            child.size,
+            child.sample_hash.as_deref().unwrap_or_default().as_bytes(),
+        );
+        update_directory_entry(
+            &mut full_hasher,
+            &raw_name,
+            kind,
+            child.size,
+            child.full_hash.as_deref().unwrap_or_default().as_bytes(),
+        );
     }
     Ok((
         size,
         sample_hasher.finalize().to_hex().to_string(),
         full_hasher.finalize().to_hex().to_string(),
     ))
+}
+
+fn update_directory_entry(
+    hasher: &mut blake3::Hasher,
+    raw_name: &[u8],
+    kind: &[u8],
+    size: u64,
+    child_hash: &[u8],
+) {
+    hasher.update(b"entry\0");
+    hasher.update(&(raw_name.len() as u64).to_le_bytes());
+    hasher.update(raw_name);
+    hasher.update(&(kind.len() as u64).to_le_bytes());
+    hasher.update(kind);
+    hasher.update(&size.to_le_bytes());
+    hasher.update(&(child_hash.len() as u64).to_le_bytes());
+    hasher.update(child_hash);
+}
+
+fn raw_os_name_bytes(name: &OsStr) -> Result<Vec<u8>, IdentityError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        return Ok(name.as_bytes().to_vec());
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        return Ok(name
+            .encode_wide()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>());
+    }
+
+    #[allow(unreachable_code)]
+    Err(IdentityError::DirectoryManifestNameEncodingFailed)
 }
 
 fn modified_ns(metadata: &fs::Metadata) -> Option<i128> {
@@ -376,6 +482,31 @@ mod tests {
             capture_identity(&path, Some(&cancel)),
             Err(IdentityError::Cancelled)
         ));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_manifest_preserves_non_utf8_names_without_lossy_collisions() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let root = fixture("raw-directory-names");
+        let invalid = root.join("invalid");
+        let replacement = root.join("replacement");
+        fs::create_dir_all(&invalid).expect("invalid fixture");
+        fs::create_dir_all(&replacement).expect("replacement fixture");
+        fs::write(
+            invalid.join(std::ffi::OsString::from_vec(vec![0xff])),
+            b"same",
+        )
+        .expect("invalid name");
+        fs::write(replacement.join("\u{fffd}"), b"same").expect("replacement name");
+
+        let invalid_identity = capture_identity(&invalid, None).expect("invalid identity");
+        let replacement_identity =
+            capture_identity(&replacement, None).expect("replacement identity");
+        assert_ne!(invalid_identity.full_hash, replacement_identity.full_hash);
+
         let _ = fs::remove_dir_all(root);
     }
 }

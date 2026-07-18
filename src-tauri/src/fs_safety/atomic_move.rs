@@ -1,4 +1,7 @@
-use super::{copy_commit, identity};
+use super::{
+    copy_commit, identity, platform_support, source_claim, source_claim::SourceClaimError,
+    verified_directory::VerifiedDirectory,
+};
 use std::{
     io,
     path::Path,
@@ -27,8 +30,20 @@ pub enum AtomicMoveError {
     SourceChanged,
     #[error("cross_device")]
     CrossDevice,
+    #[error("cross_volume_directory_move_unsupported")]
+    CrossVolumeDirectoryMoveUnsupported,
+    #[error("cross_volume_file_move_unsupported_on_macos")]
+    CrossVolumeFileMoveUnsupportedOnMacos,
     #[error("atomic_noreplace_unsupported")]
     UnsupportedAtomicNoReplace,
+    #[error("atomic_source_binding_unsupported")]
+    AtomicSourceBindingUnsupported,
+    #[error("unsupported_platform_linux")]
+    UnsupportedPlatformLinux,
+    #[error("target_parent_identity_changed")]
+    TargetParentIdentityChanged,
+    #[error("target_parent_durability_unknown")]
+    TargetParentDurabilityUnknown,
     #[error("unsafe_path")]
     UnsafePath,
     #[error("reparse_point")]
@@ -39,6 +54,16 @@ pub enum AtomicMoveError {
     Cancelled,
     #[error("copy_verification_failed")]
     CopyVerificationFailed,
+    #[error("directory_manifest_name_encoding_failed")]
+    DirectoryManifestNameEncodingFailed,
+    #[error("source_claim_failed: {0}")]
+    SourceClaimFailed(String),
+    #[error("source_claim_mismatch")]
+    SourceClaimMismatch,
+    #[error("source_claim_rollback_failed: {0}")]
+    SourceClaimRollbackFailed(String),
+    #[error("source_claim_recovery_required: {0}")]
+    SourceClaimRecoveryRequired(String),
     #[error("target_committed_source_delete_failed: {0}")]
     TargetCommittedSourceDeleteFailed(String),
     #[error("io: {0}")]
@@ -51,72 +76,154 @@ pub fn atomic_move_noreplace(
     expected_identity: Option<&identity::ExpectedFileIdentity>,
     cancel: Option<&AtomicBool>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
+    atomic_move_noreplace_with_claim_path(source, target, expected_identity, None, cancel)
+}
+
+pub fn atomic_move_noreplace_with_claim_path(
+    source: &Path,
+    target: &Path,
+    expected_identity: Option<&identity::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
+    cancel: Option<&AtomicBool>,
+) -> Result<AtomicMoveOutcome, AtomicMoveError> {
+    platform_support::ensure_supported_file_mutation()
+        .map_err(|_| AtomicMoveError::UnsupportedPlatformLinux)?;
     if is_cancelled(cancel) {
         return Err(AtomicMoveError::Cancelled);
     }
-    identity::ensure_supported_entry(source).map_err(map_identity_error)?;
-    if let Some(expected) = expected_identity {
-        let actual = identity::capture_identity(source, cancel).map_err(map_identity_error)?;
-        if !identity::identity_matches(expected, &actual) {
-            return Err(AtomicMoveError::SourceChanged);
-        }
+    let target_parent_path = target.parent().ok_or(AtomicMoveError::UnsafePath)?;
+    let target_name = target.file_name().ok_or(AtomicMoveError::UnsafePath)?;
+    let target_parent =
+        VerifiedDirectory::open_existing(target_parent_path).map_err(map_directory_error)?;
+    if target.exists() {
+        return Err(AtomicMoveError::TargetExists);
     }
-    if let Some(parent) = target.parent() {
-        if !parent.exists() {
-            return Err(AtomicMoveError::Io(io::Error::new(
-                io::ErrorKind::NotFound,
-                "target parent does not exist",
-            )));
+    let expected = match expected_identity {
+        Some(expected) if expected.full_hash.is_some() => expected.clone(),
+        Some(_) => {
+            return Err(AtomicMoveError::SourceClaimFailed(
+                "source identity is incomplete".to_string(),
+            ));
         }
-    }
-    match atomic_rename_noreplace(source, target) {
-        Ok(()) => {
-            if let Some(expected) = expected_identity {
-                let actual =
-                    identity::capture_identity(target, cancel).map_err(map_identity_error)?;
-                if !identity::identity_matches(expected, &actual) {
-                    return Err(AtomicMoveError::CopyVerificationFailed);
+        None => identity::capture_identity(source, cancel).map_err(map_identity_error)?,
+    };
+    let claim_path = match planned_claim_path {
+        Some(path) => path.to_path_buf(),
+        None => source_claim::planned_claim_path(source, "atomic-move").map_err(map_claim_error)?,
+    };
+    let mut claim =
+        source_claim::claim_source_at(source, &expected, &claim_path, "atomic-move", cancel)
+            .map_err(map_claim_error)?;
+    #[cfg(test)]
+    source_claim::run_claim_test_hook(
+        source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit,
+        source,
+        &claim_path,
+    );
+
+    if claim.original_volume_id() == target_parent.identity().volume_id {
+        let result = claim.commit_to(target_parent, target_name);
+        return match result {
+            Ok(_committed_path) => {
+                claim.sync().map_err(map_claim_error)?;
+                claim
+                    .sync_current_parent()
+                    .map_err(|_| AtomicMoveError::TargetParentDurabilityUnknown)?;
+                claim
+                    .sync_original_parent()
+                    .map_err(|_| AtomicMoveError::TargetParentDurabilityUnknown)?;
+                let actual = claim
+                    .verify_current_identity(cancel)
+                    .map_err(map_claim_error)?;
+                if !identity::identity_matches(&expected, &actual) {
+                    return Err(AtomicMoveError::SourceClaimMismatch);
                 }
+                Ok(AtomicMoveOutcome {
+                    method: AtomicMoveMethod::SameVolumeNoReplace,
+                })
             }
-            Ok(AtomicMoveOutcome {
-                method: AtomicMoveMethod::SameVolumeNoReplace,
-            })
-        }
-        Err(AtomicMoveError::CrossDevice) => {
-            copy_commit::copy_commit_move(source, target, expected_identity, cancel)?;
-            Ok(AtomicMoveOutcome {
-                method: AtomicMoveMethod::CrossVolumeCopyCommit,
-            })
-        }
-        Err(error) => Err(error),
-    }
-}
-
-pub(crate) fn atomic_rename_noreplace(source: &Path, target: &Path) -> Result<(), AtomicMoveError> {
-    #[cfg(windows)]
-    {
-        atomic_rename_windows(source, target)
+            Err(error) => Err(rollback_after_failure(&mut claim, error)),
+        };
     }
 
-    #[cfg(target_os = "linux")]
-    {
-        atomic_rename_linux(source, target)
+    if matches!(claim.kind(), source_claim::ClaimedEntryKind::Directory) {
+        let _ = claim.rollback_to_original();
+        return Err(AtomicMoveError::CrossVolumeDirectoryMoveUnsupported);
     }
-
     #[cfg(target_os = "macos")]
     {
-        atomic_rename_macos(source, target)
+        let _ = claim.rollback_to_original();
+        Err(AtomicMoveError::CrossVolumeFileMoveUnsupportedOnMacos)
     }
-
-    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
+    #[cfg(windows)]
     {
-        let _ = (source, target);
-        Err(AtomicMoveError::UnsupportedAtomicNoReplace)
+        copy_commit::copy_commit_claim(&mut claim, target_parent, target_name, cancel).map(|_| {
+            AtomicMoveOutcome {
+                method: AtomicMoveMethod::CrossVolumeCopyCommit,
+            }
+        })
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let _ = claim.rollback_to_original();
+        Err(AtomicMoveError::UnsupportedPlatformLinux)
     }
 }
 
-fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {
-    cancel.is_some_and(|flag| flag.load(Ordering::Acquire))
+fn rollback_after_failure(
+    claim: &mut source_claim::SourceClaim,
+    error: SourceClaimError,
+) -> AtomicMoveError {
+    let mapped = map_claim_error(error);
+    if matches!(mapped, AtomicMoveError::TargetExists) {
+        return match claim.rollback_to_original() {
+            Ok(()) => AtomicMoveError::TargetExists,
+            Err(error) => AtomicMoveError::SourceClaimRollbackFailed(error.to_string()),
+        };
+    }
+    match claim.rollback_to_original() {
+        Ok(()) => mapped,
+        Err(rollback_error) => {
+            AtomicMoveError::SourceClaimRollbackFailed(rollback_error.to_string())
+        }
+    }
+}
+
+pub(crate) fn map_directory_error(error: super::PathGuardError) -> AtomicMoveError {
+    match error {
+        super::PathGuardError::UnsupportedPlatformLinux => {
+            AtomicMoveError::UnsupportedPlatformLinux
+        }
+        super::PathGuardError::IdentityChanged => AtomicMoveError::TargetParentIdentityChanged,
+        super::PathGuardError::ReparsePoint => AtomicMoveError::ReparsePoint,
+        super::PathGuardError::UnsafePath => AtomicMoveError::UnsafePath,
+        super::PathGuardError::Io(error) => AtomicMoveError::Io(error),
+    }
+}
+
+pub(crate) fn map_claim_error(error: SourceClaimError) -> AtomicMoveError {
+    match error {
+        SourceClaimError::UnsupportedPlatformLinux => AtomicMoveError::UnsupportedPlatformLinux,
+        SourceClaimError::SourceMissing => AtomicMoveError::SourceMissing,
+        SourceClaimError::SourceIdentityChanged => AtomicMoveError::SourceChanged,
+        SourceClaimError::ClaimFailed(error) => AtomicMoveError::SourceClaimFailed(error),
+        SourceClaimError::ClaimMismatch => AtomicMoveError::SourceClaimMismatch,
+        SourceClaimError::ClaimRollbackFailed(error) => {
+            AtomicMoveError::SourceClaimRollbackFailed(error)
+        }
+        SourceClaimError::RecoveryRequired(error) => {
+            AtomicMoveError::SourceClaimRecoveryRequired(error)
+        }
+        SourceClaimError::TargetExists => AtomicMoveError::TargetExists,
+        SourceClaimError::CrossDevice => AtomicMoveError::CrossDevice,
+        SourceClaimError::AtomicSourceBindingUnsupported => {
+            AtomicMoveError::AtomicSourceBindingUnsupported
+        }
+        SourceClaimError::ReparsePoint => AtomicMoveError::ReparsePoint,
+        SourceClaimError::UnsupportedFileType => AtomicMoveError::UnsafePath,
+        SourceClaimError::Cancelled => AtomicMoveError::Cancelled,
+        SourceClaimError::Io(error) => AtomicMoveError::Io(error),
+    }
 }
 
 fn map_identity_error(error: identity::IdentityError) -> AtomicMoveError {
@@ -124,108 +231,28 @@ fn map_identity_error(error: identity::IdentityError) -> AtomicMoveError {
         identity::IdentityError::SourceMissing => AtomicMoveError::SourceMissing,
         identity::IdentityError::Symlink => AtomicMoveError::Symlink,
         identity::IdentityError::UnsupportedFileType => AtomicMoveError::UnsafePath,
+        identity::IdentityError::DirectoryManifestNameEncodingFailed => {
+            AtomicMoveError::DirectoryManifestNameEncodingFailed
+        }
         identity::IdentityError::Cancelled => AtomicMoveError::Cancelled,
         identity::IdentityError::Io(error) => AtomicMoveError::Io(error),
     }
 }
 
-#[cfg(windows)]
-fn atomic_rename_windows(source: &Path, target: &Path) -> Result<(), AtomicMoveError> {
-    use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
-    use windows_sys::Win32::{
-        Foundation::{
-            GetLastError, ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS, ERROR_NOT_SAME_DEVICE,
-        },
-        Storage::FileSystem::MoveFileExW,
-    };
-
-    fn wide(path: &Path) -> Vec<u16> {
-        let text = path.to_string_lossy().replace('/', "\\");
-        let text = if text.starts_with(r"\\?\") {
-            text
-        } else if text.starts_with(r"\\") {
-            format!(r"\\?\UNC\{}", text.trim_start_matches(r"\"))
-        } else if text.as_bytes().get(1) == Some(&b':') {
-            format!(r"\\?\{text}")
-        } else {
-            text.to_string()
-        };
-        OsStr::new(&text)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect()
-    }
-
-    let source = wide(source);
-    let target = wide(target);
-    let result = unsafe { MoveFileExW(source.as_ptr(), target.as_ptr(), 0) };
-    if result != 0 {
-        return Ok(());
-    }
-    let code = unsafe { GetLastError() };
-    match code {
-        ERROR_ALREADY_EXISTS | ERROR_FILE_EXISTS => Err(AtomicMoveError::TargetExists),
-        ERROR_NOT_SAME_DEVICE => Err(AtomicMoveError::CrossDevice),
-        6 | 50 | 120 => Err(AtomicMoveError::UnsupportedAtomicNoReplace),
-        code => Err(AtomicMoveError::Io(io::Error::from_raw_os_error(
-            code as i32,
-        ))),
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn atomic_rename_linux(source: &Path, target: &Path) -> Result<(), AtomicMoveError> {
-    use std::ffi::CString;
-    let source = CString::new(source.as_os_str().as_encoded_bytes())
-        .map_err(|_| AtomicMoveError::UnsafePath)?;
-    let target = CString::new(target.as_os_str().as_encoded_bytes())
-        .map_err(|_| AtomicMoveError::UnsafePath)?;
-    let result = unsafe {
-        libc::syscall(
-            libc::SYS_renameat2,
-            libc::AT_FDCWD,
-            source.as_ptr(),
-            libc::AT_FDCWD,
-            target.as_ptr(),
-            1_i32,
-        )
-    };
-    if result == 0 {
-        return Ok(());
-    }
-    map_unix_errno(io::Error::last_os_error())
+fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {
+    cancel.is_some_and(|flag| flag.load(Ordering::Acquire))
 }
 
 #[cfg(target_os = "macos")]
-fn atomic_rename_macos(source: &Path, target: &Path) -> Result<(), AtomicMoveError> {
-    use std::ffi::CString;
-    let source = CString::new(source.as_os_str().as_encoded_bytes())
-        .map_err(|_| AtomicMoveError::UnsafePath)?;
-    let target = CString::new(target.as_os_str().as_encoded_bytes())
-        .map_err(|_| AtomicMoveError::UnsafePath)?;
-    unsafe extern "C" {
-        fn renamex_np(
-            from: *const libc::c_char,
-            to: *const libc::c_char,
-            flags: libc::c_uint,
-        ) -> libc::c_int;
-    }
-    let result = unsafe { renamex_np(source.as_ptr(), target.as_ptr(), libc::RENAME_EXCL) };
-    if result == 0 {
-        return Ok(());
-    }
-    map_unix_errno(io::Error::last_os_error())
-}
-
-#[cfg(any(target_os = "linux", target_os = "macos"))]
-fn map_unix_errno(error: io::Error) -> Result<(), AtomicMoveError> {
+pub(crate) fn map_unix_errno_for_test(error: io::Error) -> AtomicMoveError {
     match error.raw_os_error() {
-        Some(libc::EEXIST) => Err(AtomicMoveError::TargetExists),
-        Some(libc::EXDEV) => Err(AtomicMoveError::CrossDevice),
-        Some(libc::ENOSYS | libc::EINVAL | libc::ENOTSUP | libc::EOPNOTSUPP) => {
-            Err(AtomicMoveError::UnsupportedAtomicNoReplace)
-        }
-        _ => Err(AtomicMoveError::Io(error)),
+        Some(libc::EEXIST) => AtomicMoveError::TargetExists,
+        Some(libc::EXDEV) => AtomicMoveError::CrossDevice,
+        Some(libc::ENOSYS) => AtomicMoveError::UnsupportedAtomicNoReplace,
+        Some(libc::EINVAL) => AtomicMoveError::UnsupportedAtomicNoReplace,
+        Some(libc::ENOTSUP) => AtomicMoveError::UnsupportedAtomicNoReplace,
+        Some(libc::EOPNOTSUPP) => AtomicMoveError::UnsupportedAtomicNoReplace,
+        _ => AtomicMoveError::Io(error),
     }
 }
 
@@ -260,8 +287,8 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_before_commit_leaves_source_and_target_untouched() {
-        let root = fixture("cancel-before-commit");
+    fn cancellation_before_claim_leaves_source_and_target_untouched() {
+        let root = fixture("cancel-before-claim");
         let source = root.join("source");
         let target = root.join("target");
         fs::write(&source, b"source").expect("source");

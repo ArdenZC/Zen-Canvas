@@ -26,7 +26,7 @@ behavior. It does not change the product version or enter a new product stage.
 | M-03 | User-facing errors mix hard-coded languages and unstable text | backend strings are used directly instead of stable error codes plus i18n |
 | M-04 | Safety responsibilities are duplicated across large modules | atomic move, identity, directory guards, queue state, and authorization have no focused ownership |
 | M-05 | `verify` does not cover every requested frontend, Rust, security, and audit gate | package scripts and CI omit parts of the final hardening contract |
-| M-06 | Linux quality coverage is incomplete | the CI workflow does not run the full Tauri Linux dependency/build/audit gate |
+| M-06 | Linux quality coverage is incomplete | Linux is intentionally outside the product, build, release, and quality-gate support matrix; mutation entry points fail closed with `unsupported_platform_linux` |
 
 ## Planned modules and modifications
 
@@ -62,9 +62,10 @@ Source-contract tests may supplement behavior tests but cannot be the only evide
 ## Platform differences
 
 Windows uses a Win32 exclusive move/handle identity path with long-path support and rejects reparse points.
-Linux uses `renameat2(..., RENAME_NOREPLACE)` and fails closed when it cannot prove that primitive is available.
-macOS uses `renamex_np(..., RENAME_EXCL)` and fails closed when exclusive rename is unavailable. Cross-device
-operations enter copy-commit only on an explicit cross-device error. Other platforms return
+macOS uses `renameatx_np(..., RENAME_EXCL)` and fails closed when exclusive rename is unavailable. Linux is not
+built, released, or quality-gated as a product platform; if a shared Unix build is encountered, mutation entry
+points return the stable `unsupported_platform_linux` error rather than attempting a Linux filesystem primitive.
+Cross-device operations enter copy-commit only on an explicit cross-device error. Other platforms return
 `UnsupportedAtomicNoReplace`.
 
 Path comparison preserves case on case-sensitive filesystems and uses canonical path plus volume/file identity
@@ -74,7 +75,7 @@ when an existing directory can be opened. Nonexistent paths retain their spellin
 
 The implementation is complete only when all in-scope behavior tests, typecheck, frontend tests, remediation and
 performance tests, Rust format/tests/Clippy, desktop-runtime tests/build, npm and Rust audits, production build,
-`git diff --check`, Windows desktop QA, and Windows/macOS/Linux/Dependency Audit CI checks pass for the final head.
+`git diff --check`, Windows desktop QA, and Windows/macOS/Dependency Audit CI checks pass for the final head.
 Every closeout row must cite its behavior test and platform evidence; unproven platform claims remain fail-closed.
 The final branch is pushed without amend/rebase/force-push and a PR is opened against `master` for human review.
 

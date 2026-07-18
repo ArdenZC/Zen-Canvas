@@ -33,6 +33,8 @@ const MAX_RECENTLY_INDEXED_ROOTS = 200;
 let isProcessingBackgroundQueue = false;
 let activeBackgroundJobId: string | null = null;
 let backgroundGeneration = 0;
+let backgroundCancelRequestId = 0;
+let backgroundCancelInFlight: Promise<void> | null = null;
 const recentlyIndexedRoots = new Set<string>();
 const recentlyIndexedRootOrder: string[] = [];
 
@@ -64,26 +66,46 @@ export const useBackgroundIndexerStore = create<BackgroundIndexerStore>((set, ge
     if (queuedRoots) scheduleBackgroundIndexing();
   },
   cancelBackgroundIndexing: async () => {
-    const cancelGeneration = ++backgroundGeneration;
-    const previousGeneration = cancelGeneration - 1;
+    if (backgroundCancelInFlight) return backgroundCancelInFlight;
+
     const jobId = activeBackgroundJobId;
     if (!jobId) {
+      // No job id means the queue is between roots or still waiting for the
+      // backend job id. Invalidate that run locally so it cannot start after
+      // the queue has been cleared.
+      backgroundGeneration += 1;
       set({ pendingRoots: [], currentRoot: null, isBackgroundIndexing: false });
       return;
     }
-    try {
-      await tauriApi.cancelScan(jobId);
-      if (backgroundGeneration !== cancelGeneration || activeBackgroundJobId !== jobId) return;
-      activeBackgroundJobId = null;
-      set({ pendingRoots: [], currentRoot: null, isBackgroundIndexing: false });
-    } catch (error) {
-      if (backgroundGeneration === cancelGeneration) {
-        // A failed cancellation must not manufacture an idle state. Restore the
-        // token so the active job can still complete normally.
-        backgroundGeneration = previousGeneration;
-        reportBackgroundIndexerCancelFailure(error);
+    const requestId = ++backgroundCancelRequestId;
+    const runGeneration = backgroundGeneration;
+    let request!: Promise<void>;
+    request = (async () => {
+      try {
+        await tauriApi.cancelScan(jobId);
+        if (
+          requestId !== backgroundCancelRequestId
+          || runGeneration !== backgroundGeneration
+          || activeBackgroundJobId !== jobId
+        ) return;
+
+        // Only a confirmed backend cancellation invalidates the run. Until
+        // this point a late successful startScan result remains authoritative.
+        backgroundGeneration += 1;
+        activeBackgroundJobId = null;
+        set({ pendingRoots: [], currentRoot: null, isBackgroundIndexing: false });
+      } catch (error) {
+        // Keep the active generation and job intact so a late startScan result
+        // is still accepted when the cancellation RPC fails.
+        if (requestId === backgroundCancelRequestId) {
+          reportBackgroundIndexerCancelFailure(error);
+        }
+      } finally {
+        if (backgroundCancelInFlight === request) backgroundCancelInFlight = null;
       }
-    }
+    })();
+    backgroundCancelInFlight = request;
+    return request;
   }
 }));
 

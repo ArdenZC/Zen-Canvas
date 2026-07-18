@@ -80,6 +80,11 @@
             source_full_hash: None,
             target_platform_file_id: None,
             target_full_hash: None,
+            source_claim_path: None,
+            operation_phase: "completed".to_string(),
+            claim_created_at: None,
+            claim_platform_file_id: None,
+            claim_full_hash: None,
         }
     }
 

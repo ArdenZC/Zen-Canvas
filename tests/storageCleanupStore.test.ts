@@ -145,6 +145,61 @@ describe("useStorageCleanupStore", () => {
     expect(useStorageCleanupStore.getState().scanError).toContain("cleanup_cancel_failed");
   });
 
+  it("keeps the active job running when cancellation never reaches a terminal state", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = {
+        startStorageCleanupScan: vi.fn(),
+        cancelStorageCleanupScan: vi.fn().mockResolvedValue(undefined),
+        getStorageCleanupScanStatus: vi.fn().mockResolvedValue({
+          jobId: "job-1",
+          status: "running" as const,
+          progress: null,
+          analysis: null,
+          error: null,
+          startedAt: "1",
+          completedAt: null
+        })
+      };
+      useStorageCleanupStore.setState({ isScanning: true, activeJobId: "job-1", scanStatus: "running" });
+
+      await useStorageCleanupStore.getState().cancelScan(api);
+      await vi.advanceTimersByTimeAsync(10_500);
+
+      const state = useStorageCleanupStore.getState();
+      expect(state.isScanning).toBe(true);
+      expect(state.activeJobId).toBe("job-1");
+      expect(state.scanStatus).toBe("running");
+      expect(state.cancelRequestedJobId).toBeNull();
+      expect(state.scanError).toBe("cleanup_cancel_waiting");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores progress and terminal events from an old job after a new job is active", () => {
+    useStorageCleanupStore.setState({
+      isScanning: true,
+      activeJobId: "job-new",
+      scanStatus: "running"
+    });
+
+    useStorageCleanupStore.getState().applyScanProgress({
+      jobId: "job-old",
+      scannedEntries: 99,
+      currentPath: "F:/old/file.tmp",
+      totalSize: 999
+    });
+    useStorageCleanupStore.getState().completeScan("job-old", analysis);
+    useStorageCleanupStore.getState().confirmCancelled("job-old", "cleanup_cancelled");
+
+    const state = useStorageCleanupStore.getState();
+    expect(state.isScanning).toBe(true);
+    expect(state.activeJobId).toBe("job-new");
+    expect(state.scanStatus).toBe("running");
+    expect(state.scanProgress).toBeNull();
+  });
+
   it("reconciles a job that completes before the start call returns", async () => {
     const api = {
       startStorageCleanupScan: vi.fn().mockResolvedValue("job-fast"),

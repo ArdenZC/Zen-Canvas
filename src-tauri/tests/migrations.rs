@@ -95,6 +95,80 @@ fn downgrade_current_fixture_to_schema_16(path: &PathBuf) {
     .expect("downgrade to schema 16");
 }
 
+fn downgrade_current_fixture_to_schema_20_or_21(path: &PathBuf, version: i32) {
+    assert!(matches!(version, 20 | 21));
+    let db = Database::open(path).expect("create current database");
+    drop(db);
+    let conn = Connection::open(path).expect("open journal downgrade fixture");
+    conn.execute_batch(
+        r#"
+        DROP TRIGGER IF EXISTS operation_logs_phase_guard_insert;
+        DROP TRIGGER IF EXISTS operation_logs_phase_guard_update;
+        DROP TRIGGER IF EXISTS cleanup_items_phase_guard_insert;
+        DROP TRIGGER IF EXISTS cleanup_items_phase_guard_update;
+        ALTER TABLE operation_logs DROP COLUMN source_claim_path;
+        ALTER TABLE operation_logs DROP COLUMN operation_phase;
+        ALTER TABLE operation_logs DROP COLUMN claim_created_at;
+        ALTER TABLE operation_logs DROP COLUMN claim_platform_file_id;
+        ALTER TABLE operation_logs DROP COLUMN claim_full_hash;
+        ALTER TABLE cleanup_trash_items DROP COLUMN source_claim_path;
+        ALTER TABLE cleanup_trash_items DROP COLUMN operation_phase;
+        ALTER TABLE cleanup_trash_items DROP COLUMN claim_created_at;
+        ALTER TABLE cleanup_trash_items DROP COLUMN claim_platform_file_id;
+        ALTER TABLE cleanup_trash_items DROP COLUMN claim_full_hash;
+        "#,
+    )
+    .expect("remove schema 22 journal columns");
+
+    if version == 20 {
+        conn.execute_batch(
+            r#"
+            ALTER TABLE operation_logs DROP COLUMN source_full_hash;
+            ALTER TABLE operation_logs DROP COLUMN target_full_hash;
+            ALTER TABLE cleanup_trash_items DROP COLUMN source_full_hash;
+            ALTER TABLE cleanup_trash_items DROP COLUMN trash_full_hash;
+            "#,
+        )
+        .expect("remove schema 21 full hash columns");
+    }
+
+    conn.execute(&format!("PRAGMA user_version = {version}"), [])
+        .expect("downgrade journal fixture");
+}
+
+fn assert_schema_22_journal_columns(conn: &Connection) {
+    let operation_columns = column_names(conn, "operation_logs");
+    for column in [
+        "source_full_hash",
+        "target_full_hash",
+        "source_claim_path",
+        "operation_phase",
+        "claim_created_at",
+        "claim_platform_file_id",
+        "claim_full_hash",
+    ] {
+        assert!(
+            operation_columns.contains(&column.to_string()),
+            "missing {column}"
+        );
+    }
+    let cleanup_columns = column_names(conn, "cleanup_trash_items");
+    for column in [
+        "source_full_hash",
+        "trash_full_hash",
+        "source_claim_path",
+        "operation_phase",
+        "claim_created_at",
+        "claim_platform_file_id",
+        "claim_full_hash",
+    ] {
+        assert!(
+            cleanup_columns.contains(&column.to_string()),
+            "missing {column}"
+        );
+    }
+}
+
 #[test]
 fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_rows() {
     let path = test_db_path("v16");
@@ -128,7 +202,7 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
         )
         .expect("read legacy trash identity state");
 
-    assert_eq!(version, 21);
+    assert_eq!(version, 22);
     assert!(settings_json.contains("minimize"));
     assert_eq!(revision, 0);
     assert_eq!(can_restore, 0);
@@ -182,6 +256,26 @@ fn migration_failure_rolls_back_prior_steps_and_preserves_schema_16_data() {
         )
         .expect("legacy settings survive rollback");
     assert!(settings_json.contains("minimize"));
+}
+
+#[test]
+fn schema_20_and_21_migrate_to_schema_22_with_source_claim_journal_columns() {
+    for version in [20, 21] {
+        let path = test_db_path(&format!("v{version}-journal"));
+        downgrade_current_fixture_to_schema_20_or_21(&path, version);
+
+        let db = Database::open(&path).expect("migrate journal fixture to schema 22");
+        drop(db);
+        let conn = Connection::open(&path).expect("inspect journal migration");
+        let migrated_version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("read migrated journal version");
+        assert_eq!(migrated_version, 22);
+        assert_schema_22_journal_columns(&conn);
+
+        drop(conn);
+        Database::open(&path).expect("journal migration is idempotent");
+    }
 }
 
 #[test]

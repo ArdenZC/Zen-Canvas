@@ -1,4 +1,8 @@
-# Final Hardening v4 closeout
+# Final Hardening v4 historical closeout
+
+> This document records the earlier v4 baseline and its evidence. The v4.1
+> platform policy, schema 22 journal, and current verification status are in
+> [FINAL_HARDENING_V4_1_CLOSEOUT.md](FINAL_HARDENING_V4_1_CLOSEOUT.md).
 
 Branch: `codex/final-hardening-v4`
 Base: `master`
@@ -34,7 +38,7 @@ covered by Windows, macOS, and dependency-audit CI.
 
 ## Schema and legacy data
 
-- Current schema: `21`.
+- Historical v4 schema: `21`; v4.1 advances the current schema to `22`.
 - Schema 21 adds `source_full_hash`, `target_full_hash`,
   `cleanup_trash_items.source_full_hash`, and
   `cleanup_trash_items.trash_full_hash`.
@@ -46,7 +50,7 @@ covered by Windows, macOS, and dependency-audit CI.
 
 ## Desktop evidence
 
-The isolated Windows fixture QA pass is recorded in
+The historical isolated Windows fixture QA pass is recorded in
 `FINAL_HARDENING_V4_TEST_EVIDENCE.md`. It verified custom-root scanning,
 settings persistence, preview-only organize suggestions, cleanup caution
 boundaries, and the standalone Spotlight search window. The search capability
@@ -57,7 +61,6 @@ cancellation, watcher retry, credential transactions, and restart journals.
 
 ## Remaining gates
 
-The closeout is not a release claim. The local command log and isolated desktop
-QA evidence are complete. Final head `74cda0c` passed the remote
-Windows/macOS/dependency-audit run `29648128157`; the detailed job links are
-recorded in `FINAL_HARDENING_V4_TEST_EVIDENCE.md`.
+The closeout is not a release claim. The historical final head and remote run
+remain preserved for provenance; they do not certify the v4.1 head. See the
+v4.1 closeout for current local and remote evidence.

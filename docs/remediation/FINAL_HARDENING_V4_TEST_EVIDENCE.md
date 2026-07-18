@@ -1,4 +1,9 @@
-# Final Hardening v4 test evidence
+# Final Hardening v4 historical test evidence
+
+> The rows below belong to the earlier v4 baseline and are retained for
+> provenance. v4.1 is Windows/macOS-only, removes Linux build/release paths,
+> and uses schema 22; current evidence is maintained in
+> [FINAL_HARDENING_V4_1_CLOSEOUT.md](FINAL_HARDENING_V4_1_CLOSEOUT.md).
 
 This is the final local evidence log for branch `codex/final-hardening-v4`.
 All timestamps are Asia/Shanghai. The task did not publish a release or push an

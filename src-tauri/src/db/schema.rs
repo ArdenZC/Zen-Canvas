@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 21;
+const CURRENT_SCHEMA_VERSION: i32 = 22;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -562,6 +562,57 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
                 [],
             )?;
             set_schema_version(conn, 21)?;
+        }
+        if version < 22 {
+            execute_column_migrations(
+                conn,
+                &[
+                    "ALTER TABLE operation_logs ADD COLUMN source_claim_path TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN operation_phase TEXT NOT NULL DEFAULT 'completed';",
+                    "ALTER TABLE operation_logs ADD COLUMN claim_created_at TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN claim_platform_file_id TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN claim_full_hash TEXT;",
+                    "ALTER TABLE cleanup_trash_items ADD COLUMN source_claim_path TEXT;",
+                    "ALTER TABLE cleanup_trash_items ADD COLUMN operation_phase TEXT NOT NULL DEFAULT 'completed';",
+                    "ALTER TABLE cleanup_trash_items ADD COLUMN claim_created_at TEXT;",
+                    "ALTER TABLE cleanup_trash_items ADD COLUMN claim_platform_file_id TEXT;",
+                    "ALTER TABLE cleanup_trash_items ADD COLUMN claim_full_hash TEXT;",
+                ],
+            )?;
+            conn.execute_batch(
+                r#"
+                DROP TRIGGER IF EXISTS operation_logs_phase_guard_insert;
+                DROP TRIGGER IF EXISTS operation_logs_phase_guard_update;
+                CREATE TRIGGER operation_logs_phase_guard_insert
+                BEFORE INSERT ON operation_logs
+                WHEN NEW.operation_phase NOT IN ('prepared', 'source_claimed', 'copying',
+                    'target_committed', 'source_cleanup_pending', 'completed',
+                    'rolled_back', 'manual_review')
+                BEGIN SELECT RAISE(ABORT, 'invalid operation phase'); END;
+                CREATE TRIGGER operation_logs_phase_guard_update
+                BEFORE UPDATE OF operation_phase ON operation_logs
+                WHEN NEW.operation_phase NOT IN ('prepared', 'source_claimed', 'copying',
+                    'target_committed', 'source_cleanup_pending', 'completed',
+                    'rolled_back', 'manual_review')
+                BEGIN SELECT RAISE(ABORT, 'invalid operation phase'); END;
+
+                DROP TRIGGER IF EXISTS cleanup_items_phase_guard_insert;
+                DROP TRIGGER IF EXISTS cleanup_items_phase_guard_update;
+                CREATE TRIGGER cleanup_items_phase_guard_insert
+                BEFORE INSERT ON cleanup_trash_items
+                WHEN NEW.operation_phase NOT IN ('prepared', 'source_claimed', 'copying',
+                    'target_committed', 'source_cleanup_pending', 'completed',
+                    'rolled_back', 'manual_review')
+                BEGIN SELECT RAISE(ABORT, 'invalid cleanup operation phase'); END;
+                CREATE TRIGGER cleanup_items_phase_guard_update
+                BEFORE UPDATE OF operation_phase ON cleanup_trash_items
+                WHEN NEW.operation_phase NOT IN ('prepared', 'source_claimed', 'copying',
+                    'target_committed', 'source_cleanup_pending', 'completed',
+                    'rolled_back', 'manual_review')
+                BEGIN SELECT RAISE(ABORT, 'invalid cleanup operation phase'); END;
+                "#,
+            )?;
+            set_schema_version(conn, 22)?;
         }
         Ok(())
     })();

@@ -332,6 +332,19 @@ export function localizedStableError(error: unknown, t: Translator): string {
   if (message.startsWith("source_changed") || message.startsWith("source_identity_changed")) {
     return t("errorSourceIdentityChanged");
   }
+  if (message.startsWith("source_claim_failed")) return t("errorSourceClaimFailed");
+  if (message.startsWith("source_claim_mismatch")) return t("errorSourceClaimMismatch");
+  if (message.startsWith("source_claim_rollback_failed")) return t("errorSourceClaimRollbackFailed");
+  if (message.startsWith("source_claim_recovery_required")) return t("errorSourceClaimRecoveryRequired");
+  if (message.startsWith("target_parent_identity_changed")) return t("errorTargetParentIdentityChanged");
+  if (message.startsWith("atomic_source_binding_unsupported")) return t("errorAtomicSourceBindingUnsupported");
+  if (message.startsWith("cross_volume_directory_move_unsupported")) return t("errorCrossVolumeDirectoryMoveUnsupported");
+  if (message.startsWith("cross_volume_file_move_unsupported_on_macos")) return t("errorCrossVolumeFileMoveUnsupportedOnMacos");
+  if (message.startsWith("unsupported_platform_linux")) return t("errorUnsupportedPlatformLinux");
+  if (message.startsWith("target_committed_source_delete_failed")) return t("errorTargetCommittedSourceDeleteFailed");
+  if (message.startsWith("directory_manifest_name_encoding_failed")) return t("errorDirectoryManifestNameEncodingFailed");
+  if (message.startsWith("copy_verification_failed")) return t("errorCopyVerificationFailed");
+  if (message.startsWith("target_parent_durability_unknown")) return t("errorTargetParentDurabilityUnknown");
   if (message.startsWith("atomic_noreplace_unsupported")) {
     return t("errorAtomicNoReplaceUnsupported");
   }

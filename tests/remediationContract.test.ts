@@ -13,10 +13,16 @@ const safeTrash = cleanup;
 const dedupe = source("src-tauri/src/dedupe.rs");
 const ids = source("src-tauri/src/ids.rs");
 const capabilities = source("src-tauri/src/runtime_capabilities.rs");
+const cargo = source("src-tauri/Cargo.toml");
 const api = source("src/api/tauriApi.ts");
 const packageJson = source("package.json");
 const workflows = source(".github/workflows/ci.yml") + source(".github/workflows/release-build.yml");
 const supportedPlatforms = source("docs/security/SUPPORTED_PLATFORMS.md");
+const platformSupport = source("src-tauri/src/fs_safety/platform_support.rs");
+const sourceClaim = source("src-tauri/src/fs_safety/source_claim.rs");
+const sourceClaimProduction = sourceClaim.split("#[cfg(test)]")[0];
+const verifiedDirectory = source("src-tauri/src/fs_safety/verified_directory.rs");
+const atomicMove = source("src-tauri/src/fs_safety/atomic_move.rs");
 
 describe("remediation contracts", () => {
   it("requires jobId at every cleanup candidate command boundary", () => {
@@ -122,5 +128,22 @@ describe("remediation contracts", () => {
     expect(workflows).toContain("os: [windows-latest, macos-latest]");
     expect(workflows).not.toContain("ubuntu-latest");
     expect(workflows).not.toContain("Linux Tauri dependencies");
+    expect(cargo).not.toContain('target_os = "linux"');
+    expect(fileOps).not.toContain("xdg-open");
+    expect(platformSupport).toContain("unsupported_platform_linux");
+    expect(fileOps).toContain("ensure_supported_file_mutation");
+  });
+
+  it("binds mutation claims to verified directories and stable recovery phases", () => {
+    expect(sourceClaim).toContain("atomic_source_binding_unsupported");
+    expect(sourceClaim).toContain("AfterJournalPreparedBeforeClaim");
+    expect(sourceClaim).toContain("AfterClaimVerifiedBeforeTargetCommit");
+    expect(sourceClaim).toContain("AfterTargetCommitBeforeSourceCleanup");
+    expect(sourceClaim).toContain("AfterSourceCleanupBeforeJournalComplete");
+    expect(sourceClaimProduction).not.toContain("to_string_lossy");
+    expect(verifiedDirectory).toContain("ensure_unchanged");
+    expect(verifiedDirectory).toContain("DirectoryIdentity");
+    expect(atomicMove).toContain("CrossVolumeDirectoryMoveUnsupported");
+    expect(atomicMove).toContain("claim_source_at");
   });
 });
