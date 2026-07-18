@@ -379,6 +379,7 @@ pub fn claim_source_at(
     })
 }
 
+#[cfg(any(windows, test))]
 pub(crate) fn commit_path_noreplace(
     source: &Path,
     source_parent: &VerifiedDirectory,
@@ -397,6 +398,7 @@ pub(crate) fn commit_path_noreplace(
     )
 }
 
+#[cfg(any(windows, test))]
 pub(crate) fn delete_path_with_binding(
     path: &Path,
     parent: &VerifiedDirectory,
