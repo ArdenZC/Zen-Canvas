@@ -38,14 +38,14 @@ PR #7 is reference evidence only. Changes are replayed as narrow semantic patche
 - All-target clippy passes with warnings denied.
 - Cargo audit reports no vulnerability advisories. The remaining 15 allowed warnings are transitive maintenance or unmaintained warnings; the former `quick-xml` vulnerability ignores are absent.
 - The release-candidate installer is `src-tauri/target/release/bundle/nsis/Zen Canvas_0.1.40_x64-setup.exe` (5,602,406 bytes), SHA-256 `B280537E549437D89639E487899D6B2C986F1285CE0EA78A385F917F72C523A1`.
-- GitHub Actions run `29633487804` passed Windows Quality, macOS Quality, and Dependency Audit on replacement PR #9. The macOS gate covers the current-user temp exception without relaxing other `/private` paths; Unix symlink fixtures now use platform-correct cleanup.
+- GitHub Actions run `29634260135` passed Windows Quality, macOS Quality, and Dependency Audit on replacement PR #9. The macOS gate covers the current-user temp exception without relaxing other `/private` paths; Unix symlink fixtures now use platform-correct cleanup.
 
 ## Windows desktop smoke evidence
 
 - Production About reports `v0.1.40`; developer-only AI debug controls are absent while the normal credential and connection controls remain available.
 - A real DeepSeek connection test succeeded with `deepseek-v4-flash`. Real classification parsed and persisted four disposable fixture results without moving any source file or bypassing Preview.
 - The full secret value was byte-scanned across 463 relevant repository and application files in UTF-8 and UTF-16 forms with zero matches.
-- Credential clear is fail-closed: clearing while cloud AI remained enabled was rejected and rolled back. After switching AI off, explicit clear succeeded and Windows Credential Manager returned not found. Replacement/readback evidence remains pending until the operator personally enters the secret again; the secret is never copied into this repository or test log.
+- Credential clear is fail-closed: clearing while cloud AI remained enabled was rejected and rolled back. After switching AI off, explicit clear succeeded and Windows Credential Manager returned not found. The operator then personally replaced the secret; the UI reported it stored in the system credential vault, a complete application exit/restart preserved it, and real connection tests succeeded before and after restart (`750ms` and `528ms`). The secret was never copied into this repository or test log.
 - Storage Cleanup scanned an isolated 45-byte, 45-day-old disposable candidate, required final confirmation, moved it to Zen Canvas Safe Trash, and restored it with zero conflicts, missing files, failures, cancellations, or exclusions.
 - A broad `%TEMP%` cleanup scan was cancelled through the production UI and reported cancellation.
 - The Windows System Trash success path was exercised with a process-unique disposable fixture by `cargo test --features desktop-runtime execute_moves_core_supports_move_to_trash_success_path -- --nocapture`; the test verified a successful `move_to_trash` log, source disappearance, and no false in-app restore claim.
@@ -57,10 +57,10 @@ PR #7 is reference evidence only. Changes are replayed as narrow semantic patche
 - The `0.1.40` installer detected the older installation. Its first uninstall-before-install attempt exposed an old-uninstaller busy loop; after the child was terminated, the installer reported the failure and the test explicitly selected the supported `Do not uninstall` in-place path targeting the same install directory. Installation then completed successfully. This anomaly is retained as evidence and is not described as a clean uninstall-first upgrade.
 - First `0.1.40` startup preserved the 2-file scan, Deep Sea theme, enabled user rule, current scope, and pending review state. About reported `v0.1.40`, and the copied Schema 16 database migrated to Schema 20.
 - A subsequent silent `0.1.40` uninstall removed the registered application and executable while leaving AppData intact. Reinstall completed successfully, and first startup again retained the scan, theme, and pending state.
-- API-key retention across the cross-version and reinstall boundary is pending operator-only secret re-entry. Operation-history retention from `0.1.39` could not be demonstrated because the prepared old-version baseline contained no executable operation; automated migration tests cover legacy identity-less records and manual-review mapping, but that distinction remains explicit in the final report.
+- A second strict credential upgrade used the official `0.1.39` installer in the same install directory. Version `0.1.39` successfully connected with the already-stored credential (its old UI rendered the latency as `undefinedms`), the official `0.1.40` installer then upgraded that installation in place, Credential Manager still contained the target, the `0.1.40` UI reported the key stored in the system credential vault, and a post-upgrade real connection succeeded in `630ms`.
+- Operation-history retention from `0.1.39` could not be demonstrated because the prepared old-version baseline contained no executable operation; automated migration tests cover legacy identity-less records and manual-review mapping, but that distinction remains explicit in the final report.
 
-## Remaining external gates
+## Completion boundaries
 
-- Operator-only API-key replacement/readback/restart verification.
-- Restore the user's original ordinary and Codex-virtualized AppData snapshots after smoke completion.
-- Keep replacement PR #9 as a Draft, verify the final documentation-only head in CI, and close PR #7 as superseded. Do not tag, publish a Release, or merge.
+- The user's original Local and Roaming AppData was restored from the pre-smoke backup and verified byte-for-byte: 206 files compared by SHA-256, zero mismatches, and zero extras. The Codex-virtualized AppData path and disposable smoke fixture paths are absent.
+- Replacement PR #9 remains a Draft and PR #7 is closed as superseded. The final documentation-only head must remain green in CI; no tag, GitHub Release, or merge is part of this work.
