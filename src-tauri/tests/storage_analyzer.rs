@@ -609,6 +609,7 @@ fn storage_analyzer_keeps_program_files_and_database_like_paths_cautious() {
     assert!(!db_candidate.trash_allowed);
 }
 
+#[cfg(windows)]
 #[test]
 fn storage_analyzer_rejects_forbidden_system_and_app_database_paths() {
     let app_data = PathBuf::from("C:/Users/zen/AppData/Roaming/Startlan/Zen Canvas");

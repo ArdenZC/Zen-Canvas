@@ -61,9 +61,12 @@ fn create_directory_chain_unix(path: &Path) -> Result<(), PathGuardError> {
         let mut child_fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags) };
         if child_fd < 0 {
             let error = io::Error::last_os_error();
+            if is_symlink_at(parent.as_raw_fd(), &name) {
+                return Err(PathGuardError::ReparsePoint);
+            }
             if error.raw_os_error() != Some(libc::ENOENT) {
-                if matches!(error.raw_os_error(), Some(libc::ELOOP)) {
-                    return Err(PathGuardError::ReparsePoint);
+                if error.raw_os_error() == Some(libc::ENOTDIR) {
+                    return Err(PathGuardError::UnsafePath);
                 }
                 return Err(PathGuardError::Io(error));
             }
@@ -83,8 +86,11 @@ fn create_directory_chain_unix(path: &Path) -> Result<(), PathGuardError> {
             child_fd = unsafe { libc::openat(parent.as_raw_fd(), name.as_ptr(), flags) };
             if child_fd < 0 {
                 let open_error = io::Error::last_os_error();
-                if matches!(open_error.raw_os_error(), Some(libc::ELOOP)) {
+                if is_symlink_at(parent.as_raw_fd(), &name) {
                     return Err(PathGuardError::ReparsePoint);
+                }
+                if open_error.raw_os_error() == Some(libc::ENOTDIR) {
+                    return Err(PathGuardError::UnsafePath);
                 }
                 return Err(PathGuardError::Io(open_error));
             }
@@ -100,6 +106,20 @@ fn create_directory_chain_unix(path: &Path) -> Result<(), PathGuardError> {
         parent = unsafe { fs::File::from_raw_fd(child.into_raw_fd()) };
     }
     Ok(())
+}
+
+#[cfg(unix)]
+fn is_symlink_at(parent_fd: std::os::fd::RawFd, name: &std::ffi::CString) -> bool {
+    let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
+    unsafe {
+        libc::fstatat(
+            parent_fd,
+            name.as_ptr(),
+            &mut stat,
+            libc::AT_SYMLINK_NOFOLLOW,
+        ) == 0
+            && stat.st_mode & libc::S_IFMT == libc::S_IFLNK
+    }
 }
 
 #[cfg(target_os = "macos")]

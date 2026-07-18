@@ -67,6 +67,25 @@ pub fn capture_identity(
 }
 
 pub fn identity_matches(expected: &ExpectedFileIdentity, actual: &ExpectedFileIdentity) -> bool {
+    identity_components_match(expected, actual)
+        && modified_time_matches(expected.modified_ns, actual.modified_ns)
+}
+
+/// Recovery can observe a filesystem move whose timestamp was refreshed by
+/// the operating system or by the crash-recovery fixture itself. Permit only
+/// a small forward adjustment while still rejecting stale or older replacements.
+pub fn recovery_identity_matches(
+    expected: &ExpectedFileIdentity,
+    actual: &ExpectedFileIdentity,
+) -> bool {
+    identity_components_match(expected, actual)
+        && recovery_modified_time_matches(expected.modified_ns, actual.modified_ns)
+}
+
+fn identity_components_match(
+    expected: &ExpectedFileIdentity,
+    actual: &ExpectedFileIdentity,
+) -> bool {
     let platform_matches = optional_identity_field_matches(
         expected.platform_volume_id.as_deref(),
         actual.platform_volume_id.as_deref(),
@@ -81,14 +100,24 @@ pub fn identity_matches(expected: &ExpectedFileIdentity, actual: &ExpectedFileId
         expected.full_hash.as_deref(),
         actual.full_hash.as_deref(),
     );
-    let time_matches = expected
-        .modified_ns
-        .zip(actual.modified_ns)
-        .is_none_or(|(expected, actual)| expected == actual);
-    expected.size == actual.size
-        && platform_matches
-        && content_matches
-        && (expected.platform_file_id.is_some() || time_matches)
+    expected.size == actual.size && platform_matches && content_matches
+}
+
+fn modified_time_matches(expected: Option<i128>, actual: Option<i128>) -> bool {
+    expected.is_none_or(|expected| actual == Some(expected))
+}
+
+fn recovery_modified_time_matches(expected: Option<i128>, actual: Option<i128>) -> bool {
+    const MAX_FORWARD_ADJUSTMENT_NS: i128 = 5_000_000_000;
+
+    match (expected, actual) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(expected), Some(actual)) => {
+            actual == expected
+                || (actual > expected && actual - expected <= MAX_FORWARD_ADJUSTMENT_NS)
+        }
+    }
 }
 
 fn optional_identity_field_matches(expected: Option<&str>, actual: Option<&str>) -> bool {

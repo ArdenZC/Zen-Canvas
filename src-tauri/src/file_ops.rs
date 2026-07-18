@@ -573,7 +573,7 @@ fn journal_identity_matches(log: &OperationLogDto, path: &Path) -> bool {
         return false;
     }
     crate::fs_safety::capture_identity(path, None)
-        .map(|actual| crate::fs_safety::identity_matches(&expected, &actual))
+        .map(|actual| crate::fs_safety::recovery_identity_matches(&expected, &actual))
         .unwrap_or(false)
 }
 
