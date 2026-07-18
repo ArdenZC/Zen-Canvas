@@ -1,4 +1,5 @@
 pub mod atomic_move;
+#[cfg(any(windows, test))]
 pub mod copy_commit;
 pub mod identity;
 pub mod path_guard;

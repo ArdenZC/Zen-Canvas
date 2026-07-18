@@ -561,7 +561,7 @@ fn open_source_handle(_path: &Path, _kind: ClaimedEntryKind) -> Result<File, Sou
 }
 
 fn rename_claim_handle(
-    handle: &File,
+    _handle: &File,
     source_parent: &VerifiedDirectory,
     source_name: &OsStr,
     target_parent: &VerifiedDirectory,
@@ -573,7 +573,7 @@ fn rename_claim_handle(
     #[cfg(windows)]
     {
         let _ = source_parent;
-        rename_windows(handle, target_parent, target_name)
+        rename_windows(_handle, target_parent, target_name)
     }
 
     #[cfg(target_os = "macos")]
@@ -584,7 +584,7 @@ fn rename_claim_handle(
     #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = (
-            handle,
+            _handle,
             source_parent,
             source_name,
             target_parent,
@@ -940,6 +940,7 @@ mod tests {
         fs::create_dir(&target_parent).expect("replace target parent");
     }
 
+    #[cfg(windows)]
     fn replace_claim_before_identity_check(point: ClaimTestPoint, _source: &Path, claim: &Path) {
         if point == ClaimTestPoint::AfterClaimBeforeIdentityCheck {
             fs::remove_file(claim).expect("remove claim");

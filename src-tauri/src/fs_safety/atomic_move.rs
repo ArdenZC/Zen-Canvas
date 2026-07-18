@@ -1,5 +1,7 @@
+#[cfg(windows)]
+use super::copy_commit;
 use super::{
-    copy_commit, identity, platform_support, source_claim, source_claim::SourceClaimError,
+    identity, platform_support, source_claim, source_claim::SourceClaimError,
     verified_directory::VerifiedDirectory,
 };
 use std::{
@@ -241,19 +243,6 @@ fn map_identity_error(error: identity::IdentityError) -> AtomicMoveError {
 
 fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {
     cancel.is_some_and(|flag| flag.load(Ordering::Acquire))
-}
-
-#[cfg(target_os = "macos")]
-pub(crate) fn map_unix_errno_for_test(error: io::Error) -> AtomicMoveError {
-    match error.raw_os_error() {
-        Some(libc::EEXIST) => AtomicMoveError::TargetExists,
-        Some(libc::EXDEV) => AtomicMoveError::CrossDevice,
-        Some(libc::ENOSYS) => AtomicMoveError::UnsupportedAtomicNoReplace,
-        Some(libc::EINVAL) => AtomicMoveError::UnsupportedAtomicNoReplace,
-        Some(libc::ENOTSUP) => AtomicMoveError::UnsupportedAtomicNoReplace,
-        Some(libc::EOPNOTSUPP) => AtomicMoveError::UnsupportedAtomicNoReplace,
-        _ => AtomicMoveError::Io(error),
-    }
 }
 
 #[cfg(test)]
