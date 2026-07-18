@@ -14,7 +14,7 @@ import type {
   OperationPreviewResult,
   RuleExecutionSummary
 } from "../types/domain";
-import { applyPreviewNameOverride, createOperationPreviews, localId, readableError } from "../utils/viewHelpers";
+import { applyPreviewNameOverride, createOperationPreviews, localId, localizedStableError, readableError } from "../utils/viewHelpers";
 import { useAppStore } from "./useAppStore";
 import { useFileLibraryStore } from "./useFileLibraryStore";
 import { useRulesStore } from "./useRulesStore";
@@ -232,6 +232,10 @@ function localizedRestoreError(error: unknown, t: ReturnType<typeof currentT>) {
     message = t("restoreErrorProcessing");
   } else if (normalized.includes("canceled") || normalized.includes("cancelled") || normalized.includes("取消")) {
     message = t("restoreErrorCanceled");
+  } else if (normalized.startsWith("source_changed") || normalized.startsWith("source_identity_changed")) {
+    message = t("errorSourceIdentityChanged");
+  } else if (normalized.startsWith("atomic_noreplace_unsupported")) {
+    message = t("errorAtomicNoReplaceUnsupported");
   }
   return { message, technical };
 }
@@ -642,7 +646,7 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       const technicalMessage = readableError(error);
       const message = /authoritative preview/i.test(technicalMessage)
         ? t("organizePreviewInvalidated")
-        : technicalMessage;
+        : localizedStableError(error, t);
       set({ executionError: message });
       useAppStore.getState().showError(message);
       return [];
@@ -931,7 +935,7 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
       await tauriApi.cancelOperations();
     } catch (error) {
       set({ isOperationCanceling: false });
-      useAppStore.getState().showError(readableError(error));
+      useAppStore.getState().showError(localizedStableError(error, currentT()));
     }
   },
   cancelCleanupRestore: async () => {

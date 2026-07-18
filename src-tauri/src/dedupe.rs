@@ -1,6 +1,7 @@
 use crate::{
     db::{Database, DbError},
     ids::new_job_id,
+    window_auth::require_main_window,
 };
 use rusqlite::params;
 use serde::Serialize;
@@ -14,7 +15,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Runtime, WebviewWindow};
 use thiserror::Error;
 
 pub const DEDUPE_PROGRESS_EVENT: &str = "dedupe-progress";
@@ -430,10 +431,12 @@ pub fn spawn_duplicate_detection<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn cancel_dedupe(
+pub fn cancel_dedupe<R: Runtime>(
+    window: WebviewWindow<R>,
     jobs: tauri::State<'_, DedupeJobManager>,
     job_id: String,
 ) -> Result<(), String> {
+    require_main_window(&window)?;
     if jobs.cancel(&job_id) {
         Ok(())
     } else {

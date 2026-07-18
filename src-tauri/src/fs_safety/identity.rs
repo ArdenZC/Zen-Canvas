@@ -67,26 +67,20 @@ pub fn capture_identity(
 }
 
 pub fn identity_matches(expected: &ExpectedFileIdentity, actual: &ExpectedFileIdentity) -> bool {
-    let platform_matches = expected
-        .platform_volume_id
-        .as_deref()
-        .zip(actual.platform_volume_id.as_deref())
-        .is_none_or(|(expected, actual)| expected == actual)
-        && expected
-            .platform_file_id
-            .as_deref()
-            .zip(actual.platform_file_id.as_deref())
-            .is_none_or(|(expected, actual)| expected == actual);
-    let content_matches = expected
-        .sample_hash
-        .as_deref()
-        .zip(actual.sample_hash.as_deref())
-        .is_none_or(|(expected, actual)| expected == actual)
-        && expected
-            .full_hash
-            .as_deref()
-            .zip(actual.full_hash.as_deref())
-            .is_none_or(|(expected, actual)| expected == actual);
+    let platform_matches = optional_identity_field_matches(
+        expected.platform_volume_id.as_deref(),
+        actual.platform_volume_id.as_deref(),
+    ) && optional_identity_field_matches(
+        expected.platform_file_id.as_deref(),
+        actual.platform_file_id.as_deref(),
+    );
+    let content_matches = optional_identity_field_matches(
+        expected.sample_hash.as_deref(),
+        actual.sample_hash.as_deref(),
+    ) && optional_identity_field_matches(
+        expected.full_hash.as_deref(),
+        actual.full_hash.as_deref(),
+    );
     let time_matches = expected
         .modified_ns
         .zip(actual.modified_ns)
@@ -97,6 +91,10 @@ pub fn identity_matches(expected: &ExpectedFileIdentity, actual: &ExpectedFileId
         && (expected.platform_file_id.is_some() || time_matches)
 }
 
+fn optional_identity_field_matches(expected: Option<&str>, actual: Option<&str>) -> bool {
+    expected.is_none() || expected == actual
+}
+
 pub fn content_identity_matches(
     expected: &ExpectedFileIdentity,
     actual: &ExpectedFileIdentity,
@@ -105,13 +103,11 @@ pub fn content_identity_matches(
         && expected
             .sample_hash
             .as_deref()
-            .zip(actual.sample_hash.as_deref())
-            .is_none_or(|(expected, actual)| expected == actual)
+            .is_none_or(|expected| actual.sample_hash.as_deref() == Some(expected))
         && expected
             .full_hash
             .as_deref()
-            .zip(actual.full_hash.as_deref())
-            .is_none_or(|(expected, actual)| expected == actual)
+            .is_none_or(|expected| actual.full_hash.as_deref() == Some(expected))
 }
 
 pub fn ensure_supported_entry(path: &Path) -> Result<(), IdentityError> {

@@ -99,8 +99,50 @@ describe("useStorageCleanupStore", () => {
     await useStorageCleanupStore.getState().cancelScan(api);
 
     expect(api.cancelStorageCleanupScan).toHaveBeenCalledWith("job-1");
+    expect(useStorageCleanupStore.getState().isScanning).toBe(true);
+    expect(useStorageCleanupStore.getState().scanStatus).toBe("cancel_requested");
+    expect(useStorageCleanupStore.getState().activeJobId).toBe("job-1");
+  });
+
+  it("only enters cancelled after the backend confirms the terminal state", async () => {
+    const api = {
+      startStorageCleanupScan: vi.fn(),
+      cancelStorageCleanupScan: vi.fn().mockResolvedValue(undefined),
+      getStorageCleanupScanStatus: vi.fn().mockResolvedValue({
+        jobId: "job-1",
+        status: "cancelled" as const,
+        progress: null,
+        analysis: null,
+        error: null,
+        startedAt: "1",
+        completedAt: "2"
+      })
+    };
+    useStorageCleanupStore.setState({ isScanning: true, activeJobId: "job-1", scanStatus: "running" });
+
+    await useStorageCleanupStore.getState().cancelScan(api);
+    await Promise.resolve();
+
+    expect(api.getStorageCleanupScanStatus).toHaveBeenCalledWith("job-1");
     expect(useStorageCleanupStore.getState().isScanning).toBe(false);
-    expect(useStorageCleanupStore.getState().scanError).toContain("取消");
+    expect(useStorageCleanupStore.getState().scanStatus).toBe("cancelled");
+    expect(useStorageCleanupStore.getState().activeJobId).toBeNull();
+  });
+
+  it("restores running state when the cancel request fails", async () => {
+    const api = {
+      startStorageCleanupScan: vi.fn(),
+      cancelStorageCleanupScan: vi.fn().mockRejectedValue(new Error("offline")),
+      getStorageCleanupScanStatus: vi.fn()
+    };
+    useStorageCleanupStore.setState({ isScanning: true, activeJobId: "job-1", scanStatus: "running" });
+
+    await useStorageCleanupStore.getState().cancelScan(api);
+
+    expect(useStorageCleanupStore.getState().isScanning).toBe(true);
+    expect(useStorageCleanupStore.getState().scanStatus).toBe("running");
+    expect(useStorageCleanupStore.getState().cancelRequestedJobId).toBeNull();
+    expect(useStorageCleanupStore.getState().scanError).toContain("cleanup_cancel_failed");
   });
 
   it("reconciles a job that completes before the start call returns", async () => {

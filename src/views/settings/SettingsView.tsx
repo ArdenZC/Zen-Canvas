@@ -41,7 +41,7 @@ import {
   type AIClassificationPresetId
 } from "./aiSettingsModel";
 import { acceleratorFromKeyboardEvent, formatHotkeyLabel, isValidSearchHotkey } from "../../utils/hotkeys";
-import { compactPath, normalizePathLike, readableError } from "../../utils/viewHelpers";
+import { compactPath, localizedStableError, normalizePathLike, readableError } from "../../utils/viewHelpers";
 import { buttonIconDanger, buttonSecondary, cn, glassButton } from "../../utils/tw";
 import {
   ConfirmDialog,
@@ -151,6 +151,7 @@ export function SettingsView() {
       useLegacyBuiltinClassificationRules,
       useLearnedRulesAsAutoRules
     },
+    isLoadingSettings,
     updateSettings,
     setFolderNamingLanguage,
     setDefaultScanFolders,
@@ -345,7 +346,7 @@ export function SettingsView() {
       })
       .catch((error) => {
         if (!disposed) {
-          setAiConnectionStatus({ tone: "warning", role: "alert", message: `${t("aiSettingsLoadFailed")}：${readableError(error)}` });
+          setAiConnectionStatus({ tone: "warning", role: "alert", message: `${t("aiSettingsLoadFailed")}：${localizedStableError(error, t)}` });
         }
       })
       .finally(() => {
@@ -644,7 +645,7 @@ export function SettingsView() {
       setAiConnectionStatus({
         tone: "warning",
         role: "alert",
-        message: sanitizeAIStatusMessage(`${t("aiSettingsSaveFailed")}：${readableError(error)}`, next.apiKey || aiSettings.apiKey || previous?.apiKey || "")
+        message: sanitizeAIStatusMessage(`${t("aiSettingsSaveFailed")}：${localizedStableError(error, t)}`, next.apiKey || aiSettings.apiKey || previous?.apiKey || "")
       });
       setSecretRevealResetVersion((version) => version + 1);
     } finally {
@@ -668,7 +669,7 @@ export function SettingsView() {
       setAiConnectionStatus({
         tone: "warning",
         role: "alert",
-        message: sanitizeAIStatusMessage(`${t("aiConnectionTestFailed")}：${readableError(error)}`, aiSettings.apiKey)
+        message: sanitizeAIStatusMessage(`${t("aiConnectionTestFailed")}：${localizedStableError(error, t)}`, aiSettings.apiKey)
       });
     } finally {
       setIsTestingAIConnection(false);
@@ -709,13 +710,19 @@ export function SettingsView() {
 
   return (
     <>
-    <SettingsLayout
-      sections={settingsSections}
-      activeSectionId={activeSettingsSection}
-      sectionLabel={t("settingsSectionsLabel")}
-      onSectionChange={(sectionId, options) => focusSettingsSection(sectionId, options)}
-      scrollRef={settingsScrollRef}
+    <div
+      aria-busy={isLoadingSettings}
+      aria-disabled={isLoadingSettings}
+      inert={isLoadingSettings ? true : undefined}
+      className="contents"
     >
+      <SettingsLayout
+        sections={settingsSections}
+        activeSectionId={activeSettingsSection}
+        sectionLabel={t("settingsSectionsLabel")}
+        onSectionChange={(sectionId, options) => focusSettingsSection(sectionId, options)}
+        scrollRef={settingsScrollRef}
+      >
         <div className="grid gap-2">
           <p className="max-w-2xl text-sm leading-6 text-[var(--zc-text-secondary)]">{t("settingsDesc")}</p>
           {settingsStatus ? <SettingsInlineMessage tone={settingsStatusTone === "warning" ? "warning" : "success"} role={settingsStatusTone === "warning" ? "alert" : "status"}>{settingsStatus}</SettingsInlineMessage> : null}
@@ -1258,7 +1265,8 @@ export function SettingsView() {
             </div>
           </SettingsControlGroup>
         </SettingsSection>
-    </SettingsLayout>
+      </SettingsLayout>
+    </div>
     <ConfirmDialog
       open={Boolean(folderDeleteConfirm)}
       tone="warning"

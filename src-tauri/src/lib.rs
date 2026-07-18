@@ -6,11 +6,13 @@ pub mod file_ops;
 pub mod fs_safety;
 pub mod ids;
 pub mod path_filter;
+pub mod path_identity;
 pub mod runtime_capabilities;
 pub mod scanner;
 pub mod settings;
 pub mod storage_analyzer;
 pub mod watcher;
+pub mod window_auth;
 
 use db::Database;
 use std::path::PathBuf;

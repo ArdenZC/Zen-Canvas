@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, Runtime, State};
+use tauri::{AppHandle, Manager, Runtime, State, WebviewWindow};
 
 use super::{
     ollama::OllamaProvider,
@@ -18,6 +18,7 @@ use super::{
 use crate::{
     db::Database,
     storage_analyzer::{CleanupActionKind, CleanupTier, StorageCandidate, StorageCleanupState},
+    window_auth::require_main_window,
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -59,12 +60,14 @@ struct AICleanupAnalysisResponse {
 
 #[tauri::command]
 pub async fn analyze_cleanup_candidates_with_ai<R: Runtime>(
+    window: WebviewWindow<R>,
     job_id: String,
     ids: Vec<String>,
     app: AppHandle<R>,
     db: State<'_, Database>,
     state: State<'_, StorageCleanupState>,
 ) -> Result<Vec<StorageCandidate>, String> {
+    require_main_window(&window)?;
     let app_data_dir = app.path().app_data_dir().ok();
     let db = db.inner().clone();
     let state = state.inner().clone();

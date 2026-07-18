@@ -5,6 +5,7 @@ use crate::db::{
 use crate::dedupe::{spawn_duplicate_detection, DedupeJobManager};
 use crate::ids::new_job_id;
 use crate::path_filter::is_ignored_dir_name;
+use crate::window_auth::require_main_window;
 use jwalk::{ClientState, DirEntry, WalkDir};
 use serde::Serialize;
 use std::{
@@ -17,7 +18,7 @@ use std::{
     },
     time::{Duration, Instant, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Emitter, Runtime, State};
+use tauri::{AppHandle, Emitter, Runtime, State, WebviewWindow};
 use thiserror::Error;
 
 const SCAN_BATCH_SIZE: usize = 500;
@@ -168,6 +169,7 @@ impl ScanJobManager {
 #[allow(clippy::too_many_arguments)]
 pub async fn scan_directory<R: Runtime>(
     app: AppHandle<R>,
+    window: WebviewWindow<R>,
     db: State<'_, Database>,
     jobs: State<'_, ScanJobManager>,
     dedupe_jobs: State<'_, DedupeJobManager>,
@@ -177,6 +179,7 @@ pub async fn scan_directory<R: Runtime>(
     job_kind: String,
     run_dedupe: Option<bool>,
 ) -> Result<ScanSummary, String> {
+    require_main_window(&window)?;
     if !matches!(job_kind.as_str(), "foreground" | "background") {
         return Err("Scan job kind must be foreground or background.".to_string());
     }
@@ -206,11 +209,13 @@ pub async fn scan_directory<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn cancel_scan(
+pub fn cancel_scan<R: Runtime>(
+    window: WebviewWindow<R>,
     jobs: State<'_, ScanJobManager>,
     dedupe_jobs: State<'_, DedupeJobManager>,
     job_id: String,
 ) -> Result<(), String> {
+    require_main_window(&window)?;
     let scan_cancelled = jobs.cancel(&job_id);
     let dedupe_cancelled = dedupe_jobs.cancel_for_scan(&job_id);
     if scan_cancelled || dedupe_cancelled {

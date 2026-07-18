@@ -1,4 +1,5 @@
-use crate::{db::Database, ids::new_job_id};
+use crate::path_identity::{normalize_path, normalize_text_for_platform, PathPlatform};
+use crate::{db::Database, ids::new_job_id, window_auth::require_main_window};
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::io::Read;
@@ -895,14 +896,6 @@ pub async fn restore_moves<R: Runtime>(
     .map_err(|error| format!("restore task failed: {error}"))?
 }
 
-fn require_main_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
-    if window.label() == "main" {
-        Ok(())
-    } else {
-        Err("This operation is only available from the main window.".to_string())
-    }
-}
-
 pub fn restore_moves_with_persistence(
     db: &Database,
     request: RestoreMovesRequest,
@@ -1650,21 +1643,12 @@ fn build_reveal_command(path: &Path) -> Result<RevealCommand, String> {
 }
 
 fn normalize_for_compare_for_os(path: &Path, os: &str) -> String {
-    let value = normalize_path(path);
-    let value = value
-        .strip_prefix("//?/")
-        .unwrap_or(&value)
-        .trim_end_matches('/')
-        .to_string();
-    if os == "windows" || os == "macos" {
-        value.to_ascii_lowercase()
-    } else {
-        value
-    }
-}
-
-fn normalize_path(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    let platform = match os {
+        "windows" => PathPlatform::Windows,
+        "macos" => PathPlatform::Macos,
+        _ => PathPlatform::Unix,
+    };
+    normalize_text_for_platform(&normalize_path(path), platform)
 }
 
 fn current_timestamp_ms() -> u128 {
@@ -2221,18 +2205,17 @@ mod tests {
     }
 
     #[test]
-    fn general_operations_treat_macos_paths_case_insensitively() {
+    fn general_operations_preserve_macos_path_case() {
         assert_eq!(
             normalize_for_compare_for_os(Path::new("/pRiVaTe/var/log/example.log"), "macos"),
-            "/private/var/log/example.log"
+            "/pRiVaTe/var/log/example.log"
         );
-        let error = ensure_general_file_operation_allowed_for_os(
+        let result = ensure_general_file_operation_allowed_for_os(
             Path::new("/pRiVaTe/var/log/example.log"),
             "macos",
-        )
-        .expect_err("macOS protected paths must be case insensitive");
+        );
 
-        assert!(error.contains("protected system location"));
+        assert!(result.is_ok(), "macOS path identity must preserve case");
     }
 
     #[test]

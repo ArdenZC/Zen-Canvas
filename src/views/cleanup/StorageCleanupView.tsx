@@ -22,6 +22,7 @@ import {
   canManuallySelectForCleanup,
   cleanupSelectionDisabledReason,
   defaultSelectedCleanupIds,
+  storageCleanupErrorMessage,
   useStorageCleanupStore
 } from "../../store/useStorageCleanupStore";
 import type {
@@ -119,7 +120,7 @@ function StorageCleanupPanel({
   const aiDowngradedCandidateIds = !initialAnalysis ? store.aiDowngradedCandidateIds : new Set<string>();
   const [localError, setLocalError] = useState("");
   const [cleanupAIReadiness, setCleanupAIReadiness] = useState("");
-  const error = localError || scanError;
+  const error = localError || (scanError ? storageCleanupErrorMessage(scanError, t) : "");
 
   useEffect(() => {
     if (initialAnalysis) return undefined;
@@ -136,7 +137,7 @@ function StorageCleanupPanel({
         useStorageCleanupStore.getState().failScan(payload.jobId, payload.message);
       });
       const cancelledOff = await api.onStorageCleanupCancelled?.((payload) => {
-        useStorageCleanupStore.getState().failScan(payload.jobId, t("scanCanceled"));
+        useStorageCleanupStore.getState().confirmCancelled(payload.jobId, "cleanup_cancelled");
       });
       for (const disposer of [progressOff, completedOff, failedOff, cancelledOff]) {
         if (disposer) disposers.push(disposer);
@@ -353,7 +354,11 @@ function StorageCleanupPanel({
                 <span>{t("storageCleanupScanScope")}</span>
               </button>
               {isScanning && (
-                <button className={buttonSecondary} onClick={cancelScan}>
+                <button
+                  className={buttonSecondary}
+                  onClick={cancelScan}
+                  disabled={store.scanStatus === "cancel_requested"}
+                >
                   <XCircle size={16} />
                   <span>{t("storageCleanupCancelScan")}</span>
                 </button>

@@ -95,17 +95,17 @@ pub fn atomic_move_noreplace(
 pub(crate) fn atomic_rename_noreplace(source: &Path, target: &Path) -> Result<(), AtomicMoveError> {
     #[cfg(windows)]
     {
-        return atomic_rename_windows(source, target);
+        atomic_rename_windows(source, target)
     }
 
     #[cfg(target_os = "linux")]
     {
-        return atomic_rename_linux(source, target);
+        atomic_rename_linux(source, target)
     }
 
     #[cfg(target_os = "macos")]
     {
-        return atomic_rename_macos(source, target);
+        atomic_rename_macos(source, target)
     }
 
     #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
@@ -233,7 +233,7 @@ fn map_unix_errno(error: io::Error) -> Result<(), AtomicMoveError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use std::{fs, sync::atomic::AtomicBool};
 
     fn fixture(name: &str) -> std::path::PathBuf {
         let path = std::env::temp_dir().join(format!(
@@ -257,6 +257,23 @@ mod tests {
         assert!(matches!(error, AtomicMoveError::TargetExists));
         assert_eq!(fs::read(&source).expect("source bytes"), b"source");
         assert_eq!(fs::read(&target).expect("target bytes"), b"target");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cancellation_before_commit_leaves_source_and_target_untouched() {
+        let root = fixture("cancel-before-commit");
+        let source = root.join("source");
+        let target = root.join("target");
+        fs::write(&source, b"source").expect("source");
+        let cancel = AtomicBool::new(true);
+
+        let error = atomic_move_noreplace(&source, &target, None, Some(&cancel))
+            .expect_err("cancelled move");
+
+        assert!(matches!(error, AtomicMoveError::Cancelled));
+        assert_eq!(fs::read(&source).expect("source bytes"), b"source");
+        assert!(!target.exists());
         let _ = fs::remove_dir_all(root);
     }
 }

@@ -327,6 +327,32 @@ export function readableError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export function localizedStableError(error: unknown, t: Translator): string {
+  const message = readableError(error);
+  if (message.startsWith("source_changed") || message.startsWith("source_identity_changed")) {
+    return t("errorSourceIdentityChanged");
+  }
+  if (message.startsWith("atomic_noreplace_unsupported")) {
+    return t("errorAtomicNoReplaceUnsupported");
+  }
+  if (message.startsWith("credential_conflict")) {
+    return t("errorCredentialConflict");
+  }
+  if (message.startsWith("credential_transaction_lock_poisoned")) {
+    return t("errorCredentialTransactionUnavailable");
+  }
+  if (message.startsWith("settings_revision_conflict")) {
+    return t("settingsRevisionConflict");
+  }
+  if (message.startsWith("watcher_retry_exhausted")) {
+    return t("watcherRetryExhausted");
+  }
+  if (message.startsWith("cleanup_cancel_failed")) {
+    return t("storageCleanupCancelFailed");
+  }
+  return message;
+}
+
 export function localId(prefix: string): string {
   return `${prefix}_${globalThis.crypto.randomUUID()}`;
 }

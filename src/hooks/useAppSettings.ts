@@ -37,6 +37,19 @@ interface UseAppSettingsOptions {
 
 type SettingsPersistenceApi = Pick<typeof tauriApi, "getSettings" | "saveSettings">;
 
+type SettingsLoadGate = {
+  promise: Promise<VersionedAppSettings | null>;
+  resolve: (value: VersionedAppSettings | null) => void;
+};
+
+function createSettingsLoadGate(): SettingsLoadGate {
+  let resolve!: (value: VersionedAppSettings | null) => void;
+  const promise = new Promise<VersionedAppSettings | null>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 export async function reconcileFailedSettingsSave(
   api: Pick<typeof tauriApi, "getSettings">,
   error: unknown,
@@ -56,10 +69,23 @@ export async function saveSettingsIntent(
   base: VersionedAppSettings,
   partial: Partial<AppSettings>
 ): Promise<VersionedAppSettings> {
-  return api.saveSettings({
-    settings: mergeAppSettings(base.settings, partial),
-    expectedRevision: base.revision
-  });
+  try {
+    return await api.saveSettings({
+      settings: mergeAppSettings(base.settings, partial),
+      expectedRevision: base.revision
+    });
+  } catch (error) {
+    if (!isSettingsRevisionConflict(error)) throw error;
+    const latest = await api.getSettings();
+    return api.saveSettings({
+      settings: mergeAppSettings(latest.settings, partial),
+      expectedRevision: latest.revision
+    });
+  }
+}
+
+function isSettingsRevisionConflict(error: unknown) {
+  return String(error).includes("settings_revision_conflict");
 }
 
 export function mergeAppSettings(
@@ -246,6 +272,15 @@ export function useAppSettings({
   const settingsRevisionRef = useRef(0);
   const saveRequestIdRef = useRef(0);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const settingsLoadPromiseRef = useRef<Promise<VersionedAppSettings | null> | null>(null);
+  const settingsLoadGateRef = useRef<SettingsLoadGate | null>(
+    isDatabaseReady ? createSettingsLoadGate() : null
+  );
+  const settingsLoadPendingRef = useRef(false);
+  const settingsLoadFailedRef = useRef(false);
+  const loadEpochRef = useRef(0);
+  const writeEpochRef = useRef(0);
+  const settingsLoadedRef = useRef(!isDatabaseReady);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -259,21 +294,40 @@ export function useAppSettings({
     if (!isDatabaseReady) return;
 
     let cancelled = false;
+    const loadEpoch = loadEpochRef.current + 1;
+    loadEpochRef.current = loadEpoch;
+    const loadWriteEpoch = writeEpochRef.current;
+    settingsLoadPendingRef.current = true;
+    settingsLoadFailedRef.current = false;
+    settingsLoadedRef.current = false;
 
     async function loadSettings() {
       setIsLoadingSettings(true);
       try {
         const loaded = await tauriApi.getSettings();
-        if (!cancelled) {
+        if (!cancelled && loadEpochRef.current === loadEpoch) {
           settingsRevisionRef.current = loaded.revision;
           persistedSettingsRef.current = loaded.settings;
-          latestSettingsRef.current = loaded.settings;
-          setSettings(loaded.settings);
+          settingsLoadPendingRef.current = false;
+          settingsLoadFailedRef.current = false;
+          settingsLoadedRef.current = true;
+          if (writeEpochRef.current === loadWriteEpoch && mountedRef.current) {
+            latestSettingsRef.current = loaded.settings;
+            setSettings(loaded.settings);
+          }
+        } else if (!cancelled && loadEpochRef.current === loadEpoch) {
+          settingsLoadPendingRef.current = false;
+          settingsLoadedRef.current = true;
         }
+        return loaded;
       } catch (error) {
-        if (!cancelled) {
+        if (!cancelled && loadEpochRef.current === loadEpoch) {
+          settingsLoadPendingRef.current = false;
+          settingsLoadFailedRef.current = true;
+          settingsLoadedRef.current = true;
           onError(formatLoadError(error));
         }
+        return null;
       } finally {
         if (!cancelled) {
           setIsLoadingSettings(false);
@@ -281,7 +335,14 @@ export function useAppSettings({
       }
     }
 
-    void loadSettings();
+    const loadPromise = loadSettings();
+    settingsLoadPromiseRef.current = loadPromise;
+    void loadPromise.then((loaded) => {
+      if (settingsLoadPromiseRef.current === loadPromise) {
+        settingsLoadGateRef.current?.resolve(loaded);
+      }
+    });
+    void loadPromise;
 
     return () => {
       cancelled = true;
@@ -292,6 +353,7 @@ export function useAppSettings({
     async (partial: Partial<AppSettings>) => {
       const requestId = saveRequestIdRef.current + 1;
       saveRequestIdRef.current = requestId;
+      writeEpochRef.current += 1;
       const previousOptimisticSettings = latestSettingsRef.current;
       const nextSettings = mergeAppSettings(previousOptimisticSettings, partial);
 
@@ -299,6 +361,28 @@ export function useAppSettings({
       setSettings(nextSettings);
 
       const saveIntent = async () => {
+        let initialLoad: VersionedAppSettings | null = null;
+        if (isDatabaseReady && !settingsLoadedRef.current) {
+          const loadPromise = settingsLoadPromiseRef.current ?? settingsLoadGateRef.current?.promise;
+          if (loadPromise) {
+            initialLoad = await loadPromise;
+          }
+          // A load may resolve after its effect has been cleaned up (for
+          // example, while React is remounting the tree). The promise result
+          // is still the only safe persistence base for this queued intent;
+          // accept it here rather than falling through to a false
+          // `settings_load_required` failure.
+          if (initialLoad && !settingsLoadedRef.current) {
+            persistedSettingsRef.current = initialLoad.settings;
+            settingsRevisionRef.current = initialLoad.revision;
+            settingsLoadPendingRef.current = false;
+            settingsLoadFailedRef.current = false;
+            settingsLoadedRef.current = true;
+          }
+        }
+        if (settingsLoadFailedRef.current || !settingsLoadedRef.current) {
+          throw new Error("settings_load_required");
+        }
         try {
           const saved = await saveSettingsIntent(
             tauriApi,
@@ -341,12 +425,12 @@ export function useAppSettings({
       );
       return queued;
     },
-    [formatSaveError, onError]
+    [formatSaveError, isDatabaseReady, onError]
   );
 
   return {
     settings,
-    isLoadingSettings,
+    isLoadingSettings: isLoadingSettings || (isDatabaseReady && !settingsLoadedRef.current),
     updateSettings
   };
 }

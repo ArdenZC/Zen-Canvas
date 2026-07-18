@@ -1,9 +1,10 @@
 use super::*;
+use crate::window_auth::require_main_window;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tauri::State;
+use tauri::{Runtime, State, WebviewWindow};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -202,17 +203,24 @@ impl Database {
 }
 
 #[tauri::command]
-pub fn confirm_classification(db: State<'_, Database>, file_id: String) -> Result<(), String> {
+pub fn confirm_classification<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    file_id: String,
+) -> Result<(), String> {
+    require_main_window(&window)?;
     db.confirm_classification_for_file(&file_id)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn correct_classification(
+pub fn correct_classification<R: Runtime>(
+    window: WebviewWindow<R>,
     db: State<'_, Database>,
     file_id: String,
     correction: ClassificationCorrectionRequest,
 ) -> Result<(), String> {
+    require_main_window(&window)?;
     db.correct_classification_for_file(&file_id, correction)
         .map_err(|error| error.to_string())
 }

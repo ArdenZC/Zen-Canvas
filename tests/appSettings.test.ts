@@ -21,21 +21,43 @@ import {
 
 describe("app settings helpers", () => {
   it("sends the caller's expected revision without silently overwriting a conflict", async () => {
+    const latest = { settings: { ...DEFAULT_APP_SETTINGS, searchHotkey: "Ctrl+K" }, revision: 7 };
+    const saveSettings = vi.fn()
+      .mockRejectedValueOnce(new Error("settings_revision_conflict"))
+      .mockResolvedValueOnce({
+        settings: { ...latest.settings, restoreRetentionDays: 90 },
+        revision: 8
+      });
+    const getSettings = vi.fn().mockResolvedValue(latest);
+
+    await expect(saveSettingsIntent(
+      { getSettings, saveSettings },
+      { settings: DEFAULT_APP_SETTINGS, revision: 6 },
+      { restoreRetentionDays: 90 }
+    )).resolves.toEqual({
+      settings: { ...latest.settings, restoreRetentionDays: 90 },
+      revision: 8
+    });
+
+    expect(saveSettings).toHaveBeenCalledTimes(2);
+    expect(getSettings).toHaveBeenCalledTimes(1);
+    expect(saveSettings).toHaveBeenCalledWith({
+      settings: { ...latest.settings, restoreRetentionDays: 90 },
+      expectedRevision: 7
+    });
+  });
+
+  it("fails closed after a second revision conflict", async () => {
+    const getSettings = vi.fn().mockResolvedValue({ settings: DEFAULT_APP_SETTINGS, revision: 8 });
     const saveSettings = vi.fn().mockRejectedValue(new Error("settings_revision_conflict"));
-    const getSettings = vi.fn();
 
     await expect(saveSettingsIntent(
       { getSettings, saveSettings },
       { settings: DEFAULT_APP_SETTINGS, revision: 6 },
       { restoreRetentionDays: 90 }
     )).rejects.toThrow("settings_revision_conflict");
-
-    expect(saveSettings).toHaveBeenCalledTimes(1);
-    expect(getSettings).not.toHaveBeenCalled();
-    expect(saveSettings).toHaveBeenCalledWith({
-      settings: { ...DEFAULT_APP_SETTINGS, restoreRetentionDays: 90 },
-      expectedRevision: 6
-    });
+    expect(saveSettings).toHaveBeenCalledTimes(2);
+    expect(getSettings).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces a queued save failure and reconciles the latest database revision", async () => {

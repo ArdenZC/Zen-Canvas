@@ -1,6 +1,8 @@
 use crate::{
     db::{Database, DbError, OperationPreviewDto, OperationPreviewScopeResult},
     ids::new_job_id,
+    path_identity::{normalize_for_compare, normalize_path, normalize_text_for_compare},
+    window_auth::{is_main_window_label, require_main_window},
 };
 use rusqlite::{params, OptionalExtension, Row};
 use serde::Serialize;
@@ -811,10 +813,12 @@ impl StorageCleanupState {
 
 #[tauri::command]
 pub fn start_storage_cleanup_scan<R: Runtime>(
+    window: WebviewWindow<R>,
     roots: Vec<String>,
     app: AppHandle<R>,
     state: State<'_, StorageCleanupState>,
 ) -> Result<String, String> {
+    require_main_window(&window)?;
     let app_data_dir = app.path().app_data_dir().ok();
     let roots = validate_cleanup_roots(roots)?;
     let job_id = new_job_id("storage-cleanup-scan");
@@ -835,10 +839,12 @@ pub fn start_storage_cleanup_scan<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn cancel_storage_cleanup_scan(
+pub fn cancel_storage_cleanup_scan<R: Runtime>(
+    window: WebviewWindow<R>,
     job_id: String,
     state: State<'_, StorageCleanupState>,
 ) -> Result<(), String> {
+    require_main_window(&window)?;
     state.cancel_job(&job_id)
 }
 
@@ -1049,18 +1055,6 @@ fn cleanup_restore_preview_item(item: CleanupTrashItem) -> CleanupRestorePreview
 
 pub fn preview_cleanup_restore_item_for_test(item: CleanupTrashItem) -> CleanupRestorePreviewItem {
     cleanup_restore_preview_item(item)
-}
-
-fn require_main_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
-    if is_main_window_label(window.label()) {
-        Ok(())
-    } else {
-        Err("This cleanup operation is only available from the main window.".to_string())
-    }
-}
-
-fn is_main_window_label(label: &str) -> bool {
-    label == "main"
 }
 
 pub fn is_main_window_label_for_test(label: &str) -> bool {
@@ -2223,7 +2217,7 @@ struct CleanupRootContext {
 
 impl CleanupRootContext {
     fn matches(&self, path: &str) -> bool {
-        let normalized_path = normalize_compare_text(path);
+        let normalized_path = normalize_text_for_compare(path);
         [&self.requested_root, &self.canonical_root]
             .into_iter()
             .any(|root| is_same_or_child(&normalized_path, &normalize_for_compare(root)))
@@ -3664,7 +3658,7 @@ fn dedupe_candidates(candidates: &mut Vec<StorageCandidate>) {
     let mut seen = HashSet::new();
     let mut retained_safe_parents = Vec::<String>::new();
     candidates.retain(|candidate| {
-        let normalized = normalize_compare_text(&candidate.path);
+        let normalized = normalize_text_for_compare(&candidate.path);
         if !seen.insert(normalized.clone()) {
             return false;
         }
@@ -3701,14 +3695,14 @@ fn is_same_or_child(path: &str, parent: &str) -> bool {
 }
 
 fn candidate_id(path: &str) -> String {
-    let digest = blake3::hash(normalize_compare_text(path).as_bytes())
+    let digest = blake3::hash(normalize_text_for_compare(path).as_bytes())
         .to_hex()
         .to_string();
     format!("storage-{}", &digest[..32])
 }
 
 fn candidate_id_for_job(job_id: &str, path: &str) -> String {
-    let digest = blake3::hash(format!("{job_id}\0{}", normalize_compare_text(path)).as_bytes())
+    let digest = blake3::hash(format!("{job_id}\0{}", normalize_text_for_compare(path)).as_bytes())
         .to_hex()
         .to_string();
     format!("storage-{}", &digest[..32])
@@ -3940,30 +3934,4 @@ mod temp_safety_tests {
         assert_eq!(candidate.tier, CleanupTier::Review);
         assert!(!candidate.selected_by_default);
     }
-}
-
-fn normalize_for_compare(path: &Path) -> String {
-    normalize_compare_text(&normalize_path(path))
-}
-
-fn normalize_compare_text(value: &str) -> String {
-    let normalized = value
-        .strip_prefix("//?/")
-        .or_else(|| value.strip_prefix("//?/"))
-        .unwrap_or(value)
-        .replace('\\', "/");
-    let value = if normalized == "/" {
-        normalized
-    } else {
-        normalized.trim_end_matches('/').to_string()
-    };
-    if cfg!(windows) || value.get(1..3) == Some(":/") {
-        value.to_ascii_lowercase()
-    } else {
-        value
-    }
-}
-
-fn normalize_path(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
 }

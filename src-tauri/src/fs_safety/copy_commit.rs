@@ -79,7 +79,7 @@ fn copy_entry(
             .map_err(AtomicMoveError::Io)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(AtomicMoveError::Io)?;
-        entries.sort_by(|left, right| left.file_name().cmp(&right.file_name()));
+        entries.sort_by_key(|left| left.file_name());
         for entry in entries {
             if is_cancelled(cancel) {
                 return Err(AtomicMoveError::Cancelled);

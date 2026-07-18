@@ -1,6 +1,7 @@
 use crate::{
     db::{Database, DbError},
     watcher::{emit_file_watcher_error, reload_file_watcher_for_settings, FileWatcherManager},
+    window_auth::require_main_window,
 };
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -9,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Mutex,
 };
-use tauri::{AppHandle, Runtime, State};
+use tauri::{AppHandle, Runtime, State, WebviewWindow};
 use tauri_plugin_autostart::{AutoLaunchManager, ManagerExt};
 use thiserror::Error;
 
@@ -635,10 +636,12 @@ pub fn get_settings(db: State<'_, Database>) -> Result<VersionedAppSettings, Str
 #[tauri::command]
 pub fn save_settings<R: Runtime>(
     app: AppHandle<R>,
+    window: WebviewWindow<R>,
     db: State<'_, Database>,
     watcher_manager: State<'_, FileWatcherManager>,
     request: SaveSettingsRequest,
 ) -> Result<VersionedAppSettings, String> {
+    require_main_window(&window)?;
     let launch_at_login = app.autolaunch();
     let previous = get_versioned_app_settings(&db).map_err(|error| error.to_string())?;
     let saved = save_versioned_app_settings_with_launch_at_login(&db, &request, &*launch_at_login)

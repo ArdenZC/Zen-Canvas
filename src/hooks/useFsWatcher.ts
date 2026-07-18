@@ -5,7 +5,7 @@ import { useAppStore } from "../store/useAppStore";
 import type { Rule } from "../types/domain";
 import { readableError } from "../utils/viewHelpers";
 import {
-  takeWatcherQueueBatch,
+  WatcherRetryQueue,
   WATCHER_QUEUE_BATCH_LIMIT,
   watcherQueueSnapshotFromEvent,
   type FsWatchEvent
@@ -46,47 +46,62 @@ export function useFsWatcher({
     let disposed = false;
     let queue = Promise.resolve();
     let flushTimer: ReturnType<typeof setTimeout> | undefined;
-    let staleQueue = new Set<string>();
-    let upsertQueue = new Set<string>();
+    const retryQueue = new WatcherRetryQueue();
 
     const flushQueues = () => {
       queue = queue
         .then(async () => {
-          const snapshot = takeWatcherQueueBatch(staleQueue, upsertQueue, WATCHER_QUEUE_BATCH_LIMIT);
-          if (!snapshot.stale.length && !snapshot.upsert.length) return;
-
+          const batch = retryQueue.takeReady(Date.now(), WATCHER_QUEUE_BATCH_LIMIT);
+          if (!batch.length) return;
           let changed = false;
-          if (snapshot.stale.length > 0) {
-            try {
-              changed = (await tauriApi.markFilesStaleByPaths(snapshot.stale)) > 0 || changed;
-            } catch (error) {
+          const stale = batch.filter((item) => item.action === "stale");
+          const upsert = batch.filter((item) => item.action === "upsert");
+          const classify = batch.filter((item) => item.action === "classify");
+
+          const reportFailure = (items: typeof batch, error: unknown) => {
+            const message = readableError(error);
+            for (const item of items) {
+              const exhausted = retryQueue.markFailure(item);
               if (!disposed) {
-                onError?.(readableError(error));
+                onError?.(exhausted ? watcherRetryExhaustedMessage() : message);
               }
+            }
+          };
+
+          if (stale.length > 0) {
+            try {
+              changed = (await tauriApi.markFilesStaleByPaths(stale.map((item) => item.path))) > 0 || changed;
+              stale.forEach((item) => retryQueue.markSuccess(item));
+            } catch (error) {
+              reportFailure(stale, error);
             }
           }
           let upserted = 0;
-          if (snapshot.upsert.length > 0) {
+          if (upsert.length > 0) {
             try {
-              upserted = await tauriApi.upsertFilesByPaths(snapshot.upsert);
+              upserted = await tauriApi.upsertFilesByPaths(upsert.map((item) => item.path));
               changed = upserted > 0 || changed;
-            } catch (error) {
-              if (!disposed) {
-                onError?.(readableError(error));
+              upsert.forEach((item) => retryQueue.markSuccess(item));
+              if (upserted > 0) {
+                for (const item of upsert) {
+                  const classification = retryQueue.enqueue(item.path, "classify");
+                  if (classification) classify.push(classification);
+                }
               }
+            } catch (error) {
+              reportFailure(upsert, error);
             }
           }
-          if (upserted > 0 && snapshot.upsert.length > 0) {
+          if (classify.length > 0) {
             try {
               const summary = await tauriApi.executeRulesForPaths(
-                snapshot.upsert.slice(0, WATCHER_CLASSIFY_LIMIT),
+                classify.slice(0, WATCHER_CLASSIFY_LIMIT).map((item) => item.path),
                 rulesRef.current
               );
               changed = summary.updated > 0 || changed;
+              classify.forEach((item) => retryQueue.markSuccess(item));
             } catch (error) {
-              if (!disposed) {
-                onError?.(readableError(error));
-              }
+              reportFailure(classify, error);
             }
           }
           if (changed && !disposed) {
@@ -99,7 +114,7 @@ export function useFsWatcher({
           }
         })
         .finally(() => {
-          if (!disposed && (staleQueue.size > 0 || upsertQueue.size > 0)) {
+          if (!disposed && retryQueue.hasReadyOrWaiting()) {
             scheduleFlush();
           }
         });
@@ -109,10 +124,11 @@ export function useFsWatcher({
       if (flushTimer !== undefined) {
         clearTimeout(flushTimer);
       }
+      const retryDelay = retryQueue.nextRetryDelay();
       flushTimer = setTimeout(() => {
         flushTimer = undefined;
         flushQueues();
-      }, WATCHER_FLUSH_DELAY_MS);
+      }, retryDelay === 0 ? WATCHER_FLUSH_DELAY_MS : retryDelay ?? WATCHER_FLUSH_DELAY_MS);
     };
 
     const unlistenPromise = tauriApi.onFsEvent<FsWatchEvent>((payload) => {
@@ -122,12 +138,10 @@ export function useFsWatcher({
       if (!snapshot.stale.length && !snapshot.upsert.length) return;
 
       for (const path of snapshot.stale) {
-        staleQueue.add(path);
-        upsertQueue.delete(path);
+        retryQueue.enqueue(path, "stale");
       }
       for (const path of snapshot.upsert) {
-        upsertQueue.add(path);
-        staleQueue.delete(path);
+        retryQueue.enqueue(path, "upsert");
       }
       scheduleFlush();
     });
@@ -149,4 +163,8 @@ export function useFsWatcher({
 
 function watcherPartialIndexWarningMessage() {
   return makeTranslator(useAppStore.getState().language)("fsWatcherPartialIndexWarning");
+}
+
+function watcherRetryExhaustedMessage() {
+  return makeTranslator(useAppStore.getState().language)("watcherRetryExhausted");
 }

@@ -30,7 +30,7 @@ pub fn create_directory_chain_no_links(path: &Path) -> Result<(), PathGuardError
 
     #[cfg(windows)]
     {
-        return create_directory_chain_windows(path);
+        create_directory_chain_windows(path)
     }
 
     #[cfg(not(any(unix, windows)))]

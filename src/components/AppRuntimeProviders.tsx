@@ -25,7 +25,7 @@ import type {
   Rule
 } from "../types/domain";
 import { applySearchNavigation } from "../utils/searchNavigation";
-import { normalizePathLike, readableError } from "../utils/viewHelpers";
+import { localizedStableError, normalizePathLike, readableError } from "../utils/viewHelpers";
 
 export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   const language = useAppStore((state) => state.language);
@@ -46,11 +46,11 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     []
   );
   const formatSettingsLoadError = useCallback(
-    (error: unknown) => `${t("settingsLoadFailed")}：${readableError(error)}`,
+    (error: unknown) => `${t("settingsLoadFailed")}：${localizedStableError(error, t)}`,
     [t]
   );
   const formatSettingsSaveError = useCallback(
-    (error: unknown) => `${t("settingsSaveFailed")}：${readableError(error)}`,
+    (error: unknown) => `${t("settingsSaveFailed")}：${localizedStableError(error, t)}`,
     [t]
   );
   const formatRuleSyncError = useCallback(() => t("ruleSyncFailed"), [t]);

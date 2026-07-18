@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
-use tauri::{AppHandle, Runtime, State};
+use tauri::{AppHandle, Runtime, State, WebviewWindow};
 
-use crate::settings::DEFAULT_SEARCH_HOTKEY;
+use crate::{settings::DEFAULT_SEARCH_HOTKEY, window_auth::require_main_window};
 
 #[cfg(feature = "desktop-runtime")]
 use tauri::{
@@ -111,8 +111,10 @@ pub fn exit_app<R: Runtime>(app: &AppHandle<R>) {
 }
 
 #[tauri::command]
-pub fn quit_app<R: Runtime>(app: AppHandle<R>) {
+pub fn quit_app<R: Runtime>(window: WebviewWindow<R>, app: AppHandle<R>) -> Result<(), String> {
+    require_main_window(&window)?;
     exit_app(&app);
+    Ok(())
 }
 
 #[cfg(feature = "desktop-runtime")]
@@ -144,10 +146,18 @@ pub fn get_global_hotkey_status(
 
 #[tauri::command]
 pub fn register_global_search_hotkey<R: Runtime>(
+    window: WebviewWindow<R>,
     app: AppHandle<R>,
     status_state: State<'_, GlobalHotkeyStatusState>,
     accelerator: String,
 ) -> GlobalHotkeyStatus {
+    if require_main_window(&window).is_err() {
+        return GlobalHotkeyStatus {
+            registered: false,
+            accelerator: accelerator.clone(),
+            error: Some("main_window_required".to_string()),
+        };
+    }
     register_global_search_shortcut(&app, &status_state, &accelerator)
 }
 
