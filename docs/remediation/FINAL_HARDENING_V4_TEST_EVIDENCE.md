@@ -81,14 +81,14 @@ temporary recovery copy was verified and removed.
 
 ## Remote CI
 
-Remote CI is recorded after the branch is pushed and the pull request is
-created.
+Remote CI run `29648128157` completed successfully for final code head
+`74cda0cd7a4613bc88435a812227319f0f7b0449`.
 
 | Gate | Workflow/job | Run ID | Final head included | Result |
 | --- | --- | --- | --- | --- |
-| Windows Quality | `CI / Quality (windows-latest)` | pending | pending | pending |
-| macOS Quality | `CI / Quality (macos-latest)` | pending | pending | pending |
-| Dependency Audit | `CI / Dependency audit` | pending | pending | pending |
+| Windows Quality | [`CI / Quality (windows-latest)`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/29648128157/job/88089729343) | `29648128157` | `74cda0c` | passed; frontend, Rust, performance, audits, and NSIS package |
+| macOS Quality | [`CI / Quality (macos-latest)`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/29648128157/job/88089729316) | `29648128157` | `74cda0c` | passed; frontend, Rust, macOS path/temp regression, and audits |
+| Dependency Audit | [`CI / Dependency audit`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/29648128157/job/88089729337) | `29648128157` | `74cda0c` | passed; npm and RustSec |
 
 ## Release boundary
 
