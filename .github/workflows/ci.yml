@@ -64,6 +64,10 @@ jobs:
         if: runner.os == 'Windows'
         run: npm run test:performance
 
+      - name: Native filesystem hardening smoke
+        if: runner.os == 'Windows'
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test native_file_hardening_smoke -- --ignored --nocapture --test-threads=1
+
       - name: npm audit
         run: npm run security:audit
 
