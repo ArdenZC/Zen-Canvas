@@ -1,5 +1,9 @@
 # Zen Canvas Final Hardening v4.1 closeout
 
+> Historical v4.1 record. The v4.1.1 hardening delta supersedes the macOS
+> mutation and Windows target/staging binding claims below; see
+> [FINAL_HARDENING_V4_1_1_CLOSEOUT.md](FINAL_HARDENING_V4_1_1_CLOSEOUT.md).
+
 Branch: `codex/final-hardening-v4`
 Base: `master`
 Status: Draft PR; no merge, tag, release, or auto-merge
@@ -20,7 +24,7 @@ claim.
 | Source Claim | UUID claim path is planned and journaled before mutation; expected identity stays bound to the open handle; claim/rollback/recovery states are explicit | `fs_safety::source_claim` tests and file-operation replacement tests |
 | Journal | Schema 22 adds claim path, phase, claim timestamp, claim platform ID, and claim full hash for operations and Safe Trash | migration tests for 16→22, 20→22, and 21→22 |
 | Directory binding | VerifiedDirectory holds platform identity and an open handle/fd through commit; identity is rechecked before destructive steps | `VerifiedDirectory`, path-chain, target-parent replacement tests |
-| No-overwrite move | Windows handle-bound rename/disposition and macOS `renameatx_np(..., RENAME_EXCL)` fail closed when unavailable; no path-only final delete | atomic move, target race, cross-volume, and source-claim tests |
+| No-overwrite move | Historical v4.1 implementation; v4.1.1 replaces the Windows target-path commit with target-directory `RootDirectory` binding and disables macOS mutation because `renameatx_np` cannot bind an already-open source file handle | see v4.1.1 closeout |
 | Cross-volume | Directories are rejected before copy; Windows files use staged copy-commit with full BLAKE3 verification; macOS files return `cross_volume_file_move_unsupported_on_macos` | copy-commit and storage cleanup suites |
 | Recovery | Restart reconciliation distinguishes source/target/claim identity combinations and marks ambiguity `manual_review` | operation and Safe Trash reconciliation tests |
 | Cancellation | Background indexer and cleanup cancel flows retain job ownership until authoritative terminal state | frontend runtime/store suites and Rust cancellation tests |
