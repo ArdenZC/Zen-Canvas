@@ -1,7 +1,7 @@
 use crate::path_identity::{normalize_path, normalize_text_for_platform, PathPlatform};
 use crate::{db::Database, ids::new_job_id, window_auth::require_main_window};
 use serde::{Deserialize, Serialize};
-#[cfg(test)]
+#[cfg(all(test, windows))]
 use std::io::Read;
 use std::{
     env, fs, io,
@@ -934,7 +934,7 @@ fn rename_file_with_identity(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 fn execute_preview_operation(
     batch_id: &str,
     created_at: &str,
@@ -1763,7 +1763,7 @@ fn move_file_no_overwrite_with_identity(
     .map_err(map_atomic_move_error)
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 fn copy_then_delete_via_temp_with_cancel(
     source: &Path,
     target: &Path,
@@ -1773,7 +1773,7 @@ fn copy_then_delete_via_temp_with_cancel(
         .map_err(map_atomic_move_error)
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 fn copy_stream_to_temp<R: Read, W: std::io::Write>(
     reader: &mut R,
     writer: &mut W,
@@ -1913,7 +1913,7 @@ fn ensure_general_file_operation_allowed_for_os_with_temp(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 fn general_file_operation_protected_roots() -> Vec<PathBuf> {
     general_file_operation_protected_roots_for_os(env::consts::OS)
 }

@@ -241,7 +241,7 @@ fn notify_phase(
 #[cfg(any(test, feature = "native-qa"))]
 pub mod test_faults {
     use std::cell::RefCell;
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -255,13 +255,13 @@ pub mod test_faults {
         static FAULT: RefCell<Option<AtomicFaultPoint>> = const { RefCell::new(None) };
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     fn serial() -> &'static Mutex<()> {
         static SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
         SERIAL.get_or_init(|| Mutex::new(()))
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, windows))]
     pub(crate) fn lock() -> MutexGuard<'static, ()> {
         serial()
             .lock()

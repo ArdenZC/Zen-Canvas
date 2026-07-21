@@ -831,18 +831,18 @@ pub enum ClaimTestPoint {
 #[cfg(test)]
 mod test_hooks {
     use super::ClaimTestPoint;
-    use std::{
-        cell::RefCell,
-        path::Path,
-        sync::{Mutex, MutexGuard, OnceLock},
-    };
+    #[cfg(windows)]
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+    use std::{cell::RefCell, path::Path};
 
     type Hook = fn(ClaimTestPoint, &Path, &Path);
+    #[cfg(windows)]
     static CLAIM_TEST_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
     thread_local! {
         static CLAIM_TEST_HOOK: RefCell<Option<Hook>> = const { RefCell::new(None) };
     }
 
+    #[cfg(windows)]
     pub(crate) fn lock_claim_test_hooks() -> MutexGuard<'static, ()> {
         CLAIM_TEST_SERIAL
             .get_or_init(|| Mutex::new(()))
@@ -850,6 +850,7 @@ mod test_hooks {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    #[cfg(windows)]
     pub(crate) fn set_claim_test_hook(hook: Option<Hook>) {
         CLAIM_TEST_HOOK.with(|current| {
             *current.borrow_mut() = hook;
@@ -865,7 +866,9 @@ mod test_hooks {
 }
 
 #[cfg(test)]
-pub(crate) use test_hooks::{lock_claim_test_hooks, run_claim_test_hook, set_claim_test_hook};
+pub(crate) use test_hooks::run_claim_test_hook;
+#[cfg(all(test, windows))]
+pub(crate) use test_hooks::{lock_claim_test_hooks, set_claim_test_hook};
 
 #[cfg(all(test, windows))]
 mod tests {

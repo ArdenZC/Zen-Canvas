@@ -1,6 +1,10 @@
 #![cfg(target_os = "macos")]
 
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::Path,
+    time::{Duration, SystemTime},
+};
 use zen_canvas_tauri::{
     db::Database,
     file_ops::{
@@ -27,6 +31,15 @@ fn macos_mutation_entrypoints_fail_closed_without_touching_fixture() {
     let source = root.join("source.txt");
     let target = root.join("target.txt");
     fs::write(&source, b"macos canary").expect("source");
+    fs::File::options()
+        .write(true)
+        .open(&source)
+        .expect("open source")
+        .set_times(
+            fs::FileTimes::new()
+                .set_modified(SystemTime::now() - Duration::from_secs(8 * 24 * 60 * 60)),
+        )
+        .expect("age source for cleanup preview policy");
     let db = Database::open(root.join("qa.sqlite3")).expect("database");
 
     assert_eq!(

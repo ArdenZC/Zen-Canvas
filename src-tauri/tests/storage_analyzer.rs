@@ -1,10 +1,9 @@
+#[cfg(windows)]
+use std::sync::{atomic::AtomicBool, Arc};
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicU64, Ordering},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
