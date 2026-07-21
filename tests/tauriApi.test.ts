@@ -22,6 +22,7 @@ describe("tauriApi", () => {
 
   beforeEach(() => {
     delete (globalThis as typeof globalThis & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+    vi.stubGlobal("navigator", { platform: "Win32", userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" });
     apiMocks.invoke.mockReset().mockResolvedValue({
       files: [],
       total: 0,
