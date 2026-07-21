@@ -396,7 +396,7 @@ pub fn claim_source_at(
     })
 }
 
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 pub(crate) fn commit_open_handle_noreplace(
     handle: &File,
     source_parent: &VerifiedDirectory,
@@ -413,7 +413,7 @@ pub(crate) fn commit_open_handle_noreplace(
     )
 }
 
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 pub(crate) fn delete_open_handle(
     handle: &File,
     parent: &VerifiedDirectory,
@@ -829,6 +829,11 @@ pub enum ClaimTestPoint {
 }
 
 #[cfg(test)]
+pub(crate) use test_hooks::run_claim_test_hook;
+#[cfg(all(test, windows))]
+pub(crate) use test_hooks::{lock_claim_test_hooks, set_claim_test_hook};
+
+#[cfg(test)]
 mod test_hooks {
     use super::ClaimTestPoint;
     #[cfg(windows)]
@@ -864,11 +869,6 @@ mod test_hooks {
         }
     }
 }
-
-#[cfg(test)]
-pub(crate) use test_hooks::run_claim_test_hook;
-#[cfg(all(test, windows))]
-pub(crate) use test_hooks::{lock_claim_test_hooks, set_claim_test_hook};
 
 #[cfg(all(test, windows))]
 mod tests {
