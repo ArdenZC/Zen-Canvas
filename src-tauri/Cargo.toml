@@ -15,6 +15,7 @@ required-features = ["desktop-runtime"]
 [features]
 default = []
 ai-debug = []
+native-qa = []
 desktop-runtime = [
     "tauri/wry",
     "tauri/compression",
@@ -43,7 +44,6 @@ tauri-plugin-dialog = "2.7.1"
 tauri-plugin-global-shortcut = "2"
 thiserror = "2"
 time = { version = "0.3", features = ["formatting"] }
-trash = "5"
 url = "2"
 uuid = { version = "1", features = ["v4", "v7"] }
 
@@ -52,7 +52,7 @@ libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"] }
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3.6.3", default-features = false, features = ["apple-native"] }

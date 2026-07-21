@@ -22,6 +22,8 @@ pub enum ClaimedEntryKind {
 pub enum SourceClaimError {
     #[error("unsupported_platform_linux")]
     UnsupportedPlatformLinux,
+    #[error("macos_file_mutation_source_binding_unsupported")]
+    MacosFileMutationSourceBindingUnsupported,
     #[error("source_missing")]
     SourceMissing,
     #[error("source_identity_changed")]
@@ -142,6 +144,12 @@ impl SourceClaim {
         self.original_parent.sync().map_err(SourceClaimError::Io)
     }
 
+    pub fn current_parent_unchanged(&self) -> Result<(), SourceClaimError> {
+        self.current_parent
+            .ensure_unchanged()
+            .map_err(map_directory_error)
+    }
+
     pub fn commit_to(
         &mut self,
         target_parent: VerifiedDirectory,
@@ -155,6 +163,12 @@ impl SourceClaim {
         target_parent
             .ensure_unchanged()
             .map_err(map_directory_error)?;
+        #[cfg(test)]
+        run_claim_test_hook(
+            ClaimTestPoint::AfterTargetParentVerifiedBeforeCommit,
+            self.current_path(),
+            &target_parent.path().join(target_name),
+        );
         rename_claim_handle(
             &self.handle,
             &self.current_parent,
@@ -165,9 +179,6 @@ impl SourceClaim {
         self.current_name = target_name.to_os_string();
         self.current_parent = target_parent;
         self.current_path = self.current_parent.path().join(&self.current_name);
-        self.current_parent
-            .ensure_unchanged()
-            .map_err(map_directory_error)?;
         Ok(self.current_path.clone())
     }
 
@@ -263,8 +274,14 @@ pub fn claim_source_at(
     _operation_id: &str,
     cancel: Option<&AtomicBool>,
 ) -> Result<SourceClaim, SourceClaimError> {
-    platform_support::ensure_supported_file_mutation()
-        .map_err(|_| SourceClaimError::UnsupportedPlatformLinux)?;
+    platform_support::ensure_supported_file_mutation().map_err(|error| match error {
+        platform_support::PlatformSupportError::LinuxUnsupported => {
+            SourceClaimError::UnsupportedPlatformLinux
+        }
+        platform_support::PlatformSupportError::MacosFileMutationSourceBindingUnsupported => {
+            SourceClaimError::MacosFileMutationSourceBindingUnsupported
+        }
+    })?;
     if is_cancelled(cancel) {
         return Err(SourceClaimError::Cancelled);
     }
@@ -380,17 +397,15 @@ pub fn claim_source_at(
 }
 
 #[cfg(any(windows, test))]
-pub(crate) fn commit_path_noreplace(
-    source: &Path,
+pub(crate) fn commit_open_handle_noreplace(
+    handle: &File,
     source_parent: &VerifiedDirectory,
+    source_name: &OsStr,
     target_parent: &VerifiedDirectory,
     target_name: &OsStr,
-    kind: ClaimedEntryKind,
 ) -> Result<(), SourceClaimError> {
-    let handle = open_source_handle(source, kind)?;
-    let source_name = source.file_name().ok_or(SourceClaimError::SourceMissing)?;
     rename_claim_handle(
-        &handle,
+        handle,
         source_parent,
         source_name,
         target_parent,
@@ -399,14 +414,13 @@ pub(crate) fn commit_path_noreplace(
 }
 
 #[cfg(any(windows, test))]
-pub(crate) fn delete_path_with_binding(
-    path: &Path,
+pub(crate) fn delete_open_handle(
+    handle: &File,
     parent: &VerifiedDirectory,
+    name: &OsStr,
     kind: ClaimedEntryKind,
 ) -> Result<(), SourceClaimError> {
-    let handle = open_source_handle(path, kind)?;
-    let name = path.file_name().ok_or(SourceClaimError::SourceMissing)?;
-    delete_claim_handle(&handle, parent, name, kind)
+    delete_claim_handle(handle, parent, name, kind)
 }
 
 fn reopen_directory(directory: &VerifiedDirectory) -> Result<VerifiedDirectory, SourceClaimError> {
@@ -417,6 +431,9 @@ fn map_directory_error(error: super::PathGuardError) -> SourceClaimError {
     match error {
         super::PathGuardError::UnsupportedPlatformLinux => {
             SourceClaimError::UnsupportedPlatformLinux
+        }
+        super::PathGuardError::MacosFileMutationSourceBindingUnsupported => {
+            SourceClaimError::MacosFileMutationSourceBindingUnsupported
         }
         super::PathGuardError::ReparsePoint => SourceClaimError::ReparsePoint,
         super::PathGuardError::IdentityChanged => {
@@ -602,93 +619,54 @@ fn rename_windows(
     target_parent: &VerifiedDirectory,
     target_name: &OsStr,
 ) -> Result<(), SourceClaimError> {
+    use std::os::windows::ffi::OsStrExt;
     use std::{mem, os::windows::io::AsRawHandle, ptr};
-    use windows_sys::Win32::{
-        Foundation::{
-            GetLastError, ERROR_ALREADY_EXISTS, ERROR_CALL_NOT_IMPLEMENTED, ERROR_FILE_EXISTS,
-            ERROR_INVALID_FUNCTION, ERROR_INVALID_PARAMETER, ERROR_NOT_SAME_DEVICE,
-            ERROR_NOT_SUPPORTED,
+    use windows_sys::{
+        Wdk::Storage::FileSystem::{
+            FileRenameInformation, NtSetInformationFile, FILE_RENAME_INFORMATION,
         },
-        Storage::FileSystem::{
-            FileRenameInfo, FileRenameInfoEx, SetFileInformationByHandle, FILE_RENAME_INFO,
+        Win32::{
+            Foundation::{
+                RtlNtStatusToDosError, ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS,
+                ERROR_NOT_SAME_DEVICE,
+            },
+            System::IO::IO_STATUS_BLOCK,
         },
     };
-    let mut name = windows_wide_path(&target_parent.path().join(target_name));
-    if name.last() == Some(&0) {
-        name.pop();
-    }
+    let name = target_name.encode_wide().collect::<Vec<_>>();
     if name.is_empty() || name.contains(&0) {
         return Err(SourceClaimError::ClaimFailed(
             "empty or invalid target name".to_string(),
         ));
     }
-    let total_size = mem::size_of::<FILE_RENAME_INFO>() + (name.len() + 1) * mem::size_of::<u16>();
+    let total_size = mem::size_of::<FILE_RENAME_INFORMATION>()
+        + name.len().saturating_sub(1) * mem::size_of::<u16>();
     let mut buffer = vec![0_u8; total_size];
-    let info = buffer.as_mut_ptr() as *mut FILE_RENAME_INFO;
+    let info = buffer.as_mut_ptr() as *mut FILE_RENAME_INFORMATION;
+    let mut io_status = unsafe { mem::zeroed::<IO_STATUS_BLOCK>() };
     unsafe {
-        (*info).Anonymous.Flags = 0;
-        (*info).RootDirectory = std::ptr::null_mut();
+        (*info).Anonymous.ReplaceIfExists = false;
+        (*info).RootDirectory = target_parent.handle().as_raw_handle();
         (*info).FileNameLength = (name.len() * mem::size_of::<u16>()) as u32;
         ptr::copy_nonoverlapping(name.as_ptr(), (*info).FileName.as_mut_ptr(), name.len());
-        if SetFileInformationByHandle(
+        let status = NtSetInformationFile(
             handle.as_raw_handle(),
-            FileRenameInfoEx,
+            &mut io_status,
             buffer.as_ptr().cast(),
             total_size as u32,
-        ) != 0
-        {
+            FileRenameInformation,
+        );
+        if status >= 0 {
             return Ok(());
         }
-    }
-    let code = unsafe { GetLastError() };
-    if matches!(
-        code,
-        ERROR_INVALID_FUNCTION
-            | ERROR_INVALID_PARAMETER
-            | ERROR_NOT_SUPPORTED
-            | ERROR_CALL_NOT_IMPLEMENTED
-            | windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED
-    ) {
-        let mut legacy_buffer = vec![0_u8; total_size];
-        let legacy_info = legacy_buffer.as_mut_ptr() as *mut FILE_RENAME_INFO;
-        unsafe {
-            (*legacy_info).Anonymous.ReplaceIfExists = false;
-            (*legacy_info).RootDirectory = std::ptr::null_mut();
-            (*legacy_info).FileNameLength = (name.len() * mem::size_of::<u16>()) as u32;
-            ptr::copy_nonoverlapping(
-                name.as_ptr(),
-                (*legacy_info).FileName.as_mut_ptr(),
-                name.len(),
-            );
-            if SetFileInformationByHandle(
-                handle.as_raw_handle(),
-                FileRenameInfo,
-                legacy_buffer.as_ptr().cast(),
-                total_size as u32,
-            ) != 0
-            {
-                return Ok(());
-            }
-        }
-        let legacy_code = unsafe { GetLastError() };
-        return match legacy_code {
+        let code = RtlNtStatusToDosError(status);
+        match code {
             ERROR_ALREADY_EXISTS | ERROR_FILE_EXISTS => Err(SourceClaimError::TargetExists),
             ERROR_NOT_SAME_DEVICE => Err(SourceClaimError::CrossDevice),
-            ERROR_INVALID_FUNCTION
-            | ERROR_INVALID_PARAMETER
-            | ERROR_NOT_SUPPORTED
-            | ERROR_CALL_NOT_IMPLEMENTED => Err(SourceClaimError::AtomicSourceBindingUnsupported),
             code => Err(SourceClaimError::Io(io::Error::from_raw_os_error(
                 code as i32,
             ))),
-        };
-    }
-    match code {
-        ERROR_ALREADY_EXISTS | ERROR_FILE_EXISTS => Err(SourceClaimError::TargetExists),
-        ERROR_NOT_SAME_DEVICE => Err(SourceClaimError::CrossDevice),
-        code => Err(SourceClaimError::Io(io::Error::from_raw_os_error(
-            code as i32,
-        ))),
+        }
     }
 }
 
@@ -844,6 +822,8 @@ pub enum ClaimTestPoint {
     AfterJournalPreparedBeforeClaim,
     AfterClaimBeforeIdentityCheck,
     AfterClaimVerifiedBeforeTargetCommit,
+    AfterTargetParentVerifiedBeforeCommit,
+    AfterStagingVerifiedBeforeCommit,
     AfterTargetCommitBeforeSourceCleanup,
     AfterSourceCleanupBeforeJournalComplete,
 }
@@ -887,7 +867,7 @@ mod test_hooks {
 #[cfg(test)]
 pub(crate) use test_hooks::{lock_claim_test_hooks, run_claim_test_hook, set_claim_test_hook};
 
-#[cfg(all(test, any(windows, target_os = "macos")))]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
     use crate::fs_safety::atomic_move::{atomic_move_noreplace, AtomicMoveError};
@@ -940,6 +920,20 @@ mod tests {
         let displaced = root.join("target-displaced");
         fs::rename(&target_parent, &displaced).expect("displace target parent");
         fs::create_dir(&target_parent).expect("replace target parent");
+    }
+
+    fn replace_target_parent_after_verification(
+        point: ClaimTestPoint,
+        _source: &Path,
+        target: &Path,
+    ) {
+        if point != ClaimTestPoint::AfterTargetParentVerifiedBeforeCommit {
+            return;
+        }
+        let parent = target.parent().expect("target parent");
+        let displaced = parent.with_file_name("target-verified-displaced");
+        fs::rename(parent, &displaced).expect("displace verified target parent");
+        fs::create_dir(parent).expect("replacement target parent");
     }
 
     #[cfg(windows)]
@@ -1038,6 +1032,62 @@ mod tests {
         assert!(!target.exists());
         assert!(!root.join("target-displaced").join("source.txt").exists());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn target_parent_replacement_after_verification_cannot_redirect_commit() {
+        let _serial = lock_claim_test_hooks();
+        let root = fixture("target-parent-after-verified");
+        let source_parent = root.join("source");
+        let target_parent = root.join("target");
+        fs::create_dir(&source_parent).expect("source parent");
+        fs::create_dir(&target_parent).expect("target parent");
+        let source = source_parent.join("source.txt");
+        let target = target_parent.join("source.txt");
+        fs::write(&source, b"original").expect("source");
+        set_claim_test_hook(Some(replace_target_parent_after_verification));
+        let result = atomic_move_noreplace(&source, &target, None, None);
+        set_claim_test_hook(None);
+
+        assert!(matches!(
+            result,
+            Err(AtomicMoveError::TargetCommittedIdentityMismatch)
+        ));
+        assert!(!target.exists());
+        assert_eq!(
+            fs::read(root.join("target-verified-displaced").join("source.txt"))
+                .expect("bound target"),
+            b"original"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn unicode_and_long_paths_commit_through_bound_handles() {
+        let _serial = lock_claim_test_hooks();
+        let root = fixture("unicode-long-path");
+        let mut parent = root.clone();
+        for index in 0..6 {
+            parent.push(format!(
+                "segment-{index}-abcdefghijklmnopqrstuvwxyz0123456789"
+            ));
+        }
+        crate::fs_safety::create_directory_chain_no_links(&parent).expect("long parent");
+        let source = parent.join("源-данные-α.txt");
+        let target = parent.join("目标-результат-β.txt");
+        fs::write(&source, b"unicode long path").expect("source");
+        atomic_move_noreplace(&source, &target, None, None).expect("bound long-path move");
+        assert_eq!(fs::read(&target).expect("target"), b"unicode long path");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn unc_paths_are_encoded_with_extended_unc_prefix() {
+        let wide = windows_wide_path(Path::new(r"\\server\share\目录\file.txt"));
+        let prefix = "\\\\?\\UNC\\".encode_utf16().collect::<Vec<_>>();
+        assert!(wide.starts_with(&prefix));
+        assert_eq!(wide.last(), Some(&0));
     }
 
     #[cfg(windows)]

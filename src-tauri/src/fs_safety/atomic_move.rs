@@ -42,10 +42,22 @@ pub enum AtomicMoveError {
     AtomicSourceBindingUnsupported,
     #[error("unsupported_platform_linux")]
     UnsupportedPlatformLinux,
+    #[error("macos_file_mutation_source_binding_unsupported")]
+    MacosFileMutationSourceBindingUnsupported,
     #[error("target_parent_identity_changed")]
     TargetParentIdentityChanged,
     #[error("target_parent_durability_unknown")]
     TargetParentDurabilityUnknown,
+    #[error("staging_identity_changed")]
+    StagingIdentityChanged,
+    #[error("staging_handle_commit_unsupported")]
+    StagingHandleCommitUnsupported,
+    #[error("target_committed_durability_unknown")]
+    TargetCommittedDurabilityUnknown,
+    #[error("target_committed_identity_mismatch")]
+    TargetCommittedIdentityMismatch,
+    #[error("target_committed_source_cleanup_pending")]
+    TargetCommittedSourceCleanupPending,
     #[error("unsafe_path")]
     UnsafePath,
     #[error("reparse_point")]
@@ -88,8 +100,25 @@ pub fn atomic_move_noreplace_with_claim_path(
     planned_claim_path: Option<&Path>,
     cancel: Option<&AtomicBool>,
 ) -> Result<AtomicMoveOutcome, AtomicMoveError> {
-    platform_support::ensure_supported_file_mutation()
-        .map_err(|_| AtomicMoveError::UnsupportedPlatformLinux)?;
+    atomic_move_noreplace_with_claim_path_and_observer(
+        source,
+        target,
+        expected_identity,
+        planned_claim_path,
+        cancel,
+        None,
+    )
+}
+
+pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer(
+    source: &Path,
+    target: &Path,
+    expected_identity: Option<&identity::ExpectedFileIdentity>,
+    planned_claim_path: Option<&Path>,
+    cancel: Option<&AtomicBool>,
+    mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> Result<AtomicMoveOutcome, AtomicMoveError> {
+    platform_support::ensure_supported_file_mutation().map_err(map_platform_error)?;
     if is_cancelled(cancel) {
         return Err(AtomicMoveError::Cancelled);
     }
@@ -116,6 +145,14 @@ pub fn atomic_move_noreplace_with_claim_path(
     let mut claim =
         source_claim::claim_source_at(source, &expected, &claim_path, "atomic-move", cancel)
             .map_err(map_claim_error)?;
+    if let Err(error) = notify_phase(&mut observer, "source_claimed") {
+        return match claim.rollback_to_original() {
+            Ok(()) => Err(error),
+            Err(rollback) => Err(AtomicMoveError::SourceClaimRollbackFailed(
+                rollback.to_string(),
+            )),
+        };
+    }
     #[cfg(test)]
     source_claim::run_claim_test_hook(
         source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit,
@@ -127,19 +164,39 @@ pub fn atomic_move_noreplace_with_claim_path(
         let result = claim.commit_to(target_parent, target_name);
         return match result {
             Ok(_committed_path) => {
-                claim.sync().map_err(map_claim_error)?;
+                notify_phase(&mut observer, "target_committed")?;
+                #[cfg(any(test, feature = "native-qa"))]
+                if test_faults::take_fault(test_faults::AtomicFaultPoint::TargetDurability) {
+                    return Err(AtomicMoveError::TargetCommittedDurabilityUnknown);
+                }
+                claim
+                    .sync()
+                    .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)?;
                 claim
                     .sync_current_parent()
-                    .map_err(|_| AtomicMoveError::TargetParentDurabilityUnknown)?;
+                    .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)?;
                 claim
                     .sync_original_parent()
-                    .map_err(|_| AtomicMoveError::TargetParentDurabilityUnknown)?;
+                    .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)?;
+                claim
+                    .current_parent_unchanged()
+                    .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+                #[cfg(any(test, feature = "native-qa"))]
+                if test_faults::take_fault(test_faults::AtomicFaultPoint::TargetIdentity) {
+                    return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
+                }
                 let actual = claim
                     .verify_current_identity(cancel)
-                    .map_err(map_claim_error)?;
+                    .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
                 if !identity::identity_matches(&expected, &actual) {
-                    return Err(AtomicMoveError::SourceClaimMismatch);
+                    return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
                 }
+                let path_actual = identity::capture_identity(claim.current_path(), cancel)
+                    .map_err(|_| AtomicMoveError::TargetCommittedIdentityMismatch)?;
+                if !identity::identity_matches(&actual, &path_actual) {
+                    return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
+                }
+                notify_phase(&mut observer, "completed")?;
                 Ok(AtomicMoveOutcome {
                     method: AtomicMoveMethod::SameVolumeNoReplace,
                 })
@@ -159,16 +216,83 @@ pub fn atomic_move_noreplace_with_claim_path(
     }
     #[cfg(windows)]
     {
-        copy_commit::copy_commit_claim(&mut claim, target_parent, target_name, cancel).map(|_| {
-            AtomicMoveOutcome {
+        copy_commit::copy_commit_claim(&mut claim, target_parent, target_name, cancel, observer)
+            .map(|_| AtomicMoveOutcome {
                 method: AtomicMoveMethod::CrossVolumeCopyCommit,
-            }
-        })
+            })
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = claim.rollback_to_original();
         Err(AtomicMoveError::UnsupportedPlatformLinux)
+    }
+}
+
+fn notify_phase(
+    observer: &mut Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+    phase: &str,
+) -> Result<(), AtomicMoveError> {
+    if let Some(observer) = observer.as_deref_mut() {
+        observer(phase)?;
+    }
+    Ok(())
+}
+
+#[cfg(any(test, feature = "native-qa"))]
+pub mod test_faults {
+    use std::cell::RefCell;
+    #[cfg(test)]
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum AtomicFaultPoint {
+        TargetDurability,
+        TargetIdentity,
+        SourceCleanup,
+    }
+
+    thread_local! {
+        static FAULT: RefCell<Option<AtomicFaultPoint>> = const { RefCell::new(None) };
+    }
+
+    #[cfg(test)]
+    fn serial() -> &'static Mutex<()> {
+        static SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
+        SERIAL.get_or_init(|| Mutex::new(()))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn lock() -> MutexGuard<'static, ()> {
+        serial()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn set_fault(point: Option<AtomicFaultPoint>) {
+        FAULT.with(|fault| *fault.borrow_mut() = point);
+    }
+
+    pub(crate) fn take_fault(point: AtomicFaultPoint) -> bool {
+        FAULT.with(|fault| {
+            let mut current = fault.borrow_mut();
+            if *current == Some(point) {
+                *current = None;
+                true
+            } else {
+                false
+            }
+        })
+    }
+}
+
+fn map_platform_error(error: platform_support::PlatformSupportError) -> AtomicMoveError {
+    match error {
+        platform_support::PlatformSupportError::LinuxUnsupported => {
+            AtomicMoveError::UnsupportedPlatformLinux
+        }
+        platform_support::PlatformSupportError::MacosFileMutationSourceBindingUnsupported => {
+            AtomicMoveError::MacosFileMutationSourceBindingUnsupported
+        }
     }
 }
 
@@ -196,6 +320,9 @@ pub(crate) fn map_directory_error(error: super::PathGuardError) -> AtomicMoveErr
         super::PathGuardError::UnsupportedPlatformLinux => {
             AtomicMoveError::UnsupportedPlatformLinux
         }
+        super::PathGuardError::MacosFileMutationSourceBindingUnsupported => {
+            AtomicMoveError::MacosFileMutationSourceBindingUnsupported
+        }
         super::PathGuardError::IdentityChanged => AtomicMoveError::TargetParentIdentityChanged,
         super::PathGuardError::ReparsePoint => AtomicMoveError::ReparsePoint,
         super::PathGuardError::UnsafePath => AtomicMoveError::UnsafePath,
@@ -206,6 +333,9 @@ pub(crate) fn map_directory_error(error: super::PathGuardError) -> AtomicMoveErr
 pub(crate) fn map_claim_error(error: SourceClaimError) -> AtomicMoveError {
     match error {
         SourceClaimError::UnsupportedPlatformLinux => AtomicMoveError::UnsupportedPlatformLinux,
+        SourceClaimError::MacosFileMutationSourceBindingUnsupported => {
+            AtomicMoveError::MacosFileMutationSourceBindingUnsupported
+        }
         SourceClaimError::SourceMissing => AtomicMoveError::SourceMissing,
         SourceClaimError::SourceIdentityChanged => AtomicMoveError::SourceChanged,
         SourceClaimError::ClaimFailed(error) => AtomicMoveError::SourceClaimFailed(error),
@@ -245,7 +375,7 @@ fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {
     cancel.is_some_and(|flag| flag.load(Ordering::Acquire))
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
     use std::{fs, sync::atomic::AtomicBool};

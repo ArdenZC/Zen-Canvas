@@ -1395,14 +1395,41 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
         })?;
 
         for item in &mut items {
-            let move_result = move_path_to_safe_trash(
-                Path::new(&item.original_path),
-                Path::new(&item.trash_path),
-                item.size,
-                item.source_quick_hash.as_deref(),
-                item.source_full_hash.as_deref(),
-                item.source_claim_path.as_deref().map(Path::new),
-            );
+            let move_result = {
+                let original_path = item.original_path.clone();
+                let trash_path = item.trash_path.clone();
+                let size = item.size;
+                let quick_hash = item.source_quick_hash.clone();
+                let full_hash = item.source_full_hash.clone();
+                let claim_path = item.source_claim_path.clone();
+                let mut phase_observer = |phase: &str| {
+                    item.operation_phase = phase.to_string();
+                    item.status = "pending".to_string();
+                    item.message = Some(format!("Safe Trash operation phase: {phase}."));
+                    db.update_cleanup_trash_item_status(item).map_err(|error| {
+                        if matches!(
+                            phase,
+                            "target_committed" | "source_cleanup_pending" | "completed"
+                        ) {
+                            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                        } else {
+                            crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(format!(
+                                "safe-trash journal phase persistence failed: {error}"
+                            ))
+                        }
+                    })?;
+                    Ok(())
+                };
+                move_path_to_safe_trash(
+                    Path::new(&original_path),
+                    Path::new(&trash_path),
+                    size,
+                    quick_hash.as_deref(),
+                    full_hash.as_deref(),
+                    claim_path.as_deref().map(Path::new),
+                    Some(&mut phase_observer),
+                )
+            };
             let (status, log_status, message) = match move_result {
                 Ok(()) => {
                     match crate::file_ops::file_identity_fingerprint(Path::new(&item.trash_path)) {
@@ -1740,14 +1767,39 @@ fn restore_cleanup_trash_items_for_db_with_progress(
         db.update_cleanup_trash_item_status(&item)
             .map_err(|error| error.to_string())?;
 
-        match move_path_to_restore_location(
-            &trash_path,
-            &original,
-            item.size,
-            item.trash_quick_hash.as_deref(),
-            item.trash_full_hash.as_deref(),
-            Some(&restore_claim_path),
-        ) {
+        let restore_result = {
+            let size = item.size;
+            let quick_hash = item.trash_quick_hash.clone();
+            let full_hash = item.trash_full_hash.clone();
+            let mut phase_observer = |phase: &str| {
+                item.operation_phase = phase.to_string();
+                item.message = Some(format!("Safe Trash restore phase: {phase}."));
+                db.update_cleanup_trash_item_status(&item)
+                    .map_err(|error| {
+                        if matches!(
+                            phase,
+                            "target_committed" | "source_cleanup_pending" | "completed"
+                        ) {
+                            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                        } else {
+                            crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(format!(
+                                "safe-trash restore phase persistence failed: {error}"
+                            ))
+                        }
+                    })?;
+                Ok(())
+            };
+            move_path_to_restore_location(
+                &trash_path,
+                &original,
+                size,
+                quick_hash.as_deref(),
+                full_hash.as_deref(),
+                Some(&restore_claim_path),
+                Some(&mut phase_observer),
+            )
+        };
+        match restore_result {
             Ok(()) => {
                 let restored_identity = crate::file_ops::file_identity_fingerprint(&original);
                 if restored_identity.as_ref().is_ok_and(|fingerprint| {
@@ -3415,6 +3467,7 @@ fn move_path_to_safe_trash(
     expected_quick_hash: Option<&str>,
     expected_full_hash: Option<&str>,
     planned_claim_path: Option<&Path>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), String> {
     move_path_with_copy_fallback(
         source,
@@ -3423,6 +3476,7 @@ fn move_path_to_safe_trash(
         expected_quick_hash,
         expected_full_hash,
         planned_claim_path,
+        phase_observer,
     )
 }
 
@@ -3433,6 +3487,7 @@ fn move_path_to_restore_location(
     expected_quick_hash: Option<&str>,
     expected_full_hash: Option<&str>,
     planned_claim_path: Option<&Path>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), String> {
     move_path_with_copy_fallback(
         trash_path,
@@ -3441,6 +3496,7 @@ fn move_path_to_restore_location(
         expected_quick_hash,
         expected_full_hash,
         planned_claim_path,
+        phase_observer,
     )
 }
 
@@ -3451,6 +3507,7 @@ fn move_path_with_copy_fallback(
     expected_quick_hash: Option<&str>,
     expected_full_hash: Option<&str>,
     planned_claim_path: Option<&Path>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), String> {
     crate::fs_safety::platform_support::ensure_supported_file_mutation()
         .map_err(|error| error.to_string())?;
@@ -3466,12 +3523,13 @@ fn move_path_with_copy_fallback(
         crate::fs_safety::create_directory_chain_no_links(parent)
             .map_err(|error| format!("target parent rejected: {error}"))?;
     }
-    crate::fs_safety::atomic_move_noreplace_with_claim_path(
+    crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer(
         source,
         target,
         Some(&expected),
         planned_claim_path,
         None,
+        phase_observer,
     )
     .map(|_| ())
     .map_err(|error| error.to_string())

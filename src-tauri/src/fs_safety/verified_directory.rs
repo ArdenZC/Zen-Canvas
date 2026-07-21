@@ -30,7 +30,7 @@ impl std::fmt::Debug for VerifiedDirectory {
 impl VerifiedDirectory {
     pub fn open_existing(path: &Path) -> Result<Self, PathGuardError> {
         platform_support::ensure_supported_file_mutation()
-            .map_err(|_| PathGuardError::UnsupportedPlatformLinux)?;
+            .map_err(super::path_guard::map_platform_error)?;
         if !path.is_absolute() {
             return Err(PathGuardError::UnsafePath);
         }
@@ -54,7 +54,7 @@ impl VerifiedDirectory {
 
     pub fn open_or_create(path: &Path) -> Result<Self, PathGuardError> {
         platform_support::ensure_supported_file_mutation()
-            .map_err(|_| PathGuardError::UnsupportedPlatformLinux)?;
+            .map_err(super::path_guard::map_platform_error)?;
         super::path_guard::create_directory_chain_no_links(path)?;
         Self::open_existing(path)
     }
@@ -67,7 +67,7 @@ impl VerifiedDirectory {
         &self.identity
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(windows, target_os = "macos"))]
     pub(crate) fn handle(&self) -> &File {
         &self.handle
     }

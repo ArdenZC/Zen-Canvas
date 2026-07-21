@@ -75,16 +75,19 @@ use zen_canvas_tauri::storage_analyzer::{
     classify_candidate_for_test, cleanup_preview_items_for_candidates, default_scan_roots_for_test,
     get_storage_cleanup_candidate_page_for_test, get_storage_cleanup_scan_status_for_test,
     is_forbidden_storage_path_for_test, is_main_window_label_for_test,
-    mark_cleanup_candidates_consumed_for_test,
-    move_cleanup_candidates_to_safe_trash_for_candidates,
-    move_cleanup_candidates_to_trash_for_candidates, preview_cleanup_operations_for_candidates,
-    preview_cleanup_restore_item_for_test, reconcile_pending_cleanup_journal,
-    restore_cleanup_trash_items_for_db, restore_cleanup_trash_items_for_db_with_cancel_for_test,
+    mark_cleanup_candidates_consumed_for_test, preview_cleanup_operations_for_candidates,
     run_cleanup_restore_job_for_test, start_storage_cleanup_job_state_for_test,
     start_storage_cleanup_scan_for_test, store_completed_cleanup_analysis_for_test,
     validate_cleanup_roots_for_test, CleanupActionKind, CleanupRestoreJobStatus,
     CleanupRestoreState, CleanupRestoreTestOutcome, CleanupTier, StorageCandidate,
     StorageCleanupProgress, StorageCleanupState,
+};
+#[cfg(windows)]
+use zen_canvas_tauri::storage_analyzer::{
+    move_cleanup_candidates_to_safe_trash_for_candidates,
+    move_cleanup_candidates_to_trash_for_candidates, preview_cleanup_restore_item_for_test,
+    reconcile_pending_cleanup_journal, restore_cleanup_trash_items_for_db,
+    restore_cleanup_trash_items_for_db_with_cancel_for_test,
 };
 
 #[test]
@@ -862,7 +865,8 @@ fn cleanup_operation_preview_rejects_system_and_app_data_paths() {
 }
 
 #[test]
-fn move_cleanup_candidates_to_trash_only_allows_safe_resolved_candidates() {
+#[cfg(windows)]
+fn system_trash_fails_closed_after_candidate_validation_without_touching_source() {
     let root = test_dir();
     let safe_path = root.join("node_modules");
     write_file(&safe_path.join("package").join("index.js"), 128);
@@ -882,16 +886,19 @@ fn move_cleanup_candidates_to_trash_only_allows_safe_resolved_candidates() {
     )
     .expect("move cleanup candidates to trash");
 
-    assert_eq!(result.moved, 1);
+    assert_eq!(result.moved, 0);
     assert_eq!(result.skipped, 3);
-    assert_eq!(result.failed, 0);
-    assert!(result.logs.iter().any(|log| log.status == "success"
+    assert_eq!(result.failed, 1);
+    assert!(result.logs.iter().any(|log| log.status == "failed"
         && log.path == safe.path
-        && log.message.contains("system trash")));
-    assert!(!safe_path.exists());
+        && log
+            .message
+            .contains("system_trash_source_binding_unsupported")));
+    assert!(safe_path.exists());
 }
 
 #[test]
+#[cfg(windows)]
 fn move_cleanup_candidates_to_trash_revalidates_execution_forbidden_paths() {
     let root = test_dir();
     let app_data = root.join("Zen Canvas");
@@ -924,6 +931,7 @@ fn move_cleanup_candidates_to_trash_revalidates_execution_forbidden_paths() {
 }
 
 #[test]
+#[cfg(windows)]
 fn move_cleanup_candidates_to_safe_trash_records_and_restores_items() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -961,6 +969,7 @@ fn move_cleanup_candidates_to_safe_trash_records_and_restores_items() {
 }
 
 #[test]
+#[cfg(windows)]
 fn pending_safe_trash_journal_reconciles_a_completed_move_after_restart() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -984,6 +993,7 @@ fn pending_safe_trash_journal_reconciles_a_completed_move_after_restart() {
 }
 
 #[test]
+#[cfg(windows)]
 fn pending_safe_trash_rejects_replaced_trash_identity() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -1019,6 +1029,7 @@ fn pending_safe_trash_rejects_replaced_trash_identity() {
 }
 
 #[test]
+#[cfg(windows)]
 fn restore_safe_trash_rejects_identity_replaced_after_successful_move() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -1051,6 +1062,7 @@ fn restore_safe_trash_rejects_identity_replaced_after_successful_move() {
 }
 
 #[test]
+#[cfg(windows)]
 fn move_cleanup_candidates_to_safe_trash_rejects_review_caution_missing_and_system_paths() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -1094,6 +1106,7 @@ fn move_cleanup_candidates_to_safe_trash_rejects_review_caution_missing_and_syst
 }
 
 #[test]
+#[cfg(windows)]
 fn restore_cleanup_trash_items_blocks_conflicts_and_marks_missing_trash_paths() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -1137,6 +1150,7 @@ fn restore_cleanup_trash_items_blocks_conflicts_and_marks_missing_trash_paths() 
 }
 
 #[test]
+#[cfg(windows)]
 fn cleanup_restore_preview_marks_filesystem_conflicts_and_missing_sources() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -1169,6 +1183,7 @@ fn cleanup_restore_preview_marks_filesystem_conflicts_and_missing_sources() {
 }
 
 #[test]
+#[cfg(windows)]
 fn cleanup_restore_preview_and_execution_reject_replacement_after_preview() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -1200,6 +1215,7 @@ fn cleanup_restore_preview_and_execution_reject_replacement_after_preview() {
 }
 
 #[test]
+#[cfg(windows)]
 fn cleanup_restore_rejects_same_content_with_a_different_platform_identity() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -1232,6 +1248,7 @@ fn cleanup_restore_rejects_same_content_with_a_different_platform_identity() {
 }
 
 #[test]
+#[cfg(windows)]
 fn legacy_safe_trash_identity_is_manual_review_only() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -1261,6 +1278,7 @@ fn legacy_safe_trash_identity_is_manual_review_only() {
 }
 
 #[test]
+#[cfg(windows)]
 fn cleanup_restore_cancellation_skips_remaining_items_without_moving_files() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");

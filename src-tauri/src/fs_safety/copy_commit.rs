@@ -6,15 +6,128 @@ use super::{
     source_claim::{self, ClaimedEntryKind, SourceClaim},
     verified_directory::VerifiedDirectory,
 };
+#[cfg(test)]
+use std::path::Path;
 use std::{
     ffi::OsString,
-    fs::OpenOptions,
+    fs::File,
     io::{self, Read, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::atomic::{AtomicBool, Ordering},
 };
 
 const COPY_BUFFER_SIZE: usize = 1024 * 1024;
+
+struct StagingFile<'a> {
+    parent: &'a VerifiedDirectory,
+    name: OsString,
+    path: PathBuf,
+    handle: File,
+    verified_identity: Option<identity::ExpectedFileIdentity>,
+    committed: bool,
+}
+
+impl<'a> StagingFile<'a> {
+    fn create(
+        parent: &'a VerifiedDirectory,
+        target_name: &std::ffi::OsStr,
+    ) -> Result<Self, AtomicMoveError> {
+        let name = unique_staging_name(target_name);
+        let path = parent.path().join(&name);
+        let handle = create_staging_handle(parent, &name).map_err(map_create_error)?;
+        Ok(Self {
+            parent,
+            name,
+            path,
+            handle,
+            verified_identity: None,
+            committed: false,
+        })
+    }
+
+    fn sync_and_verify(
+        &mut self,
+        expected: &identity::ExpectedFileIdentity,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<(), AtomicMoveError> {
+        self.handle.sync_all().map_err(AtomicMoveError::Io)?;
+        let actual = identity::capture_identity_from_handle(&self.handle, &self.path, cancel)
+            .map_err(map_identity_error)?;
+        if !identity::content_identity_matches(expected, &actual) {
+            return Err(AtomicMoveError::CopyVerificationFailed);
+        }
+        self.verified_identity = Some(actual);
+        Ok(())
+    }
+
+    fn commit_noreplace(&mut self, target_name: &std::ffi::OsStr) -> Result<(), AtomicMoveError> {
+        source_claim::commit_open_handle_noreplace(
+            &self.handle,
+            self.parent,
+            &self.name,
+            self.parent,
+            target_name,
+        )
+        .map_err(|error| match error {
+            source_claim::SourceClaimError::AtomicSourceBindingUnsupported => {
+                AtomicMoveError::StagingHandleCommitUnsupported
+            }
+            other => map_claim_error(other),
+        })?;
+        self.committed = true;
+        self.path = self.parent.path().join(target_name);
+        Ok(())
+    }
+
+    fn verify_path_binding(&self, cancel: Option<&AtomicBool>) -> Result<(), AtomicMoveError> {
+        let expected = self
+            .verified_identity
+            .as_ref()
+            .ok_or(AtomicMoveError::CopyVerificationFailed)?;
+        let handle_identity =
+            identity::capture_identity_from_handle(&self.handle, &self.path, cancel)
+                .map_err(map_identity_error)?;
+        let path_identity =
+            identity::capture_identity(&self.path, cancel).map_err(map_identity_error)?;
+        if !identity::identity_matches(expected, &handle_identity)
+            || !identity::identity_matches(&handle_identity, &path_identity)
+        {
+            return Err(AtomicMoveError::StagingIdentityChanged);
+        }
+        Ok(())
+    }
+
+    fn verify_committed(&self, cancel: Option<&AtomicBool>) -> Result<(), AtomicMoveError> {
+        let expected = self
+            .verified_identity
+            .as_ref()
+            .ok_or(AtomicMoveError::CopyVerificationFailed)?;
+        let handle_identity =
+            identity::capture_identity_from_handle(&self.handle, &self.path, cancel)
+                .map_err(map_identity_error)?;
+        let path_identity =
+            identity::capture_identity(&self.path, cancel).map_err(map_identity_error)?;
+        if !identity::identity_matches(expected, &handle_identity)
+            || !identity::identity_matches(&handle_identity, &path_identity)
+        {
+            return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for StagingFile<'_> {
+    fn drop(&mut self) {
+        if !self.committed {
+            let _ = source_claim::delete_open_handle(
+                &self.handle,
+                self.parent,
+                &self.name,
+                ClaimedEntryKind::File,
+            );
+        }
+    }
+}
 
 #[cfg(test)]
 pub(crate) fn copy_commit_move(
@@ -34,8 +147,14 @@ pub(crate) fn copy_commit_move_with_claim_path(
     planned_claim_path: Option<&Path>,
     cancel: Option<&AtomicBool>,
 ) -> Result<(), AtomicMoveError> {
-    platform_support::ensure_supported_file_mutation()
-        .map_err(|_| AtomicMoveError::UnsupportedPlatformLinux)?;
+    platform_support::ensure_supported_file_mutation().map_err(|error| match error {
+        platform_support::PlatformSupportError::LinuxUnsupported => {
+            AtomicMoveError::UnsupportedPlatformLinux
+        }
+        platform_support::PlatformSupportError::MacosFileMutationSourceBindingUnsupported => {
+            AtomicMoveError::MacosFileMutationSourceBindingUnsupported
+        }
+    })?;
     let expected = match expected_identity {
         Some(expected) if expected.full_hash.is_some() => expected.clone(),
         Some(_) => {
@@ -65,7 +184,7 @@ pub(crate) fn copy_commit_move_with_claim_path(
     let mut claim =
         source_claim::claim_source_at(source, &expected, &claim_path, "copy-commit", cancel)
             .map_err(map_claim_error)?;
-    copy_commit_claim(&mut claim, target_parent, target_name, cancel).map(|_| ())
+    copy_commit_claim(&mut claim, target_parent, target_name, cancel, None).map(|_| ())
 }
 
 pub(crate) fn copy_commit_claim(
@@ -73,6 +192,7 @@ pub(crate) fn copy_commit_claim(
     target_parent: VerifiedDirectory,
     target_name: &std::ffi::OsStr,
     cancel: Option<&AtomicBool>,
+    mut observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
 ) -> Result<(), AtomicMoveError> {
     if claim.kind() != ClaimedEntryKind::File {
         let _ = claim.rollback_to_original();
@@ -88,47 +208,70 @@ pub(crate) fn copy_commit_claim(
     target_parent
         .ensure_unchanged()
         .map_err(map_directory_error)?;
-    let stage_path = unique_staging_path(&target_parent, target_name);
+    let mut staging = StagingFile::create(&target_parent, target_name)?;
     let mut target_committed = false;
     let result = (|| {
-        copy_file_from_claim(claim, &stage_path, cancel)?;
-        sync_staging(&stage_path)?;
+        if let Some(observer) = observer.as_deref_mut() {
+            observer("copying")?;
+        }
+        copy_file_from_claim(claim, &mut staging.handle, cancel)?;
+        staging.sync_and_verify(claim.expected_identity(), cancel)?;
         target_parent
             .ensure_unchanged()
             .map_err(map_directory_error)?;
-        let staged = identity::capture_identity(&stage_path, cancel).map_err(map_identity_error)?;
-        if !identity::content_identity_matches(claim.expected_identity(), &staged) {
-            return Err(AtomicMoveError::CopyVerificationFailed);
-        }
-        source_claim::commit_path_noreplace(
-            &stage_path,
-            &target_parent,
-            &target_parent,
-            target_name,
-            ClaimedEntryKind::File,
-        )
-        .map_err(map_claim_error)?;
+        #[cfg(test)]
+        source_claim::run_claim_test_hook(
+            source_claim::ClaimTestPoint::AfterStagingVerifiedBeforeCommit,
+            staging.path.as_path(),
+            &target_parent.path().join(target_name),
+        );
+        staging.verify_path_binding(cancel)?;
+        staging.commit_noreplace(target_name)?;
         target_committed = true;
+        if let Some(observer) = observer.as_deref_mut() {
+            observer("target_committed")?;
+        }
+        #[cfg(any(test, feature = "native-qa"))]
+        if super::atomic_move::test_faults::take_fault(
+            super::atomic_move::test_faults::AtomicFaultPoint::TargetDurability,
+        ) {
+            return Err(AtomicMoveError::TargetCommittedDurabilityUnknown);
+        }
         target_parent
             .sync()
-            .map_err(|_| AtomicMoveError::TargetParentDurabilityUnknown)?;
-        let committed = identity::capture_identity(&target_parent.path().join(target_name), cancel)
-            .map_err(map_identity_error)?;
-        if !identity::content_identity_matches(&staged, &committed) {
-            return Err(AtomicMoveError::CopyVerificationFailed);
+            .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)?;
+        #[cfg(any(test, feature = "native-qa"))]
+        if super::atomic_move::test_faults::take_fault(
+            super::atomic_move::test_faults::AtomicFaultPoint::TargetIdentity,
+        ) {
+            return Err(AtomicMoveError::TargetCommittedIdentityMismatch);
         }
-        claim.sync().map_err(map_claim_error)?;
+        staging.verify_committed(cancel)?;
+        claim
+            .sync()
+            .map_err(|_| AtomicMoveError::TargetCommittedDurabilityUnknown)?;
+        if let Some(observer) = observer.as_deref_mut() {
+            observer("source_cleanup_pending")?;
+        }
         #[cfg(test)]
         source_claim::run_claim_test_hook(
             source_claim::ClaimTestPoint::AfterTargetCommitBeforeSourceCleanup,
             claim.original_path(),
             claim.claim_path(),
         );
+        #[cfg(any(test, feature = "native-qa"))]
+        if super::atomic_move::test_faults::take_fault(
+            super::atomic_move::test_faults::AtomicFaultPoint::SourceCleanup,
+        ) {
+            return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
+        }
         claim.delete_claim().map_err(|error| {
-            AtomicMoveError::TargetCommittedSourceDeleteFailed(error.to_string())
+            let _ = error;
+            AtomicMoveError::TargetCommittedSourceCleanupPending
         })?;
         claim.sync_current_parent().map_err(|error| {
-            AtomicMoveError::TargetCommittedSourceDeleteFailed(error.to_string())
+            let _ = error;
+            AtomicMoveError::TargetCommittedSourceCleanupPending
         })?;
         #[cfg(test)]
         source_claim::run_claim_test_hook(
@@ -136,11 +279,13 @@ pub(crate) fn copy_commit_claim(
             claim.original_path(),
             claim.claim_path(),
         );
+        if let Some(observer) = observer.as_deref_mut() {
+            observer("completed")?;
+        }
         Ok(())
     })();
 
     if result.is_err() && !target_committed {
-        let _ = remove_staging(&stage_path, &target_parent);
         if let Err(error) = claim.rollback_to_original() {
             return Err(AtomicMoveError::SourceClaimRollbackFailed(
                 error.to_string(),
@@ -152,16 +297,10 @@ pub(crate) fn copy_commit_claim(
 
 fn copy_file_from_claim(
     claim: &SourceClaim,
-    target: &Path,
+    writer: &mut File,
     cancel: Option<&AtomicBool>,
 ) -> Result<(), AtomicMoveError> {
     let mut reader = claim.open_read().map_err(map_claim_error)?;
-    let mut writer = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create_new(true)
-        .open(target)
-        .map_err(map_create_error)?;
     let mut buffer = vec![0_u8; COPY_BUFFER_SIZE];
     let mut hasher = blake3::Hasher::new();
     hasher.update(b"file\0");
@@ -191,28 +330,94 @@ fn copy_file_from_claim(
     Ok(())
 }
 
-fn unique_staging_path(
-    target_parent: &VerifiedDirectory,
-    _target_name: &std::ffi::OsStr,
-) -> PathBuf {
-    target_parent.path().join(OsString::from(format!(
-        ".zen-canvas-stage-{}",
-        uuid::Uuid::new_v4()
-    )))
+fn unique_staging_name(_target_name: &std::ffi::OsStr) -> OsString {
+    OsString::from(format!(".zen-canvas-stage-{}", uuid::Uuid::new_v4()))
 }
 
-fn sync_staging(path: &Path) -> Result<(), AtomicMoveError> {
-    OpenOptions::new()
+#[cfg(windows)]
+fn create_staging_handle(parent: &VerifiedDirectory, name: &std::ffi::OsStr) -> io::Result<File> {
+    use std::{
+        mem,
+        os::windows::{
+            ffi::OsStrExt,
+            io::{AsRawHandle, FromRawHandle, OwnedHandle},
+        },
+    };
+    use windows_sys::{
+        Wdk::{
+            Foundation::OBJECT_ATTRIBUTES,
+            Storage::FileSystem::{
+                NtCreateFile, FILE_CREATE, FILE_NON_DIRECTORY_FILE, FILE_OPEN_REPARSE_POINT,
+                FILE_SYNCHRONOUS_IO_NONALERT,
+            },
+        },
+        Win32::{
+            Foundation::{RtlNtStatusToDosError, OBJ_CASE_INSENSITIVE, UNICODE_STRING},
+            Storage::FileSystem::{
+                DELETE, FILE_ATTRIBUTE_NORMAL, FILE_READ_ATTRIBUTES, FILE_READ_DATA,
+                FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES,
+                FILE_WRITE_DATA, SYNCHRONIZE,
+            },
+            System::IO::IO_STATUS_BLOCK,
+        },
+    };
+    let mut wide = name.encode_wide().collect::<Vec<_>>();
+    if wide.is_empty() || wide.contains(&0) || wide.len() > (u16::MAX as usize / 2) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "invalid staging name",
+        ));
+    }
+    let unicode = UNICODE_STRING {
+        Length: (wide.len() * mem::size_of::<u16>()) as u16,
+        MaximumLength: (wide.len() * mem::size_of::<u16>()) as u16,
+        Buffer: wide.as_mut_ptr(),
+    };
+    let attributes = OBJECT_ATTRIBUTES {
+        Length: mem::size_of::<OBJECT_ATTRIBUTES>() as u32,
+        RootDirectory: parent.handle().as_raw_handle(),
+        ObjectName: &unicode,
+        Attributes: OBJ_CASE_INSENSITIVE,
+        SecurityDescriptor: std::ptr::null(),
+        SecurityQualityOfService: std::ptr::null(),
+    };
+    let mut raw = std::ptr::null_mut();
+    let mut io_status = unsafe { mem::zeroed::<IO_STATUS_BLOCK>() };
+    let status = unsafe {
+        NtCreateFile(
+            &mut raw,
+            DELETE
+                | FILE_READ_ATTRIBUTES
+                | FILE_READ_DATA
+                | FILE_WRITE_ATTRIBUTES
+                | FILE_WRITE_DATA
+                | SYNCHRONIZE,
+            &attributes,
+            &mut io_status,
+            std::ptr::null(),
+            FILE_ATTRIBUTE_NORMAL,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            FILE_CREATE,
+            FILE_NON_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
+            std::ptr::null(),
+            0,
+        )
+    };
+    if status < 0 {
+        return Err(io::Error::from_raw_os_error(
+            unsafe { RtlNtStatusToDosError(status) } as i32,
+        ));
+    }
+    Ok(unsafe { File::from(OwnedHandle::from_raw_handle(raw)) })
+}
+
+#[cfg(not(windows))]
+fn create_staging_handle(parent: &VerifiedDirectory, name: &std::ffi::OsStr) -> io::Result<File> {
+    std::fs::OpenOptions::new()
         .read(true)
         .write(true)
-        .open(path)
-        .and_then(|file| file.sync_all())
-        .map_err(AtomicMoveError::Io)
-}
-
-fn remove_staging(path: &Path, parent: &VerifiedDirectory) -> Result<(), AtomicMoveError> {
-    source_claim::delete_path_with_binding(path, parent, ClaimedEntryKind::File)
-        .map_err(map_claim_error)
+        .create_new(true)
+        .open(parent.path().join(name))
 }
 
 fn map_identity_error(error: identity::IdentityError) -> AtomicMoveError {
@@ -238,4 +443,194 @@ fn map_create_error(error: io::Error) -> AtomicMoveError {
 
 fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {
     cancel.is_some_and(|flag| flag.load(Ordering::Acquire))
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use std::{fs, io::Write};
+
+    fn fixture(label: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-staging-{label}-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).expect("fixture");
+        root
+    }
+
+    #[test]
+    fn staging_handle_commits_relative_to_verified_parent_without_reopen() {
+        let root = fixture("commit");
+        let parent = VerifiedDirectory::open_existing(&root).expect("parent");
+        let mut staging =
+            StagingFile::create(&parent, std::ffi::OsStr::new("target.txt")).expect("staging");
+        staging.handle.write_all(b"bound staging").expect("write");
+        let expected = identity::capture_identity_from_handle(&staging.handle, &staging.path, None)
+            .expect("identity");
+        staging.verified_identity = Some(expected);
+        staging
+            .commit_noreplace(std::ffi::OsStr::new("target.txt"))
+            .expect("commit");
+        staging.verify_committed(None).expect("verify");
+        assert_eq!(
+            fs::read(root.join("target.txt")).expect("target"),
+            b"bound staging"
+        );
+        drop(staging);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn copy_commit_reports_each_persistable_filesystem_phase_in_order() {
+        let root = fixture("phases");
+        let source_parent = root.join("source");
+        let target_parent_path = root.join("target");
+        fs::create_dir(&source_parent).expect("source parent");
+        fs::create_dir(&target_parent_path).expect("target parent");
+        let source = source_parent.join("source.txt");
+        let target = target_parent_path.join("target.txt");
+        fs::write(&source, b"phase persistence").expect("source");
+        let expected = identity::capture_identity(&source, None).expect("source identity");
+        let claim_path =
+            source_claim::planned_claim_path(&source, "phase-test").expect("claim path");
+        let mut claim =
+            source_claim::claim_source_at(&source, &expected, &claim_path, "phase-test", None)
+                .expect("source claim");
+        let target_parent =
+            VerifiedDirectory::open_existing(&target_parent_path).expect("target parent handle");
+        let mut phases = Vec::new();
+        let mut observer = |phase: &str| {
+            phases.push(phase.to_string());
+            Ok(())
+        };
+
+        copy_commit_claim(
+            &mut claim,
+            target_parent,
+            target.file_name().expect("target name"),
+            None,
+            Some(&mut observer),
+        )
+        .expect("copy commit");
+
+        assert_eq!(
+            phases,
+            [
+                "copying",
+                "target_committed",
+                "source_cleanup_pending",
+                "completed"
+            ]
+        );
+        assert_eq!(fs::read(&target).expect("target"), b"phase persistence");
+        assert!(!source.exists());
+        drop(claim);
+        assert!(!claim_path.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn staging_path_replacement_is_detected_and_replacement_is_never_committed() {
+        let root = fixture("replacement");
+        let parent = VerifiedDirectory::open_existing(&root).expect("parent");
+        let mut staging =
+            StagingFile::create(&parent, std::ffi::OsStr::new("target.txt")).expect("staging");
+        staging
+            .handle
+            .write_all(b"original staging")
+            .expect("write");
+        staging.handle.sync_all().expect("sync");
+        let expected = identity::capture_identity_from_handle(&staging.handle, &staging.path, None)
+            .expect("identity");
+        staging.verified_identity = Some(expected);
+        let displaced = root.join("displaced-stage");
+        fs::rename(&staging.path, &displaced).expect("displace staging");
+        fs::write(&staging.path, b"replacement staging").expect("replacement");
+
+        assert!(matches!(
+            staging.verify_path_binding(None),
+            Err(AtomicMoveError::StagingIdentityChanged)
+        ));
+        assert!(!root.join("target.txt").exists());
+        assert_eq!(
+            fs::read(&staging.path).expect("replacement"),
+            b"replacement staging"
+        );
+        drop(staging);
+        assert!(!displaced.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn run_post_commit_fault(
+        label: &str,
+        point: super::super::atomic_move::test_faults::AtomicFaultPoint,
+    ) -> (Result<(), AtomicMoveError>, PathBuf, PathBuf, PathBuf) {
+        let root = fixture(label);
+        let source = root.join("source.txt");
+        let target = root.join("target.txt");
+        fs::write(&source, b"post-commit payload").expect("source");
+        let claim = source_claim::planned_claim_path(&source, label).expect("claim path");
+        super::super::atomic_move::test_faults::set_fault(Some(point));
+        let result = copy_commit_move_with_claim_path(&source, &target, None, Some(&claim), None);
+        super::super::atomic_move::test_faults::set_fault(None);
+        (result, root, target, claim)
+    }
+
+    #[test]
+    fn durability_fault_after_commit_never_reports_rollback() {
+        let _serial = super::super::atomic_move::test_faults::lock();
+        let (result, root, target, claim) = run_post_commit_fault(
+            "durability-fault",
+            super::super::atomic_move::test_faults::AtomicFaultPoint::TargetDurability,
+        );
+        assert!(matches!(
+            result,
+            Err(AtomicMoveError::TargetCommittedDurabilityUnknown)
+        ));
+        assert_eq!(
+            fs::read(target).expect("committed target"),
+            b"post-commit payload"
+        );
+        assert!(claim.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn identity_fault_after_commit_never_reports_rollback() {
+        let _serial = super::super::atomic_move::test_faults::lock();
+        let (result, root, target, claim) = run_post_commit_fault(
+            "identity-fault",
+            super::super::atomic_move::test_faults::AtomicFaultPoint::TargetIdentity,
+        );
+        assert!(matches!(
+            result,
+            Err(AtomicMoveError::TargetCommittedIdentityMismatch)
+        ));
+        assert_eq!(
+            fs::read(target).expect("committed target"),
+            b"post-commit payload"
+        );
+        assert!(claim.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cleanup_fault_after_commit_is_source_cleanup_pending() {
+        let _serial = super::super::atomic_move::test_faults::lock();
+        let (result, root, target, claim) = run_post_commit_fault(
+            "cleanup-fault",
+            super::super::atomic_move::test_faults::AtomicFaultPoint::SourceCleanup,
+        );
+        assert!(matches!(
+            result,
+            Err(AtomicMoveError::TargetCommittedSourceCleanupPending)
+        ));
+        assert_eq!(
+            fs::read(target).expect("committed target"),
+            b"post-commit payload"
+        );
+        assert!(claim.exists());
+        let _ = fs::remove_dir_all(root);
+    }
 }

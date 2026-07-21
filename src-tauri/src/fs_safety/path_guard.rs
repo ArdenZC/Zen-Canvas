@@ -20,11 +20,12 @@ pub enum PathGuardError {
     IdentityChanged,
     #[error("unsupported_platform_linux")]
     UnsupportedPlatformLinux,
+    #[error("macos_file_mutation_source_binding_unsupported")]
+    MacosFileMutationSourceBindingUnsupported,
 }
 
 pub fn create_directory_chain_no_links(path: &Path) -> Result<(), PathGuardError> {
-    platform_support::ensure_supported_file_mutation()
-        .map_err(|_| PathGuardError::UnsupportedPlatformLinux)?;
+    platform_support::ensure_supported_file_mutation().map_err(map_platform_error)?;
     if !path.is_absolute()
         || path
             .components()
@@ -46,6 +47,17 @@ pub fn create_directory_chain_no_links(path: &Path) -> Result<(), PathGuardError
     #[cfg(not(any(unix, windows)))]
     {
         create_directory_chain_portable(path)
+    }
+}
+
+pub(crate) fn map_platform_error(error: platform_support::PlatformSupportError) -> PathGuardError {
+    match error {
+        platform_support::PlatformSupportError::LinuxUnsupported => {
+            PathGuardError::UnsupportedPlatformLinux
+        }
+        platform_support::PlatformSupportError::MacosFileMutationSourceBindingUnsupported => {
+            PathGuardError::MacosFileMutationSourceBindingUnsupported
+        }
     }
 }
 
@@ -233,7 +245,7 @@ fn create_directory_chain_portable(path: &Path) -> Result<(), PathGuardError> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
     use std::fs;
