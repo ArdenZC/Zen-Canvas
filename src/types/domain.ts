@@ -138,6 +138,8 @@ export interface RuntimeCapabilities {
   aiDebugAvailable: boolean;
   realAIClassificationAvailable: boolean;
   credentialStoreAvailable: boolean;
+  fileMutationAvailable: boolean;
+  fileMutationUnavailableCode: string | null;
 }
 
 export interface AIDebugClassificationResult {

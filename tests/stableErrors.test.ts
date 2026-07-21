@@ -16,6 +16,12 @@ describe("stable error codes", () => {
     expect(localizedStableError("target_committed_source_delete_failed: denied", en)).toContain("manual review");
     expect(localizedStableError("copy_verification_failed", en)).toContain("identity verification");
     expect(localizedStableError("target_parent_durability_unknown", zh)).toContain("持久化");
+    expect(localizedStableError("macos_file_mutation_source_binding_unsupported", en)).toContain("source-handle");
+    expect(localizedStableError("staging_identity_changed", zh)).toContain("暂存对象");
+    expect(localizedStableError("staging_handle_commit_unsupported", en)).toContain("staging file handle");
+    expect(localizedStableError("target_committed_durability_unknown", zh)).toContain("目标已提交");
+    expect(localizedStableError("target_committed_identity_mismatch", en)).toContain("post-commit identity");
+    expect(localizedStableError("target_committed_source_cleanup_pending", zh)).toContain("清理仍待完成");
   });
 
   it("preserves unknown technical details for diagnostics", () => {

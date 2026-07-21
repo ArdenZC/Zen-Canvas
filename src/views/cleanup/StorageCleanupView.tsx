@@ -34,6 +34,7 @@ import type {
 import type { Translator } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
 import { compactPath, readableError } from "../../utils/viewHelpers";
+import { localFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
 import { buttonSecondary, cn, glassButtonPrimary } from "../../utils/tw";
 import {
   ConfirmDialog,
@@ -102,6 +103,7 @@ function StorageCleanupPanel({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [reviewConfirmCandidate, setReviewConfirmCandidate] = useState<StorageCandidate | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
+  const mutationUnavailable = localFileMutationUnavailableCode();
   const analysis = initialAnalysis ?? store.analysis;
   const displayedJobId = initialAnalysis ? null : store.displayedJobId;
   const selectedRoots = initialRoots ?? store.selectedRoots;
@@ -636,7 +638,8 @@ function StorageCleanupPanel({
               <button
                 className={glassButtonPrimary}
                 onClick={() => setConfirmOpen(true)}
-                disabled={!selectedCleanupIds.size || isExecuting || !displayedJobId}
+                disabled={!selectedCleanupIds.size || isExecuting || !displayedJobId || Boolean(mutationUnavailable)}
+                title={mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : undefined}
               >
                 <Trash2 size={17} />
                 <span>{t("storageCleanupMoveToSafeTrash")}</span>
@@ -655,6 +658,7 @@ function StorageCleanupPanel({
         confirmLabel={t("storageCleanupMoveToSafeTrash")}
         cancelLabel={t("cancel")}
         isProcessing={isExecuting}
+        disabled={Boolean(mutationUnavailable)}
         onConfirm={moveSelectedToSafeTrash}
         onCancel={() => setConfirmOpen(false)}
       />

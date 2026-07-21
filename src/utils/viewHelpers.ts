@@ -341,6 +341,13 @@ export function localizedStableError(error: unknown, t: Translator): string {
   if (message.startsWith("cross_volume_directory_move_unsupported")) return t("errorCrossVolumeDirectoryMoveUnsupported");
   if (message.startsWith("cross_volume_file_move_unsupported_on_macos")) return t("errorCrossVolumeFileMoveUnsupportedOnMacos");
   if (message.startsWith("unsupported_platform_linux")) return t("errorUnsupportedPlatformLinux");
+  if (message.startsWith("macos_file_mutation_source_binding_unsupported")) return t("errorMacosFileMutationSourceBindingUnsupported");
+  if (message.startsWith("staging_identity_changed")) return t("errorStagingIdentityChanged");
+  if (message.startsWith("system_trash_source_binding_unsupported")) return t("errorSystemTrashSourceBindingUnsupported");
+  if (message.startsWith("staging_handle_commit_unsupported")) return t("errorStagingHandleCommitUnsupported");
+  if (message.startsWith("target_committed_durability_unknown")) return t("errorTargetCommittedDurabilityUnknown");
+  if (message.startsWith("target_committed_identity_mismatch")) return t("errorTargetCommittedIdentityMismatch");
+  if (message.startsWith("target_committed_source_cleanup_pending")) return t("errorTargetCommittedSourceCleanupPending");
   if (message.startsWith("target_committed_source_delete_failed")) return t("errorTargetCommittedSourceDeleteFailed");
   if (message.startsWith("directory_manifest_name_encoding_failed")) return t("errorDirectoryManifestNameEncodingFailed");
   if (message.startsWith("copy_verification_failed")) return t("errorCopyVerificationFailed");

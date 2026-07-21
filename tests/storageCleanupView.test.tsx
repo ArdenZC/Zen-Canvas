@@ -199,7 +199,7 @@ describe("StorageCleanupView", () => {
     expect(source).toContain("const displayedJobId = initialAnalysis ? null : store.displayedJobId");
     expect(source).toContain("api.moveCleanupCandidatesToSafeTrash(displayedJobId, [...selectedCleanupIds])");
     expect(source).toContain("if (!displayedJobId)");
-    expect(source).toContain("disabled={!selectedCleanupIds.size || isExecuting || !displayedJobId}");
+    expect(source).toContain("disabled={!selectedCleanupIds.size || isExecuting || !displayedJobId || Boolean(mutationUnavailable)}");
   });
 
   it("documents AI cleanup readiness states and settings guidance", () => {

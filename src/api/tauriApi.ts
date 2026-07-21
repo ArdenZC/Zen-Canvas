@@ -37,6 +37,7 @@ import type {
   StorageCleanupScanStatus,
   VersionedAppSettings
 } from "../types/domain";
+import { rejectUnavailableFileMutation } from "../utils/fileMutationCapability";
 import type { View } from "../types/ui";
 import type { SearchNavigatePayload } from "../utils/searchNavigation";
 import { isBrowserMockEnabled, mockInvokeCommand } from "./browserMockApi";
@@ -193,6 +194,8 @@ export const tauriApi = {
   },
 
   executeMoves(operations: OperationPreview[]): Promise<ExecuteOperationResult> {
+    const unavailable = rejectUnavailableFileMutation<ExecuteOperationResult>();
+    if (unavailable) return unavailable;
     const request: ExecuteOperationRequest = {
       operations: operations.map((operation) => ({
         id: operation.id,
@@ -204,6 +207,8 @@ export const tauriApi = {
   },
 
   restoreMoves(logs: OperationLog[]): Promise<RestoreMovesResult> {
+    const unavailable = rejectUnavailableFileMutation<RestoreMovesResult>();
+    if (unavailable) return unavailable;
     return invokeCommand<RestoreMovesResult>("restore_moves", {
       request: { logIds: logs.map((log) => log.id) }
     });
@@ -264,10 +269,14 @@ export const tauriApi = {
   },
 
   moveCleanupCandidatesToTrash(jobId: string, ids: string[]): Promise<CleanupExecutionResult> {
+    const unavailable = rejectUnavailableFileMutation<CleanupExecutionResult>();
+    if (unavailable) return unavailable;
     return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_trash", { jobId, ids });
   },
 
   moveCleanupCandidatesToSafeTrash(jobId: string, ids: string[]): Promise<CleanupExecutionResult> {
+    const unavailable = rejectUnavailableFileMutation<CleanupExecutionResult>();
+    if (unavailable) return unavailable;
     return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_safe_trash", { jobId, ids });
   },
 
@@ -284,6 +293,8 @@ export const tauriApi = {
   },
 
   restoreCleanupTrashItems(itemIds: string[], jobId?: string): Promise<CleanupRestoreResult> {
+    const unavailable = rejectUnavailableFileMutation<CleanupRestoreResult>();
+    if (unavailable) return unavailable;
     return invokeCommand<CleanupRestoreResult>("restore_cleanup_trash_items", { itemIds, jobId: jobId ?? null });
   },
 

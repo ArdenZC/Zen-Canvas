@@ -254,6 +254,20 @@ function localizedRestoreError(error: unknown, t: ReturnType<typeof currentT>) {
     message = t("errorCrossVolumeFileMoveUnsupportedOnMacos");
   } else if (normalized.startsWith("unsupported_platform_linux")) {
     message = t("errorUnsupportedPlatformLinux");
+  } else if (normalized.startsWith("macos_file_mutation_source_binding_unsupported")) {
+    message = t("errorMacosFileMutationSourceBindingUnsupported");
+  } else if (normalized.startsWith("staging_identity_changed")) {
+    message = t("errorStagingIdentityChanged");
+  } else if (normalized.startsWith("system_trash_source_binding_unsupported")) {
+    message = t("errorSystemTrashSourceBindingUnsupported");
+  } else if (normalized.startsWith("staging_handle_commit_unsupported")) {
+    message = t("errorStagingHandleCommitUnsupported");
+  } else if (normalized.startsWith("target_committed_durability_unknown")) {
+    message = t("errorTargetCommittedDurabilityUnknown");
+  } else if (normalized.startsWith("target_committed_identity_mismatch")) {
+    message = t("errorTargetCommittedIdentityMismatch");
+  } else if (normalized.startsWith("target_committed_source_cleanup_pending")) {
+    message = t("errorTargetCommittedSourceCleanupPending");
   } else if (normalized.startsWith("target_committed_source_delete_failed")) {
     message = t("errorTargetCommittedSourceDeleteFailed");
   } else if (normalized.startsWith("directory_manifest_name_encoding_failed")) {

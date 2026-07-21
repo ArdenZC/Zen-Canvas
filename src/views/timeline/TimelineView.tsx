@@ -8,6 +8,7 @@ import { operationConfirmationTone, operationNeedsCleanupConfirmation, previewsF
 import type { OperationPreview } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { groupOperationPreviews, compactPath, formatDisplayPath, libraryScopeLabel } from "../../utils/viewHelpers";
+import { localFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
 import { buttonSecondary, cn, contentSurface, glassButton, glassButtonPrimary, glassButtonWarning, raisedSurface } from "../../utils/tw";
 import {
   ConfirmDialog,
@@ -45,6 +46,7 @@ export function TimelineView() {
   const isOperationCanceling = useOperationQueueStore((state) => state.isOperationCanceling);
   const cancelOperations = useOperationQueueStore((state) => state.cancelOperations);
   const [confirmExecute, setConfirmExecute] = useState(false);
+  const mutationUnavailable = localFileMutationUnavailableCode();
   const executeButtonRef = useRef<HTMLButtonElement | null>(null);
   const visiblePreviews = previewsForExecutionIntent(displayPreviews, executionIntent);
   function toggle(id: string) {
@@ -108,13 +110,14 @@ export function TimelineView() {
             {executionIntent?.source === "organize" ? <p className="mt-1 text-sm text-[var(--zc-info-text)]">{t("organizePreviewAcceptedOnly")}</p> : null}
             <p className="mt-2 truncate text-xs text-[var(--muted)]">{t("currentOrganizeScope")}: {scopeText}</p>
           </div>
-          <button ref={executeButtonRef} data-dialog-focus-fallback className={cn(glassButtonPrimary, "tabular-nums")} onClick={() => setConfirmExecute(true)} disabled={!executableSelectedCount || isExecuting}>
+          <button ref={executeButtonRef} data-dialog-focus-fallback className={cn(glassButtonPrimary, "tabular-nums")} onClick={() => setConfirmExecute(true)} disabled={!executableSelectedCount || isExecuting || Boolean(mutationUnavailable)} title={mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : undefined}>
             <Play size={16} />
             <span>{isExecuting ? t("executingOperations") : executeButtonLabel}</span>
           </button>
         </div>
 
         <div className="mb-4 grid gap-3">
+          {mutationUnavailable && <NoticeBanner tone="warning">{t("errorMacosFileMutationSourceBindingUnsupported")}</NoticeBanner>}
           {executionIntent?.source === "organize" && visiblePreviews.length < executionIntent.initialAllowedCount ? <NoticeBanner tone="warning">{t("organizePreviewInvalidated")}</NoticeBanner> : null}
           <NoticeBanner tone="warning" title={t("previewSafetyTitle")}>
             {t("previewNoOverwriteDelete")}
@@ -285,6 +288,7 @@ export function TimelineView() {
         confirmLabel={t("organizeExecuteConfirmAction").replace("{count}", selectedOperations.length.toLocaleString())}
         cancelLabel={t("cancel")}
         restoreFocus={() => executeButtonRef.current}
+        disabled={Boolean(mutationUnavailable)}
         onCancel={() => setConfirmExecute(false)}
         onConfirm={() => { setConfirmExecute(false); void executeSelected(true); }}
       />
