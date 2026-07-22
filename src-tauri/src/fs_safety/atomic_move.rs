@@ -17,9 +17,25 @@ pub enum AtomicMoveMethod {
     CrossVolumeCopyCommit,
 }
 
+/// Structured durability state for a filesystem mutation.
+///
+/// Callers must use this value when deciding whether a journal row can be
+/// marked failed/rolled back.  The error text is intentionally not part of
+/// the state machine because several variants carry platform error details.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AtomicMoveCommitState {
+    RolledBack,
+    SourceClaimed,
+    TargetCommitted,
+    SourceCleanupPending,
+    Completed,
+    ManualReview,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AtomicMoveOutcome {
     pub method: AtomicMoveMethod,
+    pub commit_state: AtomicMoveCommitState,
 }
 
 #[derive(Debug, Error)]
@@ -82,6 +98,37 @@ pub enum AtomicMoveError {
     TargetCommittedSourceDeleteFailed(String),
     #[error("io: {0}")]
     Io(#[from] io::Error),
+}
+
+impl AtomicMoveError {
+    pub fn commit_state(&self) -> AtomicMoveCommitState {
+        match self {
+            Self::TargetCommittedSourceDeleteFailed(_)
+            | Self::TargetCommittedSourceCleanupPending => {
+                AtomicMoveCommitState::SourceCleanupPending
+            }
+            Self::TargetCommittedDurabilityUnknown | Self::TargetCommittedIdentityMismatch => {
+                AtomicMoveCommitState::ManualReview
+            }
+            Self::SourceClaimRecoveryRequired(_) | Self::SourceClaimRollbackFailed(_) => {
+                AtomicMoveCommitState::SourceClaimed
+            }
+            _ => AtomicMoveCommitState::RolledBack,
+        }
+    }
+
+    pub fn is_post_commit(&self) -> bool {
+        matches!(
+            self.commit_state(),
+            AtomicMoveCommitState::TargetCommitted
+                | AtomicMoveCommitState::SourceCleanupPending
+                | AtomicMoveCommitState::ManualReview
+        )
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        matches!(self, Self::Cancelled)
+    }
 }
 
 pub fn atomic_move_noreplace(
@@ -153,7 +200,7 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer(
             )),
         };
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "native-qa"))]
     source_claim::run_claim_test_hook(
         source_claim::ClaimTestPoint::AfterClaimVerifiedBeforeTargetCommit,
         source,
@@ -165,6 +212,11 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer(
         return match result {
             Ok(_committed_path) => {
                 notify_phase(&mut observer, "target_committed")?;
+                #[cfg(any(test, feature = "native-qa"))]
+                if test_faults::take_fault(test_faults::AtomicFaultPoint::SourceCleanup) {
+                    notify_phase(&mut observer, "source_cleanup_pending")?;
+                    return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
+                }
                 #[cfg(any(test, feature = "native-qa"))]
                 if test_faults::take_fault(test_faults::AtomicFaultPoint::TargetDurability) {
                     return Err(AtomicMoveError::TargetCommittedDurabilityUnknown);
@@ -199,6 +251,7 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer(
                 notify_phase(&mut observer, "completed")?;
                 Ok(AtomicMoveOutcome {
                     method: AtomicMoveMethod::SameVolumeNoReplace,
+                    commit_state: AtomicMoveCommitState::Completed,
                 })
             }
             Err(error) => Err(rollback_after_failure(&mut claim, error)),
@@ -219,6 +272,7 @@ pub(crate) fn atomic_move_noreplace_with_claim_path_and_observer(
         copy_commit::copy_commit_claim(&mut claim, target_parent, target_name, cancel, observer)
             .map(|_| AtomicMoveOutcome {
                 method: AtomicMoveMethod::CrossVolumeCopyCommit,
+                commit_state: AtomicMoveCommitState::Completed,
             })
     }
     #[cfg(not(any(windows, target_os = "macos")))]

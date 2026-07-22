@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { desktopDir, documentDir, downloadDir, tempDir } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
+import { useShallow } from "zustand/react/shallow";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -33,7 +34,7 @@ import type {
 } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
-import { compactPath, readableError } from "../../utils/viewHelpers";
+import { compactPath, localizedStableError, readableError } from "../../utils/viewHelpers";
 import { localFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
 import { buttonSecondary, cn, glassButtonPrimary } from "../../utils/tw";
 import {
@@ -99,27 +100,45 @@ function StorageCleanupPanel({
   t,
   onError
 }: Props & { t: Translator; onError?: (message: string) => void }) {
-  const store = useStorageCleanupStore();
+  // Keep this large virtualized view subscribed to the state it renders.  A
+  // whole-store subscription caused every progress tick and AI set update to
+  // re-render the complete cleanup surface.
+  const analysisState = useStorageCleanupStore((state) => state.analysis);
+  const displayedJobIdState = useStorageCleanupStore((state) => state.displayedJobId);
+  const selectedRootsState = useStorageCleanupStore((state) => state.selectedRoots);
+  const selectedCleanupIdsState = useStorageCleanupStore((state) => state.selectedCleanupIds);
+  const activeTierFilterState = useStorageCleanupStore((state) => state.activeTierFilter);
+  const isScanningState = useStorageCleanupStore((state) => state.isScanning);
+  const scanProgressState = useStorageCleanupStore((state) => state.scanProgress);
+  const executionResultState = useStorageCleanupStore((state) => state.executionResult);
+  const scanErrorState = useStorageCleanupStore((state) => state.scanError);
+  const aiCleanupStatusState = useStorageCleanupStore((state) => state.aiCleanupStatus);
+  const isAnalyzingWithAIState = useStorageCleanupStore((state) => state.isAnalyzingWithAI);
+  const aiAnalyzedCandidateIdsState = useStorageCleanupStore((state) => state.aiAnalyzedCandidateIds);
+  const aiDowngradedCandidateIdsState = useStorageCleanupStore((state) => state.aiDowngradedCandidateIds);
+  const scanStatusState = useStorageCleanupStore((state) => state.scanStatus);
+  const { loadMoreCandidates } = useStorageCleanupStore(
+    useShallow((state) => ({ loadMoreCandidates: state.loadMoreCandidates }))
+  );
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [reviewConfirmCandidate, setReviewConfirmCandidate] = useState<StorageCandidate | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const mutationUnavailable = localFileMutationUnavailableCode();
-  const analysis = initialAnalysis ?? store.analysis;
-  const displayedJobId = initialAnalysis ? null : store.displayedJobId;
-  const selectedRoots = initialRoots ?? store.selectedRoots;
+  const analysis = initialAnalysis ?? analysisState;
+  const displayedJobId = initialAnalysis ? null : displayedJobIdState;
+  const selectedRoots = initialRoots ?? selectedRootsState;
   const selectedCleanupIds = initialAnalysis
     ? new Set(defaultSelectedCleanupIds(initialAnalysis))
-    : store.selectedCleanupIds;
-  const activeTierFilter = initialAnalysis ? "All" : store.activeTierFilter;
-  const isScanning = !initialAnalysis && store.isScanning;
-  const scanProgress = !initialAnalysis ? store.scanProgress : null;
-  const executionResult = !initialAnalysis ? store.executionResult : null;
-  const scanError = !initialAnalysis ? store.scanError : "";
-  const aiCleanupStatus = !initialAnalysis ? store.aiCleanupStatus : "";
-  const isAnalyzingWithAI = !initialAnalysis && store.isAnalyzingWithAI;
-  const loadMoreCandidates = store.loadMoreCandidates;
-  const aiAnalyzedCandidateIds = !initialAnalysis ? store.aiAnalyzedCandidateIds : new Set<string>();
-  const aiDowngradedCandidateIds = !initialAnalysis ? store.aiDowngradedCandidateIds : new Set<string>();
+    : selectedCleanupIdsState;
+  const activeTierFilter = initialAnalysis ? "All" : activeTierFilterState;
+  const isScanning = !initialAnalysis && isScanningState;
+  const scanProgress = !initialAnalysis ? scanProgressState : null;
+  const executionResult = !initialAnalysis ? executionResultState : null;
+  const scanError = !initialAnalysis ? scanErrorState : "";
+  const aiCleanupStatus = !initialAnalysis ? aiCleanupStatusState : "";
+  const isAnalyzingWithAI = !initialAnalysis && isAnalyzingWithAIState;
+  const aiAnalyzedCandidateIds = !initialAnalysis ? aiAnalyzedCandidateIdsState : new Set<string>();
+  const aiDowngradedCandidateIds = !initialAnalysis ? aiDowngradedCandidateIdsState : new Set<string>();
   const [localError, setLocalError] = useState("");
   const [cleanupAIReadiness, setCleanupAIReadiness] = useState("");
   const error = localError || (scanError ? storageCleanupErrorMessage(scanError, t) : "");
@@ -247,7 +266,7 @@ function StorageCleanupPanel({
   async function moveSelectedToSafeTrash() {
     if (!selectedCleanupIds.size || isExecuting) return;
     if (!displayedJobId) {
-      reportError("当前清理结果已过期，请重新扫描。");
+      reportError(t("storageCleanupResultExpired"));
       return;
     }
     setIsExecuting(true);
@@ -271,7 +290,7 @@ function StorageCleanupPanel({
   async function analyzeCandidatesWithAI(mode: "all" | "risk" | "selected") {
     if (initialAnalysis || isAnalyzingWithAI || !analysis) return;
     if (!displayedJobId) {
-      reportError("当前清理结果已过期，请重新扫描。");
+      reportError(t("storageCleanupResultExpired"));
       return;
     }
     const ids = cleanupAIIdsForMode(mode, sortedCandidates, selectedCleanupIds);
@@ -293,12 +312,16 @@ function StorageCleanupPanel({
       if (useStorageCleanupStore.getState().displayedJobId !== displayedJobId) return;
       useStorageCleanupStore.getState().applyAIAnalyzedCandidates(displayedJobId, candidates);
       const analyzedCounts = countTiers(candidates);
-      const message = `AI 已分析 ${candidates.length.toLocaleString()} 个候选：可安全清理 ${analyzedCounts.Safe.toLocaleString()} 个，需要人工判断 ${analyzedCounts.Review.toLocaleString()} 个，谨慎处理 ${analyzedCounts.Caution.toLocaleString()} 个。${analyzedCounts.Safe === 0 ? " AI 未发现可自动加入清理清单的项目。请查看 Review 项的风险说明，人工确认后再加入 Safe Trash。" : ""}`;
+      const message = `${t("storageCleanupAISuccessSummary")
+        .replace("{count}", candidates.length.toLocaleString())
+        .replace("{safe}", analyzedCounts.Safe.toLocaleString())
+        .replace("{review}", analyzedCounts.Review.toLocaleString())
+        .replace("{caution}", analyzedCounts.Caution.toLocaleString())}${analyzedCounts.Safe === 0 ? ` ${t("storageCleanupAISuccessNoSafe")}` : ""}`;
       useStorageCleanupStore.getState().setAICleanupStatus(message);
       useAppStore.getState().showSuccess(message);
     } catch (aiError) {
       if (useStorageCleanupStore.getState().displayedJobId !== displayedJobId) return;
-      const message = readableCleanupAIError(aiError);
+      const message = readableCleanupAIError(aiError, t);
       useStorageCleanupStore.getState().setAICleanupStatus(message);
       reportError(message);
     } finally {
@@ -324,7 +347,9 @@ function StorageCleanupPanel({
   }
 
   function reportError(errorValue: unknown) {
-    const message = readableError(errorValue);
+    const rawMessage = readableError(errorValue);
+    const cleanupMessage = storageCleanupErrorMessage(rawMessage, t);
+    const message = cleanupMessage === rawMessage ? localizedStableError(rawMessage, t) : cleanupMessage;
     setLocalError(message);
     onError?.(message);
   }
@@ -359,7 +384,7 @@ function StorageCleanupPanel({
                 <button
                   className={buttonSecondary}
                   onClick={cancelScan}
-                  disabled={store.scanStatus === "cancel_requested"}
+                  disabled={scanStatusState === "cancel_requested"}
                 >
                   <XCircle size={16} />
                   <span>{t("storageCleanupCancelScan")}</span>
@@ -890,39 +915,49 @@ function ensureCleanupAIReady(
   apiKeyConfigured?: boolean
 ) {
   if (!enabled) {
-    throw new Error("请先在设置中启用 AI。");
+    throw new Error("ai_disabled");
   }
   if (!cleanupAiEnabled) {
-    throw new Error("请开启 AI 空间清理分析。");
+    throw new Error("ai_cleanup_disabled");
   }
   if (provider !== "ollama" && !apiKey.trim() && !apiKeyConfigured) {
-    throw new Error("当前模型服务需要 API Key，请在 AI 设置中填写。");
+    throw new Error("ai_api_key_missing");
   }
 }
 
-function readableCleanupAIError(error: unknown) {
+function readableCleanupAIError(error: unknown, t: Translator) {
   const message = readableError(error);
   const normalized = message.toLowerCase();
-  if (message.includes("模型返回") || message.includes("Zen Canvas 需要的 JSON")) return message;
-  if (message.includes("AI 空间清理分析") || message.includes("AI 清理分析")) return "请开启 AI 空间清理分析。";
-  if (message.includes("AI 未启用") || message.includes("启用 AI")) return "请先在设置中启用 AI。";
+  if (message === "ai_disabled" || message.includes("AI 未启用") || message.includes("启用 AI")) {
+    return t("storageCleanupAIEnableAI");
+  }
+  if (message === "ai_cleanup_disabled" || message.includes("AI 空间清理分析") || message.includes("AI 清理分析")) {
+    return t("storageCleanupAIEnableCleanup");
+  }
+  if (message === "ai_api_key_missing" || message.includes("API Key 缺失") || message.includes("当前模型服务需要 API Key")) {
+    return t("storageCleanupAIErrorMissingKey");
+  }
+  if (message.includes("模型返回") || message.includes("Zen Canvas 需要的 JSON")) {
+    return withCleanupProviderDetail(t("storageCleanupAIErrorInvalidResponse"), message);
+  }
   if (isCleanupRateLimitError(normalized)) {
-    return withCleanupProviderDetail("模型服务请求过快或达到限流，请减少本次处理数量或稍后重试。", message);
+    return withCleanupProviderDetail(t("storageCleanupAIErrorRateLimit"), message);
   }
   if (isCleanupTimeoutError(normalized)) {
-    return withCleanupProviderDetail("模型请求超时，请减少本次处理数量、稍后重试，或改用更稳定的模型。", message);
+    return withCleanupProviderDetail(t("storageCleanupAIErrorTimeout"), message);
   }
   if (isCleanupHttpStatus(normalized, 400)) {
-    return withCleanupProviderDetail("模型服务拒绝了请求参数，请检查 AI 服务配置后重试。", message);
+    return withCleanupProviderDetail(t("storageCleanupAIErrorBadRequest"), message);
   }
   if (isCleanupHttpStatus(normalized, 401) || isCleanupHttpStatus(normalized, 403)) {
-    return withCleanupProviderDetail("模型服务认证或权限失败，请检查 API Key 和模型权限。", message);
+    return withCleanupProviderDetail(t("storageCleanupAIErrorAuth"), message);
   }
-  if (message.includes("API Key 缺失") || message.includes("当前模型服务需要 API Key")) return "当前模型服务需要 API Key，请在 AI 设置中填写。";
   if (hasCleanupProviderDetail(normalized)) return message;
-  if (normalized.includes("request failed") || normalized.includes("ollama") || normalized.includes("network")) return "无法连接到模型服务，请检查 Base URL、Chat Path、网络和 API Key。";
+  if (normalized.includes("request failed") || normalized.includes("ollama") || normalized.includes("network")) {
+    return withCleanupProviderDetail(t("storageCleanupAIErrorNetwork"), message);
+  }
   if (normalized.includes("invalid json") || normalized.includes("not valid json") || normalized.includes("json")) {
-    return "模型没有返回有效结果，请换用更稳定的模型或稍后重试。";
+    return withCleanupProviderDetail(t("storageCleanupAIErrorInvalidResponse"), message);
   }
   if (
     normalized.includes("unsupported value") ||
@@ -930,7 +965,7 @@ function readableCleanupAIError(error: unknown) {
     message.includes("安全") ||
     message.includes("校验")
   ) {
-    return "AI 返回了不安全的路径或操作，Zen Canvas 已拒绝应用该结果。";
+    return withCleanupProviderDetail(t("storageCleanupAIErrorUnsafeResult"), message);
   }
   return message;
 }

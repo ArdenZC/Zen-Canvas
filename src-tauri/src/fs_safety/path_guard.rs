@@ -1,5 +1,7 @@
+#[cfg(any(unix, not(any(unix, windows))))]
+use std::fs;
 use std::{
-    fs, io,
+    io,
     path::{Component, Path},
 };
 
@@ -179,53 +181,10 @@ pub(crate) fn prepare_macos_path(path: &Path) -> Result<PathBuf, PathGuardError>
 
 #[cfg(windows)]
 fn create_directory_chain_windows(path: &Path) -> Result<(), PathGuardError> {
-    use std::os::windows::fs::MetadataExt;
-    use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
-
-    let mut current = path
-        .components()
-        .take_while(|component| !matches!(component, Component::Normal(_)))
-        .fold(Path::new("").to_path_buf(), |value, component| {
-            value.join(component.as_os_str())
-        });
-    for component in path.components() {
-        if !matches!(component, Component::Normal(_)) {
-            continue;
-        }
-        current.push(component.as_os_str());
-        match fs::symlink_metadata(&current) {
-            Ok(metadata) => {
-                if metadata.file_type().is_symlink()
-                    || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
-                {
-                    return Err(PathGuardError::ReparsePoint);
-                }
-                if !metadata.is_dir() {
-                    return Err(PathGuardError::UnsafePath);
-                }
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                fs::create_dir(&current).or_else(|create_error| {
-                    if create_error.kind() == io::ErrorKind::AlreadyExists {
-                        Ok(())
-                    } else {
-                        Err(create_error)
-                    }
-                })?;
-                let metadata = fs::symlink_metadata(&current)?;
-                if metadata.file_type().is_symlink()
-                    || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
-                {
-                    return Err(PathGuardError::ReparsePoint);
-                }
-                if !metadata.is_dir() {
-                    return Err(PathGuardError::UnsafePath);
-                }
-            }
-            Err(error) => return Err(PathGuardError::Io(error)),
-        }
-    }
-    Ok(())
+    // Windows creation is delegated to the verified-directory implementation.
+    // It opens every component relative to the retained parent handle through
+    // NtCreateFile and rejects reparse points on the returned handle.
+    super::verified_directory::VerifiedDirectory::open_or_create(path).map(|_| ())
 }
 
 #[cfg(not(any(unix, windows)))]

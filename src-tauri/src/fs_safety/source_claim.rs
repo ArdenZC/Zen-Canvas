@@ -133,7 +133,18 @@ impl SourceClaim {
     }
 
     pub fn sync(&self) -> Result<(), SourceClaimError> {
-        self.handle.sync_all().map_err(SourceClaimError::Io)
+        // The claim handle is opened without write access.  A rename/copy
+        // does not mutate the source bytes, so Windows cannot require a
+        // write-capable source handle merely to flush unchanged content;
+        // parent-directory handles provide the namespace durability barrier.
+        #[cfg(windows)]
+        {
+            Ok(())
+        }
+        #[cfg(not(windows))]
+        {
+            self.handle.sync_all().map_err(SourceClaimError::Io)
+        }
     }
 
     pub fn sync_current_parent(&self) -> Result<(), SourceClaimError> {
@@ -163,7 +174,7 @@ impl SourceClaim {
         target_parent
             .ensure_unchanged()
             .map_err(map_directory_error)?;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "native-qa"))]
         run_claim_test_hook(
             ClaimTestPoint::AfterTargetParentVerifiedBeforeCommit,
             self.current_path(),
@@ -343,7 +354,7 @@ pub fn claim_source_at(
         &current_parent,
         claim_path.file_name().unwrap(),
     )?;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "native-qa"))]
     run_claim_test_hook(
         ClaimTestPoint::AfterClaimBeforeIdentityCheck,
         source,
@@ -517,7 +528,7 @@ fn open_source_handle(path: &Path, kind: ClaimedEntryKind) -> Result<File, Sourc
         Storage::FileSystem::{
             CreateFileW, DELETE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
             FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_DELETE, FILE_SHARE_READ,
-            FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA, OPEN_EXISTING, SYNCHRONIZE,
+            FILE_SHARE_WRITE, OPEN_EXISTING, SYNCHRONIZE,
         },
     };
     let wide = windows_wide_path(path);
@@ -527,11 +538,18 @@ fn open_source_handle(path: &Path, kind: ClaimedEntryKind) -> Result<File, Sourc
         } else {
             0
         };
+    // Claiming is a namespace operation.  Keep the source handle read-only
+    // apart from DELETE, which is required for the handle-relative rename and
+    // claim cleanup.  FILE_WRITE_DATA and FILE_WRITE_ATTRIBUTES are not
+    // requested: the source bytes are unchanged and namespace durability is
+    // proved through the verified parent-directory handles.
     let access = DELETE
         | FILE_READ_ATTRIBUTES
-        | FILE_READ_DATA
-        | FILE_WRITE_ATTRIBUTES
-        | FILE_WRITE_DATA
+        | if matches!(kind, ClaimedEntryKind::File) {
+            FILE_READ_DATA
+        } else {
+            0
+        }
         | SYNCHRONIZE;
     let raw = unsafe {
         CreateFileW(
@@ -816,7 +834,7 @@ fn is_reparse_point(_metadata: &fs::Metadata) -> bool {
     false
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "native-qa"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClaimTestPoint {
     AfterJournalPreparedBeforeClaim,
@@ -828,19 +846,19 @@ pub enum ClaimTestPoint {
     AfterSourceCleanupBeforeJournalComplete,
 }
 
-#[cfg(test)]
-pub(crate) use test_hooks::run_claim_test_hook;
-#[cfg(all(test, windows))]
-pub(crate) use test_hooks::{lock_claim_test_hooks, set_claim_test_hook};
+#[cfg(any(test, feature = "native-qa"))]
+pub use test_hooks::run_claim_test_hook;
+#[cfg(all(any(test, feature = "native-qa"), windows))]
+pub use test_hooks::{lock_claim_test_hooks, set_claim_test_hook};
 
-#[cfg(test)]
+#[cfg(any(test, feature = "native-qa"))]
 mod test_hooks {
     use super::ClaimTestPoint;
     #[cfg(windows)]
     use std::sync::{Mutex, MutexGuard, OnceLock};
     use std::{cell::RefCell, path::Path};
 
-    type Hook = fn(ClaimTestPoint, &Path, &Path);
+    pub type Hook = fn(ClaimTestPoint, &Path, &Path);
     #[cfg(windows)]
     static CLAIM_TEST_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
     thread_local! {
@@ -848,7 +866,7 @@ mod test_hooks {
     }
 
     #[cfg(windows)]
-    pub(crate) fn lock_claim_test_hooks() -> MutexGuard<'static, ()> {
+    pub fn lock_claim_test_hooks() -> MutexGuard<'static, ()> {
         CLAIM_TEST_SERIAL
             .get_or_init(|| Mutex::new(()))
             .lock()
@@ -856,13 +874,13 @@ mod test_hooks {
     }
 
     #[cfg(windows)]
-    pub(crate) fn set_claim_test_hook(hook: Option<Hook>) {
+    pub fn set_claim_test_hook(hook: Option<Hook>) {
         CLAIM_TEST_HOOK.with(|current| {
             *current.borrow_mut() = hook;
         });
     }
 
-    pub(crate) fn run_claim_test_hook(point: ClaimTestPoint, source: &Path, claim: &Path) {
+    pub fn run_claim_test_hook(point: ClaimTestPoint, source: &Path, claim: &Path) {
         let hook = CLAIM_TEST_HOOK.with(|current| *current.borrow());
         if let Some(hook) = hook {
             hook(point, source, claim);
@@ -870,7 +888,8 @@ mod test_hooks {
     }
 }
 
-#[cfg(all(test, windows))]
+#[cfg(test)]
+#[cfg(windows)]
 mod tests {
     use super::*;
     use crate::fs_safety::atomic_move::{atomic_move_noreplace, AtomicMoveError};

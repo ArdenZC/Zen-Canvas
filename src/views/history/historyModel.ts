@@ -30,6 +30,7 @@ export type CleanupRestoreEligibilityReason =
   | "missing"
   | "failed"
   | "pending"
+  | "manualReview"
   | "unavailable";
 
 export type CleanupPreviewState = "loading" | "ready" | "failed" | "unavailable";
@@ -160,6 +161,7 @@ function cleanupReasonFromBlockingReason(reason: string | null | undefined): Cle
   if (normalized.includes("restored") || normalized.includes("已恢复")) return "alreadyRestored";
   if (normalized.includes("conflict") || normalized.includes("exists") || normalized.includes("原路径") || normalized.includes("original")) return "conflict";
   if (normalized.includes("missing") || normalized.includes("not found") || normalized.includes("不存在") || normalized.includes("缺失")) return "missing";
+  if (normalized.includes("manual_review") || normalized.includes("manual review") || normalized.includes("人工复核") || normalized.includes("identity")) return "manualReview";
   if (normalized.includes("pending") || normalized.includes("processing") || normalized.includes("处理中")) return "pending";
   if (normalized.includes("failed") || normalized.includes("error") || normalized.includes("失败")) return "failed";
   return "unavailable";

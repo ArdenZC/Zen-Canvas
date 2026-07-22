@@ -548,7 +548,7 @@ export interface CleanupExecutionLog {
   path: string;
   name: string;
   size: number;
-  status: "success" | "skipped" | "failed";
+  status: "success" | "skipped" | "failed" | "manual_review";
   message: string;
   itemId?: string | null;
   trashPath?: string | null;
@@ -570,7 +570,7 @@ export interface CleanupTrashItem {
   size: number;
   movedAt: string;
   restoredAt: string | null;
-  status: "pending" | "moved" | "restored" | "missing" | "failed";
+  status: "pending" | "moved" | "restored" | "missing" | "failed" | "manual_review" | "canceled";
   message: string | null;
 }
 
@@ -598,7 +598,7 @@ export interface CleanupRestoreLog {
   itemId: string;
   originalPath: string;
   trashPath: string;
-  status: "restored" | "conflict" | "missing" | "failed" | "canceled";
+  status: "restored" | "conflict" | "missing" | "failed" | "manual_review" | "canceled";
   message: string;
 }
 

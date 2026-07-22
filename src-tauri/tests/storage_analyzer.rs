@@ -814,7 +814,11 @@ fn cleanup_operation_preview_only_includes_safe_trash_candidates() {
     assert_eq!(preview.previews[0].target_path, "Recycle Bin");
     assert!(preview.previews[0].requires_confirmation);
     assert_eq!(preview.previews[0].suggested_action, "DeleteCandidate");
-    assert_eq!(preview.previews[0].is_executable, Some(true));
+    assert_eq!(preview.previews[0].is_executable, Some(false));
+    assert_eq!(
+        preview.previews[0].blocking_reason.as_deref(),
+        Some("system_trash_source_binding_unsupported")
+    );
     assert_eq!(preview.previews[0].editable_new_name, Some(false));
     assert_eq!(preview.previews[0].will_create_parent, Some(false));
 }
@@ -1016,7 +1020,7 @@ fn pending_safe_trash_rejects_replaced_trash_identity() {
     let restore = restore_cleanup_trash_items_for_db(vec![recovered.id.clone()], &db)
         .expect("reject unsafe restore");
 
-    assert_eq!(recovered.status, "failed");
+    assert_eq!(recovered.status, "manual_review");
     assert!(recovered
         .message
         .as_deref()
@@ -1051,7 +1055,7 @@ fn restore_safe_trash_rejects_identity_replaced_after_successful_move() {
 
     assert_eq!(restore.restored, 0);
     assert_eq!(restore.failed, 1);
-    assert_eq!(updated.status, "failed");
+    assert_eq!(updated.status, "manual_review");
     assert!(updated
         .message
         .as_deref()

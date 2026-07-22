@@ -42,6 +42,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         )));
     }
     if version == CURRENT_SCHEMA_VERSION {
+        ensure_journal_state_triggers(conn)?;
         return Ok(());
     }
     conn.execute_batch("BEGIN IMMEDIATE")?;
@@ -610,6 +611,19 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
                     'target_committed', 'source_cleanup_pending', 'completed',
                     'rolled_back', 'manual_review')
                 BEGIN SELECT RAISE(ABORT, 'invalid cleanup operation phase'); END;
+
+                DROP TRIGGER IF EXISTS cleanup_items_status_guard_insert;
+                DROP TRIGGER IF EXISTS cleanup_items_status_guard_update;
+                CREATE TRIGGER cleanup_items_status_guard_insert
+                BEFORE INSERT ON cleanup_trash_items
+                WHEN NEW.status NOT IN ('pending', 'moved', 'restored', 'failed', 'missing',
+                    'manual_review', 'canceled')
+                BEGIN SELECT RAISE(ABORT, 'invalid cleanup item status'); END;
+                CREATE TRIGGER cleanup_items_status_guard_update
+                BEFORE UPDATE OF status ON cleanup_trash_items
+                WHEN NEW.status NOT IN ('pending', 'moved', 'restored', 'failed', 'missing',
+                    'manual_review', 'canceled')
+                BEGIN SELECT RAISE(ABORT, 'invalid cleanup item status'); END;
                 "#,
             )?;
             set_schema_version(conn, 22)?;
@@ -626,6 +640,26 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             Err(error)
         }
     }
+}
+
+fn ensure_journal_state_triggers(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        r#"
+        DROP TRIGGER IF EXISTS cleanup_items_status_guard_insert;
+        DROP TRIGGER IF EXISTS cleanup_items_status_guard_update;
+        CREATE TRIGGER cleanup_items_status_guard_insert
+        BEFORE INSERT ON cleanup_trash_items
+        WHEN NEW.status NOT IN ('pending', 'moved', 'restored', 'failed', 'missing',
+            'manual_review', 'canceled')
+        BEGIN SELECT RAISE(ABORT, 'invalid cleanup item status'); END;
+        CREATE TRIGGER cleanup_items_status_guard_update
+        BEFORE UPDATE OF status ON cleanup_trash_items
+        WHEN NEW.status NOT IN ('pending', 'moved', 'restored', 'failed', 'missing',
+            'manual_review', 'canceled')
+        BEGIN SELECT RAISE(ABORT, 'invalid cleanup item status'); END;
+        "#,
+    )?;
+    Ok(())
 }
 
 fn migrate_invalid_rule_domain_values(conn: &Connection) -> Result<(), DbError> {

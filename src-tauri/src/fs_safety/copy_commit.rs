@@ -219,7 +219,7 @@ pub(crate) fn copy_commit_claim(
         target_parent
             .ensure_unchanged()
             .map_err(map_directory_error)?;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "native-qa"))]
         source_claim::run_claim_test_hook(
             source_claim::ClaimTestPoint::AfterStagingVerifiedBeforeCommit,
             staging.path.as_path(),
@@ -253,7 +253,7 @@ pub(crate) fn copy_commit_claim(
         if let Some(observer) = observer.as_deref_mut() {
             observer("source_cleanup_pending")?;
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "native-qa"))]
         source_claim::run_claim_test_hook(
             source_claim::ClaimTestPoint::AfterTargetCommitBeforeSourceCleanup,
             claim.original_path(),
@@ -266,14 +266,13 @@ pub(crate) fn copy_commit_claim(
             return Err(AtomicMoveError::TargetCommittedSourceCleanupPending);
         }
         claim.delete_claim().map_err(|error| {
-            let _ = error;
-            AtomicMoveError::TargetCommittedSourceCleanupPending
+            AtomicMoveError::TargetCommittedSourceDeleteFailed(error.to_string())
         })?;
         claim.sync_current_parent().map_err(|error| {
             let _ = error;
             AtomicMoveError::TargetCommittedSourceCleanupPending
         })?;
-        #[cfg(test)]
+        #[cfg(any(test, feature = "native-qa"))]
         source_claim::run_claim_test_hook(
             source_claim::ClaimTestPoint::AfterSourceCleanupBeforeJournalComplete,
             claim.original_path(),

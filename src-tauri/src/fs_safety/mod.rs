@@ -8,8 +8,8 @@ pub mod source_claim;
 pub mod verified_directory;
 
 pub use atomic_move::{
-    atomic_move_noreplace, atomic_move_noreplace_with_claim_path, AtomicMoveError,
-    AtomicMoveMethod, AtomicMoveOutcome,
+    atomic_move_noreplace, atomic_move_noreplace_with_claim_path, AtomicMoveCommitState,
+    AtomicMoveError, AtomicMoveMethod, AtomicMoveOutcome,
 };
 pub use identity::{
     capture_identity, identity_matches, recovery_identity_matches, ExpectedFileIdentity,

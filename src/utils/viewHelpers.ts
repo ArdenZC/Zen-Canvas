@@ -349,6 +349,9 @@ export function localizedStableError(error: unknown, t: Translator): string {
   if (message.startsWith("target_committed_identity_mismatch")) return t("errorTargetCommittedIdentityMismatch");
   if (message.startsWith("target_committed_source_cleanup_pending")) return t("errorTargetCommittedSourceCleanupPending");
   if (message.startsWith("target_committed_source_delete_failed")) return t("errorTargetCommittedSourceDeleteFailed");
+  if (message.startsWith("restore_pending_reconciliation")) return t("errorRestorePendingReconciliation");
+  if (message.startsWith("claim_identity_mismatch")) return t("errorClaimIdentityMismatch");
+  if (message.startsWith("manual_review_required")) return t("errorManualReviewRequired");
   if (message.startsWith("directory_manifest_name_encoding_failed")) return t("errorDirectoryManifestNameEncodingFailed");
   if (message.startsWith("copy_verification_failed")) return t("errorCopyVerificationFailed");
   if (message.startsWith("target_parent_durability_unknown")) return t("errorTargetParentDurabilityUnknown");

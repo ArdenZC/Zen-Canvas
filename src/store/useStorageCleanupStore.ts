@@ -534,6 +534,12 @@ export function storageCleanupErrorMessage(error: string, t: Translator) {
   if (error === "cleanup_scan_completed_without_analysis") return t("storageCleanupScanMissingAnalysis");
   if (error === "cleanup_cancelled") return t("scanCanceled");
   if (error === "cleanup_cancel_waiting") return t("storageCleanupCancelWaiting");
+  if (error.startsWith("system_trash_source_binding_unsupported")) {
+    return t("errorSystemTrashSourceBindingUnsupported");
+  }
+  if (error.startsWith("restore_pending_reconciliation")) return t("errorRestorePendingReconciliation");
+  if (error.startsWith("claim_identity_mismatch")) return t("errorClaimIdentityMismatch");
+  if (error.startsWith("manual_review_required")) return t("errorManualReviewRequired");
   if (error.startsWith("cleanup_cancel_failed")) return t("storageCleanupCancelFailed");
   return error;
 }

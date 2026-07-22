@@ -20,6 +20,35 @@ pub const OPERATION_PROGRESS_EVENT: &str = "operation-progress";
 const OPERATION_PROGRESS_BATCH_SIZE: u64 = 10;
 const OPERATION_PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(200);
 
+#[cfg(any(test, feature = "native-qa"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperationTestFaultPoint {
+    AfterCompletedPhaseBeforeFinalLogPersist,
+}
+
+#[cfg(any(test, feature = "native-qa"))]
+thread_local! {
+    static OPERATION_TEST_FAULT: std::cell::Cell<Option<OperationTestFaultPoint>> =
+        const { std::cell::Cell::new(None) };
+}
+
+#[cfg(any(test, feature = "native-qa"))]
+pub fn set_operation_test_fault(point: Option<OperationTestFaultPoint>) {
+    OPERATION_TEST_FAULT.with(|fault| fault.set(point));
+}
+
+#[cfg(any(test, feature = "native-qa"))]
+fn take_operation_test_fault(point: OperationTestFaultPoint) -> bool {
+    OPERATION_TEST_FAULT.with(|fault| {
+        if fault.get() == Some(point) {
+            fault.set(None);
+            true
+        } else {
+            false
+        }
+    })
+}
+
 #[derive(Debug, Error)]
 enum FileOpError {
     #[error("Source file does not exist.")]
@@ -38,10 +67,80 @@ enum FileOpError {
     ProtectedPath(String),
     #[error("Target path contains unsafe parent traversal.")]
     UnsafePathTraversal,
-    #[error("Operation canceled.")]
-    OperationCanceled,
     #[error("File operation failed: {0}")]
     Io(#[from] io::Error),
+}
+
+#[derive(Debug)]
+enum FileMutationError {
+    Validation(String),
+    Atomic(crate::fs_safety::AtomicMoveError),
+}
+
+impl From<String> for FileMutationError {
+    fn from(error: String) -> Self {
+        Self::Validation(error)
+    }
+}
+
+impl From<crate::fs_safety::AtomicMoveError> for FileMutationError {
+    fn from(error: crate::fs_safety::AtomicMoveError) -> Self {
+        Self::Atomic(error)
+    }
+}
+
+impl std::fmt::Display for FileMutationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Validation(error) => formatter.write_str(error),
+            Self::Atomic(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl FileMutationError {
+    fn journal_phase(&self) -> &'static str {
+        match self {
+            Self::Validation(_) => "rolled_back",
+            Self::Atomic(error) => match error {
+                crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                | crate::fs_safety::AtomicMoveError::TargetCommittedIdentityMismatch => {
+                    "target_committed"
+                }
+                crate::fs_safety::AtomicMoveError::TargetCommittedSourceCleanupPending
+                | crate::fs_safety::AtomicMoveError::TargetCommittedSourceDeleteFailed(_) => {
+                    "source_cleanup_pending"
+                }
+                _ => match error.commit_state() {
+                    crate::fs_safety::AtomicMoveCommitState::RolledBack => "rolled_back",
+                    crate::fs_safety::AtomicMoveCommitState::SourceClaimed => "source_claimed",
+                    crate::fs_safety::AtomicMoveCommitState::TargetCommitted => "target_committed",
+                    crate::fs_safety::AtomicMoveCommitState::SourceCleanupPending => {
+                        "source_cleanup_pending"
+                    }
+                    crate::fs_safety::AtomicMoveCommitState::Completed => "completed",
+                    crate::fs_safety::AtomicMoveCommitState::ManualReview => "manual_review",
+                },
+            },
+        }
+    }
+
+    fn requires_recovery(&self) -> bool {
+        match self {
+            Self::Validation(_) => false,
+            Self::Atomic(error) => !matches!(
+                error.commit_state(),
+                crate::fs_safety::AtomicMoveCommitState::RolledBack
+            ),
+        }
+    }
+
+    fn is_cancelled(&self) -> bool {
+        matches!(
+            self,
+            Self::Atomic(crate::fs_safety::AtomicMoveError::Cancelled)
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -245,7 +344,7 @@ pub fn move_file(source_path: String, target_path: String) -> Result<FileOperati
 
     ensure_general_file_operation_allowed(&source)?;
     ensure_general_file_operation_allowed(&target)?;
-    move_file_no_overwrite(&source, &target)?;
+    move_file_no_overwrite(&source, &target).map_err(|error| error.to_string())?;
 
     Ok(FileOperationResult {
         operation: "move".to_string(),
@@ -436,6 +535,12 @@ fn execute_moves_with_persistence_with_progress_and_app_data(
         log.operation_phase = operation_phase_for_log(log).to_string();
     }
 
+    #[cfg(any(test, feature = "native-qa"))]
+    if take_operation_test_fault(OperationTestFaultPoint::AfterCompletedPhaseBeforeFinalLogPersist)
+    {
+        return Err("injected after_completed_phase_before_final_log_persist failure".to_string());
+    }
+
     db.save_operation_logs(&result.batch_id, &result.logs)
         .map_err(|error| format!("operation completed but failed to persist logs: {error}"))?;
     Ok(result)
@@ -507,14 +612,15 @@ fn execute_moves_core_with_identity(
             let expected_identity =
                 prepared.map(|item| expected_identity_from_fingerprint(&item.fingerprint));
             let mut phase_log = prepared.map(|item| item.journal_log.clone());
+            let mut observed_phase = None;
             let mut phase_observer = |phase: &str| {
+                observed_phase = Some(phase.to_string());
                 if let (Some(db), Some(log)) = (journal_db, phase_log.as_mut()) {
                     log.operation_phase = phase.to_string();
-                    log.status = if phase == "completed" {
-                        "success".to_string()
-                    } else {
-                        "pending".to_string()
-                    };
+                    // The filesystem callback is not the durable operation
+                    // completion boundary.  Keep the row pending until the
+                    // final save_operation_logs transaction succeeds.
+                    log.status = "pending".to_string();
                     log.error_message = None;
                     db.update_operation_phase(log).map_err(|error| {
                         let message = format!("journal phase persistence failed: {error}");
@@ -530,7 +636,7 @@ fn execute_moves_core_with_identity(
                 }
                 Ok(())
             };
-            execute_preview_operation_with_app_data(
+            let mut log = execute_preview_operation_with_app_data(
                 &batch_id,
                 &created_at,
                 index,
@@ -543,7 +649,21 @@ fn execute_moves_core_with_identity(
                     phase_observer: journal_db
                         .map(|_| &mut phase_observer as &mut crate::fs_safety::PhaseObserver<'_>),
                 },
-            )
+            );
+            if let Some(phase) = observed_phase {
+                log.operation_phase = phase;
+                if log.status != "success"
+                    && !matches!(
+                        log.operation_phase.as_str(),
+                        "prepared" | "source_claimed" | "copying" | "rolled_back"
+                    )
+                {
+                    log.status = "manual_review".to_string();
+                    log.can_undo = false;
+                    log.can_restore = false;
+                }
+            }
+            log
         };
         let current_path = operation.source_path.clone();
         logs.push(log);
@@ -566,7 +686,7 @@ pub(crate) struct FileIdentityFingerprint {
 #[derive(Debug, Clone)]
 struct PreparedOperation {
     fingerprint: FileIdentityFingerprint,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "native-qa"))]
     source_path: PathBuf,
     claim_path: PathBuf,
     claim_created_at: String,
@@ -731,7 +851,7 @@ fn persist_pending_operation_journal(
                 log,
                 PreparedOperation {
                     fingerprint,
-                    #[cfg(test)]
+                    #[cfg(any(test, feature = "native-qa"))]
                     source_path: PathBuf::from(&operation.source_path),
                     claim_path,
                     claim_created_at: created_at.to_string(),
@@ -749,7 +869,7 @@ fn persist_pending_operation_journal(
     db.save_operation_logs(batch_id, &logs).map_err(|error| {
         format!("failed to persist operation journal before execution: {error}")
     })?;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "native-qa"))]
     for prepared in fingerprints.values() {
         crate::fs_safety::source_claim::run_claim_test_hook(
             crate::fs_safety::source_claim::ClaimTestPoint::AfterJournalPreparedBeforeClaim,
@@ -772,12 +892,44 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
         let before = Path::new(&log.path_before);
         let after = Path::new(&log.path_after);
         let claim = log.source_claim_path.as_deref().map(Path::new);
-        let before_matches = before.exists() && journal_identity_matches(&log, before);
-        let after_matches = after.exists() && journal_target_identity_matches(&log, after);
-        let claim_matches =
-            claim.is_some_and(|path| path.exists() && journal_identity_matches(&log, path));
-        match (before_matches, after_matches, claim_matches) {
-            (false, true, false) => {
+        let before_state =
+            operation_journal_path_state(before, |path| journal_identity_matches(&log, path));
+        let after_state =
+            operation_journal_path_state(after, |path| journal_target_identity_matches(&log, path));
+        let claim_state = claim.map_or(OperationJournalPathState::Missing, |path| {
+            operation_journal_path_state(path, |candidate| {
+                journal_identity_matches(&log, candidate)
+            })
+        });
+        match (before_state, after_state, claim_state) {
+            (
+                OperationJournalPathState::Missing,
+                OperationJournalPathState::Matches,
+                OperationJournalPathState::Missing,
+            ) if matches!(
+                log.operation_phase.as_str(),
+                "target_committed" | "source_cleanup_pending"
+            ) =>
+            {
+                log.status = "manual_review".to_string();
+                log.operation_phase = if log.operation_phase == "source_cleanup_pending" {
+                    "source_cleanup_pending"
+                } else {
+                    "target_committed"
+                }
+                .to_string();
+                log.can_undo = false;
+                log.can_restore = false;
+                log.error_message = Some(
+                    "target_committed_durability_unknown: target may have committed; verify the target before retrying."
+                        .to_string(),
+                );
+            }
+            (
+                OperationJournalPathState::Missing,
+                OperationJournalPathState::Matches,
+                OperationJournalPathState::Missing,
+            ) => {
                 log.status = "success".to_string();
                 log.operation_phase = "completed".to_string();
                 log.can_undo = log.operation_type != "move_to_trash";
@@ -785,18 +937,26 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
                 log.error_message =
                     Some("Recovered an interrupted operation journal after restart.".to_string());
             }
-            (true, false, false) => {
-                log.status = "manual_review".to_string();
+            (
+                OperationJournalPathState::Matches,
+                OperationJournalPathState::Missing,
+                OperationJournalPathState::Missing,
+            ) => {
+                log.status = "failed".to_string();
                 log.operation_phase = "rolled_back".to_string();
                 log.can_undo = false;
                 log.can_restore = false;
                 log.error_message = Some(
-                    "Operation was interrupted before the filesystem move; manual review is required."
+                    "Operation was interrupted before the filesystem move; the source remains intact."
                         .to_string(),
                 );
             }
-            (false, false, true) => {
-                log.status = "manual_review".to_string();
+            (
+                OperationJournalPathState::Missing,
+                OperationJournalPathState::Missing,
+                OperationJournalPathState::Matches,
+            ) => {
+                log.status = "pending".to_string();
                 log.operation_phase = "source_claimed".to_string();
                 log.can_undo = false;
                 log.can_restore = false;
@@ -805,7 +965,11 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
                         .to_string(),
                 );
             }
-            (false, true, true) => {
+            (
+                OperationJournalPathState::Missing,
+                OperationJournalPathState::Matches,
+                OperationJournalPathState::Matches,
+            ) => {
                 log.status = "manual_review".to_string();
                 log.operation_phase = "source_cleanup_pending".to_string();
                 log.can_undo = false;
@@ -836,11 +1000,15 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
     if !pending_restores.is_empty() {
         let mut restored_logs = Vec::with_capacity(pending_restores.len());
         for mut log in pending_restores {
-            let before_exists = Path::new(&log.path_before).exists();
-            let after_exists = Path::new(&log.path_after).exists();
-            if before_exists
-                && !after_exists
-                && journal_identity_matches(&log, Path::new(&log.path_before))
+            let before = Path::new(&log.path_before);
+            let after = Path::new(&log.path_after);
+            let before_state =
+                operation_journal_path_state(before, |path| journal_identity_matches(&log, path));
+            let after_state = operation_journal_path_state(after, |path| {
+                journal_target_identity_matches(&log, path)
+            });
+            if before_state == OperationJournalPathState::Matches
+                && after_state == OperationJournalPathState::Missing
             {
                 log.can_undo = false;
                 log.can_restore = false;
@@ -850,19 +1018,42 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
                 if let Err(error) = db.update_file_after_successful_restore(&log) {
                     eprintln!("reconciled restore index sync failed: {error}");
                 }
-            } else if !before_exists && after_exists {
+            } else if before_state == OperationJournalPathState::Missing
+                && after_state == OperationJournalPathState::Matches
+            {
+                log.status = "success".to_string();
+                log.can_undo = true;
+                log.can_restore = true;
                 log.restore_status = "not_restored".to_string();
                 log.restore_error = Some(
                     "Restore was interrupted before the filesystem move; it remains available."
                         .to_string(),
                 );
-            } else {
+                log.operation_phase = "completed".to_string();
+            } else if matches!(
+                before_state,
+                OperationJournalPathState::Mismatch | OperationJournalPathState::Unreadable
+            ) || matches!(
+                after_state,
+                OperationJournalPathState::Mismatch | OperationJournalPathState::Unreadable
+            ) {
                 log.status = "manual_review".to_string();
+                log.operation_phase = "manual_review".to_string();
                 log.can_undo = false;
                 log.can_restore = false;
                 log.restore_status = "manual_review".to_string();
                 log.restore_error = Some(
-                    "Interrupted restore requires manual path review because both or neither path exists."
+                    "Interrupted restore found an existing path with a mismatched or inaccessible identity; manual review is required."
+                        .to_string(),
+                );
+            } else {
+                log.status = "manual_review".to_string();
+                log.operation_phase = "manual_review".to_string();
+                log.can_undo = false;
+                log.can_restore = false;
+                log.restore_status = "manual_review".to_string();
+                log.restore_error = Some(
+                    "Interrupted restore has neither a matching source nor a matching destination; manual review is required."
                         .to_string(),
                 );
             }
@@ -873,6 +1064,26 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
             .map_err(|error| error.to_string())?;
     }
     Ok(reconciled)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OperationJournalPathState {
+    Missing,
+    Matches,
+    Mismatch,
+    Unreadable,
+}
+
+fn operation_journal_path_state(
+    path: &Path,
+    identity_matches: impl FnOnce(&Path) -> bool,
+) -> OperationJournalPathState {
+    match fs::symlink_metadata(path) {
+        Ok(_) if identity_matches(path) => OperationJournalPathState::Matches,
+        Ok(_) => OperationJournalPathState::Mismatch,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => OperationJournalPathState::Missing,
+        Err(_) => OperationJournalPathState::Unreadable,
+    }
 }
 
 #[command]
@@ -894,6 +1105,7 @@ pub fn rename_file(source_path: String, new_name: String) -> Result<FileOperatio
     crate::fs_safety::platform_support::ensure_supported_file_mutation()
         .map_err(|error| error.to_string())?;
     rename_file_with_identity(source_path, new_name, None, None, None, None)
+        .map_err(|error| error.to_string())
 }
 
 fn rename_file_with_identity(
@@ -903,7 +1115,7 @@ fn rename_file_with_identity(
     cancel_flag: Option<&AtomicBool>,
     planned_claim_path: Option<&Path>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-) -> Result<FileOperationResult, String> {
+) -> Result<FileOperationResult, FileMutationError> {
     validate_safe_file_name(&new_name)?;
     let source = validate_source_path(&PathBuf::from(source_path))?;
     let parent = source
@@ -913,7 +1125,9 @@ fn rename_file_with_identity(
     let target = parent.join(new_name);
 
     if target.exists() {
-        return Err(FileOpError::TargetExists.to_string());
+        return Err(FileMutationError::Validation(
+            FileOpError::TargetExists.to_string(),
+        ));
     }
 
     ensure_general_file_operation_allowed(&source)?;
@@ -985,7 +1199,9 @@ fn execute_preview_operation_with_app_data(
         })
         .or_else(|| file_identity_fingerprint(Path::new(&operation.source_path)).ok());
     let status = if operation.is_executable == Some(false) {
-        Err("Operation is not executable.".to_string())
+        Err(FileMutationError::Validation(
+            "Operation is not executable.".to_string(),
+        ))
     } else {
         match operation.operation_type.as_str() {
             "rename" => rename_file_with_identity(
@@ -1012,7 +1228,9 @@ fn execute_preview_operation_with_app_data(
                 context.planned_claim_path,
                 &operation.id,
             ),
-            other => Err(format!("Unsupported operation type: {other}")),
+            other => Err(FileMutationError::Validation(format!(
+                "Unsupported operation type: {other}"
+            ))),
         }
     };
 
@@ -1026,7 +1244,7 @@ fn execute_preview_operation_with_app_data(
             None,
             result.target_path,
         ),
-        Err(error) if is_operation_cancelled_error(&error) => make_operation_log(
+        Err(error) if error.is_cancelled() => make_operation_log(
             batch_id,
             created_at,
             index,
@@ -1035,21 +1253,31 @@ fn execute_preview_operation_with_app_data(
             None,
             operation.target_path.clone(),
         ),
-        Err(error) => make_operation_log(
-            batch_id,
-            created_at,
-            index,
-            operation,
-            if operation.is_executable == Some(false) {
+        Err(error) => {
+            let requires_recovery = error.requires_recovery();
+            let status = if operation.is_executable == Some(false) {
                 "skipped"
-            } else if is_target_committed_error(&error) {
+            } else if requires_recovery {
                 "manual_review"
             } else {
                 "failed"
-            },
-            Some(error),
-            operation.target_path.clone(),
-        ),
+            };
+            let mut log = make_operation_log(
+                batch_id,
+                created_at,
+                index,
+                operation,
+                status,
+                Some(error.to_string()),
+                operation.target_path.clone(),
+            );
+            if requires_recovery {
+                log.operation_phase = error.journal_phase().to_string();
+                log.can_undo = false;
+                log.can_restore = false;
+            }
+            log
+        }
     };
     if let Some(fingerprint) = source_fingerprint.as_ref() {
         apply_source_fingerprint(&mut log, fingerprint);
@@ -1308,28 +1536,17 @@ fn operation_phase_for_log(log: &OperationLogDto) -> &'static str {
     if log.status == "success" {
         return "completed";
     }
-    let error = log.error_message.as_deref().unwrap_or_default();
-    if error.contains("target_committed_source_cleanup_pending")
-        || error.contains("target_committed_source_delete_failed")
-    {
-        "source_cleanup_pending"
-    } else if error.contains("target_committed_durability_unknown")
-        || error.contains("target_committed_identity_mismatch")
-        || error.contains("source_claim")
-        || error.contains("source_changed")
-        || error.contains("target_parent_identity_changed")
-    {
-        "manual_review"
-    } else {
-        "rolled_back"
+    match log.operation_phase.as_str() {
+        "prepared" => "prepared",
+        "source_claimed" => "source_claimed",
+        "copying" => "copying",
+        "target_committed" => "target_committed",
+        "source_cleanup_pending" => "source_cleanup_pending",
+        "manual_review" => "manual_review",
+        "rolled_back" => "rolled_back",
+        _ if log.status == "pending" => "prepared",
+        _ => "rolled_back",
     }
-}
-
-fn is_target_committed_error(error: &str) -> bool {
-    error.contains("target_committed_durability_unknown")
-        || error.contains("target_committed_identity_mismatch")
-        || error.contains("target_committed_source_cleanup_pending")
-        || error.contains("target_committed_source_delete_failed")
 }
 
 fn restore_operation_log(
@@ -1387,13 +1604,13 @@ fn restore_operation_log_with_observer(
         cancel_flag,
         phase_observer,
     ) {
-        if is_operation_cancelled_error(&error) {
+        if error.is_cancelled() {
             return mark_restore_canceled(log);
         }
-        return if is_target_committed_error(&error) {
-            mark_restore_manual_review(log, error)
+        return if error.requires_recovery() {
+            mark_restore_manual_review(log, error.to_string())
         } else {
-            mark_restore_failed(log, error)
+            mark_restore_failed(log, error.to_string())
         };
     }
 
@@ -1435,10 +1652,6 @@ fn restore_progress_batch_id(_logs: &[OperationLogDto]) -> String {
 
 fn is_operation_cancelled(cancel_flag: &Arc<AtomicBool>) -> bool {
     cancel_flag.load(Ordering::Relaxed)
-}
-
-fn is_operation_cancelled_error(error: &str) -> bool {
-    error == FileOpError::OperationCanceled.to_string()
 }
 
 struct OperationProgressBuffer {
@@ -1554,13 +1767,12 @@ fn validate_target_path_with_parent_policy(
         .map_err(|error| error.to_string())?;
     let existing_ancestor = canonicalize_nearest_existing_ancestor(parent)?;
     ensure_general_file_operation_allowed(&existing_ancestor)?;
-    if !parent.exists() {
-        if !allow_create_parent {
-            return Err(FileOpError::TargetParentMissing.to_string());
-        }
-        crate::fs_safety::create_directory_chain_no_links(parent)
-            .map_err(|error| format!("target parent rejected: {error}"))?;
+    if !parent.exists() && !allow_create_parent {
+        return Err(FileOpError::TargetParentMissing.to_string());
     }
+    // The verified chain builder is the single parent-creation boundary.  A
+    // second path-based call here used to reopen the same chain and widened
+    // the TOCTOU window on Windows.
     crate::fs_safety::create_directory_chain_no_links(parent)
         .map_err(|error| format!("target parent rejected: {error}"))?;
     let parent = parent
@@ -1599,7 +1811,7 @@ fn move_file_with_parent_policy_with_cancel_and_identity(
     expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
     planned_claim_path: Option<&Path>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-) -> Result<FileOperationResult, String> {
+) -> Result<FileOperationResult, FileMutationError> {
     let source = validate_source_path(&PathBuf::from(source_path))?;
     let target =
         validate_target_path_with_parent_policy(&PathBuf::from(target_path), allow_create_parent)?;
@@ -1628,7 +1840,7 @@ fn move_to_trash_with_safety(
     expected_identity: Option<&crate::fs_safety::ExpectedFileIdentity>,
     planned_claim_path: Option<&Path>,
     operation_id: &str,
-) -> Result<FileOperationResult, String> {
+) -> Result<FileOperationResult, FileMutationError> {
     let source = validate_cleanup_trash_source(&PathBuf::from(source_path), app_data_dir)?;
     move_path_to_system_trash_with_safety(
         &source,
@@ -1739,7 +1951,7 @@ fn validate_safe_file_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn move_file_no_overwrite(source: &Path, target: &Path) -> Result<(), String> {
+fn move_file_no_overwrite(source: &Path, target: &Path) -> Result<(), FileMutationError> {
     move_file_no_overwrite_with_identity(source, target, None, None, None, None)
 }
 
@@ -1750,7 +1962,7 @@ fn move_file_no_overwrite_with_identity(
     planned_claim_path: Option<&Path>,
     cancel_flag: Option<&AtomicBool>,
     phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
-) -> Result<(), String> {
+) -> Result<(), FileMutationError> {
     crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer(
         source,
         target,
@@ -1760,7 +1972,7 @@ fn move_file_no_overwrite_with_identity(
         phase_observer,
     )
     .map(|_| ())
-    .map_err(map_atomic_move_error)
+    .map_err(FileMutationError::Atomic)
 }
 
 #[cfg(all(test, windows))]
@@ -1770,7 +1982,7 @@ fn copy_then_delete_via_temp_with_cancel(
     cancel_flag: Option<&AtomicBool>,
 ) -> Result<(), String> {
     crate::fs_safety::copy_commit::copy_commit_move(source, target, None, cancel_flag)
-        .map_err(map_atomic_move_error)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(all(test, windows))]
@@ -1784,7 +1996,7 @@ fn copy_stream_to_temp<R: Read, W: std::io::Write>(
     let mut copied = 0_u64;
     loop {
         if cancel_flag.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
-            return Err(FileOpError::OperationCanceled.to_string());
+            return Err(crate::fs_safety::AtomicMoveError::Cancelled.to_string());
         }
         let bytes_read = reader
             .read(&mut buffer)
@@ -1797,82 +2009,8 @@ fn copy_stream_to_temp<R: Read, W: std::io::Write>(
             .map_err(|error| FileOpError::Io(error).to_string())?;
         copied += bytes_read as u64;
         if cancel_flag.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
-            return Err(FileOpError::OperationCanceled.to_string());
+            return Err(crate::fs_safety::AtomicMoveError::Cancelled.to_string());
         }
-    }
-}
-
-fn map_atomic_move_error(error: crate::fs_safety::AtomicMoveError) -> String {
-    match error {
-        crate::fs_safety::AtomicMoveError::TargetExists => FileOpError::TargetExists.to_string(),
-        crate::fs_safety::AtomicMoveError::SourceMissing => FileOpError::SourceMissing.to_string(),
-        crate::fs_safety::AtomicMoveError::Cancelled => FileOpError::OperationCanceled.to_string(),
-        crate::fs_safety::AtomicMoveError::SourceChanged => "source_changed".to_string(),
-        crate::fs_safety::AtomicMoveError::UnsupportedAtomicNoReplace => {
-            "atomic_noreplace_unsupported".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::CopyVerificationFailed => {
-            "copy_verification_failed".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::TargetCommittedSourceDeleteFailed(message) => {
-            format!("target_committed_source_delete_failed: {message}")
-        }
-        crate::fs_safety::AtomicMoveError::CrossVolumeDirectoryMoveUnsupported => {
-            "cross_volume_directory_move_unsupported".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::CrossVolumeFileMoveUnsupportedOnMacos => {
-            "cross_volume_file_move_unsupported_on_macos".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::AtomicSourceBindingUnsupported => {
-            "atomic_source_binding_unsupported".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::UnsupportedPlatformLinux => {
-            "unsupported_platform_linux".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::MacosFileMutationSourceBindingUnsupported => {
-            "macos_file_mutation_source_binding_unsupported".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::TargetParentIdentityChanged => {
-            "target_parent_identity_changed".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::TargetParentDurabilityUnknown => {
-            "target_parent_durability_unknown".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::StagingIdentityChanged => {
-            "staging_identity_changed".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::StagingHandleCommitUnsupported => {
-            "staging_handle_commit_unsupported".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown => {
-            "target_committed_durability_unknown".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::TargetCommittedIdentityMismatch => {
-            "target_committed_identity_mismatch".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::TargetCommittedSourceCleanupPending => {
-            "target_committed_source_cleanup_pending".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::DirectoryManifestNameEncodingFailed => {
-            "directory_manifest_name_encoding_failed".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::SourceClaimFailed(message) => {
-            format!("source_claim_failed: {message}")
-        }
-        crate::fs_safety::AtomicMoveError::SourceClaimMismatch => {
-            "source_claim_mismatch".to_string()
-        }
-        crate::fs_safety::AtomicMoveError::SourceClaimRollbackFailed(message) => {
-            format!("source_claim_rollback_failed: {message}")
-        }
-        crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(message) => {
-            format!("source_claim_recovery_required: {message}")
-        }
-        crate::fs_safety::AtomicMoveError::CrossDevice => "cross_device".to_string(),
-        crate::fs_safety::AtomicMoveError::UnsafePath => "unsafe_path".to_string(),
-        crate::fs_safety::AtomicMoveError::ReparsePoint => "reparse_point".to_string(),
-        crate::fs_safety::AtomicMoveError::Symlink => "symlink".to_string(),
-        crate::fs_safety::AtomicMoveError::Io(error) => FileOpError::Io(error).to_string(),
     }
 }
 
@@ -2466,7 +2604,10 @@ mod tests {
         let error = copy_stream_to_temp(&mut reader, &mut writer, Some(&cancel_flag), 4)
             .expect_err("copy should stop after cancellation");
 
-        assert_eq!(error, FileOpError::OperationCanceled.to_string());
+        assert_eq!(
+            error,
+            crate::fs_safety::AtomicMoveError::Cancelled.to_string()
+        );
         assert!(writer.len() < content.len());
         assert_eq!(writer, b"abcd");
     }
@@ -2482,7 +2623,10 @@ mod tests {
         let error = copy_then_delete_via_temp_with_cancel(&source, &target, Some(&cancel_flag))
             .expect_err("copy fallback should stop when canceled");
 
-        assert_eq!(error, FileOpError::OperationCanceled.to_string());
+        assert_eq!(
+            error,
+            crate::fs_safety::AtomicMoveError::Cancelled.to_string()
+        );
         assert_eq!(
             fs::read_to_string(&source).expect("source remains readable"),
             "fallback content"
@@ -3227,14 +3371,14 @@ mod tests {
         crate::fs_safety::source_claim::set_claim_test_hook(None);
 
         assert_eq!(result.logs[0].status, "failed");
-        assert_eq!(result.logs[0].operation_phase, "manual_review");
+        assert_eq!(result.logs[0].operation_phase, "rolled_back");
         assert!(!target.exists());
         assert_eq!(
             fs::read(&source).expect("replacement source"),
             b"replacement after journal"
         );
         let logs = db.get_operation_logs(Some(10)).expect("operation logs");
-        assert_eq!(logs[0].operation_phase, "manual_review");
+        assert_eq!(logs[0].operation_phase, "rolled_back");
         let _ = fs::remove_dir_all(root);
     }
 
@@ -3265,11 +3409,9 @@ mod tests {
             ExecuteMovesRequest {
                 operations: vec![preview_operation(0, &source, &target)],
             },
-        )
-        .expect("journaled execution result");
+        );
 
-        assert_eq!(result.logs[0].status, "failed");
-        assert_eq!(result.logs[0].operation_phase, "manual_review");
+        assert!(result.is_err());
         assert_eq!(
             fs::read(&source).expect("rolled back source"),
             b"phase gated source"
@@ -3282,6 +3424,17 @@ mod tests {
                 .file_name()
                 .to_string_lossy()
                 .starts_with(".zen-canvas-claim-")));
+        assert_eq!(
+            db.get_pending_operation_logs().expect("pending logs").len(),
+            1
+        );
+        assert_eq!(
+            reconcile_pending_operation_journal(&db).expect("reconcile journal"),
+            1
+        );
+        let reconciled = db.get_operation_logs(Some(1)).expect("reconciled logs");
+        assert_eq!(reconciled[0].status, "failed");
+        assert_eq!(reconciled[0].operation_phase, "rolled_back");
         let _ = fs::remove_dir_all(root);
         let _ = fs::remove_file(db_path);
     }
@@ -3313,19 +3466,74 @@ mod tests {
             ExecuteMovesRequest {
                 operations: vec![preview_operation(0, &source, &target)],
             },
-        )
-        .expect("journaled execution result");
+        );
 
-        assert_eq!(result.logs[0].status, "manual_review");
-        assert_eq!(result.logs[0].operation_phase, "manual_review");
+        assert!(result.is_err());
         assert!(!source.exists());
         assert_eq!(
             fs::read(&target).expect("committed target"),
             b"committed source"
         );
+        let pending = db.get_pending_operation_logs().expect("pending logs");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].operation_phase, "source_claimed");
+        assert_eq!(
+            reconcile_pending_operation_journal(&db).expect("reconcile"),
+            1
+        );
         let persisted = db.get_operation_logs(Some(1)).expect("operation logs");
-        assert_eq!(persisted[0].status, "manual_review");
-        assert_eq!(persisted[0].operation_phase, "manual_review");
+        assert_eq!(persisted[0].status, "success");
+        assert_eq!(persisted[0].operation_phase, "completed");
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[cfg(any(windows, target_os = "macos"))]
+    #[test]
+    fn completed_phase_waits_for_final_log_persistence_and_reconciles_after_injected_failure() {
+        let db_path = test_db_path();
+        let db = Database::open(&db_path).expect("open database");
+        let root = test_dir();
+        let source = root.join("source.txt");
+        let target = root.join("target.txt");
+        fs::write(&source, b"final log boundary").expect("source");
+
+        set_operation_test_fault(Some(
+            OperationTestFaultPoint::AfterCompletedPhaseBeforeFinalLogPersist,
+        ));
+        let result = execute_moves_with_persistence(
+            &db,
+            ExecuteMovesRequest {
+                operations: vec![preview_operation(0, &source, &target)],
+            },
+        );
+
+        assert!(result.is_err());
+        assert!(!source.exists());
+        assert_eq!(
+            fs::read(&target).expect("committed target"),
+            b"final log boundary"
+        );
+
+        let pending = db
+            .get_pending_operation_logs()
+            .expect("pending operation logs");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].status, "pending");
+        assert_eq!(pending[0].operation_phase, "completed");
+
+        assert_eq!(
+            reconcile_pending_operation_journal(&db).expect("reconcile"),
+            1
+        );
+        let reconciled = db.get_operation_logs(Some(1)).expect("reconciled logs");
+        assert_eq!(reconciled[0].status, "success");
+        assert_eq!(reconciled[0].operation_phase, "completed");
+        assert!(db
+            .get_pending_operation_logs()
+            .expect("pending after reconcile")
+            .is_empty());
+
         let _ = fs::remove_dir_all(root);
         let _ = fs::remove_file(db_path);
     }

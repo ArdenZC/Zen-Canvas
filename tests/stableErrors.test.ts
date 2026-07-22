@@ -22,6 +22,10 @@ describe("stable error codes", () => {
     expect(localizedStableError("target_committed_durability_unknown", zh)).toContain("目标已提交");
     expect(localizedStableError("target_committed_identity_mismatch", en)).toContain("post-commit identity");
     expect(localizedStableError("target_committed_source_cleanup_pending", zh)).toContain("清理仍待完成");
+    expect(localizedStableError("restore_pending_reconciliation", en)).toContain("startup reconciliation");
+    expect(localizedStableError("claim_identity_mismatch", zh)).toContain("身份不一致");
+    expect(localizedStableError("manual_review_required", en)).toContain("manual review");
+    expect(localizedStableError("system_trash_source_binding_unsupported", zh)).toContain("系统回收站");
   });
 
   it("preserves unknown technical details for diagnostics", () => {

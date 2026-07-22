@@ -196,7 +196,8 @@ describe("StorageCleanupView", () => {
   it("requires the displayed job for AI and Safe Trash actions", () => {
     const source = read("src/views/cleanup/StorageCleanupView.tsx");
 
-    expect(source).toContain("const displayedJobId = initialAnalysis ? null : store.displayedJobId");
+    expect(source).toContain("const displayedJobIdState = useStorageCleanupStore((state) => state.displayedJobId)");
+    expect(source).toContain("const displayedJobId = initialAnalysis ? null : displayedJobIdState");
     expect(source).toContain("api.moveCleanupCandidatesToSafeTrash(displayedJobId, [...selectedCleanupIds])");
     expect(source).toContain("if (!displayedJobId)");
     expect(source).toContain("disabled={!selectedCleanupIds.size || isExecuting || !displayedJobId || Boolean(mutationUnavailable)}");

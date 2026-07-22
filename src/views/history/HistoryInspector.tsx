@@ -5,7 +5,7 @@ import { formatCount } from "../../i18n";
 import type { CleanupRestorePreviewItem, CleanupTrashBatch, CleanupTrashItem, OperationLog } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { buttonGhost, buttonSecondary, cn } from "../../utils/tw";
-import { formatDisplayPath } from "../../utils/viewHelpers";
+import { formatDisplayPath, localizedStableError } from "../../utils/viewHelpers";
 import { mutedText, rowSurface } from "../shared/ui";
 import {
   cleanupRestoreEligibility,
@@ -45,6 +45,13 @@ function localizedRestoreMessage(message: string | null | undefined, t: Translat
   return t("restoreErrorGeneric");
 }
 
+function localizedCleanupMessage(message: string | null | undefined, t: Translator) {
+  if (!message) return "";
+  const stable = localizedStableError(message, t);
+  if (stable !== message) return stable;
+  return localizedRestoreMessage(message, t);
+}
+
 export function restoreEligibilityLabel(log: OperationLog, t: Translator) {
   const reason = restoreEligibility(log).reason;
   const key = `historyEligibility${reason.charAt(0).toUpperCase()}${reason.slice(1)}` as Parameters<Translator>[0];
@@ -59,6 +66,7 @@ export function operationStatusLabel(log: OperationLog, t: Translator) {
 }
 
 function operationExecutionStatusLabel(log: OperationLog, t: Translator) {
+  if (log.status === "manual_review") return t("historyStatusManualReview");
   if (log.status === "failed") return t("historyStatusFailed");
   if (log.status === "skipped") return t("historyStatusSkipped");
   return t("historyStatusSuccess");
@@ -218,6 +226,7 @@ function cleanupStatusLabel(item: CleanupTrashItem, preview: CleanupRestorePrevi
   if (eligibility.reason === "missing") return t("historyCleanupMissing");
   if (eligibility.reason === "failed") return t("historyCleanupFailed");
   if (eligibility.reason === "pending") return t("historyEligibilityPending");
+  if (eligibility.reason === "manualReview") return t("historyCleanupManualReview");
   if (item.status === "restored") return t("restored");
   return t("historyStatusUnavailable");
 }
@@ -303,6 +312,7 @@ export function CleanupInspector({
                     {rawMessage && <button type="button" className="text-[var(--zc-primary)]" aria-expanded={technical} onClick={() => toggleTechnical(item.id)}>{technical ? t("historyRestoreHideTechnical") : t("historyRestoreShowTechnical")}</button>}
                   </div>
                   {revealError[item.id] && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{revealError[item.id]}</p>}
+                  {rawMessage && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{localizedCleanupMessage(rawMessage, t)}</p>}
                   {technical && rawMessage && <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--muted)]">{rawMessage}</pre>}
                 </div>
                 <button type="button" className={buttonGhost} aria-label={`${t("historyOpenPath")}: ${item.name}`} title={formatDisplayPath(currentPath)} onClick={() => void reveal(item)}>
