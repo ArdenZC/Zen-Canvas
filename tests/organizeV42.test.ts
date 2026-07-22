@@ -44,7 +44,7 @@ describe("Organize Suggestions v4.2 hardening", () => {
     expect(resolved.operations).toEqual([good]);
     expect(timeline).toContain("const executableSelectedCount = selectedOperations.length");
     expect(timeline).toContain("resolveExecutableSelectedPreviews(displayPreviews, selectedIds, executionIntent)");
-    expect(timeline).toContain('disabled={!executableSelectedCount || isExecuting}');
+    expect(timeline).toContain('disabled={!executableSelectedCount || isExecuting || Boolean(mutationUnavailable)}');
     expect(timeline).toContain('replace("{count}", selectedOperations.length.toLocaleString())');
     expect(store).toContain("resolveExecutableSelectedPreviews(displayPreviews, selectedOperationIds, executionIntent)");
   });

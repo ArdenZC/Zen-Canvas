@@ -235,7 +235,9 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return {
         aiDebugAvailable: true,
         realAIClassificationAvailable: true,
-        credentialStoreAvailable: true
+        credentialStoreAvailable: true,
+        fileMutationAvailable: true,
+        fileMutationUnavailableCode: null
       } as T;
     case "save_ai_settings":
       return mockAISettings(args?.settings as AISettings | undefined) as T;

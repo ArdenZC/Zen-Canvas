@@ -1,10 +1,9 @@
+#[cfg(windows)]
+use std::sync::{atomic::AtomicBool, Arc};
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicU64, Ordering},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -22,10 +21,12 @@ fn schema_18_adds_safe_trash_identity_columns() {
         ALTER TABLE cleanup_trash_items DROP COLUMN source_modified_ns;
         ALTER TABLE cleanup_trash_items DROP COLUMN source_platform_file_id;
         ALTER TABLE cleanup_trash_items DROP COLUMN source_quick_hash;
+        ALTER TABLE cleanup_trash_items DROP COLUMN source_full_hash;
         ALTER TABLE cleanup_trash_items DROP COLUMN trash_modified_ns;
         ALTER TABLE cleanup_trash_items DROP COLUMN trash_platform_volume_id;
         ALTER TABLE cleanup_trash_items DROP COLUMN trash_platform_file_id;
         ALTER TABLE cleanup_trash_items DROP COLUMN trash_quick_hash;
+        ALTER TABLE cleanup_trash_items DROP COLUMN trash_full_hash;
         ALTER TABLE cleanup_trash_items DROP COLUMN identity_status;
         PRAGMA user_version = 18;
         "#,
@@ -48,12 +49,13 @@ fn schema_18_adds_safe_trash_identity_columns() {
         })
         .expect("schema version");
 
-    assert_eq!(version, 20);
+    assert_eq!(version, 23);
     assert!(columns.iter().any(|column| column == "source_modified_ns"));
     assert!(columns
         .iter()
         .any(|column| column == "source_platform_file_id"));
     assert!(columns.iter().any(|column| column == "source_quick_hash"));
+    assert!(columns.iter().any(|column| column == "source_full_hash"));
     assert!(columns.iter().any(|column| column == "trash_modified_ns"));
     assert!(columns
         .iter()
@@ -62,7 +64,67 @@ fn schema_18_adds_safe_trash_identity_columns() {
         .iter()
         .any(|column| column == "trash_platform_file_id"));
     assert!(columns.iter().any(|column| column == "trash_quick_hash"));
+    assert!(columns.iter().any(|column| column == "trash_full_hash"));
     assert!(columns.iter().any(|column| column == "identity_status"));
+}
+
+#[test]
+fn pending_cleanup_query_includes_recovery_manual_review_without_terminal_history() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("create recovery query database");
+    let conn = rusqlite::Connection::open(&path).expect("open recovery query database");
+    conn.execute(
+        "INSERT INTO cleanup_trash_batches (id, created_at, total_items, total_size, status) VALUES ('recovery-batch', '1', 4, 4, 'pending')",
+        [],
+    )
+    .expect("insert cleanup batch");
+    for (id, status, identity, phase) in [
+        ("pending", "pending", "pending", "prepared"),
+        (
+            "move-recovery",
+            "manual_review",
+            "pending_recovery",
+            "manual_review",
+        ),
+        (
+            "restore-recovery",
+            "manual_review",
+            "restore_pending_recovery",
+            "source_cleanup_pending",
+        ),
+        ("terminal", "manual_review", "verified", "completed"),
+    ] {
+        conn.execute(
+            r#"
+            INSERT INTO cleanup_trash_items (
+                id, batch_id, original_path, trash_path, name, size, moved_at,
+                status, identity_status, operation_phase
+            ) VALUES (?1, 'recovery-batch', ?2, ?3, ?4, 1, '1', ?5, ?6, ?7)
+            "#,
+            rusqlite::params![
+                id,
+                format!("C:/recovery/{id}.txt"),
+                format!("C:/recovery/.zen-canvas-trash/{id}.txt"),
+                id,
+                status,
+                identity,
+                phase
+            ],
+        )
+        .expect("insert cleanup recovery item");
+    }
+    drop(conn);
+
+    let ids = db
+        .pending_cleanup_trash_items()
+        .expect("query pending cleanup recovery items")
+        .into_iter()
+        .map(|item| item.id)
+        .collect::<std::collections::HashSet<_>>();
+    assert!(ids.contains("pending"));
+    assert!(ids.contains("move-recovery"));
+    assert!(ids.contains("restore-recovery"));
+    assert!(!ids.contains("terminal"));
 }
 
 use zen_canvas_tauri::db::Database;
@@ -71,16 +133,19 @@ use zen_canvas_tauri::storage_analyzer::{
     classify_candidate_for_test, cleanup_preview_items_for_candidates, default_scan_roots_for_test,
     get_storage_cleanup_candidate_page_for_test, get_storage_cleanup_scan_status_for_test,
     is_forbidden_storage_path_for_test, is_main_window_label_for_test,
-    mark_cleanup_candidates_consumed_for_test,
-    move_cleanup_candidates_to_safe_trash_for_candidates,
-    move_cleanup_candidates_to_trash_for_candidates, preview_cleanup_operations_for_candidates,
-    preview_cleanup_restore_item_for_test, reconcile_pending_cleanup_journal,
-    restore_cleanup_trash_items_for_db, restore_cleanup_trash_items_for_db_with_cancel_for_test,
+    mark_cleanup_candidates_consumed_for_test, preview_cleanup_operations_for_candidates,
     run_cleanup_restore_job_for_test, start_storage_cleanup_job_state_for_test,
     start_storage_cleanup_scan_for_test, store_completed_cleanup_analysis_for_test,
     validate_cleanup_roots_for_test, CleanupActionKind, CleanupRestoreJobStatus,
     CleanupRestoreState, CleanupRestoreTestOutcome, CleanupTier, StorageCandidate,
     StorageCleanupProgress, StorageCleanupState,
+};
+#[cfg(windows)]
+use zen_canvas_tauri::storage_analyzer::{
+    move_cleanup_candidates_to_safe_trash_for_candidates,
+    move_cleanup_candidates_to_trash_for_candidates, preview_cleanup_restore_item_for_test,
+    reconcile_pending_cleanup_journal, restore_cleanup_trash_items_for_db,
+    restore_cleanup_trash_items_for_db_with_cancel_for_test,
 };
 
 #[test]
@@ -174,19 +239,29 @@ fn storage_cleanup_scan_only_uses_user_selected_roots() {
 
 #[test]
 fn storage_cleanup_scan_rejects_protected_system_roots() {
-    let result = validate_cleanup_roots_for_test(vec!["C:/Windows/System32".to_string()]);
+    let root = if cfg!(windows) {
+        "C:/Windows/System32"
+    } else if cfg!(target_os = "macos") {
+        "/System"
+    } else {
+        "/etc"
+    };
+    let result = validate_cleanup_roots_for_test(vec![root.to_string()]);
 
     assert!(result.is_err());
 }
 
 #[test]
 fn storage_cleanup_rejects_unix_system_roots() {
-    for path in ["/", "/System", "/usr", "/etc", "/var", "/bin", "/sbin"] {
+    for path in ["/", "/usr", "/etc", "/var", "/bin", "/sbin"] {
         assert!(
             is_forbidden_storage_path_for_test(Path::new(path)),
             "expected {path} to be protected"
         );
     }
+
+    #[cfg(target_os = "macos")]
+    assert!(is_forbidden_storage_path_for_test(Path::new("/System")));
 }
 
 #[test]
@@ -605,6 +680,7 @@ fn storage_analyzer_keeps_program_files_and_database_like_paths_cautious() {
     assert!(!db_candidate.trash_allowed);
 }
 
+#[cfg(windows)]
 #[test]
 fn storage_analyzer_rejects_forbidden_system_and_app_database_paths() {
     let app_data = PathBuf::from("C:/Users/zen/AppData/Roaming/Startlan/Zen Canvas");
@@ -620,15 +696,18 @@ fn storage_analyzer_rejects_forbidden_system_and_app_database_paths() {
 
 #[test]
 fn storage_analyzer_records_forbidden_roots_as_denied_without_safe_candidates() {
-    let analysis =
-        analyze_storage_roots_for_test(vec![PathBuf::from("C:/Windows/System32")], Vec::new())
-            .expect("analyze forbidden root");
+    let system_root = if cfg!(windows) {
+        "C:/Windows/System32"
+    } else if cfg!(target_os = "macos") {
+        "/System"
+    } else {
+        "/etc"
+    };
+    let analysis = analyze_storage_roots_for_test(vec![PathBuf::from(system_root)], Vec::new())
+        .expect("analyze forbidden root");
 
     assert_eq!(analysis.total_size, 0);
-    assert!(analysis
-        .denied_paths
-        .iter()
-        .any(|path| path.contains("Windows/System32")));
+    assert!(!analysis.denied_paths.is_empty());
     assert!(analysis
         .candidates
         .iter()
@@ -722,9 +801,16 @@ fn cleanup_preview_items_only_include_safe_trash_allowed_candidates() {
 
 #[test]
 fn cleanup_preview_items_reject_system_paths_even_if_client_marks_them_safe() {
+    let system_path = if cfg!(windows) {
+        "C:/Windows/Temp"
+    } else if cfg!(target_os = "macos") {
+        "/System/Library"
+    } else {
+        "/etc/zen-canvas"
+    };
     let forged = StorageCandidate {
         id: "forged-system-safe".to_string(),
-        path: "C:/Windows/Temp".to_string(),
+        path: system_path.to_string(),
         name: "Temp".to_string(),
         size: 100,
         tier: CleanupTier::Safe,
@@ -787,7 +873,11 @@ fn cleanup_operation_preview_only_includes_safe_trash_candidates() {
     assert_eq!(preview.previews[0].target_path, "Recycle Bin");
     assert!(preview.previews[0].requires_confirmation);
     assert_eq!(preview.previews[0].suggested_action, "DeleteCandidate");
-    assert_eq!(preview.previews[0].is_executable, Some(true));
+    assert_eq!(preview.previews[0].is_executable, Some(false));
+    assert_eq!(
+        preview.previews[0].blocking_reason.as_deref(),
+        Some("system_trash_source_binding_unsupported")
+    );
     assert_eq!(preview.previews[0].editable_new_name, Some(false));
     assert_eq!(preview.previews[0].will_create_parent, Some(false));
 }
@@ -837,7 +927,8 @@ fn cleanup_operation_preview_rejects_system_and_app_data_paths() {
 }
 
 #[test]
-fn move_cleanup_candidates_to_trash_only_allows_safe_resolved_candidates() {
+#[cfg(windows)]
+fn system_trash_fails_closed_after_candidate_validation_without_touching_source() {
     let root = test_dir();
     let safe_path = root.join("node_modules");
     write_file(&safe_path.join("package").join("index.js"), 128);
@@ -857,16 +948,19 @@ fn move_cleanup_candidates_to_trash_only_allows_safe_resolved_candidates() {
     )
     .expect("move cleanup candidates to trash");
 
-    assert_eq!(result.moved, 1);
+    assert_eq!(result.moved, 0);
     assert_eq!(result.skipped, 3);
-    assert_eq!(result.failed, 0);
-    assert!(result.logs.iter().any(|log| log.status == "success"
+    assert_eq!(result.failed, 1);
+    assert!(result.logs.iter().any(|log| log.status == "failed"
         && log.path == safe.path
-        && log.message.contains("system trash")));
-    assert!(!safe_path.exists());
+        && log
+            .message
+            .contains("system_trash_source_binding_unsupported")));
+    assert!(safe_path.exists());
 }
 
 #[test]
+#[cfg(windows)]
 fn move_cleanup_candidates_to_trash_revalidates_execution_forbidden_paths() {
     let root = test_dir();
     let app_data = root.join("Zen Canvas");
@@ -899,6 +993,7 @@ fn move_cleanup_candidates_to_trash_revalidates_execution_forbidden_paths() {
 }
 
 #[test]
+#[cfg(windows)]
 fn move_cleanup_candidates_to_safe_trash_records_and_restores_items() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -933,9 +1028,198 @@ fn move_cleanup_candidates_to_safe_trash_records_and_restores_items() {
     assert!(safe_path.exists());
     let restored_item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
     assert_eq!(restored_item.status, "restored");
+    assert_eq!(restored_item.operation_phase, "completed");
+    assert_eq!(restored_item.identity_status, "verified");
+    assert!(restored_item.source_claim_path.is_none());
+    assert!(restored_item.claim_created_at.is_none());
+    assert!(restored_item.claim_platform_file_id.is_none());
+    assert!(restored_item.claim_full_hash.is_none());
+    let terminal_preview = preview_cleanup_restore_item_for_test(restored_item);
+    assert!(!terminal_preview.can_restore);
+    assert_eq!(
+        terminal_preview.blocking_reason.as_deref(),
+        Some("already restored")
+    );
 }
 
 #[test]
+#[cfg(windows)]
+fn safe_trash_restore_final_transaction_failure_preserves_claim_for_manual_review() {
+    let root = test_dir();
+    let db_path = test_db_path();
+    let db = Database::open(&db_path).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    let expected_claim_platform_id = item.claim_platform_file_id.clone();
+    let expected_claim_hash = item.claim_full_hash.clone();
+
+    let conn = rusqlite::Connection::open(&db_path).expect("open trigger database");
+    conn.execute_batch(
+        r#"
+        CREATE TRIGGER reject_cleanup_restore_finalization
+        BEFORE UPDATE OF status ON cleanup_trash_items
+        WHEN NEW.status = 'restored'
+        BEGIN
+            SELECT RAISE(ABORT, 'injected Safe Trash finalization failure');
+        END;
+        "#,
+    )
+    .expect("install Safe Trash finalization trigger");
+    drop(conn);
+
+    let restore = restore_cleanup_trash_items_for_db(vec![item.id.clone()], &db)
+        .expect("record Safe Trash finalization failure");
+    let updated = db.list_cleanup_trash_batches().expect("updated batches")[0].items[0].clone();
+
+    assert_eq!(restore.restored, 0);
+    assert_eq!(restore.failed, 1);
+    assert_eq!(updated.status, "manual_review");
+    assert_eq!(updated.operation_phase, "target_committed");
+    assert_eq!(updated.identity_status, "restore_pending_recovery");
+    assert!(updated
+        .message
+        .as_deref()
+        .unwrap_or_default()
+        .starts_with("target_committed_durability_unknown:"));
+    assert!(updated.source_claim_path.is_some());
+    assert_eq!(updated.claim_platform_file_id, expected_claim_platform_id);
+    assert_eq!(updated.claim_full_hash, expected_claim_hash);
+    assert!(safe_path.exists());
+}
+
+#[test]
+#[cfg(windows)]
+fn pending_safe_trash_restore_reconciliation_finalizes_committed_target_and_clears_claim() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let mut item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    let claim_path = root.join(".missing-restore-claim");
+    item.status = "pending".to_string();
+    item.identity_status = "restore_pending".to_string();
+    item.operation_phase = "completed".to_string();
+    item.source_claim_path = Some(claim_path.to_string_lossy().replace('\\', "/"));
+    item.claim_created_at = Some("1900000000000".to_string());
+    item.claim_platform_file_id = item.source_platform_file_id.clone();
+    item.claim_full_hash = item.source_full_hash.clone();
+    db.update_cleanup_trash_item_status(&item)
+        .expect("persist committed-target recovery fixture");
+    fs::rename(&item.trash_path, &item.original_path).expect("recreate committed restore target");
+
+    assert_eq!(
+        reconcile_pending_cleanup_journal(&db).expect("reconcile committed target"),
+        1
+    );
+    let updated = db.list_cleanup_trash_batches().expect("updated batches")[0].items[0].clone();
+    assert_eq!(updated.status, "restored");
+    assert_eq!(updated.operation_phase, "completed");
+    assert_eq!(updated.identity_status, "verified");
+    assert!(updated.source_claim_path.is_none());
+    assert!(updated.claim_created_at.is_none());
+    assert!(updated.claim_platform_file_id.is_none());
+    assert!(updated.claim_full_hash.is_none());
+    assert!(safe_path.exists());
+}
+
+#[test]
+#[cfg(windows)]
+fn pending_safe_trash_restore_reconciliation_rolls_back_before_commit_and_remains_restorable() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let mut item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    item.status = "pending".to_string();
+    item.identity_status = "restore_pending".to_string();
+    item.operation_phase = "prepared".to_string();
+    item.source_claim_path = Some(
+        root.join(".missing-restore-claim")
+            .to_string_lossy()
+            .replace('\\', "/"),
+    );
+    item.claim_created_at = Some("1900000000000".to_string());
+    item.claim_platform_file_id = item.source_platform_file_id.clone();
+    item.claim_full_hash = item.source_full_hash.clone();
+    db.update_cleanup_trash_item_status(&item)
+        .expect("persist pre-commit recovery fixture");
+
+    assert_eq!(
+        reconcile_pending_cleanup_journal(&db).expect("reconcile pre-commit restore"),
+        1
+    );
+    let rolled_back = db
+        .list_cleanup_trash_batches()
+        .expect("rolled-back batches")[0]
+        .items[0]
+        .clone();
+    assert_eq!(rolled_back.status, "moved");
+    assert_eq!(rolled_back.operation_phase, "rolled_back");
+    assert_eq!(rolled_back.identity_status, "verified");
+    assert!(rolled_back.source_claim_path.is_none());
+    assert!(preview_cleanup_restore_item_for_test(rolled_back.clone()).can_restore);
+
+    let restored = restore_cleanup_trash_items_for_db(vec![rolled_back.id], &db)
+        .expect("restore rolled-back Safe Trash item");
+    assert_eq!(restored.restored, 1);
+    assert!(safe_path.exists());
+}
+
+#[test]
+#[cfg(windows)]
+fn pending_safe_trash_restore_reconciliation_preserves_all_claim_fields_when_every_path_is_missing()
+{
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let mut item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    let claim_path = root.join(".missing-restore-claim");
+    item.status = "pending".to_string();
+    item.identity_status = "restore_pending".to_string();
+    item.operation_phase = "prepared".to_string();
+    item.source_claim_path = Some(claim_path.to_string_lossy().replace('\\', "/"));
+    item.claim_created_at = Some("1900000000000".to_string());
+    item.claim_platform_file_id = item.source_platform_file_id.clone();
+    item.claim_full_hash = item.source_full_hash.clone();
+    let expected_claim_path = item.source_claim_path.clone();
+    let expected_claim_created_at = item.claim_created_at.clone();
+    let expected_claim_platform_id = item.claim_platform_file_id.clone();
+    let expected_claim_hash = item.claim_full_hash.clone();
+    db.update_cleanup_trash_item_status(&item)
+        .expect("persist all-missing recovery fixture");
+    fs::remove_dir_all(&item.trash_path).expect("remove Safe Trash path");
+
+    assert_eq!(
+        reconcile_pending_cleanup_journal(&db).expect("reconcile all-missing restore"),
+        1
+    );
+    let updated = db.list_cleanup_trash_batches().expect("updated batches")[0].items[0].clone();
+    assert_eq!(updated.status, "manual_review");
+    assert_eq!(updated.operation_phase, "manual_review");
+    assert_eq!(updated.identity_status, "restore_pending_recovery");
+    assert_eq!(updated.source_claim_path, expected_claim_path);
+    assert_eq!(updated.claim_created_at, expected_claim_created_at);
+    assert_eq!(updated.claim_platform_file_id, expected_claim_platform_id);
+    assert_eq!(updated.claim_full_hash, expected_claim_hash);
+    assert!(!preview_cleanup_restore_item_for_test(updated).can_restore);
+}
+
+#[test]
+#[cfg(windows)]
 fn pending_safe_trash_journal_reconciles_a_completed_move_after_restart() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -959,6 +1243,7 @@ fn pending_safe_trash_journal_reconciles_a_completed_move_after_restart() {
 }
 
 #[test]
+#[cfg(windows)]
 fn pending_safe_trash_rejects_replaced_trash_identity() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -982,7 +1267,7 @@ fn pending_safe_trash_rejects_replaced_trash_identity() {
     let restore = restore_cleanup_trash_items_for_db(vec![recovered.id.clone()], &db)
         .expect("reject unsafe restore");
 
-    assert_eq!(recovered.status, "failed");
+    assert_eq!(recovered.status, "manual_review");
     assert!(recovered
         .message
         .as_deref()
@@ -994,6 +1279,7 @@ fn pending_safe_trash_rejects_replaced_trash_identity() {
 }
 
 #[test]
+#[cfg(windows)]
 fn restore_safe_trash_rejects_identity_replaced_after_successful_move() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -1016,7 +1302,7 @@ fn restore_safe_trash_rejects_identity_replaced_after_successful_move() {
 
     assert_eq!(restore.restored, 0);
     assert_eq!(restore.failed, 1);
-    assert_eq!(updated.status, "failed");
+    assert_eq!(updated.status, "manual_review");
     assert!(updated
         .message
         .as_deref()
@@ -1026,6 +1312,7 @@ fn restore_safe_trash_rejects_identity_replaced_after_successful_move() {
 }
 
 #[test]
+#[cfg(windows)]
 fn move_cleanup_candidates_to_safe_trash_rejects_review_caution_missing_and_system_paths() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -1069,6 +1356,7 @@ fn move_cleanup_candidates_to_safe_trash_rejects_review_caution_missing_and_syst
 }
 
 #[test]
+#[cfg(windows)]
 fn restore_cleanup_trash_items_blocks_conflicts_and_marks_missing_trash_paths() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -1112,6 +1400,7 @@ fn restore_cleanup_trash_items_blocks_conflicts_and_marks_missing_trash_paths() 
 }
 
 #[test]
+#[cfg(windows)]
 fn cleanup_restore_preview_marks_filesystem_conflicts_and_missing_sources() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -1144,6 +1433,7 @@ fn cleanup_restore_preview_marks_filesystem_conflicts_and_missing_sources() {
 }
 
 #[test]
+#[cfg(windows)]
 fn cleanup_restore_preview_and_execution_reject_replacement_after_preview() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -1175,6 +1465,7 @@ fn cleanup_restore_preview_and_execution_reject_replacement_after_preview() {
 }
 
 #[test]
+#[cfg(windows)]
 fn cleanup_restore_rejects_same_content_with_a_different_platform_identity() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -1207,6 +1498,7 @@ fn cleanup_restore_rejects_same_content_with_a_different_platform_identity() {
 }
 
 #[test]
+#[cfg(windows)]
 fn legacy_safe_trash_identity_is_manual_review_only() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");
@@ -1236,6 +1528,7 @@ fn legacy_safe_trash_identity_is_manual_review_only() {
 }
 
 #[test]
+#[cfg(windows)]
 fn cleanup_restore_cancellation_skips_remaining_items_without_moving_files() {
     let root = test_dir();
     let db = Database::open(test_db_path()).expect("open db");

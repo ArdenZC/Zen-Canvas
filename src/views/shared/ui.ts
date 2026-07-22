@@ -319,6 +319,7 @@ export function ConfirmDialog({
   confirmLabel,
   cancelLabel,
   isProcessing = false,
+  disabled = false,
   errorMessage,
   restoreFocus,
   onConfirm,
@@ -332,6 +333,7 @@ export function ConfirmDialog({
   confirmLabel: string;
   cancelLabel: string;
   isProcessing?: boolean;
+  disabled?: boolean;
   errorMessage?: string;
   restoreFocus?: () => HTMLElement | null;
   onConfirm: () => void | Promise<void>;
@@ -399,7 +401,7 @@ export function ConfirmDialog({
           "div",
           { className: "flex flex-wrap justify-end gap-2" },
           createElement("button", { ref: cancelRef, type: "button", className: buttonSecondary, onClick: onCancel, disabled: isProcessing }, cancelLabel),
-          createElement("button", { type: "button", className: cn(tone === "danger" ? glassButtonDanger : tone === "warning" ? glassButtonWarning : glassButtonPrimary, "tabular-nums"), onClick: onConfirm, disabled: isProcessing }, confirmLabel)
+          createElement("button", { type: "button", className: cn(tone === "danger" ? glassButtonDanger : tone === "warning" ? glassButtonWarning : glassButtonPrimary, "tabular-nums"), onClick: onConfirm, disabled: isProcessing || disabled }, confirmLabel)
         )
       )
     )

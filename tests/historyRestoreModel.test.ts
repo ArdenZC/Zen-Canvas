@@ -46,6 +46,7 @@ describe("history restore truth model", () => {
     expect(restoreEligibility(log("restored", { restore_status: "restored" })).reason).toBe("alreadyRestored");
     expect(restoreEligibility(log("blocked", { can_restore: false })).reason).toBe("backendBlocked");
     expect(restoreEligibility(log("retry", { restore_status: "failed" })).reason).toBe("restoreFailed");
+    expect(restoreEligibility(log("review", { status: "manual_review", restore_status: "manual_review" })).reason).toBe("manualReview");
     expect(isRestorableLog(log("retry", { restore_status: "failed" }))).toBe(false);
   });
 

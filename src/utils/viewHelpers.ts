@@ -327,6 +327,55 @@ export function readableError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export function localizedStableError(error: unknown, t: Translator): string {
+  const message = readableError(error);
+  if (message.startsWith("source_changed") || message.startsWith("source_identity_changed")) {
+    return t("errorSourceIdentityChanged");
+  }
+  if (message.startsWith("source_claim_failed")) return t("errorSourceClaimFailed");
+  if (message.startsWith("source_claim_mismatch")) return t("errorSourceClaimMismatch");
+  if (message.startsWith("source_claim_rollback_failed")) return t("errorSourceClaimRollbackFailed");
+  if (message.startsWith("source_claim_recovery_required")) return t("errorSourceClaimRecoveryRequired");
+  if (message.startsWith("target_parent_identity_changed")) return t("errorTargetParentIdentityChanged");
+  if (message.startsWith("atomic_source_binding_unsupported")) return t("errorAtomicSourceBindingUnsupported");
+  if (message.startsWith("cross_volume_directory_move_unsupported")) return t("errorCrossVolumeDirectoryMoveUnsupported");
+  if (message.startsWith("cross_volume_file_move_unsupported_on_macos")) return t("errorCrossVolumeFileMoveUnsupportedOnMacos");
+  if (message.startsWith("unsupported_platform_linux")) return t("errorUnsupportedPlatformLinux");
+  if (message.startsWith("macos_file_mutation_source_binding_unsupported")) return t("errorMacosFileMutationSourceBindingUnsupported");
+  if (message.startsWith("staging_identity_changed")) return t("errorStagingIdentityChanged");
+  if (message.startsWith("system_trash_source_binding_unsupported")) return t("errorSystemTrashSourceBindingUnsupported");
+  if (message.startsWith("staging_handle_commit_unsupported")) return t("errorStagingHandleCommitUnsupported");
+  if (message.startsWith("target_committed_durability_unknown")) return t("errorTargetCommittedDurabilityUnknown");
+  if (message.startsWith("target_committed_identity_mismatch")) return t("errorTargetCommittedIdentityMismatch");
+  if (message.startsWith("target_committed_source_cleanup_pending")) return t("errorTargetCommittedSourceCleanupPending");
+  if (message.startsWith("target_committed_source_delete_failed")) return t("errorTargetCommittedSourceDeleteFailed");
+  if (message.startsWith("restore_pending_reconciliation")) return t("errorRestorePendingReconciliation");
+  if (message.startsWith("claim_identity_mismatch")) return t("errorClaimIdentityMismatch");
+  if (message.startsWith("manual_review_required")) return t("errorManualReviewRequired");
+  if (message.startsWith("directory_manifest_name_encoding_failed")) return t("errorDirectoryManifestNameEncodingFailed");
+  if (message.startsWith("copy_verification_failed")) return t("errorCopyVerificationFailed");
+  if (message.startsWith("target_parent_durability_unknown")) return t("errorTargetParentDurabilityUnknown");
+  if (message.startsWith("atomic_noreplace_unsupported")) {
+    return t("errorAtomicNoReplaceUnsupported");
+  }
+  if (message.startsWith("credential_conflict")) {
+    return t("errorCredentialConflict");
+  }
+  if (message.startsWith("credential_transaction_lock_poisoned")) {
+    return t("errorCredentialTransactionUnavailable");
+  }
+  if (message.startsWith("settings_revision_conflict")) {
+    return t("settingsRevisionConflict");
+  }
+  if (message.startsWith("watcher_retry_exhausted")) {
+    return t("watcherRetryExhausted");
+  }
+  if (message.startsWith("cleanup_cancel_failed")) {
+    return t("storageCleanupCancelFailed");
+  }
+  return message;
+}
+
 export function localId(prefix: string): string {
   return `${prefix}_${globalThis.crypto.randomUUID()}`;
 }

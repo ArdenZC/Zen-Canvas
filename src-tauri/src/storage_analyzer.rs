@@ -1,6 +1,8 @@
 use crate::{
     db::{Database, DbError, OperationPreviewDto, OperationPreviewScopeResult},
     ids::new_job_id,
+    path_identity::{normalize_for_compare, normalize_path, normalize_text_for_compare},
+    window_auth::{is_main_window_label, require_main_window},
 };
 use rusqlite::{params, OptionalExtension, Row};
 use serde::Serialize;
@@ -28,6 +30,122 @@ const STORAGE_CLEANUP_CANCELLED_EVENT: &str = "storage-cleanup-cancelled";
 pub const CLEANUP_RESTORE_PROGRESS_EVENT: &str = "cleanup-restore-progress";
 const STORAGE_CLEANUP_EMIT_INTERVAL: Duration = Duration::from_millis(300);
 const STORAGE_CLEANUP_EMIT_ENTRY_INTERVAL: u64 = 100;
+
+#[derive(Debug)]
+enum SafeTrashMutationError {
+    Validation(String),
+    Atomic(crate::fs_safety::AtomicMoveError),
+}
+
+impl From<String> for SafeTrashMutationError {
+    fn from(error: String) -> Self {
+        Self::Validation(error)
+    }
+}
+
+impl From<crate::fs_safety::AtomicMoveError> for SafeTrashMutationError {
+    fn from(error: crate::fs_safety::AtomicMoveError) -> Self {
+        Self::Atomic(error)
+    }
+}
+
+impl std::fmt::Display for SafeTrashMutationError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Validation(error) => formatter.write_str(error),
+            Self::Atomic(error) => error.fmt(formatter),
+        }
+    }
+}
+
+impl SafeTrashMutationError {
+    fn journal_phase(&self) -> &'static str {
+        match self {
+            Self::Validation(_) => "rolled_back",
+            Self::Atomic(error) => match error {
+                crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                | crate::fs_safety::AtomicMoveError::TargetCommittedIdentityMismatch => {
+                    "target_committed"
+                }
+                crate::fs_safety::AtomicMoveError::TargetCommittedSourceCleanupPending
+                | crate::fs_safety::AtomicMoveError::TargetCommittedSourceDeleteFailed(_) => {
+                    "source_cleanup_pending"
+                }
+                _ => match error.commit_state() {
+                    crate::fs_safety::AtomicMoveCommitState::RolledBack => "rolled_back",
+                    crate::fs_safety::AtomicMoveCommitState::SourceClaimed => "source_claimed",
+                    crate::fs_safety::AtomicMoveCommitState::TargetCommitted => "target_committed",
+                    crate::fs_safety::AtomicMoveCommitState::SourceCleanupPending => {
+                        "source_cleanup_pending"
+                    }
+                    crate::fs_safety::AtomicMoveCommitState::Completed => "completed",
+                    crate::fs_safety::AtomicMoveCommitState::ManualReview => "manual_review",
+                },
+            },
+        }
+    }
+
+    fn requires_recovery(&self) -> bool {
+        match self {
+            Self::Validation(_) => false,
+            Self::Atomic(error) => !matches!(
+                error.commit_state(),
+                crate::fs_safety::AtomicMoveCommitState::RolledBack
+            ),
+        }
+    }
+
+    fn is_cancelled(&self) -> bool {
+        matches!(
+            self,
+            Self::Atomic(crate::fs_safety::AtomicMoveError::Cancelled)
+        )
+    }
+}
+
+fn safe_trash_error_message(error: &SafeTrashMutationError, restore: bool) -> String {
+    let detail = error.to_string();
+    match error {
+        SafeTrashMutationError::Atomic(
+            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown,
+        ) => format!(
+            "target_committed_durability_unknown: target may have committed, but durability is unknown. Check the target before retrying; do not retry automatically. ({detail})"
+        ),
+        SafeTrashMutationError::Atomic(
+            crate::fs_safety::AtomicMoveError::TargetCommittedIdentityMismatch,
+        ) => format!(
+            "target_committed_identity_mismatch: target may have committed, but post-commit identity verification failed. Check the target before retrying; do not retry automatically. ({detail})"
+        ),
+        SafeTrashMutationError::Atomic(
+            crate::fs_safety::AtomicMoveError::TargetCommittedSourceCleanupPending,
+        ) => format!(
+            "target_committed_source_cleanup_pending: target is committed and source cleanup is still pending. Check both paths before retrying; do not retry automatically. ({detail})"
+        ),
+        SafeTrashMutationError::Atomic(
+            crate::fs_safety::AtomicMoveError::TargetCommittedSourceDeleteFailed(_),
+        ) => format!(
+            "target_committed_source_delete_failed: target is committed but source deletion failed. Check both paths before retrying; do not retry automatically. ({detail})"
+        ),
+        SafeTrashMutationError::Atomic(crate::fs_safety::AtomicMoveError::SourceClaimMismatch) => {
+            format!(
+                "claim_identity_mismatch: source claim identity did not match; manual review is required. ({detail})"
+            )
+        }
+        SafeTrashMutationError::Atomic(
+            crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(_)
+            | crate::fs_safety::AtomicMoveError::SourceClaimRollbackFailed(_),
+        ) if restore => format!(
+            "restore_pending_reconciliation: restore state could not be finalized; startup reconciliation is required. Do not retry automatically. ({detail})"
+        ),
+        SafeTrashMutationError::Atomic(
+            crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(_)
+            | crate::fs_safety::AtomicMoveError::SourceClaimRollbackFailed(_),
+        ) => format!(
+            "manual_review_required: source claim state could not be finalized; startup reconciliation is required. Do not retry automatically. ({detail})"
+        ),
+        _ => detail,
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct StorageAnalysis {
@@ -167,6 +285,8 @@ pub struct CleanupTrashItem {
     #[serde(skip_serializing)]
     pub source_quick_hash: Option<String>,
     #[serde(skip_serializing)]
+    pub source_full_hash: Option<String>,
+    #[serde(skip_serializing)]
     pub trash_modified_ns: Option<String>,
     #[serde(skip_serializing)]
     pub trash_platform_volume_id: Option<String>,
@@ -175,7 +295,19 @@ pub struct CleanupTrashItem {
     #[serde(skip_serializing)]
     pub trash_quick_hash: Option<String>,
     #[serde(skip_serializing)]
+    pub trash_full_hash: Option<String>,
+    #[serde(skip_serializing)]
     pub identity_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_claim_path: Option<String>,
+    #[serde(skip_serializing)]
+    pub operation_phase: String,
+    #[serde(skip_serializing)]
+    pub claim_created_at: Option<String>,
+    #[serde(skip_serializing)]
+    pub claim_platform_file_id: Option<String>,
+    #[serde(skip_serializing)]
+    pub claim_full_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -807,10 +939,12 @@ impl StorageCleanupState {
 
 #[tauri::command]
 pub fn start_storage_cleanup_scan<R: Runtime>(
+    window: WebviewWindow<R>,
     roots: Vec<String>,
     app: AppHandle<R>,
     state: State<'_, StorageCleanupState>,
 ) -> Result<String, String> {
+    require_main_window(&window)?;
     let app_data_dir = app.path().app_data_dir().ok();
     let roots = validate_cleanup_roots(roots)?;
     let job_id = new_job_id("storage-cleanup-scan");
@@ -831,10 +965,12 @@ pub fn start_storage_cleanup_scan<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn cancel_storage_cleanup_scan(
+pub fn cancel_storage_cleanup_scan<R: Runtime>(
+    window: WebviewWindow<R>,
     job_id: String,
     state: State<'_, StorageCleanupState>,
 ) -> Result<(), String> {
+    require_main_window(&window)?;
     state.cancel_job(&job_id)
 }
 
@@ -1014,27 +1150,54 @@ pub fn cancel_cleanup_restore<R: Runtime>(
 
 fn cleanup_restore_preview_item(item: CleanupTrashItem) -> CleanupRestorePreviewItem {
     let status = item.status.to_ascii_lowercase();
-    let blocking_reason = match status.as_str() {
-        "restored" => Some("already restored".to_string()),
-        "pending" => Some("pending".to_string()),
-        "missing" => Some("missing".to_string()),
-        "failed" => Some("failed".to_string()),
-        "moved" => {
-            let original_exists = Path::new(&item.original_path).exists();
-            let trash_exists = Path::new(&item.trash_path).exists();
-            if original_exists {
-                Some("conflict".to_string())
-            } else if !trash_exists {
-                Some("missing".to_string())
-            } else if item.identity_status != "verified" {
-                Some("manual_review".to_string())
-            } else if !safe_trash_identity_matches(&item, Path::new(&item.trash_path)) {
-                Some("replacement_detected".to_string())
-            } else {
-                None
+    let active_recovery_journal = status != "restored"
+        && (matches!(
+            item.operation_phase.as_str(),
+            "source_claimed" | "target_committed" | "source_cleanup_pending" | "manual_review"
+        ) || matches!(
+            item.identity_status.as_str(),
+            "pending_recovery" | "restore_pending" | "restore_pending_recovery"
+        ));
+    let blocking_reason = if status == "restored" {
+        Some("already restored".to_string())
+    } else if active_recovery_journal {
+        Some("manual_review".to_string())
+    } else {
+        match status.as_str() {
+            "pending" => {
+                if matches!(
+                    item.operation_phase.as_str(),
+                    "source_claimed"
+                        | "target_committed"
+                        | "source_cleanup_pending"
+                        | "manual_review"
+                ) || item.identity_status == "pending_recovery"
+                {
+                    Some("manual_review".to_string())
+                } else {
+                    Some("pending".to_string())
+                }
             }
+            "missing" => Some("missing".to_string()),
+            "failed" => Some("failed".to_string()),
+            "manual_review" => Some("manual_review".to_string()),
+            "moved" => {
+                let original_exists = Path::new(&item.original_path).exists();
+                let trash_exists = Path::new(&item.trash_path).exists();
+                if original_exists {
+                    Some("conflict".to_string())
+                } else if !trash_exists {
+                    Some("missing".to_string())
+                } else if item.identity_status != "verified" {
+                    Some("manual_review".to_string())
+                } else if !safe_trash_identity_matches(&item, Path::new(&item.trash_path)) {
+                    Some("replacement_detected".to_string())
+                } else {
+                    None
+                }
+            }
+            _ => Some("unavailable".to_string()),
         }
-        _ => Some("unavailable".to_string()),
     };
     CleanupRestorePreviewItem {
         can_restore: blocking_reason.is_none(),
@@ -1045,18 +1208,6 @@ fn cleanup_restore_preview_item(item: CleanupTrashItem) -> CleanupRestorePreview
 
 pub fn preview_cleanup_restore_item_for_test(item: CleanupTrashItem) -> CleanupRestorePreviewItem {
     cleanup_restore_preview_item(item)
-}
-
-fn require_main_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
-    if is_main_window_label(window.label()) {
-        Ok(())
-    } else {
-        Err("This cleanup operation is only available from the main window.".to_string())
-    }
-}
-
-fn is_main_window_label(label: &str) -> bool {
-    label == "main"
 }
 
 pub fn is_main_window_label_for_test(label: &str) -> bool {
@@ -1163,6 +1314,8 @@ pub fn move_cleanup_candidates_to_trash_for_candidates(
     candidates: &[StorageCandidate],
     app_data_dir: Option<&Path>,
 ) -> Result<CleanupExecutionResult, String> {
+    crate::fs_safety::platform_support::ensure_supported_cleanup_mutation()
+        .map_err(|error| error.to_string())?;
     let by_id = candidates
         .iter()
         .map(|candidate| (candidate.id.as_str(), candidate))
@@ -1207,7 +1360,12 @@ pub fn move_cleanup_candidates_to_trash_for_candidates(
             continue;
         }
 
-        match trash::delete(path) {
+        match crate::file_ops::move_path_to_system_trash_with_safety(
+            path,
+            None,
+            None,
+            &candidate.id,
+        ) {
             Ok(()) => {
                 result.moved += 1;
                 result.logs.push(CleanupExecutionLog {
@@ -1246,6 +1404,8 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
     db: &Database,
     app_data_dir: Option<&Path>,
 ) -> Result<CleanupExecutionResult, String> {
+    crate::fs_safety::platform_support::ensure_supported_cleanup_mutation()
+        .map_err(|error| error.to_string())?;
     let by_id = candidates
         .iter()
         .map(|candidate| (candidate.id.as_str(), candidate))
@@ -1337,13 +1497,25 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
             status: "pending".to_string(),
             message: Some("Pending move to Zen Canvas Safe Trash.".to_string()),
             source_modified_ns: fingerprint.modified_ns.map(|value| value.to_string()),
-            source_platform_file_id: fingerprint.platform_file_id,
+            source_platform_file_id: fingerprint.platform_file_id.clone(),
             source_quick_hash: fingerprint.quick_hash,
+            source_full_hash: fingerprint.full_hash.clone(),
             trash_modified_ns: None,
             trash_platform_volume_id: None,
             trash_platform_file_id: None,
             trash_quick_hash: None,
+            trash_full_hash: None,
             identity_status: "pending".to_string(),
+            source_claim_path: Some(
+                crate::fs_safety::source_claim::planned_claim_path(source, &item_id)
+                    .map_err(|error| error.to_string())?
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            operation_phase: "prepared".to_string(),
+            claim_created_at: Some(moved_at.clone()),
+            claim_platform_file_id: fingerprint.platform_file_id.clone(),
+            claim_full_hash: fingerprint.full_hash.clone(),
         };
         items.push(item);
     }
@@ -1366,27 +1538,55 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
         })?;
 
         for item in &mut items {
-            let move_result = move_path_to_safe_trash(
-                Path::new(&item.original_path),
-                Path::new(&item.trash_path),
-                item.size,
-                item.source_quick_hash.as_deref(),
-            );
+            let move_result = {
+                let original_path = item.original_path.clone();
+                let trash_path = item.trash_path.clone();
+                let size = item.size;
+                let quick_hash = item.source_quick_hash.clone();
+                let full_hash = item.source_full_hash.clone();
+                let claim_path = item.source_claim_path.clone();
+                let mut phase_observer = |phase: &str| {
+                    item.operation_phase = phase.to_string();
+                    item.status = "pending".to_string();
+                    item.message = Some(format!("Safe Trash operation phase: {phase}."));
+                    db.update_cleanup_trash_item_status(item).map_err(|error| {
+                        if matches!(
+                            phase,
+                            "target_committed" | "source_cleanup_pending" | "completed"
+                        ) {
+                            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                        } else {
+                            crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(format!(
+                                "safe-trash journal phase persistence failed: {error}"
+                            ))
+                        }
+                    })?;
+                    Ok(())
+                };
+                move_path_to_safe_trash(
+                    Path::new(&original_path),
+                    Path::new(&trash_path),
+                    size,
+                    quick_hash.as_deref(),
+                    full_hash.as_deref(),
+                    claim_path.as_deref().map(Path::new),
+                    Some(&mut phase_observer),
+                )
+            };
             let (status, log_status, message) = match move_result {
                 Ok(()) => {
                     match crate::file_ops::file_identity_fingerprint(Path::new(&item.trash_path)) {
                         Ok(trash_fingerprint)
                             if trash_fingerprint.size == item.size
-                                && trash_fingerprint.quick_hash == item.source_quick_hash =>
+                                && trash_fingerprint.quick_hash == item.source_quick_hash
+                                && trash_fingerprint.full_hash == item.source_full_hash =>
                         {
                             item.trash_modified_ns =
                                 trash_fingerprint.modified_ns.map(|value| value.to_string());
-                            item.trash_platform_volume_id = trash_fingerprint
-                                .platform_file_id
-                                .as_deref()
-                                .and_then(platform_volume_id);
+                            item.trash_platform_volume_id = trash_fingerprint.platform_volume_id;
                             item.trash_platform_file_id = trash_fingerprint.platform_file_id;
                             item.trash_quick_hash = trash_fingerprint.quick_hash;
+                            item.trash_full_hash = trash_fingerprint.full_hash;
                             item.identity_status = "verified".to_string();
                             result.moved += 1;
                             (
@@ -1399,44 +1599,62 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                         Ok(trash_fingerprint) => {
                             item.trash_modified_ns =
                                 trash_fingerprint.modified_ns.map(|value| value.to_string());
-                            item.trash_platform_volume_id = trash_fingerprint
-                                .platform_file_id
-                                .as_deref()
-                                .and_then(platform_volume_id);
+                            item.trash_platform_volume_id = trash_fingerprint.platform_volume_id;
                             item.trash_platform_file_id = trash_fingerprint.platform_file_id;
                             item.trash_quick_hash = trash_fingerprint.quick_hash;
+                            item.trash_full_hash = trash_fingerprint.full_hash;
                             item.identity_status = "mismatch".to_string();
                             result.failed += 1;
+                            item.operation_phase = "target_committed".to_string();
                             (
-                            "failed",
-                            "failed",
-                            "Safe Trash destination identity did not match the journal; manual review is required."
+                            "manual_review",
+                            "manual_review",
+                            "target_committed_identity_mismatch: Safe Trash destination identity did not match the journal; the target may have committed and manual review is required."
                                 .to_string(),
                         )
                         }
                         Err(error) => {
                             item.identity_status = "unverifiable".to_string();
                             result.failed += 1;
+                            item.operation_phase = "target_committed".to_string();
                             (
-                            "failed",
-                            "failed",
+                            "manual_review",
+                            "manual_review",
                             format!(
-                                "Safe Trash destination identity could not be verified; manual review is required: {error}"
+                                "target_committed_identity_mismatch: Safe Trash destination identity could not be verified; the target may have committed and manual review is required: {error}"
                             ),
                         )
                         }
                     }
                 }
                 Err(error) => {
-                    item.identity_status = "move_failed".to_string();
+                    let phase = error.journal_phase();
+                    let requires_recovery = error.requires_recovery();
+                    item.operation_phase = phase.to_string();
+                    item.identity_status = if requires_recovery {
+                        "pending_recovery".to_string()
+                    } else {
+                        "move_failed".to_string()
+                    };
                     result.failed += 1;
                     (
-                        "failed",
-                        "failed",
-                        format!("Failed to move to Zen Canvas Safe Trash: {error}"),
+                        if requires_recovery {
+                            "manual_review"
+                        } else {
+                            "failed"
+                        },
+                        if requires_recovery {
+                            "manual_review"
+                        } else {
+                            "failed"
+                        },
+                        safe_trash_error_message(&error, false),
                     )
                 }
             };
+            if status == "moved" {
+                item.operation_phase = "completed".to_string();
+            }
             item.status = status.to_string();
             item.message = Some(message.clone());
             db.update_cleanup_trash_item_status(item).map_err(|error| {
@@ -1510,6 +1728,8 @@ fn restore_cleanup_trash_items_for_db_with_progress(
     job_id: String,
     emitter: &impl CleanupRestoreProgressEmitter,
 ) -> Result<CleanupRestoreResult, String> {
+    crate::fs_safety::platform_support::ensure_supported_cleanup_mutation()
+        .map_err(|error| error.to_string())?;
     let total = item_ids.len();
     let mut result = CleanupRestoreResult {
         restored: 0,
@@ -1592,7 +1812,56 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             );
             continue;
         }
-        if item.status != "moved" {
+        let restore_recovery_pending = matches!(
+            item.identity_status.as_str(),
+            "restore_pending" | "restore_pending_recovery"
+        );
+        let active_restore_phase = matches!(
+            item.operation_phase.as_str(),
+            "source_claimed"
+                | "copying"
+                | "target_committed"
+                | "source_cleanup_pending"
+                | "manual_review"
+        );
+        if restore_recovery_pending || active_restore_phase {
+            item.status = "manual_review".to_string();
+            if item.operation_phase == "completed" {
+                item.operation_phase = "manual_review".to_string();
+            }
+            if item.operation_phase != "manual_review"
+                && !matches!(
+                    item.identity_status.as_str(),
+                    "restore_pending" | "restore_pending_recovery"
+                )
+            {
+                item.identity_status = "restore_pending_recovery".to_string();
+            }
+            item.message = Some(
+                "restore_pending_reconciliation: Safe Trash restore has an active journal phase or source claim; reconcile it before retrying and do not auto retry."
+                    .to_string(),
+            );
+            db.update_cleanup_trash_item_status(&item)
+                .map_err(|error| error.to_string())?;
+            result.failed += 1;
+            result.logs.push(CleanupRestoreLog {
+                item_id: item.id,
+                original_path: normalize_path(&original),
+                trash_path: normalize_path(&trash_path),
+                status: "manual_review".to_string(),
+                message: item.message.clone().unwrap_or_default(),
+            });
+            emit_cleanup_restore_progress(
+                emitter,
+                &progress_context,
+                result.logs.len(),
+                Some(item_id),
+                current_path,
+                &result,
+            );
+            continue;
+        }
+        if item.status != "moved" && !restore_recovery_pending {
             result.failed += 1;
             result.logs.push(CleanupRestoreLog {
                 item_id: item.id,
@@ -1635,12 +1904,15 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             continue;
         }
         if !safe_trash_identity_matches(&item, &trash_path) {
-            item.status = "failed".to_string();
-            item.message = Some(if item.identity_status == "verified" {
-                "Safe Trash item identity changed; automatic restore is blocked for manual review."
+            let identity_was_verified = item.identity_status == "verified";
+            item.status = "manual_review".to_string();
+            item.operation_phase = "manual_review".to_string();
+            item.identity_status = "mismatch".to_string();
+            item.message = Some(if identity_was_verified {
+                "claim_identity_mismatch: Safe Trash item identity changed; automatic restore is blocked for manual review."
                     .to_string()
             } else {
-                "Legacy Safe Trash item has no identity fingerprint; automatic restore is blocked for manual review."
+                "manual_review_required: Legacy Safe Trash item has no identity fingerprint; automatic restore is blocked for manual review."
                     .to_string()
             });
             db.update_cleanup_trash_item_status(&item)
@@ -1650,7 +1922,7 @@ fn restore_cleanup_trash_items_for_db_with_progress(
                 item_id: item.id,
                 original_path: normalize_path(&original),
                 trash_path: normalize_path(&trash_path),
-                status: "failed".to_string(),
+                status: "manual_review".to_string(),
                 message: item.message.unwrap_or_default(),
             });
             continue;
@@ -1675,35 +1947,129 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             continue;
         }
 
-        match move_path_to_restore_location(
-            &trash_path,
-            &original,
-            item.size,
-            item.trash_quick_hash.as_deref(),
-        ) {
-            Ok(()) => {
-                let restored_identity = crate::file_ops::file_identity_fingerprint(&original);
-                if restored_identity.as_ref().is_ok_and(|fingerprint| {
-                    fingerprint.size == item.size && fingerprint.quick_hash == item.trash_quick_hash
-                }) {
-                    item.status = "restored".to_string();
-                    item.restored_at = Some(current_timestamp_ms().to_string());
-                    item.message = Some("Restored from Zen Canvas Safe Trash.".to_string());
+        let restore_claim_path =
+            match crate::fs_safety::source_claim::planned_claim_path(&trash_path, &item.id) {
+                Ok(path) => path,
+                Err(error) => {
+                    item.status = "failed".to_string();
+                    item.operation_phase = "manual_review".to_string();
+                    item.message = Some(error.to_string());
                     db.update_cleanup_trash_item_status(&item)
                         .map_err(|error| error.to_string())?;
-                    result.restored += 1;
+                    result.failed += 1;
                     result.logs.push(CleanupRestoreLog {
                         item_id: item.id,
                         original_path: normalize_path(&original),
                         trash_path: normalize_path(&trash_path),
-                        status: "restored".to_string(),
-                        message: "Restored from Zen Canvas Safe Trash.".to_string(),
+                        status: "failed".to_string(),
+                        message: item.message.unwrap_or_default(),
                     });
+                    continue;
+                }
+            };
+        item.source_claim_path = Some(normalize_path(&restore_claim_path));
+        item.claim_created_at = Some(current_timestamp_ms().to_string());
+        item.status = "pending".to_string();
+        item.identity_status = "restore_pending".to_string();
+        item.operation_phase = "prepared".to_string();
+        item.message =
+            Some("Safe Trash restore is journaled before filesystem mutation.".to_string());
+        db.update_cleanup_trash_item_status(&item)
+            .map_err(|error| error.to_string())?;
+
+        let restore_result = {
+            let size = item.size;
+            let quick_hash = item.trash_quick_hash.clone();
+            let full_hash = item.trash_full_hash.clone();
+            let mut phase_observer = |phase: &str| {
+                item.operation_phase = phase.to_string();
+                item.status = "pending".to_string();
+                item.identity_status = "restore_pending".to_string();
+                item.message = Some(format!("Safe Trash restore phase: {phase}."));
+                db.update_cleanup_trash_item_status(&item)
+                    .map_err(|error| {
+                        if matches!(
+                            phase,
+                            "target_committed" | "source_cleanup_pending" | "completed"
+                        ) {
+                            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                        } else {
+                            crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(format!(
+                                "safe-trash restore phase persistence failed: {error}"
+                            ))
+                        }
+                    })?;
+                Ok(())
+            };
+            move_path_to_restore_location(
+                &trash_path,
+                &original,
+                size,
+                quick_hash.as_deref(),
+                full_hash.as_deref(),
+                Some(&restore_claim_path),
+                Some(&mut phase_observer),
+            )
+        };
+        match restore_result {
+            Ok(()) => {
+                let restored_identity = crate::file_ops::file_identity_fingerprint(&original);
+                if restored_identity.as_ref().is_ok_and(|fingerprint| {
+                    fingerprint.size == item.size
+                        && fingerprint.quick_hash == item.trash_quick_hash
+                        && fingerprint.full_hash == item.trash_full_hash
+                }) {
+                    let recovery_phase = if item.operation_phase == "source_cleanup_pending" {
+                        "source_cleanup_pending"
+                    } else {
+                        "target_committed"
+                    };
+                    item.status = "restored".to_string();
+                    item.restored_at = Some(current_timestamp_ms().to_string());
+                    item.operation_phase = "completed".to_string();
+                    item.identity_status = "verified".to_string();
+                    item.message = Some("Restored from Zen Canvas Safe Trash.".to_string());
+                    match db.finalize_successful_cleanup_restore(&item) {
+                        Ok(()) => {
+                            item.source_claim_path = None;
+                            item.claim_created_at = None;
+                            item.claim_platform_file_id = None;
+                            item.claim_full_hash = None;
+                            result.restored += 1;
+                            result.logs.push(CleanupRestoreLog {
+                                item_id: item.id,
+                                original_path: normalize_path(&original),
+                                trash_path: normalize_path(&trash_path),
+                                status: "restored".to_string(),
+                                message: "Restored from Zen Canvas Safe Trash.".to_string(),
+                            });
+                        }
+                        Err(error) => {
+                            item.status = "manual_review".to_string();
+                            item.restored_at = None;
+                            item.operation_phase = recovery_phase.to_string();
+                            item.identity_status = "restore_pending_recovery".to_string();
+                            item.message = Some(format!(
+                                "target_committed_durability_unknown: Safe Trash restore filesystem commit succeeded but final transaction failed: {error}; do not auto retry."
+                            ));
+                            db.update_cleanup_trash_item_status(&item)
+                                .map_err(|persist_error| persist_error.to_string())?;
+                            result.failed += 1;
+                            result.logs.push(CleanupRestoreLog {
+                                item_id: item.id,
+                                original_path: normalize_path(&original),
+                                trash_path: normalize_path(&trash_path),
+                                status: "manual_review".to_string(),
+                                message: item.message.clone().unwrap_or_default(),
+                            });
+                        }
+                    }
                 } else {
-                    item.status = "failed".to_string();
+                    item.status = "manual_review".to_string();
+                    item.operation_phase = "target_committed".to_string();
                     item.identity_status = "restore_mismatch".to_string();
                     item.message = Some(
-                        "Restored path identity could not be verified; manual review is required."
+                        "target_committed_identity_mismatch: restored target identity could not be verified; the target may have committed and manual review is required."
                             .to_string(),
                     );
                     db.update_cleanup_trash_item_status(&item)
@@ -1713,23 +2079,57 @@ fn restore_cleanup_trash_items_for_db_with_progress(
                         item_id: item.id,
                         original_path: normalize_path(&original),
                         trash_path: normalize_path(&trash_path),
-                        status: "failed".to_string(),
+                        status: "manual_review".to_string(),
                         message: item.message.clone().unwrap_or_default(),
                     });
                 }
             }
             Err(error) => {
-                item.status = "failed".to_string();
-                item.message = Some(error.clone());
+                let recovery_required = safe_trash_error_message(&error, true);
+                let canceled = error.is_cancelled();
+                let phase = if canceled {
+                    "rolled_back"
+                } else if error.requires_recovery() {
+                    error.journal_phase()
+                } else {
+                    "rolled_back"
+                };
+                let is_recovery = error.requires_recovery();
+                item.status = if canceled {
+                    "canceled".to_string()
+                } else if is_recovery {
+                    "manual_review".to_string()
+                } else {
+                    "failed".to_string()
+                };
+                item.operation_phase = phase.to_string();
+                item.identity_status = if canceled {
+                    "canceled".to_string()
+                } else if is_recovery {
+                    "restore_pending_recovery".to_string()
+                } else {
+                    "restore_failed".to_string()
+                };
+                item.message = Some(recovery_required.clone());
                 db.update_cleanup_trash_item_status(&item)
                     .map_err(|error| error.to_string())?;
-                result.failed += 1;
+                if canceled {
+                    result.canceled += 1;
+                } else {
+                    result.failed += 1;
+                }
                 result.logs.push(CleanupRestoreLog {
                     item_id: item.id,
                     original_path: normalize_path(&original),
                     trash_path: normalize_path(&trash_path),
-                    status: "failed".to_string(),
-                    message: error,
+                    status: if canceled {
+                        "canceled".to_string()
+                    } else if is_recovery {
+                        "manual_review".to_string()
+                    } else {
+                        "failed".to_string()
+                    },
+                    message: recovery_required,
                 });
             }
         }
@@ -1780,46 +2180,184 @@ pub fn reconcile_pending_cleanup_journal(db: &Database) -> Result<usize, String>
         .pending_cleanup_trash_items()
         .map_err(|error| error.to_string())?;
     for item in &mut items {
-        let original_exists = Path::new(&item.original_path).exists();
-        let trash_exists = Path::new(&item.trash_path).exists();
-        if !original_exists
-            && trash_exists
-            && pending_safe_trash_identity_matches(item, Path::new(&item.trash_path))
-        {
-            if let Ok(trash_fingerprint) =
-                crate::file_ops::file_identity_fingerprint(Path::new(&item.trash_path))
-            {
-                item.trash_modified_ns =
-                    trash_fingerprint.modified_ns.map(|value| value.to_string());
-                item.trash_platform_volume_id = trash_fingerprint
-                    .platform_file_id
-                    .as_deref()
-                    .and_then(platform_volume_id);
-                item.trash_platform_file_id = trash_fingerprint.platform_file_id;
-                item.trash_quick_hash = trash_fingerprint.quick_hash;
-                item.identity_status = "verified".to_string();
-                item.status = "moved".to_string();
-                item.message =
-                    Some("Recovered an interrupted Safe Trash journal after restart.".to_string());
+        let original = Path::new(&item.original_path);
+        let trash = Path::new(&item.trash_path);
+        let claim = item.source_claim_path.as_deref().map(Path::new);
+        let original_state = cleanup_journal_path_state(original, |path| {
+            pending_safe_trash_identity_matches(item, path)
+        });
+        let trash_state = cleanup_journal_path_state(trash, |path| {
+            pending_safe_trash_identity_matches(item, path)
+        });
+        let claim_state = claim.map_or(JournalPathState::Missing, |path| {
+            cleanup_journal_path_state(path, |candidate| {
+                pending_safe_trash_claim_identity_matches(item, candidate)
+            })
+        });
+
+        if matches!(
+            item.identity_status.as_str(),
+            "restore_pending" | "restore_pending_recovery"
+        ) {
+            let previous_phase = item.operation_phase.clone();
+            let decision = classify_cleanup_restore_reconciliation(
+                original_state,
+                trash_state,
+                claim_state,
+                &previous_phase,
+                &item.status,
+                &item.identity_status,
+            );
+            item.status = decision.status.to_string();
+            item.operation_phase = decision.operation_phase.to_string();
+            item.identity_status = decision.identity_status.to_string();
+            item.restored_at = decision
+                .restored
+                .then(|| current_timestamp_ms().to_string());
+            item.message = Some(decision.message.to_string());
+
+            if decision.restored {
+                match db.finalize_successful_cleanup_restore(item) {
+                    Ok(()) => {
+                        item.source_claim_path = None;
+                        item.claim_created_at = None;
+                        item.claim_platform_file_id = None;
+                        item.claim_full_hash = None;
+                    }
+                    Err(error) => {
+                        item.status = "manual_review".to_string();
+                        item.restored_at = None;
+                        item.operation_phase = if previous_phase == "source_cleanup_pending" {
+                            "source_cleanup_pending"
+                        } else {
+                            "target_committed"
+                        }
+                        .to_string();
+                        item.identity_status = "restore_pending_recovery".to_string();
+                        item.message = Some(format!(
+                            "target_committed_durability_unknown: Safe Trash restore final transaction failed: {error}; do not auto retry."
+                        ));
+                        db.update_cleanup_trash_item_status(item)
+                            .map_err(|persist_error| persist_error.to_string())?;
+                    }
+                }
             } else {
-                item.identity_status = "unverifiable".to_string();
-                item.status = "failed".to_string();
-                item.message = Some(
-                    "Interrupted Safe Trash destination identity is unverifiable; manual review is required."
-                        .to_string(),
-                );
+                if decision.clear_claim {
+                    item.source_claim_path = None;
+                    item.claim_created_at = None;
+                    item.claim_platform_file_id = None;
+                    item.claim_full_hash = None;
+                }
+                db.update_cleanup_trash_item_status(item)
+                    .map_err(|error| error.to_string())?;
             }
         } else {
-            item.status = "failed".to_string();
-            item.identity_status = "mismatch".to_string();
-            item.message = Some(if !original_exists && trash_exists {
-                "Interrupted Safe Trash move found a different file identity; manual review is required."
-                    .to_string()
-            } else if original_exists && !trash_exists {
-                "Safe Trash move was interrupted before the filesystem change.".to_string()
-            } else {
-                "Interrupted Safe Trash move requires manual path review.".to_string()
-            });
+            match (original_state, trash_state, claim_state) {
+                (
+                    JournalPathState::Missing,
+                    JournalPathState::Matches,
+                    JournalPathState::Missing,
+                ) if matches!(
+                    item.operation_phase.as_str(),
+                    "target_committed" | "source_cleanup_pending"
+                ) || (item.operation_phase == "manual_review"
+                    && item.identity_status == "pending_recovery") =>
+                {
+                    item.status = "manual_review".to_string();
+                    item.operation_phase = match item.operation_phase.as_str() {
+                        "source_cleanup_pending" => "source_cleanup_pending",
+                        "target_committed" => "target_committed",
+                        _ => "manual_review",
+                    }
+                    .to_string();
+                    item.identity_status = "pending_recovery".to_string();
+                    item.message = Some(
+                        "target_committed_durability_unknown: Safe Trash target may have committed; verify the target before retrying."
+                            .to_string(),
+                    );
+                }
+                (
+                    JournalPathState::Missing,
+                    JournalPathState::Matches,
+                    JournalPathState::Missing,
+                ) if item.status != "manual_review"
+                    && item.operation_phase != "manual_review"
+                    && item.identity_status != "mismatch" =>
+                {
+                    if let Ok(trash_fingerprint) = crate::file_ops::file_identity_fingerprint(trash)
+                    {
+                        item.trash_modified_ns =
+                            trash_fingerprint.modified_ns.map(|value| value.to_string());
+                        item.trash_platform_volume_id = trash_fingerprint.platform_volume_id;
+                        item.trash_platform_file_id = trash_fingerprint.platform_file_id;
+                        item.trash_quick_hash = trash_fingerprint.quick_hash;
+                        item.trash_full_hash = trash_fingerprint.full_hash;
+                        item.identity_status = "verified".to_string();
+                        item.status = "moved".to_string();
+                        item.operation_phase = "completed".to_string();
+                        item.message = Some(
+                            "Recovered an interrupted Safe Trash journal after restart."
+                                .to_string(),
+                        );
+                    } else {
+                        item.status = "pending".to_string();
+                        item.operation_phase = "manual_review".to_string();
+                        item.identity_status = "unverifiable".to_string();
+                        item.message = Some(
+                            "Interrupted Safe Trash destination identity is unverifiable; manual review is required."
+                                .to_string(),
+                        );
+                    }
+                }
+                (
+                    JournalPathState::Missing,
+                    JournalPathState::Missing,
+                    JournalPathState::Matches,
+                ) => {
+                    item.status = "manual_review".to_string();
+                    item.operation_phase = "source_claimed".to_string();
+                    item.identity_status = "pending_recovery".to_string();
+                    item.message = Some(
+                        "manual_review_required: Safe Trash source claim was recovered without a committed target; manual review is required."
+                            .to_string(),
+                    );
+                }
+                (
+                    JournalPathState::Missing,
+                    JournalPathState::Matches,
+                    JournalPathState::Matches,
+                ) => {
+                    item.status = "manual_review".to_string();
+                    item.operation_phase = "source_cleanup_pending".to_string();
+                    item.identity_status = "pending_recovery".to_string();
+                    item.message = Some(
+                        "target_committed_source_cleanup_pending: Safe Trash target and source claim both exist; source cleanup requires manual review."
+                            .to_string(),
+                    );
+                }
+                (
+                    JournalPathState::Matches,
+                    JournalPathState::Missing,
+                    JournalPathState::Missing,
+                ) => {
+                    item.status = "failed".to_string();
+                    item.operation_phase = "rolled_back".to_string();
+                    item.identity_status = "rolled_back".to_string();
+                    item.message = Some(
+                        "Safe Trash move was interrupted before the filesystem change; the source is intact."
+                            .to_string(),
+                    );
+                }
+                _ => {
+                    item.status = "manual_review".to_string();
+                    item.operation_phase = "manual_review".to_string();
+                    item.identity_status = "mismatch".to_string();
+                    item.message = Some(
+                        "manual_review_required: interrupted Safe Trash move found a missing, inaccessible, or mismatched identity/path; manual review is required."
+                            .to_string(),
+                    );
+                }
+            }
         }
         db.update_cleanup_trash_item_status(item)
             .map_err(|error| error.to_string())?;
@@ -1829,6 +2367,209 @@ pub fn reconcile_pending_cleanup_journal(db: &Database) -> Result<usize, String>
             .map_err(|error| error.to_string())?;
     }
     Ok(items.len())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JournalPathState {
+    Missing,
+    Matches,
+    Mismatch,
+    Unreadable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CleanupRestoreReconciliationDecision {
+    status: &'static str,
+    operation_phase: &'static str,
+    identity_status: &'static str,
+    message: &'static str,
+    clear_claim: bool,
+    restored: bool,
+}
+
+fn classify_cleanup_restore_reconciliation(
+    original_state: JournalPathState,
+    trash_state: JournalPathState,
+    claim_state: JournalPathState,
+    current_phase: &str,
+    _current_status: &str,
+    _current_identity_status: &str,
+) -> CleanupRestoreReconciliationDecision {
+    if matches!(
+        claim_state,
+        JournalPathState::Mismatch | JournalPathState::Unreadable
+    ) {
+        return CleanupRestoreReconciliationDecision {
+            status: "manual_review",
+            operation_phase: cleanup_restore_recovery_phase(
+                original_state,
+                trash_state,
+                current_phase,
+            ),
+            identity_status: "restore_pending_recovery",
+            message: "claim_identity_mismatch: Safe Trash restore Claim identity is mismatched or unreadable; do not auto retry.",
+            clear_claim: false,
+            restored: false,
+        };
+    }
+
+    if matches!(
+        original_state,
+        JournalPathState::Mismatch | JournalPathState::Unreadable
+    ) || matches!(
+        trash_state,
+        JournalPathState::Mismatch | JournalPathState::Unreadable
+    ) {
+        return CleanupRestoreReconciliationDecision {
+            status: "manual_review",
+            operation_phase: cleanup_restore_recovery_phase(
+                original_state,
+                trash_state,
+                current_phase,
+            ),
+            identity_status: "restore_pending_recovery",
+            message: "target_committed_identity_mismatch: Safe Trash restore target or source identity is mismatched or unreadable; do not auto retry.",
+            clear_claim: false,
+            restored: false,
+        };
+    }
+
+    match (original_state, trash_state, claim_state) {
+        (JournalPathState::Matches, JournalPathState::Missing, JournalPathState::Missing)
+            if matches!(current_phase, "target_committed" | "source_cleanup_pending") =>
+        {
+            CleanupRestoreReconciliationDecision {
+                status: "manual_review",
+                operation_phase: if current_phase == "source_cleanup_pending" {
+                    "source_cleanup_pending"
+                } else {
+                    "target_committed"
+                },
+                identity_status: "restore_pending_recovery",
+                message: "target_committed_durability_unknown: Safe Trash restore target may have committed; verify the restored path before retrying.",
+                clear_claim: false,
+                restored: false,
+            }
+        }
+        (JournalPathState::Matches, JournalPathState::Missing, JournalPathState::Missing) => {
+            CleanupRestoreReconciliationDecision {
+                status: "restored",
+                operation_phase: "completed",
+                identity_status: "verified",
+                message: "Recovered an interrupted Safe Trash restore after restart.",
+                clear_claim: true,
+                restored: true,
+            }
+        }
+        (JournalPathState::Missing, JournalPathState::Matches, JournalPathState::Missing) => {
+            CleanupRestoreReconciliationDecision {
+                status: "moved",
+                operation_phase: "rolled_back",
+                identity_status: "verified",
+                message: "Safe Trash restore was interrupted before filesystem commit; it remains available and will not be auto-retried.",
+                clear_claim: true,
+                restored: false,
+            }
+        }
+        (JournalPathState::Missing, JournalPathState::Missing, JournalPathState::Matches) => {
+            CleanupRestoreReconciliationDecision {
+                status: "manual_review",
+                operation_phase: "source_claimed",
+                identity_status: "restore_pending_recovery",
+                message: "restore_pending_reconciliation: Safe Trash restore source Claim was recovered without a committed target; do not auto retry.",
+                clear_claim: false,
+                restored: false,
+            }
+        }
+        (JournalPathState::Missing, JournalPathState::Matches, JournalPathState::Matches) => {
+            CleanupRestoreReconciliationDecision {
+                status: "manual_review",
+                operation_phase: "source_cleanup_pending",
+                identity_status: "restore_pending_recovery",
+                message: "target_committed_source_cleanup_pending: Safe Trash restore target and source Claim both exist; source cleanup requires manual review.",
+                clear_claim: false,
+                restored: false,
+            }
+        }
+        (JournalPathState::Matches, JournalPathState::Missing, JournalPathState::Matches) => {
+            CleanupRestoreReconciliationDecision {
+                status: "manual_review",
+                operation_phase: "source_cleanup_pending",
+                identity_status: "restore_pending_recovery",
+                message: "target_committed_source_cleanup_pending: Safe Trash restore target and source Claim both exist; source cleanup requires manual review.",
+                clear_claim: false,
+                restored: false,
+            }
+        }
+        (JournalPathState::Missing, JournalPathState::Missing, JournalPathState::Missing) => {
+            CleanupRestoreReconciliationDecision {
+                status: "manual_review",
+                operation_phase: "manual_review",
+                identity_status: "restore_pending_recovery",
+                message: "restore_pending_reconciliation: Safe Trash restore has neither a matching source, destination, nor Claim; do not auto retry.",
+                clear_claim: false,
+                restored: false,
+            }
+        }
+        _ => CleanupRestoreReconciliationDecision {
+            status: "manual_review",
+            operation_phase: cleanup_restore_recovery_phase(
+                original_state,
+                trash_state,
+                current_phase,
+            ),
+            identity_status: "restore_pending_recovery",
+            message: "restore_pending_reconciliation: interrupted Safe Trash restore has an ambiguous path state; do not auto retry.",
+            clear_claim: false,
+            restored: false,
+        },
+    }
+}
+
+fn cleanup_restore_recovery_phase(
+    original_state: JournalPathState,
+    trash_state: JournalPathState,
+    current_phase: &str,
+) -> &'static str {
+    if matches!(
+        current_phase,
+        "prepared"
+            | "source_claimed"
+            | "copying"
+            | "target_committed"
+            | "source_cleanup_pending"
+            | "manual_review"
+    ) {
+        return match current_phase {
+            "prepared" => "prepared",
+            "source_claimed" => "source_claimed",
+            "copying" => "copying",
+            "target_committed" => "target_committed",
+            "source_cleanup_pending" => "source_cleanup_pending",
+            _ => "manual_review",
+        };
+    }
+
+    match (original_state, trash_state) {
+        (JournalPathState::Matches, JournalPathState::Missing) => "target_committed",
+        (JournalPathState::Missing, JournalPathState::Matches) => "source_claimed",
+        _ => "manual_review",
+    }
+}
+
+fn cleanup_journal_path_state(
+    path: &Path,
+    identity_matches: impl FnOnce(&Path) -> Result<bool, ()>,
+) -> JournalPathState {
+    match fs::symlink_metadata(path) {
+        Ok(_) => match identity_matches(path) {
+            Ok(true) => JournalPathState::Matches,
+            Ok(false) => JournalPathState::Mismatch,
+            Err(()) => JournalPathState::Unreadable,
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => JournalPathState::Missing,
+        Err(_) => JournalPathState::Unreadable,
+    }
 }
 
 pub fn is_forbidden_storage_path_for_test(path: &Path) -> bool {
@@ -1961,8 +2702,11 @@ fn cleanup_operation_preview(candidate: &StorageCandidate) -> OperationPreviewDt
         is_duplicate: false,
         reason: candidate.reason.clone(),
         selected_by_default: Some(true),
-        is_executable: Some(true),
-        blocking_reason: None,
+        // The OS recycle bin has no source-bound, no-replace journal contract
+        // in this backend.  Keep the preview visible for review, but make it
+        // non-executable so the UI cannot turn it into a mutation request.
+        is_executable: Some(false),
+        blocking_reason: Some("system_trash_source_binding_unsupported".to_string()),
         editable_new_name: Some(false),
         target_parent_exists: Some(true),
         will_create_parent: Some(false),
@@ -2218,7 +2962,7 @@ struct CleanupRootContext {
 
 impl CleanupRootContext {
     fn matches(&self, path: &str) -> bool {
-        let normalized_path = normalize_compare_text(path);
+        let normalized_path = normalize_text_for_compare(path);
         [&self.requested_root, &self.canonical_root]
             .into_iter()
             .any(|root| is_same_or_child(&normalized_path, &normalize_for_compare(root)))
@@ -2989,10 +3733,12 @@ impl Database {
                 INSERT INTO cleanup_trash_items (
                     id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
                     status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
-                    trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
-                    trash_quick_hash, identity_status
+                    source_full_hash, trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                    trash_quick_hash, trash_full_hash, identity_status,
+                    source_claim_path, operation_phase, claim_created_at,
+                    claim_platform_file_id, claim_full_hash
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)
                 ON CONFLICT(id) DO UPDATE SET
                     batch_id = excluded.batch_id,
                     original_path = excluded.original_path,
@@ -3006,11 +3752,18 @@ impl Database {
                     source_modified_ns = excluded.source_modified_ns,
                     source_platform_file_id = excluded.source_platform_file_id,
                     source_quick_hash = excluded.source_quick_hash,
+                    source_full_hash = excluded.source_full_hash,
                     trash_modified_ns = excluded.trash_modified_ns,
                     trash_platform_volume_id = excluded.trash_platform_volume_id,
                     trash_platform_file_id = excluded.trash_platform_file_id,
                     trash_quick_hash = excluded.trash_quick_hash,
-                    identity_status = excluded.identity_status
+                    trash_full_hash = excluded.trash_full_hash,
+                    identity_status = excluded.identity_status,
+                    source_claim_path = excluded.source_claim_path,
+                    operation_phase = excluded.operation_phase,
+                    claim_created_at = excluded.claim_created_at,
+                    claim_platform_file_id = excluded.claim_platform_file_id,
+                    claim_full_hash = excluded.claim_full_hash
                 "#,
             )?;
             for item in &batch.items {
@@ -3028,11 +3781,18 @@ impl Database {
                     item.source_modified_ns,
                     item.source_platform_file_id,
                     item.source_quick_hash,
+                    item.source_full_hash,
                     item.trash_modified_ns,
                     item.trash_platform_volume_id,
                     item.trash_platform_file_id,
                     item.trash_quick_hash,
-                    item.identity_status
+                    item.trash_full_hash,
+                    item.identity_status,
+                    item.source_claim_path,
+                    item.operation_phase,
+                    item.claim_created_at,
+                    item.claim_platform_file_id,
+                    item.claim_full_hash
                 ])?;
             }
         }
@@ -3048,8 +3808,10 @@ impl Database {
                    i.id, i.batch_id, i.original_path, i.trash_path, i.name, i.size,
                    i.moved_at, i.restored_at, i.status, i.message,
                    i.source_modified_ns, i.source_platform_file_id, i.source_quick_hash,
-                   i.trash_modified_ns, i.trash_platform_volume_id, i.trash_platform_file_id,
-                   i.trash_quick_hash, i.identity_status
+                   i.source_full_hash, i.trash_modified_ns, i.trash_platform_volume_id, i.trash_platform_file_id,
+                   i.trash_quick_hash, i.trash_full_hash, i.identity_status,
+                   i.source_claim_path, i.operation_phase, i.claim_created_at,
+                   i.claim_platform_file_id, i.claim_full_hash
             FROM cleanup_trash_batches AS b
             LEFT JOIN cleanup_trash_items AS i ON i.batch_id = b.id
             ORDER BY CAST(b.created_at AS INTEGER) DESC, i.name COLLATE NOCASE ASC
@@ -3092,11 +3854,18 @@ impl Database {
                     source_modified_ns: row.get(16)?,
                     source_platform_file_id: row.get(17)?,
                     source_quick_hash: row.get(18)?,
-                    trash_modified_ns: row.get(19)?,
-                    trash_platform_volume_id: row.get(20)?,
-                    trash_platform_file_id: row.get(21)?,
-                    trash_quick_hash: row.get(22)?,
-                    identity_status: row.get(23)?,
+                    source_full_hash: row.get(19)?,
+                    trash_modified_ns: row.get(20)?,
+                    trash_platform_volume_id: row.get(21)?,
+                    trash_platform_file_id: row.get(22)?,
+                    trash_quick_hash: row.get(23)?,
+                    trash_full_hash: row.get(24)?,
+                    identity_status: row.get(25)?,
+                    source_claim_path: row.get(26)?,
+                    operation_phase: row.get(27)?,
+                    claim_created_at: row.get(28)?,
+                    claim_platform_file_id: row.get(29)?,
+                    claim_full_hash: row.get(30)?,
                 });
             }
         }
@@ -3112,8 +3881,10 @@ impl Database {
             r#"
             SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
                    status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
-                   trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
-                   trash_quick_hash, identity_status
+                   source_full_hash, trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                   trash_quick_hash, trash_full_hash, identity_status,
+                   source_claim_path, operation_phase, claim_created_at,
+                   claim_platform_file_id, claim_full_hash
             FROM cleanup_trash_items
             WHERE batch_id = ?1
             ORDER BY name COLLATE NOCASE ASC
@@ -3129,8 +3900,10 @@ impl Database {
             r#"
             SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
                    status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
-                   trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
-                   trash_quick_hash, identity_status
+                   source_full_hash, trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                   trash_quick_hash, trash_full_hash, identity_status,
+                   source_claim_path, operation_phase, claim_created_at,
+                   claim_platform_file_id, claim_full_hash
             FROM cleanup_trash_items
             WHERE id = ?1
             "#,
@@ -3147,10 +3920,20 @@ impl Database {
             r#"
             SELECT id, batch_id, original_path, trash_path, name, size, moved_at, restored_at,
                    status, message, source_modified_ns, source_platform_file_id, source_quick_hash,
-                   trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
-                   trash_quick_hash, identity_status
+                   source_full_hash, trash_modified_ns, trash_platform_volume_id, trash_platform_file_id,
+                   trash_quick_hash, trash_full_hash, identity_status,
+                   source_claim_path, operation_phase, claim_created_at,
+                   claim_platform_file_id, claim_full_hash
             FROM cleanup_trash_items
             WHERE status = 'pending'
+               OR (
+                    status = 'manual_review'
+                    AND identity_status IN ('pending_recovery', 'restore_pending', 'restore_pending_recovery')
+                    AND operation_phase IN (
+                        'prepared', 'source_claimed', 'copying',
+                        'target_committed', 'source_cleanup_pending', 'manual_review'
+                    )
+               )
             ORDER BY moved_at ASC
             "#,
         )?;
@@ -3166,7 +3949,7 @@ impl Database {
             SET status = CASE
                 WHEN EXISTS (
                     SELECT 1 FROM cleanup_trash_items AS item
-                    WHERE item.batch_id = batch.id AND item.status = 'pending'
+                    WHERE item.batch_id = batch.id AND item.status IN ('pending', 'manual_review')
                 ) THEN 'pending'
                 WHEN EXISTS (
                     SELECT 1 FROM cleanup_trash_items AS item
@@ -3182,6 +3965,67 @@ impl Database {
         Ok(())
     }
 
+    pub fn finalize_successful_cleanup_restore(
+        &self,
+        item: &CleanupTrashItem,
+    ) -> Result<(), DbError> {
+        let restored_at = item
+            .restored_at
+            .clone()
+            .unwrap_or_else(|| current_timestamp_ms().to_string());
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        let finalized = tx.execute(
+            r#"
+            UPDATE cleanup_trash_items
+            SET restored_at = ?2,
+                status = 'restored',
+                message = ?3,
+                identity_status = 'verified',
+                source_claim_path = NULL,
+                operation_phase = 'completed',
+                claim_created_at = NULL,
+                claim_platform_file_id = NULL,
+                claim_full_hash = NULL
+            WHERE id = ?1
+            "#,
+            params![item.id, restored_at, "Restored from Zen Canvas Safe Trash."],
+        )?;
+        if finalized != 1 {
+            return Err(DbError::Validation(format!(
+                "Safe Trash restore journal row disappeared during finalization: {}",
+                item.id
+            )));
+        }
+
+        let batch_updated = tx.execute(
+            r#"
+            UPDATE cleanup_trash_batches AS batch
+            SET status = CASE
+                WHEN EXISTS (
+                    SELECT 1 FROM cleanup_trash_items AS child
+                    WHERE child.batch_id = batch.id AND child.status IN ('pending', 'manual_review')
+                ) THEN 'pending'
+                WHEN EXISTS (
+                    SELECT 1 FROM cleanup_trash_items AS child
+                    WHERE child.batch_id = batch.id AND child.status = 'failed'
+                ) THEN 'partial_failed'
+                ELSE 'success'
+            END
+            WHERE batch.id = ?1
+            "#,
+            params![item.batch_id],
+        )?;
+        if batch_updated != 1 {
+            return Err(DbError::Validation(format!(
+                "Safe Trash restore batch disappeared during finalization: {}",
+                item.batch_id
+            )));
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn update_cleanup_trash_item_status(&self, item: &CleanupTrashItem) -> Result<(), DbError> {
         let conn = self.conn()?;
         conn.execute(
@@ -3193,11 +4037,18 @@ impl Database {
                 source_modified_ns = ?5,
                 source_platform_file_id = ?6,
                 source_quick_hash = ?7,
-                trash_modified_ns = ?8,
-                trash_platform_volume_id = ?9,
-                trash_platform_file_id = ?10,
-                trash_quick_hash = ?11,
-                identity_status = ?12
+                source_full_hash = ?8,
+                trash_modified_ns = ?9,
+                trash_platform_volume_id = ?10,
+                trash_platform_file_id = ?11,
+                trash_quick_hash = ?12,
+                trash_full_hash = ?13,
+                identity_status = ?14,
+                source_claim_path = ?15,
+                operation_phase = ?16,
+                claim_created_at = ?17,
+                claim_platform_file_id = ?18,
+                claim_full_hash = ?19
             WHERE id = ?1
             "#,
             params![
@@ -3208,11 +4059,18 @@ impl Database {
                 item.source_modified_ns,
                 item.source_platform_file_id,
                 item.source_quick_hash,
+                item.source_full_hash,
                 item.trash_modified_ns,
                 item.trash_platform_volume_id,
                 item.trash_platform_file_id,
                 item.trash_quick_hash,
-                item.identity_status
+                item.trash_full_hash,
+                item.identity_status,
+                item.source_claim_path,
+                item.operation_phase,
+                item.claim_created_at,
+                item.claim_platform_file_id,
+                item.claim_full_hash
             ],
         )?;
         Ok(())
@@ -3235,11 +4093,18 @@ fn cleanup_trash_item_from_row(row: &Row<'_>) -> rusqlite::Result<CleanupTrashIt
         source_modified_ns: row.get(10)?,
         source_platform_file_id: row.get(11)?,
         source_quick_hash: row.get(12)?,
-        trash_modified_ns: row.get(13)?,
-        trash_platform_volume_id: row.get(14)?,
-        trash_platform_file_id: row.get(15)?,
-        trash_quick_hash: row.get(16)?,
-        identity_status: row.get(17)?,
+        source_full_hash: row.get(13)?,
+        trash_modified_ns: row.get(14)?,
+        trash_platform_volume_id: row.get(15)?,
+        trash_platform_file_id: row.get(16)?,
+        trash_quick_hash: row.get(17)?,
+        trash_full_hash: row.get(18)?,
+        identity_status: row.get(19)?,
+        source_claim_path: row.get(20)?,
+        operation_phase: row.get(21)?,
+        claim_created_at: row.get(22)?,
+        claim_platform_file_id: row.get(23)?,
+        claim_full_hash: row.get(24)?,
     })
 }
 
@@ -3271,8 +4136,19 @@ fn move_path_to_safe_trash(
     trash_path: &Path,
     expected_size: u64,
     expected_quick_hash: Option<&str>,
-) -> Result<(), String> {
-    move_path_with_copy_fallback(source, trash_path, expected_size, expected_quick_hash)
+    expected_full_hash: Option<&str>,
+    planned_claim_path: Option<&Path>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> Result<(), SafeTrashMutationError> {
+    move_path_with_copy_fallback(
+        source,
+        trash_path,
+        expected_size,
+        expected_quick_hash,
+        expected_full_hash,
+        planned_claim_path,
+        phase_observer,
+    )
 }
 
 fn move_path_to_restore_location(
@@ -3280,8 +4156,19 @@ fn move_path_to_restore_location(
     original: &Path,
     expected_size: u64,
     expected_quick_hash: Option<&str>,
-) -> Result<(), String> {
-    move_path_with_copy_fallback(trash_path, original, expected_size, expected_quick_hash)
+    expected_full_hash: Option<&str>,
+    planned_claim_path: Option<&Path>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> Result<(), SafeTrashMutationError> {
+    move_path_with_copy_fallback(
+        trash_path,
+        original,
+        expected_size,
+        expected_quick_hash,
+        expected_full_hash,
+        planned_claim_path,
+        phase_observer,
+    )
 }
 
 fn move_path_with_copy_fallback(
@@ -3289,55 +4176,35 @@ fn move_path_with_copy_fallback(
     target: &Path,
     expected_size: u64,
     expected_quick_hash: Option<&str>,
-) -> Result<(), String> {
-    if target.exists() {
-        return Err("target path already exists".to_string());
-    }
+    expected_full_hash: Option<&str>,
+    planned_claim_path: Option<&Path>,
+    phase_observer: Option<&mut crate::fs_safety::PhaseObserver<'_>>,
+) -> Result<(), SafeTrashMutationError> {
+    crate::fs_safety::platform_support::ensure_supported_file_mutation()
+        .map_err(|error| error.to_string())?;
+    let expected = crate::fs_safety::ExpectedFileIdentity {
+        size: expected_size,
+        modified_ns: None,
+        platform_volume_id: None,
+        platform_file_id: None,
+        sample_hash: expected_quick_hash.map(str::to_string),
+        full_hash: expected_full_hash.map(str::to_string),
+    };
     if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        crate::fs_safety::create_directory_chain_no_links(parent).map_err(|error| {
+            SafeTrashMutationError::Validation(format!("target parent rejected: {error}"))
+        })?;
     }
-    match fs::rename(source, target) {
-        Ok(()) => return Ok(()),
-        Err(_) => {
-            let stage = staging_path_for(target);
-            if stage.exists() {
-                let _ = remove_path(&stage);
-            }
-            if let Err(error) = copy_path(source, &stage) {
-                let _ = remove_path(&stage);
-                return Err(error);
-            }
-            let copied_size = path_size_for_verify(&stage)?;
-            if expected_size > 0 && copied_size != expected_size {
-                let _ = remove_path(&stage);
-                return Err(format!(
-                    "copy verification failed: expected {expected_size} bytes, copied {copied_size} bytes"
-                ));
-            }
-            if let Some(expected_hash) = expected_quick_hash {
-                let staged = crate::file_ops::file_identity_fingerprint(&stage)?;
-                if staged.quick_hash.as_deref() != Some(expected_hash) {
-                    let _ = remove_path(&stage);
-                    return Err(
-                        "copy verification failed: staged content identity did not match"
-                            .to_string(),
-                    );
-                }
-            }
-            fs::rename(&stage, target).map_err(|error| {
-                let _ = remove_path(&stage);
-                format!("failed to commit staged safe-trash copy: {error}")
-            })?;
-            remove_path(source)?;
-        }
-    }
-    Ok(())
-}
-
-fn platform_volume_id(platform_file_id: &str) -> Option<String> {
-    platform_file_id
-        .split_once(':')
-        .map(|(volume, _)| volume.to_string())
+    crate::fs_safety::atomic_move::atomic_move_noreplace_with_claim_path_and_observer(
+        source,
+        target,
+        Some(&expected),
+        planned_claim_path,
+        None,
+        phase_observer,
+    )
+    .map(|_| ())
+    .map_err(SafeTrashMutationError::Atomic)
 }
 
 fn safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
@@ -3345,16 +4212,19 @@ fn safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
         return false;
     }
     let (Some(expected_hash), Ok(actual)) = (
-        item.trash_quick_hash.as_deref(),
+        item.trash_full_hash.as_deref(),
         crate::file_ops::file_identity_fingerprint(path),
     ) else {
         return false;
     };
-    if actual.size != item.size || actual.quick_hash.as_deref() != Some(expected_hash) {
+    if actual.size != item.size || actual.full_hash.as_deref() != Some(expected_hash) {
         return false;
     }
     if let Some(expected_id) = item.trash_platform_file_id.as_deref() {
         return actual.platform_file_id.as_deref() == Some(expected_id);
+    }
+    if let Some(expected_volume) = item.trash_platform_volume_id.as_deref() {
+        return actual.platform_volume_id.as_deref() == Some(expected_volume);
     }
     item.trash_modified_ns
         .as_deref()
@@ -3363,76 +4233,36 @@ fn safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
         .is_some_and(|(expected, actual)| expected == actual)
 }
 
-fn pending_safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
-    let (Some(expected_hash), Ok(actual)) = (
-        item.source_quick_hash.as_deref(),
-        crate::file_ops::file_identity_fingerprint(path),
-    ) else {
-        return false;
-    };
-    if actual.size != item.size || actual.quick_hash.as_deref() != Some(expected_hash) {
-        return false;
+fn pending_safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> Result<bool, ()> {
+    let expected_hash = item.source_full_hash.as_deref().ok_or(())?;
+    let actual = crate::file_ops::file_identity_fingerprint(path).map_err(|_| ())?;
+    if actual.size != item.size || actual.full_hash.as_deref() != Some(expected_hash) {
+        return Ok(false);
     }
-    if let Some(expected_id) = item.source_platform_file_id.as_deref() {
-        return actual.platform_file_id.as_deref() == Some(expected_id);
-    }
-    item.source_modified_ns
+    Ok(true)
+}
+
+fn pending_safe_trash_claim_identity_matches(
+    item: &CleanupTrashItem,
+    path: &Path,
+) -> Result<bool, ()> {
+    let expected_hash = item
+        .claim_full_hash
         .as_deref()
-        .and_then(|value| value.parse::<i128>().ok())
-        .zip(actual.modified_ns)
-        .is_some_and(|(expected, actual)| expected == actual)
-}
-
-fn staging_path_for(target: &Path) -> PathBuf {
-    let name = target
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or("item");
-    target.with_file_name(format!(".{name}.{}", new_job_id("zencanvas-stage")))
-}
-
-fn copy_path(source: &Path, target: &Path) -> Result<(), String> {
-    let metadata = fs::symlink_metadata(source).map_err(|error| error.to_string())?;
-    if metadata.file_type().is_symlink() {
-        return Err("refusing to copy symlink into safe trash".to_string());
+        .or(item.source_full_hash.as_deref())
+        .ok_or(())?;
+    let actual = crate::file_ops::file_identity_fingerprint(path).map_err(|_| ())?;
+    if actual.size != item.size || actual.full_hash.as_deref() != Some(expected_hash) {
+        return Ok(false);
     }
-    if metadata.is_file() {
-        fs::copy(source, target).map_err(|error| error.to_string())?;
-        return Ok(());
+    if let Some(expected_id) = item
+        .claim_platform_file_id
+        .as_deref()
+        .or(item.source_platform_file_id.as_deref())
+    {
+        return Ok(actual.platform_file_id.as_deref() == Some(expected_id));
     }
-    if metadata.is_dir() {
-        fs::create_dir_all(target).map_err(|error| error.to_string())?;
-        for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
-            let entry = entry.map_err(|error| error.to_string())?;
-            copy_path(&entry.path(), &target.join(entry.file_name()))?;
-        }
-        return Ok(());
-    }
-    Err("unsupported file type for safe trash".to_string())
-}
-
-fn remove_path(path: &Path) -> Result<(), String> {
-    if path.is_dir() {
-        fs::remove_dir_all(path).map_err(|error| error.to_string())
-    } else {
-        fs::remove_file(path).map_err(|error| error.to_string())
-    }
-}
-
-fn path_size_for_verify(path: &Path) -> Result<u64, String> {
-    let metadata = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
-    if metadata.is_file() {
-        return Ok(metadata.len());
-    }
-    if metadata.is_dir() {
-        let mut size = 0_u64;
-        for entry in fs::read_dir(path).map_err(|error| error.to_string())? {
-            let entry = entry.map_err(|error| error.to_string())?;
-            size = size.saturating_add(path_size_for_verify(&entry.path())?);
-        }
-        return Ok(size);
-    }
-    Ok(0)
+    Ok(true)
 }
 
 fn default_scan_roots() -> Vec<PathBuf> {
@@ -3714,7 +4544,7 @@ fn dedupe_candidates(candidates: &mut Vec<StorageCandidate>) {
     let mut seen = HashSet::new();
     let mut retained_safe_parents = Vec::<String>::new();
     candidates.retain(|candidate| {
-        let normalized = normalize_compare_text(&candidate.path);
+        let normalized = normalize_text_for_compare(&candidate.path);
         if !seen.insert(normalized.clone()) {
             return false;
         }
@@ -3751,14 +4581,14 @@ fn is_same_or_child(path: &str, parent: &str) -> bool {
 }
 
 fn candidate_id(path: &str) -> String {
-    let digest = blake3::hash(normalize_compare_text(path).as_bytes())
+    let digest = blake3::hash(normalize_text_for_compare(path).as_bytes())
         .to_hex()
         .to_string();
     format!("storage-{}", &digest[..32])
 }
 
 fn candidate_id_for_job(job_id: &str, path: &str) -> String {
-    let digest = blake3::hash(format!("{job_id}\0{}", normalize_compare_text(path)).as_bytes())
+    let digest = blake3::hash(format!("{job_id}\0{}", normalize_text_for_compare(path)).as_bytes())
         .to_hex()
         .to_string();
     format!("storage-{}", &digest[..32])
@@ -3777,6 +4607,81 @@ mod temp_safety_tests {
     use super::*;
 
     #[test]
+    fn cleanup_restore_reconciliation_covers_three_paths_and_preserves_claim_boundaries() {
+        let missing = JournalPathState::Missing;
+        let matches = JournalPathState::Matches;
+
+        let restored = classify_cleanup_restore_reconciliation(
+            matches,
+            missing,
+            missing,
+            "completed",
+            "pending",
+            "restore_pending",
+        );
+        assert_eq!(restored.status, "restored");
+        assert_eq!(restored.operation_phase, "completed");
+        assert_eq!(restored.identity_status, "verified");
+        assert!(restored.clear_claim);
+        assert!(restored.restored);
+
+        let rolled_back = classify_cleanup_restore_reconciliation(
+            missing,
+            matches,
+            missing,
+            "prepared",
+            "pending",
+            "restore_pending",
+        );
+        assert_eq!(rolled_back.status, "moved");
+        assert_eq!(rolled_back.operation_phase, "rolled_back");
+        assert_eq!(rolled_back.identity_status, "verified");
+        assert!(rolled_back.clear_claim);
+        assert!(!rolled_back.restored);
+
+        for (original, trash, claim, phase) in [
+            (missing, missing, matches, "source_claimed"),
+            (missing, matches, matches, "source_cleanup_pending"),
+            (missing, missing, missing, "manual_review"),
+        ] {
+            let review = classify_cleanup_restore_reconciliation(
+                original,
+                trash,
+                claim,
+                phase,
+                "pending",
+                "restore_pending_recovery",
+            );
+            assert_eq!(review.status, "manual_review");
+            assert_eq!(review.identity_status, "restore_pending_recovery");
+            assert!(!review.clear_claim);
+            assert!(!review.restored);
+            assert!(
+                review.message.contains("do not auto retry")
+                    || review.message.contains("manual review")
+            );
+        }
+    }
+
+    #[test]
+    fn cleanup_restore_reconciliation_treats_claim_identity_read_errors_as_unreadable_review() {
+        let review = classify_cleanup_restore_reconciliation(
+            JournalPathState::Missing,
+            JournalPathState::Matches,
+            JournalPathState::Unreadable,
+            "prepared",
+            "pending",
+            "restore_pending",
+        );
+
+        assert_eq!(review.status, "manual_review");
+        assert_eq!(review.operation_phase, "prepared");
+        assert_eq!(review.identity_status, "restore_pending_recovery");
+        assert!(review.message.starts_with("claim_identity_mismatch:"));
+        assert!(!review.clear_claim);
+    }
+
+    #[test]
     fn cleanup_root_context_matches_requested_and_canonical_aliases() {
         let context = CleanupRootContext {
             requested_root: PathBuf::from("/var/folders/user/T/job"),
@@ -3790,6 +4695,7 @@ mod temp_safety_tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn cleanup_root_context_matches_windows_short_path_alias() {
         let context = CleanupRootContext {
             requested_root: PathBuf::from("C:/Users/RUNNER~1/AppData/Local/Temp/job"),
@@ -3928,7 +4834,7 @@ mod temp_safety_tests {
     }
 
     #[test]
-    fn linux_tmp_uses_system_temp_context_when_it_is_the_real_temp_root() {
+    fn tmp_uses_system_temp_context_when_it_is_the_real_temp_root() {
         assert_eq!(
             cleanup_root_kind_for(Path::new("/tmp/session"), Path::new("/tmp"), None, None),
             CleanupRootKind::SystemTemp
@@ -3990,30 +4896,4 @@ mod temp_safety_tests {
         assert_eq!(candidate.tier, CleanupTier::Review);
         assert!(!candidate.selected_by_default);
     }
-}
-
-fn normalize_for_compare(path: &Path) -> String {
-    normalize_compare_text(&normalize_path(path))
-}
-
-fn normalize_compare_text(value: &str) -> String {
-    let normalized = value
-        .strip_prefix("//?/")
-        .or_else(|| value.strip_prefix("//?/"))
-        .unwrap_or(value)
-        .replace('\\', "/");
-    let value = if normalized == "/" {
-        normalized
-    } else {
-        normalized.trim_end_matches('/').to_string()
-    };
-    if cfg!(windows) || value.get(1..3) == Some(":/") {
-        value.to_ascii_lowercase()
-    } else {
-        value
-    }
-}
-
-fn normalize_path(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
 }

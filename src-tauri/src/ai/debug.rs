@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tauri::State;
+use tauri::{Runtime, State, WebviewWindow};
 
 use rusqlite::{params, OptionalExtension};
 
@@ -18,7 +18,10 @@ use super::{
         CredentialStore, SystemCredentialStore,
     },
 };
-use crate::db::{normalize_path_text, trim_trailing_path_separators, Database};
+use crate::{
+    db::{normalize_path_text, trim_trailing_path_separators, Database},
+    window_auth::require_main_window,
+};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,11 +70,13 @@ impl AIDebugRawProvider for OpenAICompatibleProvider {
 }
 
 #[tauri::command]
-pub async fn debug_ai_classification_once(
+pub async fn debug_ai_classification_once<R: Runtime>(
+    window: WebviewWindow<R>,
     db: State<'_, Database>,
     target: Option<String>,
     file_id: Option<String>,
 ) -> Result<AIDebugClassificationResult, String> {
+    require_main_window(&window)?;
     if !cfg!(any(debug_assertions, feature = "ai-debug")) {
         return Err("AI debug commands are disabled in production builds.".to_string());
     }

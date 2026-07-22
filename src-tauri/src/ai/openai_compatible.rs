@@ -46,6 +46,7 @@ impl OpenAICompatibleProvider {
             .expect("custom OpenAI-compatible preset exists");
         let client = Client::builder()
             .timeout(Duration::from_secs(settings.timeout_seconds.max(1)))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .ok();
         Self {
@@ -90,6 +91,12 @@ impl OpenAICompatibleProvider {
             .send()
             .map_err(|error| self.error(format!("AI request failed: {error}")))?;
         let status = response.status();
+        if status.is_redirection() {
+            return Err(self.error(format!(
+                "AI provider redirect rejected: HTTP {}",
+                status.as_u16()
+            )));
+        }
         let response_text = response
             .text()
             .map_err(|error| self.error(format!("failed to read AI response: {error}")))?;
@@ -569,6 +576,12 @@ fn redact_api_key(message: &str, api_key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::schema::AIProviderOptions;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
 
     #[test]
     fn extra_body_cannot_override_reserved_fields() {
@@ -673,5 +686,49 @@ mod tests {
         let redacted = redact_api_key(&error, api_key);
         assert!(!redacted.contains(api_key));
         assert!(redacted.contains("[redacted]"));
+    }
+
+    #[test]
+    fn provider_rejects_redirects_without_forwarding_credentials() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind redirect fixture");
+        let address = listener.local_addr().expect("redirect address");
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept redirect request");
+            let mut request = [0_u8; 4096];
+            let size = stream.read(&mut request).expect("read redirect request");
+            let request = String::from_utf8_lossy(&request[..size]);
+            assert!(request
+                .to_ascii_lowercase()
+                .contains("authorization: bearer sk-provider-secret"));
+            stream
+                .write_all(
+                    b"HTTP/1.1 307 Temporary Redirect\r\nLocation: http://127.0.0.1:9/second\r\nContent-Length: 0\r\n\r\n",
+                )
+                .expect("write redirect response");
+        });
+
+        let settings = AISettings {
+            base_url: format!("http://{address}"),
+            api_key: "sk-provider-secret".to_string(),
+            ..AISettings::default()
+        };
+        let provider = OpenAICompatibleProvider::new(settings);
+        let error = provider
+            .send_chat_request_raw(AIChatRequest {
+                messages: vec![AIChatMessage {
+                    role: "user".to_string(),
+                    content: "hello".to_string(),
+                }],
+                model: "test-model".to_string(),
+                temperature: 0.0,
+                max_tokens: 16,
+                force_json: false,
+                provider_options: AIProviderOptions::default(),
+            })
+            .expect_err("redirect must be rejected");
+        server.join().expect("redirect server");
+        let message = error.to_string();
+        assert!(message.contains("redirect rejected"));
+        assert!(!message.contains("sk-provider-secret"));
     }
 }

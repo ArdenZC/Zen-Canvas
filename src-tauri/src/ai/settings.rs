@@ -2,7 +2,7 @@ use std::{sync::Mutex, time::Instant};
 
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{Runtime, State, WebviewWindow};
 
 use super::{
     ollama::OllamaProvider,
@@ -11,11 +11,15 @@ use super::{
     provider::AIProvider,
     schema::{AIConnectionTestResult, AIProviderKind, AIProviderPresetId},
 };
-use crate::db::{Database, DbError};
+use crate::{
+    db::{Database, DbError},
+    window_auth::require_main_window,
+};
 
 pub const AI_SETTINGS_KEY: &str = "ai_settings_v1";
 const AI_CREDENTIAL_SERVICE: &str = "com.startlan.zencanvas";
 const AI_CREDENTIAL_USER: &str = "ai-api-key";
+static AI_SETTINGS_SAVE_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -135,6 +139,9 @@ pub fn save_ai_settings_with_store(
     settings: &AISettings,
     credentials: &impl CredentialStore,
 ) -> Result<AISettings, DbError> {
+    let _transaction_guard = AI_SETTINGS_SAVE_LOCK
+        .lock()
+        .map_err(|_| DbError::Validation("credential_transaction_lock_poisoned".to_string()))?;
     validate_ai_settings(settings, !cfg!(debug_assertions)).map_err(DbError::Validation)?;
     let mut normalized = normalize_ai_settings(settings.clone());
     let previous_key = credentials.get().map_err(DbError::Validation)?;
@@ -526,10 +533,12 @@ pub fn get_ai_settings(db: State<'_, Database>) -> Result<AISettings, String> {
 }
 
 #[tauri::command]
-pub fn save_ai_settings(
+pub fn save_ai_settings<R: Runtime>(
+    window: WebviewWindow<R>,
     db: State<'_, Database>,
     settings: AISettings,
 ) -> Result<AISettings, String> {
+    require_main_window(&window)?;
     save_ai_settings_for_db(db.inner(), &settings)
         .map(public_ai_settings)
         .map_err(|error| error.to_string())
@@ -585,6 +594,15 @@ fn sanitize_ai_error(message: String, api_key: &str) -> String {
 #[cfg(test)]
 mod validation_tests {
     use super::*;
+    use std::{
+        path::PathBuf,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+        thread,
+        time::Duration,
+    };
 
     #[test]
     fn public_ai_settings_reports_configuration_without_exposing_the_key() {
@@ -728,5 +746,110 @@ mod validation_tests {
         settings.model = "model".to_string();
         settings.reasoning_effort = Some("x".repeat(65));
         assert!(validate_ai_settings(&settings, true).is_err());
+    }
+
+    #[derive(Default)]
+    struct ConcurrentCredentialStore {
+        value: Mutex<Option<String>>,
+        active: AtomicUsize,
+        max_active: AtomicUsize,
+    }
+
+    impl ConcurrentCredentialStore {
+        fn begin(&self) {
+            let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.max_active.fetch_max(active, Ordering::SeqCst);
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        fn end(&self) {
+            self.active.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    impl CredentialStore for ConcurrentCredentialStore {
+        fn set(&self, value: &str) -> Result<(), String> {
+            self.begin();
+            let result = self
+                .value
+                .lock()
+                .map_err(|_| "credential test lock poisoned".to_string())
+                .map(|mut current| *current = Some(value.to_string()));
+            self.end();
+            result
+        }
+
+        fn get(&self) -> Result<Option<String>, String> {
+            self.begin();
+            let result = self
+                .value
+                .lock()
+                .map(|current| current.clone())
+                .map_err(|_| "credential test lock poisoned".to_string());
+            self.end();
+            result
+        }
+
+        fn delete(&self) -> Result<(), String> {
+            self.begin();
+            let result = self
+                .value
+                .lock()
+                .map_err(|_| "credential test lock poisoned".to_string())
+                .map(|mut current| *current = None);
+            self.end();
+            result
+        }
+    }
+
+    fn concurrency_test_db_path(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "zen-canvas-ai-settings-{label}-{}-{}.sqlite3",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ))
+    }
+
+    #[test]
+    fn concurrent_credential_saves_are_serialized_as_transactions() {
+        let credentials = Arc::new(ConcurrentCredentialStore::default());
+        let first = AISettings {
+            api_key: "first-test-key".to_string(),
+            api_key_action: ApiKeyAction::Replace,
+            ..AISettings::default()
+        };
+        let second = AISettings {
+            api_key: "second-test-key".to_string(),
+            api_key_action: ApiKeyAction::Replace,
+            ..AISettings::default()
+        };
+
+        let first_path = concurrency_test_db_path("first");
+        let second_path = concurrency_test_db_path("second");
+        let first_thread_path = first_path.clone();
+        let first_credentials = Arc::clone(&credentials);
+        let first_thread = thread::spawn(move || {
+            let db = Database::open(&first_thread_path).expect("first database");
+            save_ai_settings_with_store(&db, &first, first_credentials.as_ref())
+        });
+        let second_thread_path = second_path.clone();
+        let second_credentials = Arc::clone(&credentials);
+        let second_thread = thread::spawn(move || {
+            let db = Database::open(&second_thread_path).expect("second database");
+            save_ai_settings_with_store(&db, &second, second_credentials.as_ref())
+        });
+
+        first_thread
+            .join()
+            .expect("first save thread")
+            .expect("first save");
+        second_thread
+            .join()
+            .expect("second save thread")
+            .expect("second save");
+
+        assert_eq!(credentials.max_active.load(Ordering::SeqCst), 1);
+        let _ = std::fs::remove_file(first_path);
+        let _ = std::fs::remove_file(second_path);
     }
 }

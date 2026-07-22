@@ -60,6 +60,16 @@ export type RestoreStatus =
   | "unavailable"
   | "canceled"
   | "manual_review";
+export type RestorePhase =
+  | "idle"
+  | "prepared"
+  | "source_claimed"
+  | "copying"
+  | "target_committed"
+  | "source_cleanup_pending"
+  | "completed"
+  | "rolled_back"
+  | "manual_review";
 export type CleanupTier = "Safe" | "Review" | "Caution";
 export type CleanupActionKind = "MoveToTrash" | "Reveal" | "UninstallAdvice" | "AppInternalCleanup" | "None";
 export type OperationType = "move" | "rename" | "move_rename" | "move_to_trash";
@@ -138,6 +148,8 @@ export interface RuntimeCapabilities {
   aiDebugAvailable: boolean;
   realAIClassificationAvailable: boolean;
   credentialStoreAvailable: boolean;
+  fileMutationAvailable: boolean;
+  fileMutationUnavailableCode: string | null;
 }
 
 export interface AIDebugClassificationResult {
@@ -546,7 +558,7 @@ export interface CleanupExecutionLog {
   path: string;
   name: string;
   size: number;
-  status: "success" | "skipped" | "failed";
+  status: "success" | "skipped" | "failed" | "manual_review";
   message: string;
   itemId?: string | null;
   trashPath?: string | null;
@@ -568,8 +580,9 @@ export interface CleanupTrashItem {
   size: number;
   movedAt: string;
   restoredAt: string | null;
-  status: "pending" | "moved" | "restored" | "missing" | "failed";
+  status: "pending" | "moved" | "restored" | "missing" | "failed" | "manual_review" | "canceled";
   message: string | null;
+  sourceClaimPath?: string | null;
 }
 
 export interface CleanupTrashBatch {
@@ -596,7 +609,7 @@ export interface CleanupRestoreLog {
   itemId: string;
   originalPath: string;
   trashPath: string;
-  status: "restored" | "conflict" | "missing" | "failed" | "canceled";
+  status: "restored" | "conflict" | "missing" | "failed" | "manual_review" | "canceled";
   message: string;
 }
 
@@ -633,7 +646,19 @@ export interface OperationLog {
   source_modified_ns?: string | null;
   source_platform_file_id?: string | null;
   source_quick_hash?: string | null;
+  source_full_hash?: string | null;
   target_platform_file_id?: string | null;
+  target_full_hash?: string | null;
+  source_claim_path?: string | null;
+  operation_phase?: string;
+  claim_created_at?: string | null;
+  claim_platform_file_id?: string | null;
+  claim_full_hash?: string | null;
+  restore_claim_path?: string | null;
+  restore_phase?: RestorePhase;
+  restore_claim_created_at?: string | null;
+  restore_claim_platform_file_id?: string | null;
+  restore_claim_full_hash?: string | null;
 }
 
 export interface ExecuteOperationRequest {

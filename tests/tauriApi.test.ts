@@ -22,6 +22,7 @@ describe("tauriApi", () => {
 
   beforeEach(() => {
     delete (globalThis as typeof globalThis & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+    vi.stubGlobal("navigator", { platform: "Win32", userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" });
     apiMocks.invoke.mockReset().mockResolvedValue({
       files: [],
       total: 0,
@@ -34,6 +35,30 @@ describe("tauriApi", () => {
   it("reads backend runtime capabilities before exposing optional UI", async () => {
     await tauriApi.getRuntimeCapabilities();
     expect(apiMocks.invoke).toHaveBeenCalledWith("get_runtime_capabilities", undefined);
+  });
+
+  it("does not invoke mutation commands on macOS", async () => {
+    vi.stubGlobal("navigator", { platform: "MacIntel", userAgent: "Mozilla/5.0 (Macintosh)" });
+    const results = await Promise.allSettled([
+      tauriApi.executeMoves([{ id: "op", fileId: "file", old_name: "a", new_name: "b" } as never]),
+      tauriApi.restoreMoves([{ id: "log" } as never]),
+      tauriApi.moveCleanupCandidatesToTrash("job", ["item"]),
+      tauriApi.moveCleanupCandidatesToSafeTrash("job", ["item"]),
+      tauriApi.restoreCleanupTrashItems(["item"])
+    ]);
+
+    expect(results.every((result) => result.status === "rejected")).toBe(true);
+    expect(results.map((result) => result.status === "rejected" ? String(result.reason) : ""))
+      .toEqual(Array(5).fill("Error: macos_file_mutation_source_binding_unsupported"));
+    expect(apiMocks.invoke).not.toHaveBeenCalled();
+
+    await tauriApi.executeRulesForScope({ kind: "all" }, []);
+    expect(apiMocks.invoke).toHaveBeenCalledWith("execute_rules_for_scope", {
+      scope: { kind: "all" },
+      rules: [],
+      mode: "inbox_only"
+    });
+    vi.unstubAllGlobals();
   });
 
   it("sends paged library filters alongside query and scope", async () => {

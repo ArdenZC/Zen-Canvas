@@ -7,8 +7,12 @@ import type {
   StorageCleanupProgress,
   StorageCleanupScanStatus
 } from "../types/domain";
+import type { Translator } from "../types/ui";
 
 const RECENT_SCOPE_KEY = "zen-canvas.storage-cleanup.recent-roots";
+const CLEANUP_CANCEL_POLL_INTERVAL_MS = 250;
+const CLEANUP_CANCEL_MAX_WAIT_MS = 10_000;
+let cancellationPollGeneration = 0;
 
 type StorageCleanupApi = {
   startStorageCleanupScan(roots: string[]): Promise<string>;
@@ -21,7 +25,9 @@ interface StorageCleanupStore {
   selectedRoots: string[];
   analysis: StorageAnalysis | null;
   isScanning: boolean;
+  scanStatus: StorageCleanupScanStatus["status"] | "idle" | "cancel_requested";
   activeJobId: string | null;
+  cancelRequestedJobId: string | null;
   displayedJobId: string | null;
   scanProgress: StorageCleanupProgress | null;
   scanError: string;
@@ -40,7 +46,8 @@ interface StorageCleanupStore {
   applyScanProgress: (progress: StorageCleanupProgress) => void;
   completeScan: (jobId: string, analysis: StorageAnalysis) => void;
   failScan: (jobId: string, message: string) => void;
-  cancelScan: (api: Pick<StorageCleanupApi, "cancelStorageCleanupScan">) => Promise<void>;
+  confirmCancelled: (jobId: string, message: string) => void;
+  cancelScan: (api: Pick<StorageCleanupApi, "cancelStorageCleanupScan" | "getStorageCleanupScanStatus">) => Promise<void>;
   loadMoreCandidates: (api: StorageCleanupApi) => Promise<void>;
   setExecutionResult: (result: CleanupExecutionResult | null) => void;
   applyAIAnalyzedCandidates: (jobId: string, candidates: StorageCandidate[]) => void;
@@ -56,7 +63,9 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
   selectedRoots: loadRecentRoots(),
   analysis: null,
   isScanning: false,
+  scanStatus: "idle",
   activeJobId: null,
+  cancelRequestedJobId: null,
   displayedJobId: null,
   scanProgress: null,
   scanError: "",
@@ -83,6 +92,8 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
       aiCleanupStatus: "",
       scanError: "",
       scanProgress: null,
+      scanStatus: "idle",
+      cancelRequestedJobId: null,
       activeTierFilter: "All"
     });
   },
@@ -90,11 +101,13 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
   async startScan(api) {
     const roots = get().selectedRoots;
     if (!roots.length) {
-      set({ scanError: "请选择一个磁盘或文件夹。", isScanning: false });
+      set({ scanError: "cleanup_scope_required", isScanning: false, scanStatus: "idle" });
       return;
     }
     set({
       isScanning: true,
+      scanStatus: "running",
+      cancelRequestedJobId: null,
       scanError: "",
       executionResult: null,
       scanProgress: null,
@@ -109,14 +122,16 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
     });
     try {
       const jobId = await api.startStorageCleanupScan(roots);
-      set({ activeJobId: jobId });
+      set({ activeJobId: jobId, scanStatus: "running", cancelRequestedJobId: null });
       try {
         const status = await api.getStorageCleanupScanStatus(jobId);
         if (get().activeJobId !== jobId) return;
         if (status.status === "completed" && status.analysis) {
           get().completeScan(jobId, status.analysis);
-        } else if (status.status === "failed" || status.status === "cancelled") {
-          get().failScan(jobId, status.error || "扫描未完成。");
+        } else if (status.status === "failed") {
+          get().failScan(jobId, status.error || "cleanup_scan_not_completed");
+        } else if (status.status === "cancelled") {
+          get().confirmCancelled(jobId, status.error || "cleanup_cancelled");
         } else {
           get().applyScanProgress(status.progress);
         }
@@ -126,7 +141,9 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
     } catch (error) {
       set({
         isScanning: false,
+        scanStatus: "failed",
         activeJobId: null,
+        cancelRequestedJobId: null,
         scanError: readableStoreError(error)
       });
     }
@@ -135,16 +152,24 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
   applyScanProgress(progress) {
     const { activeJobId } = get();
     if (!activeJobId || progress.jobId !== activeJobId) return;
-    set({ scanProgress: progress, isScanning: true, scanError: "" });
+    set((state) => ({
+      scanProgress: progress,
+      isScanning: true,
+      scanStatus: state.cancelRequestedJobId === activeJobId ? "cancel_requested" : "running",
+      scanError: ""
+    }));
   },
 
   completeScan(jobId, analysis) {
     const { activeJobId } = get();
     if (jobId !== activeJobId) return;
+    cancellationPollGeneration += 1;
     set({
       analysis,
       isScanning: false,
+      scanStatus: "completed",
       activeJobId: null,
+      cancelRequestedJobId: null,
       displayedJobId: jobId,
       scanProgress: null,
       scanError: "",
@@ -159,9 +184,26 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
   failScan(jobId, message) {
     const { activeJobId } = get();
     if (jobId !== activeJobId) return;
+    cancellationPollGeneration += 1;
     set({
       isScanning: false,
+      scanStatus: "failed",
       activeJobId: null,
+      cancelRequestedJobId: null,
+      scanError: message,
+      scanProgress: null
+    });
+  },
+
+  confirmCancelled(jobId, message) {
+    const { activeJobId } = get();
+    if (jobId !== activeJobId) return;
+    cancellationPollGeneration += 1;
+    set({
+      isScanning: false,
+      scanStatus: "cancelled",
+      activeJobId: null,
+      cancelRequestedJobId: null,
       scanError: message,
       scanProgress: null
     });
@@ -170,14 +212,23 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
   async cancelScan(api) {
     const jobId = get().activeJobId;
     if (!jobId) {
-      set({ isScanning: false, scanError: "扫描已取消。" });
+      set({ scanError: "cleanup_no_active_scan" });
       return;
     }
+    if (get().cancelRequestedJobId === jobId) return;
+    const pollGeneration = ++cancellationPollGeneration;
+    set({ scanStatus: "cancel_requested", cancelRequestedJobId: jobId, scanError: "" });
     try {
       await api.cancelStorageCleanupScan(jobId);
-    } finally {
-      if (get().activeJobId === jobId) {
-        set({ activeJobId: null, isScanning: false, scanError: "扫描已取消。", scanProgress: null });
+      if (get().activeJobId !== jobId || get().cancelRequestedJobId !== jobId) return;
+      void waitForCancellationConfirmation(api, jobId, pollGeneration);
+    } catch (error) {
+      if (get().activeJobId === jobId && get().cancelRequestedJobId === jobId) {
+        set({
+          scanStatus: "running",
+          cancelRequestedJobId: null,
+          scanError: `cleanup_cancel_failed:${readableStoreError(error)}`
+        });
       }
     }
   },
@@ -222,7 +273,7 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
   async displayJob(api, jobId) {
     get().beginDisplayingJob(jobId);
     if (!api.getStorageCleanupCandidatePage) {
-      set({ scanError: "无法加载清理任务候选项。" });
+      set({ scanError: "cleanup_candidate_load_failed" });
       return;
     }
     try {
@@ -319,11 +370,14 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
 }));
 
 export function resetStorageCleanupStoreForTest() {
+  cancellationPollGeneration += 1;
   useStorageCleanupStore.setState({
     selectedRoots: [],
     analysis: null,
     isScanning: false,
+    scanStatus: "idle",
     activeJobId: null,
+    cancelRequestedJobId: null,
     displayedJobId: null,
     scanProgress: null,
     scanError: "",
@@ -413,4 +467,83 @@ function rememberRecentRoots(roots: string[]) {
 
 function readableStoreError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function waitForCancellationConfirmation(
+  api: Pick<StorageCleanupApi, "getStorageCleanupScanStatus">,
+  jobId: string,
+  pollGeneration: number
+) {
+  const deadline = Date.now() + CLEANUP_CANCEL_MAX_WAIT_MS;
+  let firstPoll = true;
+  while (Date.now() <= deadline) {
+    const state = useStorageCleanupStore.getState();
+    if (
+      cancellationPollGeneration !== pollGeneration
+      || state.activeJobId !== jobId
+      || state.cancelRequestedJobId !== jobId
+    ) {
+      return;
+    }
+
+    if (!firstPoll) await wait(CLEANUP_CANCEL_POLL_INTERVAL_MS);
+    firstPoll = false;
+
+    let status: StorageCleanupScanStatus | undefined;
+    try {
+      status = await api.getStorageCleanupScanStatus(jobId);
+    } catch {
+      continue;
+    }
+    if (!status || status.jobId !== jobId) return;
+    if (status.status === "cancelled") {
+      useStorageCleanupStore.getState().confirmCancelled(jobId, status.error || "cleanup_cancelled");
+      return;
+    }
+    if (status.status === "completed") {
+      if (status.analysis) useStorageCleanupStore.getState().completeScan(jobId, status.analysis);
+      else useStorageCleanupStore.getState().failScan(jobId, "cleanup_scan_completed_without_analysis");
+      return;
+    }
+    if (status.status === "failed") {
+      useStorageCleanupStore.getState().failScan(jobId, status.error || "cleanup_scan_not_completed");
+      return;
+    }
+  }
+
+  const state = useStorageCleanupStore.getState();
+  if (state.activeJobId === jobId && state.cancelRequestedJobId === jobId) {
+    cancellationPollGeneration += 1;
+    setStoreCancelWaitTimeout();
+  }
+}
+
+function setStoreCancelWaitTimeout() {
+  useStorageCleanupStore.setState({
+    scanStatus: "running",
+    cancelRequestedJobId: null,
+    scanError: "cleanup_cancel_waiting"
+  });
+}
+
+export function storageCleanupErrorMessage(error: string, t: Translator) {
+  if (error === "cleanup_scope_required") return t("storageCleanupScopeRequired");
+  if (error === "cleanup_no_active_scan") return t("storageCleanupNoActiveScan");
+  if (error === "cleanup_candidate_load_failed") return t("storageCleanupCandidateLoadFailed");
+  if (error === "cleanup_scan_not_completed") return t("storageCleanupScanNotCompleted");
+  if (error === "cleanup_scan_completed_without_analysis") return t("storageCleanupScanMissingAnalysis");
+  if (error === "cleanup_cancelled") return t("scanCanceled");
+  if (error === "cleanup_cancel_waiting") return t("storageCleanupCancelWaiting");
+  if (error.startsWith("system_trash_source_binding_unsupported")) {
+    return t("errorSystemTrashSourceBindingUnsupported");
+  }
+  if (error.startsWith("restore_pending_reconciliation")) return t("errorRestorePendingReconciliation");
+  if (error.startsWith("claim_identity_mismatch")) return t("errorClaimIdentityMismatch");
+  if (error.startsWith("manual_review_required")) return t("errorManualReviewRequired");
+  if (error.startsWith("cleanup_cancel_failed")) return t("storageCleanupCancelFailed");
+  return error;
+}
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => globalThis.setTimeout(resolve, ms));
 }

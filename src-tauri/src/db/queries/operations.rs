@@ -30,7 +30,11 @@ impl Database {
                 restore_status,
                 restore_error,
                 source_size, source_modified_ns, source_platform_file_id, source_quick_hash,
-                target_platform_file_id
+                source_full_hash, target_platform_file_id, target_full_hash,
+                source_claim_path, operation_phase, claim_created_at,
+                claim_platform_file_id, claim_full_hash,
+                restore_claim_path, restore_phase, restore_claim_created_at,
+                restore_claim_platform_file_id, restore_claim_full_hash
             FROM operation_logs
             ORDER BY created_at DESC
             LIMIT ?1
@@ -56,7 +60,11 @@ impl Database {
                 status, error_message, created_at, can_undo, path_before, path_after,
                 name_before, name_after, can_restore, restored_at, restore_status, restore_error,
                 source_size, source_modified_ns, source_platform_file_id, source_quick_hash,
-                target_platform_file_id
+                source_full_hash, target_platform_file_id, target_full_hash,
+                source_claim_path, operation_phase, claim_created_at,
+                claim_platform_file_id, claim_full_hash,
+                restore_claim_path, restore_phase, restore_claim_created_at,
+                restore_claim_platform_file_id, restore_claim_full_hash
             FROM operation_logs
             WHERE id = ?1
               AND status = 'success'
@@ -85,7 +93,11 @@ impl Database {
                 status, error_message, created_at, can_undo, path_before, path_after,
                 name_before, name_after, can_restore, restored_at, restore_status, restore_error,
                 source_size, source_modified_ns, source_platform_file_id, source_quick_hash,
-                target_platform_file_id
+                source_full_hash, target_platform_file_id, target_full_hash,
+                source_claim_path, operation_phase, claim_created_at,
+                claim_platform_file_id, claim_full_hash,
+                restore_claim_path, restore_phase, restore_claim_created_at,
+                restore_claim_platform_file_id, restore_claim_full_hash
             FROM operation_logs
             WHERE status = 'pending'
             ORDER BY created_at ASC
@@ -104,14 +116,72 @@ impl Database {
                 status, error_message, created_at, can_undo, path_before, path_after,
                 name_before, name_after, can_restore, restored_at, restore_status, restore_error,
                 source_size, source_modified_ns, source_platform_file_id, source_quick_hash,
-                target_platform_file_id
+                source_full_hash, target_platform_file_id, target_full_hash,
+                source_claim_path, operation_phase, claim_created_at,
+                claim_platform_file_id, claim_full_hash,
+                restore_claim_path, restore_phase, restore_claim_created_at,
+                restore_claim_platform_file_id, restore_claim_full_hash
             FROM operation_logs
             WHERE restore_status = 'pending'
+               OR (
+                    restore_status = 'manual_review'
+                    AND restore_phase = 'completed'
+               )
             ORDER BY created_at ASC
             "#,
         )?;
         let rows = stmt.query_map([], operation_log_from_row)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+    }
+
+    pub fn prepare_operation_restores(&self, logs: &[OperationLogDto]) -> Result<(), DbError> {
+        if logs.is_empty() {
+            return Ok(());
+        }
+
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        {
+            let mut stmt = tx.prepare(
+                r#"
+                UPDATE operation_logs
+                SET restore_status = 'pending',
+                    restore_phase = 'prepared',
+                    restore_error = NULL,
+                    restore_claim_path = ?2,
+                    restore_claim_created_at = ?3,
+                    restore_claim_platform_file_id = ?4,
+                    restore_claim_full_hash = ?5
+                WHERE id = ?1
+                  AND status = 'success'
+                  AND can_restore = 1
+                  AND restore_status = 'not_restored'
+                "#,
+            )?;
+            for log in logs {
+                let Some(claim_path) = log.restore_claim_path.as_deref() else {
+                    return Err(DbError::Validation(format!(
+                        "Restore claim path is required before filesystem mutation: {}",
+                        log.id
+                    )));
+                };
+                if stmt.execute(params![
+                    log.id,
+                    claim_path,
+                    log.restore_claim_created_at,
+                    log.restore_claim_platform_file_id,
+                    log.restore_claim_full_hash
+                ])? != 1
+                {
+                    return Err(DbError::Validation(format!(
+                        "Operation log is no longer restorable: {}",
+                        log.id
+                    )));
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     pub fn mark_operation_restores_pending(&self, ids: &[String]) -> Result<(), DbError> {
@@ -121,7 +191,7 @@ impl Database {
             let mut stmt = tx.prepare(
                 r#"
                 UPDATE operation_logs
-                SET restore_status = 'pending', restore_error = NULL
+                SET restore_status = 'pending', restore_phase = 'prepared', restore_error = NULL
                 WHERE id = ?1 AND status = 'success' AND can_restore = 1
                   AND restore_status = 'not_restored'
                 "#,
@@ -200,9 +270,21 @@ impl Database {
                     source_modified_ns,
                     source_platform_file_id,
                     source_quick_hash,
-                    target_platform_file_id
+                    source_full_hash,
+                    target_platform_file_id,
+                    target_full_hash,
+                    source_claim_path,
+                    operation_phase,
+                    claim_created_at,
+                    claim_platform_file_id,
+                    claim_full_hash,
+                    restore_claim_path,
+                    restore_phase,
+                    restore_claim_created_at,
+                    restore_claim_platform_file_id,
+                    restore_claim_full_hash
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36)
                 ON CONFLICT(id) DO UPDATE SET
                     batch_id = excluded.batch_id,
                     operation_type = excluded.operation_type,
@@ -226,7 +308,19 @@ impl Database {
                     source_modified_ns = excluded.source_modified_ns,
                     source_platform_file_id = excluded.source_platform_file_id,
                     source_quick_hash = excluded.source_quick_hash,
-                    target_platform_file_id = excluded.target_platform_file_id
+                    source_full_hash = excluded.source_full_hash,
+                    target_platform_file_id = excluded.target_platform_file_id,
+                    target_full_hash = excluded.target_full_hash,
+                    source_claim_path = excluded.source_claim_path,
+                    operation_phase = excluded.operation_phase,
+                    claim_created_at = excluded.claim_created_at,
+                    claim_platform_file_id = excluded.claim_platform_file_id,
+                    claim_full_hash = excluded.claim_full_hash,
+                    restore_claim_path = excluded.restore_claim_path,
+                    restore_phase = excluded.restore_phase,
+                    restore_claim_created_at = excluded.restore_claim_created_at,
+                    restore_claim_platform_file_id = excluded.restore_claim_platform_file_id,
+                    restore_claim_full_hash = excluded.restore_claim_full_hash
                 "#,
             )?;
 
@@ -257,12 +351,80 @@ impl Database {
                     log.source_modified_ns,
                     log.source_platform_file_id,
                     log.source_quick_hash,
-                    log.target_platform_file_id
+                    log.source_full_hash,
+                    log.target_platform_file_id,
+                    log.target_full_hash,
+                    log.source_claim_path,
+                    log.operation_phase,
+                    log.claim_created_at,
+                    log.claim_platform_file_id,
+                    log.claim_full_hash,
+                    log.restore_claim_path,
+                    log.restore_phase,
+                    log.restore_claim_created_at,
+                    log.restore_claim_platform_file_id,
+                    log.restore_claim_full_hash
                 ])?;
             }
         }
 
         tx.commit()?;
+        Ok(())
+    }
+
+    pub fn update_operation_phase(&self, log: &OperationLogDto) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        conn.execute(
+            r#"
+            UPDATE operation_logs
+            SET status = ?2,
+                operation_phase = ?3,
+                error_message = ?4,
+                source_claim_path = ?5,
+                claim_created_at = ?6,
+                claim_platform_file_id = ?7,
+                claim_full_hash = ?8
+            WHERE id = ?1
+            "#,
+            params![
+                log.id,
+                log.status,
+                log.operation_phase,
+                log.error_message,
+                log.source_claim_path,
+                log.claim_created_at,
+                log.claim_platform_file_id,
+                log.claim_full_hash
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_operation_restore_phase(&self, log: &OperationLogDto) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        conn.execute(
+            r#"
+            UPDATE operation_logs
+            SET restore_status = ?2,
+                restore_phase = ?3,
+                restore_error = ?4,
+                restore_claim_path = ?5,
+                restore_claim_created_at = ?6,
+                restore_claim_platform_file_id = ?7,
+                restore_claim_full_hash = ?8
+            WHERE id = ?1
+            "#,
+            params![
+                log.id,
+                log.restore_status,
+                log.restore_phase,
+                log.restore_error,
+                log.restore_claim_path,
+                log.restore_claim_created_at,
+                log.restore_claim_platform_file_id,
+                log.restore_claim_full_hash
+            ],
+        )?;
         Ok(())
     }
 
@@ -277,11 +439,17 @@ impl Database {
             let mut stmt = tx.prepare(
                 r#"
                 UPDATE operation_logs
-                SET can_restore = ?2,
-                    restored_at = ?3,
-                    restore_status = ?4,
-                    restore_error = ?5,
-                    can_undo = ?6
+                SET status = ?2,
+                    can_restore = ?3,
+                    restored_at = ?4,
+                    restore_status = ?5,
+                    restore_error = ?6,
+                    can_undo = ?7,
+                    restore_phase = ?8,
+                    restore_claim_path = ?9,
+                    restore_claim_created_at = ?10,
+                    restore_claim_platform_file_id = ?11,
+                    restore_claim_full_hash = ?12
                 WHERE id = ?1
                 "#,
             )?;
@@ -289,19 +457,32 @@ impl Database {
             for log in logs {
                 stmt.execute(params![
                     log.id,
+                    log.status,
                     bool_to_i64(log.can_restore),
                     log.restored_at
                         .as_deref()
                         .and_then(parse_optional_operation_timestamp),
                     log.restore_status,
                     log.restore_error,
-                    bool_to_i64(log.can_undo)
+                    bool_to_i64(log.can_undo),
+                    log.restore_phase,
+                    log.restore_claim_path,
+                    log.restore_claim_created_at,
+                    log.restore_claim_platform_file_id,
+                    log.restore_claim_full_hash
                 ])?;
             }
         }
 
         tx.commit()?;
         Ok(())
+    }
+
+    pub fn finalize_operation_restore_outcome(
+        &self,
+        logs: &[OperationLogDto],
+    ) -> Result<(), DbError> {
+        self.update_operation_restore_logs(logs)
     }
 
     pub fn prune_operation_logs(&self, retention_days: i64) -> Result<(), DbError> {
@@ -369,7 +550,19 @@ fn operation_log_from_row(row: &Row<'_>) -> rusqlite::Result<OperationLogDto> {
         source_modified_ns: row.get(20)?,
         source_platform_file_id: row.get(21)?,
         source_quick_hash: row.get(22)?,
-        target_platform_file_id: row.get(23)?,
+        source_full_hash: row.get(23)?,
+        target_platform_file_id: row.get(24)?,
+        target_full_hash: row.get(25)?,
+        source_claim_path: row.get(26)?,
+        operation_phase: row.get(27)?,
+        claim_created_at: row.get(28)?,
+        claim_platform_file_id: row.get(29)?,
+        claim_full_hash: row.get(30)?,
+        restore_claim_path: row.get(31)?,
+        restore_phase: row.get(32)?,
+        restore_claim_created_at: row.get(33)?,
+        restore_claim_platform_file_id: row.get(34)?,
+        restore_claim_full_hash: row.get(35)?,
     })
 }
 

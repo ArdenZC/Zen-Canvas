@@ -2,6 +2,7 @@ use rusqlite::{params, Connection};
 use std::{
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
 };
 use zen_canvas_tauri::db::Database;
 
@@ -9,9 +10,13 @@ static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn test_db_path(label: &str) -> PathBuf {
     let sequence = TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock must be after unix epoch")
+        .as_nanos();
     std::env::temp_dir().join(format!(
-        "zen-canvas-migration-{label}-{}-{sequence}.sqlite3",
-        std::process::id()
+        "zen-canvas-migration-{label}-{}-{timestamp}-{sequence}.sqlite3",
+        std::process::id(),
     ))
 }
 
@@ -95,6 +100,110 @@ fn downgrade_current_fixture_to_schema_16(path: &PathBuf) {
     .expect("downgrade to schema 16");
 }
 
+fn downgrade_current_fixture_to_schema_20_or_21(path: &PathBuf, version: i32) {
+    assert!(matches!(version, 20 | 21));
+    let db = Database::open(path).expect("create current database");
+    drop(db);
+    let conn = Connection::open(path).expect("open journal downgrade fixture");
+    conn.execute(
+        "INSERT INTO operation_batches (id, created_at, status) VALUES ('legacy-pending-batch', 1, 'pending')",
+        [],
+    )
+    .expect("seed legacy pending batch");
+    conn.execute(
+        r#"
+        INSERT INTO operation_logs (
+            id, batch_id, operation_type, source_path, target_path, old_name, new_name,
+            status, created_at, can_restore, restore_status,
+            path_before, path_after, name_before, name_after
+        ) VALUES ('legacy-pending-restore', 'legacy-pending-batch', 'move', 'C:/source', 'C:/target',
+            'source', 'target', 'success', 1, 0, 'pending', 'C:/source', 'C:/target', 'source', 'target')
+        "#,
+        [],
+    )
+    .expect("seed legacy pending restore");
+    conn.execute_batch(
+        r#"
+        DROP TRIGGER IF EXISTS operation_logs_phase_guard_insert;
+        DROP TRIGGER IF EXISTS operation_logs_phase_guard_update;
+        DROP TRIGGER IF EXISTS operation_logs_restore_phase_guard_insert;
+        DROP TRIGGER IF EXISTS operation_logs_restore_phase_guard_update;
+        DROP INDEX IF EXISTS idx_operation_logs_restore_phase;
+        DROP TRIGGER IF EXISTS cleanup_items_phase_guard_insert;
+        DROP TRIGGER IF EXISTS cleanup_items_phase_guard_update;
+        ALTER TABLE operation_logs DROP COLUMN source_claim_path;
+        ALTER TABLE operation_logs DROP COLUMN operation_phase;
+        ALTER TABLE operation_logs DROP COLUMN claim_created_at;
+        ALTER TABLE operation_logs DROP COLUMN claim_platform_file_id;
+        ALTER TABLE operation_logs DROP COLUMN claim_full_hash;
+        ALTER TABLE operation_logs DROP COLUMN restore_claim_path;
+        ALTER TABLE operation_logs DROP COLUMN restore_phase;
+        ALTER TABLE operation_logs DROP COLUMN restore_claim_created_at;
+        ALTER TABLE operation_logs DROP COLUMN restore_claim_platform_file_id;
+        ALTER TABLE operation_logs DROP COLUMN restore_claim_full_hash;
+        ALTER TABLE cleanup_trash_items DROP COLUMN source_claim_path;
+        ALTER TABLE cleanup_trash_items DROP COLUMN operation_phase;
+        ALTER TABLE cleanup_trash_items DROP COLUMN claim_created_at;
+        ALTER TABLE cleanup_trash_items DROP COLUMN claim_platform_file_id;
+        ALTER TABLE cleanup_trash_items DROP COLUMN claim_full_hash;
+        "#,
+    )
+    .expect("remove schema 22 journal columns");
+
+    if version == 20 {
+        conn.execute_batch(
+            r#"
+            ALTER TABLE operation_logs DROP COLUMN source_full_hash;
+            ALTER TABLE operation_logs DROP COLUMN target_full_hash;
+            ALTER TABLE cleanup_trash_items DROP COLUMN source_full_hash;
+            ALTER TABLE cleanup_trash_items DROP COLUMN trash_full_hash;
+            "#,
+        )
+        .expect("remove schema 21 full hash columns");
+    }
+
+    conn.execute(&format!("PRAGMA user_version = {version}"), [])
+        .expect("downgrade journal fixture");
+}
+
+fn assert_schema_23_journal_columns(conn: &Connection) {
+    let operation_columns = column_names(conn, "operation_logs");
+    for column in [
+        "source_full_hash",
+        "target_full_hash",
+        "source_claim_path",
+        "operation_phase",
+        "claim_created_at",
+        "claim_platform_file_id",
+        "claim_full_hash",
+        "restore_claim_path",
+        "restore_phase",
+        "restore_claim_created_at",
+        "restore_claim_platform_file_id",
+        "restore_claim_full_hash",
+    ] {
+        assert!(
+            operation_columns.contains(&column.to_string()),
+            "missing {column}"
+        );
+    }
+    let cleanup_columns = column_names(conn, "cleanup_trash_items");
+    for column in [
+        "source_full_hash",
+        "trash_full_hash",
+        "source_claim_path",
+        "operation_phase",
+        "claim_created_at",
+        "claim_platform_file_id",
+        "claim_full_hash",
+    ] {
+        assert!(
+            cleanup_columns.contains(&column.to_string()),
+            "missing {column}"
+        );
+    }
+}
+
 #[test]
 fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_rows() {
     let path = test_db_path("v16");
@@ -128,7 +237,7 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
         )
         .expect("read legacy trash identity state");
 
-    assert_eq!(version, 20);
+    assert_eq!(version, 23);
     assert!(settings_json.contains("minimize"));
     assert_eq!(revision, 0);
     assert_eq!(can_restore, 0);
@@ -136,7 +245,9 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
     assert!(restore_error.contains("legacy identity"));
     assert_eq!(identity_status, "legacy_unverified");
     assert!(column_names(&conn, "operation_logs").contains(&"source_quick_hash".to_string()));
+    assert!(column_names(&conn, "operation_logs").contains(&"source_full_hash".to_string()));
     assert!(column_names(&conn, "cleanup_trash_items").contains(&"trash_quick_hash".to_string()));
+    assert!(column_names(&conn, "cleanup_trash_items").contains(&"trash_full_hash".to_string()));
     assert_eq!(
         conn.query_row::<i64, _, _>(
             "SELECT COUNT(*) FROM operation_batches WHERE id = 'legacy-batch'",
@@ -183,6 +294,42 @@ fn migration_failure_rolls_back_prior_steps_and_preserves_schema_16_data() {
 }
 
 #[test]
+fn schema_20_and_21_migrate_to_schema_23_with_independent_restore_claim_columns() {
+    for version in [20, 21] {
+        let path = test_db_path(&format!("v{version}-journal"));
+        downgrade_current_fixture_to_schema_20_or_21(&path, version);
+
+        let db = Database::open(&path).expect("migrate journal fixture to schema 23");
+        drop(db);
+        let conn = Connection::open(&path).expect("inspect journal migration");
+        let migrated_version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("read migrated journal version");
+        assert_eq!(migrated_version, 23);
+        assert_schema_23_journal_columns(&conn);
+        let restore_phase: String = conn
+            .query_row(
+                "SELECT restore_phase FROM operation_logs WHERE id = 'legacy-pending-restore'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read restore phase default");
+        assert_eq!(restore_phase, "prepared");
+        let restore_status: String = conn
+            .query_row(
+                "SELECT restore_status FROM operation_logs WHERE id = 'legacy-pending-restore'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read legacy restore status");
+        assert_eq!(restore_status, "pending");
+
+        drop(conn);
+        Database::open(&path).expect("journal migration is idempotent");
+    }
+}
+
+#[test]
 fn schema_20_normalizes_invalid_historical_rule_domains_in_transaction() {
     let path = test_db_path("enums");
     let db = Database::open(&path).expect("create current database");
@@ -223,4 +370,105 @@ fn schema_20_normalizes_invalid_historical_rule_domains_in_transaction() {
     assert!(!groups.contains("bad-field"));
     assert_eq!(action.matches("Unknown").count(), 4);
     assert!(!action.contains("bad-purpose"));
+}
+
+fn downgrade_current_fixture_to_schema_22(path: &PathBuf) {
+    let db = Database::open(path).expect("create current schema 23 database");
+    drop(db);
+    let conn = Connection::open(path).expect("open schema 22 fixture");
+    conn.execute_batch(
+        r#"
+        DROP TRIGGER IF EXISTS operation_logs_restore_phase_guard_insert;
+        DROP TRIGGER IF EXISTS operation_logs_restore_phase_guard_update;
+        DROP INDEX IF EXISTS idx_operation_logs_restore_phase;
+        ALTER TABLE operation_logs DROP COLUMN restore_claim_path;
+        ALTER TABLE operation_logs DROP COLUMN restore_phase;
+        ALTER TABLE operation_logs DROP COLUMN restore_claim_created_at;
+        ALTER TABLE operation_logs DROP COLUMN restore_claim_platform_file_id;
+        ALTER TABLE operation_logs DROP COLUMN restore_claim_full_hash;
+        PRAGMA user_version = 22;
+        "#,
+    )
+    .expect("downgrade to schema 22");
+}
+
+#[test]
+fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers() {
+    let path = test_db_path("v22-to-v23");
+    downgrade_current_fixture_to_schema_22(&path);
+
+    let db = Database::open(&path).expect("migrate schema 22 to schema 23");
+    drop(db);
+    let conn = Connection::open(&path).expect("inspect schema 23 fixture");
+    assert_eq!(
+        conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+            .expect("read schema version"),
+        23
+    );
+    assert_schema_23_journal_columns(&conn);
+
+    conn.execute(
+        "INSERT INTO operation_batches (id, created_at, status) VALUES ('v23-batch', 1, 'success')",
+        [],
+    )
+    .expect("insert v23 batch");
+    conn.execute(
+        r#"
+        INSERT INTO operation_logs (
+            id, batch_id, operation_type, source_path, target_path, old_name, new_name,
+            status, created_at, path_before, path_after, name_before, name_after
+        ) VALUES ('v23-log', 'v23-batch', 'move', 'C:/source', 'C:/target', 'source', 'target',
+            'success', 1, 'C:/source', 'C:/target', 'source', 'target')
+        "#,
+        [],
+    )
+    .expect("insert v23 log with defaults");
+    let defaults: (String, Option<String>, Option<String>) = conn
+        .query_row(
+            "SELECT restore_phase, restore_claim_path, restore_claim_full_hash FROM operation_logs WHERE id = 'v23-log'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("read restore claim defaults");
+    assert_eq!(defaults.0, "idle");
+    assert!(defaults.1.is_none());
+    assert!(defaults.2.is_none());
+
+    assert!(conn
+        .execute(
+            "UPDATE operation_logs SET restore_phase = 'invalid' WHERE id = 'v23-log'",
+            [],
+        )
+        .is_err());
+    assert!(conn
+        .execute(
+            "UPDATE operation_logs SET operation_phase = 'invalid' WHERE id = 'v23-log'",
+            [],
+        )
+        .is_err());
+
+    conn.execute_batch(
+        r#"
+        DROP TRIGGER operation_logs_restore_phase_guard_update;
+        DROP TRIGGER operation_logs_phase_guard_update;
+        "#,
+    )
+    .expect("remove current schema guards");
+    drop(conn);
+    Database::open(&path).expect("repair current schema guards idempotently");
+    let conn = Connection::open(&path).expect("reopen repaired schema");
+    assert!(conn
+        .execute(
+            "UPDATE operation_logs SET restore_phase = 'invalid' WHERE id = 'v23-log'",
+            [],
+        )
+        .is_err());
+    assert!(conn
+        .execute(
+            "UPDATE operation_logs SET operation_phase = 'invalid' WHERE id = 'v23-log'",
+            [],
+        )
+        .is_err());
+    drop(conn);
+    Database::open(&path).expect("schema 23 repeat open");
 }

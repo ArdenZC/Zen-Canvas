@@ -5,6 +5,7 @@ import { useAppStore } from "../store/useAppStore";
 import { readableError } from "../utils/viewHelpers";
 
 export function DatabaseBootstrapper({ children }: { children: ReactNode }) {
+  const isSearchWindowMode = new URLSearchParams(window.location.search).get("mode") === "search";
   const language = useAppStore((state) => state.language);
   const showError = useAppStore((state) => state.showError);
   const t = useMemo(() => makeTranslator(language), [language]);
@@ -13,6 +14,14 @@ export function DatabaseBootstrapper({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+
+    if (isSearchWindowMode) {
+      setDatabaseError("");
+      setIsDatabaseReady(true);
+      return () => {
+        cancelled = true;
+      };
+    }
 
     async function initializeDatabase() {
       try {
@@ -34,7 +43,7 @@ export function DatabaseBootstrapper({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [showError, t]);
+  }, [isSearchWindowMode, showError, t]);
 
   if (databaseError) {
     return <DatabaseUnavailableState title={t("databaseUnavailable")} message={databaseError} />;

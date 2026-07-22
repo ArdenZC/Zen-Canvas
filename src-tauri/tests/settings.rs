@@ -1,11 +1,16 @@
 use rusqlite::{params, Connection};
 use std::{
     path::{Path, PathBuf},
-    sync::{mpsc, Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        mpsc, Arc, Mutex,
+    },
     thread,
     time::Duration,
     time::{SystemTime, UNIX_EPOCH},
 };
+
+static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
 use zen_canvas_tauri::{
     db::Database,
     settings::{
@@ -36,7 +41,7 @@ fn new_database_creates_default_app_settings_row() {
         .expect("default app settings row");
     let settings: AppSettings = serde_json::from_str(&value).expect("deserialize settings");
 
-    assert_eq!(version, 20);
+    assert_eq!(version, 23);
     assert_eq!(settings.close_behavior, "ask");
     assert_eq!(settings.folder_naming_language, "en");
     assert!(settings.default_scan_folders.is_empty());
@@ -74,7 +79,7 @@ fn schema_7_database_migrates_to_settings_without_losing_existing_rows() {
         .expect("legacy rule");
     let default_settings = get_app_settings(&db).expect("default settings");
 
-    assert_eq!(version, 20);
+    assert_eq!(version, 23);
     assert_eq!(file_name, "legacy.pdf");
     assert_eq!(rule_name, "Legacy Rule");
     assert!(default_settings.default_scan_folders.is_empty());
@@ -579,9 +584,13 @@ impl LaunchAtLoginController for ConcurrentLaunchAtLoginController {
 }
 
 fn test_db_path() -> PathBuf {
+    let counter = TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed);
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("clock")
         .as_nanos();
-    std::env::temp_dir().join(format!("zen-canvas-settings-test-{nonce}.sqlite3"))
+    std::env::temp_dir().join(format!(
+        "zen-canvas-settings-test-{}-{counter}-{nonce}.sqlite3",
+        std::process::id()
+    ))
 }

@@ -159,6 +159,167 @@
     }
 
     #[test]
+    fn restore_claim_journal_is_independent_and_terminal_manual_review_is_not_requeued() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let mut log = operation_log("log-restore-claim", "batch-restore-claim", "success");
+        db.save_operation_logs("batch-restore-claim", std::slice::from_ref(&log))
+            .expect("save restore claim log");
+
+        log.restore_claim_path = Some("C:/fixture/.zen-canvas-claim-uuid".to_string());
+        log.restore_claim_created_at = Some("1900000000000".to_string());
+        log.restore_claim_platform_file_id = Some("platform-file".to_string());
+        log.restore_claim_full_hash = Some("full-hash".to_string());
+        db.prepare_operation_restores(std::slice::from_ref(&log))
+            .expect("prepare restore claim journal");
+
+        let pending = db
+            .get_pending_restore_logs()
+            .expect("read pending restore claim")
+            .into_iter()
+            .find(|item| item.id == log.id)
+            .expect("pending restore claim row");
+        assert_eq!(pending.restore_phase, "prepared");
+        assert_eq!(
+            pending.restore_claim_path.as_deref(),
+            Some("C:/fixture/.zen-canvas-claim-uuid")
+        );
+        assert_eq!(pending.operation_phase, "completed");
+
+        let mut manual = pending;
+        manual.status = "manual_review".to_string();
+        manual.restore_status = "manual_review".to_string();
+        manual.restore_phase = "source_claimed".to_string();
+        db.finalize_operation_restore_outcome(std::slice::from_ref(&manual))
+            .expect("persist source-claimed manual review");
+        assert!(db
+            .get_pending_restore_logs()
+            .expect("manual source-claimed restore is not retried")
+            .is_empty());
+
+        manual.restore_phase = "completed".to_string();
+        db.finalize_operation_restore_outcome(std::slice::from_ref(&manual))
+            .expect("persist final-transaction manual review");
+        assert_eq!(db.get_pending_restore_logs().expect("requeue final transaction").len(), 1);
+    }
+
+    #[test]
+    fn ordinary_restore_finalization_upserts_missing_index_row_and_fts() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let root = test_dir();
+        let source = root.join("restore-source.txt");
+        let target = root.join("restore-target.txt");
+        fs::write(&source, "restore index upsert").expect("write source");
+
+        let source_path = normalized_test_path(&source);
+        let target_path = normalized_test_path(&target);
+        let restored_path = source_path.clone();
+        let mut log = operation_log("log-restore-index-upsert", "batch-restore-index", "success");
+        log.source_path = source_path.clone();
+        log.target_path = target_path.clone();
+        log.path_before = source_path;
+        log.path_after = target_path.clone();
+        log.name_before = "restore-source.txt".to_string();
+        log.name_after = "restore-target.txt".to_string();
+        log.new_name = "restore-target.txt".to_string();
+        db.save_operation_logs("batch-restore-index", std::slice::from_ref(&log))
+            .expect("save restore index log");
+
+        log.restore_status = "restored".to_string();
+        log.restore_phase = "completed".to_string();
+        log.restored_at = Some("1900000000123".to_string());
+        db.finalize_successful_operation_restore(&log)
+            .expect("finalize restore with missing index row");
+
+        let conn = Connection::open(db.path()).expect("open finalized database");
+        let indexed: (String, String, i64, i64) = conn
+            .query_row(
+                "SELECT id, path, size, is_stale FROM files WHERE path = ?1",
+                params![restored_path],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("restored file index row");
+        assert_eq!(indexed.0, indexed.1);
+        assert_eq!(indexed.2, 20);
+        assert_eq!(indexed.3, 0);
+
+        let fts_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files_fts WHERE name = ?1",
+                params!["restore-source.txt"],
+                |row| row.get(0),
+            )
+            .expect("restored file FTS row");
+        assert_eq!(fts_count, 1);
+
+        let restored_log = db
+            .get_operation_logs(Some(10))
+            .expect("read finalized restore log")
+            .into_iter()
+            .find(|item| item.id == log.id)
+            .expect("finalized restore log");
+        assert_eq!(restored_log.status, "success");
+        assert_eq!(restored_log.restore_status, "restored");
+        assert_eq!(restored_log.restore_phase, "completed");
+        assert!(!restored_log.can_restore);
+    }
+
+    #[test]
+    fn ordinary_restore_finalization_rolls_back_index_when_journal_update_fails() {
+        let db_path = test_db_path();
+        let db = Database::open(&db_path).expect("open test database");
+        let root = test_dir();
+        let source = root.join("restore-atomic-source.txt");
+        let target = root.join("restore-atomic-target.txt");
+        fs::write(&source, "restore atomic boundary").expect("write source");
+
+        let source_path = normalized_test_path(&source);
+        let target_path = normalized_test_path(&target);
+        let mut log = operation_log("log-restore-atomic", "batch-restore-atomic", "success");
+        log.source_path = source_path.clone();
+        log.target_path = target_path.clone();
+        log.path_before = source_path;
+        log.path_after = target_path;
+        log.name_before = "restore-atomic-source.txt".to_string();
+        log.name_after = "restore-atomic-target.txt".to_string();
+        log.new_name = "restore-atomic-target.txt".to_string();
+        db.save_operation_logs("batch-restore-atomic", std::slice::from_ref(&log))
+            .expect("save atomic restore log");
+
+        let conn = Connection::open(&db_path).expect("open trigger database");
+        conn.execute_batch(
+            r#"
+            CREATE TRIGGER reject_restore_final_journal
+            BEFORE UPDATE OF restore_status ON operation_logs
+            WHEN NEW.restore_status = 'restored'
+            BEGIN
+                SELECT RAISE(ABORT, 'injected restore final journal failure');
+            END;
+            "#,
+        )
+        .expect("install restore finalization trigger");
+        drop(conn);
+
+        log.restore_status = "restored".to_string();
+        log.restore_phase = "completed".to_string();
+        log.restored_at = Some("1900000000123".to_string());
+        assert!(db.finalize_successful_operation_restore(&log).is_err());
+
+        let conn = Connection::open(db.path()).expect("open rollback database");
+        let indexed_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+            .expect("count rolled back index rows");
+        assert_eq!(indexed_count, 0);
+        let restore_status: String = conn
+            .query_row(
+                "SELECT restore_status FROM operation_logs WHERE id = ?1",
+                params![log.id],
+                |row| row.get(0),
+            )
+            .expect("read rolled back restore journal");
+        assert_eq!(restore_status, "not_restored");
+    }
+
+    #[test]
     fn build_fts_query_quotes_terms_without_breaking_chinese_or_punctuation() {
         let query = build_fts_query("项目\"报告 final-v1.pdf").expect("query");
 

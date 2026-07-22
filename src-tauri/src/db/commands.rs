@@ -1,30 +1,47 @@
 use super::*;
 use crate::file_ops::OperationLogDto;
-use tauri::{AppHandle, Emitter, Runtime, State};
+use crate::window_auth::require_main_window;
+use tauri::{AppHandle, Emitter, Runtime, State, WebviewWindow};
 
 const FS_WATCHER_WARNING_EVENT: &str = "fs-watcher-warning";
 
 #[tauri::command]
-pub fn init_db(db: State<'_, Database>) -> Result<(), String> {
+pub fn init_db<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+) -> Result<(), String> {
+    require_main_window(&window)?;
     db.init().map_err(command_error)
 }
 
 #[tauri::command]
-pub fn insert_file(db: State<'_, Database>, file: InsertFileRequest) -> Result<(), String> {
+pub fn insert_file<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    file: InsertFileRequest,
+) -> Result<(), String> {
+    require_main_window(&window)?;
     db.insert_file(file).map_err(command_error)
 }
 
 #[tauri::command]
-pub fn remove_files_by_paths(db: State<'_, Database>, paths: Vec<String>) -> Result<usize, String> {
+pub fn remove_files_by_paths<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    paths: Vec<String>,
+) -> Result<usize, String> {
+    require_main_window(&window)?;
     db.remove_files_by_paths(&paths).map_err(command_error)
 }
 
 #[tauri::command]
 pub fn upsert_files_by_paths<R: Runtime>(
     app: AppHandle<R>,
+    window: WebviewWindow<R>,
     db: State<'_, Database>,
     paths: Vec<String>,
 ) -> Result<usize, String> {
+    require_main_window(&window)?;
     let db = db.inner();
     let result = upsert_files_by_paths_for_db_with_warnings(db, &paths).map_err(command_error)?;
     for warning in &result.warnings {
@@ -109,20 +126,32 @@ pub fn get_user_rules(db: State<'_, Database>) -> Result<Vec<Rule>, String> {
 }
 
 #[tauri::command]
-pub fn save_user_rule(db: State<'_, Database>, rule: Rule) -> Result<Rule, String> {
+pub fn save_user_rule<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    rule: Rule,
+) -> Result<Rule, String> {
+    require_main_window(&window)?;
     db.save_user_rule(rule).map_err(command_error)
 }
 
 #[tauri::command]
-pub fn delete_user_rule(db: State<'_, Database>, id: String) -> Result<bool, String> {
+pub fn delete_user_rule<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    id: String,
+) -> Result<bool, String> {
+    require_main_window(&window)?;
     db.delete_user_rule(&id).map_err(command_error)
 }
 
 #[tauri::command]
-pub async fn execute_rules_on_inbox(
+pub async fn execute_rules_on_inbox<R: Runtime>(
+    window: WebviewWindow<R>,
     db: State<'_, Database>,
     rules: Vec<Rule>,
 ) -> Result<RuleExecutionSummary, String> {
+    require_main_window(&window)?;
     let db = db.inner().clone();
     tauri::async_runtime::spawn_blocking(move || db.execute_rules_on_inbox(rules))
         .await
@@ -131,11 +160,13 @@ pub async fn execute_rules_on_inbox(
 }
 
 #[tauri::command]
-pub async fn execute_rules_for_paths(
+pub async fn execute_rules_for_paths<R: Runtime>(
+    window: WebviewWindow<R>,
     db: State<'_, Database>,
     paths: Vec<String>,
     rules: Vec<Rule>,
 ) -> Result<RuleExecutionSummary, String> {
+    require_main_window(&window)?;
     let db = db.inner().clone();
     tauri::async_runtime::spawn_blocking(move || db.execute_rules_for_paths(&paths, rules))
         .await
@@ -144,12 +175,14 @@ pub async fn execute_rules_for_paths(
 }
 
 #[tauri::command]
-pub async fn execute_rules_for_scope(
+pub async fn execute_rules_for_scope<R: Runtime>(
+    window: WebviewWindow<R>,
     db: State<'_, Database>,
     scope: LibraryScope,
     rules: Vec<Rule>,
     mode: Option<RuleExecutionMode>,
 ) -> Result<RuleExecutionSummary, String> {
+    require_main_window(&window)?;
     let db = db.inner().clone();
     let mode = mode.unwrap_or_default();
     tauri::async_runtime::spawn_blocking(move || {

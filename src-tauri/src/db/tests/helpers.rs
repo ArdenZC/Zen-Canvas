@@ -77,7 +77,19 @@
             source_modified_ns: None,
             source_platform_file_id: None,
             source_quick_hash: None,
+            source_full_hash: None,
             target_platform_file_id: None,
+            target_full_hash: None,
+            source_claim_path: None,
+            operation_phase: "completed".to_string(),
+            claim_created_at: None,
+            claim_platform_file_id: None,
+            claim_full_hash: None,
+            restore_claim_path: None,
+            restore_phase: "idle".to_string(),
+            restore_claim_created_at: None,
+            restore_claim_platform_file_id: None,
+            restore_claim_full_hash: None,
         }
     }
 

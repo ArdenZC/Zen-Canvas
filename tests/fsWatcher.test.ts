@@ -4,6 +4,8 @@ import {
   watcherQueueSnapshotFromEvent,
   mergeWatcherQueues,
   takeWatcherQueueBatch,
+  WatcherRetryQueue,
+  WATCHER_MAX_ATTEMPTS,
   type FsWatchEvent
 } from "../src/hooks/fsWatcherQueue";
 import { useFsWatcher } from "../src/hooks/useFsWatcher";
@@ -132,6 +134,50 @@ describe("fs watcher event routing", () => {
     expect(staleQueue.size).toBe(0);
     expect(upsertQueue.size).toBe(0);
   });
+
+  it("retains a failed item until the next attempt succeeds", () => {
+    const queue = new WatcherRetryQueue();
+    queue.enqueue("a.txt", "stale", 0);
+    const first = queue.takeReady(0, 10);
+    expect(first).toHaveLength(1);
+
+    expect(queue.markFailure(first[0], 0)).toBe(false);
+    expect(queue.takeReady(249, 10)).toEqual([]);
+    const second = queue.takeReady(250, 10);
+    expect(second[0]?.attempts).toBe(1);
+    expect(queue.markSuccess(second[0])).toBe(true);
+    expect(queue.itemsForTest()).toEqual([]);
+  });
+
+  it("lets a newer event invalidate an older retry and preserves classification independence", () => {
+    const queue = new WatcherRetryQueue();
+    queue.enqueue("a.txt", "upsert", 0);
+    const upsert = queue.takeReady(0, 10)[0];
+    expect(queue.markFailure(upsert, 0)).toBe(false);
+    queue.enqueue("a.txt", "stale", 100);
+    expect(queue.markSuccess(upsert)).toBe(false);
+
+    const stale = queue.takeReady(100, 10)[0];
+    expect(stale.action).toBe("stale");
+    queue.enqueue("a.txt", "classify", 200);
+    expect(queue.markSuccess(stale)).toBe(false);
+    const classify = queue.takeReady(200, 10)[0];
+    expect(classify.action).toBe("classify");
+  });
+
+  it("keeps permanently failed work visible instead of dropping it", () => {
+    const queue = new WatcherRetryQueue();
+    queue.enqueue("a.txt", "upsert", 0);
+    let now = 0;
+    for (let attempt = 0; attempt < WATCHER_MAX_ATTEMPTS; attempt += 1) {
+      const item = queue.takeReady(now, 10)[0];
+      expect(item).toBeDefined();
+      expect(queue.markFailure(item, now)).toBe(attempt + 1 >= WATCHER_MAX_ATTEMPTS);
+      now += 10_000;
+    }
+    expect(queue.itemsForTest()[0]?.state).toBe("permanently_failed");
+    expect(queue.hasReadyOrWaiting()).toBe(false);
+  });
 });
 
 describe("fs watcher hook registration", () => {
@@ -226,6 +272,47 @@ describe("fs watcher hook registration", () => {
     });
 
     expect(onError).toHaveBeenCalledWith("该目录项目过多，仅部分更新，请手动运行完整扫描。");
+  });
+
+  it("retries a failed upsert without losing the event", async () => {
+    const onRefreshData = vi.fn(async () => {});
+    apiMocks.upsertFilesByPaths
+      .mockRejectedValueOnce(new Error("temporary upsert failure"))
+      .mockResolvedValueOnce(1);
+
+    renderWatcher({ onRefreshData, rules: [] });
+    const handler = apiMocks.listen.mock.calls[0][1] as (payload: FsWatchEvent) => void;
+    handler({ eventType: "created", paths: ["F:/Projects/retry.txt"] });
+
+    await vi.advanceTimersByTimeAsync(500);
+    await flushPromises();
+    expect(apiMocks.upsertFilesByPaths).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(250);
+    await flushPromises();
+    expect(apiMocks.upsertFilesByPaths).toHaveBeenCalledTimes(2);
+    expect(apiMocks.upsertFilesByPaths).toHaveBeenLastCalledWith(["F:/Projects/retry.txt"]);
+  });
+
+  it("retries classification independently after a successful upsert", async () => {
+    const onRefreshData = vi.fn(async () => {});
+    apiMocks.executeRulesForPaths
+      .mockRejectedValueOnce(new Error("temporary classification failure"))
+      .mockResolvedValueOnce({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 });
+
+    renderWatcher({ onRefreshData, rules: [] });
+    const handler = apiMocks.listen.mock.calls[0][1] as (payload: FsWatchEvent) => void;
+    handler({ eventType: "created", paths: ["F:/Projects/classify.txt"] });
+
+    await vi.advanceTimersByTimeAsync(500);
+    await flushPromises();
+    expect(apiMocks.upsertFilesByPaths).toHaveBeenCalledTimes(1);
+    expect(apiMocks.executeRulesForPaths).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(250);
+    await flushPromises();
+    expect(apiMocks.upsertFilesByPaths).toHaveBeenCalledTimes(1);
+    expect(apiMocks.executeRulesForPaths).toHaveBeenCalledTimes(2);
   });
 });
 

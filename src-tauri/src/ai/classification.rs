@@ -10,7 +10,7 @@ use std::{
 
 use rusqlite::{params, params_from_iter, types::Value as SqlValue};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Runtime, State};
+use tauri::{AppHandle, Emitter, Runtime, State, WebviewWindow};
 
 use super::{
     ollama::OllamaProvider,
@@ -32,6 +32,7 @@ use crate::{
         RuleExecutionSummary,
     },
     settings::get_app_settings,
+    window_auth::require_main_window,
 };
 
 pub const AI_CLASSIFICATION_PROGRESS_EVENT: &str = "ai-classification-progress";
@@ -316,12 +317,14 @@ pub async fn classify_selected_files_with_ai_for_db(
 
 #[tauri::command]
 pub async fn classify_files_with_ai<R: Runtime>(
+    window: WebviewWindow<R>,
     db: State<'_, Database>,
     app: AppHandle<R>,
     cancellation: State<'_, AIClassificationCancellationToken>,
     scope: LibraryScope,
     options: Option<AIClassificationOptions>,
 ) -> Result<RuleExecutionSummary, String> {
+    require_main_window(&window)?;
     let guard = cancellation.begin()?;
     let cancel_flag = Arc::clone(&cancellation.cancel);
     let db = db.inner().clone();
@@ -344,11 +347,13 @@ pub async fn classify_files_with_ai<R: Runtime>(
 
 #[tauri::command]
 pub async fn classify_selected_files_with_ai<R: Runtime>(
+    window: WebviewWindow<R>,
     db: State<'_, Database>,
     app: AppHandle<R>,
     cancellation: State<'_, AIClassificationCancellationToken>,
     file_ids: Vec<String>,
 ) -> Result<RuleExecutionSummary, String> {
+    require_main_window(&window)?;
     let guard = cancellation.begin()?;
     let cancel_flag = Arc::clone(&cancellation.cancel);
     let db = db.inner().clone();
@@ -370,8 +375,13 @@ pub async fn classify_selected_files_with_ai<R: Runtime>(
 }
 
 #[tauri::command]
-pub fn cancel_ai_classification(cancellation: State<'_, AIClassificationCancellationToken>) {
+pub fn cancel_ai_classification<R: Runtime>(
+    window: WebviewWindow<R>,
+    cancellation: State<'_, AIClassificationCancellationToken>,
+) -> Result<(), String> {
+    require_main_window(&window)?;
     cancellation.cancel.store(true, Ordering::SeqCst);
+    Ok(())
 }
 
 pub(crate) fn collect_ai_classification_targets(
