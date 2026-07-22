@@ -250,6 +250,124 @@ impl Database {
         )
     }
 
+    /// Finalize an ordinary restore only after the filesystem commit has been
+    /// verified.  The file-index path update and the restore journal update
+    /// share one SQLite transaction so a restart can reconcile either the
+    /// still-pending journal or the fully committed result, never a half-
+    /// finalized restore.
+    pub fn finalize_successful_operation_restore(
+        &self,
+        log: &OperationLogDto,
+    ) -> Result<bool, DbError> {
+        if log.restore_status != "restored" || log.restore_phase != "completed" {
+            return Err(DbError::Validation(
+                "successful restore finalization requires restore_status=restored and restore_phase=completed"
+                    .to_string(),
+            ));
+        }
+
+        let target = PathBuf::from(&log.path_before);
+        let metadata = fs::metadata(&target)?;
+        let normalized_target = normalize_path_for_db(&target);
+        let name = resolved_file_name(&log.path_before, &log.name_before);
+        let extension = extension_from_file_name(&name);
+        let size = if metadata.is_file() {
+            i64::try_from(metadata.len()).unwrap_or(i64::MAX)
+        } else {
+            0
+        };
+        let mtime = metadata
+            .modified()
+            .ok()
+            .and_then(system_time_to_unix_seconds)
+            .unwrap_or_else(current_unix_seconds);
+        let is_dir = metadata.is_dir();
+        let target_candidates = path_lookup_candidates(&log.path_before, &normalized_target);
+        let lookup_candidates = path_lookup_candidates_for_values(&[
+            log.path_after.as_str(),
+            log.target_path.as_str(),
+            log.source_path.as_str(),
+        ]);
+
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        let current_id = find_file_row_id(&tx, &lookup_candidates)?;
+        let updated = if let Some(current_id) = current_id {
+            for candidate in target_candidates {
+                tx.execute(
+                    r#"
+                    DELETE FROM files
+                    WHERE (id = ?1 OR path = ?1)
+                      AND id <> ?2
+                    "#,
+                    params![candidate, current_id],
+                )?;
+            }
+
+            tx.execute(
+                r#"
+                UPDATE files
+                SET id = ?1,
+                    path = ?1,
+                    name = ?2,
+                    extension = ?3,
+                    size = ?4,
+                    mtime = ?5,
+                    is_dir = ?6,
+                    suggested_action = 'Keep',
+                    requires_confirmation = 0,
+                    is_stale = 0,
+                    last_seen_at = ?7
+                WHERE id = ?8
+                "#,
+                params![
+                    normalized_target,
+                    name,
+                    extension,
+                    size,
+                    mtime,
+                    bool_to_i64(is_dir),
+                    current_unix_seconds(),
+                    current_id
+                ],
+            )?
+        } else {
+            0
+        };
+
+        let finalized = tx.execute(
+            r#"
+            UPDATE operation_logs
+            SET can_restore = 0,
+                restored_at = ?2,
+                restore_status = 'restored',
+                restore_error = NULL,
+                can_undo = 0,
+                restore_phase = 'completed',
+                restore_claim_path = NULL,
+                restore_claim_created_at = NULL,
+                restore_claim_platform_file_id = NULL,
+                restore_claim_full_hash = NULL
+            WHERE id = ?1
+            "#,
+            params![
+                log.id,
+                log.restored_at
+                    .as_deref()
+                    .and_then(|value| value.parse::<i64>().ok())
+                    .unwrap_or_else(current_unix_seconds)
+            ],
+        )?;
+        if finalized != 1 {
+            return Err(DbError::Validation(format!(
+                "restore journal row disappeared during finalization: {}",
+                log.id
+            )));
+        }
+        tx.commit()?;
+        Ok(updated > 0)
+    }
+
     fn update_file_record_after_path_change(
         &self,
         lookup_candidates: Vec<String>,

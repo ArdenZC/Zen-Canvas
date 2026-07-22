@@ -159,6 +159,50 @@
     }
 
     #[test]
+    fn restore_claim_journal_is_independent_and_terminal_manual_review_is_not_requeued() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let mut log = operation_log("log-restore-claim", "batch-restore-claim", "success");
+        db.save_operation_logs("batch-restore-claim", std::slice::from_ref(&log))
+            .expect("save restore claim log");
+
+        log.restore_claim_path = Some("C:/fixture/.zen-canvas-claim-uuid".to_string());
+        log.restore_claim_created_at = Some("1900000000000".to_string());
+        log.restore_claim_platform_file_id = Some("platform-file".to_string());
+        log.restore_claim_full_hash = Some("full-hash".to_string());
+        db.prepare_operation_restores(std::slice::from_ref(&log))
+            .expect("prepare restore claim journal");
+
+        let pending = db
+            .get_pending_restore_logs()
+            .expect("read pending restore claim")
+            .into_iter()
+            .find(|item| item.id == log.id)
+            .expect("pending restore claim row");
+        assert_eq!(pending.restore_phase, "prepared");
+        assert_eq!(
+            pending.restore_claim_path.as_deref(),
+            Some("C:/fixture/.zen-canvas-claim-uuid")
+        );
+        assert_eq!(pending.operation_phase, "completed");
+
+        let mut manual = pending;
+        manual.status = "manual_review".to_string();
+        manual.restore_status = "manual_review".to_string();
+        manual.restore_phase = "source_claimed".to_string();
+        db.finalize_operation_restore_outcome(std::slice::from_ref(&manual))
+            .expect("persist source-claimed manual review");
+        assert!(db
+            .get_pending_restore_logs()
+            .expect("manual source-claimed restore is not retried")
+            .is_empty());
+
+        manual.restore_phase = "completed".to_string();
+        db.finalize_operation_restore_outcome(std::slice::from_ref(&manual))
+            .expect("persist final-transaction manual review");
+        assert_eq!(db.get_pending_restore_logs().expect("requeue final transaction").len(), 1);
+    }
+
+    #[test]
     fn build_fts_query_quotes_terms_without_breaking_chinese_or_punctuation() {
         let query = build_fts_query("项目\"报告 final-v1.pdf").expect("query");
 

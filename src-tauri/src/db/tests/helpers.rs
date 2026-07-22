@@ -85,6 +85,11 @@
             claim_created_at: None,
             claim_platform_file_id: None,
             claim_full_hash: None,
+            restore_claim_path: None,
+            restore_phase: "idle".to_string(),
+            restore_claim_created_at: None,
+            restore_claim_platform_file_id: None,
+            restore_claim_full_hash: None,
         }
     }
 

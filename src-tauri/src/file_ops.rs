@@ -24,6 +24,10 @@ const OPERATION_PROGRESS_EMIT_INTERVAL: Duration = Duration::from_millis(200);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperationTestFaultPoint {
     AfterCompletedPhaseBeforeFinalLogPersist,
+    AfterRestoreJournalPreparedBeforeClaim,
+    AfterRestoreSourceClaimedBeforeTargetCommit,
+    AfterRestoreTargetCommittedBeforeFinalPersist,
+    AfterRestoreCompletedPhaseBeforeFinalTransaction,
 }
 
 #[cfg(any(test, feature = "native-qa"))]
@@ -234,10 +238,24 @@ pub struct OperationLogDto {
     pub claim_platform_file_id: Option<String>,
     #[serde(default)]
     pub claim_full_hash: Option<String>,
+    #[serde(default)]
+    pub restore_claim_path: Option<String>,
+    #[serde(default = "default_restore_phase")]
+    pub restore_phase: String,
+    #[serde(default)]
+    pub restore_claim_created_at: Option<String>,
+    #[serde(default)]
+    pub restore_claim_platform_file_id: Option<String>,
+    #[serde(default)]
+    pub restore_claim_full_hash: Option<String>,
 }
 
 fn default_operation_phase() -> String {
     "completed".to_string()
+}
+
+fn default_restore_phase() -> String {
+    "idle".to_string()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -813,6 +831,34 @@ fn operation_restore_identity_matches(log: &OperationLogDto, path: &Path) -> boo
     crate::fs_safety::identity_matches(&expected, &actual)
 }
 
+fn restore_claim_identity_matches(log: &OperationLogDto, path: &Path) -> bool {
+    let Some(size) = log.source_size else {
+        return false;
+    };
+    let Some(full_hash) = log
+        .restore_claim_full_hash
+        .clone()
+        .or_else(|| log.source_full_hash.clone())
+    else {
+        return false;
+    };
+    let expected = crate::fs_safety::ExpectedFileIdentity {
+        size,
+        modified_ns: None,
+        platform_volume_id: None,
+        platform_file_id: log
+            .restore_claim_platform_file_id
+            .clone()
+            .or_else(|| log.target_platform_file_id.clone())
+            .or_else(|| log.source_platform_file_id.clone()),
+        sample_hash: log.source_quick_hash.clone(),
+        full_hash: Some(full_hash),
+    };
+    crate::fs_safety::capture_identity(path, None)
+        .map(|actual| crate::fs_safety::recovery_identity_matches(&expected, &actual))
+        .unwrap_or(false)
+}
+
 fn persist_pending_operation_journal(
     db: &Database,
     request: &ExecuteMovesRequest,
@@ -998,70 +1044,141 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
             .map_err(|error| error.to_string())?;
     }
     if !pending_restores.is_empty() {
-        let mut restored_logs = Vec::with_capacity(pending_restores.len());
         for mut log in pending_restores {
             let before = Path::new(&log.path_before);
             let after = Path::new(&log.path_after);
-            let before_state =
-                operation_journal_path_state(before, |path| journal_identity_matches(&log, path));
-            let after_state = operation_journal_path_state(after, |path| {
-                journal_target_identity_matches(&log, path)
+            let claim = log.restore_claim_path.as_deref().map(Path::new);
+            let before_state = operation_journal_path_state(before, |path| {
+                operation_restore_identity_matches(&log, path)
             });
+            let after_state = operation_journal_path_state(after, |path| {
+                operation_restore_identity_matches(&log, path)
+            });
+            let claim_state = claim.map_or(OperationJournalPathState::Missing, |path| {
+                operation_journal_path_state(path, |candidate| {
+                    restore_claim_identity_matches(&log, candidate)
+                })
+            });
+
+            let claim_mismatch = matches!(
+                claim_state,
+                OperationJournalPathState::Mismatch | OperationJournalPathState::Unreadable
+            );
+            let target_unreadable = before_state == OperationJournalPathState::Unreadable;
+            let target_mismatch = before_state == OperationJournalPathState::Mismatch;
+            let source_mismatch = matches!(
+                after_state,
+                OperationJournalPathState::Mismatch | OperationJournalPathState::Unreadable
+            );
+
             if before_state == OperationJournalPathState::Matches
                 && after_state == OperationJournalPathState::Missing
+                && claim_state == OperationJournalPathState::Missing
             {
                 log.can_undo = false;
                 log.can_restore = false;
                 log.restored_at = Some(current_timestamp_ms().to_string());
                 log.restore_status = "restored".to_string();
+                log.restore_phase = "completed".to_string();
                 log.restore_error = None;
-                if let Err(error) = db.update_file_after_successful_restore(&log) {
-                    eprintln!("reconciled restore index sync failed: {error}");
+                match db.finalize_successful_operation_restore(&log) {
+                    Ok(_) => {}
+                    Err(error) => {
+                        log = mark_restore_manual_review(
+                            &log,
+                            format!(
+                                "target_committed_durability_unknown: restore was committed but final reconciliation transaction failed: {error}; do not auto retry."
+                            ),
+                        );
+                        db.finalize_operation_restore_outcome(std::slice::from_ref(&log))
+                            .map_err(|persist_error| persist_error.to_string())?;
+                    }
                 }
-            } else if before_state == OperationJournalPathState::Missing
+                reconciled += 1;
+                continue;
+            }
+
+            if before_state == OperationJournalPathState::Missing
                 && after_state == OperationJournalPathState::Matches
+                && claim_state == OperationJournalPathState::Missing
             {
                 log.status = "success".to_string();
                 log.can_undo = true;
                 log.can_restore = true;
                 log.restore_status = "not_restored".to_string();
+                log.restore_phase = "rolled_back".to_string();
                 log.restore_error = Some(
-                    "Restore was interrupted before the filesystem move; it remains available."
+                    "restore_pending_reconciliation: restore was interrupted before filesystem commit; it remains available and will not be auto-retried."
                         .to_string(),
                 );
-                log.operation_phase = "completed".to_string();
-            } else if matches!(
-                before_state,
-                OperationJournalPathState::Mismatch | OperationJournalPathState::Unreadable
-            ) || matches!(
-                after_state,
-                OperationJournalPathState::Mismatch | OperationJournalPathState::Unreadable
-            ) {
+                clear_restore_claim(&mut log);
+            } else if before_state == OperationJournalPathState::Missing
+                && after_state == OperationJournalPathState::Missing
+                && claim_state == OperationJournalPathState::Matches
+            {
                 log.status = "manual_review".to_string();
-                log.operation_phase = "manual_review".to_string();
                 log.can_undo = false;
                 log.can_restore = false;
                 log.restore_status = "manual_review".to_string();
+                log.restore_phase = "source_claimed".to_string();
                 log.restore_error = Some(
-                    "Interrupted restore found an existing path with a mismatched or inaccessible identity; manual review is required."
+                    "restore_pending_reconciliation: restore source claim was recovered without a committed target; do not auto retry."
+                        .to_string(),
+                );
+            } else if before_state == OperationJournalPathState::Matches
+                && after_state == OperationJournalPathState::Missing
+                && claim_state == OperationJournalPathState::Matches
+            {
+                log.status = "manual_review".to_string();
+                log.can_undo = false;
+                log.can_restore = false;
+                log.restore_status = "manual_review".to_string();
+                log.restore_phase = "source_cleanup_pending".to_string();
+                log.restore_error = Some(
+                    "target_committed_source_cleanup_pending: restored target and restore claim both exist; do not auto retry source cleanup."
+                        .to_string(),
+                );
+            } else if claim_mismatch {
+                log.status = "manual_review".to_string();
+                log.can_undo = false;
+                log.can_restore = false;
+                log.restore_status = "manual_review".to_string();
+                log.restore_phase = if before_state == OperationJournalPathState::Matches {
+                    "target_committed"
+                } else {
+                    "source_claimed"
+                }
+                .to_string();
+                log.restore_error = Some(
+                    "claim_identity_mismatch: persisted restore claim identity is mismatched or unreadable; do not auto retry."
+                        .to_string(),
+                );
+            } else if target_mismatch || target_unreadable || source_mismatch {
+                log.status = "manual_review".to_string();
+                log.can_undo = false;
+                log.can_restore = false;
+                log.restore_status = "manual_review".to_string();
+                log.restore_phase = "target_committed".to_string();
+                log.restore_error = Some(
+                    "target_committed_identity_mismatch: restore target or source identity is mismatched or unreadable; do not auto retry."
                         .to_string(),
                 );
             } else {
                 log.status = "manual_review".to_string();
-                log.operation_phase = "manual_review".to_string();
                 log.can_undo = false;
                 log.can_restore = false;
                 log.restore_status = "manual_review".to_string();
+                log.restore_phase = "manual_review".to_string();
                 log.restore_error = Some(
-                    "Interrupted restore has neither a matching source nor a matching destination; manual review is required."
+                    "restore_pending_reconciliation: restore has neither a matching source nor a matching target; do not auto retry."
                         .to_string(),
                 );
+                clear_restore_claim(&mut log);
             }
-            restored_logs.push(log);
+            db.finalize_operation_restore_outcome(std::slice::from_ref(&log))
+                .map_err(|error| error.to_string())?;
+            reconciled += 1;
         }
-        reconciled += restored_logs.len();
-        db.update_operation_restore_logs(&restored_logs)
-            .map_err(|error| error.to_string())?;
     }
     Ok(reconciled)
 }
@@ -1342,37 +1459,84 @@ fn restore_moves_with_persistence_with_progress(
 ) -> Result<RestoreMovesResult, String> {
     crate::fs_safety::platform_support::ensure_supported_file_mutation()
         .map_err(|error| error.to_string())?;
-    let log_ids = request
-        .logs
-        .iter()
-        .map(|log| log.id.clone())
-        .collect::<Vec<_>>();
-    db.mark_operation_restores_pending(&log_ids)
+    if request.logs.iter().any(restore_requires_reconciliation) {
+        return Err(
+            "restore_pending_reconciliation: an active restore journal requires startup reconciliation before retrying."
+                .to_string(),
+        );
+    }
+    let mut prepared_logs = Vec::with_capacity(request.logs.len());
+    let restore_claim_created_at = current_timestamp_ms().to_string();
+    for log in &request.logs {
+        let source = Path::new(&log.path_after);
+        let claim_path = plan_restore_claim_path(source, &log.id)
+            .map_err(|error| format!("cannot plan restore claim for {}: {error}", log.id))?;
+        let expected_identity = expected_restore_identity_from_log(log).ok_or_else(|| {
+            format!(
+                "cannot prepare restore claim for {}: restore identity is incomplete",
+                log.id
+            )
+        })?;
+        let mut prepared = log.clone();
+        prepared.restore_status = "pending".to_string();
+        prepared.restore_phase = "prepared".to_string();
+        prepared.restore_error = None;
+        prepared.restore_claim_path = Some(normalize_path(&claim_path));
+        prepared.restore_claim_created_at = Some(restore_claim_created_at.clone());
+        prepared.restore_claim_platform_file_id = expected_identity.platform_file_id.clone();
+        prepared.restore_claim_full_hash = expected_identity.full_hash.clone();
+        prepared_logs.push(prepared);
+    }
+    db.prepare_operation_restores(&prepared_logs)
         .map_err(|error| format!("failed to persist restore journal before execution: {error}"))?;
+    #[cfg(any(test, feature = "native-qa"))]
+    if take_operation_test_fault(OperationTestFaultPoint::AfterRestoreJournalPreparedBeforeClaim) {
+        panic!("AfterRestoreJournalPreparedBeforeClaim");
+    }
     let mut restored = 0_usize;
     let mut failed = 0_usize;
     let batch_id = restore_progress_batch_id(&request.logs);
     let total = request.logs.len() as u64;
     let mut progress = OperationProgressBuffer::new("restore", batch_id, total);
     let mut logs = Vec::with_capacity(request.logs.len());
-    for (index, log) in request.logs.iter().enumerate() {
+    for (index, log) in prepared_logs.iter().enumerate() {
         let mut phase_log = log.clone();
-        let mut phase_observer = |phase: &str| {
-            phase_log.operation_phase = phase.to_string();
-            db.update_operation_phase(&phase_log).map_err(|error| {
-                if matches!(
-                    phase,
-                    "target_committed" | "source_cleanup_pending" | "completed"
-                ) {
-                    crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
-                } else {
-                    crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(format!(
-                        "restore journal phase persistence failed: {error}"
-                    ))
-                }
-            })?;
-            Ok(())
-        };
+        let mut phase_observer =
+            |phase: &str| {
+                phase_log.restore_phase = phase.to_string();
+                phase_log.restore_status = "pending".to_string();
+                phase_log.restore_error = None;
+                db.update_operation_restore_phase(&phase_log)
+                    .map_err(|error| {
+                        if matches!(
+                            phase,
+                            "target_committed" | "source_cleanup_pending" | "completed"
+                        ) {
+                            crate::fs_safety::AtomicMoveError::TargetCommittedDurabilityUnknown
+                        } else {
+                            crate::fs_safety::AtomicMoveError::SourceClaimRecoveryRequired(format!(
+                                "restore journal phase persistence failed: {error}"
+                            ))
+                        }
+                    })?;
+                #[cfg(any(test, feature = "native-qa"))]
+            match phase {
+                "source_claimed"
+                    if take_operation_test_fault(
+                        OperationTestFaultPoint::AfterRestoreSourceClaimedBeforeTargetCommit,
+                    ) => panic!("AfterRestoreSourceClaimedBeforeTargetCommit"),
+                "target_committed"
+                    if take_operation_test_fault(
+                        OperationTestFaultPoint::AfterRestoreTargetCommittedBeforeFinalPersist,
+                    ) => panic!("AfterRestoreTargetCommittedBeforeFinalPersist"),
+                "completed"
+                    if take_operation_test_fault(
+                        OperationTestFaultPoint::AfterRestoreCompletedPhaseBeforeFinalTransaction,
+                    ) => panic!("AfterRestoreCompletedPhaseBeforeFinalTransaction"),
+                _ => {}
+            }
+                Ok(())
+            };
         let result = if is_operation_cancelled(&cancel_flag) {
             mark_restore_canceled(log)
         } else {
@@ -1382,18 +1546,42 @@ fn restore_moves_with_persistence_with_progress(
                 Some(&mut phase_observer),
             )
         };
-        if result.restore_status == "restored" {
-            restored += 1;
-            if let Err(error) = db.update_file_after_successful_restore(&result) {
-                eprintln!("restore file index sync failed: {error}");
+        let result = if result.restore_status == "restored" {
+            match db.finalize_successful_operation_restore(&result) {
+                Ok(_) => {
+                    restored += 1;
+                    let mut finalized = result;
+                    finalized.restore_claim_path = None;
+                    finalized.restore_claim_created_at = None;
+                    finalized.restore_claim_platform_file_id = None;
+                    finalized.restore_claim_full_hash = None;
+                    finalized
+                }
+                Err(error) => {
+                    let review = mark_restore_manual_review(
+                        &result,
+                        format!(
+                            "target_committed_durability_unknown: restore filesystem commit succeeded but final journal transaction failed: {error}; do not auto retry."
+                        ),
+                    );
+                    db.finalize_operation_restore_outcome(std::slice::from_ref(&review))
+                        .map_err(|persist_error| {
+                            format!("restore finalization requires reconciliation: {persist_error}")
+                        })?;
+                    failed += 1;
+                    review
+                }
             }
-        } else if matches!(result.restore_status.as_str(), "failed" | "manual_review") {
-            failed += 1;
-        }
-        db.update_operation_restore_logs(std::slice::from_ref(&result))
-            .map_err(|error| {
-                format!("restore completed but failed to persist restore status: {error}")
-            })?;
+        } else {
+            if matches!(result.restore_status.as_str(), "failed" | "manual_review") {
+                failed += 1;
+            }
+            db.finalize_operation_restore_outcome(std::slice::from_ref(&result))
+                .map_err(|error| {
+                    format!("restore outcome transaction failed; reconciliation required: {error}")
+                })?;
+            result
+        };
         progress.record(emitter, (index + 1) as u64, log.path_after.clone());
         logs.push(result);
     }
@@ -1402,6 +1590,12 @@ fn restore_moves_with_persistence_with_progress(
         restored,
         failed,
     })
+}
+
+fn restore_requires_reconciliation(log: &OperationLogDto) -> bool {
+    (log.restore_status == "pending" && log.restore_phase != "prepared")
+        || (log.restore_status == "manual_review"
+            && restore_phase_requires_recovery(&log.restore_phase))
 }
 
 pub fn restore_moves_core(request: RestoreMovesRequest) -> RestoreMovesResult {
@@ -1522,6 +1716,11 @@ fn make_operation_log(
         claim_created_at: None,
         claim_platform_file_id: None,
         claim_full_hash: None,
+        restore_claim_path: None,
+        restore_phase: "idle".to_string(),
+        restore_claim_created_at: None,
+        restore_claim_platform_file_id: None,
+        restore_claim_full_hash: None,
     }
 }
 
@@ -1570,6 +1769,12 @@ fn restore_operation_log_with_observer(
     if !log.can_restore || log.restore_status == "restored" {
         return mark_restore_unavailable(log, "This operation is no longer restorable.");
     }
+    if restore_requires_reconciliation(log) {
+        return mark_restore_manual_review(
+            log,
+            "restore_pending_reconciliation: this restore has an active claim or committed-target phase; do not auto retry.",
+        );
+    }
     if log.path_before.trim().is_empty() || log.path_after.trim().is_empty() {
         return mark_restore_failed(log, "Restore metadata is incomplete.");
     }
@@ -1584,6 +1789,16 @@ fn restore_operation_log_with_observer(
         Ok(path) => path,
         Err(error) => return mark_restore_failed(log, error),
     };
+    let restore_claim_path = match log.restore_claim_path.as_deref() {
+        Some(path) => PathBuf::from(path),
+        None => match plan_restore_claim_path(&source, &log.id) {
+            Ok(path) => path,
+            Err(error) => return mark_restore_failed(log, error),
+        },
+    };
+    if let Err(error) = validate_restore_claim_path(&source, &restore_claim_path) {
+        return mark_restore_manual_review(log, format!("claim_identity_mismatch: {error}"));
+    }
     let target = match validate_target_path(&PathBuf::from(&log.path_before)) {
         Ok(path) => path,
         Err(error) => return mark_restore_failed(log, error),
@@ -1600,7 +1815,7 @@ fn restore_operation_log_with_observer(
         &source,
         &target,
         expected_identity.as_ref(),
-        None,
+        Some(&restore_claim_path),
         cancel_flag,
         phase_observer,
     ) {
@@ -1620,20 +1835,69 @@ fn restore_operation_log_with_observer(
     restored.restored_at = Some(current_timestamp_ms().to_string());
     restored.restore_status = "restored".to_string();
     restored.restore_error = None;
+    restored.restore_phase = "completed".to_string();
     restored
+}
+
+fn validate_restore_claim_path(source: &Path, claim: &Path) -> Result<(), String> {
+    if !claim.is_absolute() {
+        return Err("restore claim path must be absolute".to_string());
+    }
+    let claim_name = claim
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "restore claim path has no valid file name".to_string())?;
+    if !claim_name.starts_with(".zen-canvas-claim-") {
+        return Err("restore claim path is outside the claim namespace".to_string());
+    }
+    let source_parent = source
+        .parent()
+        .ok_or_else(|| "restore source has no parent".to_string())?;
+    let claim_parent = claim
+        .parent()
+        .ok_or_else(|| "restore claim has no parent".to_string())?
+        .canonicalize()
+        .map_err(|error| format!("restore claim parent is unavailable: {error}"))?;
+    if normalize_path(&claim_parent) != normalize_path(source_parent) {
+        return Err("restore claim path is not adjacent to the restore source".to_string());
+    }
+    Ok(())
+}
+
+fn plan_restore_claim_path(source: &Path, operation_id: &str) -> Result<PathBuf, String> {
+    if let Ok(path) = crate::fs_safety::source_claim::planned_claim_path(source, operation_id) {
+        return Ok(path);
+    }
+    let parent = source
+        .parent()
+        .filter(|path| path.is_absolute())
+        .ok_or_else(|| "restore source has no absolute parent".to_string())?;
+    Ok(parent.join(format!(".zen-canvas-claim-{}", uuid::Uuid::new_v4())))
 }
 
 fn mark_restore_failed(log: &OperationLogDto, error: impl Into<String>) -> OperationLogDto {
     let mut failed = log.clone();
     failed.restore_status = "failed".to_string();
     failed.restore_error = Some(error.into());
+    if !restore_phase_requires_recovery(&failed.restore_phase) {
+        failed.restore_phase = "rolled_back".to_string();
+        clear_restore_claim(&mut failed);
+    }
     failed
 }
 
 fn mark_restore_canceled(log: &OperationLogDto) -> OperationLogDto {
     let mut canceled = log.clone();
+    if restore_phase_requires_recovery(&canceled.restore_phase) {
+        return mark_restore_manual_review(
+            log,
+            "restore_pending_reconciliation: restore cancellation occurred after the source claim boundary; do not auto retry.",
+        );
+    }
     canceled.restore_status = "canceled".to_string();
     canceled.restore_error = None;
+    canceled.restore_phase = "rolled_back".to_string();
+    clear_restore_claim(&mut canceled);
     canceled
 }
 
@@ -1785,11 +2049,31 @@ fn validate_target_path_with_parent_policy(
 
 fn mark_restore_manual_review(log: &OperationLogDto, error: impl Into<String>) -> OperationLogDto {
     let mut review = log.clone();
+    let active = restore_phase_requires_recovery(&review.restore_phase);
+    review.status = "manual_review".to_string();
     review.can_undo = false;
     review.can_restore = false;
     review.restore_status = "manual_review".to_string();
+    if !active {
+        review.restore_phase = "manual_review".to_string();
+        clear_restore_claim(&mut review);
+    }
     review.restore_error = Some(error.into());
     review
+}
+
+fn restore_phase_requires_recovery(phase: &str) -> bool {
+    matches!(
+        phase,
+        "source_claimed" | "copying" | "target_committed" | "source_cleanup_pending" | "completed"
+    )
+}
+
+fn clear_restore_claim(log: &mut OperationLogDto) {
+    log.restore_claim_path = None;
+    log.restore_claim_created_at = None;
+    log.restore_claim_platform_file_id = None;
+    log.restore_claim_full_hash = None;
 }
 
 fn canonicalize_nearest_existing_ancestor(path: &Path) -> Result<PathBuf, String> {
@@ -3049,6 +3333,11 @@ mod tests {
             claim_created_at: None,
             claim_platform_file_id: None,
             claim_full_hash: None,
+            restore_claim_path: None,
+            restore_phase: "idle".to_string(),
+            restore_claim_created_at: None,
+            restore_claim_platform_file_id: None,
+            restore_claim_full_hash: None,
         };
 
         let restored = restore_moves_core(RestoreMovesRequest { logs: vec![log] });
@@ -3218,6 +3507,54 @@ mod tests {
             Some(11)
         );
         assert_eq!(progress.events().last().map(|event| event.total), Some(11));
+    }
+
+    #[test]
+    fn restore_cancellation_distinguishes_preclaim_and_claimed_states() {
+        let root = test_dir();
+        let source = root.join("cancel-before-claim.txt");
+        let target = root.join("cancel-before-claim-moved.txt");
+        fs::write(&source, "hello").expect("write source");
+        let executed = execute_moves_core(ExecuteMovesRequest {
+            operations: vec![preview_operation(0, &source, &target)],
+        });
+
+        let mut before_claim = executed.logs[0].clone();
+        before_claim.restore_status = "pending".to_string();
+        before_claim.restore_phase = "prepared".to_string();
+        before_claim.restore_claim_path = Some(
+            root.join(".zen-canvas-claim-before-cancel")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let canceled_before_claim = mark_restore_canceled(&before_claim);
+        assert_eq!(canceled_before_claim.status, "success");
+        assert_eq!(canceled_before_claim.restore_status, "canceled");
+        assert_eq!(canceled_before_claim.restore_phase, "rolled_back");
+        assert!(canceled_before_claim.can_restore);
+        assert!(canceled_before_claim.restore_claim_path.is_none());
+        assert!(canceled_before_claim.restore_error.is_none());
+
+        let mut after_claim = before_claim;
+        after_claim.restore_phase = "source_claimed".to_string();
+        after_claim.restore_claim_path = Some(
+            root.join(".zen-canvas-claim-after-cancel")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let canceled_after_claim = mark_restore_canceled(&after_claim);
+        assert_eq!(canceled_after_claim.status, "manual_review");
+        assert_eq!(canceled_after_claim.restore_status, "manual_review");
+        assert_eq!(canceled_after_claim.restore_phase, "source_claimed");
+        assert!(!canceled_after_claim.can_restore);
+        assert_eq!(
+            canceled_after_claim.restore_claim_path,
+            after_claim.restore_claim_path
+        );
+        assert!(canceled_after_claim
+            .restore_error
+            .as_deref()
+            .is_some_and(|error| error.contains("restore_pending_reconciliation")));
     }
 
     #[test]

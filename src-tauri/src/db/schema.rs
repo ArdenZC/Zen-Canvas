@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 22;
+const CURRENT_SCHEMA_VERSION: i32 = 23;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -628,6 +628,34 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             )?;
             set_schema_version(conn, 22)?;
         }
+        if version < 23 {
+            execute_column_migrations(
+                conn,
+                &[
+                    "ALTER TABLE operation_logs ADD COLUMN restore_claim_path TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN restore_phase TEXT NOT NULL DEFAULT 'idle';",
+                    "ALTER TABLE operation_logs ADD COLUMN restore_claim_created_at TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN restore_claim_platform_file_id TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN restore_claim_full_hash TEXT;",
+                ],
+            )?;
+            conn.execute(
+                r#"
+                UPDATE operation_logs
+                SET restore_phase = CASE
+                    WHEN restore_status = 'pending' THEN 'prepared'
+                    ELSE 'idle'
+                END
+                WHERE restore_phase IS NULL OR restore_phase = 'idle'
+                "#,
+                [],
+            )?;
+            conn.execute_batch(
+                "CREATE INDEX IF NOT EXISTS idx_operation_logs_restore_phase ON operation_logs(restore_phase);",
+            )?;
+            ensure_journal_state_triggers(conn)?;
+            set_schema_version(conn, 23)?;
+        }
         Ok(())
     })();
     match migration_result {
@@ -645,6 +673,49 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
 fn ensure_journal_state_triggers(conn: &Connection) -> Result<(), DbError> {
     conn.execute_batch(
         r#"
+        DROP TRIGGER IF EXISTS operation_logs_status_guard_insert;
+        DROP TRIGGER IF EXISTS operation_logs_status_guard_update;
+        CREATE TRIGGER operation_logs_status_guard_insert
+        BEFORE INSERT ON operation_logs
+        WHEN NEW.status NOT IN ('pending', 'success', 'failed', 'skipped', 'manual_review')
+          OR NEW.restore_status NOT IN ('not_restored', 'pending', 'restored', 'failed', 'unavailable', 'canceled', 'manual_review')
+        BEGIN SELECT RAISE(ABORT, 'invalid operation log status'); END;
+        CREATE TRIGGER operation_logs_status_guard_update
+        BEFORE UPDATE OF status, restore_status ON operation_logs
+        WHEN NEW.status NOT IN ('pending', 'success', 'failed', 'skipped', 'manual_review')
+          OR NEW.restore_status NOT IN ('not_restored', 'pending', 'restored', 'failed', 'unavailable', 'canceled', 'manual_review')
+        BEGIN SELECT RAISE(ABORT, 'invalid operation log status'); END;
+
+        DROP TRIGGER IF EXISTS operation_logs_phase_guard_insert;
+        DROP TRIGGER IF EXISTS operation_logs_phase_guard_update;
+        CREATE TRIGGER operation_logs_phase_guard_insert
+        BEFORE INSERT ON operation_logs
+        WHEN NEW.operation_phase NOT IN ('prepared', 'source_claimed', 'copying',
+            'target_committed', 'source_cleanup_pending', 'completed',
+            'rolled_back', 'manual_review')
+        BEGIN SELECT RAISE(ABORT, 'invalid operation phase'); END;
+        CREATE TRIGGER operation_logs_phase_guard_update
+        BEFORE UPDATE OF operation_phase ON operation_logs
+        WHEN NEW.operation_phase NOT IN ('prepared', 'source_claimed', 'copying',
+            'target_committed', 'source_cleanup_pending', 'completed',
+            'rolled_back', 'manual_review')
+        BEGIN SELECT RAISE(ABORT, 'invalid operation phase'); END;
+
+        DROP TRIGGER IF EXISTS operation_logs_restore_phase_guard_insert;
+        DROP TRIGGER IF EXISTS operation_logs_restore_phase_guard_update;
+        CREATE TRIGGER operation_logs_restore_phase_guard_insert
+        BEFORE INSERT ON operation_logs
+        WHEN NEW.restore_phase NOT IN ('idle', 'prepared', 'source_claimed', 'copying',
+            'target_committed', 'source_cleanup_pending', 'completed',
+            'rolled_back', 'manual_review')
+        BEGIN SELECT RAISE(ABORT, 'invalid restore phase'); END;
+        CREATE TRIGGER operation_logs_restore_phase_guard_update
+        BEFORE UPDATE OF restore_phase ON operation_logs
+        WHEN NEW.restore_phase NOT IN ('idle', 'prepared', 'source_claimed', 'copying',
+            'target_committed', 'source_cleanup_pending', 'completed',
+            'rolled_back', 'manual_review')
+        BEGIN SELECT RAISE(ABORT, 'invalid restore phase'); END;
+
         DROP TRIGGER IF EXISTS cleanup_items_status_guard_insert;
         DROP TRIGGER IF EXISTS cleanup_items_status_guard_update;
         CREATE TRIGGER cleanup_items_status_guard_insert
@@ -657,6 +728,21 @@ fn ensure_journal_state_triggers(conn: &Connection) -> Result<(), DbError> {
         WHEN NEW.status NOT IN ('pending', 'moved', 'restored', 'failed', 'missing',
             'manual_review', 'canceled')
         BEGIN SELECT RAISE(ABORT, 'invalid cleanup item status'); END;
+
+        DROP TRIGGER IF EXISTS cleanup_items_phase_guard_insert;
+        DROP TRIGGER IF EXISTS cleanup_items_phase_guard_update;
+        CREATE TRIGGER cleanup_items_phase_guard_insert
+        BEFORE INSERT ON cleanup_trash_items
+        WHEN NEW.operation_phase NOT IN ('prepared', 'source_claimed', 'copying',
+            'target_committed', 'source_cleanup_pending', 'completed',
+            'rolled_back', 'manual_review')
+        BEGIN SELECT RAISE(ABORT, 'invalid cleanup operation phase'); END;
+        CREATE TRIGGER cleanup_items_phase_guard_update
+        BEFORE UPDATE OF operation_phase ON cleanup_trash_items
+        WHEN NEW.operation_phase NOT IN ('prepared', 'source_claimed', 'copying',
+            'target_committed', 'source_cleanup_pending', 'completed',
+            'rolled_back', 'manual_review')
+        BEGIN SELECT RAISE(ABORT, 'invalid cleanup operation phase'); END;
         "#,
     )?;
     Ok(())
