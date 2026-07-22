@@ -1082,7 +1082,7 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
                 log.restore_phase = "completed".to_string();
                 log.restore_error = None;
                 match db.finalize_successful_operation_restore(&log) {
-                    Ok(_) => {}
+                    Ok(()) => {}
                     Err(error) => {
                         log = mark_restore_manual_review(
                             &log,
@@ -1173,7 +1173,6 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
                     "restore_pending_reconciliation: restore has neither a matching source nor a matching target; do not auto retry."
                         .to_string(),
                 );
-                clear_restore_claim(&mut log);
             }
             db.finalize_operation_restore_outcome(std::slice::from_ref(&log))
                 .map_err(|error| error.to_string())?;
@@ -1548,7 +1547,7 @@ fn restore_moves_with_persistence_with_progress(
         };
         let result = if result.restore_status == "restored" {
             match db.finalize_successful_operation_restore(&result) {
-                Ok(_) => {
+                Ok(()) => {
                     restored += 1;
                     let mut finalized = result;
                     finalized.restore_claim_path = None;
@@ -4175,7 +4174,9 @@ mod tests {
         assert_eq!(restored.restored, 1);
         assert_eq!(restored.logs[0].restore_status, "restored");
         assert_eq!(logs[0].restore_status, "restored");
-        assert_eq!(page.total, 0);
+        assert_eq!(page.total, 1);
+        assert_eq!(page.files[0].path, normalize_path(&source));
+        assert_eq!(page.files[0].name, "missing-record.txt");
         assert!(source.exists());
     }
 

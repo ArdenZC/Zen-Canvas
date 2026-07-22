@@ -258,7 +258,7 @@ impl Database {
     pub fn finalize_successful_operation_restore(
         &self,
         log: &OperationLogDto,
-    ) -> Result<bool, DbError> {
+    ) -> Result<(), DbError> {
         if log.restore_status != "restored" || log.restore_phase != "completed" {
             return Err(DbError::Validation(
                 "successful restore finalization requires restore_status=restored and restore_phase=completed"
@@ -281,30 +281,48 @@ impl Database {
             .ok()
             .and_then(system_time_to_unix_seconds)
             .unwrap_or_else(current_unix_seconds);
+        let ctime = metadata
+            .created()
+            .ok()
+            .and_then(system_time_to_unix_seconds)
+            .unwrap_or(mtime);
         let is_dir = metadata.is_dir();
         let target_candidates = path_lookup_candidates(&log.path_before, &normalized_target);
         let lookup_candidates = path_lookup_candidates_for_values(&[
             log.path_after.as_str(),
             log.target_path.as_str(),
             log.source_path.as_str(),
+            log.path_before.as_str(),
         ]);
 
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
-        let current_id = find_file_row_id(&tx, &lookup_candidates)?;
-        let updated = if let Some(current_id) = current_id {
-            for candidate in target_candidates {
-                tx.execute(
-                    r#"
-                    DELETE FROM files
-                    WHERE (id = ?1 OR path = ?1)
-                      AND id <> ?2
-                    "#,
-                    params![candidate, current_id],
-                )?;
+        let target_row_id = find_file_row_id(&tx, &target_candidates)?;
+        if let Some(target_row_id) = target_row_id.as_deref() {
+            let (indexed_size, indexed_mtime, indexed_is_dir): (i64, i64, i64) = tx.query_row(
+                "SELECT size, mtime, is_dir FROM files WHERE id = ?1",
+                params![target_row_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+            if indexed_size != size
+                || indexed_mtime != mtime
+                || indexed_is_dir != bool_to_i64(is_dir)
+            {
+                return Err(DbError::Validation(format!(
+                    "restore target index conflict: {}",
+                    normalized_target
+                )));
             }
+        }
 
-            tx.execute(
+        let current_id = if let Some(target_row_id) = target_row_id {
+            Some(target_row_id)
+        } else {
+            find_file_row_id(&tx, &lookup_candidates)?
+        };
+        let file_type = infer_file_type(&extension, is_dir);
+        if let Some(current_id) = current_id {
+            let updated = tx.execute(
                 r#"
                 UPDATE files
                 SET id = ?1,
@@ -313,12 +331,14 @@ impl Database {
                     extension = ?3,
                     size = ?4,
                     mtime = ?5,
-                    is_dir = ?6,
+                    ctime = ?6,
+                    is_dir = ?7,
+                    file_type = ?8,
                     suggested_action = 'Keep',
                     requires_confirmation = 0,
                     is_stale = 0,
-                    last_seen_at = ?7
-                WHERE id = ?8
+                    last_seen_at = ?9
+                WHERE id = ?10
                 "#,
                 params![
                     normalized_target,
@@ -326,19 +346,57 @@ impl Database {
                     extension,
                     size,
                     mtime,
+                    ctime,
                     bool_to_i64(is_dir),
+                    file_type,
                     current_unix_seconds(),
                     current_id
                 ],
-            )?
+            )?;
+            if updated != 1 {
+                return Err(DbError::Validation(format!(
+                    "restore index row disappeared during finalization: {}",
+                    current_id
+                )));
+            }
         } else {
-            0
-        };
+            let inserted = tx.execute(
+                r#"
+                INSERT INTO files (
+                    id, path, name, extension, size, mtime, ctime, is_dir, state_code,
+                    file_type, suggested_name, classification_status, is_stale, last_seen_at
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9, ?10, ?11, 0, ?12)
+                "#,
+                params![
+                    normalized_target,
+                    normalized_target,
+                    name,
+                    extension,
+                    size,
+                    mtime,
+                    ctime,
+                    bool_to_i64(is_dir),
+                    file_type,
+                    name,
+                    CLASSIFICATION_STATUS_UNCLASSIFIED,
+                    current_unix_seconds(),
+                ],
+            )?;
+            if inserted != 1 {
+                return Err(DbError::Validation(format!(
+                    "restore index row was not inserted: {}",
+                    normalized_target
+                )));
+            }
+        }
 
         let finalized = tx.execute(
             r#"
             UPDATE operation_logs
-            SET can_restore = 0,
+            SET status = 'success',
+                error_message = NULL,
+                can_restore = 0,
                 restored_at = ?2,
                 restore_status = 'restored',
                 restore_error = NULL,
@@ -365,7 +423,7 @@ impl Database {
             )));
         }
         tx.commit()?;
-        Ok(updated > 0)
+        Ok(())
     }
 
     fn update_file_record_after_path_change(
