@@ -298,7 +298,7 @@ pub struct CleanupTrashItem {
     pub trash_full_hash: Option<String>,
     #[serde(skip_serializing)]
     pub identity_status: String,
-    #[serde(skip_serializing)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub source_claim_path: Option<String>,
     #[serde(skip_serializing)]
     pub operation_phase: String,
@@ -1150,38 +1150,52 @@ pub fn cancel_cleanup_restore<R: Runtime>(
 
 fn cleanup_restore_preview_item(item: CleanupTrashItem) -> CleanupRestorePreviewItem {
     let status = item.status.to_ascii_lowercase();
-    let blocking_reason = match status.as_str() {
-        "restored" => Some("already restored".to_string()),
-        "pending" => {
-            if matches!(
-                item.operation_phase.as_str(),
-                "source_claimed" | "target_committed" | "source_cleanup_pending" | "manual_review"
-            ) || item.identity_status == "pending_recovery"
-            {
-                Some("manual_review".to_string())
-            } else {
-                Some("pending".to_string())
+    let active_recovery_journal = matches!(
+        item.operation_phase.as_str(),
+        "source_claimed" | "target_committed" | "source_cleanup_pending" | "manual_review"
+    ) || matches!(
+        item.identity_status.as_str(),
+        "pending_recovery" | "restore_pending" | "restore_pending_recovery"
+    );
+    let blocking_reason = if active_recovery_journal {
+        Some("manual_review".to_string())
+    } else {
+        match status.as_str() {
+            "restored" => Some("already restored".to_string()),
+            "pending" => {
+                if matches!(
+                    item.operation_phase.as_str(),
+                    "source_claimed"
+                        | "target_committed"
+                        | "source_cleanup_pending"
+                        | "manual_review"
+                ) || item.identity_status == "pending_recovery"
+                {
+                    Some("manual_review".to_string())
+                } else {
+                    Some("pending".to_string())
+                }
             }
-        }
-        "missing" => Some("missing".to_string()),
-        "failed" => Some("failed".to_string()),
-        "manual_review" => Some("manual_review".to_string()),
-        "moved" => {
-            let original_exists = Path::new(&item.original_path).exists();
-            let trash_exists = Path::new(&item.trash_path).exists();
-            if original_exists {
-                Some("conflict".to_string())
-            } else if !trash_exists {
-                Some("missing".to_string())
-            } else if item.identity_status != "verified" {
-                Some("manual_review".to_string())
-            } else if !safe_trash_identity_matches(&item, Path::new(&item.trash_path)) {
-                Some("replacement_detected".to_string())
-            } else {
-                None
+            "missing" => Some("missing".to_string()),
+            "failed" => Some("failed".to_string()),
+            "manual_review" => Some("manual_review".to_string()),
+            "moved" => {
+                let original_exists = Path::new(&item.original_path).exists();
+                let trash_exists = Path::new(&item.trash_path).exists();
+                if original_exists {
+                    Some("conflict".to_string())
+                } else if !trash_exists {
+                    Some("missing".to_string())
+                } else if item.identity_status != "verified" {
+                    Some("manual_review".to_string())
+                } else if !safe_trash_identity_matches(&item, Path::new(&item.trash_path)) {
+                    Some("replacement_detected".to_string())
+                } else {
+                    None
+                }
             }
+            _ => Some("unavailable".to_string()),
         }
-        _ => Some("unavailable".to_string()),
     };
     CleanupRestorePreviewItem {
         can_restore: blocking_reason.is_none(),
@@ -1589,7 +1603,7 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                             item.trash_full_hash = trash_fingerprint.full_hash;
                             item.identity_status = "mismatch".to_string();
                             result.failed += 1;
-                            item.operation_phase = "manual_review".to_string();
+                            item.operation_phase = "target_committed".to_string();
                             (
                             "manual_review",
                             "manual_review",
@@ -1600,7 +1614,7 @@ pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
                         Err(error) => {
                             item.identity_status = "unverifiable".to_string();
                             result.failed += 1;
-                            item.operation_phase = "manual_review".to_string();
+                            item.operation_phase = "target_committed".to_string();
                             (
                             "manual_review",
                             "manual_review",
@@ -1796,11 +1810,55 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             );
             continue;
         }
-        let restore_recovery_pending = matches!(item.status.as_str(), "pending" | "manual_review")
-            && matches!(
-                item.identity_status.as_str(),
-                "restore_pending" | "restore_pending_recovery"
+        let restore_recovery_pending = matches!(
+            item.identity_status.as_str(),
+            "restore_pending" | "restore_pending_recovery"
+        );
+        let active_restore_phase = matches!(
+            item.operation_phase.as_str(),
+            "source_claimed"
+                | "copying"
+                | "target_committed"
+                | "source_cleanup_pending"
+                | "manual_review"
+        );
+        if restore_recovery_pending || active_restore_phase {
+            item.status = "manual_review".to_string();
+            if item.operation_phase == "completed" {
+                item.operation_phase = "manual_review".to_string();
+            }
+            if item.operation_phase != "manual_review"
+                && !matches!(
+                    item.identity_status.as_str(),
+                    "restore_pending" | "restore_pending_recovery"
+                )
+            {
+                item.identity_status = "restore_pending_recovery".to_string();
+            }
+            item.message = Some(
+                "restore_pending_reconciliation: Safe Trash restore has an active journal phase or source claim; reconcile it before retrying and do not auto retry."
+                    .to_string(),
             );
+            db.update_cleanup_trash_item_status(&item)
+                .map_err(|error| error.to_string())?;
+            result.failed += 1;
+            result.logs.push(CleanupRestoreLog {
+                item_id: item.id,
+                original_path: normalize_path(&original),
+                trash_path: normalize_path(&trash_path),
+                status: "manual_review".to_string(),
+                message: item.message.clone().unwrap_or_default(),
+            });
+            emit_cleanup_restore_progress(
+                emitter,
+                &progress_context,
+                result.logs.len(),
+                Some(item_id),
+                current_path,
+                &result,
+            );
+            continue;
+        }
         if item.status != "moved" && !restore_recovery_pending {
             result.failed += 1;
             result.logs.push(CleanupRestoreLog {
@@ -2199,13 +2257,14 @@ pub fn reconcile_pending_cleanup_journal(db: &Database) -> Result<usize, String>
                 ) if matches!(
                     item.operation_phase.as_str(),
                     "target_committed" | "source_cleanup_pending"
-                ) =>
+                ) || (item.operation_phase == "manual_review"
+                    && item.identity_status == "pending_recovery") =>
                 {
                     item.status = "manual_review".to_string();
-                    item.operation_phase = if item.operation_phase == "source_cleanup_pending" {
-                        "source_cleanup_pending"
-                    } else {
-                        "target_committed"
+                    item.operation_phase = match item.operation_phase.as_str() {
+                        "source_cleanup_pending" => "source_cleanup_pending",
+                        "target_committed" => "target_committed",
+                        _ => "manual_review",
                     }
                     .to_string();
                     item.identity_status = "pending_recovery".to_string();
@@ -3683,7 +3742,11 @@ impl Database {
             WHERE status = 'pending'
                OR (
                     status = 'manual_review'
-                    AND identity_status IN ('restore_pending', 'restore_pending_recovery')
+                    AND identity_status IN ('pending_recovery', 'restore_pending', 'restore_pending_recovery')
+                    AND operation_phase IN (
+                        'prepared', 'source_claimed', 'copying',
+                        'target_committed', 'source_cleanup_pending', 'manual_review'
+                    )
                )
             ORDER BY moved_at ASC
             "#,

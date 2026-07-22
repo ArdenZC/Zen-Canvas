@@ -60,6 +60,16 @@ export type RestoreStatus =
   | "unavailable"
   | "canceled"
   | "manual_review";
+export type RestorePhase =
+  | "idle"
+  | "prepared"
+  | "source_claimed"
+  | "copying"
+  | "target_committed"
+  | "source_cleanup_pending"
+  | "completed"
+  | "rolled_back"
+  | "manual_review";
 export type CleanupTier = "Safe" | "Review" | "Caution";
 export type CleanupActionKind = "MoveToTrash" | "Reveal" | "UninstallAdvice" | "AppInternalCleanup" | "None";
 export type OperationType = "move" | "rename" | "move_rename" | "move_to_trash";
@@ -572,6 +582,7 @@ export interface CleanupTrashItem {
   restoredAt: string | null;
   status: "pending" | "moved" | "restored" | "missing" | "failed" | "manual_review" | "canceled";
   message: string | null;
+  sourceClaimPath?: string | null;
 }
 
 export interface CleanupTrashBatch {
@@ -635,7 +646,19 @@ export interface OperationLog {
   source_modified_ns?: string | null;
   source_platform_file_id?: string | null;
   source_quick_hash?: string | null;
+  source_full_hash?: string | null;
   target_platform_file_id?: string | null;
+  target_full_hash?: string | null;
+  source_claim_path?: string | null;
+  operation_phase?: string;
+  claim_created_at?: string | null;
+  claim_platform_file_id?: string | null;
+  claim_full_hash?: string | null;
+  restore_claim_path?: string | null;
+  restore_phase?: RestorePhase;
+  restore_claim_created_at?: string | null;
+  restore_claim_platform_file_id?: string | null;
+  restore_claim_full_hash?: string | null;
 }
 
 export interface ExecuteOperationRequest {

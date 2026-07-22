@@ -34,6 +34,8 @@ function formatDate(value: string, t: Translator) {
 function localizedRestoreMessage(message: string | null | undefined, t: Translator) {
   const normalized = (message ?? "").toLocaleLowerCase();
   if (!normalized) return "";
+  const stable = localizedStableError(message, t);
+  if (stable !== message) return stable;
   if (normalized.includes("target file already exists") || normalized.includes("original path already exists") || normalized.includes("already exists") || normalized.includes("原路径已有文件")) return t("restoreErrorTargetExists");
   if (normalized.includes("source file does not exist") || normalized.includes("safe trash path is missing") || normalized.includes("not found") || normalized.includes("不存在") || normalized.includes("缺失")) return t("restoreErrorSourceMissing");
   if (normalized.includes("permission") || normalized.includes("access denied") || normalized.includes("权限")) return t("restoreErrorPermission");
@@ -78,6 +80,7 @@ function operationRestoreStatusLabel(log: OperationLog, t: Translator) {
   if (log.restore_status === "failed") return t("historyStatusRestoreFailed");
   if (log.restore_status === "pending") return t("historyEligibilityPending");
   if (log.restore_status === "unavailable") return t("historyStatusUnavailable");
+  if (log.restore_status === "manual_review") return t("historyStatusManualReview");
   return t("historyStatusNotRestored");
 }
 
@@ -144,6 +147,17 @@ export function HistoryInspector({
     }
   }
 
+  async function revealClaim(log: OperationLog) {
+    const path = log.restore_claim_path;
+    if (!path) return;
+    try {
+      setRevealError((current) => ({ ...current, [log.id]: "" }));
+      await tauriApi.revealInFolder(path);
+    } catch {
+      setRevealError((current) => ({ ...current, [log.id]: t("historyPathRevealFailed") }));
+    }
+  }
+
   function toggleTechnical(id: string) {
     setTechnicalOpen((current) => {
       const next = new Set(current);
@@ -202,6 +216,7 @@ export function HistoryInspector({
                   </div>
                   {revealError[log.id] && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{revealError[log.id]}</p>}
                   {rawError && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{localizedRestoreMessage(rawError, t)}</p>}
+                  {technical && log.restore_claim_path && <div className="mt-2 flex min-w-0 items-center gap-2 rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--muted)]"><span className="shrink-0 font-semibold">{t("historyRestoreClaimPath")}:</span><button type="button" className="min-w-0 break-words text-left font-mono underline [overflow-wrap:anywhere]" title={formatDisplayPath(log.restore_claim_path)} onClick={() => void revealClaim(log)}>{formatDisplayPath(log.restore_claim_path)}</button></div>}
                   {technical && rawError && <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--muted)]">{rawError}</pre>}
                 </div>
                 <button type="button" className={buttonGhost} aria-label={`${t("historyOpenPath")}: ${operationDisplayName(log)}`} title={formatDisplayPath(currentPath)} onClick={() => void reveal(log)}>
@@ -266,6 +281,17 @@ export function CleanupInspector({
     }
   }
 
+  async function revealClaim(item: CleanupTrashItem) {
+    const path = item.sourceClaimPath;
+    if (!path) return;
+    try {
+      setRevealError((current) => ({ ...current, [item.id]: "" }));
+      await tauriApi.revealInFolder(path);
+    } catch {
+      setRevealError((current) => ({ ...current, [item.id]: t("historyPathRevealFailed") }));
+    }
+  }
+
   function toggleTechnical(id: string) {
     setTechnicalOpen((current) => {
       const next = new Set(current);
@@ -313,6 +339,7 @@ export function CleanupInspector({
                   </div>
                   {revealError[item.id] && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{revealError[item.id]}</p>}
                   {rawMessage && <p className="mt-1 text-xs text-[var(--zc-danger-text)]">{localizedCleanupMessage(rawMessage, t)}</p>}
+                  {technical && item.sourceClaimPath && <div className="mt-2 flex min-w-0 items-center gap-2 rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--muted)]"><span className="shrink-0 font-semibold">{t("historyRestoreClaimPath")}:</span><button type="button" className="min-w-0 break-words text-left font-mono underline [overflow-wrap:anywhere]" title={formatDisplayPath(item.sourceClaimPath)} onClick={() => void revealClaim(item)}>{formatDisplayPath(item.sourceClaimPath)}</button></div>}
                   {technical && rawMessage && <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded-[var(--zc-radius-control)] bg-[var(--zc-surface-subtle)] p-2 text-[11px] text-[var(--muted)]">{rawMessage}</pre>}
                 </div>
                 <button type="button" className={buttonGhost} aria-label={`${t("historyOpenPath")}: ${item.name}`} title={formatDisplayPath(currentPath)} onClick={() => void reveal(item)}>

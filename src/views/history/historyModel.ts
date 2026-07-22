@@ -16,6 +16,7 @@ export type RestoreEligibilityReason =
   | "alreadyRestored"
   | "unsupportedOperation"
   | "failedOperation"
+  | "manualReview"
   | "pending"
   | "backendBlocked"
   | "unavailable"
@@ -48,6 +49,7 @@ export interface RestoreEligibility {
 
 export function restoreEligibility(log: OperationLog): RestoreEligibility {
   if (log.operation_type === "move_to_trash") return { executable: false, reason: "unsupportedOperation" };
+  if (log.status === "manual_review" || log.restore_status === "manual_review") return { executable: false, reason: "manualReview" };
   if (log.status !== "success") return { executable: false, reason: "failedOperation" };
   if (log.restore_status === "restored") return { executable: false, reason: "alreadyRestored" };
   if (log.restore_status === "pending") return { executable: false, reason: "pending" };

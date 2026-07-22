@@ -49,7 +49,7 @@ fn schema_18_adds_safe_trash_identity_columns() {
         })
         .expect("schema version");
 
-    assert_eq!(version, 22);
+    assert_eq!(version, 23);
     assert!(columns.iter().any(|column| column == "source_modified_ns"));
     assert!(columns
         .iter()
@@ -66,6 +66,65 @@ fn schema_18_adds_safe_trash_identity_columns() {
     assert!(columns.iter().any(|column| column == "trash_quick_hash"));
     assert!(columns.iter().any(|column| column == "trash_full_hash"));
     assert!(columns.iter().any(|column| column == "identity_status"));
+}
+
+#[test]
+fn pending_cleanup_query_includes_recovery_manual_review_without_terminal_history() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("create recovery query database");
+    let conn = rusqlite::Connection::open(&path).expect("open recovery query database");
+    conn.execute(
+        "INSERT INTO cleanup_trash_batches (id, created_at, total_items, total_size, status) VALUES ('recovery-batch', '1', 4, 4, 'pending')",
+        [],
+    )
+    .expect("insert cleanup batch");
+    for (id, status, identity, phase) in [
+        ("pending", "pending", "pending", "prepared"),
+        (
+            "move-recovery",
+            "manual_review",
+            "pending_recovery",
+            "manual_review",
+        ),
+        (
+            "restore-recovery",
+            "manual_review",
+            "restore_pending_recovery",
+            "source_cleanup_pending",
+        ),
+        ("terminal", "manual_review", "verified", "completed"),
+    ] {
+        conn.execute(
+            r#"
+            INSERT INTO cleanup_trash_items (
+                id, batch_id, original_path, trash_path, name, size, moved_at,
+                status, identity_status, operation_phase
+            ) VALUES (?1, 'recovery-batch', ?2, ?3, ?4, 1, '1', ?5, ?6, ?7)
+            "#,
+            rusqlite::params![
+                id,
+                format!("C:/recovery/{id}.txt"),
+                format!("C:/recovery/.zen-canvas-trash/{id}.txt"),
+                id,
+                status,
+                identity,
+                phase
+            ],
+        )
+        .expect("insert cleanup recovery item");
+    }
+    drop(conn);
+
+    let ids = db
+        .pending_cleanup_trash_items()
+        .expect("query pending cleanup recovery items")
+        .into_iter()
+        .map(|item| item.id)
+        .collect::<std::collections::HashSet<_>>();
+    assert!(ids.contains("pending"));
+    assert!(ids.contains("move-recovery"));
+    assert!(ids.contains("restore-recovery"));
+    assert!(!ids.contains("terminal"));
 }
 
 use zen_canvas_tauri::db::Database;
