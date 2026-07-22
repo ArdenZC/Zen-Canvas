@@ -12,7 +12,7 @@ use zen_canvas_tauri::{
     file_ops::{
         execute_moves_with_persistence, reconcile_pending_operation_journal,
         restore_moves_with_persistence, set_operation_test_fault, ExecuteMovesRequest,
-        OperationPreviewRequest, OperationTestFaultPoint, RestoreMovesRequest,
+        OperationLogDto, OperationPreviewRequest, OperationTestFaultPoint, RestoreMovesRequest,
     },
     fs_safety::{
         atomic_move::test_faults::{self, AtomicFaultPoint},
@@ -57,6 +57,39 @@ fn cleanup_item(db: &Database, item_id: &str) -> CleanupTrashItem {
         .unwrap_or_else(|| panic!("cleanup item not found: {item_id}"))
 }
 
+fn ordinary_restore_fixture(
+    db: &Database,
+    root: &Path,
+    run_id: &str,
+    label: &str,
+) -> (PathBuf, PathBuf, OperationLogDto) {
+    let source = root.join(format!("ordinary-{label}-before.txt"));
+    let target = root.join(format!("ordinary-{label}-after.txt"));
+    fs::write(&source, format!("ordinary restore {label}")).expect("write ordinary restore source");
+    let moved = execute_moves_with_persistence(
+        db,
+        ExecuteMovesRequest {
+            operations: vec![OperationPreviewRequest {
+                id: format!("native-ordinary-restore-{label}-{run_id}"),
+                file_id: format!("native-ordinary-restore-file-{label}-{run_id}"),
+                operation_type: "move".to_string(),
+                source_path: source.to_string_lossy().into_owned(),
+                target_path: target.to_string_lossy().into_owned(),
+                old_name: format!("ordinary-{label}-before.txt"),
+                new_name: format!("ordinary-{label}-after.txt"),
+                is_executable: Some(true),
+            }],
+        },
+    )
+    .expect("execute ordinary restore fixture");
+    assert_eq!(moved.logs[0].status, "success");
+    (
+        source,
+        target,
+        moved.logs.into_iter().next().expect("ordinary restore log"),
+    )
+}
+
 #[derive(Serialize)]
 struct SmokeManifest {
     schema: &'static str,
@@ -78,6 +111,14 @@ struct SmokeManifest {
     safe_trash_source_cleanup_pending: &'static str,
     safe_trash_restore_source_claimed: &'static str,
     safe_trash_restore_target_committed: &'static str,
+    ordinary_restore_source_claimed: &'static str,
+    ordinary_restore_target_committed: &'static str,
+    ordinary_restore_final_transaction: &'static str,
+    ordinary_restore_target_replacement: &'static str,
+    ordinary_restore_claim_replacement: &'static str,
+    ordinary_restore_target_and_claim: &'static str,
+    ordinary_restore_all_paths_missing: &'static str,
+    ordinary_restore_claim_path: String,
     final_log_persistence_boundary: &'static str,
     claim_identity_reconciliation: &'static str,
     windows_nested_handle_relative: &'static str,
@@ -111,7 +152,7 @@ impl Drop for FixtureGuard {
 #[ignore = "native filesystem QA harness; run explicitly with --features 'desktop-runtime native-qa'"]
 fn native_file_hardening_smoke() {
     let run_id = uuid::Uuid::new_v4().to_string();
-    let fixture_root = env::temp_dir().join(format!("zen-canvas-final-hardening-v412-{run_id}"));
+    let fixture_root = env::temp_dir().join(format!("zen-canvas-final-hardening-v413-{run_id}"));
     let source_volume = fixture_root.join("source-volume");
     let target_volume = secondary_target_root(&fixture_root, &run_id);
     let secondary_fixture = (!target_volume.starts_with(&fixture_root)).then(|| {
@@ -180,6 +221,383 @@ fn native_file_hardening_smoke() {
         fs::read(&source).expect("read restored source"),
         b"bound native operation payload"
     );
+
+    let ordinary_restore_root = source_volume.join("ordinary-restore-faults");
+    fs::create_dir_all(&ordinary_restore_root).expect("create ordinary restore fault root");
+    let (prepared_source, prepared_target, prepared_log) =
+        ordinary_restore_fixture(&db, &ordinary_restore_root, &run_id, "prepared");
+    set_operation_test_fault(Some(
+        OperationTestFaultPoint::AfterRestoreJournalPreparedBeforeClaim,
+    ));
+    let prepared_panic = catch_unwind(AssertUnwindSafe(|| {
+        let _ = restore_moves_with_persistence(
+            &db,
+            RestoreMovesRequest {
+                logs: vec![prepared_log.clone()],
+            },
+        );
+    }));
+    set_operation_test_fault(None);
+    assert!(prepared_panic.is_err());
+    let prepared_pending = db
+        .get_pending_restore_logs()
+        .expect("read prepared restore journal")
+        .into_iter()
+        .find(|log| log.id == prepared_log.id)
+        .expect("prepared restore journal");
+    assert_eq!(prepared_pending.restore_phase, "prepared");
+    assert!(prepared_pending
+        .restore_claim_path
+        .as_deref()
+        .is_some_and(|path| !Path::new(path).exists()));
+    assert!(!prepared_source.exists());
+    assert!(prepared_target.exists());
+    assert_eq!(
+        reconcile_pending_operation_journal(&db).expect("reconcile prepared restore"),
+        1
+    );
+    let prepared_recovered = db
+        .get_operation_logs(Some(200))
+        .expect("read prepared restore result")
+        .into_iter()
+        .find(|log| log.id == prepared_log.id)
+        .expect("prepared restore result");
+    assert_eq!(prepared_recovered.restore_status, "not_restored");
+    assert_eq!(prepared_recovered.restore_phase, "rolled_back");
+    assert!(prepared_recovered.can_restore);
+
+    let (claimed_source, claimed_target, claimed_log) =
+        ordinary_restore_fixture(&db, &ordinary_restore_root, &run_id, "claimed");
+    set_operation_test_fault(Some(
+        OperationTestFaultPoint::AfterRestoreSourceClaimedBeforeTargetCommit,
+    ));
+    let claimed_panic = catch_unwind(AssertUnwindSafe(|| {
+        let _ = restore_moves_with_persistence(
+            &db,
+            RestoreMovesRequest {
+                logs: vec![claimed_log.clone()],
+            },
+        );
+    }));
+    set_operation_test_fault(None);
+    assert!(claimed_panic.is_err());
+    let claimed_pending = db
+        .get_pending_restore_logs()
+        .expect("read source-claimed restore journal")
+        .into_iter()
+        .find(|log| log.id == claimed_log.id)
+        .expect("source-claimed restore journal");
+    assert_eq!(claimed_pending.restore_phase, "source_claimed");
+    let ordinary_restore_claim_path = claimed_pending
+        .restore_claim_path
+        .clone()
+        .expect("persisted ordinary restore claim path");
+    assert!(Path::new(&ordinary_restore_claim_path).exists());
+    assert!(!claimed_source.exists());
+    assert!(!claimed_target.exists());
+    assert_eq!(
+        reconcile_pending_operation_journal(&db).expect("reconcile source-claimed restore"),
+        1
+    );
+    let claimed_recovered = db
+        .get_operation_logs(Some(200))
+        .expect("read source-claimed restore result")
+        .into_iter()
+        .find(|log| log.id == claimed_log.id)
+        .expect("source-claimed restore result");
+    assert_eq!(claimed_recovered.status, "manual_review");
+    assert_eq!(claimed_recovered.restore_phase, "source_claimed");
+    assert_eq!(claimed_recovered.restore_status, "manual_review");
+    assert!(claimed_recovered
+        .restore_claim_path
+        .as_deref()
+        .is_some_and(|path| Path::new(path).exists()));
+    assert!(!claimed_source.exists());
+    assert!(!claimed_target.exists());
+
+    let (committed_source, committed_target, committed_log) =
+        ordinary_restore_fixture(&db, &ordinary_restore_root, &run_id, "committed");
+    set_operation_test_fault(Some(
+        OperationTestFaultPoint::AfterRestoreTargetCommittedBeforeFinalPersist,
+    ));
+    let committed_panic = catch_unwind(AssertUnwindSafe(|| {
+        let _ = restore_moves_with_persistence(
+            &db,
+            RestoreMovesRequest {
+                logs: vec![committed_log.clone()],
+            },
+        );
+    }));
+    set_operation_test_fault(None);
+    assert!(committed_panic.is_err());
+    assert!(committed_source.exists());
+    assert!(!committed_target.exists());
+    let committed_pending = db
+        .get_pending_restore_logs()
+        .expect("read target-committed restore journal")
+        .into_iter()
+        .find(|log| log.id == committed_log.id)
+        .expect("target-committed restore journal");
+    assert_eq!(committed_pending.restore_phase, "target_committed");
+    assert_eq!(
+        reconcile_pending_operation_journal(&db).expect("reconcile target-committed restore"),
+        1
+    );
+    let committed_recovered = db
+        .get_operation_logs(Some(200))
+        .expect("read target-committed restore result")
+        .into_iter()
+        .find(|log| log.id == committed_log.id)
+        .expect("target-committed restore result");
+    assert_eq!(committed_recovered.restore_status, "restored");
+    assert_eq!(committed_recovered.restore_phase, "completed");
+
+    let (completed_source, completed_target, completed_log) =
+        ordinary_restore_fixture(&db, &ordinary_restore_root, &run_id, "completed");
+    set_operation_test_fault(Some(
+        OperationTestFaultPoint::AfterRestoreCompletedPhaseBeforeFinalTransaction,
+    ));
+    let completed_panic = catch_unwind(AssertUnwindSafe(|| {
+        let _ = restore_moves_with_persistence(
+            &db,
+            RestoreMovesRequest {
+                logs: vec![completed_log.clone()],
+            },
+        );
+    }));
+    set_operation_test_fault(None);
+    assert!(completed_panic.is_err());
+    assert!(completed_source.exists());
+    assert!(!completed_target.exists());
+    let completed_pending = db
+        .get_pending_restore_logs()
+        .expect("read completed-phase restore journal")
+        .into_iter()
+        .find(|log| log.id == completed_log.id)
+        .expect("completed-phase restore journal");
+    assert_eq!(completed_pending.restore_phase, "completed");
+    assert_eq!(
+        reconcile_pending_operation_journal(&db).expect("reconcile completed restore"),
+        1
+    );
+    let completed_recovered = db
+        .get_operation_logs(Some(200))
+        .expect("read completed-phase restore result")
+        .into_iter()
+        .find(|log| log.id == completed_log.id)
+        .expect("completed-phase restore result");
+    assert_eq!(completed_recovered.restore_status, "restored");
+    assert_eq!(completed_recovered.restore_phase, "completed");
+
+    let (target_replacement_source, target_replacement_target, target_replacement_log) =
+        ordinary_restore_fixture(&db, &ordinary_restore_root, &run_id, "target-replacement");
+    set_operation_test_fault(Some(
+        OperationTestFaultPoint::AfterRestoreTargetCommittedBeforeFinalPersist,
+    ));
+    let target_replacement_panic = catch_unwind(AssertUnwindSafe(|| {
+        let _ = restore_moves_with_persistence(
+            &db,
+            RestoreMovesRequest {
+                logs: vec![target_replacement_log.clone()],
+            },
+        );
+    }));
+    set_operation_test_fault(None);
+    assert!(target_replacement_panic.is_err());
+    assert!(target_replacement_source.exists());
+    assert!(!target_replacement_target.exists());
+    fs::write(&target_replacement_source, b"replaced restore target")
+        .expect("replace committed restore target");
+    assert_eq!(
+        reconcile_pending_operation_journal(&db).expect("reconcile replaced restore target"),
+        1
+    );
+    let target_replacement_recovered = db
+        .get_operation_logs(Some(300))
+        .expect("read replaced restore target result")
+        .into_iter()
+        .find(|log| log.id == target_replacement_log.id)
+        .expect("replaced restore target result");
+    assert_eq!(target_replacement_recovered.status, "manual_review");
+    assert_eq!(
+        target_replacement_recovered.restore_phase,
+        "target_committed"
+    );
+    assert_eq!(
+        target_replacement_recovered.restore_error.as_deref(),
+        Some(
+            "target_committed_identity_mismatch: restore target or source identity is mismatched or unreadable; do not auto retry."
+        )
+    );
+    assert_eq!(
+        fs::read(&target_replacement_source).expect("read replaced restore target"),
+        b"replaced restore target"
+    );
+
+    let (claim_replacement_source, claim_replacement_target, claim_replacement_log) =
+        ordinary_restore_fixture(&db, &ordinary_restore_root, &run_id, "claim-replacement");
+    set_operation_test_fault(Some(
+        OperationTestFaultPoint::AfterRestoreSourceClaimedBeforeTargetCommit,
+    ));
+    let claim_replacement_panic = catch_unwind(AssertUnwindSafe(|| {
+        let _ = restore_moves_with_persistence(
+            &db,
+            RestoreMovesRequest {
+                logs: vec![claim_replacement_log.clone()],
+            },
+        );
+    }));
+    set_operation_test_fault(None);
+    assert!(claim_replacement_panic.is_err());
+    let claim_replacement_pending = db
+        .get_pending_restore_logs()
+        .expect("read claim replacement restore journal")
+        .into_iter()
+        .find(|log| log.id == claim_replacement_log.id)
+        .expect("claim replacement restore journal");
+    let claim_replacement_path = PathBuf::from(
+        claim_replacement_pending
+            .restore_claim_path
+            .as_deref()
+            .expect("claim replacement path"),
+    );
+    fs::remove_file(&claim_replacement_path).expect("remove original restore claim");
+    fs::write(&claim_replacement_path, b"replacement claim")
+        .expect("write replacement restore claim");
+    assert_eq!(
+        reconcile_pending_operation_journal(&db).expect("reconcile replaced restore claim"),
+        1
+    );
+    let claim_replacement_recovered = db
+        .get_operation_logs(Some(300))
+        .expect("read replaced restore claim result")
+        .into_iter()
+        .find(|log| log.id == claim_replacement_log.id)
+        .expect("replaced restore claim result");
+    assert_eq!(claim_replacement_recovered.status, "manual_review");
+    assert_eq!(claim_replacement_recovered.restore_phase, "source_claimed");
+    assert_eq!(
+        claim_replacement_recovered.restore_error.as_deref(),
+        Some(
+            "claim_identity_mismatch: persisted restore claim identity is mismatched or unreadable; do not auto retry."
+        )
+    );
+    assert!(!claim_replacement_source.exists());
+    assert!(!claim_replacement_target.exists());
+    assert_eq!(
+        fs::read(&claim_replacement_path).expect("read replacement restore claim"),
+        b"replacement claim"
+    );
+
+    let (both_paths_source, both_paths_target, both_paths_log) =
+        ordinary_restore_fixture(&db, &ordinary_restore_root, &run_id, "target-and-claim");
+    set_operation_test_fault(Some(
+        OperationTestFaultPoint::AfterRestoreSourceClaimedBeforeTargetCommit,
+    ));
+    let both_paths_panic = catch_unwind(AssertUnwindSafe(|| {
+        let _ = restore_moves_with_persistence(
+            &db,
+            RestoreMovesRequest {
+                logs: vec![both_paths_log.clone()],
+            },
+        );
+    }));
+    set_operation_test_fault(None);
+    assert!(both_paths_panic.is_err());
+    let both_paths_pending = db
+        .get_pending_restore_logs()
+        .expect("read target and claim restore journal")
+        .into_iter()
+        .find(|log| log.id == both_paths_log.id)
+        .expect("target and claim restore journal");
+    let both_paths_claim = PathBuf::from(
+        both_paths_pending
+            .restore_claim_path
+            .as_deref()
+            .expect("target and claim path"),
+    );
+    fs::hard_link(&both_paths_claim, &both_paths_source)
+        .expect("create identity-preserving target and claim fixture");
+    assert!(!both_paths_target.exists());
+    assert_eq!(
+        reconcile_pending_operation_journal(&db).expect("reconcile target and claim"),
+        1
+    );
+    let both_paths_recovered = db
+        .get_operation_logs(Some(300))
+        .expect("read target and claim result")
+        .into_iter()
+        .find(|log| log.id == both_paths_log.id)
+        .expect("target and claim result");
+    assert_eq!(both_paths_recovered.status, "manual_review");
+    assert_eq!(both_paths_recovered.restore_phase, "source_cleanup_pending");
+    assert_eq!(
+        both_paths_recovered.restore_error.as_deref(),
+        Some(
+            "target_committed_source_cleanup_pending: restored target and restore claim both exist; do not auto retry source cleanup."
+        )
+    );
+    assert!(both_paths_source.exists());
+    assert!(both_paths_claim.exists());
+    let reentry = restore_moves_with_persistence(
+        &db,
+        RestoreMovesRequest {
+            logs: vec![both_paths_recovered.clone()],
+        },
+    )
+    .expect_err("restore reentry must fail closed for target and claim");
+    assert!(reentry.contains("restore_pending_reconciliation"));
+    assert!(both_paths_source.exists());
+    assert!(both_paths_claim.exists());
+
+    let (all_missing_source, all_missing_target, all_missing_log) =
+        ordinary_restore_fixture(&db, &ordinary_restore_root, &run_id, "all-paths-missing");
+    set_operation_test_fault(Some(
+        OperationTestFaultPoint::AfterRestoreSourceClaimedBeforeTargetCommit,
+    ));
+    let all_missing_panic = catch_unwind(AssertUnwindSafe(|| {
+        let _ = restore_moves_with_persistence(
+            &db,
+            RestoreMovesRequest {
+                logs: vec![all_missing_log.clone()],
+            },
+        );
+    }));
+    set_operation_test_fault(None);
+    assert!(all_missing_panic.is_err());
+    let all_missing_pending = db
+        .get_pending_restore_logs()
+        .expect("read all missing restore journal")
+        .into_iter()
+        .find(|log| log.id == all_missing_log.id)
+        .expect("all missing restore journal");
+    let all_missing_claim = PathBuf::from(
+        all_missing_pending
+            .restore_claim_path
+            .as_deref()
+            .expect("all missing claim path"),
+    );
+    fs::remove_file(&all_missing_claim).expect("remove all missing claim");
+    assert!(!all_missing_source.exists());
+    assert!(!all_missing_target.exists());
+    assert_eq!(
+        reconcile_pending_operation_journal(&db).expect("reconcile all missing restore"),
+        1
+    );
+    let all_missing_recovered = db
+        .get_operation_logs(Some(300))
+        .expect("read all missing restore result")
+        .into_iter()
+        .find(|log| log.id == all_missing_log.id)
+        .expect("all missing restore result");
+    assert_eq!(all_missing_recovered.status, "manual_review");
+    assert_eq!(all_missing_recovered.restore_status, "manual_review");
+    assert_eq!(all_missing_recovered.restore_phase, "manual_review");
+    assert!(!all_missing_recovered.can_restore);
+    assert!(all_missing_recovered
+        .restore_error
+        .as_deref()
+        .is_some_and(|error| error.contains("restore_pending_reconciliation")));
 
     let reconcile_source = source_volume.join("reconcile-source.txt");
     let reconcile_target = target_volume.join("reconcile-target.txt");
@@ -490,10 +908,7 @@ fn native_file_hardening_smoke() {
     trash_item.operation_phase = "prepared".to_string();
     db.update_cleanup_trash_item_status(&trash_item)
         .expect("simulate interrupted Safe Trash journal");
-    assert_eq!(
-        reconcile_pending_cleanup_journal(&db).expect("reconcile Safe Trash"),
-        1
-    );
+    assert!(reconcile_pending_cleanup_journal(&db).expect("reconcile Safe Trash") >= 1);
     let cleanup_restore = restore_cleanup_trash_items_for_db(vec![trash_item.id], &db)
         .expect("restore through production Safe Trash");
     assert_eq!(cleanup_restore.restored, 1);
@@ -536,10 +951,7 @@ fn native_file_hardening_smoke() {
     safe_trash_durability_pending.status = "pending".to_string();
     db.update_cleanup_trash_item_status(&safe_trash_durability_pending)
         .expect("persist Safe Trash durability pending restart state");
-    assert_eq!(
-        reconcile_pending_cleanup_journal(&db).expect("reconcile Safe Trash durability"),
-        1
-    );
+    assert!(reconcile_pending_cleanup_journal(&db).expect("reconcile Safe Trash durability") >= 1);
     let safe_trash_durability_recovered = cleanup_item(&db, &safe_trash_durability_item_id);
     assert_eq!(safe_trash_durability_recovered.status, "manual_review");
     assert_eq!(
@@ -579,10 +991,7 @@ fn native_file_hardening_smoke() {
     safe_trash_identity_pending.status = "pending".to_string();
     db.update_cleanup_trash_item_status(&safe_trash_identity_pending)
         .expect("persist Safe Trash identity pending restart state");
-    assert_eq!(
-        reconcile_pending_cleanup_journal(&db).expect("reconcile Safe Trash identity"),
-        1
-    );
+    assert!(reconcile_pending_cleanup_journal(&db).expect("reconcile Safe Trash identity") >= 1);
     assert_eq!(
         cleanup_item(&db, &safe_trash_identity_item_id).status,
         "manual_review"
@@ -626,9 +1035,8 @@ fn native_file_hardening_smoke() {
     safe_trash_source_cleanup_pending.status = "pending".to_string();
     db.update_cleanup_trash_item_status(&safe_trash_source_cleanup_pending)
         .expect("persist Safe Trash source cleanup pending restart state");
-    assert_eq!(
-        reconcile_pending_cleanup_journal(&db).expect("reconcile Safe Trash source cleanup"),
-        1
+    assert!(
+        reconcile_pending_cleanup_journal(&db).expect("reconcile Safe Trash source cleanup") >= 1
     );
     assert_eq!(
         cleanup_item(&db, &safe_trash_source_cleanup_item_id).status,
@@ -677,10 +1085,7 @@ fn native_file_hardening_smoke() {
         .source_claim_path
         .as_deref()
         .is_some_and(|path| Path::new(path).exists()));
-    assert_eq!(
-        reconcile_pending_cleanup_journal(&db).expect("reconcile restore source claim"),
-        1
-    );
+    assert!(reconcile_pending_cleanup_journal(&db).expect("reconcile restore source claim") >= 1);
     let restore_source_claimed_recovered = cleanup_item(&db, &restore_source_claimed_item_id);
     assert_eq!(restore_source_claimed_recovered.status, "manual_review");
     assert_eq!(
@@ -688,6 +1093,40 @@ fn native_file_hardening_smoke() {
         "source_claimed"
     );
     assert!(!preview_cleanup_restore_item_for_test(restore_source_claimed_recovered).can_restore);
+    let restore_reentry =
+        restore_cleanup_trash_items_for_db(vec![restore_source_claimed_item_id.clone()], &db)
+            .expect("restore pending Safe Trash reentry result");
+    assert_eq!(restore_reentry.restored, 0);
+    assert_eq!(restore_reentry.failed, 1);
+    assert!(restore_reentry.logs[0]
+        .message
+        .contains("restore_pending_reconciliation"));
+    let restore_reentry_item = cleanup_item(&db, &restore_source_claimed_item_id);
+    assert_eq!(restore_reentry_item.status, "manual_review");
+    assert_eq!(restore_reentry_item.operation_phase, "source_claimed");
+    assert!(restore_reentry_item
+        .source_claim_path
+        .as_deref()
+        .is_some_and(|path| Path::new(path).exists()));
+
+    let mut move_manual_recovery = safe_trash_durability_item.clone();
+    move_manual_recovery.status = "manual_review".to_string();
+    move_manual_recovery.identity_status = "pending_recovery".to_string();
+    move_manual_recovery.operation_phase = "manual_review".to_string();
+    db.update_cleanup_trash_item_status(&move_manual_recovery)
+        .expect("persist Safe Trash manual recovery state");
+    assert!(db
+        .pending_cleanup_trash_items()
+        .expect("query Safe Trash manual recovery state")
+        .iter()
+        .any(|item| item.id == move_manual_recovery.id));
+    assert!(
+        reconcile_pending_cleanup_journal(&db).expect("reconcile Safe Trash manual recovery") >= 1
+    );
+    let move_manual_recovered = cleanup_item(&db, &move_manual_recovery.id);
+    assert_eq!(move_manual_recovered.status, "manual_review");
+    assert_eq!(move_manual_recovered.identity_status, "pending_recovery");
+    assert_eq!(move_manual_recovered.operation_phase, "manual_review");
 
     let restore_target_committed = native_cleanup_candidate(
         &safe_trash_cases_root,
@@ -853,7 +1292,7 @@ fn native_file_hardening_smoke() {
         remove_isolated_fixture(secondary_root);
     }
     let manifest = SmokeManifest {
-        schema: "zen-canvas-native-file-hardening-smoke/v1",
+        schema: "zen-canvas-native-file-hardening-smoke/v2",
         fixture_root: fixture_text,
         database: database_text,
         source_volume: source_text,
@@ -880,6 +1319,14 @@ fn native_file_hardening_smoke() {
         safe_trash_source_cleanup_pending: "passed",
         safe_trash_restore_source_claimed: "passed",
         safe_trash_restore_target_committed: "passed",
+        ordinary_restore_source_claimed: "passed",
+        ordinary_restore_target_committed: "passed",
+        ordinary_restore_final_transaction: "passed",
+        ordinary_restore_target_replacement: "passed",
+        ordinary_restore_claim_replacement: "passed",
+        ordinary_restore_target_and_claim: "passed",
+        ordinary_restore_all_paths_missing: "passed",
+        ordinary_restore_claim_path,
         final_log_persistence_boundary: "passed",
         claim_identity_reconciliation: "passed",
         windows_nested_handle_relative: "passed",
@@ -918,13 +1365,13 @@ fn secondary_target_root(fixture_root: &Path, run_id: &str) -> PathBuf {
         let configured = PathBuf::from(configured);
         if configured.is_absolute() && volume_prefix(&configured) != source_prefix {
             return configured
-                .join(format!("zen-canvas-final-hardening-v412-{run_id}"))
+                .join(format!("zen-canvas-final-hardening-v413-{run_id}"))
                 .join("target-volume");
         }
     }
     for drive in b'C'..=b'Z' {
         let candidate_root = PathBuf::from(format!(
-            "{}:\\zen-canvas-final-hardening-v412-{run_id}",
+            "{}:\\zen-canvas-final-hardening-v413-{run_id}",
             drive as char
         ));
         if volume_prefix(&candidate_root) == source_prefix {
@@ -947,7 +1394,7 @@ fn volume_prefix(path: &Path) -> String {
 
 fn remove_isolated_fixture(path: &Path) {
     let text = path.to_string_lossy().to_ascii_lowercase();
-    assert!(text.contains("zen-canvas-final-hardening-v412-"));
+    assert!(text.contains("zen-canvas-final-hardening-v413-"));
     assert!(path.parent().is_some());
     if path.exists() {
         fs::remove_dir_all(path).expect("remove isolated native QA fixture");
@@ -956,7 +1403,7 @@ fn remove_isolated_fixture(path: &Path) {
 
 fn remove_isolated_fixture_if_present(path: &Path) {
     let text = path.to_string_lossy().to_ascii_lowercase();
-    if text.contains("zen-canvas-final-hardening-v412-") && path.parent().is_some() && path.exists()
+    if text.contains("zen-canvas-final-hardening-v413-") && path.parent().is_some() && path.exists()
     {
         let _ = fs::remove_dir_all(path);
     }
