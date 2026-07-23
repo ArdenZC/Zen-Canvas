@@ -493,6 +493,8 @@ export interface GlobalIndexStatus {
   enabled: boolean;
   status: string;
   providerStatus?: string | null;
+  processedEntries: number;
+  collectionComplete: boolean;
   totalEntries: number;
   indexedVolumes: number;
   readyVolumes: number;

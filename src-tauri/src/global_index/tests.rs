@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+const GLOBAL_SEARCH_P95_LIMIT_MS: f64 = 100.0;
 
 fn test_db_path() -> PathBuf {
     let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
@@ -130,6 +131,10 @@ fn global_search_is_independent_from_legacy_files_and_ai_is_scope_gated() {
     db.upsert_global_entries_batch(&[directory, document.clone()])
         .expect("insert global entries");
 
+    let collecting_status = db.global_index_status().expect("collecting status");
+    assert_eq!(collecting_status.processed_entries, 2);
+    assert!(!collecting_status.collection_complete);
+
     let results = db
         .search_global_entries("报告", 20, 0)
         .expect("global search");
@@ -174,6 +179,20 @@ fn global_search_is_independent_from_legacy_files_and_ai_is_scope_gated() {
     assert_eq!(managed_entries, 2);
     assert_eq!(ai_jobs, 1);
     assert_eq!(ai_states, 1);
+
+    db.update_global_volume_state(
+        "gv_test",
+        INDEX_STATUS_READY,
+        None,
+        None,
+        None,
+        Some(40),
+        Some(40),
+    )
+    .expect("mark volume ready");
+    let completed_status = db.global_index_status().expect("completed status");
+    assert_eq!(completed_status.status, INDEX_STATUS_READY);
+    assert!(completed_status.collection_complete);
     drop(conn);
     drop(db);
     let _ = std::fs::remove_file(path);
@@ -301,14 +320,40 @@ fn global_search_performance_one_million_synthetic_entries() {
         transaction.commit().expect("commit benchmark entries");
     }
 
-    let started = Instant::now();
-    let results = db
-        .search_global_entries("Report-999999", 20, 0)
-        .expect("search one million benchmark entries");
-    let elapsed = started.elapsed();
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].name, "Report-999999.txt");
-    eprintln!("global search over 1,000,000 entries: {elapsed:?}");
+    let queries = [
+        ("Report-000001", "Report-000001.txt"),
+        ("Report-100000", "Report-100000.txt"),
+        ("Report-500000", "Report-500000.txt"),
+        ("Report-750000", "Report-750000.txt"),
+        ("Report-999999", "Report-999999.txt"),
+    ];
+    let mut timings_ms = Vec::with_capacity(queries.len() * 3);
+    for (query, expected_name) in queries {
+        for _ in 0..3 {
+            let started = Instant::now();
+            let results = db
+                .search_global_entries(query, 20, 0)
+                .expect("search one million benchmark entries");
+            timings_ms.push(started.elapsed().as_secs_f64() * 1_000.0);
+            assert!(
+                results.iter().any(|result| result.name == expected_name),
+                "global search query {query:?} should return {expected_name:?}"
+            );
+        }
+    }
+    timings_ms.sort_by(f64::total_cmp);
+    let p95_index = ((timings_ms.len() as f64 * 0.95).ceil() as usize)
+        .saturating_sub(1)
+        .min(timings_ms.len().saturating_sub(1));
+    let p95_ms = timings_ms[p95_index];
+    eprintln!(
+        "global search over 1,000,000 entries: samples={} p95_ms={p95_ms:.3} threshold_ms={GLOBAL_SEARCH_P95_LIMIT_MS:.3}",
+        timings_ms.len()
+    );
+    assert!(
+        p95_ms <= GLOBAL_SEARCH_P95_LIMIT_MS,
+        "global search p95 {p95_ms:.3}ms exceeded {GLOBAL_SEARCH_P95_LIMIT_MS:.3}ms"
+    );
 
     drop(db);
     let _ = std::fs::remove_file(path);

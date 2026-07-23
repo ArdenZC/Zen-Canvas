@@ -11,7 +11,8 @@ mod spotlight;
 use super::coordinator::{GlobalIndexError, GlobalIndexProvider, GlobalIndexSink};
 use super::models::{
     GlobalEntryInput, GlobalSourceDescriptor, GlobalVolume, INDEX_STATUS_FSEVENTS_UNAVAILABLE,
-    INDEX_STATUS_PERMISSION_REQUIRED, INDEX_STATUS_READY, INDEX_STATUS_SPOTLIGHT_NOT_INDEXED,
+    INDEX_STATUS_PERMISSION_REQUIRED, INDEX_STATUS_READY,
+    INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED, INDEX_STATUS_SPOTLIGHT_NOT_INDEXED,
     INDEX_STATUS_SPOTLIGHT_UNAVAILABLE, INDEX_STATUS_UNAVAILABLE,
     PROVIDER_MACOS_FSEVENTS_RECONCILE, PROVIDER_MACOS_SPOTLIGHT,
 };
@@ -144,17 +145,35 @@ impl MacosSpotlightProvider {
         volume_id: &str,
         summary: spotlight::SpotlightCollectionSummary,
     ) -> Result<(), GlobalIndexError> {
-        if summary.processed == 0 {
+        if summary.full_disk_access_required {
+            sink.set_source_state(
+                volume_id,
+                INDEX_STATUS_PERMISSION_REQUIRED,
+                Some("macos_spotlight_full_disk_access_required"),
+            )?;
+        } else if summary.external_volume_not_indexed {
+            sink.set_source_state(
+                volume_id,
+                INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED,
+                Some("macos_spotlight_external_volume_not_indexed"),
+            )?;
+        } else if summary.processed == 0 {
             sink.set_source_state(
                 volume_id,
                 INDEX_STATUS_SPOTLIGHT_NOT_INDEXED,
                 Some("macos_spotlight_no_indexed_local_results"),
             )?;
-        } else if summary.path_fallbacks > 0 || summary.skipped > 0 {
+        } else if summary.path_fallbacks > 0 {
             sink.set_source_state(
                 volume_id,
                 INDEX_STATUS_PERMISSION_REQUIRED,
-                Some("macos_spotlight_partial_results_permission_required"),
+                Some("macos_spotlight_protected_directories"),
+            )?;
+        } else if summary.skipped > 0 {
+            sink.set_source_state(
+                volume_id,
+                INDEX_STATUS_PERMISSION_REQUIRED,
+                Some("macos_spotlight_incomplete_results"),
             )?;
         } else {
             sink.set_source_state(volume_id, INDEX_STATUS_READY, None)?;
@@ -168,8 +187,13 @@ impl MacosSpotlightProvider {
         error: &str,
     ) -> Result<GlobalIndexError, GlobalIndexError> {
         let status = if error.contains("macos_spotlight") {
-            if error.contains("permission") {
+            if error.contains("full_disk_access")
+                || error.contains("permission")
+                || error.contains("protected")
+            {
                 super::models::INDEX_STATUS_PERMISSION_REQUIRED
+            } else if error.contains("external_volume_not_indexed") {
+                INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED
             } else {
                 INDEX_STATUS_SPOTLIGHT_UNAVAILABLE
             }

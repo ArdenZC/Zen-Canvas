@@ -11,6 +11,8 @@ use objc2_foundation::{
     NSMetadataQueryUpdateChangedItemsKey, NSMetadataQueryUpdateRemovedItemsKey, NSNotification,
     NSNotificationCenter, NSNumber, NSPredicate, NSRunLoop, NSString, NSURL,
 };
+use std::collections::HashSet;
+use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
@@ -25,6 +27,14 @@ pub struct SpotlightCollectionSummary {
     pub processed: usize,
     pub path_fallbacks: usize,
     pub skipped: usize,
+    pub full_disk_access_required: bool,
+    pub external_volume_not_indexed: bool,
+}
+
+#[derive(Debug)]
+struct ExternalVolumeProbe {
+    root: PathBuf,
+    has_readable_content: bool,
 }
 
 pub fn stream_local_computer_entries<F>(
@@ -41,6 +51,8 @@ where
             return Err("macos_spotlight_query_unavailable".to_string());
         }
         let run_loop = NSRunLoop::currentRunLoop();
+        let external_volumes = mounted_external_volume_probes();
+        let mut external_volume_hits = HashSet::new();
         while query.isGathering() {
             if cancel.load(Ordering::Acquire) {
                 query.stopQuery();
@@ -57,6 +69,14 @@ where
                 return Err("macos_spotlight_query_paused".to_string());
             }
             let object = query.resultAtIndex(index);
+            if let Some(path) = path_from_object(&object) {
+                if let Some(volume) = external_volumes
+                    .iter()
+                    .find(|volume| Path::new(&path).starts_with(&volume.root))
+                {
+                    external_volume_hits.insert(volume.root.clone());
+                }
+            }
             let Some(entry) = metadata_item_to_entry(volume_id, &object) else {
                 summary.skipped += 1;
                 continue;
@@ -81,6 +101,10 @@ where
             }
         }
         query.stopQuery();
+        summary.full_disk_access_required = full_disk_access_required();
+        summary.external_volume_not_indexed = external_volumes.iter().any(|volume| {
+            volume.has_readable_content && !external_volume_hits.contains(&volume.root)
+        });
         Ok(summary)
     })
 }
@@ -179,6 +203,57 @@ fn new_local_computer_query() -> Retained<NSMetadataQuery> {
     let scopes = NSArray::from_slice(&[NSMetadataQueryIndexedLocalComputerScope]);
     unsafe { query.setSearchScopes(&scopes) };
     query
+}
+
+fn full_disk_access_required() -> bool {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return false;
+    };
+    [
+        home.join("Library/Mail"),
+        home.join("Library/Messages"),
+        home.join("Library/Safari"),
+        home.join("Library/Calendars"),
+    ]
+    .iter()
+    .any(|path| match fs::symlink_metadata(path) {
+        Err(error) => error.kind() == std::io::ErrorKind::PermissionDenied,
+        Ok(metadata) if metadata.is_dir() => match fs::read_dir(path) {
+            Err(error) => error.kind() == std::io::ErrorKind::PermissionDenied,
+            Ok(_) => false,
+        },
+        Ok(_) => false,
+    })
+}
+
+fn mounted_external_volume_probes() -> Vec<ExternalVolumeProbe> {
+    let Some(root_device) = fs::symlink_metadata("/")
+        .ok()
+        .map(|metadata| metadata.dev())
+    else {
+        return Vec::new();
+    };
+    let Ok(entries) = fs::read_dir("/Volumes") else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let root = entry.path();
+            let metadata = fs::symlink_metadata(&root).ok()?;
+            if !metadata.is_dir() || metadata.dev() == root_device {
+                return None;
+            }
+            let has_readable_content = match fs::read_dir(&root) {
+                Ok(mut children) => children.next().is_some(),
+                Err(_) => false,
+            };
+            Some(ExternalVolumeProbe {
+                root,
+                has_readable_content,
+            })
+        })
+        .collect()
 }
 
 fn collect_update_items(

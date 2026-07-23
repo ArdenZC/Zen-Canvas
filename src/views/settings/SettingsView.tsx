@@ -146,6 +146,7 @@ function globalIndexStatusText(status: string, t: Translator) {
     permission_required: "globalIndexStatusPermissionRequired",
     spotlight_unavailable: "globalIndexStatusSpotlightUnavailable",
     spotlight_not_indexed: "globalIndexStatusSpotlightNotIndexed",
+    spotlight_external_not_indexed: "globalIndexStatusSpotlightExternalNotIndexed",
     fsevents_unavailable: "globalIndexStatusFseventsUnavailable",
     unavailable: "globalIndexStatusUnavailable",
     error: "globalIndexStatusError"
@@ -159,6 +160,36 @@ function globalIndexProviderStatusText(status: string | null | undefined, t: Tra
   if (status.includes("service_unavailable")) return t("globalIndexServiceUnavailable");
   if (status.startsWith("windows_index_service:")) return t("globalIndexServiceRunning");
   return t("globalIndexProviderDirectFallback");
+}
+
+function globalIndexErrorText(error: string | null | undefined, t: Translator) {
+  if (!error) return null;
+  const message = error.replace(/^provider error:\s*/i, "");
+  if (message.startsWith("macos_spotlight_no_indexed_local_results")) {
+    return t("globalIndexErrorSpotlightNoResults");
+  }
+  if (message.startsWith("macos_spotlight_full_disk_access_required")) {
+    return t("globalIndexErrorSpotlightFullDiskAccess");
+  }
+  if (message.startsWith("macos_spotlight_external_volume_not_indexed")) {
+    return t("globalIndexErrorSpotlightExternalNotIndexed");
+  }
+  if (message.startsWith("macos_spotlight_partial_results_permission_required") || message.startsWith("macos_spotlight_protected_directories")) {
+    return t("globalIndexErrorSpotlightProtected");
+  }
+  if (message.startsWith("macos_spotlight_incomplete_results")) {
+    return t("globalIndexErrorSpotlightIncomplete");
+  }
+  if (message.startsWith("macos_spotlight")) {
+    return t("globalIndexErrorSpotlightUnavailable");
+  }
+  if (message.startsWith("macos_fsevents")) {
+    return t("globalIndexErrorRealtimeUnavailable");
+  }
+  if (message.startsWith("global_index_source_unavailable")) {
+    return t("globalIndexErrorSourceUnavailable");
+  }
+  return t("globalIndexErrorGeneric");
 }
 
 function managedScopePolicyText(policySummary: string | undefined, t: Translator) {
@@ -1318,8 +1349,8 @@ export function SettingsView() {
                 </SettingsInlineMessage>
               ) : null}
               <SettingsInlineMessage
-                tone={globalIndexStatus?.status === "error" || globalIndexStatus?.status === "permission_required" || globalIndexStatus?.providerStatus?.includes("service_unavailable") ? "warning" : "info"}
-                role={globalIndexStatus?.status === "error" || globalIndexStatus?.status === "permission_required" || globalIndexStatus?.providerStatus?.includes("service_unavailable") ? "alert" : "status"}
+                tone={globalIndexStatus?.status === "error" || globalIndexStatus?.status === "permission_required" || globalIndexStatus?.status === "spotlight_not_indexed" || globalIndexStatus?.status === "spotlight_external_not_indexed" || globalIndexStatus?.status === "spotlight_unavailable" || globalIndexStatus?.status === "fsevents_unavailable" || Boolean(globalIndexStatus?.lastError) || globalIndexStatus?.providerStatus?.includes("service_unavailable") ? "warning" : "info"}
+                role={globalIndexStatus?.status === "error" || globalIndexStatus?.status === "permission_required" || globalIndexStatus?.status === "spotlight_not_indexed" || globalIndexStatus?.status === "spotlight_external_not_indexed" || globalIndexStatus?.status === "spotlight_unavailable" || globalIndexStatus?.status === "fsevents_unavailable" || Boolean(globalIndexStatus?.lastError) || globalIndexStatus?.providerStatus?.includes("service_unavailable") ? "alert" : "status"}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <strong>{t("globalIndexStatus")}</strong>
@@ -1327,13 +1358,13 @@ export function SettingsView() {
                 </div>
                 {globalIndexStatus ? (
                   <span className={quietText}>
-                    {t("globalIndexEntries")}: {globalIndexStatus.totalEntries.toLocaleString()} · {t("globalIndexSources")}: {globalIndexStatus.indexedVolumes.toLocaleString()}
+                    {t("globalIndexProcessed")}: {(globalIndexStatus.processedEntries ?? globalIndexStatus.totalEntries).toLocaleString()} · {globalIndexStatus.collectionComplete ? t("globalIndexCollectionComplete") : t("globalIndexCollectionCollecting")} · {t("globalIndexSources")}: {globalIndexStatus.indexedVolumes.toLocaleString()}
                   </span>
                 ) : null}
                 {globalIndexStatus?.providerStatus ? (
                   <span className={quietText}>{t("globalIndexProvider")}: {globalIndexProviderStatusText(globalIndexStatus.providerStatus, t)}</span>
                 ) : null}
-                {globalIndexStatus?.lastError ? <span className={quietText}>{globalIndexStatus.lastError}</span> : null}
+                {globalIndexStatus?.lastError ? <span className={quietText}>{globalIndexErrorText(globalIndexStatus.lastError, t)}</span> : null}
               </SettingsInlineMessage>
               <div className="flex flex-wrap gap-2">
                 {globalIndexStatus?.status === "indexing" || globalIndexStatus?.status === "syncing" ? (

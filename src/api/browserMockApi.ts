@@ -441,6 +441,8 @@ function mockGlobalIndexStatus(): GlobalIndexStatus {
     enabled: true,
     status: "ready",
     providerStatus: "browser_preview",
+    processedEntries: mockGlobalEntries.length,
+    collectionComplete: true,
     totalEntries: mockGlobalEntries.length,
     indexedVolumes: 1,
     readyVolumes: 1,

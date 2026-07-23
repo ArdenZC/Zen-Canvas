@@ -6,6 +6,23 @@ use std::path::Path;
 const MAX_SEARCH_LIMIT: u32 = 200;
 const MAX_SEARCH_OFFSET: u32 = 1_000_000;
 
+struct GlobalIndexStatusCounts {
+    total_entries: i64,
+    indexed_volumes: i64,
+    ready_volumes: i64,
+    pending_volumes: i64,
+    spotlight_not_indexed_volumes: i64,
+    permission_required_volumes: i64,
+    spotlight_unavailable_volumes: i64,
+    spotlight_external_not_indexed_volumes: i64,
+    fsevents_unavailable_volumes: i64,
+    unavailable_volumes: i64,
+    error_volumes: i64,
+    paused_volumes: i64,
+    last_sync_at: Option<i64>,
+    last_error: Option<String>,
+}
+
 impl Database {
     pub fn upsert_global_volume(&self, volume: &GlobalVolume) -> Result<(), DbError> {
         let conn = self.conn()?;
@@ -297,33 +314,57 @@ impl Database {
 
     pub fn global_index_status(&self) -> Result<GlobalIndexStatus, DbError> {
         let conn = self.conn()?;
-        let (total_entries, indexed_volumes, ready_volumes, pending_volumes, last_sync_at, last_error): (
-            i64,
-            i64,
-            i64,
-            i64,
-            Option<i64>,
-            Option<String>,
-        ) = conn.query_row(
+        let GlobalIndexStatusCounts {
+            total_entries,
+            indexed_volumes,
+            ready_volumes,
+            pending_volumes,
+            spotlight_not_indexed_volumes,
+            permission_required_volumes,
+            spotlight_unavailable_volumes,
+            spotlight_external_not_indexed_volumes,
+            fsevents_unavailable_volumes,
+            unavailable_volumes,
+            error_volumes,
+            paused_volumes,
+            last_sync_at,
+            last_error,
+        } = conn.query_row(
             r#"
             SELECT
                 (SELECT COUNT(*) FROM global_entries WHERE is_stale = 0),
                 (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1),
                 (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'ready'),
-                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status NOT IN ('ready', 'paused')),
+                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status IN ('discovered', 'indexing', 'syncing', 'rebuild_required')),
+                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_not_indexed'),
+                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'permission_required'),
+                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_unavailable'),
+                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_external_not_indexed'),
+                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'fsevents_unavailable'),
+                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'unavailable'),
+                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'error'),
+                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'paused'),
                 (SELECT MAX(last_incremental_sync_at) FROM global_volumes),
                 (SELECT last_error FROM global_volumes WHERE last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1)
             "#,
             [],
             |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                ))
+                Ok(GlobalIndexStatusCounts {
+                    total_entries: row.get(0)?,
+                    indexed_volumes: row.get(1)?,
+                    ready_volumes: row.get(2)?,
+                    pending_volumes: row.get(3)?,
+                    spotlight_not_indexed_volumes: row.get(4)?,
+                    permission_required_volumes: row.get(5)?,
+                    spotlight_unavailable_volumes: row.get(6)?,
+                    spotlight_external_not_indexed_volumes: row.get(7)?,
+                    fsevents_unavailable_volumes: row.get(8)?,
+                    unavailable_volumes: row.get(9)?,
+                    error_volumes: row.get(10)?,
+                    paused_volumes: row.get(11)?,
+                    last_sync_at: row.get(12)?,
+                    last_error: row.get(13)?,
+                })
             },
         )?;
         let status = if indexed_volumes == 0 {
@@ -332,6 +373,22 @@ impl Database {
             INDEX_STATUS_READY
         } else if ready_volumes > 0 {
             "partial"
+        } else if unavailable_volumes > 0 {
+            INDEX_STATUS_UNAVAILABLE
+        } else if error_volumes > 0 {
+            INDEX_STATUS_ERROR
+        } else if spotlight_not_indexed_volumes > 0 {
+            INDEX_STATUS_SPOTLIGHT_NOT_INDEXED
+        } else if permission_required_volumes > 0 {
+            INDEX_STATUS_PERMISSION_REQUIRED
+        } else if spotlight_unavailable_volumes > 0 {
+            INDEX_STATUS_SPOTLIGHT_UNAVAILABLE
+        } else if spotlight_external_not_indexed_volumes > 0 {
+            INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED
+        } else if fsevents_unavailable_volumes > 0 {
+            INDEX_STATUS_FSEVENTS_UNAVAILABLE
+        } else if paused_volumes > 0 {
+            INDEX_STATUS_PAUSED
         } else {
             INDEX_STATUS_INDEXING
         };
@@ -340,6 +397,12 @@ impl Database {
             enabled: indexed_volumes > 0,
             status: status.to_string(),
             provider_status: None,
+            processed_entries: total_entries,
+            collection_complete: indexed_volumes > 0
+                && pending_volumes == 0
+                && unavailable_volumes == 0
+                && error_volumes == 0
+                && paused_volumes == 0,
             total_entries,
             indexed_volumes,
             ready_volumes,

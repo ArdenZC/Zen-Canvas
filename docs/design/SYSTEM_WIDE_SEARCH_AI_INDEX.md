@@ -83,7 +83,10 @@ scope continues to control File Library views only.
   silently treating incomplete discovery as a ready index.
 - Distinguishes Spotlight unavailable, realtime Spotlight update unavailable,
   Spotlight-without-indexed-local-results, partial-permission results, and
-  FSEvents unavailable states in the source status/error path.
+  FSEvents unavailable states in the source status/error path. External volumes
+  with readable content but no Spotlight result are reported separately; known
+  TCC-protected locations are classified as Full Disk Access or protected-
+  directory conditions without attempting to bypass macOS privacy controls.
 
 ## Managed AI worker
 
@@ -104,9 +107,11 @@ index-management link opens Preferences; neither makes management a
 prerequisite for search.
 
 Preferences exposes global source status/lifecycle and separately exposes
-managed-scope admission plus local/cloud AI policy. User-facing copy is
-localized and the UI keeps global metadata-only results free of AI risk or
-recommendation badges.
+managed-scope admission plus local/cloud AI policy. The aggregate status also
+reports the number of processed entries and whether the initial collection is
+complete. User-facing copy is localized, including Spotlight/indexing/privacy
+reasons; internal provider error codes are never rendered directly. The UI
+keeps global metadata-only results free of AI risk or recommendation badges.
 
 ## Verification status
 
@@ -114,7 +119,9 @@ recommendation badges.
   entry FTS benchmark tests are included.
 - Frontend type checking, targeted Spotlight/settings/permission tests, full
   frontend tests, and production frontend build are run as part of release
-  verification.
+  verification. The dual-platform CI quality matrix packages the Windows NSIS
+  installer and unsigned macOS DMG on pull requests as well as master pushes;
+  tagged releases additionally exercise the optional Developer ID signing path.
 - Windows code is checked on the Windows host. Native macOS compilation still
   requires a macOS toolchain; cross-compiling Objective-C dependencies from
   Windows is not treated as native verification.

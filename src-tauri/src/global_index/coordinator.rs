@@ -508,6 +508,7 @@ fn is_degraded_index_status(status: &str) -> bool {
             | INDEX_STATUS_REBUILD_REQUIRED
             | INDEX_STATUS_SPOTLIGHT_UNAVAILABLE
             | INDEX_STATUS_SPOTLIGHT_NOT_INDEXED
+            | INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED
             | INDEX_STATUS_FSEVENTS_UNAVAILABLE
             | INDEX_STATUS_UNAVAILABLE
     )
@@ -519,6 +520,7 @@ fn is_persistent_degraded_index_status(status: &str) -> bool {
         INDEX_STATUS_PERMISSION_REQUIRED
             | INDEX_STATUS_SPOTLIGHT_UNAVAILABLE
             | INDEX_STATUS_SPOTLIGHT_NOT_INDEXED
+            | INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED
             | INDEX_STATUS_FSEVENTS_UNAVAILABLE
     )
 }

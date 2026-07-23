@@ -84,11 +84,11 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test native_file_hardening_smoke -- --ignored --nocapture --test-threads=1
 
       - name: Windows production build and NSIS package
-        if: runner.os == 'Windows' && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: runner.os == 'Windows'
         run: npm run build
 
       - name: macOS production build and unsigned DMG package
-        if: runner.os == 'macOS' && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: runner.os == 'macOS'
         run: npm run build -- --no-sign
 
   dependency-audit:
