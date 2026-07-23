@@ -19,7 +19,7 @@ import { useAppStore } from "./useAppStore";
 import { useFileLibraryStore } from "./useFileLibraryStore";
 import { useRulesStore } from "./useRulesStore";
 import { useOrganizeDecisionStore } from "./useOrganizeDecisionStore";
-import { organizeScopeKey, validateOrganizeFileName } from "../views/organize/organizeModel";
+import { organizeScopeKey, validateOrganizeFileName, validateOrganizeFileNameForOriginal } from "../views/organize/organizeModel";
 import {
   createRestoreExecutionIntent,
   resolveCleanupRestoreSelection,
@@ -72,7 +72,7 @@ export function resolvePreviewEligibility(
   if (preview.is_executable === false || Boolean(preview.blocking_reason)) {
     return { executable: false, reason: "blocked" };
   }
-  if (preview.operation_type !== "move_to_trash" && validateOrganizeFileName(preview.new_name) !== null) {
+  if (preview.operation_type !== "move_to_trash" && validateOrganizeFileNameForOriginal(preview.old_name, preview.new_name) !== null) {
     return { executable: false, reason: "invalidName" };
   }
   return { executable: true, reason: null };
@@ -1001,7 +1001,7 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
     set((state) => {
       const preview = state.previews.find((item) => item.id === id);
       if (!preview) return {};
-      if (state.executionIntent?.source === "organize" && validateOrganizeFileName(name) === null) {
+      if (state.executionIntent?.source === "organize" && validateOrganizeFileNameForOriginal(preview.old_name, name) === null) {
         useOrganizeDecisionStore.getState().setEditedNameForPreview(state.executionIntent.scopeKey, preview, name);
       }
       const previewNameOverrides = { ...state.previewNameOverrides, [id]: name };

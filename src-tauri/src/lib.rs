@@ -2,6 +2,7 @@ pub mod ai;
 pub mod app_control;
 pub mod db;
 pub mod dedupe;
+pub(crate) mod file_naming;
 pub mod file_ops;
 pub mod fs_safety;
 pub mod ids;
@@ -26,9 +27,10 @@ pub use ai::classification::{
 pub use ai::cleanup::analyze_cleanup_candidates_with_ai;
 pub use ai::debug::{debug_ai_classification_once, AIDebugClassificationResult};
 pub use ai::settings::{
-    get_ai_settings, list_ai_provider_presets, save_ai_settings, test_ai_provider_connection,
-    AISettings,
+    get_ai_settings, list_ai_models, list_ai_provider_presets, save_ai_settings,
+    test_ai_provider_connection, AISettings,
 };
+pub use ai::trace::{clear_ai_request_traces, export_ai_request_traces, list_ai_request_traces};
 pub use app_control::{
     activate_search_result, get_global_hotkey_status, quit_app, register_global_search_hotkey,
     resize_search_window, GlobalHotkeyStatus, GlobalHotkeyStatusState, SearchNavigatePayload,

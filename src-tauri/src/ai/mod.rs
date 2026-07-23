@@ -6,5 +6,7 @@ pub mod openai_compatible;
 pub mod presets;
 pub mod prompts;
 pub mod provider;
+pub mod registry;
 pub mod schema;
 pub mod settings;
+pub mod trace;

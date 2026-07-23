@@ -19,11 +19,15 @@ use zen_canvas_tauri::ai::{
     },
     presets::{all_provider_presets, provider_preset, AIExtraBodyStrategy},
     provider::AIProvider,
-    schema::{AIChatMessage, AIChatRequest, AIProviderKind, AIProviderOptions, AIProviderPresetId},
+    schema::{
+        AIChatMessage, AIChatRequest, AICustomProviderProfile, AIProviderKind, AIProviderOptions,
+        AIProviderPresetId,
+    },
     settings::test_ai_provider_connection_for_settings,
     settings::{
-        get_ai_settings_with_store, normalize_ai_settings, save_ai_settings_with_store, AISettings,
-        ApiKeyAction, CredentialStore, InMemoryCredentialStore, AI_SETTINGS_KEY,
+        get_ai_settings_with_store, list_ai_models_for_settings, normalize_ai_settings,
+        save_ai_settings_with_store, AISettings, ApiKeyAction, CredentialStore,
+        InMemoryCredentialStore, AI_SETTINGS_KEY,
     },
 };
 use zen_canvas_tauri::{db::Database, settings::get_app_settings};
@@ -83,7 +87,7 @@ impl CredentialStore for FailingReadStore {
 }
 
 #[test]
-fn deepseek_preset_uses_openai_compatible_defaults_without_forcing_response_format() {
+fn deepseek_preset_uses_openai_compatible_json_mode_defaults() {
     let preset = provider_preset(AIProviderPresetId::DeepSeek).expect("deepseek preset");
 
     assert_eq!(preset.id, AIProviderPresetId::DeepSeek);
@@ -93,7 +97,7 @@ fn deepseek_preset_uses_openai_compatible_defaults_without_forcing_response_form
     assert_eq!(preset.default_model, "deepseek-v4-flash");
     assert!(preset.supports_thinking);
     assert!(preset.supports_reasoning_effort);
-    assert!(!preset.supports_response_format);
+    assert!(preset.supports_response_format);
     assert_eq!(
         preset.extra_body_strategy,
         AIExtraBodyStrategy::DeepSeekThinking
@@ -116,7 +120,7 @@ fn ai_settings_default_starts_disabled_on_deepseek() {
     assert!(!settings.send_full_path);
     assert!(settings.send_parent_path);
     assert!(settings.cleanup_ai_enabled);
-    assert!(!settings.force_json_output);
+    assert!(settings.force_json_output);
     assert!(!settings.enable_thinking);
 }
 
@@ -178,7 +182,7 @@ fn missing_ai_settings_loads_deepseek_defaults_and_presets_list_has_all_ids() {
     assert_eq!(settings.preset, AIProviderPresetId::DeepSeek);
     assert_eq!(settings.provider, AIProviderKind::OpenAICompatible);
     assert_eq!(settings.base_url, "https://api.deepseek.com");
-    assert_eq!(ids.len(), 10);
+    assert_eq!(ids.len(), 14);
     assert!(ids.contains(&AIProviderPresetId::DeepSeek));
     assert!(ids.contains(&AIProviderPresetId::Ollama));
     assert!(ids.contains(&AIProviderPresetId::CustomOpenAICompatible));
@@ -240,6 +244,73 @@ fn ai_api_key_actions_are_explicit_and_sqlite_never_stores_plaintext() {
         .expect("persisted AI settings");
     assert!(!persisted.contains("existing-secret"));
     assert!(!persisted.contains("replacement-secret"));
+}
+
+#[test]
+fn custom_profiles_keep_independent_credentials_and_never_persist_them() {
+    let db = Database::open(test_db_path()).expect("open test database");
+    let credentials = InMemoryCredentialStore::default();
+    let profiles = vec![
+        custom_profile("profile-a", "http://127.0.0.1:1"),
+        custom_profile("profile-b", "http://127.0.0.1:2"),
+    ];
+    let first = AISettings {
+        preset: AIProviderPresetId::CustomOpenAICompatible,
+        provider: AIProviderKind::OpenAICompatible,
+        base_url: "http://127.0.0.1:1".to_string(),
+        chat_path: "/chat/completions".to_string(),
+        model: "model-a".to_string(),
+        custom_profiles: profiles.clone(),
+        active_custom_profile_id: Some("profile-a".to_string()),
+        api_key: "profile-a-secret".to_string(),
+        api_key_action: ApiKeyAction::Replace,
+        ..AISettings::default()
+    };
+    save_ai_settings_with_store(&db, &first, &credentials).expect("save profile A");
+
+    let second = AISettings {
+        preset: AIProviderPresetId::CustomOpenAICompatible,
+        provider: AIProviderKind::OpenAICompatible,
+        base_url: "http://127.0.0.1:2".to_string(),
+        chat_path: "/chat/completions".to_string(),
+        model: "model-b".to_string(),
+        custom_profiles: profiles,
+        active_custom_profile_id: Some("profile-b".to_string()),
+        api_key: "profile-b-secret".to_string(),
+        api_key_action: ApiKeyAction::Replace,
+        ..AISettings::default()
+    };
+    save_ai_settings_with_store(&db, &second, &credentials).expect("save profile B");
+
+    assert_eq!(
+        credentials.get_profile("profile-a").unwrap().as_deref(),
+        Some("profile-a-secret")
+    );
+    assert_eq!(
+        credentials.get_profile("profile-b").unwrap().as_deref(),
+        Some("profile-b-secret")
+    );
+    let loaded = get_ai_settings_with_store(&db, &credentials).expect("load profile settings");
+    assert_eq!(
+        loaded.active_custom_profile_id.as_deref(),
+        Some("profile-b")
+    );
+    assert_eq!(loaded.api_key, "profile-b-secret");
+    assert!(loaded
+        .custom_profiles
+        .iter()
+        .all(|profile| profile.api_key_configured));
+
+    let conn = rusqlite::Connection::open(db.path()).expect("open sqlite");
+    let persisted: String = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = ?1",
+            rusqlite::params![AI_SETTINGS_KEY],
+            |row| row.get(0),
+        )
+        .expect("persisted AI settings");
+    assert!(!persisted.contains("profile-a-secret"));
+    assert!(!persisted.contains("profile-b-secret"));
 }
 
 #[test]
@@ -351,6 +422,46 @@ fn test_ai_provider_connection_for_settings_uses_short_json_probe_and_reports_el
         .contains("Use non-thinking mode and only return final content"));
     assert_eq!(body["max_tokens"], 4096);
     assert_eq!(body["thinking"]["type"], "disabled");
+}
+
+#[test]
+fn model_discovery_reads_openai_data_and_merges_registry_suggestions() {
+    let server = TestServer::start(
+        200,
+        r#"{"data":[{"id":"deepseek-v4-flash","owned_by":"deepseek"},{"id":"custom-model"}]}"#,
+    );
+    let models = list_ai_models_for_settings(settings_for_server(
+        &server.base_url,
+        AIProviderPresetId::DeepSeek,
+        "secret-openai-key",
+    ))
+    .expect("model discovery");
+
+    assert!(models.iter().any(|model| {
+        model.id == "custom-model" && model.discovered && model.owned_by.is_none()
+    }));
+    assert!(models
+        .iter()
+        .any(|model| model.id == "deepseek-v4-flash" && model.discovered));
+    assert!(models
+        .iter()
+        .any(|model| model.id == "deepseek-v4-pro" && !model.discovered));
+    assert_eq!(server.request().path, "/models");
+}
+
+#[test]
+fn model_discovery_redacts_authentication_failures() {
+    let server = TestServer::start(429, r#"{"error":"secret-openai-key"}"#);
+    let error = list_ai_models_for_settings(settings_for_server(
+        &server.base_url,
+        AIProviderPresetId::DeepSeek,
+        "secret-openai-key",
+    ))
+    .expect_err("model discovery should fail");
+
+    assert!(error.contains("HTTP 429"));
+    assert!(!error.contains("secret-openai-key"));
+    assert_eq!(server.request().path, "/models");
 }
 
 #[test]
@@ -476,7 +587,7 @@ fn openai_compatible_chat_returns_choice_content_and_requests_json_mode() {
     assert!(messages.iter().any(|message| message["content"]
         .as_str()
         .unwrap_or_default()
-        .contains("only valid JSON")));
+        .contains("Return JSON only")));
 }
 
 #[test]
@@ -559,7 +670,7 @@ fn openai_raw_chat_returns_request_diagnostics_without_api_key() {
 
     assert_eq!(raw.status, 200);
     assert!(!raw.response_text.contains("secret-openai-key"));
-    assert!(!raw.request_used_response_format);
+    assert!(raw.request_used_response_format);
     assert_eq!(raw.request_used_thinking_field.as_deref(), Some("disabled"));
     assert!(raw.response_summary.contains("has_choices=true"));
 }
@@ -606,13 +717,12 @@ fn reasoning_content_length_error_explains_truncated_final_content_and_redacts_k
 
     assert!(error.contains("finish_reason=length"));
     assert!(error.contains("reasoning_content"));
-    assert!(error.contains("empty content"));
-    assert!(error.contains("输出长度限制被截断"));
+    assert!(error.contains("JSON 被截断"));
     assert!(!error.contains("secret-openai-key"));
 }
 
 #[test]
-fn openai_compatible_respects_preset_without_response_format() {
+fn openai_compatible_respects_qwen_json_mode_capability() {
     let server = TestServer::start(
         200,
         r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#,
@@ -628,12 +738,12 @@ fn openai_compatible_respects_preset_without_response_format() {
         .expect("chat response");
 
     let body: Value = serde_json::from_str(&server.request().body).expect("json body");
-    assert!(body.get("response_format").is_none());
+    assert_eq!(body["response_format"]["type"], "json_object");
     let messages = body["messages"].as_array().expect("messages");
     assert!(messages.iter().any(|message| message["content"]
         .as_str()
         .unwrap_or_default()
-        .contains("only valid JSON")));
+        .contains("Return JSON only")));
 }
 
 #[test]
@@ -698,6 +808,28 @@ fn settings_for_server(base_url: &str, preset_id: AIProviderPresetId, api_key: &
         model: preset.default_model.to_string(),
         timeout_seconds: 5,
         ..AISettings::default()
+    }
+}
+
+fn custom_profile(id: &str, base_url: &str) -> AICustomProviderProfile {
+    AICustomProviderProfile {
+        id: id.to_string(),
+        name: id.to_string(),
+        base_url: base_url.to_string(),
+        chat_path: "/chat/completions".to_string(),
+        models_path: Some("/models".to_string()),
+        model: format!("{id}-model"),
+        supports_response_format: true,
+        supports_thinking: false,
+        thinking_parameter: "none".to_string(),
+        token_parameter: "max_tokens".to_string(),
+        content_path: "choices[0].message.content".to_string(),
+        reasoning_path: "choices[0].message.reasoning_content".to_string(),
+        temperature_min: 0.0,
+        temperature_max: 2.0,
+        max_output_tokens: 8192,
+        extra_body_json: None,
+        api_key_configured: false,
     }
 }
 

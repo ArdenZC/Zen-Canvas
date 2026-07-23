@@ -90,9 +90,61 @@ export type AIProviderPresetId =
   | "baichuan"
   | "doubao_ark"
   | "siliconflow"
+  | "hunyuan"
+  | "baidu_qianfan"
+  | "stepfun"
+  | "yi"
   | "custom_openai_compatible"
   | "ollama";
 export type AIClassificationMode = "ai_first" | "rules_first" | "hybrid";
+export type AIAuthKind = "none" | "bearer_api_key" | "api_key_header" | "qianfan_ak_sk";
+export type AITraceMode = "off" | "failures" | "all";
+
+export interface AIProviderCapabilities {
+  supportsModelDiscovery: boolean;
+  supportsResponseFormatJsonObject: boolean;
+  supportsJsonSchema: boolean;
+  supportsThinking: boolean;
+  supportsThinkingToggle: boolean;
+  supportsReasoningEffort: boolean;
+  supportsUsage: boolean;
+  supportsStreaming: boolean;
+}
+
+export interface AIParameterProfile {
+  temperatureMin: number;
+  temperatureMax: number;
+  defaultTemperature: number;
+  maxOutputTokens: number | null;
+  tokenParameter: "max_tokens" | "max_completion_tokens";
+  thinkingStrategy: string;
+}
+
+export interface AIEndpointVariant {
+  id: string;
+  label: string;
+  baseUrl: string;
+}
+
+export interface AICustomProviderProfile {
+  id: string;
+  name: string;
+  baseUrl: string;
+  chatPath: string;
+  modelsPath?: string | null;
+  model: string;
+  supportsResponseFormat: boolean;
+  supportsThinking: boolean;
+  thinkingParameter: string;
+  tokenParameter: string;
+  contentPath: string;
+  reasoningPath: string;
+  temperatureMin: number;
+  temperatureMax: number;
+  maxOutputTokens: number;
+  extraBodyJson?: string | null;
+  apiKeyConfigured?: boolean;
+}
 
 export interface AIProviderPreset {
   id: AIProviderPresetId;
@@ -100,8 +152,14 @@ export interface AIProviderPreset {
   providerKind: AIProviderKind;
   defaultBaseUrl: string;
   defaultChatPath: string;
+  modelsPath?: string | null;
   defaultModel: string;
+  suggestedModels?: string[];
   apiKeyEnvHint?: string;
+  authKind?: AIAuthKind;
+  capabilities?: AIProviderCapabilities;
+  parameterProfile?: AIParameterProfile;
+  endpointVariants?: AIEndpointVariant[];
   supportsResponseFormat: boolean;
   supportsJsonMode?: boolean;
   supportsThinking: boolean;
@@ -116,6 +174,7 @@ export interface AISettings {
   preset: AIProviderPresetId;
   baseUrl: string;
   chatPath: string;
+  modelsPath?: string | null;
   apiKey: string;
   apiKeyAction?: "preserve" | "replace" | "clear";
   apiKeyConfigured?: boolean;
@@ -133,6 +192,63 @@ export interface AISettings {
   enableThinking: boolean;
   reasoningEffort: string | null;
   extraBodyJson: string | null;
+  diagnosticsMode?: AITraceMode;
+  customProfiles?: AICustomProviderProfile[];
+  activeCustomProfileId?: string | null;
+}
+
+export interface AIModelInfo {
+  id: string;
+  ownedBy?: string | null;
+  discovered: boolean;
+}
+
+export interface AITraceUsage {
+  promptTokens?: number | null;
+  completionTokens?: number | null;
+  totalTokens?: number | null;
+}
+
+export interface AIRequestTrace {
+  traceId: string;
+  jobId?: string | null;
+  batchId?: string | null;
+  startedAt: string;
+  elapsedMs: number;
+  operation: "connection_test" | "file_classification" | "cleanup_analysis" | "model_discovery";
+  providerId: string;
+  providerLabel: string;
+  model: string;
+  request: {
+    urlHost: string;
+    path: string;
+    messageCount: number;
+    targetCount?: number | null;
+    batchSize?: number | null;
+    maxTokens?: number | null;
+    temperature?: number | null;
+    forceJson: boolean;
+    responseFormat?: string | null;
+    thinkingMode?: string | null;
+    extraBodyKeys: string[];
+  };
+  response: {
+    httpStatus?: number | null;
+    finishReason?: string | null;
+    messageKeys: string[];
+    contentType?: string | null;
+    contentLength?: number | null;
+    reasoningContentLength?: number | null;
+    usage?: AITraceUsage | null;
+  };
+  rawProviderResponse?: string | null;
+  extractedContent?: string | null;
+  cleanedJsonText?: string | null;
+  parsedJson?: unknown;
+  parseStage: string;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  truncated: boolean;
 }
 
 export interface AIConnectionTestResult {

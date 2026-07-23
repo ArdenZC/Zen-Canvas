@@ -1,13 +1,23 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use reqwest::blocking::Client;
 use serde_json::{json, Map, Value};
 
 use super::{
     presets::{provider_preset, AIProviderPreset},
+    prompts::{clean_ai_json_text, extract_first_json_value},
     provider::{AIProvider, AIProviderError},
-    schema::{AIChatMessage, AIChatRequest, AIConnectionTestResult, AIProviderPresetId},
+    registry::{AIAuthKind, AIThinkingStrategy, AITokenParameter},
+    schema::{
+        AIChatMessage, AIChatRequest, AIConnectionTestResult, AIModelInfo, AIProviderOptions,
+        AIProviderPresetId,
+    },
     settings::AISettings,
+    trace::{
+        now_iso, record_trace, update_trace_with_secrets, AIRequestTrace, AITraceContext,
+        AITraceMode, AITraceOperation, AITraceRequest, AITraceResponse, AITraceUpdate,
+        AITraceUsage, SecretRedactor,
+    },
 };
 
 type ChatBody = (Map<String, Value>, bool, Option<String>);
@@ -25,6 +35,8 @@ pub struct AIRawProviderResponse {
     pub request_used_response_format: bool,
     pub request_used_thinking_field: Option<String>,
     pub response_summary: String,
+    pub trace_id: Option<String>,
+    pub(crate) pending_trace: Option<AIRequestTrace>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -41,9 +53,52 @@ pub struct AIDebugExtractResult {
 
 impl OpenAICompatibleProvider {
     pub fn new(settings: AISettings) -> Self {
-        let preset = provider_preset(settings.preset)
+        let mut preset = provider_preset(settings.preset)
             .or_else(|| provider_preset(AIProviderPresetId::CustomOpenAICompatible))
             .expect("custom OpenAI-compatible preset exists");
+        if let Some(profile) = settings
+            .active_custom_profile_id
+            .as_deref()
+            .and_then(|profile_id| {
+                settings
+                    .custom_profiles
+                    .iter()
+                    .find(|profile| profile.id == profile_id)
+            })
+        {
+            preset.capabilities.supports_response_format_json_object =
+                profile.supports_response_format;
+            preset.capabilities.supports_thinking = profile.supports_thinking;
+            preset.capabilities.supports_thinking_toggle = profile.supports_thinking;
+            preset.capabilities.supports_reasoning_effort = profile
+                .thinking_parameter
+                .eq_ignore_ascii_case("reasoning_effort");
+            preset.supports_response_format = profile.supports_response_format;
+            preset.supports_json_mode = profile.supports_response_format;
+            preset.supports_thinking = profile.supports_thinking;
+            preset.supports_reasoning_effort = profile
+                .thinking_parameter
+                .eq_ignore_ascii_case("reasoning_effort");
+            preset.parameter_profile.token_parameter = if profile
+                .token_parameter
+                .eq_ignore_ascii_case("max_completion_tokens")
+            {
+                AITokenParameter::MaxCompletionTokens
+            } else {
+                AITokenParameter::MaxTokens
+            };
+            preset.parameter_profile.thinking_strategy =
+                match profile.thinking_parameter.to_ascii_lowercase().as_str() {
+                    "none" => AIThinkingStrategy::None,
+                    "enable_thinking" | "boolean" => AIThinkingStrategy::EnableThinkingBoolean,
+                    "reasoning_effort" => AIThinkingStrategy::ReasoningEffort,
+                    "minimax_reasoning_split" | "reasoning_split" => {
+                        AIThinkingStrategy::MiniMaxReasoningSplit
+                    }
+                    "prompt_only" => AIThinkingStrategy::PromptOnly,
+                    _ => AIThinkingStrategy::GenericThinkingObject,
+                };
+        }
         let client = Client::builder()
             .timeout(Duration::from_secs(settings.timeout_seconds.max(1)))
             .redirect(reqwest::redirect::Policy::none())
@@ -66,6 +121,29 @@ impl OpenAICompatibleProvider {
             .ok_or_else(|| self.error("failed to build AI HTTP client"))
     }
 
+    fn authorize_request(
+        &self,
+        builder: reqwest::blocking::RequestBuilder,
+    ) -> reqwest::blocking::RequestBuilder {
+        let api_key = self.settings.api_key.trim();
+        if api_key.is_empty() {
+            return builder;
+        }
+        match self.preset.auth_kind {
+            AIAuthKind::BearerApiKey | AIAuthKind::QianfanAkSk => builder.bearer_auth(api_key),
+            AIAuthKind::ApiKeyHeader => builder.header("X-API-Key", api_key),
+            AIAuthKind::None => builder,
+        }
+    }
+
+    fn trace_secrets(&self, request: &AIChatRequest) -> Vec<String> {
+        let mut secrets = vec![self.settings.api_key.clone()];
+        if let Some(context) = request.provider_options.trace_context.as_ref() {
+            secrets.extend(context.redaction_secrets.iter().cloned());
+        }
+        secrets
+    }
+
     fn error(&self, message: impl Into<String>) -> AIProviderError {
         AIProviderError::new(redact_api_key(&message.into(), &self.settings.api_key))
     }
@@ -74,43 +152,171 @@ impl OpenAICompatibleProvider {
         &self,
         request: AIChatRequest,
     ) -> Result<AIRawProviderResponse, AIProviderError> {
+        let started = Instant::now();
         let url = self.request_url()?;
         let (body, request_used_response_format, request_used_thinking_field) =
             self.build_chat_body(&request)?;
+        let trace_mode = self.settings.diagnostics_mode;
+        let mut trace = self.build_trace(
+            &request,
+            &body,
+            &url,
+            request_used_response_format,
+            request_used_thinking_field.clone(),
+        );
 
         let mut builder = self
             .client()?
-            .post(url)
+            .post(&url)
             .header(reqwest::header::CONTENT_TYPE, "application/json");
-        if !self.settings.api_key.trim().is_empty() {
-            builder = builder.bearer_auth(self.settings.api_key.trim());
-        }
+        builder = self.authorize_request(builder);
 
-        let response = builder
-            .json(&Value::Object(body))
-            .send()
-            .map_err(|error| self.error(format!("AI request failed: {error}")))?;
+        let response = match builder.json(&Value::Object(body)).send() {
+            Ok(response) => response,
+            Err(error) => {
+                let message = self.error(format!("AI request failed: {error}"));
+                trace.elapsed_ms = started.elapsed().as_millis();
+                trace.parse_stage = "transport_error".to_string();
+                trace.error_code = Some("transport_error".to_string());
+                trace.error_message = Some(message.to_string());
+                record_trace(trace_mode, trace, true);
+                return Err(message);
+            }
+        };
         let status = response.status();
         if status.is_redirection() {
-            return Err(self.error(format!(
+            let message = self.error(format!(
                 "AI provider redirect rejected: HTTP {}",
                 status.as_u16()
-            )));
+            ));
+            trace.elapsed_ms = started.elapsed().as_millis();
+            trace.response.http_status = Some(status.as_u16());
+            trace.parse_stage = "transport_error".to_string();
+            trace.error_code = Some("redirect_rejected".to_string());
+            trace.error_message = Some(message.to_string());
+            record_trace(trace_mode, trace, true);
+            return Err(message);
         }
         let response_text = response
             .text()
             .map_err(|error| self.error(format!("failed to read AI response: {error}")))?;
+        let trace_secrets = self.trace_secrets(&request);
+        let redactor = SecretRedactor::new(trace_secrets.iter().map(String::as_str));
+        let (redacted_response, raw_truncated) = redactor.redact_optional_text(
+            Some(&response_text),
+            super::trace::MAX_RAW_PROVIDER_RESPONSE_CHARS,
+        );
+        let redacted_response = redacted_response.unwrap_or_default();
         let response_summary = serde_json::from_str::<Value>(&response_text)
             .map(|value| summarize_provider_response(&value))
             .unwrap_or_else(|error| format!("provider response summary: invalid_json={error}"));
 
+        trace.elapsed_ms = started.elapsed().as_millis();
+        trace.response = response_trace_metadata(status.as_u16(), &response_text);
+        trace.raw_provider_response = Some(redacted_response.clone());
+        trace.truncated |= raw_truncated;
+        trace.parse_stage = if status.is_success() {
+            "provider_response".to_string()
+        } else {
+            "http_error".to_string()
+        };
+        if !status.is_success() {
+            trace.error_code = Some(format!("http_{}", status.as_u16()));
+            trace.error_message = Some(format!(
+                "AI provider returned HTTP {}: {}",
+                status.as_u16(),
+                short_response(&redacted_response)
+            ));
+        }
+        let trace_id = record_trace(trace_mode, trace.clone(), !status.is_success());
+        let pending_trace = if trace_id.is_none() && !matches!(trace_mode, AITraceMode::Off) {
+            Some(trace)
+        } else {
+            None
+        };
+
         Ok(AIRawProviderResponse {
             status: status.as_u16(),
-            response_text: redact_api_key(&response_text, &self.settings.api_key),
+            response_text: redacted_response,
             request_used_response_format,
             request_used_thinking_field,
             response_summary,
+            trace_id,
+            pending_trace,
         })
+    }
+
+    fn build_trace(
+        &self,
+        request: &AIChatRequest,
+        body: &Map<String, Value>,
+        url: &str,
+        request_used_response_format: bool,
+        request_used_thinking_field: Option<String>,
+    ) -> AIRequestTrace {
+        let parsed_url = url::Url::parse(url).ok();
+        let mut extra_body_keys = body
+            .keys()
+            .filter(|key| {
+                !matches!(
+                    key.as_str(),
+                    "model"
+                        | "messages"
+                        | "stream"
+                        | "temperature"
+                        | "max_tokens"
+                        | "max_completion_tokens"
+                        | "response_format"
+                        | "thinking"
+                        | "enable_thinking"
+                        | "reasoning_split"
+                        | "reasoning_effort"
+                )
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        extra_body_keys.sort();
+        let context = request
+            .provider_options
+            .trace_context
+            .clone()
+            .unwrap_or_default();
+        AIRequestTrace {
+            trace_id: String::new(),
+            job_id: context.job_id.clone(),
+            batch_id: context.batch_id.clone(),
+            started_at: now_iso(),
+            elapsed_ms: 0,
+            operation: context.operation,
+            provider_id: format!("{:?}", self.preset.id),
+            provider_label: self.preset.label.to_string(),
+            model: request.model.clone(),
+            request: AITraceRequest {
+                url_host: parsed_url
+                    .as_ref()
+                    .and_then(url::Url::host_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                path: parsed_url
+                    .as_ref()
+                    .map(|url| url.path().to_string())
+                    .unwrap_or_else(|| "/".to_string()),
+                message_count: request.messages.len(),
+                target_count: context.target_count,
+                batch_size: context.batch_size,
+                max_tokens: Some(request.max_tokens),
+                temperature: body
+                    .get("temperature")
+                    .and_then(Value::as_f64)
+                    .map(|temperature| temperature as f32),
+                force_json: request.force_json,
+                response_format: request_used_response_format.then(|| "json_object".to_string()),
+                thinking_mode: request_used_thinking_field,
+                extra_body_keys,
+            },
+            parse_stage: "request_sent".to_string(),
+            ..AIRequestTrace::default()
+        }
     }
 
     fn build_chat_body(&self, request: &AIChatRequest) -> Result<ChatBody, AIProviderError> {
@@ -125,13 +331,22 @@ impl OpenAICompatibleProvider {
                 self.preset.id
             )),
         );
-        body.insert("temperature".to_string(), json!(request.temperature));
-        body.insert("max_tokens".to_string(), json!(request.max_tokens));
+        let temperature = request.temperature.clamp(
+            self.preset.parameter_profile.temperature_min as f32,
+            self.preset.parameter_profile.temperature_max as f32,
+        );
+        body.insert("temperature".to_string(), json!(temperature));
+        let token_field = match self.preset.parameter_profile.token_parameter {
+            AITokenParameter::MaxTokens => "max_tokens",
+            AITokenParameter::MaxCompletionTokens => "max_completion_tokens",
+        };
+        body.insert(token_field.to_string(), json!(request.max_tokens));
 
-        let response_format_enabled = request
-            .provider_options
-            .use_response_format
-            .unwrap_or(self.preset.supports_response_format);
+        let response_format_enabled = request.provider_options.use_response_format.unwrap_or(
+            self.preset
+                .capabilities
+                .supports_response_format_json_object,
+        );
         if request.force_json && response_format_enabled {
             body.insert(
                 "response_format".to_string(),
@@ -165,17 +380,43 @@ impl OpenAICompatibleProvider {
                 body.insert("reasoning_effort".to_string(), json!(reasoning_effort));
             }
         }
-        if self.preset.id == AIProviderPresetId::DeepSeek
-            && self.preset.supports_thinking
-            && !body.contains_key("thinking")
-        {
-            body.insert(
-                "thinking".to_string(),
-                json!({ "type": if enable_thinking { "enabled" } else { "disabled" } }),
-            );
+        match self.preset.parameter_profile.thinking_strategy {
+            AIThinkingStrategy::DeepSeekThinkingObject
+                if self.preset.capabilities.supports_thinking_toggle =>
+            {
+                body.insert(
+                    "thinking".to_string(),
+                    json!({ "type": if enable_thinking { "enabled" } else { "disabled" } }),
+                );
+            }
+            AIThinkingStrategy::GenericThinkingObject
+                if self.preset.capabilities.supports_thinking_toggle =>
+            {
+                body.insert(
+                    "thinking".to_string(),
+                    json!({ "type": if enable_thinking { "enabled" } else { "disabled" } }),
+                );
+            }
+            AIThinkingStrategy::EnableThinkingBoolean
+                if self.preset.capabilities.supports_thinking_toggle =>
+            {
+                body.insert("enable_thinking".to_string(), json!(enable_thinking));
+            }
+            AIThinkingStrategy::MiniMaxReasoningSplit => {
+                body.insert("reasoning_split".to_string(), json!(enable_thinking));
+            }
+            _ => {}
         }
 
         let request_used_thinking_field = body.get("thinking").map(thinking_field_text);
+        let request_used_thinking_field = request_used_thinking_field.or_else(|| {
+            body.get("enable_thinking").map(|value| {
+                value
+                    .as_bool()
+                    .map(|enabled| enabled.to_string())
+                    .unwrap_or_else(|| value.to_string())
+            })
+        });
         Ok((
             body,
             request.force_json && response_format_enabled,
@@ -200,10 +441,74 @@ impl AIProvider for OpenAICompatibleProvider {
                     " If DeepSeek rejects thinking disabled, use a non-thinking model or a compatible legacy model name.",
                 );
             }
-            return Err(self.error(message));
+            let error = self.error(message);
+            if let Some(trace_id) = raw.trace_id.as_deref() {
+                let trace_secrets = self.trace_secrets(&request);
+                update_trace_with_secrets(
+                    trace_id,
+                    AITraceUpdate {
+                        parse_stage: Some("http_error".to_string()),
+                        error_code: Some(format!("http_{}", raw.status)),
+                        error_message: Some(error.to_string()),
+                        ..AITraceUpdate::default()
+                    },
+                    trace_secrets.iter().map(String::as_str),
+                );
+            }
+            return Err(error);
         }
 
-        parse_openai_content(&raw.response_text).map_err(|error| self.error(error))
+        match parse_openai_content(&raw.response_text) {
+            Ok(content) => {
+                let cleaned_json_text = clean_ai_json_text(&content);
+                let parsed_json = serde_json::from_str::<Value>(&cleaned_json_text)
+                    .ok()
+                    .or_else(|| {
+                        extract_first_json_value(&content)
+                            .and_then(|value| serde_json::from_str::<Value>(&value).ok())
+                    });
+                if let Some(trace_id) = raw.trace_id.as_deref() {
+                    let trace_secrets = self.trace_secrets(&request);
+                    update_trace_with_secrets(
+                        trace_id,
+                        AITraceUpdate {
+                            extracted_content: Some(content.clone()),
+                            cleaned_json_text: Some(cleaned_json_text),
+                            parsed_json,
+                            parse_stage: Some("extracted_content".to_string()),
+                            ..AITraceUpdate::default()
+                        },
+                        trace_secrets.iter().map(String::as_str),
+                    );
+                }
+                Ok(content)
+            }
+            Err(error) => {
+                let error = self.error(error);
+                let trace_secrets = self.trace_secrets(&request);
+                if let Some(trace_id) = raw.trace_id.as_deref() {
+                    update_trace_with_secrets(
+                        trace_id,
+                        AITraceUpdate {
+                            parse_stage: Some("parse_error".to_string()),
+                            error_code: Some("response_parse_error".to_string()),
+                            error_message: Some(error.to_string()),
+                            ..AITraceUpdate::default()
+                        },
+                        trace_secrets.iter().map(String::as_str),
+                    );
+                } else if let Some(mut trace) = raw.pending_trace {
+                    trace.parse_stage = "parse_error".to_string();
+                    trace.error_code = Some("response_parse_error".to_string());
+                    trace.error_message = Some(
+                        SecretRedactor::new(trace_secrets.iter().map(String::as_str))
+                            .redact_text(&error.to_string()),
+                    );
+                    record_trace(self.settings.diagnostics_mode, trace, true);
+                }
+                Err(error)
+            }
+        }
     }
 
     fn test_connection(&self) -> Result<AIConnectionTestResult, AIProviderError> {
@@ -221,7 +526,13 @@ impl AIProvider for OpenAICompatibleProvider {
             temperature: 0.0,
             max_tokens: test_max_tokens,
             force_json: true,
-            provider_options: Default::default(),
+            provider_options: AIProviderOptions {
+                trace_context: Some(AITraceContext {
+                    operation: AITraceOperation::ConnectionTest,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
         })?;
         Ok(AIConnectionTestResult {
             ok: true,
@@ -231,6 +542,41 @@ impl AIProvider for OpenAICompatibleProvider {
             preset: Some(self.settings.preset),
             elapsed_ms: 0,
         })
+    }
+
+    fn discover_models(&self) -> Result<Vec<AIModelInfo>, AIProviderError> {
+        let models_path = self
+            .settings
+            .models_path
+            .as_deref()
+            .or(self.preset.models_path)
+            .filter(|path| !path.trim().is_empty())
+            .ok_or_else(|| {
+                self.error("This provider does not expose an OpenAI-compatible models endpoint.")
+            })?;
+        let url = join_base_url_and_chat_path(&self.settings.base_url, models_path)?;
+        let mut builder = self
+            .client()?
+            .get(url)
+            .header(reqwest::header::ACCEPT, "application/json");
+        builder = self.authorize_request(builder);
+        let response = builder
+            .send()
+            .map_err(|error| self.error(format!("AI model discovery request failed: {error}")))?;
+        let status = response.status();
+        let text = response.text().map_err(|error| {
+            self.error(format!(
+                "failed to read AI model discovery response: {error}"
+            ))
+        })?;
+        if !status.is_success() {
+            return Err(self.error(format!(
+                "AI model discovery returned HTTP {}: {}",
+                status.as_u16(),
+                short_response(&redact_api_key(&text, &self.settings.api_key))
+            )));
+        }
+        parse_model_list(&text).map_err(|error| self.error(error))
     }
 }
 
@@ -258,10 +604,10 @@ fn messages_with_instructions(
     let mut output = Vec::new();
     let mut instructions = Vec::new();
     if force_json {
-        instructions.push("Return only valid JSON. Do not wrap the JSON in markdown.".to_string());
+        instructions.push("Return JSON only; the final content must be one complete valid JSON object. Include the word JSON. Do not wrap JSON in markdown or code fences.".to_string());
     }
     if !enable_thinking {
-        instructions.push("Do not output thinking, reasoning traces, or explanations.".to_string());
+        instructions.push("Do not output thinking, reasoning traces, or explanations; return the final JSON content directly.".to_string());
     }
     if preset_id == AIProviderPresetId::DeepSeek {
         instructions.push(
@@ -316,6 +662,9 @@ fn merge_extra_body(
                 | "response_format"
                 | "thinking"
                 | "reasoning_effort"
+                | "enable_thinking"
+                | "reasoning_split"
+                | "reasoning"
         ) {
             continue;
         }
@@ -328,60 +677,154 @@ fn parse_openai_content(text: &str) -> Result<String, String> {
     let value = serde_json::from_str::<Value>(text)
         .map_err(|error| format!("AI provider returned invalid JSON: {error}"))?;
     let summary = summarize_provider_response(&value);
-    let Some(choice) = value
+    let finish_reason = response_finish_reason(&value);
+    if matches!(finish_reason.as_deref(), Some("length" | "max_tokens")) {
+        return Err(format!(
+            "模型输出达到长度上限，JSON 被截断。AI provider finish_reason={}。请提高 max_tokens 或降低 batch size。 {summary}",
+            finish_reason.as_deref().unwrap_or("length")
+        ));
+    }
+    if matches!(finish_reason.as_deref(), Some("content_filter" | "safety")) {
+        return Err(format!(
+            "AI provider blocked the response because of content filtering (finish_reason={}). {summary}",
+            finish_reason.as_deref().unwrap_or("content_filter")
+        ));
+    }
+
+    let reasoning = response_reasoning_text(&value);
+    let content = response_content_text(&value);
+    match content {
+        Some(content) if !content.trim().is_empty() => {
+            validate_content_has_jsonish_text(strip_think_tags_if_needed(content), &summary)
+        }
+        Some(_) if !reasoning.trim().is_empty() => Err(format!(
+            "AI provider returned reasoning_content but empty content. Please disable Thinking or use a non-thinking model. {summary}"
+        )),
+        Some(_) => Err(format!(
+            "AI provider returned empty message.content. JSON content is empty and should be retried. {summary}"
+        )),
+        None if !reasoning.trim().is_empty() => Err(format!(
+            "AI provider returned reasoning_content but no final content. Please disable Thinking or use a non-thinking model. {summary}"
+        )),
+        None => Err(format!(
+            "AI provider response did not contain message.content, message.output_text, or message.text. {summary}"
+        )),
+    }
+}
+
+fn response_finish_reason(value: &Value) -> Option<String> {
+    value
         .get("choices")
         .and_then(Value::as_array)
         .and_then(|choices| choices.first())
-    else {
-        return Err(format!(
-            "AI provider response did not contain choices[0]. {summary}"
-        ));
-    };
-    let Some(message) = choice.get("message").and_then(Value::as_object) else {
-        return Err(format!(
-            "AI provider response did not contain choices[0].message. {summary}"
-        ));
-    };
+        .and_then(|choice| choice.get("finish_reason"))
+        .or_else(|| value.get("finish_reason"))
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+}
 
-    if let Some(content) = message.get("content") {
-        let content = content_value_to_text(content).ok_or_else(|| {
-            format!("AI provider response had unsupported message.content shape. {summary}")
-        })?;
-        if content.trim().is_empty() {
-            if value_text_len(message.get("reasoning_content")) > 0 {
-                if choice.get("finish_reason").and_then(Value::as_str) == Some("length") {
-                    return Err(format!(
-                        "AI provider returned reasoning_content but empty content. 模型只返回了 reasoning_content，且因为输出长度限制被截断，没有生成最终 content。请关闭 Thinking，并提高连接测试 max_tokens；Zen Canvas 已不再使用 64 token 进行连接测试。 {summary}"
-                    ));
-                }
-                return Err(format!(
-                    "AI provider returned reasoning_content but empty content. Please disable Thinking or use a non-thinking model. {summary}"
-                ));
-            }
-            return Err(format!(
-                "AI provider returned empty message.content. {summary}"
-            ));
-        }
-        return validate_content_has_jsonish_text(content, &summary);
-    }
-
-    for fallback_key in ["output_text", "text"] {
-        if let Some(content) = message.get(fallback_key) {
-            let content = content_value_to_text(content).ok_or_else(|| {
-                format!(
-                    "AI provider response had unsupported message.{fallback_key} shape. {summary}"
-                )
-            })?;
-            if content.trim().is_empty() {
-                continue;
-            }
-            return validate_content_has_jsonish_text(content, &summary);
+fn response_content_text(value: &Value) -> Option<String> {
+    let choice = value
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first());
+    let message = choice.and_then(|choice| choice.get("message"));
+    for candidate in [
+        message.and_then(|message| message.get("content")),
+        message.and_then(|message| message.get("output_text")),
+        message.and_then(|message| message.get("text")),
+        choice.and_then(|choice| choice.get("text")),
+        value.get("output_text"),
+        value.get("content"),
+        value.get("output").and_then(|output| output.get("text")),
+        value.get("output").and_then(|output| output.get("content")),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Some(text) = content_value_to_text(candidate) {
+            return Some(text);
         }
     }
+    None
+}
 
-    Err(format!(
-        "AI provider response did not contain message.content, message.output_text, or message.text. {summary}"
-    ))
+fn response_reasoning_text(value: &Value) -> String {
+    let choice = value
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first());
+    let message = choice.and_then(|choice| choice.get("message"));
+    [
+        message.and_then(|message| message.get("reasoning_content")),
+        message.and_then(|message| message.get("reasoning_details")),
+        choice.and_then(|choice| choice.get("reasoning_content")),
+        value.get("reasoning_content"),
+        value.get("reasoning_details"),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(content_value_to_text)
+    .collect::<Vec<_>>()
+    .join("\n")
+}
+
+fn response_trace_metadata(status: u16, text: &str) -> AITraceResponse {
+    let Ok(value) = serde_json::from_str::<Value>(text) else {
+        return AITraceResponse {
+            http_status: Some(status),
+            ..AITraceResponse::default()
+        };
+    };
+    let choice = value
+        .get("choices")
+        .and_then(Value::as_array)
+        .and_then(|choices| choices.first());
+    let message = choice
+        .and_then(|choice| choice.get("message"))
+        .and_then(Value::as_object);
+    let mut message_keys = message
+        .map(|message| message.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    message_keys.sort();
+    let content_value = message
+        .and_then(|message| message.get("content"))
+        .or_else(|| value.get("content"));
+    let reasoning_value = message
+        .and_then(|message| message.get("reasoning_content"))
+        .or_else(|| message.and_then(|message| message.get("reasoning_details")))
+        .or_else(|| value.get("reasoning_content"));
+    let usage = value.get("usage").map(|usage| AITraceUsage {
+        prompt_tokens: usage_number(usage, &["prompt_tokens", "input_tokens"]),
+        completion_tokens: usage_number(usage, &["completion_tokens", "output_tokens"]),
+        total_tokens: usage_number(usage, &["total_tokens"]),
+    });
+    AITraceResponse {
+        http_status: Some(status),
+        finish_reason: response_finish_reason(&value),
+        message_keys,
+        content_type: content_value.map(json_type_name).map(ToString::to_string),
+        content_length: Some(value_text_len(content_value)),
+        reasoning_content_length: Some(value_text_len(reasoning_value)),
+        usage,
+    }
+}
+
+fn usage_number(value: &Value, keys: &[&str]) -> Option<u64> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_u64))
+}
+
+fn strip_think_tags_if_needed(content: String) -> String {
+    let mut output = content;
+    while let Some(start) = output.to_ascii_lowercase().find("<think>") {
+        let Some(relative_end) = output[start..].to_ascii_lowercase().find("</think>") else {
+            break;
+        };
+        let end = start + relative_end + "</think>".len();
+        output.replace_range(start..end, "");
+    }
+    output.trim().to_string()
 }
 
 pub fn debug_extract_openai_response(raw_response: &str) -> AIDebugExtractResult {
@@ -499,10 +942,23 @@ fn content_value_to_text(value: &Value) -> Option<String> {
                     if let Some(text) = object.get("text").and_then(Value::as_str) {
                         output.push_str(text);
                     }
+                } else if let Some(text) = object
+                    .get("text")
+                    .or_else(|| object.get("content"))
+                    .or_else(|| object.get("value"))
+                    .and_then(Value::as_str)
+                {
+                    output.push_str(text);
                 }
             }
             Some(output)
         }
+        Value::Object(object) => object
+            .get("text")
+            .or_else(|| object.get("content"))
+            .or_else(|| object.get("value"))
+            .and_then(Value::as_str)
+            .map(ToString::to_string),
         _ => None,
     }
 }
@@ -571,6 +1027,49 @@ fn redact_api_key(message: &str, api_key: &str) -> String {
     } else {
         message.replace(trimmed, "[redacted]")
     }
+}
+
+fn parse_model_list(text: &str) -> Result<Vec<AIModelInfo>, String> {
+    let value = serde_json::from_str::<Value>(text)
+        .map_err(|error| format!("AI model discovery returned invalid JSON: {error}"))?;
+    let models = value
+        .get("data")
+        .or_else(|| value.get("models"))
+        .unwrap_or(&value);
+    let items = models
+        .as_array()
+        .ok_or_else(|| "AI model discovery response did not contain a model array.".to_string())?;
+    let mut result = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for item in items {
+        let (id, owned_by) = match item {
+            Value::String(id) => (id.trim().to_string(), None),
+            Value::Object(object) => {
+                let id = object
+                    .get("id")
+                    .or_else(|| object.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                let owned_by = object
+                    .get("owned_by")
+                    .or_else(|| object.get("ownedBy"))
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string);
+                (id, owned_by)
+            }
+            _ => (String::new(), None),
+        };
+        if !id.is_empty() && seen.insert(id.clone()) {
+            result.push(AIModelInfo {
+                id,
+                owned_by,
+                discovered: true,
+            });
+        }
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -667,6 +1166,142 @@ mod tests {
         let text = r#"{"choices":[{"finish_reason":"stop","message":{"text":"{\"ok\":true}"}}]}"#;
         let content = parse_openai_content(text).expect("parse text");
         assert_eq!(content, r#"{"ok":true}"#);
+    }
+
+    #[test]
+    fn model_discovery_parses_openai_data_and_deduplicates_ids() {
+        let models = parse_model_list(
+            r#"{"data":[{"id":"deepseek-v4-flash","owned_by":"deepseek"},{"id":"deepseek-v4-flash"},{"id":""}]}"#,
+        )
+        .expect("model list");
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "deepseek-v4-flash");
+        assert_eq!(models[0].owned_by.as_deref(), Some("deepseek"));
+    }
+
+    #[test]
+    fn deepseek_force_json_uses_json_object_response_format() {
+        let provider = OpenAICompatibleProvider::new(AISettings::default());
+        let (_, used_response_format, thinking) = provider
+            .build_chat_body(&AIChatRequest {
+                messages: vec![AIChatMessage {
+                    role: "user".to_string(),
+                    content: "Return JSON.".to_string(),
+                }],
+                model: "deepseek-v4-flash".to_string(),
+                temperature: 0.0,
+                max_tokens: 8192,
+                force_json: true,
+                provider_options: AIProviderOptions::default(),
+            })
+            .expect("build DeepSeek body");
+        let (body, _, _) = provider
+            .build_chat_body(&AIChatRequest {
+                messages: vec![AIChatMessage {
+                    role: "user".to_string(),
+                    content: "Return JSON.".to_string(),
+                }],
+                model: "deepseek-v4-flash".to_string(),
+                temperature: 0.0,
+                max_tokens: 8192,
+                force_json: true,
+                provider_options: AIProviderOptions::default(),
+            })
+            .expect("build DeepSeek body");
+        assert!(used_response_format);
+        assert_eq!(body["response_format"]["type"], "json_object");
+        assert_eq!(thinking.as_deref(), Some("disabled"));
+    }
+
+    #[test]
+    fn json_only_retry_keeps_response_format_and_disables_thinking() {
+        let settings = AISettings {
+            enable_thinking: true,
+            ..AISettings::default()
+        };
+        let provider = OpenAICompatibleProvider::new(settings);
+        let (body, used_response_format, thinking) = provider
+            .build_chat_body(&AIChatRequest {
+                messages: Vec::new(),
+                model: "deepseek-v4-flash".to_string(),
+                temperature: 0.0,
+                max_tokens: 512,
+                force_json: true,
+                provider_options: AIProviderOptions {
+                    enable_thinking: Some(false),
+                    use_response_format: Some(true),
+                    ..Default::default()
+                },
+            })
+            .expect("build retry body");
+        assert!(used_response_format);
+        assert_eq!(body["response_format"]["type"], "json_object");
+        assert_eq!(body["thinking"]["type"], "disabled");
+        assert_eq!(thinking.as_deref(), Some("disabled"));
+    }
+
+    #[test]
+    fn registry_profiles_select_provider_specific_payload_fields() {
+        let minimax_settings = AISettings {
+            preset: AIProviderPresetId::Minimax,
+            base_url: "https://api.minimaxi.com/v1".to_string(),
+            enable_thinking: true,
+            ..AISettings::default()
+        };
+        let minimax = OpenAICompatibleProvider::new(minimax_settings);
+        let (body, _, _) = minimax
+            .build_chat_body(&AIChatRequest {
+                messages: Vec::new(),
+                model: "MiniMax-M2.5".to_string(),
+                temperature: 1.5,
+                max_tokens: 100,
+                force_json: true,
+                provider_options: AIProviderOptions::default(),
+            })
+            .expect("MiniMax body");
+        assert_eq!(body["max_completion_tokens"], 100);
+        assert_eq!(body["reasoning_split"], true);
+        assert_eq!(body["temperature"], 1.0);
+
+        let qwen_settings = AISettings {
+            preset: AIProviderPresetId::QwenDashScope,
+            base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
+            enable_thinking: true,
+            ..AISettings::default()
+        };
+        let qwen = OpenAICompatibleProvider::new(qwen_settings);
+        let (body, _, _) = qwen
+            .build_chat_body(&AIChatRequest {
+                messages: Vec::new(),
+                model: "qwen-plus".to_string(),
+                temperature: 0.2,
+                max_tokens: 100,
+                force_json: true,
+                provider_options: AIProviderOptions::default(),
+            })
+            .expect("Qwen body");
+        assert_eq!(body["response_format"]["type"], "json_object");
+        assert_eq!(body["enable_thinking"], true);
+    }
+
+    #[test]
+    fn finish_reason_length_is_reported_as_truncated_json() {
+        let error = parse_openai_content(
+            r#"{"choices":[{"finish_reason":"length","message":{"content":"{\"classifications\":["}}]}"#,
+        )
+        .expect_err("length-limited output must fail");
+        assert!(error.contains("模型输出达到长度上限，JSON 被截断。"));
+        assert!(error.contains("finish_reason=length"));
+    }
+
+    #[test]
+    fn empty_json_content_is_explicitly_retryable() {
+        let error = parse_openai_content(
+            r#"{"choices":[{"finish_reason":"stop","message":{"content":""}}]}"#,
+        )
+        .expect_err("empty content must fail");
+        assert!(error.contains("AI provider returned empty message.content."));
+        assert!(error.contains("JSON content is empty and should be retried"));
     }
 
     #[test]

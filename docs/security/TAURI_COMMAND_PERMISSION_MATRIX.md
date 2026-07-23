@@ -26,7 +26,11 @@
 | `get_ai_settings` | `read_only` | main | Read AI metadata | default | no | command permission contract |
 | `save_ai_settings` | `credential_mutation` | main | Credential store plus metadata | default | yes | credential transaction tests |
 | `list_ai_provider_presets` | `read_only` | main | Read static presets | default | no | command permission contract |
+| `list_ai_models` | `read_only` | main | Network request, no persistence | default | no | model discovery tests |
 | `test_ai_provider_connection` | `read_only` | main | Network request, no persistence | default | no | redirect tests |
+| `list_ai_request_traces` | `read_only` | main | Read in-memory diagnostics | default | no | trace redaction tests |
+| `clear_ai_request_traces` | `main_state_mutation` | main | Clear in-memory diagnostics | default | yes | trace lifecycle tests |
+| `export_ai_request_traces` | `read_only` | main | Export in-memory diagnostics | default | no | trace redaction tests |
 | `classify_files_with_ai` | `main_state_mutation` | main | Write classifications | default | yes | command permission contract |
 | `classify_selected_files_with_ai` | `main_state_mutation` | main | Write classifications | default | yes | command permission contract |
 | `cancel_ai_classification` | `main_state_mutation` | main | Cancel classification job | default | yes | command permission contract |

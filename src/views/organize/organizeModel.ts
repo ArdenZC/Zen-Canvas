@@ -1,5 +1,8 @@
 import type { FileRecord, LibraryScope, OperationLog, OperationPreview } from "../../types/domain";
+import { normalizeProposedFileNameExtension } from "../../utils/fileNaming";
 import { applyPreviewNameOverride, normalizePathLike } from "../../utils/viewHelpers";
+
+export type OrganizeNameError = "empty" | "reserved" | "unsafe" | "extension";
 
 export type OrganizeDecision =
   | "undecided"
@@ -145,7 +148,7 @@ export function canSetOrganizeDecision(
     return state === "blocked";
   }
   if (state === "accepted") return suggestion.canAccept;
-  if (state === "edited") return suggestion.canEdit && validateOrganizeFileName(editedName ?? "") === null;
+  if (state === "edited") return suggestion.canEdit && validateOrganizeFileNameForOriginal(suggestion.file.name, editedName ?? "") === null;
   return state === "kept" || state === "undecided" || state === "needs-review";
 }
 
@@ -175,7 +178,7 @@ export function previewIdsForOrganizeDecisions(suggestions: readonly OrganizeSug
     .filter((id): id is string => Boolean(id)));
 }
 
-export function validateOrganizeFileName(name: string): string | null {
+export function validateOrganizeFileName(name: string): OrganizeNameError | null {
   const trimmed = name.trim();
   if (!trimmed) return "empty";
   if (
@@ -189,6 +192,12 @@ export function validateOrganizeFileName(name: string): string | null {
   const stem = trimmed.split(".")[0]?.toLowerCase() ?? "";
   if (/^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/.test(stem)) return "reserved";
   return null;
+}
+
+export function validateOrganizeFileNameForOriginal(originalName: string, name: string): OrganizeNameError | null {
+  const validation = validateOrganizeFileName(name);
+  if (validation) return validation;
+  return normalizeProposedFileNameExtension(originalName, name).error;
 }
 
 export function shouldIgnoreOrganizeShortcut(event: Pick<KeyboardEvent, "ctrlKey" | "metaKey" | "altKey" | "target">) {

@@ -46,6 +46,7 @@ export function aiSettingsSignature(settings: AISettings): string {
     settings.preset,
     settings.baseUrl,
     settings.chatPath,
+    settings.modelsPath ?? null,
     settings.apiKey,
     settings.apiKeyAction ?? "preserve",
     settings.apiKeyConfigured ?? false,
@@ -62,7 +63,10 @@ export function aiSettingsSignature(settings: AISettings): string {
     settings.forceJsonOutput,
     settings.enableThinking,
     settings.reasoningEffort,
-    settings.extraBodyJson
+    settings.extraBodyJson,
+    settings.diagnosticsMode ?? "off",
+    settings.activeCustomProfileId ?? null,
+    settings.customProfiles ?? []
   ]);
 }
 

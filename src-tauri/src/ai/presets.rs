@@ -1,6 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-use super::schema::{AIProviderKind, AIProviderPresetId};
+use super::{
+    registry::{
+        provider_descriptor, provider_registry, AIAuthKind, AIParameterProfile,
+        AIProviderCapabilities, AIProviderDescriptor, AIResponseProfile,
+    },
+    schema::{AIProviderKind, AIProviderPresetId},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -10,7 +16,7 @@ pub enum AIExtraBodyStrategy {
     DeepSeekThinking,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AIProviderPreset {
     pub id: AIProviderPresetId,
@@ -18,8 +24,15 @@ pub struct AIProviderPreset {
     pub provider_kind: AIProviderKind,
     pub default_base_url: &'static str,
     pub default_chat_path: &'static str,
+    pub models_path: Option<&'static str>,
     pub default_model: &'static str,
+    pub suggested_models: &'static [&'static str],
     pub api_key_env_hint: &'static str,
+    pub auth_kind: AIAuthKind,
+    pub capabilities: AIProviderCapabilities,
+    pub parameter_profile: AIParameterProfile,
+    pub response_profile: AIResponseProfile,
+    pub endpoint_variants: &'static [super::registry::AIEndpointVariant],
     pub supports_response_format: bool,
     pub supports_json_mode: bool,
     pub supports_thinking: bool,
@@ -28,163 +41,47 @@ pub struct AIProviderPreset {
     pub docs_url: Option<&'static str>,
 }
 
+impl From<&'static AIProviderDescriptor> for AIProviderPreset {
+    fn from(descriptor: &'static AIProviderDescriptor) -> Self {
+        Self {
+            id: descriptor.id,
+            label: descriptor.label,
+            provider_kind: descriptor.provider_kind,
+            default_base_url: descriptor.default_base_url,
+            default_chat_path: descriptor.default_chat_path,
+            models_path: descriptor.models_path,
+            default_model: descriptor.default_model,
+            suggested_models: descriptor.suggested_models,
+            api_key_env_hint: descriptor.api_key_env_hint,
+            auth_kind: descriptor.auth_kind,
+            capabilities: descriptor.capabilities,
+            parameter_profile: descriptor.parameter_profile,
+            response_profile: descriptor.response_profile,
+            endpoint_variants: descriptor.endpoint_variants,
+            supports_response_format: descriptor.capabilities.supports_response_format_json_object,
+            supports_json_mode: descriptor.provider_kind == AIProviderKind::Ollama
+                || descriptor.capabilities.supports_response_format_json_object,
+            supports_thinking: descriptor.capabilities.supports_thinking,
+            supports_reasoning_effort: descriptor.capabilities.supports_reasoning_effort,
+            extra_body_strategy: match descriptor.parameter_profile.thinking_strategy {
+                super::registry::AIThinkingStrategy::None => AIExtraBodyStrategy::None,
+                super::registry::AIThinkingStrategy::DeepSeekThinkingObject => {
+                    AIExtraBodyStrategy::DeepSeekThinking
+                }
+                _ => AIExtraBodyStrategy::Generic,
+            },
+            docs_url: descriptor.docs_url,
+        }
+    }
+}
+
 pub fn all_provider_presets() -> Vec<AIProviderPreset> {
-    vec![
-        AIProviderPreset {
-            id: AIProviderPresetId::DeepSeek,
-            label: "DeepSeek，推荐",
-            provider_kind: AIProviderKind::OpenAICompatible,
-            default_base_url: "https://api.deepseek.com",
-            default_chat_path: "/chat/completions",
-            default_model: "deepseek-v4-flash",
-            api_key_env_hint: "DEEPSEEK_API_KEY",
-            supports_response_format: false,
-            supports_json_mode: true,
-            supports_thinking: true,
-            supports_reasoning_effort: true,
-            extra_body_strategy: AIExtraBodyStrategy::DeepSeekThinking,
-            docs_url: Some("https://api-docs.deepseek.com/"),
-        },
-        AIProviderPreset {
-            id: AIProviderPresetId::Kimi,
-            label: "Kimi / Moonshot",
-            provider_kind: AIProviderKind::OpenAICompatible,
-            default_base_url: "https://api.moonshot.cn/v1",
-            default_chat_path: "/chat/completions",
-            default_model: "kimi-k2.7-code-highspeed",
-            api_key_env_hint: "MOONSHOT_API_KEY",
-            supports_response_format: true,
-            supports_json_mode: true,
-            supports_thinking: false,
-            supports_reasoning_effort: false,
-            extra_body_strategy: AIExtraBodyStrategy::Generic,
-            docs_url: Some("https://platform.moonshot.cn/docs"),
-        },
-        AIProviderPreset {
-            id: AIProviderPresetId::QwenDashScope,
-            label: "通义千问 / DashScope",
-            provider_kind: AIProviderKind::OpenAICompatible,
-            default_base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            default_chat_path: "/chat/completions",
-            default_model: "qwen-plus",
-            api_key_env_hint: "DASHSCOPE_API_KEY",
-            supports_response_format: false,
-            supports_json_mode: true,
-            supports_thinking: false,
-            supports_reasoning_effort: false,
-            extra_body_strategy: AIExtraBodyStrategy::Generic,
-            docs_url: Some("https://help.aliyun.com/zh/dashscope/"),
-        },
-        AIProviderPreset {
-            id: AIProviderPresetId::ZhipuGlm,
-            label: "智谱 GLM",
-            provider_kind: AIProviderKind::OpenAICompatible,
-            default_base_url: "https://open.bigmodel.cn/api/paas/v4",
-            default_chat_path: "/chat/completions",
-            default_model: "glm-4.5",
-            api_key_env_hint: "ZHIPUAI_API_KEY",
-            supports_response_format: false,
-            supports_json_mode: true,
-            supports_thinking: false,
-            supports_reasoning_effort: false,
-            extra_body_strategy: AIExtraBodyStrategy::Generic,
-            docs_url: Some("https://docs.bigmodel.cn/"),
-        },
-        AIProviderPreset {
-            id: AIProviderPresetId::Minimax,
-            label: "MiniMax",
-            provider_kind: AIProviderKind::OpenAICompatible,
-            default_base_url: "https://api.minimax.chat/v1",
-            default_chat_path: "/chat/completions",
-            default_model: "",
-            api_key_env_hint: "MINIMAX_API_KEY",
-            supports_response_format: false,
-            supports_json_mode: true,
-            supports_thinking: false,
-            supports_reasoning_effort: false,
-            extra_body_strategy: AIExtraBodyStrategy::Generic,
-            docs_url: Some("https://platform.minimaxi.com/document"),
-        },
-        AIProviderPreset {
-            id: AIProviderPresetId::Baichuan,
-            label: "百川",
-            provider_kind: AIProviderKind::OpenAICompatible,
-            default_base_url: "",
-            default_chat_path: "/chat/completions",
-            default_model: "",
-            api_key_env_hint: "BAICHUAN_API_KEY",
-            supports_response_format: false,
-            supports_json_mode: true,
-            supports_thinking: false,
-            supports_reasoning_effort: false,
-            extra_body_strategy: AIExtraBodyStrategy::Generic,
-            docs_url: None,
-        },
-        AIProviderPreset {
-            id: AIProviderPresetId::DoubaoArk,
-            label: "豆包 / 火山方舟",
-            provider_kind: AIProviderKind::OpenAICompatible,
-            default_base_url: "https://ark.cn-beijing.volces.com/api/v3",
-            default_chat_path: "/chat/completions",
-            default_model: "",
-            api_key_env_hint: "ARK_API_KEY",
-            supports_response_format: false,
-            supports_json_mode: true,
-            supports_thinking: false,
-            supports_reasoning_effort: false,
-            extra_body_strategy: AIExtraBodyStrategy::Generic,
-            docs_url: Some("https://www.volcengine.com/docs/82379"),
-        },
-        AIProviderPreset {
-            id: AIProviderPresetId::Siliconflow,
-            label: "硅基流动",
-            provider_kind: AIProviderKind::OpenAICompatible,
-            default_base_url: "https://api.siliconflow.cn/v1",
-            default_chat_path: "/chat/completions",
-            default_model: "",
-            api_key_env_hint: "SILICONFLOW_API_KEY",
-            supports_response_format: false,
-            supports_json_mode: true,
-            supports_thinking: false,
-            supports_reasoning_effort: false,
-            extra_body_strategy: AIExtraBodyStrategy::Generic,
-            docs_url: Some("https://docs.siliconflow.cn/"),
-        },
-        AIProviderPreset {
-            id: AIProviderPresetId::CustomOpenAICompatible,
-            label: "自定义 OpenAI-compatible",
-            provider_kind: AIProviderKind::OpenAICompatible,
-            default_base_url: "",
-            default_chat_path: "/chat/completions",
-            default_model: "",
-            api_key_env_hint: "OPENAI_COMPATIBLE_API_KEY",
-            supports_response_format: false,
-            supports_json_mode: true,
-            supports_thinking: false,
-            supports_reasoning_effort: false,
-            extra_body_strategy: AIExtraBodyStrategy::Generic,
-            docs_url: None,
-        },
-        AIProviderPreset {
-            id: AIProviderPresetId::Ollama,
-            label: "Ollama 本地模型",
-            provider_kind: AIProviderKind::Ollama,
-            default_base_url: "http://localhost:11434",
-            default_chat_path: "/api/chat",
-            default_model: "qwen3:8b",
-            api_key_env_hint: "",
-            supports_response_format: false,
-            supports_json_mode: true,
-            supports_thinking: true,
-            supports_reasoning_effort: false,
-            extra_body_strategy: AIExtraBodyStrategy::None,
-            docs_url: Some("https://github.com/ollama/ollama/blob/main/docs/api.md"),
-        },
-    ]
+    provider_registry()
+        .iter()
+        .map(AIProviderPreset::from)
+        .collect()
 }
 
 pub fn provider_preset(id: AIProviderPresetId) -> Option<AIProviderPreset> {
-    all_provider_presets()
-        .into_iter()
-        .find(|preset| preset.id == id)
+    provider_descriptor(id).map(AIProviderPreset::from)
 }

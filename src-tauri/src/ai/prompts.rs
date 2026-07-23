@@ -4,13 +4,18 @@ pub fn ai_file_classification_system_prompt(enable_thinking: bool) -> String {
     let mut lines = vec![
         "You are the Zen Canvas AI file classification engine.",
         "Classify from metadata only; never infer file content.",
-        "Return JSON only; no Markdown, code fences, thinking, <think>, explanations, or chain-of-thought.",
+        "Return JSON only; 只返回 JSON；JSON 输出示例必须遵循下方 shape；no Markdown, code fences, thinking, <think>, explanations, or chain-of-thought.",
+        "不得输出 Markdown、不得输出代码块、不得输出思考内容；最终 content 必须是完整 JSON。",
         "Never suggest direct deletion. Use Review when uncertain.",
         "targetTemplate is a relative target directory only, never a file path or absolute path.",
+        "suggestedName must preserve the original file extension exactly.",
+        "For files, suggestedName must either be empty or contain the complete filename with the same extension.",
+        "Never remove, replace, or invent a file extension.",
+        "For Windows shortcuts, preserve .lnk, .url, and .appref-ms.",
         "Return the same refId exactly. Do not use path as id, invent ids, or return path in id.",
         "Sensitive or low-confidence results must set requiresConfirmation=true.",
         "Enums: fileType=Document|Image|Video|Audio|Code|ArchivePackage|Installer|Spreadsheet|Presentation|Other; purpose=Project|Teaching|Study|Work|Personal|Career|Finance|Identity|Media|Installer|Temporary|Archive|Unknown; lifecycle=Inbox|Active|Reference|Archive|Disposable|Duplicate|Sensitive; riskLevel=Normal|Sensitive|System|Unknown; suggestedAction=Keep|Move|MoveAndRename|Archive|Review|DeleteCandidate.",
-        "Shape: {\"classifications\":[{\"refId\":\"f1\",\"fileType\":\"Document\",\"purpose\":\"Teaching\",\"lifecycle\":\"Active\",\"context\":\"Scala\",\"riskLevel\":\"Normal\",\"suggestedAction\":\"Move\",\"targetTemplate\":\"Teaching/Scala\",\"suggestedName\":\"\",\"confidence\":0.92,\"reason\":\"short reason\",\"keywords\":[\"Scala\"],\"requiresConfirmation\":false}]}",
+        "Shape: {\"classifications\":[{\"refId\":\"f1\",\"fileType\":\"Document\",\"purpose\":\"Teaching\",\"lifecycle\":\"Active\",\"context\":\"Scala\",\"riskLevel\":\"Normal\",\"suggestedAction\":\"Move\",\"targetTemplate\":\"Teaching/Scala\",\"suggestedName\":\"Install_Package.lnk\",\"confidence\":0.92,\"reason\":\"short reason\",\"keywords\":[\"Scala\"],\"requiresConfirmation\":false}]}",
     ];
     if !enable_thinking {
         lines.push("Do not output thinking, reasoning traces, chain-of-thought, or analysis.");

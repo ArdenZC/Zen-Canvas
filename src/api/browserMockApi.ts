@@ -1,7 +1,9 @@
 import type {
   AIConnectionTestResult,
   AIDebugClassificationResult,
+  AIModelInfo,
   AIProviderPreset,
+  AIRequestTrace,
   AISettings,
   AppSettings,
   ClassificationCorrectionRequest,
@@ -243,8 +245,17 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockAISettings(args?.settings as AISettings | undefined) as T;
     case "list_ai_provider_presets":
       return mockAIProviderPresets() as T;
+    case "list_ai_models":
+      return mockAIModels() as T;
     case "test_ai_provider_connection":
       return mockAIConnectionTest(args?.settings as AISettings | undefined) as T;
+    case "list_ai_request_traces":
+      return mockAITraces() as T;
+    case "clear_ai_request_traces":
+      mockAITraceState = [];
+      return undefined as T;
+    case "export_ai_request_traces":
+      return JSON.stringify(mockAITraces(), null, 2) as T;
     case "debug_ai_classification_once":
       return mockAIDebugClassification(args) as T;
     case "get_global_hotkey_status":
@@ -963,12 +974,13 @@ function mockAISettings(settings?: AISettings): AISettings {
     preset: "deepseek",
     baseUrl: "https://api.deepseek.com",
     chatPath: "/chat/completions",
+    modelsPath: "/models",
     apiKey: "",
     apiKeyAction: "preserve",
     apiKeyConfigured: mockApiKeyConfigured,
     model: "deepseek-v4-flash",
     temperature: 0,
-    maxTokens: 1024,
+    maxTokens: 8192,
     batchSize: 10,
     classificationConcurrency: 2,
     timeoutSeconds: 120,
@@ -976,24 +988,29 @@ function mockAISettings(settings?: AISettings): AISettings {
     sendParentPath: true,
     classificationMode: "ai_first",
     cleanupAiEnabled: true,
-    forceJsonOutput: false,
+    forceJsonOutput: true,
     enableThinking: false,
     reasoningEffort: null,
-    extraBodyJson: null
+    extraBodyJson: null,
+    diagnosticsMode: "off"
   };
 }
 
 function mockAIProviderPresets(): AIProviderPreset[] {
   return [
     ["deepseek", "DeepSeek — Recommended", "https://api.deepseek.com", "deepseek-v4-flash", true, true, true],
-    ["kimi", "Kimi / Moonshot", "https://api.moonshot.cn/v1", "kimi-k2.7-code-highspeed", true, false, false],
-    ["qwen_dashscope", "Qwen / DashScope", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus", false, false, false],
-    ["zhipu_glm", "Zhipu GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4.5", false, false, false],
-    ["minimax", "MiniMax", "https://api.minimax.chat/v1", "", false, false, false],
-    ["baichuan", "Baichuan", "", "", false, false, false],
-    ["doubao_ark", "Doubao / Volcengine Ark", "https://ark.cn-beijing.volces.com/api/v3", "", false, false, false],
-    ["siliconflow", "SiliconFlow", "https://api.siliconflow.cn/v1", "", false, false, false],
-    ["custom_openai_compatible", "Custom OpenAI-compatible", "", "", false, false, false],
+    ["kimi", "Kimi / Moonshot", "https://api.moonshot.ai/v1", "kimi-k2.6", true, true, false],
+    ["qwen_dashscope", "Qwen / DashScope", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus", true, true, false],
+    ["zhipu_glm", "智谱 GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-5.2", true, true, true],
+    ["doubao_ark", "豆包 / 火山方舟", "https://ark.cn-beijing.volces.com/api/v3", "", false, false, false],
+    ["minimax", "MiniMax", "https://api.minimaxi.com/v1", "MiniMax-M2.5", true, true, false],
+    ["hunyuan", "腾讯混元", "https://api.hunyuan.cloud.tencent.com/v1", "hunyuan-turbos", false, false, false],
+    ["baidu_qianfan", "百度千帆", "https://qianfan.baidubce.com/v2", "ernie-4.5-turbo-32k", false, false, false],
+    ["siliconflow", "SiliconFlow / 硅基流动", "https://api.siliconflow.cn/v1", "", false, false, false],
+    ["baichuan", "百川智能（兼容入口）", "", "", false, false, false],
+    ["stepfun", "阶跃星辰 / StepFun", "https://api.stepfun.com/v1", "step-3.5-flash", false, false, false],
+    ["yi", "零一万物 / Yi（兼容平台）", "", "", false, false, false],
+    ["custom_openai_compatible", "自定义 OpenAI-compatible", "", "", false, false, false],
     ["ollama", "Ollama — Local model", "http://localhost:11434", "qwen3:8b", false, true, false]
   ].map(([id, label, defaultBaseUrl, defaultModel, supportsResponseFormat, supportsThinking, supportsReasoningEffort]) => ({
     id: id as AIProviderPreset["id"],
@@ -1001,12 +1018,26 @@ function mockAIProviderPresets(): AIProviderPreset[] {
     providerKind: id === "ollama" ? "ollama" : "openai_compatible",
     defaultBaseUrl: String(defaultBaseUrl),
     defaultChatPath: id === "ollama" ? "/api/chat" : "/chat/completions",
+    modelsPath: id === "ollama" ? "/api/tags" : "/models",
     defaultModel: String(defaultModel),
+    suggestedModels: [String(defaultModel)].filter(Boolean),
     supportsResponseFormat: Boolean(supportsResponseFormat),
     supportsJsonMode: true,
     supportsThinking: Boolean(supportsThinking),
     supportsReasoningEffort: Boolean(supportsReasoningEffort)
   }));
+}
+
+function mockAIModels(): AIModelInfo[] {
+  return mockAIProviderPresets().flatMap((preset) =>
+    (preset.suggestedModels ?? []).map((id) => ({ id, ownedBy: preset.id, discovered: false }))
+  );
+}
+
+let mockAITraceState: AIRequestTrace[] = [];
+
+function mockAITraces(): AIRequestTrace[] {
+  return mockAITraceState.map((trace) => ({ ...trace }));
 }
 
 function mockAIConnectionTest(settings?: AISettings): AIConnectionTestResult {
@@ -1060,7 +1091,7 @@ function mockAIDebugClassification(args?: Record<string, unknown>): AIDebugClass
     enableThinking: settings.enableThinking,
     maxTokens: settings.maxTokens,
     batchSize: settings.batchSize,
-    requestUsedResponseFormat: false,
+    requestUsedResponseFormat: settings.forceJsonOutput && settings.preset !== "ollama" && settings.preset !== "doubao_ark" && settings.preset !== "hunyuan" && settings.preset !== "siliconflow" && settings.preset !== "baidu_qianfan" && settings.preset !== "baichuan" && settings.preset !== "stepfun" && settings.preset !== "yi",
     requestUsedThinkingField: "disabled",
     httpStatus: 200,
     providerResponseSummary: "has_choices=true; choice_count=1; finish_reason=stop; message_keys=[content,role]; content_type=string; content_length=180; has_reasoning_content=false; reasoning_content_length=0",

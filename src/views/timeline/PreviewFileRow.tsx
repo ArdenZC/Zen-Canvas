@@ -6,6 +6,7 @@ import type { Translator } from "../../types/ui";
 import { percent } from "../../utils/format";
 import { cn, inputSurface } from "../../utils/tw";
 import { compactPath, formatDisplayPath, formatPreviewDisplayPath } from "../../utils/viewHelpers";
+import { normalizeProposedFileNameExtension } from "../../utils/fileNaming";
 import { ToneBadge, itemMotion } from "../shared/ui";
 import { validateOrganizeFileName } from "../organize/organizeModel";
 import { riskLabel } from "../vault/components/FileLibraryList";
@@ -27,7 +28,9 @@ export const PreviewFileRow = memo(function PreviewFileRow({
   t: Translator;
 }) {
   const trashOperation = preview.operation_type === "move_to_trash";
-  const nameError = trashOperation ? null : validateOrganizeFileName(preview.new_name);
+  const syntaxError = trashOperation ? null : validateOrganizeFileName(preview.new_name);
+  const extensionNormalization = trashOperation ? null : normalizeProposedFileNameExtension(preview.old_name, preview.new_name);
+  const nameError = syntaxError ?? extensionNormalization?.error ?? null;
   const eligibility = resolvePreviewEligibility(preview, executionIntent ?? null);
   const blocked = eligibility.reason === "blocked" || eligibility.reason === "unavailable" || eligibility.reason === "outsideWhitelist";
   const executionStatus = eligibility.executable ? "executable" : eligibility.reason === "invalidName" ? "invalid-name" : eligibility.reason === "unavailable" ? "unavailable" : eligibility.reason === "outsideWhitelist" ? "outside-whitelist" : "blocked";
@@ -95,9 +98,14 @@ export const PreviewFileRow = memo(function PreviewFileRow({
             aria-label={t("newFileName")}
             aria-invalid={Boolean(nameError)}
             aria-describedby={nameError ? `preview-name-error-${preview.id}` : undefined}
+            onBlur={() => {
+              if (!syntaxError && extensionNormalization && extensionNormalization.error === null && extensionNormalization.name !== preview.new_name) {
+                onRenamePreview(preview.id, extensionNormalization.name);
+              }
+            }}
           />
         )}
-        {nameError ? <p id={`preview-name-error-${preview.id}`} className="mt-1 text-xs text-[var(--zc-danger-text)]" role="alert">{t(nameError === "empty" ? "organizeNameErrorEmpty" : nameError === "reserved" ? "organizeNameErrorReserved" : "organizeNameErrorUnsafe")}</p> : null}
+        {nameError ? <p id={`preview-name-error-${preview.id}`} className="mt-1 text-xs text-[var(--zc-danger-text)]" role="alert">{t(nameError === "empty" ? "organizeNameErrorEmpty" : nameError === "reserved" ? "organizeNameErrorReserved" : nameError === "extension" ? "organizeNameErrorExtension" : "organizeNameErrorUnsafe")}</p> : null}
       </div>
     </motion.div>
   );

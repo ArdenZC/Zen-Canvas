@@ -459,6 +459,8 @@ mod tests {
                 request_used_response_format: false,
                 request_used_thinking_field: Some("disabled".to_string()),
                 response_summary: "provider response summary: has_choices=true".to_string(),
+                trace_id: None,
+                pending_trace: None,
             }),
         };
 
@@ -580,6 +582,8 @@ mod tests {
                 request_used_response_format: false,
                 request_used_thinking_field: Some("disabled".to_string()),
                 response_summary: "provider response summary: has_choices=true".to_string(),
+                trace_id: None,
+                pending_trace: None,
             }),
         };
 
@@ -607,6 +611,8 @@ mod tests {
                 request_used_response_format: false,
                 request_used_thinking_field: Some("disabled".to_string()),
                 response_summary: "provider response summary: has_choices=true".to_string(),
+                trace_id: None,
+                pending_trace: None,
             }),
         };
 
@@ -673,6 +679,8 @@ mod tests {
                 request_used_response_format: false,
                 request_used_thinking_field: Some("disabled".to_string()),
                 response_summary: "provider response summary: has_choices=true".to_string(),
+                trace_id: None,
+                pending_trace: None,
             }),
         }
     }

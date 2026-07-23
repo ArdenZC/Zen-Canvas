@@ -1,5 +1,8 @@
 use super::super::*;
 use super::*;
+use crate::file_naming::{
+    normalize_proposed_file_name, split_filename_from_target_directory, ExtensionChangePolicy,
+};
 use crate::file_ops::OperationLogDto;
 use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection, Transaction};
 use std::{
@@ -43,6 +46,19 @@ impl Database {
             )));
         }
         Ok(())
+    }
+
+    pub(crate) fn get_indexed_file_naming(
+        &self,
+        file_id: &str,
+    ) -> Result<(String, String, bool), DbError> {
+        let conn = self.conn()?;
+        conn.query_row(
+            "SELECT name, extension, is_dir FROM files WHERE id = ?1 AND is_stale = 0",
+            params![file_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? != 0)),
+        )
+        .map_err(DbError::from)
     }
 
     pub fn insert_file(&self, file: InsertFileRequest) -> Result<(), DbError> {
@@ -1370,10 +1386,24 @@ fn post_join_where_clause(clause: Option<&str>) -> String {
 
 fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPreviewDto> {
     let source_directory = parent_directory(&row.path);
-    let mut new_name = if row.suggested_name.trim().is_empty() {
+    let proposed_name = if row.suggested_name.trim().is_empty() {
         row.name.clone()
     } else {
         row.suggested_name.clone()
+    };
+    let mut extension_blocking_reason = None;
+    let mut new_name = match normalize_proposed_file_name(
+        &row.name,
+        &row.extension,
+        &proposed_name,
+        row.is_dir,
+        ExtensionChangePolicy::Preserve,
+    ) {
+        Ok(name) => name,
+        Err(error) => {
+            extension_blocking_reason = Some(error);
+            row.name.clone()
+        }
     };
     let mut target_directory = match row.suggested_action.as_str() {
         "Rename" => {
@@ -1386,10 +1416,27 @@ fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPrevie
         "Move" | "MoveAndRename" | "Archive" => row.suggested_target_path.clone(),
         _ => String::new(),
     };
-    if let Some((parent, file_name)) = split_filename_like_target_directory(&target_directory) {
+    if let Some((parent, file_name)) =
+        split_filename_from_target_directory(&target_directory, &row.extension)
+    {
         target_directory = parent;
         if row.suggested_name.trim().is_empty() || row.suggested_name == row.name {
             new_name = file_name;
+        }
+    }
+    if extension_blocking_reason.is_none() {
+        match normalize_proposed_file_name(
+            &row.name,
+            &row.extension,
+            &new_name,
+            row.is_dir,
+            ExtensionChangePolicy::Preserve,
+        ) {
+            Ok(normalized_name) => new_name = normalized_name,
+            Err(error) => {
+                extension_blocking_reason = Some(error);
+                new_name = row.name.clone();
+            }
         }
     }
     let target_path = if target_directory.trim().is_empty() {
@@ -1397,7 +1444,10 @@ fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPrevie
     } else {
         join_path_text(&target_directory, &new_name)
     };
-    if normalize_path_for_compare_text(&row.path) == normalize_path_for_compare_text(&target_path) {
+    if extension_blocking_reason.is_none()
+        && normalize_path_for_compare_text(&row.path)
+            == normalize_path_for_compare_text(&target_path)
+    {
         return None;
     }
 
@@ -1413,9 +1463,11 @@ fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPrevie
         "rename"
     };
     let is_sensitive = row.risk_level == "Sensitive";
-    let requires_confirmation = row.requires_confirmation || row.confidence < 0.7 || is_sensitive;
+    let extension_blocked = extension_blocking_reason.is_some();
+    let requires_confirmation =
+        row.requires_confirmation || row.confidence < 0.7 || is_sensitive || extension_blocked;
     let target_exists = Path::new(&target_path).exists();
-    let is_executable = !is_sensitive && !target_exists;
+    let is_executable = !is_sensitive && !target_exists && !extension_blocked;
     let target_parent_exists = Path::new(&target_path)
         .parent()
         .map(|parent| parent.exists())
@@ -1438,36 +1490,19 @@ fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPrevie
         reason: row.classification_reason,
         selected_by_default: Some(is_executable && !requires_confirmation),
         is_executable: Some(is_executable),
-        blocking_reason: if is_sensitive {
-            Some("Sensitive files require manual confirmation.".to_string())
-        } else if target_exists {
-            Some("Target path already exists; Zen Canvas will not overwrite it.".to_string())
-        } else {
-            None
-        },
-        editable_new_name: Some(true),
+        blocking_reason: extension_blocking_reason
+            .or_else(|| {
+                is_sensitive.then(|| "Sensitive files require manual confirmation.".to_string())
+            })
+            .or_else(|| {
+                target_exists.then(|| {
+                    "Target path already exists; Zen Canvas will not overwrite it.".to_string()
+                })
+            }),
+        editable_new_name: Some(!extension_blocked),
         target_parent_exists: Some(target_parent_exists),
         will_create_parent: Some(!target_parent_exists),
     })
-}
-
-fn split_filename_like_target_directory(target_directory: &str) -> Option<(String, String)> {
-    let normalized = target_directory.trim().replace('\\', "/");
-    let (parent, last) = normalized.rsplit_once('/')?;
-    if !looks_like_file_name_segment(last) {
-        return None;
-    }
-    Some((parent.to_string(), last.to_string()))
-}
-
-fn looks_like_file_name_segment(segment: &str) -> bool {
-    let lower = segment.trim().to_ascii_lowercase();
-    [
-        ".doc", ".docx", ".pdf", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".zip", ".rar", ".7z",
-        ".csv", ".md", ".png", ".jpg", ".jpeg", ".gif", ".mp4", ".mov", ".mp3",
-    ]
-    .iter()
-    .any(|extension| lower.ends_with(extension) && lower.len() > extension.len())
 }
 
 fn operation_preview_id(file_id: &str) -> String {
