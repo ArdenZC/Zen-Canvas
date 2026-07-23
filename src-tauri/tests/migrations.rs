@@ -84,8 +84,10 @@ fn downgrade_current_fixture_to_schema_16(path: &PathBuf) {
         ALTER TABLE operation_logs DROP COLUMN source_size;
         ALTER TABLE operation_logs DROP COLUMN source_modified_ns;
         ALTER TABLE operation_logs DROP COLUMN source_platform_file_id;
+        ALTER TABLE operation_logs DROP COLUMN source_platform_volume_id;
         ALTER TABLE operation_logs DROP COLUMN source_quick_hash;
         ALTER TABLE operation_logs DROP COLUMN target_platform_file_id;
+        ALTER TABLE operation_logs DROP COLUMN target_platform_volume_id;
         ALTER TABLE cleanup_trash_items DROP COLUMN source_modified_ns;
         ALTER TABLE cleanup_trash_items DROP COLUMN source_platform_file_id;
         ALTER TABLE cleanup_trash_items DROP COLUMN source_quick_hash;
@@ -131,15 +133,19 @@ fn downgrade_current_fixture_to_schema_20_or_21(path: &PathBuf, version: i32) {
         DROP INDEX IF EXISTS idx_operation_logs_restore_phase;
         DROP TRIGGER IF EXISTS cleanup_items_phase_guard_insert;
         DROP TRIGGER IF EXISTS cleanup_items_phase_guard_update;
+        ALTER TABLE operation_logs DROP COLUMN source_platform_volume_id;
+        ALTER TABLE operation_logs DROP COLUMN target_platform_volume_id;
         ALTER TABLE operation_logs DROP COLUMN source_claim_path;
         ALTER TABLE operation_logs DROP COLUMN operation_phase;
         ALTER TABLE operation_logs DROP COLUMN claim_created_at;
         ALTER TABLE operation_logs DROP COLUMN claim_platform_file_id;
+        ALTER TABLE operation_logs DROP COLUMN claim_platform_volume_id;
         ALTER TABLE operation_logs DROP COLUMN claim_full_hash;
         ALTER TABLE operation_logs DROP COLUMN restore_claim_path;
         ALTER TABLE operation_logs DROP COLUMN restore_phase;
         ALTER TABLE operation_logs DROP COLUMN restore_claim_created_at;
         ALTER TABLE operation_logs DROP COLUMN restore_claim_platform_file_id;
+        ALTER TABLE operation_logs DROP COLUMN restore_claim_platform_volume_id;
         ALTER TABLE operation_logs DROP COLUMN restore_claim_full_hash;
         ALTER TABLE cleanup_trash_items DROP COLUMN source_claim_path;
         ALTER TABLE cleanup_trash_items DROP COLUMN operation_phase;
@@ -175,12 +181,16 @@ fn assert_schema_23_journal_columns(conn: &Connection) {
         "operation_phase",
         "claim_created_at",
         "claim_platform_file_id",
+        "claim_platform_volume_id",
         "claim_full_hash",
         "restore_claim_path",
         "restore_phase",
         "restore_claim_created_at",
         "restore_claim_platform_file_id",
+        "restore_claim_platform_volume_id",
         "restore_claim_full_hash",
+        "source_platform_volume_id",
+        "target_platform_volume_id",
     ] {
         assert!(
             operation_columns.contains(&column.to_string()),
@@ -237,7 +247,7 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
         )
         .expect("read legacy trash identity state");
 
-    assert_eq!(version, 23);
+    assert_eq!(version, 24);
     assert!(settings_json.contains("minimize"));
     assert_eq!(revision, 0);
     assert_eq!(can_restore, 0);
@@ -305,7 +315,7 @@ fn schema_20_and_21_migrate_to_schema_23_with_independent_restore_claim_columns(
         let migrated_version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("read migrated journal version");
-        assert_eq!(migrated_version, 23);
+        assert_eq!(migrated_version, 24);
         assert_schema_23_journal_columns(&conn);
         let restore_phase: String = conn
             .query_row(
@@ -381,10 +391,14 @@ fn downgrade_current_fixture_to_schema_22(path: &PathBuf) {
         DROP TRIGGER IF EXISTS operation_logs_restore_phase_guard_insert;
         DROP TRIGGER IF EXISTS operation_logs_restore_phase_guard_update;
         DROP INDEX IF EXISTS idx_operation_logs_restore_phase;
+        ALTER TABLE operation_logs DROP COLUMN source_platform_volume_id;
+        ALTER TABLE operation_logs DROP COLUMN target_platform_volume_id;
+        ALTER TABLE operation_logs DROP COLUMN claim_platform_volume_id;
         ALTER TABLE operation_logs DROP COLUMN restore_claim_path;
         ALTER TABLE operation_logs DROP COLUMN restore_phase;
         ALTER TABLE operation_logs DROP COLUMN restore_claim_created_at;
         ALTER TABLE operation_logs DROP COLUMN restore_claim_platform_file_id;
+        ALTER TABLE operation_logs DROP COLUMN restore_claim_platform_volume_id;
         ALTER TABLE operation_logs DROP COLUMN restore_claim_full_hash;
         PRAGMA user_version = 22;
         "#,
@@ -403,7 +417,7 @@ fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers(
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
             .expect("read schema version"),
-        23
+        24
     );
     assert_schema_23_journal_columns(&conn);
 
