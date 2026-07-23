@@ -15,25 +15,24 @@ import {
   TriangleAlert,
   X
 } from "lucide-react";
-import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { CommandModal } from "./CommandModal";
 import { OnboardingDialog } from "./OnboardingDialog";
 import { ViewErrorBoundary } from "./ErrorBoundary";
 import { AmbientMesh, CloseChoiceDialog, ZenMark } from "./ShellChrome";
 import { requestSettingsSection } from "./spotlight/commandRegistry";
-import { useChromeContext, useSettingsContext } from "../contexts/AppContexts";
-import { resolveEffectiveSearchScope } from "../hooks/useAppSettings";
+import { useChromeContext } from "../contexts/AppContexts";
 import { hideToBackground } from "../hooks/useWindowBehavior";
 import { useAppStore } from "../store/useAppStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { useOrganizeDecisionStore } from "../store/useOrganizeDecisionStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { resolveAIProcessingMode, useAIProcessingModeStore, type AIProcessingModeState } from "../store/useAIProcessingModeStore";
-import type { AppSettings, DashboardStats, LibraryScope } from "../types/domain";
+import type { DashboardStats, LibraryScope } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { formatDate } from "../utils/format";
 import { cn, statusToast, toastTone } from "../utils/tw";
-import { compactPath, libraryScopeLabel, readableError } from "../utils/viewHelpers";
+import { libraryScopeLabel, readableError } from "../utils/viewHelpers";
 import { PageHeader, pageFrame, softPanel, viewStage } from "../views/shared/ui";
 import { organizeScopeKey } from "../views/organize/organizeModel";
 import { APP_SHELL_CONTENT_ID, ModalHost } from "./modal/ModalPortal";
@@ -162,15 +161,7 @@ function CommandLauncher({
   restoreFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   const { commandInputRef, setView, setIsCommandOpen, platform, onError, t } = useChromeContext();
-  const { settings } = useSettingsContext();
-  const currentLibraryScope = useFileLibraryStore((state) => state.scope);
   const setSelectedFileId = useFileLibraryStore((state) => state.setSelectedFileId);
-  const effectiveSearchScope = useMemo(
-    () => resolveEffectiveSearchScope(settings, currentLibraryScope),
-    [currentLibraryScope, settings]
-  );
-  const searchScopeLabel = commandSearchScopeLabel(settings, currentLibraryScope, t);
-  const searchScopeEmptyMessage = commandSearchScopeEmptyMessage(settings, currentLibraryScope, t);
 
   function closeCommand() {
     setIsCommandOpen(false);
@@ -190,42 +181,10 @@ function CommandLauncher({
       platform={platform}
       t={t}
       onError={onError}
-      searchScope={effectiveSearchScope}
-      searchScopeLabel={searchScopeLabel}
-      searchScopeEmptyMessage={searchScopeEmptyMessage}
       standalone={standalone}
       restoreFocusRef={restoreFocusRef}
     />
   );
-}
-
-function commandSearchScopeLabel(settings: AppSettings, currentLibraryScope: LibraryScope, t: Translator) {
-  if (settings.searchScopeMode === "all") return t("searchScopeAllIndexedLabel");
-  if (settings.searchScopeMode === "current_scan") {
-    const currentLabel = libraryScopeLabel(currentLibraryScope, t("searchScopeAllIndexed"), t("noFolderSelected"));
-    return currentLibraryScope.kind === "all"
-      ? t("searchScopeAllIndexedLabel")
-      : `${t("searchScopeLabel")}: ${t("searchScopeCurrentScan")}${currentLibraryScope.roots.length ? ` · ${currentLabel}` : ""}`;
-  }
-
-  const enabledRoots = settings.customSearchRoots.filter((root) => root.enabled && root.path.trim());
-  if (!enabledRoots.length) return `${t("searchScopeLabel")}: ${t("searchScopeCustomEmpty")}`;
-  const first = compactPath(enabledRoots[0].path, 42);
-  const suffix = enabledRoots.length > 1 ? ` +${enabledRoots.length - 1}` : "";
-  return `${t("searchScopeLabel")}: ${t("searchScopeCustomRoots")}: ${first}${suffix}`;
-}
-
-function commandSearchScopeEmptyMessage(settings: AppSettings, currentLibraryScope: LibraryScope, t: Translator) {
-  if (settings.searchScopeMode === "custom_roots" && !settings.customSearchRoots.some((root) => root.enabled && root.path.trim())) {
-    return t("searchScopeCustomEmpty");
-  }
-  if (
-    settings.searchScopeMode === "current_scan" &&
-    (currentLibraryScope.kind !== "current_scan" || currentLibraryScope.roots.length === 0)
-  ) {
-    return t("searchScopeCurrentScanEmpty");
-  }
-  return "";
 }
 
 function MacWindowControls() {

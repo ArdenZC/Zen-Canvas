@@ -1,15 +1,15 @@
 import type { Translator } from "../../types/ui";
-import type { FileRecord, OperationLog } from "../../types/domain";
+import type { FileRecord, GlobalSearchResult, OperationLog } from "../../types/domain";
 import type { SpotlightCommand, SpotlightCommandGroup } from "./commandRegistry";
 
-export type SpotlightFileResult = { kind: "file"; id: string; file: FileRecord };
-export type SpotlightResult = SpotlightFileResult | SpotlightCommand;
+export type SpotlightGlobalResult = { kind: "global"; id: string; entry: GlobalSearchResult };
+export type SpotlightResult = SpotlightGlobalResult | SpotlightCommand;
 export type SpotlightResultGroupType = "folders" | "files" | SpotlightCommandGroup;
 export type SpotlightResultGroup = { type: SpotlightResultGroupType; label: string; items: SpotlightResult[] };
 
-export function mergeSpotlightResults(files: FileRecord[], commands: SpotlightCommand[]): SpotlightResult[] {
+export function mergeSpotlightResults(entries: GlobalSearchResult[], commands: SpotlightCommand[]): SpotlightResult[] {
   return [
-    ...files.map((file) => ({ kind: "file" as const, id: `file:${file.id}`, file })),
+    ...entries.map((entry) => ({ kind: "global" as const, id: `global:${entry.id}`, entry })),
     ...commands
   ];
 }
@@ -45,7 +45,7 @@ export function buildRecentGroups(files: FileRecord[], operations: OperationLog[
 
 function resultGroup(result: SpotlightResult): SpotlightResultGroupType {
   if (result.kind === "command") return result.group;
-  return result.file.file_type.toLocaleLowerCase() === "folder" ? "folders" : "files";
+  return result.entry.isDirectory ? "folders" : "files";
 }
 
 function groupLabel(type: SpotlightResultGroupType, t?: Translator) {

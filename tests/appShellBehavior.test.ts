@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { makeTranslator } from "../src/i18n";
 import { AIProcessingModeStatus, fileLibraryHeadingDescription, openAIProcessingModeSettings, ShellViewHeading } from "../src/components/AppShell";
 import { filesForCurrentQuery } from "../src/components/CommandModal";
-import type { AISettings, FileRecord, OperationLog } from "../src/types/domain";
+import type { AISettings, FileRecord, GlobalSearchResult, OperationLog } from "../src/types/domain";
 
 const t = makeTranslator("zh");
 
@@ -134,13 +134,13 @@ describe("App Shell v4.1 behavior", () => {
     const model = await modelModule();
     const registry = commands.createCommandRegistry(t);
     const commandResults = commands.queryCommandRegistry("设置", registry);
-    const files = [
-      file("file-1", "设置说明.md", "document", "2026-07-10T10:00:00Z"),
-      file("folder-1", "设置备份", "folder", "2026-07-10T11:00:00Z")
+    const entries: GlobalSearchResult[] = [
+      { id: "file-1", name: "设置说明.md", path: "C:/设置说明.md", extension: "md", isDirectory: false, volumeId: "v", platformFileId: "p1", size: 1, createdAtFs: null, modifiedAtFs: null, fileAttributes: 0, isHidden: false, isSystem: false, sourceProvider: "test", managed: false, rank: -1 },
+      { id: "folder-1", name: "设置备份", path: "C:/设置备份", extension: "", isDirectory: true, volumeId: "v", platformFileId: "p2", size: 0, createdAtFs: null, modifiedAtFs: null, fileAttributes: 0, isHidden: false, isSystem: false, sourceProvider: "test", managed: false, rank: -1 }
     ];
 
-    const merged = model.mergeSpotlightResults(files, commandResults);
-    expect(merged.some((item: any) => item.kind === "file")).toBe(true);
+    const merged = model.mergeSpotlightResults(entries, commandResults);
+    expect(merged.some((item: any) => item.kind === "global")).toBe(true);
     expect(merged.some((item: any) => item.kind === "command")).toBe(true);
     const groups = model.groupSpotlightResults(merged);
     expect(groups.map((group: any) => group.type)).toEqual(["folders", "files", "settings"]);

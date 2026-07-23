@@ -8,40 +8,34 @@ function read(relativePath: string) {
 }
 
 describe("command modal spotlight polish", () => {
-  it("uses shared primitives for empty, failed, scoped empty, and result badges", () => {
+  it("uses shared primitives for empty and failed global-index states", () => {
     const commandModal = read("src/components/CommandModal.tsx");
 
     expect(commandModal).toContain("StateBlock");
-    expect(commandModal).toContain("ToneBadge");
+    expect(commandModal).toContain('data-result-kind="global"');
+    expect(commandModal).toContain('isSortingPreviewShortcut(event) && activeResult?.kind !== "global"');
     expect(commandModal).toContain("formatDisplayPath");
-    expect(commandModal).toContain("compactPath(formatDisplayPath(file.path");
-    expect(commandModal).toContain("isScopedEmpty");
+    expect(commandModal).toContain("compactPath(formatDisplayPath(entry.path");
+    expect(commandModal).toContain("globalSearchIndexMeta");
+    expect(commandModal).not.toContain("searchScope");
     expect(commandModal).toContain('queryState === "failed" ? "error"');
     expect(commandModal).not.toContain("CommandEmptyState");
   });
 
-  it("uses purpose-driven result tones and dynamic file icons", () => {
+  it("uses neutral global-entry icons without AI classification badges", () => {
     const commandModal = read("src/components/CommandModal.tsx");
     const icon = read("src/components/FileTypeIcon.tsx");
 
     expect(commandModal).toContain("FileTypeIcon");
+    expect(commandModal).toContain("entry.isDirectory ? <Folder size={20} /> : <FileIcon size={20} />");
     expect(icon).toContain("fileIconForRecord");
     expect(icon).toContain("aria-hidden=\"true\"");
     expect(icon).toContain("if (kind === \"folder\") return Folder");
     expect(icon).toContain("if (kind === \"archive\") return Archive");
     expect(icon).toContain("if (file.file_type === \"Installer\") return Package");
-    expect(commandModal).toContain('const purpose = (file.purpose || "").toLowerCase()');
-    expect(commandModal).toContain('purpose.includes("strategy") || purpose.includes("finance") || file.lifecycle === "Archive"');
-    expect(commandModal).toContain('purpose.includes("media") || purpose.includes("image")');
-    expect(commandModal).toContain('purpose.includes("code") || purpose.includes("script")');
-    expect(commandModal).toContain('purpose.includes("doc") || purpose.includes("text")');
-    expect(commandModal).toContain('file.risk_level === "Sensitive" || purpose.includes("sensitive")');
-    expect(commandModal).toContain('<FileTypeIcon file={file} size={20} />');
-    expect(commandModal).toContain('<ToneBadge tone={tone as any}>{file.purpose}</ToneBadge>');
-    expect(commandModal).toContain('<ToneBadge tone={file.risk_level === "Sensitive" ? "red" : "amber"}>');
-    expect(commandModal).toContain('<ToneBadge tone="amber">{t("libraryDuplicateFiles")}</ToneBadge>');
-    expect(commandModal).not.toContain('<File size={20} strokeWidth={1.5} />');
-    expect(commandModal).not.toContain('<ToneBadge tone="info">{file.purpose}</ToneBadge>');
+    expect(commandModal).not.toContain("file.purpose");
+    expect(commandModal).not.toContain("file.risk_level");
+    expect(commandModal).not.toContain("ToneBadge");
   });
 
   it("keeps spotlight controls accessible and avoids scale-based motion", () => {
@@ -112,7 +106,7 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).toContain("standalone");
     expect(commandModal).toContain("!trimmedSearch");
     expect(commandModal).toContain('queryState === "idle"');
-    expect(commandModal).toContain("!isScopedEmpty");
+    expect(commandModal).not.toContain("isScopedEmpty");
     expect(commandModal).toContain("const shouldShowIdleState = !standalone && !trimmedSearch");
     expect(commandModal).toContain("isStandaloneCollapsed ? commandShellCollapsed : commandShellExpanded");
     expect(commandModal).toContain("h-16 w-full max-w-[720px] rounded-full");
@@ -128,7 +122,6 @@ describe("command modal spotlight polish", () => {
 
     expect(zh("commandIdleTitle")).toBe("输入关键词开始检索");
     expect(zh("commandTypingTitle")).toBe("正在准备搜索");
-    expect(zh("commandScopedEmptyTitle")).toBe("当前搜索范围为空");
     expect(zh("commandOpenHint")).toBe("打开结果");
     expect(zh("globalSearch")).toBe("搜索文件夹、文件、操作或设置");
     expect(zh("commandPlaceholder")).toBe("搜索文件、文件夹、操作或设置");
@@ -138,7 +131,8 @@ describe("command modal spotlight polish", () => {
       expect([zh("globalSearch"), zh("commandPlaceholder"), zh("smartMatches"), zh("unknown")].join(" ")).not.toContain(forbidden);
     }
     expect(en("commandIdleTitle")).toBe("Type to search");
-    expect(en("commandScopedEmptyTitle")).toBe("This search scope is empty");
+    expect(zh("globalSearchIndexMeta")).toContain("全局索引");
+    expect(en("globalSearchIndexMeta")).toContain("Global index");
     expect(en("commandClearSearch")).toBe("Clear Spotlight search");
   });
 

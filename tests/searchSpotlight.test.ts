@@ -71,24 +71,26 @@ describe("spotlight search navigation", () => {
     expect(setSelectedFileId).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the resolved effective search scope for command and standalone spotlight results", () => {
+  it("uses the independent global index for command and standalone Spotlight results", () => {
     const commandModal = readFileSync(resolve("src/components/CommandModal.tsx"), "utf8");
     const appShell = readFileSync(resolve("src/components/AppShell.tsx"), "utf8");
 
-    expect(commandModal).toContain("searchScope");
     expect(commandModal).toContain("const SEARCH_RESULT_LIMIT = 80");
-    expect(commandModal).toContain("tauriApi.searchFiles(trimmedSearch, SEARCH_RESULT_LIMIT, searchScope)");
-    expect(commandModal).toContain("mergeSpotlightResults(currentFileResults, commandResults)");
-    expect(commandModal).toContain("filesForCurrentQuery(trimmedSearch, fileResultState.query, fileResultState.files)");
-    expect(commandModal).toContain('setFileResultState({ query: trimmedSearch, files: [] })');
+    expect(commandModal).toContain("tauriApi.searchGlobalEntries(trimmedSearch, SEARCH_RESULT_LIMIT)");
+    expect(commandModal).toContain("mergeSpotlightResults(currentGlobalResults, commandResults)");
+    expect(commandModal).toContain("filesForCurrentQuery(trimmedSearch, globalResultState.query, globalResultState.results)");
+    expect(commandModal).toContain('setGlobalResultState({ query: trimmedSearch, results: [] })');
     expect(commandModal).toContain("queryCommandRegistry(trimmedSearch, commandRegistry)");
     expect(commandModal).toContain("groupSpotlightResults(visibleResults, t)");
     expect(commandModal).not.toContain("results.slice(0, 12)");
     expect(commandModal).toContain("scrollIntoView({ block: \"nearest\" })");
     expect(commandModal).toContain("max-h-[50vh] overflow-y-auto p-2");
     expect(commandModal).not.toContain("tauriApi.getPagedFiles(12, 0, trimmedSearch");
-    expect(appShell).toContain("resolveEffectiveSearchScope");
-    expect(appShell).toContain("searchScope={effectiveSearchScope}");
+    expect(commandModal).toContain("tauriApi.openGlobalSearchResult(entry.id)");
+    expect(commandModal).toContain("tauriApi.revealGlobalSearchResult(activeResult.entry.id)");
+    expect(commandModal).not.toContain("searchScope");
+    expect(appShell).not.toContain("resolveEffectiveSearchScope");
+    expect(appShell).not.toContain("searchScope={effectiveSearchScope}");
   });
 
   it("opens in-window Spotlight when the native search window falls back", () => {

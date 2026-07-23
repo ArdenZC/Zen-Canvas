@@ -72,15 +72,13 @@ describe("background indexer", () => {
     expect(settingsView).toContain("indexSearchRootNow");
   });
 
-  it("offers indexing from custom-root no-result spotlight states", () => {
+  it("keeps Spotlight independent from the legacy custom-root index queue", () => {
     const commandModal = read("src/components/CommandModal.tsx");
 
-    expect(commandModal).toContain("isCustomRootNoResults");
-    expect(commandModal).toContain("searchScope?.kind === \"roots\"");
-    expect(commandModal).toContain("enqueueBackgroundIndexRoots(searchScope.roots)");
-    expect(commandModal).toContain("setCommandIndexStatus(t(\"commandIndexQueued\"))");
-    expect(commandModal).toContain('t("indexSearchFolders")');
-    expect(commandModal).toContain('t("commandCustomRootsNoResults")');
+    expect(commandModal).toContain("tauriApi.searchGlobalEntries(trimmedSearch, SEARCH_RESULT_LIMIT)");
+    expect(commandModal).not.toContain("isCustomRootNoResults");
+    expect(commandModal).not.toContain("enqueueBackgroundIndexRoots");
+    expect(commandModal).not.toContain("searchScope?.kind === \"roots\"");
   });
 
   it("keeps watcher roots in sync with custom search roots", () => {
