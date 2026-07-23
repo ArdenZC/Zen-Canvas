@@ -1942,36 +1942,39 @@ fn restore_cleanup_trash_items_for_db_with_progress(
             );
             continue;
         }
-        if let Err(identity_error) = safe_trash_source_identity_check(&item, &trash_path) {
-            let identity_was_verified = item.identity_status == "verified";
-            item.status = "manual_review".to_string();
-            item.operation_phase = "manual_review".to_string();
-            item.identity_status = if identity_error.code
-                == crate::recovery::RecoveryErrorCode::ClaimIdentityUnreadable
-            {
-                "unverifiable"
-            } else {
-                "mismatch"
-            }
-            .to_string();
-            item.message = Some(if identity_was_verified {
-                identity_error.message()
-            } else {
-                "manual_review_required: Legacy Safe Trash item has no identity fingerprint; automatic restore is blocked for manual review."
+        let trash_is_dir = match safe_trash_restore_source_identity_check(&item, &trash_path) {
+            Ok(is_dir) => is_dir,
+            Err(identity_error) => {
+                let identity_was_verified = item.identity_status == "verified";
+                item.status = "manual_review".to_string();
+                item.operation_phase = "manual_review".to_string();
+                item.identity_status = if identity_error.code
+                    == crate::recovery::RecoveryErrorCode::ClaimIdentityUnreadable
+                {
+                    "unverifiable"
+                } else {
+                    "mismatch"
+                }
+                .to_string();
+                item.message = Some(if identity_was_verified {
+                    identity_error.message()
+                } else {
+                    "manual_review_required: Legacy Safe Trash item has no identity fingerprint; automatic restore is blocked for manual review."
                     .to_string()
-            });
-            db.finalize_cleanup_restore_outcome(&item)
-                .map_err(|error| error.to_string())?;
-            result.failed += 1;
-            result.logs.push(CleanupRestoreLog {
-                item_id: item.id.clone(),
-                original_path: normalize_path(&original),
-                trash_path: normalize_path(&trash_path),
-                status: "manual_review".to_string(),
-                message: item.message.unwrap_or_default(),
-            });
-            continue;
-        }
+                });
+                db.finalize_cleanup_restore_outcome(&item)
+                    .map_err(|error| error.to_string())?;
+                result.failed += 1;
+                result.logs.push(CleanupRestoreLog {
+                    item_id: item.id.clone(),
+                    original_path: normalize_path(&original),
+                    trash_path: normalize_path(&trash_path),
+                    status: "manual_review".to_string(),
+                    message: item.message.unwrap_or_default(),
+                });
+                continue;
+            }
+        };
         if original.exists() {
             item.status = "manual_review".to_string();
             item.operation_phase = "manual_review".to_string();
@@ -2068,7 +2071,8 @@ fn restore_cleanup_trash_items_for_db_with_progress(
         };
         match restore_result {
             Ok(()) => {
-                let restored_identity = safe_trash_restore_identity_check(&item, &original);
+                let restored_identity =
+                    safe_trash_restore_identity_check(&item, &original, trash_is_dir);
                 if restored_identity.is_ok() {
                     let recovery_phase = if item.operation_phase == "source_cleanup_pending" {
                         "source_cleanup_pending"
@@ -2242,10 +2246,10 @@ pub fn reconcile_pending_cleanup_journal(db: &Database) -> Result<usize, String>
         let trash = Path::new(&item.trash_path);
         let claim = item.source_claim_path.as_deref().map(Path::new);
         let original_state = cleanup_journal_path_state(original, |path| {
-            pending_safe_trash_identity_matches(item, path)
+            pending_safe_trash_source_identity_matches(item, path)
         });
         let trash_state = cleanup_journal_path_state(trash, |path| {
-            pending_safe_trash_identity_matches(item, path)
+            pending_safe_trash_target_identity_matches(item, path)
         });
         let claim_state = claim.map_or(JournalPathState::Missing, |path| {
             cleanup_journal_path_state(path, |candidate| {
@@ -4305,10 +4309,10 @@ fn safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> bool {
             .is_some_and(|(expected, actual)| expected == actual)
 }
 
-fn safe_trash_source_identity_check(
+fn safe_trash_restore_source_identity_check(
     item: &CleanupTrashItem,
     path: &Path,
-) -> Result<(), crate::recovery::RecoveryFailure> {
+) -> Result<bool, crate::recovery::RecoveryFailure> {
     if item.identity_status != "verified" {
         return Err(crate::recovery::RecoveryFailure::new(
             crate::recovery::RecoveryErrorCode::ManualReviewRequired,
@@ -4328,7 +4332,10 @@ fn safe_trash_source_identity_check(
         )
     })?;
     let matches = actual.size == item.size
-        && actual.quick_hash.as_deref() == item.trash_quick_hash.as_deref()
+        && item
+            .trash_quick_hash
+            .as_deref()
+            .is_none_or(|expected| actual.quick_hash.as_deref() == Some(expected))
         && actual.full_hash.as_deref() == Some(expected_hash)
         && item
             .trash_platform_file_id
@@ -4344,12 +4351,19 @@ fn safe_trash_source_identity_check(
             "Safe Trash item identity changed; automatic restore is blocked for manual review",
         ));
     }
-    Ok(())
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::ClaimIdentityUnreadable,
+            format!("Safe Trash item type could not be read: {error}"),
+        )
+    })?;
+    Ok(metadata.is_dir())
 }
 
 fn safe_trash_restore_identity_check(
     item: &CleanupTrashItem,
     path: &Path,
+    expected_is_dir: bool,
 ) -> Result<(), crate::recovery::RecoveryFailure> {
     let Some(expected_hash) = item.trash_full_hash.as_deref() else {
         return Err(crate::recovery::RecoveryFailure::new(
@@ -4363,34 +4377,137 @@ fn safe_trash_restore_identity_check(
             format!("restored target identity could not be read: {error}"),
         )
     })?;
-    if actual.size != item.size
-        || actual.quick_hash.as_deref() != item.trash_quick_hash.as_deref()
-        || actual.full_hash.as_deref() != Some(expected_hash)
-        || item
-            .trash_platform_file_id
-            .as_deref()
-            .is_some_and(|expected| actual.platform_file_id.as_deref() != Some(expected))
-        || item
-            .trash_platform_volume_id
-            .as_deref()
-            .is_some_and(|expected| actual.platform_volume_id.as_deref() != Some(expected))
-    {
+    let actual_is_dir = fs::symlink_metadata(path)
+        .map(|metadata| metadata.is_dir())
+        .map_err(|error| {
+            crate::recovery::RecoveryFailure::new(
+                crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+                format!("restored target type could not be read: {error}"),
+            )
+        })?;
+    safe_trash_restore_target_identity_matches(
+        item,
+        &actual,
+        actual_is_dir,
+        expected_is_dir,
+        expected_hash,
+    )
+}
+
+fn safe_trash_restore_target_identity_matches(
+    item: &CleanupTrashItem,
+    actual: &crate::file_ops::FileIdentityFingerprint,
+    actual_is_dir: bool,
+    expected_is_dir: bool,
+    expected_hash: &str,
+) -> Result<(), crate::recovery::RecoveryFailure> {
+    if actual.size != item.size || actual_is_dir != expected_is_dir {
         return Err(crate::recovery::RecoveryFailure::new(
             crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch,
-            "restored target identity does not match the Safe Trash journal",
+            "restored target content or object type does not match the Safe Trash journal",
         ));
+    }
+    let Some(actual_full_hash) = actual.full_hash.as_deref() else {
+        return Err(crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+            "restored target full hash could not be read",
+        ));
+    };
+    if actual_full_hash != expected_hash {
+        return Err(crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch,
+            "restored target full hash does not match the Safe Trash journal",
+        ));
+    }
+    if let Some(expected_quick_hash) = item.trash_quick_hash.as_deref() {
+        let Some(actual_quick_hash) = actual.quick_hash.as_deref() else {
+            return Err(crate::recovery::RecoveryFailure::new(
+                crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+                "restored target quick hash could not be read",
+            ));
+        };
+        if actual_quick_hash != expected_quick_hash {
+            return Err(crate::recovery::RecoveryFailure::new(
+                crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch,
+                "restored target quick hash does not match the Safe Trash journal",
+            ));
+        }
+    }
+
+    let volume_relation = match (
+        item.trash_platform_volume_id.as_deref(),
+        actual.platform_volume_id.as_deref(),
+    ) {
+        (Some(expected), Some(actual)) if expected == actual => Some(true),
+        (Some(_), Some(_)) => Some(false),
+        _ => None,
+    };
+    if volume_relation == Some(true) {
+        if let Some(expected_file_id) = item.trash_platform_file_id.as_deref() {
+            let Some(actual_file_id) = actual.platform_file_id.as_deref() else {
+                return Err(crate::recovery::RecoveryFailure::new(
+                    crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+                    "restored target file identity is unavailable on a proven same-volume restore",
+                ));
+            };
+            if actual_file_id != expected_file_id {
+                return Err(crate::recovery::RecoveryFailure::new(
+                    crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch,
+                    "restored target file identity does not match the same-volume Safe Trash journal",
+                ));
+            }
+        }
     }
     Ok(())
 }
 
-fn pending_safe_trash_identity_matches(item: &CleanupTrashItem, path: &Path) -> Result<bool, ()> {
+fn pending_safe_trash_source_identity_matches(
+    item: &CleanupTrashItem,
+    path: &Path,
+) -> Result<bool, ()> {
     let expected_hash = item.source_full_hash.as_deref().ok_or(())?;
     let actual = crate::file_ops::file_identity_fingerprint(path).map_err(|_| ())?;
     if actual.size != item.size || actual.full_hash.as_deref() != Some(expected_hash) {
         return Ok(false);
     }
+    if let Some(expected_quick_hash) = item.source_quick_hash.as_deref() {
+        if actual.quick_hash.as_deref() != Some(expected_quick_hash) {
+            return Ok(false);
+        }
+    }
     if let Some(expected_id) = item.source_platform_file_id.as_deref() {
         if actual.platform_file_id.as_deref() != Some(expected_id) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn pending_safe_trash_target_identity_matches(
+    item: &CleanupTrashItem,
+    path: &Path,
+) -> Result<bool, ()> {
+    let expected_hash = item
+        .trash_full_hash
+        .as_deref()
+        .or(item.source_full_hash.as_deref())
+        .ok_or(())?;
+    let actual = crate::file_ops::file_identity_fingerprint(path).map_err(|_| ())?;
+    if actual.size != item.size || actual.full_hash.as_deref() != Some(expected_hash) {
+        return Ok(false);
+    }
+    if let Some(expected_quick_hash) = item.trash_quick_hash.as_deref() {
+        if actual.quick_hash.as_deref() != Some(expected_quick_hash) {
+            return Ok(false);
+        }
+    }
+    if let Some(expected_id) = item.trash_platform_file_id.as_deref() {
+        if actual.platform_file_id.as_deref() != Some(expected_id) {
+            return Ok(false);
+        }
+    }
+    if let Some(expected_volume) = item.trash_platform_volume_id.as_deref() {
+        if actual.platform_volume_id.as_deref() != Some(expected_volume) {
             return Ok(false);
         }
     }
@@ -4409,6 +4526,11 @@ fn pending_safe_trash_claim_identity_matches(
     let actual = crate::file_ops::file_identity_fingerprint(path).map_err(|_| ())?;
     if actual.size != item.size || actual.full_hash.as_deref() != Some(expected_hash) {
         return Ok(false);
+    }
+    if let Some(expected_quick_hash) = item.source_quick_hash.as_deref() {
+        if actual.quick_hash.as_deref() != Some(expected_quick_hash) {
+            return Ok(false);
+        }
     }
     if let Some(expected_id) = item
         .claim_platform_file_id
@@ -4760,6 +4882,204 @@ fn current_timestamp_ms() -> u128 {
 #[allow(clippy::items_after_test_module)]
 mod temp_safety_tests {
     use super::*;
+
+    fn safe_trash_restore_test_item() -> CleanupTrashItem {
+        CleanupTrashItem {
+            id: "safe-trash-test-item".to_string(),
+            batch_id: "safe-trash-test-batch".to_string(),
+            original_path: "C:/restore/original.txt".to_string(),
+            trash_path: "D:/restore/trash/original.txt".to_string(),
+            name: "original.txt".to_string(),
+            size: 7,
+            moved_at: "1900000000000".to_string(),
+            restored_at: None,
+            status: "moved".to_string(),
+            message: None,
+            source_modified_ns: None,
+            source_platform_file_id: Some("source-file".to_string()),
+            source_quick_hash: Some("source-quick".to_string()),
+            source_full_hash: Some("source-full".to_string()),
+            trash_modified_ns: None,
+            trash_platform_volume_id: Some("trash-volume".to_string()),
+            trash_platform_file_id: Some("trash-file".to_string()),
+            trash_quick_hash: Some("trash-quick".to_string()),
+            trash_full_hash: Some("trash-full".to_string()),
+            identity_status: "verified".to_string(),
+            source_claim_path: None,
+            operation_phase: "completed".to_string(),
+            claim_created_at: None,
+            claim_platform_file_id: None,
+            claim_full_hash: None,
+        }
+    }
+
+    #[test]
+    fn safe_trash_restore_identity_allows_cross_volume_content_identity() {
+        let item = safe_trash_restore_test_item();
+        let same_volume = crate::file_ops::FileIdentityFingerprint {
+            size: 7,
+            modified_ns: None,
+            platform_volume_id: Some("trash-volume".to_string()),
+            platform_file_id: Some("trash-file".to_string()),
+            quick_hash: Some("trash-quick".to_string()),
+            full_hash: Some("trash-full".to_string()),
+        };
+        assert!(safe_trash_restore_target_identity_matches(
+            &item,
+            &same_volume,
+            false,
+            false,
+            "trash-full"
+        )
+        .is_ok());
+
+        let cross_volume = crate::file_ops::FileIdentityFingerprint {
+            platform_volume_id: Some("original-volume".to_string()),
+            platform_file_id: Some("new-file-on-original-volume".to_string()),
+            ..same_volume.clone()
+        };
+        assert!(safe_trash_restore_target_identity_matches(
+            &item,
+            &cross_volume,
+            false,
+            false,
+            "trash-full"
+        )
+        .is_ok());
+
+        let unknown_volume = crate::file_ops::FileIdentityFingerprint {
+            platform_volume_id: None,
+            platform_file_id: None,
+            ..same_volume.clone()
+        };
+        assert!(safe_trash_restore_target_identity_matches(
+            &item,
+            &unknown_volume,
+            false,
+            false,
+            "trash-full"
+        )
+        .is_ok());
+
+        let hash_mismatch = crate::file_ops::FileIdentityFingerprint {
+            full_hash: Some("wrong-full".to_string()),
+            ..cross_volume.clone()
+        };
+        let mismatch = safe_trash_restore_target_identity_matches(
+            &item,
+            &hash_mismatch,
+            false,
+            false,
+            "trash-full",
+        )
+        .expect_err("cross-volume hash mismatch must fail closed");
+        assert_eq!(
+            mismatch.code,
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch
+        );
+
+        let unreadable = crate::file_ops::FileIdentityFingerprint {
+            full_hash: None,
+            ..cross_volume.clone()
+        };
+        let unreadable = safe_trash_restore_target_identity_matches(
+            &item,
+            &unreadable,
+            false,
+            false,
+            "trash-full",
+        )
+        .expect_err("unreadable cross-volume identity must fail closed");
+        assert_eq!(
+            unreadable.code,
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable
+        );
+
+        let same_volume_mismatch = crate::file_ops::FileIdentityFingerprint {
+            platform_file_id: Some("different-file-on-same-volume".to_string()),
+            ..same_volume.clone()
+        };
+        let mismatch = safe_trash_restore_target_identity_matches(
+            &item,
+            &same_volume_mismatch,
+            false,
+            false,
+            "trash-full",
+        )
+        .expect_err("same-volume file-id mismatch must fail closed");
+        assert_eq!(
+            mismatch.code,
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch
+        );
+
+        let object_type_mismatch = safe_trash_restore_target_identity_matches(
+            &item,
+            &cross_volume,
+            false,
+            true,
+            "trash-full",
+        )
+        .expect_err("restored object type mismatch must fail closed");
+        assert_eq!(
+            object_type_mismatch.code,
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch
+        );
+    }
+
+    #[test]
+    fn pending_safe_trash_matchers_keep_source_target_and_claim_identities_separate() {
+        let path = std::env::temp_dir().join(format!(
+            "zen-canvas-pending-safe-trash-matcher-{}-{}",
+            std::process::id(),
+            current_timestamp_ms()
+        ));
+        fs::write(&path, "pending-safe-trash-content").expect("write matcher fixture");
+        let fingerprint = crate::file_ops::file_identity_fingerprint(&path)
+            .expect("capture matcher fixture identity");
+        let mut item = safe_trash_restore_test_item();
+        item.size = fingerprint.size;
+        item.source_platform_file_id = fingerprint.platform_file_id.clone();
+        item.source_quick_hash = fingerprint.quick_hash.clone();
+        item.source_full_hash = fingerprint.full_hash.clone();
+        item.trash_platform_file_id = fingerprint.platform_file_id.clone();
+        item.trash_platform_volume_id = fingerprint.platform_volume_id.clone();
+        item.trash_quick_hash = fingerprint.quick_hash.clone();
+        item.trash_full_hash = fingerprint.full_hash.clone();
+        item.claim_platform_file_id = fingerprint.platform_file_id.clone();
+        item.claim_full_hash = fingerprint.full_hash.clone();
+
+        assert!(pending_safe_trash_source_identity_matches(&item, &path)
+            .expect("source identity is readable"));
+        assert!(pending_safe_trash_target_identity_matches(&item, &path)
+            .expect("target identity is readable"));
+        assert!(pending_safe_trash_claim_identity_matches(&item, &path)
+            .expect("claim identity is readable"));
+
+        item.source_platform_file_id = Some("source-only-mismatch".to_string());
+        assert!(!pending_safe_trash_source_identity_matches(&item, &path)
+            .expect("source mismatch remains readable"));
+        assert!(pending_safe_trash_target_identity_matches(&item, &path)
+            .expect("target uses trash identity only"));
+
+        item.claim_platform_file_id = Some("claim-mismatch".to_string());
+        assert!(!pending_safe_trash_claim_identity_matches(&item, &path)
+            .expect("claim mismatch remains readable"));
+        item.claim_platform_file_id = None;
+        assert!(!pending_safe_trash_claim_identity_matches(&item, &path)
+            .expect("source fallback must retain the source mismatch"));
+        item.source_platform_file_id = fingerprint.platform_file_id.clone();
+        assert!(pending_safe_trash_claim_identity_matches(&item, &path)
+            .expect("claim source fallback is readable"));
+
+        item.trash_full_hash = None;
+        item.trash_quick_hash = None;
+        item.trash_platform_file_id = None;
+        item.trash_platform_volume_id = None;
+        assert!(pending_safe_trash_target_identity_matches(&item, &path)
+            .expect("target falls back to content identity when trash identity is absent"));
+
+        fs::remove_file(&path).expect("remove matcher fixture");
+    }
 
     #[test]
     fn cleanup_restore_reconciliation_covers_three_paths_and_preserves_claim_boundaries() {

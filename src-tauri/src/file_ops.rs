@@ -771,61 +771,76 @@ fn expected_identity_from_log(
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RestoreVolumeRelation {
+    SameVolume,
+    CrossVolume,
+    Unknown,
+}
+
+fn restore_volume_relation(log: &OperationLogDto) -> RestoreVolumeRelation {
+    match (
+        log.source_platform_volume_id.as_deref(),
+        log.target_platform_volume_id.as_deref(),
+    ) {
+        (Some(source), Some(target)) if source == target => RestoreVolumeRelation::SameVolume,
+        (Some(_), Some(_)) => RestoreVolumeRelation::CrossVolume,
+        _ => RestoreVolumeRelation::Unknown,
+    }
+}
+
+/// Identity of the path currently holding the file being restored (path_after).
+/// A file ID is meaningful only when both operation volumes are known to be
+/// the same. Missing volume metadata is deliberately not treated as proof of
+/// same-volume semantics.
 fn expected_restore_identity_from_log(
     log: &OperationLogDto,
 ) -> Option<crate::fs_safety::ExpectedFileIdentity> {
-    let platform_file_id = log
-        .target_platform_file_id
-        .clone()
-        .or_else(|| log.source_platform_file_id.clone());
-    let platform_volume_id = log
-        .target_platform_volume_id
-        .clone()
-        .or_else(|| log.source_platform_volume_id.clone());
-    Some(crate::fs_safety::ExpectedFileIdentity {
-        size: log.source_size?,
-        modified_ns: if platform_file_id.is_none() {
-            log.source_modified_ns
-                .as_deref()
-                .and_then(|value| value.parse::<i128>().ok())
-        } else {
-            None
-        },
-        platform_volume_id,
-        platform_file_id,
-        sample_hash: log.source_quick_hash.clone(),
-        full_hash: log.source_full_hash.clone(),
-    })
-}
-
-fn expected_restore_final_target_identity_from_log(
-    log: &OperationLogDto,
-) -> Option<crate::fs_safety::ExpectedFileIdentity> {
-    let source_volume = log.source_platform_volume_id.clone();
-    let same_volume = match (
-        source_volume.as_deref(),
-        log.target_platform_volume_id.as_deref(),
-    ) {
-        (Some(source), Some(target)) => source == target,
-        _ => true,
+    let platform_file_id = if restore_volume_relation(log) == RestoreVolumeRelation::SameVolume {
+        log.target_platform_file_id
+            .clone()
+            .or_else(|| log.source_platform_file_id.clone())
+    } else {
+        None
     };
     Some(crate::fs_safety::ExpectedFileIdentity {
         size: log.source_size?,
         modified_ns: None,
-        platform_volume_id: source_volume,
-        platform_file_id: if same_volume {
-            log.target_platform_file_id
-                .clone()
-                .or_else(|| log.source_platform_file_id.clone())
-        } else {
-            None
-        },
+        platform_volume_id: log.target_platform_volume_id.clone(),
+        platform_file_id,
+        sample_hash: log.source_quick_hash.clone(),
+        full_hash: log
+            .target_full_hash
+            .clone()
+            .or_else(|| log.source_full_hash.clone()),
+    })
+}
+
+/// Identity of the original path after a restore. A copy-commit across
+/// volumes may legitimately receive a new file ID, so only a proven
+/// SameVolume relation permits the old source ID to be checked.
+fn expected_restore_original_identity_from_log(
+    log: &OperationLogDto,
+) -> Option<crate::fs_safety::ExpectedFileIdentity> {
+    Some(crate::fs_safety::ExpectedFileIdentity {
+        size: log.source_size?,
+        modified_ns: None,
+        platform_volume_id: log.source_platform_volume_id.clone(),
+        platform_file_id: (restore_volume_relation(log) == RestoreVolumeRelation::SameVolume)
+            .then(|| log.source_platform_file_id.clone())
+            .flatten(),
         sample_hash: log.source_quick_hash.clone(),
         full_hash: log
             .source_full_hash
             .clone()
             .or_else(|| log.target_full_hash.clone()),
     })
+}
+
+fn expected_restore_final_target_identity_from_log(
+    log: &OperationLogDto,
+) -> Option<crate::fs_safety::ExpectedFileIdentity> {
+    expected_restore_original_identity_from_log(log)
 }
 
 fn journal_identity_matches(log: &OperationLogDto, path: &Path) -> Result<bool, ()> {
@@ -912,11 +927,55 @@ fn operation_restore_identity_result(
     Ok(())
 }
 
+fn operation_restore_original_identity_result(
+    log: &OperationLogDto,
+    path: &Path,
+) -> Result<(), crate::recovery::RecoveryFailure> {
+    let Some(expected) = expected_restore_original_identity_from_log(log) else {
+        return Err(crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+            "restore original-path identity is incomplete",
+        ));
+    };
+    if expected.full_hash.is_none() {
+        return Err(crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+            "restore original-path full hash is missing",
+        ));
+    }
+    let actual = crate::fs_safety::capture_identity(path, None).map_err(|error| {
+        crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+            format!("restore original-path identity could not be read: {error}"),
+        )
+    })?;
+    if !crate::fs_safety::identity_matches(&expected, &actual) {
+        return Err(crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch,
+            "restore original-path identity does not match the operation journal",
+        ));
+    }
+    Ok(())
+}
+
 fn operation_restore_identity_matches(log: &OperationLogDto, path: &Path) -> Result<bool, ()> {
     match operation_restore_identity_result(log, path) {
         Ok(()) => Ok(true),
         Err(failure) => match failure.code {
             crate::recovery::RecoveryErrorCode::RestoreSourceIdentityMismatch => Ok(false),
+            _ => Err(()),
+        },
+    }
+}
+
+fn operation_restore_original_identity_matches(
+    log: &OperationLogDto,
+    path: &Path,
+) -> Result<bool, ()> {
+    match operation_restore_original_identity_result(log, path) {
+        Ok(()) => Ok(true),
+        Err(failure) => match failure.code {
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch => Ok(false),
             _ => Err(()),
         },
     }
@@ -939,13 +998,16 @@ fn restore_claim_identity_matches(log: &OperationLogDto, path: &Path) -> Result<
         platform_volume_id: log
             .restore_claim_platform_volume_id
             .clone()
-            .or_else(|| log.target_platform_volume_id.clone())
-            .or_else(|| log.source_platform_volume_id.clone()),
-        platform_file_id: log
-            .restore_claim_platform_file_id
-            .clone()
-            .or_else(|| log.target_platform_file_id.clone())
-            .or_else(|| log.source_platform_file_id.clone()),
+            .or_else(|| log.target_platform_volume_id.clone()),
+        platform_file_id: log.restore_claim_platform_file_id.clone().or_else(|| {
+            (restore_volume_relation(log) == RestoreVolumeRelation::SameVolume)
+                .then(|| {
+                    log.target_platform_file_id
+                        .clone()
+                        .or_else(|| log.source_platform_file_id.clone())
+                })
+                .flatten()
+        }),
         sample_hash: log.source_quick_hash.clone(),
         full_hash: Some(full_hash),
     };
@@ -1200,7 +1262,7 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
             let claim = log.restore_claim_path.as_deref().map(Path::new);
             let source_path_reappeared = fs::symlink_metadata(after).is_ok();
             let before_state = operation_journal_path_state(before, |path| {
-                operation_restore_identity_matches(&log, path)
+                operation_restore_original_identity_matches(&log, path)
             });
             let after_state = operation_journal_path_state(after, |path| {
                 operation_restore_identity_matches(&log, path)
@@ -1248,7 +1310,12 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
                 continue;
             }
 
-            if before_state == OperationJournalPathState::Matches && source_path_reappeared {
+            let target_commit_observed = before_state == OperationJournalPathState::Matches
+                || matches!(
+                    log.restore_phase.as_str(),
+                    "target_committed" | "source_cleanup_pending" | "completed"
+                );
+            if source_path_reappeared && target_commit_observed {
                 set_restore_manual_review(
                     &mut log,
                     "source_cleanup_pending",
@@ -2743,6 +2810,132 @@ mod tests {
         .expect_err("reject forged selection");
 
         assert!(error.contains("authoritative preview"));
+    }
+
+    #[test]
+    fn restore_volume_relation_is_three_state_and_preserves_hash_fallbacks() {
+        let operation = OperationPreviewRequest {
+            id: "restore-volume-relation".to_string(),
+            file_id: "restore-volume-file".to_string(),
+            operation_type: "rename".to_string(),
+            source_path: "C:/restore/before.txt".to_string(),
+            target_path: "D:/restore/after.txt".to_string(),
+            old_name: "before.txt".to_string(),
+            new_name: "after.txt".to_string(),
+            is_executable: Some(false),
+        };
+        let mut log = make_operation_log(
+            "restore-volume-batch",
+            "1900000000000",
+            0,
+            &operation,
+            "success",
+            None,
+            operation.target_path.clone(),
+        );
+        log.source_size = Some(7);
+        log.source_quick_hash = Some("quick".to_string());
+        log.source_full_hash = Some("source-full".to_string());
+        log.target_full_hash = Some("target-full".to_string());
+        log.source_platform_file_id = Some("source-file-id".to_string());
+        log.target_platform_file_id = Some("target-file-id".to_string());
+
+        log.source_platform_volume_id = Some("volume-a".to_string());
+        log.target_platform_volume_id = Some("volume-a".to_string());
+        assert_eq!(
+            restore_volume_relation(&log),
+            RestoreVolumeRelation::SameVolume
+        );
+        let same = expected_restore_identity_from_log(&log).expect("same-volume identity");
+        assert_eq!(same.platform_volume_id.as_deref(), Some("volume-a"));
+        assert_eq!(same.platform_file_id.as_deref(), Some("target-file-id"));
+
+        log.target_platform_volume_id = Some("volume-b".to_string());
+        assert_eq!(
+            restore_volume_relation(&log),
+            RestoreVolumeRelation::CrossVolume
+        );
+        let cross = expected_restore_identity_from_log(&log).expect("cross-volume identity");
+        assert_eq!(cross.platform_volume_id.as_deref(), Some("volume-b"));
+        assert!(cross.platform_file_id.is_none());
+
+        log.source_platform_volume_id = None;
+        log.target_platform_volume_id = None;
+        assert_eq!(
+            restore_volume_relation(&log),
+            RestoreVolumeRelation::Unknown
+        );
+        let unknown = expected_restore_identity_from_log(&log).expect("unknown-volume identity");
+        assert!(unknown.platform_volume_id.is_none());
+        assert!(unknown.platform_file_id.is_none());
+        assert_eq!(unknown.full_hash.as_deref(), Some("target-full"));
+
+        log.source_platform_volume_id = Some("volume-a".to_string());
+        assert_eq!(
+            restore_volume_relation(&log),
+            RestoreVolumeRelation::Unknown
+        );
+        assert!(expected_restore_identity_from_log(&log)
+            .expect("one-volume identity")
+            .platform_file_id
+            .is_none());
+
+        log.source_platform_volume_id = None;
+        log.target_platform_volume_id = Some("volume-b".to_string());
+        assert_eq!(
+            restore_volume_relation(&log),
+            RestoreVolumeRelation::Unknown
+        );
+        assert!(expected_restore_identity_from_log(&log)
+            .expect("target-only-volume identity")
+            .platform_file_id
+            .is_none());
+    }
+
+    #[test]
+    fn restore_unknown_volume_uses_content_identity_and_rejects_hash_mismatch() {
+        let db = Database::open(test_db_path()).expect("open database");
+        let root = test_dir();
+        let after = root.join("restore-unknown-volume-after.txt");
+        fs::write(&after, "unknown-volume-content").expect("write restore source");
+        let identity = file_identity_fingerprint(&after).expect("capture restore source");
+        let operation = OperationPreviewRequest {
+            id: "restore-unknown-volume".to_string(),
+            file_id: "restore-unknown-file".to_string(),
+            operation_type: "rename".to_string(),
+            source_path: root.join("before.txt").to_string_lossy().into_owned(),
+            target_path: normalize_path(&after),
+            old_name: "before.txt".to_string(),
+            new_name: "restore-unknown-volume-after.txt".to_string(),
+            is_executable: Some(false),
+        };
+        let mut log = make_operation_log(
+            "restore-unknown-batch",
+            "1900000000000",
+            0,
+            &operation,
+            "success",
+            None,
+            operation.target_path.clone(),
+        );
+        log.source_size = Some(identity.size);
+        log.source_quick_hash = identity.quick_hash;
+        log.source_full_hash = identity.full_hash.clone();
+        log.target_full_hash = identity.full_hash;
+        log.source_platform_volume_id = None;
+        log.target_platform_volume_id = None;
+        log.source_platform_file_id = Some("old-source-id".to_string());
+        log.target_platform_file_id = Some("old-target-id".to_string());
+
+        assert!(operation_restore_identity_result(&log, &after).is_ok());
+        log.target_full_hash = Some("wrong-hash".to_string());
+        let error = operation_restore_identity_result(&log, &after)
+            .expect_err("unknown-volume hash mismatch must fail closed");
+        assert_eq!(
+            error.code,
+            crate::recovery::RecoveryErrorCode::RestoreSourceIdentityMismatch
+        );
+        drop(db);
     }
 
     #[test]
