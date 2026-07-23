@@ -151,6 +151,15 @@ fn main() {
             zen_canvas_tauri::storage_analyzer::restore_cleanup_trash_items,
             zen_canvas_tauri::storage_analyzer::cancel_cleanup_restore
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run Zen Canvas");
+        .build(tauri::generate_context!())
+        .expect("failed to build Zen Canvas")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+                if let Some(coordinator) = app.try_state::<GlobalIndexCoordinator>() {
+                    if let Err(error) = coordinator.shutdown() {
+                        eprintln!("Global index shutdown failed (non-fatal): {error}");
+                    }
+                }
+            }
+        });
 }
