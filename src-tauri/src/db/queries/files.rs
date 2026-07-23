@@ -1,7 +1,7 @@
 use super::super::*;
 use super::*;
 use crate::file_ops::OperationLogDto;
-use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection};
+use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection, Transaction};
 use std::{
     collections::HashMap,
     env, fs,
@@ -266,8 +266,17 @@ impl Database {
             ));
         }
 
+        crate::file_ops::validate_operation_restore_final_identity(log)
+            .map_err(DbError::Validation)?;
+
         let target = PathBuf::from(&log.path_before);
-        let metadata = fs::metadata(&target)?;
+        crate::fs_safety::identity::ensure_supported_entry(&target).map_err(|error| {
+            DbError::Validation(crate::recovery::format_recovery_message(
+                crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+                &format!("restore target became unsupported during finalization: {error}"),
+            ))
+        })?;
+        let metadata = fs::symlink_metadata(&target)?;
         let normalized_target = normalize_path_for_db(&target);
         let name = resolved_file_name(&log.path_before, &log.name_before);
         let extension = extension_from_file_name(&name);
@@ -288,16 +297,10 @@ impl Database {
             .unwrap_or(mtime);
         let is_dir = metadata.is_dir();
         let target_candidates = path_lookup_candidates(&log.path_before, &normalized_target);
-        let lookup_candidates = path_lookup_candidates_for_values(&[
-            log.path_after.as_str(),
-            log.target_path.as_str(),
-            log.source_path.as_str(),
-            log.path_before.as_str(),
-        ]);
-
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
-        let target_row_id = find_file_row_id(&tx, &target_candidates)?;
+        let (target_row_id, source_row_id) =
+            Self::resolve_restore_index_rows(&tx, log, &target_candidates)?;
         if let Some(target_row_id) = target_row_id.as_deref() {
             let (indexed_size, indexed_mtime, indexed_is_dir): (i64, i64, i64) = tx.query_row(
                 "SELECT size, mtime, is_dir FROM files WHERE id = ?1",
@@ -315,11 +318,21 @@ impl Database {
             }
         }
 
-        let current_id = if let Some(target_row_id) = target_row_id {
-            Some(target_row_id)
-        } else {
-            find_file_row_id(&tx, &lookup_candidates)?
-        };
+        let current_id = target_row_id.clone().or_else(|| source_row_id.clone());
+        if let (Some(target_row_id), Some(source_row_id)) =
+            (target_row_id.as_deref(), source_row_id.as_deref())
+        {
+            if target_row_id != source_row_id {
+                let deleted =
+                    tx.execute("DELETE FROM files WHERE id = ?1", params![source_row_id])?;
+                if deleted != 1 {
+                    return Err(DbError::Validation(format!(
+                        "restore source index row disappeared during merge: {}",
+                        source_row_id
+                    )));
+                }
+            }
+        }
         let file_type = infer_file_type(&extension, is_dir);
         if let Some(current_id) = current_id {
             let updated = tx.execute(
@@ -334,8 +347,6 @@ impl Database {
                     ctime = ?6,
                     is_dir = ?7,
                     file_type = ?8,
-                    suggested_action = 'Keep',
-                    requires_confirmation = 0,
                     is_stale = 0,
                     last_seen_at = ?9
                 WHERE id = ?10
@@ -405,6 +416,7 @@ impl Database {
                 restore_claim_path = NULL,
                 restore_claim_created_at = NULL,
                 restore_claim_platform_file_id = NULL,
+                restore_claim_platform_volume_id = NULL,
                 restore_claim_full_hash = NULL
             WHERE id = ?1
             "#,
@@ -424,6 +436,79 @@ impl Database {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    fn resolve_restore_index_rows(
+        tx: &Transaction<'_>,
+        log: &OperationLogDto,
+        target_candidates: &[String],
+    ) -> Result<(Option<String>, Option<String>), DbError> {
+        let target_row_id =
+            Self::resolve_unique_restore_index_row(tx, "target", target_candidates)?;
+        let path_after_row_id = Self::resolve_unique_restore_index_row(
+            tx,
+            "restore source path_after",
+            &path_lookup_candidates_for_values(&[log.path_after.as_str()]),
+        )?;
+        let target_path_row_id = Self::resolve_unique_restore_index_row(
+            tx,
+            "restore source target_path",
+            &path_lookup_candidates_for_values(&[log.target_path.as_str()]),
+        )?;
+        let source_path_row_id = Self::resolve_unique_restore_index_row(
+            tx,
+            "restore source source_path",
+            &path_lookup_candidates_for_values(&[log.source_path.as_str()]),
+        )?;
+
+        let source_row_id = match (path_after_row_id, target_path_row_id) {
+            (Some(path_after), Some(target_path)) if path_after != target_path => {
+                return Err(DbError::Validation(
+                    "restore source index rows are ambiguous across path_after and target_path"
+                        .to_string(),
+                ));
+            }
+            (Some(path_after), _) => Some(path_after),
+            (_, Some(target_path)) => Some(target_path),
+            (None, None) => source_path_row_id.clone(),
+        };
+
+        if let Some(source_path_row_id) = source_path_row_id {
+            if Some(source_path_row_id.clone()) != target_row_id
+                && Some(source_path_row_id) != source_row_id
+            {
+                return Err(DbError::Validation(
+                    "restore source index rows are ambiguous across old source paths".to_string(),
+                ));
+            }
+        }
+
+        Ok((target_row_id, source_row_id))
+    }
+
+    fn resolve_unique_restore_index_row(
+        tx: &Transaction<'_>,
+        role: &str,
+        candidates: &[String],
+    ) -> Result<Option<String>, DbError> {
+        let mut ids = Vec::new();
+        for candidate in candidates {
+            let mut stmt = tx.prepare("SELECT id FROM files WHERE id = ?1 OR path = ?1")?;
+            let rows = stmt.query_map(params![candidate], |row| row.get::<_, String>(0))?;
+            for row in rows {
+                let id = row?;
+                if !ids.iter().any(|existing| existing == &id) {
+                    ids.push(id);
+                }
+            }
+        }
+        match ids.as_slice() {
+            [] => Ok(None),
+            [id] => Ok(Some(id.clone())),
+            _ => Err(DbError::Validation(format!(
+                "restore {role} index rows are ambiguous"
+            ))),
+        }
     }
 
     fn update_file_record_after_path_change(

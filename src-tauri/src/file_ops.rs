@@ -221,11 +221,15 @@ pub struct OperationLogDto {
     #[serde(default)]
     pub source_platform_file_id: Option<String>,
     #[serde(default)]
+    pub source_platform_volume_id: Option<String>,
+    #[serde(default)]
     pub source_quick_hash: Option<String>,
     #[serde(default)]
     pub source_full_hash: Option<String>,
     #[serde(default)]
     pub target_platform_file_id: Option<String>,
+    #[serde(default)]
+    pub target_platform_volume_id: Option<String>,
     #[serde(default)]
     pub target_full_hash: Option<String>,
     #[serde(default)]
@@ -237,6 +241,8 @@ pub struct OperationLogDto {
     #[serde(default)]
     pub claim_platform_file_id: Option<String>,
     #[serde(default)]
+    pub claim_platform_volume_id: Option<String>,
+    #[serde(default)]
     pub claim_full_hash: Option<String>,
     #[serde(default)]
     pub restore_claim_path: Option<String>,
@@ -246,6 +252,8 @@ pub struct OperationLogDto {
     pub restore_claim_created_at: Option<String>,
     #[serde(default)]
     pub restore_claim_platform_file_id: Option<String>,
+    #[serde(default)]
+    pub restore_claim_platform_volume_id: Option<String>,
     #[serde(default)]
     pub restore_claim_full_hash: Option<String>,
 }
@@ -531,6 +539,7 @@ fn execute_moves_with_persistence_with_progress_and_app_data(
         }
         if let Ok(target_fingerprint) = file_identity_fingerprint(Path::new(&log.path_after)) {
             log.target_platform_file_id = target_fingerprint.platform_file_id;
+            log.target_platform_volume_id = target_fingerprint.platform_volume_id;
             log.target_full_hash = target_fingerprint.full_hash;
         }
         if operation.operation_type == "move_to_trash" {
@@ -728,6 +737,7 @@ fn apply_source_fingerprint(log: &mut OperationLogDto, fingerprint: &FileIdentit
     log.source_size = Some(fingerprint.size);
     log.source_modified_ns = fingerprint.modified_ns.map(|value| value.to_string());
     log.source_platform_file_id = fingerprint.platform_file_id.clone();
+    log.source_platform_volume_id = fingerprint.platform_volume_id.clone();
     log.source_quick_hash = fingerprint.quick_hash.clone();
     log.source_full_hash = fingerprint.full_hash.clone();
 }
@@ -754,7 +764,7 @@ fn expected_identity_from_log(
             .source_modified_ns
             .as_deref()
             .and_then(|value| value.parse::<i128>().ok()),
-        platform_volume_id: None,
+        platform_volume_id: log.source_platform_volume_id.clone(),
         platform_file_id: log.source_platform_file_id.clone(),
         sample_hash: log.source_quick_hash.clone(),
         full_hash: log.source_full_hash.clone(),
@@ -764,34 +774,75 @@ fn expected_identity_from_log(
 fn expected_restore_identity_from_log(
     log: &OperationLogDto,
 ) -> Option<crate::fs_safety::ExpectedFileIdentity> {
+    let platform_file_id = log
+        .target_platform_file_id
+        .clone()
+        .or_else(|| log.source_platform_file_id.clone());
+    let platform_volume_id = log
+        .target_platform_volume_id
+        .clone()
+        .or_else(|| log.source_platform_volume_id.clone());
     Some(crate::fs_safety::ExpectedFileIdentity {
         size: log.source_size?,
-        modified_ns: None,
-        platform_volume_id: None,
-        platform_file_id: log
-            .target_platform_file_id
-            .clone()
-            .or_else(|| log.source_platform_file_id.clone()),
+        modified_ns: if platform_file_id.is_none() {
+            log.source_modified_ns
+                .as_deref()
+                .and_then(|value| value.parse::<i128>().ok())
+        } else {
+            None
+        },
+        platform_volume_id,
+        platform_file_id,
         sample_hash: log.source_quick_hash.clone(),
         full_hash: log.source_full_hash.clone(),
     })
 }
 
-fn journal_identity_matches(log: &OperationLogDto, path: &Path) -> bool {
+fn expected_restore_final_target_identity_from_log(
+    log: &OperationLogDto,
+) -> Option<crate::fs_safety::ExpectedFileIdentity> {
+    let source_volume = log.source_platform_volume_id.clone();
+    let same_volume = match (
+        source_volume.as_deref(),
+        log.target_platform_volume_id.as_deref(),
+    ) {
+        (Some(source), Some(target)) => source == target,
+        _ => true,
+    };
+    Some(crate::fs_safety::ExpectedFileIdentity {
+        size: log.source_size?,
+        modified_ns: None,
+        platform_volume_id: source_volume,
+        platform_file_id: if same_volume {
+            log.target_platform_file_id
+                .clone()
+                .or_else(|| log.source_platform_file_id.clone())
+        } else {
+            None
+        },
+        sample_hash: log.source_quick_hash.clone(),
+        full_hash: log
+            .source_full_hash
+            .clone()
+            .or_else(|| log.target_full_hash.clone()),
+    })
+}
+
+fn journal_identity_matches(log: &OperationLogDto, path: &Path) -> Result<bool, ()> {
     let Some(expected) = expected_identity_from_log(log) else {
-        return false;
+        return Err(());
     };
     if expected.full_hash.is_none() {
-        return false;
+        return Err(());
     }
     crate::fs_safety::capture_identity(path, None)
         .map(|actual| crate::fs_safety::recovery_identity_matches(&expected, &actual))
-        .unwrap_or(false)
+        .map_err(|_| ())
 }
 
-fn journal_target_identity_matches(log: &OperationLogDto, path: &Path) -> bool {
+fn journal_target_identity_matches(log: &OperationLogDto, path: &Path) -> Result<bool, ()> {
     let Some(size) = log.source_size else {
-        return false;
+        return Err(());
     };
     let expected = crate::fs_safety::ExpectedFileIdentity {
         size,
@@ -802,7 +853,7 @@ fn journal_target_identity_matches(log: &OperationLogDto, path: &Path) -> bool {
         } else {
             None
         },
-        platform_volume_id: None,
+        platform_volume_id: log.target_platform_volume_id.clone(),
         platform_file_id: log.target_platform_file_id.clone(),
         sample_hash: log.source_quick_hash.clone(),
         full_hash: log
@@ -811,41 +862,85 @@ fn journal_target_identity_matches(log: &OperationLogDto, path: &Path) -> bool {
             .or_else(|| log.source_full_hash.clone()),
     };
     if expected.full_hash.is_none() {
-        return false;
+        return Err(());
     }
     crate::fs_safety::capture_identity(path, None)
         .map(|actual| crate::fs_safety::recovery_identity_matches(&expected, &actual))
-        .unwrap_or(false)
+        .map_err(|_| ())
 }
 
-fn operation_restore_identity_matches(log: &OperationLogDto, path: &Path) -> bool {
+fn operation_restore_identity_result(
+    log: &OperationLogDto,
+    path: &Path,
+) -> Result<(), crate::recovery::RecoveryFailure> {
     let Some(expected) = expected_restore_identity_from_log(log) else {
-        return false;
+        return Err(crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable,
+            "restore identity is incomplete",
+        ));
     };
     if expected.full_hash.is_none() {
-        return false;
+        return Err(crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable,
+            "restore full hash is missing",
+        ));
     }
-    let Ok(actual) = crate::fs_safety::capture_identity(path, None) else {
-        return false;
-    };
-    crate::fs_safety::identity_matches(&expected, &actual)
+    let actual = crate::fs_safety::capture_identity(path, None).map_err(|error| {
+        let code = match error {
+            crate::fs_safety::IdentityError::SourceMissing
+            | crate::fs_safety::IdentityError::Io(_) => {
+                crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable
+            }
+            crate::fs_safety::IdentityError::Symlink
+            | crate::fs_safety::IdentityError::UnsupportedFileType
+            | crate::fs_safety::IdentityError::DirectoryManifestNameEncodingFailed
+            | crate::fs_safety::IdentityError::Cancelled => {
+                crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable
+            }
+        };
+        crate::recovery::RecoveryFailure::new(
+            code,
+            format!("restore source identity could not be read: {error}"),
+        )
+    })?;
+    if !crate::fs_safety::identity_matches(&expected, &actual) {
+        return Err(crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::RestoreSourceIdentityMismatch,
+            "restore source identity does not match the operation journal",
+        ));
+    }
+    Ok(())
 }
 
-fn restore_claim_identity_matches(log: &OperationLogDto, path: &Path) -> bool {
+fn operation_restore_identity_matches(log: &OperationLogDto, path: &Path) -> Result<bool, ()> {
+    match operation_restore_identity_result(log, path) {
+        Ok(()) => Ok(true),
+        Err(failure) => match failure.code {
+            crate::recovery::RecoveryErrorCode::RestoreSourceIdentityMismatch => Ok(false),
+            _ => Err(()),
+        },
+    }
+}
+
+fn restore_claim_identity_matches(log: &OperationLogDto, path: &Path) -> Result<bool, ()> {
     let Some(size) = log.source_size else {
-        return false;
+        return Err(());
     };
     let Some(full_hash) = log
         .restore_claim_full_hash
         .clone()
         .or_else(|| log.source_full_hash.clone())
     else {
-        return false;
+        return Err(());
     };
     let expected = crate::fs_safety::ExpectedFileIdentity {
         size,
         modified_ns: None,
-        platform_volume_id: None,
+        platform_volume_id: log
+            .restore_claim_platform_volume_id
+            .clone()
+            .or_else(|| log.target_platform_volume_id.clone())
+            .or_else(|| log.source_platform_volume_id.clone()),
         platform_file_id: log
             .restore_claim_platform_file_id
             .clone()
@@ -856,7 +951,61 @@ fn restore_claim_identity_matches(log: &OperationLogDto, path: &Path) -> bool {
     };
     crate::fs_safety::capture_identity(path, None)
         .map(|actual| crate::fs_safety::recovery_identity_matches(&expected, &actual))
-        .unwrap_or(false)
+        .map_err(|_| ())
+}
+
+fn operation_restore_final_identity_check(
+    log: &OperationLogDto,
+) -> Result<(), crate::recovery::RecoveryFailure> {
+    let source = Path::new(&log.path_after);
+    match fs::symlink_metadata(source) {
+        Ok(_) => {
+            return Err(crate::recovery::RecoveryFailure::new(
+                crate::recovery::RecoveryErrorCode::RestoreSourcePathReappeared,
+                "restore source path reappeared after the filesystem commit; preserve the restore claim and review both paths",
+            ))
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(crate::recovery::RecoveryFailure::new(
+                crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable,
+                format!("restore source absence could not be verified: {error}"),
+            ))
+        }
+    }
+
+    let target = Path::new(&log.path_before);
+    let expected = expected_restore_final_target_identity_from_log(log).ok_or_else(|| {
+        crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+            "restore target identity is incomplete",
+        )
+    })?;
+    if expected.full_hash.is_none() {
+        return Err(crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+            "restore target full hash is missing",
+        ));
+    }
+    let actual = crate::fs_safety::capture_identity(target, None).map_err(|error| {
+        crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable,
+            format!("restore target identity could not be read: {error}"),
+        )
+    })?;
+    if !crate::fs_safety::identity_matches(&expected, &actual) {
+        return Err(crate::recovery::RecoveryFailure::new(
+            crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch,
+            "restore target identity does not match the operation journal",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_operation_restore_final_identity(
+    log: &OperationLogDto,
+) -> Result<(), String> {
+    operation_restore_final_identity_check(log).map_err(|failure| failure.message())
 }
 
 fn persist_pending_operation_journal(
@@ -890,6 +1039,7 @@ fn persist_pending_operation_journal(
             log.source_claim_path = Some(normalize_path(&claim_path));
             log.claim_created_at = Some(created_at.to_string());
             log.claim_platform_file_id = fingerprint.platform_file_id.clone();
+            log.claim_platform_volume_id = fingerprint.platform_volume_id.clone();
             log.claim_full_hash = fingerprint.full_hash.clone();
             log.operation_phase = "prepared".to_string();
             let journal_log = log.clone();
@@ -1048,6 +1198,7 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
             let before = Path::new(&log.path_before);
             let after = Path::new(&log.path_after);
             let claim = log.restore_claim_path.as_deref().map(Path::new);
+            let source_path_reappeared = fs::symlink_metadata(after).is_ok();
             let before_state = operation_journal_path_state(before, |path| {
                 operation_restore_identity_matches(&log, path)
             });
@@ -1060,17 +1211,6 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
                 })
             });
 
-            let claim_mismatch = matches!(
-                claim_state,
-                OperationJournalPathState::Mismatch | OperationJournalPathState::Unreadable
-            );
-            let target_unreadable = before_state == OperationJournalPathState::Unreadable;
-            let target_mismatch = before_state == OperationJournalPathState::Mismatch;
-            let source_mismatch = matches!(
-                after_state,
-                OperationJournalPathState::Mismatch | OperationJournalPathState::Unreadable
-            );
-
             if before_state == OperationJournalPathState::Matches
                 && after_state == OperationJournalPathState::Missing
                 && claim_state == OperationJournalPathState::Missing
@@ -1081,24 +1221,98 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
                 log.restore_status = "restored".to_string();
                 log.restore_phase = "completed".to_string();
                 log.restore_error = None;
-                match db.finalize_successful_operation_restore(&log) {
-                    Ok(()) => {}
-                    Err(error) => {
-                        log = mark_restore_manual_review(
-                            &log,
-                            format!(
-                                "target_committed_durability_unknown: restore was committed but final reconciliation transaction failed: {error}; do not auto retry."
-                            ),
-                        );
-                        db.finalize_operation_restore_outcome(std::slice::from_ref(&log))
-                            .map_err(|persist_error| persist_error.to_string())?;
-                    }
+                if let Err(failure) = operation_restore_final_identity_check(&log) {
+                    log.restored_at = None;
+                    set_restore_manual_review(
+                        &mut log,
+                        "target_committed",
+                        failure.code,
+                        failure.detail,
+                    );
+                    db.finalize_operation_restore_outcome(std::slice::from_ref(&log))
+                        .map_err(|persist_error| persist_error.to_string())?;
+                } else if let Err(error) = db.finalize_successful_operation_restore(&log) {
+                    log.restored_at = None;
+                    set_restore_manual_review(
+                        &mut log,
+                        "target_committed",
+                        crate::recovery::RecoveryErrorCode::TargetCommittedDurabilityUnknown,
+                        format!(
+                            "restore was committed but final reconciliation transaction failed: {error}; do not auto retry"
+                        ),
+                    );
+                    db.finalize_operation_restore_outcome(std::slice::from_ref(&log))
+                        .map_err(|persist_error| persist_error.to_string())?;
                 }
                 reconciled += 1;
                 continue;
             }
 
-            if before_state == OperationJournalPathState::Missing
+            if before_state == OperationJournalPathState::Matches && source_path_reappeared {
+                set_restore_manual_review(
+                    &mut log,
+                    "source_cleanup_pending",
+                    crate::recovery::RecoveryErrorCode::RestoreSourcePathReappeared,
+                    "restore source path reappeared after the target commit; preserve the claim and review both paths",
+                );
+            } else if matches!(
+                claim_state,
+                OperationJournalPathState::Mismatch | OperationJournalPathState::Unreadable
+            ) {
+                let code = if claim_state == OperationJournalPathState::Unreadable {
+                    crate::recovery::RecoveryErrorCode::ClaimIdentityUnreadable
+                } else {
+                    crate::recovery::RecoveryErrorCode::ClaimIdentityMismatch
+                };
+                set_restore_manual_review(
+                    &mut log,
+                    if before_state == OperationJournalPathState::Matches {
+                        "target_committed"
+                    } else {
+                        "source_claimed"
+                    },
+                    code,
+                    "persisted restore claim identity is mismatched or unreadable; do not auto retry.",
+                );
+            } else if before_state == OperationJournalPathState::Mismatch
+                || before_state == OperationJournalPathState::Unreadable
+            {
+                let code = if before_state == OperationJournalPathState::Unreadable {
+                    crate::recovery::RecoveryErrorCode::TargetCommittedIdentityUnreadable
+                } else {
+                    crate::recovery::RecoveryErrorCode::TargetCommittedIdentityMismatch
+                };
+                set_restore_manual_review(
+                    &mut log,
+                    "target_committed",
+                    code,
+                    "restore target or source identity is mismatched or unreadable; do not auto retry.",
+                );
+            } else if after_state == OperationJournalPathState::Mismatch
+                || after_state == OperationJournalPathState::Unreadable
+            {
+                let code = if after_state == OperationJournalPathState::Unreadable {
+                    crate::recovery::RecoveryErrorCode::RestoreSourceIdentityUnreadable
+                } else {
+                    crate::recovery::RecoveryErrorCode::RestoreSourceIdentityMismatch
+                };
+                set_restore_manual_review(
+                    &mut log,
+                    "target_committed",
+                    code,
+                    "restore source identity cannot be trusted; do not auto retry",
+                );
+            } else if before_state == OperationJournalPathState::Matches
+                && after_state == OperationJournalPathState::Missing
+                && claim_state == OperationJournalPathState::Matches
+            {
+                set_restore_manual_review(
+                    &mut log,
+                    "source_cleanup_pending",
+                    crate::recovery::RecoveryErrorCode::TargetCommittedSourceCleanupPending,
+                    "restored target and restore claim both exist; do not auto retry source cleanup.",
+                );
+            } else if before_state == OperationJournalPathState::Missing
                 && after_state == OperationJournalPathState::Matches
                 && claim_state == OperationJournalPathState::Missing
             {
@@ -1107,10 +1321,10 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
                 log.can_restore = true;
                 log.restore_status = "not_restored".to_string();
                 log.restore_phase = "rolled_back".to_string();
-                log.restore_error = Some(
-                    "restore_pending_reconciliation: restore was interrupted before filesystem commit; it remains available and will not be auto-retried."
-                        .to_string(),
-                );
+                log.restore_error = Some(crate::recovery::format_recovery_message(
+                    crate::recovery::RecoveryErrorCode::RestorePendingReconciliation,
+                    "restore was interrupted before filesystem commit; it remains available and will not be auto-retried",
+                ));
                 clear_restore_claim(&mut log);
             } else if before_state == OperationJournalPathState::Missing
                 && after_state == OperationJournalPathState::Missing
@@ -1125,53 +1339,12 @@ pub fn reconcile_pending_operation_journal(db: &Database) -> Result<usize, Strin
                     "restore_pending_reconciliation: restore source claim was recovered without a committed target; do not auto retry."
                         .to_string(),
                 );
-            } else if before_state == OperationJournalPathState::Matches
-                && after_state == OperationJournalPathState::Missing
-                && claim_state == OperationJournalPathState::Matches
-            {
-                log.status = "manual_review".to_string();
-                log.can_undo = false;
-                log.can_restore = false;
-                log.restore_status = "manual_review".to_string();
-                log.restore_phase = "source_cleanup_pending".to_string();
-                log.restore_error = Some(
-                    "target_committed_source_cleanup_pending: restored target and restore claim both exist; do not auto retry source cleanup."
-                        .to_string(),
-                );
-            } else if claim_mismatch {
-                log.status = "manual_review".to_string();
-                log.can_undo = false;
-                log.can_restore = false;
-                log.restore_status = "manual_review".to_string();
-                log.restore_phase = if before_state == OperationJournalPathState::Matches {
-                    "target_committed"
-                } else {
-                    "source_claimed"
-                }
-                .to_string();
-                log.restore_error = Some(
-                    "claim_identity_mismatch: persisted restore claim identity is mismatched or unreadable; do not auto retry."
-                        .to_string(),
-                );
-            } else if target_mismatch || target_unreadable || source_mismatch {
-                log.status = "manual_review".to_string();
-                log.can_undo = false;
-                log.can_restore = false;
-                log.restore_status = "manual_review".to_string();
-                log.restore_phase = "target_committed".to_string();
-                log.restore_error = Some(
-                    "target_committed_identity_mismatch: restore target or source identity is mismatched or unreadable; do not auto retry."
-                        .to_string(),
-                );
             } else {
-                log.status = "manual_review".to_string();
-                log.can_undo = false;
-                log.can_restore = false;
-                log.restore_status = "manual_review".to_string();
-                log.restore_phase = "manual_review".to_string();
-                log.restore_error = Some(
-                    "restore_pending_reconciliation: restore has neither a matching source nor a matching target; do not auto retry."
-                        .to_string(),
+                set_restore_manual_review(
+                    &mut log,
+                    "target_committed",
+                    crate::recovery::RecoveryErrorCode::TargetCommittedDurabilityUnknown,
+                    "restore path state is ambiguous after the filesystem boundary; preserve the claim and do not auto retry",
                 );
             }
             db.finalize_operation_restore_outcome(std::slice::from_ref(&log))
@@ -1192,11 +1365,21 @@ enum OperationJournalPathState {
 
 fn operation_journal_path_state(
     path: &Path,
-    identity_matches: impl FnOnce(&Path) -> bool,
+    identity_matches: impl FnOnce(&Path) -> Result<bool, ()>,
 ) -> OperationJournalPathState {
-    match fs::symlink_metadata(path) {
-        Ok(_) if identity_matches(path) => OperationJournalPathState::Matches,
-        Ok(_) => OperationJournalPathState::Mismatch,
+    classify_operation_journal_path_state(fs::symlink_metadata(path), || identity_matches(path))
+}
+
+fn classify_operation_journal_path_state(
+    metadata: Result<fs::Metadata, io::Error>,
+    identity_matches: impl FnOnce() -> Result<bool, ()>,
+) -> OperationJournalPathState {
+    match metadata {
+        Ok(_) => match identity_matches() {
+            Ok(true) => OperationJournalPathState::Matches,
+            Ok(false) => OperationJournalPathState::Mismatch,
+            Err(()) => OperationJournalPathState::Unreadable,
+        },
         Err(error) if error.kind() == io::ErrorKind::NotFound => OperationJournalPathState::Missing,
         Err(_) => OperationJournalPathState::Unreadable,
     }
@@ -1401,6 +1584,7 @@ fn execute_preview_operation_with_app_data(
     if log.status == "success" {
         if let Ok(target_fingerprint) = file_identity_fingerprint(Path::new(&log.path_after)) {
             log.target_platform_file_id = target_fingerprint.platform_file_id;
+            log.target_platform_volume_id = target_fingerprint.platform_volume_id;
             log.target_full_hash = target_fingerprint.full_hash;
         }
     }
@@ -1483,6 +1667,7 @@ fn restore_moves_with_persistence_with_progress(
         prepared.restore_claim_path = Some(normalize_path(&claim_path));
         prepared.restore_claim_created_at = Some(restore_claim_created_at.clone());
         prepared.restore_claim_platform_file_id = expected_identity.platform_file_id.clone();
+        prepared.restore_claim_platform_volume_id = expected_identity.platform_volume_id.clone();
         prepared.restore_claim_full_hash = expected_identity.full_hash.clone();
         prepared_logs.push(prepared);
     }
@@ -1546,29 +1731,53 @@ fn restore_moves_with_persistence_with_progress(
             )
         };
         let result = if result.restore_status == "restored" {
-            match db.finalize_successful_operation_restore(&result) {
-                Ok(()) => {
-                    restored += 1;
-                    let mut finalized = result;
-                    finalized.restore_claim_path = None;
-                    finalized.restore_claim_created_at = None;
-                    finalized.restore_claim_platform_file_id = None;
-                    finalized.restore_claim_full_hash = None;
-                    finalized
-                }
-                Err(error) => {
-                    let review = mark_restore_manual_review(
-                        &result,
-                        format!(
-                            "target_committed_durability_unknown: restore filesystem commit succeeded but final journal transaction failed: {error}; do not auto retry."
-                        ),
-                    );
-                    db.finalize_operation_restore_outcome(std::slice::from_ref(&review))
-                        .map_err(|persist_error| {
-                            format!("restore finalization requires reconciliation: {persist_error}")
-                        })?;
-                    failed += 1;
-                    review
+            if let Err(failure) = operation_restore_final_identity_check(&result) {
+                let mut review = result;
+                review.restored_at = None;
+                set_restore_manual_review(
+                    &mut review,
+                    "target_committed",
+                    failure.code,
+                    failure.detail,
+                );
+                db.finalize_operation_restore_outcome(std::slice::from_ref(&review))
+                    .map_err(|persist_error| {
+                        format!("restore finalization requires reconciliation: {persist_error}")
+                    })?;
+                failed += 1;
+                review
+            } else {
+                match db.finalize_successful_operation_restore(&result) {
+                    Ok(()) => {
+                        restored += 1;
+                        let mut finalized = result;
+                        finalized.restore_claim_path = None;
+                        finalized.restore_claim_created_at = None;
+                        finalized.restore_claim_platform_file_id = None;
+                        finalized.restore_claim_platform_volume_id = None;
+                        finalized.restore_claim_full_hash = None;
+                        finalized
+                    }
+                    Err(error) => {
+                        let mut review = result;
+                        review.restored_at = None;
+                        set_restore_manual_review(
+                            &mut review,
+                            "target_committed",
+                            crate::recovery::RecoveryErrorCode::TargetCommittedDurabilityUnknown,
+                            format!(
+                                "restore filesystem commit succeeded but final journal transaction failed: {error}; do not auto retry"
+                            ),
+                        );
+                        db.finalize_operation_restore_outcome(std::slice::from_ref(&review))
+                            .map_err(|persist_error| {
+                                format!(
+                                    "restore finalization requires reconciliation: {persist_error}"
+                                )
+                            })?;
+                        failed += 1;
+                        review
+                    }
                 }
             }
         } else {
@@ -1702,9 +1911,11 @@ fn make_operation_log(
         source_size: None,
         source_modified_ns: None,
         source_platform_file_id: None,
+        source_platform_volume_id: None,
         source_quick_hash: None,
         source_full_hash: None,
         target_platform_file_id: None,
+        target_platform_volume_id: None,
         target_full_hash: None,
         source_claim_path: None,
         operation_phase: if status == "pending" {
@@ -1714,11 +1925,13 @@ fn make_operation_log(
         },
         claim_created_at: None,
         claim_platform_file_id: None,
+        claim_platform_volume_id: None,
         claim_full_hash: None,
         restore_claim_path: None,
         restore_phase: "idle".to_string(),
         restore_claim_created_at: None,
         restore_claim_platform_file_id: None,
+        restore_claim_platform_volume_id: None,
         restore_claim_full_hash: None,
     }
 }
@@ -1777,11 +1990,8 @@ fn restore_operation_log_with_observer(
     if log.path_before.trim().is_empty() || log.path_after.trim().is_empty() {
         return mark_restore_failed(log, "Restore metadata is incomplete.");
     }
-    if !operation_restore_identity_matches(log, Path::new(&log.path_after)) {
-        return mark_restore_manual_review(
-            log,
-            "Replacement detected: the current restore source does not match the operation journal identity.",
-        );
+    if let Err(failure) = operation_restore_identity_result(log, Path::new(&log.path_after)) {
+        return mark_restore_manual_review(log, failure.message());
     }
 
     let source = match validate_source_path(&PathBuf::from(&log.path_after)) {
@@ -2061,6 +2271,23 @@ fn mark_restore_manual_review(log: &OperationLogDto, error: impl Into<String>) -
     review
 }
 
+fn set_restore_manual_review(
+    log: &mut OperationLogDto,
+    phase: &str,
+    code: crate::recovery::RecoveryErrorCode,
+    detail: impl Into<String>,
+) {
+    log.status = "manual_review".to_string();
+    log.can_undo = false;
+    log.can_restore = false;
+    log.restore_status = "manual_review".to_string();
+    log.restore_phase = phase.to_string();
+    log.restore_error = Some(crate::recovery::format_recovery_message(
+        code,
+        &detail.into(),
+    ));
+}
+
 fn restore_phase_requires_recovery(phase: &str) -> bool {
     matches!(
         phase,
@@ -2072,6 +2299,7 @@ fn clear_restore_claim(log: &mut OperationLogDto) {
     log.restore_claim_path = None;
     log.restore_claim_created_at = None;
     log.restore_claim_platform_file_id = None;
+    log.restore_claim_platform_volume_id = None;
     log.restore_claim_full_hash = None;
 }
 
@@ -3323,19 +3551,23 @@ mod tests {
             source_size: None,
             source_modified_ns: None,
             source_platform_file_id: None,
+            source_platform_volume_id: None,
             source_quick_hash: None,
             source_full_hash: None,
             target_platform_file_id: None,
+            target_platform_volume_id: None,
             target_full_hash: None,
             source_claim_path: None,
             operation_phase: "completed".to_string(),
             claim_created_at: None,
             claim_platform_file_id: None,
+            claim_platform_volume_id: None,
             claim_full_hash: None,
             restore_claim_path: None,
             restore_phase: "idle".to_string(),
             restore_claim_created_at: None,
             restore_claim_platform_file_id: None,
+            restore_claim_platform_volume_id: None,
             restore_claim_full_hash: None,
         };
 
@@ -3438,7 +3670,7 @@ mod tests {
             .restore_error
             .as_deref()
             .unwrap_or_default()
-            .contains("Replacement detected"));
+            .starts_with("restore_source_identity_mismatch:"));
     }
 
     #[test]

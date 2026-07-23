@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 23;
+const CURRENT_SCHEMA_VERSION: i32 = 24;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -655,6 +655,18 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             )?;
             ensure_journal_state_triggers(conn)?;
             set_schema_version(conn, 23)?;
+        }
+        if version < 24 {
+            execute_column_migrations(
+                conn,
+                &[
+                    "ALTER TABLE operation_logs ADD COLUMN source_platform_volume_id TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN target_platform_volume_id TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN claim_platform_volume_id TEXT;",
+                    "ALTER TABLE operation_logs ADD COLUMN restore_claim_platform_volume_id TEXT;",
+                ],
+            )?;
+            set_schema_version(conn, 24)?;
         }
         Ok(())
     })();
