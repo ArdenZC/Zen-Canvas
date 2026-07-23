@@ -325,6 +325,11 @@ pub fn stable_entry_id(
 ) -> String {
     let identity = if platform_file_id.is_empty() || platform_file_id.starts_with("path:") {
         format!("path\0{}", normalize_path(path_fallback))
+    } else if platform_file_id.starts_with("mac:") {
+        // macOS dev/inode identity represents the physical item. Keeping the
+        // entry id independent of its parent/name lets a Spotlight rename or
+        // move update the existing row instead of leaving the old path stale.
+        platform_file_id.to_string()
     } else {
         format!(
             "{}\0{}\0{}",

@@ -434,8 +434,12 @@ impl Database {
                        ge.modified_at_fs, ge.file_attributes, ge.is_hidden, ge.is_system,
                        ge.source_provider,
                        EXISTS (
-                           SELECT 1 FROM managed_entries me
-                           WHERE me.global_entry_id = ge.id AND me.enabled = 1
+                           SELECT 1
+                           FROM managed_entries me
+                           JOIN managed_scopes ms ON ms.id = me.managed_scope_id
+                           WHERE me.global_entry_id = ge.id
+                             AND me.enabled = 1
+                             AND ms.enabled = 1
                        ) AS managed,
                        bm25(global_entries_fts, 8.0, 2.0, 1.0) AS rank
                 FROM global_entries_fts
@@ -470,8 +474,12 @@ impl Database {
                        ge.modified_at_fs, ge.file_attributes, ge.is_hidden, ge.is_system,
                        ge.source_provider,
                        EXISTS (
-                           SELECT 1 FROM managed_entries me
-                           WHERE me.global_entry_id = ge.id AND me.enabled = 1
+                           SELECT 1
+                           FROM managed_entries me
+                           JOIN managed_scopes ms ON ms.id = me.managed_scope_id
+                           WHERE me.global_entry_id = ge.id
+                             AND me.enabled = 1
+                             AND ms.enabled = 1
                        ) AS managed,
                        0.0 AS rank
                 FROM global_entries ge

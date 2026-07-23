@@ -78,7 +78,7 @@ impl Database {
         let entries = load_entries_in_scope(&transaction, &scope.path)?;
         for entry in entries {
             let entry_id = entry.entry_id();
-            upsert_managed_entry(&transaction, &scope.id, &entry_id, now)?;
+            upsert_managed_entry(&transaction, &scope.id, &entry_id, scope.enabled, now)?;
             enqueue_ai_jobs_for_entry(&transaction, &entry_id, &entry)?;
         }
         transaction.commit()?;
@@ -141,6 +141,10 @@ impl Database {
                 bool_to_i64(allow_cloud_ai),
                 now
             ],
+        )?;
+        transaction.execute(
+            "UPDATE managed_entries SET enabled = ?2, updated_at = ?3 WHERE managed_scope_id = ?1",
+            params![request.id, bool_to_i64(enabled), now],
         )?;
         if !enabled || (!allow_local_ai && !allow_cloud_ai) {
             transaction.execute(
@@ -261,6 +265,7 @@ fn upsert_managed_entry(
     transaction: &Transaction<'_>,
     scope_id: &str,
     global_entry_id: &str,
+    enabled: bool,
     now: i64,
 ) -> Result<(), DbError> {
     let id = format!(
@@ -270,10 +275,10 @@ fn upsert_managed_entry(
     transaction.execute(
         r#"
         INSERT INTO managed_entries (id, global_entry_id, managed_scope_id, enabled, created_at, updated_at)
-        VALUES (?1, ?2, ?3, 1, ?4, ?4)
-        ON CONFLICT(global_entry_id, managed_scope_id) DO UPDATE SET enabled = 1, updated_at = excluded.updated_at
+        VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+        ON CONFLICT(global_entry_id, managed_scope_id) DO UPDATE SET enabled = excluded.enabled, updated_at = excluded.updated_at
         "#,
-        params![id, global_entry_id, scope_id, now],
+        params![id, global_entry_id, scope_id, bool_to_i64(enabled), now],
     )?;
     Ok(())
 }

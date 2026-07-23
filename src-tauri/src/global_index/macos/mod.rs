@@ -312,3 +312,212 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::global_index::coordinator::GlobalIndexError;
+    use crate::global_index::models::{
+        GlobalEntry, INDEX_STATUS_FSEVENTS_UNAVAILABLE, INDEX_STATUS_PERMISSION_REQUIRED,
+        INDEX_STATUS_READY, INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED,
+        INDEX_STATUS_SPOTLIGHT_NOT_INDEXED, INDEX_STATUS_SPOTLIGHT_UNAVAILABLE,
+    };
+
+    #[derive(Default)]
+    struct RecordingSink {
+        statuses: Vec<(String, String, Option<String>)>,
+        batch_lengths: Vec<usize>,
+    }
+
+    impl GlobalIndexSink for RecordingSink {
+        fn write_batch(&mut self, entries: &[GlobalEntryInput]) -> Result<usize, GlobalIndexError> {
+            self.batch_lengths.push(entries.len());
+            Ok(entries.len())
+        }
+
+        fn mark_entry_stale(&mut self, _entry_id: &str) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+
+        fn checkpoint(
+            &mut self,
+            _volume_id: &str,
+            _journal_id: Option<&str>,
+            _journal_cursor: Option<&str>,
+        ) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+
+        fn set_source_state(
+            &mut self,
+            volume_id: &str,
+            status: &str,
+            error: Option<&str>,
+        ) -> Result<(), GlobalIndexError> {
+            self.statuses.push((
+                volume_id.to_string(),
+                status.to_string(),
+                error.map(ToString::to_string),
+            ));
+            Ok(())
+        }
+
+        fn set_source_provider(
+            &mut self,
+            _volume_id: &str,
+            _provider: &str,
+        ) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+
+        fn resolve_parent_path(
+            &mut self,
+            _volume_id: &str,
+            _parent_platform_file_id: &str,
+        ) -> Result<Option<String>, GlobalIndexError> {
+            Ok(None)
+        }
+
+        fn find_entry_by_identity(
+            &mut self,
+            _volume_id: &str,
+            _platform_file_id: &str,
+            _parent_platform_file_id: &str,
+            _name: &str,
+        ) -> Result<Option<GlobalEntry>, GlobalIndexError> {
+            Ok(None)
+        }
+
+        fn mark_volume_entries_stale(&mut self, _volume_id: &str) -> Result<(), GlobalIndexError> {
+            Ok(())
+        }
+    }
+
+    fn input(index: usize) -> GlobalEntryInput {
+        GlobalEntryInput {
+            volume_id: "volume".to_string(),
+            platform_file_id: format!("mac:dev:1:ino:{index}"),
+            parent_platform_file_id: "mac:dev:1:ino:1".to_string(),
+            name: format!("file-{index}.txt"),
+            path: format!("/tmp/file-{index}.txt"),
+            extension: "txt".to_string(),
+            is_directory: false,
+            size: 1,
+            created_at_fs: None,
+            modified_at_fs: None,
+            file_attributes: 0,
+            is_hidden: false,
+            is_system: false,
+            source_provider: PROVIDER_MACOS_SPOTLIGHT.to_string(),
+            last_seen_at: index as i64,
+        }
+    }
+
+    #[test]
+    fn macos_spotlight_batches_use_the_shared_sink_contract() {
+        let entries = (0..1025).map(input).collect::<Vec<_>>();
+        let mut sink = RecordingSink::default();
+        MacosSpotlightProvider::write_entries(&mut sink, &entries).expect("write batches");
+        assert_eq!(sink.batch_lengths, vec![512, 512, 1]);
+    }
+
+    #[test]
+    fn macos_collection_states_distinguish_unavailable_permission_and_partial_results() {
+        let cases = [
+            (
+                spotlight::SpotlightCollectionSummary::default(),
+                INDEX_STATUS_SPOTLIGHT_NOT_INDEXED,
+            ),
+            (
+                spotlight::SpotlightCollectionSummary {
+                    processed: 1,
+                    ..Default::default()
+                },
+                INDEX_STATUS_READY,
+            ),
+            (
+                spotlight::SpotlightCollectionSummary {
+                    processed: 1,
+                    full_disk_access_required: true,
+                    ..Default::default()
+                },
+                INDEX_STATUS_PERMISSION_REQUIRED,
+            ),
+            (
+                spotlight::SpotlightCollectionSummary {
+                    processed: 1,
+                    external_volume_not_indexed: true,
+                    ..Default::default()
+                },
+                INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED,
+            ),
+            (
+                spotlight::SpotlightCollectionSummary {
+                    processed: 1,
+                    path_fallbacks: 1,
+                    ..Default::default()
+                },
+                INDEX_STATUS_PERMISSION_REQUIRED,
+            ),
+            (
+                spotlight::SpotlightCollectionSummary {
+                    processed: 1,
+                    skipped: 1,
+                    ..Default::default()
+                },
+                INDEX_STATUS_PERMISSION_REQUIRED,
+            ),
+        ];
+        for (summary, expected_status) in cases {
+            let mut sink = RecordingSink::default();
+            MacosSpotlightProvider::record_collection_state(&mut sink, "volume", summary)
+                .expect("record collection state");
+            assert_eq!(
+                sink.statuses.last().map(|value| value.1.as_str()),
+                Some(expected_status)
+            );
+        }
+    }
+
+    #[test]
+    fn macos_native_error_mapping_keeps_permission_and_spotlight_states_distinct() {
+        let cases = [
+            (
+                "macos_spotlight_query_unavailable",
+                INDEX_STATUS_SPOTLIGHT_UNAVAILABLE,
+            ),
+            (
+                "macos_spotlight_full_disk_access_required",
+                INDEX_STATUS_PERMISSION_REQUIRED,
+            ),
+            (
+                "macos_spotlight_external_volume_not_indexed",
+                INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED,
+            ),
+            (
+                "macos_fsevents_stream_unavailable",
+                INDEX_STATUS_FSEVENTS_UNAVAILABLE,
+            ),
+        ];
+        for (error, expected_status) in cases {
+            let mut sink = RecordingSink::default();
+            let returned = MacosSpotlightProvider::report_native_error(&mut sink, "volume", error)
+                .expect("native error mapping");
+            assert!(returned.to_string().contains(error));
+            assert_eq!(
+                sink.statuses.last().map(|value| value.1.as_str()),
+                Some(expected_status)
+            );
+        }
+    }
+
+    #[test]
+    fn macos_bridge_lifecycle_is_idempotent_and_shutdown_clears_native_state() {
+        let provider = MacosSpotlightProvider::new();
+        assert!(provider.status().is_ok());
+        provider.pause().expect("pause provider");
+        provider.pause().expect("pause provider twice");
+        provider.shutdown().expect("shutdown provider");
+        provider.shutdown().expect("shutdown provider twice");
+    }
+}

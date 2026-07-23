@@ -34,9 +34,10 @@ scope continues to control File Library views only.
   filesystem type, stable volume GUID/serial, and mount path.
 - Uses NTFS MFT enumeration and USN journal reads when available, with FRN,
   parent FRN, name, and path reconstruction.
-- Detects journal identity/cursor discontinuity, reset/truncation, rename
-  reconciliation, and orphan/cycle records; those states require a rebuild or
-  safe fallback scan.
+- Detects journal identity/cursor discontinuity, reset/truncation, malformed
+  pages, non-advancing MFT cursors, rename reconciliation, and orphan/cycle
+  records; untrusted native state is marked `rebuild_required` rather than
+  being mislabeled as a permission failure or ready index.
 - Uses a recursive metadata-only fallback for non-NTFS or unavailable journal
   sources.
 - Persists a per-volume fallback decision so transient MFT/USN failures do not
@@ -65,19 +66,25 @@ scope continues to control File Library views only.
   `NSMetadataQueryIndexedLocalComputerScope` for indexed local metadata.
 - Stores a native file identity built from `st_dev` and `st_ino` when the
   filesystem metadata is available, with a path fallback only for inaccessible
-  metadata. Removed notifications that cannot carry that identity trigger a
-  full Spotlight reconcile instead of guessing an entry ID.
+  metadata. Native macOS entry IDs remain stable across parent/name changes so
+  a Spotlight move or rename updates the existing row. Removed notifications
+  that cannot carry that identity trigger a full Spotlight reconcile instead of
+  guessing an entry ID.
 - Receives metadata query notifications and uses native FSEvents as the
   reconciliation signal for changes, removals, and permission/index gaps.
+- The implementation is a direct Rust Objective-C/Foundation bridge: its
+  dedicated Spotlight and FSEvents threads own query/stream lifetimes, stop on
+  pause or shutdown, and never block the Tauri main thread; no unsigned
+  external Sidecar is required.
 - The realtime observer is filtered to the provider's own metadata query, so
   another query in the process cannot enqueue unrelated changes.
 - Persists the last processed FSEvents event ID as the incremental checkpoint,
   while retaining a native reconciliation path when the cursor is unavailable
   or the provider is restarting without an established baseline.
 - Uses normal `NSMetadataQuery` update notifications for ordinary file changes;
-  FSEvents only escalates dropped/history-gap signals to a full Spotlight
-  reconciliation, avoiding a full local-computer query for every filesystem
-  event.
+  FSEvents only escalates dropped/history-gap, root-change, mount, and unmount
+  signals to a full Spotlight reconciliation, avoiding a full local-computer
+  query for every filesystem event.
 - The coordinator keeps the provider alive and drains Spotlight/FSEvents
   updates continuously after the initial collection instead of waiting for a
   manual restart or settings action.
@@ -121,6 +128,12 @@ keeps global metadata-only results free of AI risk or recommendation badges.
 
 - Rust schema, repository, AI isolation, platform-provider, and one-million
   entry FTS benchmark tests are included.
+- Fixed-fixture MFT V2/V3 parsing, malformed-page fail-closed behavior, USN
+  history-error classification, FSEvents callback/checkpoint behavior,
+  Spotlight notification action mapping, shared batch sizing, cancellation,
+  native status mapping, and bridge lifecycle idempotence are covered by
+  platform-targeted tests; the live Spotlight collection smoke test is an
+  explicit ignored test because it requires a real macOS Spotlight database.
 - Frontend type checking, targeted Spotlight/settings/permission tests, full
   frontend tests, and production frontend build are run as part of release
   verification. The dual-platform CI quality matrix packages the Windows NSIS

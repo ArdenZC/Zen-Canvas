@@ -125,6 +125,15 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
                     Ok(())
                 }
                 Err(GlobalIndexError::Paused) => Err(GlobalIndexError::Paused),
+                Err(error) if mft::is_integrity_error(&error) => {
+                    let message = error.to_string();
+                    sink.set_source_state(
+                        &source.volume.id,
+                        crate::global_index::models::INDEX_STATUS_REBUILD_REQUIRED,
+                        Some(&message),
+                    )?;
+                    Err(error)
+                }
                 Err(error) => {
                     let message = error.to_string();
                     sink.set_source_state(

@@ -1,4 +1,7 @@
-use super::mft::{device_io_control_bytes, open_volume, parse_mft_page, query_journal, MftRecord};
+use super::mft::{
+    device_io_control_bytes, mft_integrity_error, open_volume, parse_mft_page, query_journal,
+    MftRecord,
+};
 use super::{mft, volumes::volume_device_path};
 use crate::global_index::coordinator::{GlobalIndexError, GlobalIndexSink};
 use crate::global_index::models::{
@@ -147,7 +150,16 @@ fn sync_with_handle(
             Err(error) => return Err(error),
         };
         if bytes < 8 {
-            break;
+            let message = format!(
+                "USN journal data is shorter than the continuation cursor; a volume rebuild is required: {}",
+                mft_integrity_error("USN page is shorter than the continuation cursor")
+            );
+            sink.set_source_state(
+                &source.volume.id,
+                crate::global_index::models::INDEX_STATUS_REBUILD_REQUIRED,
+                Some(&message),
+            )?;
+            return Err(GlobalIndexError::Provider(message));
         }
         let (next_cursor, records) = match parse_mft_page(&output[..bytes]) {
             Ok(parsed) => parsed,
@@ -390,5 +402,21 @@ mod tests {
         let input = change_to_entry(&source, &record, "C:\\a.txt".to_string(), Some(&existing));
         assert_eq!(input.size, 42);
         assert_eq!(input.modified_at_fs, Some(4));
+    }
+
+    #[test]
+    fn journal_history_errors_are_rebuild_signals() {
+        assert!(is_journal_history_error(&GlobalIndexError::Provider(
+            "DeviceIoControl failed (Win32 error 1181)".to_string()
+        )));
+        assert!(is_journal_history_error(&GlobalIndexError::Provider(
+            "DeviceIoControl failed (Win32 error 1178)".to_string()
+        )));
+        assert!(is_journal_history_error(&GlobalIndexError::Provider(
+            "DeviceIoControl failed (Win32 error 1179)".to_string()
+        )));
+        assert!(!is_journal_history_error(&GlobalIndexError::Provider(
+            "DeviceIoControl failed (Win32 error 5)".to_string()
+        )));
     }
 }

@@ -37,6 +37,23 @@ struct ExternalVolumeProbe {
     has_readable_content: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpotlightUpdateAction {
+    Upsert,
+    Stale,
+    Reconcile,
+}
+
+fn classify_spotlight_update(removed: bool, path_identity_fallback: bool) -> SpotlightUpdateAction {
+    if path_identity_fallback {
+        SpotlightUpdateAction::Reconcile
+    } else if removed {
+        SpotlightUpdateAction::Stale
+    } else {
+        SpotlightUpdateAction::Upsert
+    }
+}
+
 pub fn stream_local_computer_entries<F>(
     volume_id: &str,
     cancel: &AtomicBool,
@@ -276,14 +293,14 @@ fn collect_update_items(
         let object = items.objectAtIndex(index);
         if let Some(entry) = object.downcast_ref::<NSMetadataItem>() {
             match metadata_item_to_entry(volume_id, entry.as_ref()) {
-                Some(input) if !has_path_identity(&input) => {
-                    if removed {
-                        stale_entry_ids.push(input.entry_id());
-                    } else {
-                        entries.push(input);
+                Some(input) => {
+                    match classify_spotlight_update(removed, has_path_identity(&input)) {
+                        SpotlightUpdateAction::Upsert => entries.push(input),
+                        SpotlightUpdateAction::Stale => stale_entry_ids.push(input.entry_id()),
+                        SpotlightUpdateAction::Reconcile => *full_reconcile = true,
                     }
                 }
-                Some(_) | None => {
+                None => {
                     *full_reconcile = true;
                 }
             }
@@ -398,8 +415,12 @@ fn path_from_object(object: &AnyObject) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::super::super::models::normalize_path;
-    use super::mac_file_identity;
+    use super::{
+        classify_spotlight_update, mac_file_identity, stream_local_computer_entries,
+        SpotlightUpdateAction,
+    };
     use std::path::Path;
+    use std::sync::atomic::AtomicBool;
 
     #[test]
     fn macos_paths_use_platform_normalization() {
@@ -411,5 +432,60 @@ mod tests {
         let path = Path::new(file!());
         let metadata = std::fs::symlink_metadata(path).expect("test source metadata");
         assert!(mac_file_identity(path, Some(&metadata)).starts_with("mac:dev:"));
+    }
+
+    #[test]
+    fn macos_spotlight_notifications_map_add_update_delete_and_fallbacks() {
+        assert_eq!(
+            classify_spotlight_update(false, false),
+            SpotlightUpdateAction::Upsert
+        );
+        assert_eq!(
+            classify_spotlight_update(true, false),
+            SpotlightUpdateAction::Stale
+        );
+        assert_eq!(
+            classify_spotlight_update(false, true),
+            SpotlightUpdateAction::Reconcile
+        );
+        assert_eq!(
+            classify_spotlight_update(true, true),
+            SpotlightUpdateAction::Reconcile
+        );
+    }
+
+    #[test]
+    fn macos_spotlight_cancellation_is_observed_before_batching() {
+        let cancel = AtomicBool::new(true);
+        let mut batches = 0;
+        let result = stream_local_computer_entries("test", &cancel, |_| {
+            batches += 1;
+            Ok(())
+        });
+        match result {
+            Err(error) => assert!(
+                error == "macos_spotlight_query_paused"
+                    || error == "macos_spotlight_query_unavailable",
+                "unexpected cancellation result: {error}"
+            ),
+            Ok(summary) => assert_eq!(summary.processed, 0),
+        }
+        assert_eq!(batches, 0);
+    }
+
+    #[test]
+    #[ignore = "requires a live macOS Spotlight database"]
+    fn macos_spotlight_live_initial_collection_is_batched() {
+        let cancel = AtomicBool::new(false);
+        let mut batches = Vec::new();
+        let summary = stream_local_computer_entries("test", &cancel, |batch| {
+            assert!(!batch.is_empty());
+            assert!(batch.len() <= 512);
+            batches.push(batch.len());
+            Ok(())
+        })
+        .expect("Spotlight initial collection");
+        assert_eq!(summary.processed, batches.iter().sum());
+        assert!(summary.processed > 0, "Spotlight returned no local results");
     }
 }

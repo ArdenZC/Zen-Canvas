@@ -122,38 +122,50 @@ fn enumerate_with_handle(
 
 pub(crate) fn parse_mft_page(buffer: &[u8]) -> Result<(u64, Vec<MftRecord>), GlobalIndexError> {
     if buffer.len() < 8 {
-        return Err(GlobalIndexError::Provider(
-            "MFT page is shorter than the continuation cursor".to_string(),
+        return Err(mft_integrity_error(
+            "MFT page is shorter than the continuation cursor",
         ));
     }
     let next_start = u64::from_ne_bytes(
         buffer[..8]
             .try_into()
-            .map_err(|_| GlobalIndexError::Provider("invalid MFT cursor".to_string()))?,
+            .map_err(|_| mft_integrity_error("invalid MFT cursor"))?,
     );
     let mut offset = 8usize;
     let mut records = Vec::new();
-    while offset + std::mem::size_of::<USN_RECORD_COMMON_HEADER>() <= buffer.len() {
+    let header_size = std::mem::size_of::<USN_RECORD_COMMON_HEADER>();
+    while offset < buffer.len() {
+        if buffer.len() - offset < header_size {
+            if buffer[offset..].iter().any(|byte| *byte != 0) {
+                return Err(mft_integrity_error(
+                    "MFT page has a non-zero truncated record header",
+                ));
+            }
+            break;
+        }
         let header = unsafe {
             ptr::read_unaligned(buffer.as_ptr().add(offset) as *const USN_RECORD_COMMON_HEADER)
         };
         let record_length = header.RecordLength as usize;
         if record_length == 0 {
+            if buffer[offset..].iter().any(|byte| *byte != 0) {
+                return Err(mft_integrity_error(
+                    "MFT page has data after a zero-length record",
+                ));
+            }
             break;
         }
         let end = offset
             .checked_add(record_length)
-            .ok_or_else(|| GlobalIndexError::Provider("MFT record length overflow".to_string()))?;
+            .ok_or_else(|| mft_integrity_error("MFT record length overflow"))?;
         if end > buffer.len() || record_length < 8 {
-            return Err(GlobalIndexError::Provider(
-                "MFT record extends past page boundary".to_string(),
-            ));
+            return Err(mft_integrity_error("MFT record extends past page boundary"));
         }
         let record = match header.MajorVersion {
             2 => parse_v2(&buffer[offset..end])?,
             3 => parse_v3(&buffer[offset..end])?,
             major => {
-                return Err(GlobalIndexError::Provider(format!(
+                return Err(mft_integrity_error(format!(
                     "unsupported USN record version {major}"
                 )))
             }
@@ -166,9 +178,7 @@ pub(crate) fn parse_mft_page(buffer: &[u8]) -> Result<(u64, Vec<MftRecord>), Glo
 
 fn parse_v2(bytes: &[u8]) -> Result<MftRecord, GlobalIndexError> {
     if bytes.len() < std::mem::size_of::<USN_RECORD_V2>() {
-        return Err(GlobalIndexError::Provider(
-            "USN_RECORD_V2 is truncated".to_string(),
-        ));
+        return Err(mft_integrity_error("USN_RECORD_V2 is truncated"));
     }
     let record = unsafe { ptr::read_unaligned(bytes.as_ptr() as *const USN_RECORD_V2) };
     parse_name(
@@ -188,9 +198,7 @@ fn parse_v2(bytes: &[u8]) -> Result<MftRecord, GlobalIndexError> {
 
 fn parse_v3(bytes: &[u8]) -> Result<MftRecord, GlobalIndexError> {
     if bytes.len() < std::mem::size_of::<USN_RECORD_V3>() {
-        return Err(GlobalIndexError::Provider(
-            "USN_RECORD_V3 is truncated".to_string(),
-        ));
+        return Err(mft_integrity_error("USN_RECORD_V3 is truncated"));
     }
     let record = unsafe { ptr::read_unaligned(bytes.as_ptr() as *const USN_RECORD_V3) };
     parse_name(
@@ -209,16 +217,25 @@ fn parse_v3(bytes: &[u8]) -> Result<MftRecord, GlobalIndexError> {
 }
 
 fn parse_name(bytes: &[u8], offset: usize, length: usize) -> Result<String, GlobalIndexError> {
-    if !length.is_multiple_of(2) || offset > bytes.len() || offset + length > bytes.len() {
-        return Err(GlobalIndexError::Provider(
-            "USN file name range is invalid".to_string(),
-        ));
+    let Some(end) = offset.checked_add(length) else {
+        return Err(mft_integrity_error("USN file name range overflows"));
+    };
+    if !length.is_multiple_of(2) || offset > bytes.len() || end > bytes.len() {
+        return Err(mft_integrity_error("USN file name range is invalid"));
     }
-    let utf16 = bytes[offset..offset + length]
+    let utf16 = bytes[offset..end]
         .chunks_exact(2)
         .map(|chunk| u16::from_ne_bytes([chunk[0], chunk[1]]))
         .collect::<Vec<_>>();
     Ok(String::from_utf16_lossy(&utf16))
+}
+
+pub(crate) fn mft_integrity_error(message: impl Into<String>) -> GlobalIndexError {
+    GlobalIndexError::Provider(format!("mft_integrity: {}", message.into()))
+}
+
+pub(crate) fn is_integrity_error(error: &GlobalIndexError) -> bool {
+    error.to_string().contains("mft_integrity:")
 }
 
 pub(crate) fn reconstruct_paths(root: &str, records: &[MftRecord]) -> HashMap<String, String> {
@@ -350,12 +367,16 @@ fn enumerate_mft_records(
             Err(error) => return Err(error),
         };
         if bytes < 8 {
-            break;
+            return Err(mft_integrity_error(
+                "MFT enumeration page is shorter than the continuation cursor",
+            ));
         }
         let (next_cursor, mut page_records) = parse_mft_page(&output[..bytes])?;
         records.append(&mut page_records);
         if next_cursor == cursor {
-            break;
+            return Err(mft_integrity_error(
+                "MFT enumeration cursor did not advance",
+            ));
         }
         cursor = next_cursor;
     }
@@ -581,5 +602,15 @@ mod tests {
             paths.get("7\u{0}1\u{0}right.txt"),
             Some(&"C:\\right.txt".to_string())
         );
+    }
+
+    #[test]
+    fn malformed_mft_pages_are_integrity_errors() {
+        let error = parse_mft_page(&[1, 2, 3]).expect_err("short page must fail closed");
+        assert!(is_integrity_error(&error));
+
+        let error = parse_mft_page(&[0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3])
+            .expect_err("non-zero truncated tail must fail closed");
+        assert!(is_integrity_error(&error));
     }
 }

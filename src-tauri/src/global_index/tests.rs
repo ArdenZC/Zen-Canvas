@@ -99,6 +99,25 @@ fn stable_entry_id_uses_native_identity_without_path_coupling() {
 }
 
 #[test]
+fn mac_native_identity_survives_parent_and_name_changes() {
+    let before = stable_entry_id(
+        "gv_test",
+        "mac:dev:1:ino:2",
+        "mac:dev:1:ino:1",
+        "note.txt",
+        "/Users/test/note.txt",
+    );
+    let after = stable_entry_id(
+        "gv_test",
+        "mac:dev:1:ino:2",
+        "mac:dev:1:ino:9",
+        "renamed.txt",
+        "/Users/test/archive/renamed.txt",
+    );
+    assert_eq!(before, after);
+}
+
+#[test]
 fn migration_creates_global_and_managed_domains_separately() {
     let path = test_db_path();
     let db = Database::open(&path).expect("open test database");
@@ -227,6 +246,58 @@ fn disabled_ai_policy_blocks_jobs_without_removing_global_search() {
         .expect("blocked job");
     assert_eq!(status, AI_JOB_BLOCKED_BY_POLICY);
     drop(conn);
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn disabled_managed_scope_is_not_reported_as_active_management() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+    let document = test_entry(r"C:\Global\Disabled\note.txt", "note.txt", false);
+    db.upsert_global_entries_batch(std::slice::from_ref(&document))
+        .expect("insert global document");
+
+    let scope = db
+        .add_managed_scope(AddManagedScopeRequest {
+            path: r"C:\Global\Disabled".to_string(),
+            global_entry_id: None,
+            enabled: false,
+            allow_local_ai: true,
+            allow_cloud_ai: false,
+        })
+        .expect("add disabled scope");
+    let result = db
+        .search_global_entries("note", 20, 0)
+        .expect("search disabled scope");
+    assert_eq!(result.len(), 1);
+    assert!(!result[0].managed);
+
+    let conn = Connection::open(&path).expect("inspect disabled scope");
+    let enabled_entries: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM managed_entries WHERE enabled = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("enabled managed entries");
+    assert_eq!(enabled_entries, 0);
+    drop(conn);
+
+    db.update_managed_scope_policy(UpdateManagedScopePolicyRequest {
+        id: scope.id,
+        enabled: Some(true),
+        allow_local_ai: None,
+        allow_cloud_ai: None,
+    })
+    .expect("enable scope");
+    let result = db
+        .search_global_entries("note", 20, 0)
+        .expect("search enabled scope");
+    assert!(result[0].managed);
+
     drop(db);
     let _ = std::fs::remove_file(path);
 }

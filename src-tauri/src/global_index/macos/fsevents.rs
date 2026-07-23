@@ -8,10 +8,11 @@ use fsevent_sys::{
     kFSEventStreamCreateFlagFileEvents, kFSEventStreamCreateFlagNoDefer,
     kFSEventStreamCreateFlagUseCFTypes, kFSEventStreamCreateFlagWatchRoot,
     kFSEventStreamEventFlagEventIdsWrapped, kFSEventStreamEventFlagKernelDropped,
-    kFSEventStreamEventFlagMustScanSubDirs, kFSEventStreamEventFlagUserDropped,
-    kFSEventStreamEventIdSinceNow, FSEventStreamContext, FSEventStreamCreate,
-    FSEventStreamEventFlags, FSEventStreamInvalidate, FSEventStreamRef, FSEventStreamRelease,
-    FSEventStreamScheduleWithRunLoop, FSEventStreamStart, FSEventStreamStop,
+    kFSEventStreamEventFlagMount, kFSEventStreamEventFlagMustScanSubDirs,
+    kFSEventStreamEventFlagRootChanged, kFSEventStreamEventFlagUnmount,
+    kFSEventStreamEventFlagUserDropped, kFSEventStreamEventIdSinceNow, FSEventStreamContext,
+    FSEventStreamCreate, FSEventStreamEventFlags, FSEventStreamInvalidate, FSEventStreamRef,
+    FSEventStreamRelease, FSEventStreamScheduleWithRunLoop, FSEventStreamStart, FSEventStreamStop,
     FSEventStreamUnscheduleFromRunLoop,
 };
 use libc::c_void;
@@ -102,7 +103,10 @@ fn fsevent_requires_full_reconcile(flags: FSEventStreamEventFlags) -> bool {
         & (kFSEventStreamEventFlagMustScanSubDirs
             | kFSEventStreamEventFlagUserDropped
             | kFSEventStreamEventFlagKernelDropped
-            | kFSEventStreamEventFlagEventIdsWrapped)
+            | kFSEventStreamEventFlagEventIdsWrapped
+            | kFSEventStreamEventFlagRootChanged
+            | kFSEventStreamEventFlagMount
+            | kFSEventStreamEventFlagUnmount)
         != 0
 }
 
@@ -213,10 +217,14 @@ fn _assert_run_loop_type(_: CFRunLoopRef) {}
 
 #[cfg(test)]
 mod tests {
+    use super::{fsevent_callback, FseventInfo};
     use fsevent_sys::{
         kFSEventStreamEventFlagEventIdsWrapped, kFSEventStreamEventFlagKernelDropped,
-        kFSEventStreamEventFlagMustScanSubDirs, kFSEventStreamEventFlagUserDropped,
+        kFSEventStreamEventFlagMount, kFSEventStreamEventFlagMustScanSubDirs,
+        kFSEventStreamEventFlagRootChanged, kFSEventStreamEventFlagUnmount,
+        kFSEventStreamEventFlagUserDropped,
     };
+    use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
     #[test]
     fn dropped_history_flags_are_reconcile_signals() {
@@ -228,7 +236,89 @@ mod tests {
     }
 
     #[test]
+    fn root_and_mount_lifecycle_flags_require_reconcile() {
+        assert!(fsevent_requires_full_reconcile(
+            kFSEventStreamEventFlagRootChanged
+        ));
+        assert!(fsevent_requires_full_reconcile(
+            kFSEventStreamEventFlagMount
+        ));
+        assert!(fsevent_requires_full_reconcile(
+            kFSEventStreamEventFlagUnmount
+        ));
+    }
+
+    #[test]
     fn normal_file_events_are_left_to_spotlight_incremental_updates() {
         assert!(!fsevent_requires_full_reconcile(0));
+    }
+
+    #[test]
+    fn fsevents_callback_records_checkpoint_and_reconcile_signal() {
+        let pending = Arc::new(Mutex::new(super::super::PendingUpdates::default()));
+        let stopped = Arc::new(AtomicBool::new(false));
+        let info = FseventInfo {
+            pending: pending.clone(),
+            stopped,
+        };
+        let flags = [kFSEventStreamEventFlagMustScanSubDirs];
+        let event_ids = [42_u64];
+        fsevent_callback(
+            std::ptr::null_mut(),
+            (&info as *const FseventInfo).cast_mut().cast(),
+            1,
+            std::ptr::null_mut(),
+            flags.as_ptr(),
+            event_ids.as_ptr(),
+        );
+        let pending = pending.lock().expect("pending updates");
+        assert!(pending.full_reconcile);
+        assert_eq!(pending.last_event_id, Some(42));
+    }
+
+    #[test]
+    fn fsevents_callback_keeps_normal_file_event_incremental() {
+        let pending = Arc::new(Mutex::new(super::super::PendingUpdates::default()));
+        let stopped = Arc::new(AtomicBool::new(false));
+        let info = FseventInfo {
+            pending: pending.clone(),
+            stopped,
+        };
+        let flags = [0];
+        let event_ids = [7_u64];
+        fsevent_callback(
+            std::ptr::null_mut(),
+            (&info as *const FseventInfo).cast_mut().cast(),
+            1,
+            std::ptr::null_mut(),
+            flags.as_ptr(),
+            event_ids.as_ptr(),
+        );
+        let pending = pending.lock().expect("pending updates");
+        assert!(!pending.full_reconcile);
+        assert_eq!(pending.last_event_id, Some(7));
+    }
+
+    #[test]
+    fn fsevents_callback_stops_mutating_after_shutdown() {
+        let pending = Arc::new(Mutex::new(super::super::PendingUpdates::default()));
+        let stopped = Arc::new(AtomicBool::new(true));
+        let info = FseventInfo {
+            pending: pending.clone(),
+            stopped,
+        };
+        let flags = [kFSEventStreamEventFlagMustScanSubDirs];
+        let event_ids = [99_u64];
+        fsevent_callback(
+            std::ptr::null_mut(),
+            (&info as *const FseventInfo).cast_mut().cast(),
+            1,
+            std::ptr::null_mut(),
+            flags.as_ptr(),
+            event_ids.as_ptr(),
+        );
+        let pending = pending.lock().expect("pending updates");
+        assert!(!pending.full_reconcile);
+        assert_eq!(pending.last_event_id, None);
     }
 }
