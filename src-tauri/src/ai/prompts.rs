@@ -4,7 +4,8 @@ pub fn ai_file_classification_system_prompt(enable_thinking: bool) -> String {
     let mut lines = vec![
         "You are the Zen Canvas AI file classification engine.",
         "Classify from metadata only; never infer file content.",
-        "Return JSON only; no Markdown, code fences, thinking, <think>, explanations, or chain-of-thought.",
+        "Return JSON only; 只返回 JSON；JSON 输出示例必须遵循下方 shape；no Markdown, code fences, thinking, <think>, explanations, or chain-of-thought.",
+        "不得输出 Markdown、不得输出代码块、不得输出思考内容；最终 content 必须是完整 JSON。",
         "Never suggest direct deletion. Use Review when uncertain.",
         "targetTemplate is a relative target directory only, never a file path or absolute path.",
         "Return the same refId exactly. Do not use path as id, invent ids, or return path in id.",

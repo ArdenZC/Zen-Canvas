@@ -20,7 +20,10 @@ import { SETTINGS_SECTION_EVENT } from "../../components/spotlight/commandRegist
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import type {
   AIConnectionTestResult,
+  AICustomProviderProfile,
   AIDebugClassificationResult,
+  AIModelInfo,
+  AIRequestTrace,
   AIProviderPreset,
   AIProviderPresetId,
   AISettings,
@@ -96,7 +99,7 @@ function aiUserMode(settings: Pick<AISettings, "enabled" | "provider">): AIUserM
   return settings.provider === "ollama" ? "local" : "cloud";
 }
 
-function userProviderValue(settings: AISettings): "deepseek" | "openai_compatible" | "ollama" | "custom" {
+function userProviderValue(settings: AISettings): AIProviderPresetId | "openai_compatible" | "custom" {
   if (settings.provider === "ollama") return "ollama";
   if (settings.preset === "deepseek") return "deepseek";
   if (settings.preset === "custom_openai_compatible") return "custom";
@@ -111,6 +114,7 @@ function applyProviderPreset(settings: AISettings, preset: AIProviderPreset): AI
     preset: preset.id,
     baseUrl: preset.defaultBaseUrl,
     chatPath: preset.defaultChatPath,
+    modelsPath: preset.modelsPath ?? null,
     model: preset.defaultModel,
     apiKey: settings.apiKey
   };
@@ -190,6 +194,10 @@ export function SettingsView() {
   const publishAIProcessingMode = useAIProcessingModeStore((state) => state.publish);
   const [aiPresets, setAiPresets] = useState<AIProviderPreset[]>([]);
   const [runtimeCapabilities, setRuntimeCapabilities] = useState<RuntimeCapabilities | null>(null);
+  const [aiModels, setAiModels] = useState<AIModelInfo[]>([]);
+  const [isDiscoveringAIModels, setIsDiscoveringAIModels] = useState(false);
+  const [aiTraces, setAiTraces] = useState<AIRequestTrace[]>([]);
+  const [isLoadingAITraces, setIsLoadingAITraces] = useState(false);
   const [isLoadingAISettings, setIsLoadingAISettings] = useState(false);
   const [isSavingAISettings, setIsSavingAISettings] = useState(false);
   const [aiSettingsSaveError, setAiSettingsSaveError] = useState(false);
@@ -601,8 +609,89 @@ export function SettingsView() {
     });
   }
 
-  function selectUserProvider(value: "deepseek" | "openai_compatible" | "ollama" | "custom") {
-    if (value === "deepseek" || value === "ollama" || value === "custom") {
+  function selectCustomProfile(profileId: string) {
+    const profile = aiSettings?.customProfiles?.find((item) => item.id === profileId);
+    if (!profile) return;
+    updateAISettings({
+      preset: "custom_openai_compatible",
+      provider: "openai_compatible",
+      activeCustomProfileId: profile.id,
+      baseUrl: profile.baseUrl,
+      chatPath: profile.chatPath,
+      modelsPath: profile.modelsPath ?? null,
+      model: profile.model,
+      forceJsonOutput: profile.supportsResponseFormat,
+      enableThinking: profile.supportsThinking,
+      maxTokens: profile.maxOutputTokens,
+      temperature: Math.min(profile.temperatureMax, Math.max(profile.temperatureMin, aiSettings?.temperature ?? 0)),
+      extraBodyJson: profile.extraBodyJson ?? null,
+      apiKey: "",
+      apiKeyConfigured: profile.apiKeyConfigured ?? false,
+      apiKeyAction: "preserve"
+    });
+  }
+
+  function createCustomProfile() {
+    if (!aiSettings) return;
+    const id = `custom-${Date.now().toString(36)}`;
+    const profile: AICustomProviderProfile = {
+      id,
+      name: `Custom profile ${((aiSettings.customProfiles?.length ?? 0) + 1).toString()}`,
+      baseUrl: aiSettings.baseUrl,
+      chatPath: aiSettings.chatPath || "/chat/completions",
+      modelsPath: aiSettings.modelsPath ?? "/models",
+      model: aiSettings.model,
+      supportsResponseFormat: aiSettings.forceJsonOutput,
+      supportsThinking: aiSettings.enableThinking,
+      thinkingParameter: "generic",
+      tokenParameter: "max_tokens",
+      contentPath: "choices[0].message.content",
+      reasoningPath: "choices[0].message.reasoning_content",
+      temperatureMin: 0,
+      temperatureMax: 2,
+      maxOutputTokens: aiSettings.maxTokens,
+      extraBodyJson: aiSettings.extraBodyJson ?? null,
+      apiKeyConfigured: false
+    };
+    updateAISettings({
+      preset: "custom_openai_compatible",
+      provider: "openai_compatible",
+      customProfiles: [...(aiSettings.customProfiles ?? []), profile],
+      activeCustomProfileId: id,
+      apiKey: "",
+      apiKeyConfigured: false,
+      apiKeyAction: "preserve"
+    });
+  }
+
+  function removeCustomProfile() {
+    if (!aiSettings?.activeCustomProfileId) return;
+    const profiles = (aiSettings.customProfiles ?? []).filter((profile) => profile.id !== aiSettings.activeCustomProfileId);
+    updateAISettings({
+      customProfiles: profiles,
+      activeCustomProfileId: profiles[0]?.id ?? null,
+      enabled: profiles.length > 0 ? aiSettings.enabled : false,
+      ...(profiles[0] ? {
+        baseUrl: profiles[0].baseUrl,
+        chatPath: profiles[0].chatPath,
+        modelsPath: profiles[0].modelsPath ?? null,
+        model: profiles[0].model,
+        apiKey: "",
+        apiKeyConfigured: profiles[0].apiKeyConfigured ?? false,
+        apiKeyAction: "preserve" as const
+      } : {})
+    });
+  }
+
+  function updateActiveCustomProfile(partial: Partial<AICustomProviderProfile>) {
+    if (!aiSettings?.activeCustomProfileId) return;
+    updateAISettings({
+      customProfiles: (aiSettings.customProfiles ?? []).map((profile) => profile.id === aiSettings.activeCustomProfileId ? { ...profile, ...partial } : profile)
+    });
+  }
+
+  function selectUserProvider(value: AIProviderPresetId | "openai_compatible" | "custom") {
+    if (value !== "openai_compatible") {
       selectAIPreset(value === "custom" ? "custom_openai_compatible" : value);
       return;
     }
@@ -673,6 +762,56 @@ export function SettingsView() {
       });
     } finally {
       setIsTestingAIConnection(false);
+    }
+  }
+
+  async function refreshAIModels() {
+    if (!aiSettings || isDiscoveringAIModels) return;
+    setIsDiscoveringAIModels(true);
+    try {
+      const models = await tauriApi.listAIModels(normalizeAISettingsForSave(aiSettings));
+      setAiModels(models);
+      setAiConnectionStatus({ tone: "success", role: "status", message: t("aiModelsLoaded").replace("{count}", String(models.length)) });
+    } catch (error) {
+      setAiConnectionStatus({
+        tone: "warning",
+        role: "alert",
+        message: sanitizeAIStatusMessage(`${t("aiModelDiscoveryFailed")}：${localizedStableError(error, t)}`, aiSettings.apiKey)
+      });
+    } finally {
+      setIsDiscoveringAIModels(false);
+    }
+  }
+
+  async function refreshAITraces() {
+    if (isLoadingAITraces) return;
+    setIsLoadingAITraces(true);
+    try {
+      setAiTraces(await tauriApi.listAIRequestTraces());
+    } catch (error) {
+      setAiConnectionStatus({ tone: "warning", role: "alert", message: `${t("aiInspectorLoadFailed")}：${readableError(error)}` });
+    } finally {
+      setIsLoadingAITraces(false);
+    }
+  }
+
+  async function clearAITraces() {
+    await tauriApi.clearAIRequestTraces();
+    setAiTraces([]);
+  }
+
+  async function exportAITraces() {
+    try {
+      const json = await tauriApi.exportAIRequestTraces();
+      const blob = new Blob([json], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `zen-canvas-ai-traces-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setAiConnectionStatus({ tone: "warning", role: "alert", message: `${t("aiInspectorExportFailed")}：${readableError(error)}` });
     }
   }
 
@@ -1100,10 +1239,13 @@ export function SettingsView() {
                 value={userProviderValue(aiSettings)}
                 disabled={aiDependentControlsDisabled}
                 options={[
-                  { value: "deepseek", label: t("aiProviderDeepSeek") },
-                  { value: "openai_compatible", label: t("aiProviderOpenaiCompatible") },
-                  { value: "ollama", label: t("aiProviderOllama") },
-                  { value: "custom", label: t("aiProviderCustom") }
+                  { value: "deepseek" as const, label: t("aiProviderDeepSeek") },
+                  { value: "openai_compatible" as const, label: t("aiProviderOpenaiCompatible") },
+                  ...aiPresets
+                    .filter((preset) => !["deepseek", "ollama", "custom_openai_compatible"].includes(preset.id))
+                    .map((preset) => ({ value: preset.id, label: preset.label })),
+                  { value: "ollama" as const, label: t("aiProviderOllama") },
+                  { value: "custom" as const, label: t("aiProviderCustom") }
                 ]}
                 onChange={selectUserProvider}
               />
@@ -1155,7 +1297,48 @@ export function SettingsView() {
                           ) : null}
                         </div>
                       )}
-                      <SettingsTextField id="settings-ai-model" label={t("aiModelLabel")} value={aiSettings.model} maxLength={200} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ model: value })} />
+                      <SettingsTextField id="settings-ai-model" label={t("aiModelLabel")} value={aiSettings.model} maxLength={200} list="settings-ai-model-options" disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ model: value })} />
+                      {aiSettings.preset === "custom_openai_compatible" ? (
+                        <div className="grid min-w-0 gap-2 min-[1180px]:col-span-2">
+                          <SettingsSelect
+                            id="settings-ai-custom-profile"
+                            label={t("aiCustomProfileLabel")}
+                            description={t("aiCustomProfileDesc")}
+                            value={aiSettings.activeCustomProfileId ?? ""}
+                            options={[
+                              ...(aiSettings.customProfiles ?? []).map((profile) => ({ value: profile.id, label: `${profile.name}${profile.apiKeyConfigured ? " · ✓" : ""}` })),
+                              { value: "", label: t("aiCustomProfileNone") }
+                            ]}
+                            onChange={(value) => { if (value) selectCustomProfile(value); }}
+                          />
+                          <div className="flex flex-wrap gap-2">
+                            <button className={buttonSecondary} type="button" onClick={createCustomProfile} disabled={aiDependentControlsDisabled}>{t("aiCreateCustomProfile")}</button>
+                            <button className={buttonSecondary} type="button" onClick={removeCustomProfile} disabled={aiDependentControlsDisabled || !aiSettings.activeCustomProfileId}>{t("aiDeleteCustomProfile")}</button>
+                          </div>
+                          {aiSettings.activeCustomProfileId ? (
+                            <SettingsTextField
+                              id="settings-ai-custom-profile-name"
+                              label={t("aiCustomProfileNameLabel")}
+                              value={aiSettings.customProfiles?.find((profile) => profile.id === aiSettings.activeCustomProfileId)?.name ?? ""}
+                              maxLength={120}
+                              disabled={aiDependentControlsDisabled}
+                              onChange={(value) => updateActiveCustomProfile({ name: value })}
+                            />
+                          ) : null}
+                        </div>
+                      ) : null}
+                      <datalist id="settings-ai-model-options">
+                        {[
+                          ...(aiPresets.find((preset) => preset.id === aiSettings.preset)?.suggestedModels ?? []),
+                          ...aiModels.map((model) => model.id)
+                        ].filter((model, index, models) => model && models.indexOf(model) === index).map((model) => <option key={model} value={model} />)}
+                      </datalist>
+                      <SettingsTextField id="settings-ai-models-path" label={t("aiModelsPathLabel")} description={t("aiModelsPathDesc")} value={aiSettings.modelsPath ?? ""} maxLength={512} disabled={aiDependentControlsDisabled} onChange={(value) => updateAISettings({ modelsPath: value || null })} />
+                      <div className="flex items-end">
+                        <button className={buttonSecondary} type="button" onClick={() => void refreshAIModels()} disabled={aiDependentControlsDisabled || isDiscoveringAIModels}>
+                          {isDiscoveringAIModels ? t("aiDiscoveringModels") : t("aiRefreshModels")}
+                        </button>
+                      </div>
                     </div>
                   </SettingsControlGroup>
                   {developerMode ? (<>
@@ -1182,6 +1365,61 @@ export function SettingsView() {
                     </label>
                   </SettingsControlGroup>
                   </>) : null}
+                  <SettingsControlGroup title={t("aiDiagnosticsTitle")} description={t("aiDiagnosticsDesc")}>
+                    <SettingsSelect
+                      id="settings-ai-diagnostics-mode"
+                      label={t("aiDiagnosticsModeLabel")}
+                      description={t("aiDiagnosticsModeDesc")}
+                      value={aiSettings.diagnosticsMode ?? "off"}
+                      options={[
+                        { value: "off" as const, label: t("aiDiagnosticsOff") },
+                        { value: "failures" as const, label: t("aiDiagnosticsFailures") },
+                        { value: "all" as const, label: t("aiDiagnosticsAll") }
+                      ]}
+                      onChange={(value) => updateAISettings({ diagnosticsMode: value })}
+                    />
+                    <SettingsInlineMessage tone="info">{t("aiDiagnosticsPathWarning")}</SettingsInlineMessage>
+                    <div className="flex flex-wrap gap-2">
+                      <button className={buttonSecondary} type="button" onClick={() => void refreshAITraces()} disabled={isLoadingAITraces}>
+                        {isLoadingAITraces ? t("aiInspectorLoading") : t("aiOpenRecentRequests")}
+                      </button>
+                      <button className={buttonSecondary} type="button" onClick={() => void exportAITraces()} disabled={isLoadingAITraces}>
+                        {t("aiExportDiagnostics")}
+                      </button>
+                      <button className={buttonSecondary} type="button" onClick={() => void clearAITraces()} disabled={isLoadingAITraces || aiTraces.length === 0}>
+                        {t("aiClearDiagnostics")}
+                      </button>
+                    </div>
+                    <SettingsDisclosure
+                      title={t("aiRequestInspectorTitle")}
+                      description={t("aiRequestInspectorDesc")}
+                      onOpenChange={(open) => { if (open) void refreshAITraces(); }}
+                    >
+                      {aiTraces.length === 0 ? <span className={quietText}>{t("aiDiagnosticsEmpty")}</span> : (
+                        <div className="grid min-w-0 gap-3">
+                          {aiTraces.slice().reverse().map((trace) => (
+                            <details key={trace.traceId} className="grid min-w-0 gap-2 rounded-lg border border-[var(--zc-divider)] p-3">
+                              <summary className="cursor-pointer text-xs font-medium text-[var(--zc-text-primary)]">
+                                {trace.startedAt} · {trace.providerLabel} · {trace.model} · {trace.parseStage}
+                                {trace.errorCode ? ` · ${trace.errorCode}` : ""}
+                              </summary>
+                              <div className="grid min-w-0 gap-2 text-xs text-[var(--zc-text-secondary)]">
+                                <div className="grid gap-1">
+                                  <span>{t("aiTraceOverview")}: {trace.operation} · HTTP {trace.response.httpStatus ?? "—"} · {trace.elapsedMs}ms · {trace.traceId}</span>
+                                  <span>{t("aiTraceRequest")}: {trace.request.urlHost}{trace.request.path} · response_format={trace.request.responseFormat ?? "—"} · thinking={trace.request.thinkingMode ?? "—"} · max_tokens={trace.request.maxTokens ?? "—"}</span>
+                                </div>
+                                <AITraceValueBlock label={t("aiTraceRaw")} value={trace.rawProviderResponse} />
+                                <AITraceValueBlock label={t("aiTraceExtracted")} value={trace.extractedContent} />
+                                <AITraceValueBlock label={t("aiTraceCleaned")} value={trace.cleanedJsonText} />
+                                <AITraceValueBlock label={t("aiTraceParsed")} value={trace.parsedJson} />
+                                <AITraceValueBlock label={t("aiTraceErrorRetry")} value={trace.errorMessage ?? trace.errorCode} />
+                              </div>
+                            </details>
+                          ))}
+                        </div>
+                      )}
+                    </SettingsDisclosure>
+                  </SettingsControlGroup>
                   {aiSettings.preset === "deepseek" && ["deepseek-chat", "deepseek-reasoner"].includes(aiSettings.model.trim()) ? <SettingsInlineMessage tone="warning">{t("aiOldModelWarning")}</SettingsInlineMessage> : null}
                   {(aiSettings.provider === "ollama" || aiSettings.model.toLowerCase().includes("qwen3")) ? <SettingsInlineMessage tone="warning">{t("aiQwenWarning")}</SettingsInlineMessage> : null}
                   <div className="flex flex-wrap justify-end gap-2">
@@ -1310,6 +1548,16 @@ function DebugPreviewBlock({
   );
 }
 
+function AITraceValueBlock({ label, value }: { label: string; value: unknown }) {
+  const displayValue = typeof value === "string" ? value : value == null ? "—" : JSON.stringify(value, null, 2);
+  return (
+    <label className="grid min-w-0 gap-1">
+      <span className="font-medium text-[var(--zc-text-primary)]">{label}</span>
+      <pre className={cn(settingsField, "max-h-56 overflow-auto whitespace-pre-wrap break-words p-2 text-[11px] leading-5")}>{displayValue}</pre>
+    </label>
+  );
+}
+
 function defaultAISettingsFromPreset(preset?: AIProviderPreset): AISettings | null {
   if (!preset) return null;
   return {
@@ -1318,11 +1566,12 @@ function defaultAISettingsFromPreset(preset?: AIProviderPreset): AISettings | nu
     preset: preset.id,
     baseUrl: preset.defaultBaseUrl,
     chatPath: preset.defaultChatPath || "/chat/completions",
+    modelsPath: preset.modelsPath ?? null,
     apiKey: "",
     apiKeyAction: "preserve",
     model: preset.defaultModel,
     temperature: 0,
-    maxTokens: 1024,
+    maxTokens: 8192,
     batchSize: 10,
     classificationConcurrency: 2,
     timeoutSeconds: 120,
@@ -1330,19 +1579,38 @@ function defaultAISettingsFromPreset(preset?: AIProviderPreset): AISettings | nu
     sendParentPath: true,
     classificationMode: "ai_first",
     cleanupAiEnabled: true,
-    forceJsonOutput: false,
+    forceJsonOutput: true,
     enableThinking: false,
     reasoningEffort: null,
-    extraBodyJson: null
+    extraBodyJson: null,
+    diagnosticsMode: "off"
   };
 }
 
 function normalizeAISettingsForSave(settings: AISettings): AISettings {
   const chatPath = settings.chatPath.trim();
+  const modelsPath = settings.modelsPath?.trim() || "";
+  const baseUrl = settings.baseUrl.trim().replace(/\/+$/g, "");
+  const normalizedChatPath = chatPath ? `/${chatPath.replace(/^[/]+/g, "")}` : "/chat/completions";
+  const normalizedModelsPath = modelsPath ? `/${modelsPath.replace(/^[/]+/g, "")}` : null;
+  const customProfiles = (settings.customProfiles ?? []).map((profile) => profile.id === settings.activeCustomProfileId
+    ? {
+        ...profile,
+        baseUrl,
+        chatPath: normalizedChatPath,
+        modelsPath: normalizedModelsPath,
+        model: settings.model.trim(),
+        supportsResponseFormat: settings.forceJsonOutput,
+        supportsThinking: settings.enableThinking,
+        maxOutputTokens: Math.min(32768, Math.max(512, Math.floor(settings.maxTokens || 512))),
+        extraBodyJson: settings.extraBodyJson?.trim() || null
+      }
+    : profile);
   return {
     ...settings,
-    baseUrl: settings.baseUrl.trim().replace(/\/+$/g, ""),
-    chatPath: chatPath ? `/${chatPath.replace(/^\/+/g, "")}` : "/chat/completions",
+    baseUrl,
+    chatPath: normalizedChatPath,
+    modelsPath: normalizedModelsPath,
     apiKey: settings.apiKey.trim(),
     model: settings.model.trim(),
     batchSize: Math.min(100, Math.max(1, Math.floor(settings.batchSize || 1))),
@@ -1352,7 +1620,10 @@ function normalizeAISettingsForSave(settings: AISettings): AISettings {
     timeoutSeconds: Math.min(600, Math.max(1, Math.floor(settings.timeoutSeconds || 1))),
     maxTokens: Math.min(32768, Math.max(512, Math.floor(settings.maxTokens || 512))),
     reasoningEffort: settings.reasoningEffort?.trim() || null,
-    extraBodyJson: settings.extraBodyJson?.trim() || null
+    extraBodyJson: settings.extraBodyJson?.trim() || null,
+    diagnosticsMode: settings.diagnosticsMode ?? "off",
+    customProfiles,
+    activeCustomProfileId: settings.activeCustomProfileId ?? null
   };
 }
 

@@ -1,4 +1,4 @@
-use std::{sync::Mutex, time::Instant};
+use std::{collections::HashMap, sync::Mutex, time::Instant};
 
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,11 @@ use super::{
     openai_compatible::OpenAICompatibleProvider,
     presets::{all_provider_presets, provider_preset, AIProviderPreset},
     provider::AIProvider,
-    schema::{AIConnectionTestResult, AIProviderKind, AIProviderPresetId},
+    schema::{
+        AIConnectionTestResult, AICustomProviderProfile, AIModelInfo, AIProviderKind,
+        AIProviderPresetId,
+    },
+    trace::AITraceMode,
 };
 use crate::{
     db::{Database, DbError},
@@ -38,6 +42,8 @@ pub struct AISettings {
     pub preset: AIProviderPresetId,
     pub base_url: String,
     pub chat_path: String,
+    #[serde(default)]
+    pub models_path: Option<String>,
     pub api_key: String,
     #[serde(default, skip_serializing)]
     pub api_key_action: ApiKeyAction,
@@ -57,6 +63,12 @@ pub struct AISettings {
     pub enable_thinking: bool,
     pub reasoning_effort: Option<String>,
     pub extra_body_json: Option<String>,
+    #[serde(default)]
+    pub diagnostics_mode: AITraceMode,
+    #[serde(default)]
+    pub custom_profiles: Vec<AICustomProviderProfile>,
+    #[serde(default)]
+    pub active_custom_profile_id: Option<String>,
 }
 
 impl Default for AISettings {
@@ -67,12 +79,13 @@ impl Default for AISettings {
             preset: AIProviderPresetId::DeepSeek,
             base_url: "https://api.deepseek.com".to_string(),
             chat_path: "/chat/completions".to_string(),
+            models_path: Some("/models".to_string()),
             api_key: String::new(),
             api_key_action: ApiKeyAction::Preserve,
             api_key_configured: false,
             model: "deepseek-v4-flash".to_string(),
             temperature: 0.0,
-            max_tokens: 1024,
+            max_tokens: 8192,
             batch_size: 10,
             classification_concurrency: 2,
             timeout_seconds: 120,
@@ -80,10 +93,13 @@ impl Default for AISettings {
             send_parent_path: true,
             classification_mode: "ai_first".to_string(),
             cleanup_ai_enabled: true,
-            force_json_output: false,
+            force_json_output: true,
             enable_thinking: false,
             reasoning_effort: None,
             extra_body_json: None,
+            diagnostics_mode: AITraceMode::Off,
+            custom_profiles: Vec::new(),
+            active_custom_profile_id: None,
         }
     }
 }
@@ -122,6 +138,18 @@ pub fn get_ai_settings_with_store(
         .get()
         .map_err(DbError::Validation)?
         .unwrap_or_default();
+    for profile in &mut settings.custom_profiles {
+        profile.api_key_configured = credentials
+            .get_profile(&profile.id)
+            .map_err(DbError::Validation)?
+            .is_some();
+    }
+    if let Some(profile_id) = active_profile_id(&settings) {
+        settings.api_key = credentials
+            .get_profile(profile_id)
+            .map_err(DbError::Validation)?
+            .unwrap_or_default();
+    }
     settings.api_key_action = ApiKeyAction::Preserve;
     settings.api_key_configured = !settings.api_key.is_empty();
     Ok(settings)
@@ -142,9 +170,11 @@ pub fn save_ai_settings_with_store(
     let _transaction_guard = AI_SETTINGS_SAVE_LOCK
         .lock()
         .map_err(|_| DbError::Validation("credential_transaction_lock_poisoned".to_string()))?;
-    validate_ai_settings(settings, !cfg!(debug_assertions)).map_err(DbError::Validation)?;
+    let previous_profile_ids = stored_custom_profile_ids(db)?;
     let mut normalized = normalize_ai_settings(settings.clone());
-    let previous_key = credentials.get().map_err(DbError::Validation)?;
+    validate_ai_settings(&normalized, !cfg!(debug_assertions)).map_err(DbError::Validation)?;
+    let profile_id = active_profile_id(&normalized).map(ToString::to_string);
+    let previous_key = credential_get(credentials, profile_id.as_deref())?;
     let mut credential_changed = false;
     match normalized.api_key_action {
         ApiKeyAction::Preserve => {
@@ -156,20 +186,24 @@ pub fn save_ai_settings_with_store(
                     "Replacing the AI API key requires a non-empty value.".to_string(),
                 ));
             }
-            credentials
-                .set(&normalized.api_key)
-                .map_err(DbError::Validation)?;
+            credential_set(credentials, profile_id.as_deref(), &normalized.api_key)?;
             credential_changed = true;
             verify_credential_change(
                 credentials,
+                profile_id.as_deref(),
                 Some(normalized.api_key.as_str()),
                 previous_key.as_deref(),
             )?;
         }
         ApiKeyAction::Clear => {
-            credentials.delete().map_err(DbError::Validation)?;
+            credential_delete(credentials, profile_id.as_deref())?;
             credential_changed = true;
-            verify_credential_change(credentials, None, previous_key.as_deref())?;
+            verify_credential_change(
+                credentials,
+                profile_id.as_deref(),
+                None,
+                previous_key.as_deref(),
+            )?;
             normalized.api_key.clear();
         }
     }
@@ -178,7 +212,7 @@ pub fn save_ai_settings_with_store(
         && normalized.api_key.is_empty()
     {
         if credential_changed {
-            rollback_credential_change(credentials, previous_key.as_deref())
+            rollback_credential_change(credentials, profile_id.as_deref(), previous_key.as_deref())
                 .map_err(DbError::Validation)?;
         }
         return Err(DbError::Validation(
@@ -187,30 +221,50 @@ pub fn save_ai_settings_with_store(
     }
     normalized.api_key_action = ApiKeyAction::Preserve;
     normalized.api_key_configured = !normalized.api_key.is_empty();
+    let active_profile_id = active_profile_id(&normalized).map(ToString::to_string);
+    for profile in &mut normalized.custom_profiles {
+        profile.api_key_configured = active_profile_id
+            .as_deref()
+            .map(|active| active == profile.id)
+            .unwrap_or(false)
+            && normalized.api_key_configured;
+    }
     if let Err(error) = persist_ai_settings_without_secret(db, &normalized) {
         if credential_changed {
-            rollback_credential_change(credentials, previous_key.as_deref()).map_err(
-                |rollback| {
+            rollback_credential_change(credentials, profile_id.as_deref(), previous_key.as_deref())
+                .map_err(|rollback| {
                     DbError::Validation(format!(
                         "AI settings save failed: {error}; credential rollback failed: {rollback}"
                     ))
-                },
-            )?;
+                })?;
         }
         return Err(error);
+    }
+    let next_profile_ids = normalized
+        .custom_profiles
+        .iter()
+        .map(|profile| profile.id.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    for profile_id in previous_profile_ids {
+        if !next_profile_ids.contains(profile_id.as_str()) {
+            credentials
+                .delete_profile(&profile_id)
+                .map_err(DbError::Validation)?;
+        }
     }
     Ok(normalized)
 }
 
 fn verify_credential_change(
     credentials: &impl CredentialStore,
+    profile_id: Option<&str>,
     expected: Option<&str>,
     previous: Option<&str>,
 ) -> Result<(), DbError> {
-    match credentials.get() {
+    match credential_get(credentials, profile_id) {
         Ok(actual) if actual.as_deref() == expected => Ok(()),
         Ok(_) => {
-            rollback_credential_change(credentials, previous).map_err(|rollback| {
+            rollback_credential_change(credentials, profile_id, previous).map_err(|rollback| {
                 DbError::Validation(format!(
                     "credential read-back verification failed; credential rollback failed: {rollback}"
                 ))
@@ -220,7 +274,7 @@ fn verify_credential_change(
             ))
         }
         Err(read_error) => {
-            rollback_credential_change(credentials, previous).map_err(|rollback| {
+            rollback_credential_change(credentials, profile_id, previous).map_err(|rollback| {
                 DbError::Validation(format!(
                     "credential read-back failed: {read_error}; credential rollback failed: {rollback}"
                 ))
@@ -234,18 +288,81 @@ fn verify_credential_change(
 
 fn rollback_credential_change(
     credentials: &impl CredentialStore,
+    profile_id: Option<&str>,
     previous: Option<&str>,
 ) -> Result<(), String> {
     match previous {
-        Some(value) => credentials.set(value),
-        None => credentials.delete(),
+        Some(value) => {
+            credential_set(credentials, profile_id, value).map_err(|error| error.to_string())
+        }
+        None => credential_delete(credentials, profile_id).map_err(|error| error.to_string()),
     }
+}
+
+fn credential_get(
+    credentials: &impl CredentialStore,
+    profile_id: Option<&str>,
+) -> Result<Option<String>, DbError> {
+    let value = match profile_id {
+        Some(profile_id) => credentials.get_profile(profile_id),
+        None => credentials.get(),
+    };
+    value.map_err(DbError::Validation)
+}
+
+fn credential_set(
+    credentials: &impl CredentialStore,
+    profile_id: Option<&str>,
+    value: &str,
+) -> Result<(), DbError> {
+    let result = match profile_id {
+        Some(profile_id) => credentials.set_profile(profile_id, value),
+        None => credentials.set(value),
+    };
+    result.map_err(DbError::Validation)
+}
+
+fn credential_delete(
+    credentials: &impl CredentialStore,
+    profile_id: Option<&str>,
+) -> Result<(), DbError> {
+    let result = match profile_id {
+        Some(profile_id) => credentials.delete_profile(profile_id),
+        None => credentials.delete(),
+    };
+    result.map_err(DbError::Validation)
+}
+
+fn active_profile_id(settings: &AISettings) -> Option<&str> {
+    if settings.preset != AIProviderPresetId::CustomOpenAICompatible {
+        return None;
+    }
+    settings
+        .active_custom_profile_id
+        .as_deref()
+        .filter(|profile_id| {
+            settings
+                .custom_profiles
+                .iter()
+                .any(|profile| profile.id == *profile_id)
+        })
+}
+
+fn is_valid_profile_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 80
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
 }
 
 fn persist_ai_settings_without_secret(db: &Database, settings: &AISettings) -> Result<(), DbError> {
     let mut persisted = settings.clone();
     persisted.api_key.clear();
     persisted.api_key_configured = false;
+    for profile in &mut persisted.custom_profiles {
+        profile.api_key_configured = false;
+    }
     let conn = db.conn()?;
     let settings_json = serde_json::to_string(&persisted)?;
     conn.execute(
@@ -259,21 +376,56 @@ fn persist_ai_settings_without_secret(db: &Database, settings: &AISettings) -> R
     Ok(())
 }
 
+fn stored_custom_profile_ids(db: &Database) -> Result<std::collections::HashSet<String>, DbError> {
+    let conn = db.conn()?;
+    let value = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = ?1",
+            params![AI_SETTINGS_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let Some(value) = value else {
+        return Ok(std::collections::HashSet::new());
+    };
+    let settings = serde_json::from_str::<AISettings>(&value)?;
+    Ok(settings
+        .custom_profiles
+        .into_iter()
+        .map(|profile| profile.id)
+        .collect())
+}
+
 pub trait CredentialStore {
     fn set(&self, value: &str) -> Result<(), String>;
     fn get(&self) -> Result<Option<String>, String>;
     fn delete(&self) -> Result<(), String>;
+
+    fn set_profile(&self, _profile_id: &str, value: &str) -> Result<(), String> {
+        self.set(value)
+    }
+
+    fn get_profile(&self, _profile_id: &str) -> Result<Option<String>, String> {
+        self.get()
+    }
+
+    fn delete_profile(&self, _profile_id: &str) -> Result<(), String> {
+        self.delete()
+    }
 }
 
 pub struct SystemCredentialStore;
 
 #[derive(Default)]
-pub struct InMemoryCredentialStore(Mutex<Option<String>>);
+pub struct InMemoryCredentialStore {
+    main: Mutex<Option<String>>,
+    profiles: Mutex<HashMap<String, String>>,
+}
 
 impl CredentialStore for InMemoryCredentialStore {
     fn set(&self, value: &str) -> Result<(), String> {
         *self
-            .0
+            .main
             .lock()
             .map_err(|_| "in-memory credential store is unavailable".to_string())? =
             Some(value.trim().to_string());
@@ -281,7 +433,7 @@ impl CredentialStore for InMemoryCredentialStore {
     }
 
     fn get(&self) -> Result<Option<String>, String> {
-        self.0
+        self.main
             .lock()
             .map(|value| value.clone())
             .map_err(|_| "in-memory credential store is unavailable".to_string())
@@ -289,9 +441,32 @@ impl CredentialStore for InMemoryCredentialStore {
 
     fn delete(&self) -> Result<(), String> {
         *self
-            .0
+            .main
             .lock()
             .map_err(|_| "in-memory credential store is unavailable".to_string())? = None;
+        Ok(())
+    }
+
+    fn set_profile(&self, profile_id: &str, value: &str) -> Result<(), String> {
+        self.profiles
+            .lock()
+            .map_err(|_| "in-memory credential store is unavailable".to_string())?
+            .insert(profile_id.to_string(), value.trim().to_string());
+        Ok(())
+    }
+
+    fn get_profile(&self, profile_id: &str) -> Result<Option<String>, String> {
+        self.profiles
+            .lock()
+            .map(|values| values.get(profile_id).cloned())
+            .map_err(|_| "in-memory credential store is unavailable".to_string())
+    }
+
+    fn delete_profile(&self, profile_id: &str) -> Result<(), String> {
+        self.profiles
+            .lock()
+            .map_err(|_| "in-memory credential store is unavailable".to_string())?
+            .remove(profile_id);
         Ok(())
     }
 }
@@ -299,6 +474,17 @@ impl CredentialStore for InMemoryCredentialStore {
 fn credential_entry() -> Result<keyring::Entry, String> {
     keyring::Entry::new(AI_CREDENTIAL_SERVICE, AI_CREDENTIAL_USER)
         .map_err(|error| format!("failed to open system credential store: {error}"))
+}
+
+fn profile_credential_entry(profile_id: &str) -> Result<keyring::Entry, String> {
+    if !is_valid_profile_id(profile_id) {
+        return Err("AI custom provider profile ID is invalid.".to_string());
+    }
+    keyring::Entry::new(
+        "com.startlan.zencanvas.ai-profile",
+        &format!("ai-api-key-{profile_id}"),
+    )
+    .map_err(|error| format!("failed to open custom provider credential store: {error}"))
 }
 
 impl CredentialStore for SystemCredentialStore {
@@ -324,6 +510,27 @@ impl CredentialStore for SystemCredentialStore {
             )),
         }
     }
+
+    fn set_profile(&self, profile_id: &str, value: &str) -> Result<(), String> {
+        profile_credential_entry(profile_id)?
+            .set_password(value.trim())
+            .map_err(|error| format!("failed to save custom provider API key: {error}"))
+    }
+
+    fn get_profile(&self, profile_id: &str) -> Result<Option<String>, String> {
+        match profile_credential_entry(profile_id)?.get_password() {
+            Ok(value) => Ok(Some(value)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(format!("failed to read custom provider API key: {error}")),
+        }
+    }
+
+    fn delete_profile(&self, profile_id: &str) -> Result<(), String> {
+        match profile_credential_entry(profile_id)?.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(error) => Err(format!("failed to delete custom provider API key: {error}")),
+        }
+    }
 }
 
 fn public_ai_settings(mut settings: AISettings) -> AISettings {
@@ -334,6 +541,28 @@ fn public_ai_settings(mut settings: AISettings) -> AISettings {
 }
 
 pub fn normalize_ai_settings(mut settings: AISettings) -> AISettings {
+    if settings.preset == AIProviderPresetId::CustomOpenAICompatible {
+        if let Some(profile) = settings
+            .active_custom_profile_id
+            .as_deref()
+            .and_then(|profile_id| {
+                settings
+                    .custom_profiles
+                    .iter()
+                    .find(|profile| profile.id == profile_id)
+            })
+            .cloned()
+        {
+            settings.base_url = profile.base_url;
+            settings.chat_path = profile.chat_path;
+            settings.models_path = profile.models_path;
+            settings.model = profile.model;
+            settings.force_json_output = profile.supports_response_format;
+            settings.enable_thinking = profile.supports_thinking;
+            settings.max_tokens = profile.max_output_tokens;
+            settings.extra_body_json = profile.extra_body_json;
+        }
+    }
     if let Some(preset) = provider_preset(settings.preset) {
         settings.provider = preset.provider_kind;
         if settings.base_url.trim().is_empty() && !preset.default_base_url.is_empty() {
@@ -341,6 +570,15 @@ pub fn normalize_ai_settings(mut settings: AISettings) -> AISettings {
         }
         if settings.chat_path.trim().is_empty() {
             settings.chat_path = preset.default_chat_path.to_string();
+        }
+        if settings
+            .models_path
+            .as_deref()
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+        {
+            settings.models_path = preset.models_path.map(ToString::to_string);
         }
         if settings.model.trim().is_empty() && !preset.default_model.is_empty() {
             settings.model = preset.default_model.to_string();
@@ -352,6 +590,11 @@ pub fn normalize_ai_settings(mut settings: AISettings) -> AISettings {
 
     settings.base_url = settings.base_url.trim().trim_end_matches('/').to_string();
     settings.chat_path = normalize_chat_path(&settings.chat_path);
+    settings.models_path = settings
+        .models_path
+        .as_deref()
+        .map(normalize_optional_path)
+        .filter(|value| !value.is_empty());
     settings.api_key = settings.api_key.trim().to_string();
     settings.model = settings.model.trim().to_string();
     settings.batch_size = settings.batch_size.clamp(1, 100);
@@ -378,6 +621,51 @@ pub fn normalize_ai_settings(mut settings: AISettings) -> AISettings {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToString::to_string);
+    let mut seen_profile_ids = std::collections::HashSet::new();
+    settings.custom_profiles = settings
+        .custom_profiles
+        .into_iter()
+        .filter_map(|mut profile| {
+            profile.id = profile.id.trim().to_string();
+            profile.name = profile.name.trim().to_string();
+            if !is_valid_profile_id(&profile.id) || !seen_profile_ids.insert(profile.id.clone()) {
+                return None;
+            }
+            profile.base_url = profile.base_url.trim().trim_end_matches('/').to_string();
+            profile.chat_path = normalize_chat_path(&profile.chat_path);
+            profile.models_path = profile
+                .models_path
+                .as_deref()
+                .map(normalize_optional_path)
+                .filter(|value| !value.is_empty());
+            profile.model = profile.model.trim().to_string();
+            profile.thinking_parameter = profile.thinking_parameter.trim().to_string();
+            profile.token_parameter = profile.token_parameter.trim().to_string();
+            profile.content_path = profile.content_path.trim().to_string();
+            profile.reasoning_path = profile.reasoning_path.trim().to_string();
+            profile.extra_body_json = profile
+                .extra_body_json
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string);
+            Some(profile)
+        })
+        .take(20)
+        .collect();
+    if !settings
+        .active_custom_profile_id
+        .as_deref()
+        .map(|profile_id| {
+            settings
+                .custom_profiles
+                .iter()
+                .any(|profile| profile.id == profile_id)
+        })
+        .unwrap_or(false)
+    {
+        settings.active_custom_profile_id = None;
+    }
     settings
 }
 
@@ -403,8 +691,63 @@ pub fn validate_ai_settings(settings: &AISettings, release_mode: bool) -> Result
         return Err("AI temperature must be between 0 and 2.".to_string());
     }
     validate_text_limit("model", &settings.model, 200)?;
+    if settings.custom_profiles.len() > 20 {
+        return Err("AI custom provider profiles cannot exceed 20 entries.".to_string());
+    }
+    let mut profile_ids = std::collections::HashSet::new();
+    for profile in &settings.custom_profiles {
+        if !is_valid_profile_id(&profile.id) || !profile_ids.insert(&profile.id) {
+            return Err("AI custom provider profile IDs must be unique ASCII names.".to_string());
+        }
+        validate_text_limit("custom provider profile name", &profile.name, 120)?;
+        validate_text_limit("custom provider profile base URL", &profile.base_url, 2_048)?;
+        validate_text_limit("custom provider profile chat path", &profile.chat_path, 512)?;
+        validate_text_limit("custom provider profile model", &profile.model, 200)?;
+        if !profile.temperature_min.is_finite()
+            || !profile.temperature_max.is_finite()
+            || profile.temperature_min < 0.0
+            || profile.temperature_max > 2.0
+            || profile.temperature_min > profile.temperature_max
+        {
+            return Err("Custom provider temperature range must stay within 0 to 2.".to_string());
+        }
+        if !(1..=32_768).contains(&profile.max_output_tokens) {
+            return Err(
+                "Custom provider max output tokens must be between 1 and 32768.".to_string(),
+            );
+        }
+        validate_provider_url(
+            &AISettings {
+                base_url: profile.base_url.clone(),
+                chat_path: profile.chat_path.clone(),
+                ..settings.clone()
+            },
+            release_mode,
+        )?;
+        validate_extra_body_json(profile.extra_body_json.as_deref())?;
+    }
+    if let Some(active_profile_id) = settings.active_custom_profile_id.as_deref() {
+        if settings.preset != AIProviderPresetId::CustomOpenAICompatible
+            || !settings
+                .custom_profiles
+                .iter()
+                .any(|profile| profile.id == active_profile_id)
+        {
+            return Err("Active custom provider profile is not available.".to_string());
+        }
+    }
     validate_text_limit("base URL", &settings.base_url, 2_048)?;
     validate_text_limit("chat path", &settings.chat_path, 512)?;
+    if let Some(models_path) = settings.models_path.as_deref() {
+        validate_text_limit("models path", models_path, 512)?;
+        if models_path.starts_with("//")
+            || models_path.contains("://")
+            || models_path.contains('\\')
+            || models_path.trim().is_empty()
+        {
+            return Err("AI models path must be a relative URL path.".to_string());
+        }
+    }
     if let Some(reasoning_effort) = settings.reasoning_effort.as_deref() {
         validate_text_limit("reasoning effort", reasoning_effort, 64)?;
     }
@@ -510,8 +853,8 @@ fn json_depth(value: &serde_json::Value) -> usize {
 pub fn test_ai_provider_connection_for_settings(
     settings: AISettings,
 ) -> Result<AIConnectionTestResult, String> {
-    validate_ai_settings(&settings, !cfg!(debug_assertions))?;
     let settings = normalize_ai_settings(settings);
+    validate_ai_settings(&settings, !cfg!(debug_assertions))?;
     let started = Instant::now();
 
     let mut result = match settings.provider {
@@ -523,6 +866,46 @@ pub fn test_ai_provider_connection_for_settings(
     .map_err(|error| sanitize_ai_error(error.to_string(), &settings.api_key))?;
     result.elapsed_ms = started.elapsed().as_millis();
     Ok(result)
+}
+
+pub fn list_ai_models_for_settings(settings: AISettings) -> Result<Vec<AIModelInfo>, String> {
+    let settings = normalize_ai_settings(settings);
+    validate_ai_settings(&settings, !cfg!(debug_assertions))?;
+    let provider: Box<dyn AIProvider> = match settings.provider {
+        AIProviderKind::OpenAICompatible => {
+            Box::new(OpenAICompatibleProvider::new(settings.clone()))
+        }
+        AIProviderKind::Ollama => Box::new(OllamaProvider::new(settings.clone())),
+    };
+    let preset = provider_preset(settings.preset);
+    let mut models = match provider.discover_models() {
+        Ok(models) => models,
+        Err(_error)
+            if preset
+                .as_ref()
+                .map(|preset| preset.models_path.is_none())
+                .unwrap_or(false) =>
+        {
+            Vec::new()
+        }
+        Err(error) => return Err(sanitize_ai_error(error.to_string(), &settings.api_key)),
+    };
+    if let Some(preset) = preset {
+        let mut seen = models
+            .iter()
+            .map(|model| model.id.clone())
+            .collect::<std::collections::HashSet<_>>();
+        for model in preset.suggested_models {
+            if !model.is_empty() && seen.insert((*model).to_string()) {
+                models.push(AIModelInfo {
+                    id: (*model).to_string(),
+                    owned_by: None,
+                    discovered: false,
+                });
+            }
+        }
+    }
+    Ok(models)
 }
 
 #[tauri::command]
@@ -563,7 +946,6 @@ pub async fn test_ai_provider_connection(
                         .map_err(|error| error.to_string())?
                         .api_key;
                 }
-                validate_ai_settings(&settings, !cfg!(debug_assertions))?;
                 normalize_ai_settings(settings)
             }
             None => get_ai_settings_for_db(&db).map_err(|error| error.to_string())?,
@@ -574,10 +956,42 @@ pub async fn test_ai_provider_connection(
     .map_err(|error| error.to_string())?
 }
 
+#[tauri::command]
+pub async fn list_ai_models(
+    db: State<'_, Database>,
+    settings: Option<AISettings>,
+) -> Result<Vec<AIModelInfo>, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let settings = match settings {
+            Some(mut settings) => {
+                if settings.api_key.trim().is_empty() {
+                    settings.api_key = get_ai_settings_for_db(&db)
+                        .map_err(|error| error.to_string())?
+                        .api_key;
+                }
+                normalize_ai_settings(settings)
+            }
+            None => get_ai_settings_for_db(&db).map_err(|error| error.to_string())?,
+        };
+        list_ai_models_for_settings(settings)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 fn normalize_chat_path(value: &str) -> String {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return "/chat/completions".to_string();
+    }
+    format!("/{}", trimmed.trim_start_matches('/'))
+}
+
+fn normalize_optional_path(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return String::new();
     }
     format!("/{}", trimmed.trim_start_matches('/'))
 }

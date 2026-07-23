@@ -164,14 +164,23 @@ fn call_ai_cleanup_provider(
         .chat_json(AIChatRequest {
             messages,
             model: settings.model.clone(),
-            temperature: settings.temperature,
+            temperature: if retry_json_only {
+                0.0
+            } else {
+                settings.temperature
+            },
             max_tokens: settings.max_tokens,
-            force_json: settings.force_json_output,
+            force_json: settings.force_json_output || retry_json_only,
             provider_options: AIProviderOptions {
-                enable_thinking: Some(settings.enable_thinking),
+                enable_thinking: Some(if retry_json_only {
+                    false
+                } else {
+                    settings.enable_thinking
+                }),
                 reasoning_effort: settings.reasoning_effort.clone(),
                 extra_body_json: None,
-                use_response_format: retry_json_only.then_some(false),
+                use_response_format: retry_json_only.then_some(true),
+                trace_context: None,
             },
         })
         .map_err(|error| sanitize_ai_cleanup_error(error.to_string(), &settings.api_key))

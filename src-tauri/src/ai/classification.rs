@@ -15,6 +15,7 @@ use tauri::{AppHandle, Emitter, Runtime, State, WebviewWindow};
 use super::{
     ollama::OllamaProvider,
     openai_compatible::OpenAICompatibleProvider,
+    presets::provider_preset,
     prompts::{
         ai_file_classification_system_prompt,
         build_ai_classification_prompt as build_ai_classification_prompt_body, clean_ai_json_text,
@@ -23,6 +24,7 @@ use super::{
     provider::AIProvider,
     schema::{AIChatMessage, AIChatRequest, AIProviderKind, AIProviderOptions, AIProviderPresetId},
     settings::{get_ai_settings_for_db, normalize_ai_settings, AISettings},
+    trace::{AITraceContext, AITraceOperation},
 };
 use crate::{
     db::{
@@ -198,12 +200,27 @@ pub(crate) struct AIClassificationIdMap {
 
 impl AIClassificationIdMap {
     pub(crate) fn from_targets(targets: &[IndexedFileRow]) -> Self {
+        let ref_ids = targets
+            .iter()
+            .enumerate()
+            .map(|(index, _)| format!("f{}", index + 1))
+            .collect::<Vec<_>>();
+        Self::from_targets_with_ref_ids(targets, &ref_ids)
+    }
+
+    pub(crate) fn from_targets_with_ref_ids(
+        targets: &[IndexedFileRow],
+        ref_ids: &[String],
+    ) -> Self {
         let mut entries = Vec::with_capacity(targets.len());
         let mut ref_to_id = HashMap::with_capacity(targets.len());
         let mut real_ids = HashSet::with_capacity(targets.len());
         let mut path_to_id = HashMap::with_capacity(targets.len() * 2);
         for (index, row) in targets.iter().enumerate() {
-            let ref_id = format!("f{}", index + 1);
+            let ref_id = ref_ids
+                .get(index)
+                .cloned()
+                .unwrap_or_else(|| format!("f{}", index + 1));
             entries.push(AIClassificationIdEntry {
                 ref_id: ref_id.clone(),
                 real_file_id: row.id.clone(),
@@ -512,7 +529,18 @@ pub(crate) fn build_ai_classification_prompt(
     settings: &AISettings,
     learned_rules: &[String],
 ) -> Result<Vec<AIChatMessage>, String> {
-    let id_map = AIClassificationIdMap::from_targets(targets);
+    build_ai_classification_prompt_with_ref_ids(targets, settings, learned_rules, None)
+}
+
+fn build_ai_classification_prompt_with_ref_ids(
+    targets: &[IndexedFileRow],
+    settings: &AISettings,
+    learned_rules: &[String],
+    ref_ids: Option<&[String]>,
+) -> Result<Vec<AIChatMessage>, String> {
+    let id_map = ref_ids
+        .map(|ref_ids| AIClassificationIdMap::from_targets_with_ref_ids(targets, ref_ids))
+        .unwrap_or_else(|| AIClassificationIdMap::from_targets(targets));
     let files = targets
         .iter()
         .zip(id_map.entries.iter())
@@ -537,33 +565,78 @@ pub(crate) fn call_ai_classification_provider(
     targets: &[IndexedFileRow],
     learned_rules: &[String],
     retry_json_only: bool,
+    ref_ids: Option<&[String]>,
+    trace_context: Option<AITraceContext>,
 ) -> Result<String, String> {
-    let mut messages = build_ai_classification_prompt(targets, settings, learned_rules)?;
+    let prompt_settings = if retry_json_only {
+        let mut settings = settings.clone();
+        settings.enable_thinking = false;
+        settings
+    } else {
+        settings.clone()
+    };
+    let mut messages = build_ai_classification_prompt_with_ref_ids(
+        targets,
+        &prompt_settings,
+        learned_rules,
+        ref_ids,
+    )?;
     if retry_json_only {
         messages.push(AIChatMessage {
             role: "user".to_string(),
-            content: "上一次输出不是有效 JSON。请只返回一个 JSON 对象，不要 Markdown，不要解释，不要 thinking，不要代码块。".to_string(),
+            content: "上一次输出无法解析。请立即修复：只返回一个完整 JSON 对象，必须包含 classifications 数组和请求中的 refId；不要 Markdown、代码块、解释、thinking 或 reasoning。".to_string(),
         });
     }
     provider
         .chat_json(AIChatRequest {
             messages,
             model: settings.model.clone(),
-            temperature: settings.temperature,
-            max_tokens: max_tokens_for_classification_request(settings, targets.len()),
-            force_json: settings.force_json_output,
+            temperature: if retry_json_only {
+                0.0
+            } else {
+                settings.temperature
+            },
+            max_tokens: max_tokens_for_classification_request(
+                settings,
+                targets.len(),
+                retry_json_only,
+            ),
+            force_json: settings.force_json_output || retry_json_only,
             provider_options: AIProviderOptions {
-                use_response_format: retry_json_only.then_some(false),
+                enable_thinking: retry_json_only.then_some(false),
+                use_response_format: retry_json_only.then_some(true),
+                trace_context,
                 ..Default::default()
             },
         })
         .map_err(|error| sanitize_ai_error(error.to_string(), &settings.api_key))
 }
 
-fn max_tokens_for_classification_request(settings: &AISettings, batch_len: usize) -> u32 {
-    let estimated = batch_len.saturating_mul(120).saturating_add(256);
-    let clamped = estimated.clamp(512, settings.max_tokens.max(512) as usize);
-    clamped as u32
+fn estimated_output_tokens(batch_len: usize) -> usize {
+    512usize.saturating_add(batch_len.saturating_mul(220))
+}
+
+fn max_batch_size_for_output_budget(settings: &AISettings, requested: usize) -> usize {
+    let budget = settings.max_tokens.max(1) as usize;
+    let available = budget.saturating_sub(512);
+    let capacity = (available / 220).max(1);
+    requested.min(capacity).max(1)
+}
+
+fn max_tokens_for_classification_request(
+    settings: &AISettings,
+    batch_len: usize,
+    retry_json_only: bool,
+) -> u32 {
+    let estimated = estimated_output_tokens(batch_len);
+    let retry_floor = if retry_json_only { 512 } else { 1 };
+    let provider_limit = provider_preset(settings.preset)
+        .and_then(|preset| preset.parameter_profile.max_output_tokens)
+        .unwrap_or(u32::MAX);
+    estimated
+        .min(settings.max_tokens.max(retry_floor) as usize)
+        .min(provider_limit as usize)
+        .max(retry_floor as usize) as u32
 }
 
 pub(crate) fn parse_ai_classification_response(
@@ -837,7 +910,7 @@ fn classify_ai_targets_with_provider(
         });
     }
 
-    let batch_size = settings.batch_size.max(1);
+    let batch_size = max_batch_size_for_output_budget(settings, settings.batch_size.max(1));
     let batch_count = targets.len().div_ceil(batch_size);
     let concurrency = settings
         .classification_concurrency
@@ -847,10 +920,17 @@ fn classify_ai_targets_with_provider(
         .chunks(batch_size)
         .enumerate()
         .map(|(index, batch)| AIClassificationBatchTask {
+            job_id: job_id.clone(),
+            batch_id: crate::ids::new_job_id("ai-batch"),
             index: index + 1,
             batch_count,
             batch_size,
             target_count: targets.len(),
+            ref_ids: AIClassificationIdMap::from_targets(batch)
+                .entries
+                .into_iter()
+                .map(|entry| entry.ref_id)
+                .collect(),
             rows: batch.to_vec(),
         })
         .collect::<VecDeque<_>>();
@@ -864,6 +944,7 @@ fn classify_ai_targets_with_provider(
     let mut skipped = 0_i64;
     let mut needs_confirmation = 0_i64;
     let mut failures = Vec::new();
+    let mut partial_warnings = Vec::new();
 
     emit_ai_classification_progress(
         runtime.map(|(emitter, _)| emitter),
@@ -913,7 +994,11 @@ fn classify_ai_targets_with_provider(
         for result in rx {
             processed += result.file_count();
             match result {
-                AIClassificationBatchRunResult::Success { task, results } => {
+                AIClassificationBatchRunResult::Success {
+                    task,
+                    results,
+                    warning,
+                } => {
                     completed_batches += 1;
                     match apply_ai_classification_batch_results(db, &task.rows, &results, settings)
                         .map_err(string_error)
@@ -922,6 +1007,9 @@ fn classify_ai_targets_with_provider(
                             updated += summary.updated;
                             skipped += summary.skipped;
                             needs_confirmation += summary.needs_confirmation;
+                            if let Some(warning) = warning {
+                                partial_warnings.push(warning);
+                            }
                             emit_ai_classification_progress(
                                 runtime.map(|(emitter, _)| emitter),
                                 AIClassificationProgressUpdate::new(
@@ -1029,6 +1117,16 @@ fn classify_ai_targets_with_provider(
         summary.failed_files = Some(failed_files);
         summary.warning = Some("部分批次请求失败，请降低 Batch Size 或并发数后重试。".to_string());
     }
+    if !partial_warnings.is_empty() {
+        let partial_warning = format!(
+            "部分模型结果未返回，已保留有效结果：{}",
+            partial_warnings.join("；")
+        );
+        summary.warning = Some(match summary.warning.take() {
+            Some(existing) => format!("{existing} {partial_warning}"),
+            None => partial_warning,
+        });
+    }
 
     emit_ai_classification_progress(
         runtime.map(|(emitter, _)| emitter),
@@ -1051,16 +1149,21 @@ fn classify_ai_targets_with_provider(
 
 #[derive(Debug, Clone)]
 struct AIClassificationBatchTask {
+    job_id: String,
+    batch_id: String,
     index: usize,
     batch_count: usize,
     batch_size: usize,
     target_count: usize,
+    ref_ids: Vec<String>,
     rows: Vec<IndexedFileRow>,
 }
 
 impl AIClassificationBatchTask {
     fn context(&self) -> AIClassificationBatchContext {
         AIClassificationBatchContext::new(
+            self.job_id.clone(),
+            self.batch_id.clone(),
             self.index,
             self.batch_count,
             self.batch_size,
@@ -1074,6 +1177,7 @@ enum AIClassificationBatchRunResult {
     Success {
         task: AIClassificationBatchTask,
         results: Vec<SanitizedAIClassification>,
+        warning: Option<String>,
     },
     Failure {
         task: AIClassificationBatchTask,
@@ -1095,60 +1199,265 @@ fn run_ai_classification_batch(
     learned_rules: &[String],
     task: AIClassificationBatchTask,
 ) -> AIClassificationBatchRunResult {
-    let id_map = AIClassificationIdMap::from_targets(&task.rows);
+    match resolve_ai_classification_batch(provider, settings, learned_rules, &task, 0) {
+        Ok(resolution) => AIClassificationBatchRunResult::Success {
+            task,
+            results: resolution.results,
+            warning: resolution.warning,
+        },
+        Err(error) => AIClassificationBatchRunResult::Failure { task, error },
+    }
+}
+
+struct AIClassificationBatchResolution {
+    results: Vec<SanitizedAIClassification>,
+    warning: Option<String>,
+}
+
+fn resolve_ai_classification_batch(
+    provider: &dyn AIProvider,
+    settings: &AISettings,
+    learned_rules: &[String],
+    task: &AIClassificationBatchTask,
+    depth: usize,
+) -> Result<AIClassificationBatchResolution, String> {
+    if task.rows.is_empty() {
+        return Ok(AIClassificationBatchResolution {
+            results: Vec::new(),
+            warning: None,
+        });
+    }
     let context = task.context();
-    let content = match call_ai_classification_provider_with_retries(
+    let initial = call_and_parse_ai_classification_batch(
         provider,
         settings,
-        &task.rows,
         learned_rules,
+        &task.rows,
+        &task.ref_ids,
         false,
         &context,
-    ) {
-        Ok(content) => content,
-        Err(error) => return AIClassificationBatchRunResult::Failure { task, error },
-    };
-    let outputs = match parse_ai_classification_response(&content) {
+    );
+    let outputs = match initial {
         Ok(outputs) => outputs,
-        Err(_) => {
-            let retry_content = match call_ai_classification_provider_with_retries(
+        Err(initial_error) if should_split_ai_batch(&initial_error) => {
+            let retry = call_and_parse_ai_classification_batch(
                 provider,
                 settings,
-                &task.rows,
                 learned_rules,
+                &task.rows,
+                &task.ref_ids,
                 true,
                 &context,
-            ) {
-                Ok(content) => content,
-                Err(error) => return AIClassificationBatchRunResult::Failure { task, error },
-            };
-            match parse_ai_classification_response(&retry_content).map_err(|error| {
-                if is_ai_classification_schema_error(&error) {
-                    format!("{error} 已尝试清洗和重试，但仍失败。")
-                } else {
-                    format!(
-                        "{error} 已尝试清洗和重试，但仍失败。建议关闭 thinking，或换用 deepseek-v4-flash / qwen-plus 等更稳定的非思考模型。"
-                    )
-                }
-            }) {
+            );
+            match retry {
                 Ok(outputs) => outputs,
-                Err(error) => return AIClassificationBatchRunResult::Failure { task, error },
+                Err(retry_error) if should_split_ai_batch(&retry_error) => {
+                    return split_and_resolve_ai_batch(
+                        provider,
+                        settings,
+                        learned_rules,
+                        task,
+                        depth,
+                        format!("{retry_error} 已尝试 JSON-only 重试；原始错误：{initial_error}"),
+                    );
+                }
+                Err(retry_error) => {
+                    return Err(format!(
+                        "{retry_error} 已尝试清洗和 JSON-only 重试，但仍失败。"
+                    ));
+                }
             }
         }
+        Err(initial_error) => return Err(initial_error),
     };
+
+    let id_map = AIClassificationIdMap::from_targets_with_ref_ids(&task.rows, &task.ref_ids);
+    let (mut results, mut invalid_count) = sanitize_ai_classification_outputs(outputs, &id_map);
+    let mut warning_parts = Vec::new();
+    if invalid_count > 0 {
+        warning_parts.push(format!("{invalid_count} 个模型条目未通过安全校验"));
+    }
+    let result_ids = results
+        .iter()
+        .map(|result| result.id.as_str())
+        .collect::<HashSet<_>>();
+    let missing_indexes = task
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| !result_ids.contains(row.id.as_str()))
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    if missing_indexes.is_empty() {
+        return Ok(AIClassificationBatchResolution {
+            results,
+            warning: (!warning_parts.is_empty()).then(|| warning_parts.join("；")),
+        });
+    }
+
+    let missing_rows = missing_indexes
+        .iter()
+        .map(|index| task.rows[*index].clone())
+        .collect::<Vec<_>>();
+    let missing_ref_ids = missing_indexes
+        .iter()
+        .map(|index| task.ref_ids[*index].clone())
+        .collect::<Vec<_>>();
+    let missing_task = task_for_subset(task, missing_rows, missing_ref_ids);
+    let missing_context = missing_task.context();
+    match call_and_parse_ai_classification_batch(
+        provider,
+        settings,
+        learned_rules,
+        &missing_task.rows,
+        &missing_task.ref_ids,
+        true,
+        &missing_context,
+    ) {
+        Ok(outputs) => {
+            let missing_map = AIClassificationIdMap::from_targets_with_ref_ids(
+                &missing_task.rows,
+                &missing_task.ref_ids,
+            );
+            let (missing_results, missing_invalid_count) =
+                sanitize_ai_classification_outputs(outputs, &missing_map);
+            invalid_count += missing_invalid_count;
+            results.extend(missing_results);
+        }
+        Err(error) if should_split_ai_batch(&error) && missing_task.rows.len() > 1 => {
+            let split = split_and_resolve_ai_batch(
+                provider,
+                settings,
+                learned_rules,
+                &missing_task,
+                depth,
+                error,
+            )?;
+            results.extend(split.results);
+            warning_parts.extend(split.warning.into_iter());
+        }
+        Err(error) => warning_parts.push(format!(
+            "仍有 {} 个文件未返回有效分类：{}",
+            missing_task.rows.len(),
+            error
+        )),
+    }
+
+    let final_ids = results
+        .iter()
+        .map(|result| result.id.as_str())
+        .collect::<HashSet<_>>();
+    let remaining = task
+        .rows
+        .iter()
+        .filter(|row| !final_ids.contains(row.id.as_str()))
+        .count();
+    if remaining > 0 {
+        warning_parts.push(format!("仍有 {remaining} 个文件没有可应用的模型结果"));
+    }
+    if invalid_count > 0 {
+        warning_parts.push(format!("累计 {invalid_count} 个模型条目被忽略"));
+    }
+    Ok(AIClassificationBatchResolution {
+        results,
+        warning: (!warning_parts.is_empty()).then(|| warning_parts.join("；")),
+    })
+}
+
+fn call_and_parse_ai_classification_batch(
+    provider: &dyn AIProvider,
+    settings: &AISettings,
+    learned_rules: &[String],
+    rows: &[IndexedFileRow],
+    ref_ids: &[String],
+    retry_json_only: bool,
+    context: &AIClassificationBatchContext,
+) -> Result<Vec<AIClassificationOutput>, String> {
+    let content = call_ai_classification_provider_with_retries(
+        provider,
+        settings,
+        rows,
+        learned_rules,
+        retry_json_only,
+        Some(ref_ids),
+        context,
+    )?;
+    parse_ai_classification_response(&content)
+}
+
+fn sanitize_ai_classification_outputs(
+    outputs: Vec<AIClassificationOutput>,
+    id_map: &AIClassificationIdMap,
+) -> (Vec<SanitizedAIClassification>, usize) {
     let mut sanitized = Vec::new();
     let mut sanitized_ids = HashSet::new();
+    let mut invalid_count = 0;
     for output in outputs {
-        match sanitize_ai_classification_result(output, &id_map) {
+        match sanitize_ai_classification_result(output, id_map) {
             Ok(result) if sanitized_ids.insert(result.id.clone()) => sanitized.push(result),
-            Ok(_) => {}
-            Err(_) => {}
+            Ok(_) | Err(_) => invalid_count += 1,
         }
     }
-    AIClassificationBatchRunResult::Success {
-        task,
-        results: sanitized,
+    (sanitized, invalid_count)
+}
+
+fn task_for_subset(
+    parent: &AIClassificationBatchTask,
+    rows: Vec<IndexedFileRow>,
+    ref_ids: Vec<String>,
+) -> AIClassificationBatchTask {
+    AIClassificationBatchTask {
+        job_id: parent.job_id.clone(),
+        batch_id: crate::ids::new_job_id("ai-batch"),
+        index: parent.index,
+        batch_count: parent.batch_count,
+        batch_size: rows.len().max(1),
+        target_count: parent.target_count,
+        ref_ids,
+        rows,
     }
+}
+
+fn split_and_resolve_ai_batch(
+    provider: &dyn AIProvider,
+    settings: &AISettings,
+    learned_rules: &[String],
+    task: &AIClassificationBatchTask,
+    depth: usize,
+    reason: String,
+) -> Result<AIClassificationBatchResolution, String> {
+    if task.rows.len() <= 1 || depth >= 8 {
+        return Err(format!("{reason} 无法继续拆分到更小批次。"));
+    }
+    let midpoint = task.rows.len() / 2;
+    let left = task_for_subset(
+        task,
+        task.rows[..midpoint].to_vec(),
+        task.ref_ids[..midpoint].to_vec(),
+    );
+    let right = task_for_subset(
+        task,
+        task.rows[midpoint..].to_vec(),
+        task.ref_ids[midpoint..].to_vec(),
+    );
+    let left =
+        resolve_ai_classification_batch(provider, settings, learned_rules, &left, depth + 1)?;
+    let right =
+        resolve_ai_classification_batch(provider, settings, learned_rules, &right, depth + 1)?;
+    let warning = [
+        Some(format!("批次已自适应拆分：{}", reason)),
+        left.warning,
+        right.warning,
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    let mut results = left.results;
+    results.extend(right.results);
+    Ok(AIClassificationBatchResolution {
+        results,
+        warning: (!warning.is_empty()).then(|| warning.join("；")),
+    })
 }
 
 fn estimated_remaining_ms(started: Instant, processed: usize, total: usize) -> Option<u128> {
@@ -1288,6 +1597,8 @@ impl AIClassificationProgressUpdate {
 
 #[derive(Debug, Clone)]
 struct AIClassificationBatchContext {
+    job_id: String,
+    batch_id: String,
     batch_index: usize,
     batch_count: usize,
     batch_size: usize,
@@ -1298,6 +1609,8 @@ struct AIClassificationBatchContext {
 
 impl AIClassificationBatchContext {
     fn new(
+        job_id: String,
+        batch_id: String,
         batch_index: usize,
         batch_count: usize,
         batch_size: usize,
@@ -1305,6 +1618,8 @@ impl AIClassificationBatchContext {
         batch: &[IndexedFileRow],
     ) -> Self {
         Self {
+            job_id,
+            batch_id,
             batch_index,
             batch_count,
             batch_size,
@@ -1349,13 +1664,30 @@ impl AIClassificationBatchFailure {
     }
 }
 
+fn should_split_ai_batch(error: &str) -> bool {
+    let normalized = error.to_ascii_lowercase();
+    normalized.contains("模型输出达到长度上限")
+        || normalized.contains("json 被截断")
+        || normalized.contains("truncated")
+        || normalized.contains("invalid json")
+        || normalized.contains("non-json")
+        || normalized.contains("empty message.content")
+        || normalized.contains("reasoning_content")
+        || normalized.contains("no applicable")
+        || normalized.contains("没有任何可应用的分类项")
+        || normalized.contains("模型返回的内容不是")
+        || normalized.contains("classifications")
+        || normalized.contains("did not contain message.content")
+}
+
 fn call_ai_classification_provider_with_retries(
     provider: &dyn AIProvider,
     settings: &AISettings,
     targets: &[IndexedFileRow],
     learned_rules: &[String],
     retry_json_only: bool,
-    _batch_context: &AIClassificationBatchContext,
+    ref_ids: Option<&[String]>,
+    batch_context: &AIClassificationBatchContext,
 ) -> Result<String, String> {
     let mut last_error = String::new();
     for attempt in 0..=AI_CLASSIFICATION_TRANSIENT_RETRIES {
@@ -1365,6 +1697,18 @@ fn call_ai_classification_provider_with_retries(
             targets,
             learned_rules,
             retry_json_only,
+            ref_ids,
+            Some(AITraceContext {
+                operation: AITraceOperation::FileClassification,
+                job_id: Some(batch_context.job_id.clone()),
+                batch_id: Some(batch_context.batch_id.clone()),
+                target_count: Some(batch_context.target_count),
+                batch_size: Some(batch_context.batch_size),
+                redaction_secrets: targets
+                    .iter()
+                    .flat_map(|row| [row.id.clone(), row.name.clone(), row.path.clone()])
+                    .collect(),
+            }),
         ) {
             Ok(content) => return Ok(content),
             Err(error) => {
@@ -1647,12 +1991,6 @@ fn ai_classification_json_error(content: &str, detail: &str) -> String {
     format!("模型返回的内容不是 Zen Canvas 需要的 JSON 格式。已尝试清洗，但仍失败：{detail}")
 }
 
-fn is_ai_classification_schema_error(error: &str) -> bool {
-    error.contains("AI 返回了 JSON")
-        || error.contains("classification item schema mismatch")
-        || error.contains("没有任何可应用的分类项")
-}
-
 fn default_file_type() -> String {
     "Other".to_string()
 }
@@ -1869,13 +2207,14 @@ mod tests {
     use super::*;
     use crate::ai::{
         provider::AIProviderError,
-        schema::{AIConnectionTestResult, AIProviderPresetId},
+        schema::{AIChatRequest, AIConnectionTestResult, AIProviderPresetId},
         settings::AISettings,
     };
     use crate::db::InsertFileRequest;
     use rusqlite::Connection;
     use std::{
         path::PathBuf,
+        sync::Mutex,
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -2397,14 +2736,15 @@ mod tests {
         }
         let settings = AISettings {
             batch_size: 2,
+            classification_concurrency: 1,
             ..enabled_settings()
         };
         let targets = collect_ai_classification_targets(&db, &LibraryScope::All, None, &settings)
             .expect("collect targets");
         let provider = SequenceProvider::new(vec![
-            Ok(valid_ref_response("f1")),
-            Ok(valid_ref_response("f1")),
-            Ok(valid_ref_response("f1")),
+            Ok(valid_ref_response_with_refs(&["f1", "f2"])),
+            Ok(valid_ref_response_with_refs(&["f1", "f2"])),
+            Ok(valid_ref_response_with_refs(&["f1"])),
         ]);
 
         let summary =
@@ -2412,8 +2752,74 @@ mod tests {
                 .expect("classify all targets");
 
         assert_eq!(summary.scanned, 5);
-        assert_eq!(summary.updated, 3);
+        assert_eq!(summary.updated, 5);
         assert_eq!(provider.call_count(), 3);
+    }
+
+    #[test]
+    fn truncated_batch_adapts_from_twenty_to_ten_to_five() {
+        let db = test_db();
+        for index in 0..20 {
+            insert_test_file(
+                &db,
+                &format!("adaptive-file-{index}"),
+                &format!("/tmp/ai-adaptive-{index}.pdf"),
+            );
+        }
+        let settings = AISettings {
+            batch_size: 20,
+            classification_concurrency: 1,
+            max_tokens: 8192,
+            ..enabled_settings()
+        };
+        let targets = collect_ai_classification_targets(&db, &LibraryScope::All, None, &settings)
+            .expect("collect targets");
+        let provider = AdaptiveProvider::new(5, false);
+
+        let summary =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect("truncated batches should be split");
+
+        assert_eq!(summary.scanned, 20);
+        assert_eq!(summary.updated, 20);
+        let counts = provider.request_sizes();
+        assert!(counts.contains(&20));
+        assert!(counts.contains(&10));
+        assert!(counts.contains(&5));
+        assert!(counts.iter().all(|count| *count <= 20));
+    }
+
+    #[test]
+    fn partial_model_output_retries_only_missing_ref_ids() {
+        let db = test_db();
+        for index in 0..4 {
+            insert_test_file(
+                &db,
+                &format!("partial-ref-file-{index}"),
+                &format!("/tmp/ai-partial-ref-{index}.pdf"),
+            );
+        }
+        let settings = AISettings {
+            batch_size: 4,
+            classification_concurrency: 1,
+            ..enabled_settings()
+        };
+        let targets = collect_ai_classification_targets(&db, &LibraryScope::All, None, &settings)
+            .expect("collect targets");
+        let provider = AdaptiveProvider::new(1, true);
+
+        let summary =
+            classify_ai_targets_with_provider(&db, targets, &settings, &provider, &[], None)
+                .expect("partial response should keep valid results");
+
+        assert_eq!(summary.updated, 2);
+        assert_eq!(summary.skipped, 2);
+        assert!(summary
+            .warning
+            .as_deref()
+            .unwrap_or_default()
+            .contains("没有可应用的模型结果"));
+        assert_eq!(provider.request_sizes(), vec![4, 3]);
     }
 
     #[test]
@@ -2428,12 +2834,13 @@ mod tests {
         }
         let settings = AISettings {
             batch_size: 2,
+            classification_concurrency: 1,
             ..enabled_settings()
         };
         let targets = collect_ai_classification_targets(&db, &LibraryScope::All, None, &settings)
             .expect("collect targets");
         let provider = SequenceProvider::new(vec![
-            Ok(valid_ref_response("f1")),
+            Ok(valid_ref_response_with_refs(&["f1", "f2"])),
             Err(AIProviderError::new("HTTP 429 rate limit")),
             Err(AIProviderError::new("HTTP 429 rate limit")),
             Err(AIProviderError::new("HTTP 429 rate limit")),
@@ -2444,8 +2851,8 @@ mod tests {
                 .expect("partial success should return summary");
 
         assert_eq!(summary.scanned, 4);
-        assert_eq!(summary.updated, 1);
-        assert_eq!(summary.skipped, 3);
+        assert_eq!(summary.updated, 2);
+        assert_eq!(summary.skipped, 2);
         assert_eq!(summary.failed_batches, Some(1));
         assert_eq!(summary.failed_files, Some(2));
         assert!(summary
@@ -3003,6 +3410,17 @@ mod tests {
         format!(r#"{{"classifications":[{}]}}"#, valid_ref_item(ref_id))
     }
 
+    fn valid_ref_response_with_refs(ref_ids: &[&str]) -> String {
+        format!(
+            r#"{{"classifications":[{}]}}"#,
+            ref_ids
+                .iter()
+                .map(|ref_id| valid_ref_item(ref_id))
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    }
+
     fn valid_id_response(id: &str) -> String {
         format!(
             r#"{{"classifications":[{{"id":"{id}","fileType":"Document","purpose":"Teaching","lifecycle":"Active","context":"Scala","riskLevel":"Normal","suggestedAction":"Move","targetTemplate":"Teaching/Scala/试卷","suggestedName":"","confidence":0.92,"reason":"文件名包含 Scala、期末、复习题，判断为教学考试资料。","keywords":["Scala","期末","复习题"],"requiresConfirmation":false}}]}}"#
@@ -3101,6 +3519,57 @@ mod tests {
         response: Result<String, AIProviderError>,
     }
 
+    struct AdaptiveProvider {
+        split_threshold: usize,
+        partial: bool,
+        request_sizes: Mutex<Vec<usize>>,
+    }
+
+    impl AdaptiveProvider {
+        fn new(split_threshold: usize, partial: bool) -> Self {
+            Self {
+                split_threshold,
+                partial,
+                request_sizes: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn request_sizes(&self) -> Vec<usize> {
+            self.request_sizes.lock().expect("request sizes").clone()
+        }
+    }
+
+    impl AIProvider for AdaptiveProvider {
+        fn chat_json(&self, request: AIChatRequest) -> Result<String, AIProviderError> {
+            let ref_ids = request_ref_ids(&request);
+            self.request_sizes
+                .lock()
+                .expect("request sizes")
+                .push(ref_ids.len());
+            if !self.partial && ref_ids.len() > self.split_threshold {
+                return Err(AIProviderError::new("模型输出达到长度上限，JSON 被截断。"));
+            }
+            let output_ids = if self.partial {
+                &ref_ids[..ref_ids.len().min(1)]
+            } else {
+                &ref_ids[..]
+            };
+            let refs = output_ids.iter().map(String::as_str).collect::<Vec<_>>();
+            Ok(valid_ref_response_with_refs(&refs))
+        }
+
+        fn test_connection(&self) -> Result<AIConnectionTestResult, AIProviderError> {
+            Ok(AIConnectionTestResult {
+                ok: true,
+                message: "ok".to_string(),
+                model: None,
+                provider: None,
+                preset: None,
+                elapsed_ms: 0,
+            })
+        }
+    }
+
     impl AIProvider for StaticProvider {
         fn chat_json(&self, _request: AIChatRequest) -> Result<String, AIProviderError> {
             self.response.clone()
@@ -3116,6 +3585,33 @@ mod tests {
                 elapsed_ms: 0,
             })
         }
+    }
+
+    fn request_ref_ids(request: &AIChatRequest) -> Vec<String> {
+        let marker = "\"refId\"";
+        let mut ids = Vec::new();
+        for message in &request.messages {
+            if !message.content.contains("classifyFiles") {
+                continue;
+            }
+            let mut remaining = message.content.as_str();
+            while let Some(marker_index) = remaining.find(marker) {
+                remaining = &remaining[marker_index + marker.len()..];
+                let Some(colon_index) = remaining.find(':') else {
+                    break;
+                };
+                remaining = remaining[colon_index + 1..].trim_start();
+                let Some(value) = remaining.strip_prefix('"') else {
+                    continue;
+                };
+                let Some(end) = value.find('"') else {
+                    break;
+                };
+                ids.push(value[..end].to_string());
+                remaining = &value[end + 1..];
+            }
+        }
+        ids
     }
 
     struct SequenceProvider {

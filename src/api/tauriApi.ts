@@ -4,6 +4,8 @@ import type {
   AIConnectionTestResult,
   AIClassificationProgressPayload,
   AIDebugClassificationResult,
+  AIModelInfo,
+  AIRequestTrace,
   AIProviderPreset,
   AISettings,
   ClassificationCorrectionRequest,
@@ -384,8 +386,24 @@ export const tauriApi = {
     return invokeCommand<AIProviderPreset[]>("list_ai_provider_presets");
   },
 
+  listAIModels(settings?: AISettings): Promise<AIModelInfo[]> {
+    return invokeCommand<AIModelInfo[]>("list_ai_models", { settings: settings ?? null });
+  },
+
   testAIProviderConnection(settings?: AISettings): Promise<AIConnectionTestResult> {
     return invokeCommand<AIConnectionTestResult>("test_ai_provider_connection", { settings: settings ?? null });
+  },
+
+  listAIRequestTraces(): Promise<AIRequestTrace[]> {
+    return invokeCommand<AIRequestTrace[]>("list_ai_request_traces");
+  },
+
+  clearAIRequestTraces(): Promise<void> {
+    return invokeCommand<void>("clear_ai_request_traces");
+  },
+
+  exportAIRequestTraces(): Promise<string> {
+    return invokeCommand<string>("export_ai_request_traces");
   },
 
   debugAIClassificationOnce(target: string): Promise<AIDebugClassificationResult> {
