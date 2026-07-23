@@ -1,0 +1,280 @@
+use super::*;
+use crate::db::Database;
+use rusqlite::Connection;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
+
+static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn test_db_path() -> PathBuf {
+    let id = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "zen-canvas-global-index-{}-{id}.db",
+        std::process::id()
+    ))
+}
+
+fn test_volume() -> GlobalVolume {
+    GlobalVolume {
+        id: "gv_test".to_string(),
+        platform: "windows".to_string(),
+        stable_volume_id: "test-volume".to_string(),
+        display_name: "Test volume".to_string(),
+        mount_path: r"C:\Global\".to_string(),
+        filesystem_type: "ntfs".to_string(),
+        drive_kind: "fixed".to_string(),
+        enabled: true,
+        provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
+        index_status: INDEX_STATUS_DISCOVERED.to_string(),
+        last_error: None,
+        journal_id: None,
+        journal_cursor: None,
+        last_full_index_at: None,
+        last_incremental_sync_at: None,
+        entry_count: 0,
+        created_at: 1,
+        updated_at: 1,
+    }
+}
+
+fn test_entry(path: &str, name: &str, is_directory: bool) -> GlobalEntryInput {
+    GlobalEntryInput {
+        volume_id: "gv_test".to_string(),
+        platform_file_id: format!("frn:{path}"),
+        parent_platform_file_id: "frn:parent".to_string(),
+        name: name.to_string(),
+        path: path.to_string(),
+        extension: if is_directory {
+            String::new()
+        } else {
+            "txt".to_string()
+        },
+        is_directory,
+        size: if is_directory { 0 } else { 1024 },
+        created_at_fs: Some(10),
+        modified_at_fs: Some(20),
+        file_attributes: 0,
+        is_hidden: false,
+        is_system: false,
+        source_provider: PROVIDER_WINDOWS_MFT_USN.to_string(),
+        last_seen_at: 30,
+    }
+}
+
+#[test]
+fn migration_creates_global_and_managed_domains_separately() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    let conn = Connection::open(&path).expect("open migrated database");
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name IN ('global_volumes', 'global_entries', 'global_entries_fts', 'managed_scopes', 'managed_entries', 'ai_analysis_state', 'ai_jobs', 'ai_job_items')",
+            [],
+            |row| row.get(0),
+        )
+        .expect("global schema tables");
+    assert_eq!(count, 8);
+    let version: i32 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("schema version");
+    assert_eq!(version, 25);
+    drop(conn);
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn global_search_is_independent_from_legacy_files_and_ai_is_scope_gated() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+    let directory = test_entry(r"C:\Global\Reports", "Reports", true);
+    let document = test_entry(r"C:\Global\Reports\报告.txt", "报告.txt", false);
+    db.upsert_global_entries_batch(&[directory, document.clone()])
+        .expect("insert global entries");
+
+    let results = db
+        .search_global_entries("报告", 20, 0)
+        .expect("global search");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].path, document.path);
+    assert!(!results[0].managed);
+
+    let conn = Connection::open(&path).expect("inspect isolated tables");
+    let legacy_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+        .expect("legacy files count");
+    assert_eq!(legacy_count, 0);
+    drop(conn);
+
+    let scope = db
+        .add_managed_scope(AddManagedScopeRequest {
+            path: r"C:\Global\Reports".to_string(),
+            global_entry_id: None,
+            enabled: true,
+            allow_local_ai: true,
+            allow_cloud_ai: false,
+        })
+        .expect("add managed scope");
+    assert!(scope.enabled);
+    let managed_results = db
+        .search_global_entries("报告", 20, 0)
+        .expect("managed global search");
+    assert!(managed_results[0].managed);
+
+    let conn = Connection::open(&path).expect("inspect managed tables");
+    let managed_entries: i64 = conn
+        .query_row("SELECT COUNT(*) FROM managed_entries", [], |row| row.get(0))
+        .expect("managed entry count");
+    let ai_jobs: i64 = conn
+        .query_row("SELECT COUNT(*) FROM ai_jobs", [], |row| row.get(0))
+        .expect("AI job count");
+    let ai_states: i64 = conn
+        .query_row("SELECT COUNT(*) FROM ai_analysis_state", [], |row| {
+            row.get(0)
+        })
+        .expect("AI analysis state count");
+    assert_eq!(managed_entries, 2);
+    assert_eq!(ai_jobs, 1);
+    assert_eq!(ai_states, 1);
+    drop(conn);
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn disabled_ai_policy_blocks_jobs_without_removing_global_search() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+    let document = test_entry(r"C:\Global\Private\secret.txt", "secret.txt", false);
+    db.upsert_global_entries_batch(std::slice::from_ref(&document))
+        .expect("insert global document");
+    db.add_managed_scope(AddManagedScopeRequest {
+        path: r"C:\Global\Private".to_string(),
+        global_entry_id: None,
+        enabled: true,
+        allow_local_ai: false,
+        allow_cloud_ai: false,
+    })
+    .expect("add blocked scope");
+
+    let results = db
+        .search_global_entries("secret", 20, 0)
+        .expect("global search remains available");
+    assert_eq!(results.len(), 1);
+    assert!(results[0].managed);
+    let conn = Connection::open(&path).expect("inspect blocked job");
+    let status: String = conn
+        .query_row("SELECT status FROM ai_jobs LIMIT 1", [], |row| row.get(0))
+        .expect("blocked job");
+    assert_eq!(status, AI_JOB_BLOCKED_BY_POLICY);
+    drop(conn);
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn removing_the_last_managed_scope_clears_ai_state_but_keeps_global_entry() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+    let document = test_entry(r"C:\Global\Managed\note.txt", "note.txt", false);
+    db.upsert_global_entries_batch(std::slice::from_ref(&document))
+        .expect("insert global document");
+    let scope = db
+        .add_managed_scope(AddManagedScopeRequest {
+            path: r"C:\Global\Managed".to_string(),
+            global_entry_id: None,
+            enabled: true,
+            allow_local_ai: true,
+            allow_cloud_ai: false,
+        })
+        .expect("add managed scope");
+    db.remove_managed_scope(&scope.id)
+        .expect("remove managed scope");
+
+    let results = db
+        .search_global_entries("note", 20, 0)
+        .expect("global search after scope removal");
+    assert_eq!(results.len(), 1);
+    assert!(!results[0].managed);
+    let conn = Connection::open(&path).expect("inspect removed scope");
+    let ai_state_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM ai_analysis_state", [], |row| {
+            row.get(0)
+        })
+        .expect("AI state count");
+    let managed_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM managed_entries", [], |row| row.get(0))
+        .expect("managed entry count");
+    assert_eq!(ai_state_count, 0);
+    assert_eq!(managed_count, 0);
+
+    drop(conn);
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+#[ignore = "runs the required one-million-entry global search benchmark"]
+fn global_search_performance_one_million_synthetic_entries() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open benchmark database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert benchmark volume");
+
+    {
+        let mut conn = db.conn().expect("benchmark database connection");
+        conn.pragma_update(None, "synchronous", "OFF")
+            .expect("set benchmark synchronous mode");
+        let transaction = conn.transaction().expect("benchmark transaction");
+        transaction
+            .execute_batch(
+                r#"
+                WITH RECURSIVE numbers(n) AS (
+                    SELECT 1
+                    UNION ALL
+                    SELECT n + 1 FROM numbers WHERE n < 1000000
+                )
+                INSERT INTO global_entries (
+                    id, volume_id, platform_file_id, parent_platform_file_id,
+                    name, name_normalized, path, path_normalized, extension,
+                    is_directory, size, created_at_fs, modified_at_fs,
+                    file_attributes, is_hidden, is_system, is_stale,
+                    source_provider, last_seen_at
+                )
+                SELECT
+                    'ge_perf_' || n,
+                    'gv_test',
+                    'frn:perf:' || n,
+                    'frn:perf-parent',
+                    printf('Report-%06d.txt', n),
+                    lower(printf('report-%06d.txt', n)),
+                    'C:\\Global\\Benchmark\\' || printf('Report-%06d.txt', n),
+                    lower('c:\\global\\benchmark\\' || printf('report-%06d.txt', n)),
+                    'txt', 0, 1024, 10, 20, 0, 0, 0, 0,
+                    'windows_mft_usn', 30
+                FROM numbers;
+                "#,
+            )
+            .expect("insert one million benchmark entries");
+        transaction.commit().expect("commit benchmark entries");
+    }
+
+    let started = Instant::now();
+    let results = db
+        .search_global_entries("Report-999999", 20, 0)
+        .expect("search one million benchmark entries");
+    let elapsed = started.elapsed();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "Report-999999.txt");
+    eprintln!("global search over 1,000,000 entries: {elapsed:?}");
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
