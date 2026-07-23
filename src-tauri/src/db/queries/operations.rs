@@ -34,7 +34,9 @@ impl Database {
                 source_claim_path, operation_phase, claim_created_at,
                 claim_platform_file_id, claim_full_hash,
                 restore_claim_path, restore_phase, restore_claim_created_at,
-                restore_claim_platform_file_id, restore_claim_full_hash
+                restore_claim_platform_file_id, restore_claim_full_hash,
+                source_platform_volume_id, target_platform_volume_id,
+                claim_platform_volume_id, restore_claim_platform_volume_id
             FROM operation_logs
             ORDER BY created_at DESC
             LIMIT ?1
@@ -64,7 +66,9 @@ impl Database {
                 source_claim_path, operation_phase, claim_created_at,
                 claim_platform_file_id, claim_full_hash,
                 restore_claim_path, restore_phase, restore_claim_created_at,
-                restore_claim_platform_file_id, restore_claim_full_hash
+                restore_claim_platform_file_id, restore_claim_full_hash,
+                source_platform_volume_id, target_platform_volume_id,
+                claim_platform_volume_id, restore_claim_platform_volume_id
             FROM operation_logs
             WHERE id = ?1
               AND status = 'success'
@@ -97,7 +101,9 @@ impl Database {
                 source_claim_path, operation_phase, claim_created_at,
                 claim_platform_file_id, claim_full_hash,
                 restore_claim_path, restore_phase, restore_claim_created_at,
-                restore_claim_platform_file_id, restore_claim_full_hash
+                restore_claim_platform_file_id, restore_claim_full_hash,
+                source_platform_volume_id, target_platform_volume_id,
+                claim_platform_volume_id, restore_claim_platform_volume_id
             FROM operation_logs
             WHERE status = 'pending'
             ORDER BY created_at ASC
@@ -120,7 +126,9 @@ impl Database {
                 source_claim_path, operation_phase, claim_created_at,
                 claim_platform_file_id, claim_full_hash,
                 restore_claim_path, restore_phase, restore_claim_created_at,
-                restore_claim_platform_file_id, restore_claim_full_hash
+                restore_claim_platform_file_id, restore_claim_full_hash,
+                source_platform_volume_id, target_platform_volume_id,
+                claim_platform_volume_id, restore_claim_platform_volume_id
             FROM operation_logs
             WHERE restore_status = 'pending'
                OR (
@@ -151,7 +159,8 @@ impl Database {
                     restore_claim_path = ?2,
                     restore_claim_created_at = ?3,
                     restore_claim_platform_file_id = ?4,
-                    restore_claim_full_hash = ?5
+                    restore_claim_platform_volume_id = ?5,
+                    restore_claim_full_hash = ?6
                 WHERE id = ?1
                   AND status = 'success'
                   AND can_restore = 1
@@ -170,6 +179,7 @@ impl Database {
                     claim_path,
                     log.restore_claim_created_at,
                     log.restore_claim_platform_file_id,
+                    log.restore_claim_platform_volume_id,
                     log.restore_claim_full_hash
                 ])? != 1
                 {
@@ -282,9 +292,13 @@ impl Database {
                     restore_phase,
                     restore_claim_created_at,
                     restore_claim_platform_file_id,
-                    restore_claim_full_hash
+                    restore_claim_full_hash,
+                    source_platform_volume_id,
+                    target_platform_volume_id,
+                    claim_platform_volume_id,
+                    restore_claim_platform_volume_id
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40)
                 ON CONFLICT(id) DO UPDATE SET
                     batch_id = excluded.batch_id,
                     operation_type = excluded.operation_type,
@@ -320,7 +334,11 @@ impl Database {
                     restore_phase = excluded.restore_phase,
                     restore_claim_created_at = excluded.restore_claim_created_at,
                     restore_claim_platform_file_id = excluded.restore_claim_platform_file_id,
-                    restore_claim_full_hash = excluded.restore_claim_full_hash
+                    restore_claim_full_hash = excluded.restore_claim_full_hash,
+                    source_platform_volume_id = excluded.source_platform_volume_id,
+                    target_platform_volume_id = excluded.target_platform_volume_id,
+                    claim_platform_volume_id = excluded.claim_platform_volume_id,
+                    restore_claim_platform_volume_id = excluded.restore_claim_platform_volume_id
                 "#,
             )?;
 
@@ -363,7 +381,11 @@ impl Database {
                     log.restore_phase,
                     log.restore_claim_created_at,
                     log.restore_claim_platform_file_id,
-                    log.restore_claim_full_hash
+                    log.restore_claim_full_hash,
+                    log.source_platform_volume_id,
+                    log.target_platform_volume_id,
+                    log.claim_platform_volume_id,
+                    log.restore_claim_platform_volume_id
                 ])?;
             }
         }
@@ -383,7 +405,8 @@ impl Database {
                 source_claim_path = ?5,
                 claim_created_at = ?6,
                 claim_platform_file_id = ?7,
-                claim_full_hash = ?8
+                claim_platform_volume_id = ?8,
+                claim_full_hash = ?9
             WHERE id = ?1
             "#,
             params![
@@ -394,6 +417,7 @@ impl Database {
                 log.source_claim_path,
                 log.claim_created_at,
                 log.claim_platform_file_id,
+                log.claim_platform_volume_id,
                 log.claim_full_hash
             ],
         )?;
@@ -411,7 +435,8 @@ impl Database {
                 restore_claim_path = ?5,
                 restore_claim_created_at = ?6,
                 restore_claim_platform_file_id = ?7,
-                restore_claim_full_hash = ?8
+                restore_claim_platform_volume_id = ?8,
+                restore_claim_full_hash = ?9
             WHERE id = ?1
             "#,
             params![
@@ -422,6 +447,7 @@ impl Database {
                 log.restore_claim_path,
                 log.restore_claim_created_at,
                 log.restore_claim_platform_file_id,
+                log.restore_claim_platform_volume_id,
                 log.restore_claim_full_hash
             ],
         )?;
@@ -449,13 +475,14 @@ impl Database {
                     restore_claim_path = ?9,
                     restore_claim_created_at = ?10,
                     restore_claim_platform_file_id = ?11,
-                    restore_claim_full_hash = ?12
+                    restore_claim_platform_volume_id = ?12,
+                    restore_claim_full_hash = ?13
                 WHERE id = ?1
                 "#,
             )?;
 
             for log in logs {
-                stmt.execute(params![
+                let updated = stmt.execute(params![
                     log.id,
                     log.status,
                     bool_to_i64(log.can_restore),
@@ -469,8 +496,15 @@ impl Database {
                     log.restore_claim_path,
                     log.restore_claim_created_at,
                     log.restore_claim_platform_file_id,
+                    log.restore_claim_platform_volume_id,
                     log.restore_claim_full_hash
                 ])?;
+                if updated != 1 {
+                    return Err(DbError::Validation(format!(
+                        "operation restore journal row disappeared during finalization: {}",
+                        log.id
+                    )));
+                }
             }
         }
 
@@ -563,6 +597,10 @@ fn operation_log_from_row(row: &Row<'_>) -> rusqlite::Result<OperationLogDto> {
         restore_claim_created_at: row.get(33)?,
         restore_claim_platform_file_id: row.get(34)?,
         restore_claim_full_hash: row.get(35)?,
+        source_platform_volume_id: row.get(36)?,
+        target_platform_volume_id: row.get(37)?,
+        claim_platform_volume_id: row.get(38)?,
+        restore_claim_platform_volume_id: row.get(39)?,
     })
 }
 

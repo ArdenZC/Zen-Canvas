@@ -7,6 +7,7 @@ pub mod fs_safety;
 pub mod ids;
 pub mod path_filter;
 pub mod path_identity;
+pub(crate) mod recovery;
 pub mod runtime_capabilities;
 pub mod scanner;
 pub mod settings;

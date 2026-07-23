@@ -49,7 +49,7 @@ fn schema_18_adds_safe_trash_identity_columns() {
         })
         .expect("schema version");
 
-    assert_eq!(version, 23);
+    assert_eq!(version, 24);
     assert!(columns.iter().any(|column| column == "source_modified_ns"));
     assert!(columns
         .iter()
@@ -1129,6 +1129,117 @@ fn pending_safe_trash_restore_reconciliation_finalizes_committed_target_and_clea
     assert!(safe_path.exists());
 }
 
+#[cfg(windows)]
+fn assert_pending_safe_trash_restore_a_phase_is_idempotent(phase: &str) {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let mut item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    item.status = "pending".to_string();
+    item.identity_status = "restore_pending".to_string();
+    item.operation_phase = phase.to_string();
+    item.source_claim_path = Some(
+        root.join(".missing-restore-claim")
+            .to_string_lossy()
+            .replace('\\', "/"),
+    );
+    item.claim_created_at = Some("1900000000000".to_string());
+    item.claim_platform_file_id = item.source_platform_file_id.clone();
+    item.claim_full_hash = item.source_full_hash.clone();
+    db.update_cleanup_trash_item_status(&item)
+        .expect("persist committed target recovery fixture");
+    fs::rename(&item.trash_path, &item.original_path).expect("recreate committed restore target");
+
+    assert_eq!(
+        reconcile_pending_cleanup_journal(&db).expect("reconcile committed target"),
+        1
+    );
+    let updated = db.list_cleanup_trash_batches().expect("updated batches")[0].items[0].clone();
+    assert_eq!(updated.status, "restored");
+    assert_eq!(updated.operation_phase, "completed");
+    assert_eq!(updated.identity_status, "verified");
+    assert!(updated.source_claim_path.is_none());
+    assert!(updated.claim_created_at.is_none());
+    assert!(updated.claim_platform_file_id.is_none());
+    assert!(updated.claim_full_hash.is_none());
+    assert!(safe_path.exists());
+    assert_eq!(
+        reconcile_pending_cleanup_journal(&db).expect("reconcile restored target again"),
+        0
+    );
+}
+
+#[test]
+#[cfg(windows)]
+fn pending_safe_trash_restore_target_committed_a_path_is_restored_without_retry() {
+    assert_pending_safe_trash_restore_a_phase_is_idempotent("target_committed");
+}
+
+#[test]
+#[cfg(windows)]
+fn pending_safe_trash_restore_source_cleanup_pending_a_path_is_restored_without_retry() {
+    assert_pending_safe_trash_restore_a_phase_is_idempotent("source_cleanup_pending");
+}
+
+#[test]
+#[cfg(windows)]
+fn cleanup_restore_batch_failure_rolls_back_item_and_batch_together() {
+    let root = test_dir();
+    let db_path = test_db_path();
+    let db = Database::open(&db_path).expect("open db");
+    let safe_path = root.join("node_modules");
+    write_file(&safe_path.join("package").join("index.js"), 128);
+    let safe = classify_candidate_for_test(&safe_path, 128);
+    move_cleanup_candidates_to_safe_trash_for_candidates(vec![safe.id.clone()], &[safe], &db, None)
+        .expect("move to safe trash");
+    let item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+
+    let conn = rusqlite::Connection::open(&db_path).expect("open trigger database");
+    conn.execute_batch(
+        r#"
+        CREATE TRIGGER reject_cleanup_restore_batch
+        BEFORE UPDATE OF status ON cleanup_trash_batches
+        BEGIN
+            SELECT RAISE(ABORT, 'injected Safe Trash batch update failure');
+        END;
+        "#,
+    )
+    .expect("install batch failure trigger");
+    drop(conn);
+
+    let mut outcome = item.clone();
+    outcome.status = "restored".to_string();
+    outcome.identity_status = "verified".to_string();
+    outcome.operation_phase = "completed".to_string();
+    outcome.restored_at = Some("1900000000123".to_string());
+    assert!(db.finalize_cleanup_restore_outcome(&outcome).is_err());
+
+    let conn = rusqlite::Connection::open(db.path()).expect("open rollback database");
+    let persisted_item: (String, String) = conn
+        .query_row(
+            "SELECT status, operation_phase FROM cleanup_trash_items WHERE id = ?1",
+            rusqlite::params![item.id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("read rolled-back item");
+    let persisted_batch: String = conn
+        .query_row(
+            "SELECT status FROM cleanup_trash_batches WHERE id = ?1",
+            rusqlite::params![item.batch_id],
+            |row| row.get(0),
+        )
+        .expect("read rolled-back batch");
+    assert_eq!(
+        persisted_item,
+        ("moved".to_string(), "completed".to_string())
+    );
+    assert_eq!(persisted_batch, "success");
+}
+
 #[test]
 #[cfg(windows)]
 fn pending_safe_trash_restore_reconciliation_rolls_back_before_commit_and_remains_restorable() {
@@ -1209,8 +1320,13 @@ fn pending_safe_trash_restore_reconciliation_preserves_all_claim_fields_when_eve
     );
     let updated = db.list_cleanup_trash_batches().expect("updated batches")[0].items[0].clone();
     assert_eq!(updated.status, "manual_review");
-    assert_eq!(updated.operation_phase, "manual_review");
+    assert_eq!(updated.operation_phase, "target_committed");
     assert_eq!(updated.identity_status, "restore_pending_recovery");
+    assert!(updated
+        .message
+        .as_deref()
+        .unwrap_or_default()
+        .starts_with("target_committed_durability_unknown:"));
     assert_eq!(updated.source_claim_path, expected_claim_path);
     assert_eq!(updated.claim_created_at, expected_claim_created_at);
     assert_eq!(updated.claim_platform_file_id, expected_claim_platform_id);
@@ -1380,6 +1496,21 @@ fn restore_cleanup_trash_items_blocks_conflicts_and_marks_missing_trash_paths() 
     assert_eq!(conflict.restored, 0);
     assert_eq!(conflict.conflicts, 1);
     assert!(safe_path.exists());
+    let conflicted_item = db
+        .list_cleanup_trash_batches()
+        .expect("trash batches after conflict")
+        .into_iter()
+        .flat_map(|batch| batch.items)
+        .find(|candidate| candidate.id == item.id)
+        .expect("conflicted item");
+    assert_eq!(conflicted_item.status, "manual_review");
+    assert_eq!(conflicted_item.operation_phase, "manual_review");
+    assert_eq!(conflicted_item.identity_status, "restore_pending_recovery");
+    assert!(conflicted_item
+        .message
+        .as_deref()
+        .unwrap_or_default()
+        .starts_with("manual_review_required:"));
 
     let trash_path = PathBuf::from(item.trash_path);
     if trash_path.exists() {
@@ -1390,12 +1521,45 @@ fn restore_cleanup_trash_items_blocks_conflicts_and_marks_missing_trash_paths() 
         }
     }
     fs::remove_dir_all(&safe_path).expect("remove conflict");
-    let missing =
-        restore_cleanup_trash_items_for_db(vec![item.id.clone()], &db).expect("restore missing");
+
+    let missing_path = root.join("second-project").join("node_modules");
+    write_file(&missing_path.join("package").join("index.js"), 128);
+    let missing_safe = classify_candidate_for_test(&missing_path, 128);
+    let missing_move = move_cleanup_candidates_to_safe_trash_for_candidates(
+        vec![missing_safe.id.clone()],
+        &[missing_safe],
+        &db,
+        None,
+    )
+    .expect("move missing fixture to safe trash");
+    assert_eq!(missing_move.moved, 1);
+    let missing_item = db
+        .list_cleanup_trash_batches()
+        .expect("trash batches for missing fixture")
+        .into_iter()
+        .flat_map(|batch| batch.items)
+        .find(|candidate| candidate.original_path.contains("second-project"))
+        .expect("missing fixture item");
+    let missing_trash_path = PathBuf::from(&missing_item.trash_path);
+    if missing_trash_path.exists() {
+        if missing_trash_path.is_dir() {
+            fs::remove_dir_all(&missing_trash_path).expect("remove missing trash path");
+        } else {
+            fs::remove_file(&missing_trash_path).expect("remove missing trash path");
+        }
+    }
+    let missing = restore_cleanup_trash_items_for_db(vec![missing_item.id.clone()], &db)
+        .expect("restore missing");
 
     assert_eq!(missing.restored, 0);
     assert_eq!(missing.missing, 1);
-    let missing_item = db.list_cleanup_trash_batches().expect("trash batches")[0].items[0].clone();
+    let missing_item = db
+        .list_cleanup_trash_batches()
+        .expect("trash batches after missing")
+        .into_iter()
+        .flat_map(|batch| batch.items)
+        .find(|candidate| candidate.id == missing_item.id)
+        .expect("updated missing fixture item");
     assert_eq!(missing_item.status, "missing");
 }
 

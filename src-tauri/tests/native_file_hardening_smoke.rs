@@ -592,12 +592,12 @@ fn native_file_hardening_smoke() {
         .expect("all missing restore result");
     assert_eq!(all_missing_recovered.status, "manual_review");
     assert_eq!(all_missing_recovered.restore_status, "manual_review");
-    assert_eq!(all_missing_recovered.restore_phase, "manual_review");
+    assert_eq!(all_missing_recovered.restore_phase, "target_committed");
     assert!(!all_missing_recovered.can_restore);
     assert!(all_missing_recovered
         .restore_error
         .as_deref()
-        .is_some_and(|error| error.contains("restore_pending_reconciliation")));
+        .is_some_and(|error| error.starts_with("target_committed_durability_unknown:")));
 
     let reconcile_source = source_volume.join("reconcile-source.txt");
     let reconcile_target = target_volume.join("reconcile-target.txt");
@@ -1171,8 +1171,20 @@ fn native_file_hardening_smoke() {
     );
     assert_eq!(
         cleanup_item(&db, &restore_target_committed_item_id).status,
-        "manual_review"
+        "restored"
     );
+    let restore_target_committed_recovered = cleanup_item(&db, &restore_target_committed_item_id);
+    assert_eq!(
+        restore_target_committed_recovered.operation_phase,
+        "completed"
+    );
+    assert_eq!(
+        restore_target_committed_recovered.identity_status,
+        "verified"
+    );
+    assert!(restore_target_committed_recovered
+        .source_claim_path
+        .is_none());
 
     let restore_source_cleanup = native_cleanup_candidate(
         &safe_trash_cases_root,
@@ -1215,8 +1227,15 @@ fn native_file_hardening_smoke() {
     assert!(reconcile_pending_cleanup_journal(&db).expect("reconcile restore source cleanup") >= 1);
     assert_eq!(
         cleanup_item(&db, &restore_source_cleanup_item_id).status,
-        "manual_review"
+        "restored"
     );
+    let restore_source_cleanup_recovered = cleanup_item(&db, &restore_source_cleanup_item_id);
+    assert_eq!(
+        restore_source_cleanup_recovered.operation_phase,
+        "completed"
+    );
+    assert_eq!(restore_source_cleanup_recovered.identity_status, "verified");
+    assert!(restore_source_cleanup_recovered.source_claim_path.is_none());
 
     let final_log_source = source_volume.join("final-log-source.txt");
     let final_log_target = source_volume.join("final-log-target.txt");
