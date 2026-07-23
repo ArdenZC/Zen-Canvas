@@ -15,6 +15,8 @@ pub const INDEX_STATUS_READY: &str = "ready";
 pub const INDEX_STATUS_PAUSED: &str = "paused";
 pub const INDEX_STATUS_REBUILD_REQUIRED: &str = "rebuild_required";
 pub const INDEX_STATUS_PERMISSION_REQUIRED: &str = "permission_required";
+pub const INDEX_STATUS_SPOTLIGHT_UNAVAILABLE: &str = "spotlight_unavailable";
+pub const INDEX_STATUS_FSEVENTS_UNAVAILABLE: &str = "fsevents_unavailable";
 pub const INDEX_STATUS_UNAVAILABLE: &str = "unavailable";
 pub const INDEX_STATUS_ERROR: &str = "error";
 
@@ -123,6 +125,7 @@ pub struct GlobalIndexStatus {
     pub platform: String,
     pub enabled: bool,
     pub status: String,
+    pub provider_status: Option<String>,
     pub total_entries: i64,
     pub indexed_volumes: i64,
     pub ready_volumes: i64,
@@ -198,7 +201,8 @@ pub struct GlobalSearchQuery {
     pub offset: u32,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct GlobalEntryInput {
     pub volume_id: String,
     pub platform_file_id: String,

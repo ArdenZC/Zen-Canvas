@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type * as React from "react";
-import { Activity, ChevronRight, Clock3, CornerDownLeft, File as FileIcon, Folder, LayoutGrid, Radar, Search, X } from "lucide-react";
+import { Activity, ChevronRight, Clock3, CornerDownLeft, File as FileIcon, Folder, FolderPlus, LayoutGrid, Radar, Search, X } from "lucide-react";
 import { motion } from "motion/react";
 import { tauriApi } from "../api/tauriApi";
 import type { FileRecord, GlobalSearchResult, OperationLog } from "../types/domain";
@@ -279,6 +279,27 @@ export function CommandModal({
     }
   }
 
+  async function addGlobalEntryToManagedScope(entry: GlobalSearchResult) {
+    if (entry.managed) return;
+    try {
+      await tauriApi.addManagedScope({
+        path: entry.isDirectory ? entry.path : parentPathForManagedScope(entry.path),
+        globalEntryId: entry.isDirectory ? entry.id : null,
+        enabled: true,
+        allowLocalAi: true,
+        allowCloudAi: false
+      });
+      setGlobalResultState((current) => ({
+        ...current,
+        results: current.results.map((item) => item.id === entry.id ? { ...item, managed: true } : item)
+      }));
+    } catch (error) {
+      const message = readableError(error);
+      setCommandError(message);
+      onError?.(message);
+    }
+  }
+
   async function openSortingPreview() {
     try {
       await activateCommandNavigation({
@@ -470,6 +491,7 @@ export function CommandModal({
                 highlight={trimmedSearch}
                 t={t}
                 onChoose={chooseResult}
+                onManage={addGlobalEntryToManagedScope}
                 onActivate={setActiveIndex}
               />
             </div>
@@ -522,6 +544,7 @@ function SpotlightResultGroups({
   highlight,
   t,
   onChoose,
+  onManage,
   onActivate
 }: {
   groups: ReturnType<typeof groupSpotlightResults>;
@@ -530,6 +553,7 @@ function SpotlightResultGroups({
   highlight: string;
   t: Translator;
   onChoose: (result: SpotlightResult) => void;
+  onManage: (entry: GlobalSearchResult) => void;
   onActivate: (index: number) => void;
 }) {
   return (
@@ -568,29 +592,44 @@ function SpotlightResultGroups({
               const entry = result.entry;
               const extension = entry.extension ? entry.extension.replace(".", "").toUpperCase() : t("spotlightFolders");
               return (
-                <button
+                <div
                   key={result.id}
                   id={`command-result-${index}`}
                   role="option"
                   aria-selected={active}
                   data-result-kind="global"
                   className={cn(commandResultItemBase, active ? commandResultItemActive : commandResultItemInactive)}
-                  onClick={() => onChoose(result)}
                   onMouseEnter={() => onActivate(index)}
                 >
                   <span className={cn(commandFileIcon, "bg-[var(--zc-surface-subtle)] text-[var(--zc-primary)]")}>
                     {entry.isDirectory ? <Folder size={20} /> : <FileIcon size={20} />}
                   </span>
-                  <span className="grid min-w-0 gap-1.5">
+                  <button
+                    className="grid min-w-0 gap-1.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]"
+                    onClick={() => onChoose(result)}
+                    aria-label={t("commandOpenHint")}
+                  >
                     <strong className={commandFileName}><HighlightText text={entry.name} highlight={highlight} /></strong>
                     <span className={commandFileMeta} title={formatDisplayPath(entry.path)}>{compactPath(formatDisplayPath(entry.path), 74)}</span>
                     <span className="flex min-w-0 flex-wrap items-center gap-1.5">
                       <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--zc-text-tertiary)]">{extension}</span>
                       {entry.managed ? <span className="text-[10px] font-medium text-[var(--zc-primary-text)]">{t("globalSearchManaged")}</span> : null}
                     </span>
-                  </span>
-                  <ChevronRight className={active ? "text-[var(--zc-primary)]" : "text-[var(--zc-text-tertiary)]"} size={16} />
-                </button>
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {!entry.managed ? (
+                      <IconButton
+                        className="h-8 w-8 rounded-[var(--zc-radius-control)] border-transparent bg-transparent text-[var(--zc-text-tertiary)] shadow-none hover:bg-[var(--zc-primary-soft)] hover:text-[var(--zc-primary-text)]"
+                        onClick={() => onManage(entry)}
+                        aria-label={t("globalSearchAddManaged")}
+                        title={t("globalSearchAddManaged")}
+                      >
+                        <FolderPlus size={15} />
+                      </IconButton>
+                    ) : null}
+                    <ChevronRight className={active ? "text-[var(--zc-primary)]" : "text-[var(--zc-text-tertiary)]"} size={16} />
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -598,6 +637,12 @@ function SpotlightResultGroups({
       ))}
     </div>
   );
+}
+
+function parentPathForManagedScope(path: string) {
+  const normalized = path.replace(/[\\/]+$/, "");
+  const separator = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  return separator > 0 ? normalized.slice(0, separator) : normalized;
 }
 
 function CommandIdleGroups({

@@ -9,13 +9,20 @@ use tauri::Manager;
 use tauri_plugin_autostart::ManagerExt;
 use zen_canvas_tauri::{
     dedupe::DedupeJobManager,
-    global_index::GlobalIndexCoordinator,
+    global_index::{GlobalIndexCoordinator, ManagedAiWorker},
     open_database, settings,
     watcher::{reload_file_watcher_for_settings, FileWatcherManager},
     AIClassificationCancellationToken, OperationCancellationToken, ScanJobManager,
 };
 
 fn main() {
+    #[cfg(windows)]
+    if std::env::args().any(|argument| argument == "--index-service") {
+        std::process::exit(
+            zen_canvas_tauri::global_index::windows::service_host::run_index_service_process(),
+        );
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
@@ -34,6 +41,8 @@ fn main() {
             if let Err(error) = global_index_coordinator.start() {
                 eprintln!("Global index startup failed (non-fatal): {error}");
             }
+            let managed_ai_worker = ManagedAiWorker::start(db.clone());
+            app.manage(managed_ai_worker);
             app.manage(ScanJobManager::default());
             app.manage(DedupeJobManager::default());
             app.manage(OperationCancellationToken::default());
@@ -159,6 +168,9 @@ fn main() {
                     if let Err(error) = coordinator.shutdown() {
                         eprintln!("Global index shutdown failed (non-fatal): {error}");
                     }
+                }
+                if let Some(worker) = app.try_state::<ManagedAiWorker>() {
+                    worker.shutdown();
                 }
             }
         });

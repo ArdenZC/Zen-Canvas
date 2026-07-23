@@ -19,14 +19,18 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 
-pub fn collect_local_computer_entries(
+pub fn stream_local_computer_entries<F>(
     volume_id: &str,
     cancel: &AtomicBool,
-) -> Result<Vec<GlobalEntryInput>, String> {
+    mut on_batch: F,
+) -> Result<(), String>
+where
+    F: FnMut(&[GlobalEntryInput]) -> Result<(), String>,
+{
     autoreleasepool(|_| {
         let query = new_local_computer_query();
         if !query.startQuery() {
-            return Err("macos_spotlight_query_start_failed".to_string());
+            return Err("macos_spotlight_query_unavailable".to_string());
         }
         let run_loop = NSRunLoop::currentRunLoop();
         while query.isGathering() {
@@ -37,7 +41,7 @@ pub fn collect_local_computer_entries(
             let deadline = NSDate::dateWithTimeIntervalSinceNow(0.2);
             run_loop.runUntilDate(&deadline);
         }
-        let mut entries = Vec::with_capacity(query.resultCount() as usize);
+        let mut entries = Vec::with_capacity(512);
         for index in 0..query.resultCount() {
             if cancel.load(Ordering::Acquire) {
                 query.stopQuery();
@@ -46,10 +50,23 @@ pub fn collect_local_computer_entries(
             let object = query.resultAtIndex(index);
             if let Some(entry) = metadata_item_to_entry(volume_id, &object) {
                 entries.push(entry);
+                if entries.len() >= 512 {
+                    if let Err(error) = on_batch(&entries) {
+                        query.stopQuery();
+                        return Err(format!("callback:{error}"));
+                    }
+                    entries.clear();
+                }
+            }
+        }
+        if !entries.is_empty() {
+            if let Err(error) = on_batch(&entries) {
+                query.stopQuery();
+                return Err(format!("callback:{error}"));
             }
         }
         query.stopQuery();
-        Ok(entries)
+        Ok(())
     })
 }
 
@@ -57,13 +74,13 @@ pub fn spawn_update_watcher(
     volume_id: String,
     pending: Arc<Mutex<PendingUpdates>>,
     stopped: Arc<AtomicBool>,
-) -> JoinHandle<()> {
+) -> Result<JoinHandle<()>, String> {
     thread::Builder::new()
         .name("zen-canvas-macos-spotlight".to_string())
         .spawn(move || {
             autoreleasepool(|_| run_update_watcher(&volume_id, &pending, &stopped));
         })
-        .expect("failed to start macOS Spotlight watcher")
+        .map_err(|error| format!("macos_spotlight_thread_start_failed: {error}"))
 }
 
 fn run_update_watcher(volume_id: &str, pending: &Arc<Mutex<PendingUpdates>>, stopped: &AtomicBool) {
@@ -121,7 +138,7 @@ fn run_update_watcher(volume_id: &str, pending: &Arc<Mutex<PendingUpdates>>, sto
     };
     if !query.startQuery() {
         if let Ok(mut pending) = pending.lock() {
-            pending.last_error = Some("macos_spotlight_watcher_start_failed".to_string());
+            pending.last_error = Some("macos_spotlight_realtime_updates_unavailable".to_string());
         }
         unsafe { center.removeObserver(&observer) };
         return;

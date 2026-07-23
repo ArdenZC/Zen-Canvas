@@ -144,11 +144,24 @@ impl Database {
         )?;
         if !enabled || (!allow_local_ai && !allow_cloud_ai) {
             transaction.execute(
-                "UPDATE ai_jobs SET status = 'blocked_by_policy', last_error = 'managed_scope_policy_disabled' WHERE managed_scope_id = ?1 AND status IN ('pending', 'running')",
-                params![request.id],
+                "UPDATE ai_jobs SET status = 'blocked_by_policy', started_at = NULL, completed_at = ?2, last_error = 'managed_scope_policy_disabled' WHERE managed_scope_id = ?1 AND status IN ('pending', 'running')",
+                params![request.id, now],
             )?;
             transaction.execute(
                 "UPDATE ai_job_items SET status = 'blocked_by_policy', last_error = 'managed_scope_policy_disabled', updated_at = ?2 WHERE job_id IN (SELECT id FROM ai_jobs WHERE managed_scope_id = ?1)",
+                params![request.id, now],
+            )?;
+            transaction.execute(
+                r#"
+                UPDATE ai_analysis_state
+                SET status = 'blocked_by_policy', last_error = 'managed_scope_policy_disabled', updated_at = ?2
+                WHERE global_entry_id IN (SELECT global_entry_id FROM ai_jobs WHERE managed_scope_id = ?1)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM ai_jobs job
+                      WHERE job.global_entry_id = ai_analysis_state.global_entry_id
+                        AND job.status IN ('pending', 'running')
+                  )
+                "#,
                 params![request.id, now],
             )?;
         } else {
@@ -159,6 +172,10 @@ impl Database {
             )?;
             transaction.execute(
                 "UPDATE ai_job_items SET status = 'pending', last_error = NULL, updated_at = ?2 WHERE job_id IN (SELECT id FROM ai_jobs WHERE managed_scope_id = ?1) AND status = 'blocked_by_policy'",
+                params![request.id, now],
+            )?;
+            transaction.execute(
+                "UPDATE ai_analysis_state SET status = 'pending', last_error = NULL, updated_at = ?2 WHERE global_entry_id IN (SELECT global_entry_id FROM ai_jobs WHERE managed_scope_id = ?1) AND status = 'blocked_by_policy'",
                 params![request.id, now],
             )?;
         }

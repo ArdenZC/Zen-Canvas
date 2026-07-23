@@ -21,7 +21,9 @@ pub fn search_global_entries(
 pub fn get_global_index_status(
     coordinator: State<'_, GlobalIndexCoordinator>,
 ) -> Result<GlobalIndexStatus, String> {
-    coordinator.status().map_err(|error| error.to_string())
+    let mut status = coordinator.status().map_err(|error| error.to_string())?;
+    status.provider_status = coordinator.provider_status().ok();
+    Ok(status)
 }
 
 #[tauri::command]

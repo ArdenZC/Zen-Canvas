@@ -23,7 +23,13 @@ impl Database {
                 mount_path = excluded.mount_path,
                 filesystem_type = excluded.filesystem_type,
                 drive_kind = excluded.drive_kind,
-                provider = excluded.provider,
+                provider = CASE
+                    WHEN global_volumes.provider = 'windows_recursive_fallback'
+                     AND excluded.provider = 'windows_mft_usn'
+                     AND lower(global_volumes.filesystem_type) = lower(excluded.filesystem_type)
+                    THEN global_volumes.provider
+                    ELSE excluded.provider
+                END,
                 updated_at = excluded.updated_at
             "#,
             params![
@@ -126,6 +132,15 @@ impl Database {
         conn.execute(
             "UPDATE global_volumes SET enabled = ?2, updated_at = ?3 WHERE id = ?1",
             params![id, bool_to_i64(enabled), unix_now()],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_global_volume_provider(&self, id: &str, provider: &str) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE global_volumes SET provider = ?2, updated_at = ?3 WHERE id = ?1",
+            params![id, provider, unix_now()],
         )?;
         Ok(())
     }
@@ -324,6 +339,7 @@ impl Database {
             platform: std::env::consts::OS.to_string(),
             enabled: indexed_volumes > 0,
             status: status.to_string(),
+            provider_status: None,
             total_entries,
             indexed_volumes,
             ready_volumes,
@@ -527,11 +543,29 @@ pub(crate) fn enqueue_ai_jobs_for_entry(
         )?;
 
         if entry.is_directory {
+            let now = unix_now();
+            transaction.execute(
+                "UPDATE ai_jobs SET status = 'stale', completed_at = ?2, last_error = 'global_entry_is_directory' WHERE global_entry_id = ?1 AND status IN ('pending', 'running', 'completed')",
+                params![entry_id, now],
+            )?;
+            transaction.execute(
+                "UPDATE ai_job_items SET status = 'stale', updated_at = ?2, last_error = 'global_entry_is_directory' WHERE global_entry_id = ?1 AND status IN ('pending', 'running', 'completed')",
+                params![entry_id, now],
+            )?;
+            transaction.execute(
+                "UPDATE ai_analysis_state SET status = 'stale', last_error = 'global_entry_is_directory', updated_at = ?2 WHERE global_entry_id = ?1",
+                params![entry_id, now],
+            )?;
             continue;
         }
+        let now = unix_now();
         transaction.execute(
-            "UPDATE ai_jobs SET status = 'stale', completed_at = ?2 WHERE global_entry_id = ?1 AND input_fingerprint <> ?3 AND status IN ('pending', 'running', 'completed')",
-            params![entry_id, unix_now(), fingerprint],
+            "UPDATE ai_jobs SET status = 'stale', completed_at = ?2, last_error = 'input_fingerprint_changed' WHERE global_entry_id = ?1 AND input_fingerprint <> ?3 AND status IN ('pending', 'running', 'completed')",
+            params![entry_id, now, fingerprint],
+        )?;
+        transaction.execute(
+            "UPDATE ai_job_items SET status = 'stale', updated_at = ?2, last_error = 'input_fingerprint_changed' WHERE global_entry_id = ?1 AND job_id IN (SELECT id FROM ai_jobs WHERE input_fingerprint <> ?3)",
+            params![entry_id, now, fingerprint],
         )?;
         let existing: Option<(String, String)> = transaction
             .query_row(

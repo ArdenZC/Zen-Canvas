@@ -222,11 +222,12 @@ fn parse_name(bytes: &[u8], offset: usize, length: usize) -> Result<String, Glob
 }
 
 pub(crate) fn reconstruct_paths(root: &str, records: &[MftRecord]) -> HashMap<String, String> {
-    let mut by_id = HashMap::<String, MftRecord>::new();
+    // Keep one owned record per MFT page and let the parent graph borrow it;
+    // cloning every record into a second full map is prohibitive on large
+    // volumes. The path cache stores only resolved strings.
+    let mut by_id = HashMap::<String, &MftRecord>::new();
     for record in records {
-        by_id
-            .entry(record.file_reference.clone())
-            .or_insert_with(|| record.clone());
+        by_id.entry(record.file_reference.clone()).or_insert(record);
     }
     let mut cache = HashMap::new();
     for record in records {
@@ -240,7 +241,7 @@ pub(crate) fn reconstruct_paths(root: &str, records: &[MftRecord]) -> HashMap<St
 fn resolve_path(
     root: &str,
     record: &MftRecord,
-    by_id: &HashMap<String, MftRecord>,
+    by_id: &HashMap<String, &MftRecord>,
     cache: &mut HashMap<String, String>,
     visiting: &mut HashSet<String>,
 ) -> String {

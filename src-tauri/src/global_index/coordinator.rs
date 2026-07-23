@@ -35,6 +35,11 @@ pub trait GlobalIndexSink: Send {
         status: &str,
         error: Option<&str>,
     ) -> Result<(), GlobalIndexError>;
+    fn set_source_provider(
+        &mut self,
+        volume_id: &str,
+        provider: &str,
+    ) -> Result<(), GlobalIndexError>;
     fn resolve_parent_path(
         &mut self,
         volume_id: &str,
@@ -160,7 +165,15 @@ impl GlobalIndexCoordinator {
     }
 
     pub fn rebuild(&self, source_id: Option<String>) -> Result<(), GlobalIndexError> {
+        let discovered = self.provider.discover_sources()?;
+        let discovered_by_id = discovered
+            .into_iter()
+            .map(|source| (source.volume.id.clone(), source.volume.provider))
+            .collect::<HashMap<_, _>>();
         if let Some(id) = source_id {
+            if let Some(provider) = discovered_by_id.get(&id) {
+                self.db.update_global_volume_provider(&id, provider)?;
+            }
             self.db.update_global_volume_state(
                 &id,
                 INDEX_STATUS_REBUILD_REQUIRED,
@@ -173,6 +186,10 @@ impl GlobalIndexCoordinator {
             self.db.mark_global_entries_stale_for_volume(&id)?;
         } else {
             for volume in self.db.list_global_volumes()? {
+                if let Some(provider) = discovered_by_id.get(&volume.id) {
+                    self.db
+                        .update_global_volume_provider(&volume.id, provider)?;
+                }
                 self.db.update_global_volume_state(
                     &volume.id,
                     INDEX_STATUS_REBUILD_REQUIRED,
@@ -266,6 +283,16 @@ impl GlobalIndexSink for DatabaseIndexSink {
         Ok(())
     }
 
+    fn set_source_provider(
+        &mut self,
+        volume_id: &str,
+        provider: &str,
+    ) -> Result<(), GlobalIndexError> {
+        self.db
+            .update_global_volume_provider(volume_id, provider)
+            .map_err(GlobalIndexError::from)
+    }
+
     fn resolve_parent_path(
         &mut self,
         volume_id: &str,
@@ -312,6 +339,7 @@ fn run_index(
         .collect::<HashMap<_, _>>();
     let volumes = db.list_global_volumes()?;
     let mut sink = DatabaseIndexSink { db: db.clone() };
+    let mut first_error = None;
     for volume in volumes {
         if cancel.load(Ordering::Acquire) {
             break;
@@ -323,9 +351,23 @@ fn run_index(
             continue;
         };
         let mut source = discovered_source.clone();
-        // Discovery returns current platform capabilities; the persisted
-        // volume carries the durable journal checkpoint and user enabled flag.
-        source.volume = volume.clone();
+        // Discovery returns current platform capabilities. The persisted
+        // volume contributes only durable indexing state and user choices, so
+        // a previous recursive fallback never prevents a later MFT/USN retry.
+        source.volume.enabled = volume.enabled;
+        source.volume.index_status = volume.index_status.clone();
+        source.volume.last_error = volume.last_error.clone();
+        source.volume.journal_id = volume.journal_id.clone();
+        source.volume.journal_cursor = volume.journal_cursor.clone();
+        source.volume.last_full_index_at = volume.last_full_index_at;
+        source.volume.last_incremental_sync_at = volume.last_incremental_sync_at;
+        source.volume.entry_count = volume.entry_count;
+        source.volume.created_at = volume.created_at;
+        if volume.provider == PROVIDER_WINDOWS_RECURSIVE_FALLBACK
+            && discovered_source.volume.provider == PROVIDER_WINDOWS_MFT_USN
+        {
+            source.volume.provider = volume.provider.clone();
+        }
         db.update_global_volume_state(
             &volume.id,
             if volume.last_full_index_at.is_some()
@@ -402,11 +444,13 @@ fn run_index(
                     None,
                     None,
                 )?;
-                return Err(error);
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
             }
         }
     }
-    Ok(())
+    first_error.map_or(Ok(()), Err)
 }
 
 fn platform_provider() -> Box<dyn GlobalIndexProvider> {

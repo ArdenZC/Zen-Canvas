@@ -38,7 +38,8 @@
       "nsis": {
         "installerIcon": "../build/installerIcon.ico",
         "installMode": "perMachine",
-        "displayLanguageSelector": true
+        "displayLanguageSelector": true,
+        "installerHooks": "windows/installer-hooks.nsh"
       }
     },
     "macOS": {

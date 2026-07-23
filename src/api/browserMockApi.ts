@@ -440,6 +440,7 @@ function mockGlobalIndexStatus(): GlobalIndexStatus {
     platform: "browser",
     enabled: true,
     status: "ready",
+    providerStatus: "browser_preview",
     totalEntries: mockGlobalEntries.length,
     indexedVolumes: 1,
     readyVolumes: 1,

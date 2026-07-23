@@ -41,6 +41,7 @@ pub fn start_reconcile_watcher(
     root: &Path,
     pending: Arc<Mutex<PendingUpdates>>,
     stopped: Arc<AtomicBool>,
+    since_event_id: Option<u64>,
 ) -> Result<FseventsHandle, String> {
     let root = root
         .to_str()
@@ -50,7 +51,7 @@ pub fn start_reconcile_watcher(
     let stop_for_thread = stop.clone();
     let thread = thread::Builder::new()
         .name("zen-canvas-macos-fsevents".to_string())
-        .spawn(move || run_fsevents(&root, pending, stopped, stop_for_thread))
+        .spawn(move || run_fsevents(&root, pending, stopped, stop_for_thread, since_event_id))
         .map_err(|error| format!("macos_fsevents_thread_start_failed: {error}"))?;
     Ok(FseventsHandle {
         stop,
@@ -69,7 +70,7 @@ extern "C" fn fsevent_callback(
     num_events: usize,
     _event_paths: *mut c_void,
     event_flags: *const FSEventStreamEventFlags,
-    _event_ids: *const u64,
+    event_ids: *const u64,
 ) {
     if client_info.is_null() {
         return;
@@ -93,6 +94,10 @@ extern "C" fn fsevent_callback(
     };
     if let Ok(mut pending) = info.pending.lock() {
         pending.full_reconcile |= needs_full_reconcile || num_events > 0;
+        if !event_ids.is_null() {
+            let ids = unsafe { std::slice::from_raw_parts(event_ids, num_events) };
+            pending.last_event_id = ids.iter().copied().max().or(pending.last_event_id);
+        }
     }
 }
 
@@ -101,19 +106,29 @@ fn run_fsevents(
     pending: Arc<Mutex<PendingUpdates>>,
     stopped: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
+    since_event_id: Option<u64>,
 ) {
     let Ok(path) = CString::new(root) else {
+        if let Ok(mut pending) = pending.lock() {
+            pending.last_error = Some("macos_fsevents_root_not_utf8".to_string());
+        }
         return;
     };
     unsafe {
         let path_ref =
             CFStringCreateWithCString(kCFAllocatorDefault, path.as_ptr(), kCFStringEncodingUTF8);
         if path_ref.is_null() {
+            if let Ok(mut pending) = pending.lock() {
+                pending.last_error = Some("macos_fsevents_stream_unavailable".to_string());
+            }
             return;
         }
         let paths = CFArrayCreateMutable(kCFAllocatorDefault, 1, &kCFTypeArrayCallBacks);
         if paths.is_null() {
             CFRelease(path_ref);
+            if let Ok(mut pending) = pending.lock() {
+                pending.last_error = Some("macos_fsevents_stream_unavailable".to_string());
+            }
             return;
         }
         CFArrayAppendValue(paths, path_ref);
@@ -131,7 +146,7 @@ fn run_fsevents(
             fsevent_callback,
             &context,
             paths,
-            kFSEventStreamEventIdSinceNow,
+            since_event_id.unwrap_or(kFSEventStreamEventIdSinceNow),
             0.25,
             kFSEventStreamCreateFlagUseCFTypes
                 | kFSEventStreamCreateFlagFileEvents
@@ -140,12 +155,24 @@ fn run_fsevents(
         );
         CFRelease(paths);
         if stream.is_null() {
+            if let Ok(mut pending) = unsafe { &*context.info.cast::<FseventInfo>() }
+                .pending
+                .lock()
+            {
+                pending.last_error = Some("macos_fsevents_stream_unavailable".to_string());
+            }
             drop(Box::from_raw(context.info.cast::<FseventInfo>()));
             return;
         }
         let run_loop = CFRunLoopGetCurrent();
         FSEventStreamScheduleWithRunLoop(stream, run_loop, kCFRunLoopDefaultMode);
         if FSEventStreamStart(stream) == 0 {
+            if let Ok(mut pending) = unsafe { &*context.info.cast::<FseventInfo>() }
+                .pending
+                .lock()
+            {
+                pending.last_error = Some("macos_fsevents_stream_start_failed".to_string());
+            }
             FSEventStreamUnscheduleFromRunLoop(stream, run_loop, kCFRunLoopDefaultMode);
             FSEventStreamInvalidate(stream);
             FSEventStreamRelease(stream);

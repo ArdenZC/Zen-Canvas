@@ -39,11 +39,22 @@ scope continues to control File Library views only.
   safe fallback scan.
 - Uses a recursive metadata-only fallback for non-NTFS or unavailable journal
   sources.
-- Includes a versioned named-pipe service contract with local-user ACLs and
-  framed request validation for least-privilege integration. The current
-  release keeps the provider in-process and uses this contract as the service
-  seam; installed-service registration, upgrade/uninstall hooks, and live
-  provider transport remain a follow-up for a formal service-mode build.
+- Persists a per-volume fallback decision so transient MFT/USN failures do not
+  cause repeated expensive retries; an explicit rebuild resets that decision
+  and deliberately retries native NTFS enumeration.
+- Runs the provider in the installed ZenCanvasGlobalIndex Windows service
+  (LocalSystem, auto-start) through a versioned named pipe with explicit
+  LocalSystem/interactive-user ACLs and remote-client rejection. The service
+  validates every source snapshot against fresh native volume discovery,
+  streams bounded metadata batches, and performs parent/identity lookups
+  through the desktop process without receiving arbitrary file-operation
+  paths.
+- The per-machine NSIS installer stops and removes the previous service before
+  upgrade, registers the installer-owned executable with --index-service,
+  configures restart-on-failure, starts it after install, and removes it on
+  uninstall. The desktop exposes start/pause/resume/rebuild/status; direct
+  in-process enumeration is retained only as an explicit unavailable-service
+  fallback and is surfaced in Preferences.
 
 ### macOS
 
@@ -51,14 +62,29 @@ scope continues to control File Library views only.
   `NSMetadataQueryIndexedLocalComputerScope` for indexed local metadata.
 - Receives metadata query notifications and uses native FSEvents as the
   reconciliation signal for changes, removals, and permission/index gaps.
+- Persists the last processed FSEvents event ID as the incremental checkpoint,
+  while retaining a native reconciliation path when the cursor is unavailable.
 - Preserves explicit permission-required and rebuild-required states instead of
   silently treating incomplete discovery as a ready index.
+- Distinguishes Spotlight unavailable, realtime Spotlight update unavailable,
+  and FSEvents unavailable states in the source status/error path.
+
+## Managed AI worker
+
+The durable queue is consumed by a bounded background worker. It resets
+abandoned running jobs after restart, claims only enabled non-directory
+entries in enabled managed scopes, retries transient provider failures up to
+three attempts, and records terminal or policy-blocked states. Requests are
+metadata-only and results stay in ai_analysis_state; legacy files rows are
+not copied or mutated. Local/cloud provider choice is checked again at claim
+and execution time, and cloud processing remains disabled by default.
 
 ## UI behavior
 
 Spotlight always queries the global index. Enter opens the selected result and
-Ctrl/Cmd+Enter reveals it in the file manager. The index-management link is a
-low-priority control that opens Preferences; it does not make management a
+Ctrl/Cmd+Enter reveals it in the file manager. An unmanaged result can be
+added to its parent managed scope with a low-priority action, while the
+index-management link opens Preferences; neither makes management a
 prerequisite for search.
 
 Preferences exposes global source status/lifecycle and separately exposes
@@ -76,3 +102,7 @@ recommendation badges.
 - Windows code is checked on the Windows host. Native macOS compilation still
   requires a macOS toolchain; cross-compiling Objective-C dependencies from
   Windows is not treated as native verification.
+- The Windows installer was rebuilt successfully with the service hooks. The
+  current development machine does not have ZenCanvasGlobalIndex installed,
+  so live SCM start/stop and a real post-install service scan still require
+  an elevated installer acceptance run.

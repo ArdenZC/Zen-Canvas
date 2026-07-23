@@ -91,6 +91,16 @@ fn sync_with_handle(
     }
 
     let mut cursor = saved_cursor;
+    if cursor == journal.NextUsn {
+        sink.checkpoint(
+            &source.volume.id,
+            Some(&journal.UsnJournalID.to_string()),
+            Some(&cursor.to_string()),
+        )?;
+        return Ok(UsnSyncResult {
+            directory_path_changed: false,
+        });
+    }
     let mut directory_path_changed = false;
     loop {
         if cancel.load(Ordering::Acquire) {
@@ -111,13 +121,50 @@ fn sync_with_handle(
             )
         };
         let mut output = vec![0u8; READ_BUFFER_SIZE];
-        let bytes = unsafe {
+        let bytes = match unsafe {
             device_io_control_bytes(handle, FSCTL_READ_USN_JOURNAL, input_bytes, &mut output)
-        }?;
+        } {
+            Ok(bytes) => bytes,
+            Err(error) if is_journal_history_error(&error) => {
+                let message = format!(
+                    "USN journal history is no longer readable; a volume rebuild is required: {error}"
+                );
+                sink.set_source_state(
+                    &source.volume.id,
+                    crate::global_index::models::INDEX_STATUS_REBUILD_REQUIRED,
+                    Some(&message),
+                )?;
+                return Err(GlobalIndexError::Provider(message));
+            }
+            Err(error) => return Err(error),
+        };
         if bytes < 8 {
             break;
         }
-        let (next_cursor, records) = parse_mft_page(&output[..bytes])?;
+        let (next_cursor, records) = match parse_mft_page(&output[..bytes]) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                let message = format!(
+                    "USN journal data could not be parsed; a volume rebuild is required: {error}"
+                );
+                sink.set_source_state(
+                    &source.volume.id,
+                    crate::global_index::models::INDEX_STATUS_REBUILD_REQUIRED,
+                    Some(&message),
+                )?;
+                return Err(GlobalIndexError::Provider(message));
+            }
+        };
+        if next_cursor as i64 <= cursor || next_cursor as i64 > journal.NextUsn {
+            let message =
+                "USN journal cursor is not continuous; a volume rebuild is required".to_string();
+            sink.set_source_state(
+                &source.volume.id,
+                crate::global_index::models::INDEX_STATUS_REBUILD_REQUIRED,
+                Some(&message),
+            )?;
+            return Err(GlobalIndexError::Provider(message));
+        }
         for record in records {
             if cancel.load(Ordering::Acquire) {
                 return Err(GlobalIndexError::Paused);
@@ -170,6 +217,11 @@ fn sync_with_handle(
     Ok(UsnSyncResult {
         directory_path_changed,
     })
+}
+
+fn is_journal_history_error(error: &GlobalIndexError) -> bool {
+    let message = error.to_string();
+    message.contains("1181") || message.contains("1178") || message.contains("1179")
 }
 
 fn resolve_change_path(

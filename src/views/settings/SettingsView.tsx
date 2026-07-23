@@ -144,11 +144,20 @@ function globalIndexStatusText(status: string, t: Translator) {
     paused: "globalIndexStatusPaused",
     rebuild_required: "globalIndexStatusRebuildRequired",
     permission_required: "globalIndexStatusPermissionRequired",
+    spotlight_unavailable: "globalIndexStatusSpotlightUnavailable",
+    fsevents_unavailable: "globalIndexStatusFseventsUnavailable",
     unavailable: "globalIndexStatusUnavailable",
     error: "globalIndexStatusError"
   };
   const key = statusKeys[status] ?? "globalIndexStatusUnknown";
   return t(key);
+}
+
+function globalIndexProviderStatusText(status: string | null | undefined, t: Translator) {
+  if (!status) return null;
+  if (status.includes("service_unavailable")) return t("globalIndexServiceUnavailable");
+  if (status.startsWith("windows_index_service:")) return t("globalIndexServiceRunning");
+  return t("globalIndexProviderDirectFallback");
 }
 
 function managedScopePolicyText(policySummary: string | undefined, t: Translator) {
@@ -1301,9 +1310,15 @@ export function SettingsView() {
             <SettingsEmptyState title={t("globalIndexLoading")} description={t("globalIndexLoadingDesc")} />
           ) : (
             <>
+              {globalIndexStatus?.providerStatus?.includes("service_unavailable") ? (
+                <SettingsInlineMessage tone="warning" role="alert">
+                  <strong>{t("globalIndexServiceUnavailable")}</strong>
+                  <span className={quietText}>{t("globalIndexServiceUnavailableDesc")}</span>
+                </SettingsInlineMessage>
+              ) : null}
               <SettingsInlineMessage
-                tone={globalIndexStatus?.status === "error" || globalIndexStatus?.status === "permission_required" ? "warning" : "info"}
-                role={globalIndexStatus?.status === "error" || globalIndexStatus?.status === "permission_required" ? "alert" : "status"}
+                tone={globalIndexStatus?.status === "error" || globalIndexStatus?.status === "permission_required" || globalIndexStatus?.providerStatus?.includes("service_unavailable") ? "warning" : "info"}
+                role={globalIndexStatus?.status === "error" || globalIndexStatus?.status === "permission_required" || globalIndexStatus?.providerStatus?.includes("service_unavailable") ? "alert" : "status"}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <strong>{t("globalIndexStatus")}</strong>
@@ -1313,6 +1328,9 @@ export function SettingsView() {
                   <span className={quietText}>
                     {t("globalIndexEntries")}: {globalIndexStatus.totalEntries.toLocaleString()} · {t("globalIndexSources")}: {globalIndexStatus.indexedVolumes.toLocaleString()}
                   </span>
+                ) : null}
+                {globalIndexStatus?.providerStatus ? (
+                  <span className={quietText}>{t("globalIndexProvider")}: {globalIndexProviderStatusText(globalIndexStatus.providerStatus, t)}</span>
                 ) : null}
                 {globalIndexStatus?.lastError ? <span className={quietText}>{globalIndexStatus.lastError}</span> : null}
               </SettingsInlineMessage>

@@ -868,15 +868,19 @@ pub fn test_ai_provider_connection_for_settings(
     Ok(result)
 }
 
-pub fn list_ai_models_for_settings(settings: AISettings) -> Result<Vec<AIModelInfo>, String> {
-    let settings = normalize_ai_settings(settings);
-    validate_ai_settings(&settings, !cfg!(debug_assertions))?;
-    let provider: Box<dyn AIProvider> = match settings.provider {
+pub(crate) fn provider_for_settings(settings: &AISettings) -> Box<dyn AIProvider> {
+    match settings.provider {
         AIProviderKind::OpenAICompatible => {
             Box::new(OpenAICompatibleProvider::new(settings.clone()))
         }
         AIProviderKind::Ollama => Box::new(OllamaProvider::new(settings.clone())),
-    };
+    }
+}
+
+pub fn list_ai_models_for_settings(settings: AISettings) -> Result<Vec<AIModelInfo>, String> {
+    let settings = normalize_ai_settings(settings);
+    validate_ai_settings(&settings, !cfg!(debug_assertions))?;
+    let provider = provider_for_settings(&settings);
     let preset = provider_preset(settings.preset);
     let mut models = match provider.discover_models() {
         Ok(models) => models,
