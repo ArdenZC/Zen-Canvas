@@ -27,8 +27,12 @@ import type {
   AIProviderPreset,
   AIProviderPresetId,
   AISettings,
+  AiManagementStatus,
   CloseBehavior,
   FolderNamingLanguage,
+  GlobalIndexSource,
+  GlobalIndexStatus,
+  ManagedScope,
   OrganizeRootMode,
   RestoreRetentionDays,
   RuntimeCapabilities,
@@ -82,6 +86,8 @@ const SETTINGS_SECTION_IDS = [
   "settings-appearance",
   "settings-files-scan",
   "settings-search",
+  "settings-global-index",
+  "settings-managed-scopes",
   "settings-automation",
   "settings-ai",
   "settings-privacy",
@@ -126,6 +132,31 @@ function readDeveloperMode() {
   } catch {
     return false;
   }
+}
+
+function globalIndexStatusText(status: string, t: Translator) {
+  const statusKeys: Record<string, Parameters<Translator>[0]> = {
+    discovered: "globalIndexStatusDiscovered",
+    indexing: "globalIndexStatusIndexing",
+    syncing: "globalIndexStatusSyncing",
+    ready: "globalIndexStatusReady",
+    partial: "globalIndexStatusPartial",
+    paused: "globalIndexStatusPaused",
+    rebuild_required: "globalIndexStatusRebuildRequired",
+    permission_required: "globalIndexStatusPermissionRequired",
+    unavailable: "globalIndexStatusUnavailable",
+    error: "globalIndexStatusError"
+  };
+  const key = statusKeys[status] ?? "globalIndexStatusUnknown";
+  return t(key);
+}
+
+function managedScopePolicyText(policySummary: string | undefined, t: Translator) {
+  const policyKeys: Record<string, Parameters<Translator>[0]> = {
+    managed_scope_only_cloud_enabled: "managedScopeOnlyCloudEnabled",
+    managed_scope_only_cloud_disabled: "managedScopeOnlyCloudDisabled"
+  };
+  return t(policyKeys[policySummary ?? ""] ?? "managedScopePolicySummary");
 }
 
 export function SettingsView() {
@@ -187,6 +218,13 @@ export function SettingsView() {
   const [recordingHotkeyPreview, setRecordingHotkeyPreview] = useState("");
   const [folderDeleteConfirm, setFolderDeleteConfirm] = useState<FolderDeleteConfirmState | null>(null);
   const [isDeletingFolderConfig, setIsDeletingFolderConfig] = useState(false);
+  const [globalIndexStatus, setGlobalIndexStatus] = useState<GlobalIndexStatus | null>(null);
+  const [globalIndexSources, setGlobalIndexSources] = useState<GlobalIndexSource[]>([]);
+  const [managedScopes, setManagedScopes] = useState<ManagedScope[]>([]);
+  const [aiManagementStatus, setAiManagementStatus] = useState<AiManagementStatus | null>(null);
+  const [managedScopePath, setManagedScopePath] = useState("");
+  const [isLoadingGlobalIndex, setIsLoadingGlobalIndex] = useState(false);
+  const [isUpdatingGlobalIndex, setIsUpdatingGlobalIndex] = useState(false);
   const [aiSettings, setAiSettings] = useState<AISettings | null>(null);
   const [persistedAISettings, setPersistedAISettings] = useState<AISettings | null>(null);
   const runtimeAISettings = useAIProcessingModeStore((state) => state.settings);
@@ -228,6 +266,8 @@ export function SettingsView() {
     { id: "settings-appearance", label: t("settingsAppearance") },
     { id: "settings-files-scan", label: t("settingsFilesScan") },
     { id: "settings-search", label: t("settingsSearch") },
+    { id: "settings-global-index", label: t("globalIndexSettings") },
+    { id: "settings-managed-scopes", label: t("managedScopesTitle") },
     { id: "settings-automation", label: t("settingsAutomation") },
     { id: "settings-ai", label: t("settingsAI") },
     { id: "settings-privacy", label: t("settingsPrivacy") },
@@ -320,6 +360,32 @@ export function SettingsView() {
       disposed = true;
     };
   }, [setGlobalHotkeyError]);
+
+  useEffect(() => {
+    let disposed = false;
+    setIsLoadingGlobalIndex(true);
+    void Promise.all([
+      tauriApi.getGlobalIndexStatus(),
+      tauriApi.listGlobalIndexSources(),
+      tauriApi.listManagedScopes(),
+      tauriApi.getAiManagementStatus()
+    ]).then(([status, sources, scopes, aiStatus]) => {
+      if (disposed) return;
+      setGlobalIndexStatus(status);
+      setGlobalIndexSources(sources);
+      setManagedScopes(scopes);
+      setAiManagementStatus(aiStatus);
+    }).catch((error) => {
+      if (!disposed) {
+        showStatus(`${t("globalIndexLoadFailed")}：${localizedStableError(error, t)}`, "warning");
+      }
+    }).finally(() => {
+      if (!disposed) setIsLoadingGlobalIndex(false);
+    });
+    return () => {
+      disposed = true;
+    };
+  }, [language]);
 
   useEffect(() => {
     if (!settingsStatus) return;
@@ -439,6 +505,77 @@ export function SettingsView() {
     const saved = await setSearchScopeMode(next);
     if (saved) {
       showStatus(t("settingsSavedInline"));
+    }
+  }
+
+  async function refreshGlobalIndexData() {
+    const [status, sources, scopes, aiStatus] = await Promise.all([
+      tauriApi.getGlobalIndexStatus(),
+      tauriApi.listGlobalIndexSources(),
+      tauriApi.listManagedScopes(),
+      tauriApi.getAiManagementStatus()
+    ]);
+    setGlobalIndexStatus(status);
+    setGlobalIndexSources(sources);
+    setManagedScopes(scopes);
+    setAiManagementStatus(aiStatus);
+  }
+
+  async function runGlobalIndexAction(action: () => Promise<void>, successMessage: string) {
+    if (isUpdatingGlobalIndex) return;
+    setIsUpdatingGlobalIndex(true);
+    try {
+      await action();
+      await refreshGlobalIndexData();
+      showStatus(successMessage);
+    } catch (error) {
+      showStatus(`${t("globalIndexActionFailed")}：${localizedStableError(error, t)}`, "warning");
+    } finally {
+      setIsUpdatingGlobalIndex(false);
+    }
+  }
+
+  async function addManagedScopeFromSettings() {
+    const path = managedScopePath.trim();
+    if (!path || isUpdatingGlobalIndex) return;
+    setIsUpdatingGlobalIndex(true);
+    try {
+      await tauriApi.addManagedScope({ path, enabled: true, allowLocalAi: true, allowCloudAi: false });
+      setManagedScopePath("");
+      await refreshGlobalIndexData();
+      showStatus(t("managedScopeAdded"));
+    } catch (error) {
+      showStatus(`${t("managedScopeActionFailed")}：${localizedStableError(error, t)}`, "warning");
+    } finally {
+      setIsUpdatingGlobalIndex(false);
+    }
+  }
+
+  async function updateManagedScope(scope: ManagedScope, patch: { enabled?: boolean; allowLocalAi?: boolean; allowCloudAi?: boolean }) {
+    if (isUpdatingGlobalIndex) return;
+    setIsUpdatingGlobalIndex(true);
+    try {
+      await tauriApi.updateManagedScopePolicy({ id: scope.id, ...patch });
+      await refreshGlobalIndexData();
+      showStatus(t("settingsSavedInline"));
+    } catch (error) {
+      showStatus(`${t("managedScopeActionFailed")}：${localizedStableError(error, t)}`, "warning");
+    } finally {
+      setIsUpdatingGlobalIndex(false);
+    }
+  }
+
+  async function removeManagedScope(scope: ManagedScope) {
+    if (isUpdatingGlobalIndex) return;
+    setIsUpdatingGlobalIndex(true);
+    try {
+      await tauriApi.removeManagedScope(scope.id);
+      await refreshGlobalIndexData();
+      showStatus(t("settingsSavedInline"));
+    } catch (error) {
+      showStatus(`${t("managedScopeActionFailed")}：${localizedStableError(error, t)}`, "warning");
+    } finally {
+      setIsUpdatingGlobalIndex(false);
     }
   }
 
@@ -1157,6 +1294,112 @@ export function SettingsView() {
             </SettingsInlineMessage>
           ) : null}
           <span className={quietText}>{t("searchScopeDoesNotChangeLibrary")}</span>
+        </SettingsSection>
+
+        <SettingsSection id="settings-global-index" title={t("globalIndexTitle")} description={t("globalIndexDesc")}>
+          {isLoadingGlobalIndex ? (
+            <SettingsEmptyState title={t("globalIndexLoading")} description={t("globalIndexLoadingDesc")} />
+          ) : (
+            <>
+              <SettingsInlineMessage
+                tone={globalIndexStatus?.status === "error" || globalIndexStatus?.status === "permission_required" ? "warning" : "info"}
+                role={globalIndexStatus?.status === "error" || globalIndexStatus?.status === "permission_required" ? "alert" : "status"}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <strong>{t("globalIndexStatus")}</strong>
+                  <span>{globalIndexStatus ? globalIndexStatusText(globalIndexStatus.status, t) : t("globalIndexStatusUnknown")}</span>
+                </div>
+                {globalIndexStatus ? (
+                  <span className={quietText}>
+                    {t("globalIndexEntries")}: {globalIndexStatus.totalEntries.toLocaleString()} · {t("globalIndexSources")}: {globalIndexStatus.indexedVolumes.toLocaleString()}
+                  </span>
+                ) : null}
+                {globalIndexStatus?.lastError ? <span className={quietText}>{globalIndexStatus.lastError}</span> : null}
+              </SettingsInlineMessage>
+              <div className="flex flex-wrap gap-2">
+                {globalIndexStatus?.status === "indexing" || globalIndexStatus?.status === "syncing" ? (
+                  <button className={buttonSecondary} onClick={() => void runGlobalIndexAction(() => tauriApi.pauseGlobalIndex(), t("globalIndexPause"))} disabled={isUpdatingGlobalIndex}>
+                    {t("globalIndexPause")}
+                  </button>
+                ) : globalIndexStatus?.status === "paused" ? (
+                  <button className={buttonSecondary} onClick={() => void runGlobalIndexAction(() => tauriApi.resumeGlobalIndex(), t("globalIndexResume"))} disabled={isUpdatingGlobalIndex}>
+                    {t("globalIndexResume")}
+                  </button>
+                ) : (
+                  <button className={buttonSecondary} onClick={() => void runGlobalIndexAction(() => tauriApi.startGlobalIndex(), t("globalIndexStart"))} disabled={isUpdatingGlobalIndex}>
+                    {t("globalIndexStart")}
+                  </button>
+                )}
+              </div>
+              <div className="grid gap-2">
+                {globalIndexSources.length ? globalIndexSources.map((source) => (
+                  <div key={source.volume.id} className={cn(compactInteractiveRow(), "px-3 py-2") }>
+                    <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center">
+                      <div className="min-w-0 text-left">
+                        <strong className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{source.volume.displayName}</strong>
+                        <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={source.volume.mountPath}>
+                          {compactPath(source.volume.mountPath, 72)} · {globalIndexStatusText(source.volume.indexStatus, t)} · {source.volume.entryCount.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
+                        <SettingsSwitchControl
+                          id={`global-index-source-${source.volume.id}`}
+                          checked={source.volume.enabled}
+                          label={source.volume.enabled ? t("globalIndexEnabled") : t("globalIndexDisabled")}
+                          onChange={(enabled) => void runGlobalIndexAction(() => tauriApi.setGlobalIndexSourceEnabled(source.volume.id, enabled), t("settingsSavedInline"))}
+                        />
+                        <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void runGlobalIndexAction(() => tauriApi.rebuildGlobalIndexSource(source.volume.id), t("globalIndexRebuild"))} disabled={isUpdatingGlobalIndex || !source.canRebuild}>
+                          <Play size={14} />
+                          <span>{t("globalIndexRebuild")}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )) : <SettingsEmptyState title={t("globalIndexNoSources")} description={t("globalIndexNoSourcesDesc")} />}
+              </div>
+            </>
+          )}
+        </SettingsSection>
+
+        <SettingsSection id="settings-managed-scopes" title={t("managedScopesTitle")} description={t("managedScopesDesc")}>
+          <SettingsInlineMessage tone="info" role="status">
+            <span>{managedScopePolicyText(aiManagementStatus?.policySummary, t)}</span>
+          </SettingsInlineMessage>
+          <div className="grid gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-end">
+            <SettingsTextField
+              id="managed-scope-path"
+              label={t("managedScopeAdd")}
+              value={managedScopePath}
+              placeholder={t("managedScopePathPlaceholder")}
+              onChange={setManagedScopePath}
+            />
+            <button className={buttonSecondary} onClick={() => void addManagedScopeFromSettings()} disabled={!managedScopePath.trim() || isUpdatingGlobalIndex}>
+              <FolderPlus size={15} />
+              <span>{t("managedScopeAdd")}</span>
+            </button>
+          </div>
+          {managedScopes.length ? (
+            <div className="grid gap-2">
+              {managedScopes.map((scope) => (
+                <div key={scope.id} className={cn(compactInteractiveRow(), "px-3 py-2") }>
+                  <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center">
+                    <div className="min-w-0 text-left">
+                      <strong className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{compactPath(scope.path, 72)}</strong>
+                      <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]">{scope.enabled ? t("managedScopeEnabled") : t("managedScopeDisabled")}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
+                      <SettingsSwitchControl id={`managed-scope-enabled-${scope.id}`} checked={scope.enabled} label={scope.enabled ? t("managedScopeEnabled") : t("managedScopeDisabled")} onChange={(enabled) => void updateManagedScope(scope, { enabled })} />
+                      <SettingsSwitchControl id={`managed-scope-local-${scope.id}`} checked={scope.allowLocalAi} label={t("managedScopeLocalAi")} onChange={(allowLocalAi) => void updateManagedScope(scope, { allowLocalAi })} />
+                      <SettingsSwitchControl id={`managed-scope-cloud-${scope.id}`} checked={scope.allowCloudAi} label={t("managedScopeCloudAi")} onChange={(allowCloudAi) => void updateManagedScope(scope, { allowCloudAi })} />
+                      <button className={buttonIconDanger} onClick={() => void removeManagedScope(scope)} title={t("managedScopeRemove")} aria-label={t("managedScopeRemove")} disabled={isUpdatingGlobalIndex}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : <SettingsEmptyState title={t("managedScopeNone")} description={t("managedScopeNoneDesc")} />}
         </SettingsSection>
 
         <SettingsSection id="settings-automation" title={t("settingsAutomation")} description={t("settingsAutomationDesc")}>
