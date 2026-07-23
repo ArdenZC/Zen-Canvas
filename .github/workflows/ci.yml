@@ -40,7 +40,7 @@ jobs:
           workspaces: |
             src-tauri -> target
           shared-key: zen-canvas-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock', 'rust-toolchain', 'rust-toolchain.toml') }}
-          cache-target: true
+          cache-targets: true
           cache-all-crates: true
           cache-on-failure: true
           cache-directories: |
