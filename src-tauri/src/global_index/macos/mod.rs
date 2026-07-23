@@ -11,6 +11,7 @@ mod spotlight;
 use super::coordinator::{GlobalIndexError, GlobalIndexProvider, GlobalIndexSink};
 use super::models::{
     GlobalEntryInput, GlobalSourceDescriptor, GlobalVolume, INDEX_STATUS_FSEVENTS_UNAVAILABLE,
+    INDEX_STATUS_PERMISSION_REQUIRED, INDEX_STATUS_READY, INDEX_STATUS_SPOTLIGHT_NOT_INDEXED,
     INDEX_STATUS_SPOTLIGHT_UNAVAILABLE, INDEX_STATUS_UNAVAILABLE,
     PROVIDER_MACOS_FSEVENTS_RECONCILE, PROVIDER_MACOS_SPOTLIGHT,
 };
@@ -35,6 +36,7 @@ pub struct MacosSpotlightProvider {
     pending: Arc<Mutex<PendingUpdates>>,
     spotlight_watcher: Mutex<Option<JoinHandle<()>>>,
     fsevents_watcher: Mutex<Option<fsevents::FseventsHandle>>,
+    baseline_established: AtomicBool,
 }
 
 impl MacosSpotlightProvider {
@@ -44,6 +46,7 @@ impl MacosSpotlightProvider {
             pending: Arc::new(Mutex::new(PendingUpdates::default())),
             spotlight_watcher: Mutex::new(None),
             fsevents_watcher: Mutex::new(None),
+            baseline_established: AtomicBool::new(false),
         }
     }
 
@@ -121,19 +124,42 @@ impl MacosSpotlightProvider {
         sink: &mut dyn GlobalIndexSink,
         volume_id: &str,
         cancel: &AtomicBool,
-    ) -> Result<(), GlobalIndexError> {
+    ) -> Result<spotlight::SpotlightCollectionSummary, GlobalIndexError> {
         match spotlight::stream_local_computer_entries(volume_id, cancel, |batch| {
             sink.write_batch(batch)
                 .map(|_| ())
                 .map_err(|error| error.to_string())
         }) {
-            Ok(()) => Ok(()),
+            Ok(summary) => Ok(summary),
             Err(error) if error == "macos_spotlight_query_paused" => Err(GlobalIndexError::Paused),
             Err(error) if error.starts_with("callback:") => Err(GlobalIndexError::Provider(
                 error.trim_start_matches("callback:").to_string(),
             )),
             Err(error) => Err(Self::report_native_error(sink, volume_id, &error)?),
         }
+    }
+
+    fn record_collection_state(
+        sink: &mut dyn GlobalIndexSink,
+        volume_id: &str,
+        summary: spotlight::SpotlightCollectionSummary,
+    ) -> Result<(), GlobalIndexError> {
+        if summary.processed == 0 {
+            sink.set_source_state(
+                volume_id,
+                INDEX_STATUS_SPOTLIGHT_NOT_INDEXED,
+                Some("macos_spotlight_no_indexed_local_results"),
+            )?;
+        } else if summary.path_fallbacks > 0 || summary.skipped > 0 {
+            sink.set_source_state(
+                volume_id,
+                INDEX_STATUS_PERMISSION_REQUIRED,
+                Some("macos_spotlight_partial_results_permission_required"),
+            )?;
+        } else {
+            sink.set_source_state(volume_id, INDEX_STATUS_READY, None)?;
+        }
+        Ok(())
     }
 
     fn report_native_error(
@@ -178,7 +204,9 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
     ) -> Result<(), GlobalIndexError> {
         self.stopped.store(false, Ordering::Release);
         sink.mark_volume_entries_stale(&source.volume.id)?;
-        Self::stream_spotlight_entries(sink, &source.volume.id, cancel)?;
+        let summary = Self::stream_spotlight_entries(sink, &source.volume.id, cancel)?;
+        Self::record_collection_state(sink, &source.volume.id, summary)?;
+        self.baseline_established.store(true, Ordering::Release);
         if let Err(error) = self.start_watchers(
             &source.volume.id,
             source
@@ -204,9 +232,12 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
         if let Some(error) = pending.last_error {
             return Err(Self::report_native_error(sink, &source.volume.id, &error)?);
         }
-        if pending.full_reconcile {
+        let needs_baseline_reconcile = !self.baseline_established.load(Ordering::Acquire);
+        if pending.full_reconcile || needs_baseline_reconcile {
             sink.mark_volume_entries_stale(&source.volume.id)?;
-            Self::stream_spotlight_entries(sink, &source.volume.id, cancel)?;
+            let summary = Self::stream_spotlight_entries(sink, &source.volume.id, cancel)?;
+            Self::record_collection_state(sink, &source.volume.id, summary)?;
+            self.baseline_established.store(true, Ordering::Release);
         } else {
             for entry_id in pending.stale_entry_ids {
                 sink.mark_entry_stale(&entry_id)?;
@@ -233,6 +264,7 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
 
     fn pause(&self) -> Result<(), GlobalIndexError> {
         self.stopped.store(true, Ordering::Release);
+        self.baseline_established.store(false, Ordering::Release);
         self.stop_watchers();
         Ok(())
     }
@@ -252,6 +284,7 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
             pending.stale_entry_ids.clear();
             pending.last_event_id = None;
         }
+        self.baseline_established.store(false, Ordering::Release);
         Ok(())
     }
 }

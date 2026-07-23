@@ -87,6 +87,10 @@ jobs:
         if: runner.os == 'Windows' && github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: npm run build
 
+      - name: macOS production build and unsigned DMG package
+        if: runner.os == 'macOS' && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: npm run build -- --no-sign
+
   dependency-audit:
     name: Dependency audit
     runs-on: windows-latest

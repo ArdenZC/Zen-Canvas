@@ -16,6 +16,7 @@ pub const INDEX_STATUS_PAUSED: &str = "paused";
 pub const INDEX_STATUS_REBUILD_REQUIRED: &str = "rebuild_required";
 pub const INDEX_STATUS_PERMISSION_REQUIRED: &str = "permission_required";
 pub const INDEX_STATUS_SPOTLIGHT_UNAVAILABLE: &str = "spotlight_unavailable";
+pub const INDEX_STATUS_SPOTLIGHT_NOT_INDEXED: &str = "spotlight_not_indexed";
 pub const INDEX_STATUS_FSEVENTS_UNAVAILABLE: &str = "fsevents_unavailable";
 pub const INDEX_STATUS_UNAVAILABLE: &str = "unavailable";
 pub const INDEX_STATUS_ERROR: &str = "error";
@@ -319,15 +320,12 @@ pub fn stable_entry_id(
     name: &str,
     path_fallback: &str,
 ) -> String {
-    let identity = if platform_file_id.is_empty() {
+    let identity = if platform_file_id.is_empty() || platform_file_id.starts_with("path:") {
         format!("path\0{}", normalize_path(path_fallback))
     } else {
         format!(
-            "{}\0{}\0{}\0{}",
-            platform_file_id,
-            parent_platform_file_id,
-            name,
-            normalize_path(path_fallback)
+            "{}\0{}\0{}",
+            platform_file_id, parent_platform_file_id, name
         )
     };
     format!(

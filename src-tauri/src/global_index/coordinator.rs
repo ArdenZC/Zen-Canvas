@@ -429,25 +429,26 @@ fn run_index(
                 Ok(()) => {
                     let now = unix_now();
                     let current = db.get_global_volume(&volume.id).ok().flatten();
-                    let permission_required = volume.index_status
-                        == INDEX_STATUS_PERMISSION_REQUIRED
-                        || current.as_ref().is_some_and(|current| {
-                            current.index_status == INDEX_STATUS_PERMISSION_REQUIRED
+                    let degraded_status = current
+                        .as_ref()
+                        .map(|current| current.index_status.as_str())
+                        .filter(|status| is_degraded_index_status(status))
+                        .or_else(|| {
+                            is_persistent_degraded_index_status(&volume.index_status)
+                                .then_some(volume.index_status.as_str())
                         });
-                    let preserved_error = if permission_required {
+                    let preserved_error = degraded_status.and_then(|_| {
                         current
                             .as_ref()
                             .and_then(|current| current.last_error.as_deref())
                             .or(volume.last_error.as_deref())
-                    } else {
-                        None
-                    };
+                    });
                     db.update_global_volume_state(
                         &volume.id,
                         if cancel.load(Ordering::Acquire) {
                             INDEX_STATUS_PAUSED
-                        } else if permission_required {
-                            INDEX_STATUS_PERMISSION_REQUIRED
+                        } else if let Some(status) = degraded_status {
+                            status
                         } else {
                             INDEX_STATUS_READY
                         },
@@ -480,10 +481,7 @@ fn run_index(
                         .ok()
                         .flatten()
                         .map(|current| current.index_status)
-                        .filter(|status| {
-                            status == INDEX_STATUS_PERMISSION_REQUIRED
-                                || status == INDEX_STATUS_REBUILD_REQUIRED
-                        });
+                        .filter(|status| is_degraded_index_status(status));
                     db.update_global_volume_state(
                         &volume.id,
                         preserved_status.as_deref().unwrap_or(INDEX_STATUS_ERROR),
@@ -501,6 +499,28 @@ fn run_index(
         }
     }
     Ok(())
+}
+
+fn is_degraded_index_status(status: &str) -> bool {
+    matches!(
+        status,
+        INDEX_STATUS_PERMISSION_REQUIRED
+            | INDEX_STATUS_REBUILD_REQUIRED
+            | INDEX_STATUS_SPOTLIGHT_UNAVAILABLE
+            | INDEX_STATUS_SPOTLIGHT_NOT_INDEXED
+            | INDEX_STATUS_FSEVENTS_UNAVAILABLE
+            | INDEX_STATUS_UNAVAILABLE
+    )
+}
+
+fn is_persistent_degraded_index_status(status: &str) -> bool {
+    matches!(
+        status,
+        INDEX_STATUS_PERMISSION_REQUIRED
+            | INDEX_STATUS_SPOTLIGHT_UNAVAILABLE
+            | INDEX_STATUS_SPOTLIGHT_NOT_INDEXED
+            | INDEX_STATUS_FSEVENTS_UNAVAILABLE
+    )
 }
 
 fn wait_for_next_reconcile(cancel: &AtomicBool, interval: Duration) -> bool {

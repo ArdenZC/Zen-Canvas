@@ -65,8 +65,68 @@ jobs:
       - name: Security audit
         run: npm run security:audit
 
-      - name: Package installers
+      - name: Package Windows installer
+        if: runner.os == 'Windows'
         run: npm run build
+
+      - name: Prepare macOS signing keychain
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE_P12_BASE64" ] || [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then
+            exit 0
+          fi
+          certificate_path="$RUNNER_TEMP/zen-canvas-developer-id.p12"
+          keychain_path="$RUNNER_TEMP/zen-canvas-signing.keychain-db"
+          keychain_password="zen-canvas-ci-keychain"
+          echo "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -k "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" login.keychain-db
+          security default-keychain -s "$keychain_path"
+
+      - name: Package macOS DMG
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE_P12_BASE64" ] && [ -n "$APPLE_CERTIFICATE_PASSWORD" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            npm run build -- --config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$APPLE_SIGNING_IDENTITY\",\"hardenedRuntime\":true}}}"
+          else
+            npm run build -- --no-sign
+          fi
+
+      - name: Verify macOS app signature and DMG
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          app_path="$(find src-tauri/target/release/bundle/macos -maxdepth 2 -name '*.app' -print -quit)"
+          test -n "$app_path"
+          test -n "$(find src-tauri/target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
+          if [ -n "$APPLE_CERTIFICATE_P12_BASE64" ] && [ -n "$APPLE_CERTIFICATE_PASSWORD" ] && [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            codesign --verify --deep --strict --verbose=2 "$app_path"
+            codesign -dv --verbose=4 "$app_path" 2>&1 | grep -q 'flags=0x10000(runtime)'
+          else
+            echo "No Apple signing secrets configured; verified unsigned DMG packaging."
+          fi
+
+      - name: Clean macOS signing keychain
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: security delete-keychain "$RUNNER_TEMP/zen-canvas-signing.keychain-db"
+        continue-on-error: true
 
       - name: Generate Node SBOM
         run: npx --no-install cyclonedx-npm --output-file sbom-node.cdx.json
@@ -114,7 +174,7 @@ jobs:
         with:
           name: Zen Canvas ${{ github.ref_name }}
           body: |
-            Zen Canvas unsigned public build.
+            Zen Canvas public build. macOS signing is enabled when Apple signing secrets are configured; otherwise the macOS artifact is an unsigned DMG.
 
             - Windows: Tauri NSIS installer
             - macOS: Tauri DMG installer

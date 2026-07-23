@@ -63,6 +63,41 @@ fn test_entry(path: &str, name: &str, is_directory: bool) -> GlobalEntryInput {
 }
 
 #[test]
+fn stable_entry_id_uses_native_identity_without_path_coupling() {
+    let original = stable_entry_id(
+        "gv_test",
+        "mac:dev:1:ino:2",
+        "mac:dev:1:ino:1",
+        "note.txt",
+        "/Users/test/note.txt",
+    );
+    let moved = stable_entry_id(
+        "gv_test",
+        "mac:dev:1:ino:2",
+        "mac:dev:1:ino:1",
+        "note.txt",
+        "/Users/test/archive/note.txt",
+    );
+    assert_eq!(original, moved);
+
+    let path_based = stable_entry_id(
+        "gv_test",
+        "path:/Users/test/note.txt",
+        "path:/Users/test",
+        "note.txt",
+        "/Users/test/note.txt",
+    );
+    let path_moved = stable_entry_id(
+        "gv_test",
+        "path:/Users/test/note.txt",
+        "path:/Users/test",
+        "note.txt",
+        "/Users/test/archive/note.txt",
+    );
+    assert_ne!(path_based, path_moved);
+}
+
+#[test]
 fn migration_creates_global_and_managed_domains_separately() {
     let path = test_db_path();
     let db = Database::open(&path).expect("open test database");

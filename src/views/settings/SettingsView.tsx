@@ -145,6 +145,7 @@ function globalIndexStatusText(status: string, t: Translator) {
     rebuild_required: "globalIndexStatusRebuildRequired",
     permission_required: "globalIndexStatusPermissionRequired",
     spotlight_unavailable: "globalIndexStatusSpotlightUnavailable",
+    spotlight_not_indexed: "globalIndexStatusSpotlightNotIndexed",
     fsevents_unavailable: "globalIndexStatusFseventsUnavailable",
     unavailable: "globalIndexStatusUnavailable",
     error: "globalIndexStatusError"

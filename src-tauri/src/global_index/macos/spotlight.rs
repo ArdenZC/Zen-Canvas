@@ -11,6 +11,7 @@ use objc2_foundation::{
     NSMetadataQueryUpdateChangedItemsKey, NSMetadataQueryUpdateRemovedItemsKey, NSNotification,
     NSNotificationCenter, NSNumber, NSPredicate, NSRunLoop, NSString, NSURL,
 };
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::{
@@ -19,11 +20,18 @@ use std::sync::{
 };
 use std::thread::{self, JoinHandle};
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SpotlightCollectionSummary {
+    pub processed: usize,
+    pub path_fallbacks: usize,
+    pub skipped: usize,
+}
+
 pub fn stream_local_computer_entries<F>(
     volume_id: &str,
     cancel: &AtomicBool,
     mut on_batch: F,
-) -> Result<(), String>
+) -> Result<SpotlightCollectionSummary, String>
 where
     F: FnMut(&[GlobalEntryInput]) -> Result<(), String>,
 {
@@ -42,21 +50,28 @@ where
             run_loop.runUntilDate(&deadline);
         }
         let mut entries = Vec::with_capacity(512);
+        let mut summary = SpotlightCollectionSummary::default();
         for index in 0..query.resultCount() {
             if cancel.load(Ordering::Acquire) {
                 query.stopQuery();
                 return Err("macos_spotlight_query_paused".to_string());
             }
             let object = query.resultAtIndex(index);
-            if let Some(entry) = metadata_item_to_entry(volume_id, &object) {
-                entries.push(entry);
-                if entries.len() >= 512 {
-                    if let Err(error) = on_batch(&entries) {
-                        query.stopQuery();
-                        return Err(format!("callback:{error}"));
-                    }
-                    entries.clear();
+            let Some(entry) = metadata_item_to_entry(volume_id, &object) else {
+                summary.skipped += 1;
+                continue;
+            };
+            summary.processed += 1;
+            if has_path_identity(&entry) {
+                summary.path_fallbacks += 1;
+            }
+            entries.push(entry);
+            if entries.len() >= 512 {
+                if let Err(error) = on_batch(&entries) {
+                    query.stopQuery();
+                    return Err(format!("callback:{error}"));
                 }
+                entries.clear();
             }
         }
         if !entries.is_empty() {
@@ -66,7 +81,7 @@ where
             }
         }
         query.stopQuery();
-        Ok(())
+        Ok(summary)
     })
 }
 
@@ -96,12 +111,14 @@ fn run_update_watcher(volume_id: &str, pending: &Arc<Mutex<PendingUpdates>>, sto
         let typed_info = unsafe { user_info.cast_unchecked() };
         let mut entries = Vec::new();
         let mut stale_entry_ids = Vec::new();
+        let mut full_reconcile = false;
         collect_update_items(
             &typed_info,
             NSMetadataQueryUpdateAddedItemsKey,
             &volume_id_for_block,
             &mut entries,
             &mut stale_entry_ids,
+            &mut full_reconcile,
             false,
         );
         collect_update_items(
@@ -110,6 +127,7 @@ fn run_update_watcher(volume_id: &str, pending: &Arc<Mutex<PendingUpdates>>, sto
             &volume_id_for_block,
             &mut entries,
             &mut stale_entry_ids,
+            &mut full_reconcile,
             false,
         );
         collect_update_items(
@@ -118,14 +136,16 @@ fn run_update_watcher(volume_id: &str, pending: &Arc<Mutex<PendingUpdates>>, sto
             &volume_id_for_block,
             &mut entries,
             &mut stale_entry_ids,
+            &mut full_reconcile,
             true,
         );
-        if entries.is_empty() && stale_entry_ids.is_empty() {
+        if entries.is_empty() && stale_entry_ids.is_empty() && !full_reconcile {
             return;
         }
         if let Ok(mut pending) = pending_for_block.lock() {
             pending.entries.extend(entries);
             pending.stale_entry_ids.extend(stale_entry_ids);
+            pending.full_reconcile |= full_reconcile;
         }
     });
     let observer = unsafe {
@@ -167,6 +187,7 @@ fn collect_update_items(
     volume_id: &str,
     entries: &mut Vec<GlobalEntryInput>,
     stale_entry_ids: &mut Vec<String>,
+    full_reconcile: &mut bool,
     removed: bool,
 ) {
     let Some(value) = user_info.objectForKey(key) else {
@@ -178,25 +199,22 @@ fn collect_update_items(
     for index in 0..items.count() {
         let object = items.objectAtIndex(index);
         if let Some(entry) = object.downcast_ref::<NSMetadataItem>() {
-            if let Some(input) = metadata_item_to_entry(volume_id, entry.as_ref()) {
-                if removed {
-                    stale_entry_ids.push(input.entry_id());
-                } else {
-                    entries.push(input);
+            match metadata_item_to_entry(volume_id, entry.as_ref()) {
+                Some(input) if !has_path_identity(&input) => {
+                    if removed {
+                        stale_entry_ids.push(input.entry_id());
+                    } else {
+                        entries.push(input);
+                    }
+                }
+                Some(_) | None => {
+                    *full_reconcile = true;
                 }
             }
             continue;
         }
-        if let Some(path) = path_from_object(&object) {
-            let input = GlobalEntryInput::from_path(
-                volume_id.to_string(),
-                Path::new(&path),
-                PROVIDER_MACOS_SPOTLIGHT,
-            );
-            stale_entry_ids.push(input.entry_id());
-            if !removed && Path::new(&path).exists() {
-                entries.push(input);
-            }
+        if path_from_object(&object).is_some() {
+            *full_reconcile = true;
         }
     }
 }
@@ -225,13 +243,15 @@ fn metadata_item_to_entry(volume_id: &str, object: &AnyObject) -> Option<GlobalE
     let size = metadata_number(item, NSMetadataItemFSSizeKey)
         .or_else(|| metadata.as_ref().map(|value| value.len() as i64))
         .unwrap_or_default();
+    let platform_file_id = mac_file_identity(&path_buf, metadata.as_ref());
+    let parent_platform_file_id = path_buf
+        .parent()
+        .map(|parent| mac_file_identity(parent, std::fs::symlink_metadata(parent).ok().as_ref()))
+        .unwrap_or_default();
     Some(GlobalEntryInput {
         volume_id: volume_id.to_string(),
-        platform_file_id: format!("path:{}", normalize_path(&path)),
-        parent_platform_file_id: path_buf
-            .parent()
-            .map(|parent| format!("path:{}", normalize_path(&parent.to_string_lossy())))
-            .unwrap_or_default(),
+        platform_file_id,
+        parent_platform_file_id,
         name,
         path,
         extension,
@@ -247,6 +267,17 @@ fn metadata_item_to_entry(volume_id: &str, object: &AnyObject) -> Option<GlobalE
         source_provider: PROVIDER_MACOS_SPOTLIGHT.to_string(),
         last_seen_at: crate::global_index::models::unix_now(),
     })
+}
+
+fn mac_file_identity(path: &Path, metadata: Option<&std::fs::Metadata>) -> String {
+    metadata
+        .map(|metadata| format!("mac:dev:{:x}:ino:{:x}", metadata.dev(), metadata.ino()))
+        .unwrap_or_else(|| format!("path:{}", normalize_path(&path.to_string_lossy())))
+}
+
+fn has_path_identity(entry: &GlobalEntryInput) -> bool {
+    entry.platform_file_id.starts_with("path:")
+        || entry.parent_platform_file_id.starts_with("path:")
 }
 
 fn metadata_string(item: &NSMetadataItem, key: &NSString) -> Option<String> {
@@ -291,9 +322,18 @@ fn path_from_object(object: &AnyObject) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::super::super::models::normalize_path;
+    use super::mac_file_identity;
+    use std::path::Path;
 
     #[test]
     fn macos_paths_use_platform_normalization() {
         assert_eq!(normalize_path("/Users/test/"), "/Users/test");
+    }
+
+    #[test]
+    fn macos_identity_prefers_device_and_inode_when_metadata_exists() {
+        let path = Path::new(file!());
+        let metadata = std::fs::symlink_metadata(path).expect("test source metadata");
+        assert!(mac_file_identity(path, Some(&metadata)).starts_with("mac:dev:"));
     }
 }

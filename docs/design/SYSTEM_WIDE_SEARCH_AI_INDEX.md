@@ -63,10 +63,15 @@ scope continues to control File Library views only.
 
 - Runs native `NSMetadataQuery` over
   `NSMetadataQueryIndexedLocalComputerScope` for indexed local metadata.
+- Stores a native file identity built from `st_dev` and `st_ino` when the
+  filesystem metadata is available, with a path fallback only for inaccessible
+  metadata. Removed notifications that cannot carry that identity trigger a
+  full Spotlight reconcile instead of guessing an entry ID.
 - Receives metadata query notifications and uses native FSEvents as the
   reconciliation signal for changes, removals, and permission/index gaps.
 - Persists the last processed FSEvents event ID as the incremental checkpoint,
-  while retaining a native reconciliation path when the cursor is unavailable.
+  while retaining a native reconciliation path when the cursor is unavailable
+  or the provider is restarting without an established baseline.
 - Uses normal `NSMetadataQuery` update notifications for ordinary file changes;
   FSEvents only escalates dropped/history-gap signals to a full Spotlight
   reconciliation, avoiding a full local-computer query for every filesystem
@@ -77,7 +82,8 @@ scope continues to control File Library views only.
 - Preserves explicit permission-required and rebuild-required states instead of
   silently treating incomplete discovery as a ready index.
 - Distinguishes Spotlight unavailable, realtime Spotlight update unavailable,
-  and FSEvents unavailable states in the source status/error path.
+  Spotlight-without-indexed-local-results, partial-permission results, and
+  FSEvents unavailable states in the source status/error path.
 
 ## Managed AI worker
 
@@ -112,7 +118,11 @@ recommendation badges.
 - Windows code is checked on the Windows host. Native macOS compilation still
   requires a macOS toolchain; cross-compiling Objective-C dependencies from
   Windows is not treated as native verification.
-- The Windows installer was rebuilt successfully with the service hooks. The
-  current development machine does not have ZenCanvasGlobalIndex installed,
-  so live SCM start/stop and a real post-install service scan still require
-  an elevated installer acceptance run.
+- The Windows installer was rebuilt successfully with the service hooks. A
+  live LocalSystem SCM run, named-pipe status/discovery, real C: MFT scan, and
+  post-create USN incremental scan were also accepted manually; the interactive
+  NSIS post-install/uninstall UI remains a separate acceptance step.
+- The macOS CI/release workflow has an explicit unsigned-DMG path and an
+  optional Developer ID certificate/keychain path with hardened-runtime
+  `codesign` verification. Those macOS runner steps and native runtime checks
+  remain unexecuted from this Windows development environment.
