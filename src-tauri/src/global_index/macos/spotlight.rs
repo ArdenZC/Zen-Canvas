@@ -172,10 +172,11 @@ fn run_update_watcher(volume_id: &str, pending: &Arc<Mutex<PendingUpdates>>, sto
             pending.full_reconcile |= full_reconcile;
         }
     });
+    let query_object: &AnyObject = query.as_ref();
     let observer = unsafe {
         center.addObserverForName_object_queue_usingBlock(
             Some(objc2_foundation::NSMetadataQueryDidUpdateNotification),
-            None,
+            Some(query_object),
             None,
             &update_block,
         )

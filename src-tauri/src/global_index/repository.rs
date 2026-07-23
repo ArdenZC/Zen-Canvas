@@ -632,8 +632,8 @@ pub(crate) fn enqueue_ai_jobs_for_entry(
         )?;
         let existing: Option<(String, String)> = transaction
             .query_row(
-                "SELECT id, status FROM ai_jobs WHERE global_entry_id = ?1 AND input_fingerprint = ?2 ORDER BY created_at DESC LIMIT 1",
-                params![entry_id, fingerprint],
+                "SELECT id, status FROM ai_jobs WHERE global_entry_id = ?1 AND managed_scope_id = ?2 AND input_fingerprint = ?3 ORDER BY created_at DESC LIMIT 1",
+                params![entry_id, scope_id, fingerprint],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;

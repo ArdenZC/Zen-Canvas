@@ -69,6 +69,8 @@ scope continues to control File Library views only.
   full Spotlight reconcile instead of guessing an entry ID.
 - Receives metadata query notifications and uses native FSEvents as the
   reconciliation signal for changes, removals, and permission/index gaps.
+- The realtime observer is filtered to the provider's own metadata query, so
+  another query in the process cannot enqueue unrelated changes.
 - Persists the last processed FSEvents event ID as the incremental checkpoint,
   while retaining a native reconciliation path when the cursor is unavailable
   or the provider is restarting without an established baseline.
@@ -90,7 +92,9 @@ scope continues to control File Library views only.
 
 ## Managed AI worker
 
-The durable queue is consumed by a bounded background worker. It resets
+The durable queue is consumed by a bounded background worker. AI jobs are
+keyed by both the global entry and managed scope, so overlapping managed
+scopes remain independently policy-controlled. It resets
 abandoned running jobs after restart, claims only enabled non-directory
 entries in enabled managed scopes, retries transient provider failures up to
 three attempts, and records terminal or policy-blocked states. Requests are

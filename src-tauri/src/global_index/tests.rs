@@ -232,6 +232,56 @@ fn disabled_ai_policy_blocks_jobs_without_removing_global_search() {
 }
 
 #[test]
+fn overlapping_managed_scopes_keep_ai_jobs_isolated_by_scope() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+    let document = test_entry(r"C:\Global\Shared\note.txt", "note.txt", false);
+    db.upsert_global_entries_batch(std::slice::from_ref(&document))
+        .expect("insert global document");
+
+    db.add_managed_scope(AddManagedScopeRequest {
+        path: r"C:\Global".to_string(),
+        global_entry_id: None,
+        enabled: true,
+        allow_local_ai: true,
+        allow_cloud_ai: false,
+    })
+    .expect("add broad managed scope");
+    db.add_managed_scope(AddManagedScopeRequest {
+        path: r"C:\Global\Shared".to_string(),
+        global_entry_id: None,
+        enabled: true,
+        allow_local_ai: true,
+        allow_cloud_ai: false,
+    })
+    .expect("add nested managed scope");
+
+    let conn = Connection::open(&path).expect("inspect isolated jobs");
+    let managed_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM managed_entries", [], |row| row.get(0))
+        .expect("managed entry count");
+    let job_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM ai_jobs", [], |row| row.get(0))
+        .expect("AI job count");
+    let distinct_scope_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(DISTINCT managed_scope_id) FROM ai_jobs",
+            [],
+            |row| row.get(0),
+        )
+        .expect("AI job scope count");
+    assert_eq!(managed_count, 2);
+    assert_eq!(job_count, 2);
+    assert_eq!(distinct_scope_count, 2);
+
+    drop(conn);
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn removing_the_last_managed_scope_clears_ai_state_but_keeps_global_entry() {
     let path = test_db_path();
     let db = Database::open(&path).expect("open test database");
