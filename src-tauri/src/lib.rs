@@ -5,6 +5,7 @@ pub mod dedupe;
 pub(crate) mod file_naming;
 pub mod file_ops;
 pub mod fs_safety;
+pub mod global_index;
 pub mod ids;
 pub mod path_filter;
 pub mod path_identity;

@@ -9,6 +9,7 @@ use tauri::Manager;
 use tauri_plugin_autostart::ManagerExt;
 use zen_canvas_tauri::{
     dedupe::DedupeJobManager,
+    global_index::GlobalIndexCoordinator,
     open_database, settings,
     watcher::{reload_file_watcher_for_settings, FileWatcherManager},
     AIClassificationCancellationToken, OperationCancellationToken, ScanJobManager,
@@ -28,6 +29,11 @@ fn main() {
             zen_canvas_tauri::storage_analyzer::reconcile_pending_cleanup_journal(&db)
                 .map_err(io::Error::other)?;
             app.manage(db.clone());
+            let global_index_coordinator = GlobalIndexCoordinator::new(db.clone());
+            app.manage(global_index_coordinator.clone());
+            if let Err(error) = global_index_coordinator.start() {
+                eprintln!("Global index startup failed (non-fatal): {error}");
+            }
             app.manage(ScanJobManager::default());
             app.manage(DedupeJobManager::default());
             app.manage(OperationCancellationToken::default());
@@ -75,6 +81,21 @@ fn main() {
             zen_canvas_tauri::db::remove_files_by_paths,
             zen_canvas_tauri::db::upsert_files_by_paths,
             zen_canvas_tauri::db::search_files,
+            zen_canvas_tauri::global_index::commands::search_global_entries,
+            zen_canvas_tauri::global_index::commands::get_global_index_status,
+            zen_canvas_tauri::global_index::commands::list_global_index_sources,
+            zen_canvas_tauri::global_index::commands::start_global_index,
+            zen_canvas_tauri::global_index::commands::pause_global_index,
+            zen_canvas_tauri::global_index::commands::resume_global_index,
+            zen_canvas_tauri::global_index::commands::rebuild_global_index_source,
+            zen_canvas_tauri::global_index::commands::set_global_index_source_enabled,
+            zen_canvas_tauri::global_index::commands::open_global_search_result,
+            zen_canvas_tauri::global_index::commands::reveal_global_search_result,
+            zen_canvas_tauri::global_index::commands::list_managed_scopes,
+            zen_canvas_tauri::global_index::commands::add_managed_scope,
+            zen_canvas_tauri::global_index::commands::remove_managed_scope,
+            zen_canvas_tauri::global_index::commands::update_managed_scope_policy,
+            zen_canvas_tauri::global_index::commands::get_ai_management_status,
             zen_canvas_tauri::db::get_paged_files,
             zen_canvas_tauri::db::get_operation_previews_for_scope,
             zen_canvas_tauri::db::get_stats_summary,
