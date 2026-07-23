@@ -318,19 +318,25 @@ impl Database {
             }
         }
 
-        let current_id = target_row_id.clone().or_else(|| source_row_id.clone());
-        if let (Some(target_row_id), Some(source_row_id)) =
-            (target_row_id.as_deref(), source_row_id.as_deref())
-        {
-            if target_row_id != source_row_id {
-                let deleted =
-                    tx.execute("DELETE FROM files WHERE id = ?1", params![source_row_id])?;
-                if deleted != 1 {
-                    return Err(DbError::Validation(format!(
-                        "restore source index row disappeared during merge: {}",
-                        source_row_id
-                    )));
-                }
+        let (current_id, watcher_target_id) = match (&target_row_id, &source_row_id) {
+            (Some(target_row_id), Some(source_row_id)) if target_row_id != source_row_id => {
+                (Some(source_row_id.clone()), Some(target_row_id.clone()))
+            }
+            _ => (
+                source_row_id.clone().or_else(|| target_row_id.clone()),
+                None,
+            ),
+        };
+        if let Some(watcher_target_id) = watcher_target_id {
+            let deleted = tx.execute(
+                "DELETE FROM files WHERE id = ?1",
+                params![watcher_target_id],
+            )?;
+            if deleted != 1 {
+                return Err(DbError::Validation(format!(
+                    "restore watcher target row disappeared during merge: {}",
+                    watcher_target_id
+                )));
             }
         }
         let file_type = infer_file_type(&extension, is_dir);

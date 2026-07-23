@@ -398,10 +398,28 @@
                     insert("source-row", &target_path, &log.name_after);
                     let conn = Connection::open(db.path()).expect("open matrix metadata database");
                     conn.execute(
-                        "UPDATE files SET purpose = 'UserMetadata', suggested_action = 'Review', requires_confirmation = 1 WHERE id = 'target-row'",
+                        r#"
+                        UPDATE files
+                        SET purpose = 'SourcePurpose',
+                            lifecycle = 'SourceLifecycle',
+                            context = 'SourceContext',
+                            risk_level = 'Sensitive',
+                            suggested_action = 'Move',
+                            suggested_target_path = 'source-target',
+                            suggested_name = 'source-suggested.txt',
+                            confidence = 0.93,
+                            classification_reason = 'source reason',
+                            classification_status = 'classified',
+                            matched_rules = '["source-rule"]',
+                            requires_confirmation = 1,
+                            content_hash = 'source-content-hash',
+                            last_classified_at = 123,
+                            classified_rule_version = 'source-rule-version'
+                        WHERE id = 'source-row'
+                        "#,
                         [],
                     )
-                    .expect("set watcher metadata");
+                    .expect("set source business metadata");
                 }
                 _ => unreachable!(),
             }
@@ -422,14 +440,70 @@
             assert_eq!(row_count, 1, "row matrix case: {case}");
             assert_eq!(fts_count, 1, "FTS matrix case: {case}");
             if case == "distinct-rows" {
-                let metadata: (String, i64) = conn
+                #[derive(Debug)]
+                struct PreservedSourceMetadata {
+                    purpose: String,
+                    lifecycle: String,
+                    context: String,
+                    risk_level: String,
+                    suggested_action: String,
+                    suggested_target_path: String,
+                    suggested_name: String,
+                    confidence: f64,
+                    classification_reason: String,
+                    classification_status: String,
+                    matched_rules: String,
+                    requires_confirmation: i64,
+                    classified_rule_version: String,
+                }
+                let metadata: PreservedSourceMetadata = conn
                     .query_row(
-                        "SELECT purpose, requires_confirmation FROM files WHERE path = ?1",
+                        r#"
+                        SELECT purpose, lifecycle, context, risk_level, suggested_action,
+                               suggested_target_path, suggested_name, confidence,
+                               classification_reason, classification_status, matched_rules,
+                               requires_confirmation, classified_rule_version
+                        FROM files WHERE path = ?1
+                        "#,
                         params![source_path],
-                        |row| Ok((row.get(0)?, row.get(1)?)),
+                        |row| {
+                            Ok(PreservedSourceMetadata {
+                                purpose: row.get(0)?,
+                                lifecycle: row.get(1)?,
+                                context: row.get(2)?,
+                                risk_level: row.get(3)?,
+                                suggested_action: row.get(4)?,
+                                suggested_target_path: row.get(5)?,
+                                suggested_name: row.get(6)?,
+                                confidence: row.get(7)?,
+                                classification_reason: row.get(8)?,
+                                classification_status: row.get(9)?,
+                                matched_rules: row.get(10)?,
+                                requires_confirmation: row.get(11)?,
+                                classified_rule_version: row.get(12)?,
+                            })
+                        },
                     )
-                    .expect("read preserved watcher metadata");
-                assert_eq!(metadata, ("UserMetadata".to_string(), 1));
+                    .expect("read preserved source metadata");
+                assert_eq!(metadata.purpose, "SourcePurpose");
+                assert_eq!(metadata.lifecycle, "SourceLifecycle");
+                assert_eq!(metadata.context, "SourceContext");
+                assert_eq!(metadata.risk_level, "Sensitive");
+                assert_eq!(metadata.suggested_action, "Move");
+                assert_eq!(metadata.suggested_target_path, "source-target");
+                assert_eq!(metadata.suggested_name, "source-suggested.txt");
+                assert_eq!(metadata.confidence, 0.93);
+                assert_eq!(metadata.classification_reason, "source reason");
+                assert_eq!(metadata.classification_status, "classified");
+                assert_eq!(metadata.matched_rules, "[\"source-rule\"]");
+                assert_eq!(metadata.requires_confirmation, 1);
+                assert_eq!(metadata.classified_rule_version, "source-rule-version");
+                let watcher_rows: i64 = conn
+                    .query_row("SELECT COUNT(*) FROM files WHERE id = 'target-row'", [], |row| {
+                        row.get(0)
+                    })
+                    .expect("count deleted watcher target row");
+                assert_eq!(watcher_rows, 0);
             }
         }
     }
