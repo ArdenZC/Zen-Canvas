@@ -42,6 +42,9 @@ scope continues to control File Library views only.
 - Persists a per-volume fallback decision so transient MFT/USN failures do not
   cause repeated expensive retries; an explicit rebuild resets that decision
   and deliberately retries native NTFS enumeration.
+- A bounded filesystem watcher is used only as the fallback change signal;
+  normal changes and queue overflow both trigger a batched metadata
+  reconciliation, while other volumes continue independently.
 - Runs the provider in the installed ZenCanvasGlobalIndex Windows service
   (LocalSystem, auto-start) through a versioned named pipe with explicit
   LocalSystem/interactive-user ACLs and remote-client rejection. The service
@@ -64,6 +67,13 @@ scope continues to control File Library views only.
   reconciliation signal for changes, removals, and permission/index gaps.
 - Persists the last processed FSEvents event ID as the incremental checkpoint,
   while retaining a native reconciliation path when the cursor is unavailable.
+- Uses normal `NSMetadataQuery` update notifications for ordinary file changes;
+  FSEvents only escalates dropped/history-gap signals to a full Spotlight
+  reconciliation, avoiding a full local-computer query for every filesystem
+  event.
+- The coordinator keeps the provider alive and drains Spotlight/FSEvents
+  updates continuously after the initial collection instead of waiting for a
+  manual restart or settings action.
 - Preserves explicit permission-required and rebuild-required states instead of
   silently treating incomplete discovery as a ready index.
 - Distinguishes Spotlight unavailable, realtime Spotlight update unavailable,

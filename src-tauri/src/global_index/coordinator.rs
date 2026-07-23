@@ -8,6 +8,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -80,6 +81,9 @@ pub trait GlobalIndexProvider: Send + Sync {
     }
     fn status(&self) -> Result<String, GlobalIndexError>;
     fn shutdown(&self) -> Result<(), GlobalIndexError>;
+    fn incremental_poll_interval(&self) -> Duration {
+        Duration::from_secs(2)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -152,6 +156,11 @@ impl GlobalIndexCoordinator {
     pub fn pause(&self) -> Result<(), GlobalIndexError> {
         self.cancel.store(true, Ordering::Release);
         self.provider.pause()?;
+        if let Ok(mut slot) = self.worker.lock() {
+            if let Some(worker) = slot.take() {
+                let _ = worker.join();
+            }
+        }
         let mut state = self.state.lock().map_err(|_| {
             GlobalIndexError::Provider("coordinator state lock poisoned".to_string())
         })?;
@@ -329,128 +338,181 @@ fn run_index(
     db: Database,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), GlobalIndexError> {
-    let discovered = provider.discover_sources()?;
-    for source in &discovered {
-        db.upsert_global_volume(&source.volume)?;
-    }
-    let discovered_by_id = discovered
-        .into_iter()
-        .map(|source| (source.volume.id.clone(), source))
-        .collect::<HashMap<_, _>>();
-    let volumes = db.list_global_volumes()?;
-    let mut sink = DatabaseIndexSink { db: db.clone() };
-    let mut first_error = None;
-    for volume in volumes {
-        if cancel.load(Ordering::Acquire) {
-            break;
+    // Providers keep their native watchers alive between cycles. The
+    // coordinator only polls the provider boundary, which lets USN, Spotlight
+    // notifications, and recursive-fallback watcher signals all enter the
+    // same transactional database sink without blocking the UI thread.
+    while !cancel.load(Ordering::Acquire) {
+        let discovered = provider.discover_sources()?;
+        for source in &discovered {
+            db.upsert_global_volume(&source.volume)?;
         }
-        if !volume.enabled {
-            continue;
-        }
-        let Some(discovered_source) = discovered_by_id.get(&volume.id) else {
-            continue;
-        };
-        let mut source = discovered_source.clone();
-        // Discovery returns current platform capabilities. The persisted
-        // volume contributes only durable indexing state and user choices, so
-        // a previous recursive fallback never prevents a later MFT/USN retry.
-        source.volume.enabled = volume.enabled;
-        source.volume.index_status = volume.index_status.clone();
-        source.volume.last_error = volume.last_error.clone();
-        source.volume.journal_id = volume.journal_id.clone();
-        source.volume.journal_cursor = volume.journal_cursor.clone();
-        source.volume.last_full_index_at = volume.last_full_index_at;
-        source.volume.last_incremental_sync_at = volume.last_incremental_sync_at;
-        source.volume.entry_count = volume.entry_count;
-        source.volume.created_at = volume.created_at;
-        if volume.provider == PROVIDER_WINDOWS_RECURSIVE_FALLBACK
-            && discovered_source.volume.provider == PROVIDER_WINDOWS_MFT_USN
-        {
-            source.volume.provider = volume.provider.clone();
-        }
-        db.update_global_volume_state(
-            &volume.id,
-            if volume.last_full_index_at.is_some()
-                && volume.index_status != INDEX_STATUS_REBUILD_REQUIRED
-            {
-                INDEX_STATUS_SYNCING
-            } else {
-                INDEX_STATUS_INDEXING
-            },
-            None,
-            None,
-            None,
-            None,
-            None,
-        )?;
-        let result = if volume.last_full_index_at.is_some()
-            && volume.index_status != INDEX_STATUS_REBUILD_REQUIRED
-        {
-            provider.resume_incremental_sync(&source, &mut sink, &cancel)
-        } else if volume.index_status == INDEX_STATUS_REBUILD_REQUIRED {
-            provider.rebuild(&source, &mut sink, &cancel)
-        } else {
-            provider.start_initial_index(&source, &mut sink, &cancel)
-        };
-        match result {
-            Ok(()) => {
-                let now = unix_now();
-                db.update_global_volume_state(
-                    &volume.id,
-                    if cancel.load(Ordering::Acquire) {
-                        INDEX_STATUS_PAUSED
-                    } else {
-                        INDEX_STATUS_READY
-                    },
-                    None,
-                    None,
-                    None,
-                    if volume.last_full_index_at.is_some() {
-                        None
-                    } else {
-                        Some(now)
-                    },
-                    Some(now),
-                )?;
-            }
-            Err(GlobalIndexError::Paused) if cancel.load(Ordering::Acquire) => {
-                db.update_global_volume_state(
-                    &volume.id,
-                    INDEX_STATUS_PAUSED,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                )?;
+        let discovered_by_id = discovered
+            .into_iter()
+            .map(|source| (source.volume.id.clone(), source))
+            .collect::<HashMap<_, _>>();
+        let volumes = db.list_global_volumes()?;
+        let mut sink = DatabaseIndexSink { db: db.clone() };
+        for volume in volumes {
+            if cancel.load(Ordering::Acquire) {
                 break;
             }
-            Err(error) => {
-                let preserved_status = db
-                    .get_global_volume(&volume.id)
-                    .ok()
-                    .flatten()
-                    .map(|current| current.index_status)
-                    .filter(|status| {
-                        status == INDEX_STATUS_PERMISSION_REQUIRED
-                            || status == INDEX_STATUS_REBUILD_REQUIRED
-                    });
-                db.update_global_volume_state(
-                    &volume.id,
-                    preserved_status.as_deref().unwrap_or(INDEX_STATUS_ERROR),
-                    Some(&error.to_string()),
-                    None,
-                    None,
-                    None,
-                    None,
-                )?;
-                if first_error.is_none() {
-                    first_error = Some(error);
+            if !volume.enabled {
+                continue;
+            }
+            let Some(discovered_source) = discovered_by_id.get(&volume.id) else {
+                if volume.index_status != INDEX_STATUS_UNAVAILABLE
+                    || volume.last_error.as_deref() != Some("global_index_source_unavailable")
+                {
+                    db.update_global_volume_state(
+                        &volume.id,
+                        INDEX_STATUS_UNAVAILABLE,
+                        Some("global_index_source_unavailable"),
+                        None,
+                        None,
+                        None,
+                        None,
+                    )?;
+                    db.mark_global_entries_stale_for_volume(&volume.id)?;
+                }
+                continue;
+            };
+            let source_reappeared = volume.index_status == INDEX_STATUS_UNAVAILABLE
+                && volume.last_error.as_deref() == Some("global_index_source_unavailable");
+            let mut source = discovered_source.clone();
+            // Discovery returns current platform capabilities. The persisted
+            // volume contributes only durable indexing state and user choices,
+            // including a deliberate recursive-fallback provider decision.
+            source.volume.enabled = volume.enabled;
+            source.volume.index_status = volume.index_status.clone();
+            source.volume.last_error = volume.last_error.clone();
+            source.volume.journal_id = volume.journal_id.clone();
+            source.volume.journal_cursor = volume.journal_cursor.clone();
+            source.volume.last_full_index_at = volume.last_full_index_at;
+            source.volume.last_incremental_sync_at = volume.last_incremental_sync_at;
+            source.volume.entry_count = volume.entry_count;
+            source.volume.created_at = volume.created_at;
+            if volume.provider == PROVIDER_WINDOWS_RECURSIVE_FALLBACK
+                && discovered_source.volume.provider == PROVIDER_WINDOWS_MFT_USN
+            {
+                source.volume.provider = volume.provider.clone();
+            }
+            db.update_global_volume_state(
+                &volume.id,
+                if volume.last_full_index_at.is_some()
+                    && !source_reappeared
+                    && volume.index_status != INDEX_STATUS_REBUILD_REQUIRED
+                {
+                    INDEX_STATUS_SYNCING
+                } else {
+                    INDEX_STATUS_INDEXING
+                },
+                (volume.index_status == INDEX_STATUS_PERMISSION_REQUIRED)
+                    .then_some(volume.last_error.as_deref())
+                    .flatten(),
+                None,
+                None,
+                None,
+                None,
+            )?;
+            let result = if volume.last_full_index_at.is_some()
+                && !source_reappeared
+                && volume.index_status != INDEX_STATUS_REBUILD_REQUIRED
+            {
+                provider.resume_incremental_sync(&source, &mut sink, &cancel)
+            } else if volume.index_status == INDEX_STATUS_REBUILD_REQUIRED {
+                provider.rebuild(&source, &mut sink, &cancel)
+            } else {
+                provider.start_initial_index(&source, &mut sink, &cancel)
+            };
+            match result {
+                Ok(()) => {
+                    let now = unix_now();
+                    let current = db.get_global_volume(&volume.id).ok().flatten();
+                    let permission_required = volume.index_status
+                        == INDEX_STATUS_PERMISSION_REQUIRED
+                        || current.as_ref().is_some_and(|current| {
+                            current.index_status == INDEX_STATUS_PERMISSION_REQUIRED
+                        });
+                    let preserved_error = if permission_required {
+                        current
+                            .as_ref()
+                            .and_then(|current| current.last_error.as_deref())
+                            .or(volume.last_error.as_deref())
+                    } else {
+                        None
+                    };
+                    db.update_global_volume_state(
+                        &volume.id,
+                        if cancel.load(Ordering::Acquire) {
+                            INDEX_STATUS_PAUSED
+                        } else if permission_required {
+                            INDEX_STATUS_PERMISSION_REQUIRED
+                        } else {
+                            INDEX_STATUS_READY
+                        },
+                        preserved_error,
+                        None,
+                        None,
+                        if volume.last_full_index_at.is_some() && !source_reappeared {
+                            None
+                        } else {
+                            Some(now)
+                        },
+                        Some(now),
+                    )?;
+                }
+                Err(GlobalIndexError::Paused) if cancel.load(Ordering::Acquire) => {
+                    db.update_global_volume_state(
+                        &volume.id,
+                        INDEX_STATUS_PAUSED,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )?;
+                    break;
+                }
+                Err(error) => {
+                    let preserved_status = db
+                        .get_global_volume(&volume.id)
+                        .ok()
+                        .flatten()
+                        .map(|current| current.index_status)
+                        .filter(|status| {
+                            status == INDEX_STATUS_PERMISSION_REQUIRED
+                                || status == INDEX_STATUS_REBUILD_REQUIRED
+                        });
+                    db.update_global_volume_state(
+                        &volume.id,
+                        preserved_status.as_deref().unwrap_or(INDEX_STATUS_ERROR),
+                        Some(&error.to_string()),
+                        None,
+                        None,
+                        None,
+                        None,
+                    )?;
                 }
             }
         }
+        if !wait_for_next_reconcile(&cancel, provider.incremental_poll_interval()) {
+            break;
+        }
     }
-    first_error.map_or(Ok(()), Err)
+    Ok(())
+}
+
+fn wait_for_next_reconcile(cancel: &AtomicBool, interval: Duration) -> bool {
+    let step = Duration::from_millis(100);
+    let steps = (interval.as_millis() / step.as_millis()).max(1) as usize;
+    for _ in 0..steps {
+        if cancel.load(Ordering::Acquire) {
+            return false;
+        }
+        thread::sleep(step);
+    }
+    true
 }
 
 fn platform_provider() -> Box<dyn GlobalIndexProvider> {
@@ -564,6 +626,10 @@ impl GlobalIndexProvider for RecursiveFallbackProvider {
     fn shutdown(&self) -> Result<(), GlobalIndexError> {
         self.stopped.store(true, Ordering::Release);
         Ok(())
+    }
+
+    fn incremental_poll_interval(&self) -> Duration {
+        Duration::from_secs(30)
     }
 }
 

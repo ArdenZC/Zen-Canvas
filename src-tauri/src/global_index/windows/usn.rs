@@ -1,11 +1,11 @@
 use super::mft::{device_io_control_bytes, open_volume, parse_mft_page, query_journal, MftRecord};
-use super::volumes::volume_device_path;
+use super::{mft, volumes::volume_device_path};
 use crate::global_index::coordinator::{GlobalIndexError, GlobalIndexSink};
 use crate::global_index::models::{
     GlobalEntry, GlobalEntryInput, GlobalSourceDescriptor, PROVIDER_WINDOWS_MFT_USN,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
-use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
+use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_HANDLE_EOF, HANDLE};
 use windows_sys::Win32::System::Ioctl::{
     FSCTL_READ_USN_JOURNAL, READ_USN_JOURNAL_DATA_V0, USN_REASON_BASIC_INFO_CHANGE,
     USN_REASON_CLOSE, USN_REASON_DATA_EXTEND, USN_REASON_DATA_OVERWRITE,
@@ -30,6 +30,13 @@ const CHANGE_REASONS: u32 = USN_REASON_DATA_OVERWRITE
 
 pub(crate) struct UsnSyncResult {
     pub(crate) directory_path_changed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UsnChangeAction {
+    Stale,
+    Upsert,
+    Ignore,
 }
 
 pub(crate) fn sync_volume(
@@ -125,6 +132,7 @@ fn sync_with_handle(
             device_io_control_bytes(handle, FSCTL_READ_USN_JOURNAL, input_bytes, &mut output)
         } {
             Ok(bytes) => bytes,
+            Err(error) if mft::is_win32_error(&error, ERROR_HANDLE_EOF) => break,
             Err(error) if is_journal_history_error(&error) => {
                 let message = format!(
                     "USN journal history is no longer readable; a volume rebuild is required: {error}"
@@ -169,27 +177,23 @@ fn sync_with_handle(
             if cancel.load(Ordering::Acquire) {
                 return Err(GlobalIndexError::Paused);
             }
-            if record.reason & USN_REASON_RENAME_OLD_NAME != 0
-                || record.reason & USN_REASON_FILE_DELETE != 0
-            {
-                if let Some(entry) = sink.find_entry_by_identity(
-                    &source.volume.id,
-                    &record.file_reference,
-                    &record.parent_reference,
-                    &record.name,
-                )? {
-                    sink.mark_entry_stale(&entry.id)?;
+            match classify_usn_change(record.reason) {
+                UsnChangeAction::Stale => {
+                    if let Some(entry) = sink.find_entry_by_identity(
+                        &source.volume.id,
+                        &record.file_reference,
+                        &record.parent_reference,
+                        &record.name,
+                    )? {
+                        sink.mark_entry_stale(&entry.id)?;
+                    }
+                    if record.reason & USN_REASON_RENAME_OLD_NAME != 0 {
+                        directory_path_changed |= record.attributes & 0x10 != 0;
+                    }
+                    continue;
                 }
-            }
-            if record.reason & USN_REASON_RENAME_OLD_NAME != 0 {
-                directory_path_changed |= record.attributes & 0x10 != 0;
-                continue;
-            }
-            if record.reason & USN_REASON_FILE_DELETE != 0 {
-                continue;
-            }
-            if record.reason & (CHANGE_REASONS & !USN_REASON_RENAME_OLD_NAME) == 0 {
-                continue;
+                UsnChangeAction::Ignore => continue,
+                UsnChangeAction::Upsert => {}
             }
             let existing = sink.find_entry_by_identity(
                 &source.volume.id,
@@ -217,6 +221,16 @@ fn sync_with_handle(
     Ok(UsnSyncResult {
         directory_path_changed,
     })
+}
+
+fn classify_usn_change(reason: u32) -> UsnChangeAction {
+    if reason & (USN_REASON_RENAME_OLD_NAME | USN_REASON_FILE_DELETE) != 0 {
+        UsnChangeAction::Stale
+    } else if reason & (CHANGE_REASONS & !USN_REASON_RENAME_OLD_NAME) != 0 {
+        UsnChangeAction::Upsert
+    } else {
+        UsnChangeAction::Ignore
+    }
 }
 
 fn is_journal_history_error(error: &GlobalIndexError) -> bool {
@@ -298,6 +312,27 @@ mod tests {
     use super::*;
     use crate::global_index::models::GlobalVolume;
     use crate::global_index::windows::mft::MftRecord;
+
+    #[test]
+    fn classifies_create_delete_and_rename_records_without_silent_drops() {
+        assert_eq!(
+            classify_usn_change(USN_REASON_FILE_DELETE),
+            UsnChangeAction::Stale
+        );
+        assert_eq!(
+            classify_usn_change(USN_REASON_RENAME_OLD_NAME),
+            UsnChangeAction::Stale
+        );
+        assert_eq!(
+            classify_usn_change(USN_REASON_FILE_CREATE),
+            UsnChangeAction::Upsert
+        );
+        assert_eq!(
+            classify_usn_change(USN_REASON_RENAME_NEW_NAME),
+            UsnChangeAction::Upsert
+        );
+        assert_eq!(classify_usn_change(0), UsnChangeAction::Ignore);
+    }
 
     #[test]
     fn change_to_entry_preserves_existing_size_without_reading_contents() {

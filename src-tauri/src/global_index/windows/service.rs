@@ -379,8 +379,10 @@ mod named_pipe {
     ) -> Result<(), String> {
         let mut request_id = "unknown".to_string();
         let result = (|| {
-            validate_pipe_client(pipe)?;
             let bytes = read_frame(pipe)?;
+            // Windows requires a message to be read from the pipe before the
+            // server can impersonate the named-pipe client.
+            validate_pipe_client(pipe)?;
             let request: IndexServiceRequest = serde_json::from_slice(&bytes)
                 .map_err(|error| format!("index_service_invalid_request: {error}"))?;
             validate_request(&request)?;
@@ -423,8 +425,10 @@ mod named_pipe {
             }));
         }
         let result = (|| {
-            validate_pipe_client(pipe)?;
             let bytes = read_frame(pipe)?;
+            // Windows requires a message to be read from the pipe before the
+            // server can impersonate the named-pipe client.
+            validate_pipe_client(pipe)?;
             let request: IndexServiceRequest = serde_json::from_slice(&bytes)
                 .map_err(|error| format!("index_service_invalid_request: {error}"))?;
             validate_request(&request)?;

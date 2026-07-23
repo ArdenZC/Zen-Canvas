@@ -13,6 +13,7 @@ use crate::global_index::coordinator::{GlobalIndexError, GlobalIndexProvider, Gl
 use crate::global_index::models::{
     GlobalEntry, GlobalEntryInput, GlobalSourceDescriptor, GlobalVolume, INDEX_STATUS_ERROR,
     INDEX_STATUS_PAUSED, INDEX_STATUS_READY, INDEX_STATUS_REBUILD_REQUIRED,
+    PROVIDER_WINDOWS_MFT_USN, PROVIDER_WINDOWS_RECURSIVE_FALLBACK,
 };
 use std::path::Path;
 use std::ptr;
@@ -291,7 +292,7 @@ impl ServiceRuntime {
             return Err("index_service_source_unavailable".to_string());
         };
         if current.volume.stable_volume_id != snapshot.stable_volume_id
-            || current.volume.provider != snapshot.provider
+            || !provider_snapshot_is_compatible(&current.volume.provider, &snapshot.provider)
             || !current
                 .volume
                 .mount_path
@@ -305,6 +306,7 @@ impl ServiceRuntime {
         }
         // Only durable indexing state comes from the desktop snapshot. The
         // service always uses the fresh native mount path and provider data.
+        let current_provider = current.volume.provider.clone();
         let mut volume = current.volume;
         volume.enabled = snapshot.enabled;
         volume.index_status = snapshot.index_status.clone();
@@ -312,8 +314,22 @@ impl ServiceRuntime {
         volume.journal_cursor = snapshot.journal_cursor.clone();
         volume.last_full_index_at = snapshot.last_full_index_at;
         volume.last_incremental_sync_at = snapshot.last_incremental_sync_at;
+        // A prior permission failure can persist the recursive fallback even
+        // though fresh discovery still reports an NTFS MFT/USN capability.
+        // Preserve that durable provider decision for normal resume calls;
+        // an explicit rebuild resets it in the desktop coordinator.
+        if snapshot.provider == PROVIDER_WINDOWS_RECURSIVE_FALLBACK
+            && current_provider == PROVIDER_WINDOWS_MFT_USN
+        {
+            volume.provider = PROVIDER_WINDOWS_RECURSIVE_FALLBACK.to_string();
+        }
         Ok(GlobalSourceDescriptor { volume })
     }
+}
+
+fn provider_snapshot_is_compatible(current: &str, snapshot: &str) -> bool {
+    current == snapshot
+        || (current == PROVIDER_WINDOWS_MFT_USN && snapshot == PROVIDER_WINDOWS_RECURSIVE_FALLBACK)
 }
 
 fn source_id(command: &IndexServiceCommand) -> &str {
@@ -891,5 +907,17 @@ mod tests {
             }),
             "volume"
         );
+    }
+
+    #[test]
+    fn persisted_recursive_fallback_is_compatible_with_fresh_ntfs_discovery() {
+        assert!(provider_snapshot_is_compatible(
+            PROVIDER_WINDOWS_MFT_USN,
+            PROVIDER_WINDOWS_RECURSIVE_FALLBACK
+        ));
+        assert!(!provider_snapshot_is_compatible(
+            PROVIDER_WINDOWS_RECURSIVE_FALLBACK,
+            PROVIDER_WINDOWS_MFT_USN
+        ));
     }
 }

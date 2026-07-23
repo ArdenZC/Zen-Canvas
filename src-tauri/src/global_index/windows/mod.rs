@@ -14,20 +14,87 @@ use service::{
     IndexServiceCommand, IndexServiceEvent, IndexServiceLookupResponse, IndexServiceRequest,
     IndexServiceResponse,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
 
 /// The provider used by the installed Windows service. It never calls the
 /// service pipe, which prevents the service process from recursively routing
 /// its own MFT/USN work back through the desktop transport.
 pub struct DirectWindowsGlobalIndexProvider {
     stopped: AtomicBool,
+    fallback_watchers: Mutex<HashMap<String, fallback::ReconcileWatcher>>,
 }
 
 impl DirectWindowsGlobalIndexProvider {
     pub fn new() -> Self {
         Self {
             stopped: AtomicBool::new(false),
+            fallback_watchers: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn ensure_fallback_watcher(
+        &self,
+        source: &GlobalSourceDescriptor,
+    ) -> Result<bool, GlobalIndexError> {
+        let mut watchers = self.fallback_watchers.lock().map_err(|_| {
+            GlobalIndexError::Provider("Windows fallback watcher lock poisoned".to_string())
+        })?;
+        if watchers.contains_key(&source.volume.id) {
+            return Ok(false);
+        }
+        let watcher = fallback::ReconcileWatcher::start(Path::new(&source.volume.mount_path))?;
+        watchers.insert(source.volume.id.clone(), watcher);
+        Ok(true)
+    }
+
+    fn fallback_reconcile_requested(&self, volume_id: &str) -> Result<bool, GlobalIndexError> {
+        let watchers = self.fallback_watchers.lock().map_err(|_| {
+            GlobalIndexError::Provider("Windows fallback watcher lock poisoned".to_string())
+        })?;
+        watchers
+            .get(volume_id)
+            .ok_or_else(|| {
+                GlobalIndexError::Provider(
+                    "Windows fallback watcher was not initialized".to_string(),
+                )
+            })?
+            .take_reconcile_signal()
+    }
+
+    fn clear_fallback_watcher(&self, volume_id: &str) -> Result<(), GlobalIndexError> {
+        let mut watchers = self.fallback_watchers.lock().map_err(|_| {
+            GlobalIndexError::Provider("Windows fallback watcher lock poisoned".to_string())
+        })?;
+        watchers.remove(volume_id);
+        Ok(())
+    }
+
+    fn clear_all_fallback_watchers(&self) -> Result<(), GlobalIndexError> {
+        let mut watchers = self.fallback_watchers.lock().map_err(|_| {
+            GlobalIndexError::Provider("Windows fallback watcher lock poisoned".to_string())
+        })?;
+        watchers.clear();
+        Ok(())
+    }
+
+    fn reconcile_fallback(
+        &self,
+        source: &GlobalSourceDescriptor,
+        sink: &mut dyn GlobalIndexSink,
+        cancel: &AtomicBool,
+    ) -> Result<(), GlobalIndexError> {
+        let watcher_created = self.ensure_fallback_watcher(source)?;
+        let changed = watcher_created || self.fallback_reconcile_requested(&source.volume.id)?;
+        if !changed {
+            return Ok(());
+        }
+        sink.mark_volume_entries_stale(&source.volume.id)?;
+        fallback::index_volume(source, sink, cancel)
     }
 }
 
@@ -53,7 +120,10 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
         if source.volume.provider == PROVIDER_WINDOWS_MFT_USN {
             sink.set_source_provider(&source.volume.id, PROVIDER_WINDOWS_MFT_USN)?;
             match mft::enumerate_volume(source, sink, cancel) {
-                Ok(_) => Ok(()),
+                Ok(_) => {
+                    self.clear_fallback_watcher(&source.volume.id)?;
+                    Ok(())
+                }
                 Err(GlobalIndexError::Paused) => Err(GlobalIndexError::Paused),
                 Err(error) => {
                     let message = error.to_string();
@@ -66,12 +136,12 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
                         &source.volume.id,
                         PROVIDER_WINDOWS_RECURSIVE_FALLBACK,
                     )?;
-                    fallback::index_volume(source, sink, cancel)
+                    self.reconcile_fallback(source, sink, cancel)
                 }
             }
         } else {
             sink.set_source_provider(&source.volume.id, PROVIDER_WINDOWS_RECURSIVE_FALLBACK)?;
-            fallback::index_volume(source, sink, cancel)
+            self.reconcile_fallback(source, sink, cancel)
         }
     }
 
@@ -83,9 +153,9 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
     ) -> Result<(), GlobalIndexError> {
         if source.volume.provider != PROVIDER_WINDOWS_MFT_USN {
             sink.set_source_provider(&source.volume.id, PROVIDER_WINDOWS_RECURSIVE_FALLBACK)?;
-            sink.mark_volume_entries_stale(&source.volume.id)?;
-            return fallback::index_volume(source, sink, cancel);
+            return self.reconcile_fallback(source, sink, cancel);
         }
+        self.clear_fallback_watcher(&source.volume.id)?;
         sink.set_source_provider(&source.volume.id, PROVIDER_WINDOWS_MFT_USN)?;
         let result = match usn::sync_volume(source, sink, cancel) {
             Ok(result) => result,
@@ -99,8 +169,7 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
                     Some(&message),
                 )?;
                 sink.set_source_provider(&source.volume.id, PROVIDER_WINDOWS_RECURSIVE_FALLBACK)?;
-                sink.mark_volume_entries_stale(&source.volume.id)?;
-                fallback::index_volume(source, sink, cancel)?;
+                self.reconcile_fallback(source, sink, cancel)?;
                 return Ok(());
             }
         };
@@ -125,7 +194,7 @@ impl GlobalIndexProvider for DirectWindowsGlobalIndexProvider {
 
     fn shutdown(&self) -> Result<(), GlobalIndexError> {
         self.stopped.store(true, Ordering::Release);
-        Ok(())
+        self.clear_all_fallback_watchers()
     }
 }
 

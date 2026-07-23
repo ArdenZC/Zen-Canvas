@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use windows_sys::Win32::Foundation::{
-    CloseHandle, GetLastError, GENERIC_READ, HANDLE, INVALID_HANDLE_VALUE,
+    CloseHandle, GetLastError, ERROR_HANDLE_EOF, GENERIC_READ, HANDLE, INVALID_HANDLE_VALUE,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_SYSTEM,
@@ -342,9 +342,13 @@ fn enumerate_mft_records(
                 std::mem::size_of::<MFT_ENUM_DATA_V0>(),
             )
         };
-        let bytes = unsafe {
+        let bytes = match unsafe {
             device_io_control_bytes(handle, FSCTL_ENUM_USN_DATA, input_bytes, &mut output)
-        }?;
+        } {
+            Ok(bytes) => bytes,
+            Err(error) if is_win32_error(&error, ERROR_HANDLE_EOF) => break,
+            Err(error) => return Err(error),
+        };
         if bytes < 8 {
             break;
         }
@@ -356,6 +360,10 @@ fn enumerate_mft_records(
         cursor = next_cursor;
     }
     Ok(records)
+}
+
+pub(crate) fn is_win32_error(error: &GlobalIndexError, code: u32) -> bool {
+    error.to_string().contains(&format!("Win32 error {code}"))
 }
 
 pub(crate) unsafe fn device_io_control_bytes(
@@ -407,6 +415,7 @@ fn hex_id(value: &[u8; 16]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows_sys::Win32::Storage::FileSystem::FILE_ID_128;
 
     fn fixture_record(major: u16, name: &str) -> Vec<u8> {
         let name_bytes = name.encode_utf16().collect::<Vec<_>>();
@@ -438,6 +447,41 @@ mod tests {
         bytes
     }
 
+    fn fixture_record_v3(name: &str) -> Vec<u8> {
+        let name_bytes = name.encode_utf16().collect::<Vec<_>>();
+        let record_size = std::mem::size_of::<USN_RECORD_V3>() - 2 + name_bytes.len() * 2;
+        let record_size = (record_size + 7) & !7;
+        let mut bytes = vec![0u8; 8 + record_size];
+        bytes[0..8].copy_from_slice(&84u64.to_ne_bytes());
+        let record = USN_RECORD_V3 {
+            RecordLength: record_size as u32,
+            MajorVersion: 3,
+            MinorVersion: 0,
+            FileReferenceNumber: FILE_ID_128 {
+                Identifier: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+            },
+            ParentFileReferenceNumber: FILE_ID_128 {
+                Identifier: [16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1],
+            },
+            FileNameOffset: (std::mem::size_of::<USN_RECORD_V3>() - 2) as u16,
+            FileNameLength: (name_bytes.len() * 2) as u16,
+            ..Default::default()
+        };
+        unsafe {
+            ptr::copy_nonoverlapping(
+                (&record as *const USN_RECORD_V3).cast::<u8>(),
+                bytes[8..].as_mut_ptr(),
+                std::mem::size_of::<USN_RECORD_V3>() - 2,
+            );
+        }
+        for (index, value) in name_bytes.iter().enumerate() {
+            bytes[8 + record.FileNameOffset as usize + index * 2
+                ..8 + record.FileNameOffset as usize + index * 2 + 2]
+                .copy_from_slice(&value.to_ne_bytes());
+        }
+        bytes
+    }
+
     #[test]
     fn parses_usn_record_v2_fixture() {
         let page = fixture_record(2, "报告.txt");
@@ -446,6 +490,22 @@ mod tests {
         assert_eq!(records[0].file_reference, "000000000000000a");
         assert_eq!(records[0].parent_reference, "0000000000000005");
         assert_eq!(records[0].name, "报告.txt");
+    }
+
+    #[test]
+    fn parses_usn_record_v3_fixture() {
+        let page = fixture_record_v3("résumé.pdf");
+        let (cursor, records) = parse_mft_page(&page).expect("parse v3 fixture");
+        assert_eq!(cursor, 84);
+        assert_eq!(
+            records[0].file_reference,
+            "0102030405060708090a0b0c0d0e0f10"
+        );
+        assert_eq!(
+            records[0].parent_reference,
+            "100f0e0d0c0b0a090807060504030201"
+        );
+        assert_eq!(records[0].name, "résumé.pdf");
     }
 
     #[test]
@@ -482,5 +542,44 @@ mod tests {
             Some(&"C:\\child.txt".to_string())
         );
         assert!(paths.contains_key("3\u{0}3\u{0}loop"));
+    }
+
+    #[test]
+    fn preserves_multiple_directory_entries_for_a_hard_linked_file() {
+        let records = vec![
+            MftRecord {
+                file_reference: "7".to_string(),
+                parent_reference: "1".to_string(),
+                name: "left.txt".to_string(),
+                timestamp: None,
+                reason: 0,
+                attributes: 0,
+            },
+            MftRecord {
+                file_reference: "7".to_string(),
+                parent_reference: "1".to_string(),
+                name: "right.txt".to_string(),
+                timestamp: None,
+                reason: 0,
+                attributes: 0,
+            },
+            MftRecord {
+                file_reference: "1".to_string(),
+                parent_reference: "1".to_string(),
+                name: ".".to_string(),
+                timestamp: None,
+                reason: 0,
+                attributes: FILE_ATTRIBUTE_DIRECTORY,
+            },
+        ];
+        let paths = reconstruct_paths("C:\\", &records);
+        assert_eq!(
+            paths.get("7\u{0}1\u{0}left.txt"),
+            Some(&"C:\\left.txt".to_string())
+        );
+        assert_eq!(
+            paths.get("7\u{0}1\u{0}right.txt"),
+            Some(&"C:\\right.txt".to_string())
+        );
     }
 }

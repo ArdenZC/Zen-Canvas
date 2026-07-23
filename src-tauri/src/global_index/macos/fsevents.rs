@@ -83,22 +83,27 @@ extern "C" fn fsevent_callback(
         true
     } else {
         let flags = unsafe { std::slice::from_raw_parts(event_flags, num_events) };
-        flags.iter().any(|flags| {
-            flags
-                & (kFSEventStreamEventFlagMustScanSubDirs
-                    | kFSEventStreamEventFlagUserDropped
-                    | kFSEventStreamEventFlagKernelDropped
-                    | kFSEventStreamEventFlagEventIdsWrapped)
-                != 0
-        })
+        flags.iter().copied().any(fsevent_requires_full_reconcile)
     };
     if let Ok(mut pending) = info.pending.lock() {
-        pending.full_reconcile |= needs_full_reconcile || num_events > 0;
+        // Normal file events are delivered by NSMetadataQueryDidUpdate. Keep
+        // FSEvents as the durable gap/overflow signal so a busy directory
+        // does not cause a full local-computer Spotlight query every cycle.
+        pending.full_reconcile |= needs_full_reconcile;
         if !event_ids.is_null() {
             let ids = unsafe { std::slice::from_raw_parts(event_ids, num_events) };
             pending.last_event_id = ids.iter().copied().max().or(pending.last_event_id);
         }
     }
+}
+
+fn fsevent_requires_full_reconcile(flags: FSEventStreamEventFlags) -> bool {
+    flags
+        & (kFSEventStreamEventFlagMustScanSubDirs
+            | kFSEventStreamEventFlagUserDropped
+            | kFSEventStreamEventFlagKernelDropped
+            | kFSEventStreamEventFlagEventIdsWrapped)
+        != 0
 }
 
 fn run_fsevents(
@@ -219,6 +224,11 @@ mod tests {
             | kFSEventStreamEventFlagUserDropped
             | kFSEventStreamEventFlagKernelDropped
             | kFSEventStreamEventFlagEventIdsWrapped;
-        assert_ne!(flags, 0);
+        assert!(fsevent_requires_full_reconcile(flags));
+    }
+
+    #[test]
+    fn normal_file_events_are_left_to_spotlight_incremental_updates() {
+        assert!(!fsevent_requires_full_reconcile(0));
     }
 }

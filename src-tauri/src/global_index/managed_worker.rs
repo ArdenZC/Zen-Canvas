@@ -489,10 +489,9 @@ pub(crate) fn build_managed_ai_request(job: &ManagedAiJob, settings: &AISettings
     if settings.send_full_path {
         metadata["path"] = json!(job.path);
     } else if settings.send_parent_path {
-        metadata["parent"] = json!(std::path::Path::new(&job.path)
-            .parent()
-            .map(|path| path.to_string_lossy().into_owned())
-            .unwrap_or_default());
+        if let Some(parent) = parent_path(&job.path).filter(|path| !is_system_path(path)) {
+            metadata["parent"] = json!(parent);
+        }
     }
     AIChatRequest {
         messages: vec![
@@ -517,6 +516,38 @@ pub(crate) fn build_managed_ai_request(job: &ManagedAiJob, settings: &AISettings
             trace_context: None,
         },
     }
+}
+
+fn parent_path(path: &str) -> Option<String> {
+    let normalized = path.replace('\\', "/");
+    let separator = normalized.rfind('/')?;
+    (separator > 0).then(|| normalized[..separator].to_string())
+}
+
+fn is_system_path(path: &str) -> bool {
+    let normalized = path
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_ascii_lowercase();
+    [
+        "/system",
+        "/library",
+        "/private",
+        "/usr",
+        "/bin",
+        "/sbin",
+        "/etc",
+        "/var",
+        "/opt",
+        "/dev",
+        "c:/windows",
+        "c:/program files",
+        "c:/programdata",
+        "c:/recovery",
+        "c:/system volume information",
+    ]
+    .iter()
+    .any(|prefix| normalized == *prefix || normalized.starts_with(&format!("{prefix}/")))
 }
 
 fn sanitize_worker_error(error: String, settings: &AISettings) -> String {
@@ -651,6 +682,22 @@ mod tests {
             &settings,
         );
         assert!(!request.messages[1].content.contains("C:\\Private"));
+    }
+
+    #[test]
+    fn default_metadata_omits_system_parent_path() {
+        let request = build_managed_ai_request(
+            &ManagedAiJob {
+                path: r"C:\Windows\System32\driver.dll".to_string(),
+                ..job()
+            },
+            &settings(AIProviderKind::Ollama),
+        );
+        assert!(!request.messages[1]
+            .content
+            .to_ascii_lowercase()
+            .contains("windows"));
+        assert!(!request.messages[1].content.contains("system32"));
     }
 
     #[test]
