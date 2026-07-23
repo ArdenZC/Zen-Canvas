@@ -1,0 +1,282 @@
+use super::PendingUpdates;
+use crate::global_index::models::{normalize_path, GlobalEntryInput, PROVIDER_MACOS_SPOTLIGHT};
+use block2::RcBlock;
+use objc2::rc::{autoreleasepool, Retained};
+use objc2::runtime::AnyObject;
+use objc2_foundation::{
+    NSArray, NSDate, NSMetadataItem, NSMetadataItemFSContentChangeDateKey,
+    NSMetadataItemFSCreationDateKey, NSMetadataItemFSNameKey, NSMetadataItemFSSizeKey,
+    NSMetadataItemPathKey, NSMetadataItemURLKey, NSMetadataQuery,
+    NSMetadataQueryIndexedLocalComputerScope, NSMetadataQueryUpdateAddedItemsKey,
+    NSMetadataQueryUpdateChangedItemsKey, NSMetadataQueryUpdateRemovedItemsKey, NSNotification,
+    NSNotificationCenter, NSNumber, NSPredicate, NSRunLoop, NSString, NSURL,
+};
+use std::path::{Path, PathBuf};
+use std::ptr::NonNull;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
+use std::thread::{self, JoinHandle};
+
+pub fn collect_local_computer_entries(
+    volume_id: &str,
+    cancel: &AtomicBool,
+) -> Result<Vec<GlobalEntryInput>, String> {
+    autoreleasepool(|_| {
+        let query = new_local_computer_query();
+        if !query.startQuery() {
+            return Err("macos_spotlight_query_start_failed".to_string());
+        }
+        let run_loop = NSRunLoop::currentRunLoop();
+        while query.isGathering() {
+            if cancel.load(Ordering::Acquire) {
+                query.stopQuery();
+                return Err("macos_spotlight_query_paused".to_string());
+            }
+            let deadline = NSDate::dateWithTimeIntervalSinceNow(0.2);
+            run_loop.runUntilDate(&deadline);
+        }
+        let mut entries = Vec::with_capacity(query.resultCount() as usize);
+        for index in 0..query.resultCount() {
+            if cancel.load(Ordering::Acquire) {
+                query.stopQuery();
+                return Err("macos_spotlight_query_paused".to_string());
+            }
+            let object = query.resultAtIndex(index);
+            if let Some(entry) = metadata_item_to_entry(volume_id, &object) {
+                entries.push(entry);
+            }
+        }
+        query.stopQuery();
+        Ok(entries)
+    })
+}
+
+pub fn spawn_update_watcher(
+    volume_id: String,
+    pending: Arc<Mutex<PendingUpdates>>,
+    stopped: Arc<AtomicBool>,
+) -> JoinHandle<()> {
+    thread::Builder::new()
+        .name("zen-canvas-macos-spotlight".to_string())
+        .spawn(move || {
+            autoreleasepool(|_| run_update_watcher(&volume_id, &pending, &stopped));
+        })
+        .expect("failed to start macOS Spotlight watcher")
+}
+
+fn run_update_watcher(volume_id: &str, pending: &Arc<Mutex<PendingUpdates>>, stopped: &AtomicBool) {
+    let query = new_local_computer_query();
+    let center = NSNotificationCenter::defaultCenter();
+    let pending_for_block = pending.clone();
+    let volume_id_for_block = volume_id.to_string();
+    let update_block = RcBlock::new(move |notification: NonNull<NSNotification>| {
+        let notification = unsafe { notification.as_ref() };
+        let Some(user_info) = notification.userInfo() else {
+            return;
+        };
+        let typed_info = unsafe { user_info.cast_unchecked() };
+        let mut entries = Vec::new();
+        let mut stale_entry_ids = Vec::new();
+        collect_update_items(
+            &typed_info,
+            NSMetadataQueryUpdateAddedItemsKey,
+            &volume_id_for_block,
+            &mut entries,
+            &mut stale_entry_ids,
+            false,
+        );
+        collect_update_items(
+            &typed_info,
+            NSMetadataQueryUpdateChangedItemsKey,
+            &volume_id_for_block,
+            &mut entries,
+            &mut stale_entry_ids,
+            false,
+        );
+        collect_update_items(
+            &typed_info,
+            NSMetadataQueryUpdateRemovedItemsKey,
+            &volume_id_for_block,
+            &mut entries,
+            &mut stale_entry_ids,
+            true,
+        );
+        if entries.is_empty() && stale_entry_ids.is_empty() {
+            return;
+        }
+        if let Ok(mut pending) = pending_for_block.lock() {
+            pending.entries.extend(entries);
+            pending.stale_entry_ids.extend(stale_entry_ids);
+        }
+    });
+    let observer = unsafe {
+        center.addObserverForName_object_queue_usingBlock(
+            Some(objc2_foundation::NSMetadataQueryDidUpdateNotification),
+            None,
+            None,
+            &update_block,
+        )
+    };
+    if !query.startQuery() {
+        if let Ok(mut pending) = pending.lock() {
+            pending.last_error = Some("macos_spotlight_watcher_start_failed".to_string());
+        }
+        unsafe { center.removeObserver(&observer) };
+        return;
+    }
+    let run_loop = NSRunLoop::currentRunLoop();
+    while !stopped.load(Ordering::Acquire) {
+        let deadline = NSDate::dateWithTimeIntervalSinceNow(0.25);
+        run_loop.runUntilDate(&deadline);
+    }
+    query.stopQuery();
+    unsafe { center.removeObserver(&observer) };
+}
+
+fn new_local_computer_query() -> Retained<NSMetadataQuery> {
+    let query = NSMetadataQuery::new();
+    let predicate = NSPredicate::predicateWithValue(true);
+    query.setPredicate(Some(&predicate));
+    let scopes = NSArray::from_slice(&[NSMetadataQueryIndexedLocalComputerScope]);
+    unsafe { query.setSearchScopes(&scopes) };
+    query
+}
+
+fn collect_update_items(
+    user_info: &objc2_foundation::NSDictionary<NSString, AnyObject>,
+    key: &NSString,
+    volume_id: &str,
+    entries: &mut Vec<GlobalEntryInput>,
+    stale_entry_ids: &mut Vec<String>,
+    removed: bool,
+) {
+    let Some(value) = user_info.objectForKey(key) else {
+        return;
+    };
+    let Ok(items) = value.downcast::<NSArray>() else {
+        return;
+    };
+    for index in 0..items.count() {
+        let object = items.objectAtIndex(index);
+        if let Some(entry) = object.downcast_ref::<NSMetadataItem>() {
+            if let Some(input) = metadata_item_to_entry(volume_id, entry.as_ref()) {
+                if removed {
+                    stale_entry_ids.push(input.entry_id());
+                } else {
+                    entries.push(input);
+                }
+            }
+            continue;
+        }
+        if let Some(path) = path_from_object(&object) {
+            let input = GlobalEntryInput::from_path(
+                volume_id.to_string(),
+                Path::new(&path),
+                PROVIDER_MACOS_SPOTLIGHT,
+            );
+            stale_entry_ids.push(input.entry_id());
+            if !removed && Path::new(&path).exists() {
+                entries.push(input);
+            }
+        }
+    }
+}
+
+fn metadata_item_to_entry(volume_id: &str, object: &AnyObject) -> Option<GlobalEntryInput> {
+    let item = object.downcast_ref::<NSMetadataItem>()?;
+    let path = metadata_string(item, NSMetadataItemPathKey)
+        .or_else(|| metadata_url_path(item, NSMetadataItemURLKey))?;
+    if path.trim().is_empty() {
+        return None;
+    }
+    let path_buf = PathBuf::from(&path);
+    let metadata = std::fs::symlink_metadata(&path_buf).ok();
+    let is_directory = metadata.as_ref().is_some_and(std::fs::Metadata::is_dir);
+    let name = metadata_string(item, NSMetadataItemFSNameKey)
+        .or_else(|| {
+            path_buf
+                .file_name()
+                .map(|value| value.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| path.clone());
+    let extension = path_buf
+        .extension()
+        .map(|value| value.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let size = metadata_number(item, NSMetadataItemFSSizeKey)
+        .or_else(|| metadata.as_ref().map(|value| value.len() as i64))
+        .unwrap_or_default();
+    Some(GlobalEntryInput {
+        volume_id: volume_id.to_string(),
+        platform_file_id: format!("path:{}", normalize_path(&path)),
+        parent_platform_file_id: path_buf
+            .parent()
+            .map(|parent| format!("path:{}", normalize_path(&parent.to_string_lossy())))
+            .unwrap_or_default(),
+        name,
+        path,
+        extension,
+        is_directory,
+        size: if is_directory { 0 } else { size },
+        created_at_fs: metadata_date(item, NSMetadataItemFSCreationDateKey),
+        modified_at_fs: metadata_date(item, NSMetadataItemFSContentChangeDateKey),
+        file_attributes: 0,
+        is_hidden: path_buf
+            .file_name()
+            .is_some_and(|value| value.to_string_lossy().starts_with('.')),
+        is_system: false,
+        source_provider: PROVIDER_MACOS_SPOTLIGHT.to_string(),
+        last_seen_at: crate::global_index::models::unix_now(),
+    })
+}
+
+fn metadata_string(item: &NSMetadataItem, key: &NSString) -> Option<String> {
+    item.valueForAttribute(key)
+        .and_then(|value| value.downcast::<NSString>().ok())
+        .map(|value| value.to_string())
+}
+
+fn metadata_url_path(item: &NSMetadataItem, key: &NSString) -> Option<String> {
+    item.valueForAttribute(key)
+        .and_then(|value| value.downcast::<NSURL>().ok())
+        .and_then(|value| value.path())
+        .map(|value| value.to_string())
+}
+
+fn metadata_number(item: &NSMetadataItem, key: &NSString) -> Option<i64> {
+    item.valueForAttribute(key)
+        .and_then(|value| value.downcast::<NSNumber>().ok())
+        .map(|value| value.as_i64())
+}
+
+fn metadata_date(item: &NSMetadataItem, key: &NSString) -> Option<i64> {
+    item.valueForAttribute(key)
+        .and_then(|value| value.downcast::<NSDate>().ok())
+        .map(|value| value.timeIntervalSince1970().max(0.0) as i64)
+}
+
+fn path_from_object(object: &AnyObject) -> Option<String> {
+    if let Some(value) = object.downcast_ref::<NSString>() {
+        return Some(value.to_string());
+    }
+    if let Some(value) = object.downcast_ref::<NSURL>() {
+        return value.path().map(|path| path.to_string());
+    }
+    if let Some(value) = object.downcast_ref::<NSMetadataItem>() {
+        return metadata_string(value, NSMetadataItemPathKey)
+            .or_else(|| metadata_url_path(value, NSMetadataItemURLKey));
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::models::normalize_path;
+
+    #[test]
+    fn macos_paths_use_platform_normalization() {
+        assert_eq!(normalize_path("/Users/test/"), "/Users/test");
+    }
+}
