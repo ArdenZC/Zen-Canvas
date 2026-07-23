@@ -1,6 +1,7 @@
 import type { AppSnapshot, FileQuery, FileRecord, LibraryScope, OperationPreview } from "../types/domain";
 import type { Language } from "../i18n";
 import type { ThemeMode, Translator } from "../types/ui";
+import { normalizeProposedFileNameExtension } from "./fileNaming";
 import { DEFAULT_SEARCH_HOTKEY, formatHotkeyLabel } from "./hotkeys";
 
 export function filterFiles(files: FileRecord[], query: FileQuery): FileRecord[] {
@@ -182,7 +183,9 @@ export function createOperationPreviews(files: FileRecord[]): OperationPreview[]
     .filter((file) => ["Move", "Rename", "MoveAndRename", "Archive"].includes(file.suggested_action))
     .filter((file) => file.risk_level !== "Sensitive")
     .map((file) => {
-      const newName = file.suggested_name || file.name;
+      const proposedName = file.suggested_name || file.name;
+      const normalizedName = normalizeProposedFileNameExtension(file.name, proposedName);
+      const newName = normalizedName.name;
       const targetDirectory =
         file.suggested_target_path || (file.suggested_action === "Rename" ? file.directory : "");
       const targetPath = targetDirectory ? joinPathLike(targetDirectory, newName) : file.path;
@@ -190,7 +193,7 @@ export function createOperationPreviews(files: FileRecord[]): OperationPreview[]
       const isRename = newName !== file.name;
       const operationType: OperationPreview["operation_type"] =
         isMove && isRename ? "move_rename" : isMove ? "move" : "rename";
-      const requiresConfirmation = file.requires_confirmation || file.confidence < 0.7;
+      const requiresConfirmation = file.requires_confirmation || file.confidence < 0.7 || normalizedName.error !== null;
       return {
         id: localId("op"),
         fileId: file.id,
@@ -207,8 +210,9 @@ export function createOperationPreviews(files: FileRecord[]): OperationPreview[]
         is_duplicate: file.is_duplicate,
         reason: file.classification_reason,
         selected_by_default: !requiresConfirmation,
-        is_executable: true,
-        editable_new_name: true
+        is_executable: normalizedName.error === null,
+        blocking_reason: normalizedName.error ? "Changing a file extension is not allowed during organization." : undefined,
+        editable_new_name: normalizedName.error === null
       };
     })
     .filter((preview) => normalizePathLike(preview.source_path) !== normalizePathLike(preview.target_path));

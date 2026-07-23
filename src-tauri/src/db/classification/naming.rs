@@ -1,4 +1,5 @@
 use super::super::*;
+use crate::file_naming::{normalize_proposed_file_name, ExtensionChangePolicy};
 use crate::settings::{AppSettings, OrganizeRootMode};
 use std::path::PathBuf;
 
@@ -116,7 +117,15 @@ pub(crate) fn build_suggested_name(row: &IndexedFileRow, template: Option<&str>)
         .replace("{basename}", &basename)
         .replace("{date}", &date)
         .replace("{extension}", extension);
-    append_extension_once(&rendered, extension)
+    let candidate = append_extension_once(&rendered, extension);
+    normalize_proposed_file_name(
+        &row.name,
+        &row.extension,
+        &candidate,
+        row.is_dir,
+        ExtensionChangePolicy::Preserve,
+    )
+    .unwrap_or_else(|_| row.name.clone())
 }
 
 fn append_extension_once(rendered: &str, extension: &str) -> String {

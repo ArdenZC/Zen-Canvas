@@ -1,5 +1,10 @@
 use crate::path_identity::{normalize_path, normalize_text_for_platform, PathPlatform};
-use crate::{db::Database, ids::new_job_id, window_auth::require_main_window};
+use crate::{
+    db::Database,
+    file_naming::{normalize_proposed_file_name, ExtensionChangePolicy},
+    ids::new_job_id,
+    window_auth::require_main_window,
+};
 use serde::{Deserialize, Serialize};
 #[cfg(all(test, windows))]
 use std::io::Read;
@@ -440,15 +445,32 @@ fn resolve_execute_selections(
         }
         db.verify_indexed_file_identity(&selection.file_id)
             .map_err(|error| error.to_string())?;
-        let mut new_name = preview.new_name.clone();
+        let (original_name, indexed_extension, is_dir) = db
+            .get_indexed_file_naming(&selection.file_id)
+            .map_err(|error| error.to_string())?;
+        let mut new_name = normalize_proposed_file_name(
+            &original_name,
+            &indexed_extension,
+            &preview.new_name,
+            is_dir,
+            ExtensionChangePolicy::Preserve,
+        )?;
+        validate_safe_file_name(&new_name)?;
         let mut target_path = preview.target_path.clone();
         if let Some(override_name) = selection.new_name {
-            validate_safe_file_name(&override_name)?;
+            let normalized_override = normalize_proposed_file_name(
+                &original_name,
+                &indexed_extension,
+                &override_name,
+                is_dir,
+                ExtensionChangePolicy::Preserve,
+            )?;
+            validate_safe_file_name(&normalized_override)?;
             let parent = Path::new(&target_path)
                 .parent()
                 .ok_or_else(|| "Authoritative preview target has no parent.".to_string())?;
-            target_path = normalize_path(&parent.join(&override_name));
-            new_name = override_name;
+            target_path = normalize_path(&parent.join(&normalized_override));
+            new_name = normalized_override;
         }
         operations.push(OperationPreviewRequest {
             id: preview.id.clone(),
@@ -2794,6 +2816,68 @@ mod tests {
     }
 
     #[test]
+    fn execute_selection_preserves_indexed_extension_and_rejects_tampering() {
+        let db = Database::open(test_db_path()).expect("open database");
+        let root = test_dir();
+        let source = root.join("Install_Package.lnk");
+        let target_dir = root.join("organized");
+        fs::write(&source, b"shortcut fixture").expect("write shortcut");
+        insert_indexed_file(&db, &source, "Install_Package.lnk", "lnk");
+        let file_id = source.to_string_lossy().into_owned();
+        let metadata = fs::metadata(&source).expect("shortcut metadata");
+        let mtime = metadata
+            .modified()
+            .expect("shortcut mtime")
+            .duration_since(UNIX_EPOCH)
+            .expect("unix mtime")
+            .as_secs() as i64;
+        let conn = rusqlite::Connection::open(db.path()).expect("open sqlite");
+        conn.execute(
+            "UPDATE files SET suggested_action = 'Move', suggested_target_path = ?2, suggested_name = 'Install_Package', confidence = 0.95, size = ?3, mtime = ?4 WHERE path = ?1",
+            rusqlite::params![file_id, normalize_path(&target_dir), metadata.len() as i64, mtime],
+        )
+        .expect("set shortcut suggestion");
+        let preview = db
+            .get_operation_previews_by_file_ids(std::slice::from_ref(&file_id))
+            .expect("shortcut preview")
+            .pop()
+            .expect("shortcut operation preview");
+
+        let normalized = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![OperationSelection {
+                    id: preview.id.clone(),
+                    file_id: file_id.clone(),
+                    new_name: Some("Install_Package".to_string()),
+                }],
+            },
+        )
+        .expect("missing shortcut extension is normalized");
+        assert_eq!(normalized.operations[0].new_name, "Install_Package.lnk");
+        assert!(normalized.operations[0]
+            .target_path
+            .ends_with("Install_Package.lnk"));
+
+        let error = resolve_execute_selections(
+            &db,
+            ExecuteMovesByIdRequest {
+                operations: vec![OperationSelection {
+                    id: preview.id,
+                    file_id,
+                    new_name: Some("Install_Package.exe".to_string()),
+                }],
+            },
+        )
+        .expect_err("extension tampering must be rejected");
+        assert!(error.contains("Changing a file extension is not allowed during organization."));
+        assert_eq!(
+            fs::read(&source).expect("read shortcut"),
+            b"shortcut fixture"
+        );
+    }
+
+    #[test]
     fn execute_selection_rejects_forged_preview_id() {
         let db = Database::open(test_db_path()).expect("open database");
 
@@ -3833,6 +3917,55 @@ mod tests {
         assert_eq!(restored.logs[0].restore_status, "restored");
         assert!(!restored.logs[0].can_restore);
         assert!(restored.logs[0].restored_at.is_some());
+    }
+
+    #[test]
+    fn windows_shortcut_move_and_restore_preserve_name_bytes_and_hash() {
+        let root = test_dir();
+        let source_dir = root.join("source");
+        let target_dir = root.join("target");
+        fs::create_dir_all(&source_dir).expect("source dir");
+        fs::create_dir_all(&target_dir).expect("target dir");
+
+        let source = source_dir.join("Install_Package.lnk");
+        let target = target_dir.join("Install_Package.lnk");
+        let bytes = b"Windows shortcut fixture bytes\0\x01\x02".to_vec();
+        let hash = blake3::hash(&bytes);
+        fs::write(&source, &bytes).expect("write shortcut fixture");
+
+        let executed = execute_moves_core(ExecuteMovesRequest {
+            operations: vec![OperationPreviewRequest {
+                id: "op-shortcut".to_string(),
+                file_id: "file-shortcut".to_string(),
+                operation_type: "move".to_string(),
+                source_path: source.to_string_lossy().into_owned(),
+                target_path: target.to_string_lossy().into_owned(),
+                old_name: "Install_Package.lnk".to_string(),
+                new_name: "Install_Package.lnk".to_string(),
+                is_executable: Some(true),
+            }],
+        });
+
+        assert_eq!(executed.logs[0].status, "success");
+        assert!(!source.exists());
+        assert!(target.to_string_lossy().ends_with(".lnk"));
+        assert_eq!(fs::read(&target).expect("read moved shortcut"), bytes);
+        assert_eq!(
+            blake3::hash(&fs::read(&target).expect("hash moved shortcut")),
+            hash
+        );
+
+        let restored = restore_moves_core(RestoreMovesRequest {
+            logs: executed.logs,
+        });
+        assert_eq!(restored.restored, 1);
+        assert!(source.exists());
+        assert!(!target.exists());
+        assert_eq!(fs::read(&source).expect("read restored shortcut"), bytes);
+        assert_eq!(
+            blake3::hash(&fs::read(&source).expect("hash restored shortcut")),
+            hash
+        );
     }
 
     #[test]

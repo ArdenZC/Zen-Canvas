@@ -33,6 +33,9 @@ use crate::{
         unix_seconds_to_iso, Database, DbError, IndexedFileRow, LibraryScope, OrganizeRootConfig,
         RuleExecutionSummary,
     },
+    file_naming::{
+        filename_has_mismatched_extension, normalize_proposed_file_name, ExtensionChangePolicy,
+    },
     settings::get_app_settings,
     window_auth::require_main_window,
 };
@@ -180,6 +183,9 @@ pub(crate) struct AIClassificationIdEntry {
     pub(crate) ref_id: String,
     pub(crate) real_file_id: String,
     pub(crate) path: String,
+    pub(crate) name: String,
+    pub(crate) extension: String,
+    pub(crate) is_dir: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -225,6 +231,9 @@ impl AIClassificationIdMap {
                 ref_id: ref_id.clone(),
                 real_file_id: row.id.clone(),
                 path: row.path.clone(),
+                name: row.name.clone(),
+                extension: row.extension.clone(),
+                is_dir: row.is_dir,
             });
             ref_to_id.insert(ref_id, row.id.clone());
             real_ids.insert(row.id.clone());
@@ -300,6 +309,12 @@ impl AIClassificationIdMap {
             );
         }
         Err("AI classification id was not part of the request.".to_string())
+    }
+
+    fn entry_for_file_id(&self, file_id: &str) -> Option<&AIClassificationIdEntry> {
+        self.entries
+            .iter()
+            .find(|entry| entry.real_file_id == file_id)
     }
 }
 
@@ -675,11 +690,29 @@ pub(crate) fn sanitize_ai_classification_result(
         SUGGESTED_ACTIONS,
     )?;
     let target_template = sanitize_target_template(&output.target_template)?;
+    let source = id_map
+        .entry_for_file_id(&id)
+        .ok_or_else(|| "AI classification result was not part of the request.".to_string())?;
     let suggested_name = sanitize_suggested_name(output.suggested_name.as_deref());
-    let (target_template, suggested_name) =
-        split_filename_from_target_template(target_template, suggested_name);
+    let (target_template, suggested_name, target_template_warning) =
+        split_filename_from_target_template(target_template, suggested_name, &source.extension);
+    let (suggested_name, suggested_name_warning) = if suggested_name.trim().is_empty() {
+        (suggested_name, None)
+    } else {
+        match normalize_proposed_file_name(
+            &source.name,
+            &source.extension,
+            &suggested_name,
+            source.is_dir,
+            ExtensionChangePolicy::Preserve,
+        ) {
+            Ok(name) => (name, None),
+            Err(error) => (String::new(), Some(error)),
+        }
+    };
     let confidence = output.confidence.clamp(0.0, 1.0);
     let mut requires_confirmation = output.requires_confirmation;
+    let mut reason = output.reason.trim().chars().take(500).collect::<String>();
     if output.fallback_applied {
         requires_confirmation = true;
     }
@@ -703,6 +736,14 @@ pub(crate) fn sanitize_ai_classification_result(
         suggested_action = "Review".to_string();
         requires_confirmation = true;
     }
+    for warning in [target_template_warning, suggested_name_warning]
+        .into_iter()
+        .flatten()
+    {
+        suggested_action = "Review".to_string();
+        requires_confirmation = true;
+        reason = append_ai_warning(&reason, &warning);
+    }
 
     Ok(SanitizedAIClassification {
         id,
@@ -715,7 +756,7 @@ pub(crate) fn sanitize_ai_classification_result(
         target_template,
         suggested_name,
         confidence,
-        reason: output.reason.trim().chars().take(500).collect(),
+        reason,
         keywords: output
             .keywords
             .into_iter()
@@ -814,7 +855,28 @@ fn apply_ai_classification_batch_results(
                 &app_settings.folder_naming_language,
                 &organize_root,
             );
-            if result.requires_confirmation {
+            let mut suggested_action = result.suggested_action.clone();
+            let mut suggested_name = result.suggested_name.clone();
+            let mut requires_confirmation = result.requires_confirmation;
+            let mut classification_reason = ai_reason(result);
+            if !suggested_name.trim().is_empty() {
+                match normalize_proposed_file_name(
+                    &row.name,
+                    &row.extension,
+                    &suggested_name,
+                    row.is_dir,
+                    ExtensionChangePolicy::Preserve,
+                ) {
+                    Ok(name) => suggested_name = name,
+                    Err(error) => {
+                        suggested_action = "Review".to_string();
+                        requires_confirmation = true;
+                        suggested_name.clear();
+                        classification_reason = append_ai_warning(&classification_reason, &error);
+                    }
+                }
+            }
+            if requires_confirmation {
                 needs_confirmation += 1;
             }
             stmt.execute(params![
@@ -824,13 +886,13 @@ fn apply_ai_classification_batch_results(
                 result.lifecycle,
                 result.context,
                 result.risk_level,
-                result.suggested_action,
+                suggested_action,
                 suggested_target_path,
-                result.suggested_name,
+                suggested_name,
                 result.confidence,
-                ai_reason(result),
+                classification_reason,
                 matched_rules,
-                bool_to_i64(result.requires_confirmation),
+                bool_to_i64(requires_confirmation),
                 classified_at,
                 classified_rule_version,
                 row.mtime,
@@ -1334,7 +1396,7 @@ fn resolve_ai_classification_batch(
                 error,
             )?;
             results.extend(split.results);
-            warning_parts.extend(split.warning.into_iter());
+            warning_parts.extend(split.warning);
         }
         Err(error) => warning_parts.push(format!(
             "仍有 {} 个文件未返回有效分类：{}",
@@ -2072,44 +2134,32 @@ fn sanitize_suggested_name(value: Option<&str>) -> String {
         })
         .collect::<String>()
         .trim()
-        .trim_matches('.')
         .to_string()
 }
 
 fn split_filename_from_target_template(
     target_template: String,
     suggested_name: String,
-) -> (String, String) {
-    let Some((parent, file_name)) = split_template_filename_segment(&target_template) else {
-        return (target_template, suggested_name);
+    indexed_extension: &str,
+) -> (String, String, Option<String>) {
+    let Some((parent, file_name)) = crate::file_naming::split_filename_from_target_directory(
+        &target_template,
+        indexed_extension,
+    ) else {
+        let normalized = target_template.trim().replace('\\', "/");
+        let last = normalized.rsplit('/').next().unwrap_or(normalized.as_str());
+        let warning = filename_has_mismatched_extension(last, indexed_extension).then(|| {
+            "AI targetTemplate appears to contain a different file extension; manual review is required."
+                .to_string()
+        });
+        return (target_template, suggested_name, warning);
     };
     let safe_name = if suggested_name.trim().is_empty() {
         sanitize_suggested_name(Some(&file_name))
     } else {
         suggested_name
     };
-    (parent, safe_name)
-}
-
-fn split_template_filename_segment(template: &str) -> Option<(String, String)> {
-    let normalized = template.trim().replace('\\', "/");
-    let (parent, last) = normalized
-        .rsplit_once('/')
-        .unwrap_or(("", normalized.as_str()));
-    if !looks_like_file_name(last) {
-        return None;
-    }
-    Some((parent.trim_matches('/').to_string(), last.to_string()))
-}
-
-fn looks_like_file_name(segment: &str) -> bool {
-    let lower = segment.trim().to_ascii_lowercase();
-    [
-        ".doc", ".docx", ".pdf", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".zip", ".rar", ".7z",
-        ".csv", ".md", ".png", ".jpg", ".jpeg", ".gif", ".mp4", ".mov", ".mp3",
-    ]
-    .iter()
-    .any(|extension| lower.ends_with(extension) && lower.len() > extension.len())
+    (parent.trim_matches('/').to_string(), safe_name, None)
 }
 
 fn ai_reason(result: &SanitizedAIClassification) -> String {
@@ -2117,6 +2167,15 @@ fn ai_reason(result: &SanitizedAIClassification) -> String {
         result.reason.clone()
     } else {
         format!("{} Keywords: {}", result.reason, result.keywords.join(", "))
+    }
+}
+
+fn append_ai_warning(reason: &str, warning: &str) -> String {
+    let reason = reason.trim();
+    if reason.is_empty() {
+        warning.to_string()
+    } else {
+        format!("{reason} Warning: {warning}")
     }
 }
 
@@ -3108,6 +3167,78 @@ mod tests {
     }
 
     #[test]
+    fn ai_suggested_name_preserves_shortcut_and_document_extensions() {
+        let cases = [
+            (
+                "Install_Package.lnk",
+                "lnk",
+                "Install_Package",
+                "Install_Package.lnk",
+            ),
+            (
+                "Website.url",
+                "url",
+                "Website_Archive",
+                "Website_Archive.url",
+            ),
+            (
+                "Product.appref-ms",
+                "appref-ms",
+                "Product_Archive.appref-ms",
+                "Product_Archive.appref-ms",
+            ),
+            ("Report.pdf", "pdf", "Report_2026", "Report_2026.pdf"),
+            ("My_Shortcut.LNK", "lnk", "Renamed.lnk", "Renamed.LNK"),
+        ];
+
+        for (original_name, extension, proposed_name, expected) in cases {
+            let requested = requested_file("file-1", original_name, extension);
+            let mut output = valid_output("file-1");
+            output.suggested_name = Some(proposed_name.to_string());
+            let sanitized =
+                sanitize_ai_classification_result(output, &requested).expect("sanitize");
+            assert_eq!(sanitized.suggested_name, expected, "{original_name}");
+            assert_eq!(sanitized.suggested_action, "Move");
+        }
+    }
+
+    #[test]
+    fn ai_suggested_extension_change_is_review_only_and_not_persisted_as_a_rename() {
+        let requested = requested_file("file-1", "Install_Package.lnk", "lnk");
+        let mut output = valid_output("file-1");
+        output.suggested_name = Some("Install_Package.exe".to_string());
+
+        let sanitized = sanitize_ai_classification_result(output, &requested).expect("sanitize");
+
+        assert_eq!(sanitized.suggested_action, "Review");
+        assert!(sanitized.requires_confirmation);
+        assert!(sanitized.suggested_name.is_empty());
+        assert!(sanitized
+            .reason
+            .contains("Changing a file extension is not allowed during organization."));
+    }
+
+    #[test]
+    fn target_template_compatibility_uses_indexed_extension_and_blocks_mismatch() {
+        let requested = requested_file("file-1", "Install_Package.lnk", "lnk");
+        let mut compatible = valid_output("file-1");
+        compatible.target_template = "Teaching/Install_Package.lnk".to_string();
+        compatible.suggested_name = None;
+        let sanitized =
+            sanitize_ai_classification_result(compatible, &requested).expect("sanitize");
+        assert_eq!(sanitized.target_template, "Teaching");
+        assert_eq!(sanitized.suggested_name, "Install_Package.lnk");
+
+        let mut mismatched = valid_output("file-1");
+        mismatched.target_template = "Teaching/Install_Package.exe".to_string();
+        let sanitized =
+            sanitize_ai_classification_result(mismatched, &requested).expect("sanitize");
+        assert_eq!(sanitized.suggested_action, "Review");
+        assert!(sanitized.requires_confirmation);
+        assert!(sanitized.reason.contains("different file extension"));
+    }
+
+    #[test]
     fn sensitive_forces_review_and_confirmation() {
         let requested = requested_ids(&["file-1"]);
         let mut output = valid_output("file-1");
@@ -3379,6 +3510,9 @@ mod tests {
                 ref_id: ref_id.clone(),
                 real_file_id: (*id).to_string(),
                 path: path.clone(),
+                name: format!("{id}.pdf"),
+                extension: "pdf".to_string(),
+                is_dir: false,
             });
             ref_to_id.insert(ref_id, (*id).to_string());
             real_ids.insert((*id).to_string());
@@ -3392,6 +3526,13 @@ mod tests {
             real_ids,
             path_to_id,
         }
+    }
+
+    fn requested_file(id: &str, name: &str, extension: &str) -> AIClassificationIdMap {
+        let mut requested = requested_ids(&[id]);
+        requested.entries[0].name = name.to_string();
+        requested.entries[0].extension = extension.to_string();
+        requested
     }
 
     fn valid_response(id: &str, suggested_action: &str, risk_level: &str) -> String {

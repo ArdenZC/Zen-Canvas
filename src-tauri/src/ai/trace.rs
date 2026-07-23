@@ -12,18 +12,13 @@ pub const MAX_AI_TRACE_COUNT: usize = 32;
 pub const MAX_RAW_PROVIDER_RESPONSE_CHARS: usize = 256 * 1024;
 pub const MAX_EXTRACTED_CONTENT_CHARS: usize = 128 * 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AITraceMode {
+    #[default]
     Off,
     Failures,
     All,
-}
-
-impl Default for AITraceMode {
-    fn default() -> Self {
-        Self::Off
-    }
 }
 
 impl AITraceMode {
@@ -36,19 +31,14 @@ impl AITraceMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AITraceOperation {
     ConnectionTest,
+    #[default]
     FileClassification,
     CleanupAnalysis,
     ModelDiscovery,
-}
-
-impl Default for AITraceOperation {
-    fn default() -> Self {
-        Self::FileClassification
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -1044,6 +1044,138 @@
     }
 
     #[test]
+    fn operation_preview_preserves_indexed_extensions_and_blocks_legacy_changes() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let cases = [
+            (
+                "preview-lnk",
+                "/tmp/root-a/Install_Package.lnk",
+                "Install_Package.lnk",
+                "lnk",
+                "Install_Package",
+                "Install_Package.lnk",
+            ),
+            (
+                "preview-url",
+                "/tmp/root-a/Website.url",
+                "Website.url",
+                "url",
+                "Website_Archive",
+                "Website_Archive.url",
+            ),
+            (
+                "preview-appref",
+                "/tmp/root-a/Product.appref-ms",
+                "Product.appref-ms",
+                "appref-ms",
+                "Product_Archive.appref-ms",
+                "Product_Archive.appref-ms",
+            ),
+            (
+                "preview-pdf",
+                "/tmp/root-a/Report.pdf",
+                "Report.pdf",
+                "pdf",
+                "Report_2026",
+                "Report_2026.pdf",
+            ),
+            (
+                "preview-uppercase",
+                "/tmp/root-a/My_Shortcut.LNK",
+                "My_Shortcut.LNK",
+                "lnk",
+                "Renamed.lnk",
+                "Renamed.LNK",
+            ),
+            (
+                "preview-no-extension",
+                "/tmp/root-a/README",
+                "README",
+                "",
+                "README_Archive",
+                "README_Archive",
+            ),
+            (
+                "preview-dotfile",
+                "/tmp/root-a/.gitignore",
+                ".gitignore",
+                "",
+                ".gitignore",
+                ".gitignore",
+            ),
+        ];
+
+        for (id, path, name, extension, suggested_name, _expected_name) in cases {
+            insert_test_file_at_path(
+                &db,
+                id,
+                path,
+                name,
+                extension,
+                2_048,
+                1_900_000_000,
+            );
+            set_file_operation_suggestion(
+                &db,
+                path,
+                "Move",
+                "/tmp/root-a/ZenCanvas/20_Areas/Projects",
+                suggested_name,
+                "Normal",
+                0.95,
+                false,
+            );
+        }
+        insert_test_file_at_path(
+            &db,
+            "preview-legacy-change",
+            "/tmp/root-a/Install_Package_legacy.lnk",
+            "Install_Package_legacy.lnk",
+            "lnk",
+            2_048,
+            1_900_000_000,
+        );
+        set_file_operation_suggestion(
+            &db,
+            "/tmp/root-a/Install_Package_legacy.lnk",
+            "Rename",
+            "",
+            "Install_Package_legacy.exe",
+            "Normal",
+            0.95,
+            false,
+        );
+
+        let previews = db
+            .get_operation_previews_for_scope(&LibraryScope::All, None, Some(100), Some(0))
+            .expect("operation previews")
+            .previews;
+
+        for (id, _, _, _, _, expected_name) in cases {
+            let preview = previews
+                .iter()
+                .find(|preview| preview.file_id == id)
+                .expect("preview for case");
+            assert_eq!(preview.new_name, expected_name, "{id}");
+            assert_ne!(preview.is_executable, Some(false), "{id}");
+        }
+
+        let blocked = previews
+            .iter()
+            .find(|preview| preview.file_id == "preview-legacy-change")
+            .expect("blocked legacy preview");
+        assert_eq!(blocked.is_executable, Some(false));
+        assert_eq!(blocked.selected_by_default, Some(false));
+        assert!(blocked.requires_confirmation);
+        assert!(blocked
+            .blocking_reason
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Changing a file extension is not allowed"));
+        assert_eq!(blocked.new_name, blocked.old_name);
+    }
+
+    #[test]
     fn get_stats_summary_aggregates_files_and_types() {
         let db = Database::open(test_db_path()).expect("open test database");
         insert_test_file(&db, "file-1", "report.pdf", "pdf", 2_048, 1_800_000_000);

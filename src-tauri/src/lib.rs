@@ -2,6 +2,7 @@ pub mod ai;
 pub mod app_control;
 pub mod db;
 pub mod dedupe;
+pub(crate) mod file_naming;
 pub mod file_ops;
 pub mod fs_safety;
 pub mod ids;

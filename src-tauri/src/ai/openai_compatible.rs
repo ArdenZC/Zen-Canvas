@@ -738,11 +738,12 @@ fn response_content_text(value: &Value) -> Option<String> {
         value.get("content"),
         value.get("output").and_then(|output| output.get("text")),
         value.get("output").and_then(|output| output.get("content")),
-    ] {
-        if let Some(candidate) = candidate {
-            if let Some(text) = content_value_to_text(candidate) {
-                return Some(text);
-            }
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Some(text) = content_value_to_text(candidate) {
+            return Some(text);
         }
     }
     None
@@ -816,10 +817,7 @@ fn usage_number(value: &Value, keys: &[&str]) -> Option<u64> {
 
 fn strip_think_tags_if_needed(content: String) -> String {
     let mut output = content;
-    loop {
-        let Some(start) = output.to_ascii_lowercase().find("<think>") else {
-            break;
-        };
+    while let Some(start) = output.to_ascii_lowercase().find("<think>") {
         let Some(relative_end) = output[start..].to_ascii_lowercase().find("</think>") else {
             break;
         };
@@ -1217,8 +1215,10 @@ mod tests {
 
     #[test]
     fn json_only_retry_keeps_response_format_and_disables_thinking() {
-        let mut settings = AISettings::default();
-        settings.enable_thinking = true;
+        let settings = AISettings {
+            enable_thinking: true,
+            ..AISettings::default()
+        };
         let provider = OpenAICompatibleProvider::new(settings);
         let (body, used_response_format, thinking) = provider
             .build_chat_body(&AIChatRequest {
@@ -1242,10 +1242,12 @@ mod tests {
 
     #[test]
     fn registry_profiles_select_provider_specific_payload_fields() {
-        let mut minimax_settings = AISettings::default();
-        minimax_settings.preset = AIProviderPresetId::Minimax;
-        minimax_settings.base_url = "https://api.minimaxi.com/v1".to_string();
-        minimax_settings.enable_thinking = true;
+        let minimax_settings = AISettings {
+            preset: AIProviderPresetId::Minimax,
+            base_url: "https://api.minimaxi.com/v1".to_string(),
+            enable_thinking: true,
+            ..AISettings::default()
+        };
         let minimax = OpenAICompatibleProvider::new(minimax_settings);
         let (body, _, _) = minimax
             .build_chat_body(&AIChatRequest {
@@ -1261,10 +1263,12 @@ mod tests {
         assert_eq!(body["reasoning_split"], true);
         assert_eq!(body["temperature"], 1.0);
 
-        let mut qwen_settings = AISettings::default();
-        qwen_settings.preset = AIProviderPresetId::QwenDashScope;
-        qwen_settings.base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string();
-        qwen_settings.enable_thinking = true;
+        let qwen_settings = AISettings {
+            preset: AIProviderPresetId::QwenDashScope,
+            base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
+            enable_thinking: true,
+            ..AISettings::default()
+        };
         let qwen = OpenAICompatibleProvider::new(qwen_settings);
         let (body, _, _) = qwen
             .build_chat_body(&AIChatRequest {
