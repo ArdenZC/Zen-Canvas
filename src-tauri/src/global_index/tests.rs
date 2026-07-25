@@ -218,7 +218,7 @@ fn global_search_is_independent_from_legacy_files_and_ai_is_scope_gated() {
 }
 
 #[test]
-fn disabled_ai_policy_blocks_jobs_without_removing_global_search() {
+fn disabled_ai_policy_creates_no_jobs_without_removing_global_search() {
     let path = test_db_path();
     let db = Database::open(&path).expect("open test database");
     db.upsert_global_volume(&test_volume())
@@ -240,11 +240,11 @@ fn disabled_ai_policy_blocks_jobs_without_removing_global_search() {
         .expect("global search remains available");
     assert_eq!(results.len(), 1);
     assert!(results[0].managed);
-    let conn = Connection::open(&path).expect("inspect blocked job");
-    let status: String = conn
-        .query_row("SELECT status FROM ai_jobs LIMIT 1", [], |row| row.get(0))
-        .expect("blocked job");
-    assert_eq!(status, AI_JOB_BLOCKED_BY_POLICY);
+    let conn = Connection::open(&path).expect("inspect disabled AI policy");
+    let job_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM ai_jobs", [], |row| row.get(0))
+        .expect("AI job count");
+    assert_eq!(job_count, 0);
     drop(conn);
     drop(db);
     let _ = std::fs::remove_file(path);
