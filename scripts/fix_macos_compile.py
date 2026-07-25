@@ -13,23 +13,46 @@ def ensure_replace(path: str, old: str, new: str, count: int | None = None) -> N
     target.write_text(text.replace(old, new), encoding="utf-8")
 
 
+fsevents = "src-tauri/src/global_index/macos/fsevents.rs"
 ensure_replace(
-    "src-tauri/src/global_index/macos/fsevents.rs",
+    fsevents,
     "use super::{fsevent_callback, FseventInfo};",
     "use super::{fsevent_callback, fsevent_requires_full_reconcile, FseventInfo};",
 )
 ensure_replace(
-    "src-tauri/src/global_index/macos/fsevents.rs",
+    fsevents,
     "unsafe { &*context.info.cast::<FseventInfo>() }",
     "&*context.info.cast::<FseventInfo>()",
+    count=2,
+)
+ensure_replace(
+    fsevents,
+    "&*context.info.cast::<FseventInfo>().pending.lock()",
+    "(&*context.info.cast::<FseventInfo>()).pending.lock()",
     count=2,
 )
 
 spotlight = "src-tauri/src/global_index/macos/spotlight.rs"
 ensure_replace(
     spotlight,
+    "use objc2::runtime::AnyObject;",
+    "use objc2::runtime::{AnyObject, ProtocolObject};",
+)
+ensure_replace(
+    spotlight,
+    "NSNotificationCenter, NSNumber, NSPredicate, NSRunLoop, NSString, NSURL,",
+    "NSNotificationCenter, NSNumber, NSObjectProtocol, NSPredicate, NSRunLoop, NSString, NSURL,",
+)
+ensure_replace(
+    spotlight,
     "unsafe { center.removeObserver(&observer) };",
     "let observer_object: &AnyObject = observer.as_ref().as_ref();\n        unsafe { center.removeObserver(observer_object) };",
+    count=2,
+)
+ensure_replace(
+    spotlight,
+    "let observer_object: &AnyObject = observer.as_ref().as_ref();",
+    "let protocol_object: &ProtocolObject<dyn NSObjectProtocol> = observer.as_ref();\n        let observer_object: &AnyObject = protocol_object.as_ref();",
     count=2,
 )
 ensure_replace(
@@ -58,6 +81,11 @@ for key in [
     target.write_text(text.replace(old, new), encoding="utf-8")
 ensure_replace(spotlight, "batches.iter().sum()", "batches.iter().sum::<usize>()")
 
+ensure_replace(
+    "src-tauri/src/global_index/macos/mod.rs",
+    "MacosSpotlightProvider::write_entries(&mut sink, &entries).expect(\"write batches\");",
+    "let provider = MacosSpotlightProvider::new();\n        provider\n            .write_entries(&mut sink, &entries)\n            .expect(\"write batches\");",
+)
 ensure_replace(
     "src-tauri/src/global_index/managed_scope.rs",
     """            statement
