@@ -11,7 +11,7 @@ use objc2_foundation::{
     NSMetadataQueryUpdateChangedItemsKey, NSMetadataQueryUpdateRemovedItemsKey, NSNotification,
     NSNotificationCenter, NSNumber, NSPredicate, NSRunLoop, NSString, NSURL,
 };
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -129,20 +129,27 @@ where
 pub fn spawn_update_watcher(
     volume_id: String,
     pending: Arc<Mutex<PendingUpdates>>,
+    known_entries: Arc<Mutex<HashMap<String, String>>>,
     stopped: Arc<AtomicBool>,
 ) -> Result<JoinHandle<()>, String> {
     thread::Builder::new()
         .name("zen-canvas-macos-spotlight".to_string())
         .spawn(move || {
-            autoreleasepool(|_| run_update_watcher(&volume_id, &pending, &stopped));
+            autoreleasepool(|_| run_update_watcher(&volume_id, &pending, &known_entries, &stopped));
         })
         .map_err(|error| format!("macos_spotlight_thread_start_failed: {error}"))
 }
 
-fn run_update_watcher(volume_id: &str, pending: &Arc<Mutex<PendingUpdates>>, stopped: &AtomicBool) {
+fn run_update_watcher(
+    volume_id: &str,
+    pending: &Arc<Mutex<PendingUpdates>>,
+    known_entries: &Arc<Mutex<HashMap<String, String>>>,
+    stopped: &AtomicBool,
+) {
     let query = new_local_computer_query();
     let center = NSNotificationCenter::defaultCenter();
     let pending_for_block = pending.clone();
+    let known_entries_for_block = known_entries.clone();
     let volume_id_for_block = volume_id.to_string();
     let update_block = RcBlock::new(move |notification: NonNull<NSNotification>| {
         let notification = unsafe { notification.as_ref() };
@@ -157,6 +164,7 @@ fn run_update_watcher(volume_id: &str, pending: &Arc<Mutex<PendingUpdates>>, sto
             &typed_info,
             NSMetadataQueryUpdateAddedItemsKey,
             &volume_id_for_block,
+            &known_entries_for_block,
             &mut entries,
             &mut stale_entry_ids,
             &mut full_reconcile,
@@ -166,6 +174,7 @@ fn run_update_watcher(volume_id: &str, pending: &Arc<Mutex<PendingUpdates>>, sto
             &typed_info,
             NSMetadataQueryUpdateChangedItemsKey,
             &volume_id_for_block,
+            &known_entries_for_block,
             &mut entries,
             &mut stale_entry_ids,
             &mut full_reconcile,
@@ -175,6 +184,7 @@ fn run_update_watcher(volume_id: &str, pending: &Arc<Mutex<PendingUpdates>>, sto
             &typed_info,
             NSMetadataQueryUpdateRemovedItemsKey,
             &volume_id_for_block,
+            &known_entries_for_block,
             &mut entries,
             &mut stale_entry_ids,
             &mut full_reconcile,
@@ -281,6 +291,7 @@ fn collect_update_items(
     user_info: &objc2_foundation::NSDictionary<NSString, AnyObject>,
     key: &NSString,
     volume_id: &str,
+    known_entries: &Arc<Mutex<HashMap<String, String>>>,
     entries: &mut Vec<GlobalEntryInput>,
     stale_entry_ids: &mut Vec<String>,
     full_reconcile: &mut bool,
@@ -294,6 +305,18 @@ fn collect_update_items(
     };
     for index in 0..items.count() {
         let object = items.objectAtIndex(index);
+        let path = path_from_object(&object).map(|path| normalize_path(&path));
+        if removed {
+            if let Some(entry_id) = path.as_deref().and_then(|path| {
+                known_entries
+                    .lock()
+                    .ok()
+                    .and_then(|known| known.get(path).cloned())
+            }) {
+                stale_entry_ids.push(entry_id);
+                continue;
+            }
+        }
         if let Some(entry) = object.downcast_ref::<NSMetadataItem>() {
             match metadata_item_to_entry(volume_id, entry.as_ref()) {
                 Some(input) => {
@@ -303,13 +326,11 @@ fn collect_update_items(
                         SpotlightUpdateAction::Reconcile => *full_reconcile = true,
                     }
                 }
-                None => {
-                    *full_reconcile = true;
-                }
+                None => *full_reconcile = true,
             }
             continue;
         }
-        if path_from_object(&object).is_some() {
+        if path.is_some() {
             *full_reconcile = true;
         }
     }

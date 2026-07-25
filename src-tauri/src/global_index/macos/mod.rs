@@ -67,6 +67,7 @@ impl MacosSpotlightProvider {
                 spotlight::spawn_update_watcher(
                     volume_id.to_string(),
                     self.pending.clone(),
+                    self.known_entries.clone(),
                     self.stopped.clone(),
                 )
                 .map_err(GlobalIndexError::Provider)?,
@@ -114,25 +115,48 @@ impl MacosSpotlightProvider {
             })
     }
 
+    fn remember_entries(&self, entries: &[GlobalEntryInput]) {
+        if let Ok(mut known) = self.known_entries.lock() {
+            for entry in entries {
+                known.insert(normalize_path(&entry.path), entry.entry_id());
+            }
+        }
+    }
+
+    fn forget_entry_id(&self, entry_id: &str) {
+        if let Ok(mut known) = self.known_entries.lock() {
+            known.retain(|_, known_entry_id| known_entry_id != entry_id);
+        }
+    }
+
+    fn clear_known_entries(&self) {
+        if let Ok(mut known) = self.known_entries.lock() {
+            known.clear();
+        }
+    }
+
     fn write_entries(
+        &self,
         sink: &mut dyn GlobalIndexSink,
         entries: &[GlobalEntryInput],
     ) -> Result<(), GlobalIndexError> {
         for batch in entries.chunks(512) {
             sink.write_batch(batch)?;
+            self.remember_entries(batch);
         }
         Ok(())
     }
 
     fn stream_spotlight_entries(
+        &self,
         sink: &mut dyn GlobalIndexSink,
         volume_id: &str,
         cancel: &AtomicBool,
     ) -> Result<spotlight::SpotlightCollectionSummary, GlobalIndexError> {
         match spotlight::stream_local_computer_entries(volume_id, cancel, |batch| {
-            sink.write_batch(batch)
-                .map(|_| ())
-                .map_err(|error| error.to_string())
+            sink.write_batch(batch).map_err(|error| error.to_string())?;
+            self.remember_entries(batch);
+            Ok(())
         }) {
             Ok(summary) => Ok(summary),
             Err(error) if error == "macos_spotlight_query_paused" => Err(GlobalIndexError::Paused),
@@ -231,7 +255,8 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
     ) -> Result<(), GlobalIndexError> {
         self.stopped.store(false, Ordering::Release);
         sink.mark_volume_entries_stale(&source.volume.id)?;
-        let summary = Self::stream_spotlight_entries(sink, &source.volume.id, cancel)?;
+        self.clear_known_entries();
+        let summary = self.stream_spotlight_entries(sink, &source.volume.id, cancel)?;
         Self::record_collection_state(sink, &source.volume.id, summary)?;
         self.baseline_established.store(true, Ordering::Release);
         if let Err(error) = self.start_watchers(
@@ -262,14 +287,16 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
         let needs_baseline_reconcile = !self.baseline_established.load(Ordering::Acquire);
         if pending.full_reconcile || needs_baseline_reconcile {
             sink.mark_volume_entries_stale(&source.volume.id)?;
-            let summary = Self::stream_spotlight_entries(sink, &source.volume.id, cancel)?;
+            self.clear_known_entries();
+            let summary = self.stream_spotlight_entries(sink, &source.volume.id, cancel)?;
             Self::record_collection_state(sink, &source.volume.id, summary)?;
             self.baseline_established.store(true, Ordering::Release);
         } else {
             for entry_id in pending.stale_entry_ids {
                 sink.mark_entry_stale(&entry_id)?;
+                self.forget_entry_id(&entry_id);
             }
-            Self::write_entries(sink, &pending.entries)?;
+            self.write_entries(sink, &pending.entries)?;
         }
         if let Some(event_id) = pending.last_event_id {
             let event_id = event_id.to_string();
@@ -311,6 +338,7 @@ impl GlobalIndexProvider for MacosSpotlightProvider {
             pending.stale_entry_ids.clear();
             pending.last_event_id = None;
         }
+        self.clear_known_entries();
         self.baseline_established.store(false, Ordering::Release);
         Ok(())
     }

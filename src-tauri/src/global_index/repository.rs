@@ -324,7 +324,10 @@ impl Database {
         } = conn.query_row(
             r#"
             SELECT
-                (SELECT COUNT(*) FROM global_entries WHERE is_stale = 0),
+                (SELECT COUNT(*)
+                 FROM global_entries entry
+                 JOIN global_volumes volume ON volume.id = entry.volume_id
+                 WHERE entry.is_stale = 0 AND volume.enabled = 1),
                 (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1),
                 (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'ready'),
                 (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status IN ('discovered', 'indexing', 'syncing', 'rebuild_required')),
@@ -336,8 +339,8 @@ impl Database {
                 (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'unavailable'),
                 (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'error'),
                 (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'paused'),
-                (SELECT MAX(last_incremental_sync_at) FROM global_volumes),
-                (SELECT last_error FROM global_volumes WHERE last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1)
+                (SELECT MAX(last_incremental_sync_at) FROM global_volumes WHERE enabled = 1),
+                (SELECT last_error FROM global_volumes WHERE enabled = 1 AND last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1)
             "#,
             [],
             |row| {
