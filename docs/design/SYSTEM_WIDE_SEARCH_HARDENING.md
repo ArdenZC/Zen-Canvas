@@ -37,6 +37,15 @@ system-wide search and Managed AI implementation.
 - macOS uses the in-process Rust Objective-C/Foundation bridge and wraps all
   external Foundation statics in explicit unsafe boundaries required by Rust.
 
+## Validation gates
+
+- Pull requests run frontend type checks/tests, remediation contract checks,
+  Rust formatting, the complete Rust test suite, Clippy with warnings denied,
+  dependency audits, platform-specific regressions, and production packaging
+  on both Windows and macOS.
+- Failed Rust tests and Clippy runs upload complete platform logs so native
+  failures can be diagnosed without weakening the quality gates.
+
 The remaining release acceptance work is environmental rather than an open
 code path: live signed/notarized macOS distribution and an interactive Windows
 installer upgrade/uninstall pass.
