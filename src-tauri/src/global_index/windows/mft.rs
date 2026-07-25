@@ -4,7 +4,7 @@ use crate::global_index::models::{
     GlobalEntryInput, GlobalSourceDescriptor, PROVIDER_WINDOWS_MFT_USN,
 };
 use rusqlite::{params, Connection};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -502,60 +502,12 @@ pub(crate) fn is_integrity_error(error: &GlobalIndexError) -> bool {
     error.to_string().contains("mft_integrity:")
 }
 
-pub(crate) fn reconstruct_paths(root: &str, records: &[MftRecord]) -> HashMap<String, String> {
-    // Keep one owned record per MFT page and let the parent graph borrow it;
-    // cloning every record into a second full map is prohibitive on large
-    // volumes. The path cache stores only resolved strings.
-    let mut by_id = HashMap::<String, &MftRecord>::new();
-    for record in records {
-        by_id.entry(record.file_reference.clone()).or_insert(record);
-    }
-    let mut cache = HashMap::new();
-    for record in records {
-        let mut visiting = HashSet::new();
-        let path = resolve_path(root, record, &by_id, &mut cache, &mut visiting);
-        cache.insert(record_key(record), path);
-    }
-    cache
-}
-
-fn resolve_path(
-    root: &str,
-    record: &MftRecord,
-    by_id: &HashMap<String, &MftRecord>,
-    cache: &mut HashMap<String, String>,
-    visiting: &mut HashSet<String>,
-) -> String {
-    let key = record_key(record);
-    if let Some(cached) = cache.get(&key) {
-        return cached.clone();
-    }
-    if !visiting.insert(key.clone()) {
-        return fallback_orphan_path(root, &record.name);
-    }
-    let path = if record.name == "." || record.parent_reference == record.file_reference {
-        root.to_string()
-    } else if let Some(parent) = by_id.get(&record.parent_reference) {
-        let parent_path = resolve_path(root, parent, by_id, cache, visiting);
-        join_windows_path(&parent_path, &record.name)
-    } else {
-        fallback_orphan_path(root, &record.name)
-    };
-    visiting.remove(&key);
-    cache.insert(key, path.clone());
-    path
-}
-
 fn join_windows_path(parent: &str, name: &str) -> String {
     if parent.ends_with(['\\', '/']) {
         format!("{parent}{name}")
     } else {
         format!(r"{parent}\{name}")
     }
-}
-
-fn fallback_orphan_path(root: &str, name: &str) -> String {
-    join_windows_path(root, name)
 }
 
 fn record_key(record: &MftRecord) -> String {
@@ -598,54 +550,6 @@ pub(crate) fn query_journal(handle: HANDLE) -> Result<USN_JOURNAL_DATA_V0, Globa
     };
     device_io_control(handle, FSCTL_QUERY_USN_JOURNAL, &[], output_bytes)?;
     Ok(output)
-}
-
-#[cfg(test)]
-fn enumerate_mft_records(
-    handle: HANDLE,
-    high_usn: i64,
-    cancel: &AtomicBool,
-) -> Result<Vec<MftRecord>, GlobalIndexError> {
-    let mut cursor = 0u64;
-    let mut records = Vec::new();
-    loop {
-        if cancel.load(Ordering::Acquire) {
-            return Err(GlobalIndexError::Paused);
-        }
-        let input = MFT_ENUM_DATA_V0 {
-            StartFileReferenceNumber: cursor,
-            LowUsn: 0,
-            HighUsn: high_usn,
-        };
-        let mut output = vec![0u8; ENUM_BUFFER_SIZE];
-        let input_bytes = unsafe {
-            std::slice::from_raw_parts(
-                (&input as *const MFT_ENUM_DATA_V0).cast::<u8>(),
-                std::mem::size_of::<MFT_ENUM_DATA_V0>(),
-            )
-        };
-        let bytes = match unsafe {
-            device_io_control_bytes(handle, FSCTL_ENUM_USN_DATA, input_bytes, &mut output)
-        } {
-            Ok(bytes) => bytes,
-            Err(error) if is_win32_error(&error, ERROR_HANDLE_EOF) => break,
-            Err(error) => return Err(error),
-        };
-        if bytes < 8 {
-            return Err(mft_integrity_error(
-                "MFT enumeration page is shorter than the continuation cursor",
-            ));
-        }
-        let (next_cursor, mut page_records) = parse_mft_page(&output[..bytes])?;
-        records.append(&mut page_records);
-        if next_cursor == cursor {
-            return Err(mft_integrity_error(
-                "MFT enumeration cursor did not advance",
-            ));
-        }
-        cursor = next_cursor;
-    }
-    Ok(records)
 }
 
 pub(crate) fn is_win32_error(error: &GlobalIndexError, code: u32) -> bool {

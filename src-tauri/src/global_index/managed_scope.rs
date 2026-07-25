@@ -273,8 +273,7 @@ fn backfill_managed_scope(db: &Database, scope: &ManagedScope) -> Result<(), DbE
                 params![normalized_scope, pattern, last_id, BATCH_SIZE],
                 |row| Ok((global_entry_input_from_row(row)?, row.get::<_, String>(15)?)),
             )?;
-            let entries = rows.collect::<Result<Vec<_>, _>>()?;
-            entries
+            rows.collect::<Result<Vec<_>, _>>()?
         };
         if entries.is_empty() {
             break;

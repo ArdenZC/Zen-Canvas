@@ -164,7 +164,7 @@ fn run_update_watcher(
         let mut stale_entry_ids = Vec::new();
         let mut full_reconcile = false;
         collect_update_items(
-            &typed_info,
+            typed_info,
             unsafe { NSMetadataQueryUpdateAddedItemsKey },
             &volume_id_for_block,
             &known_entries_for_block,
@@ -174,7 +174,7 @@ fn run_update_watcher(
             false,
         );
         collect_update_items(
-            &typed_info,
+            typed_info,
             unsafe { NSMetadataQueryUpdateChangedItemsKey },
             &volume_id_for_block,
             &known_entries_for_block,
@@ -184,7 +184,7 @@ fn run_update_watcher(
             false,
         );
         collect_update_items(
-            &typed_info,
+            typed_info,
             unsafe { NSMetadataQueryUpdateRemovedItemsKey },
             &volume_id_for_block,
             &known_entries_for_block,
@@ -292,6 +292,10 @@ fn mounted_external_volume_probes() -> Vec<ExternalVolumeProbe> {
         .collect()
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "native metadata notifications keep callback state explicit for validation"
+)]
 fn collect_update_items(
     user_info: &objc2_foundation::NSDictionary<NSString, AnyObject>,
     key: &NSString,
