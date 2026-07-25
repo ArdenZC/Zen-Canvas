@@ -79,6 +79,16 @@ for key in [
     if occurrences == 0:
         raise SystemExit(f"{spotlight}: no unwrapped usage for {key}")
     target.write_text(text.replace(old, new), encoding="utf-8")
+for key in [
+    "NSMetadataQueryUpdateAddedItemsKey",
+    "NSMetadataQueryUpdateChangedItemsKey",
+    "NSMetadataQueryUpdateRemovedItemsKey",
+]:
+    ensure_replace(
+        spotlight,
+        f"            {key},",
+        f"            unsafe {{ {key} }},",
+    )
 ensure_replace(spotlight, "batches.iter().sum()", "batches.iter().sum::<usize>()")
 
 ensure_replace(
