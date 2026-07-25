@@ -1,0 +1,234 @@
+name: Remediation Pipe Security
+
+on:
+  push:
+    branches:
+      - fix/system-wide-search-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout remediation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: fix/system-wide-search-hardening
+          fetch-depth: 0
+
+      - name: Harden Windows named-pipe authorization
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("src-tauri/src/global_index/windows/service.rs")
+          text = path.read_text(encoding="utf-8")
+
+          old_validate = '''        IndexServiceCommand::StartInitialIndex { source_id }
+          | IndexServiceCommand::ResumeIncrementalSync { source_id }
+          | IndexServiceCommand::Rebuild { source_id }
+              if source_id.trim().is_empty() =>
+          {
+              Err("missing_index_service_source_id".to_string())
+          }
+          _ => Ok(()),'''
+          new_validate = '''        IndexServiceCommand::StartInitialIndex { source_id }
+          | IndexServiceCommand::ResumeIncrementalSync { source_id }
+          | IndexServiceCommand::Rebuild { source_id }
+              if source_id.trim().is_empty() =>
+          {
+              Err("missing_index_service_source_id".to_string())
+          }
+          IndexServiceCommand::Shutdown => Err("index_service_shutdown_requires_scm".to_string()),
+          _ => Ok(()),'''
+          if old_validate not in text:
+              raise SystemExit("validate_request block not found")
+          text = text.replace(old_validate, new_validate, 1)
+
+          old_import = '''    use std::ptr;
+    use std::sync::{'''
+          new_import = '''    use std::path::Path;
+    use std::ptr;
+    use std::sync::{'''
+          if old_import not in text:
+              raise SystemExit("named pipe import anchor not found")
+          text = text.replace(old_import, new_import, 1)
+
+          old_constants = '''    const MAX_FRAME_BYTES: usize = 1024 * 1024;
+    const PIPE_BUFFER_BYTES: u32 = 64 * 1024;
+'''
+          new_constants = '''    const MAX_FRAME_BYTES: usize = 1024 * 1024;
+    const PIPE_BUFFER_BYTES: u32 = 64 * 1024;
+    const MAX_PIPE_INSTANCES: u32 = 8;
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const PROCESS_IMAGE_BUFFER_CHARS: usize = 32_768;
+
+    unsafe extern "system" {
+        fn GetNamedPipeClientProcessId(pipe: HANDLE, client_process_id: *mut u32) -> i32;
+        fn GetNamedPipeClientSessionId(pipe: HANDLE, client_session_id: *mut u32) -> i32;
+        fn OpenProcess(desired_access: u32, inherit_handle: i32, process_id: u32) -> HANDLE;
+        fn QueryFullProcessImageNameW(
+            process: HANDLE,
+            flags: u32,
+            image_name: *mut u16,
+            size: *mut u32,
+        ) -> i32;
+    }
+'''
+          if old_constants not in text:
+              raise SystemExit("named pipe constant anchor not found")
+          text = text.replace(old_constants, new_constants, 1)
+
+          old_validation_fn = '''    fn validate_pipe_client(pipe: HANDLE) -> Result<(), String> {
+        if unsafe { ImpersonateNamedPipeClient(pipe) } == 0 {
+            return Err(format!(
+                "index_service_client_impersonation_failed: {}",
+                unsafe { GetLastError() }
+            ));
+        }
+        let mut token = ptr::null_mut();
+        let token_opened =
+            unsafe { OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, 0, &mut token) } != 0;
+        let token_error = if token_opened {
+            None
+        } else {
+            Some(unsafe { GetLastError() })
+        };
+        if token_opened && !token.is_null() {
+            unsafe { CloseHandle(token) };
+        }
+        if unsafe { RevertToSelf() } == 0 {
+            return Err(format!("index_service_client_revert_failed: {}", unsafe {
+                GetLastError()
+            }));
+        }
+        token_error.map_or(Ok(()), |error| {
+            Err(format!("index_service_client_token_failed: {error}"))
+        })
+    }
+'''
+          new_validation_fn = '''    fn validate_pipe_client(pipe: HANDLE) -> Result<(), String> {
+        if unsafe { ImpersonateNamedPipeClient(pipe) } == 0 {
+            return Err(format!(
+                "index_service_client_impersonation_failed: {}",
+                unsafe { GetLastError() }
+            ));
+        }
+        let mut token = ptr::null_mut();
+        let token_opened =
+            unsafe { OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, 0, &mut token) } != 0;
+        let token_error = if token_opened {
+            None
+        } else {
+            Some(unsafe { GetLastError() })
+        };
+        if token_opened && !token.is_null() {
+            unsafe { CloseHandle(token) };
+        }
+        if unsafe { RevertToSelf() } == 0 {
+            return Err(format!("index_service_client_revert_failed: {}", unsafe {
+                GetLastError()
+            }));
+        }
+        if let Some(error) = token_error {
+            return Err(format!("index_service_client_token_failed: {error}"));
+        }
+
+        let mut session_id = 0u32;
+        if unsafe { GetNamedPipeClientSessionId(pipe, &mut session_id) } == 0 || session_id == 0 {
+            return Err(format!(
+                "index_service_client_session_rejected: {}",
+                unsafe { GetLastError() }
+            ));
+        }
+
+        let mut process_id = 0u32;
+        if unsafe { GetNamedPipeClientProcessId(pipe, &mut process_id) } == 0 || process_id == 0 {
+            return Err(format!(
+                "index_service_client_process_unavailable: {}",
+                unsafe { GetLastError() }
+            ));
+        }
+        let client_image = process_image_path(process_id)?;
+        let service_image = std::env::current_exe()
+            .map_err(|error| format!("index_service_executable_unavailable: {error}"))?;
+        if normalized_executable_path(&client_image) != normalized_executable_path(&service_image) {
+            return Err("index_service_client_executable_mismatch".to_string());
+        }
+        Ok(())
+    }
+
+    fn process_image_path(process_id: u32) -> Result<std::path::PathBuf, String> {
+        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process_id) };
+        if process.is_null() {
+            return Err(format!("index_service_client_process_open_failed: {}", unsafe {
+                GetLastError()
+            }));
+        }
+        let mut buffer = vec![0u16; PROCESS_IMAGE_BUFFER_CHARS];
+        let mut size = buffer.len() as u32;
+        let queried = unsafe { QueryFullProcessImageNameW(process, 0, buffer.as_mut_ptr(), &mut size) };
+        unsafe { CloseHandle(process) };
+        if queried == 0 || size == 0 {
+            return Err(format!("index_service_client_image_query_failed: {}", unsafe {
+                GetLastError()
+            }));
+        }
+        buffer.truncate(size as usize);
+        Ok(std::path::PathBuf::from(String::from_utf16_lossy(&buffer)))
+    }
+
+    fn normalized_executable_path(path: &Path) -> String {
+        let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let mut value = resolved.to_string_lossy().replace('/', "\\");
+        if let Some(stripped) = value.strip_prefix(r"\\?\\") {
+            value = stripped.to_string();
+        }
+        value.trim_end_matches('\\').to_ascii_lowercase()
+    }
+'''
+          if old_validation_fn not in text:
+              raise SystemExit("validate_pipe_client function not found")
+          text = text.replace(old_validation_fn, new_validation_fn, 1)
+
+          text = text.replace('''            // LocalSystem owns the service and the desktop is an interactive
+            // user. Remote clients are rejected below.
+            "D:P(A;;GA;;;SY)(A;;GA;;;IU)",''', '''            // LocalSystem owns the service. Interactive users receive only
+            // read/write connection rights; every accepted client is then
+            // bound to the installed Zen Canvas executable and a non-service
+            // session before any request is decoded.
+            "D:P(A;;GA;;;SY)(A;;GRGW;;;IU)",''', 1)
+          text = text.replace('''                32,
+                PIPE_BUFFER_BYTES,''', '''                MAX_PIPE_INSTANCES,
+                PIPE_BUFFER_BYTES,''', 1)
+
+          test_anchor = '''    fn rejects_unknown_protocol_and_arbitrary_empty_source() {'''
+          if test_anchor not in text:
+              raise SystemExit("test anchor not found")
+          shutdown_test = '''    fn rejects_pipe_shutdown_requests() {
+        let request = IndexServiceRequest::new(IndexServiceCommand::Shutdown, None);
+        assert_eq!(
+            validate_request(&request),
+            Err("index_service_shutdown_requires_scm".to_string())
+        );
+    }
+
+    #[test]
+'''
+          text = text.replace(test_anchor, shutdown_test + test_anchor, 1)
+          path.write_text(text, encoding="utf-8")
+
+      - name: Format Rust sources
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --emit files
+
+      - name: Commit security hardening
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/src/global_index/windows/service.rs
+          git commit -m "fix(index): authenticate Windows pipe clients"
+          git push origin HEAD:fix/system-wide-search-hardening
