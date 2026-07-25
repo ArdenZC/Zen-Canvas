@@ -1,7 +1,5 @@
 use super::coordinator::GlobalIndexCoordinator;
-use super::hardened_worker::{
-    reconcile_managed_scope_policy, with_managed_policy_write_lock,
-};
+use super::hardened_worker::{reconcile_managed_scope_policy, with_managed_policy_write_lock};
 use super::models::*;
 use super::search::search_global_entries as search_global_entries_impl;
 use crate::db::Database;

@@ -70,19 +70,18 @@ pub(crate) fn reconcile_managed_scope_policy(
     let mut conn = db.conn()?;
     let transaction = conn.transaction()?;
     let now = unix_now();
-    let (provider, status, reason) = if !scope.enabled
-        || (!scope.allow_local_ai && !scope.allow_cloud_ai)
-    {
-        (
-            "none",
-            AI_JOB_BLOCKED_BY_POLICY,
-            Some("managed_scope_policy_disabled"),
-        )
-    } else if scope.allow_local_ai {
-        ("local", AI_JOB_PENDING, None)
-    } else {
-        ("cloud", AI_JOB_PENDING, None)
-    };
+    let (provider, status, reason) =
+        if !scope.enabled || (!scope.allow_local_ai && !scope.allow_cloud_ai) {
+            (
+                "none",
+                AI_JOB_BLOCKED_BY_POLICY,
+                Some("managed_scope_policy_disabled"),
+            )
+        } else if scope.allow_local_ai {
+            ("local", AI_JOB_PENDING, None)
+        } else {
+            ("cloud", AI_JOB_PENDING, None)
+        };
 
     transaction.execute(
         r#"
@@ -242,10 +241,8 @@ fn run_worker(db: Database, stop: Arc<AtomicBool>) {
                     Ok(handle) => handles.push(handle),
                     Err(error) => {
                         active.fetch_sub(1, Ordering::AcqRel);
-                        let _ = db.fail_managed_ai_job(
-                            &job,
-                            &format!("worker_spawn_failed: {error}"),
-                        );
+                        let _ =
+                            db.fail_managed_ai_job(&job, &format!("worker_spawn_failed: {error}"));
                         break;
                     }
                 }
@@ -438,12 +435,7 @@ fn claim_next_managed_ai_job(db: &Database) -> Result<Option<ManagedAiJob>, DbEr
     Ok(Some(job))
 }
 
-fn process_job(
-    db: &Database,
-    job: &ManagedAiJob,
-    settings: &AISettings,
-    stop: &AtomicBool,
-) {
+fn process_job(db: &Database, job: &ManagedAiJob, settings: &AISettings, stop: &AtomicBool) {
     if stop.load(Ordering::Acquire) || !settings.enabled {
         let _ = db.block_managed_ai_job(job, "ai_disabled_or_worker_stopping");
         return;
@@ -460,7 +452,8 @@ fn process_job(
             return;
         }
         Err(error) => {
-            let _ = db.fail_managed_ai_job(job, &sanitize_worker_error(error.to_string(), settings));
+            let _ =
+                db.fail_managed_ai_job(job, &sanitize_worker_error(error.to_string(), settings));
             return;
         }
     }
@@ -584,7 +577,9 @@ fn validate_dispatch(db: &Database, job: &ManagedAiJob) -> Result<DispatchDecisi
         return Ok(DispatchDecision::Blocked("job_snapshot_changed"));
     }
     if !scope_enabled || !managed_enabled || !volume_enabled {
-        return Ok(DispatchDecision::Blocked("managed_scope_or_volume_disabled"));
+        return Ok(DispatchDecision::Blocked(
+            "managed_scope_or_volume_disabled",
+        ));
     }
     if is_stale || is_directory {
         return Ok(DispatchDecision::Blocked("global_entry_not_dispatchable"));
@@ -593,7 +588,9 @@ fn validate_dispatch(db: &Database, job: &ManagedAiJob) -> Result<DispatchDecisi
         return Ok(DispatchDecision::Blocked("user_corrected_result_locked"));
     }
     if (provider == "local" && !allow_local) || (provider == "cloud" && !allow_cloud) {
-        return Ok(DispatchDecision::Blocked("managed_scope_provider_disallowed"));
+        return Ok(DispatchDecision::Blocked(
+            "managed_scope_provider_disallowed",
+        ));
     }
     let current_fingerprint = metadata_fingerprint(
         &volume_id,
@@ -604,7 +601,9 @@ fn validate_dispatch(db: &Database, job: &ManagedAiJob) -> Result<DispatchDecisi
         is_directory,
     );
     if current_fingerprint != fingerprint {
-        return Ok(DispatchDecision::Blocked("input_fingerprint_changed_before_dispatch"));
+        return Ok(DispatchDecision::Blocked(
+            "input_fingerprint_changed_before_dispatch",
+        ));
     }
     Ok(DispatchDecision::Allowed)
 }
@@ -719,11 +718,9 @@ mod tests {
         let canonical = validate_response(&job(), valid).expect("valid response");
         assert!(canonical.contains("managed:entry"));
         assert!(validate_response(&job(), r#"{"hello":"world"}"#).is_err());
-        assert!(validate_response(
-            &job(),
-            &valid.replace("managed:entry", "managed:other")
-        )
-        .is_err());
+        assert!(
+            validate_response(&job(), &valid.replace("managed:entry", "managed:other")).is_err()
+        );
     }
 
     #[test]
