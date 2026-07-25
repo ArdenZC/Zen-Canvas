@@ -614,19 +614,20 @@ pub(crate) fn enqueue_ai_jobs_for_entry_with_scopes(
 ) -> Result<(), DbError> {
     let fingerprint = metadata_fingerprint(entry);
     let path_normalized = normalize_path(&entry.path);
-    for scope in scopes {
-        let scope_id = &scope.id;
-        let allow_local_ai = scope.allow_local_ai;
-        let allow_cloud_ai = scope.allow_cloud_ai;
-        let scope_path = &scope.path;
-        if !path_is_within(&path_normalized, &scope_path) {
-            continue;
-        }
-        let managed_entry_id = format!(
-            "me_{}",
-            blake3::hash(format!("{scope_id}\0{entry_id}").as_bytes()).to_hex()
-        );
-        transaction.execute(
+    let Some(scope) = scopes
+        .iter()
+        .find(|scope| path_is_within(&path_normalized, &scope.path))
+    else {
+        return Ok(());
+    };
+    let scope_id = &scope.id;
+    let allow_local_ai = scope.allow_local_ai;
+    let allow_cloud_ai = scope.allow_cloud_ai;
+    let managed_entry_id = format!(
+        "me_{}",
+        blake3::hash(format!("{scope_id}\0{entry_id}").as_bytes()).to_hex()
+    );
+    transaction.execute(
             r#"
             INSERT INTO managed_entries (id, global_entry_id, managed_scope_id, enabled, created_at, updated_at)
             VALUES (?1, ?2, ?3, 1, ?4, ?4)
@@ -635,116 +636,115 @@ pub(crate) fn enqueue_ai_jobs_for_entry_with_scopes(
             params![managed_entry_id, entry_id, scope_id, unix_now()],
         )?;
 
-        if entry.is_directory {
-            let now = unix_now();
-            transaction.execute(
+    if entry.is_directory {
+        let now = unix_now();
+        transaction.execute(
                 "UPDATE ai_jobs SET status = 'stale', completed_at = ?2, last_error = 'global_entry_is_directory' WHERE global_entry_id = ?1 AND status IN ('pending', 'running', 'completed')",
                 params![entry_id, now],
             )?;
-            transaction.execute(
+        transaction.execute(
                 "UPDATE ai_job_items SET status = 'stale', updated_at = ?2, last_error = 'global_entry_is_directory' WHERE global_entry_id = ?1 AND status IN ('pending', 'running', 'completed')",
                 params![entry_id, now],
             )?;
-            transaction.execute(
+        transaction.execute(
                 "UPDATE ai_analysis_state SET status = 'stale', last_error = 'global_entry_is_directory', updated_at = ?2 WHERE global_entry_id = ?1",
                 params![entry_id, now],
             )?;
-            continue;
-        }
-        let now = unix_now();
-        transaction.execute(
+        continue;
+    }
+    let now = unix_now();
+    transaction.execute(
             "UPDATE ai_jobs SET status = 'stale', completed_at = ?2, last_error = 'input_fingerprint_changed' WHERE global_entry_id = ?1 AND input_fingerprint <> ?3 AND status IN ('pending', 'running', 'completed')",
             params![entry_id, now, fingerprint],
         )?;
-        transaction.execute(
+    transaction.execute(
             "UPDATE ai_job_items SET status = 'stale', updated_at = ?2, last_error = 'input_fingerprint_changed' WHERE global_entry_id = ?1 AND job_id IN (SELECT id FROM ai_jobs WHERE input_fingerprint <> ?3)",
             params![entry_id, now, fingerprint],
         )?;
-        let existing: Option<(String, String)> = transaction
+    let existing: Option<(String, String)> = transaction
             .query_row(
                 "SELECT id, status FROM ai_jobs WHERE global_entry_id = ?1 AND managed_scope_id = ?2 AND input_fingerprint = ?3 ORDER BY created_at DESC LIMIT 1",
                 params![entry_id, scope_id, fingerprint],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
-        if let Some((job_id, status)) = existing {
-            if status == AI_JOB_STALE {
-                let (provider, next_status) = if allow_local_ai {
-                    ("local", AI_JOB_PENDING)
-                } else if allow_cloud_ai {
-                    ("cloud", AI_JOB_PENDING)
-                } else {
-                    ("none", AI_JOB_BLOCKED_BY_POLICY)
-                };
-                transaction.execute(
+    if let Some((job_id, status)) = existing {
+        if status == AI_JOB_STALE {
+            let (provider, next_status) = if allow_local_ai {
+                ("local", AI_JOB_PENDING)
+            } else if allow_cloud_ai {
+                ("cloud", AI_JOB_PENDING)
+            } else {
+                ("none", AI_JOB_BLOCKED_BY_POLICY)
+            };
+            transaction.execute(
                     "UPDATE ai_jobs SET provider = ?2, status = ?3, attempt_count = 0, last_error = NULL, started_at = NULL, completed_at = NULL WHERE id = ?1",
                     params![job_id, provider, next_status],
                 )?;
-                transaction.execute(
+            transaction.execute(
                     "UPDATE ai_job_items SET status = ?2, last_error = NULL, updated_at = ?3 WHERE job_id = ?1",
                     params![job_id, next_status, unix_now()],
                 )?;
-                transaction.execute(
+            transaction.execute(
                     "UPDATE ai_analysis_state SET status = ?2, provider = ?3, last_error = NULL, updated_at = ?4 WHERE global_entry_id = ?1",
                     params![entry_id, next_status, provider, unix_now()],
                 )?;
-            }
-            continue;
         }
-        let (provider, status) = if allow_local_ai {
-            ("local", AI_JOB_PENDING)
-        } else if allow_cloud_ai {
-            ("cloud", AI_JOB_PENDING)
-        } else {
-            ("none", AI_JOB_BLOCKED_BY_POLICY)
-        };
-        let job_id = format!(
-            "aij_{}",
-            blake3::hash(format!("{entry_id}\0{scope_id}\0{fingerprint}").as_bytes()).to_hex()
-        );
-        transaction.execute(
-            r#"
+        continue;
+    }
+    let (provider, status) = if allow_local_ai {
+        ("local", AI_JOB_PENDING)
+    } else if allow_cloud_ai {
+        ("cloud", AI_JOB_PENDING)
+    } else {
+        ("none", AI_JOB_BLOCKED_BY_POLICY)
+    };
+    let job_id = format!(
+        "aij_{}",
+        blake3::hash(format!("{entry_id}\0{scope_id}\0{fingerprint}").as_bytes()).to_hex()
+    );
+    transaction.execute(
+        r#"
             INSERT INTO ai_jobs (
                 id, global_entry_id, managed_scope_id, input_fingerprint, provider,
                 model, processing_mode, status, attempt_count, created_at
             ) VALUES (?1, ?2, ?3, ?4, ?5, '', 'metadata', ?6, 0, ?7)
             "#,
-            params![
-                job_id,
-                entry_id,
-                scope_id,
-                fingerprint,
-                provider,
-                status,
-                unix_now()
-            ],
-        )?;
-        transaction.execute(
-            r#"
+        params![
+            job_id,
+            entry_id,
+            scope_id,
+            fingerprint,
+            provider,
+            status,
+            unix_now()
+        ],
+    )?;
+    transaction.execute(
+        r#"
             INSERT INTO ai_job_items (id, job_id, global_entry_id, status, created_at, updated_at)
             VALUES (?1, ?2, ?3, ?4, ?5, ?5)
             "#,
-            params![
-                format!("aiji_{job_id}"),
-                job_id,
-                entry_id,
-                status,
-                unix_now()
-            ],
-        )?;
-        transaction.execute(
-            r#"
-            INSERT INTO ai_analysis_state (global_entry_id, status, input_fingerprint, provider, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5)
-            ON CONFLICT(global_entry_id) DO UPDATE SET
-                status = excluded.status,
-                input_fingerprint = excluded.input_fingerprint,
-                provider = excluded.provider,
-                updated_at = excluded.updated_at
-            "#,
-            params![entry_id, status, fingerprint, provider, unix_now()],
-        )?;
-    }
+        params![
+            format!("aiji_{job_id}"),
+            job_id,
+            entry_id,
+            status,
+            unix_now()
+        ],
+    )?;
+    transaction.execute(
+        r#"
+        INSERT INTO ai_analysis_state (global_entry_id, status, input_fingerprint, provider, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)
+        ON CONFLICT(global_entry_id) DO UPDATE SET
+            status = excluded.status,
+            input_fingerprint = excluded.input_fingerprint,
+            provider = excluded.provider,
+            updated_at = excluded.updated_at
+        "#,
+        params![entry_id, status, fingerprint, provider, unix_now()],
+    )?;
     Ok(())
 }
 

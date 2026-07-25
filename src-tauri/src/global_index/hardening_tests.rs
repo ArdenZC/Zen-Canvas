@@ -217,3 +217,44 @@ fn disabling_scope_prevents_an_inflight_job_from_completing() {
     drop(db);
     let _ = std::fs::remove_file(path);
 }
+
+
+#[test]
+fn initial_scope_backfill_caps_jobs_but_manages_every_entry() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open database");
+    db.upsert_global_volume(&volume()).expect("insert volume");
+    let entries = (0..120)
+        .map(|index| entry(&format!(r"C:\Managed\Bulk\file-{index:03}.txt")))
+        .collect::<Vec<_>>();
+    for batch in entries.chunks(40) {
+        db.upsert_global_entries_batch(batch).expect("insert batch");
+    }
+
+    db.add_managed_scope(AddManagedScopeRequest {
+        path: r"C:\Managed\Bulk".to_string(),
+        global_entry_id: None,
+        enabled: true,
+        allow_local_ai: true,
+        allow_cloud_ai: false,
+    })
+    .expect("add scope");
+
+    let conn = db.conn().expect("connection");
+    let managed_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM managed_entries WHERE enabled = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("managed count");
+    let job_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM ai_jobs", [], |row| row.get(0))
+        .expect("job count");
+    assert_eq!(managed_count, 120);
+    assert_eq!(job_count, 100);
+
+    drop(conn);
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}

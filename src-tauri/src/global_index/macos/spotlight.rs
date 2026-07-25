@@ -162,7 +162,7 @@ fn run_update_watcher(
         let mut full_reconcile = false;
         collect_update_items(
             &typed_info,
-            NSMetadataQueryUpdateAddedItemsKey,
+            unsafe { NSMetadataQueryUpdateAddedItemsKey },
             &volume_id_for_block,
             &known_entries_for_block,
             &mut entries,
@@ -172,7 +172,7 @@ fn run_update_watcher(
         );
         collect_update_items(
             &typed_info,
-            NSMetadataQueryUpdateChangedItemsKey,
+            unsafe { NSMetadataQueryUpdateChangedItemsKey },
             &volume_id_for_block,
             &known_entries_for_block,
             &mut entries,
@@ -182,7 +182,7 @@ fn run_update_watcher(
         );
         collect_update_items(
             &typed_info,
-            NSMetadataQueryUpdateRemovedItemsKey,
+            unsafe { NSMetadataQueryUpdateRemovedItemsKey },
             &volume_id_for_block,
             &known_entries_for_block,
             &mut entries,

@@ -5,6 +5,8 @@ use super::repository::{
 use crate::db::{Database, DbError};
 use rusqlite::{params, OptionalExtension, Transaction};
 
+const INITIAL_MANAGED_AI_JOB_LIMIT: usize = 100;
+
 impl Database {
     pub fn list_managed_scopes(&self) -> Result<Vec<ManagedScope>, DbError> {
         let conn = self.conn()?;
@@ -244,6 +246,12 @@ fn backfill_managed_scope(db: &Database, scope: &ManagedScope) -> Result<(), DbE
         escape_like(normalized_scope.trim_end_matches('/')) + "/"
     );
     let mut last_id = String::new();
+    let mut remaining_initial_jobs =
+        if scope.enabled && (scope.allow_local_ai || scope.allow_cloud_ai) {
+            INITIAL_MANAGED_AI_JOB_LIMIT
+        } else {
+            0
+        };
     loop {
         let entries = {
             let conn = db.conn()?;
@@ -278,7 +286,10 @@ fn backfill_managed_scope(db: &Database, scope: &ManagedScope) -> Result<(), DbE
         let now = unix_now();
         for (entry, entry_id) in &entries {
             upsert_managed_entry(&transaction, &scope.id, entry_id, scope.enabled, now)?;
-            enqueue_ai_jobs_for_entry_with_scopes(&transaction, entry_id, entry, &policies)?;
+            if remaining_initial_jobs > 0 && !entry.is_directory {
+                enqueue_ai_jobs_for_entry_with_scopes(&transaction, entry_id, entry, &policies)?;
+                remaining_initial_jobs -= 1;
+            }
         }
         transaction.commit()?;
         if entries.len() < BATCH_SIZE as usize {
