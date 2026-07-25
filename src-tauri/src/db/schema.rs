@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 25;
+const CURRENT_SCHEMA_VERSION: i32 = 26;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -43,6 +43,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
     }
     if version == CURRENT_SCHEMA_VERSION {
         ensure_global_index_schema(conn)?;
+        ensure_global_index_hardening(conn)?;
         ensure_journal_state_triggers(conn)?;
         return Ok(());
     }
@@ -673,6 +674,10 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             ensure_global_index_schema(conn)?;
             set_schema_version(conn, 25)?;
         }
+        if version < 26 {
+            ensure_global_index_hardening(conn)?;
+            set_schema_version(conn, 26)?;
+        }
         Ok(())
     })();
     match migration_result {
@@ -776,7 +781,8 @@ fn ensure_global_index_schema(conn: &Connection) -> Result<(), DbError> {
             INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
             VALUES ('delete', old.rowid, old.name, old.path, old.extension);
         END;
-        CREATE TRIGGER IF NOT EXISTS global_entries_au AFTER UPDATE ON global_entries BEGIN
+        CREATE TRIGGER IF NOT EXISTS global_entries_au AFTER UPDATE OF name, path, extension ON global_entries
+        WHEN old.name IS NOT new.name OR old.path IS NOT new.path OR old.extension IS NOT new.extension BEGIN
             INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
             VALUES ('delete', old.rowid, old.name, old.path, old.extension);
             INSERT INTO global_entries_fts(rowid, name, path, extension)
@@ -870,6 +876,80 @@ fn ensure_global_index_schema(conn: &Connection) -> Result<(), DbError> {
             [],
         )?;
     }
+    Ok(())
+}
+
+fn ensure_global_index_hardening(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        r#"
+        DROP TRIGGER IF EXISTS global_entries_au;
+        CREATE TRIGGER global_entries_au
+        AFTER UPDATE OF name, path, extension ON global_entries
+        WHEN old.name IS NOT new.name
+          OR old.path IS NOT new.path
+          OR old.extension IS NOT new.extension
+        BEGIN
+            INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
+            VALUES ('delete', old.rowid, old.name, old.path, old.extension);
+            INSERT INTO global_entries_fts(rowid, name, path, extension)
+            VALUES (new.rowid, new.name, new.path, new.extension);
+        END;
+
+        DROP TRIGGER IF EXISTS global_entries_count_ai;
+        DROP TRIGGER IF EXISTS global_entries_count_ad;
+        DROP TRIGGER IF EXISTS global_entries_count_au;
+        CREATE TRIGGER global_entries_count_ai
+        AFTER INSERT ON global_entries
+        WHEN new.is_stale = 0
+        BEGIN
+            UPDATE global_volumes
+            SET entry_count = entry_count + 1, updated_at = new.last_seen_at
+            WHERE id = new.volume_id;
+        END;
+        CREATE TRIGGER global_entries_count_ad
+        AFTER DELETE ON global_entries
+        WHEN old.is_stale = 0
+        BEGIN
+            UPDATE global_volumes
+            SET entry_count = MAX(0, entry_count - 1), updated_at = unixepoch()
+            WHERE id = old.volume_id;
+        END;
+        CREATE TRIGGER global_entries_count_au
+        AFTER UPDATE OF is_stale, volume_id ON global_entries
+        WHEN old.is_stale IS NOT new.is_stale OR old.volume_id IS NOT new.volume_id
+        BEGIN
+            UPDATE global_volumes
+            SET entry_count = MAX(0, entry_count - CASE WHEN old.is_stale = 0 THEN 1 ELSE 0 END),
+                updated_at = unixepoch()
+            WHERE id = old.volume_id;
+            UPDATE global_volumes
+            SET entry_count = entry_count + CASE WHEN new.is_stale = 0 THEN 1 ELSE 0 END,
+                updated_at = unixepoch()
+            WHERE id = new.volume_id;
+        END;
+
+        DROP TRIGGER IF EXISTS ai_jobs_canceled_terminal;
+        CREATE TRIGGER ai_jobs_canceled_terminal
+        BEFORE UPDATE OF status ON ai_jobs
+        WHEN old.status = 'canceled' AND new.status <> 'canceled'
+        BEGIN
+            SELECT RAISE(ABORT, 'canceled AI jobs are terminal');
+        END;
+
+        CREATE INDEX IF NOT EXISTS idx_global_entries_active_name
+            ON global_entries(name_normalized, modified_at_fs DESC)
+            WHERE is_stale = 0;
+        CREATE INDEX IF NOT EXISTS idx_global_entries_active_extension
+            ON global_entries(extension, modified_at_fs DESC)
+            WHERE is_stale = 0;
+
+        UPDATE global_volumes
+        SET entry_count = (
+            SELECT COUNT(*) FROM global_entries entry
+            WHERE entry.volume_id = global_volumes.id AND entry.is_stale = 0
+        );
+        "#,
+    )?;
     Ok(())
 }
 

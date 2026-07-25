@@ -171,6 +171,7 @@ impl Database {
         }
         let mut conn = self.conn()?;
         let transaction = conn.transaction()?;
+        let scope_policies = load_enabled_scope_policies(&transaction)?;
         let mut count = 0;
         for entry in entries {
             let entry_id = entry.entry_id();
@@ -224,18 +225,9 @@ impl Database {
                     entry.last_seen_at,
                 ],
             )?;
-            enqueue_ai_jobs_for_entry(&transaction, &entry_id, entry)?;
+            enqueue_ai_jobs_for_entry_with_scopes(&transaction, &entry_id, entry, &scope_policies)?;
             count += 1;
         }
-        transaction.execute(
-            r#"
-            UPDATE global_volumes
-            SET entry_count = (SELECT COUNT(*) FROM global_entries WHERE volume_id = global_volumes.id AND is_stale = 0),
-                updated_at = ?1
-            WHERE id IN (SELECT DISTINCT volume_id FROM global_entries WHERE last_seen_at >= ?2)
-            "#,
-            params![unix_now(), entries.iter().map(|entry| entry.last_seen_at).min().unwrap_or_default()],
-        )?;
         transaction.commit()?;
         Ok(count)
     }
@@ -571,32 +563,60 @@ impl Database {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct ManagedScopePolicy {
+    id: String,
+    allow_local_ai: bool,
+    allow_cloud_ai: bool,
+    path: String,
+}
+
+pub(crate) fn load_enabled_scope_policies(
+    transaction: &Transaction<'_>,
+) -> Result<Vec<ManagedScopePolicy>, DbError> {
+    let mut statement = transaction.prepare(
+        r#"
+        SELECT id, allow_local_ai, allow_cloud_ai, path
+        FROM managed_scopes
+        WHERE enabled = 1
+        ORDER BY length(path) DESC, id ASC
+        "#,
+    )?;
+    statement
+        .query_map([], |row| {
+            Ok(ManagedScopePolicy {
+                id: row.get(0)?,
+                allow_local_ai: row.get::<_, i64>(1)? != 0,
+                allow_cloud_ai: row.get::<_, i64>(2)? != 0,
+                path: normalize_path(&row.get::<_, String>(3)?),
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(DbError::from)
+}
+
 pub(crate) fn enqueue_ai_jobs_for_entry(
     transaction: &Transaction<'_>,
     entry_id: &str,
     entry: &GlobalEntryInput,
 ) -> Result<(), DbError> {
+    let scopes = load_enabled_scope_policies(transaction)?;
+    enqueue_ai_jobs_for_entry_with_scopes(transaction, entry_id, entry, &scopes)
+}
+
+pub(crate) fn enqueue_ai_jobs_for_entry_with_scopes(
+    transaction: &Transaction<'_>,
+    entry_id: &str,
+    entry: &GlobalEntryInput,
+    scopes: &[ManagedScopePolicy],
+) -> Result<(), DbError> {
     let fingerprint = metadata_fingerprint(entry);
     let path_normalized = normalize_path(&entry.path);
-    let mut scope_statement = transaction.prepare(
-        r#"
-        SELECT id, allow_local_ai, allow_cloud_ai, path
-        FROM managed_scopes
-        WHERE enabled = 1
-        "#,
-    )?;
-    let scopes = scope_statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)? != 0,
-                row.get::<_, i64>(2)? != 0,
-                normalize_path(&row.get::<_, String>(3)?),
-            ))
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    drop(scope_statement);
-    for (scope_id, allow_local_ai, allow_cloud_ai, scope_path) in scopes {
+    for scope in scopes {
+        let scope_id = &scope.id;
+        let allow_local_ai = scope.allow_local_ai;
+        let allow_cloud_ai = scope.allow_cloud_ai;
+        let scope_path = &scope.path;
         if !path_is_within(&path_normalized, &scope_path) {
             continue;
         }
@@ -646,7 +666,7 @@ pub(crate) fn enqueue_ai_jobs_for_entry(
             )
             .optional()?;
         if let Some((job_id, status)) = existing {
-            if matches!(status.as_str(), AI_JOB_STALE | AI_JOB_CANCELED) {
+            if status == AI_JOB_STALE {
                 let (provider, next_status) = if allow_local_ai {
                     ("local", AI_JOB_PENDING)
                 } else if allow_cloud_ai {

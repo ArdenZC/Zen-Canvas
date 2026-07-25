@@ -1,5 +1,7 @@
 use super::models::*;
-use super::repository::{enqueue_ai_jobs_for_entry, global_entry_input_from_row};
+use super::repository::{
+    enqueue_ai_jobs_for_entry_with_scopes, global_entry_input_from_row, load_enabled_scope_policies,
+};
 use crate::db::{Database, DbError};
 use rusqlite::{params, OptionalExtension, Transaction};
 
@@ -75,13 +77,8 @@ impl Database {
             map_managed_scope,
         )?;
 
-        let entries = load_entries_in_scope(&transaction, &scope.path)?;
-        for entry in entries {
-            let entry_id = entry.entry_id();
-            upsert_managed_entry(&transaction, &scope.id, &entry_id, scope.enabled, now)?;
-            enqueue_ai_jobs_for_entry(&transaction, &entry_id, &entry)?;
-        }
         transaction.commit()?;
+        backfill_managed_scope(self, &scope)?;
         Ok(scope)
     }
 
@@ -239,26 +236,56 @@ impl Database {
     }
 }
 
-fn load_entries_in_scope(
-    transaction: &Transaction<'_>,
-    scope_path: &str,
-) -> Result<Vec<GlobalEntryInput>, DbError> {
-    let mut statement = transaction.prepare(
-        r#"
-        SELECT volume_id, platform_file_id, parent_platform_file_id, name, path,
-               extension, is_directory, size, created_at_fs, modified_at_fs,
-               file_attributes, is_hidden, is_system, source_provider, last_seen_at
-        FROM global_entries
-        WHERE is_stale = 0
-          AND (path_normalized = ?1 OR path_normalized LIKE ?2 ESCAPE '~')
-        "#,
-    )?;
-    let pattern = format!("{}%", escape_like(scope_path.trim_end_matches('/')) + "/");
-    let entries = statement
-        .query_map(params![scope_path, pattern], global_entry_input_from_row)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(DbError::from)?;
-    Ok(entries)
+fn backfill_managed_scope(db: &Database, scope: &ManagedScope) -> Result<(), DbError> {
+    const BATCH_SIZE: i64 = 512;
+    let normalized_scope = normalize_path(&scope.path);
+    let pattern = format!(
+        "{}%",
+        escape_like(normalized_scope.trim_end_matches('/')) + "/"
+    );
+    let mut last_id = String::new();
+    loop {
+        let entries = {
+            let conn = db.conn()?;
+            let mut statement = conn.prepare(
+                r#"
+                SELECT volume_id, platform_file_id, parent_platform_file_id, name, path,
+                       extension, is_directory, size, created_at_fs, modified_at_fs,
+                       file_attributes, is_hidden, is_system, source_provider, last_seen_at,
+                       id
+                FROM global_entries
+                WHERE is_stale = 0
+                  AND id > ?3
+                  AND (path_normalized = ?1 OR path_normalized LIKE ?2 ESCAPE '~')
+                ORDER BY id
+                LIMIT ?4
+                "#,
+            )?;
+            statement
+                .query_map(
+                    params![normalized_scope, pattern, last_id, BATCH_SIZE],
+                    |row| Ok((global_entry_input_from_row(row)?, row.get::<_, String>(15)?)),
+                )?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        if entries.is_empty() {
+            break;
+        }
+        last_id = entries.last().map(|(_, id)| id.clone()).unwrap_or_default();
+        let mut conn = db.conn()?;
+        let transaction = conn.transaction()?;
+        let policies = load_enabled_scope_policies(&transaction)?;
+        let now = unix_now();
+        for (entry, entry_id) in &entries {
+            upsert_managed_entry(&transaction, &scope.id, entry_id, scope.enabled, now)?;
+            enqueue_ai_jobs_for_entry_with_scopes(&transaction, entry_id, entry, &policies)?;
+        }
+        transaction.commit()?;
+        if entries.len() < BATCH_SIZE as usize {
+            break;
+        }
+    }
+    Ok(())
 }
 
 fn upsert_managed_entry(
