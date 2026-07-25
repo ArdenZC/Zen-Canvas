@@ -83,6 +83,36 @@ fn disabled_volume_entries_are_not_returned() {
 }
 
 #[test]
+fn aggregate_status_ignores_disabled_volume_entries_and_errors() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open database");
+    db.upsert_global_volume(&volume("enabled", r"C:\", true))
+        .expect("insert enabled volume");
+    let mut disabled = volume("disabled", r"D:\", false);
+    disabled.last_error = Some("disabled_volume_failure".to_string());
+    disabled.last_incremental_sync_at = Some(99);
+    db.upsert_global_volume(&disabled)
+        .expect("insert disabled volume");
+    db.upsert_global_entries_batch(&[
+        entry("enabled", r"C:\Reports\report.txt", "report.txt"),
+        entry("disabled", r"D:\Reports\hidden.txt", "hidden.txt"),
+    ])
+    .expect("insert entries");
+
+    let status = db.global_index_status().expect("global index status");
+    assert_eq!(status.total_entries, 1);
+    assert_eq!(status.processed_entries, 1);
+    assert_eq!(status.indexed_volumes, 1);
+    assert_eq!(status.ready_volumes, 1);
+    assert!(status.collection_complete);
+    assert_eq!(status.last_sync_at, Some(1));
+    assert_eq!(status.last_error, None);
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn one_and_two_character_queries_are_prefix_bounded() {
     let path = test_db_path();
     let db = Database::open(&path).expect("open database");
