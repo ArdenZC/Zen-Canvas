@@ -1,0 +1,39 @@
+name: Remediation Rustfmt
+
+on:
+  push:
+    branches:
+      - fix/system-wide-search-hardening
+
+permissions:
+  contents: write
+
+concurrency:
+  group: remediation-rustfmt-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout remediation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: fix/system-wide-search-hardening
+          fetch-depth: 0
+
+      - name: Format Rust sources
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --emit files
+
+      - name: Commit formatter output
+        shell: bash
+        run: |
+          if git diff --quiet -- src-tauri; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri
+          git commit -m "style(rust): apply cargo fmt"
+          git push origin HEAD:fix/system-wide-search-hardening
