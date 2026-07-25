@@ -64,13 +64,12 @@ pub fn search_global_entries(
             LIMIT ?2 OFFSET ?3
             "#,
         )?;
-        return statement
-            .query_map(
-                params![escape_like(query), limit, offset],
-                map_global_search_result,
-            )?
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(DbError::from);
+        let rows = statement.query_map(
+            params![escape_like(query), limit, offset],
+            map_global_search_result,
+        )?;
+        let results = rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)?;
+        return Ok(results);
     }
 
     let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
@@ -152,13 +151,12 @@ pub fn search_global_entries(
         LIMIT ?3 OFFSET ?4
         "#,
     )?;
-    statement
-        .query_map(
-            params![pattern, query, limit, offset],
-            map_global_search_result,
-        )?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(DbError::from)
+    let rows = statement.query_map(
+        params![pattern, query, limit, offset],
+        map_global_search_result,
+    )?;
+    let results = rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)?;
+    Ok(results)
 }
 
 fn escape_like(value: &str) -> String {

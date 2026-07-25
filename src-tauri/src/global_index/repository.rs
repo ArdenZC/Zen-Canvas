@@ -582,17 +582,16 @@ pub(crate) fn load_enabled_scope_policies(
         ORDER BY length(path) DESC, id ASC
         "#,
     )?;
-    statement
-        .query_map([], |row| {
-            Ok(ManagedScopePolicy {
-                id: row.get(0)?,
-                allow_local_ai: row.get::<_, i64>(1)? != 0,
-                allow_cloud_ai: row.get::<_, i64>(2)? != 0,
-                path: normalize_path(&row.get::<_, String>(3)?),
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(DbError::from)
+    let rows = statement.query_map([], |row| {
+        Ok(ManagedScopePolicy {
+            id: row.get(0)?,
+            allow_local_ai: row.get::<_, i64>(1)? != 0,
+            allow_cloud_ai: row.get::<_, i64>(2)? != 0,
+            path: normalize_path(&row.get::<_, String>(3)?),
+        })
+    })?;
+    let policies = rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)?;
+    Ok(policies)
 }
 
 pub(crate) fn enqueue_ai_jobs_for_entry(

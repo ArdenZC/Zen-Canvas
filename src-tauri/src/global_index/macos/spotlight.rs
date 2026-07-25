@@ -202,7 +202,8 @@ fn run_update_watcher(volume_id: &str, pending: &Arc<Mutex<PendingUpdates>>, sto
         if let Ok(mut pending) = pending.lock() {
             pending.last_error = Some("macos_spotlight_realtime_updates_unavailable".to_string());
         }
-        unsafe { center.removeObserver(&observer) };
+        let observer_object: &AnyObject = observer.as_ref().as_ref();
+        unsafe { center.removeObserver(observer_object) };
         return;
     }
     let run_loop = NSRunLoop::currentRunLoop();
@@ -211,14 +212,16 @@ fn run_update_watcher(volume_id: &str, pending: &Arc<Mutex<PendingUpdates>>, sto
         run_loop.runUntilDate(&deadline);
     }
     query.stopQuery();
-    unsafe { center.removeObserver(&observer) };
+    let observer_object: &AnyObject = observer.as_ref().as_ref();
+    unsafe { center.removeObserver(observer_object) };
 }
 
 fn new_local_computer_query() -> Retained<NSMetadataQuery> {
     let query = NSMetadataQuery::new();
     let predicate = NSPredicate::predicateWithValue(true);
     query.setPredicate(Some(&predicate));
-    let scopes = NSArray::from_slice(&[NSMetadataQueryIndexedLocalComputerScope]);
+    let scope: &AnyObject = unsafe { NSMetadataQueryIndexedLocalComputerScope }.as_ref();
+    let scopes: Retained<NSArray<AnyObject>> = NSArray::from_slice(&[scope]);
     unsafe { query.setSearchScopes(&scopes) };
     query
 }
@@ -314,15 +317,15 @@ fn collect_update_items(
 
 fn metadata_item_to_entry(volume_id: &str, object: &AnyObject) -> Option<GlobalEntryInput> {
     let item = object.downcast_ref::<NSMetadataItem>()?;
-    let path = metadata_string(item, NSMetadataItemPathKey)
-        .or_else(|| metadata_url_path(item, NSMetadataItemURLKey))?;
+    let path = metadata_string(item, unsafe { NSMetadataItemPathKey })
+        .or_else(|| metadata_url_path(item, unsafe { NSMetadataItemURLKey }))?;
     if path.trim().is_empty() {
         return None;
     }
     let path_buf = PathBuf::from(&path);
     let metadata = std::fs::symlink_metadata(&path_buf).ok();
     let is_directory = metadata.as_ref().is_some_and(std::fs::Metadata::is_dir);
-    let name = metadata_string(item, NSMetadataItemFSNameKey)
+    let name = metadata_string(item, unsafe { NSMetadataItemFSNameKey })
         .or_else(|| {
             path_buf
                 .file_name()
@@ -333,7 +336,7 @@ fn metadata_item_to_entry(volume_id: &str, object: &AnyObject) -> Option<GlobalE
         .extension()
         .map(|value| value.to_string_lossy().to_lowercase())
         .unwrap_or_default();
-    let size = metadata_number(item, NSMetadataItemFSSizeKey)
+    let size = metadata_number(item, unsafe { NSMetadataItemFSSizeKey })
         .or_else(|| metadata.as_ref().map(|value| value.len() as i64))
         .unwrap_or_default();
     let platform_file_id = mac_file_identity(&path_buf, metadata.as_ref());
@@ -350,8 +353,8 @@ fn metadata_item_to_entry(volume_id: &str, object: &AnyObject) -> Option<GlobalE
         extension,
         is_directory,
         size: if is_directory { 0 } else { size },
-        created_at_fs: metadata_date(item, NSMetadataItemFSCreationDateKey),
-        modified_at_fs: metadata_date(item, NSMetadataItemFSContentChangeDateKey),
+        created_at_fs: metadata_date(item, unsafe { NSMetadataItemFSCreationDateKey }),
+        modified_at_fs: metadata_date(item, unsafe { NSMetadataItemFSContentChangeDateKey }),
         file_attributes: 0,
         is_hidden: path_buf
             .file_name()
@@ -406,8 +409,8 @@ fn path_from_object(object: &AnyObject) -> Option<String> {
         return value.path().map(|path| path.to_string());
     }
     if let Some(value) = object.downcast_ref::<NSMetadataItem>() {
-        return metadata_string(value, NSMetadataItemPathKey)
-            .or_else(|| metadata_url_path(value, NSMetadataItemURLKey));
+        return metadata_string(value, unsafe { NSMetadataItemPathKey })
+            .or_else(|| metadata_url_path(value, unsafe { NSMetadataItemURLKey }));
     }
     None
 }
@@ -485,7 +488,7 @@ mod tests {
             Ok(())
         })
         .expect("Spotlight initial collection");
-        assert_eq!(summary.processed, batches.iter().sum());
+        assert_eq!(summary.processed, batches.iter().sum::<usize>());
         assert!(summary.processed > 0, "Spotlight returned no local results");
     }
 }

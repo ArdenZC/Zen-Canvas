@@ -261,12 +261,12 @@ fn backfill_managed_scope(db: &Database, scope: &ManagedScope) -> Result<(), DbE
                 LIMIT ?4
                 "#,
             )?;
-            statement
-                .query_map(
-                    params![normalized_scope, pattern, last_id, BATCH_SIZE],
-                    |row| Ok((global_entry_input_from_row(row)?, row.get::<_, String>(15)?)),
-                )?
-                .collect::<Result<Vec<_>, _>>()?
+            let rows = statement.query_map(
+                params![normalized_scope, pattern, last_id, BATCH_SIZE],
+                |row| Ok((global_entry_input_from_row(row)?, row.get::<_, String>(15)?)),
+            )?;
+            let entries = rows.collect::<Result<Vec<_>, _>>()?;
+            entries
         };
         if entries.is_empty() {
             break;
