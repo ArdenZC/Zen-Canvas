@@ -1,0 +1,212 @@
+name: Remediation Index Write Path
+
+on:
+  push:
+    branches:
+      - fix/system-wide-search-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout remediation branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: fix/system-wide-search-hardening
+          fetch-depth: 0
+
+      - name: Optimize index write path
+        shell: python
+        run: |
+          from pathlib import Path
+
+          schema = Path("src-tauri/src/db/schema.rs")
+          text = schema.read_text(encoding="utf-8")
+          old_probe = '''    let fts_exists = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'global_entries_fts'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .is_some();'''
+          new_probe = '''    let fts_exists = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'global_entries_fts'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .is_some();
+    let entry_count_triggers_exist = conn.query_row(
+        "SELECT COUNT(*) = 3 FROM sqlite_schema WHERE type = 'trigger' AND name IN ('global_entries_count_ai', 'global_entries_count_ad', 'global_entries_count_au')",
+        [],
+        |row| row.get::<_, bool>(0),
+    )?;'''
+          if old_probe not in text:
+              raise SystemExit("global schema probe not found")
+          text = text.replace(old_probe, new_probe, 1)
+
+          old_trigger = '''        CREATE TRIGGER IF NOT EXISTS global_entries_au AFTER UPDATE ON global_entries BEGIN
+            INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
+            VALUES ('delete', old.rowid, old.name, old.path, old.extension);
+            INSERT INTO global_entries_fts(rowid, name, path, extension)
+            VALUES (new.rowid, new.name, new.path, new.extension);
+        END;
+
+        CREATE TABLE IF NOT EXISTS managed_scopes ('''
+          new_trigger = '''        DROP TRIGGER IF EXISTS global_entries_au;
+        CREATE TRIGGER global_entries_au
+        AFTER UPDATE OF name, path, extension ON global_entries
+        WHEN old.name <> new.name OR old.path <> new.path OR old.extension <> new.extension
+        BEGIN
+            INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
+            VALUES ('delete', old.rowid, old.name, old.path, old.extension);
+            INSERT INTO global_entries_fts(rowid, name, path, extension)
+            VALUES (new.rowid, new.name, new.path, new.extension);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS global_entries_count_ai
+        AFTER INSERT ON global_entries
+        WHEN new.is_stale = 0
+        BEGIN
+            UPDATE global_volumes
+            SET entry_count = entry_count + 1, updated_at = new.last_seen_at
+            WHERE id = new.volume_id;
+        END;
+        CREATE TRIGGER IF NOT EXISTS global_entries_count_ad
+        AFTER DELETE ON global_entries
+        WHEN old.is_stale = 0
+        BEGIN
+            UPDATE global_volumes
+            SET entry_count = MAX(0, entry_count - 1)
+            WHERE id = old.volume_id;
+        END;
+        CREATE TRIGGER IF NOT EXISTS global_entries_count_au
+        AFTER UPDATE OF is_stale ON global_entries
+        WHEN old.is_stale <> new.is_stale
+        BEGIN
+            UPDATE global_volumes
+            SET entry_count = MAX(0, entry_count + CASE
+                    WHEN old.is_stale = 1 AND new.is_stale = 0 THEN 1
+                    WHEN old.is_stale = 0 AND new.is_stale = 1 THEN -1
+                    ELSE 0
+                END),
+                updated_at = new.last_seen_at
+            WHERE id = new.volume_id;
+        END;
+
+        CREATE TABLE IF NOT EXISTS managed_scopes ('''
+          if old_trigger not in text:
+              raise SystemExit("global FTS update trigger not found")
+          text = text.replace(old_trigger, new_trigger, 1)
+
+          old_rebuild = '''    if !fts_exists {
+        conn.execute(
+            "INSERT INTO global_entries_fts(global_entries_fts) VALUES ('rebuild')",
+            [],
+        )?;
+    }
+    Ok(())'''
+          new_rebuild = '''    if !fts_exists {
+        conn.execute(
+            "INSERT INTO global_entries_fts(global_entries_fts) VALUES ('rebuild')",
+            [],
+        )?;
+    }
+    if !entry_count_triggers_exist {
+        conn.execute(
+            r#"
+            UPDATE global_volumes
+            SET entry_count = (
+                SELECT COUNT(*) FROM global_entries
+                WHERE volume_id = global_volumes.id AND is_stale = 0
+            )
+            "#,
+            [],
+        )?;
+    }
+    Ok(())'''
+          if old_rebuild not in text:
+              raise SystemExit("global schema completion block not found")
+          schema.write_text(text.replace(old_rebuild, new_rebuild, 1), encoding="utf-8")
+
+          repository = Path("src-tauri/src/global_index/repository.rs")
+          repo_text = repository.read_text(encoding="utf-8")
+          old_count = '''        transaction.execute(
+            r#"
+            UPDATE global_volumes
+            SET entry_count = (SELECT COUNT(*) FROM global_entries WHERE volume_id = global_volumes.id AND is_stale = 0),
+                updated_at = ?1
+            WHERE id IN (SELECT DISTINCT volume_id FROM global_entries WHERE last_seen_at >= ?2)
+            "#,
+            params![unix_now(), entries.iter().map(|entry| entry.last_seen_at).min().unwrap_or_default()],
+        )?;
+'''
+          if old_count not in repo_text:
+              raise SystemExit("per-batch volume count block not found")
+          repository.write_text(repo_text.replace(old_count, "", 1), encoding="utf-8")
+
+          tests = Path("src-tauri/tests/global_index_search_boundaries.rs")
+          test_text = tests.read_text(encoding="utf-8")
+          append = r'''
+
+#[test]
+fn volume_entry_count_tracks_insert_stale_and_reactivation_incrementally() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open database");
+    db.upsert_global_volume(&test_volume(true))
+        .expect("insert volume");
+    let entry = test_entry();
+    db.upsert_global_entries_batch(std::slice::from_ref(&entry))
+        .expect("insert entry");
+    assert_eq!(
+        db.get_global_volume("gv_boundary")
+            .expect("read volume")
+            .expect("volume")
+            .entry_count,
+        1
+    );
+
+    db.mark_global_entries_stale_for_volume("gv_boundary")
+        .expect("stale volume");
+    assert_eq!(
+        db.get_global_volume("gv_boundary")
+            .expect("read stale volume")
+            .expect("volume")
+            .entry_count,
+        0
+    );
+
+    db.upsert_global_entries_batch(&[entry])
+        .expect("reactivate entry");
+    assert_eq!(
+        db.get_global_volume("gv_boundary")
+            .expect("read reactivated volume")
+            .expect("volume")
+            .entry_count,
+        1
+    );
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+'''
+          if "fn volume_entry_count_tracks_insert_stale" not in test_text:
+              tests.write_text(test_text + append, encoding="utf-8")
+
+      - name: Format Rust sources
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --emit files
+
+      - name: Commit write-path optimization
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri/src/db/schema.rs src-tauri/src/global_index/repository.rs src-tauri/tests/global_index_search_boundaries.rs
+          git commit -m "perf(index): eliminate per-batch full-volume recounts"
+          git push origin HEAD:fix/system-wide-search-hardening
