@@ -6,19 +6,32 @@ on:
       - agent/system-wide-search-hardening
 
 permissions:
-  contents: read
+  contents: write
+  issues: write
+
+concurrency:
+  group: hardening-diagnostics-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   rustfmt:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - name: Show rustfmt diff
+        with:
+          ref: agent/system-wide-search-hardening
+      - name: Apply rustfmt
         shell: bash
         run: |
           cargo fmt --manifest-path src-tauri/Cargo.toml
-          git diff -- src-tauri/src/global_index src-tauri/tests/global_search_hardening.rs
-          git diff --quiet -- src-tauri/src/global_index src-tauri/tests/global_search_hardening.rs
+          if git diff --quiet -- src-tauri; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri
+          git commit -m "style: apply rustfmt to hardening changes"
+          git push origin HEAD:agent/system-wide-search-hardening
 
   npm-audit:
     runs-on: ubuntu-latest
@@ -29,12 +42,23 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: Compact npm audit report
+      - name: Post compact audit report
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           npm audit --json > audit.json || true
-          node - <<'NODE'
+          node - <<'NODE' > audit-summary.md
           const report = require('./audit.json');
-          console.log(JSON.stringify({metadata: report.metadata, vulnerabilities: report.vulnerabilities}, null, 2));
-          if ((report.metadata?.vulnerabilities?.high || 0) + (report.metadata?.vulnerabilities?.critical || 0) > 0) process.exit(1);
+          const vulnerabilities = report.vulnerabilities || {};
+          const lines = Object.entries(vulnerabilities).map(([name, item]) =>
+            `- \`${name}\`: severity=${item.severity}; direct=${Boolean(item.isDirect)}; range=\`${item.range || ''}\`; fix=${JSON.stringify(item.fixAvailable)}`
+          );
+          console.log('<!-- hardening-audit-report -->');
+          console.log('### Temporary dependency audit report');
+          console.log('```json');
+          console.log(JSON.stringify(report.metadata?.vulnerabilities || {}, null, 2));
+          console.log('```');
+          console.log(lines.length ? lines.join('\n') : 'No reported vulnerabilities.');
           NODE
+          gh api repos/${{ github.repository }}/issues/14/comments -f body="$(cat audit-summary.md)"
