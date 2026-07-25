@@ -32,7 +32,6 @@ jobs:
           {
             set -ex
             python scripts/fix_macos_compile.py
-            python scripts/apply_final_index_correctness.py
             if grep -q 'CURRENT_SCHEMA_VERSION: i32 = 25' src-tauri/src/db/schema.rs; then
               python scripts/apply_global_index_hardening.py
             fi
