@@ -7,7 +7,7 @@ on:
       - master
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -133,75 +133,3 @@ jobs:
         run: |
           cargo install cargo-audit --locked
           npm run security:audit:rust
-
-  one-shot-native-fix:
-    name: Apply final native fixes
-    if: github.head_ref == 'agent/system-wide-search-hardening'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout branch
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          ref: agent/system-wide-search-hardening
-
-      - name: Patch tests and canceled Spotlight path
-        shell: bash
-        run: |
-          set -euxo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          test_path = Path('src-tauri/src/db/tests/part1.rs')
-          lines = test_path.read_text(encoding='utf-8').splitlines()
-          found = False
-          for index, line in enumerate(lines):
-              if 'expect("schema version")' not in line:
-                  continue
-              for candidate in range(index + 1, min(index + 5, len(lines))):
-                  if lines[candidate].strip() in {'25', '26'}:
-                      indent = lines[candidate][: len(lines[candidate]) - len(lines[candidate].lstrip())]
-                      lines[candidate] = f'{indent}26'
-                      found = True
-                      break
-              break
-          if not found:
-              raise SystemExit('schema version assertion not found')
-          test_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
-
-          spotlight_path = Path('src-tauri/src/global_index/macos/spotlight.rs')
-          lines = spotlight_path.read_text(encoding='utf-8').splitlines()
-          function_start = next(
-              (index for index, line in enumerate(lines) if line.startswith('pub fn stream_local_computer_entries')),
-              None,
-          )
-          if function_start is None:
-              raise SystemExit('Spotlight entry function not found')
-          pool_index = next(
-              (
-                  index
-                  for index in range(function_start, min(function_start + 30, len(lines)))
-                  if lines[index].strip() == 'autoreleasepool(|_| {'
-              ),
-              None,
-          )
-          if pool_index is None:
-              raise SystemExit('Spotlight autoreleasepool not found')
-          if not any(
-              'if cancel.load(Ordering::Acquire)' in lines[index]
-              for index in range(function_start, pool_index)
-          ):
-              lines[pool_index:pool_index] = [
-                  '    if cancel.load(Ordering::Acquire) {',
-                  '        return Err("macos_spotlight_query_paused".to_string());',
-                  '    }',
-              ]
-          spotlight_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
-          PY
-
-          cargo fmt --manifest-path src-tauri/Cargo.toml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src-tauri
-          git diff --cached --check
-          git commit -m "fix(macos): short-circuit canceled Spotlight queries"
-          git push origin HEAD:agent/system-wide-search-hardening
