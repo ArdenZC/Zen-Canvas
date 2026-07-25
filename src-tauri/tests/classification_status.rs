@@ -96,7 +96,7 @@ fn create_schema_9_database(path: &Path) {
         )
         VALUES
             ('file-unclassified', '/legacy/unclassified.txt', 'unclassified.txt', 'txt', 128, 'Unknown', 'Inbox', '[]', 0, '', 0, 0),
-            ('file-classified', '/legacy/resume.pdf', 'resume.pdf', 'pdf', 2048, 'Career', 'Reference', '[\"Career\"]', 1900000000, 'legacy-rule-version', 1900000000, 2048);
+            ('file-classified', '/legacy/resume.pdf', 'resume.pdf', 'pdf', 2048, 'Career', 'Reference', '["Career"]', 1900000000, 'legacy-rule-version', 1900000000, 2048);
         PRAGMA user_version = 9;
         "#,
     )
