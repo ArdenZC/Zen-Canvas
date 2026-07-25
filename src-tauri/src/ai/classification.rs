@@ -1,3 +1,8 @@
+#![allow(
+    dead_code,
+    reason = "legacy direct-provider pipeline is retained for compatibility regression tests"
+)]
+// Direct-provider helpers below remain for compatibility tests; production uses the durable Managed AI queue.
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::mpsc,

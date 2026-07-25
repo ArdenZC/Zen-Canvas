@@ -208,13 +208,13 @@ mod named_pipe {
     };
     use windows_sys::Win32::Security::{RevertToSelf, SECURITY_ATTRIBUTES, TOKEN_QUERY};
     use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, FlushFileBuffers, ReadFile, WriteFile, OPEN_EXISTING,
+        CreateFileW, FlushFileBuffers, ReadFile, WriteFile, OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
     };
     use windows_sys::Win32::System::Pipes::{
         ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, GetNamedPipeClientProcessId,
         GetNamedPipeClientSessionId, ImpersonateNamedPipeClient, SetNamedPipeHandleState,
-        WaitNamedPipeW, PIPE_ACCESS_DUPLEX, PIPE_READMODE_MESSAGE, PIPE_REJECT_REMOTE_CLIENTS,
-        PIPE_TYPE_MESSAGE, PIPE_WAIT,
+        WaitNamedPipeW, PIPE_READMODE_MESSAGE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_MESSAGE,
+        PIPE_WAIT,
     };
     use windows_sys::Win32::System::Threading::{
         GetCurrentThread, OpenProcess, OpenThreadToken, QueryFullProcessImageNameW,

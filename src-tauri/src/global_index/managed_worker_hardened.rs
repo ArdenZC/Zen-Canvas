@@ -30,6 +30,10 @@ const MAX_STORED_RESPONSE_BYTES: usize = 64 * 1024;
 pub(crate) struct ManagedAiJob {
     pub id: String,
     pub global_entry_id: String,
+    #[allow(
+        dead_code,
+        reason = "retained in the durable job record for audit and forward-compatible scope checks"
+    )]
     pub managed_scope_id: String,
     pub input_fingerprint: String,
     pub provider: String,

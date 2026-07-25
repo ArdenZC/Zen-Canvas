@@ -202,18 +202,18 @@ fn load_staged_directories(staging: &Connection) -> Result<Vec<MftRecord>, Globa
         .map_err(|error| {
             GlobalIndexError::Provider(format!("mft_staging_directory_prepare_failed: {error}"))
         })?;
-    statement
+    let rows = statement
         .query_map(
             params![i64::from(FILE_ATTRIBUTE_DIRECTORY)],
             staged_record_from_row,
         )
         .map_err(|error| {
             GlobalIndexError::Provider(format!("mft_staging_directory_query_failed: {error}"))
-        })?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| {
-            GlobalIndexError::Provider(format!("mft_staging_directory_decode_failed: {error}"))
-        })
+        })?;
+    let directories = rows.collect::<Result<Vec<_>, _>>().map_err(|error| {
+        GlobalIndexError::Provider(format!("mft_staging_directory_decode_failed: {error}"))
+    })?;
+    Ok(directories)
 }
 
 fn resolve_directory_paths(
@@ -283,7 +283,7 @@ fn stream_staged_entries(
                 .map_err(|error| {
                     GlobalIndexError::Provider(format!("mft_staging_read_prepare_failed: {error}"))
                 })?;
-            statement
+            let mapped = statement
                 .query_map(params![last_sequence, STAGING_READ_BATCH], |row| {
                     Ok((
                         row.get::<_, i64>(0)?,
@@ -292,11 +292,10 @@ fn stream_staged_entries(
                 })
                 .map_err(|error| {
                     GlobalIndexError::Provider(format!("mft_staging_read_failed: {error}"))
-                })?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|error| {
-                    GlobalIndexError::Provider(format!("mft_staging_decode_failed: {error}"))
-                })?
+                })?;
+            mapped.collect::<Result<Vec<_>, _>>().map_err(|error| {
+                GlobalIndexError::Provider(format!("mft_staging_decode_failed: {error}"))
+            })?
         };
         if rows.is_empty() {
             break;

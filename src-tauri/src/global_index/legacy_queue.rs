@@ -132,6 +132,10 @@ impl Database {
         Ok(changed)
     }
 
+    #[allow(
+        dead_code,
+        reason = "kept for schema rollback and legacy queue repair tests"
+    )]
     pub(crate) fn block_unmanaged_legacy_jobs(&self) -> Result<usize, DbError> {
         let conn = self.conn()?;
         conn.execute(
