@@ -27,18 +27,13 @@ spotlight = "src-tauri/src/global_index/macos/spotlight.rs"
 replace(
     spotlight,
     "unsafe { center.removeObserver(&observer) };",
-    "let observer_object: &AnyObject = observer.as_ref();\n        unsafe { center.removeObserver(observer_object) };",
-    count=1,
-)
-replace(
-    spotlight,
-    "query.stopQuery();\n    unsafe { center.removeObserver(&observer) };",
-    "query.stopQuery();\n    let observer_object: &AnyObject = observer.as_ref();\n    unsafe { center.removeObserver(observer_object) };",
+    "let observer_object: &AnyObject = observer.as_ref().as_ref();\n        unsafe { center.removeObserver(observer_object) };",
+    count=2,
 )
 replace(
     spotlight,
     "let scopes = NSArray::from_slice(&[NSMetadataQueryIndexedLocalComputerScope]);\n    unsafe { query.setSearchScopes(&scopes) };",
-    "let scope: &AnyObject = unsafe { NSMetadataQueryIndexedLocalComputerScope };\n    let scopes: Retained<NSArray<AnyObject>> = NSArray::from_slice(&[scope]);\n    unsafe { query.setSearchScopes(&scopes) };",
+    "let scope: &AnyObject = unsafe { NSMetadataQueryIndexedLocalComputerScope }.as_ref();\n    let scopes: Retained<NSArray<AnyObject>> = NSArray::from_slice(&[scope]);\n    unsafe { query.setSearchScopes(&scopes) };",
 )
 for key in [
     "NSMetadataItemPathKey",
@@ -48,13 +43,14 @@ for key in [
     "NSMetadataItemFSCreationDateKey",
     "NSMetadataItemFSContentChangeDateKey",
 ]:
-    text = Path(spotlight).read_text(encoding="utf-8")
+    target = Path(spotlight)
+    text = target.read_text(encoding="utf-8")
     old = f", {key})"
     new = f", unsafe {{ {key} }})"
     occurrences = text.count(old)
     if occurrences == 0:
         raise SystemExit(f"{spotlight}: no unwrapped usage for {key}")
-    Path(spotlight).write_text(text.replace(old, new), encoding="utf-8")
+    target.write_text(text.replace(old, new), encoding="utf-8")
 replace(spotlight, "batches.iter().sum()", "batches.iter().sum::<usize>()")
 
 replace(
