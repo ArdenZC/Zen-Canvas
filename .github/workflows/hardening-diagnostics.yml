@@ -32,7 +32,6 @@ jobs:
           {
             set -ex
             python scripts/apply_spotlight_update_key_fix.py
-            python scripts/apply_managed_scope_backpressure.py
             python scripts/fix_managed_scope_control_flow.py
             if grep -q 'CURRENT_SCHEMA_VERSION: i32 = 25' src-tauri/src/db/schema.rs; then
               python scripts/apply_global_index_hardening.py
