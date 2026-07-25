@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod coordinator;
+mod legacy_queue;
 pub mod managed_scope;
 #[path = "managed_worker_hardened.rs"]
 pub mod managed_worker;
