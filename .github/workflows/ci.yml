@@ -7,7 +7,7 @@ on:
       - master
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -133,51 +133,3 @@ jobs:
         run: |
           cargo install cargo-audit --locked
           npm run security:audit:rust
-
-  one-shot-policy-test-fix:
-    name: Update disabled-policy regression
-    if: github.head_ref == 'agent/system-wide-search-hardening'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout branch
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-        with:
-          ref: agent/system-wide-search-hardening
-
-      - name: Update regression expectation
-        shell: bash
-        run: |
-          set -euxo pipefail
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path('src-tauri/src/global_index/tests.rs')
-          text = path.read_text(encoding='utf-8')
-          text = text.replace(
-              'fn disabled_ai_policy_blocks_jobs_without_removing_global_search()',
-              'fn disabled_ai_policy_creates_no_jobs_without_removing_global_search()',
-              1,
-          )
-          old = '''    let conn = Connection::open(&path).expect("inspect blocked job");
-              let status: String = conn
-                  .query_row("SELECT status FROM ai_jobs LIMIT 1", [], |row| row.get(0))
-                  .expect("blocked job");
-              assert_eq!(status, AI_JOB_BLOCKED_BY_POLICY);'''
-          new = '''    let conn = Connection::open(&path).expect("inspect disabled AI policy");
-              let job_count: i64 = conn
-                  .query_row("SELECT COUNT(*) FROM ai_jobs", [], |row| row.get(0))
-                  .expect("AI job count");
-              assert_eq!(job_count, 0);'''
-          if new not in text:
-              if text.count(old) != 1:
-                  raise SystemExit(f'expected one disabled-policy assertion, found {text.count(old)}')
-              text = text.replace(old, new)
-          path.write_text(text, encoding='utf-8')
-          PY
-          cargo fmt --manifest-path src-tauri/Cargo.toml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src-tauri/src/global_index/tests.rs
-          git diff --cached --check
-          git commit -m "test(ai): expect no jobs when policy is disabled"
-          git push origin HEAD:agent/system-wide-search-hardening
