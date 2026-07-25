@@ -1,121 +1,41 @@
-name: Hardening Diagnostics
+name: One-shot hardening cleanup
 
 on:
-  pull_request:
+  push:
     branches:
-      - master
+      - agent/system-wide-search-hardening
 
 permissions:
   contents: write
 
-concurrency:
-  group: hardening-diagnostics-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 jobs:
-  hardening:
-    if: github.head_ref == 'agent/system-wide-search-hardening'
+  cleanup:
+    if: ${{ !contains(github.event.head_commit.message, '[cleanup complete]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: agent/system-wide-search-hardening
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 24
-          cache: npm
-      - name: Apply one-shot patches and formatting
-        id: patch
+      - name: Remove temporary remediation files
         shell: bash
         run: |
-          set +e
-          {
-            set -ex
-            python scripts/apply_spotlight_update_key_fix.py
-            python scripts/fix_managed_scope_control_flow.py
-            if grep -q 'CURRENT_SCHEMA_VERSION: i32 = 25' src-tauri/src/db/schema.rs; then
-              python scripts/apply_global_index_hardening.py
-            fi
-            if grep -q 'classify_ai_targets_with_configured_provider' src-tauri/src/ai/classification.rs \
-               && grep -q 'pub async fn classify_files_with_ai' src-tauri/src/ai/classification.rs \
-               && ! grep -q 'enqueue_legacy_targets_for_managed_ai' src-tauri/src/ai/classification.rs; then
-              python scripts/apply_legacy_ai_queue_patch.py
-            fi
-            if grep -A12 -q 'pub async fn classify_files_with_ai_for_db' src-tauri/src/ai/classification.rs \
-               && grep -A12 'pub async fn classify_files_with_ai_for_db' src-tauri/src/ai/classification.rs | grep -q 'classify_ai_targets_with_configured_provider'; then
-              python scripts/apply_internal_ai_queue_patch.py
-            fi
-            if ! grep -q 'pendingManagedEntry' src/components/CommandModal.tsx; then
-              python scripts/apply_spotlight_management_confirmation.py
-            fi
-            if grep -q 'let records = enumerate_mft_records' src-tauri/src/global_index/windows/mft.rs; then
-              python scripts/apply_mft_staging_patch.py
-            fi
-            cargo fmt --manifest-path src-tauri/Cargo.toml
-            npm install --package-lock-only --ignore-scripts
-            npm audit fix --package-lock-only --ignore-scripts
-          } > hardening-patch.log 2>&1
-          status=$?
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          if [ "$status" -ne 0 ]; then
-            exit 0
-          fi
-          if git diff --quiet -- src-tauri src package-lock.json; then
-            exit 0
-          fi
+          git rm -f --ignore-unmatch \
+            .github/workflows/hardening-diagnostics.yml \
+            .github/workflows/one-shot-rustfmt.yml \
+            scripts/apply_final_index_correctness.py \
+            scripts/apply_global_index_hardening.py \
+            scripts/apply_internal_ai_queue_patch.py \
+            scripts/apply_legacy_ai_queue_patch.py \
+            scripts/apply_macos_delete_hardening.py \
+            scripts/apply_managed_scope_backpressure.py \
+            scripts/apply_mft_staging_patch.py \
+            scripts/apply_spotlight_management_confirmation.py \
+            scripts/apply_spotlight_update_key_fix.py \
+            scripts/fix_macos_compile.py \
+            scripts/fix_managed_scope_control_flow.py \
+            scripts/repair_macos_delete_hardening.py \
+            src-tauri/src/global_index/managed_worker.rs
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src-tauri src package-lock.json
-          git commit -m "fix(index): apply remaining hardening patches"
+          git commit -m "chore(index): remove remediation scaffolding [cleanup complete]"
           git push origin HEAD:agent/system-wide-search-hardening
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: hardening-patch-${{ github.sha }}
-          path: hardening-patch.log
-      - name: Preserve patch result
-        if: steps.patch.outputs.status != '0'
-        shell: bash
-        run: exit 1
-
-  npm-audit:
-    if: github.head_ref == 'agent/system-wide-search-hardening'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci --ignore-scripts
-      - name: Capture audit
-        shell: bash
-        run: npm audit --json > npm-audit.json || true
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: hardening-npm-audit-${{ github.sha }}
-          path: npm-audit.json
-
-  macos-tests:
-    if: github.head_ref == 'agent/system-wide-search-hardening'
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      - name: Capture Rust test output
-        id: test
-        shell: bash
-        run: |
-          set +e
-          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime > macos-rust-test.log 2>&1
-          status=$?
-          tail -n 400 macos-rust-test.log > macos-rust-test-tail.log
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: hardening-macos-test-${{ github.sha }}
-          path: macos-rust-test-tail.log
-      - name: Preserve test result
-        if: steps.test.outputs.status != '0'
-        shell: bash
-        run: exit 1
