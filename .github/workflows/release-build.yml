@@ -129,7 +129,8 @@ jobs:
         continue-on-error: true
 
       - name: Generate Node SBOM
-        run: npx --no-install cyclonedx-npm --output-file sbom-node.cdx.json
+        shell: bash
+        run: npm sbom --sbom-format cyclonedx > sbom-node.cdx.json
 
       - name: Generate Rust SBOM
         run: |
