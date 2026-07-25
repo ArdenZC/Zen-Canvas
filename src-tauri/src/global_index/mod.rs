@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod coordinator;
+pub mod hardened_worker;
 pub mod managed_scope;
 pub mod managed_worker;
 pub mod models;
@@ -13,7 +14,7 @@ pub mod windows;
 
 pub use commands::*;
 pub use coordinator::{GlobalIndexCoordinator, GlobalIndexProvider, GlobalIndexSink};
-pub use managed_worker::ManagedAiWorker;
+pub use hardened_worker::ManagedAiWorker;
 pub use models::*;
 pub use search::search_global_entries;
 
