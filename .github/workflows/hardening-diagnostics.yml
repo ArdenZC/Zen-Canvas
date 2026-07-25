@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  issues: write
 
 concurrency:
   group: hardening-diagnostics-${{ github.ref }}
@@ -20,11 +19,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: agent/system-wide-search-hardening
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: 24
-          cache: npm
-      - name: Apply hardening patches, rustfmt, and audit snapshot
+      - name: Apply one-shot patches and rustfmt
         shell: bash
         run: |
           if grep -q 'CURRENT_SCHEMA_VERSION: i32 = 25' src-tauri/src/db/schema.rs; then
@@ -44,14 +39,51 @@ jobs:
             python scripts/apply_macos_delete_hardening.py
           fi
           cargo fmt --manifest-path src-tauri/Cargo.toml
-          npm ci --ignore-scripts
-          mkdir -p .hardening
-          npm audit --json > .hardening/npm-audit.json || true
-          if git diff --quiet -- src-tauri .hardening; then
+          if git diff --quiet -- src-tauri; then
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src-tauri .hardening
-          git commit -m "fix(index): apply hardening patches and diagnostics"
+          git add src-tauri
+          git commit -m "fix(index): apply remaining hardening patches"
           git push origin HEAD:agent/system-wide-search-hardening
+
+  npm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Capture audit
+        shell: bash
+        run: npm audit --json > npm-audit.json || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hardening-npm-audit-${{ github.sha }}
+          path: npm-audit.json
+
+  macos-tests:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Capture Rust test output
+        id: test
+        shell: bash
+        run: |
+          set +e
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime > macos-rust-test.log 2>&1
+          status=$?
+          tail -n 400 macos-rust-test.log > macos-rust-test-tail.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: hardening-macos-test-${{ github.sha }}
+          path: macos-rust-test-tail.log
+      - name: Preserve test result
+        if: steps.test.outputs.status != '0'
+        shell: bash
+        run: exit 1
