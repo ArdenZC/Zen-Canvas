@@ -351,27 +351,33 @@ pub async fn classify_selected_files_with_ai_for_db(
 pub async fn classify_files_with_ai<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
     cancellation: State<'_, AIClassificationCancellationToken>,
     scope: LibraryScope,
     options: Option<AIClassificationOptions>,
 ) -> Result<RuleExecutionSummary, String> {
     require_main_window(&window)?;
     let guard = cancellation.begin()?;
-    let cancel_flag = Arc::clone(&cancellation.cancel);
     let db = db.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
         let settings = normalize_ai_settings(get_ai_settings_for_db(&db).map_err(string_error)?);
+        if !settings.enabled {
+            return Err("AI classification is disabled.".to_string());
+        }
+        if settings.provider == AIProviderKind::OpenAICompatible
+            && settings.api_key.trim().is_empty()
+        {
+            return Err("Cloud AI credentials are required.".to_string());
+        }
+        let force = options
+            .as_ref()
+            .and_then(|options| options.force)
+            .unwrap_or(false);
         let targets = collect_ai_classification_targets(&db, &scope, options.as_ref(), &settings)
             .map_err(string_error)?;
-        let progress = TauriAIClassificationProgress::new(app);
-        classify_ai_targets_with_configured_provider(
-            &db,
-            targets,
-            &settings,
-            Some((&progress, &cancel_flag)),
-        )
+        db.enqueue_legacy_targets_for_managed_ai(&targets, force)
+            .map_err(string_error)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -381,26 +387,28 @@ pub async fn classify_files_with_ai<R: Runtime>(
 pub async fn classify_selected_files_with_ai<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
     cancellation: State<'_, AIClassificationCancellationToken>,
     file_ids: Vec<String>,
 ) -> Result<RuleExecutionSummary, String> {
     require_main_window(&window)?;
     let guard = cancellation.begin()?;
-    let cancel_flag = Arc::clone(&cancellation.cancel);
     let db = db.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
         let settings = normalize_ai_settings(get_ai_settings_for_db(&db).map_err(string_error)?);
+        if !settings.enabled {
+            return Err("AI classification is disabled.".to_string());
+        }
+        if settings.provider == AIProviderKind::OpenAICompatible
+            && settings.api_key.trim().is_empty()
+        {
+            return Err("Cloud AI credentials are required.".to_string());
+        }
         let targets =
             collect_selected_ai_classification_targets(&db, &file_ids).map_err(string_error)?;
-        let progress = TauriAIClassificationProgress::new(app);
-        classify_ai_targets_with_configured_provider(
-            &db,
-            targets,
-            &settings,
-            Some((&progress, &cancel_flag)),
-        )
+        db.enqueue_legacy_targets_for_managed_ai(&targets, true)
+            .map_err(string_error)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -409,11 +417,14 @@ pub async fn classify_selected_files_with_ai<R: Runtime>(
 #[tauri::command]
 pub fn cancel_ai_classification<R: Runtime>(
     window: WebviewWindow<R>,
+    db: State<'_, Database>,
     cancellation: State<'_, AIClassificationCancellationToken>,
 ) -> Result<(), String> {
     require_main_window(&window)?;
     cancellation.cancel.store(true, Ordering::SeqCst);
-    Ok(())
+    db.cancel_managed_ai_queue()
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }
 
 pub(crate) fn collect_ai_classification_targets(

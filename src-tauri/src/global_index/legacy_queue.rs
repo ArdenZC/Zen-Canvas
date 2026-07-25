@@ -150,10 +150,7 @@ impl Database {
                     AND scope.enabled = 1
               )
             "#,
-            params![
-                AI_JOB_BLOCKED_BY_POLICY,
-                super::models::unix_now()
-            ],
+            params![AI_JOB_BLOCKED_BY_POLICY, super::models::unix_now()],
         )
         .map_err(DbError::from)
     }
