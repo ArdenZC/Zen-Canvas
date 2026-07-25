@@ -1,0 +1,40 @@
+name: Hardening Diagnostics
+
+on:
+  push:
+    branches:
+      - agent/system-wide-search-hardening
+
+permissions:
+  contents: read
+
+jobs:
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Show rustfmt diff
+        shell: bash
+        run: |
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+          git diff -- src-tauri/src/global_index src-tauri/tests/global_search_hardening.rs
+          git diff --quiet -- src-tauri/src/global_index src-tauri/tests/global_search_hardening.rs
+
+  npm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Compact npm audit report
+        shell: bash
+        run: |
+          npm audit --json > audit.json || true
+          node - <<'NODE'
+          const report = require('./audit.json');
+          console.log(JSON.stringify({metadata: report.metadata, vulnerabilities: report.vulnerabilities}, null, 2));
+          if ((report.metadata?.vulnerabilities?.high || 0) + (report.metadata?.vulnerabilities?.critical || 0) > 0) process.exit(1);
+          NODE
