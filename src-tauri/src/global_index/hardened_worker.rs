@@ -7,9 +7,7 @@
 //! and strict response-schema validation.
 
 use super::managed_worker::{build_managed_ai_request, ManagedAiJob};
-use super::models::{
-    unix_now, ManagedScope, AI_JOB_BLOCKED_BY_POLICY, AI_JOB_CANCELED, AI_JOB_PENDING,
-};
+use super::models::{unix_now, ManagedScope, AI_JOB_BLOCKED_BY_POLICY, AI_JOB_PENDING};
 use crate::ai::{
     schema::AIProviderKind,
     settings::{get_ai_settings_for_db, normalize_ai_settings, provider_for_settings, AISettings},
@@ -410,9 +408,15 @@ fn claim_next_managed_ai_job(db: &Database) -> Result<Option<ManagedAiJob>, DbEr
                 ELSE 'duplicate_managed_scope'
             END
         WHERE global_entry_id = ?2
-          AND job_id IN (
-              SELECT id FROM ai_jobs
-              WHERE global_entry_id = ?2 AND input_fingerprint = ?4
+          AND (
+              job_id = ?1
+              OR job_id IN (
+                  SELECT id FROM ai_jobs
+                  WHERE global_entry_id = ?2
+                    AND input_fingerprint = ?4
+                    AND status = 'canceled'
+                    AND last_error = 'duplicate_managed_scope'
+              )
           )
         "#,
         params![job.id, job.global_entry_id, now, job.input_fingerprint],
