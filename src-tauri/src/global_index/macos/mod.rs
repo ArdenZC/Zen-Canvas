@@ -10,12 +10,13 @@ mod spotlight;
 
 use super::coordinator::{GlobalIndexError, GlobalIndexProvider, GlobalIndexSink};
 use super::models::{
-    GlobalEntryInput, GlobalSourceDescriptor, GlobalVolume, INDEX_STATUS_FSEVENTS_UNAVAILABLE,
-    INDEX_STATUS_PERMISSION_REQUIRED, INDEX_STATUS_READY,
+    normalize_path, GlobalEntryInput, GlobalSourceDescriptor, GlobalVolume,
+    INDEX_STATUS_FSEVENTS_UNAVAILABLE, INDEX_STATUS_PERMISSION_REQUIRED, INDEX_STATUS_READY,
     INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED, INDEX_STATUS_SPOTLIGHT_NOT_INDEXED,
     INDEX_STATUS_SPOTLIGHT_UNAVAILABLE, INDEX_STATUS_UNAVAILABLE,
     PROVIDER_MACOS_FSEVENTS_RECONCILE, PROVIDER_MACOS_SPOTLIGHT,
 };
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -35,6 +36,7 @@ pub(crate) struct PendingUpdates {
 pub struct MacosSpotlightProvider {
     stopped: Arc<AtomicBool>,
     pending: Arc<Mutex<PendingUpdates>>,
+    known_entries: Arc<Mutex<HashMap<String, String>>>,
     spotlight_watcher: Mutex<Option<JoinHandle<()>>>,
     fsevents_watcher: Mutex<Option<fsevents::FseventsHandle>>,
     baseline_established: AtomicBool,
@@ -45,6 +47,7 @@ impl MacosSpotlightProvider {
         Self {
             stopped: Arc::new(AtomicBool::new(false)),
             pending: Arc::new(Mutex::new(PendingUpdates::default())),
+            known_entries: Arc::new(Mutex::new(HashMap::new())),
             spotlight_watcher: Mutex::new(None),
             fsevents_watcher: Mutex::new(None),
             baseline_established: AtomicBool::new(false),

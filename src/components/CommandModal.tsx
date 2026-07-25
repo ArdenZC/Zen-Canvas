@@ -3,7 +3,7 @@ import type * as React from "react";
 import { Activity, ChevronRight, Clock3, CornerDownLeft, File as FileIcon, Folder, FolderPlus, LayoutGrid, Radar, Search, X } from "lucide-react";
 import { motion } from "motion/react";
 import { tauriApi } from "../api/tauriApi";
-import type { FileRecord, GlobalSearchResult, OperationLog } from "../types/domain";
+import type { FileRecord, GlobalIndexStatus, GlobalSearchResult, OperationLog } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { formatCount } from "../i18n";
 import { cn } from "../utils/tw";
@@ -11,7 +11,7 @@ import { useBackgroundIndexerStore } from "../store/useBackgroundIndexerStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { compactPath, formatDisplayPath, readableError } from "../utils/viewHelpers";
-import { IconButton, StateBlock, quietText } from "../views/shared/ui";
+import { ConfirmDialog, IconButton, StateBlock, quietText } from "../views/shared/ui";
 import { ModalPortal } from "./modal/ModalPortal";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { createCommandRegistry, executeSpotlightCommand, queryCommandRegistry, requestSettingsSection, type SpotlightCommand } from "./spotlight/commandRegistry";
@@ -144,6 +144,9 @@ export function CommandModal({
   const [globalResultState, setGlobalResultState] = useState<{ query: string; results: GlobalSearchResult[] }>({ query: "", results: [] });
   const [queryState, setQueryState] = useState<"idle" | "pending" | "done" | "failed">("idle");
   const [commandError, setCommandError] = useState("");
+  const [globalIndexStatus, setGlobalIndexStatus] = useState<GlobalIndexStatus | null>(null);
+  const [pendingManagedEntry, setPendingManagedEntry] = useState<GlobalSearchResult | null>(null);
+  const [isAddingManagedScope, setIsAddingManagedScope] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [inputFocused, setInputFocused] = useState(false);
   const settingsCommandSectionRef = useRef<string | null>(null);
@@ -189,7 +192,15 @@ export function CommandModal({
     && queryState === "idle";
   const shouldShowIdleState = !standalone && !trimmedSearch;
   const shouldShowStateBlock = !showResults && trimmedSearch.length > 0 && queryState !== "idle";
-  const showGlobalIndexMeta = !isStandaloneCollapsed;
+  const showGlobalIndexMeta = !isStandaloneCollapsed && Boolean(globalIndexStatus && globalIndexStatus.status !== "ready");
+
+  useEffect(() => {
+    let disposed = false;
+    void tauriApi.getGlobalIndexStatus()
+      .then((status) => { if (!disposed) setGlobalIndexStatus(status); })
+      .catch(() => undefined);
+    return () => { disposed = true; };
+  }, []);
 
   useEffect(() => {
     if (!standalone) return;
@@ -279,8 +290,14 @@ export function CommandModal({
     }
   }
 
-  async function addGlobalEntryToManagedScope(entry: GlobalSearchResult) {
-    if (entry.managed) return;
+  function requestGlobalEntryManagedScope(entry: GlobalSearchResult) {
+    if (!entry.managed) setPendingManagedEntry(entry);
+  }
+
+  async function confirmGlobalEntryManagedScope() {
+    const entry = pendingManagedEntry;
+    if (!entry || entry.managed || isAddingManagedScope) return;
+    setIsAddingManagedScope(true);
     try {
       await tauriApi.addManagedScope({
         path: entry.isDirectory ? entry.path : parentPathForManagedScope(entry.path),
@@ -293,10 +310,13 @@ export function CommandModal({
         ...current,
         results: current.results.map((item) => item.id === entry.id ? { ...item, managed: true } : item)
       }));
+      setPendingManagedEntry(null);
     } catch (error) {
       const message = readableError(error);
       setCommandError(message);
       onError?.(message);
+    } finally {
+      setIsAddingManagedScope(false);
     }
   }
 
@@ -491,7 +511,7 @@ export function CommandModal({
                 highlight={trimmedSearch}
                 t={t}
                 onChoose={chooseResult}
-                onManage={addGlobalEntryToManagedScope}
+                onManage={requestGlobalEntryManagedScope}
                 onActivate={setActiveIndex}
               />
             </div>
@@ -534,7 +554,27 @@ export function CommandModal({
     return findSpotlightSettingsRestoreTarget(settingsCommandSectionRef.current, restoreFocusRef?.current ?? null);
   }
 
-  return standalone ? content : <ModalPortal initialFocusRef={inputRef} restoreFocus={restoreSpotlightFocus} onEscape={onClose}>{content}</ModalPortal>;
+  const spotlight = standalone
+    ? content
+    : <ModalPortal initialFocusRef={inputRef} restoreFocus={restoreSpotlightFocus} onEscape={onClose}>{content}</ModalPortal>;
+
+  return (
+    <>
+      {spotlight}
+      <ConfirmDialog
+        open={Boolean(pendingManagedEntry)}
+        tone="warning"
+        title={t("globalSearchAddManaged")}
+        description={t("managedScopesDesc")}
+        emphasis={t("managedScopePolicySummary")}
+        confirmLabel={t("managedScopeAdd")}
+        cancelLabel={t("cancel")}
+        isProcessing={isAddingManagedScope}
+        onConfirm={() => void confirmGlobalEntryManagedScope()}
+        onCancel={() => { if (!isAddingManagedScope) setPendingManagedEntry(null); }}
+      />
+    </>
+  );
 }
 
 function SpotlightResultGroups({
