@@ -153,6 +153,6 @@ keeps global metadata-only results free of AI risk or recommendation badges.
   live LocalSystem SCM run, named-pipe status/discovery, real C: MFT scan, and
   post-create USN incremental scan were accepted manually; the interactive
   NSIS post-install/uninstall UI remains a separate acceptance step.
-- macOS CI validates native compilation, unit tests, Clippy, and the unsigned
-  DMG path. A live user-session Spotlight inventory and signed/notarized DMG
-  remain explicit release acceptance checks.
+- macOS CI validates native bridge compilation, unit tests, Clippy, and the
+  unsigned DMG path on the same source revision. A live user-session Spotlight
+  inventory and signed/notarized DMG remain explicit release acceptance checks.
