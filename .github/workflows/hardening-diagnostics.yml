@@ -41,6 +41,9 @@ jobs:
           if ! grep -q 'pendingManagedEntry' src/components/CommandModal.tsx; then
             python scripts/apply_spotlight_management_confirmation.py
           fi
+          if grep -q 'let records = enumerate_mft_records' src-tauri/src/global_index/windows/mft.rs; then
+            python scripts/apply_mft_staging_patch.py
+          fi
           cargo fmt --manifest-path src-tauri/Cargo.toml
           if git diff --quiet -- src-tauri src; then
             exit 0
