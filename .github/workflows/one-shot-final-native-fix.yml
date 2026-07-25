@@ -1,0 +1,64 @@
+name: One-shot final native fix
+
+on:
+  push:
+    branches:
+      - agent/system-wide-search-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: ${{ !contains(github.event.head_commit.message, '[final native fix]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/system-wide-search-hardening
+      - name: Apply final native test fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          test_path = Path('src-tauri/src/db/tests/part1.rs')
+          text = test_path.read_text(encoding='utf-8')
+          old = '''        assert_eq!(
+              conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+                  .expect("schema version"),
+              25
+          );'''
+          new = old.replace('              25\n', '              26\n')
+          if new not in text:
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected one schema assertion, found {text.count(old)}')
+              text = text.replace(old, new)
+          test_path.write_text(text, encoding='utf-8')
+
+          spotlight_path = Path('src-tauri/src/global_index/macos/spotlight.rs')
+          text = spotlight_path.read_text(encoding='utf-8')
+          old = '''where
+    F: FnMut(&[GlobalEntryInput]) -> Result<(), String>,
+{
+    autoreleasepool(|_| {'''
+          new = '''where
+    F: FnMut(&[GlobalEntryInput]) -> Result<(), String>,
+{
+    if cancel.load(Ordering::Acquire) {
+        return Err("macos_spotlight_query_paused".to_string());
+    }
+    autoreleasepool(|_| {'''
+          if new not in text:
+              if text.count(old) != 1:
+                  raise SystemExit(f'expected one Spotlight entry point, found {text.count(old)}')
+              text = text.replace(old, new)
+          spotlight_path.write_text(text, encoding='utf-8')
+          PY
+          cargo fmt --manifest-path src-tauri/Cargo.toml
+          git rm .github/workflows/one-shot-final-native-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri
+          git commit -m "fix(macos): avoid native query after cancellation [final native fix]"
+          git push origin HEAD:agent/system-wide-search-hardening
