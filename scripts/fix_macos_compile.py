@@ -1,9 +1,11 @@
 from pathlib import Path
 
 
-def replace(path: str, old: str, new: str, count: int | None = None) -> None:
+def ensure_replace(path: str, old: str, new: str, count: int | None = None) -> None:
     target = Path(path)
     text = target.read_text(encoding="utf-8")
+    if new in text:
+        return
     found = text.count(old)
     expected = count if count is not None else 1
     if found != expected:
@@ -11,12 +13,12 @@ def replace(path: str, old: str, new: str, count: int | None = None) -> None:
     target.write_text(text.replace(old, new), encoding="utf-8")
 
 
-replace(
+ensure_replace(
     "src-tauri/src/global_index/macos/fsevents.rs",
     "use super::{fsevent_callback, FseventInfo};",
     "use super::{fsevent_callback, fsevent_requires_full_reconcile, FseventInfo};",
 )
-replace(
+ensure_replace(
     "src-tauri/src/global_index/macos/fsevents.rs",
     "unsafe { &*context.info.cast::<FseventInfo>() }",
     "&*context.info.cast::<FseventInfo>()",
@@ -24,13 +26,13 @@ replace(
 )
 
 spotlight = "src-tauri/src/global_index/macos/spotlight.rs"
-replace(
+ensure_replace(
     spotlight,
     "unsafe { center.removeObserver(&observer) };",
     "let observer_object: &AnyObject = observer.as_ref().as_ref();\n        unsafe { center.removeObserver(observer_object) };",
     count=2,
 )
-replace(
+ensure_replace(
     spotlight,
     "let scopes = NSArray::from_slice(&[NSMetadataQueryIndexedLocalComputerScope]);\n    unsafe { query.setSearchScopes(&scopes) };",
     "let scope: &AnyObject = unsafe { NSMetadataQueryIndexedLocalComputerScope }.as_ref();\n    let scopes: Retained<NSArray<AnyObject>> = NSArray::from_slice(&[scope]);\n    unsafe { query.setSearchScopes(&scopes) };",
@@ -45,15 +47,18 @@ for key in [
 ]:
     target = Path(spotlight)
     text = target.read_text(encoding="utf-8")
+    safe = f"unsafe {{ {key} }}"
+    if safe in text:
+        continue
     old = f", {key})"
-    new = f", unsafe {{ {key} }})"
+    new = f", {safe})"
     occurrences = text.count(old)
     if occurrences == 0:
         raise SystemExit(f"{spotlight}: no unwrapped usage for {key}")
     target.write_text(text.replace(old, new), encoding="utf-8")
-replace(spotlight, "batches.iter().sum()", "batches.iter().sum::<usize>()")
+ensure_replace(spotlight, "batches.iter().sum()", "batches.iter().sum::<usize>()")
 
-replace(
+ensure_replace(
     "src-tauri/src/global_index/managed_scope.rs",
     """            statement
                 .query_map(
@@ -70,7 +75,7 @@ replace(
             entries
 """,
 )
-replace(
+ensure_replace(
     "src-tauri/src/global_index/repository.rs",
     """    statement
         .query_map([], |row| {
@@ -96,7 +101,7 @@ replace(
     Ok(policies)
 """,
 )
-replace(
+ensure_replace(
     "src-tauri/src/global_index/search.rs",
     """        return statement
             .query_map(
@@ -114,7 +119,7 @@ replace(
         return Ok(results);
 """,
 )
-replace(
+ensure_replace(
     "src-tauri/src/global_index/search.rs",
     """    statement
         .query_map(
