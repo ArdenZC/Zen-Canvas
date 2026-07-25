@@ -31,6 +31,10 @@ jobs:
              && ! grep -q 'enqueue_legacy_targets_for_managed_ai' src-tauri/src/ai/classification.rs; then
             python scripts/apply_legacy_ai_queue_patch.py
           fi
+          if grep -q 'pub struct MacosSpotlightProvider' src-tauri/src/global_index/macos/mod.rs \
+             && ! grep -q 'known_entries:' src-tauri/src/global_index/macos/mod.rs; then
+            python scripts/apply_macos_delete_hardening.py
+          fi
           cargo fmt --manifest-path src-tauri/Cargo.toml
           if git diff --quiet -- src-tauri; then
             exit 0
@@ -38,7 +42,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src-tauri
-          git commit -m "fix(index): harden batch writes and managed AI queue"
+          git commit -m "fix(index): harden batch writes, AI queue, and macOS deletes"
           git push origin HEAD:agent/system-wide-search-hardening
 
   npm-audit:
