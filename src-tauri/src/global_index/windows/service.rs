@@ -1,16 +1,16 @@
-//! Versioned IPC protocol and named-pipe transport for the Windows index
-//! service.
+//! Versioned IPC protocol and hardened named-pipe transport for the Windows
+//! global-index service.
 //!
-//! The desktop process remains a normal-user process. The service owns only
-//! volume discovery and metadata enumeration; it never receives arbitrary
-//! paths or file-operation commands. Direct in-process mode is retained as a
-//! development and permission fallback when the service is unavailable.
+//! The service accepts metadata-index commands only from the same installed
+//! Zen Canvas executable running in an interactive session. It never receives
+//! arbitrary paths or file-operation commands, and service shutdown remains an
+//! SCM-only operation.
 
 use crate::global_index::models::{GlobalEntry, GlobalEntryInput, GlobalVolume};
 use serde::{Deserialize, Serialize};
 
-pub const IPC_PROTOCOL_VERSION: u16 = 2;
-pub const INDEX_SERVICE_PIPE: &str = r"\\.\pipe\ZenCanvas.GlobalIndex.v2";
+pub const IPC_PROTOCOL_VERSION: u16 = 3;
+pub const INDEX_SERVICE_PIPE: &str = r"\\.\pipe\ZenCanvas.GlobalIndex.v3";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -21,6 +21,8 @@ pub enum IndexServiceCommand {
     Pause,
     Status,
     Rebuild { source_id: String },
+    /// Retained for wire compatibility with pre-v3 clients. The hardened
+    /// validator always rejects it; the SCM is the only shutdown authority.
     Shutdown,
 }
 
@@ -129,19 +131,49 @@ pub fn validate_request(request: &IndexServiceRequest) -> Result<(), String> {
     if request.protocol_version != IPC_PROTOCOL_VERSION {
         return Err("unsupported_index_service_protocol".to_string());
     }
-    if request.request_id.trim().is_empty() {
-        return Err("missing_index_service_request_id".to_string());
+    if request.request_id.trim().is_empty() || request.request_id.len() > 128 {
+        return Err("invalid_index_service_request_id".to_string());
     }
     match &request.command {
         IndexServiceCommand::StartInitialIndex { source_id }
         | IndexServiceCommand::ResumeIncrementalSync { source_id }
-        | IndexServiceCommand::Rebuild { source_id }
-            if source_id.trim().is_empty() =>
-        {
-            Err("missing_index_service_source_id".to_string())
+        | IndexServiceCommand::Rebuild { source_id } => {
+            if source_id.trim().is_empty() || source_id.len() > 256 {
+                return Err("invalid_index_service_source_id".to_string());
+            }
+            let source = request
+                .source
+                .as_ref()
+                .ok_or_else(|| "index_service_source_snapshot_required".to_string())?;
+            validate_source_snapshot(source)?;
         }
-        _ => Ok(()),
+        IndexServiceCommand::Shutdown => {
+            return Err("index_service_shutdown_via_scm_only".to_string());
+        }
+        IndexServiceCommand::DiscoverSources
+        | IndexServiceCommand::Pause
+        | IndexServiceCommand::Status => {
+            if request.source.is_some() {
+                return Err("index_service_unexpected_source_snapshot".to_string());
+            }
+        }
     }
+    Ok(())
+}
+
+fn validate_source_snapshot(source: &GlobalVolume) -> Result<(), String> {
+    for (field, value, max) in [
+        ("id", source.id.as_str(), 256usize),
+        ("stable_volume_id", source.stable_volume_id.as_str(), 1024),
+        ("mount_path", source.mount_path.as_str(), 4096),
+        ("filesystem_type", source.filesystem_type.as_str(), 128),
+        ("provider", source.provider.as_str(), 128),
+    ] {
+        if value.trim().is_empty() || value.len() > max {
+            return Err(format!("index_service_invalid_source_{field}"));
+        }
+    }
+    Ok(())
 }
 
 pub fn direct_mode_reason() -> &'static str {
@@ -154,6 +186,7 @@ mod named_pipe {
         validate_request, IndexServiceEvent, IndexServiceFrame, IndexServiceLookupResponse,
         IndexServiceRequest, IndexServiceResponse, INDEX_SERVICE_PIPE,
     };
+    use std::path::PathBuf;
     use std::ptr;
     use std::sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -161,25 +194,31 @@ mod named_pipe {
     };
     use std::thread;
     use windows_sys::Win32::Foundation::{
-        CloseHandle, GetLastError, LocalFree, ERROR_MORE_DATA, ERROR_PIPE_CONNECTED, GENERIC_READ,
-        GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
+        CloseHandle, GetLastError, LocalFree, ERROR_MORE_DATA, ERROR_PIPE_BUSY,
+        ERROR_PIPE_CONNECTED, GENERIC_READ, GENERIC_WRITE, HANDLE, INVALID_HANDLE_VALUE,
     };
     use windows_sys::Win32::Security::Authorization::{
         ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
     };
     use windows_sys::Win32::Security::{RevertToSelf, SECURITY_ATTRIBUTES, TOKEN_QUERY};
     use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, FlushFileBuffers, ReadFile, WriteFile, FILE_SHARE_READ, FILE_SHARE_WRITE,
-        OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
+        CreateFileW, FlushFileBuffers, ReadFile, WriteFile, OPEN_EXISTING,
     };
     use windows_sys::Win32::System::Pipes::{
-        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, ImpersonateNamedPipeClient,
-        PIPE_READMODE_MESSAGE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_MESSAGE, PIPE_WAIT,
+        ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, GetNamedPipeClientProcessId,
+        GetNamedPipeClientSessionId, ImpersonateNamedPipeClient, SetNamedPipeHandleState,
+        WaitNamedPipeW, PIPE_ACCESS_DUPLEX, PIPE_READMODE_MESSAGE, PIPE_REJECT_REMOTE_CLIENTS,
+        PIPE_TYPE_MESSAGE, PIPE_WAIT,
     };
-    use windows_sys::Win32::System::Threading::{GetCurrentThread, OpenThreadToken};
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentThread, OpenProcess, OpenThreadToken, QueryFullProcessImageNameW,
+        PROCESS_QUERY_LIMITED_INFORMATION,
+    };
 
     const MAX_FRAME_BYTES: usize = 1024 * 1024;
     const PIPE_BUFFER_BYTES: u32 = 64 * 1024;
+    const PIPE_CONNECT_TIMEOUT_MS: u32 = 2_000;
+    const MAX_PIPE_INSTANCES: u32 = 4;
 
     pub struct IndexServiceClient {
         pipe: HANDLE,
@@ -211,6 +250,7 @@ mod named_pipe {
     }
 
     pub fn call(request: &IndexServiceRequest) -> Result<IndexServiceResponse, String> {
+        validate_request(request)?;
         let mut client = connect()?;
         client.send_request(request)?;
         loop {
@@ -218,7 +258,7 @@ mod named_pipe {
                 IndexServiceFrame::Response { response } => return Ok(response),
                 IndexServiceFrame::Event { .. } => continue,
                 IndexServiceFrame::LookupResponse { .. } => {
-                    return Err("index_service_unexpected_lookup_response".to_string())
+                    return Err("index_service_unexpected_lookup_response".to_string());
                 }
             }
         }
@@ -239,7 +279,7 @@ mod named_pipe {
                 IndexServiceFrame::Response { response } => return Ok(response),
                 IndexServiceFrame::Event { event, .. } => on_event(&mut client, event)?,
                 IndexServiceFrame::LookupResponse { .. } => {
-                    return Err("index_service_unexpected_lookup_response".to_string())
+                    return Err("index_service_unexpected_lookup_response".to_string());
                 }
             }
         }
@@ -260,7 +300,10 @@ mod named_pipe {
         })
     }
 
-    pub type ServiceRequestHandler = dyn Fn(IndexServiceRequest, &mut IndexServiceServerConnection) -> Result<(), String>
+    pub type ServiceRequestHandler = dyn Fn(
+            IndexServiceRequest,
+            &mut IndexServiceServerConnection,
+        ) -> Result<(), String>
         + Send
         + Sync
         + 'static;
@@ -321,27 +364,28 @@ mod named_pipe {
                 if stop.load(Ordering::Acquire) {
                     break;
                 }
-                return Err(format!("index_service_pipe_connect_failed: {}", unsafe {
-                    GetLastError()
-                }));
+                return Err(format!(
+                    "index_service_pipe_connect_failed: {}",
+                    unsafe { GetLastError() }
+                ));
             }
             let stop_for_connection = stop.clone();
             let handler = handler.clone();
             let active_for_connection = active.clone();
             let pipe_value = pipe as usize;
-            let security_descriptor_value = security_descriptor as usize;
+            let descriptor_value = security_descriptor as usize;
             active.fetch_add(1, Ordering::AcqRel);
             thread::spawn(move || {
                 let _ = handle_connected_pipe(
                     pipe_value as HANDLE,
-                    security_descriptor_value as *mut core::ffi::c_void,
+                    descriptor_value as *mut core::ffi::c_void,
                     stop_for_connection,
                     handler,
                 );
                 active_for_connection.fetch_sub(1, Ordering::AcqRel);
             });
         }
-        for _ in 0..50 {
+        for _ in 0..250 {
             if active.load(Ordering::Acquire) == 0 {
                 break;
             }
@@ -352,21 +396,36 @@ mod named_pipe {
 
     fn connect() -> Result<IndexServiceClient, String> {
         let pipe_name = super::super::volumes::to_wide(INDEX_SERVICE_PIPE);
+        let waited = unsafe { WaitNamedPipeW(pipe_name.as_ptr(), PIPE_CONNECT_TIMEOUT_MS) };
+        if waited == 0 {
+            let error = unsafe { GetLastError() };
+            if error != ERROR_PIPE_BUSY {
+                return Err(format!("index_service_pipe_wait_failed: {error}"));
+            }
+            return Err("index_service_pipe_busy".to_string());
+        }
         let pipe = unsafe {
             CreateFileW(
                 pipe_name.as_ptr(),
                 GENERIC_READ | GENERIC_WRITE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                0,
                 ptr::null(),
                 OPEN_EXISTING,
                 0,
-                0 as HANDLE,
+                ptr::null_mut(),
             )
         };
         if pipe == INVALID_HANDLE_VALUE {
-            return Err(format!("index_service_pipe_open_failed: {}", unsafe {
-                GetLastError()
-            }));
+            return Err(format!(
+                "index_service_pipe_open_failed: {}",
+                unsafe { GetLastError() }
+            ));
+        }
+        let mode = PIPE_READMODE_MESSAGE;
+        if unsafe { SetNamedPipeHandleState(pipe, &mode, ptr::null(), ptr::null()) } == 0 {
+            let error = unsafe { GetLastError() };
+            unsafe { CloseHandle(pipe) };
+            return Err(format!("index_service_pipe_mode_failed: {error}"));
         }
         Ok(IndexServiceClient { pipe })
     }
@@ -380,8 +439,6 @@ mod named_pipe {
         let mut request_id = "unknown".to_string();
         let result = (|| {
             let bytes = read_frame(pipe)?;
-            // Windows requires a message to be read from the pipe before the
-            // server can impersonate the named-pipe client.
             validate_pipe_client(pipe)?;
             let request: IndexServiceRequest = serde_json::from_slice(&bytes)
                 .map_err(|error| format!("index_service_invalid_request: {error}"))?;
@@ -420,14 +477,13 @@ mod named_pipe {
         let connection_result = unsafe { ConnectNamedPipe(pipe, ptr::null_mut()) };
         if connection_result == 0 && unsafe { GetLastError() } != ERROR_PIPE_CONNECTED {
             cleanup_pipe(pipe, security_descriptor);
-            return Err(format!("index_service_pipe_connect_failed: {}", unsafe {
-                GetLastError()
-            }));
+            return Err(format!(
+                "index_service_pipe_connect_failed: {}",
+                unsafe { GetLastError() }
+            ));
         }
         let result = (|| {
             let bytes = read_frame(pipe)?;
-            // Windows requires a message to be read from the pipe before the
-            // server can impersonate the named-pipe client.
             validate_pipe_client(pipe)?;
             let request: IndexServiceRequest = serde_json::from_slice(&bytes)
                 .map_err(|error| format!("index_service_invalid_request: {error}"))?;
@@ -451,30 +507,87 @@ mod named_pipe {
         let mut token = ptr::null_mut();
         let token_opened =
             unsafe { OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, 0, &mut token) } != 0;
-        let token_error = if token_opened {
-            None
-        } else {
-            Some(unsafe { GetLastError() })
-        };
+        let token_error = (!token_opened).then(|| unsafe { GetLastError() });
         if token_opened && !token.is_null() {
             unsafe { CloseHandle(token) };
         }
-        if unsafe { RevertToSelf() } == 0 {
-            return Err(format!("index_service_client_revert_failed: {}", unsafe {
-                GetLastError()
-            }));
+        let revert_error = if unsafe { RevertToSelf() } == 0 {
+            Some(unsafe { GetLastError() })
+        } else {
+            None
+        };
+        if let Some(error) = revert_error {
+            return Err(format!("index_service_client_revert_failed: {error}"));
         }
-        token_error.map_or(Ok(()), |error| {
-            Err(format!("index_service_client_token_failed: {error}"))
-        })
+        if let Some(error) = token_error {
+            return Err(format!("index_service_client_token_failed: {error}"));
+        }
+
+        let mut session_id = 0u32;
+        if unsafe { GetNamedPipeClientSessionId(pipe, &mut session_id) } == 0 {
+            return Err(format!(
+                "index_service_client_session_failed: {}",
+                unsafe { GetLastError() }
+            ));
+        }
+        if session_id == 0 {
+            return Err("index_service_client_not_interactive".to_string());
+        }
+
+        let mut process_id = 0u32;
+        if unsafe { GetNamedPipeClientProcessId(pipe, &mut process_id) } == 0 || process_id == 0 {
+            return Err(format!(
+                "index_service_client_process_failed: {}",
+                unsafe { GetLastError() }
+            ));
+        }
+        let client_path = process_image_path(process_id)?;
+        let current_path = std::env::current_exe()
+            .map_err(|error| format!("index_service_current_exe_failed: {error}"))?;
+        if normalize_windows_path(&client_path) != normalize_windows_path(&current_path) {
+            return Err("index_service_client_executable_mismatch".to_string());
+        }
+        Ok(())
+    }
+
+    fn process_image_path(process_id: u32) -> Result<PathBuf, String> {
+        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, process_id) };
+        if process.is_null() {
+            return Err(format!(
+                "index_service_client_process_open_failed: {}",
+                unsafe { GetLastError() }
+            ));
+        }
+        let mut buffer = vec![0u16; 32_768];
+        let mut size = buffer.len() as u32;
+        let ok = unsafe { QueryFullProcessImageNameW(process, 0, buffer.as_mut_ptr(), &mut size) };
+        let error = if ok == 0 {
+            Some(unsafe { GetLastError() })
+        } else {
+            None
+        };
+        unsafe { CloseHandle(process) };
+        if let Some(error) = error {
+            return Err(format!("index_service_client_image_failed: {error}"));
+        }
+        buffer.truncate(size as usize);
+        Ok(PathBuf::from(String::from_utf16_lossy(&buffer)))
+    }
+
+    fn normalize_windows_path(path: &std::path::Path) -> String {
+        path.to_string_lossy()
+            .replace('/', "\\")
+            .trim_start_matches(r"\\?\")
+            .to_ascii_lowercase()
     }
 
     fn create_server_pipe() -> Result<(HANDLE, *mut core::ffi::c_void), String> {
         let name = super::super::volumes::to_wide(INDEX_SERVICE_PIPE);
         let sddl = super::super::volumes::to_wide(
-            // LocalSystem owns the service and the desktop is an interactive
-            // user. Remote clients are rejected below.
-            "D:P(A;;GA;;;SY)(A;;GA;;;IU)",
+            // LocalSystem owns the service. Built-in administrators and the
+            // interactive user receive only generic read/write; the executable
+            // and session checks above remain authoritative.
+            "D:P(A;;GA;;;SY)(A;;GRGW;;;BA)(A;;GRGW;;;IU)",
         );
         let mut descriptor = ptr::null_mut();
         let mut descriptor_size = 0u32;
@@ -502,7 +615,7 @@ mod named_pipe {
                 name.as_ptr(),
                 PIPE_ACCESS_DUPLEX,
                 PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-                32,
+                MAX_PIPE_INSTANCES,
                 PIPE_BUFFER_BYTES,
                 PIPE_BUFFER_BYTES,
                 1000,
@@ -511,9 +624,10 @@ mod named_pipe {
         };
         if pipe == INVALID_HANDLE_VALUE {
             unsafe { LocalFree(descriptor) };
-            return Err(format!("index_service_pipe_create_failed: {}", unsafe {
-                GetLastError()
-            }));
+            return Err(format!(
+                "index_service_pipe_create_failed: {}",
+                unsafe { GetLastError() }
+            ));
         }
         Ok((pipe, descriptor))
     }
@@ -532,7 +646,7 @@ mod named_pipe {
         let mut frame = serde_json::to_vec(value)
             .map_err(|error| format!("index_service_encode_failed: {error}"))?;
         frame.push(b'\n');
-        if frame.len() > MAX_FRAME_BYTES {
+        if frame.is_empty() || frame.len() > MAX_FRAME_BYTES {
             return Err("index_service_frame_too_large".to_string());
         }
         let mut written = 0u32;
@@ -546,38 +660,50 @@ mod named_pipe {
             )
         };
         if ok == 0 || written as usize != frame.len() {
-            return Err(format!("index_service_pipe_write_failed: {}", unsafe {
-                GetLastError()
-            }));
+            return Err(format!(
+                "index_service_pipe_write_failed: {}",
+                unsafe { GetLastError() }
+            ));
         }
         Ok(())
     }
 
     fn read_frame(pipe: HANDLE) -> Result<Vec<u8>, String> {
-        let mut buffer = vec![0u8; MAX_FRAME_BYTES];
-        let mut read = 0u32;
-        let ok = unsafe {
-            ReadFile(
-                pipe,
-                buffer.as_mut_ptr(),
-                buffer.len() as u32,
-                &mut read,
-                ptr::null_mut(),
-            )
-        };
-        if ok == 0 && unsafe { GetLastError() } != ERROR_MORE_DATA {
-            return Err(format!("index_service_pipe_read_failed: {}", unsafe {
-                GetLastError()
-            }));
+        let mut frame = Vec::with_capacity(PIPE_BUFFER_BYTES as usize);
+        loop {
+            if frame.len() >= MAX_FRAME_BYTES {
+                return Err("index_service_invalid_frame_size".to_string());
+            }
+            let remaining = MAX_FRAME_BYTES - frame.len();
+            let chunk_len = remaining.min(PIPE_BUFFER_BYTES as usize);
+            let start = frame.len();
+            frame.resize(start + chunk_len, 0);
+            let mut read = 0u32;
+            let ok = unsafe {
+                ReadFile(
+                    pipe,
+                    frame[start..].as_mut_ptr(),
+                    chunk_len as u32,
+                    &mut read,
+                    ptr::null_mut(),
+                )
+            };
+            frame.truncate(start + read as usize);
+            if ok != 0 {
+                break;
+            }
+            let error = unsafe { GetLastError() };
+            if error != ERROR_MORE_DATA {
+                return Err(format!("index_service_pipe_read_failed: {error}"));
+            }
         }
-        buffer.truncate(read as usize);
-        if buffer.last() == Some(&b'\n') {
-            buffer.pop();
+        if frame.last() == Some(&b'\n') {
+            frame.pop();
         }
-        if buffer.is_empty() || buffer.len() > MAX_FRAME_BYTES {
+        if frame.is_empty() || frame.len() > MAX_FRAME_BYTES {
             return Err("index_service_invalid_frame_size".to_string());
         }
-        Ok(buffer)
+        Ok(frame)
     }
 }
 
@@ -593,7 +719,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rejects_unknown_protocol_and_arbitrary_empty_source() {
+    fn rejects_unknown_protocol_and_shutdown_over_ipc() {
         let request = IndexServiceRequest {
             protocol_version: IPC_PROTOCOL_VERSION + 1,
             request_id: "request".to_string(),
@@ -604,50 +730,25 @@ mod tests {
             validate_request(&request),
             Err("unsupported_index_service_protocol".to_string())
         );
-        let request = IndexServiceRequest {
-            protocol_version: IPC_PROTOCOL_VERSION,
-            request_id: "request".to_string(),
-            command: IndexServiceCommand::Rebuild {
-                source_id: String::new(),
-            },
-            source: None,
-        };
+
+        let shutdown = IndexServiceRequest::new(IndexServiceCommand::Shutdown, None);
         assert_eq!(
-            validate_request(&request),
-            Err("missing_index_service_source_id".to_string())
+            validate_request(&shutdown),
+            Err("index_service_shutdown_via_scm_only".to_string())
         );
     }
 
     #[test]
-    fn request_round_trip_preserves_source_snapshot() {
+    fn index_commands_require_a_bounded_source_snapshot() {
         let request = IndexServiceRequest::new(
-            IndexServiceCommand::StartInitialIndex {
+            IndexServiceCommand::Rebuild {
                 source_id: "volume".to_string(),
             },
-            Some(GlobalVolume {
-                id: "volume".to_string(),
-                platform: "windows".to_string(),
-                stable_volume_id: "stable".to_string(),
-                display_name: "C".to_string(),
-                mount_path: "C:\\".to_string(),
-                filesystem_type: "ntfs".to_string(),
-                drive_kind: "fixed".to_string(),
-                enabled: true,
-                provider: "windows_mft_usn".to_string(),
-                index_status: "ready".to_string(),
-                last_error: None,
-                journal_id: None,
-                journal_cursor: None,
-                last_full_index_at: None,
-                last_incremental_sync_at: None,
-                entry_count: 0,
-                created_at: 0,
-                updated_at: 0,
-            }),
+            None,
         );
-        let serialized = serde_json::to_string(&request).expect("serialize request");
-        let decoded: IndexServiceRequest =
-            serde_json::from_str(&serialized).expect("deserialize request");
-        assert_eq!(decoded, request);
+        assert_eq!(
+            validate_request(&request),
+            Err("index_service_source_snapshot_required".to_string())
+        );
     }
 }
