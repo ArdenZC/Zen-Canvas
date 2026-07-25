@@ -48,7 +48,7 @@ fn schema_migration_adds_classification_status_and_preserves_existing_state() {
         )
         .expect("cleanup trash tables");
 
-    assert_eq!(version, 25);
+    assert_eq!(version, 26);
     assert_eq!(cleanup_table_count, 2);
     assert_eq!(status_type, "TEXT");
     assert_eq!(status_notnull, 1);
@@ -96,7 +96,7 @@ fn create_schema_9_database(path: &Path) {
         )
         VALUES
             ('file-unclassified', '/legacy/unclassified.txt', 'unclassified.txt', 'txt', 128, 'Unknown', 'Inbox', '[]', 0, '', 0, 0),
-            ('file-classified', '/legacy/resume.pdf', 'resume.pdf', 'pdf', 2048, 'Career', 'Reference', '["Career"]', 1900000000, 'legacy-rule-version', 1900000000, 2048);
+            ('file-classified', '/legacy/resume.pdf', 'resume.pdf', 'pdf', 2048, 'Career', 'Reference', '[\"Career\"]', 1900000000, 'legacy-rule-version', 1900000000, 2048);
         PRAGMA user_version = 9;
         "#,
     )
