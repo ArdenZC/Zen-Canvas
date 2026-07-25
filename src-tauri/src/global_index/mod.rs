@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod coordinator;
 pub mod managed_scope;
+#[path = "managed_worker_hardened.rs"]
 pub mod managed_worker;
 pub mod models;
 mod repository;
