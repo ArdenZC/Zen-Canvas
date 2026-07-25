@@ -1,0 +1,32 @@
+name: One-shot Rustfmt
+
+on:
+  push:
+    branches:
+      - agent/system-wide-search-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  rustfmt:
+    if: ${{ !contains(github.event.head_commit.message, '[skip rustfmt]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: agent/system-wide-search-hardening
+      - name: Format Rust
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --
+      - name: Commit formatting
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No formatting changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src-tauri
+          git commit -m "style(rust): apply cargo fmt [skip rustfmt]"
+          git push origin HEAD:agent/system-wide-search-hardening
