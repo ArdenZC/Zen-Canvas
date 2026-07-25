@@ -23,6 +23,11 @@ pub fn get_global_index_status(
 ) -> Result<GlobalIndexStatus, String> {
     let mut status = coordinator.status().map_err(|error| error.to_string())?;
     status.provider_status = coordinator.provider_status().ok();
+    // `collection_complete` is a coverage guarantee, not merely an indication
+    // that the initial worker loop returned. Permission, Spotlight, FSEvents,
+    // source availability, and partial-volume states must remain visibly
+    // degraded until every enabled source is ready.
+    status.collection_complete &= status.status == INDEX_STATUS_READY;
     Ok(status)
 }
 
@@ -94,13 +99,30 @@ pub fn rebuild_global_index_source<R: Runtime>(
 pub fn set_global_index_source_enabled<R: Runtime>(
     window: WebviewWindow<R>,
     coordinator: State<'_, GlobalIndexCoordinator>,
+    db: State<'_, Database>,
     source_id: String,
     enabled: bool,
 ) -> Result<(), String> {
     require_main_window(&window)?;
     coordinator
         .set_source_enabled(&source_id, enabled)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+
+    if enabled {
+        // A disabled source may have missed an arbitrary amount of native
+        // history. Re-enable only through an explicit fail-closed rebuild.
+        coordinator
+            .rebuild(Some(source_id))
+            .map_err(|error| error.to_string())
+    } else {
+        // Search SQL also checks the volume flag, so this is immediate even if
+        // a native provider still has an in-flight batch. Staling the existing
+        // rows additionally cancels managed AI work and guarantees that a later
+        // re-enable cannot expose an old snapshot before rebuilding.
+        db.mark_global_entries_stale_for_volume(&source_id)
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
 }
 
 #[tauri::command]
