@@ -517,6 +517,27 @@ fn record_key(record: &MftRecord) -> String {
     )
 }
 
+#[cfg(test)]
+fn reconstruct_paths(root: &str, records: &[MftRecord]) -> HashMap<String, String> {
+    let directories = records
+        .iter()
+        .filter(|record| record.attributes & FILE_ATTRIBUTE_DIRECTORY != 0)
+        .cloned()
+        .collect::<Vec<_>>();
+    let (mut paths, parent_paths) = resolve_directory_paths(root, &directories);
+    for record in records {
+        if record.attributes & FILE_ATTRIBUTE_DIRECTORY != 0 {
+            continue;
+        }
+        let path = parent_paths
+            .get(&record.parent_reference)
+            .map(|parent| join_windows_path(parent, &record.name))
+            .unwrap_or_else(|| join_windows_path(root, &record.name));
+        paths.insert(record_key(record), path);
+    }
+    paths
+}
+
 pub(crate) fn open_volume(mount_path: &str) -> Result<HANDLE, GlobalIndexError> {
     let path = volume_device_path(mount_path);
     let wide = to_wide(&path);
