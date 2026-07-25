@@ -20,10 +20,17 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
           ref: agent/system-wide-search-hardening
-      - name: Apply hardening patch and rustfmt
+      - name: Apply hardening patches and rustfmt
         shell: bash
         run: |
-          python scripts/apply_global_index_hardening.py
+          if grep -q 'CURRENT_SCHEMA_VERSION: i32 = 25' src-tauri/src/db/schema.rs; then
+            python scripts/apply_global_index_hardening.py
+          fi
+          if grep -q 'classify_ai_targets_with_configured_provider' src-tauri/src/ai/classification.rs \
+             && grep -q 'pub async fn classify_files_with_ai' src-tauri/src/ai/classification.rs \
+             && ! grep -q 'enqueue_legacy_targets_for_managed_ai' src-tauri/src/ai/classification.rs; then
+            python scripts/apply_legacy_ai_queue_patch.py
+          fi
           cargo fmt --manifest-path src-tauri/Cargo.toml
           if git diff --quiet -- src-tauri; then
             exit 0
@@ -31,7 +38,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src-tauri
-          git commit -m "fix(index): harden batch writes and terminal queue state"
+          git commit -m "fix(index): harden batch writes and managed AI queue"
           git push origin HEAD:agent/system-wide-search-hardening
 
   npm-audit:
