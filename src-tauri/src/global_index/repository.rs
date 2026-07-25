@@ -650,7 +650,7 @@ pub(crate) fn enqueue_ai_jobs_for_entry_with_scopes(
                 "UPDATE ai_analysis_state SET status = 'stale', last_error = 'global_entry_is_directory', updated_at = ?2 WHERE global_entry_id = ?1",
                 params![entry_id, now],
             )?;
-        continue;
+        return Ok(());
     }
     let now = unix_now();
     transaction.execute(
@@ -690,7 +690,7 @@ pub(crate) fn enqueue_ai_jobs_for_entry_with_scopes(
                     params![entry_id, next_status, provider, unix_now()],
                 )?;
         }
-        continue;
+        return Ok(());
     }
     let (provider, status) = if allow_local_ai {
         ("local", AI_JOB_PENDING)
