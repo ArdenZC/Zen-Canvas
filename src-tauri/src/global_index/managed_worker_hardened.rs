@@ -6,8 +6,7 @@
 //! fingerprint, and user-correction policy are still authoritative.
 
 use super::models::{
-    normalize_path, unix_now, AI_JOB_BLOCKED_BY_POLICY, AI_JOB_FAILED, AI_JOB_PENDING,
-    AI_JOB_STALE,
+    normalize_path, unix_now, AI_JOB_BLOCKED_BY_POLICY, AI_JOB_FAILED, AI_JOB_PENDING, AI_JOB_STALE,
 };
 use crate::ai::{
     schema::{AIChatMessage, AIChatRequest, AIProviderKind, AIProviderOptions},
@@ -392,10 +391,12 @@ impl Database {
             return Ok(ValidationDisposition::Blocked("managed_ai_job_not_running"));
         }
         if provider != expected_provider || provider != job.provider {
-            return Ok(ValidationDisposition::Blocked("managed_ai_provider_changed"));
+            return Ok(ValidationDisposition::Blocked(
+                "managed_ai_provider_changed",
+            ));
         }
-        let provider_allowed = (provider == "local" && allow_local)
-            || (provider == "cloud" && allow_cloud);
+        let provider_allowed =
+            (provider == "local" && allow_local) || (provider == "cloud" && allow_cloud);
         if !scope_enabled || !managed_enabled || !volume_enabled || !provider_allowed {
             return Ok(ValidationDisposition::Blocked(
                 "managed_scope_policy_disabled",
@@ -418,9 +419,7 @@ impl Database {
         if persisted_fingerprint != job.input_fingerprint
             || current_fingerprint != job.input_fingerprint
         {
-            return Ok(ValidationDisposition::Stale(
-                "input_fingerprint_changed",
-            ));
+            return Ok(ValidationDisposition::Stale("input_fingerprint_changed"));
         }
         Ok(ValidationDisposition::Valid)
     }
@@ -741,8 +740,7 @@ fn process_job(db: &Database, job: &ManagedAiJob, settings: &AISettings) {
                         .chars()
                         .take(MAX_STORED_RESPONSE_BYTES)
                         .collect::<String>();
-                    if let Err(error) =
-                        db.complete_managed_ai_job(job, &settings.model, &canonical)
+                    if let Err(error) = db.complete_managed_ai_job(job, &settings.model, &canonical)
                     {
                         let _ = db.fail_managed_ai_job(
                             job,

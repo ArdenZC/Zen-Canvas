@@ -16,11 +16,17 @@ pub const INDEX_SERVICE_PIPE: &str = r"\\.\pipe\ZenCanvas.GlobalIndex.v3";
 #[serde(rename_all = "snake_case")]
 pub enum IndexServiceCommand {
     DiscoverSources,
-    StartInitialIndex { source_id: String },
-    ResumeIncrementalSync { source_id: String },
+    StartInitialIndex {
+        source_id: String,
+    },
+    ResumeIncrementalSync {
+        source_id: String,
+    },
     Pause,
     Status,
-    Rebuild { source_id: String },
+    Rebuild {
+        source_id: String,
+    },
     /// Retained for wire compatibility with pre-v3 clients. The hardened
     /// validator always rejects it; the SCM is the only shutdown authority.
     Shutdown,
@@ -300,10 +306,7 @@ mod named_pipe {
         })
     }
 
-    pub type ServiceRequestHandler = dyn Fn(
-            IndexServiceRequest,
-            &mut IndexServiceServerConnection,
-        ) -> Result<(), String>
+    pub type ServiceRequestHandler = dyn Fn(IndexServiceRequest, &mut IndexServiceServerConnection) -> Result<(), String>
         + Send
         + Sync
         + 'static;
@@ -364,10 +367,9 @@ mod named_pipe {
                 if stop.load(Ordering::Acquire) {
                     break;
                 }
-                return Err(format!(
-                    "index_service_pipe_connect_failed: {}",
-                    unsafe { GetLastError() }
-                ));
+                return Err(format!("index_service_pipe_connect_failed: {}", unsafe {
+                    GetLastError()
+                }));
             }
             let stop_for_connection = stop.clone();
             let handler = handler.clone();
@@ -416,10 +418,9 @@ mod named_pipe {
             )
         };
         if pipe == INVALID_HANDLE_VALUE {
-            return Err(format!(
-                "index_service_pipe_open_failed: {}",
-                unsafe { GetLastError() }
-            ));
+            return Err(format!("index_service_pipe_open_failed: {}", unsafe {
+                GetLastError()
+            }));
         }
         let mode = PIPE_READMODE_MESSAGE;
         if unsafe { SetNamedPipeHandleState(pipe, &mode, ptr::null(), ptr::null()) } == 0 {
@@ -477,10 +478,9 @@ mod named_pipe {
         let connection_result = unsafe { ConnectNamedPipe(pipe, ptr::null_mut()) };
         if connection_result == 0 && unsafe { GetLastError() } != ERROR_PIPE_CONNECTED {
             cleanup_pipe(pipe, security_descriptor);
-            return Err(format!(
-                "index_service_pipe_connect_failed: {}",
-                unsafe { GetLastError() }
-            ));
+            return Err(format!("index_service_pipe_connect_failed: {}", unsafe {
+                GetLastError()
+            }));
         }
         let result = (|| {
             let bytes = read_frame(pipe)?;
@@ -525,10 +525,9 @@ mod named_pipe {
 
         let mut session_id = 0u32;
         if unsafe { GetNamedPipeClientSessionId(pipe, &mut session_id) } == 0 {
-            return Err(format!(
-                "index_service_client_session_failed: {}",
-                unsafe { GetLastError() }
-            ));
+            return Err(format!("index_service_client_session_failed: {}", unsafe {
+                GetLastError()
+            }));
         }
         if session_id == 0 {
             return Err("index_service_client_not_interactive".to_string());
@@ -536,10 +535,9 @@ mod named_pipe {
 
         let mut process_id = 0u32;
         if unsafe { GetNamedPipeClientProcessId(pipe, &mut process_id) } == 0 || process_id == 0 {
-            return Err(format!(
-                "index_service_client_process_failed: {}",
-                unsafe { GetLastError() }
-            ));
+            return Err(format!("index_service_client_process_failed: {}", unsafe {
+                GetLastError()
+            }));
         }
         let client_path = process_image_path(process_id)?;
         let current_path = std::env::current_exe()
@@ -624,10 +622,9 @@ mod named_pipe {
         };
         if pipe == INVALID_HANDLE_VALUE {
             unsafe { LocalFree(descriptor) };
-            return Err(format!(
-                "index_service_pipe_create_failed: {}",
-                unsafe { GetLastError() }
-            ));
+            return Err(format!("index_service_pipe_create_failed: {}", unsafe {
+                GetLastError()
+            }));
         }
         Ok((pipe, descriptor))
     }
@@ -660,10 +657,9 @@ mod named_pipe {
             )
         };
         if ok == 0 || written as usize != frame.len() {
-            return Err(format!(
-                "index_service_pipe_write_failed: {}",
-                unsafe { GetLastError() }
-            ));
+            return Err(format!("index_service_pipe_write_failed: {}", unsafe {
+                GetLastError()
+            }));
         }
         Ok(())
     }

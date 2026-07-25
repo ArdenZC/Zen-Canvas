@@ -65,7 +65,10 @@ pub fn search_global_entries(
             "#,
         )?;
         return statement
-            .query_map(params![escape_like(query), limit, offset], map_global_search_result)?
+            .query_map(
+                params![escape_like(query), limit, offset],
+                map_global_search_result,
+            )?
             .collect::<Result<Vec<_>, _>>()
             .map_err(DbError::from);
     }
