@@ -23,6 +23,10 @@ pub fn get_global_index_status(
 ) -> Result<GlobalIndexStatus, String> {
     let mut status = coordinator.status().map_err(|error| error.to_string())?;
     status.provider_status = coordinator.provider_status().ok();
+    // `collection_complete` means coverage is complete and healthy, not merely
+    // that an initial provider pass returned. Permission, Spotlight/FSEvents,
+    // unavailable, partial, paused, and rebuild states remain incomplete.
+    status.collection_complete = status.status == INDEX_STATUS_READY;
     Ok(status)
 }
 
@@ -105,10 +109,7 @@ pub fn set_global_index_source_enabled<R: Runtime>(
 
 #[tauri::command]
 pub fn open_global_search_result(db: State<'_, Database>, entry_id: String) -> Result<(), String> {
-    let entry = db
-        .get_global_entry(&entry_id)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "global_search_result_not_found".to_string())?;
+    let entry = active_global_entry(db.inner(), &entry_id)?;
     open_path(&entry.path)
 }
 
@@ -117,10 +118,7 @@ pub fn reveal_global_search_result(
     db: State<'_, Database>,
     entry_id: String,
 ) -> Result<(), String> {
-    let entry = db
-        .get_global_entry(&entry_id)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "global_search_result_not_found".to_string())?;
+    let entry = active_global_entry(db.inner(), &entry_id)?;
     crate::file_ops::reveal_in_folder(entry.path)
 }
 
@@ -165,6 +163,22 @@ pub fn update_managed_scope_policy<R: Runtime>(
 #[tauri::command]
 pub fn get_ai_management_status(db: State<'_, Database>) -> Result<AiManagementStatus, String> {
     db.ai_management_status().map_err(|error| error.to_string())
+}
+
+fn active_global_entry(db: &Database, entry_id: &str) -> Result<GlobalEntry, String> {
+    let entry = db
+        .get_global_entry(entry_id)
+        .map_err(|error| error.to_string())?
+        .filter(|entry| !entry.is_stale)
+        .ok_or_else(|| "global_search_result_not_found".to_string())?;
+    let enabled = db
+        .get_global_volume(&entry.volume_id)
+        .map_err(|error| error.to_string())?
+        .is_some_and(|volume| volume.enabled);
+    if !enabled {
+        return Err("global_search_source_disabled".to_string());
+    }
+    Ok(entry)
 }
 
 fn open_path(path: &str) -> Result<(), String> {
