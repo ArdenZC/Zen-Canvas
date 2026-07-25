@@ -1,19 +1,20 @@
 name: Hardening Diagnostics
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/system-wide-search-hardening
+      - master
 
 permissions:
   contents: write
 
 concurrency:
-  group: hardening-diagnostics-${{ github.ref }}
+  group: hardening-diagnostics-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   hardening:
+    if: github.head_ref == 'agent/system-wide-search-hardening'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -55,6 +56,7 @@ jobs:
           git push origin HEAD:agent/system-wide-search-hardening
 
   npm-audit:
+    if: github.head_ref == 'agent/system-wide-search-hardening'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -72,6 +74,7 @@ jobs:
           path: npm-audit.json
 
   macos-tests:
+    if: github.head_ref == 'agent/system-wide-search-hardening'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
