@@ -21,31 +21,41 @@ jobs:
         with:
           ref: agent/system-wide-search-hardening
       - name: Apply one-shot patches and formatting
+        id: patch
         shell: bash
         run: |
-          if grep -q 'CURRENT_SCHEMA_VERSION: i32 = 25' src-tauri/src/db/schema.rs; then
-            python scripts/apply_global_index_hardening.py
+          set +e
+          {
+            set -x
+            if grep -q 'CURRENT_SCHEMA_VERSION: i32 = 25' src-tauri/src/db/schema.rs; then
+              python scripts/apply_global_index_hardening.py
+            fi
+            if grep -q 'classify_ai_targets_with_configured_provider' src-tauri/src/ai/classification.rs \
+               && grep -q 'pub async fn classify_files_with_ai' src-tauri/src/ai/classification.rs \
+               && ! grep -q 'enqueue_legacy_targets_for_managed_ai' src-tauri/src/ai/classification.rs; then
+              python scripts/apply_legacy_ai_queue_patch.py
+            fi
+            if grep -A12 -q 'pub async fn classify_files_with_ai_for_db' src-tauri/src/ai/classification.rs \
+               && grep -A12 'pub async fn classify_files_with_ai_for_db' src-tauri/src/ai/classification.rs | grep -q 'classify_ai_targets_with_configured_provider'; then
+              python scripts/apply_internal_ai_queue_patch.py
+            fi
+            if grep -q 'pub struct MacosSpotlightProvider' src-tauri/src/global_index/macos/mod.rs \
+               && ! grep -q 'known_entries:' src-tauri/src/global_index/macos/mod.rs; then
+              python scripts/apply_macos_delete_hardening.py
+            fi
+            if ! grep -q 'pendingManagedEntry' src/components/CommandModal.tsx; then
+              python scripts/apply_spotlight_management_confirmation.py
+            fi
+            if grep -q 'let records = enumerate_mft_records' src-tauri/src/global_index/windows/mft.rs; then
+              python scripts/apply_mft_staging_patch.py
+            fi
+            cargo fmt --manifest-path src-tauri/Cargo.toml
+          } > hardening-patch.log 2>&1
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" -ne 0 ]; then
+            exit 0
           fi
-          if grep -q 'classify_ai_targets_with_configured_provider' src-tauri/src/ai/classification.rs \
-             && grep -q 'pub async fn classify_files_with_ai' src-tauri/src/ai/classification.rs \
-             && ! grep -q 'enqueue_legacy_targets_for_managed_ai' src-tauri/src/ai/classification.rs; then
-            python scripts/apply_legacy_ai_queue_patch.py
-          fi
-          if grep -A12 -q 'pub async fn classify_files_with_ai_for_db' src-tauri/src/ai/classification.rs \
-             && grep -A12 'pub async fn classify_files_with_ai_for_db' src-tauri/src/ai/classification.rs | grep -q 'classify_ai_targets_with_configured_provider'; then
-            python scripts/apply_internal_ai_queue_patch.py
-          fi
-          if grep -q 'pub struct MacosSpotlightProvider' src-tauri/src/global_index/macos/mod.rs \
-             && ! grep -q 'known_entries:' src-tauri/src/global_index/macos/mod.rs; then
-            python scripts/apply_macos_delete_hardening.py
-          fi
-          if ! grep -q 'pendingManagedEntry' src/components/CommandModal.tsx; then
-            python scripts/apply_spotlight_management_confirmation.py
-          fi
-          if grep -q 'let records = enumerate_mft_records' src-tauri/src/global_index/windows/mft.rs; then
-            python scripts/apply_mft_staging_patch.py
-          fi
-          cargo fmt --manifest-path src-tauri/Cargo.toml
           if git diff --quiet -- src-tauri src; then
             exit 0
           fi
@@ -54,6 +64,15 @@ jobs:
           git add src-tauri src
           git commit -m "fix(index): apply remaining hardening patches"
           git push origin HEAD:agent/system-wide-search-hardening
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: hardening-patch-${{ github.sha }}
+          path: hardening-patch.log
+      - name: Preserve patch result
+        if: steps.patch.outputs.status != '0'
+        shell: bash
+        run: exit 1
 
   npm-audit:
     if: github.head_ref == 'agent/system-wide-search-hardening'
