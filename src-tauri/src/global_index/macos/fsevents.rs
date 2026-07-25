@@ -164,7 +164,7 @@ fn run_fsevents(
         );
         CFRelease(paths);
         if stream.is_null() {
-            if let Ok(mut pending) = &*context.info.cast::<FseventInfo>().pending.lock() {
+            if let Ok(mut pending) = (&*context.info.cast::<FseventInfo>()).pending.lock() {
                 pending.last_error = Some("macos_fsevents_stream_unavailable".to_string());
             }
             drop(Box::from_raw(context.info.cast::<FseventInfo>()));
@@ -173,7 +173,7 @@ fn run_fsevents(
         let run_loop = CFRunLoopGetCurrent();
         FSEventStreamScheduleWithRunLoop(stream, run_loop, kCFRunLoopDefaultMode);
         if FSEventStreamStart(stream) == 0 {
-            if let Ok(mut pending) = &*context.info.cast::<FseventInfo>().pending.lock() {
+            if let Ok(mut pending) = (&*context.info.cast::<FseventInfo>()).pending.lock() {
                 pending.last_error = Some("macos_fsevents_stream_start_failed".to_string());
             }
             FSEventStreamUnscheduleFromRunLoop(stream, run_loop, kCFRunLoopDefaultMode);

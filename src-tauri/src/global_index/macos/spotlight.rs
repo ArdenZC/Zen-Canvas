@@ -2,14 +2,14 @@ use super::PendingUpdates;
 use crate::global_index::models::{normalize_path, GlobalEntryInput, PROVIDER_MACOS_SPOTLIGHT};
 use block2::RcBlock;
 use objc2::rc::{autoreleasepool, Retained};
-use objc2::runtime::AnyObject;
+use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2_foundation::{
     NSArray, NSDate, NSMetadataItem, NSMetadataItemFSContentChangeDateKey,
     NSMetadataItemFSCreationDateKey, NSMetadataItemFSNameKey, NSMetadataItemFSSizeKey,
     NSMetadataItemPathKey, NSMetadataItemURLKey, NSMetadataQuery,
     NSMetadataQueryIndexedLocalComputerScope, NSMetadataQueryUpdateAddedItemsKey,
     NSMetadataQueryUpdateChangedItemsKey, NSMetadataQueryUpdateRemovedItemsKey, NSNotification,
-    NSNotificationCenter, NSNumber, NSPredicate, NSRunLoop, NSString, NSURL,
+    NSNotificationCenter, NSNumber, NSObjectProtocol, NSPredicate, NSRunLoop, NSString, NSURL,
 };
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -212,7 +212,8 @@ fn run_update_watcher(
         if let Ok(mut pending) = pending.lock() {
             pending.last_error = Some("macos_spotlight_realtime_updates_unavailable".to_string());
         }
-        let observer_object: &AnyObject = observer.as_ref().as_ref();
+        let protocol_object: &ProtocolObject<dyn NSObjectProtocol> = observer.as_ref();
+        let observer_object: &AnyObject = protocol_object.as_ref();
         unsafe { center.removeObserver(observer_object) };
         return;
     }
@@ -222,7 +223,8 @@ fn run_update_watcher(
         run_loop.runUntilDate(&deadline);
     }
     query.stopQuery();
-    let observer_object: &AnyObject = observer.as_ref().as_ref();
+    let protocol_object: &ProtocolObject<dyn NSObjectProtocol> = observer.as_ref();
+    let observer_object: &AnyObject = protocol_object.as_ref();
     unsafe { center.removeObserver(observer_object) };
 }
 

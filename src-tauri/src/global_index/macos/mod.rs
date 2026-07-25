@@ -448,7 +448,10 @@ mod tests {
     fn macos_spotlight_batches_use_the_shared_sink_contract() {
         let entries = (0..1025).map(input).collect::<Vec<_>>();
         let mut sink = RecordingSink::default();
-        MacosSpotlightProvider::write_entries(&mut sink, &entries).expect("write batches");
+        let provider = MacosSpotlightProvider::new();
+        provider
+            .write_entries(&mut sink, &entries)
+            .expect("write batches");
         assert_eq!(sink.batch_lengths, vec![512, 512, 1]);
     }
 
