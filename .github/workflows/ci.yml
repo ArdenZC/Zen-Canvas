@@ -134,7 +134,6 @@ jobs:
           cargo install cargo-audit --locked
           npm run security:audit:rust
 
-# BEGIN ONE_SHOT_NATIVE_FIX
   one-shot-native-fix:
     name: Apply final native fixes
     if: github.head_ref == 'agent/system-wide-search-hardening'
@@ -154,21 +153,18 @@ jobs:
 
           test_path = Path('src-tauri/src/db/tests/part1.rs')
           lines = test_path.read_text(encoding='utf-8').splitlines()
-          changed = False
+          found = False
           for index, line in enumerate(lines):
               if 'expect("schema version")' not in line:
                   continue
               for candidate in range(index + 1, min(index + 5, len(lines))):
-                  if lines[candidate].strip() == '26':
-                      changed = True
-                      break
-                  if lines[candidate].strip() == '25':
+                  if lines[candidate].strip() in {'25', '26'}:
                       indent = lines[candidate][: len(lines[candidate]) - len(lines[candidate].lstrip())]
                       lines[candidate] = f'{indent}26'
-                      changed = True
+                      found = True
                       break
               break
-          if not changed:
+          if not found:
               raise SystemExit('schema version assertion not found')
           test_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
 
@@ -190,11 +186,10 @@ jobs:
           )
           if pool_index is None:
               raise SystemExit('Spotlight autoreleasepool not found')
-          already_fixed = any(
+          if not any(
               'if cancel.load(Ordering::Acquire)' in lines[index]
               for index in range(function_start, pool_index)
-          )
-          if not already_fixed:
+          ):
               lines[pool_index:pool_index] = [
                   '    if cancel.load(Ordering::Acquire) {',
                   '        return Err("macos_spotlight_query_paused".to_string());',
@@ -204,25 +199,9 @@ jobs:
           PY
 
           cargo fmt --manifest-path src-tauri/Cargo.toml
-
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('.github/workflows/ci.yml')
-          text = path.read_text(encoding='utf-8')
-          start = text.index('\n# BEGIN ONE_SHOT_NATIVE_FIX\n')
-          end = text.index('\n# END ONE_SHOT_NATIVE_FIX\n', start)
-          text = text[:start] + text[end + len('\n# END ONE_SHOT_NATIVE_FIX\n'):]
-          text = text.replace('permissions:\n  contents: write', 'permissions:\n  contents: read', 1)
-          path.write_text(text.rstrip() + '\n', encoding='utf-8')
-          PY
-
-          git rm -f --ignore-unmatch \
-            .github/workflows/final-native-fix.yml \
-            .github/workflows/one-shot-final-native-fix.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows/ci.yml src-tauri
+          git add src-tauri
           git diff --cached --check
           git commit -m "fix(macos): short-circuit canceled Spotlight queries"
           git push origin HEAD:agent/system-wide-search-hardening
-# END ONE_SHOT_NATIVE_FIX
