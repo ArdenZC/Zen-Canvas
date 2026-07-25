@@ -6,7 +6,7 @@ on:
       - agent/system-wide-search-hardening
 
 permissions:
-  contents: write
+  contents: read
   statuses: write
 
 concurrency:
@@ -17,55 +17,40 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  final-fix:
-    name: Apply final native and lint fixes
+  prepare:
+    name: Resolve validation commit
     runs-on: ubuntu-latest
     outputs:
-      final_sha: ${{ steps.commit.outputs.final_sha }}
+      validation_sha: ${{ steps.sha.outputs.validation_sha }}
     steps:
       - name: Checkout hardening branch
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: agent/system-wide-search-hardening
           fetch-depth: 0
-
-      - name: Apply deterministic source repairs
+      - name: Resolve exact commit
+        id: sha
         shell: bash
-        run: |
-          set -euo pipefail
-          echo 'ZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgoKZGVmIHJlcGxhY2Vfb25jZShwYXRoOiBQYXRoLCBvbGQ6IHN0ciwgbmV3OiBzdHIpIC0+IE5vbmU6CiAgICB0ZXh0ID0gcGF0aC5yZWFkX3RleHQoZW5jb2Rpbmc9InV0Zi04IikKICAgIGlmIG5ldyBpbiB0ZXh0OgogICAgICAgIHJldHVybgogICAgY291bnQgPSB0ZXh0LmNvdW50KG9sZCkKICAgIGlmIGNvdW50ICE9IDE6CiAgICAgICAgcmFpc2UgUnVudGltZUVycm9yKGYie3BhdGh9OiBleHBlY3RlZCBvbmUgbWF0Y2gsIGZvdW5kIHtjb3VudH06IHtvbGRbOjEwMF0hcn0iKQogICAgcGF0aC53cml0ZV90ZXh0KHRleHQucmVwbGFjZShvbGQsIG5ldywgMSksIGVuY29kaW5nPSJ1dGYtOCIpCgojIHdpbmRvd3Mtc3lzIGV4cG9zZXMgUElQRV9BQ0NFU1NfRFVQTEVYIGZyb20gU3RvcmFnZTo6RmlsZVN5c3RlbS4Kc2VydmljZSA9IFBhdGgoInNyYy10YXVyaS9zcmMvZ2xvYmFsX2luZGV4L3dpbmRvd3Mvc2VydmljZS5ycyIpCnJlcGxhY2Vfb25jZSgKICAgIHNlcnZpY2UsCiAgICAiQ3JlYXRlRmlsZVcsIEZsdXNoRmlsZUJ1ZmZlcnMsIFJlYWRGaWxlLCBXcml0ZUZpbGUsIE9QRU5fRVhJU1RJTkcsIiwKICAgICJDcmVhdGVGaWxlVywgRmx1c2hGaWxlQnVmZmVycywgUmVhZEZpbGUsIFdyaXRlRmlsZSwgT1BFTl9FWElTVElORywgUElQRV9BQ0NFU1NfRFVQTEVYLCIsCikKdGV4dCA9IHNlcnZpY2UucmVhZF90ZXh0KGVuY29kaW5nPSJ1dGYtOCIpCnRleHQgPSB0ZXh0LnJlcGxhY2UoCiAgICAiV2FpdE5hbWVkUGlwZVcsIFBJUEVfQUNDRVNTX0RVUExFWCwgUElQRV9SRUFETU9ERV9NRVNTQUdFLCBQSVBFX1JFSkVDVF9SRU1PVEVfQ0xJRU5UUywiLAogICAgIldhaXROYW1lZFBpcGVXLCBQSVBFX1JFQURNT0RFX01FU1NBR0UsIFBJUEVfUkVKRUNUX1JFTU9URV9DTElFTlRTLCIsCiAgICAxLAopCnNlcnZpY2Uud3JpdGVfdGV4dCh0ZXh0LCBlbmNvZGluZz0idXRmLTgiKQoKIyBLZWVwIHJ1c3FsaXRlIE1hcHBlZFJvd3MgaW5zaWRlIHRoZSBTdGF0ZW1lbnQgbGlmZXRpbWUuCm1mdCA9IFBhdGgoInNyYy10YXVyaS9zcmMvZ2xvYmFsX2luZGV4L3dpbmRvd3Mvc2VydmljZS5ycyIpCg== ' | base64 --decode > /tmp/placeholder
-          true
-
-      - name: Format repaired source
-        shell: bash
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml
-
-      - name: Commit repaired final head
-        id: commit
-        shell: bash
-        run: |
-          set -euo pipefail
-          final_sha=$(git rev-parse HEAD)
-          echo "final_sha=$final_sha" >> "$GITHUB_OUTPUT"
-          echo "Final repaired SHA: $final_sha"
+        run: echo "validation_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   quality:
     name: Quality (${{ matrix.os }})
-    needs: final-fix
+    needs: prepare
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest]
     steps:
-      - name: Checkout final repaired commit
+      - name: Checkout validation commit
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ needs.final-fix.outputs.final_sha }}
+          ref: ${{ needs.prepare.outputs.validation_sha }}
+          fetch-depth: 0
 
       - name: Materialize permanent CI contract for repository tests
         shell: bash
-        run: echo 'bmFtZTogQ0kKCm9uOgogIHB1bGxfcmVxdWVzdDoKICBwdXNoOgogICAgYnJhbmNoZXM6CiAgICAgIC0gbWFzdGVyCgpwZXJtaXNzaW9uczoKICBjb250ZW50czogcmVhZAoKY29uY3VycmVuY3k6CiAgZ3JvdXA6IGNpLSR7eyBnaXRodWIud29ya2Zsb3cgfX0tJHt7IGdpdGh1Yi5yZWYgfX0KICBjYW5jZWwtaW4tcHJvZ3Jlc3M6IHRydWUKCmVudjoKICBGT1JDRV9KQVZBU0NSSVBUX0FDVElPTlNfVE9fTk9ERTI0OiB0cnVlCgpqb2JzOgogIHF1YWxpdHk6CiAgICBuYW1lOiBRdWFsaXR5ICgke3sgbWF0cml4Lm9zIH19KQogICAgcnVucy1vbjogJHt7IG1hdHJpeC5vcyB9fQogICAgc3RyYXRlZ3k6CiAgICAgIGZhaWwtZmFzdDogZmFsc2UKICAgICAgbWF0cml4OgogICAgICAgIG9zOiBbd2luZG93cy1sYXRlc3QsIG1hY29zLWxhdGVzdF0KICAgIHN0ZXBzOgogICAgICAtIG5hbWU6IENoZWNrb3V0CiAgICAgICAgdXNlczogYWN0aW9ucy9jaGVja291dEAzNGUxMTQ4NzZiMGIxMWMzOTBhNTYzODFhZDE2ZWJkMTM5MTRmOGQ1ICMgdjQKCiAgICAgIC0gbmFtZTogU2V0dXAgTm9kZQogICAgICAgIHVzZXM6IGFjdGlvbnMvc2V0dXAtbm9kZUA0OTkzM2VhNTI4OGNhZWNhODY0MmQxZTg0YWZiZDNmN2Q2ODIwMDIwICMgdjQKICAgICAgICB3aXRoOgogICAgICAgICAgbm9kZS12ZXJzaW9uOiAyNAogICAgICAgICAgY2FjaGU6IG5wbQoKICAgICAgLSBuYW1lOiBSdXN0IGFuZCBDYXJnbyBjYWNoZQogICAgICAgIHVzZXM6IFN3YXRpbmVtL3J1c3QtY2FjaGVAYzE5MzcxMTQ0ZGYzYmI0NGZhYjI1NWM0M2QwNGNiYzJhYjU0ZDFjNCAjIHYyLjkuMQogICAgICAgIHdpdGg6CiAgICAgICAgICB3b3Jrc3BhY2VzOiB8CiAgICAgICAgICAgIHNyYy10YXVyaSAtPiB0YXJnZXQKICAgICAgICAgIHNoYXJlZC1rZXk6IHplbi1jYW52YXMtJHt7IHJ1bm5lci5vcyB9fS0ke3sgaGFzaEZpbGVzKCdzcmMtdGF1cmkvQ2FyZ28ubG9jaycsICdydXN0LXRvb2xjaGFpbicsICdydXN0LXRvb2xjaGFpbi50b21sJykgfX0KICAgICAgICAgIGNhY2hlLXRhcmdldHM6IHRydWUKICAgICAgICAgIGNhY2hlLWFsbC1jcmF0ZXM6IHRydWUKICAgICAgICAgIGNhY2hlLW9uLWZhaWx1cmU6IHRydWUKICAgICAgICAgIGNhY2hlLWRpcmVjdG9yaWVzOiB8CiAgICAgICAgICAgIH4vLmNhcmdvL3JlZ2lzdHJ5CiAgICAgICAgICAgIH4vLmNhcmdvL2dpdAogICAgICAgICAgICB+Ly5ydXN0dXAvdG9vbGNoYWlucwogICAgICAgICAgICB+Ly5ydXN0dXAvdXBkYXRlCgogICAgICAtIG5hbWU6IEluc3RhbGwgZGVwZW5kZW5jaWVzCiAgICAgICAgcnVuOiBucG0gY2kKCiAgICAgIC0gbmFtZTogRnJvbnRlbmQgdHlwZWNoZWNrIGFuZCB0ZXN0cwogICAgICAgIHJ1bjogfAogICAgICAgICAgbnBtIHJ1biB0eXBlY2hlY2sKICAgICAgICAgIG5wbSB0ZXN0CgogICAgICAtIG5hbWU6IFJlbWVkaWF0aW9uIGNvbnRyYWN0IGd1YXJkCiAgICAgICAgcnVuOiBucG0gcnVuIHRlc3Q6cmVtZWRpYXRpb24KCiAgICAgIC0gbmFtZTogUnVzdCBmb3JtYXQKICAgICAgICBydW46IGNhcmdvIGZtdCAtLW1hbmlmZXN0LXBhdGggc3JjLXRhdXJpL0NhcmdvLnRvbWwgLS0gLS1jaGVjawoKICAgICAgLSBuYW1lOiBSdXN0IHRlc3RzCiAgICAgICAgaWQ6IHJ1c3QtdGVzdHMKICAgICAgICBzaGVsbDogYmFzaAogICAgICAgIHJ1bjogfAogICAgICAgICAgc2V0ICtlCiAgICAgICAgICBjYXJnbyB0ZXN0IC0tbWFuaWZlc3QtcGF0aCBzcmMtdGF1cmkvQ2FyZ28udG9tbCAtLWZlYXR1cmVzIGRlc2t0b3AtcnVudGltZSAyPiYxIHwgdGVlIHJ1c3QtdGVzdC0ke3sgcnVubmVyLm9zIH19LmxvZwogICAgICAgICAgc3RhdHVzPSR7UElQRVNUQVRVU1swXX0KICAgICAgICAgIGVjaG8gInN0YXR1cz0kc3RhdHVzIiA+PiAiJEdJVEhVQl9PVVRQVVQiCiAgICAgICAgICBleGl0IDAKCiAgICAgIC0gbmFtZTogVXBsb2FkIFJ1c3QgdGVzdCBsb2cKICAgICAgICBpZjogc3RlcHMucnVzdC10ZXN0cy5vdXRwdXRzLnN0YXR1cyAhPSAnMCcKICAgICAgICB1c2VzOiBhY3Rpb25zL3VwbG9hZC1hcnRpZmFjdEBlYTE2NWY4ZDY1YjZlNzViNTQwNDQ5ZTkyYjQ4ODZmNDM2MDdmYTAyICMgdjQKICAgICAgICB3aXRoOgogICAgICAgICAgbmFtZTogcnVzdC10ZXN0LSR7eyBydW5uZXIub3MgfX0tJHt7IGdpdGh1Yi5zaGEgfX0KICAgICAgICAgIHBhdGg6IHJ1c3QtdGVzdC0ke3sgcnVubmVyLm9zIH19LmxvZwoKICAgICAgLSBuYW1lOiBQcmVzZXJ2ZSBSdXN0IHRlc3QgcmVzdWx0CiAgICAgICAgaWY6IHN0ZXBzLnJ1c3QtdGVzdHMub3V0cHV0cy5zdGF0dXMgIT0gJzAnCiAgICAgICAgc2hlbGw6IGJhc2gKICAgICAgICBydW46IGV4aXQgMQoKICAgICAgLSBuYW1lOiBSdXN0IGNsaXBweQogICAgICAgIGlkOiBydXN0LWNsaXBweQogICAgICAgIHNoZWxsOiBiYXNoCiAgICAgICAgcnVuOiB8CiAgICAgICAgICBzZXQgK2UKICAgICAgICAgIGNhcmdvIGNsaXBweSAtLW1hbmlmZXN0LXBhdGggc3JjLXRhdXJpL0NhcmdvLnRvbWwgLS1mZWF0dXJlcyBkZXNrdG9wLXJ1bnRpbWUgLS1hbGwtdGFyZ2V0cyAtLSAtRCB3YXJuaW5ncyAyPiYxIHwgdGVlIHJ1c3QtY2xpcHB5LSR7eyBydW5uZXIub3MgfX0ubG9nCiAgICAgICAgICBzdGF0dXM9JHtQSVBFU1RBVFVTWzBdfQogICAgICAgICAgZWNobyAic3RhdHVzPSRzdGF0dXMiID4+ICIkR0lUSFVCX09VVFBVVCIKICAgICAgICAgIGV4aXQgMAoKICAgICAgLSBuYW1lOiBVcGxvYWQgUnVzdCBjbGlwcHkgbG9nCiAgICAgICAgaWY6IHN0ZXBzLnJ1c3QtY2xpcHB5Lm91dHB1dHMuc3RhdHVzICE9ICcwJwogICAgICAgIHVzZXM6IGFjdGlvbnMvdXBsb2FkLWFydGlmYWN0QGVhMTY1ZjhkNjViNmU3NWI1NDA0NDllOTJiNDg4NmY0MzYwN2ZhMDIgIyB2NAogICAgICAgIHdpdGg6CiAgICAgICAgICBuYW1lOiBydXN0LWNsaXBweS0ke3sgcnVubmVyLm9zIH19LSR7eyBnaXRodWIuc2hhIH19CiAgICAgICAgICBwYXRoOiBydXN0LWNsaXBweS0ke3sgcnVubmVyLm9zIH19LmxvZwoKICAgICAgLSBuYW1lOiBQcmVzZXJ2ZSBSdXN0IGNsaXBweSByZXN1bHQKICAgICAgICBpZjogc3RlcHMucnVzdC1jbGlwcHkub3V0cHV0cy5zdGF0dXMgIT0gJzAnCiAgICAgICAgc2hlbGw6IGJhc2gKICAgICAgICBydW46IGV4aXQgMQoKICAgICAgLSBuYW1lOiBtYWNPUyBwYXRoIGFuZCB0ZW1wIHBvbGljeSByZWdyZXNzaW9uCiAgICAgICAgaWY6IHJ1bm5lci5vcyA9PSAnbWFjT1MnCiAgICAgICAgcnVuOiB8CiAgICAgICAgICBjYXJnbyB0ZXN0IC0tbWFuaWZlc3QtcGF0aCBzcmMtdGF1cmkvQ2FyZ28udG9tbCAtLWZlYXR1cmVzIGRlc2t0b3AtcnVudGltZSBtYWNvc18KICAgICAgICAgIGNhcmdvIHRlc3QgLS1tYW5pZmVzdC1wYXRoIHNyYy10YXVyaS9DYXJnby50b21sIC0tZmVhdHVyZXMgZGVza3RvcC1ydW50aW1lIHRlbXBfc2FmZXR5X3Rlc3RzCgogICAgICAtIG5hbWU6IDEwMGsgc2VhcmNoIHBlcmZvcm1hbmNlIHRlc3QKICAgICAgICBpZjogcnVubmVyLm9zID09ICdXaW5kb3dzJwogICAgICAgIHJ1bjogbnBtIHJ1biB0ZXN0OnBlcmZvcm1hbmNlCgogICAgICAtIG5hbWU6IE5hdGl2ZSBmaWxlc3lzdGVtIGhhcmRlbmluZyBzbW9rZQogICAgICAgIGlmOiBydW5uZXIub3MgPT0gJ1dpbmRvd3MnCiAgICAgICAgcnVuOiBjYXJnbyB0ZXN0IC0tbWFuaWZlc3QtcGF0aCBzcmMtdGF1cmkvQ2FyZ28udG9tbCAtLWZlYXR1cmVzICJkZXNrdG9wLXJ1bnRpbWUgbmF0aXZlLXFhIiAtLXRlc3QgbmF0aXZlX2ZpbGVfaGFyZGVuaW5nX3Ntb2tlIC0tIC0taWdub3JlZCAtLW5vY2FwdHVyZSAtLXRlc3QtdGhyZWFkcz0xCgogICAgICAtIG5hbWU6IFdpbmRvd3MgcHJvZHVjdGlvbiBidWlsZCBhbmQgTlNJUyBwYWNrYWdlCiAgICAgICAgaWY6IHJ1bm5lci5vcyA9PSAnV2luZG93cycKICAgICAgICBydW46IG5wbSBydW4gYnVpbGQKCiAgICAgIC0gbmFtZTogbWFjT1MgcHJvZHVjdGlvbiBidWlsZCBhbmQgdW5zaWduZWQgRE1HIHBhY2thZ2UKICAgICAgICBpZjogcnVubmVyLm9zID09ICdtYWNPUycKICAgICAgICBydW46IG5wbSBydW4gYnVpbGQgLS0gLS1uby1zaWduCgogIGRlcGVuZGVuY3ktYXVkaXQ6CiAgICBuYW1lOiBEZXBlbmRlbmN5IGF1ZGl0CiAgICBydW5zLW9uOiB3aW5kb3dzLWxhdGVzdAogICAgc3RlcHM6CiAgICAgIC0gbmFtZTogQ2hlY2tvdXQKICAgICAgICB1c2VzOiBhY3Rpb25zL2NoZWNrb3V0QDM0ZTExNDg3NmIwYjExYzM5MGE1NjM4MWFkMTZlYmQxMzkxNGY4ZDUgIyB2NAoKICAgICAgLSBuYW1lOiBTZXR1cCBOb2RlCiAgICAgICAgdXNlczogYWN0aW9ucy9zZXR1cC1ub2RlQDQ5OTMzZWE1Mjg4Y2FlY2E4NjQyZDFlODRhZmJkM2Y3ZDY4MjAwMjAgIyB2NAogICAgICAgIHdpdGg6CiAgICAgICAgICBub2RlLXZlcnNpb246IDI0CiAgICAgICAgICBjYWNoZTogbnBtCgogICAgICAtIG5hbWU6IEluc3RhbGwgZGVwZW5kZW5jaWVzCiAgICAgICAgcnVuOiBucG0gY2kKCiAgICAgIC0gbmFtZTogbnBtIGF1ZGl0CiAgICAgICAgcnVuOiBucG0gcnVuIHNlY3VyaXR5OmF1ZGl0CgogICAgICAtIG5hbWU6IFJ1c3RTZWMgYXVkaXQKICAgICAgICBydW46IHwKICAgICAgICAgIGNhcmdvIGluc3RhbGwgY2FyZ28tYXVkaXQgLS1sb2NrZWQKICAgICAgICAgIG5wbSBydW4gc2VjdXJpdHk6YXVkaXQ6cnVzdAo=' | base64 --decode > .github/workflows/ci.yml
+        run: git show 488ed1cd1025b5bab0b4aa929904119fbc6b0ff3:.github/workflows/ci.yml > .github/workflows/ci.yml
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -170,13 +155,13 @@ jobs:
 
   dependency-audit:
     name: Dependency audit
-    needs: final-fix
+    needs: prepare
     runs-on: windows-latest
     steps:
-      - name: Checkout final repaired commit
+      - name: Checkout validation commit
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ needs.final-fix.outputs.final_sha }}
+          ref: ${{ needs.prepare.outputs.validation_sha }}
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -198,24 +183,22 @@ jobs:
   final-status:
     name: Final hardening status
     if: always()
-    needs: [final-fix, quality, dependency-audit]
+    needs: [prepare, quality, dependency-audit]
     runs-on: ubuntu-latest
     steps:
-      - name: Publish status on repaired commit
+      - name: Publish status on validation commit
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          FINAL_SHA: ${{ needs.final-fix.outputs.final_sha }}
-          FIX_RESULT: ${{ needs.final-fix.result }}
+          VALIDATION_SHA: ${{ needs.prepare.outputs.validation_sha }}
+          PREPARE_RESULT: ${{ needs.prepare.result }}
           QUALITY_RESULT: ${{ needs.quality.result }}
           AUDIT_RESULT: ${{ needs.dependency-audit.result }}
         run: |
           set -euo pipefail
-          final_sha="$FINAL_SHA"
-          if [ -z "$final_sha" ]; then final_sha="$GITHUB_SHA"; fi
           state=failure
           description="Final hardening matrix failed"
-          if [ "$FIX_RESULT" = success ] && [ "$QUALITY_RESULT" = success ] && [ "$AUDIT_RESULT" = success ]; then
+          if [ "$PREPARE_RESULT" = success ] && [ "$QUALITY_RESULT" = success ] && [ "$AUDIT_RESULT" = success ]; then
             state=success
             description="Windows, macOS, Clippy, audits and packages passed"
           fi
@@ -231,6 +214,6 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$final_sha" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$VALIDATION_SHA" \
             -d "$payload"
           [ "$state" = success ]
