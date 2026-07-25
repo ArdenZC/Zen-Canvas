@@ -1,4 +1,7 @@
 use super::coordinator::GlobalIndexCoordinator;
+use super::hardened_worker::{
+    reconcile_managed_scope_policy, with_managed_policy_write_lock,
+};
 use super::models::*;
 use super::search::search_global_entries as search_global_entries_impl;
 use crate::db::Database;
@@ -158,7 +161,7 @@ pub fn add_managed_scope<R: Runtime>(
     request: AddManagedScopeRequest,
 ) -> Result<ManagedScope, String> {
     require_main_window(&window)?;
-    db.add_managed_scope(request)
+    with_managed_policy_write_lock(|| db.add_managed_scope(request))
         .map_err(|error| error.to_string())
 }
 
@@ -169,7 +172,7 @@ pub fn remove_managed_scope<R: Runtime>(
     id: String,
 ) -> Result<bool, String> {
     require_main_window(&window)?;
-    db.remove_managed_scope(&id)
+    with_managed_policy_write_lock(|| db.remove_managed_scope(&id))
         .map_err(|error| error.to_string())
 }
 
@@ -180,8 +183,12 @@ pub fn update_managed_scope_policy<R: Runtime>(
     request: UpdateManagedScopePolicyRequest,
 ) -> Result<ManagedScope, String> {
     require_main_window(&window)?;
-    db.update_managed_scope_policy(request)
-        .map_err(|error| error.to_string())
+    with_managed_policy_write_lock(|| {
+        let updated = db.update_managed_scope_policy(request)?;
+        reconcile_managed_scope_policy(db.inner(), &updated)?;
+        Ok::<ManagedScope, crate::db::DbError>(updated)
+    })
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
