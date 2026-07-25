@@ -43,9 +43,9 @@ jobs:
                && grep -A12 'pub async fn classify_files_with_ai_for_db' src-tauri/src/ai/classification.rs | grep -q 'classify_ai_targets_with_configured_provider'; then
               python scripts/apply_internal_ai_queue_patch.py
             fi
-            if grep -q 'pub struct MacosSpotlightProvider' src-tauri/src/global_index/macos/mod.rs \
-               && ! grep -q 'known_entries:' src-tauri/src/global_index/macos/mod.rs; then
-              python scripts/apply_macos_delete_hardening.py
+            if grep -q 'known_entries:' src-tauri/src/global_index/macos/mod.rs \
+               && ! grep -q 'known_entries: Arc<Mutex<std::collections::HashMap' src-tauri/src/global_index/macos/spotlight.rs; then
+              python scripts/repair_macos_delete_hardening.py
             fi
             if ! grep -q 'pendingManagedEntry' src/components/CommandModal.tsx; then
               python scripts/apply_spotlight_management_confirmation.py
