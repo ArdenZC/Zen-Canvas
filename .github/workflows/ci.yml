@@ -149,42 +149,25 @@ jobs:
         shell: bash
         run: |
           python - <<'PY'
+          import re
           from pathlib import Path
 
           test_path = Path('src-tauri/src/db/tests/part1.rs')
           text = test_path.read_text(encoding='utf-8')
-          marker = 'conn.query_row("PRAGMA user_version"'
-          start = text.find(marker)
-          if start < 0:
+          pattern = r'(\.expect\("schema version"\),\s*)25(\s*\);)'
+          text, count = re.subn(pattern, r'\g<1>26\g<2>', text, count=1)
+          if count == 0 and not re.search(r'\.expect\("schema version"\),\s*26\s*\);', text):
               raise SystemExit('schema version assertion not found')
-          end = text.find(');', start)
-          if end < 0:
-              raise SystemExit('schema version assertion end not found')
-          block = text[start:end + 2]
-          if '\n            26\n' not in block:
-              if block.count('\n            25\n') != 1:
-                  raise SystemExit(f'unexpected schema assertion: {block!r}')
-              block = block.replace('\n            25\n', '\n            26\n')
-              text = text[:start] + block + text[end + 2:]
           test_path.write_text(text, encoding='utf-8')
 
           spotlight_path = Path('src-tauri/src/global_index/macos/spotlight.rs')
           text = spotlight_path.read_text(encoding='utf-8')
-          old = '''where
-              F: FnMut(&[GlobalEntryInput]) -> Result<(), String>,
-          {
-              autoreleasepool(|_| {'''
-          new = '''where
-              F: FnMut(&[GlobalEntryInput]) -> Result<(), String>,
-          {
-              if cancel.load(Ordering::Acquire) {
-                  return Err("macos_spotlight_query_paused".to_string());
-              }
-              autoreleasepool(|_| {'''
-          if new not in text:
-              if text.count(old) != 1:
-                  raise SystemExit(f'expected one Spotlight entry point, found {text.count(old)}')
-              text = text.replace(old, new)
+          if 'return Err("macos_spotlight_query_paused".to_string());\n    }\n    autoreleasepool' not in text:
+              pattern = r'(pub fn stream_local_computer_entries<[^>]+>\([\s\S]*?where\s+F: FnMut\(&\[GlobalEntryInput\]\) -> Result<\(\), String>,\s*\{)\s*autoreleasepool'
+              replacement = r'\1\n    if cancel.load(Ordering::Acquire) {\n        return Err("macos_spotlight_query_paused".to_string());\n    }\n    autoreleasepool'
+              text, count = re.subn(pattern, replacement, text, count=1)
+              if count != 1:
+                  raise SystemExit(f'expected one Spotlight entry point, found {count}')
           spotlight_path.write_text(text, encoding='utf-8')
           PY
 
