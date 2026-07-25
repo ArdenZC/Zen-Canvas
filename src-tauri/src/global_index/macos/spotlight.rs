@@ -62,6 +62,9 @@ pub fn stream_local_computer_entries<F>(
 where
     F: FnMut(&[GlobalEntryInput]) -> Result<(), String>,
 {
+    if cancel.load(Ordering::Acquire) {
+        return Err("macos_spotlight_query_paused".to_string());
+    }
     autoreleasepool(|_| {
         let query = new_local_computer_query();
         if !query.startQuery() {
