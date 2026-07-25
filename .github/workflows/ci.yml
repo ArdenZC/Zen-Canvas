@@ -148,27 +148,59 @@ jobs:
       - name: Patch tests and canceled Spotlight path
         shell: bash
         run: |
+          set -euxo pipefail
           python - <<'PY'
-          import re
           from pathlib import Path
 
           test_path = Path('src-tauri/src/db/tests/part1.rs')
-          text = test_path.read_text(encoding='utf-8')
-          pattern = r'(\.expect\("schema version"\),\s*)25(\s*\);)'
-          text, count = re.subn(pattern, r'\g<1>26\g<2>', text, count=1)
-          if count == 0 and not re.search(r'\.expect\("schema version"\),\s*26\s*\);', text):
+          lines = test_path.read_text(encoding='utf-8').splitlines()
+          changed = False
+          for index, line in enumerate(lines):
+              if 'expect("schema version")' not in line:
+                  continue
+              for candidate in range(index + 1, min(index + 5, len(lines))):
+                  if lines[candidate].strip() == '26':
+                      changed = True
+                      break
+                  if lines[candidate].strip() == '25':
+                      indent = lines[candidate][: len(lines[candidate]) - len(lines[candidate].lstrip())]
+                      lines[candidate] = f'{indent}26'
+                      changed = True
+                      break
+              break
+          if not changed:
               raise SystemExit('schema version assertion not found')
-          test_path.write_text(text, encoding='utf-8')
+          test_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
 
           spotlight_path = Path('src-tauri/src/global_index/macos/spotlight.rs')
-          text = spotlight_path.read_text(encoding='utf-8')
-          if 'return Err("macos_spotlight_query_paused".to_string());\n    }\n    autoreleasepool' not in text:
-              pattern = r'(pub fn stream_local_computer_entries<[^>]+>\([\s\S]*?where\s+F: FnMut\(&\[GlobalEntryInput\]\) -> Result<\(\), String>,\s*\{)\s*autoreleasepool'
-              replacement = r'\1\n    if cancel.load(Ordering::Acquire) {\n        return Err("macos_spotlight_query_paused".to_string());\n    }\n    autoreleasepool'
-              text, count = re.subn(pattern, replacement, text, count=1)
-              if count != 1:
-                  raise SystemExit(f'expected one Spotlight entry point, found {count}')
-          spotlight_path.write_text(text, encoding='utf-8')
+          lines = spotlight_path.read_text(encoding='utf-8').splitlines()
+          function_start = next(
+              (index for index, line in enumerate(lines) if line.startswith('pub fn stream_local_computer_entries')),
+              None,
+          )
+          if function_start is None:
+              raise SystemExit('Spotlight entry function not found')
+          pool_index = next(
+              (
+                  index
+                  for index in range(function_start, min(function_start + 30, len(lines)))
+                  if lines[index].strip() == 'autoreleasepool(|_| {'
+              ),
+              None,
+          )
+          if pool_index is None:
+              raise SystemExit('Spotlight autoreleasepool not found')
+          already_fixed = any(
+              'if cancel.load(Ordering::Acquire)' in lines[index]
+              for index in range(function_start, pool_index)
+          )
+          if not already_fixed:
+              lines[pool_index:pool_index] = [
+                  '    if cancel.load(Ordering::Acquire) {',
+                  '        return Err("macos_spotlight_query_paused".to_string());',
+                  '    }',
+              ]
+          spotlight_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
           PY
 
           cargo fmt --manifest-path src-tauri/Cargo.toml
@@ -190,6 +222,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .github/workflows/ci.yml src-tauri
+          git diff --cached --check
           git commit -m "fix(macos): short-circuit canceled Spotlight queries"
           git push origin HEAD:agent/system-wide-search-hardening
 # END ONE_SHOT_NATIVE_FIX
