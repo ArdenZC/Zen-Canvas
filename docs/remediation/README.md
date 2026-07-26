@@ -31,7 +31,7 @@ git merge-base --is-ancestor a2c0516dc7a8628cb7210003da3d66f5d84f3a2f HEAD
 
 ---
 
-## 2. 文档优先级
+## 2. 文档优先级与执行授权
 
 Codex 开始任何整改阶段前，依次阅读：
 
@@ -39,15 +39,50 @@ Codex 开始任何整改阶段前，依次阅读：
 2. `docs/remediation/README.md`；
 3. `docs/remediation/REMEDIATION_MASTER_PLAN_V1.md`；
 4. `docs/remediation/CODEX_REMEDIATION_INDEX_V1.md`；
-5. 当前阶段任务书；
+5. 当前阶段由人工编写并批准的 `TASK_*.md`；
 6. 当前阶段依赖的 ADR、closeout、测试和实际源码；
 7. 涉及 UI 时，再阅读当前有效的 `docs/design/` 规范。
 
-仓库文档发生冲突时按以下原则处理：
+### 2.1 唯一执行授权
+
+只有以下组合可以授权生产实施：
+
+```text
+CODEX_REMEDIATION_INDEX_V1.md 中阶段被标记为可执行
++
+该阶段存在人工编写并批准的 TASK_*.md
++
+任务书所在 PR 已合并到 master
+```
+
+缺少任一项均不得开始生产实施。
+
+### 2.2 研究文档不得改变阶段顺序
+
+以下类型文档可以保存调研、参考项目对比、许可证结论和未来方案，但**不具有执行授权**：
+
+- `BRIEF.md`；
+- `00-overview.md`；
+- `01-dedupe.md` 等模块研究文档；
+- PR review 备忘；
+- Claude/Codex 临时规划；
+-尚未被人工写入主索引的决策日志。
+
+这些文档不得：
+
+-重新编号整改阶段；
+-跳过主索引中的前置任务；
+-自行宣布某模块“获准实施”；
+-抢占尚未分配的 schema 版本；
+-覆盖人工批准的 `TASK_*.md`。
+
+若研究文档与主索引冲突，以主索引和当前人工任务书为准。
+
+仓库文档发生其他冲突时按以下原则处理：
 
 1. 数据安全、文件安全、恢复能力和用户数据兼容性最高；
 2. 根目录当前开发说明高于本目录；
-3. 当前阶段任务书高于总体计划；
+3. 当前人工批准的阶段任务书高于总体计划；
 4. 已合并代码和测试事实高于旧文档描述；
 5. UI 品牌规范不能覆盖后端安全边界；
 6. 不得通过删除、弱化、跳过或改写测试来消除冲突。
@@ -71,11 +106,11 @@ Codex 开始任何整改阶段前，依次阅读：
 
 不得在一个阶段中“顺手完成”后续模块。
 
-### 3.2 先审计，再冻结实现
+### 3.2 任务书由人工编写
 
-`Task 00` 是唯一立即可执行的阶段。它只调查 PR #15 合并后的真实架构，不修改生产代码。
-
-Task 01 及之后的任务，在 Task 00 审计结论通过人工验收前都只是暂定方向，不是实施授权。
+- 架构分析、任务拆分、schema 版本、状态机、允许范围和验收标准由人工编写并提交；
+- Codex 只负责读取已批准任务书、修改代码、添加测试、提交 Draft PR 和汇报；
+- Codex 不得重新写任务书、不自行重排阶段、不为下一阶段提前建表。
 
 ### 3.3 不得重复建设
 
@@ -83,12 +118,12 @@ PR #15 已经加入或强化了：
 
 - Windows MFT/USN 与 macOS Spotlight/FSEvents 系统级索引；
 - disabled volume 隔离；
-- 原生文件身份；
+-原生文件身份；
 - Managed AI 持久队列；
 - scope、provider policy、fingerprint、取消和用户修正的调用前后复核；
 - provider 输出验证；
-- 平台安全边界；
-- 性能、原生回归、安全审计和打包 CI。
+-平台安全边界；
+-性能、原生回归、安全审计和打包 CI。
 
 后续任务必须先判断现有能力能否扩展，不得另建第二套全局索引、第二套 Managed AI 队列或绕开现有安全入口。
 
@@ -97,18 +132,18 @@ PR #15 已经加入或强化了：
 除非当前任务书明确授权：
 
 - 不修改数据库 schema；
-- 不新增第三方依赖；
-- 不改变对外 API 或持久化协议；
-- 不删除、放宽、跳过或改写既有测试；
-- 不删除功能来规避架构问题；
-- 不把临时 mock、调试页面或测试数据带入生产路径；
-- 不把 AI 变成可以直接执行任意文件操作的 Agent；
-- 不信任前端提交的源路径、目标路径或文件身份；
-- 不让 unmanaged 文件进入内容提取或云端 AI；
-- 不将清理默认改为永久删除；
-- 不绕过 operation journal、预览和恢复链路；
-- 不把 Windows UI 伪装成 macOS，反之亦然；
-- 不发布 tag、release、安装包或修改公开发布配置。
+-不新增第三方依赖；
+-不改变对外 API 或持久化协议；
+-不删除、放宽、跳过或改写既有测试；
+-不删除功能来规避架构问题；
+-不把临时 mock、调试页面或测试数据带入生产路径；
+-不把 AI 变成可以直接执行任意文件操作的 Agent；
+-不信任前端提交的源路径、目标路径或文件身份；
+-不让 unmanaged 文件进入内容提取或云端 AI；
+-不将清理默认改为永久删除；
+-不绕过 operation journal、预览和恢复链路；
+-不把 Windows UI 伪装成 macOS，反之亦然；
+-不发布 tag、release、安装包或修改公开发布配置。
 
 ---
 
@@ -137,7 +172,8 @@ PR #15 已经加入或强化了：
 
 ```text
 remediation/00-post-merge-audit
-remediation/01-job-scan-foundation
+remediation/01a-scan-generation-foundation
+remediation/01b-watcher-reconciliation-ownership
 remediation/02-file-fingerprint-dedupe
 ...
 ```
@@ -145,32 +181,30 @@ remediation/02-file-fingerprint-dedupe
 文档阶段提交示例：
 
 ```text
-docs: establish post-merge remediation baseline
+docs: define watcher reconciliation ownership task
 ```
 
 实施阶段提交应清楚描述单一阶段目标，不使用笼统的 `update`、`fix stuff` 或 `refactor all`。
 
 ---
 
-## 6. 当前文档
+## 6. 当前权威文档
 
 ```text
 docs/remediation/
 ├── README.md
 ├── REMEDIATION_MASTER_PLAN_V1.md
 ├── CODEX_REMEDIATION_INDEX_V1.md
-└── TASK_00_POST_MERGE_BASELINE_AUDIT.md
+├── POST_MERGE_BASELINE_AUDIT.md
+├── REMEDIATION_CAPABILITY_MATRIX.md
+├── REMEDIATION_RISK_REGISTER.md
+├── TASK_00_POST_MERGE_BASELINE_AUDIT.md
+├── TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md
+├── TASK_01A_IMPLEMENTATION_CLOSEOUT.md
+└── TASK_01B_WATCHER_RECONCILIATION_OWNERSHIP.md
 ```
 
-Task 00 完成后，Codex 预计新增：
-
-```text
-POST_MERGE_BASELINE_AUDIT.md
-REMEDIATION_CAPABILITY_MATRIX.md
-REMEDIATION_RISK_REGISTER.md
-```
-
-后续详细任务书只能在 Task 00 审计通过后逐个冻结。
+后续详细任务书由人工逐个创建和冻结。
 
 ---
 
