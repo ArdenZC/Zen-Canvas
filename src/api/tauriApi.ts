@@ -84,6 +84,140 @@ export interface ScanBatchPayload {
 
 export type ScanSummary = ScanProgressPayload;
 
+export interface ManagedScanRequest {
+  roots: string[];
+  requestKey?: string | null;
+  dedupe: boolean;
+}
+
+export interface ScanRootDto {
+  id: string;
+  normalizedPath: string;
+  displayName: string;
+  sourceKind: string;
+  enabled: boolean;
+  healthStatus: string;
+  currentGeneration: number;
+  activeRunId: string | null;
+  activeGeneration: number | null;
+  revision: number;
+  lastSuccessfulGeneration: number | null;
+  lastFullScanAt: number | null;
+  needsReconciliation: boolean;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ScanSessionRootDto {
+  sessionId: string;
+  requestedIndex: number;
+  requestedPath: string;
+  normalizedRequestedPath: string;
+  resolution: string;
+  effectiveRootId: string | null;
+  effectivePath: string | null;
+  effectiveIndex: number | null;
+  runId: string | null;
+  status: string;
+  reason: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ScanRunDto {
+  id: string;
+  scanRootId: string;
+  rootPath: string;
+  generation: number;
+  parentSessionId: string | null;
+  status: string;
+  phase: string;
+  scannedFiles: number;
+  scannedDirectories: number;
+  processedBytes: number;
+  warningsCount: number;
+  errorsCount: number;
+  metadataErrorCount: number;
+  coverageErrorCount: number;
+  coverageComplete: boolean;
+  staleReconciliationAllowed: boolean;
+  cancelRequested: boolean;
+  revision: number;
+  sessionRevision: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  lastCheckpointAt: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  resultJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ScanSessionDto {
+  id: string;
+  requestKey: string | null;
+  canonicalRequestHash: string | null;
+  status: string;
+  phase: string;
+  cancelRequested: boolean;
+  requestedRootCount: number;
+  effectiveRootCount: number;
+  completedRootCount: number;
+  failedRootCount: number;
+  cancelledRootCount: number;
+  coveredRootCount: number;
+  unstartedRootCount: number;
+  dedupeRequested: boolean;
+  dedupeDispatchState: string;
+  dedupeAttemptCount: number;
+  dedupeJobId: string | null;
+  dedupeLastError: string | null;
+  scannedFiles: number;
+  scannedDirectories: number;
+  warningsCount: number;
+  errorsCount: number;
+  revision: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  lastCheckpointAt: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  resultJson: string | null;
+  createdAt: number;
+  updatedAt: number;
+  roots: ScanSessionRootDto[];
+}
+
+export interface ManagedScanStartDto {
+  session: ScanSessionDto;
+  runs: ScanRunDto[];
+}
+
+export interface ManagedScanEvent {
+  eventId: string;
+  runId: string;
+  scanRootId: string;
+  parentSessionId: string | null;
+  generation: number;
+  runRevision: number;
+  sessionRevision: number;
+  status: string;
+  runPhase: string;
+  sessionPhase: string;
+  scannedFiles: number;
+  scannedDirectories: number;
+  processedBytes: number;
+  warningsCount: number;
+  errorsCount: number;
+  currentPath: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  timestamp: number;
+}
+
 export interface DedupeProgressPayload {
   dedupeJobId: string;
   parentScanJobId: string | null;
@@ -248,6 +382,41 @@ export const tauriApi = {
     runDedupe = true
   ): Promise<ScanSummary> {
     return invokeCommand<ScanSummary>("scan_directory", { path, includeEntries, jobId, jobKind, runDedupe });
+  },
+
+  startManagedScan(request: ManagedScanRequest): Promise<ManagedScanStartDto> {
+    return invokeCommand<ManagedScanStartDto>("start_managed_scan", { request });
+  },
+
+  cancelScanRun(runId: string): Promise<ScanRunDto> {
+    return invokeCommand<ScanRunDto>("cancel_scan_run", { runId });
+  },
+
+  getScanRun(runId: string): Promise<ScanRunDto> {
+    return invokeCommand<ScanRunDto>("get_scan_run", { runId });
+  },
+
+  listScanRuns(sessionId?: string, rootId?: string, limit = 100): Promise<ScanRunDto[]> {
+    return invokeCommand<ScanRunDto[]>("list_scan_runs", {
+      sessionId: sessionId ?? null,
+      rootId: rootId ?? null,
+      limit
+    });
+  },
+
+  listScanRoots(): Promise<ScanRootDto[]> {
+    return invokeCommand<ScanRootDto[]>("list_scan_roots");
+  },
+
+  getScanRootHealth(rootId?: string, path?: string): Promise<ScanRootDto> {
+    return invokeCommand<ScanRootDto>("get_scan_root_health", {
+      rootId: rootId ?? null,
+      path: path ?? null
+    });
+  },
+
+  retryInterruptedScan(runId: string): Promise<ManagedScanStartDto> {
+    return invokeCommand<ManagedScanStartDto>("retry_interrupted_scan", { runId });
   },
 
   createScanJobId(jobKind: "foreground" | "background"): Promise<string> {
@@ -541,6 +710,10 @@ export const tauriApi = {
 
   onScanError(handler: EventHandler<{ jobId: string; jobKind: "foreground" | "background"; root: string; path: string; message: string }>): Promise<UnlistenFn> {
     return listenTo("scan-error", handler);
+  },
+
+  onManagedScanEvent(handler: EventHandler<ManagedScanEvent>): Promise<UnlistenFn> {
+    return listenTo("scan-run-updated", handler);
   },
 
   onDedupeProgress(handler: EventHandler<DedupeProgressPayload>): Promise<UnlistenFn> {
