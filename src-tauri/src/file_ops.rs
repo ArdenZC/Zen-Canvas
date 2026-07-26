@@ -2765,6 +2765,110 @@ mod tests {
 
     static TEST_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+    /// Environmental-failure resilience for tests that move real files
+    /// (`docs/remediation/issue-file-ops-flaky.md`, F1).  Under system load,
+    /// external processes (antivirus / indexer scans) briefly hold handles on
+    /// freshly created fixtures, so a move fails with a Windows sharing
+    /// violation (`os error 32`) or trips the post-commit identity check into
+    /// `target_committed_identity_mismatch`.  Both are environment noise, not
+    /// logic regressions — the safety layer responding to them is behaving
+    /// correctly.  Affected tests rebuild their fixture from scratch and retry
+    /// a bounded number of times; every retry is reported and the run aborts
+    /// loudly once the limit is reached.  Silent retry is forbidden (裁决 D7).
+    const ENVIRONMENTAL_ATTEMPT_LIMIT: usize = 3;
+
+    fn environmental_failure_signature(logs: &[OperationLogDto]) -> Option<String> {
+        logs.iter().find_map(|log| {
+            [log.error_message.as_deref(), log.restore_error.as_deref()]
+                .into_iter()
+                .flatten()
+                .find(|message| {
+                    message.contains("os error 32")
+                        || message.contains("target_committed_identity_mismatch")
+                })
+                .map(|message| format!("{}: {message}", log.id))
+        })
+    }
+
+    /// Appends one line per environmental event to the file named by
+    /// `ZEN_CANVAS_ENV_RETRY_LOG` (set by CI, F2) so retries leave a durable,
+    /// countable trace even when the test ultimately passes.
+    fn record_environmental_event(test_name: &str, event: &str) {
+        eprintln!("[env-retry] {test_name}: {event}");
+        if let Ok(log_path) = std::env::var("ZEN_CANVAS_ENV_RETRY_LOG") {
+            if let Ok(mut file) = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log_path)
+            {
+                use std::io::Write as _;
+                // Parallel tests append concurrently: emit the whole line in one
+                // write so records never interleave mid-line.
+                let line = format!("{test_name}\t{event}\n");
+                let _ = file.write_all(line.as_bytes());
+            }
+        }
+    }
+
+    fn with_environmental_retry(test_name: &str, mut attempt: impl FnMut() -> Result<(), String>) {
+        let mut signatures = Vec::new();
+        for attempt_number in 1..=ENVIRONMENTAL_ATTEMPT_LIMIT {
+            match attempt() {
+                Ok(()) => {
+                    if attempt_number > 1 {
+                        record_environmental_event(
+                            test_name,
+                            &format!(
+                                "passed on attempt {attempt_number}/{ENVIRONMENTAL_ATTEMPT_LIMIT} after: {signatures:?}"
+                            ),
+                        );
+                    }
+                    return;
+                }
+                Err(signature) => {
+                    record_environmental_event(
+                        test_name,
+                        &format!(
+                            "environmental failure on attempt {attempt_number}/{ENVIRONMENTAL_ATTEMPT_LIMIT}: {signature}"
+                        ),
+                    );
+                    signatures.push(signature);
+                }
+            }
+        }
+        record_environmental_event(
+            test_name,
+            &format!("exhausted {ENVIRONMENTAL_ATTEMPT_LIMIT} attempts: {signatures:?}"),
+        );
+        panic!(
+            "[env-retry] {test_name}: environmental failure persisted through \
+             {ENVIRONMENTAL_ATTEMPT_LIMIT} attempts ({signatures:?}); see \
+             docs/remediation/issue-file-ops-flaky.md — investigate, do not dismiss by rerunning"
+        );
+    }
+
+    #[test]
+    fn environmental_retry_reports_and_recovers_within_the_attempt_limit() {
+        let mut attempts = 0;
+        with_environmental_retry("environmental-retry-recovers", || {
+            attempts += 1;
+            if attempts < ENVIRONMENTAL_ATTEMPT_LIMIT {
+                Err(format!("op-{attempts}: simulated (os error 32)"))
+            } else {
+                Ok(())
+            }
+        });
+        assert_eq!(attempts, ENVIRONMENTAL_ATTEMPT_LIMIT);
+    }
+
+    #[test]
+    #[should_panic(expected = "environmental failure persisted")]
+    fn environmental_retry_fails_loudly_when_attempts_are_exhausted() {
+        with_environmental_retry("environmental-retry-exhausted", || {
+            Err("op-x: simulated (os error 32)".to_string())
+        });
+    }
+
     #[test]
     fn execute_selection_resolves_authoritative_paths_from_database() {
         let db = Database::open(test_db_path()).expect("open database");
@@ -3236,34 +3340,44 @@ mod tests {
 
     #[test]
     fn execute_moves_core_moves_files_and_returns_success_log() {
-        let root = test_dir();
-        let source_dir = root.join("source");
-        let target_dir = root.join("target");
-        fs::create_dir_all(&source_dir).expect("source dir");
-        fs::create_dir_all(&target_dir).expect("target dir");
+        with_environmental_retry(
+            "execute_moves_core_moves_files_and_returns_success_log",
+            || {
+                let root = test_dir();
+                let source_dir = root.join("source");
+                let target_dir = root.join("target");
+                fs::create_dir_all(&source_dir).expect("source dir");
+                fs::create_dir_all(&target_dir).expect("target dir");
 
-        let source = source_dir.join("sample.txt");
-        let target = target_dir.join("sample.txt");
-        fs::write(&source, "hello").expect("write source");
+                let source = source_dir.join("sample.txt");
+                let target = target_dir.join("sample.txt");
+                fs::write(&source, "hello").expect("write source");
 
-        let result = execute_moves_core(ExecuteMovesRequest {
-            operations: vec![OperationPreviewRequest {
-                id: "op-1".to_string(),
-                file_id: "file-1".to_string(),
-                operation_type: "move".to_string(),
-                source_path: source.to_string_lossy().into_owned(),
-                target_path: target.to_string_lossy().into_owned(),
-                old_name: "sample.txt".to_string(),
-                new_name: "sample.txt".to_string(),
-                is_executable: Some(true),
-            }],
-        });
+                let result = execute_moves_core(ExecuteMovesRequest {
+                    operations: vec![OperationPreviewRequest {
+                        id: "op-1".to_string(),
+                        file_id: "file-1".to_string(),
+                        operation_type: "move".to_string(),
+                        source_path: source.to_string_lossy().into_owned(),
+                        target_path: target.to_string_lossy().into_owned(),
+                        old_name: "sample.txt".to_string(),
+                        new_name: "sample.txt".to_string(),
+                        is_executable: Some(true),
+                    }],
+                });
+                if let Some(signature) = environmental_failure_signature(&result.logs) {
+                    let _ = fs::remove_dir_all(&root);
+                    return Err(signature);
+                }
 
-        assert!(!source.exists());
-        assert!(target.exists());
-        assert_eq!(result.logs.len(), 1);
-        assert_eq!(result.logs[0].status, "success");
-        assert_eq!(result.logs[0].operation_type, "move");
+                assert!(!source.exists());
+                assert!(target.exists());
+                assert_eq!(result.logs.len(), 1);
+                assert_eq!(result.logs[0].status, "success");
+                assert_eq!(result.logs[0].operation_type, "move");
+                Ok(())
+            },
+        );
     }
 
     #[test]
@@ -3280,40 +3394,50 @@ mod tests {
 
     #[test]
     fn execute_moves_core_creates_safe_missing_target_parent() {
-        let root = test_dir();
-        let source_dir = root.join("source");
-        let target_dir = root.join("ZenCanvas").join("20_Areas").join("Projects");
-        fs::create_dir_all(&source_dir).expect("source dir");
+        with_environmental_retry(
+            "execute_moves_core_creates_safe_missing_target_parent",
+            || {
+                let root = test_dir();
+                let source_dir = root.join("source");
+                let target_dir = root.join("ZenCanvas").join("20_Areas").join("Projects");
+                fs::create_dir_all(&source_dir).expect("source dir");
 
-        let source = source_dir.join("sample.txt");
-        let target = target_dir.join("sample.txt");
-        fs::write(&source, "hello").expect("write source");
+                let source = source_dir.join("sample.txt");
+                let target = target_dir.join("sample.txt");
+                fs::write(&source, "hello").expect("write source");
 
-        let result = execute_moves_core(ExecuteMovesRequest {
-            operations: vec![OperationPreviewRequest {
-                id: "op-create-parent".to_string(),
-                file_id: "file-create-parent".to_string(),
-                operation_type: "move".to_string(),
-                source_path: source.to_string_lossy().into_owned(),
-                target_path: target.to_string_lossy().into_owned(),
-                old_name: "sample.txt".to_string(),
-                new_name: "sample.txt".to_string(),
-                is_executable: Some(true),
-            }],
-        });
+                let result = execute_moves_core(ExecuteMovesRequest {
+                    operations: vec![OperationPreviewRequest {
+                        id: "op-create-parent".to_string(),
+                        file_id: "file-create-parent".to_string(),
+                        operation_type: "move".to_string(),
+                        source_path: source.to_string_lossy().into_owned(),
+                        target_path: target.to_string_lossy().into_owned(),
+                        old_name: "sample.txt".to_string(),
+                        new_name: "sample.txt".to_string(),
+                        is_executable: Some(true),
+                    }],
+                });
+                if let Some(signature) = environmental_failure_signature(&result.logs) {
+                    let _ = fs::remove_dir_all(&root);
+                    return Err(signature);
+                }
 
-        assert!(!source.exists());
-        assert!(target.exists());
-        assert_eq!(fs::read_to_string(&target).expect("read target"), "hello");
-        assert_eq!(result.logs[0].status, "success");
-        assert_eq!(
-            result.logs[0].source_path,
-            source.to_string_lossy().into_owned()
+                assert!(!source.exists());
+                assert!(target.exists());
+                assert_eq!(fs::read_to_string(&target).expect("read target"), "hello");
+                assert_eq!(result.logs[0].status, "success");
+                assert_eq!(
+                    result.logs[0].source_path,
+                    source.to_string_lossy().into_owned()
+                );
+                assert!(result.logs[0]
+                    .target_path
+                    .replace('\\', "/")
+                    .ends_with("ZenCanvas/20_Areas/Projects/sample.txt"));
+                Ok(())
+            },
         );
-        assert!(result.logs[0]
-            .target_path
-            .replace('\\', "/")
-            .ends_with("ZenCanvas/20_Areas/Projects/sample.txt"));
     }
 
     #[test]
@@ -3634,31 +3758,55 @@ mod tests {
 
     #[test]
     fn execute_moves_core_marks_remaining_operations_skipped_when_cancelled() {
-        let root = test_dir();
-        let source_dir = root.join("source");
-        let target_dir = root.join("target");
-        fs::create_dir_all(&source_dir).expect("source dir");
-        fs::create_dir_all(&target_dir).expect("target dir");
-        let operations = (0..11)
-            .map(|index| {
-                let source = source_dir.join(format!("sample-{index}.txt"));
-                let target = target_dir.join(format!("sample-{index}.txt"));
-                fs::write(&source, "hello").expect("write source");
-                preview_operation(index, &source, &target)
-            })
-            .collect::<Vec<_>>();
-        let cancelled_source = PathBuf::from(&operations[10].source_path);
-        let cancelled_target = PathBuf::from(&operations[10].target_path);
-        let cancel_flag = Arc::new(AtomicBool::new(false));
-        let progress =
-            RecordingOperationProgressEmitter::cancel_after(10, Arc::clone(&cancel_flag));
+        with_environmental_retry(
+            "execute_moves_core_marks_remaining_operations_skipped_when_cancelled",
+            || {
+                let root = test_dir();
+                let source_dir = root.join("source");
+                let target_dir = root.join("target");
+                fs::create_dir_all(&source_dir).expect("source dir");
+                fs::create_dir_all(&target_dir).expect("target dir");
+                let operations = (0..11)
+                    .map(|index| {
+                        let source = source_dir.join(format!("sample-{index}.txt"));
+                        let target = target_dir.join(format!("sample-{index}.txt"));
+                        fs::write(&source, "hello").expect("write source");
+                        preview_operation(index, &source, &target)
+                    })
+                    .collect::<Vec<_>>();
+                let cancelled_source = PathBuf::from(&operations[10].source_path);
+                let cancelled_target = PathBuf::from(&operations[10].target_path);
+                let cancel_flag = Arc::new(AtomicBool::new(false));
+                let progress =
+                    RecordingOperationProgressEmitter::cancel_after(10, Arc::clone(&cancel_flag));
 
-        let result = execute_moves_core_with_progress(
-            ExecuteMovesRequest { operations },
-            Arc::clone(&cancel_flag),
-            &progress,
+                let result = execute_moves_core_with_progress(
+                    ExecuteMovesRequest { operations },
+                    Arc::clone(&cancel_flag),
+                    &progress,
+                );
+                if let Some(signature) = environmental_failure_signature(&result.logs) {
+                    let _ = fs::remove_dir_all(&root);
+                    return Err(signature);
+                }
+
+                run_cancelled_moves_assertions(
+                    result,
+                    &cancelled_source,
+                    &cancelled_target,
+                    &progress,
+                );
+                Ok(())
+            },
         );
+    }
 
+    fn run_cancelled_moves_assertions(
+        result: ExecuteMovesResult,
+        cancelled_source: &Path,
+        cancelled_target: &Path,
+        progress: &RecordingOperationProgressEmitter,
+    ) {
         assert_eq!(
             result
                 .logs
@@ -4001,69 +4149,93 @@ mod tests {
 
     #[test]
     fn restore_blocks_legacy_operation_logs_without_identity() {
-        let root = test_dir();
-        let source = root.join("legacy-before.txt");
-        let target = root.join("legacy-after.txt");
-        fs::write(&source, "legacy").expect("write source");
-        let mut executed = execute_moves_core(ExecuteMovesRequest {
-            operations: vec![preview_operation(0, &source, &target)],
-        });
-        let log = &mut executed.logs[0];
-        log.source_size = None;
-        log.source_modified_ns = None;
-        log.source_platform_file_id = None;
-        log.source_quick_hash = None;
-        log.target_platform_file_id = None;
+        with_environmental_retry(
+            "restore_blocks_legacy_operation_logs_without_identity",
+            || {
+                let root = test_dir();
+                let source = root.join("legacy-before.txt");
+                let target = root.join("legacy-after.txt");
+                fs::write(&source, "legacy").expect("write source");
+                let mut executed = execute_moves_core(ExecuteMovesRequest {
+                    operations: vec![preview_operation(0, &source, &target)],
+                });
+                if let Some(signature) = environmental_failure_signature(&executed.logs) {
+                    let _ = fs::remove_dir_all(&root);
+                    return Err(signature);
+                }
+                let log = &mut executed.logs[0];
+                log.source_size = None;
+                log.source_modified_ns = None;
+                log.source_platform_file_id = None;
+                log.source_quick_hash = None;
+                log.target_platform_file_id = None;
 
-        let restored = restore_moves_core(RestoreMovesRequest {
-            logs: executed.logs,
-        });
+                let restored = restore_moves_core(RestoreMovesRequest {
+                    logs: executed.logs,
+                });
 
-        assert!(!source.exists());
-        assert!(target.exists());
-        assert_eq!(restored.logs[0].restore_status, "manual_review");
+                assert!(!source.exists());
+                assert!(target.exists());
+                assert_eq!(restored.logs[0].restore_status, "manual_review");
+                Ok(())
+            },
+        );
     }
 
     #[test]
     fn restore_moves_core_marks_remaining_logs_canceled_when_cancelled() {
-        let root = test_dir();
-        let source_dir = root.join("source");
-        let target_dir = root.join("target");
-        fs::create_dir_all(&source_dir).expect("source dir");
-        fs::create_dir_all(&target_dir).expect("target dir");
-        let operations = (0..11)
-            .map(|index| {
-                let source = source_dir.join(format!("restore-{index}.txt"));
-                let target = target_dir.join(format!("restore-{index}.txt"));
-                fs::write(&source, "hello").expect("write source");
-                preview_operation(index, &source, &target)
-            })
-            .collect::<Vec<_>>();
-        let executed = execute_moves_core(ExecuteMovesRequest { operations });
-        let canceled_log = executed.logs[10].clone();
-        let cancel_flag = Arc::new(AtomicBool::new(false));
-        let progress =
-            RecordingOperationProgressEmitter::cancel_after(10, Arc::clone(&cancel_flag));
+        with_environmental_retry(
+            "restore_moves_core_marks_remaining_logs_canceled_when_cancelled",
+            || {
+                let root = test_dir();
+                let source_dir = root.join("source");
+                let target_dir = root.join("target");
+                fs::create_dir_all(&source_dir).expect("source dir");
+                fs::create_dir_all(&target_dir).expect("target dir");
+                let operations = (0..11)
+                    .map(|index| {
+                        let source = source_dir.join(format!("restore-{index}.txt"));
+                        let target = target_dir.join(format!("restore-{index}.txt"));
+                        fs::write(&source, "hello").expect("write source");
+                        preview_operation(index, &source, &target)
+                    })
+                    .collect::<Vec<_>>();
+                let executed = execute_moves_core(ExecuteMovesRequest { operations });
+                if let Some(signature) = environmental_failure_signature(&executed.logs) {
+                    let _ = fs::remove_dir_all(&root);
+                    return Err(signature);
+                }
+                let canceled_log = executed.logs[10].clone();
+                let cancel_flag = Arc::new(AtomicBool::new(false));
+                let progress =
+                    RecordingOperationProgressEmitter::cancel_after(10, Arc::clone(&cancel_flag));
 
-        let restored = restore_moves_core_with_progress(
-            RestoreMovesRequest {
-                logs: executed.logs.clone(),
+                let restored = restore_moves_core_with_progress(
+                    RestoreMovesRequest {
+                        logs: executed.logs.clone(),
+                    },
+                    Arc::clone(&cancel_flag),
+                    &progress,
+                );
+                if let Some(signature) = environmental_failure_signature(&restored.logs) {
+                    let _ = fs::remove_dir_all(&root);
+                    return Err(signature);
+                }
+
+                assert_eq!(restored.restored, 10);
+                assert_eq!(restored.failed, 0);
+                assert_eq!(restored.logs[10].restore_status, "canceled");
+                assert!(restored.logs[10].restore_error.is_none());
+                assert!(!PathBuf::from(&canceled_log.path_before).exists());
+                assert!(PathBuf::from(&canceled_log.path_after).exists());
+                assert_eq!(
+                    progress.events().last().map(|event| event.processed),
+                    Some(11)
+                );
+                assert_eq!(progress.events().last().map(|event| event.total), Some(11));
+                Ok(())
             },
-            Arc::clone(&cancel_flag),
-            &progress,
         );
-
-        assert_eq!(restored.restored, 10);
-        assert_eq!(restored.failed, 0);
-        assert_eq!(restored.logs[10].restore_status, "canceled");
-        assert!(restored.logs[10].restore_error.is_none());
-        assert!(!PathBuf::from(canceled_log.path_before).exists());
-        assert!(PathBuf::from(canceled_log.path_after).exists());
-        assert_eq!(
-            progress.events().last().map(|event| event.processed),
-            Some(11)
-        );
-        assert_eq!(progress.events().last().map(|event| event.total), Some(11));
     }
 
     #[test]
@@ -4278,108 +4450,156 @@ mod tests {
 
     #[test]
     fn source_claimed_phase_persistence_failure_rolls_back_before_target_commit() {
-        let db_path = test_db_path();
-        let db = Database::open(&db_path).expect("open database");
-        let conn = rusqlite::Connection::open(&db_path).expect("open trigger connection");
-        conn.execute_batch(
-            r#"
-            CREATE TRIGGER reject_source_claimed_phase
-            BEFORE UPDATE OF operation_phase ON operation_logs
-            WHEN NEW.operation_phase = 'source_claimed'
-            BEGIN
-                SELECT RAISE(ABORT, 'injected source_claimed persistence failure');
-            END;
-            "#,
-        )
-        .expect("install phase failure trigger");
-        drop(conn);
-        let root = test_dir();
-        let source = root.join("source.txt");
-        let target = root.join("target.txt");
-        fs::write(&source, b"phase gated source").expect("source");
+        with_environmental_retry(
+            "source_claimed_phase_persistence_failure_rolls_back_before_target_commit",
+            || {
+                let db_path = test_db_path();
+                let db = Database::open(&db_path).expect("open database");
+                let conn = rusqlite::Connection::open(&db_path).expect("open trigger connection");
+                conn.execute_batch(
+                    r#"
+                    CREATE TRIGGER reject_source_claimed_phase
+                    BEFORE UPDATE OF operation_phase ON operation_logs
+                    WHEN NEW.operation_phase = 'source_claimed'
+                    BEGIN
+                        SELECT RAISE(ABORT, 'injected source_claimed persistence failure');
+                    END;
+                    "#,
+                )
+                .expect("install phase failure trigger");
+                drop(conn);
+                let root = test_dir();
+                let source = root.join("source.txt");
+                let target = root.join("target.txt");
+                fs::write(&source, b"phase gated source").expect("source");
 
-        let result = execute_moves_with_persistence(
-            &db,
-            ExecuteMovesRequest {
-                operations: vec![preview_operation(0, &source, &target)],
+                let result = execute_moves_with_persistence(
+                    &db,
+                    ExecuteMovesRequest {
+                        operations: vec![preview_operation(0, &source, &target)],
+                    },
+                );
+                // Environmental modes mirror the target_committed sibling: a sharing
+                // violation before the trigger fires yields Ok with a failed log, or
+                // surfaces through the batch error string.
+                let environmental = match &result {
+                    Ok(ok_result) => environmental_failure_signature(&ok_result.logs),
+                    Err(message) if message.contains("os error 32") => {
+                        Some(format!("batch error: {message}"))
+                    }
+                    Err(_) => None,
+                };
+                if let Some(signature) = environmental {
+                    let _ = fs::remove_dir_all(&root);
+                    let _ = fs::remove_file(&db_path);
+                    return Err(signature);
+                }
+
+                assert!(result.is_err());
+                assert_eq!(
+                    fs::read(&source).expect("rolled back source"),
+                    b"phase gated source"
+                );
+                assert!(!target.exists());
+                assert!(!fs::read_dir(&root)
+                    .expect("fixture entries")
+                    .filter_map(Result::ok)
+                    .any(|entry| entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with(".zen-canvas-claim-")));
+                assert_eq!(
+                    db.get_pending_operation_logs().expect("pending logs").len(),
+                    1
+                );
+                assert_eq!(
+                    reconcile_pending_operation_journal(&db).expect("reconcile journal"),
+                    1
+                );
+                let reconciled = db.get_operation_logs(Some(1)).expect("reconciled logs");
+                assert_eq!(reconciled[0].status, "failed");
+                assert_eq!(reconciled[0].operation_phase, "rolled_back");
+                let _ = fs::remove_dir_all(&root);
+                let _ = fs::remove_file(&db_path);
+                Ok(())
             },
         );
-
-        assert!(result.is_err());
-        assert_eq!(
-            fs::read(&source).expect("rolled back source"),
-            b"phase gated source"
-        );
-        assert!(!target.exists());
-        assert!(!fs::read_dir(&root)
-            .expect("fixture entries")
-            .filter_map(Result::ok)
-            .any(|entry| entry
-                .file_name()
-                .to_string_lossy()
-                .starts_with(".zen-canvas-claim-")));
-        assert_eq!(
-            db.get_pending_operation_logs().expect("pending logs").len(),
-            1
-        );
-        assert_eq!(
-            reconcile_pending_operation_journal(&db).expect("reconcile journal"),
-            1
-        );
-        let reconciled = db.get_operation_logs(Some(1)).expect("reconciled logs");
-        assert_eq!(reconciled[0].status, "failed");
-        assert_eq!(reconciled[0].operation_phase, "rolled_back");
-        let _ = fs::remove_dir_all(root);
-        let _ = fs::remove_file(db_path);
     }
 
     #[test]
     fn target_committed_phase_persistence_failure_records_manual_review_without_rollback() {
-        let db_path = test_db_path();
-        let db = Database::open(&db_path).expect("open database");
-        let conn = rusqlite::Connection::open(&db_path).expect("open trigger connection");
-        conn.execute_batch(
-            r#"
-            CREATE TRIGGER reject_target_committed_phase
-            BEFORE UPDATE OF operation_phase ON operation_logs
-            WHEN NEW.operation_phase = 'target_committed'
-            BEGIN
-                SELECT RAISE(ABORT, 'injected target_committed persistence failure');
-            END;
-            "#,
-        )
-        .expect("install phase failure trigger");
-        drop(conn);
-        let root = test_dir();
-        let source = root.join("source.txt");
-        let target = root.join("target.txt");
-        fs::write(&source, b"committed source").expect("source");
+        with_environmental_retry(
+            "target_committed_phase_persistence_failure_records_manual_review_without_rollback",
+            || {
+                let db_path = test_db_path();
+                let db = Database::open(&db_path).expect("open database");
+                let conn = rusqlite::Connection::open(&db_path).expect("open trigger connection");
+                conn.execute_batch(
+                    r#"
+                    CREATE TRIGGER reject_target_committed_phase
+                    BEFORE UPDATE OF operation_phase ON operation_logs
+                    WHEN NEW.operation_phase = 'target_committed'
+                    BEGIN
+                        SELECT RAISE(ABORT, 'injected target_committed persistence failure');
+                    END;
+                    "#,
+                )
+                .expect("install phase failure trigger");
+                drop(conn);
+                let root = test_dir();
+                let source = root.join("source.txt");
+                let target = root.join("target.txt");
+                fs::write(&source, b"committed source").expect("source");
 
-        let result = execute_moves_with_persistence(
-            &db,
-            ExecuteMovesRequest {
-                operations: vec![preview_operation(0, &source, &target)],
+                let result = execute_moves_with_persistence(
+                    &db,
+                    ExecuteMovesRequest {
+                        operations: vec![preview_operation(0, &source, &target)],
+                    },
+                );
+                // Environmental modes: the move fails before reaching target_committed
+                // (sharing violation / identity mismatch) so the injected trigger never
+                // fires and the batch returns Ok with a failed log — or the sharing
+                // violation surfaces through the batch error string itself.
+                let environmental = match &result {
+                    Ok(ok_result) => environmental_failure_signature(&ok_result.logs),
+                    Err(message) if message.contains("os error 32") => {
+                        Some(format!("batch error: {message}"))
+                    }
+                    Err(_) => None,
+                };
+                if let Some(signature) = environmental {
+                    let _ = fs::remove_dir_all(&root);
+                    let _ = fs::remove_file(&db_path);
+                    return Err(signature);
+                }
+
+                assert!(result.is_err());
+                assert!(!source.exists());
+                assert_eq!(
+                    fs::read(&target).expect("committed target"),
+                    b"committed source"
+                );
+                let pending = db.get_pending_operation_logs().expect("pending logs");
+                assert_eq!(pending.len(), 1);
+                assert_eq!(pending[0].operation_phase, "source_claimed");
+                assert_eq!(
+                    reconcile_pending_operation_journal(&db).expect("reconcile"),
+                    1
+                );
+                let persisted = db.get_operation_logs(Some(1)).expect("operation logs");
+                if let Some(signature) = environmental_failure_signature(&persisted) {
+                    let _ = fs::remove_dir_all(&root);
+                    let _ = fs::remove_file(&db_path);
+                    return Err(signature);
+                }
+                assert_eq!(persisted[0].status, "success");
+                assert_eq!(persisted[0].operation_phase, "completed");
+                let _ = fs::remove_dir_all(&root);
+                let _ = fs::remove_file(&db_path);
+                Ok(())
             },
         );
-
-        assert!(result.is_err());
-        assert!(!source.exists());
-        assert_eq!(
-            fs::read(&target).expect("committed target"),
-            b"committed source"
-        );
-        let pending = db.get_pending_operation_logs().expect("pending logs");
-        assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].operation_phase, "source_claimed");
-        assert_eq!(
-            reconcile_pending_operation_journal(&db).expect("reconcile"),
-            1
-        );
-        let persisted = db.get_operation_logs(Some(1)).expect("operation logs");
-        assert_eq!(persisted[0].status, "success");
-        assert_eq!(persisted[0].operation_phase, "completed");
-        let _ = fs::remove_dir_all(root);
-        let _ = fs::remove_file(db_path);
     }
 
     #[cfg(any(windows, target_os = "macos"))]

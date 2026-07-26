@@ -1,8 +1,13 @@
 # Issue：`file_ops` 测试组的并行不稳定性
 
 > 来源：`docs/remediation/BRIEF.md` 裁决 4（PR #18 评审的衍生立项）。
-> 状态：**根因已确认，有直接证据。修复方案待实施。**
+> 状态：**根因已确认；F1/F2 已实施**（分支 `remediation/f1-f2-file-ops-test-resilience`）。F3 未实施；F4 视 CI 环境另行处理。
 > 优先级：高。理由见第 1 节。
+>
+> **F1 实施位置**：`src-tauri/src/file_ops.rs` 测试模块——`with_environmental_retry`（有界 3 次、逐次 `[env-retry]` 留痕、超限显式 panic 不得静默）、`environmental_failure_signature`（仅匹配 `os error 32` 与 `target_committed_identity_mismatch`）、`record_environmental_event`（`ZEN_CANVAS_ENV_RETRY_LOG` 单行原子落盘供 CI 计数）；**7 个**受影响用例（原 6 个 + 实施期间新命中的 `source_claimed_...` 同族用例）已改为每次尝试重建夹具。辅助函数自身有 2 个行为测试（恢复路径与超限路径）。
+> **实施期间的实战验证**：首轮本地验证运行即捕获一次真实 `os error 32`（`execute_moves_core_marks_remaining_operations_skipped_when_cancelled` 第 1 次尝试失败、第 2 次通过），重试与留痕机制在真实环境性失败下工作正常。
+> **F2 实施位置**：`.github/workflows/ci.yml` "Rust tests" 步——仅当全部失败用例属 `file_ops::tests::` 且日志含环境性特征时才判 inconclusive 并重跑**一次**；inconclusive 计数落 `GITHUB_STEP_SUMMARY` 与 `flaky-inconclusive-*` 产物；其他失败或重跑再败直接失败。
+> **生产层重试未做**（既有"不自动重试"成文约定，开例外须独立立项，见决策日志 D7）。
 > 本文件所有断言附 `路径:行号`。
 
 ---
@@ -88,6 +93,7 @@ FLAKY DIAG cancel-test: success_count=9 (expected 10), logs=11
 | `execute_moves_core_creates_safe_missing_target_parent` | — |
 | `restore_blocks_legacy_operation_logs_without_identity` | `file_ops.rs:4050` |
 | `target_committed_phase_persistence_failure_records_manual_review_without_rollback` | `assertion failed: result.is_err()`（首次观测，见 5.2） |
+| `source_claimed_phase_persistence_failure_rolls_back_before_target_commit` | F1 实施期间在自致负载下命中（同为触发器注入模式，与 target_committed 同族同机制）；同轮留痕文件捕获到真实 `os error 32` |
 
 单个实例最多同时失败 3 个用例；另外 2 个实例全绿。**这是测试组级别的系统性问题，不是某个用例的偶然。**
 
