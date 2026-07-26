@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useOperationQueueStore } from "../src/store/useOperationQueueStore";
+import { useFileLibraryStore } from "../src/store/useFileLibraryStore";
 import { useScanManagerStore } from "../src/store/useScanManagerStore";
 
 const apiMocks = vi.hoisted(() => ({
   getOperationLogs: vi.fn(),
+  listScanRuns: vi.fn(),
   onOperationProgress: vi.fn(),
+  onManagedScanEvent: vi.fn(),
   onScanProgress: vi.fn(),
   onScanBatch: vi.fn(),
   onScanComplete: vi.fn(),
@@ -22,7 +25,9 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 vi.mock("../src/api/tauriApi", () => ({
   tauriApi: {
     getOperationLogs: apiMocks.getOperationLogs,
+    listScanRuns: apiMocks.listScanRuns,
     onOperationProgress: apiMocks.onOperationProgress,
+    onManagedScanEvent: apiMocks.onManagedScanEvent,
     onScanProgress: apiMocks.onScanProgress,
     onScanBatch: apiMocks.onScanBatch,
     onScanComplete: apiMocks.onScanComplete,
@@ -36,7 +41,9 @@ vi.mock("../src/api/tauriApi", () => ({
 describe("listener registration guards", () => {
   beforeEach(() => {
     apiMocks.getOperationLogs.mockReset().mockResolvedValue([]);
+    apiMocks.listScanRuns.mockReset().mockResolvedValue([]);
     apiMocks.onOperationProgress.mockReset().mockResolvedValue(() => {});
+    apiMocks.onManagedScanEvent.mockReset().mockResolvedValue(() => {});
     apiMocks.onScanProgress.mockReset().mockResolvedValue(() => {});
     apiMocks.onScanBatch.mockReset().mockResolvedValue(() => {});
     apiMocks.onScanComplete.mockReset().mockResolvedValue(() => {});
@@ -55,6 +62,13 @@ describe("listener registration guards", () => {
       listenersRegistered: false,
       registrationPromise: null,
       unlisteners: [],
+      activeScanSessionId: null,
+      activeScanRunId: null,
+      scanSession: null,
+      scanRuns: [],
+      lastRunRevision: 0,
+      lastSessionRevision: 0,
+      seenManagedEventIds: [],
       scanState: {
         status: "idle",
         progress: null,
@@ -62,6 +76,7 @@ describe("listener registration guards", () => {
         error: null
       }
     });
+    useFileLibraryStore.setState({ scope: { kind: "all" } });
   });
 
   it("allows scan listener registration to retry after an initial failure", async () => {
@@ -89,6 +104,10 @@ describe("listener registration guards", () => {
     const second = useScanManagerStore.getState().initializeScanListeners();
 
     expect(second).toBe(first);
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(apiMocks.onManagedScanEvent).toHaveBeenCalledTimes(1);
     expect(apiMocks.onScanProgress).toHaveBeenCalledTimes(1);
     expect(apiMocks.onScanBatch).toHaveBeenCalledTimes(1);
     expect(apiMocks.onScanComplete).toHaveBeenCalledTimes(1);
@@ -101,6 +120,46 @@ describe("listener registration guards", () => {
     await Promise.all([first, second]);
 
     expect(useScanManagerStore.getState().listenersRegistered).toBe(true);
+  });
+
+  it("hydrates the latest durable active run before registering renderer events", async () => {
+    apiMocks.listScanRuns.mockResolvedValueOnce([{
+      id: "restart-run",
+      scanRootId: "restart-root",
+      rootPath: "F:/Restart",
+      generation: 4,
+      parentSessionId: "restart-session",
+      status: "running",
+      phase: "discovering",
+      scannedFiles: 10,
+      scannedDirectories: 1,
+      processedBytes: 10,
+      warningsCount: 0,
+      errorsCount: 0,
+      metadataErrorCount: 0,
+      coverageErrorCount: 0,
+      coverageComplete: false,
+      staleReconciliationAllowed: false,
+      cancelRequested: false,
+      revision: 9,
+      sessionRevision: 12,
+      startedAt: 1,
+      finishedAt: null,
+      lastCheckpointAt: 2,
+      errorCode: null,
+      errorMessage: null,
+      resultJson: null,
+      createdAt: 1,
+      updatedAt: 2
+    }]);
+
+    await useScanManagerStore.getState().initializeScanListeners();
+
+    expect(useScanManagerStore.getState().activeScanSessionId).toBe("restart-session");
+    expect(useScanManagerStore.getState().activeScanRunId).toBe("restart-run");
+    expect(useScanManagerStore.getState().lastSessionRevision).toBe(12);
+    expect(apiMocks.listScanRuns.mock.invocationCallOrder[0])
+      .toBeLessThan(apiMocks.onManagedScanEvent.mock.invocationCallOrder[0]);
   });
 
   it("allows operation listener registration to retry after an initial failure", async () => {

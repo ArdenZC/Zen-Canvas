@@ -125,3 +125,31 @@ if (benchmark.status !== 0) {
 }
 
 console.log("SQLite/FTS benchmark passed.");
+
+console.log("Running managed-scan 100k observation benchmark...");
+const scanPerformance = spawnSync(
+  "cargo",
+  [
+    "test",
+    "--release",
+    "--manifest-path",
+    "src-tauri/Cargo.toml",
+    "performance_100k_scan_seen_missing_reconcile_and_wal_reader",
+    "--",
+    "--ignored",
+    "--nocapture",
+  ],
+  { cwd: root, stdio: "inherit" },
+);
+
+if (scanPerformance.error) {
+  console.error(`Managed-scan benchmark failed to start: ${scanPerformance.error.message}`);
+  process.exit(1);
+}
+
+if (scanPerformance.status !== 0) {
+  console.error(`Managed-scan benchmark failed with exit code ${scanPerformance.status}.`);
+  process.exit(scanPerformance.status ?? 1);
+}
+
+console.log("Managed-scan 100k observation benchmark passed.");

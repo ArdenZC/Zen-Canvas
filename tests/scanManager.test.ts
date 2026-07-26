@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { isCurrentDedupeEvent } from "../src/store/useScanManagerStore";
+import {
+  decideManagedScanEvent,
+  isCurrentDedupeEvent
+} from "../src/store/useScanManagerStore";
+import type { ManagedScanEvent } from "../src/api/tauriApi";
 
 describe("scan manager progress callbacks", () => {
   it("accepts dedupe events only for the current parent scan and dedupe job", () => {
@@ -11,6 +15,24 @@ describe("scan manager progress callbacks", () => {
     expect(isCurrentDedupeEvent(current, "scan-a", "dedupe-a")).toBe(true);
     expect(isCurrentDedupeEvent(current, "scan-b", null)).toBe(false);
     expect(isCurrentDedupeEvent(current, "scan-a", "dedupe-b")).toBe(false);
+  });
+
+  it("rejects duplicate, stale-generation, and terminal-regression events", () => {
+    const event = managedEvent({ eventId: "event-2", generation: 2, runRevision: 8, sessionRevision: 9, status: "completed" });
+
+    expect(decideManagedScanEvent(event, "session-a", 7, 2, 8, "running", [])).toBe("accept");
+    expect(decideManagedScanEvent(event, "session-a", 8, 2, 9, "completed", ["event-2"])).toBe("ignore");
+    expect(decideManagedScanEvent({ ...event, eventId: "event-old-generation", generation: 1 }, "session-a", 7, 2, 8, "running", [])).toBe("ignore");
+    expect(decideManagedScanEvent({ ...event, eventId: "event-regression", status: "running", runRevision: 9, sessionRevision: 10 }, "session-a", 8, 2, 9, "completed", [])).toBe("ignore");
+  });
+
+  it("refetches on a durable revision gap or same revision with a new event ID", () => {
+    const event = managedEvent({ eventId: "event-gap", runRevision: 12, sessionRevision: 14 });
+
+    expect(decideManagedScanEvent(event, "session-a", 9, 1, 10, "running", [])).toBe("refresh");
+    expect(decideManagedScanEvent({ ...event, eventId: "event-same-revision", runRevision: 9, sessionRevision: 10 }, "session-a", 9, 1, 10, "running", [])).toBe("refresh");
+    expect(decideManagedScanEvent({ ...event, eventId: "event-contiguous", runRevision: 10, sessionRevision: 11 }, "session-a", 9, 1, 10, "running", [])).toBe("accept");
+    expect(decideManagedScanEvent(event, "session-b", 9, 1, 10, "running", [])).toBe("ignore");
   });
   it("does not refresh or reset scope from scan event callbacks", () => {
     const storeSource = readFileSync(
@@ -42,10 +64,10 @@ describe("scan manager progress callbacks", () => {
       storeSource.indexOf("handleScan: async")
     );
 
-    expect(scanPaths).toContain("useFileLibraryStore.getState().setCurrentScanScope(completedScanRoots)");
+    expect(scanPaths).toContain("useFileLibraryStore.getState().setCurrentScanScope(completedScanRoots, session.id)");
     expect(scanPaths).toContain("useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery)");
-    expect(scanPaths.indexOf("useFileLibraryStore.getState().setCurrentScanScope(completedScanRoots)"))
-      .toBeGreaterThan(scanPaths.indexOf("for (const path of scanRoots)"));
+    expect(scanPaths.indexOf("useFileLibraryStore.getState().setCurrentScanScope(completedScanRoots, session.id"))
+      .toBeGreaterThan(scanPaths.indexOf("waitForManagedSession"));
     expect(scanPaths.indexOf("useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery)"))
       .toBeGreaterThan(scanPaths.indexOf("for (const path of scanRoots)"));
   });
@@ -65,15 +87,14 @@ describe("scan manager progress callbacks", () => {
     );
 
     expect(storeSource).toContain("let scanJobCanceled = false");
-    expect(storeSource).toContain("activeScanJobId");
-    expect(storeSource).toContain("progress.jobId !== activeScanJobId");
+    expect(storeSource).toContain("activeManagedSessionId");
+    expect(storeSource).toContain("event.parentSessionId !== activeManagedSessionId");
     expect(scanPaths).toContain("scanJobCanceled = false");
-    expect(scanPaths).toContain('await tauriApi.createScanJobId("foreground")');
-    expect(scanPaths).toContain("if (scanJobCanceled) break");
-    expect(scanPaths.indexOf("if (scanJobCanceled) break"))
-      .toBeLessThan(scanPaths.indexOf("tauriApi.startScan("));
+    expect(scanPaths).toContain("activeManagedRequest");
+    expect(scanPaths).toContain("await tauriApi.startManagedScan(activeManagedRequest)");
+    expect(scanPaths).toContain("waitForManagedSession(start.session.id)");
     expect(cancelScan).toContain("scanJobCanceled = true");
-    expect(cancelScan).toContain("tauriApi.cancelScan(activeScanJobId)");
+    expect(cancelScan).toContain("tauriApi.cancelScanRun(activeRunId)");
     expect(cancelScan).toContain("isCancelingScan: true");
     expect(cancelScan).not.toContain("isScanning: false");
     expect(cancelScan).toContain('status: "canceled"');
@@ -111,13 +132,13 @@ describe("scan manager progress callbacks", () => {
       storeSource.indexOf("handleScan: async")
     );
     const canceledBranch = scanPaths.slice(
-      scanPaths.indexOf("if (scanJobCanceled)"),
-      scanPaths.indexOf("useAppStore.getState().showSuccess(`${t(\"success\")}")
+      scanPaths.indexOf('if (finalStatus === "canceled")'),
+      scanPaths.indexOf('} else if (finalStatus === "completed")')
     );
 
-    expect(canceledBranch).toContain('status: "canceled"');
+    expect(canceledBranch).toContain('finalStatus === "canceled"');
     expect(canceledBranch).toContain('showSuccess(t("scanCanceled"))');
-    expect(canceledBranch).not.toContain("setCurrentScanScope(scanRoots)");
+    expect(canceledBranch).not.toContain("setCurrentScanScope(completedScanRoots");
     expect(canceledBranch).not.toContain('`${t("success")}:');
   });
 
@@ -150,3 +171,28 @@ describe("scan manager progress callbacks", () => {
     expect(scanPaths).toContain("readableError(error)");
   });
 });
+
+function managedEvent(overrides: Partial<ManagedScanEvent> = {}): ManagedScanEvent {
+  return {
+    eventId: "event-1",
+    runId: "run-a",
+    scanRootId: "root-a",
+    parentSessionId: "session-a",
+    generation: 1,
+    runRevision: 2,
+    sessionRevision: 3,
+    status: "running",
+    runPhase: "discovering",
+    sessionPhase: "running",
+    scannedFiles: 1,
+    scannedDirectories: 1,
+    processedBytes: 1,
+    warningsCount: 0,
+    errorsCount: 0,
+    currentPath: null,
+    errorCode: null,
+    errorMessage: null,
+    timestamp: 1,
+    ...overrides
+  };
+}
