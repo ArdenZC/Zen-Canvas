@@ -2,24 +2,25 @@
 
 ## 1. 执行状态
 
-当前只允许执行 **Task 00**。Task 00 的代码级审计已完成，状态转为**待人工验收**；人工验收前不得执行任何后续 Task。
+Task 00 已完成并合并，且已经人工验收。当前只允许进行 Task 01A 的任务书人工验收；Task 01A 任务书本身仍禁止执行，Task 01B 和所有后续阶段继续禁止执行。
 
-Task 01 及之后的名称、顺序和范围都是暂定项，必须等待 Task 00 的代码级审计结论和人工验收后再冻结。
+Task 01 已按领域拆分为 File Library Scan Generation Foundation（01A）和 Watcher Reconciliation Ownership（01B）。01A 未验收前不得开始 01B；不得把 01A 任务书状态理解为生产实施授权。
 
 | 阶段 | 任务书 | 目标 | 状态 |
 |---|---|---|---|
-| 00 | `TASK_00_POST_MERGE_BASELINE_AUDIT.md` | PR #15 合并后代码、数据和安全边界审计 | **待人工验收** |
-| 01 | 待创建 | Scan Generation、Watcher Reconciliation 与恢复基础 | 暂定，禁止执行 |
-| 02 | 待创建 | 原生身份、fingerprint、prehash 与 duplicate group/finding | 暂定，禁止执行 |
-| 03 | 待创建 | Analysis Run、Finding 与 detector | 暂定，禁止执行 |
-| 04 | 待创建 | File Query V2、snapshot、cursor 与跨页 selection | 暂定，禁止执行 |
-| 05 | 待创建 | Organization Plan 后端领域模型 | 暂定，禁止执行 |
-| 06 | 待创建 | 整理工作区迁移到持久化 Plan | 暂定，禁止执行 |
-| 07 | 待创建 | 文件库标签、Saved Views、Inspector 分层 | 暂定，禁止执行 |
-| 08 | 待创建 | Content Artifact 与受控 Extractor | 暂定，禁止执行 |
-| 09 | 待创建 | 自然语言 Proposal 到受约束 Rule AST | 暂定，禁止执行 |
-| 10 | 待创建 | Spotlight Provider 与 Command Manifest | 暂定，禁止执行 |
-| 11 | 待创建 | 数据迁移、10万/100万性能与跨平台整合验收 | 暂定，禁止执行 |
+| 00 | `TASK_00_POST_MERGE_BASELINE_AUDIT.md` | PR #15 合并后代码、数据和安全边界审计 | **已验收并合并** |
+| 01A | `TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md` | File Library Scan 的 root、run、generation、stale safety、恢复和多根 session 规格 | **待人工验收，禁止执行** |
+| 01B | 待创建 | Watcher Reconciliation Ownership、overflow replay 和 durable watcher owner | **等待 Task 01A，禁止执行** |
+| 02 | 待创建 | 原生身份、fingerprint、prehash 与 duplicate group/finding | **后续阶段，禁止执行** |
+| 03 | 待创建 | Analysis Run、Finding 与 detector | **后续阶段，禁止执行** |
+| 04 | 待创建 | File Query V2、snapshot、cursor 与跨页 selection | **后续阶段，禁止执行** |
+| 05 | 待创建 | Organization Plan 后端领域模型 | **后续阶段，禁止执行** |
+| 06 | 待创建 | 整理工作区迁移到持久化 Plan | **后续阶段，禁止执行** |
+| 07 | 待创建 | 文件库标签、Saved Views、Inspector 分层 | **后续阶段，禁止执行** |
+| 08 | 待创建 | Content Artifact 与受控 Extractor | **后续阶段，禁止执行** |
+| 09 | 待创建 | 自然语言 Proposal 到受约束 Rule AST | **后续阶段，禁止执行** |
+| 10 | 待创建 | Spotlight Provider 与 Command Manifest | **后续阶段，禁止执行** |
+| 11 | 待创建 | 数据迁移、10万/100万性能与跨平台整合验收 | **后续阶段，禁止执行** |
 
 ---
 
@@ -54,14 +55,16 @@ docs/remediation/REMEDIATION_RISK_REGISTER.md
 - 标注不应建设的能力；
 - 但不得创建 Task 01 的实施代码。
 
-Task 00 完成后，本索引的下一状态应是：
+Task 00 完成并人工验收后，本索引的下一状态应是：
 
 ```text
-Task 00：待人工验收
-Task 01：仍不可执行
+Task 00：已验收并合并
+Task 01A：待人工验收，禁止执行
+Task 01B：等待 Task 01A，禁止执行
+Task 02+：后续阶段，禁止执行
 ```
 
-只有人工审核明确通过后，才创建 `TASK_01_*.md` 并把 Task 01 标记为可执行。
+只有人工审核明确通过 Task 01A 后，才可另行授权 01A 实施；只有 01A 实施完成并人工验收后，才可创建并授权 Task 01B。
 
 ---
 
@@ -140,22 +143,18 @@ git status --short
 
 ---
 
-## 6. Task 00 后的人工决策点
+## 6. Task 01A 冻结决策
 
-审计后必须由人工确认：
+以下决策已根据 Task 00 审计和 Task 01A 任务书冻结，未获人工重新批准不得反向扩大范围：
 
-- 是否建立通用 Job Runtime；
-- Managed AI queue 是否只保持领域专用；
-- global index 与 managed scan 的复用边界；
-- watcher 是否已经具有 durable reconciliation；
-- native identity 是否足以作为 fingerprint 基础；
-- 当前 duplicate/cache 是否需要迁移；
-- Organization Plan 是否应先于 Query V2；
-- 哪些 OFFSET 查询需要 cursor；
-- content artifact 是否已有可扩展基础；
-- 哪些旧文档需要归档或标记过时。
+1. 不建立跨领域 generic Job Runtime；不把 `ai_jobs` 改成通用 job 表。`ai_jobs`、`ai_job_items`、`ai_analysis_state` 继续只服务 Managed AI。
+2. Task 01A 只负责 File Library Managed Scan 的 run/generation/stale/recovery/session foundation，不重建 Global Index，不触碰 `global_volumes`、`global_entries` 或平台 provider。
+3. Task 01A 不持久化 raw watcher event，不创建 `pending_fs_changes`，不抢占 Task 01B 的 watcher reconciliation owner。
+4. File Library Scan 和 Global Index 是两个独立 domain；Global provider 的 native cursor/journal checkpoint 不是 File Library generation。
+5. Query V2 必须先于 Organization Plan；在 query/scope/snapshot/selection 语义未稳定前，不得实施 Organization Plan。
+6. files 的 path id、Global Index native id、operation identity 和 AI fingerprint 继续隔离；Task 01A 不迁移 `files.id`。
 
-未完成这些决策前，不得实施 Task 01。
+未完成 01A 任务书人工验收前，不得实施 Task 01A；未完成 01A 实施验收前，不得开始 Task 01B。
 
 ---
 
@@ -177,11 +176,12 @@ Task 00 的独立产物为：
 
 ---
 
-## 8. 审计后暂定阶段契约（全部不可执行）
+## 8. 审计后阶段契约（全部不可执行）
 
 | 阶段 | 必须先回答 | 明确不做 | 可能涉及的数据变化 | 专项验证/回滚 |
 |---|---|---|---|---|
-| 01 Scan/Watcher | owner、generation、overflow、cursor、crash recovery | 不重建 Global Index，不统一所有队列 | 先写契约和 fixture；是否建 run/change 表待批准 | kill/restart、overflow、duplicate replay；旧 rescan 保留 |
+| 01A File Library Scan | scan root/run/session owner、generation、scan_seen、stale invariant、crash recovery | 不重建 Global Index，不统一所有队列，不持久化 raw watcher event，不修改 ai_jobs/files.id | 任务书先冻结；实现时才可新增 scan domain tables/fixtures | kill/restart、cancel、stale safety、nested roots、multi-root、migration rollback |
+| 01B Watcher Reconciliation | overflow、durable watcher owner、replay、renderer 脱离后的最终一致性 | 不在 01A 前实施，不让 watcher 伪造 scanner generation | 必须等待 01A 实施验收 | overflow、event replay、rename/delete、renderer restart、跨平台 watcher |
 | 02 Identity/Dedupe | path/native/operation/AI identity 关系、hardlink 语义 | 不直接改 `files.id`，不自动清理 | mapping/backfill/冲突方案 | rename/cross-volume/hardlink/changed file；可回退旧字段 |
 | 03 Analysis | run/finding identity、版本、stale、decision | 不把内存 cleanup/dedupe 结果冒充 artifact | run/finding 草案 | cancel/partial/re-run/idempotency；旧分析继续可用 |
 | 04 Query V2 | source/scope/snapshot/sort/cursor/selection | 不把 Global Search join 到 Library，不扩大 renderer selection | cursor/snapshot/selection contract | concurrent scan/watcher、cross-page selection；Query V1 fallback |
@@ -193,4 +193,4 @@ Task 00 的独立产物为：
 | 10 Spotlight | source/provider/capability/permission/ranking | 不把 command 当 mutation authorization | manifest 草案 | unavailable/source attribution；旧 registry 保留 |
 | 11 Integration | 所有前置人工验收 | 不夹带业务修复 | migrations/release only after approval | full CI、性能、native/security、rollback drill |
 
-只有人工确认每阶段的前置条件、非目标、数据迁移和 rollback 后，才可创建对应 `TASK_0N_*.md`；在此之前不得创建 Task 01 任务书、代码或 schema。
+只有人工确认每阶段的前置条件、非目标、数据迁移和 rollback 后，才可创建或实施对应 `TASK_0N_*.md`；Task 01A 任务书已经创建但仍不可执行，01B 任务书和代码必须等待 01A。
