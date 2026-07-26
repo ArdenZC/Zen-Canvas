@@ -12,7 +12,6 @@ import {
   type ScanProgressPayload,
   type ScanRunDto,
   type ScanSessionDto,
-  type ScanSessionRootDto,
   type ScanSummary,
   type ScannedEntry
 } from "../api/tauriApi";
@@ -200,7 +199,12 @@ function sessionStatusFromMappings(session: ScanSessionDto, runs: ScanRunDto[]):
           : statuses.some((value) => value === "cancelled" || value === "cancelled_not_started") ? "cancelled"
             : statuses.includes("completed_with_warnings") ? "completed_with_warnings"
               : "completed";
-  return { ...session, roots, status, phase: terminal ? "completed" : "running" };
+  const phase = terminal
+    ? "completed"
+    : session.phase === "finalizing" || session.phase === "completed"
+      ? session.phase
+      : "running";
+  return { ...session, roots, status, phase };
 }
 
 function applyManagedStartSnapshot(start: ManagedScanStartDto) {
@@ -242,27 +246,21 @@ async function hydrateManagedScanState() {
 
   const persistedSessionId = activeManagedSessionId ?? persistedScanSessionId();
   if (persistedSessionId) activeManagedSessionId = persistedSessionId;
-  const listedRuns = await tauriApi.listScanRuns(persistedSessionId ?? undefined, undefined, 100);
   const sessionId = persistedSessionId
-    ?? listedRuns.find((run) => run.parentSessionId && ["queued", "running", "cancelling"].includes(run.status))?.parentSessionId;
+    ?? (await tauriApi.listScanRuns(undefined, undefined, 100))
+      .find((run) => run.parentSessionId && ["queued", "running", "cancelling"].includes(run.status))
+      ?.parentSessionId;
   if (!sessionId) return;
-  const runs = persistedSessionId
-    ? listedRuns
-    : listedRuns.filter((run) => run.parentSessionId === sessionId);
-  if (!runs.length) return;
+  const snapshot = await tauriApi.getManagedScanSnapshot(sessionId);
   activeManagedSessionId = sessionId;
-  const session = sessionFromRunList(sessionId, runs);
-  setManagedSessionState({
-    session,
-    runs,
-    runRevisions: Object.fromEntries(runs.map((run) => [run.id, run.revision])),
-    sessionRevision: session.revision,
-    sessionId
+  applyManagedStartSnapshot({
+    session: snapshot.session,
+    runs: snapshot.runs
   });
   useScanManagerStore.setState((state) => ({
     scanState: {
       ...state.scanState,
-      status: scanStatusForBackendStatus(session.status),
+      status: scanStatusForBackendStatus(snapshot.session.status),
       progress: state.scanState.progress
     }
   }));
@@ -271,70 +269,6 @@ async function hydrateManagedScanState() {
 function persistedScanSessionId() {
   const scope = useFileLibraryStore.getState().scope;
   return scope.kind === "current_scan" ? scope.scanSessionId ?? null : null;
-}
-
-function sessionFromRunList(sessionId: string, runs: ScanRunDto[]): ScanSessionDto {
-  const roots: ScanSessionRootDto[] = runs.map((run, requestedIndex) => ({
-    sessionId,
-    requestedIndex,
-    requestedPath: run.rootPath,
-    normalizedRequestedPath: run.rootPath,
-    resolution: "effective",
-    effectiveRootId: run.scanRootId,
-    effectivePath: run.rootPath,
-    effectiveIndex: requestedIndex,
-    runId: run.id,
-    status: run.status,
-    reason: null,
-    createdAt: run.createdAt,
-    updatedAt: run.updatedAt
-  }));
-  const terminal = runs.every((run) => terminalRunStatuses.has(run.status));
-  const session = {
-    id: sessionId,
-    requestKey: null,
-    canonicalRequestHash: null,
-    status: "running",
-    phase: terminal ? "completed" : "running",
-    cancelRequested: runs.some((run) => run.cancelRequested),
-    requestedRootCount: runs.length,
-    effectiveRootCount: runs.length,
-    completedRootCount: runs.filter((run) => ["completed", "completed_with_warnings"].includes(run.status)).length,
-    failedRootCount: runs.filter((run) => ["failed", "invalid"].includes(run.status)).length,
-    cancelledRootCount: runs.filter((run) => ["cancelled", "cancelled_not_started"].includes(run.status)).length,
-    coveredRootCount: 0,
-    unstartedRootCount: runs.filter((run) => run.status === "queued").length,
-    dedupeRequested: false,
-    dedupeDispatchState: "not_requested",
-    dedupeAttemptCount: 0,
-    dedupeJobId: null,
-    dedupeLastError: null,
-    scannedFiles: runs.reduce((total, run) => total + run.scannedFiles, 0),
-    scannedDirectories: runs.reduce((total, run) => total + run.scannedDirectories, 0),
-    warningsCount: runs.reduce((total, run) => total + run.warningsCount, 0),
-    errorsCount: runs.reduce((total, run) => total + run.errorsCount, 0),
-    revision: Math.max(0, ...runs.map((run) => run.sessionRevision)),
-    startedAt: minNullable(runs.map((run) => run.startedAt)),
-    finishedAt: maxNullable(runs.map((run) => run.finishedAt)),
-    lastCheckpointAt: maxNullable(runs.map((run) => run.lastCheckpointAt)),
-    errorCode: runs.find((run) => run.errorCode)?.errorCode ?? null,
-    errorMessage: runs.find((run) => run.errorMessage)?.errorMessage ?? null,
-    resultJson: null,
-    createdAt: Math.min(...runs.map((run) => run.createdAt)),
-    updatedAt: Math.max(...runs.map((run) => run.updatedAt)),
-    roots
-  } satisfies ScanSessionDto;
-  return sessionStatusFromMappings(session, runs);
-}
-
-function minNullable(values: Array<number | null>) {
-  const present = values.filter((value): value is number => value !== null);
-  return present.length ? Math.min(...present) : null;
-}
-
-function maxNullable(values: Array<number | null>) {
-  const present = values.filter((value): value is number => value !== null);
-  return present.length ? Math.max(...present) : null;
 }
 
 async function waitForManagedSession(sessionId: string) {
@@ -449,7 +383,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
             set((state) => ({
               scanState: {
                 ...state.scanState,
-                status: scanJobCanceled ? "canceled" : "scanning",
+                status: "scanning",
                 progress,
                 error: null
               }
@@ -460,7 +394,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
             set((state) => ({
               scanState: {
                 ...state.scanState,
-                status: scanJobCanceled ? "canceled" : "scanning",
+                status: "scanning",
                 progress: batch.progress,
                 error: null
               }
@@ -471,7 +405,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
             set((state) => ({
               scanState: {
                 ...state.scanState,
-                status: scanJobCanceled ? "canceled" : "completed",
+                status: "completed",
                 progress: summary,
                 error: null
               }
@@ -599,7 +533,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
       set((state) => ({
         scanState: {
           ...state.scanState,
-          status: scanJobCanceled ? "canceled" : scanStatusForBackendStatus(start.session.status),
+          status: scanStatusForBackendStatus(start.session.status),
           progress: state.scanState.progress
         }
       }));
@@ -666,7 +600,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
     scanJobCanceled = true;
     set((state) => ({
       isCancelingScan: true,
-      scanState: { ...state.scanState, status: "canceled", error: null }
+      scanState: { ...state.scanState, status: "scanning", error: null }
     }));
     try {
       const state = get();

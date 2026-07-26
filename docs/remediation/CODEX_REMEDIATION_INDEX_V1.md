@@ -113,7 +113,7 @@ git status --short
 5. 同一 root 的 active 集合仅为 `queued/running/cancelling`；partial unique index、root active pointer、lease token、generation 和 durable revision 共同保护 owner。
 6.重复 start：相同 `request_key + canonical request hash` 幂等返回；其他 active root 冲突拒绝整个请求，不分配 generation。
 7. metadata error 是 coverage-breaking：记录 `scan_run_errors`、不写 `scan_seen`、禁止 stale。
-8. `scan_seen` successful 保留 7 天，非成功 terminal 保留 30 天，每 root 至少保留最新两个 terminal run；active/recovery-pinned 不 prune。
+8. `scan_seen` successful 保留 7 天，非成功 terminal 保留 30 天，每 root 保留最新两个 terminal run；active run 不进入 terminal retention candidate，不能以 interrupted/requires-reconciliation 状态永久 pin。
 9. multi-root session 持久化 requested→effective mapping，包括 duplicate、nested、invalid 和 cancelled-not-started。
 10. session phase 是独立聚合阶段：`preparing -> running -> finalizing -> completed`，不跟随 root phase 倒退。
 11. run/session revision 是 renderer 的 durable 事件水位；先 hydrate，后接收事件。

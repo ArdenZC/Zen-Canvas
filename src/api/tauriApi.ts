@@ -196,6 +196,11 @@ export interface ManagedScanStartDto {
   runs: ScanRunDto[];
 }
 
+export interface ManagedScanSnapshotDto {
+  session: ScanSessionDto;
+  runs: ScanRunDto[];
+}
+
 export interface ManagedScanEvent {
   eventId: string;
   runId: string;
@@ -386,6 +391,10 @@ export const tauriApi = {
 
   startManagedScan(request: ManagedScanRequest): Promise<ManagedScanStartDto> {
     return invokeCommand<ManagedScanStartDto>("start_managed_scan", { request });
+  },
+
+  getManagedScanSnapshot(sessionId: string): Promise<ManagedScanSnapshotDto> {
+    return invokeCommand<ManagedScanSnapshotDto>("get_managed_scan_snapshot", { sessionId });
   },
 
   cancelScanRun(runId: string): Promise<ScanRunDto> {

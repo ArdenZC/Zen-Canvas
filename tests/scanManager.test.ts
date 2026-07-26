@@ -54,6 +54,21 @@ describe("scan manager progress callbacks", () => {
     expect(completeHandler).not.toContain("useFileLibraryStore.getState().setCurrentScanScope");
   });
 
+  it("hydrates session mappings from the durable snapshot and preserves finalizing phase in the renderer", () => {
+    const storeSource = readFileSync(
+      resolve("src/store/useScanManagerStore.ts"),
+      "utf8"
+    );
+    expect(storeSource).toContain("tauriApi.getManagedScanSnapshot(sessionId)");
+    expect(storeSource).not.toContain("function sessionFromRunList");
+    const projection = storeSource.slice(
+      storeSource.indexOf("function sessionStatusFromMappings"),
+      storeSource.indexOf("function applyManagedStartSnapshot")
+    );
+    expect(projection).toContain('session.phase === "finalizing"');
+    expect(projection).toContain('session.phase === "completed"');
+  });
+
   it("updates scope and refreshes once from scanPaths after all roots finish", () => {
     const storeSource = readFileSync(
       resolve("src/store/useScanManagerStore.ts"),
@@ -97,7 +112,8 @@ describe("scan manager progress callbacks", () => {
     expect(cancelScan).toContain("tauriApi.cancelScanRun(activeRunId)");
     expect(cancelScan).toContain("isCancelingScan: true");
     expect(cancelScan).not.toContain("isScanning: false");
-    expect(cancelScan).toContain('status: "canceled"');
+    expect(cancelScan).toContain('status: "scanning"');
+    expect(cancelScan).not.toContain('status: "canceled"');
   });
 
   it("keeps scanning locked while cancellation is still settling", () => {

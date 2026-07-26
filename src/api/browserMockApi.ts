@@ -43,6 +43,7 @@ import { DEFAULT_SEARCH_HOTKEY } from "../utils/hotkeys";
 import type {
   GlobalHotkeyStatus,
   ManagedScanRequest,
+  ManagedScanSnapshotDto,
   ManagedScanStartDto,
   ScanRootDto,
   ScanRunDto,
@@ -226,6 +227,12 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return undefined as T;
     case "start_managed_scan":
       return startMockManagedScan(args?.request as ManagedScanRequest | undefined) as T;
+    case "get_managed_scan_snapshot": {
+      const sessionId = String(args?.sessionId ?? "");
+      const snapshot = mockManagedScanState?.start;
+      if (!snapshot || snapshot.session.id !== sessionId) throw new Error("Mock scan session not found");
+      return snapshot as ManagedScanSnapshotDto as T;
+    }
     case "cancel_scan_run":
       return cancelMockManagedScan(String(args?.runId ?? "")) as T;
     case "retry_interrupted_scan": {

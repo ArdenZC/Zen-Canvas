@@ -59,6 +59,7 @@
 | `register_global_search_hotkey` | `main_state_mutation` | main | Register global shortcut | default | yes | command permission contract |
 | `start_managed_scan` | `main_state_mutation` | main | Start durable File Library scan session | default | yes | command permission contract |
 | `cancel_scan_run` | `main_state_mutation` | main | Request durable scan run cancellation | default | yes | command permission contract |
+| `get_managed_scan_snapshot` | `read_only` | main | Read durable scan session mappings and runs | default | no | command permission contract |
 | `get_scan_run` | `read_only` | main | Read durable scan run projection | default | no | command permission contract |
 | `list_scan_runs` | `read_only` | main | List durable scan run projections | default | no | command permission contract |
 | `list_scan_roots` | `read_only` | main | List durable File Library roots | default | no | command permission contract |

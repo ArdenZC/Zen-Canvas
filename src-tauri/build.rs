@@ -54,6 +54,7 @@ const COMMANDS: &[&str] = &[
     "register_global_search_hotkey",
     "start_managed_scan",
     "cancel_scan_run",
+    "get_managed_scan_snapshot",
     "get_scan_run",
     "list_scan_runs",
     "list_scan_roots",

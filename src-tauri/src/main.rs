@@ -45,7 +45,15 @@ fn main() {
             let managed_ai_worker = ManagedAiWorker::start(db.clone());
             app.manage(managed_ai_worker);
             app.manage(ScanJobManager::default());
-            app.manage(DedupeJobManager::default());
+            let dedupe_jobs = DedupeJobManager::default();
+            app.manage(dedupe_jobs.clone());
+            if let Err(error) = zen_canvas_tauri::scanner::resume_pending_dedupe_dispatches(
+                app.handle().clone(),
+                db.clone(),
+                dedupe_jobs,
+            ) {
+                eprintln!("Dedupe dispatch recovery failed (non-fatal): {error}");
+            }
             app.manage(OperationCancellationToken::default());
             app.manage(AIClassificationCancellationToken::default());
             app.manage(FileWatcherManager::default());
@@ -141,6 +149,7 @@ fn main() {
             zen_canvas_tauri::app_control::register_global_search_hotkey,
             zen_canvas_tauri::scanner::start_managed_scan,
             zen_canvas_tauri::scanner::cancel_scan_run,
+            zen_canvas_tauri::scanner::get_managed_scan_snapshot,
             zen_canvas_tauri::scanner::get_scan_run,
             zen_canvas_tauri::scanner::list_scan_runs,
             zen_canvas_tauri::scanner::list_scan_roots,

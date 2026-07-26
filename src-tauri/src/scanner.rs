@@ -26,8 +26,8 @@ use tauri::{AppHandle, Emitter, Runtime, State, WebviewWindow};
 use thiserror::Error;
 
 pub use crate::db::scan::{
-    ManagedScanRequest, ManagedScanStartDto, ScanRootDto, ScanRunDto, ScanSessionDto,
-    ScanSessionRootDto,
+    ManagedScanRequest, ManagedScanSnapshotDto, ManagedScanStartDto, ScanRootDto, ScanRunDto,
+    ScanSessionDto, ScanSessionRootDto,
 };
 
 const SCAN_BATCH_SIZE: usize = 500;
@@ -236,6 +236,16 @@ pub fn get_scan_run(db: State<'_, Database>, run_id: String) -> Result<ScanRunDt
     db.inner()
         .get_scan_run_record(&run_id)
         .map(|record| record.dto)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_managed_scan_snapshot(
+    db: State<'_, Database>,
+    session_id: String,
+) -> Result<ManagedScanSnapshotDto, String> {
+    db.inner()
+        .get_managed_scan_snapshot(&session_id)
         .map_err(|error| error.to_string())
 }
 
@@ -477,6 +487,59 @@ pub fn recover_scan_state(db: &Database) -> Result<usize, DbError> {
     let recovered = db.recover_interrupted_scan_runs()?;
     db.prune_scan_observations()?;
     Ok(recovered)
+}
+
+pub fn resume_pending_dedupe_dispatches<R: Runtime>(
+    app: AppHandle<R>,
+    db: Database,
+    dedupe_jobs: DedupeJobManager,
+) -> Result<usize, DbError> {
+    resume_dedupe_dispatches(&db, 1000, |session| {
+        spawn_duplicate_detection(
+            app.clone(),
+            db.clone(),
+            dedupe_jobs.clone(),
+            Some(session.id.clone()),
+        )
+        .map_err(|error| error.to_string())
+    })
+}
+
+fn resume_dedupe_dispatches<F>(
+    db: &Database,
+    limit: usize,
+    mut dispatch: F,
+) -> Result<usize, DbError>
+where
+    F: FnMut(&ScanSessionDto) -> Result<String, String>,
+{
+    let candidates = db.list_dedupe_dispatch_candidates(limit)?;
+    let mut resumed = 0;
+    for session in candidates {
+        let Some(dispatching) = db.claim_dedupe_dispatch(&session.id)? else {
+            continue;
+        };
+        match dispatch(&dispatching) {
+            Ok(job_id) => {
+                db.record_dedupe_dispatch(
+                    &dispatching.id,
+                    dispatching.revision,
+                    Some(&job_id),
+                    None,
+                )?;
+                resumed += 1;
+            }
+            Err(error) => {
+                db.record_dedupe_dispatch(
+                    &dispatching.id,
+                    dispatching.revision,
+                    None,
+                    Some(&error),
+                )?;
+            }
+        }
+    }
+    Ok(resumed)
 }
 
 #[derive(Debug, Clone)]
@@ -742,7 +805,8 @@ fn run_scan_run<R: Runtime>(
         return Ok(());
     }
 
-    if should_run_stale_cleanup(false) {
+    let stale_gate_enabled = should_run_stale_cleanup(is_scan_cancelled(&cancel_flag));
+    if stale_gate_enabled {
         let reconciled = db.reconcile_missing(
             run_id,
             cursor.run_revision,
@@ -750,6 +814,33 @@ fn run_scan_run<R: Runtime>(
             cursor.session_revision,
         )?;
         cursor.update(&reconciled);
+    } else {
+        let finalizing = db.transition_scan_run_phase(
+            run_id,
+            cursor.run_revision,
+            cursor.root_revision,
+            "finalizing",
+        )?;
+        cursor.update(&finalizing);
+        let finalization = finish_scan_run(
+            db,
+            run_id,
+            "requires_reconciliation",
+            Some("stale_reconciliation_disabled"),
+            Some(
+                "The scan completed discovery, but stale reconciliation is disabled by rollout policy.",
+            ),
+            false,
+        )?;
+        emit_terminal_events(
+            app,
+            db,
+            &finalization,
+            skipped.load(Ordering::Acquire),
+            started_at,
+            legacy,
+        );
+        return Ok(());
     }
     let optimizing = db.transition_scan_run_phase(
         run_id,
@@ -796,7 +887,7 @@ fn run_scan_run<R: Runtime>(
         },
         None,
         None,
-        stale_reconciliation_enabled(),
+        stale_gate_enabled,
     )?;
     emit_terminal_events(
         app,
@@ -972,32 +1063,46 @@ fn dispatch_dedupe_if_pending<R: Runtime>(
     finalization: &ScanFinalization,
     _legacy: Option<&LegacyScanContext>,
 ) {
-    let session_id = finalization.session.id.clone();
-    let Ok(Some(dispatching)) = db.claim_dedupe_dispatch(&session_id) else {
-        return;
+    let _ = dispatch_dedupe_session(
+        app,
+        db,
+        dedupe_jobs,
+        &finalization.session.id,
+        Some(&finalization.run),
+    );
+}
+
+fn dispatch_dedupe_session<R: Runtime>(
+    app: &AppHandle<R>,
+    db: &Database,
+    dedupe_jobs: DedupeJobManager,
+    session_id: &str,
+    event_run: Option<&ScanRunRecord>,
+) -> Result<bool, DbError> {
+    let Some(dispatching) = db.claim_dedupe_dispatch(session_id)? else {
+        return Ok(false);
     };
-    emit_managed_event_with_session_best_effort(app, &finalization.run, &dispatching);
-    match spawn_duplicate_detection(
+    if let Some(run) = event_run {
+        emit_managed_event_with_session_best_effort(app, run, &dispatching);
+    }
+    let dispatch_result = spawn_duplicate_detection(
         app.clone(),
         db.clone(),
         dedupe_jobs,
-        Some(session_id.clone()),
-    ) {
+        Some(session_id.to_string()),
+    );
+    let session = match dispatch_result {
         Ok(job_id) => {
-            if let Ok(session) =
-                db.record_dedupe_dispatch(&session_id, dispatching.revision, Some(&job_id), None)
-            {
-                emit_managed_event_with_session_best_effort(app, &finalization.run, &session);
-            }
+            db.record_dedupe_dispatch(session_id, dispatching.revision, Some(&job_id), None)?
         }
         Err(error) => {
-            if let Ok(session) =
-                db.record_dedupe_dispatch(&session_id, dispatching.revision, None, Some(&error))
-            {
-                emit_managed_event_with_session_best_effort(app, &finalization.run, &session);
-            }
+            db.record_dedupe_dispatch(session_id, dispatching.revision, None, Some(&error))?
         }
+    };
+    if let Some(run) = event_run {
+        emit_managed_event_with_session_best_effort(app, run, &session);
     }
+    Ok(true)
 }
 
 fn emit_terminal_events<R: Runtime>(
@@ -1405,7 +1510,28 @@ fn emit_scan_complete_then_schedule_dedupe(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{ffi::OsStr, sync::atomic::AtomicBool, time::Duration};
+    use std::{
+        cell::RefCell,
+        ffi::OsStr,
+        fs,
+        sync::atomic::{AtomicBool, AtomicU64, Ordering},
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
+
+    static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn test_db(label: &str) -> Database {
+        let sequence = TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        Database::open(std::env::temp_dir().join(format!(
+            "zen-canvas-scanner-{label}-{}-{timestamp}-{sequence}.sqlite3",
+            std::process::id()
+        )))
+        .expect("open scanner test database")
+    }
 
     #[test]
     fn backend_issues_authoritative_uuid_scan_job_ids() {
@@ -1440,6 +1566,225 @@ mod tests {
     fn stale_cleanup_is_disabled_by_default_without_the_rollout_gate() {
         assert!(!should_run_stale_cleanup(false));
         assert!(!should_run_stale_cleanup(true));
+    }
+
+    #[test]
+    fn default_config_delete_then_rescan_keeps_generation_untrusted_and_file_not_stale() {
+        assert!(!stale_reconciliation_enabled());
+        let db = test_db("default-stale-gate");
+        let root_path = std::env::temp_dir().join(format!(
+            "zen-canvas-default-stale-gate-{}",
+            new_job_id("root")
+        ));
+        fs::create_dir_all(&root_path).expect("create scan root");
+        let root = root_path.to_string_lossy().replace('\\', "/");
+        let old_path = root_path.join("old.txt");
+        fs::write(&old_path, "old").expect("create file before scan");
+        let old_path_text = old_path.to_string_lossy().replace('\\', "/");
+        db.insert_file(InsertFileRequest {
+            id: old_path_text.clone(),
+            path: old_path_text.clone(),
+            name: "old.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 3,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("seed file ledger");
+
+        let first_admission = db
+            .admit_managed_scan(&ScanAdmissionOptions {
+                request: ManagedScanRequest {
+                    roots: vec![root.clone()],
+                    request_key: Some("default-stale-gate-first".to_string()),
+                    dedupe: false,
+                },
+                run_id_override: None,
+            })
+            .expect("admit first scan");
+        let first = db
+            .claim_queued_scan_run(&first_admission.runs[0].id)
+            .expect("claim first scan");
+        let first_batch = db
+            .persist_scan_batch(
+                &first.dto.id,
+                first.dto.revision,
+                first.root_revision,
+                first.session_revision,
+                &ScanBatchInput {
+                    entries: &[InsertFileRequest {
+                        id: old_path_text.clone(),
+                        path: old_path_text.clone(),
+                        name: "old.txt".to_string(),
+                        extension: "txt".to_string(),
+                        size: 3,
+                        mtime: 1,
+                        ctime: 1,
+                        is_dir: false,
+                        state_code: 0,
+                    }],
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: 3,
+                    warnings: 0,
+                },
+            )
+            .expect("persist first scan");
+        let first_finalizing = db
+            .transition_scan_run_phase(
+                &first_batch.dto.id,
+                first_batch.dto.revision,
+                first_batch.root_revision,
+                "finalizing",
+            )
+            .expect("enter first finalization");
+        let first_finalization = finish_scan_run(
+            &db,
+            &first_finalizing.dto.id,
+            "requires_reconciliation",
+            Some("stale_reconciliation_disabled"),
+            Some("stale reconciliation is disabled by rollout policy"),
+            false,
+        )
+        .expect("conservatively finalize first scan");
+        assert_eq!(first_finalization.run.dto.status, "requires_reconciliation");
+
+        fs::remove_file(&old_path).expect("delete file between scans");
+        let second_admission = db
+            .admit_managed_scan(&ScanAdmissionOptions {
+                request: ManagedScanRequest {
+                    roots: vec![root],
+                    request_key: Some("default-stale-gate-second".to_string()),
+                    dedupe: false,
+                },
+                run_id_override: None,
+            })
+            .expect("admit rescan");
+        let second = db
+            .claim_queued_scan_run(&second_admission.runs[0].id)
+            .expect("claim rescan");
+        let second_finalizing = db
+            .transition_scan_run_phase(
+                &second.dto.id,
+                second.dto.revision,
+                second.root_revision,
+                "finalizing",
+            )
+            .expect("enter rescan finalization");
+        let second_finalization = finish_scan_run(
+            &db,
+            &second_finalizing.dto.id,
+            "requires_reconciliation",
+            Some("stale_reconciliation_disabled"),
+            Some("stale reconciliation is disabled by rollout policy"),
+            false,
+        )
+        .expect("conservatively finalize rescan");
+        let health = db
+            .get_scan_root_health(Some(&second_finalization.run.dto.scan_root_id), None)
+            .expect("root health after rescan");
+        let stale: i64 = db
+            .conn()
+            .expect("db connection")
+            .query_row(
+                "SELECT is_stale FROM files WHERE id = ?1",
+                rusqlite::params![old_path_text],
+                |row| row.get(0),
+            )
+            .expect("stale state after rescan");
+
+        assert_eq!(second_finalization.run.dto.generation, 2);
+        assert_eq!(
+            second_finalization.run.dto.status,
+            "requires_reconciliation"
+        );
+        assert_eq!(health.last_successful_generation, None);
+        assert!(health.needs_reconciliation);
+        assert_eq!(stale, 0);
+        fs::remove_dir_all(root_path).expect("remove scan root fixture");
+    }
+
+    #[test]
+    fn startup_replays_pending_unknown_and_failed_dedupe_dispatches_after_restart() {
+        let db = test_db("dedupe-restart");
+        let states = ["pending", "unknown", "failed"];
+        let mut session_ids = Vec::new();
+        for (index, state) in states.iter().enumerate() {
+            let root = format!(
+                "/tmp/zen-canvas-dedupe-restart-{}-{}",
+                index,
+                new_job_id("root")
+            );
+            let admission = db
+                .admit_managed_scan(&ScanAdmissionOptions {
+                    request: ManagedScanRequest {
+                        roots: vec![root],
+                        request_key: Some(format!("dedupe-restart-{index}")),
+                        dedupe: true,
+                    },
+                    run_id_override: None,
+                })
+                .expect("admit dedupe session");
+            let run = db
+                .claim_queued_scan_run(&admission.runs[0].id)
+                .expect("claim dedupe session");
+            let finalization = db
+                .finalize_scan_run(
+                    &run.dto.id,
+                    run.dto.revision,
+                    run.root_revision,
+                    run.session_revision,
+                    &ScanFinalizeInput {
+                        terminal_status: "completed".to_string(),
+                        error_code: None,
+                        error_message: None,
+                        allow_stale_reconciliation: false,
+                    },
+                )
+                .expect("complete dedupe session");
+            assert_eq!(finalization.session.dedupe_dispatch_state, "pending");
+            if *state != "pending" {
+                db.conn()
+                    .expect("db connection")
+                    .execute(
+                        "UPDATE scan_sessions SET dedupe_dispatch_state = ?1, dedupe_last_error = ?2 WHERE id = ?3",
+                        rusqlite::params![state, "restart fixture", admission.session.id],
+                    )
+                    .expect("seed restart dispatch state");
+            }
+            session_ids.push(admission.session.id);
+        }
+
+        let attempts = RefCell::new(Vec::<String>::new());
+        let first_pass = resume_dedupe_dispatches(&db, 1000, |session| {
+            let attempt = attempts.borrow().len();
+            attempts.borrow_mut().push(session.id.clone());
+            if attempt == 0 {
+                Err("simulated manager restart gap".to_string())
+            } else {
+                Ok(format!("dedupe-job-{}", session.id))
+            }
+        })
+        .expect("replay durable dispatch candidates");
+        assert_eq!(first_pass, 2);
+        assert_eq!(attempts.borrow().len(), 3);
+
+        let second_pass = resume_dedupe_dispatches(&db, 1000, |session| {
+            Ok(format!("dedupe-retry-{}", session.id))
+        })
+        .expect("replay failed dispatch after retry");
+        assert_eq!(second_pass, 1);
+        for session_id in session_ids {
+            assert_eq!(
+                db.get_scan_session(&session_id)
+                    .expect("replayed session")
+                    .dedupe_dispatch_state,
+                "dispatched"
+            );
+        }
     }
 
     #[test]
