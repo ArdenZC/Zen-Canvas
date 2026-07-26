@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 27;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 28;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -46,6 +46,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         ensure_global_index_hardening(conn)?;
         ensure_journal_state_triggers(conn)?;
         ensure_scan_ledger_schema(conn)?;
+        ensure_watcher_reconciliation_schema(conn)?;
         backfill_scan_roots_from_settings(conn)?;
         return Ok(());
     }
@@ -685,6 +686,10 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             backfill_scan_roots_from_settings(conn)?;
             set_schema_version(conn, 27)?;
         }
+        if version < 28 {
+            ensure_watcher_reconciliation_schema(conn)?;
+            set_schema_version(conn, 28)?;
+        }
         Ok(())
     })();
     match migration_result {
@@ -877,6 +882,28 @@ fn ensure_scan_ledger_schema(conn: &Connection) -> Result<(), DbError> {
         );
         CREATE INDEX IF NOT EXISTS idx_scan_run_errors_run_created
             ON scan_run_errors(run_id, created_at);
+        "#,
+    )?;
+    Ok(())
+}
+
+fn ensure_watcher_reconciliation_schema(conn: &Connection) -> Result<(), DbError> {
+    execute_column_migrations(
+        conn,
+        &[
+            "ALTER TABLE scan_roots ADD COLUMN watcher_revision INTEGER NOT NULL DEFAULT 0 CHECK (watcher_revision >= 0);",
+            "ALTER TABLE scan_roots ADD COLUMN watcher_applied_revision INTEGER NOT NULL DEFAULT 0 CHECK (watcher_applied_revision >= 0);",
+            "ALTER TABLE scan_roots ADD COLUMN watcher_last_event_at INTEGER;",
+            "ALTER TABLE scan_roots ADD COLUMN watcher_last_applied_at INTEGER;",
+            "ALTER TABLE scan_roots ADD COLUMN watcher_last_error_code TEXT;",
+            "ALTER TABLE scan_roots ADD COLUMN watcher_last_error_message TEXT;",
+            "ALTER TABLE scan_runs ADD COLUMN watcher_revision_at_start INTEGER NOT NULL DEFAULT 0 CHECK (watcher_revision_at_start >= 0);",
+        ],
+    )?;
+    conn.execute_batch(
+        r#"
+        CREATE INDEX IF NOT EXISTS idx_scan_roots_reconciliation_enabled
+            ON scan_roots(enabled, needs_reconciliation, updated_at);
         "#,
     )?;
     Ok(())
