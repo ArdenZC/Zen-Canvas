@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 27;
+const CURRENT_SCHEMA_VERSION: i32 = 28;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -47,6 +47,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         ensure_journal_state_triggers(conn)?;
         ensure_scan_ledger_schema(conn)?;
         backfill_scan_roots_from_settings(conn)?;
+        ensure_dedupe_run_schema(conn)?;
         return Ok(());
     }
     conn.execute_batch("BEGIN IMMEDIATE")?;
@@ -685,6 +686,10 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             backfill_scan_roots_from_settings(conn)?;
             set_schema_version(conn, 27)?;
         }
+        if version < 28 {
+            ensure_dedupe_run_schema(conn)?;
+            set_schema_version(conn, 28)?;
+        }
         Ok(())
     })();
     match migration_result {
@@ -983,6 +988,57 @@ fn backfill_scan_roots_from_settings(conn: &Connection) -> Result<(), DbError> {
 
 fn bool_i64(value: bool) -> i64 {
     i64::from(value)
+}
+
+/// Schema 28: durable dedupe run ledger (`docs/remediation/01-dedupe.md` §5.5).
+///
+/// Purely additive — no existing table is altered or rebuilt, and no rows are
+/// seeded: a run row only ever comes from an actual dedupe execution, so the
+/// migration cannot fabricate history.  Progress events stay in-memory and
+/// high-frequency; this table receives low-frequency checkpoints plus terminal
+/// state, guarded by the same revision-CAS discipline as the scan ledger.
+///
+/// Down path: pre-commit failure rolls back to schema 27 via the shared
+/// migration transaction; after commit there is no code downgrade — a
+/// schema-27 binary rejects the database through the future-schema guard and
+/// recovery requires a verified schema-27 backup (same contract as 26→27).
+fn ensure_dedupe_run_schema(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS dedupe_runs (
+            id TEXT PRIMARY KEY,
+            parent_session_id TEXT REFERENCES scan_sessions(id) ON DELETE SET NULL,
+            status TEXT NOT NULL
+                CHECK (status IN (
+                    'running', 'completed', 'cancelled', 'failed', 'interrupted'
+                )),
+            phase TEXT NOT NULL
+                CHECK (phase IN (
+                    'collecting', 'prehashing', 'hashing', 'finalizing', 'completed'
+                )),
+            candidate_files INTEGER NOT NULL DEFAULT 0,
+            prehash_pruned_files INTEGER NOT NULL DEFAULT 0,
+            bytes_saved_by_prehash INTEGER NOT NULL DEFAULT 0,
+            hashed_files INTEGER NOT NULL DEFAULT 0,
+            hashed_bytes INTEGER NOT NULL DEFAULT 0,
+            total_bytes INTEGER NOT NULL DEFAULT 0,
+            duplicate_files INTEGER NOT NULL DEFAULT 0,
+            skipped_files INTEGER NOT NULL DEFAULT 0,
+            error_files INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT,
+            revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+            started_at INTEGER NOT NULL,
+            finished_at INTEGER,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_dedupe_runs_session_created
+            ON dedupe_runs(parent_session_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_dedupe_runs_status_created
+            ON dedupe_runs(status, created_at DESC);
+        "#,
+    )?;
+    Ok(())
 }
 
 /// Creates the search-only index domain without coupling it to the existing

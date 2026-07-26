@@ -247,7 +247,7 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
         )
         .expect("read legacy trash identity state");
 
-    assert_eq!(version, 27);
+    assert_eq!(version, 28);
     assert!(settings_json.contains("minimize"));
     assert_eq!(revision, 0);
     assert_eq!(can_restore, 0);
@@ -315,7 +315,7 @@ fn schema_20_and_21_migrate_to_schema_23_with_independent_restore_claim_columns(
         let migrated_version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("read migrated journal version");
-        assert_eq!(migrated_version, 27);
+        assert_eq!(migrated_version, 28);
         assert_schema_23_journal_columns(&conn);
         let restore_phase: String = conn
             .query_row(
@@ -407,6 +407,103 @@ fn downgrade_current_fixture_to_schema_22(path: &PathBuf) {
 }
 
 #[test]
+fn schema_27_upgrade_creates_dedupe_run_ledger_without_fabricating_history() {
+    let path = test_db_path("v27-dedupe-runs");
+    let db = Database::open(&path).expect("create current database");
+    drop(db);
+    let conn = Connection::open(&path).expect("open schema 27 fixture");
+    conn.execute_batch(
+        r#"
+        DROP TABLE dedupe_runs;
+        PRAGMA user_version = 27;
+        "#,
+    )
+    .expect("downgrade to schema 27");
+    drop(conn);
+
+    let db = Database::open(&path).expect("migrate schema 27 to schema 28");
+    drop(db);
+    let conn = Connection::open(&path).expect("inspect schema 28 fixture");
+    assert_eq!(
+        conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
+            .expect("read schema version"),
+        28
+    );
+    let columns = column_names(&conn, "dedupe_runs");
+    for column in [
+        "id",
+        "parent_session_id",
+        "status",
+        "phase",
+        "candidate_files",
+        "prehash_pruned_files",
+        "bytes_saved_by_prehash",
+        "hashed_files",
+        "hashed_bytes",
+        "total_bytes",
+        "duplicate_files",
+        "skipped_files",
+        "error_files",
+        "error_message",
+        "revision",
+        "started_at",
+        "finished_at",
+        "created_at",
+        "updated_at",
+    ] {
+        assert!(columns.contains(&column.to_string()), "missing {column}");
+    }
+    // The migration must not fabricate run history.
+    assert_eq!(
+        conn.query_row::<i64, _, _>("SELECT COUNT(*) FROM dedupe_runs", [], |row| row.get(0))
+            .expect("dedupe run count"),
+        0
+    );
+
+    // Status / phase domains are enforced at the database layer.
+    assert!(conn
+        .execute(
+            "INSERT INTO dedupe_runs (id, status, phase, started_at, created_at, updated_at)
+             VALUES ('run-invalid', 'sparkling', 'hashing', 1, 1, 1)",
+            [],
+        )
+        .is_err());
+    assert!(conn
+        .execute(
+            "INSERT INTO dedupe_runs (id, status, phase, started_at, created_at, updated_at)
+             VALUES ('run-invalid-phase', 'running', 'guessing', 1, 1, 1)",
+            [],
+        )
+        .is_err());
+    conn.execute(
+        "INSERT INTO dedupe_runs (id, status, phase, started_at, created_at, updated_at)
+         VALUES ('run-valid', 'running', 'collecting', 1, 1, 1)",
+        [],
+    )
+    .expect("valid dedupe run row");
+
+    drop(conn);
+    Database::open(&path).expect("schema 28 migration is idempotent");
+}
+
+#[test]
+fn schema_28_database_rejects_databases_from_future_schemas() {
+    let path = test_db_path("future-schema");
+    let db = Database::open(&path).expect("create current database");
+    drop(db);
+    let conn = Connection::open(&path).expect("open future fixture");
+    conn.execute_batch("PRAGMA user_version = 29;")
+        .expect("mark future schema");
+    drop(conn);
+
+    let error = match Database::open(&path) {
+        Ok(_) => panic!("a future schema must be rejected, not silently reused"),
+        Err(error) => error,
+    };
+    assert!(error.to_string().contains("newer"));
+}
+
+#[test]
 fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers() {
     let path = test_db_path("v22-to-v23");
     downgrade_current_fixture_to_schema_22(&path);
@@ -417,7 +514,7 @@ fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers(
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
             .expect("read schema version"),
-        27
+        28
     );
     assert_schema_23_journal_columns(&conn);
 

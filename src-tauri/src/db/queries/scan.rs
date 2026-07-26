@@ -3557,7 +3557,7 @@ mod tests {
         let seen_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM scan_seen", [], |row| row.get(0))
             .expect("scan seen count");
-        assert_eq!(version, 27);
+        assert_eq!(version, 28);
         assert_eq!(file_count, 1);
         assert_eq!(seen_count, 0);
     }
