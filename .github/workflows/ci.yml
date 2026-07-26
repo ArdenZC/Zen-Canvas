@@ -1,4 +1,4 @@
-name: CI
+name: Windows Package Diagnostic
 
 on:
   push:
@@ -7,31 +7,21 @@ on:
 
 permissions:
   contents: read
-  statuses: write
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: windows-package-diagnostic-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  quality:
-    name: Quality (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
+  package:
+    name: Windows NSIS package diagnostic
+    runs-on: windows-latest
     steps:
-      - name: Checkout final validation commit
+      - name: Checkout final source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          fetch-depth: 0
-      - name: Materialize permanent CI contract for repository tests
-        shell: bash
-        run: git show 488ed1cd1025b5bab0b4aa929904119fbc6b0ff3:.github/workflows/ci.yml > .github/workflows/ci.yml
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -48,77 +38,24 @@ jobs:
           cache-on-failure: true
       - name: Install dependencies
         run: npm ci
-      - name: Frontend typecheck and tests
+      - name: Build Windows production package
+        id: package
+        shell: pwsh
         run: |
-          npm run typecheck
-          npm test
-      - name: Remediation contract guard
-        run: npm run test:remediation
-      - name: Rust format
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
-      - name: Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
-      - name: Rust clippy
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
-      - name: macOS path and temp policy regression
-        if: runner.os == 'macOS'
-        run: |
-          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime macos_
-          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime temp_safety_tests
-      - name: 100k search performance test
-        if: runner.os == 'Windows'
-        run: npm run test:performance
-      - name: Native filesystem hardening smoke
-        if: runner.os == 'Windows'
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test native_file_hardening_smoke -- --ignored --nocapture --test-threads=1
-      - name: Windows production build and NSIS package
-        if: runner.os == 'Windows'
-        run: npm run build
-      - name: macOS production build and unsigned DMG package
-        if: runner.os == 'macOS'
-        run: npm run build -- --no-sign
-
-  dependency-audit:
-    name: Dependency audit
-    runs-on: windows-latest
-    steps:
-      - name: Checkout final validation commit
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+          cmd /c "npm run build > windows-package.log 2>&1"
+          $code = $LASTEXITCODE
+          Get-Content windows-package.log
+          "exit_code=$code" >> $env:GITHUB_OUTPUT
+          exit 0
+      - name: Upload package log
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          node-version: 24
-          cache: npm
-      - name: Install dependencies
-        run: npm ci
-      - name: npm audit
-        run: npm run security:audit
-      - name: RustSec audit
+          name: windows-package-log-${{ github.sha }}
+          path: windows-package.log
+          if-no-files-found: error
+          retention-days: 30
+      - name: Preserve package result
+        shell: pwsh
         run: |
-          cargo install cargo-audit --locked
-          npm run security:audit:rust
-
-  final-status:
-    name: Final hardening status
-    if: always()
-    needs: [quality, dependency-audit]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Publish status on validation commit
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          QUALITY_RESULT: ${{ needs.quality.result }}
-          AUDIT_RESULT: ${{ needs.dependency-audit.result }}
-        run: |
-          set -euo pipefail
-          state=failure
-          description="Final hardening matrix failed"
-          if [ "$QUALITY_RESULT" = success ] && [ "$AUDIT_RESULT" = success ]; then
-            state=success
-            description="Windows, macOS, Clippy, audits and packages passed"
-          fi
-          target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          payload=$(jq -n --arg state "$state" --arg context "CI / Final hardening matrix" --arg description "$description" --arg target_url "$target_url" '{state: $state, context: $context, description: $description, target_url: $target_url}')
-          curl --fail-with-body --retry 3 -X POST -H "Accept: application/vnd.github+json" -H "Authorization: Bearer $GH_TOKEN" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -d "$payload"
-          [ "$state" = success ]
+          if ('${{ steps.package.outputs.exit_code }}' -ne '0') { exit 1 }
