@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   decideManagedScanEvent,
-  isCurrentDedupeEvent
+  indexIsIncompleteForStatus,
+  isCurrentDedupeEvent,
+  scanStatusForBackendStatus
 } from "../src/store/useScanManagerStore";
 import type { ManagedScanEvent } from "../src/api/tauriApi";
 
@@ -15,6 +17,37 @@ describe("scan manager progress callbacks", () => {
     expect(isCurrentDedupeEvent(current, "scan-a", "dedupe-a")).toBe(true);
     expect(isCurrentDedupeEvent(current, "scan-b", null)).toBe(false);
     expect(isCurrentDedupeEvent(current, "scan-a", "dedupe-b")).toBe(false);
+  });
+
+  // Acceptance (BRIEF 裁决 2.3): job outcome and index health are separate axes.
+  // A scan that ran to the end must never be presented as an error just because its
+  // coverage was incomplete — but the health signal must still be readable somewhere.
+  it("presents a finished scan as completed regardless of index health, without losing the health signal", () => {
+    expect(scanStatusForBackendStatus("completed")).toBe("completed");
+    expect(scanStatusForBackendStatus("completed_with_warnings")).toBe("completed");
+    expect(scanStatusForBackendStatus("requires_reconciliation")).toBe("completed");
+
+    expect(scanStatusForBackendStatus("failed")).toBe("error");
+    expect(scanStatusForBackendStatus("interrupted")).toBe("error");
+    expect(scanStatusForBackendStatus("cancelled")).toBe("canceled");
+    expect(scanStatusForBackendStatus("cancelled_not_started")).toBe("canceled");
+    expect(scanStatusForBackendStatus("running")).toBe("scanning");
+
+    // Axis 2 is preserved rather than dropped.
+    expect(indexIsIncompleteForStatus("requires_reconciliation")).toBe(true);
+    expect(indexIsIncompleteForStatus("completed")).toBe(false);
+    expect(indexIsIncompleteForStatus("completed_with_warnings")).toBe(false);
+    expect(indexIsIncompleteForStatus(undefined)).toBe(false);
+  });
+
+  it("refreshes the library scope for roots that finished with incomplete coverage", () => {
+    const storeSource = readFileSync(resolve("src/store/useScanManagerStore.ts"), "utf8");
+    const scopeFilter = storeSource.slice(
+      storeSource.indexOf("const completedScanRoots"),
+      storeSource.indexOf("const files = session.scannedFiles")
+    );
+
+    expect(scopeFilter).toContain("requires_reconciliation");
   });
 
   it("rejects duplicate, stale-generation, and terminal-regression events", () => {

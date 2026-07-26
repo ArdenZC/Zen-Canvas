@@ -87,6 +87,26 @@ describe("background indexer lifecycle", () => {
     expect(useBackgroundIndexerStore.getState().completedRoots).toEqual(["F:/hardening"]);
     expect(runtimeMocks.refresh).toHaveBeenCalledTimes(1);
   });
+
+  // Acceptance: a run that ends with incomplete coverage is a finished job, not a
+  // failed one. Pins behaviour rather than the status name — the root must be recorded
+  // as indexed and no error surfaced, whatever the backend calls that terminal state.
+  it("records the root as indexed when the scan finished with incomplete coverage", async () => {
+    // A distinct root: `recentlyIndexedRoots` is module-level state that outlives
+    // `beforeEach`, so reusing an earlier test's path would be silently de-duplicated.
+    const root = "F:/incomplete-coverage";
+    runtimeMocks.startManagedScan.mockResolvedValue(managedStart("requires_reconciliation", root));
+
+    useBackgroundIndexerStore.getState().enqueueRoot(root);
+    await flushPromises();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await flushPromises();
+
+    expect(useBackgroundIndexerStore.getState().completedRoots).toEqual([root]);
+    expect(useBackgroundIndexerStore.getState().failedRoots).toEqual([]);
+    expect(runtimeMocks.showError).not.toHaveBeenCalled();
+    expect(runtimeMocks.refresh).toHaveBeenCalledTimes(1);
+  });
 });
 
 function deferred<T>() {
@@ -97,12 +117,15 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function managedStart(status: "running" | "completed") {
-  const terminal = status === "completed";
+function managedStart(
+  status: "running" | "completed" | "requires_reconciliation",
+  rootPath = "F:/hardening"
+) {
+  const terminal = status !== "running";
   const run = {
     id: "background-job-1",
     scanRootId: "background-root-1",
-    rootPath: "F:/hardening",
+    rootPath,
     generation: 1,
     parentSessionId: "background-session-1",
     status,
@@ -164,11 +187,11 @@ function managedStart(status: "running" | "completed") {
       roots: [{
         sessionId: "background-session-1",
         requestedIndex: 0,
-        requestedPath: "F:/hardening",
-        normalizedRequestedPath: "F:/hardening",
+        requestedPath: rootPath,
+        normalizedRequestedPath: rootPath,
         resolution: "effective",
         effectiveRootId: "background-root-1",
-        effectivePath: "F:/hardening",
+        effectivePath: rootPath,
         effectiveIndex: 0,
         runId: "background-job-1",
         status,

@@ -159,7 +159,10 @@ async function processBackgroundQueue() {
       activeBackgroundJobId = jobId;
       const session = await waitForManagedBackgroundSession(request, start);
       if (session.status === "cancelled") return;
-      if (!["completed", "completed_with_warnings"].includes(session.status)) {
+      // `requires_reconciliation` is an index-health signal, not a failed job: the run
+      // finished and persisted what it observed. Treating it as a failure stopped the
+      // root from being recorded as indexed and made the queue retry it forever.
+      if (!["completed", "completed_with_warnings", "requires_reconciliation"].includes(session.status)) {
         throw new Error(session.errorMessage ?? `Background scan ended in ${session.status}.`);
       }
       if (runGeneration === backgroundGeneration && activeBackgroundJobId === jobId) {

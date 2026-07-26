@@ -129,11 +129,23 @@ function isTerminalSessionStatus(status: string | undefined) {
   return terminalRunStatuses.has(status ?? "");
 }
 
-function scanStatusForBackendStatus(status: string): ScanStatus {
+// Maps a backend *job outcome* onto the UI's job state.  These axes are kept separate
+// on purpose: whether the scan ran to completion, whether the resulting index is
+// healthy, and whether the generation pointer advanced are three independent facts.
+// `requires_reconciliation` says the run finished but its coverage was incomplete —
+// that is an index-health signal, not a failed job, so it must not be shown as an
+// error.  The health signal is preserved separately via `indexIncomplete` below.
+export function scanStatusForBackendStatus(status: string): ScanStatus {
   if (status === "completed" || status === "completed_with_warnings") return "completed";
+  if (status === "requires_reconciliation") return "completed";
   if (status === "cancelled" || status === "cancelled_not_started") return "canceled";
-  if (status === "failed" || status === "interrupted" || status === "requires_reconciliation") return "error";
+  if (status === "failed" || status === "interrupted") return "error";
   return "scanning";
+}
+
+// Axis 2: the index-health signal that `scanStatusForBackendStatus` deliberately drops.
+export function indexIsIncompleteForStatus(status: string | undefined) {
+  return status === "requires_reconciliation";
 }
 
 function progressFromManagedEvent(event: ManagedScanEvent): ScanProgressPayload {
@@ -544,12 +556,20 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
         if (runToCancel) await tauriApi.cancelScanRun(runToCancel.id);
       }
       const session = await waitForManagedSession(start.session.id);
+      // A root that ended in `requires_reconciliation` still persisted every file it
+      // managed to observe, so its scope is valid and the library must refresh.
+      // Excluding it here was what left the UI showing stale contents after a scan.
       const completedScanRoots = session.roots
-        .filter((root) => ["completed", "completed_with_warnings", "covered", "duplicate", "nested"].includes(root.status))
+        .filter((root) =>
+          ["completed", "completed_with_warnings", "requires_reconciliation", "covered", "duplicate", "nested"].includes(
+            root.status
+          )
+        )
         .map((root) => root.requestedPath)
         .filter((path, index, all) => all.indexOf(path) === index);
       const files = session.scannedFiles;
       const finalStatus = scanStatusForBackendStatus(session.status);
+      const indexIncomplete = indexIsIncompleteForStatus(session.status);
       set((state) => ({
         scanState: { ...state.scanState, status: finalStatus, error: null },
         activeScanRunId: null,
@@ -562,7 +582,15 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
       if (finalStatus === "canceled") {
         useAppStore.getState().showSuccess(t("scanCanceled"));
       } else if (finalStatus === "completed") {
-        useAppStore.getState().showSuccess(`${t("success")}: ${files.toLocaleString()} ${t("files")}`);
+        // The scan succeeded either way; when coverage was incomplete we say so
+        // instead of silently dropping the signal, but we do not report a failure.
+        useAppStore
+          .getState()
+          .showSuccess(
+            indexIncomplete
+              ? t("scanIndexIncomplete").replace("{files}", files.toLocaleString())
+              : `${t("success")}: ${files.toLocaleString()} ${t("files")}`
+          );
       } else if (finalStatus === "error") {
         useAppStore.getState().showError(session.errorMessage ?? t("unknown"));
       }
