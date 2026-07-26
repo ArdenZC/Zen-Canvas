@@ -4,14 +4,18 @@
 
 Task 00 已完成人工验收并通过 PR #16 合并。
 
-Task 01A 任务书已由人工完成最终修订和验收。**PR #17 合并到 `master` 后，Task 01A 实施可执行。** 在 PR #17 合并前不得开始生产实施。
+Task 01A 已完成生产实施、人工验收并合并到 `master`。
+
+Task 01B 任务书已由人工编写。**只有承载该任务书的文档 PR 合并到 `master` 后，Task 01B 才可执行。**
+
+PR #21 因越过 Task 01B 提前进入 Task 02 dedupe/schema 28，已关闭且未合并；其分支仅作未来参考，不是当前基线。
 
 | 阶段 | 任务书 | 目标 | 状态 |
 |---|---|---|---|
 | 00 | `TASK_00_POST_MERGE_BASELINE_AUDIT.md` | PR #15 合并后架构、安全和数据基线审计 | **已验收并合并** |
-| 01A | `TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md` | File Library Scan root lease、session/run/generation、scan_seen、stale safety、恢复和 durable revision | **实施完成，待人工验收** |
-| 01B | 待创建 | Watcher Reconciliation Ownership、overflow replay 和 durable watcher owner | **等待 Task 01A 实施验收，禁止执行** |
-| 02 | 待创建 | 文件 identity/fingerprint、prehash、duplicate group 和 durable dedupe | **后续阶段，禁止执行** |
+| 01A | `TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md` | File Library Scan root lease、session/run/generation、scan_seen、stale safety、恢复和 durable revision | **已验收并合并** |
+| 01B | `TASK_01B_WATCHER_RECONCILIATION_OWNERSHIP.md` | Rust watcher owner、durable revision gap、overflow/startup reconciliation、renderer 脱离 | **任务书已完成；文档 PR 合并后可执行** |
+| 02 | 待创建 | 文件 identity/fingerprint、prehash、duplicate group 和 durable dedupe | **等待 Task 01B，禁止执行** |
 | 03 | 待创建 | Analysis Run、Finding 与 detector | **后续阶段，禁止执行** |
 | 04 | 待创建 | File Query V2、snapshot、cursor 与跨页 selection | **后续阶段，禁止执行** |
 | 05 | 待创建 | Organization Plan 后端领域模型 | **后续阶段，禁止执行** |
@@ -24,7 +28,7 @@ Task 01A 任务书已由人工完成最终修订和验收。**PR #17 合并到 `
 
 ---
 
-## 2. 文档和事实优先级
+## 2. 唯一执行授权与文档优先级
 
 每阶段开始前依次读取：
 
@@ -32,9 +36,19 @@ Task 01A 任务书已由人工完成最终修订和验收。**PR #17 合并到 `
 2. `docs/remediation/README.md`；
 3. `REMEDIATION_MASTER_PLAN_V1.md`；
 4. 本索引；
-5. 当前阶段任务书；
+5. 当前人工编写并批准的阶段任务书；
 6. 已合并 closeout、测试和实际源码；
 7. 涉及 UI 时读取当前 `docs/design/`。
+
+生产实施必须同时满足：
+
+```text
+本索引标记阶段可执行
++ 阶段存在人工批准的 TASK_*.md
++ 任务书已合并到 master
+```
+
+`BRIEF.md`、`00-overview.md`、`01-dedupe.md` 等调研/对标文档没有执行授权，不得改变本索引的阶段顺序、schema 分配或前置关系。
 
 安全边界、当前源码和测试事实高于旧文档。发现冲突时停止，不自行扩大范围。
 
@@ -72,7 +86,8 @@ npm run security:audit:rust
 -不把兼容层变成永久双轨；
 -不在 renderer 重复 Rust 的安全解析；
 -不绕过 Managed Scope、Global Index、AI queue、preview、journal 和 restore；
--不跨阶段顺手重构。
+-不跨阶段顺手重构；
+-不得提前占用后续阶段 schema。
 
 ### 完成后
 
@@ -95,16 +110,18 @@ git status --short
 每阶段：
 
 1. 独立分支；
-2. 一个 Draft PR；
-3. 按任务书拆成原子提交；
+2.一个 Draft PR；
+3.按任务书拆成原子提交；
 4.完整验证；
 5.提交 closeout；
 6.停止等待人工验收；
 7.不得自动合并或开始下一阶段。
 
+任务书和架构设计由人工编写。Codex 只执行代码、测试、提交和汇报。
+
 ---
 
-## 5. Task 01A 最终冻结决定
+## 5. Task 01A 已冻结决定
 
 1. 不建立跨领域通用 Job Runtime；`ai_jobs` 保持 Managed AI 专用。
 2. File Library Managed Scan 与 Global Index 是两个独立领域；不修改 `global_*` 或平台 provider。
@@ -118,44 +135,61 @@ git status --short
 10. session phase 是独立聚合阶段：`preparing -> running -> finalizing -> completed`，不跟随 root phase 倒退。
 11. run/session revision 是 renderer 的 durable 事件水位；先 hydrate，后接收事件。
 12. schema 27 commit 前可以 transaction rollback；commit 后只能使用 schema-27-capable build 关闭 feature gate，旧 schema-26 binary 必须继续拒绝 future schema。
-13. Task 01A 不修改 dedupe 实现，不承诺 logical at-most-once。Dedupe 是 at-least-once、安全可重复计算的下游；crash 可产生重复 hash 计算，但不得影响 scan terminal、generation、stale 或用户文件。
+13. Task 01A 不修改 dedupe 实现，不承诺 logical at-most-once。Dedupe 是 at-least-once、安全可重复计算的下游。
 14. durable dedupe job、固定 idempotency、prehash/cache/group 归 Task 02。
 15. Query V2 必须先于 Organization Plan。
 
 ---
 
-## 6. Task 01A 实施入口
+## 6. Task 01B 冻结决定
 
-PR #17 合并后，Codex 只需读取并执行：
+1. Rust/Tauri 后端是 File Library watcher mutation 和 reconciliation 的唯一默认 owner。
+2. renderer 只投影状态和刷新，不再默认调用 stale/upsert/rule mutation RPC。
+3.不持久化逐条 raw notify event；使用 per-root `watcher_revision / watcher_applied_revision` 表达 durable crash gap。
+4. Task 01B 正式占用 schema 28；PR #21 的 dedupe schema 28 不进入基线。
+5. watcher 不写 `scan_seen`、不推进 scanner generation、不更新 `last_successful_generation`。
+6.局部 exact update 是优化；overflow、ambiguity、revision gap、active scan race 和永久失败升级为 normal managed scan。
+7. scan run claim 记录 `watcher_revision_at_start`；watcher revision 在 run 期间变化时禁止该 run 执行 missing/stale reconciliation。
+8. custom search roots 和 Global Index source 不得通过 File Library watcher 写 managed `files`。
+9. backend rule evaluation 保留当前 watcher 分类行为，但不触发 AI、不覆盖用户 correction。
+10. schema-28-capable build 提供临时 backend/legacy owner kill switch，默认 backend；任何时刻只能有一个 mutation owner。
+11. Task 01B 不修改 dedupe、Global Index、Managed AI、files.id 或任何 journal。
+12. Task 02 只能在 Task 01B 实施验收并合并后开始，届时 schema 从 28 继续演进。
+
+---
+
+## 7. Task 01B 实施入口
+
+任务书文档 PR 合并后，Codex 只需读取并执行：
 
 ```text
-docs/remediation/TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md
+docs/remediation/TASK_01B_WATCHER_RECONCILIATION_OWNERSHIP.md
 ```
 
 推荐实施分支：
 
 ```text
-remediation/01a-scan-generation-foundation
+remediation/01b-watcher-reconciliation-ownership
 ```
 
-Task 01A 完成后必须新增 closeout，并将本索引更新为：
+完成后新增：
 
 ```text
-Task 01A：实施完成，待人工验收
-Task 01B：仍禁止执行
+docs/remediation/TASK_01B_IMPLEMENTATION_CLOSEOUT.md
+```
 
-本次 closeout：
+并将本索引更新为：
 
 ```text
-docs/remediation/TASK_01A_IMPLEMENTATION_CLOSEOUT.md
-```
+Task 01B：实施完成，待人工验收
+Task 02：仍禁止执行
 ```
 
-只有 Task 01A 生产实施通过人工验收并合并后，才由人工创建 Task 01B 任务书。
+只有 Task 01B 生产实施通过人工验收并合并后，才由人工创建 Task 02 任务书。
 
 ---
 
-## 7. 审计产物
+## 8. 审计产物
 
 - `POST_MERGE_BASELINE_AUDIT.md`：当前进程、数据库、任务和安全边界；
 - `REMEDIATION_CAPABILITY_MATRIX.md`：已有、部分、缺失、冲突和不应建设的能力；
@@ -170,13 +204,13 @@ docs/remediation/TASK_01A_IMPLEMENTATION_CLOSEOUT.md
 
 ---
 
-## 8. 后续阶段契约
+## 9. 后续阶段契约
 
 | 阶段 | 必须先回答 | 明确不做 | 专项验证 |
 |---|---|---|---|
 | 01A Scan Generation | root lease、generation、scan_seen、stale、crash recovery | 不重建 Global Index、不持久化 watcher、不改 dedupe | migration、kill/restart、cancel、stale safety、100k |
-| 01B Watcher | durable owner、overflow、replay、renderer 脱离 | 不伪造 scanner generation | overflow、rename/delete、renderer restart、跨平台 |
-| 02 Identity/Dedupe | path/native/physical identity、prehash/cache/group | 不直接迁移 `files.id`、不自动删除 | rename、hardlink、changed file、durable dedupe |
+| 01B Watcher | durable owner、revision gap、overflow、renderer 脱离、active scan race | 不伪造 scanner generation、不建 raw event log | overflow、rename/delete、renderer restart、跨平台、schema 28 |
+| 02 Identity/Dedupe | path/native/physical identity、prehash/cache/group、durable run | 不直接迁移 `files.id`、不自动删除 | rename、hardlink、changed file、durable dedupe |
 | 03 Analysis | run/finding identity、stale、decision | 不把内存结果冒充 artifact | cancel、partial、rerun、idempotency |
 | 04 Query V2 | scope、snapshot、sort、cursor、selection | 不把 Global Search join 到 Library | concurrent scan/watcher、跨页选择、100k/1M |
 | 05 Organization Plan | plan revision、identity expiry、decision | 不直接执行 filesystem mutation | diff、expiry、confirm、restore |
