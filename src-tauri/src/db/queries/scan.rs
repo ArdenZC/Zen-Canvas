@@ -1,14 +1,15 @@
 use super::super::*;
 use super::*;
 use crate::ids::new_job_id;
-use rusqlite::{params, Connection, OptionalExtension, Row, Transaction, TransactionBehavior};
+use rusqlite::{
+    params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension, Row,
+    Transaction, TransactionBehavior,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
 };
-
-const ACTIVE_RUN_STATUSES: &str = "'queued', 'running', 'cancelling'";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -156,6 +157,27 @@ pub(crate) struct ScanRunRecord {
     pub root_active_run_id: Option<String>,
     pub root_active_generation: Option<i64>,
     pub root_health_status: String,
+    pub session_revision: i64,
+    pub session_status: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ScanErrorInput {
+    pub path: Option<String>,
+    pub error_code: String,
+    pub error_message: String,
+    pub affects_coverage: bool,
+    pub metadata_error: bool,
+}
+
+#[derive(Debug)]
+pub(crate) struct ScanBatchInput<'a> {
+    pub entries: &'a [InsertFileRequest],
+    pub errors: &'a [ScanErrorInput],
+    pub scanned_files: i64,
+    pub scanned_directories: i64,
+    pub processed_bytes: i64,
+    pub warnings: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -427,6 +449,591 @@ impl Database {
         )
         .map_err(DbError::from)
     }
+
+    pub(crate) fn claim_queued_scan_run(&self, run_id: &str) -> Result<ScanRunRecord, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let record = load_scan_run_record(&tx, run_id)?;
+        if record.dto.status != "queued" {
+            return Ok(record);
+        }
+        if record.root_active_run_id.as_deref() != Some(run_id)
+            || record.root_active_generation != Some(record.dto.generation)
+        {
+            return Err(DbError::Validation(
+                "Queued scan run no longer owns its root lease.".to_string(),
+            ));
+        }
+        if record.session_status == "cancelling" || record.dto.cancel_requested {
+            return Err(DbError::Validation(
+                "Scan run was cancelled before start.".to_string(),
+            ));
+        }
+
+        let now = current_unix_seconds();
+        let changed = tx.execute(
+            r#"
+            UPDATE scan_runs
+            SET status = 'running', phase = 'discovering',
+                started_at = COALESCE(started_at, ?1),
+                last_checkpoint_at = ?1, revision = revision + 1, updated_at = ?1
+            WHERE id = ?2 AND status = 'queued' AND revision = ?3
+              AND lease_token = ?4 AND cancel_requested = 0
+            "#,
+            params![now, run_id, record.dto.revision, record.lease_token],
+        )?;
+        if changed != 1 {
+            return Err(DbError::Validation(
+                "Queued scan run claim CAS failed.".to_string(),
+            ));
+        }
+        let root_changed = tx.execute(
+            r#"
+            UPDATE scan_roots
+            SET health_status = 'scanning', revision = revision + 1, updated_at = ?1
+            WHERE id = ?2 AND revision = ?3
+              AND active_run_id = ?4 AND active_generation = ?5
+            "#,
+            params![
+                now,
+                record.dto.scan_root_id,
+                record.root_revision,
+                run_id,
+                record.dto.generation
+            ],
+        )?;
+        if root_changed != 1 {
+            return Err(DbError::Validation(
+                "Root lease claim CAS failed.".to_string(),
+            ));
+        }
+        let session_id =
+            record.dto.parent_session_id.as_deref().ok_or_else(|| {
+                DbError::Validation("Scan run has no parent session.".to_string())
+            })?;
+        let session_changed = tx.execute(
+            r#"
+            UPDATE scan_sessions
+            SET status = 'running', phase = 'running',
+                started_at = COALESCE(started_at, ?1),
+                last_checkpoint_at = ?1, revision = revision + 1, updated_at = ?1
+            WHERE id = ?2 AND revision = ?3
+              AND cancel_requested = 0
+              AND status IN ('queued', 'running')
+            "#,
+            params![now, session_id, record.session_revision],
+        )?;
+        if session_changed != 1 {
+            return Err(DbError::Validation(
+                "Scan session claim CAS failed.".to_string(),
+            ));
+        }
+
+        let claimed = load_scan_run_record(&tx, run_id)?;
+        tx.commit()?;
+        Ok(claimed)
+    }
+
+    pub(crate) fn persist_scan_batch(
+        &self,
+        run_id: &str,
+        expected_run_revision: i64,
+        expected_root_revision: i64,
+        expected_session_revision: i64,
+        batch: &ScanBatchInput<'_>,
+    ) -> Result<ScanRunRecord, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let record = load_scan_run_record(&tx, run_id)?;
+        validate_worker_ownership(
+            &record,
+            run_id,
+            expected_run_revision,
+            expected_root_revision,
+            expected_session_revision,
+            true,
+        )?;
+
+        let observed_at = current_unix_seconds();
+        upsert_scan_files_tx(&tx, run_id, batch.entries, observed_at)?;
+        insert_scan_errors_tx(&tx, run_id, batch.errors, observed_at)?;
+
+        let metadata_errors = batch
+            .errors
+            .iter()
+            .filter(|error| error.metadata_error)
+            .count() as i64;
+        let coverage_errors = batch
+            .errors
+            .iter()
+            .filter(|error| error.affects_coverage)
+            .count() as i64;
+        let errors = batch.errors.len() as i64;
+        let now = current_unix_seconds();
+        let run_changed = tx.execute(
+            r#"
+            UPDATE scan_runs
+            SET phase = 'persisting',
+                scanned_files = scanned_files + ?1,
+                scanned_directories = scanned_directories + ?2,
+                processed_bytes = processed_bytes + ?3,
+                warnings_count = warnings_count + ?4,
+                errors_count = errors_count + ?5,
+                metadata_error_count = metadata_error_count + ?6,
+                coverage_error_count = coverage_error_count + ?7,
+                coverage_complete = 0,
+                stale_reconciliation_allowed = 0,
+                last_checkpoint_at = ?8,
+                revision = revision + 1,
+                updated_at = ?8
+            WHERE id = ?9 AND status = 'running' AND cancel_requested = 0
+              AND revision = ?10 AND lease_token = ?11
+            "#,
+            params![
+                batch.scanned_files,
+                batch.scanned_directories,
+                batch.processed_bytes,
+                batch.warnings,
+                errors,
+                metadata_errors,
+                coverage_errors,
+                now,
+                run_id,
+                expected_run_revision,
+                record.lease_token,
+            ],
+        )?;
+        if run_changed != 1 {
+            return Err(DbError::Validation(
+                "Scan batch run revision CAS failed.".to_string(),
+            ));
+        }
+
+        let session_id =
+            record.dto.parent_session_id.as_deref().ok_or_else(|| {
+                DbError::Validation("Scan run has no parent session.".to_string())
+            })?;
+        let session_changed = tx.execute(
+            r#"
+            UPDATE scan_sessions
+            SET status = 'running', phase = 'running',
+                scanned_files = scanned_files + ?1,
+                scanned_directories = scanned_directories + ?2,
+                warnings_count = warnings_count + ?3,
+                errors_count = errors_count + ?4,
+                started_at = COALESCE(started_at, ?5),
+                last_checkpoint_at = ?5,
+                revision = revision + 1,
+                updated_at = ?5
+            WHERE id = ?6 AND revision = ?7
+              AND cancel_requested = 0
+              AND status IN ('queued', 'running')
+            "#,
+            params![
+                batch.scanned_files,
+                batch.scanned_directories,
+                batch.warnings,
+                errors,
+                now,
+                session_id,
+                expected_session_revision,
+            ],
+        )?;
+        if session_changed != 1 {
+            return Err(DbError::Validation(
+                "Scan batch session revision CAS failed.".to_string(),
+            ));
+        }
+
+        let updated = load_scan_run_record(&tx, run_id)?;
+        tx.commit()?;
+        Ok(updated)
+    }
+
+    pub(crate) fn reconcile_missing(
+        &self,
+        run_id: &str,
+        expected_run_revision: i64,
+        expected_root_revision: i64,
+        expected_session_revision: i64,
+    ) -> Result<ScanRunRecord, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let record = load_scan_run_record(&tx, run_id)?;
+        validate_worker_ownership(
+            &record,
+            run_id,
+            expected_run_revision,
+            expected_root_revision,
+            expected_session_revision,
+            true,
+        )?;
+        if record.dto.coverage_error_count > 0 {
+            return Err(DbError::Validation(
+                "Scan coverage is incomplete; stale reconciliation is forbidden.".to_string(),
+            ));
+        }
+        let started_at = record
+            .dto
+            .started_at
+            .ok_or_else(|| DbError::Validation("Scan run has no start timestamp.".to_string()))?;
+        let root = &record.dto.root_path;
+        let (root_slash, root_slash_descendant, root_backslash, root_backslash_descendant) =
+            root_patterns(root);
+        let ignored = [
+            ".git",
+            ".hg",
+            ".svn",
+            ".idea",
+            ".vscode",
+            ".cache",
+            ".zen-canvas-trash",
+            ".parcel-cache",
+            ".turbo",
+            ".next",
+            ".nuxt",
+            ".venv",
+            "__pycache__",
+            "node_modules",
+            "target",
+            "dist",
+            "build",
+            "coverage",
+            "vendor",
+            "venv",
+            "pods",
+            "deriveddata",
+            "appdata",
+            "system volume information",
+            "$recycle.bin",
+            "windows",
+            "program files",
+            "program files (x86)",
+            "programdata",
+            "$windows.~bt",
+            "$winreagent",
+            "recovery",
+        ];
+        let ignored_clauses = ignored
+            .iter()
+            .enumerate()
+            .map(|(index, _)| {
+                let slash_index = 7 + index * 4;
+                let backslash_index = slash_index + 2;
+                format!(
+                    "f.path NOT LIKE ?{slash_index} ESCAPE '~' AND f.path NOT LIKE ?{} ESCAPE '~' AND \
+                     f.path NOT LIKE ?{backslash_index} ESCAPE '~' AND f.path NOT LIKE ?{} ESCAPE '~'",
+                    slash_index + 1,
+                    backslash_index + 1
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" AND ");
+        let mut values = vec![
+            SqlValue::Integer(started_at),
+            SqlValue::Text(root_slash),
+            SqlValue::Text(root_slash_descendant),
+            SqlValue::Text(root_backslash),
+            SqlValue::Text(root_backslash_descendant),
+            SqlValue::Text(run_id.to_string()),
+        ];
+        for ignored_name in ignored {
+            let slash = format!("{}/{}%", root, ignored_name);
+            let slash_exact = format!("{}/{}", root, ignored_name);
+            let backslash = format!(r"{}\{}%", root, ignored_name);
+            let backslash_exact = format!(r"{}\{}", root, ignored_name);
+            values.extend([
+                SqlValue::Text(escape_like_pattern_local(&slash_exact)),
+                SqlValue::Text(escape_like_pattern_local(&slash)),
+                SqlValue::Text(escape_like_pattern_local(&backslash_exact)),
+                SqlValue::Text(escape_like_pattern_local(&backslash)),
+            ]);
+        }
+        let changed = tx.execute(
+            &format!(
+                r#"
+                UPDATE files AS f
+                SET is_stale = 1
+                WHERE f.is_stale = 0
+                  AND f.last_seen_at < ?1
+                  AND (
+                      f.path = ?2 OR f.path LIKE ?3 ESCAPE '~'
+                      OR f.path = ?4 OR f.path LIKE ?5 ESCAPE '~'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM scan_seen AS seen
+                      WHERE seen.run_id = ?6
+                        AND (seen.file_id = f.id OR seen.observed_path = f.path)
+                  )
+                  AND {ignored_clauses}
+                "#
+            ),
+            params_from_iter(values),
+        )?;
+        let now = current_unix_seconds();
+        let run_changed = tx.execute(
+            r#"
+            UPDATE scan_runs
+            SET phase = 'reconciling_missing', coverage_complete = 1,
+                stale_reconciliation_allowed = 1, last_checkpoint_at = ?1,
+                revision = revision + 1, updated_at = ?1
+            WHERE id = ?2 AND status = 'running' AND cancel_requested = 0
+              AND coverage_error_count = 0 AND revision = ?3
+              AND lease_token = ?4
+            "#,
+            params![now, run_id, expected_run_revision, record.lease_token],
+        )?;
+        if run_changed != 1 {
+            return Err(DbError::Validation(
+                "Stale reconciliation run CAS failed; stale update rolled back.".to_string(),
+            ));
+        }
+        let session_id =
+            record.dto.parent_session_id.as_deref().ok_or_else(|| {
+                DbError::Validation("Scan run has no parent session.".to_string())
+            })?;
+        let session_changed = tx.execute(
+            r#"
+            UPDATE scan_sessions
+            SET phase = 'finalizing', last_checkpoint_at = ?1,
+                revision = revision + 1, updated_at = ?1
+            WHERE id = ?2 AND revision = ?3
+              AND cancel_requested = 0 AND status = 'running'
+            "#,
+            params![now, session_id, expected_session_revision],
+        )?;
+        if session_changed != 1 {
+            return Err(DbError::Validation(
+                "Stale reconciliation session CAS failed; stale update rolled back.".to_string(),
+            ));
+        }
+        let updated = load_scan_run_record(&tx, run_id)?;
+        let _ = changed;
+        tx.commit()?;
+        Ok(updated)
+    }
+
+    pub(crate) fn transition_scan_run_phase(
+        &self,
+        run_id: &str,
+        expected_run_revision: i64,
+        expected_root_revision: i64,
+        phase: &str,
+    ) -> Result<ScanRunRecord, DbError> {
+        if !matches!(
+            phase,
+            "preparing"
+                | "discovering"
+                | "persisting"
+                | "reconciling_missing"
+                | "optimizing_search"
+                | "finalizing"
+                | "completed"
+        ) {
+            return Err(DbError::Validation(format!(
+                "Invalid scan run phase: {phase}"
+            )));
+        }
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let record = load_scan_run_record(&tx, run_id)?;
+        if record.dto.revision != expected_run_revision
+            || record.root_revision != expected_root_revision
+            || record.root_active_run_id.as_deref() != Some(run_id)
+            || record.root_active_generation != Some(record.dto.generation)
+        {
+            return Err(DbError::Validation(
+                "Scan phase transition lost root lease or revision ownership.".to_string(),
+            ));
+        }
+        let now = current_unix_seconds();
+        let changed = tx.execute(
+            r#"
+            UPDATE scan_runs
+            SET phase = ?1, last_checkpoint_at = ?2, revision = revision + 1, updated_at = ?2
+            WHERE id = ?3 AND status = 'running' AND cancel_requested = 0
+              AND revision = ?4 AND lease_token = ?5
+            "#,
+            params![
+                phase,
+                now,
+                run_id,
+                expected_run_revision,
+                record.lease_token
+            ],
+        )?;
+        if changed != 1 {
+            return Err(DbError::Validation(
+                "Scan phase transition CAS failed.".to_string(),
+            ));
+        }
+        let updated = load_scan_run_record(&tx, run_id)?;
+        tx.commit()?;
+        Ok(updated)
+    }
+}
+
+fn validate_worker_ownership(
+    record: &ScanRunRecord,
+    run_id: &str,
+    expected_run_revision: i64,
+    expected_root_revision: i64,
+    expected_session_revision: i64,
+    require_running: bool,
+) -> Result<(), DbError> {
+    if record.dto.id != run_id
+        || record.dto.revision != expected_run_revision
+        || record.root_revision != expected_root_revision
+        || record.session_revision != expected_session_revision
+        || record.lease_token.is_empty()
+        || record.root_active_run_id.as_deref() != Some(run_id)
+        || record.root_active_generation != Some(record.dto.generation)
+    {
+        return Err(DbError::Validation(
+            "Scan worker lost run, root lease, generation, or revision ownership.".to_string(),
+        ));
+    }
+    if require_running && (record.dto.status != "running" || record.dto.cancel_requested) {
+        return Err(DbError::Validation(
+            "Scan worker cannot persist after cancellation or terminal transition.".to_string(),
+        ));
+    }
+    if record.session_status != "running" {
+        return Err(DbError::Validation(
+            "Scan session is not writable by the current worker.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn upsert_scan_files_tx(
+    tx: &Transaction<'_>,
+    run_id: &str,
+    files: &[InsertFileRequest],
+    observed_at: i64,
+) -> Result<(), DbError> {
+    if files.is_empty() {
+        return Ok(());
+    }
+    let mut statement = tx.prepare(
+        r#"
+        INSERT INTO files (
+            id, path, name, extension, size, mtime, ctime, is_dir, state_code,
+            file_type, suggested_name, classification_status, is_stale, last_seen_at
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, ?13)
+        ON CONFLICT(id) DO UPDATE SET
+            path = excluded.path,
+            name = excluded.name,
+            extension = excluded.extension,
+            size = excluded.size,
+            mtime = excluded.mtime,
+            ctime = excluded.ctime,
+            is_dir = excluded.is_dir,
+            state_code = excluded.state_code,
+            file_type = excluded.file_type,
+            suggested_name = CASE
+                WHEN files.suggested_name = '' OR files.suggested_name = files.name
+                THEN excluded.suggested_name
+                ELSE files.suggested_name
+            END,
+            content_hash = CASE
+                WHEN files.size != excluded.size
+                  OR files.mtime != excluded.mtime
+                  OR files.is_dir != excluded.is_dir
+                THEN ''
+                ELSE files.content_hash
+            END,
+            is_stale = 0,
+            last_seen_at = excluded.last_seen_at
+        "#,
+    )?;
+    for file in files {
+        statement.execute(params![
+            file.id,
+            file.path,
+            file.name,
+            file.extension,
+            file.size,
+            file.mtime,
+            file.ctime,
+            bool_to_i64(file.is_dir),
+            file.state_code,
+            infer_file_type(&file.extension, file.is_dir),
+            file.name,
+            CLASSIFICATION_STATUS_UNCLASSIFIED,
+            observed_at,
+        ])?;
+    }
+    drop(statement);
+
+    let mut seen_statement = tx.prepare(
+        r#"
+        INSERT INTO scan_seen (run_id, file_id, observed_path, observed_at)
+        VALUES (?1, ?2, ?3, ?4)
+        ON CONFLICT(run_id, file_id) DO UPDATE SET
+            observed_path = excluded.observed_path,
+            observed_at = excluded.observed_at
+        "#,
+    )?;
+    for file in files {
+        seen_statement.execute(params![run_id, file.id, file.path, observed_at])?;
+    }
+    Ok(())
+}
+
+fn insert_scan_errors_tx(
+    tx: &Transaction<'_>,
+    run_id: &str,
+    errors: &[ScanErrorInput],
+    created_at: i64,
+) -> Result<(), DbError> {
+    if errors.is_empty() {
+        return Ok(());
+    }
+    let mut statement = tx.prepare(
+        r#"
+        INSERT INTO scan_run_errors (
+            id, run_id, path, error_code, error_message, affects_coverage, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        "#,
+    )?;
+    for error in errors {
+        statement.execute(params![
+            new_job_id("scan-error"),
+            run_id,
+            error.path,
+            error.error_code,
+            error.error_message,
+            bool_to_i64(error.affects_coverage),
+            created_at,
+        ])?;
+    }
+    Ok(())
+}
+
+fn root_patterns(root: &str) -> (String, String, String, String) {
+    let slash = root.replace('\\', "/");
+    let backslash = slash.replace('/', "\\");
+    let escaped_slash = escape_like_pattern_local(&slash);
+    let escaped_backslash = escape_like_pattern_local(&backslash);
+    (
+        slash.clone(),
+        format!("{escaped_slash}/%"),
+        backslash.clone(),
+        format!("{escaped_backslash}\\%"),
+    )
+}
+
+fn escape_like_pattern_local(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if matches!(ch, '~' | '%' | '_') {
+            escaped.push('~');
+        }
+        escaped.push(ch);
+    }
+    escaped
 }
 
 fn ensure_scan_root_tx(tx: &Transaction<'_>, path: &str) -> Result<ScanRootSeed, DbError> {
@@ -549,9 +1156,11 @@ const SCAN_RUN_SELECT: &str = r#"
            run.stale_reconciliation_allowed, run.cancel_requested, run.revision,
            run.started_at, run.finished_at, run.last_checkpoint_at, run.error_code,
            run.error_message, run.result_json, run.created_at, run.updated_at,
-           root.revision, root.active_run_id, root.active_generation, root.health_status
+           root.revision, root.active_run_id, root.active_generation, root.health_status,
+           session.revision, session.status
     FROM scan_runs AS run
     JOIN scan_roots AS root ON root.id = run.scan_root_id
+    LEFT JOIN scan_sessions AS session ON session.id = run.parent_session_id
 "#;
 
 fn scan_run_dto_from_row(row: &Row<'_>) -> rusqlite::Result<ScanRunDto> {
@@ -593,6 +1202,10 @@ fn scan_run_record_from_row(row: &Row<'_>) -> rusqlite::Result<ScanRunRecord> {
         root_active_run_id: row.get(28)?,
         root_active_generation: row.get(29)?,
         root_health_status: row.get(30)?,
+        session_revision: row.get::<_, Option<i64>>(31)?.unwrap_or_default(),
+        session_status: row
+            .get::<_, Option<String>>(32)?
+            .unwrap_or_else(|| "failed".to_string()),
     })
 }
 
