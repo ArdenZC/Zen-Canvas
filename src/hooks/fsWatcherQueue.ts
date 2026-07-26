@@ -7,6 +7,8 @@ export interface FsWatchEvent {
   stale_paths?: string[];
   upsertPaths?: string[];
   upsert_paths?: string[];
+  reconciliationPaths?: string[];
+  reconciliation_paths?: string[];
   deleted?: boolean;
   removed?: boolean;
   isDeleted?: boolean;

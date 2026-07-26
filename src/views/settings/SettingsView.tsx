@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderPlus, Keyboard, Play, Trash2 } from "lucide-react";
 import packageInfo from "../../../package.json";
-import { tauriApi } from "../../api/tauriApi";
+import { tauriApi, type WatcherReconciliationStatus } from "../../api/tauriApi";
 import { useChromeContext, useSettingsContext } from "../../contexts/AppContexts";
 import {
   removeSearchRoot,
@@ -16,6 +16,7 @@ import { useScanManagerStore } from "../../store/useScanManagerStore";
 import { useAppStore } from "../../store/useAppStore";
 import { useBackgroundIndexerStore } from "../../store/useBackgroundIndexerStore";
 import { useAIProcessingModeStore } from "../../store/useAIProcessingModeStore";
+import { useWatcherStatusStore } from "../../store/useWatcherStatusStore";
 import { SETTINGS_SECTION_EVENT } from "../../components/spotlight/commandRegistry";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import type {
@@ -200,6 +201,27 @@ function managedScopePolicyText(policySummary: string | undefined, t: Translator
   return t(policyKeys[policySummary ?? ""] ?? "managedScopePolicySummary");
 }
 
+function watcherStatusLabel(status: WatcherReconciliationStatus | undefined, t: Translator) {
+  let key: Parameters<Translator>[0] = "watcherStatusUnknown";
+  if (status?.healthStatus === "permission_required") key = "watcherStatusPermission";
+  else if (status?.healthStatus === "missing") key = "watcherStatusMissing";
+  else if (status?.activeRunId || status?.healthStatus === "scanning") key = "watcherStatusSyncing";
+  else if (status?.pending || status?.needsReconciliation || status?.healthStatus === "reconciliation_required") key = "watcherStatusReconciling";
+  else if (status?.healthStatus === "degraded") key = "watcherStatusFailed";
+  else if (status?.healthStatus === "healthy") key = "watcherStatusHealthy";
+  return t(key);
+}
+
+function watcherStatusForSetting(
+  root: ScanRootSetting,
+  statuses: Record<string, WatcherReconciliationStatus>
+) {
+  const exact = statuses[root.id];
+  if (exact) return exact;
+  const targetPath = normalizePathLike(root.path);
+  return Object.values(statuses).find((status) => normalizePathLike(status.path) === targetPath);
+}
+
 export function SettingsView() {
   const {
     language,
@@ -247,6 +269,7 @@ export function SettingsView() {
   const failedBackgroundRoots = useBackgroundIndexerStore((state) => state.failedRoots);
   const completedBackgroundRoots = useBackgroundIndexerStore((state) => state.completedRoots);
   const enqueueBackgroundIndexRoot = useBackgroundIndexerStore((state) => state.enqueueRoot);
+  const watcherRootStatuses = useWatcherStatusStore((state) => state.roots);
   const selectedLibraryFileId = useFileLibraryStore((state) => state.selectedFileId);
   const libraryFiles = useFileLibraryStore((state) => state.libraryPage.files);
   const selectedLibraryFile = libraryFiles.find((file) => file.id === selectedLibraryFileId);
@@ -1134,6 +1157,16 @@ export function SettingsView() {
                   <div className="min-w-0 text-left">
                     <label htmlFor={`scan-root-${root.id}`} className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{root.label}</label>
                     <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={root.path}>{compactPath(root.path, 72)}</span>
+                    <div className="mt-1 flex items-center gap-2 text-xs">
+                      <span className="rounded-full border border-[var(--zc-border)] px-2 py-0.5 text-[var(--zc-text-secondary)]">
+                        {watcherStatusLabel(watcherStatusForSetting(root, watcherRootStatuses), t)}
+                      </span>
+                      {watcherStatusForSetting(root, watcherRootStatuses) ? (
+                        <span className="text-[var(--zc-text-tertiary)]">
+                          {watcherStatusForSetting(root, watcherRootStatuses)?.watcherAppliedRevision}/{watcherStatusForSetting(root, watcherRootStatuses)?.watcherRevision}
+                        </span>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
                     <SettingsSwitchControl

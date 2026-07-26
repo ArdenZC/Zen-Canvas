@@ -365,7 +365,8 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
         realAIClassificationAvailable: true,
         credentialStoreAvailable: true,
         fileMutationAvailable: true,
-        fileMutationUnavailableCode: null
+        fileMutationUnavailableCode: null,
+        backendWatcherReconciliation: true
       } as T;
     case "save_ai_settings":
       return mockAISettings(args?.settings as AISettings | undefined) as T;
@@ -455,6 +456,7 @@ function startMockManagedScan(request?: ManagedScanRequest): ManagedScanStartDto
     errorCode: null,
     errorMessage: null,
     resultJson: null,
+    watcherRevisionAtStart: 1,
     createdAt: now - 1,
     updatedAt: now
   }));
@@ -532,6 +534,12 @@ function mockManagedRootsForRequest(request: ManagedScanRequest): ScanRootDto[] 
     needsReconciliation: false,
     lastErrorCode: null,
     lastErrorMessage: null,
+    watcherRevision: 1,
+    watcherAppliedRevision: 1,
+    watcherLastEventAt: now,
+    watcherLastAppliedAt: now,
+    watcherLastErrorCode: null,
+    watcherLastErrorMessage: null,
     createdAt: now,
     updatedAt: now
   }));

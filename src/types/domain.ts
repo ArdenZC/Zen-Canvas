@@ -266,6 +266,7 @@ export interface RuntimeCapabilities {
   credentialStoreAvailable: boolean;
   fileMutationAvailable: boolean;
   fileMutationUnavailableCode: string | null;
+  backendWatcherReconciliation: boolean;
 }
 
 export interface AIDebugClassificationResult {
