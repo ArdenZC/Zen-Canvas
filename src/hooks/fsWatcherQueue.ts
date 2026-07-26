@@ -7,6 +7,8 @@ export interface FsWatchEvent {
   stale_paths?: string[];
   upsertPaths?: string[];
   upsert_paths?: string[];
+  reconciliationPaths?: string[];
+  reconciliation_paths?: string[];
   deleted?: boolean;
   removed?: boolean;
   isDeleted?: boolean;
@@ -112,6 +114,10 @@ export class WatcherRetryQueue {
 
   hasReadyOrWaiting() {
     return Array.from(this.items.values()).some((item) => item.state !== "permanently_failed");
+  }
+
+  clear() {
+    this.items.clear();
   }
 
   itemsForTest() {

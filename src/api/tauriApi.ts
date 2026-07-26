@@ -106,6 +106,12 @@ export interface ScanRootDto {
   needsReconciliation: boolean;
   lastErrorCode: string | null;
   lastErrorMessage: string | null;
+  watcherRevision: number;
+  watcherAppliedRevision: number;
+  watcherLastEventAt: number | null;
+  watcherLastAppliedAt: number | null;
+  watcherLastErrorCode: string | null;
+  watcherLastErrorMessage: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -152,6 +158,7 @@ export interface ScanRunDto {
   errorCode: string | null;
   errorMessage: string | null;
   resultJson: string | null;
+  watcherRevisionAtStart: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -220,6 +227,24 @@ export interface ManagedScanEvent {
   currentPath: string | null;
   errorCode: string | null;
   errorMessage: string | null;
+  timestamp: number;
+}
+
+export interface WatcherReconciliationStatus {
+  scanRootId: string;
+  path: string;
+  rootRevision: number;
+  watcherRevision: number;
+  watcherAppliedRevision: number;
+  pending: boolean;
+  needsReconciliation: boolean;
+  healthStatus: string;
+  activeRunId: string | null;
+  lastEventAt: number | null;
+  lastAppliedAt: number | null;
+  lastErrorCode: string | null;
+  lastErrorMessage: string | null;
+  pendingBatch?: number;
   timestamp: number;
 }
 
@@ -759,6 +784,12 @@ export const tauriApi = {
 
   onFsWatcherWarning<T>(handler: EventHandler<T>): Promise<UnlistenFn> {
     return listenTo("fs-watcher-warning", handler);
+  },
+
+  onWatcherReconciliationStatus(
+    handler: EventHandler<WatcherReconciliationStatus>
+  ): Promise<UnlistenFn> {
+    return listenTo("watcher-reconciliation-status", handler);
   },
 
   onStorageCleanupProgress(handler: EventHandler<StorageCleanupProgress>): Promise<UnlistenFn> {

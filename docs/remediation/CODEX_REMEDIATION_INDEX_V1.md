@@ -6,7 +6,7 @@ Task 00 已完成人工验收并通过 PR #16 合并。
 
 Task 01A 已完成生产实施、人工验收并合并到 `master`。
 
-Task 01B 任务书已由人工编写。**只有承载该任务书的文档 PR 合并到 `master` 后，Task 01B 才可执行。**
+Task 01B 已完成生产实施，当前等待人工验收；验收通过并合并前，Task 02 及以后仍禁止执行。
 
 PR #21 因越过 Task 01B 提前进入 Task 02 dedupe/schema 28，已关闭且未合并；其分支仅作未来参考，不是当前基线。
 
@@ -14,7 +14,7 @@ PR #21 因越过 Task 01B 提前进入 Task 02 dedupe/schema 28，已关闭且�
 |---|---|---|---|
 | 00 | `TASK_00_POST_MERGE_BASELINE_AUDIT.md` | PR #15 合并后架构、安全和数据基线审计 | **已验收并合并** |
 | 01A | `TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md` | File Library Scan root lease、session/run/generation、scan_seen、stale safety、恢复和 durable revision | **已验收并合并** |
-| 01B | `TASK_01B_WATCHER_RECONCILIATION_OWNERSHIP.md` | Rust watcher owner、durable revision gap、overflow/startup reconciliation、renderer 脱离 | **任务书已完成；文档 PR 合并后可执行** |
+| 01B | `TASK_01B_WATCHER_RECONCILIATION_OWNERSHIP.md` | Rust watcher owner、durable revision gap、overflow/startup reconciliation、renderer 脱离 | **实施完成，待人工验收** |
 | 02 | 待创建 | 文件 identity/fingerprint、prehash、duplicate group 和 durable dedupe | **等待 Task 01B，禁止执行** |
 | 03 | 待创建 | Analysis Run、Finding 与 detector | **后续阶段，禁止执行** |
 | 04 | 待创建 | File Query V2、snapshot、cursor 与跨页 selection | **后续阶段，禁止执行** |

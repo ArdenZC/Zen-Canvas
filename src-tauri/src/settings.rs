@@ -1,5 +1,7 @@
 use crate::{
     db::{Database, DbError},
+    dedupe::DedupeJobManager,
+    scanner::ScanJobManager,
     watcher::{emit_file_watcher_error, reload_file_watcher_for_settings, FileWatcherManager},
     window_auth::require_main_window,
 };
@@ -639,6 +641,8 @@ pub fn save_settings<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,
     watcher_manager: State<'_, FileWatcherManager>,
+    scan_jobs: State<'_, ScanJobManager>,
+    dedupe_jobs: State<'_, DedupeJobManager>,
     request: SaveSettingsRequest,
 ) -> Result<VersionedAppSettings, String> {
     require_main_window(&window)?;
@@ -647,9 +651,14 @@ pub fn save_settings<R: Runtime>(
     let saved = save_versioned_app_settings_with_launch_at_login(&db, &request, &*launch_at_login)
         .map_err(|error| error.to_string())?;
 
-    if let Err(error) =
-        reload_file_watcher_for_settings(app.clone(), &watcher_manager, &saved.settings)
-    {
+    if let Err(error) = reload_file_watcher_for_settings(
+        app.clone(),
+        &watcher_manager,
+        &db,
+        &scan_jobs,
+        &dedupe_jobs,
+        &saved.settings,
+    ) {
         emit_file_watcher_error(&app, error.clone());
         let rollback = reconcile_versioned_settings_side_effect_failure(
             &db,
@@ -657,8 +666,15 @@ pub fn save_settings<R: Runtime>(
             &saved,
             &*launch_at_login,
             |settings| {
-                reload_file_watcher_for_settings(app.clone(), &watcher_manager, settings)
-                    .map(|_| ())
+                reload_file_watcher_for_settings(
+                    app.clone(),
+                    &watcher_manager,
+                    &db,
+                    &scan_jobs,
+                    &dedupe_jobs,
+                    settings,
+                )
+                .map(|_| ())
             },
         )
         .map_err(|rollback_error| {

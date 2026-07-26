@@ -9,8 +9,15 @@ use rusqlite::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
-    path::Path,
+    fs,
+    path::{Path, PathBuf},
 };
+
+const WATCHER_RECONCILIATION_MAX_AUTOMATIC_ATTEMPTS: usize = 3;
+const WATCHER_RECONCILIATION_RETRY_DELAYS_SECONDS: [i64; 2] = [2, 10];
+
+#[cfg(windows)]
+use std::os::windows::fs::MetadataExt;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -40,6 +47,12 @@ pub struct ScanRootDto {
     pub needs_reconciliation: bool,
     pub last_error_code: Option<String>,
     pub last_error_message: Option<String>,
+    pub watcher_revision: i64,
+    pub watcher_applied_revision: i64,
+    pub watcher_last_event_at: Option<i64>,
+    pub watcher_last_applied_at: Option<i64>,
+    pub watcher_last_error_code: Option<String>,
+    pub watcher_last_error_message: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -90,6 +103,7 @@ pub struct ScanRunDto {
     pub error_code: Option<String>,
     pub error_message: Option<String>,
     pub result_json: Option<String>,
+    pub watcher_revision_at_start: i64,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -158,6 +172,14 @@ pub(crate) struct ScanAdmission {
     pub created: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WatcherReconciliationAdmission {
+    Start { request_key: String, attempt: usize },
+    Active,
+    Backoff { retry_at: i64 },
+    Exhausted { attempts: usize },
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ScanRunRecord {
     pub dto: ScanRunDto,
@@ -165,8 +187,27 @@ pub(crate) struct ScanRunRecord {
     pub root_revision: i64,
     pub root_active_run_id: Option<String>,
     pub root_active_generation: Option<i64>,
+    pub current_watcher_revision: i64,
     pub session_revision: i64,
     pub session_status: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct WatcherRootConfig {
+    pub id: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct WatcherRevisionStart {
+    pub watcher_revision: i64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct WatcherMutationResult {
+    pub upserted_paths: Vec<String>,
+    pub reconciliation_required: bool,
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -194,6 +235,7 @@ pub(crate) struct ScanFinalizeInput {
     pub error_code: Option<String>,
     pub error_message: Option<String>,
     pub allow_stale_reconciliation: bool,
+    pub rule_recovery_succeeded: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -481,7 +523,9 @@ impl Database {
             SELECT id, normalized_path, display_name, source_kind, enabled, health_status,
                    current_generation, active_run_id, active_generation, revision,
                    last_successful_generation, last_full_scan_at, needs_reconciliation,
-                   last_error_code, last_error_message, created_at, updated_at
+                   last_error_code, last_error_message, watcher_revision,
+                   watcher_applied_revision, watcher_last_event_at, watcher_last_applied_at,
+                   watcher_last_error_code, watcher_last_error_message, created_at, updated_at
             FROM scan_roots
             ORDER BY normalized_path
             "#,
@@ -491,6 +535,91 @@ impl Database {
             .map_err(DbError::from)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    pub(crate) fn next_watcher_reconciliation_admission(
+        &self,
+        root_id: &str,
+        watcher_revision: i64,
+        now: i64,
+    ) -> Result<WatcherReconciliationAdmission, DbError> {
+        let conn = self.conn()?;
+        let base_key = format!("watcher-reconcile:{root_id}:{watcher_revision}");
+        let attempt_prefix = format!("{base_key}:attempt:");
+        let like_pattern = format!("{attempt_prefix}%");
+        let mut statement = conn.prepare(
+            "SELECT request_key, status, updated_at
+             FROM scan_sessions
+             WHERE request_key = ?1 OR request_key LIKE ?2
+             ORDER BY created_at DESC, id DESC",
+        )?;
+        let mut latest: Option<(usize, String, i64)> = None;
+        let mut max_attempt = None;
+        for row in statement.query_map(params![base_key, like_pattern], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })? {
+            let (request_key, status, updated_at) = row?;
+            let attempt = if request_key == base_key {
+                Some(0)
+            } else {
+                request_key
+                    .strip_prefix(&attempt_prefix)
+                    .and_then(|value| value.parse::<usize>().ok())
+            };
+            let Some(attempt) = attempt else {
+                continue;
+            };
+            max_attempt = Some(max_attempt.map_or(attempt, |current: usize| current.max(attempt)));
+            if matches!(status.as_str(), "queued" | "running" | "cancelling") {
+                return Ok(WatcherReconciliationAdmission::Active);
+            }
+            if latest
+                .as_ref()
+                .is_none_or(|(latest_attempt, _, _)| attempt > *latest_attempt)
+            {
+                latest = Some((attempt, status, updated_at));
+            }
+        }
+
+        let Some((latest_attempt, latest_status, updated_at)) = latest else {
+            return Ok(WatcherReconciliationAdmission::Start {
+                request_key: base_key,
+                attempt: 0,
+            });
+        };
+        let retryable = matches!(
+            latest_status.as_str(),
+            "failed"
+                | "interrupted"
+                | "requires_reconciliation"
+                | "completed_with_warnings"
+                | "completed"
+        );
+        if !retryable {
+            return Ok(WatcherReconciliationAdmission::Exhausted {
+                attempts: max_attempt.map_or(1, |attempt| attempt + 1),
+            });
+        }
+
+        let attempts = max_attempt.map_or(1, |attempt| attempt + 1);
+        if attempts >= WATCHER_RECONCILIATION_MAX_AUTOMATIC_ATTEMPTS {
+            return Ok(WatcherReconciliationAdmission::Exhausted { attempts });
+        }
+        let delay_index = latest_attempt.min(WATCHER_RECONCILIATION_RETRY_DELAYS_SECONDS.len() - 1);
+        let retry_at = updated_at + WATCHER_RECONCILIATION_RETRY_DELAYS_SECONDS[delay_index];
+        if now < retry_at {
+            return Ok(WatcherReconciliationAdmission::Backoff { retry_at });
+        }
+
+        let attempt = latest_attempt + 1;
+        Ok(WatcherReconciliationAdmission::Start {
+            request_key: format!("{base_key}:attempt:{attempt}"),
+            attempt,
+        })
     }
 
     pub(crate) fn get_scan_root_health(
@@ -511,7 +640,9 @@ impl Database {
                 SELECT id, normalized_path, display_name, source_kind, enabled, health_status,
                        current_generation, active_run_id, active_generation, revision,
                        last_successful_generation, last_full_scan_at, needs_reconciliation,
-                       last_error_code, last_error_message, created_at, updated_at
+                       last_error_code, last_error_message, watcher_revision,
+                       watcher_applied_revision, watcher_last_event_at, watcher_last_applied_at,
+                       watcher_last_error_code, watcher_last_error_message, created_at, updated_at
                 FROM scan_roots
                 WHERE (?1 IS NOT NULL AND id = ?1)
                    OR (?2 IS NOT NULL AND {path_clause})
@@ -523,6 +654,337 @@ impl Database {
             scan_root_from_row,
         )
         .map_err(DbError::from)
+    }
+
+    pub fn sync_file_library_watcher_roots(
+        &self,
+        roots: &[crate::settings::ScanRootSetting],
+    ) -> Result<(), DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let desired = roots
+            .iter()
+            .filter_map(|root| {
+                let path = normalize_scan_root_path(&root.path);
+                (!path.is_empty()).then_some((path, root.enabled, root.label.trim().to_string()))
+            })
+            .collect::<Vec<_>>();
+        let desired_keys = desired
+            .iter()
+            .map(|(path, _, _)| root_identity_key(path))
+            .collect::<HashSet<_>>();
+
+        {
+            let mut statement = tx.prepare(
+                "SELECT id, normalized_path FROM scan_roots WHERE source_kind = 'file_library'",
+            )?;
+            let existing = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            for (id, path) in existing {
+                if !desired_keys.contains(&root_identity_key(&path)) {
+                    tx.execute(
+                        "UPDATE scan_roots SET enabled = 0, updated_at = ?1 WHERE id = ?2",
+                        params![current_unix_seconds(), id],
+                    )?;
+                }
+            }
+        }
+
+        for (path, enabled, label) in desired {
+            let seed = ensure_scan_root_tx(&tx, &path)?;
+            let display_name = if label.is_empty() {
+                scan_root_display_name(&path)
+            } else {
+                label
+            };
+            tx.execute(
+                r#"
+                UPDATE scan_roots
+                SET display_name = ?1,
+                    source_kind = 'file_library',
+                    enabled = ?2,
+                    health_status = CASE
+                        WHEN ?2 = 1 AND health_status IN ('missing', 'permission_required')
+                        THEN 'unknown'
+                        ELSE health_status
+                    END,
+                    updated_at = ?3
+                WHERE id = ?4
+                "#,
+                params![
+                    display_name,
+                    bool_to_i64(enabled),
+                    current_unix_seconds(),
+                    seed.id
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn list_watcher_root_configs(&self) -> Result<Vec<WatcherRootConfig>, DbError> {
+        let conn = self.conn()?;
+        let mut statement = conn.prepare(
+            r#"
+            SELECT id, normalized_path
+            FROM scan_roots
+            WHERE enabled = 1 AND source_kind = 'file_library'
+            ORDER BY length(normalized_path) DESC, normalized_path
+            "#,
+        )?;
+        let result = statement
+            .query_map([], |row| {
+                Ok(WatcherRootConfig {
+                    id: row.get(0)?,
+                    path: row.get(1)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(DbError::from);
+        result
+    }
+
+    pub(crate) fn begin_watcher_revision(
+        &self,
+        root_id: &str,
+    ) -> Result<Option<WatcherRevisionStart>, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let now = current_unix_seconds();
+        let changed = tx.execute(
+            r#"
+            UPDATE scan_roots
+            SET watcher_revision = watcher_revision + 1,
+                watcher_last_event_at = ?1,
+                watcher_last_error_code = NULL,
+                watcher_last_error_message = NULL,
+                revision = revision + 1,
+                updated_at = ?1
+            WHERE id = ?2 AND enabled = 1 AND source_kind = 'file_library'
+            "#,
+            params![now, root_id],
+        )?;
+        if changed == 0 {
+            tx.commit()?;
+            return Ok(None);
+        }
+        let result = tx.query_row(
+            "SELECT id, normalized_path, watcher_revision, revision, active_run_id FROM scan_roots WHERE id = ?1",
+            params![root_id],
+            |row| {
+                Ok(WatcherRevisionStart {
+                    watcher_revision: row.get(2)?,
+                })
+            },
+        )?;
+        tx.commit()?;
+        Ok(Some(result))
+    }
+
+    pub(crate) fn complete_watcher_revision(
+        &self,
+        root_id: &str,
+        batch_revision: i64,
+    ) -> Result<bool, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let now = current_unix_seconds();
+        let changed = tx.execute(
+            r#"
+            UPDATE scan_roots
+            SET watcher_applied_revision = ?1,
+                watcher_last_applied_at = ?2,
+                watcher_last_error_code = NULL,
+                watcher_last_error_message = NULL,
+                revision = revision + 1,
+                updated_at = ?2
+            WHERE id = ?3
+              AND enabled = 1
+              AND watcher_applied_revision < ?1
+              AND watcher_revision >= ?1
+            "#,
+            params![batch_revision, now, root_id],
+        )?;
+        tx.commit()?;
+        Ok(changed == 1)
+    }
+
+    pub(crate) fn mark_watcher_reconciliation(
+        &self,
+        root_id: &str,
+        error_code: &str,
+        error_message: &str,
+    ) -> Result<bool, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let now = current_unix_seconds();
+        let changed = tx.execute(
+            r#"
+            UPDATE scan_roots
+            SET needs_reconciliation = 1,
+                health_status = CASE
+                    WHEN health_status IN ('missing', 'permission_required') THEN health_status
+                    ELSE 'reconciliation_required'
+                END,
+                watcher_last_error_code = ?1,
+                watcher_last_error_message = ?2,
+                revision = revision + 1,
+                updated_at = ?3
+            WHERE id = ?4 AND source_kind = 'file_library'
+            "#,
+            params![error_code, error_message, now, root_id],
+        )?;
+        tx.commit()?;
+        Ok(changed == 1)
+    }
+
+    pub(crate) fn record_watcher_warning(
+        &self,
+        root_id: &str,
+        error_code: &str,
+        error_message: &str,
+    ) -> Result<bool, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = tx.execute(
+            r#"
+            UPDATE scan_roots
+            SET watcher_last_error_code = ?1,
+                watcher_last_error_message = ?2,
+                health_status = CASE
+                    WHEN health_status IN ('missing', 'permission_required', 'reconciliation_required')
+                    THEN health_status
+                    ELSE 'degraded'
+                END,
+                revision = revision + 1,
+                updated_at = ?3
+            WHERE id = ?4 AND source_kind = 'file_library'
+            "#,
+            params![error_code, error_message, current_unix_seconds(), root_id],
+        )?;
+        tx.commit()?;
+        Ok(changed == 1)
+    }
+
+    pub(crate) fn mark_watcher_root_missing(
+        &self,
+        root_id: &str,
+        error_code: &str,
+        error_message: &str,
+    ) -> Result<bool, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = tx.execute(
+            r#"
+            UPDATE scan_roots
+            SET health_status = ?1,
+                needs_reconciliation = 1,
+                watcher_last_error_code = ?2,
+                watcher_last_error_message = ?3,
+                revision = revision + 1,
+                updated_at = ?4
+            WHERE id = ?5 AND source_kind = 'file_library'
+              AND (
+                  health_status IS NOT ?1
+                  OR needs_reconciliation != 1
+                  OR watcher_last_error_code IS NOT ?2
+                  OR watcher_last_error_message IS NOT ?3
+              )
+            "#,
+            params![
+                error_code,
+                error_code,
+                error_message,
+                current_unix_seconds(),
+                root_id
+            ],
+        )?;
+        tx.commit()?;
+        Ok(changed == 1)
+    }
+
+    pub(crate) fn apply_watcher_exact_mutations(
+        &self,
+        root_id: &str,
+        paths: &[String],
+        directory_paths: &HashSet<String>,
+    ) -> Result<WatcherMutationResult, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let root_path: String = tx.query_row(
+            "SELECT normalized_path FROM scan_roots WHERE id = ?1 AND enabled = 1 AND source_kind = 'file_library'",
+            params![root_id],
+            |row| row.get(0),
+        )?;
+        let observed_at = current_unix_seconds();
+        let mut files = Vec::new();
+        let mut stale_paths = Vec::new();
+        let mut upserted_paths = Vec::new();
+        let mut reconciliation_required = false;
+        let mut warning = None;
+
+        for raw_path in paths
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+        {
+            let normalized = normalize_scan_root_path(raw_path);
+            if normalized.is_empty() || !watcher_path_within_root(&root_path, &normalized) {
+                reconciliation_required = true;
+                warning = Some("Watcher path did not map to exactly one managed root.".to_string());
+                continue;
+            }
+            let path = PathBuf::from(&normalized);
+            if directory_paths.contains(&normalized) {
+                reconciliation_required = true;
+            }
+            match fs::symlink_metadata(&path) {
+                Ok(metadata) if watcher_metadata_is_link_or_reparse(&metadata) => {
+                    reconciliation_required = true;
+                    warning = Some(
+                        "Symlink or reparse-point watcher event requires reconciliation."
+                            .to_string(),
+                    );
+                }
+                Ok(metadata) => {
+                    if metadata.is_dir() {
+                        reconciliation_required = true;
+                    }
+                    files.push(insert_request_from_metadata(
+                        normalized.clone(),
+                        &path,
+                        &metadata,
+                    ));
+                    if !metadata.is_dir() {
+                        upserted_paths.push(normalized);
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    stale_paths.push(normalized);
+                }
+                Err(error) => return Err(DbError::Io(error)),
+            }
+        }
+
+        upsert_file_rows_tx(&tx, &files, observed_at)?;
+        for path in &stale_paths {
+            for candidate in path_lookup_candidates(path, path) {
+                tx.execute(
+                    "UPDATE files SET is_stale = 1 WHERE is_stale = 0 AND (id = ?1 OR path = ?1)",
+                    params![candidate],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(WatcherMutationResult {
+            upserted_paths,
+            reconciliation_required,
+            warning,
+        })
     }
 
     pub(crate) fn claim_queued_scan_run(&self, run_id: &str) -> Result<ScanRunRecord, DbError> {
@@ -551,11 +1013,19 @@ impl Database {
             UPDATE scan_runs
             SET status = 'running', phase = 'discovering',
                 started_at = COALESCE(started_at, ?1),
-                last_checkpoint_at = ?1, revision = revision + 1, updated_at = ?1
-            WHERE id = ?2 AND status = 'queued' AND revision = ?3
-              AND lease_token = ?4 AND cancel_requested = 0
+                last_checkpoint_at = ?1,
+                watcher_revision_at_start = ?2,
+                revision = revision + 1, updated_at = ?1
+            WHERE id = ?3 AND status = 'queued' AND revision = ?4
+              AND lease_token = ?5 AND cancel_requested = 0
             "#,
-            params![now, run_id, record.dto.revision, record.lease_token],
+            params![
+                now,
+                record.current_watcher_revision,
+                run_id,
+                record.dto.revision,
+                record.lease_token
+            ],
         )?;
         if changed != 1 {
             return Err(DbError::Validation(
@@ -758,66 +1228,96 @@ impl Database {
             .dto
             .started_at
             .ok_or_else(|| DbError::Validation("Scan run has no start timestamp.".to_string()))?;
-        let root = &record.dto.root_path;
-        let (root_slash, root_slash_descendant, root_backslash, root_backslash_descendant) =
-            root_patterns(root);
-        let ignored_patterns = ignored_subtree_like_patterns(root);
-        let ignored_clauses = ignored_patterns
-            .iter()
-            .enumerate()
-            .map(|(index, _)| {
-                let parameter_index = 7 + index;
-                format!("LOWER(f.path) NOT LIKE LOWER(?{parameter_index}) ESCAPE '~'")
-            })
-            .collect::<Vec<_>>()
-            .join(" AND ");
-        let mut values = vec![
-            SqlValue::Integer(started_at),
-            SqlValue::Text(root_slash),
-            SqlValue::Text(root_slash_descendant),
-            SqlValue::Text(root_backslash),
-            SqlValue::Text(root_backslash_descendant),
-            SqlValue::Text(run_id.to_string()),
-        ];
-        values.extend(ignored_patterns.into_iter().map(SqlValue::Text));
-        let changed = tx.execute(
-            &format!(
-                r#"
-                UPDATE files AS f
-                SET is_stale = 1
-                WHERE f.is_stale = 0
-                  AND f.last_seen_at < ?1
-                  AND (
-                      f.path = ?2 OR f.path LIKE ?3 ESCAPE '~'
-                      OR f.path = ?4 OR f.path LIKE ?5 ESCAPE '~'
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1 FROM scan_seen AS seen
-                      WHERE seen.run_id = ?6
-                        AND (seen.file_id = f.id OR seen.observed_path = f.path)
-                  )
-                  AND {ignored_clauses}
-                "#
-            ),
-            params_from_iter(values),
-        )?;
+        let watcher_stable =
+            record.current_watcher_revision == record.dto.watcher_revision_at_start;
+        let changed = if watcher_stable {
+            let root = &record.dto.root_path;
+            let (root_slash, root_slash_descendant, root_backslash, root_backslash_descendant) =
+                root_patterns(root);
+            let ignored_patterns = ignored_subtree_like_patterns(root);
+            let ignored_clauses = ignored_patterns
+                .iter()
+                .enumerate()
+                .map(|(index, _)| {
+                    let parameter_index = 7 + index;
+                    format!("LOWER(f.path) NOT LIKE LOWER(?{parameter_index}) ESCAPE '~'")
+                })
+                .collect::<Vec<_>>()
+                .join(" AND ");
+            let mut values = vec![
+                SqlValue::Integer(started_at),
+                SqlValue::Text(root_slash),
+                SqlValue::Text(root_slash_descendant),
+                SqlValue::Text(root_backslash),
+                SqlValue::Text(root_backslash_descendant),
+                SqlValue::Text(run_id.to_string()),
+            ];
+            values.extend(ignored_patterns.into_iter().map(SqlValue::Text));
+            tx.execute(
+                &format!(
+                    r#"
+                    UPDATE files AS f
+                    SET is_stale = 1
+                    WHERE f.is_stale = 0
+                      AND f.last_seen_at < ?1
+                      AND (
+                          f.path = ?2 OR f.path LIKE ?3 ESCAPE '~'
+                          OR f.path = ?4 OR f.path LIKE ?5 ESCAPE '~'
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM scan_seen AS seen
+                          WHERE seen.run_id = ?6
+                            AND (seen.file_id = f.id OR seen.observed_path = f.path)
+                      )
+                      AND {ignored_clauses}
+                    "#
+                ),
+                params_from_iter(values),
+            )?
+        } else {
+            0
+        };
         let now = current_unix_seconds();
         let run_changed = tx.execute(
             r#"
             UPDATE scan_runs
             SET phase = 'reconciling_missing', coverage_complete = 1,
-                stale_reconciliation_allowed = 1, last_checkpoint_at = ?1,
+                stale_reconciliation_allowed = ?2, last_checkpoint_at = ?1,
                 revision = revision + 1, updated_at = ?1
-            WHERE id = ?2 AND status = 'running' AND cancel_requested = 0
-              AND coverage_error_count = 0 AND revision = ?3
-              AND lease_token = ?4
+            WHERE id = ?3 AND status = 'running' AND cancel_requested = 0
+              AND coverage_error_count = 0 AND revision = ?4
+              AND lease_token = ?5
             "#,
-            params![now, run_id, expected_run_revision, record.lease_token],
+            params![
+                now,
+                bool_to_i64(watcher_stable),
+                run_id,
+                expected_run_revision,
+                record.lease_token
+            ],
         )?;
         if run_changed != 1 {
             return Err(DbError::Validation(
                 "Stale reconciliation run CAS failed; stale update rolled back.".to_string(),
             ));
+        }
+        if !watcher_stable {
+            tx.execute(
+                r#"
+                UPDATE scan_roots
+                SET needs_reconciliation = 1,
+                    health_status = CASE
+                        WHEN health_status IN ('missing', 'permission_required') THEN health_status
+                        ELSE 'reconciliation_required'
+                    END,
+                    last_error_code = 'watcher_changed_during_scan',
+                    last_error_message = 'Filesystem changes arrived while the scan was running; missing reconciliation was skipped.',
+                    revision = revision + 1,
+                    updated_at = ?1
+                WHERE id = ?2 AND active_run_id = ?3 AND active_generation = ?4
+                "#,
+                params![now, record.dto.scan_root_id, run_id, record.dto.generation],
+            )?;
         }
         let updated = load_scan_run_record(&tx, run_id)?;
         let _ = changed;
@@ -850,7 +1350,7 @@ impl Database {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let record = load_scan_run_record(&tx, run_id)?;
         if record.dto.revision != expected_run_revision
-            || record.root_revision != expected_root_revision
+            || !root_revision_owned_after_watcher_change(&record, expected_root_revision)
             || record.root_active_run_id.as_deref() != Some(run_id)
             || record.root_active_generation != Some(record.dto.generation)
         {
@@ -963,6 +1463,12 @@ impl Database {
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let record = load_scan_run_record(&tx, run_id)?;
+        let (root_watcher_error_code, root_watcher_error_message): (Option<String>, Option<String>) =
+            tx.query_row(
+                "SELECT watcher_last_error_code, watcher_last_error_message FROM scan_roots WHERE id = ?1",
+                params![record.dto.scan_root_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
         if record.dto.status == input.terminal_status {
             if record.dto.revision != expected_run_revision
                 || record.root_revision != expected_root_revision
@@ -1000,7 +1506,7 @@ impl Database {
             ));
         }
         if record.dto.revision != expected_run_revision
-            || record.root_revision != expected_root_revision
+            || !root_revision_owned_after_watcher_change(&record, expected_root_revision)
             || record.session_revision != expected_session_revision
             || record.root_active_run_id.as_deref() != Some(run_id)
             || record.root_active_generation != Some(record.dto.generation)
@@ -1010,17 +1516,60 @@ impl Database {
                     .to_string(),
             ));
         }
-        if success && input.allow_stale_reconciliation && !record.dto.stale_reconciliation_allowed {
+        let watcher_changed_during_scan =
+            success && record.current_watcher_revision != record.dto.watcher_revision_at_start;
+        if success
+            && input.allow_stale_reconciliation
+            && !record.dto.stale_reconciliation_allowed
+            && !watcher_changed_during_scan
+        {
             return Err(DbError::Validation(
                 "Successful finalization requires the stale reconciliation gate.".to_string(),
             ));
         }
 
+        let rule_recovery_succeeded = input.rule_recovery_succeeded && !watcher_changed_during_scan;
+        let rule_failure_pending = !rule_recovery_succeeded
+            && (matches!(
+                root_watcher_error_code.as_deref(),
+                Some("watcher_rule_failure" | "watcher_rule_retry_exhausted")
+            ) || input.error_code.as_deref() == Some("watcher_rule_failure"));
+        let effective_terminal_status = if watcher_changed_during_scan || rule_failure_pending {
+            "completed_with_warnings"
+        } else {
+            input.terminal_status.as_str()
+        };
+        let durable_success = success && !watcher_changed_during_scan;
+        let final_error_code = if watcher_changed_during_scan {
+            Some("watcher_changed_during_scan")
+        } else if rule_failure_pending {
+            Some("watcher_rule_failure")
+        } else {
+            input.error_code.as_deref()
+        };
+        let final_error_message = if watcher_changed_during_scan {
+            Some("Filesystem changes arrived while the scan was running; a follow-up reconciliation is required.")
+        } else if rule_failure_pending {
+            input
+                .error_message
+                .as_deref()
+                .or(root_watcher_error_message.as_deref())
+                .or(Some(
+                    "Watcher rule execution failed; retry or manual recovery is required.",
+                ))
+        } else {
+            input.error_message.as_deref()
+        };
+
         let now = current_unix_seconds();
         let result_json = serde_json::json!({
             "generation": record.dto.generation,
             "coverageComplete": record.dto.coverage_error_count == 0,
-            "staleReconciliation": record.dto.stale_reconciliation_allowed,
+            "staleReconciliation": record.dto.stale_reconciliation_allowed && durable_success,
+            "watcherRevisionAtStart": record.dto.watcher_revision_at_start,
+            "watcherRevisionAtFinalize": record.current_watcher_revision,
+            "watcherChangedDuringScan": watcher_changed_during_scan,
+            "ruleFailurePending": rule_failure_pending,
         })
         .to_string();
         let changed = tx.execute(
@@ -1038,12 +1587,12 @@ impl Database {
               AND revision = ?9 AND lease_token = ?10
             "#,
             params![
-                input.terminal_status,
+                effective_terminal_status,
                 bool_to_i64(success),
-                bool_to_i64(input.allow_stale_reconciliation),
+                bool_to_i64(input.allow_stale_reconciliation && durable_success),
                 now,
-                input.error_code,
-                input.error_message,
+                final_error_code,
+                final_error_message,
                 result_json,
                 run_id,
                 expected_run_revision,
@@ -1056,8 +1605,10 @@ impl Database {
             ));
         }
 
-        let health = if success {
-            if input.terminal_status == "completed_with_warnings" {
+        let health = if watcher_changed_during_scan || rule_failure_pending {
+            "reconciliation_required"
+        } else if success {
+            if effective_terminal_status == "completed_with_warnings" {
                 "degraded"
             } else {
                 "healthy"
@@ -1072,21 +1623,44 @@ impl Database {
         } else {
             "reconciliation_required"
         };
-        let last_successful_generation = if success {
+        let last_successful_generation = if durable_success {
             Some(record.dto.generation)
         } else {
             None
         };
-        let last_full_scan_at = if success { Some(now) } else { None };
+        let last_full_scan_at = if durable_success { Some(now) } else { None };
         let root_changed = tx.execute(
             r#"
             UPDATE scan_roots
             SET active_run_id = NULL,
                 active_generation = NULL,
                 health_status = ?1,
+                watcher_applied_revision = CASE
+                    WHEN ?2 = 1 AND watcher_applied_revision < ?12 THEN ?12
+                    ELSE watcher_applied_revision
+                END,
+                watcher_last_applied_at = CASE
+                    WHEN ?2 = 1 AND watcher_revision >= ?12 THEN ?7
+                    ELSE watcher_last_applied_at
+                END,
+                watcher_last_error_code = CASE
+                    WHEN ?14 = 1 THEN NULL
+                    WHEN ?13 = 1 THEN COALESCE(?5, watcher_last_error_code)
+                    WHEN ?2 = 1 AND watcher_revision >= ?12 THEN NULL
+                    ELSE watcher_last_error_code
+                END,
+                watcher_last_error_message = CASE
+                    WHEN ?14 = 1 THEN NULL
+                    WHEN ?13 = 1 THEN COALESCE(?6, watcher_last_error_message)
+                    WHEN ?2 = 1 AND watcher_revision >= ?12 THEN NULL
+                    ELSE watcher_last_error_message
+                END,
                 last_successful_generation = CASE WHEN ?2 = 1 THEN ?3 ELSE last_successful_generation END,
                 last_full_scan_at = CASE WHEN ?2 = 1 THEN ?4 ELSE last_full_scan_at END,
-                needs_reconciliation = CASE WHEN ?2 = 1 THEN 0 ELSE 1 END,
+                needs_reconciliation = CASE
+                    WHEN ?2 = 1 AND ?13 = 0 THEN 0
+                    ELSE 1
+                END,
                 last_error_code = ?5,
                 last_error_message = ?6,
                 revision = revision + 1,
@@ -1096,16 +1670,19 @@ impl Database {
             "#,
             params![
                 health,
-                bool_to_i64(success),
+                bool_to_i64(durable_success),
                 last_successful_generation,
                 last_full_scan_at,
-                input.error_code,
-                input.error_message,
+                final_error_code,
+                final_error_message,
                 now,
                 record.dto.scan_root_id,
-                expected_root_revision,
+                record.root_revision,
                 run_id,
                 record.dto.generation,
+                record.current_watcher_revision,
+                bool_to_i64(rule_failure_pending),
+                bool_to_i64(rule_recovery_succeeded),
             ],
         )?;
         if root_changed != 1 {
@@ -1115,13 +1692,13 @@ impl Database {
         }
 
         let mapping_status = if success {
-            if input.terminal_status == "completed_with_warnings" {
+            if effective_terminal_status == "completed_with_warnings" {
                 "completed_with_warnings"
             } else {
                 "completed"
             }
         } else {
-            input.terminal_status.as_str()
+            effective_terminal_status
         };
         tx.execute(
             r#"
@@ -1784,7 +2361,7 @@ fn validate_worker_ownership(
 ) -> Result<(), DbError> {
     if record.dto.id != run_id
         || record.dto.revision != expected_run_revision
-        || record.root_revision != expected_root_revision
+        || !root_revision_owned_after_watcher_change(record, expected_root_revision)
         || record.session_revision != expected_session_revision
         || record.lease_token.is_empty()
         || record.root_active_run_id.as_deref() != Some(run_id)
@@ -1807,9 +2384,39 @@ fn validate_worker_ownership(
     Ok(())
 }
 
-fn upsert_scan_files_tx(
+fn root_revision_owned_after_watcher_change(
+    record: &ScanRunRecord,
+    expected_root_revision: i64,
+) -> bool {
+    record.root_revision == expected_root_revision
+        || record.current_watcher_revision != record.dto.watcher_revision_at_start
+}
+
+fn watcher_path_within_root(root: &str, path: &str) -> bool {
+    let root = root_identity_key(&normalize_scan_root_path(root));
+    let path = root_identity_key(&normalize_scan_root_path(path));
+    path == root
+        || path
+            .strip_prefix(&root)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+fn watcher_metadata_is_link_or_reparse(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        metadata.file_attributes() & 0x400 != 0
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+fn upsert_file_rows_tx(
     tx: &Transaction<'_>,
-    run_id: &str,
     files: &[InsertFileRequest],
     observed_at: i64,
 ) -> Result<(), DbError> {
@@ -1866,7 +2473,19 @@ fn upsert_scan_files_tx(
             observed_at,
         ])?;
     }
-    drop(statement);
+    Ok(())
+}
+
+fn upsert_scan_files_tx(
+    tx: &Transaction<'_>,
+    run_id: &str,
+    files: &[InsertFileRequest],
+    observed_at: i64,
+) -> Result<(), DbError> {
+    if files.is_empty() {
+        return Ok(());
+    }
+    upsert_file_rows_tx(tx, files, observed_at)?;
 
     let mut seen_statement = tx.prepare(
         r#"
@@ -2108,9 +2727,10 @@ const SCAN_RUN_SELECT: &str = r#"
            run.coverage_error_count, run.coverage_complete,
            run.stale_reconciliation_allowed, run.cancel_requested, run.revision,
            run.started_at, run.finished_at, run.last_checkpoint_at, run.error_code,
-           run.error_message, run.result_json, run.created_at, run.updated_at,
+           run.error_message, run.result_json, run.watcher_revision_at_start,
+           run.created_at, run.updated_at,
            root.revision, root.active_run_id, root.active_generation, root.health_status,
-           session.revision, session.status
+           root.watcher_revision, session.revision, session.status
     FROM scan_runs AS run
     JOIN scan_roots AS root ON root.id = run.scan_root_id
     LEFT JOIN scan_sessions AS session ON session.id = run.parent_session_id
@@ -2141,23 +2761,25 @@ fn scan_run_record_from_row(row: &Row<'_>) -> rusqlite::Result<ScanRunRecord> {
             stale_reconciliation_allowed: row.get::<_, i64>(16)? != 0,
             cancel_requested: row.get::<_, i64>(17)? != 0,
             revision: row.get(18)?,
-            session_revision: row.get::<_, Option<i64>>(31)?.unwrap_or_default(),
+            session_revision: row.get::<_, Option<i64>>(33)?.unwrap_or_default(),
             started_at: row.get(19)?,
             finished_at: row.get(20)?,
             last_checkpoint_at: row.get(21)?,
             error_code: row.get(22)?,
             error_message: row.get(23)?,
             result_json: row.get(24)?,
-            created_at: row.get(25)?,
-            updated_at: row.get(26)?,
+            watcher_revision_at_start: row.get(25)?,
+            created_at: row.get(26)?,
+            updated_at: row.get(27)?,
         },
         lease_token: row.get(5)?,
-        root_revision: row.get(27)?,
-        root_active_run_id: row.get(28)?,
-        root_active_generation: row.get(29)?,
-        session_revision: row.get::<_, Option<i64>>(31)?.unwrap_or_default(),
+        root_revision: row.get(28)?,
+        root_active_run_id: row.get(29)?,
+        root_active_generation: row.get(30)?,
+        current_watcher_revision: row.get(32)?,
+        session_revision: row.get::<_, Option<i64>>(33)?.unwrap_or_default(),
         session_status: row
-            .get::<_, Option<String>>(32)?
+            .get::<_, Option<String>>(34)?
             .unwrap_or_else(|| "failed".to_string()),
     })
 }
@@ -2179,8 +2801,14 @@ fn scan_root_from_row(row: &Row<'_>) -> rusqlite::Result<ScanRootDto> {
         needs_reconciliation: row.get::<_, i64>(12)? != 0,
         last_error_code: row.get(13)?,
         last_error_message: row.get(14)?,
-        created_at: row.get(15)?,
-        updated_at: row.get(16)?,
+        watcher_revision: row.get(15)?,
+        watcher_applied_revision: row.get(16)?,
+        watcher_last_event_at: row.get(17)?,
+        watcher_last_applied_at: row.get(18)?,
+        watcher_last_error_code: row.get(19)?,
+        watcher_last_error_message: row.get(20)?,
+        created_at: row.get(21)?,
+        updated_at: row.get(22)?,
     })
 }
 
@@ -2411,6 +3039,7 @@ fn scan_root_display_name(path: &str) -> String {
 mod tests {
     use super::*;
     use std::{
+        fs,
         sync::atomic::{AtomicU64, Ordering},
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
@@ -2481,6 +3110,224 @@ mod tests {
     }
 
     #[test]
+    fn watcher_reconciliation_retries_each_terminal_failure_status_with_a_new_key() {
+        let db = test_db("watcher-reconciliation-retry-statuses");
+
+        for (index, terminal_status) in ["failed", "interrupted", "requires_reconciliation"]
+            .into_iter()
+            .enumerate()
+        {
+            let root = format!(
+                "/tmp/zen-canvas-watcher-reconciliation-status-{index}-{}",
+                new_job_id("root")
+            );
+            let seed_key = format!("watcher-reconciliation-seed-{index}");
+            let seed = db
+                .admit_managed_scan(&request(&root, &seed_key))
+                .expect("admit seed run");
+            let root_id = seed.runs[0].scan_root_id.clone();
+            let seed_run = db
+                .claim_queued_scan_run(&seed.runs[0].id)
+                .expect("claim seed run");
+            db.finalize_scan_run(
+                &seed_run.dto.id,
+                seed_run.dto.revision,
+                seed_run.root_revision,
+                seed_run.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "failed".to_string(),
+                    error_code: Some("seed_failure".to_string()),
+                    error_message: Some("seed failure".to_string()),
+                    allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
+                },
+            )
+            .expect("finalize seed run");
+            db.mark_watcher_reconciliation(
+                &root_id,
+                "watcher_test_failure",
+                "watcher test requires reconciliation",
+            )
+            .expect("mark root dirty");
+
+            let base_key = format!("watcher-reconcile:{root_id}:0");
+            let base = db
+                .admit_managed_scan(&ScanAdmissionOptions {
+                    request: ManagedScanRequest {
+                        roots: vec![root.clone()],
+                        request_key: Some(base_key.clone()),
+                        dedupe: false,
+                    },
+                    run_id_override: None,
+                })
+                .expect("admit base reconciliation");
+            let base_run = db
+                .claim_queued_scan_run(&base.runs[0].id)
+                .expect("claim base reconciliation");
+            let base_final = db
+                .finalize_scan_run(
+                    &base_run.dto.id,
+                    base_run.dto.revision,
+                    base_run.root_revision,
+                    base_run.session_revision,
+                    &ScanFinalizeInput {
+                        terminal_status: terminal_status.to_string(),
+                        error_code: Some("watcher_test_failure".to_string()),
+                        error_message: Some("watcher reconciliation attempt failed".to_string()),
+                        allow_stale_reconciliation: false,
+                        rule_recovery_succeeded: false,
+                    },
+                )
+                .expect("finalize base reconciliation");
+            assert_eq!(base_final.run.dto.status, terminal_status);
+
+            match db
+                .next_watcher_reconciliation_admission(&root_id, 0, current_unix_seconds() + 60)
+                .expect("next reconciliation admission")
+            {
+                WatcherReconciliationAdmission::Start {
+                    request_key,
+                    attempt,
+                } => {
+                    assert_eq!(attempt, 1);
+                    assert_eq!(request_key, format!("{base_key}:attempt:1"));
+                }
+                other => panic!("terminal status must be retryable, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn watcher_reconciliation_retry_is_durable_across_restart_and_old_key_does_not_block_manual_retry(
+    ) {
+        let db = test_db("watcher-reconciliation-retry-restart");
+        let path = db.path().to_path_buf();
+        let root = format!(
+            "/tmp/zen-canvas-watcher-reconciliation-restart-{}",
+            new_job_id("root")
+        );
+        let seed = db
+            .admit_managed_scan(&request(&root, "watcher-reconciliation-restart-seed"))
+            .expect("admit seed run");
+        let root_id = seed.runs[0].scan_root_id.clone();
+        let seed_run = db
+            .claim_queued_scan_run(&seed.runs[0].id)
+            .expect("claim seed run");
+        db.finalize_scan_run(
+            &seed_run.dto.id,
+            seed_run.dto.revision,
+            seed_run.root_revision,
+            seed_run.session_revision,
+            &ScanFinalizeInput {
+                terminal_status: "failed".to_string(),
+                error_code: Some("seed_failure".to_string()),
+                error_message: Some("seed failure".to_string()),
+                allow_stale_reconciliation: false,
+                rule_recovery_succeeded: false,
+            },
+        )
+        .expect("finalize seed run");
+        db.mark_watcher_reconciliation(
+            &root_id,
+            "watcher_test_failure",
+            "watcher test requires reconciliation",
+        )
+        .expect("mark root dirty");
+
+        let base_key = format!("watcher-reconcile:{root_id}:0");
+        let base = db
+            .admit_managed_scan(&ScanAdmissionOptions {
+                request: ManagedScanRequest {
+                    roots: vec![root.clone()],
+                    request_key: Some(base_key.clone()),
+                    dedupe: false,
+                },
+                run_id_override: None,
+            })
+            .expect("admit base reconciliation");
+        let base_run = db
+            .claim_queued_scan_run(&base.runs[0].id)
+            .expect("claim base reconciliation");
+        db.finalize_scan_run(
+            &base_run.dto.id,
+            base_run.dto.revision,
+            base_run.root_revision,
+            base_run.session_revision,
+            &ScanFinalizeInput {
+                terminal_status: "failed".to_string(),
+                error_code: Some("watcher_test_failure".to_string()),
+                error_message: Some("watcher reconciliation attempt failed".to_string()),
+                allow_stale_reconciliation: false,
+                rule_recovery_succeeded: false,
+            },
+        )
+        .expect("finalize base reconciliation");
+        drop(db);
+
+        let db = Database::open(&path).expect("reopen scan database");
+        let retry_key = match db
+            .next_watcher_reconciliation_admission(&root_id, 0, current_unix_seconds() + 60)
+            .expect("next retry after restart")
+        {
+            WatcherReconciliationAdmission::Start {
+                request_key,
+                attempt,
+            } => {
+                assert_eq!(attempt, 1);
+                request_key
+            }
+            other => panic!("failed reconciliation must be retryable after restart, got {other:?}"),
+        };
+
+        let old_request = db
+            .admit_managed_scan(&ScanAdmissionOptions {
+                request: ManagedScanRequest {
+                    roots: vec![root.clone()],
+                    request_key: Some(base_key),
+                    dedupe: false,
+                },
+                run_id_override: None,
+            })
+            .expect("old request key remains an idempotent lookup");
+        assert!(!old_request.created);
+        assert_eq!(old_request.session.status, "failed");
+
+        let retry = db
+            .admit_managed_scan(&ScanAdmissionOptions {
+                request: ManagedScanRequest {
+                    roots: vec![root.clone()],
+                    request_key: Some(retry_key),
+                    dedupe: false,
+                },
+                run_id_override: None,
+            })
+            .expect("admit controlled retry");
+        assert!(retry.created);
+        let retry_run = db
+            .claim_queued_scan_run(&retry.runs[0].id)
+            .expect("claim controlled retry");
+        db.finalize_scan_run(
+            &retry_run.dto.id,
+            retry_run.dto.revision,
+            retry_run.root_revision,
+            retry_run.session_revision,
+            &ScanFinalizeInput {
+                terminal_status: "failed".to_string(),
+                error_code: Some("watcher_test_failure".to_string()),
+                error_message: Some("retry failed".to_string()),
+                allow_stale_reconciliation: false,
+                rule_recovery_succeeded: false,
+            },
+        )
+        .expect("finalize controlled retry");
+
+        let manual = db
+            .admit_managed_scan(&request(&root, "watcher-reconciliation-manual-retry"))
+            .expect("manual retry uses a fresh request key");
+        assert!(manual.created);
+    }
+
+    #[test]
     fn active_parent_rejects_child_but_allows_a_sibling_root() {
         let db = test_db("root-overlap-parent");
         let parent = format!("/tmp/zen-canvas-overlap-parent-{}", new_job_id("root"));
@@ -2530,6 +3377,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("finalize");
@@ -2546,6 +3394,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .is_err());
@@ -2884,6 +3733,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: true,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("finalize");
@@ -2944,6 +3794,7 @@ mod tests {
                     error_code: Some("cancelled".to_string()),
                     error_message: Some("cancelled by test".to_string()),
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("finalize cancellation");
@@ -3032,6 +3883,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("complete first root");
@@ -3065,6 +3917,7 @@ mod tests {
                     error_code: Some("test_failure".to_string()),
                     error_message: Some("partial failure".to_string()),
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("fail second root");
@@ -3140,6 +3993,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("complete");
@@ -3216,6 +4070,7 @@ mod tests {
                     error_code: Some("root_missing".to_string()),
                     error_message: Some("root disappeared".to_string()),
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("finalize missing root");
@@ -3290,6 +4145,7 @@ mod tests {
                         error_code: Some("coverage_incomplete".to_string()),
                         error_message: Some("metadata error".to_string()),
                         allow_stale_reconciliation: false,
+                        rule_recovery_succeeded: false,
                     },
                 )
                 .expect("finalize historical run");
@@ -3395,6 +4251,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("finalize seen fixture");
@@ -3451,6 +4308,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: true,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("finalize missing fixture");
@@ -3502,6 +4360,399 @@ mod tests {
                 .status,
             "interrupted"
         );
+    }
+
+    #[test]
+    fn watcher_exact_mutation_uses_durable_revision_without_scan_seen_or_generation() {
+        let db = test_db("watcher-exact");
+        let root_path =
+            std::env::temp_dir().join(format!("zen-canvas-watcher-root-{}", new_job_id("root")));
+        fs::create_dir_all(&root_path).expect("create watcher root");
+        let file_path = root_path.join("new.txt");
+        fs::write(&file_path, b"watcher").expect("create watcher file");
+        let root = root_path.to_string_lossy().into_owned();
+        db.sync_file_library_watcher_roots(&[crate::settings::ScanRootSetting {
+            id: "settings-root".to_string(),
+            path: root.clone(),
+            label: "Watcher root".to_string(),
+            enabled: true,
+            created_at: "2026-07-27T00:00:00.000Z".to_string(),
+        }])
+        .expect("sync watcher root");
+        let root_id = db
+            .list_watcher_root_configs()
+            .expect("watcher configs")
+            .into_iter()
+            .find(|config| config.path == normalize_scan_root_path(&root))
+            .expect("managed watcher root")
+            .id;
+        let batch = db
+            .begin_watcher_revision(&root_id)
+            .expect("begin watcher revision")
+            .expect("enabled root revision");
+        assert_eq!(batch.watcher_revision, 1);
+        let normalized_file = normalize_scan_root_path(&file_path.to_string_lossy());
+        let result = db
+            .apply_watcher_exact_mutations(
+                &root_id,
+                std::slice::from_ref(&normalized_file),
+                &HashSet::new(),
+            )
+            .expect("apply exact watcher mutation");
+        assert_eq!(result.upserted_paths, vec![normalized_file.clone()]);
+        assert!(!result.reconciliation_required);
+        assert!(db
+            .complete_watcher_revision(&root_id, batch.watcher_revision)
+            .expect("complete watcher revision"));
+
+        let conn = db.conn().expect("db connection");
+        let file_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE id = ?1",
+                params![normalized_file],
+                |row| row.get(0),
+            )
+            .expect("watcher file count");
+        let seen_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM scan_seen", [], |row| row.get(0))
+            .expect("watcher scan seen count");
+        let generation: i64 = conn
+            .query_row(
+                "SELECT current_generation FROM scan_roots WHERE id = ?1",
+                params![root_id],
+                |row| row.get(0),
+            )
+            .expect("watcher generation");
+        assert_eq!(file_count, 1);
+        assert_eq!(seen_count, 0);
+        assert_eq!(generation, 0);
+        drop(conn);
+        fs::remove_dir_all(root_path).expect("remove watcher fixture");
+    }
+
+    #[test]
+    fn moved_directory_old_descendants_are_removed_only_by_full_reconciliation() {
+        let db = test_db("watcher-cross-root-directory-rename");
+        let old_root_path = std::env::temp_dir().join(format!(
+            "zen-canvas-watcher-cross-root-old-{}",
+            new_job_id("root")
+        ));
+        let new_root_path = std::env::temp_dir().join(format!(
+            "zen-canvas-watcher-cross-root-new-{}",
+            new_job_id("root")
+        ));
+        let old_directory = old_root_path.join("old-folder");
+        fs::create_dir_all(&old_directory).expect("create old directory");
+        fs::create_dir_all(&new_root_path).expect("create new root");
+        let old_root = normalize_scan_root_path(&old_root_path.to_string_lossy());
+        let new_root = normalize_scan_root_path(&new_root_path.to_string_lossy());
+        let old_directory = normalize_scan_root_path(&old_directory.to_string_lossy());
+        let old_descendant = format!("{old_directory}/child.txt");
+
+        db.insert_file(InsertFileRequest {
+            id: old_descendant.clone(),
+            path: old_descendant.clone(),
+            name: "child.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 1,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("seed old directory descendant");
+        let conn = db.conn().expect("open old descendant fixture");
+        conn.execute(
+            "UPDATE files SET last_seen_at = 0 WHERE path = ?1",
+            params![old_descendant],
+        )
+        .expect("age old descendant before reconciliation");
+        drop(conn);
+        db.sync_file_library_watcher_roots(&[
+            crate::settings::ScanRootSetting {
+                id: "cross-root-old".to_string(),
+                path: old_root.clone(),
+                label: "Old root".to_string(),
+                enabled: true,
+                created_at: "2026-07-27T00:00:00.000Z".to_string(),
+            },
+            crate::settings::ScanRootSetting {
+                id: "cross-root-new".to_string(),
+                path: new_root,
+                label: "New root".to_string(),
+                enabled: true,
+                created_at: "2026-07-27T00:00:00.000Z".to_string(),
+            },
+        ])
+        .expect("sync cross-root watcher roots");
+        fs::remove_dir_all(&old_directory).expect("simulate move out of old root");
+
+        let old_root_id = db
+            .list_watcher_root_configs()
+            .expect("watcher configs")
+            .into_iter()
+            .find(|root_config| root_config.path == old_root)
+            .expect("old managed root")
+            .id;
+        let batch = db
+            .begin_watcher_revision(&old_root_id)
+            .expect("begin old root rename revision")
+            .expect("old root revision");
+        let directory_paths = std::iter::once(old_directory.clone()).collect::<HashSet<_>>();
+        let mutation = db
+            .apply_watcher_exact_mutations(
+                &old_root_id,
+                std::slice::from_ref(&old_directory),
+                &directory_paths,
+            )
+            .expect("apply old side of directory rename");
+        assert!(mutation.reconciliation_required);
+        assert!(db
+            .mark_watcher_reconciliation(
+                &old_root_id,
+                "watcher_directory_rename",
+                "old and new directory sides require full reconciliation",
+            )
+            .expect("mark old side reconciliation"));
+        assert_eq!(batch.watcher_revision, 1);
+
+        let admission = db
+            .admit_managed_scan(&request(&old_root, "cross-root-directory-reconcile"))
+            .expect("admit old root reconciliation");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim old root reconciliation");
+        let reconciled = db
+            .reconcile_missing(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+            )
+            .expect("reconcile old directory descendants");
+        assert!(reconciled.dto.stale_reconciliation_allowed);
+        db.finalize_scan_run(
+            &reconciled.dto.id,
+            reconciled.dto.revision,
+            reconciled.root_revision,
+            reconciled.session_revision,
+            &ScanFinalizeInput {
+                terminal_status: "completed".to_string(),
+                error_code: None,
+                error_message: None,
+                allow_stale_reconciliation: true,
+                rule_recovery_succeeded: false,
+            },
+        )
+        .expect("finalize old directory reconciliation");
+
+        let conn = db.conn().expect("inspect old descendant");
+        let stale: i64 = conn
+            .query_row(
+                "SELECT is_stale FROM files WHERE path = ?1",
+                params![old_descendant],
+                |row| row.get(0),
+            )
+            .expect("old descendant stale state");
+        assert_eq!(stale, 1);
+        drop(conn);
+        fs::remove_dir_all(old_root_path).expect("remove old root fixture");
+        fs::remove_dir_all(new_root_path).expect("remove new root fixture");
+    }
+
+    #[test]
+    fn watcher_revision_change_during_scan_skips_stale_and_finalizes_with_warning() {
+        let db = test_db("watcher-active-scan");
+        let root = format!("/tmp/zen-canvas-watcher-active-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&request(&root, "watcher-active-scan-1"))
+            .expect("admit scan");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim scan");
+        db.begin_watcher_revision(&claimed.dto.scan_root_id)
+            .expect("begin watcher event")
+            .expect("watcher root");
+        let latest = db
+            .get_scan_run_record(&claimed.dto.id)
+            .expect("reload scan after watcher event");
+        let reconciled = db
+            .reconcile_missing(
+                &latest.dto.id,
+                latest.dto.revision,
+                latest.root_revision,
+                latest.session_revision,
+            )
+            .expect("safe reconcile gate");
+        assert!(!reconciled.dto.stale_reconciliation_allowed);
+        db.begin_watcher_revision(&claimed.dto.scan_root_id)
+            .expect("second watcher event")
+            .expect("watcher root for second event");
+        let finalization = db
+            .finalize_scan_run(
+                &reconciled.dto.id,
+                reconciled.dto.revision,
+                reconciled.root_revision,
+                reconciled.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: true,
+                    rule_recovery_succeeded: false,
+                },
+            )
+            .expect("warning finalization");
+        assert_eq!(finalization.run.dto.status, "completed_with_warnings");
+        let root_health = db
+            .get_scan_root_health(Some(&claimed.dto.scan_root_id), None)
+            .expect("root health");
+        assert!(root_health.needs_reconciliation);
+        assert_eq!(root_health.health_status, "reconciliation_required");
+        assert_eq!(root_health.last_successful_generation, None);
+    }
+
+    #[test]
+    fn successful_full_scan_advances_watcher_applied_revision() {
+        let db = test_db("watcher-full-reconcile");
+        let root = format!("/tmp/zen-canvas-watcher-full-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&request(&root, "watcher-full-reconcile-1"))
+            .expect("admit scan");
+        let root_id = admission.runs[0].scan_root_id.clone();
+        db.begin_watcher_revision(&root_id)
+            .expect("begin watcher gap")
+            .expect("watcher root");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim reconciliation scan");
+        assert_eq!(claimed.dto.watcher_revision_at_start, 1);
+        let reconciled = db
+            .reconcile_missing(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+            )
+            .expect("reconcile missing files");
+        let finalization = db
+            .finalize_scan_run(
+                &reconciled.dto.id,
+                reconciled.dto.revision,
+                reconciled.root_revision,
+                reconciled.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: true,
+                    rule_recovery_succeeded: false,
+                },
+            )
+            .expect("finalize reconciliation scan");
+        let root_health = db
+            .get_scan_root_health(Some(&root_id), None)
+            .expect("root health");
+
+        assert_eq!(finalization.run.dto.status, "completed");
+        assert_eq!(root_health.watcher_revision, 1);
+        assert_eq!(root_health.watcher_applied_revision, 1);
+        assert!(!root_health.needs_reconciliation);
+        assert_eq!(root_health.health_status, "healthy");
+    }
+
+    #[test]
+    fn watcher_rule_failure_survives_scan_until_rule_recovery_succeeds() {
+        let db = test_db("watcher-rule-failure-recovery");
+        let path = db.path().to_path_buf();
+        let root = format!(
+            "/tmp/zen-canvas-watcher-rule-failure-{}",
+            new_job_id("root")
+        );
+        let first = db
+            .admit_managed_scan(&request(&root, "watcher-rule-failure-first"))
+            .expect("admit first recovery run");
+        let root_id = first.runs[0].scan_root_id.clone();
+        db.mark_watcher_reconciliation(
+            &root_id,
+            "watcher_rule_failure",
+            "rule execution failed for a newly observed file",
+        )
+        .expect("persist rule failure");
+        let first_run = db
+            .claim_queued_scan_run(&first.runs[0].id)
+            .expect("claim first recovery run");
+        let first_final = db
+            .finalize_scan_run(
+                &first_run.dto.id,
+                first_run.dto.revision,
+                first_run.root_revision,
+                first_run.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed_with_warnings".to_string(),
+                    error_code: Some("watcher_rule_failure".to_string()),
+                    error_message: Some("bounded rule recovery did not succeed".to_string()),
+                    allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
+                },
+            )
+            .expect("finalize unresolved rule failure");
+        assert_eq!(first_final.run.dto.status, "completed_with_warnings");
+        let failed_health = db
+            .get_scan_root_health(Some(&root_id), None)
+            .expect("failed rule health");
+        assert!(failed_health.needs_reconciliation);
+        assert_eq!(
+            failed_health.watcher_last_error_code.as_deref(),
+            Some("watcher_rule_failure")
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(
+                first_final.run.dto.result_json.as_deref().unwrap_or("{}")
+            )
+            .expect("result json")["ruleFailurePending"],
+            true
+        );
+        drop(db);
+
+        let db = Database::open(&path).expect("reopen rule recovery database");
+        let persisted_health = db
+            .get_scan_root_health(Some(&root_id), None)
+            .expect("persisted rule health");
+        assert!(persisted_health.needs_reconciliation);
+        assert_eq!(
+            persisted_health.watcher_last_error_code.as_deref(),
+            Some("watcher_rule_failure")
+        );
+
+        let second = db
+            .admit_managed_scan(&request(&root, "watcher-rule-failure-recovered"))
+            .expect("admit recovery retry");
+        let second_run = db
+            .claim_queued_scan_run(&second.runs[0].id)
+            .expect("claim recovery retry");
+        let second_final = db
+            .finalize_scan_run(
+                &second_run.dto.id,
+                second_run.dto.revision,
+                second_run.root_revision,
+                second_run.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: true,
+                },
+            )
+            .expect("finalize successful rule recovery");
+        assert_eq!(second_final.run.dto.status, "completed");
+        let recovered_health = db
+            .get_scan_root_health(Some(&root_id), None)
+            .expect("recovered rule health");
+        assert!(!recovered_health.needs_reconciliation);
+        assert!(recovered_health.watcher_last_error_code.is_none());
+        assert_eq!(recovered_health.health_status, "healthy");
     }
 
     #[test]
@@ -3557,8 +4808,16 @@ mod tests {
         let seen_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM scan_seen", [], |row| row.get(0))
             .expect("scan seen count");
-        assert_eq!(version, 27);
+        let watcher_defaults: (i64, i64) = conn
+            .query_row(
+                "SELECT COALESCE(MAX(watcher_revision), 0), COALESCE(MAX(watcher_applied_revision), 0) FROM scan_roots",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("watcher defaults");
+        assert_eq!(version, 28);
         assert_eq!(file_count, 1);
         assert_eq!(seen_count, 0);
+        assert_eq!(watcher_defaults, (0, 0));
     }
 }

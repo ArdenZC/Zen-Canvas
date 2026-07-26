@@ -379,7 +379,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .expect("schema version"),
-            27
+            28
         );
         assert_eq!(
             conn.query_row(
@@ -480,6 +480,58 @@
         };
 
         assert!(error.to_string().contains("newer than this app supports"));
+    }
+
+    #[test]
+    fn schema_27_fixture_adds_watcher_columns_without_rebuilding_the_ledger() {
+        let path = test_db_path();
+        let db = Database::open(&path).expect("create schema 28 database");
+        drop(db);
+
+        let conn = Connection::open(&path).expect("open schema 28 fixture");
+        conn.execute_batch(
+            r#"
+            ALTER TABLE scan_roots DROP COLUMN watcher_last_error_message;
+            ALTER TABLE scan_roots DROP COLUMN watcher_last_error_code;
+            ALTER TABLE scan_roots DROP COLUMN watcher_last_applied_at;
+            ALTER TABLE scan_roots DROP COLUMN watcher_last_event_at;
+            ALTER TABLE scan_roots DROP COLUMN watcher_applied_revision;
+            ALTER TABLE scan_roots DROP COLUMN watcher_revision;
+            ALTER TABLE scan_runs DROP COLUMN watcher_revision_at_start;
+            PRAGMA user_version = 27;
+            "#,
+        )
+        .expect("create real schema 27 fixture");
+        drop(conn);
+
+        let migrated = Database::open(&path).expect("migrate schema 27 fixture");
+        let conn = migrated.conn().expect("inspect migrated schema 27 fixture");
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("schema version");
+        let ledger_tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name IN ('scan_roots', 'scan_runs', 'scan_seen', 'scan_run_errors')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("scan ledger tables");
+        conn.execute(
+            "INSERT INTO scan_roots (id, normalized_path, display_name, created_at, updated_at) VALUES ('schema-27-root', '/tmp/schema-27-root', 'schema-27-root', 1, 1)",
+            [],
+        )
+        .expect("insert migrated root");
+        let watcher_defaults: (i64, i64) = conn
+            .query_row(
+                "SELECT watcher_revision, watcher_applied_revision FROM scan_roots WHERE id = 'schema-27-root'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("watcher defaults");
+
+        assert_eq!(version, 28);
+        assert_eq!(ledger_tables, 4);
+        assert_eq!(watcher_defaults, (0, 0));
     }
 
     #[test]

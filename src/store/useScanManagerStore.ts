@@ -189,6 +189,7 @@ function projectRunFromEvent(previous: ScanRunDto | undefined, event: ManagedSca
     errorCode: event.errorCode,
     errorMessage: event.errorMessage,
     resultJson: previous?.resultJson ?? null,
+    watcherRevisionAtStart: previous?.watcherRevisionAtStart ?? 0,
     createdAt: previous?.createdAt ?? event.timestamp,
     updatedAt: event.timestamp
   };

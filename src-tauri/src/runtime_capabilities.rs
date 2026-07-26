@@ -8,6 +8,7 @@ pub struct RuntimeCapabilities {
     pub credential_store_available: bool,
     pub file_mutation_available: bool,
     pub file_mutation_unavailable_code: Option<&'static str>,
+    pub backend_watcher_reconciliation: bool,
 }
 
 fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
@@ -23,6 +24,7 @@ fn capabilities(ai_debug_available: bool) -> RuntimeCapabilities {
         } else {
             None
         },
+        backend_watcher_reconciliation: crate::watcher::backend_watcher_reconciliation_enabled(),
     }
 }
 
