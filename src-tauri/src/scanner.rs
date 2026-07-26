@@ -651,7 +651,14 @@ fn run_scan_run<R: Runtime>(
     let root = PathBuf::from(&root_label);
 
     if let Err(error) = validate_root(&root) {
-        batch.push_error(scan_error_input_for_root(&error, &root_label));
+        // An unopenable root means the scan never ran, which is a failed job (axis 1) —
+        // not "finished with incomplete coverage".  Carrying the specific error code
+        // through also lets finalization resolve root health to `missing` or
+        // `permission_required` instead of the generic reconciliation state.
+        let root_error = scan_error_input_for_root(&error, &root_label);
+        let root_error_code = root_error.error_code.clone();
+        let root_error_message = root_error.error_message.clone();
+        batch.push_error(root_error);
         if let Err(error) = flush_scan_batch(
             app,
             db,
@@ -667,9 +674,9 @@ fn run_scan_run<R: Runtime>(
         let finalization = finish_scan_run(
             db,
             run_id,
-            "requires_reconciliation",
-            Some("root_unavailable"),
-            Some("The scan root could not be opened."),
+            "failed",
+            Some(&root_error_code),
+            Some(&root_error_message),
             false,
         )?;
         emit_terminal_events(
@@ -815,32 +822,16 @@ fn run_scan_run<R: Runtime>(
         )?;
         cursor.update(&reconciled);
     } else {
-        let finalizing = db.transition_scan_run_phase(
-            run_id,
-            cursor.run_revision,
-            cursor.root_revision,
-            "finalizing",
-        )?;
-        cursor.update(&finalizing);
-        let finalization = finish_scan_run(
-            db,
-            run_id,
-            "requires_reconciliation",
-            Some("stale_reconciliation_disabled"),
-            Some(
-                "The scan completed discovery, but stale reconciliation is disabled by rollout policy.",
-            ),
-            false,
-        )?;
-        emit_terminal_events(
-            app,
-            db,
-            &finalization,
-            skipped.load(Ordering::Acquire),
-            started_at,
-            legacy,
+        // The kill switch is engaged.  That is an operator decision, not evidence that
+        // the index drifted, so the run stays on the normal success path: the terminal
+        // status, root health and generation pointer are all unaffected.  We only make
+        // the skipped check visible.  `finish_scan_run` records the same fact durably
+        // via `result_json.staleReconciliation = false`.
+        eprintln!(
+            "scan run {run_id}: stale reconciliation was skipped because the \
+             ZEN_CANVAS_SCAN_STALE_RECONCILIATION kill switch is disabled; deleted \
+             files stay indexed until it is re-enabled"
         );
-        return Ok(());
     }
     let optimizing = db.transition_scan_run_phase(
         run_id,
@@ -1123,7 +1114,11 @@ fn emit_terminal_events<R: Runtime>(
         "cancelled" => {
             app.emit(SCAN_CANCELED_EVENT, summary).ok();
         }
-        "completed" | "completed_with_warnings" => {
+        // `requires_reconciliation` means the scan ran to the end and persisted what it
+        // observed; the index may be incomplete, which is a health signal rather than a
+        // scan failure.  The legacy protocol has no health channel, so it reports
+        // completion and surfaces the shortfall through the summary's error counters.
+        "completed" | "completed_with_warnings" | "requires_reconciliation" => {
             app.emit(SCAN_COMPLETE_EVENT, summary).ok();
         }
         _ => {
@@ -1329,7 +1324,7 @@ fn legacy_summary_or_error(
     };
     if matches!(
         run.status.as_str(),
-        "completed" | "completed_with_warnings" | "cancelled"
+        "completed" | "completed_with_warnings" | "cancelled" | "requires_reconciliation"
     ) {
         Ok(summary)
     } else {
@@ -1451,15 +1446,23 @@ fn is_scan_cancelled(cancel_flag: &AtomicBool) -> bool {
     cancel_flag.load(Ordering::Acquire)
 }
 
+/// Stale reconciliation is the default behaviour: master executed it unconditionally
+/// after every non-cancelled scan, and the managed implementation is strictly safer
+/// (coverage gate, per-run `scan_seen` observations, ignored-subtree contract, CAS).
+///
+/// The environment variable is an emergency kill switch, not a rollout flag: it only
+/// exists so the new implementation can be switched off in production without shipping
+/// a build. Disabling it does NOT mean the index is known to be stale, so it must not
+/// fabricate a reconciliation signal — it only stops us from looking.
 fn stale_reconciliation_enabled() -> bool {
     std::env::var("ZEN_CANVAS_SCAN_STALE_RECONCILIATION")
         .map(|value| {
-            matches!(
+            !matches!(
                 value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "on"
+                "0" | "false" | "off"
             )
         })
-        .unwrap_or(false)
+        .unwrap_or(true)
 }
 
 fn is_terminal_scan_status(status: &str) -> bool {
@@ -1562,15 +1565,28 @@ mod tests {
         assert!(is_scan_cancelled(&cancel_flag));
     }
 
+    /// master executed stale cleanup unconditionally after every non-cancelled scan.
+    /// The managed implementation must keep that default, otherwise shipping builds
+    /// silently stop retiring deleted files from the index.
     #[test]
-    fn stale_cleanup_is_disabled_by_default_without_the_rollout_gate() {
-        assert!(!should_run_stale_cleanup(false));
+    fn stale_cleanup_runs_by_default_and_never_after_a_cancelled_scan() {
+        assert!(stale_reconciliation_enabled());
+        assert!(should_run_stale_cleanup(false));
         assert!(!should_run_stale_cleanup(true));
     }
 
+    /// Acceptance test for the kill-switch path (BRIEF 裁决 1 + 裁决 3 修正).
+    ///
+    /// Disabling the switch means "we did not look", not "we found drift".  It must
+    /// therefore behave exactly like a normal successful scan on every axis the rest of
+    /// the system reads — terminal status, root health, and the generation pointer —
+    /// and must not fabricate a reconciliation signal.  The only observable difference
+    /// is that unseen rows keep their previous stale flag, because no check ran.
+    ///
+    /// This test pins behaviour, not status names: if a future change reintroduces a
+    /// degraded health value or a stalled generation pointer here, it fails.
     #[test]
-    fn default_config_delete_then_rescan_keeps_generation_untrusted_and_file_not_stale() {
-        assert!(!stale_reconciliation_enabled());
+    fn kill_switch_path_completes_normally_without_fabricating_a_reconciliation_signal() {
         let db = test_db("default-stale-gate");
         let root_path = std::env::temp_dir().join(format!(
             "zen-canvas-default-stale-gate-{}",
@@ -1641,16 +1657,18 @@ mod tests {
                 "finalizing",
             )
             .expect("enter first finalization");
+        // Mirrors what the scanner does when the kill switch is engaged: skip
+        // `reconcile_missing`, then finalize on the normal success path.
         let first_finalization = finish_scan_run(
             &db,
             &first_finalizing.dto.id,
-            "requires_reconciliation",
-            Some("stale_reconciliation_disabled"),
-            Some("stale reconciliation is disabled by rollout policy"),
+            "completed",
+            None,
+            None,
             false,
         )
-        .expect("conservatively finalize first scan");
-        assert_eq!(first_finalization.run.dto.status, "requires_reconciliation");
+        .expect("finalize first scan");
+        assert_eq!(first_finalization.run.dto.status, "completed");
 
         fs::remove_file(&old_path).expect("delete file between scans");
         let second_admission = db
@@ -1677,12 +1695,12 @@ mod tests {
         let second_finalization = finish_scan_run(
             &db,
             &second_finalizing.dto.id,
-            "requires_reconciliation",
-            Some("stale_reconciliation_disabled"),
-            Some("stale reconciliation is disabled by rollout policy"),
+            "completed",
+            None,
+            None,
             false,
         )
-        .expect("conservatively finalize rescan");
+        .expect("finalize rescan");
         let health = db
             .get_scan_root_health(Some(&second_finalization.run.dto.scan_root_id), None)
             .expect("root health after rescan");
@@ -1697,12 +1715,14 @@ mod tests {
             .expect("stale state after rescan");
 
         assert_eq!(second_finalization.run.dto.generation, 2);
-        assert_eq!(
-            second_finalization.run.dto.status,
-            "requires_reconciliation"
-        );
-        assert_eq!(health.last_successful_generation, None);
-        assert!(health.needs_reconciliation);
+        // Axis 1 — job outcome: the scan ran to completion.
+        assert_eq!(second_finalization.run.dto.status, "completed");
+        // Axis 2 — index health: not degraded, because nothing was found to be wrong.
+        assert!(!health.needs_reconciliation);
+        assert_ne!(health.health_status, "reconciliation_required");
+        // Axis 3 — generation pointer: advances normally.
+        assert_eq!(health.last_successful_generation, Some(2));
+        // The only consequence of not looking: the deleted file keeps its prior flag.
         assert_eq!(stale, 0);
         fs::remove_dir_all(root_path).expect("remove scan root fixture");
     }

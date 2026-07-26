@@ -1692,10 +1692,27 @@ fn update_session_projection_tx(
         .iter()
         .filter(|status| matches!(status.as_str(), "queued" | "cancelled_not_started"))
         .count() as i64;
+    // Duplicate detection runs over rows that were successfully indexed; its
+    // correctness does not depend on the index being *complete*.  A run that ended in
+    // `requires_reconciliation` still persisted every file it managed to observe, so
+    // suppressing dedupe there would drop a user-requested result for a reason that
+    // does not affect it.  Only a run that indexed nothing is ineligible.
+    let dedupe_eligible_root_count = statuses
+        .iter()
+        .filter(|status| {
+            matches!(
+                status.as_str(),
+                "completed" | "completed_with_warnings" | "requires_reconciliation"
+            )
+        })
+        .count() as i64;
     let dedupe_pending = terminal
-        && matches!(status, "completed" | "completed_with_warnings")
+        && matches!(
+            status,
+            "completed" | "completed_with_warnings" | "requires_reconciliation"
+        )
         && session.dedupe_requested
-        && completed_root_count > 0
+        && dedupe_eligible_root_count > 0
         && matches!(
             session.dedupe_dispatch_state.as_str(),
             "not_requested" | "pending" | "unknown" | "failed"
