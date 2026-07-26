@@ -157,7 +157,7 @@ czkawka 仓库根目录的 MIT 文件名为 `LICENSE_MIT_EVERYTHING_OUTSIDE_ANY_
 
 | # | 模块 | 参考仓库 | 对比深度 | 状态 |
 |---|---|---|---|---|
-| 1 | 重复检测 | czkawka（`czkawka_core`，MIT） | 代码级 | 🔶 **方案已产出待批**：`01-dedupe.md`（基线 `0dfedf6`，未实施） |
+| 1 | 重复检测 | czkawka（`czkawka_core`，MIT） | 代码级 | ✅ **方案已批准（D7，三处必改已完成）**：`01-dedupe.md`。实施顺序 F1/F2 → T1–T7，未开始 |
 | 2 | 大型文件列表 | Spacedrive V1 + 自查 | 概念级 | ⏳ 未开始 |
 | 3 | 扫描与索引 | Spacedrive V1 | 概念级 + 事故复盘 | ⏳ 未开始（PR #18 为已有进展） |
 | 4 | 全局快捷搜索 | Tolaria（AGPL，见 3.1） | **设计级（只读析不移植，D6 下调）** | ⏳ 未开始 |
@@ -206,6 +206,7 @@ czkawka 仓库根目录的 MIT 文件名为 `LICENSE_MIT_EVERYTHING_OUTSIDE_ANY_
 | **D4**（裁决 4） | `file_ops` 并行不稳定性**单独立项、高优先级、不阻塞 PR**。**禁止**先用 `--test-threads=1` 或重试掩盖；串行化只能是定位根因后的显式取舍 | 根因已确认为 Windows `ERROR_SHARING_VIOLATION`（`os error 32`），见 `issue-file-ops-flaky.md` | **生效**，排查已完成，F1–F4 待实施 |
 | **D5**（裁决 5） | stale gate 默认值取 **`true`**。理由：master 无条件执行 stale 清理，PR #18 将其 gate 掉并默认关闭属于**静默的能力回退**，叠加 D1 语义后会导致"索引持续累积已删除文件 + 每次扫描都报 completed + 指针照常推进 + 没有任何信号" | `master:scanner.rs:345-347`（无条件调用）、`master:scanner.rs:634-636`（`should_run_stale_cleanup = !cancelled`，无环境变量） | **生效** |
 | **D6**（许可证实测） | 参考仓库许可证以**实测**为准，推翻 Brief 初始标注：**模块 4（Tolaria）** 由"代码级（同栈）"下调为**设计级（只读析不移植）**；**模块 6（ai-file-sorter）** 由"设计级"下调为**概念级**。`BRIEF.md` 第 4 节表格已据此更新 | `tolaria/LICENSE`、`ai-file-sorter/LICENSE`（均 AGPL-3.0）；实测表见本文件第 3 节 | **生效** |
+| **D7**（模块 1 批准） | 模块 1 方案**批准实施**，附三处必改（已完成）：(1) prehash 采用方案 (c)——已哈希成员不参与采样，只在未哈希成员间淘汰，Q2 论证同步重写；(2) 并行哈希须支持 `ZEN_CANVAS_DEDUPE_HASH_WORKERS` 覆盖（允许 1 = 纯顺序），不做磁盘类型自动探测，机械盘介质验收缺口须显式记录；(3) 组分页为复合键 `(wasted_bytes, size, content_hash)` 真 keyset，禁 OFFSET 变体，补并列翻页测试。默认值 `PREHASH_MIN_SIZE = 1 MiB` 与工作池 `min(4, cores)` 获准。**实施顺序：F1/F2 先行**（flaky 已污染 verify，基线抖动时 T2 的绿无法判读）；F1 仅测试层且重试须留痕，F2 的 inconclusive 须计数并落 CI 产物；生产层重试仍不做（`file_ops` 有贯穿性"不自动重试"约定，开例外须独立立项） | `01-dedupe.md` 修订记录；`issue-file-ops-flaky.md` F1/F2 | **生效** |
 
 ### 8.1 已解除的阻塞
 

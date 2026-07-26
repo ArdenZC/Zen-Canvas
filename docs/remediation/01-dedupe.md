@@ -3,7 +3,7 @@
 > 依据 `BRIEF.md` 第 4/5/6 节与 `00-overview.md` 决策日志。
 > 模块基线：master `0dfedf69de0c05895e0e88263208f93e1cae8505`（含 PR #15 合并提交，祖先校验通过）。
 > 参考：czkawka @ `3c3523a8c00f2bf643db6f449542c1558b1db0d4`，对比目标 `czkawka_core`（**实测 MIT**，`czkawka_core/Cargo.toml:8`）。
-> 本文档为方案，未实施。按 Brief 第 4 节，产出后停下呈报。
+> 本文档为方案。**2026-07-26 修订**：按用户裁决完成三处必改——(1) prehash 采用方案 (c)（已哈希成员不参与采样，Q1/Q2 论证同步重写）；(2) 工作池支持 `ZEN_CANVAS_DEDUPE_HASH_WORKERS` 覆盖（允许 1），Task 7 补介质场景与验收缺口处置；(3) 组分页改为复合键 `(wasted_bytes, size, content_hash)` 的真 keyset，Task 6 补并列翻页测试。方案已批准，实施顺序：F1/F2 先行 → T1–T7。
 > 许可证说明：MIT 允许有限复用，但本方案**全部为自研设计**，仅借鉴思路与结构；未复制任何代码，`00-overview.md` 第 4 节登记表保持为空。
 
 ---
@@ -184,14 +184,40 @@ Zen Canvas 的前提不同：**有持久索引与内嵌哈希缓存**，增量�
 ### 5.1 种子问题的正面回答
 
 **Q1：是否需要预哈希？收益如何量化？**
-需要，但**只对大文件启用**。我们的持久缓存已把"重复运行"的成本降为零，prehash 的价值集中在**首次哈希大体积 size 碰撞组**。设 `PREHASH_MIN_SIZE = 1 MiB`：低于它的文件直接全量哈希（8KB 采样对小文件无意义，czkawka 对 ≤8KB 也是整读，`mod.rs:240-247`）；高于它的文件先做头+尾各 4KB 的 BLAKE3 采样，按 (size, prehash) 再分组，仅组>1 的成员进入全量哈希。
+需要，但**只在两个条件同时满足时启用**：文件 ≥ `PREHASH_MIN_SIZE = 1 MiB`，且所在 size 碰撞组**全部成员均未哈希**（组内无任何已存 `content_hash`）。
+
+启用范围如此限定的推导（对应「必改 1」的方案 (c)，见 Q2）：
+
+- **混合组（组内有已哈希成员）prehash 淘汰不了任何东西**：未哈希成员即使与其他未哈希成员 prehash 不同，仍可能与某个已哈希成员内容相同，而已哈希成员的 prehash 未存储——所以每个未哈希成员**无论如何都要全量哈希**才能与已存哈希比对。此路径直接全量，零 prehash 开销。
+- **全未哈希组是 prehash 唯一有效、也是收益最大的场景**（首次运行 / 批量新文件）：按 (size, prehash) 分组后，**prehash 单例可以完全跳过全量哈希**——组内其他成员 prehash 已证不同，组外又没有任何已存哈希可能与之相同。多成员 prehash 组才进入全量。
+
+低于 1 MiB 的文件直接全量（8KB 采样对小文件无意义，czkawka 对 ≤8KB 也是整读，`mod.rs:240-247`）；采样为头+尾各 4KB 喂同一 hasher。
+
 **量化方式**：不承诺固定数字（收益取决于盘上"同 size 非重复大文件"的多寡），改为两条实测手段——
-(a) 实施前用索引估算上限：`SELECT SUM(size * n) FROM (SELECT size, COUNT(*) AS n FROM files WHERE is_dir=0 AND is_stale=0 AND size >= 1048576 AND content_hash='' GROUP BY size HAVING COUNT(*) > 1)` = 不做 prehash 的最坏读取量；prehash 后的读取量 ≈ `8KB × 成员数 + 真重复候选的全量`。两者之差即该盘的实际收益，作为 Task 7 的验收指标之一。
+(a) 实施前用索引估算收益上限（只统计 prehash 实际启用的全未哈希组）：
+  ```sql
+  SELECT SUM(size * n) FROM (
+    SELECT size, COUNT(*) AS n FROM files
+    WHERE is_dir=0 AND is_stale=0 AND size >= 1048576
+    GROUP BY size
+    HAVING COUNT(*) > 1
+       AND COUNT(*) FILTER (WHERE content_hash <> '') = 0
+  )
+  ```
+  该值 = 这些组不做 prehash 的最坏读取量；做 prehash 后 ≈ `8KB × 成员数 + 多成员 prehash 组的全量`。两者之差即该盘的实际收益，作为 Task 7 的验收指标之一。
 (b) run 结果里记录 `bytes_saved_by_prehash`，长期可观测。
 **典型个人盘定性判断**：小文件 size 碰撞占组数大头但字节量小（prehash 不启用，零开销）；大文件碰撞组少但单组字节量巨大（等码率视频、安装镜像、备份包），一对 4GB 非重复文件即省 ~8GB 读——收益下限为 0（盘上恰好全是真重复），上限接近全部大文件碰撞字节量，都不会为负（8KB 采样成本相对全量读可忽略）。
 
 **Q2：哈希缓存？**
-已存在且优于参考（第 1.4、3 节）。本模块**不改缓存架构**。唯一增量：prehash 结果**不持久化**——它只在单次 run 内用于淘汰；持久化需加列（schema 变更）且收益仅限"跨 run 的大文件反复进入候选"这一罕见场景（缓存命中的文件根本不进候选）。若未来观测到该场景成立，再由独立任务书加列。
+已存在且优于参考（第 1.4、3 节）。本模块**不改缓存架构**，且 prehash 结果**不持久化**。
+
+此处曾有一个自相矛盾的早期设计（对已哈希成员做 8KB 采样参与分组），它会让缓存命中的文件重新产生每次 run 的读取成本，与"缓存命中零 IO"的论证直接冲突。**按「必改 1」裁决采用方案 (c)：已哈希成员完全不参与采样，prehash 只在未哈希成员之间淘汰。** 取舍：
+
+- 弃 (a)（prehash 落库）：需要 schema 加列，而收益场景（已哈希大文件反复与新文件同组）在增量模型下罕见——已哈希文件不进候选，混合组里 prehash 又本就无淘汰能力（见 Q1），落库的 prehash 几乎无人消费。
+- 弃 (b)（对已哈希成员限量采样）：任何采样量都推翻不了"混合组必须全量"的结论（已哈希成员的 prehash 相同只能说明"仍需全量"，不同也只能排除组内比对、排除不了与其他已哈希成员的比对——除非全组采样，而那正是被 (a)/(c) 夹住的中间态），复杂度换不来淘汰能力。
+- 取 (c)：缓存命中的文件**在任何路径上都不再产生 IO**，论证与设计一致；prehash 的收益集中于全未哈希组，正是它唯一有效的场景（Q1）。
+
+若未来观测到"混合组反复全量新成员"成为实际热点，再由独立任务书论证 prehash 落库。
 
 **Q3：组模型与取消语义？**
 见 5.4/5.5。取消沿用既有体系：进程内 `AtomicBool` 逐文件（prehash/全量循环内逐块）检查 + durable run 状态机 + `cancel_for_scan` 映射；新增"取消路径先 flush 已算出的哈希批"（对齐 czkawka 的不浪费原则——现状已部分成立，因为批量写入按 500 条滚动，仅需在取消分支补一次 flush）。
@@ -204,10 +230,11 @@ dedupe.rs
 ├── 阶段枚举 DedupePhase { Collecting, Prehashing, Hashing, Finalizing }
 ├── run_duplicate_detection_job
 │   ├── collect: candidate_sizes / candidate_files_for_size（现有 SQL，不变）
-│   ├── prehash: size >= PREHASH_MIN_SIZE 的组 → 头尾采样 → (size, prehash) 分组淘汰
-│   │           组内含已哈希成员时：对已哈希成员同样做 8KB 采样参与分组
-│   │           （给未哈希成员淘汰机会；prehash 相同则未哈希成员仍需全量以与
-│   │             已存 content_hash 比对——只淘汰不确认）
+│   ├── prehash: 仅"全未哈希"且 size >= PREHASH_MIN_SIZE 的组
+│   │           → 未哈希成员头尾采样 → (size, prehash) 分组
+│   │           → prehash 单例跳过全量；多成员组晋级
+│   │           已哈希成员一律不采样（必改 1 方案 (c)，理由见 5.1 Q1/Q2）；
+│   │           混合组的未哈希成员直接全量
 │   ├── hash: 工作池并行全量哈希（5.3），身份前后校验与 CAS 批写不变
 │   └── finalize: 计数 + complete 事件（新增字节与 prehash 统计字段）
 └── 组查询（5.4）
@@ -215,20 +242,35 @@ dedupe.rs
 
 ### 5.3 并发模型
 
-`std::thread::scope` + `crossbeam` 式手写任务队列（仅用 std 的 `Mutex<VecDeque>`，不新增依赖）：工作线程数 `min(4, available_parallelism)`；任务粒度 = 单文件；每线程复用一块 1MiB 读缓冲（较 czkawka 的 2MB 保守，避免多线程 × 大缓冲的常驻内存）。写入仍由主线程独占（收集各线程结果经 channel——std `mpsc`——统一 CAS 批写），避免 SQLite 写锁竞争，与 scan ledger "commit 后发事件"的既有纪律一致。
+`std::thread::scope` + std `Mutex<VecDeque>` 手写任务队列（不新增依赖）：工作线程数默认 `min(4, available_parallelism)`；任务粒度 = 单文件；每线程复用一块 1MiB 读缓冲（较 czkawka 的 2MB 保守，避免多线程 × 大缓冲的常驻内存）。写入仍由主线程独占（收集各线程结果经 std `mpsc` 统一 CAS 批写），避免 SQLite 写锁竞争，与 scan ledger "commit 后发事件"的既有纪律一致。
+
+**机械盘风险与覆盖手段（必改 2）**：并行读的收益隐含 SSD 假设；机械盘上并发读引发寻道抖动，可能**慢于顺序**。且 prehash 针对的大体积碰撞组（视频、镜像、备份包）恰恰最常存放在外接机械盘上——收益最大的场景正是并行最可能翻车的场景。处置：
+
+- 工作线程数支持环境变量覆盖 `ZEN_CANVAS_DEDUPE_HASH_WORKERS`，**允许取 1**（纯顺序），解析失败或取 0 时回落默认值；
+- **不做**磁盘类型自动探测（过度设计，裁决明确排除）；
+- 性能验收须覆盖顺序读明显优于随机读的介质场景，CI 无法提供该介质时的处置见 Task 7。
 
 ### 5.4 组模型：数据、命令与 DTO
 
 **不建新表**——组身份 (size, content_hash) 已在 `files` 表内，缺的只是查询与投影：
 
-- 新查询 `list_duplicate_groups(limit, offset_group)`（keyset 分页，按 `wasted_bytes DESC`）：
+- 新查询 `list_duplicate_groups(limit, after)`——**真正的复合键 keyset 分页（必改 3）**。`wasted_bytes = (COUNT(*)-1)*size` 极易大量并列（同 size 的不同内容组、同浪费量的不同 size 组），单列游标翻页会漏行或重复；游标必须是与排序完全对齐的复合键 `(wasted_bytes, size, content_hash)`，其中 `content_hash` 保证全序唯一（组身份本身）。参数 `after` 为上一页末行的三元组，首页传 NULL：
   ```sql
   SELECT size, content_hash, COUNT(*) AS member_count,
          (COUNT(*) - 1) * size AS wasted_bytes
   FROM files
   WHERE is_dir=0 AND is_stale=0 AND size>0 AND content_hash<>''
-  GROUP BY size, content_hash HAVING COUNT(*) > 1
+  GROUP BY size, content_hash
+  HAVING COUNT(*) > 1
+     AND (:after_wasted IS NULL
+          OR (COUNT(*) - 1) * size < :after_wasted
+          OR ((COUNT(*) - 1) * size = :after_wasted AND size < :after_size)
+          OR ((COUNT(*) - 1) * size = :after_wasted AND size = :after_size
+              AND content_hash > :after_hash))
+  ORDER BY wasted_bytes DESC, size DESC, content_hash ASC
+  LIMIT :limit
   ```
+  排序键与游标键逐列对齐（`DESC/DESC/ASC` ↔ `</</>`），不使用 OFFSET 及其任何变体——模块 2 将以同一标准审查文件列表分页，此处不得先破例。
 - 新查询 `list_duplicate_group_members(size, content_hash)` → 成员 id/path/mtime/last_seen_at。
 - Tauri command：`list_duplicate_groups` / `list_duplicate_group_members`，均 `read_only`（无窗口校验，与 `get_scan_run` 同级），登记 `build.rs` allowlist 与权限矩阵。
 - TS DTO：`DuplicateGroupDto { size, contentHash, memberCount, wastedBytes }`、`DuplicateGroupMemberDto { id, path, name, mtime, lastSeenAt }`。
@@ -289,7 +331,7 @@ CREATE TABLE dedupe_runs (
 | `src-tauri/src/db/schema.rs` | schema 28：`dedupe_runs` 建表 + 索引；迁移幂等 + 失败回滚测试 | 5.5 |
 | `src-tauri/src/db/queries/mod.rs` | 挂新查询模块 | 组查询归位 |
 | `src-tauri/src/db/queries/dedupe.rs`（新） | `dedupe_runs` CRUD（CAS）、`list_duplicate_groups`、`list_duplicate_group_members` | 5.4/5.5 |
-| `src-tauri/src/dedupe.rs` | 阶段枚举；prehash 采样（头尾 4KB，`PREHASH_MIN_SIZE=1MiB`）；工作池 + mpsc 收集；字节进度；取消 flush；run 落库 checkpoint；事件新字段 | 5.1-5.3/5.6 |
+| `src-tauri/src/dedupe.rs` | 阶段枚举；prehash 采样（头尾 4KB，`PREHASH_MIN_SIZE=1MiB`，仅全未哈希组，已哈希成员不采样）；工作池 + mpsc 收集（`ZEN_CANVAS_DEDUPE_HASH_WORKERS` 覆盖）；字节进度；取消 flush；run 落库 checkpoint；事件新字段 | 5.1-5.3/5.6 |
 | `src-tauri/src/scanner.rs` | `record_dedupe_dispatch` 时写入 run 行的关联（现有派发链不变） | 5.5 |
 | `src-tauri/src/main.rs` | 启动恢复调用 dedupe run 的 interrupted 标记；注册新命令 | 5.5 |
 | `src-tauri/build.rs` + `docs/security/TAURI_COMMAND_PERMISSION_MATRIX.md` | 新增 2 个 read_only 命令登记 | 权限三方一致 |
@@ -306,12 +348,12 @@ CREATE TABLE dedupe_runs (
 | Task | 内容 | 优先级 | 依赖 | 风险 | 迁移 | 破坏性 | 验收标准 |
 |---|---|---|---|---|---|---|---|
 | 1 | schema 28 `dedupe_runs` + up/down + 迁移测试 | 高 | — | 低 | **是** | 否（只增表） | 迁移幂等；26/27 fixture 升级通过；失败回滚保持 27 |
-| 2 | Rust 核心：prehash + 工作池 + 字节进度 + 取消 flush + run checkpoint | 高 | T1 | 中（并发与 SQLite 写锁） | 否 | 否 | 现有 5 集成测试全绿；新增测试见 T6；`cargo clippy -D warnings` |
+| 2 | Rust 核心：prehash（仅全未哈希组）+ 工作池（含 `ZEN_CANVAS_DEDUPE_HASH_WORKERS` 覆盖，允许 1）+ 字节进度 + 取消 flush + run checkpoint | 高 | T1 | 中（并发与 SQLite 写锁） | 否 | 否 | 现有 5 集成测试全绿；新增测试见 T6；`cargo clippy -D warnings` |
 | 3 | Tauri 命令：组查询 ×2 + run 查询；allowlist + 权限矩阵 | 高 | T1 | 低 | 否 | 否 | 三方登记一致；read_only 不校验窗口与既有约定一致 |
 | 4 | 前端状态：store + API 绑定 + mock | 中 | T3 | 低 | 否 | 否 | typecheck + 单测 |
 | 5 | 页面：重复文件视图段 | 中 | T4 | 低 | 否 | 否 | 不出现默认勾选；仅跳转/送建议流两种操作 |
-| 6 | 单元测试：prehash 淘汰正确性（同头不同尾/同尾不同头/整读小文件）、并发写 CAS、取消 flush、run 状态机 CAS、interrupted 恢复 | 高 | T2 | 低 | 否 | 否 | 全绿且不削弱既有断言 |
-| 7 | 集成与性能：10k 文件夹具含大文件碰撞组，验证 `bytes_saved_by_prehash` 与 5.1(a) 估算一致（±10%）；哈希吞吐 ≥ 单线程基线 ×2（4 核机） | 中 | T2/T6 | 中（机器差异） | 否 | 否 | 性能夹具入 `test:performance` 或 cargo ignored 基准 |
+| 6 | 单元测试：prehash 淘汰正确性（同头不同尾/同尾不同头/整读小文件/混合组直接全量/全未哈希组 prehash 单例跳过）、并发写 CAS、取消 flush、run 状态机 CAS、interrupted 恢复、**keyset 翻页在大量 `wasted_bytes` 并列组下逐页翻遍不漏不重**（必改 3） | 高 | T2/T3 | 低 | 否 | 否 | 全绿且不削弱既有断言 |
+| 7 | 集成与性能：10k 文件夹具含大文件碰撞组，验证 `bytes_saved_by_prehash` 与 5.1(a) 估算一致（±10%）；哈希吞吐 ≥ 单线程基线 ×2（4 核 SSD）；**顺序读占优介质场景（必改 2）**：优先真实机械盘实测 `WORKERS=1` 不劣于默认值的回退有效性；CI 无法提供该介质时，**此项验收缺口显式记录进 closeout**，以「环境变量回退 + 已记录风险」代替，不得声称已覆盖 | 中 | T2/T6 | 中（机器与介质差异） | 否 | 否 | 性能夹具入 `test:performance` 或 cargo ignored 基准 |
 
 每 Task 独立提交；T1 完成前 T2 不动 schema 相关路径。全程遵守：一个模块一条分支 + PR 系列；`file_ops` 组若在验收中失败，按 `issue-file-ops-flaky.md` §8 协议判定，不得重跑了事。
 
