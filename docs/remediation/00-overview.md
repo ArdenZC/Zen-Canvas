@@ -170,7 +170,7 @@ czkawka 仓库根目录的 MIT 文件名为 `LICENSE_MIT_EVERYTHING_OUTSIDE_ANY_
 
 | 项 | 状态 | 产出 |
 |---|---|---|
-| `file_ops` 测试并行不稳定性（裁决 4） | ✅ **根因已确认**，修复待实施 | `issue-file-ops-flaky.md` |
+| `file_ops` 测试并行不稳定性（裁决 4） | ✅ **F1/F2 已合并**（[PR #20](https://github.com/ArdenZC/Zen-Canvas/pull/20)，merge commit `2761c9a`，CI 双平台绿）；F3 未实施，F4 待 CI 环境评估 | `issue-file-ops-flaky.md` |
 
 根因：Windows 文件共享冲突（`os error 32` / `ERROR_SHARING_VIOLATION`）——资源压力下外部进程短暂持有测试临时文件句柄。影响至少 5 个 `file_ops` 用例。**产品代码无缺陷**；`target_committed_identity_mismatch → manual_review` 是执行层安全校验的正确响应。已确认不影响 M1–M6 的测试组。
 
