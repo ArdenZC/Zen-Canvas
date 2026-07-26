@@ -13,6 +13,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+const WATCHER_RECONCILIATION_MAX_AUTOMATIC_ATTEMPTS: usize = 3;
+const WATCHER_RECONCILIATION_RETRY_DELAYS_SECONDS: [i64; 2] = [2, 10];
+
 #[cfg(windows)]
 use std::os::windows::fs::MetadataExt;
 
@@ -169,6 +172,14 @@ pub(crate) struct ScanAdmission {
     pub created: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WatcherReconciliationAdmission {
+    Start { request_key: String, attempt: usize },
+    Active,
+    Backoff { retry_at: i64 },
+    Exhausted { attempts: usize },
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ScanRunRecord {
     pub dto: ScanRunDto,
@@ -224,6 +235,7 @@ pub(crate) struct ScanFinalizeInput {
     pub error_code: Option<String>,
     pub error_message: Option<String>,
     pub allow_stale_reconciliation: bool,
+    pub rule_recovery_succeeded: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -523,6 +535,91 @@ impl Database {
             .map_err(DbError::from)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    pub(crate) fn next_watcher_reconciliation_admission(
+        &self,
+        root_id: &str,
+        watcher_revision: i64,
+        now: i64,
+    ) -> Result<WatcherReconciliationAdmission, DbError> {
+        let conn = self.conn()?;
+        let base_key = format!("watcher-reconcile:{root_id}:{watcher_revision}");
+        let attempt_prefix = format!("{base_key}:attempt:");
+        let like_pattern = format!("{attempt_prefix}%");
+        let mut statement = conn.prepare(
+            "SELECT request_key, status, updated_at
+             FROM scan_sessions
+             WHERE request_key = ?1 OR request_key LIKE ?2
+             ORDER BY created_at DESC, id DESC",
+        )?;
+        let mut latest: Option<(usize, String, i64)> = None;
+        let mut max_attempt = None;
+        for row in statement.query_map(params![base_key, like_pattern], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })? {
+            let (request_key, status, updated_at) = row?;
+            let attempt = if request_key == base_key {
+                Some(0)
+            } else {
+                request_key
+                    .strip_prefix(&attempt_prefix)
+                    .and_then(|value| value.parse::<usize>().ok())
+            };
+            let Some(attempt) = attempt else {
+                continue;
+            };
+            max_attempt = Some(max_attempt.map_or(attempt, |current: usize| current.max(attempt)));
+            if matches!(status.as_str(), "queued" | "running" | "cancelling") {
+                return Ok(WatcherReconciliationAdmission::Active);
+            }
+            if latest
+                .as_ref()
+                .is_none_or(|(latest_attempt, _, _)| attempt > *latest_attempt)
+            {
+                latest = Some((attempt, status, updated_at));
+            }
+        }
+
+        let Some((latest_attempt, latest_status, updated_at)) = latest else {
+            return Ok(WatcherReconciliationAdmission::Start {
+                request_key: base_key,
+                attempt: 0,
+            });
+        };
+        let retryable = matches!(
+            latest_status.as_str(),
+            "failed"
+                | "interrupted"
+                | "requires_reconciliation"
+                | "completed_with_warnings"
+                | "completed"
+        );
+        if !retryable {
+            return Ok(WatcherReconciliationAdmission::Exhausted {
+                attempts: max_attempt.map_or(1, |attempt| attempt + 1),
+            });
+        }
+
+        let attempts = max_attempt.map_or(1, |attempt| attempt + 1);
+        if attempts >= WATCHER_RECONCILIATION_MAX_AUTOMATIC_ATTEMPTS {
+            return Ok(WatcherReconciliationAdmission::Exhausted { attempts });
+        }
+        let delay_index = latest_attempt.min(WATCHER_RECONCILIATION_RETRY_DELAYS_SECONDS.len() - 1);
+        let retry_at = updated_at + WATCHER_RECONCILIATION_RETRY_DELAYS_SECONDS[delay_index];
+        if now < retry_at {
+            return Ok(WatcherReconciliationAdmission::Backoff { retry_at });
+        }
+
+        let attempt = latest_attempt + 1;
+        Ok(WatcherReconciliationAdmission::Start {
+            request_key: format!("{base_key}:attempt:{attempt}"),
+            attempt,
+        })
     }
 
     pub(crate) fn get_scan_root_health(
@@ -1366,6 +1463,12 @@ impl Database {
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let record = load_scan_run_record(&tx, run_id)?;
+        let (root_watcher_error_code, root_watcher_error_message): (Option<String>, Option<String>) =
+            tx.query_row(
+                "SELECT watcher_last_error_code, watcher_last_error_message FROM scan_roots WHERE id = ?1",
+                params![record.dto.scan_root_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )?;
         if record.dto.status == input.terminal_status {
             if record.dto.revision != expected_run_revision
                 || record.root_revision != expected_root_revision
@@ -1425,7 +1528,13 @@ impl Database {
             ));
         }
 
-        let effective_terminal_status = if watcher_changed_during_scan {
+        let rule_recovery_succeeded = input.rule_recovery_succeeded && !watcher_changed_during_scan;
+        let rule_failure_pending = !rule_recovery_succeeded
+            && (matches!(
+                root_watcher_error_code.as_deref(),
+                Some("watcher_rule_failure" | "watcher_rule_retry_exhausted")
+            ) || input.error_code.as_deref() == Some("watcher_rule_failure"));
+        let effective_terminal_status = if watcher_changed_during_scan || rule_failure_pending {
             "completed_with_warnings"
         } else {
             input.terminal_status.as_str()
@@ -1433,11 +1542,21 @@ impl Database {
         let durable_success = success && !watcher_changed_during_scan;
         let final_error_code = if watcher_changed_during_scan {
             Some("watcher_changed_during_scan")
+        } else if rule_failure_pending {
+            Some("watcher_rule_failure")
         } else {
             input.error_code.as_deref()
         };
         let final_error_message = if watcher_changed_during_scan {
             Some("Filesystem changes arrived while the scan was running; a follow-up reconciliation is required.")
+        } else if rule_failure_pending {
+            input
+                .error_message
+                .as_deref()
+                .or(root_watcher_error_message.as_deref())
+                .or(Some(
+                    "Watcher rule execution failed; retry or manual recovery is required.",
+                ))
         } else {
             input.error_message.as_deref()
         };
@@ -1450,6 +1569,7 @@ impl Database {
             "watcherRevisionAtStart": record.dto.watcher_revision_at_start,
             "watcherRevisionAtFinalize": record.current_watcher_revision,
             "watcherChangedDuringScan": watcher_changed_during_scan,
+            "ruleFailurePending": rule_failure_pending,
         })
         .to_string();
         let changed = tx.execute(
@@ -1485,7 +1605,7 @@ impl Database {
             ));
         }
 
-        let health = if watcher_changed_during_scan {
+        let health = if watcher_changed_during_scan || rule_failure_pending {
             "reconciliation_required"
         } else if success {
             if effective_terminal_status == "completed_with_warnings" {
@@ -1524,16 +1644,23 @@ impl Database {
                     ELSE watcher_last_applied_at
                 END,
                 watcher_last_error_code = CASE
+                    WHEN ?14 = 1 THEN NULL
+                    WHEN ?13 = 1 THEN COALESCE(?5, watcher_last_error_code)
                     WHEN ?2 = 1 AND watcher_revision >= ?12 THEN NULL
                     ELSE watcher_last_error_code
                 END,
                 watcher_last_error_message = CASE
+                    WHEN ?14 = 1 THEN NULL
+                    WHEN ?13 = 1 THEN COALESCE(?6, watcher_last_error_message)
                     WHEN ?2 = 1 AND watcher_revision >= ?12 THEN NULL
                     ELSE watcher_last_error_message
                 END,
                 last_successful_generation = CASE WHEN ?2 = 1 THEN ?3 ELSE last_successful_generation END,
                 last_full_scan_at = CASE WHEN ?2 = 1 THEN ?4 ELSE last_full_scan_at END,
-                needs_reconciliation = CASE WHEN ?2 = 1 THEN 0 ELSE 1 END,
+                needs_reconciliation = CASE
+                    WHEN ?2 = 1 AND ?13 = 0 THEN 0
+                    ELSE 1
+                END,
                 last_error_code = ?5,
                 last_error_message = ?6,
                 revision = revision + 1,
@@ -1554,6 +1681,8 @@ impl Database {
                 run_id,
                 record.dto.generation,
                 record.current_watcher_revision,
+                bool_to_i64(rule_failure_pending),
+                bool_to_i64(rule_recovery_succeeded),
             ],
         )?;
         if root_changed != 1 {
@@ -2981,6 +3110,224 @@ mod tests {
     }
 
     #[test]
+    fn watcher_reconciliation_retries_each_terminal_failure_status_with_a_new_key() {
+        let db = test_db("watcher-reconciliation-retry-statuses");
+
+        for (index, terminal_status) in ["failed", "interrupted", "requires_reconciliation"]
+            .into_iter()
+            .enumerate()
+        {
+            let root = format!(
+                "/tmp/zen-canvas-watcher-reconciliation-status-{index}-{}",
+                new_job_id("root")
+            );
+            let seed_key = format!("watcher-reconciliation-seed-{index}");
+            let seed = db
+                .admit_managed_scan(&request(&root, &seed_key))
+                .expect("admit seed run");
+            let root_id = seed.runs[0].scan_root_id.clone();
+            let seed_run = db
+                .claim_queued_scan_run(&seed.runs[0].id)
+                .expect("claim seed run");
+            db.finalize_scan_run(
+                &seed_run.dto.id,
+                seed_run.dto.revision,
+                seed_run.root_revision,
+                seed_run.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "failed".to_string(),
+                    error_code: Some("seed_failure".to_string()),
+                    error_message: Some("seed failure".to_string()),
+                    allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
+                },
+            )
+            .expect("finalize seed run");
+            db.mark_watcher_reconciliation(
+                &root_id,
+                "watcher_test_failure",
+                "watcher test requires reconciliation",
+            )
+            .expect("mark root dirty");
+
+            let base_key = format!("watcher-reconcile:{root_id}:0");
+            let base = db
+                .admit_managed_scan(&ScanAdmissionOptions {
+                    request: ManagedScanRequest {
+                        roots: vec![root.clone()],
+                        request_key: Some(base_key.clone()),
+                        dedupe: false,
+                    },
+                    run_id_override: None,
+                })
+                .expect("admit base reconciliation");
+            let base_run = db
+                .claim_queued_scan_run(&base.runs[0].id)
+                .expect("claim base reconciliation");
+            let base_final = db
+                .finalize_scan_run(
+                    &base_run.dto.id,
+                    base_run.dto.revision,
+                    base_run.root_revision,
+                    base_run.session_revision,
+                    &ScanFinalizeInput {
+                        terminal_status: terminal_status.to_string(),
+                        error_code: Some("watcher_test_failure".to_string()),
+                        error_message: Some("watcher reconciliation attempt failed".to_string()),
+                        allow_stale_reconciliation: false,
+                        rule_recovery_succeeded: false,
+                    },
+                )
+                .expect("finalize base reconciliation");
+            assert_eq!(base_final.run.dto.status, terminal_status);
+
+            match db
+                .next_watcher_reconciliation_admission(&root_id, 0, current_unix_seconds() + 60)
+                .expect("next reconciliation admission")
+            {
+                WatcherReconciliationAdmission::Start {
+                    request_key,
+                    attempt,
+                } => {
+                    assert_eq!(attempt, 1);
+                    assert_eq!(request_key, format!("{base_key}:attempt:1"));
+                }
+                other => panic!("terminal status must be retryable, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn watcher_reconciliation_retry_is_durable_across_restart_and_old_key_does_not_block_manual_retry(
+    ) {
+        let db = test_db("watcher-reconciliation-retry-restart");
+        let path = db.path().to_path_buf();
+        let root = format!(
+            "/tmp/zen-canvas-watcher-reconciliation-restart-{}",
+            new_job_id("root")
+        );
+        let seed = db
+            .admit_managed_scan(&request(&root, "watcher-reconciliation-restart-seed"))
+            .expect("admit seed run");
+        let root_id = seed.runs[0].scan_root_id.clone();
+        let seed_run = db
+            .claim_queued_scan_run(&seed.runs[0].id)
+            .expect("claim seed run");
+        db.finalize_scan_run(
+            &seed_run.dto.id,
+            seed_run.dto.revision,
+            seed_run.root_revision,
+            seed_run.session_revision,
+            &ScanFinalizeInput {
+                terminal_status: "failed".to_string(),
+                error_code: Some("seed_failure".to_string()),
+                error_message: Some("seed failure".to_string()),
+                allow_stale_reconciliation: false,
+                rule_recovery_succeeded: false,
+            },
+        )
+        .expect("finalize seed run");
+        db.mark_watcher_reconciliation(
+            &root_id,
+            "watcher_test_failure",
+            "watcher test requires reconciliation",
+        )
+        .expect("mark root dirty");
+
+        let base_key = format!("watcher-reconcile:{root_id}:0");
+        let base = db
+            .admit_managed_scan(&ScanAdmissionOptions {
+                request: ManagedScanRequest {
+                    roots: vec![root.clone()],
+                    request_key: Some(base_key.clone()),
+                    dedupe: false,
+                },
+                run_id_override: None,
+            })
+            .expect("admit base reconciliation");
+        let base_run = db
+            .claim_queued_scan_run(&base.runs[0].id)
+            .expect("claim base reconciliation");
+        db.finalize_scan_run(
+            &base_run.dto.id,
+            base_run.dto.revision,
+            base_run.root_revision,
+            base_run.session_revision,
+            &ScanFinalizeInput {
+                terminal_status: "failed".to_string(),
+                error_code: Some("watcher_test_failure".to_string()),
+                error_message: Some("watcher reconciliation attempt failed".to_string()),
+                allow_stale_reconciliation: false,
+                rule_recovery_succeeded: false,
+            },
+        )
+        .expect("finalize base reconciliation");
+        drop(db);
+
+        let db = Database::open(&path).expect("reopen scan database");
+        let retry_key = match db
+            .next_watcher_reconciliation_admission(&root_id, 0, current_unix_seconds() + 60)
+            .expect("next retry after restart")
+        {
+            WatcherReconciliationAdmission::Start {
+                request_key,
+                attempt,
+            } => {
+                assert_eq!(attempt, 1);
+                request_key
+            }
+            other => panic!("failed reconciliation must be retryable after restart, got {other:?}"),
+        };
+
+        let old_request = db
+            .admit_managed_scan(&ScanAdmissionOptions {
+                request: ManagedScanRequest {
+                    roots: vec![root.clone()],
+                    request_key: Some(base_key),
+                    dedupe: false,
+                },
+                run_id_override: None,
+            })
+            .expect("old request key remains an idempotent lookup");
+        assert!(!old_request.created);
+        assert_eq!(old_request.session.status, "failed");
+
+        let retry = db
+            .admit_managed_scan(&ScanAdmissionOptions {
+                request: ManagedScanRequest {
+                    roots: vec![root.clone()],
+                    request_key: Some(retry_key),
+                    dedupe: false,
+                },
+                run_id_override: None,
+            })
+            .expect("admit controlled retry");
+        assert!(retry.created);
+        let retry_run = db
+            .claim_queued_scan_run(&retry.runs[0].id)
+            .expect("claim controlled retry");
+        db.finalize_scan_run(
+            &retry_run.dto.id,
+            retry_run.dto.revision,
+            retry_run.root_revision,
+            retry_run.session_revision,
+            &ScanFinalizeInput {
+                terminal_status: "failed".to_string(),
+                error_code: Some("watcher_test_failure".to_string()),
+                error_message: Some("retry failed".to_string()),
+                allow_stale_reconciliation: false,
+                rule_recovery_succeeded: false,
+            },
+        )
+        .expect("finalize controlled retry");
+
+        let manual = db
+            .admit_managed_scan(&request(&root, "watcher-reconciliation-manual-retry"))
+            .expect("manual retry uses a fresh request key");
+        assert!(manual.created);
+    }
+
+    #[test]
     fn active_parent_rejects_child_but_allows_a_sibling_root() {
         let db = test_db("root-overlap-parent");
         let parent = format!("/tmp/zen-canvas-overlap-parent-{}", new_job_id("root"));
@@ -3030,6 +3377,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("finalize");
@@ -3046,6 +3394,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .is_err());
@@ -3384,6 +3733,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: true,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("finalize");
@@ -3444,6 +3794,7 @@ mod tests {
                     error_code: Some("cancelled".to_string()),
                     error_message: Some("cancelled by test".to_string()),
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("finalize cancellation");
@@ -3532,6 +3883,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("complete first root");
@@ -3565,6 +3917,7 @@ mod tests {
                     error_code: Some("test_failure".to_string()),
                     error_message: Some("partial failure".to_string()),
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("fail second root");
@@ -3640,6 +3993,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("complete");
@@ -3716,6 +4070,7 @@ mod tests {
                     error_code: Some("root_missing".to_string()),
                     error_message: Some("root disappeared".to_string()),
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("finalize missing root");
@@ -3790,6 +4145,7 @@ mod tests {
                         error_code: Some("coverage_incomplete".to_string()),
                         error_message: Some("metadata error".to_string()),
                         allow_stale_reconciliation: false,
+                        rule_recovery_succeeded: false,
                     },
                 )
                 .expect("finalize historical run");
@@ -3895,6 +4251,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("finalize seen fixture");
@@ -3951,6 +4308,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: true,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("finalize missing fixture");
@@ -4073,6 +4431,136 @@ mod tests {
     }
 
     #[test]
+    fn moved_directory_old_descendants_are_removed_only_by_full_reconciliation() {
+        let db = test_db("watcher-cross-root-directory-rename");
+        let old_root_path = std::env::temp_dir().join(format!(
+            "zen-canvas-watcher-cross-root-old-{}",
+            new_job_id("root")
+        ));
+        let new_root_path = std::env::temp_dir().join(format!(
+            "zen-canvas-watcher-cross-root-new-{}",
+            new_job_id("root")
+        ));
+        let old_directory = old_root_path.join("old-folder");
+        fs::create_dir_all(&old_directory).expect("create old directory");
+        fs::create_dir_all(&new_root_path).expect("create new root");
+        let old_root = normalize_scan_root_path(&old_root_path.to_string_lossy());
+        let new_root = normalize_scan_root_path(&new_root_path.to_string_lossy());
+        let old_directory = normalize_scan_root_path(&old_directory.to_string_lossy());
+        let old_descendant = format!("{old_directory}/child.txt");
+
+        db.insert_file(InsertFileRequest {
+            id: old_descendant.clone(),
+            path: old_descendant.clone(),
+            name: "child.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 1,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("seed old directory descendant");
+        let conn = db.conn().expect("open old descendant fixture");
+        conn.execute(
+            "UPDATE files SET last_seen_at = 0 WHERE path = ?1",
+            params![old_descendant],
+        )
+        .expect("age old descendant before reconciliation");
+        drop(conn);
+        db.sync_file_library_watcher_roots(&[
+            crate::settings::ScanRootSetting {
+                id: "cross-root-old".to_string(),
+                path: old_root.clone(),
+                label: "Old root".to_string(),
+                enabled: true,
+                created_at: "2026-07-27T00:00:00.000Z".to_string(),
+            },
+            crate::settings::ScanRootSetting {
+                id: "cross-root-new".to_string(),
+                path: new_root,
+                label: "New root".to_string(),
+                enabled: true,
+                created_at: "2026-07-27T00:00:00.000Z".to_string(),
+            },
+        ])
+        .expect("sync cross-root watcher roots");
+        fs::remove_dir_all(&old_directory).expect("simulate move out of old root");
+
+        let old_root_id = db
+            .list_watcher_root_configs()
+            .expect("watcher configs")
+            .into_iter()
+            .find(|root_config| root_config.path == old_root)
+            .expect("old managed root")
+            .id;
+        let batch = db
+            .begin_watcher_revision(&old_root_id)
+            .expect("begin old root rename revision")
+            .expect("old root revision");
+        let directory_paths = std::iter::once(old_directory.clone()).collect::<HashSet<_>>();
+        let mutation = db
+            .apply_watcher_exact_mutations(
+                &old_root_id,
+                std::slice::from_ref(&old_directory),
+                &directory_paths,
+            )
+            .expect("apply old side of directory rename");
+        assert!(mutation.reconciliation_required);
+        assert!(db
+            .mark_watcher_reconciliation(
+                &old_root_id,
+                "watcher_directory_rename",
+                "old and new directory sides require full reconciliation",
+            )
+            .expect("mark old side reconciliation"));
+        assert_eq!(batch.watcher_revision, 1);
+
+        let admission = db
+            .admit_managed_scan(&request(&old_root, "cross-root-directory-reconcile"))
+            .expect("admit old root reconciliation");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim old root reconciliation");
+        let reconciled = db
+            .reconcile_missing(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+            )
+            .expect("reconcile old directory descendants");
+        assert!(reconciled.dto.stale_reconciliation_allowed);
+        db.finalize_scan_run(
+            &reconciled.dto.id,
+            reconciled.dto.revision,
+            reconciled.root_revision,
+            reconciled.session_revision,
+            &ScanFinalizeInput {
+                terminal_status: "completed".to_string(),
+                error_code: None,
+                error_message: None,
+                allow_stale_reconciliation: true,
+                rule_recovery_succeeded: false,
+            },
+        )
+        .expect("finalize old directory reconciliation");
+
+        let conn = db.conn().expect("inspect old descendant");
+        let stale: i64 = conn
+            .query_row(
+                "SELECT is_stale FROM files WHERE path = ?1",
+                params![old_descendant],
+                |row| row.get(0),
+            )
+            .expect("old descendant stale state");
+        assert_eq!(stale, 1);
+        drop(conn);
+        fs::remove_dir_all(old_root_path).expect("remove old root fixture");
+        fs::remove_dir_all(new_root_path).expect("remove new root fixture");
+    }
+
+    #[test]
     fn watcher_revision_change_during_scan_skips_stale_and_finalizes_with_warning() {
         let db = test_db("watcher-active-scan");
         let root = format!("/tmp/zen-canvas-watcher-active-{}", new_job_id("root"));
@@ -4111,6 +4599,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: true,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("warning finalization");
@@ -4157,6 +4646,7 @@ mod tests {
                     error_code: None,
                     error_message: None,
                     allow_stale_reconciliation: true,
+                    rule_recovery_succeeded: false,
                 },
             )
             .expect("finalize reconciliation scan");
@@ -4169,6 +4659,100 @@ mod tests {
         assert_eq!(root_health.watcher_applied_revision, 1);
         assert!(!root_health.needs_reconciliation);
         assert_eq!(root_health.health_status, "healthy");
+    }
+
+    #[test]
+    fn watcher_rule_failure_survives_scan_until_rule_recovery_succeeds() {
+        let db = test_db("watcher-rule-failure-recovery");
+        let path = db.path().to_path_buf();
+        let root = format!(
+            "/tmp/zen-canvas-watcher-rule-failure-{}",
+            new_job_id("root")
+        );
+        let first = db
+            .admit_managed_scan(&request(&root, "watcher-rule-failure-first"))
+            .expect("admit first recovery run");
+        let root_id = first.runs[0].scan_root_id.clone();
+        db.mark_watcher_reconciliation(
+            &root_id,
+            "watcher_rule_failure",
+            "rule execution failed for a newly observed file",
+        )
+        .expect("persist rule failure");
+        let first_run = db
+            .claim_queued_scan_run(&first.runs[0].id)
+            .expect("claim first recovery run");
+        let first_final = db
+            .finalize_scan_run(
+                &first_run.dto.id,
+                first_run.dto.revision,
+                first_run.root_revision,
+                first_run.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed_with_warnings".to_string(),
+                    error_code: Some("watcher_rule_failure".to_string()),
+                    error_message: Some("bounded rule recovery did not succeed".to_string()),
+                    allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: false,
+                },
+            )
+            .expect("finalize unresolved rule failure");
+        assert_eq!(first_final.run.dto.status, "completed_with_warnings");
+        let failed_health = db
+            .get_scan_root_health(Some(&root_id), None)
+            .expect("failed rule health");
+        assert!(failed_health.needs_reconciliation);
+        assert_eq!(
+            failed_health.watcher_last_error_code.as_deref(),
+            Some("watcher_rule_failure")
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(
+                first_final.run.dto.result_json.as_deref().unwrap_or("{}")
+            )
+            .expect("result json")["ruleFailurePending"],
+            true
+        );
+        drop(db);
+
+        let db = Database::open(&path).expect("reopen rule recovery database");
+        let persisted_health = db
+            .get_scan_root_health(Some(&root_id), None)
+            .expect("persisted rule health");
+        assert!(persisted_health.needs_reconciliation);
+        assert_eq!(
+            persisted_health.watcher_last_error_code.as_deref(),
+            Some("watcher_rule_failure")
+        );
+
+        let second = db
+            .admit_managed_scan(&request(&root, "watcher-rule-failure-recovered"))
+            .expect("admit recovery retry");
+        let second_run = db
+            .claim_queued_scan_run(&second.runs[0].id)
+            .expect("claim recovery retry");
+        let second_final = db
+            .finalize_scan_run(
+                &second_run.dto.id,
+                second_run.dto.revision,
+                second_run.root_revision,
+                second_run.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: false,
+                    rule_recovery_succeeded: true,
+                },
+            )
+            .expect("finalize successful rule recovery");
+        assert_eq!(second_final.run.dto.status, "completed");
+        let recovered_health = db
+            .get_scan_root_health(Some(&root_id), None)
+            .expect("recovered rule health");
+        assert!(!recovered_health.needs_reconciliation);
+        assert!(recovered_health.watcher_last_error_code.is_none());
+        assert_eq!(recovered_health.health_status, "healthy");
     }
 
     #[test]

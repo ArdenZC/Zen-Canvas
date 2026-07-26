@@ -116,6 +116,10 @@ export class WatcherRetryQueue {
     return Array.from(this.items.values()).some((item) => item.state !== "permanently_failed");
   }
 
+  clear() {
+    this.items.clear();
+  }
+
   itemsForTest() {
     return Array.from(this.items.values()).map((item) => ({ ...item }));
   }

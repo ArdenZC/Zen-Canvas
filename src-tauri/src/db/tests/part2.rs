@@ -316,6 +316,56 @@
     }
 
     #[test]
+    fn rule_recovery_scope_preserves_user_correction() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        let path = "/tmp/root-a/user-corrected.txt";
+        insert_test_file_at_path(
+            &db,
+            "file-root-a-user-corrected",
+            path,
+            "user-corrected.txt",
+            "txt",
+            2_048,
+            1_900_000_000,
+        );
+        let conn = Connection::open(db.path()).expect("open migrated database");
+        conn.execute(
+            r#"
+            UPDATE files
+            SET purpose = 'Manual Purpose',
+                lifecycle = 'Inbox',
+                classification_status = 'classified',
+                matched_rules = '["user_correction"]',
+                last_classified_at = 1,
+                classified_rule_version = 'obsolete-rule-version'
+            WHERE path = ?1
+            "#,
+            params![path],
+        )
+        .expect("persist user correction");
+
+        let summary = db
+            .execute_rules_for_scope_with_mode(
+                &LibraryScope::Roots {
+                    roots: vec!["/tmp/root-a".to_string()],
+                },
+                vec![name_contains_rule(
+                    "recovery-rule",
+                    "Recovery Rule",
+                    "Recovered",
+                )],
+                RuleExecutionMode::AllChangedOrRuleChanged,
+            )
+            .expect("execute recovery rules");
+        let row = file_classification(&db, path).expect("user-corrected file");
+
+        assert_eq!(summary.scanned, 1);
+        assert_eq!(summary.updated, 0);
+        assert_eq!(summary.skipped, 1);
+        assert_eq!(row, ("Manual Purpose".to_string(), "Inbox".to_string(), false));
+    }
+
+    #[test]
     fn execute_rules_for_scope_all_changed_skips_unchanged_files_with_same_rules() {
         let db = Database::open(test_db_path()).expect("open test database");
         let rules = vec![name_contains_rule(

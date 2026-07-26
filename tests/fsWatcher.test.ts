@@ -314,6 +314,22 @@ describe("fs watcher hook registration", () => {
     expect(apiMocks.upsertFilesByPaths).toHaveBeenCalledTimes(1);
     expect(apiMocks.executeRulesForPaths).toHaveBeenCalledTimes(2);
   });
+
+  it("cleans the legacy timer and queue before unmount so no mutation starts afterward", async () => {
+    const onRefreshData = vi.fn(async () => {});
+
+    renderWatcher({ onRefreshData, rules: [] });
+    const handler = apiMocks.listen.mock.calls[0][1] as (payload: FsWatchEvent) => void;
+    handler({ eventType: "created", paths: ["F:/Projects/unmounted.txt"] });
+
+    cleanupHookHarness();
+    await vi.advanceTimersByTimeAsync(2_000);
+    await flushPromises();
+
+    expect(apiMocks.markFilesStaleByPaths).not.toHaveBeenCalled();
+    expect(apiMocks.upsertFilesByPaths).not.toHaveBeenCalled();
+    expect(apiMocks.executeRulesForPaths).not.toHaveBeenCalled();
+  });
 });
 
 function renderWatcher({

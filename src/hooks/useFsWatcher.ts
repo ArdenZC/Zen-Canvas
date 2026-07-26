@@ -48,8 +48,7 @@ export function useFsWatcher({
     let statusRefreshTimer: ReturnType<typeof setTimeout> | undefined;
     let unlistenStatus: (() => void) | undefined;
     let unlistenWarning: (() => void) | undefined;
-    let unlistenFs: (() => void) | undefined;
-    let unlistenLegacyWarning: (() => void) | undefined;
+    let legacyCleanup: (() => void) | undefined;
     const knownRootRevisions = new Map<string, number>();
 
     const refreshProjection = () => {
@@ -73,14 +72,20 @@ export function useFsWatcher({
     };
 
     const registerLegacyAdapter = () => {
-      if (disposed) return;
+      if (disposed) return () => {};
       const retryQueue = new WatcherRetryQueue();
       let queue = Promise.resolve();
       let flushTimer: ReturnType<typeof setTimeout> | undefined;
+      let adapterDisposed = false;
+      let unlistenFs: (() => void) | undefined;
+      let unlistenLegacyWarning: (() => void) | undefined;
+      const isDisposed = () => disposed || adapterDisposed;
 
       const flushQueues = () => {
+        if (isDisposed()) return;
         queue = queue
           .then(async () => {
+            if (isDisposed()) return;
             const batch = retryQueue.takeReady(Date.now(), WATCHER_QUEUE_BATCH_LIMIT);
             if (!batch.length) return;
             let changed = false;
@@ -92,25 +97,27 @@ export function useFsWatcher({
               const message = readableError(error);
               for (const item of items) {
                 const exhausted = retryQueue.markFailure(item);
-                if (!disposed) onError?.(exhausted ? watcherRetryExhaustedMessage() : message);
+                if (!isDisposed()) onError?.(exhausted ? watcherRetryExhaustedMessage() : message);
               }
             };
 
-            if (stale.length > 0) {
+            if (stale.length > 0 && !isDisposed()) {
               try {
+                if (isDisposed()) return;
                 changed = (await tauriApi.markFilesStaleByPaths(stale.map((item) => item.path))) > 0 || changed;
-                stale.forEach((item) => retryQueue.markSuccess(item));
+                if (!isDisposed()) stale.forEach((item) => retryQueue.markSuccess(item));
               } catch (error) {
                 reportFailure(stale, error);
               }
             }
             let upserted = 0;
-            if (upsert.length > 0) {
+            if (upsert.length > 0 && !isDisposed()) {
               try {
+                if (isDisposed()) return;
                 upserted = await tauriApi.upsertFilesByPaths(upsert.map((item) => item.path));
                 changed = upserted > 0 || changed;
-                upsert.forEach((item) => retryQueue.markSuccess(item));
-                if (upserted > 0) {
+                if (!isDisposed()) upsert.forEach((item) => retryQueue.markSuccess(item));
+                if (upserted > 0 && !isDisposed()) {
                   for (const item of upsert) {
                     const classification = retryQueue.enqueue(item.path, "classify");
                     if (classification) classify.push(classification);
@@ -120,29 +127,31 @@ export function useFsWatcher({
                 reportFailure(upsert, error);
               }
             }
-            if (classify.length > 0) {
+            if (classify.length > 0 && !isDisposed()) {
               try {
+                if (isDisposed()) return;
                 const summary = await tauriApi.executeRulesForPaths(
                   classify.slice(0, WATCHER_CLASSIFY_LIMIT).map((item) => item.path),
                   rulesRef.current
                 );
                 changed = summary.updated > 0 || changed;
-                classify.forEach((item) => retryQueue.markSuccess(item));
+                if (!isDisposed()) classify.forEach((item) => retryQueue.markSuccess(item));
               } catch (error) {
                 reportFailure(classify, error);
               }
             }
-            if (changed && !disposed) await onRefreshData();
+            if (changed && !isDisposed()) await onRefreshData();
           })
           .catch((error) => {
-            if (!disposed) onError?.(readableError(error));
+            if (!isDisposed()) onError?.(readableError(error));
           })
           .finally(() => {
-            if (!disposed && retryQueue.hasReadyOrWaiting()) scheduleFlush();
+            if (!isDisposed() && retryQueue.hasReadyOrWaiting()) scheduleFlush();
           });
       };
 
       const scheduleFlush = () => {
+        if (isDisposed()) return;
         if (flushTimer !== undefined) clearTimeout(flushTimer);
         const retryDelay = retryQueue.nextRetryDelay();
         flushTimer = setTimeout(() => {
@@ -152,20 +161,30 @@ export function useFsWatcher({
       };
 
       void tauriApi.onFsEvent<FsWatchEvent>((payload) => {
-        if (!payload || disposed) return;
+        if (!payload || isDisposed()) return;
         const snapshot = watcherQueueSnapshotFromEvent(payload);
         if (!snapshot.stale.length && !snapshot.upsert.length) return;
         snapshot.stale.forEach((path) => retryQueue.enqueue(path, "stale"));
         snapshot.upsert.forEach((path) => retryQueue.enqueue(path, "upsert"));
         scheduleFlush();
       }).then((unlisten) => {
-        if (disposed) unlisten();
+        if (isDisposed()) unlisten();
         else unlistenFs = unlisten;
       });
       void tauriApi.onFsWatcherWarning<FsWatcherWarningEvent>((payload) => warningHandler(payload)).then((unlisten) => {
-        if (disposed) unlisten();
+        if (isDisposed()) unlisten();
         else unlistenLegacyWarning = unlisten;
       });
+
+      return () => {
+        if (adapterDisposed) return;
+        adapterDisposed = true;
+        if (flushTimer !== undefined) clearTimeout(flushTimer);
+        flushTimer = undefined;
+        retryQueue.clear();
+        unlistenFs?.();
+        unlistenLegacyWarning?.();
+      };
     };
 
     const registerBackendProjection = () => {
@@ -205,12 +224,12 @@ export function useFsWatcher({
     };
 
     if (typeof tauriApi.getRuntimeCapabilities !== "function") {
-      registerLegacyAdapter();
+      legacyCleanup = registerLegacyAdapter();
     } else {
       void tauriApi.getRuntimeCapabilities().then((capabilities) => {
         if (disposed) return;
         if (capabilities.backendWatcherReconciliation !== false) registerBackendProjection();
-        else registerLegacyAdapter();
+        else legacyCleanup = registerLegacyAdapter();
       }).catch((error) => {
         if (!disposed) onError?.(readableError(error));
       });
@@ -219,10 +238,9 @@ export function useFsWatcher({
     return () => {
       disposed = true;
       if (statusRefreshTimer !== undefined) clearTimeout(statusRefreshTimer);
+      legacyCleanup?.();
       unlistenStatus?.();
       unlistenWarning?.();
-      unlistenFs?.();
-      unlistenLegacyWarning?.();
     };
   }, [enabled, onError, onRefreshData]);
 }

@@ -1,10 +1,10 @@
 use crate::db::scan::{
     ScanAdmissionOptions, ScanBatchInput, ScanErrorInput, ScanFinalization, ScanFinalizeInput,
-    ScanRunRecord,
+    ScanRunRecord, WatcherReconciliationAdmission,
 };
 use crate::db::{
     current_unix_seconds, emit_search_index_optimized, run_search_index_optimize, Database,
-    DbError, InsertFileRequest,
+    DbError, InsertFileRequest, LibraryScope, RuleExecutionMode,
 };
 use crate::dedupe::{spawn_duplicate_detection, DedupeJobManager};
 use crate::ids::new_job_id;
@@ -39,6 +39,9 @@ const SCAN_COMPLETE_EVENT: &str = "scan-complete";
 const SCAN_CANCELED_EVENT: &str = "scan-canceled";
 const SCAN_ERROR_EVENT: &str = "scan-error";
 pub const MANAGED_SCAN_EVENT: &str = "scan-run-updated";
+const RULE_RECOVERY_MAX_ATTEMPTS: usize = 3;
+const RULE_RECOVERY_RETRY_DELAYS: [Duration; 2] =
+    [Duration::from_millis(250), Duration::from_millis(500)];
 
 #[derive(Debug, Error)]
 enum ScanError {
@@ -524,12 +527,46 @@ pub(crate) fn schedule_watcher_reconciliations<R: Runtime>(
             continue;
         }
 
+        let request_key = match db
+            .next_watcher_reconciliation_admission(
+                &root.id,
+                root.watcher_revision,
+                current_unix_seconds(),
+            )
+            .map_err(|error| error.to_string())?
+        {
+            WatcherReconciliationAdmission::Start { request_key, .. } => request_key,
+            WatcherReconciliationAdmission::Active
+            | WatcherReconciliationAdmission::Backoff { .. } => continue,
+            WatcherReconciliationAdmission::Exhausted { attempts } => {
+                let rule_recovery_exhausted = root.watcher_last_error_code.as_deref()
+                    == Some("watcher_rule_failure")
+                    || root.watcher_last_error_code.as_deref()
+                        == Some("watcher_rule_retry_exhausted");
+                let exhausted_code = if rule_recovery_exhausted {
+                    "watcher_rule_retry_exhausted"
+                } else {
+                    "watcher_reconciliation_retry_exhausted"
+                };
+                if root.watcher_last_error_code.as_deref() != Some(exhausted_code) {
+                    let exhausted_message = if rule_recovery_exhausted {
+                        format!(
+                            "Automatic watcher rule recovery exhausted after {attempts} attempts; manual rule recovery is required."
+                        )
+                    } else {
+                        format!(
+                            "Automatic watcher reconciliation exhausted after {attempts} attempts; use manual retry."
+                        )
+                    };
+                    db.mark_watcher_reconciliation(&root.id, exhausted_code, &exhausted_message)
+                        .map_err(|error| error.to_string())?;
+                }
+                continue;
+            }
+        };
         let request = ManagedScanRequest {
             roots: vec![root.normalized_path.clone()],
-            request_key: Some(format!(
-                "watcher-reconcile:{}:{}",
-                root.id, root.watcher_revision
-            )),
+            request_key: Some(request_key),
             dedupe: false,
         };
         let admission = match db.admit_managed_scan(&ScanAdmissionOptions {
@@ -739,6 +776,16 @@ fn run_scan_run<R: Runtime>(
     let skipped_for_filter = Arc::clone(&skipped);
     let mut batch = ScanBatchBuffer::new(started_at);
     let root = PathBuf::from(&root_label);
+    let rule_recovery_required = db
+        .get_scan_root_health(Some(&claimed.dto.scan_root_id), None)?
+        .watcher_last_error_code
+        .as_deref()
+        .is_some_and(|code| {
+            matches!(
+                code,
+                "watcher_rule_failure" | "watcher_rule_retry_exhausted"
+            )
+        });
 
     if let Err(error) = validate_root(&root) {
         // An unopenable root means the scan never ran, which is a failed job (axis 1) —
@@ -767,6 +814,7 @@ fn run_scan_run<R: Runtime>(
             "failed",
             Some(&root_error_code),
             Some(&root_error_message),
+            false,
             false,
         )?;
         emit_terminal_events(
@@ -869,6 +917,7 @@ fn run_scan_run<R: Runtime>(
             Some("cancelled"),
             Some("The scan was cancelled before finalization."),
             false,
+            false,
         )?;
         emit_terminal_events(
             app,
@@ -889,6 +938,7 @@ fn run_scan_run<R: Runtime>(
             "requires_reconciliation",
             Some("coverage_incomplete"),
             Some("The scan encountered a metadata or traversal error; stale reconciliation was skipped."),
+            false,
             false,
         )?;
         emit_terminal_events(
@@ -932,6 +982,15 @@ fn run_scan_run<R: Runtime>(
     cursor.update(&optimizing);
     emit_managed_event_best_effort(app, db, &optimizing, None);
 
+    let mut rule_recovery_succeeded = false;
+    let mut rule_recovery_error = None;
+    if rule_recovery_required {
+        match execute_rules_for_root_with_retry(db, &root_label) {
+            Ok(()) => rule_recovery_succeeded = true,
+            Err(error) => rule_recovery_error = Some(error.to_string()),
+        }
+    }
+
     let report = run_search_index_optimize("scan_complete", db);
     emit_search_index_optimized(app, &report);
     let mut completed_with_warnings = false;
@@ -961,14 +1020,17 @@ fn run_scan_run<R: Runtime>(
     let finalization = finish_scan_run(
         db,
         run_id,
-        if completed_with_warnings {
+        if completed_with_warnings || rule_recovery_error.is_some() {
             "completed_with_warnings"
         } else {
             "completed"
         },
-        None,
-        None,
+        rule_recovery_error
+            .as_deref()
+            .map(|_| "watcher_rule_failure"),
+        rule_recovery_error.as_deref(),
         stale_gate_enabled,
+        rule_recovery_succeeded,
     )?;
     emit_terminal_events(
         app,
@@ -1070,6 +1132,30 @@ fn flush_scan_batch<R: Runtime>(
     Ok(updated)
 }
 
+fn execute_rules_for_root_with_retry(db: &Database, root_path: &str) -> Result<(), DbError> {
+    let scope = LibraryScope::Roots {
+        roots: vec![root_path.to_string()],
+    };
+    crate::watcher::bounded_retry(
+        RULE_RECOVERY_MAX_ATTEMPTS,
+        || {
+            db.get_user_rules().and_then(|rules| {
+                db.execute_rules_for_scope_with_mode(
+                    &scope,
+                    rules,
+                    RuleExecutionMode::AllChangedOrRuleChanged,
+                )
+                .map(|_| ())
+            })
+        },
+        |attempt| {
+            let delay =
+                RULE_RECOVERY_RETRY_DELAYS[attempt.min(RULE_RECOVERY_RETRY_DELAYS.len() - 1)];
+            std::thread::sleep(delay);
+        },
+    )
+}
+
 fn finish_scan_run(
     db: &Database,
     run_id: &str,
@@ -1077,6 +1163,7 @@ fn finish_scan_run(
     error_code: Option<&str>,
     error_message: Option<&str>,
     allow_stale_reconciliation: bool,
+    rule_recovery_succeeded: bool,
 ) -> Result<ScanFinalization, ScanError> {
     let current = db.get_scan_run_record(run_id)?;
     if is_terminal_scan_status(&current.dto.status) {
@@ -1092,6 +1179,7 @@ fn finish_scan_run(
         error_code: error_code.map(str::to_string),
         error_message: error_message.map(str::to_string),
         allow_stale_reconciliation,
+        rule_recovery_succeeded,
     };
     db.finalize_scan_run(
         run_id,
@@ -1129,6 +1217,7 @@ fn abort_scan_run<R: Runtime>(
         "failed",
         Some("worker_failure"),
         Some(&error.to_string()),
+        false,
         false,
     );
     if let Ok(finalization) = finalization {
@@ -1762,6 +1851,7 @@ mod tests {
             None,
             None,
             false,
+            false,
         )
         .expect("finalize first scan");
         assert_eq!(first_finalization.run.dto.status, "completed");
@@ -1794,6 +1884,7 @@ mod tests {
             "completed",
             None,
             None,
+            false,
             false,
         )
         .expect("finalize rescan");
@@ -1858,6 +1949,7 @@ mod tests {
                         error_code: None,
                         error_message: None,
                         allow_stale_reconciliation: false,
+                        rule_recovery_succeeded: false,
                     },
                 )
                 .expect("complete dedupe session");

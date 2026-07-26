@@ -32,12 +32,15 @@ pub const WATCHER_BACKEND_ENV: &str = "ZEN_CANVAS_BACKEND_WATCHER_RECONCILIATION
 const WATCHER_CHANNEL_CAPACITY: usize = 2048;
 const WATCHER_BATCH_LIMIT: usize = 500;
 const WATCHER_MAX_ATTEMPTS: usize = 8;
+const WATCHER_RULE_MAX_ATTEMPTS: usize = 3;
 const WATCHER_RETRY_DELAYS: [Duration; 4] = [
     Duration::from_millis(250),
     Duration::from_millis(500),
     Duration::from_secs(1),
     Duration::from_secs(2),
 ];
+const WATCHER_RULE_RETRY_DELAYS: [Duration; 2] =
+    [Duration::from_millis(250), Duration::from_millis(500)];
 const WATCHER_COALESCE_WINDOW: Duration = Duration::from_millis(150);
 
 #[derive(Debug, Error)]
@@ -109,6 +112,7 @@ enum WatcherInput {
 #[derive(Default)]
 pub struct FileWatcherManager {
     session: Mutex<Option<WatcherSession>>,
+    reload_lock: Mutex<()>,
 }
 
 struct WatcherSession {
@@ -145,14 +149,18 @@ impl FileWatcherManager {
     ) -> Result<bool, WatcherError> {
         let roots = normalize_watch_roots(paths)?;
         if roots.is_empty() {
-            let changed = self.restart_with_roots(Vec::new(), |_| unreachable!())?;
+            let changed = self.restart_with_roots(Vec::new(), |_| unreachable!(), |_, _| {})?;
             if changed {
                 emit_watcher_ready(&app, Vec::new())?;
             }
             return Ok(changed);
         }
 
-        self.restart_with_roots(roots, |roots| start_legacy_watcher_session(app, roots))
+        self.restart_with_roots(
+            roots,
+            |roots| start_legacy_watcher_session(app, roots),
+            |_, _| {},
+        )
     }
 
     fn restart_backend<R: Runtime>(
@@ -165,18 +173,37 @@ impl FileWatcherManager {
     ) -> Result<bool, WatcherError> {
         let roots = normalize_watch_roots(paths)?;
         if roots.is_empty() {
-            return self.restart_with_roots(Vec::new(), |_| unreachable!());
+            let gap_app = app.clone();
+            let gap_db = db.clone();
+            return self.restart_with_roots(
+                Vec::new(),
+                |_| unreachable!(),
+                move |old_roots, new_roots| {
+                    mark_watcher_reload_gap(&gap_app, &gap_db, old_roots, new_roots)
+                },
+            );
         }
-        self.restart_with_roots(roots, |roots| {
-            start_backend_watcher_session(app, roots, db, jobs, dedupe_jobs)
-        })
+        let gap_app = app.clone();
+        let gap_db = db.clone();
+        self.restart_with_roots(
+            roots,
+            |roots| start_backend_watcher_session(app, roots, db, jobs, dedupe_jobs),
+            move |old_roots, new_roots| {
+                mark_watcher_reload_gap(&gap_app, &gap_db, old_roots, new_roots)
+            },
+        )
     }
 
     fn restart_with_roots(
         &self,
         roots: Vec<PathBuf>,
         start: impl FnOnce(Vec<PathBuf>) -> Result<WatcherSession, WatcherError>,
+        on_handoff_gap: impl Fn(&[PathBuf], &[PathBuf]),
     ) -> Result<bool, WatcherError> {
+        let _reload_guard = self
+            .reload_lock
+            .lock()
+            .map_err(|_| WatcherError::StateLock)?;
         let mut session = self.session.lock().map_err(|_| WatcherError::StateLock)?;
         if session
             .as_ref()
@@ -184,13 +211,32 @@ impl FileWatcherManager {
         {
             return Ok(false);
         }
+        let previous = session.take();
+        let previous_roots = previous
+            .as_ref()
+            .map(|current| current.roots.clone())
+            .unwrap_or_default();
+        drop(session);
+        drop(previous);
 
+        let had_previous = !previous_roots.is_empty();
+        if had_previous {
+            on_handoff_gap(&previous_roots, &roots);
+        }
         if roots.is_empty() {
-            *session = None;
             return Ok(true);
         }
 
-        let next = start(roots)?;
+        let next = match start(roots.clone()) {
+            Ok(next) => next,
+            Err(error) => {
+                if !had_previous {
+                    on_handoff_gap(&previous_roots, &roots);
+                }
+                return Err(error);
+            }
+        };
+        let mut session = self.session.lock().map_err(|_| WatcherError::StateLock)?;
         *session = Some(next);
         Ok(true)
     }
@@ -254,7 +300,7 @@ pub fn reload_file_watcher_for_settings<R: Runtime>(
         eprintln!(
             "{WATCHER_BACKEND_ENV}=false: using the legacy renderer watcher adapter; Rust will not mutate managed files or watcher revisions"
         );
-        let paths = existing_watch_paths_from_settings(settings);
+        let paths = existing_legacy_watch_paths_from_settings(settings);
         manager
             .restart(app, paths)
             .map_err(|error| error.to_string())
@@ -316,6 +362,17 @@ pub fn existing_watch_paths_from_settings(settings: &AppSettings) -> Vec<PathBuf
         .into_iter()
         .filter(|path| path.exists())
         .collect()
+}
+
+fn existing_legacy_watch_paths_from_settings(settings: &AppSettings) -> Vec<PathBuf> {
+    legacy_watch_paths_from_settings(settings)
+        .into_iter()
+        .filter(|path| path.exists())
+        .collect()
+}
+
+fn legacy_watch_paths_from_settings(settings: &AppSettings) -> Vec<PathBuf> {
+    watch_paths_from_default_scan_folders(&settings.default_scan_folders)
 }
 
 pub fn existing_watch_paths_from_default_scan_folders(folders: &[ScanRootSetting]) -> Vec<PathBuf> {
@@ -492,6 +549,31 @@ fn signal_overflow(burst_active: &AtomicBool, signal: &AtomicBool) {
     }
 }
 
+pub(crate) fn bounded_retry<T, E, Operation, Delay>(
+    max_attempts: usize,
+    mut operation: Operation,
+    mut delay: Delay,
+) -> Result<T, E>
+where
+    Operation: FnMut() -> Result<T, E>,
+    Delay: FnMut(usize),
+{
+    let attempts = max_attempts.max(1);
+    let mut last_error = None;
+    for attempt in 0..attempts {
+        match operation() {
+            Ok(value) => return Ok(value),
+            Err(error) => {
+                last_error = Some(error);
+                if attempt + 1 < attempts {
+                    delay(attempt);
+                }
+            }
+        }
+    }
+    Err(last_error.expect("bounded retry always records an error"))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_backend_watcher_loop<R: Runtime>(
     app: AppHandle<R>,
@@ -652,10 +734,7 @@ fn process_backend_payload<R: Runtime>(
                     emit_file_watcher_error(app, warning.to_string());
                 }
                 if !result.upserted_paths.is_empty() {
-                    match db
-                        .get_user_rules()
-                        .and_then(|rules| db.execute_rules_for_paths(&result.upserted_paths, rules))
-                    {
+                    match execute_rules_for_paths_with_retry(db, &result.upserted_paths) {
                         Ok(_) => {}
                         Err(error) => {
                             let message = error.to_string();
@@ -720,20 +799,31 @@ fn apply_watcher_exact_mutations_with_retry(
     paths: &[String],
     directory_paths: &HashSet<String>,
 ) -> Result<crate::db::scan::WatcherMutationResult, DbError> {
-    let mut last_error = None;
-    for attempt in 0..WATCHER_MAX_ATTEMPTS {
-        match db.apply_watcher_exact_mutations(root_id, paths, directory_paths) {
-            Ok(result) => return Ok(result),
-            Err(error) => {
-                last_error = Some(error);
-                if attempt + 1 < WATCHER_MAX_ATTEMPTS {
-                    let delay = WATCHER_RETRY_DELAYS[attempt.min(WATCHER_RETRY_DELAYS.len() - 1)];
-                    thread::sleep(delay);
-                }
-            }
-        }
-    }
-    Err(last_error.expect("watcher mutation retry loop always records an error"))
+    bounded_retry(
+        WATCHER_MAX_ATTEMPTS,
+        || db.apply_watcher_exact_mutations(root_id, paths, directory_paths),
+        |attempt| {
+            let delay = WATCHER_RETRY_DELAYS[attempt.min(WATCHER_RETRY_DELAYS.len() - 1)];
+            thread::sleep(delay);
+        },
+    )
+}
+
+fn execute_rules_for_paths_with_retry(
+    db: &Database,
+    paths: &[String],
+) -> Result<crate::db::RuleExecutionSummary, DbError> {
+    bounded_retry(
+        WATCHER_RULE_MAX_ATTEMPTS,
+        || {
+            db.get_user_rules()
+                .and_then(|rules| db.execute_rules_for_paths(paths, rules))
+        },
+        |attempt| {
+            let delay = WATCHER_RULE_RETRY_DELAYS[attempt.min(WATCHER_RULE_RETRY_DELAYS.len() - 1)];
+            thread::sleep(delay);
+        },
+    )
 }
 
 fn begin_watcher_batch<R: Runtime>(
@@ -770,6 +860,24 @@ fn mark_all_roots_for_reconciliation<R: Runtime>(
             emit_root_status(app, db, &root.id, Some(batch.watcher_revision));
         }
     }
+}
+
+fn mark_watcher_reload_gap<R: Runtime>(
+    app: &AppHandle<R>,
+    db: &Database,
+    _old_roots: &[PathBuf],
+    _new_roots: &[PathBuf],
+) {
+    // A notify watcher cannot prove that no filesystem event arrived between
+    // stopping the old session and installing the new one. Mark every enabled
+    // managed root before the new session starts so the next scheduler pass
+    // performs a durable reconciliation instead of relying on the event stream.
+    mark_all_roots_for_reconciliation(
+        app,
+        db,
+        "watcher_reload_gap",
+        "Watcher settings reload created a listening gap; a managed reconciliation is required.",
+    );
 }
 
 pub(crate) fn emit_watcher_reconciliation_status<R: Runtime>(
@@ -926,6 +1034,10 @@ fn is_directory_event(kind: &EventKind) -> bool {
         kind,
         EventKind::Create(notify::event::CreateKind::Folder)
             | EventKind::Remove(notify::event::RemoveKind::Folder)
+            // notify does not reliably carry directory metadata for both sides of a
+            // rename. Treat every rename conservatively so old and new roots both
+            // receive a full reconciliation instead of leaving directory descendants active.
+            | EventKind::Modify(ModifyKind::Name(_))
     )
 }
 
@@ -1022,6 +1134,20 @@ mod tests {
     }
 
     #[test]
+    fn legacy_watcher_paths_exclude_custom_search_roots() {
+        let settings = AppSettings {
+            default_scan_folders: vec![scan_root("downloads", "/Users/zen/Downloads", true)],
+            custom_search_roots: vec![search_root("projects", "/Users/zen/Projects", true)],
+            ..AppSettings::default()
+        };
+
+        assert_eq!(
+            legacy_watch_paths_from_settings(&settings),
+            vec![PathBuf::from("/Users/zen/Downloads")]
+        );
+    }
+
+    #[test]
     fn file_watcher_manager_restarts_when_roots_change() {
         let manager = FileWatcherManager::default();
         let starts = Arc::new(AtomicUsize::new(0));
@@ -1029,9 +1155,11 @@ mod tests {
 
         restart_test_session(&manager, "/tmp/root-a", &starts, &shutdowns);
         manager
-            .restart_with_roots(vec![PathBuf::from("/tmp/root-a")], |_| {
-                panic!("unchanged roots should not restart")
-            })
+            .restart_with_roots(
+                vec![PathBuf::from("/tmp/root-a")],
+                |_| panic!("unchanged roots should not restart"),
+                |_, _| panic!("unchanged roots should not report a handoff gap"),
+            )
             .expect("same roots");
         restart_test_session(&manager, "/tmp/root-b", &starts, &shutdowns);
 
@@ -1050,7 +1178,11 @@ mod tests {
 
         restart_test_session(&manager, "/tmp/root-a", &starts, &shutdowns);
         manager
-            .restart_with_roots(Vec::new(), |_| panic!("empty roots should not start"))
+            .restart_with_roots(
+                Vec::new(),
+                |_| panic!("empty roots should not start"),
+                |_, _| {},
+            )
             .expect("empty roots");
 
         assert_eq!(
@@ -1059,6 +1191,123 @@ mod tests {
         );
         assert_eq!(starts.load(Ordering::SeqCst), 1);
         assert_eq!(shutdowns.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn watcher_reload_stops_old_owner_before_starting_new_owner() {
+        let manager = FileWatcherManager::default();
+        let active_owners = Arc::new(AtomicUsize::new(0));
+        let handoff_gaps = Arc::new(AtomicUsize::new(0));
+        let starts = Arc::new(AtomicUsize::new(0));
+
+        let active_for_first = Arc::clone(&active_owners);
+        manager
+            .restart_with_roots(
+                vec![PathBuf::from("/tmp/root-a")],
+                move |roots| {
+                    active_for_first.fetch_add(1, Ordering::SeqCst);
+                    Ok(WatcherSession::new(roots, move || {
+                        active_for_first.fetch_sub(1, Ordering::SeqCst);
+                    }))
+                },
+                |_, _| {},
+            )
+            .expect("start first owner");
+
+        let active_for_second = Arc::clone(&active_owners);
+        let starts_for_second = Arc::clone(&starts);
+        let gaps_for_second = Arc::clone(&handoff_gaps);
+        manager
+            .restart_with_roots(
+                vec![PathBuf::from("/tmp/root-b")],
+                move |roots| {
+                    assert_eq!(active_for_second.load(Ordering::SeqCst), 0);
+                    starts_for_second.fetch_add(1, Ordering::SeqCst);
+                    active_for_second.fetch_add(1, Ordering::SeqCst);
+                    Ok(WatcherSession::new(roots, move || {
+                        active_for_second.fetch_sub(1, Ordering::SeqCst);
+                    }))
+                },
+                move |old_roots, new_roots| {
+                    assert_eq!(old_roots, &[PathBuf::from("/tmp/root-a")]);
+                    assert_eq!(new_roots, &[PathBuf::from("/tmp/root-b")]);
+                    gaps_for_second.fetch_add(1, Ordering::SeqCst);
+                },
+            )
+            .expect("handoff to second owner");
+
+        assert_eq!(active_owners.load(Ordering::SeqCst), 1);
+        assert_eq!(starts.load(Ordering::SeqCst), 1);
+        assert_eq!(handoff_gaps.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn watcher_reload_start_failure_leaves_no_owner_and_reports_reconciliation_gap() {
+        let manager = FileWatcherManager::default();
+        let gaps = Arc::new(AtomicUsize::new(0));
+        let gaps_for_callback = Arc::clone(&gaps);
+
+        let result = manager.restart_with_roots(
+            vec![PathBuf::from("/tmp/root-a")],
+            |_| {
+                Err(WatcherError::MissingPath(
+                    "synthetic start failure".to_string(),
+                ))
+            },
+            move |old_roots, new_roots| {
+                assert!(old_roots.is_empty());
+                assert_eq!(new_roots, &[PathBuf::from("/tmp/root-a")]);
+                gaps_for_callback.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+
+        assert!(result.is_err());
+        assert!(manager.active_roots().expect("active roots").is_empty());
+        assert_eq!(gaps.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn watcher_reload_start_failure_after_handoff_keeps_no_old_or_new_owner() {
+        let manager = FileWatcherManager::default();
+        let active_owners = Arc::new(AtomicUsize::new(0));
+        let gaps = Arc::new(AtomicUsize::new(0));
+        let active_for_first = Arc::clone(&active_owners);
+        manager
+            .restart_with_roots(
+                vec![PathBuf::from("/tmp/root-a")],
+                move |roots| {
+                    active_for_first.fetch_add(1, Ordering::SeqCst);
+                    Ok(WatcherSession::new(roots, move || {
+                        active_for_first.fetch_sub(1, Ordering::SeqCst);
+                    }))
+                },
+                |_, _| {},
+            )
+            .expect("start old owner");
+
+        let active_for_failed_start = Arc::clone(&active_owners);
+        let active_for_callback = Arc::clone(&active_owners);
+        let gaps_for_callback = Arc::clone(&gaps);
+        let result = manager.restart_with_roots(
+            vec![PathBuf::from("/tmp/root-b")],
+            move |_| {
+                assert_eq!(active_for_failed_start.load(Ordering::SeqCst), 0);
+                Err(WatcherError::MissingPath(
+                    "synthetic reload failure".to_string(),
+                ))
+            },
+            move |old_roots, new_roots| {
+                assert_eq!(active_for_callback.load(Ordering::SeqCst), 0);
+                assert_eq!(old_roots, &[PathBuf::from("/tmp/root-a")]);
+                assert_eq!(new_roots, &[PathBuf::from("/tmp/root-b")]);
+                gaps_for_callback.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+
+        assert!(result.is_err());
+        assert!(manager.active_roots().expect("active roots").is_empty());
+        assert_eq!(active_owners.load(Ordering::SeqCst), 0);
+        assert_eq!(gaps.load(Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -1090,6 +1339,13 @@ mod tests {
         assert_eq!(payload.upsert_paths, vec!["/Users/zen/Documents/new.pdf"]);
         assert_eq!(
             payload.paths,
+            vec![
+                "/Users/zen/Documents/old.pdf".to_string(),
+                "/Users/zen/Documents/new.pdf".to_string()
+            ]
+        );
+        assert_eq!(
+            payload.reconciliation_paths,
             vec![
                 "/Users/zen/Documents/old.pdf".to_string(),
                 "/Users/zen/Documents/new.pdf".to_string()
@@ -1140,6 +1396,50 @@ mod tests {
     }
 
     #[test]
+    fn same_root_directory_rename_marks_old_and_new_paths_for_reconciliation() {
+        let payload = event_to_payload(Event {
+            kind: EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+            paths: vec![
+                PathBuf::from("/Users/zen/Documents/old-folder"),
+                PathBuf::from("/Users/zen/Documents/new-folder"),
+            ],
+            attrs: EventAttributes::new(),
+        })
+        .expect("directory rename payload");
+
+        assert_eq!(
+            payload.reconciliation_paths,
+            vec![
+                "/Users/zen/Documents/old-folder".to_string(),
+                "/Users/zen/Documents/new-folder".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn cross_root_directory_rename_marks_both_roots_for_reconciliation() {
+        let payload = event_to_payload(Event {
+            kind: EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+            paths: vec![
+                PathBuf::from("/Users/zen/Downloads/old-folder"),
+                PathBuf::from("/Users/zen/Projects/new-folder"),
+            ],
+            attrs: EventAttributes::new(),
+        })
+        .expect("cross-root directory rename payload");
+
+        assert_eq!(payload.stale_paths, vec!["/Users/zen/Downloads/old-folder"]);
+        assert_eq!(payload.upsert_paths, vec!["/Users/zen/Projects/new-folder"]);
+        assert_eq!(
+            payload.reconciliation_paths,
+            vec![
+                "/Users/zen/Downloads/old-folder".to_string(),
+                "/Users/zen/Projects/new-folder".to_string()
+            ]
+        );
+    }
+
+    #[test]
     fn watcher_root_matching_is_boundary_aware() {
         assert!(path_within_root(
             "/Users/zen/Library",
@@ -1167,6 +1467,54 @@ mod tests {
         burst_active.store(false, Ordering::Release);
         signal_overflow(&burst_active, &signal);
         assert!(signal.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn bounded_retry_recovers_after_a_transient_rule_failure() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let delays = Arc::new(AtomicUsize::new(0));
+        let attempts_for_operation = Arc::clone(&attempts);
+        let delays_for_callback = Arc::clone(&delays);
+
+        let result = bounded_retry(
+            3,
+            move || {
+                let attempt = attempts_for_operation.fetch_add(1, Ordering::SeqCst);
+                if attempt < 2 {
+                    Err("temporary rule failure")
+                } else {
+                    Ok("recovered")
+                }
+            },
+            move |_| {
+                delays_for_callback.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+
+        assert_eq!(result.expect("bounded retry recovery"), "recovered");
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+        assert_eq!(delays.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn bounded_retry_returns_the_last_permanent_rule_failure() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_for_operation = Arc::clone(&attempts);
+
+        let result = bounded_retry(
+            3,
+            move || {
+                attempts_for_operation.fetch_add(1, Ordering::SeqCst);
+                Err::<(), _>("permanent rule failure")
+            },
+            |_| {},
+        );
+
+        assert_eq!(
+            result.expect_err("permanent failure must remain visible"),
+            "permanent rule failure"
+        );
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
     }
 
     #[test]
@@ -1237,12 +1585,16 @@ mod tests {
         let starts = Arc::clone(starts);
         let shutdowns = Arc::clone(shutdowns);
         manager
-            .restart_with_roots(vec![PathBuf::from(root)], move |roots| {
-                starts.fetch_add(1, Ordering::SeqCst);
-                Ok(WatcherSession::new(roots, move || {
-                    shutdowns.fetch_add(1, Ordering::SeqCst);
-                }))
-            })
+            .restart_with_roots(
+                vec![PathBuf::from(root)],
+                move |roots| {
+                    starts.fetch_add(1, Ordering::SeqCst);
+                    Ok(WatcherSession::new(roots, move || {
+                        shutdowns.fetch_add(1, Ordering::SeqCst);
+                    }))
+                },
+                |_, _| {},
+            )
             .expect("restart test session");
     }
 }
