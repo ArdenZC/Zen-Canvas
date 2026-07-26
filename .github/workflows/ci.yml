@@ -1,33 +1,39 @@
-name: Windows Package Diagnostic
+name: CI
 
 on:
+  pull_request:
   push:
     branches:
-      - agent/system-wide-search-hardening
+      - master
 
 permissions:
   contents: read
-  statuses: write
 
 concurrency:
-  group: windows-package-diagnostic-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  package:
-    name: Windows NSIS package diagnostic
-    runs-on: windows-latest
+  quality:
+    name: Quality (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
     steps:
-      - name: Checkout final source
+      - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
+
       - name: Rust and Cargo cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
@@ -37,50 +43,93 @@ jobs:
           cache-targets: true
           cache-all-crates: true
           cache-on-failure: true
+          cache-directories: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.rustup/toolchains
+            ~/.rustup/update
+
       - name: Install dependencies
         run: npm ci
-      - name: Build Windows production package
-        id: package
-        shell: pwsh
+
+      - name: Frontend typecheck and tests
         run: |
-          cmd /c "npm run build > windows-package.log 2>&1"
-          $code = $LASTEXITCODE
-          Get-Content windows-package.log
-          "exit_code=$code" >> $env:GITHUB_OUTPUT
+          npm run typecheck
+          npm test
+
+      - name: Remediation contract guard
+        run: npm run test:remediation
+
+      - name: Rust format
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+      - name: Rust tests
+        id: rust-tests
+        shell: bash
+        run: |
+          set +e
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime 2>&1 | tee rust-test-${{ runner.os }}.log
+          status=${PIPESTATUS[0]}
+          echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
-      - name: Upload package log
-        if: always()
+
+      - name: Upload Rust test log
+        if: steps.rust-tests.outputs.status != '0'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: windows-package-log-${{ github.sha }}
-          path: windows-package.log
-          if-no-files-found: error
-          retention-days: 30
-      - name: Preserve package result
-        shell: pwsh
-        run: |
-          if ('${{ steps.package.outputs.exit_code }}' -ne '0') { exit 1 }
+          name: rust-test-${{ runner.os }}-${{ github.sha }}
+          path: rust-test-${{ runner.os }}.log
 
-  final-status:
-    name: Windows package diagnostic status
-    if: always()
-    needs: [package]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Publish diagnostic status
+      - name: Preserve Rust test result
+        if: steps.rust-tests.outputs.status != '0'
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PACKAGE_RESULT: ${{ needs.package.result }}
+        run: exit 1
+
+      - name: Rust clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
+
+      - name: macOS path and temp policy regression
+        if: runner.os == 'macOS'
         run: |
-          set -euo pipefail
-          state=failure
-          description="Windows NSIS package failed"
-          if [ "$PACKAGE_RESULT" = success ]; then
-            state=success
-            description="Windows NSIS package passed"
-          fi
-          target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          payload=$(jq -n --arg state "$state" --arg context "CI / Windows package diagnostic" --arg description "$description" --arg target_url "$target_url" '{state: $state, context: $context, description: $description, target_url: $target_url}')
-          curl --fail-with-body --retry 3 -X POST -H "Accept: application/vnd.github+json" -H "Authorization: Bearer $GH_TOKEN" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -d "$payload"
-          [ "$state" = success ]
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime macos_
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime temp_safety_tests
+
+      - name: 100k search performance test
+        if: runner.os == 'Windows'
+        run: npm run test:performance
+
+      - name: Native filesystem hardening smoke
+        if: runner.os == 'Windows'
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test native_file_hardening_smoke -- --ignored --nocapture --test-threads=1
+
+      - name: Windows production build and NSIS package
+        if: runner.os == 'Windows'
+        run: npm run build
+
+      - name: macOS production build and unsigned DMG package
+        if: runner.os == 'macOS'
+        run: npm run build -- --no-sign
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: npm audit
+        run: npm run security:audit
+
+      - name: RustSec audit
+        run: |
+          cargo install cargo-audit --locked
+          npm run security:audit:rust
