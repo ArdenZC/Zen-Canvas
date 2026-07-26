@@ -9,7 +9,7 @@ Task 01A 任务书已由人工完成最终修订和验收。**PR #17 合并到 `
 | 阶段 | 任务书 | 目标 | 状态 |
 |---|---|---|---|
 | 00 | `TASK_00_POST_MERGE_BASELINE_AUDIT.md` | PR #15 合并后架构、安全和数据基线审计 | **已验收并合并** |
-| 01A | `TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md` | File Library Scan root lease、session/run/generation、scan_seen、stale safety、恢复和 durable revision | **已批准；PR #17 合并后可执行** |
+| 01A | `TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md` | File Library Scan root lease、session/run/generation、scan_seen、stale safety、恢复和 durable revision | **实施完成，待人工验收** |
 | 01B | 待创建 | Watcher Reconciliation Ownership、overflow replay 和 durable watcher owner | **等待 Task 01A 实施验收，禁止执行** |
 | 02 | 待创建 | 文件 identity/fingerprint、prehash、duplicate group 和 durable dedupe | **后续阶段，禁止执行** |
 | 03 | 待创建 | Analysis Run、Finding 与 detector | **后续阶段，禁止执行** |
@@ -143,6 +143,12 @@ Task 01A 完成后必须新增 closeout，并将本索引更新为：
 ```text
 Task 01A：实施完成，待人工验收
 Task 01B：仍禁止执行
+
+本次 closeout：
+
+```text
+docs/remediation/TASK_01A_IMPLEMENTATION_CLOSEOUT.md
+```
 ```
 
 只有 Task 01A 生产实施通过人工验收并合并后，才由人工创建 Task 01B 任务书。
