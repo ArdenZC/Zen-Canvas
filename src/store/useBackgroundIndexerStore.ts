@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { tauriApi } from "../api/tauriApi";
+import { tauriApi, type ManagedScanRequest, type ManagedScanStartDto, type ScanSessionDto } from "../api/tauriApi";
 import { normalizePathLike, readableError } from "../utils/viewHelpers";
 import { useAppStore } from "./useAppStore";
 import { reportBackgroundIndexerCancelFailure } from "./backgroundIndexerErrors";
@@ -32,6 +32,7 @@ const MAX_RECENTLY_INDEXED_ROOTS = 200;
 
 let isProcessingBackgroundQueue = false;
 let activeBackgroundJobId: string | null = null;
+let activeBackgroundSessionId: string | null = null;
 let backgroundGeneration = 0;
 let backgroundCancelRequestId = 0;
 let backgroundCancelInFlight: Promise<void> | null = null;
@@ -82,7 +83,7 @@ export const useBackgroundIndexerStore = create<BackgroundIndexerStore>((set, ge
     let request!: Promise<void>;
     request = (async () => {
       try {
-        await tauriApi.cancelScan(jobId);
+        await tauriApi.cancelScanRun(jobId);
         if (
           requestId !== backgroundCancelRequestId
           || runGeneration !== backgroundGeneration
@@ -93,6 +94,7 @@ export const useBackgroundIndexerStore = create<BackgroundIndexerStore>((set, ge
         // this point a late successful startScan result remains authoritative.
         backgroundGeneration += 1;
         activeBackgroundJobId = null;
+        activeBackgroundSessionId = null;
         set({ pendingRoots: [], currentRoot: null, isBackgroundIndexing: false });
       } catch (error) {
         // Keep the active generation and job intact so a late startScan result
@@ -145,10 +147,24 @@ async function processBackgroundQueue() {
 
     let jobId: string | null = null;
     try {
-      jobId = await tauriApi.createScanJobId("background");
+      const request: ManagedScanRequest = {
+        roots: [root],
+        requestKey: `background-scan-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`,
+        dedupe: true
+      };
+      const start: ManagedScanStartDto = await tauriApi.startManagedScan(request);
+      activeBackgroundSessionId = start.session.id;
+      jobId = start.runs[0]?.id ?? start.session.id;
       if (runGeneration !== backgroundGeneration) return;
       activeBackgroundJobId = jobId;
-      await tauriApi.startScan(root, false, jobId, "background", true);
+      const session = await waitForManagedBackgroundSession(request, start);
+      if (session.status === "cancelled") return;
+      // `requires_reconciliation` is an index-health signal, not a failed job: the run
+      // finished and persisted what it observed. Treating it as a failure stopped the
+      // root from being recorded as indexed and made the queue retry it forever.
+      if (!["completed", "completed_with_warnings", "requires_reconciliation"].includes(session.status)) {
+        throw new Error(session.errorMessage ?? `Background scan ended in ${session.status}.`);
+      }
       if (runGeneration === backgroundGeneration && activeBackgroundJobId === jobId) {
         markRecentlyIndexedRoot(root);
         useBackgroundIndexerStore.setState((state) => ({
@@ -171,6 +187,7 @@ async function processBackgroundQueue() {
     } finally {
       const ownsRun = runGeneration === backgroundGeneration && activeBackgroundJobId === jobId;
       if (activeBackgroundJobId === jobId) activeBackgroundJobId = null;
+      if (ownsRun) activeBackgroundSessionId = null;
       if (ownsRun) {
         useBackgroundIndexerStore.setState((state) => ({
           currentRoot: state.currentRoot === root ? null : state.currentRoot,
@@ -181,8 +198,21 @@ async function processBackgroundQueue() {
   }
 }
 
+async function waitForManagedBackgroundSession(
+  request: ManagedScanRequest,
+  initial: ManagedScanStartDto
+): Promise<ScanSessionDto> {
+  let current = initial.session;
+  while (!["cancelled", "completed", "completed_with_warnings", "failed", "interrupted", "requires_reconciliation"].includes(current.status)) {
+    await delay(250);
+    const snapshot = await tauriApi.startManagedScan(request);
+    current = snapshot.session;
+  }
+  return current;
+}
+
 function delay(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
+  return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
 }
 
 function uniqueNormalizedRoots(paths: string[]) {

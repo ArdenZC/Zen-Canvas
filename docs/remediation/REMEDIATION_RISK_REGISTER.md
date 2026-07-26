@@ -47,7 +47,7 @@
 | ID | 风险 | 等级 | 触发条件/影响 | 最终契约 | 状态 |
 |---|---|---|---|---|---|
 | R-031 | 同 root active run/旧 generation 竞争 | Critical | 两个 session 并发或旧 worker 晚回写，造成 generation 倒退或错误 stale | partial unique index + root active pointer + lease token + generation/revision CAS；affected-row 必须为 1 | 任务书已解决，实施验收 |
-| R-032 | metadata error 导致错误 stale 或 scan_seen 无限增长 | Critical | 真实文件 metadata 失败却被当 missing；observation 永久增长 | metadata error coverage-breaking、禁止 stale；7/30 日 + newest-two + active/recovery pin 的 bounded prune | 任务书已解决，实施验收 |
+| R-032 | metadata error 导致错误 stale 或 scan_seen 无限增长 | Critical | 真实文件 metadata 失败却被当 missing；observation 永久增长 | metadata error coverage-breaking、禁止 stale；7/30 日 + newest-two 的 bounded prune，不以 terminal status 永久 pin | 任务书已解决，实施验收 |
 | R-033 | multi-root mapping 或 dedupe 调度语义不真实 | High | nested/duplicate/invalid/unstarted 无法解释；把内存 dedupe 误称 exactly-once | `scan_session_roots` 持久 requested→effective；session terminal priority 固定。Dedupe 仅记录 durable intent，采用 at-least-once 安全重算，不承诺跨重启 exactly-once | 任务书已解决；durable dedupe 延后 Task 02 |
 | R-034 | schema 27 rollback 与旧 binary guard 冲突 | High | schema 27 无法被 schema-26 binary 打开，错误回退会绕过 guard | commit 前 transaction rollback；commit 后只用 schema-27-capable build 关 gate；旧 binary 保持 future-schema rejection | 任务书已解决，migration 验收 |
 | R-035 | renderer 重启后旧 scan event 覆盖新状态 | High | 内存 sequence 丢失或晚到事件回退 generation/status | run/session durable revision；先 hydrate，按 revision/generation/identity 过滤和 gap refetch | 任务书已解决，前端验收 |

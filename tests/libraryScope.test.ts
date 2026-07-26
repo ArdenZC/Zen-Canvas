@@ -11,8 +11,7 @@ import {
 import { useScanManagerStore } from "../src/store/useScanManagerStore";
 
 const apiMocks = vi.hoisted(() => ({
-  createScanJobId: vi.fn(),
-  startScan: vi.fn(),
+  startManagedScan: vi.fn(),
   getPagedFiles: vi.fn(),
   getStatsSummary: vi.fn(),
   dialogOpen: vi.fn()
@@ -24,24 +23,96 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 vi.mock("../src/api/tauriApi", () => ({
   tauriApi: {
-    createScanJobId: apiMocks.createScanJobId,
-    startScan: apiMocks.startScan,
+    startManagedScan: apiMocks.startManagedScan,
     getPagedFiles: apiMocks.getPagedFiles,
     getStatsSummary: apiMocks.getStatsSummary
   }
 }));
 
-const scanSummary = {
-  jobId: "scan-foreground-test",
-  jobKind: "foreground" as const,
-  root: "F:/Downloads",
-  scanned: 1,
-  files: 1,
-  directories: 0,
-  skipped: 0,
-  errors: 0,
-  elapsedMs: 12
-};
+function managedStart(roots: string[]) {
+  const sessionId = "managed-session-test";
+  const now = 1_750_000_000;
+  const runs = roots.map((root, index) => ({
+    id: `managed-run-${index}`,
+    scanRootId: `managed-root-${index}`,
+    rootPath: root,
+    generation: 1,
+    parentSessionId: sessionId,
+    status: "completed",
+    phase: "completed",
+    scannedFiles: 1,
+    scannedDirectories: 0,
+    processedBytes: 1,
+    warningsCount: 0,
+    errorsCount: 0,
+    metadataErrorCount: 0,
+    coverageErrorCount: 0,
+    coverageComplete: true,
+    staleReconciliationAllowed: false,
+    cancelRequested: false,
+    revision: 4,
+    sessionRevision: 4,
+    startedAt: now - 1,
+    finishedAt: now,
+    lastCheckpointAt: now,
+    errorCode: null,
+    errorMessage: null,
+    resultJson: null,
+    createdAt: now - 1,
+    updatedAt: now
+  }));
+  return {
+    session: {
+      id: sessionId,
+      requestKey: "managed-request-test",
+      canonicalRequestHash: "hash",
+      status: "completed",
+      phase: "completed",
+      cancelRequested: false,
+      requestedRootCount: roots.length,
+      effectiveRootCount: roots.length,
+      completedRootCount: roots.length,
+      failedRootCount: 0,
+      cancelledRootCount: 0,
+      coveredRootCount: 0,
+      unstartedRootCount: 0,
+      dedupeRequested: true,
+      dedupeDispatchState: "pending",
+      dedupeAttemptCount: 0,
+      dedupeJobId: null,
+      dedupeLastError: null,
+      scannedFiles: roots.length,
+      scannedDirectories: 0,
+      warningsCount: 0,
+      errorsCount: 0,
+      revision: 4,
+      startedAt: now - 1,
+      finishedAt: now,
+      lastCheckpointAt: now,
+      errorCode: null,
+      errorMessage: null,
+      resultJson: null,
+      createdAt: now - 1,
+      updatedAt: now,
+      roots: roots.map((root, index) => ({
+        sessionId,
+        requestedIndex: index,
+        requestedPath: root,
+        normalizedRequestedPath: root,
+        resolution: "effective",
+        effectiveRootId: `managed-root-${index}`,
+        effectivePath: root,
+        effectiveIndex: index,
+        runId: `managed-run-${index}`,
+        status: "completed",
+        reason: null,
+        createdAt: now - 1,
+        updatedAt: now
+      }))
+    },
+    runs
+  };
+}
 
 function stats(): DashboardStats {
   return { ...emptyStats };
@@ -74,8 +145,7 @@ function installLocalStorage() {
 describe("library scope store", () => {
   beforeEach(() => {
     installLocalStorage();
-    apiMocks.createScanJobId.mockReset().mockResolvedValue("scan-foreground-test");
-    apiMocks.startScan.mockReset().mockResolvedValue(scanSummary);
+    apiMocks.startManagedScan.mockReset().mockImplementation((request: { roots: string[] }) => Promise.resolve(managedStart(request.roots)));
     apiMocks.getPagedFiles.mockReset().mockResolvedValue(page());
     apiMocks.getStatsSummary.mockReset().mockResolvedValue(stats());
     useFileLibraryStore.setState({
@@ -86,10 +156,13 @@ describe("library scope store", () => {
       libraryFilter: "all" as LibraryFilter,
       scope: { kind: "current_scan", roots: [] }
     });
+    useScanManagerStore.getState().reset();
     useScanManagerStore.setState({
       selectedFolders: [],
       isScanning: false,
-      defaultScanRoots: []
+      defaultScanRoots: [],
+      listenersRegistered: true,
+      registrationPromise: null
     });
   });
 
@@ -98,7 +171,8 @@ describe("library scope store", () => {
 
     expect(useFileLibraryStore.getState().scope).toEqual({
       kind: "current_scan",
-      roots: ["F:/Downloads"]
+      roots: ["F:/Downloads"],
+      scanSessionId: "managed-session-test"
     });
   });
 
@@ -161,11 +235,15 @@ describe("library scope store", () => {
     await useScanManagerStore.getState().handleScan();
 
     expect(apiMocks.dialogOpen).not.toHaveBeenCalled();
-    expect(apiMocks.startScan).toHaveBeenNthCalledWith(1, "F:/Downloads", false, expect.any(String), "foreground", false);
-    expect(apiMocks.startScan).toHaveBeenNthCalledWith(2, "D:/Projects", false, expect.any(String), "foreground", true);
+    expect(apiMocks.startManagedScan).toHaveBeenCalledWith(expect.objectContaining({
+      roots: ["F:/Downloads", "D:/Projects"],
+      dedupe: true,
+      requestKey: expect.any(String)
+    }));
     expect(useFileLibraryStore.getState().scope).toEqual({
       kind: "current_scan",
-      roots: ["F:/Downloads", "D:/Projects"]
+      roots: ["F:/Downloads", "D:/Projects"],
+      scanSessionId: "managed-session-test"
     });
   });
 

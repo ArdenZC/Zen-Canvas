@@ -9,7 +9,7 @@ Task 01A 任务书已由人工完成最终修订和验收。**PR #17 合并到 `
 | 阶段 | 任务书 | 目标 | 状态 |
 |---|---|---|---|
 | 00 | `TASK_00_POST_MERGE_BASELINE_AUDIT.md` | PR #15 合并后架构、安全和数据基线审计 | **已验收并合并** |
-| 01A | `TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md` | File Library Scan root lease、session/run/generation、scan_seen、stale safety、恢复和 durable revision | **已批准；PR #17 合并后可执行** |
+| 01A | `TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md` | File Library Scan root lease、session/run/generation、scan_seen、stale safety、恢复和 durable revision | **实施完成，待人工验收** |
 | 01B | 待创建 | Watcher Reconciliation Ownership、overflow replay 和 durable watcher owner | **等待 Task 01A 实施验收，禁止执行** |
 | 02 | 待创建 | 文件 identity/fingerprint、prehash、duplicate group 和 durable dedupe | **后续阶段，禁止执行** |
 | 03 | 待创建 | Analysis Run、Finding 与 detector | **后续阶段，禁止执行** |
@@ -113,7 +113,7 @@ git status --short
 5. 同一 root 的 active 集合仅为 `queued/running/cancelling`；partial unique index、root active pointer、lease token、generation 和 durable revision 共同保护 owner。
 6.重复 start：相同 `request_key + canonical request hash` 幂等返回；其他 active root 冲突拒绝整个请求，不分配 generation。
 7. metadata error 是 coverage-breaking：记录 `scan_run_errors`、不写 `scan_seen`、禁止 stale。
-8. `scan_seen` successful 保留 7 天，非成功 terminal 保留 30 天，每 root 至少保留最新两个 terminal run；active/recovery-pinned 不 prune。
+8. `scan_seen` successful 保留 7 天，非成功 terminal 保留 30 天，每 root 保留最新两个 terminal run；active run 不进入 terminal retention candidate，不能以 interrupted/requires-reconciliation 状态永久 pin。
 9. multi-root session 持久化 requested→effective mapping，包括 duplicate、nested、invalid 和 cancelled-not-started。
 10. session phase 是独立聚合阶段：`preparing -> running -> finalizing -> completed`，不跟随 root phase 倒退。
 11. run/session revision 是 renderer 的 durable 事件水位；先 hydrate，后接收事件。
@@ -143,6 +143,12 @@ Task 01A 完成后必须新增 closeout，并将本索引更新为：
 ```text
 Task 01A：实施完成，待人工验收
 Task 01B：仍禁止执行
+
+本次 closeout：
+
+```text
+docs/remediation/TASK_01A_IMPLEMENTATION_CLOSEOUT.md
+```
 ```
 
 只有 Task 01A 生产实施通过人工验收并合并后，才由人工创建 Task 01B 任务书。

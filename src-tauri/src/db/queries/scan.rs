@@ -1,0 +1,3564 @@
+use super::super::*;
+use super::*;
+use crate::ids::new_job_id;
+use crate::path_filter::{generated_dir_variant_bases, ignored_dir_names};
+use rusqlite::{
+    params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension, Row,
+    Transaction, TransactionBehavior,
+};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedScanRequest {
+    pub roots: Vec<String>,
+    #[serde(default)]
+    pub request_key: Option<String>,
+    #[serde(default)]
+    pub dedupe: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanRootDto {
+    pub id: String,
+    pub normalized_path: String,
+    pub display_name: String,
+    pub source_kind: String,
+    pub enabled: bool,
+    pub health_status: String,
+    pub current_generation: i64,
+    pub active_run_id: Option<String>,
+    pub active_generation: Option<i64>,
+    pub revision: i64,
+    pub last_successful_generation: Option<i64>,
+    pub last_full_scan_at: Option<i64>,
+    pub needs_reconciliation: bool,
+    pub last_error_code: Option<String>,
+    pub last_error_message: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanSessionRootDto {
+    pub session_id: String,
+    pub requested_index: i64,
+    pub requested_path: String,
+    pub normalized_requested_path: String,
+    pub resolution: String,
+    pub effective_root_id: Option<String>,
+    pub effective_path: Option<String>,
+    pub effective_index: Option<i64>,
+    pub run_id: Option<String>,
+    pub status: String,
+    pub reason: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanRunDto {
+    pub id: String,
+    pub scan_root_id: String,
+    pub root_path: String,
+    pub generation: i64,
+    pub parent_session_id: Option<String>,
+    pub status: String,
+    pub phase: String,
+    pub scanned_files: i64,
+    pub scanned_directories: i64,
+    pub processed_bytes: i64,
+    pub warnings_count: i64,
+    pub errors_count: i64,
+    pub metadata_error_count: i64,
+    pub coverage_error_count: i64,
+    pub coverage_complete: bool,
+    pub stale_reconciliation_allowed: bool,
+    pub cancel_requested: bool,
+    pub revision: i64,
+    pub session_revision: i64,
+    pub started_at: Option<i64>,
+    pub finished_at: Option<i64>,
+    pub last_checkpoint_at: Option<i64>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    pub result_json: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanSessionDto {
+    pub id: String,
+    pub request_key: Option<String>,
+    pub canonical_request_hash: Option<String>,
+    pub status: String,
+    pub phase: String,
+    pub cancel_requested: bool,
+    pub requested_root_count: i64,
+    pub effective_root_count: i64,
+    pub completed_root_count: i64,
+    pub failed_root_count: i64,
+    pub cancelled_root_count: i64,
+    pub covered_root_count: i64,
+    pub unstarted_root_count: i64,
+    pub dedupe_requested: bool,
+    pub dedupe_dispatch_state: String,
+    pub dedupe_attempt_count: i64,
+    pub dedupe_job_id: Option<String>,
+    pub dedupe_last_error: Option<String>,
+    pub scanned_files: i64,
+    pub scanned_directories: i64,
+    pub warnings_count: i64,
+    pub errors_count: i64,
+    pub revision: i64,
+    pub started_at: Option<i64>,
+    pub finished_at: Option<i64>,
+    pub last_checkpoint_at: Option<i64>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    pub result_json: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub roots: Vec<ScanSessionRootDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedScanStartDto {
+    pub session: ScanSessionDto,
+    pub runs: Vec<ScanRunDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedScanSnapshotDto {
+    pub session: ScanSessionDto,
+    pub runs: Vec<ScanRunDto>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ScanAdmissionOptions {
+    pub request: ManagedScanRequest,
+    pub run_id_override: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ScanAdmission {
+    pub session: ScanSessionDto,
+    pub runs: Vec<ScanRunDto>,
+    pub created: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ScanRunRecord {
+    pub dto: ScanRunDto,
+    pub lease_token: String,
+    pub root_revision: i64,
+    pub root_active_run_id: Option<String>,
+    pub root_active_generation: Option<i64>,
+    pub session_revision: i64,
+    pub session_status: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ScanErrorInput {
+    pub path: Option<String>,
+    pub error_code: String,
+    pub error_message: String,
+    pub affects_coverage: bool,
+    pub metadata_error: bool,
+}
+
+#[derive(Debug)]
+pub(crate) struct ScanBatchInput<'a> {
+    pub entries: &'a [InsertFileRequest],
+    pub errors: &'a [ScanErrorInput],
+    pub scanned_files: i64,
+    pub scanned_directories: i64,
+    pub processed_bytes: i64,
+    pub warnings: i64,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ScanFinalizeInput {
+    pub terminal_status: String,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    pub allow_stale_reconciliation: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ScanFinalization {
+    pub run: ScanRunRecord,
+    pub session: ScanSessionDto,
+    pub dedupe_pending: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ScanRootSeed {
+    id: String,
+    current_generation: i64,
+    revision: i64,
+    active_run_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedRequestedRoot {
+    requested_index: i64,
+    requested_path: String,
+    normalized_path: String,
+    key: String,
+    resolution: &'static str,
+    effective_key: Option<String>,
+    effective_path: Option<String>,
+    effective_index: Option<i64>,
+    status: &'static str,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct EffectiveRoot {
+    key: String,
+    path: String,
+    first_index: i64,
+}
+
+impl Database {
+    pub(crate) fn admit_managed_scan(
+        &self,
+        options: &ScanAdmissionOptions,
+    ) -> Result<ScanAdmission, DbError> {
+        let resolved = resolve_requested_roots(&options.request.roots);
+        let canonical_hash = canonical_request_hash(&resolved, options.request.dedupe)?;
+        let request_key = options
+            .request
+            .request_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+        if let Some(request_key) = request_key.as_deref() {
+            if let Some((session_id, existing_hash)) = tx
+                .query_row(
+                    "SELECT id, canonical_request_hash FROM scan_sessions WHERE request_key = ?1",
+                    params![request_key],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+                )
+                .optional()?
+            {
+                if existing_hash.as_deref() != Some(canonical_hash.as_str()) {
+                    return Err(DbError::Validation(format!(
+                        "Scan request key already belongs to a different canonical request: {request_key}"
+                    )));
+                }
+                let admission = load_admission_tx(&tx, &session_id, false)?;
+                tx.commit()?;
+                return Ok(admission);
+            }
+        }
+
+        let mut roots_by_key = HashMap::new();
+        for effective in effective_roots(&resolved) {
+            let seed = ensure_scan_root_tx(&tx, &effective.path)?;
+            if seed.active_run_id.is_some() {
+                return Err(DbError::Validation(format!(
+                    "Scan root already has an active run: {}",
+                    effective.path
+                )));
+            }
+            roots_by_key.insert(effective.key.clone(), seed);
+        }
+
+        let active_roots = {
+            let mut statement = tx.prepare(
+                "SELECT normalized_path, active_run_id FROM scan_roots WHERE active_run_id IS NOT NULL",
+            )?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+        for effective in effective_roots(&resolved) {
+            if let Some((active_path, active_run_id)) = active_roots
+                .iter()
+                .find(|(active_path, _)| root_paths_overlap(active_path, &effective.path))
+            {
+                return Err(DbError::Validation(format!(
+                    "Scan root overlaps an active root lease: {} overlaps {} ({active_run_id})",
+                    effective.path, active_path
+                )));
+            }
+        }
+
+        let now = current_unix_seconds();
+        let session_id = new_job_id("scan-session");
+        tx.execute(
+            r#"
+            INSERT INTO scan_sessions (
+                id, request_key, canonical_request_hash, status, phase,
+                requested_root_count, effective_root_count, dedupe_requested,
+                created_at, updated_at
+            ) VALUES (?1, ?2, ?3, 'queued', 'preparing', ?4, ?5, ?6, ?7, ?7)
+            "#,
+            params![
+                session_id,
+                request_key,
+                canonical_hash,
+                resolved.len() as i64,
+                roots_by_key.len() as i64,
+                bool_to_i64(options.request.dedupe),
+                now,
+            ],
+        )?;
+
+        for mapping in &resolved {
+            let root_seed = mapping
+                .effective_key
+                .as_ref()
+                .and_then(|key| roots_by_key.get(key));
+            tx.execute(
+                r#"
+                INSERT INTO scan_session_roots (
+                    session_id, requested_index, requested_path, normalized_requested_path,
+                    resolution, effective_root_id, effective_path, effective_index,
+                    status, reason, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
+                "#,
+                params![
+                    session_id,
+                    mapping.requested_index,
+                    mapping.requested_path,
+                    mapping.normalized_path,
+                    mapping.resolution,
+                    root_seed.map(|seed| seed.id.as_str()),
+                    mapping.effective_path,
+                    mapping.effective_index,
+                    mapping.status,
+                    mapping.reason,
+                    now,
+                ],
+            )?;
+        }
+
+        for effective in effective_roots(&resolved) {
+            let root_seed = roots_by_key
+                .get(&effective.key)
+                .expect("effective root was inserted into the admission map");
+            let generation = root_seed.current_generation + 1;
+            let run_id = if effective.first_index == 0 {
+                options
+                    .run_id_override
+                    .clone()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| new_job_id("scan-run"))
+            } else {
+                new_job_id("scan-run")
+            };
+            let lease_token = new_job_id("scan-lease");
+            tx.execute(
+                r#"
+                INSERT INTO scan_runs (
+                    id, scan_root_id, generation, parent_session_id, lease_token,
+                    status, phase, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, 'queued', 'preparing', ?6, ?6)
+                "#,
+                params![
+                    run_id,
+                    root_seed.id,
+                    generation,
+                    session_id,
+                    lease_token,
+                    now,
+                ],
+            )?;
+            let changed = tx.execute(
+                r#"
+                UPDATE scan_roots
+                SET current_generation = ?1,
+                    active_run_id = ?2,
+                    active_generation = ?1,
+                    health_status = 'scanning',
+                    revision = revision + 1,
+                    updated_at = ?3
+                WHERE id = ?4
+                  AND revision = ?5
+                  AND active_run_id IS NULL
+                  AND active_generation IS NULL
+                "#,
+                params![generation, run_id, now, root_seed.id, root_seed.revision],
+            )?;
+            if changed != 1 {
+                return Err(DbError::Validation(format!(
+                    "Scan root lease admission CAS failed: {}",
+                    effective.path
+                )));
+            }
+            tx.execute(
+                r#"
+                UPDATE scan_session_roots
+                SET run_id = ?1, updated_at = ?2
+                WHERE session_id = ?3 AND effective_root_id = ?4
+                "#,
+                params![run_id, now, session_id, root_seed.id],
+            )?;
+        }
+
+        if roots_by_key.is_empty() {
+            let _ = update_session_projection_tx(&tx, &session_id, 0, now)?;
+        }
+
+        let admission = load_admission_tx(&tx, &session_id, true)?;
+        tx.commit()?;
+        Ok(admission)
+    }
+
+    pub(crate) fn get_scan_run_record(&self, run_id: &str) -> Result<ScanRunRecord, DbError> {
+        let conn = self.conn()?;
+        load_scan_run_record(&conn, run_id)
+    }
+
+    pub(crate) fn get_scan_session(&self, session_id: &str) -> Result<ScanSessionDto, DbError> {
+        let conn = self.conn()?;
+        load_session(&conn, session_id)
+    }
+
+    pub(crate) fn get_managed_scan_snapshot(
+        &self,
+        session_id: &str,
+    ) -> Result<ManagedScanSnapshotDto, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Deferred)?;
+        let session = load_session(&tx, session_id)?;
+        let mut statement = tx.prepare(&format!(
+            "{SCAN_RUN_SELECT} WHERE run.parent_session_id = ?1 ORDER BY run.created_at, run.id"
+        ))?;
+        let runs = statement
+            .query_map(params![session_id], scan_run_dto_from_row)
+            .map_err(DbError::from)?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
+        tx.commit()?;
+        Ok(ManagedScanSnapshotDto { session, runs })
+    }
+
+    pub(crate) fn list_scan_runs(
+        &self,
+        session_id: Option<&str>,
+        root_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<ScanRunDto>, DbError> {
+        let conn = self.conn()?;
+        let limit = i64::try_from(limit.clamp(1, 500)).unwrap_or(500);
+        let mut statement = conn.prepare(&format!(
+            "{SCAN_RUN_SELECT} WHERE (?1 IS NULL OR run.parent_session_id = ?1) \
+             AND (?2 IS NULL OR run.scan_root_id = ?2) \
+             ORDER BY run.created_at DESC LIMIT ?3"
+        ))?;
+        let rows = statement
+            .query_map(params![session_id, root_id, limit], scan_run_dto_from_row)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub(crate) fn list_scan_roots(&self) -> Result<Vec<ScanRootDto>, DbError> {
+        let conn = self.conn()?;
+        let mut statement = conn.prepare(
+            r#"
+            SELECT id, normalized_path, display_name, source_kind, enabled, health_status,
+                   current_generation, active_run_id, active_generation, revision,
+                   last_successful_generation, last_full_scan_at, needs_reconciliation,
+                   last_error_code, last_error_message, created_at, updated_at
+            FROM scan_roots
+            ORDER BY normalized_path
+            "#,
+        )?;
+        let rows = statement
+            .query_map([], scan_root_from_row)
+            .map_err(DbError::from)?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub(crate) fn get_scan_root_health(
+        &self,
+        root_id: Option<&str>,
+        path: Option<&str>,
+    ) -> Result<ScanRootDto, DbError> {
+        let conn = self.conn()?;
+        let normalized_path = path.map(normalize_scan_root_path);
+        let path_clause = if cfg!(windows) {
+            "lower(normalized_path) = lower(?2)"
+        } else {
+            "normalized_path = ?2"
+        };
+        conn.query_row(
+            &format!(
+                r#"
+                SELECT id, normalized_path, display_name, source_kind, enabled, health_status,
+                       current_generation, active_run_id, active_generation, revision,
+                       last_successful_generation, last_full_scan_at, needs_reconciliation,
+                       last_error_code, last_error_message, created_at, updated_at
+                FROM scan_roots
+                WHERE (?1 IS NOT NULL AND id = ?1)
+                   OR (?2 IS NOT NULL AND {path_clause})
+                ORDER BY id
+                LIMIT 1
+                "#
+            ),
+            params![root_id, normalized_path],
+            scan_root_from_row,
+        )
+        .map_err(DbError::from)
+    }
+
+    pub(crate) fn claim_queued_scan_run(&self, run_id: &str) -> Result<ScanRunRecord, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let record = load_scan_run_record(&tx, run_id)?;
+        if record.dto.status != "queued" {
+            return Ok(record);
+        }
+        if record.root_active_run_id.as_deref() != Some(run_id)
+            || record.root_active_generation != Some(record.dto.generation)
+        {
+            return Err(DbError::Validation(
+                "Queued scan run no longer owns its root lease.".to_string(),
+            ));
+        }
+        if record.session_status == "cancelling" || record.dto.cancel_requested {
+            return Err(DbError::Validation(
+                "Scan run was cancelled before start.".to_string(),
+            ));
+        }
+
+        let now = current_unix_seconds();
+        let changed = tx.execute(
+            r#"
+            UPDATE scan_runs
+            SET status = 'running', phase = 'discovering',
+                started_at = COALESCE(started_at, ?1),
+                last_checkpoint_at = ?1, revision = revision + 1, updated_at = ?1
+            WHERE id = ?2 AND status = 'queued' AND revision = ?3
+              AND lease_token = ?4 AND cancel_requested = 0
+            "#,
+            params![now, run_id, record.dto.revision, record.lease_token],
+        )?;
+        if changed != 1 {
+            return Err(DbError::Validation(
+                "Queued scan run claim CAS failed.".to_string(),
+            ));
+        }
+        let root_changed = tx.execute(
+            r#"
+            UPDATE scan_roots
+            SET health_status = 'scanning', revision = revision + 1, updated_at = ?1
+            WHERE id = ?2 AND revision = ?3
+              AND active_run_id = ?4 AND active_generation = ?5
+            "#,
+            params![
+                now,
+                record.dto.scan_root_id,
+                record.root_revision,
+                run_id,
+                record.dto.generation
+            ],
+        )?;
+        if root_changed != 1 {
+            return Err(DbError::Validation(
+                "Root lease claim CAS failed.".to_string(),
+            ));
+        }
+        let session_id =
+            record.dto.parent_session_id.as_deref().ok_or_else(|| {
+                DbError::Validation("Scan run has no parent session.".to_string())
+            })?;
+        let session_changed = tx.execute(
+            r#"
+            UPDATE scan_sessions
+            SET status = 'running',
+                phase = CASE WHEN phase IN ('finalizing', 'completed') THEN phase ELSE 'running' END,
+                started_at = COALESCE(started_at, ?1),
+                last_checkpoint_at = ?1, revision = revision + 1, updated_at = ?1
+            WHERE id = ?2 AND revision = ?3
+              AND cancel_requested = 0
+              AND status IN ('queued', 'running')
+            "#,
+            params![now, session_id, record.session_revision],
+        )?;
+        if session_changed != 1 {
+            return Err(DbError::Validation(
+                "Scan session claim CAS failed.".to_string(),
+            ));
+        }
+        tx.execute(
+            "UPDATE scan_session_roots SET status = 'running', updated_at = ?1 WHERE run_id = ?2 AND status = 'queued'",
+            params![now, run_id],
+        )?;
+
+        let claimed = load_scan_run_record(&tx, run_id)?;
+        tx.commit()?;
+        Ok(claimed)
+    }
+
+    pub(crate) fn persist_scan_batch(
+        &self,
+        run_id: &str,
+        expected_run_revision: i64,
+        expected_root_revision: i64,
+        expected_session_revision: i64,
+        batch: &ScanBatchInput<'_>,
+    ) -> Result<ScanRunRecord, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let record = load_scan_run_record(&tx, run_id)?;
+        validate_worker_ownership(
+            &record,
+            run_id,
+            expected_run_revision,
+            expected_root_revision,
+            expected_session_revision,
+            true,
+        )?;
+
+        let observed_at = current_unix_seconds();
+        upsert_scan_files_tx(&tx, run_id, batch.entries, observed_at)?;
+        insert_scan_errors_tx(&tx, run_id, batch.errors, observed_at)?;
+
+        let metadata_errors = batch
+            .errors
+            .iter()
+            .filter(|error| error.metadata_error)
+            .count() as i64;
+        let coverage_errors = batch
+            .errors
+            .iter()
+            .filter(|error| error.affects_coverage)
+            .count() as i64;
+        let errors = batch.errors.len() as i64;
+        let now = current_unix_seconds();
+        let run_changed = tx.execute(
+            r#"
+            UPDATE scan_runs
+            SET phase = 'persisting',
+                scanned_files = scanned_files + ?1,
+                scanned_directories = scanned_directories + ?2,
+                processed_bytes = processed_bytes + ?3,
+                warnings_count = warnings_count + ?4,
+                errors_count = errors_count + ?5,
+                metadata_error_count = metadata_error_count + ?6,
+                coverage_error_count = coverage_error_count + ?7,
+                coverage_complete = 0,
+                stale_reconciliation_allowed = 0,
+                last_checkpoint_at = ?8,
+                revision = revision + 1,
+                updated_at = ?8
+            WHERE id = ?9 AND status = 'running' AND cancel_requested = 0
+              AND revision = ?10 AND lease_token = ?11
+            "#,
+            params![
+                batch.scanned_files,
+                batch.scanned_directories,
+                batch.processed_bytes,
+                batch.warnings,
+                errors,
+                metadata_errors,
+                coverage_errors,
+                now,
+                run_id,
+                expected_run_revision,
+                record.lease_token,
+            ],
+        )?;
+        if run_changed != 1 {
+            return Err(DbError::Validation(
+                "Scan batch run revision CAS failed.".to_string(),
+            ));
+        }
+
+        let session_id =
+            record.dto.parent_session_id.as_deref().ok_or_else(|| {
+                DbError::Validation("Scan run has no parent session.".to_string())
+            })?;
+        let session_changed = tx.execute(
+            r#"
+            UPDATE scan_sessions
+            SET status = 'running',
+                phase = CASE WHEN phase IN ('finalizing', 'completed') THEN phase ELSE 'running' END,
+                scanned_files = scanned_files + ?1,
+                scanned_directories = scanned_directories + ?2,
+                warnings_count = warnings_count + ?3,
+                errors_count = errors_count + ?4,
+                started_at = COALESCE(started_at, ?5),
+                last_checkpoint_at = ?5,
+                revision = revision + 1,
+                updated_at = ?5
+            WHERE id = ?6 AND revision = ?7
+              AND cancel_requested = 0
+              AND status IN ('queued', 'running')
+            "#,
+            params![
+                batch.scanned_files,
+                batch.scanned_directories,
+                batch.warnings,
+                errors,
+                now,
+                session_id,
+                expected_session_revision,
+            ],
+        )?;
+        if session_changed != 1 {
+            return Err(DbError::Validation(
+                "Scan batch session revision CAS failed.".to_string(),
+            ));
+        }
+
+        let updated = load_scan_run_record(&tx, run_id)?;
+        tx.commit()?;
+        Ok(updated)
+    }
+
+    pub(crate) fn reconcile_missing(
+        &self,
+        run_id: &str,
+        expected_run_revision: i64,
+        expected_root_revision: i64,
+        expected_session_revision: i64,
+    ) -> Result<ScanRunRecord, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let record = load_scan_run_record(&tx, run_id)?;
+        validate_worker_ownership(
+            &record,
+            run_id,
+            expected_run_revision,
+            expected_root_revision,
+            expected_session_revision,
+            true,
+        )?;
+        if record.dto.coverage_error_count > 0 {
+            return Err(DbError::Validation(
+                "Scan coverage is incomplete; stale reconciliation is forbidden.".to_string(),
+            ));
+        }
+        let started_at = record
+            .dto
+            .started_at
+            .ok_or_else(|| DbError::Validation("Scan run has no start timestamp.".to_string()))?;
+        let root = &record.dto.root_path;
+        let (root_slash, root_slash_descendant, root_backslash, root_backslash_descendant) =
+            root_patterns(root);
+        let ignored_patterns = ignored_subtree_like_patterns(root);
+        let ignored_clauses = ignored_patterns
+            .iter()
+            .enumerate()
+            .map(|(index, _)| {
+                let parameter_index = 7 + index;
+                format!("LOWER(f.path) NOT LIKE LOWER(?{parameter_index}) ESCAPE '~'")
+            })
+            .collect::<Vec<_>>()
+            .join(" AND ");
+        let mut values = vec![
+            SqlValue::Integer(started_at),
+            SqlValue::Text(root_slash),
+            SqlValue::Text(root_slash_descendant),
+            SqlValue::Text(root_backslash),
+            SqlValue::Text(root_backslash_descendant),
+            SqlValue::Text(run_id.to_string()),
+        ];
+        values.extend(ignored_patterns.into_iter().map(SqlValue::Text));
+        let changed = tx.execute(
+            &format!(
+                r#"
+                UPDATE files AS f
+                SET is_stale = 1
+                WHERE f.is_stale = 0
+                  AND f.last_seen_at < ?1
+                  AND (
+                      f.path = ?2 OR f.path LIKE ?3 ESCAPE '~'
+                      OR f.path = ?4 OR f.path LIKE ?5 ESCAPE '~'
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM scan_seen AS seen
+                      WHERE seen.run_id = ?6
+                        AND (seen.file_id = f.id OR seen.observed_path = f.path)
+                  )
+                  AND {ignored_clauses}
+                "#
+            ),
+            params_from_iter(values),
+        )?;
+        let now = current_unix_seconds();
+        let run_changed = tx.execute(
+            r#"
+            UPDATE scan_runs
+            SET phase = 'reconciling_missing', coverage_complete = 1,
+                stale_reconciliation_allowed = 1, last_checkpoint_at = ?1,
+                revision = revision + 1, updated_at = ?1
+            WHERE id = ?2 AND status = 'running' AND cancel_requested = 0
+              AND coverage_error_count = 0 AND revision = ?3
+              AND lease_token = ?4
+            "#,
+            params![now, run_id, expected_run_revision, record.lease_token],
+        )?;
+        if run_changed != 1 {
+            return Err(DbError::Validation(
+                "Stale reconciliation run CAS failed; stale update rolled back.".to_string(),
+            ));
+        }
+        let updated = load_scan_run_record(&tx, run_id)?;
+        let _ = changed;
+        tx.commit()?;
+        Ok(updated)
+    }
+
+    pub(crate) fn transition_scan_run_phase(
+        &self,
+        run_id: &str,
+        expected_run_revision: i64,
+        expected_root_revision: i64,
+        phase: &str,
+    ) -> Result<ScanRunRecord, DbError> {
+        if !matches!(
+            phase,
+            "preparing"
+                | "discovering"
+                | "persisting"
+                | "reconciling_missing"
+                | "optimizing_search"
+                | "finalizing"
+                | "completed"
+        ) {
+            return Err(DbError::Validation(format!(
+                "Invalid scan run phase: {phase}"
+            )));
+        }
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let record = load_scan_run_record(&tx, run_id)?;
+        if record.dto.revision != expected_run_revision
+            || record.root_revision != expected_root_revision
+            || record.root_active_run_id.as_deref() != Some(run_id)
+            || record.root_active_generation != Some(record.dto.generation)
+        {
+            return Err(DbError::Validation(
+                "Scan phase transition lost root lease or revision ownership.".to_string(),
+            ));
+        }
+        let now = current_unix_seconds();
+        let changed = tx.execute(
+            r#"
+            UPDATE scan_runs
+            SET phase = ?1, last_checkpoint_at = ?2, revision = revision + 1, updated_at = ?2
+            WHERE id = ?3 AND status = 'running' AND cancel_requested = 0
+              AND revision = ?4 AND lease_token = ?5
+            "#,
+            params![
+                phase,
+                now,
+                run_id,
+                expected_run_revision,
+                record.lease_token
+            ],
+        )?;
+        if changed != 1 {
+            return Err(DbError::Validation(
+                "Scan phase transition CAS failed.".to_string(),
+            ));
+        }
+
+        if phase == "finalizing" {
+            let session_id = record.dto.parent_session_id.as_deref().ok_or_else(|| {
+                DbError::Validation("Scan run has no parent session.".to_string())
+            })?;
+            let other_mappings_terminal = {
+                let mut statement = tx.prepare(
+                    "SELECT status FROM scan_session_roots WHERE session_id = ?1 AND (run_id IS NULL OR run_id != ?2)",
+                )?;
+                let statuses = statement
+                    .query_map(params![session_id, run_id], |row| row.get::<_, String>(0))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                statuses.iter().all(|status| is_mapping_terminal(status))
+            };
+            if other_mappings_terminal {
+                let session = load_session(&tx, session_id)?;
+                if session.revision != record.session_revision
+                    || session.status != "running"
+                    || session.cancel_requested
+                {
+                    return Err(DbError::Validation(
+                        "Scan session finalizing transition lost durable revision ownership."
+                            .to_string(),
+                    ));
+                }
+                if session.phase == "running" {
+                    let session_changed = tx.execute(
+                        r#"
+                        UPDATE scan_sessions
+                        SET phase = 'finalizing', last_checkpoint_at = ?1,
+                            revision = revision + 1, updated_at = ?1
+                        WHERE id = ?2 AND revision = ?3
+                          AND status = 'running' AND cancel_requested = 0
+                          AND phase = 'running'
+                        "#,
+                        params![now, session_id, record.session_revision],
+                    )?;
+                    if session_changed != 1 {
+                        return Err(DbError::Validation(
+                            "Scan session finalizing transition CAS failed.".to_string(),
+                        ));
+                    }
+                } else if session.phase != "finalizing" {
+                    return Err(DbError::Validation(
+                        "Scan session phase cannot advance to finalizing from its durable state."
+                            .to_string(),
+                    ));
+                }
+            }
+        }
+        let updated = load_scan_run_record(&tx, run_id)?;
+        tx.commit()?;
+        Ok(updated)
+    }
+
+    pub(crate) fn finalize_scan_run(
+        &self,
+        run_id: &str,
+        expected_run_revision: i64,
+        expected_root_revision: i64,
+        expected_session_revision: i64,
+        input: &ScanFinalizeInput,
+    ) -> Result<ScanFinalization, DbError> {
+        if !matches!(
+            input.terminal_status.as_str(),
+            "cancelled"
+                | "completed"
+                | "completed_with_warnings"
+                | "failed"
+                | "interrupted"
+                | "requires_reconciliation"
+        ) {
+            return Err(DbError::Validation(format!(
+                "Invalid scan terminal status: {}",
+                input.terminal_status
+            )));
+        }
+        let success = matches!(
+            input.terminal_status.as_str(),
+            "completed" | "completed_with_warnings"
+        );
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let record = load_scan_run_record(&tx, run_id)?;
+        if record.dto.status == input.terminal_status {
+            if record.dto.revision != expected_run_revision
+                || record.root_revision != expected_root_revision
+                || record.session_revision != expected_session_revision
+            {
+                return Err(DbError::Validation(
+                    "Repeated scan finalization lost durable revision ownership.".to_string(),
+                ));
+            }
+            let session_id = record.dto.parent_session_id.as_deref().ok_or_else(|| {
+                DbError::Validation("Scan run has no parent session.".to_string())
+            })?;
+            let session = load_session(&tx, session_id)?;
+            tx.commit()?;
+            return Ok(ScanFinalization {
+                run: record,
+                dedupe_pending: session.dedupe_dispatch_state == "pending",
+                session,
+            });
+        }
+        if !matches!(record.dto.status.as_str(), "running" | "cancelling") {
+            return Err(DbError::Validation(
+                "Terminal scan finalization can only claim a running run.".to_string(),
+            ));
+        }
+        if success && record.dto.coverage_error_count > 0 {
+            return Err(DbError::Validation(
+                "A coverage-breaking scan cannot finalize successfully.".to_string(),
+            ));
+        }
+        if success && record.dto.cancel_requested {
+            return Err(DbError::Validation(
+                "A scan with a durable cancellation request cannot finalize successfully."
+                    .to_string(),
+            ));
+        }
+        if record.dto.revision != expected_run_revision
+            || record.root_revision != expected_root_revision
+            || record.session_revision != expected_session_revision
+            || record.root_active_run_id.as_deref() != Some(run_id)
+            || record.root_active_generation != Some(record.dto.generation)
+        {
+            return Err(DbError::Validation(
+                "Scan finalization lost run, root lease, generation, or session revision."
+                    .to_string(),
+            ));
+        }
+        if success && input.allow_stale_reconciliation && !record.dto.stale_reconciliation_allowed {
+            return Err(DbError::Validation(
+                "Successful finalization requires the stale reconciliation gate.".to_string(),
+            ));
+        }
+
+        let now = current_unix_seconds();
+        let result_json = serde_json::json!({
+            "generation": record.dto.generation,
+            "coverageComplete": record.dto.coverage_error_count == 0,
+            "staleReconciliation": record.dto.stale_reconciliation_allowed,
+        })
+        .to_string();
+        let changed = tx.execute(
+            r#"
+            UPDATE scan_runs
+            SET status = ?1, phase = 'completed',
+                coverage_complete = CASE WHEN ?2 = 1 AND coverage_error_count = 0 THEN 1 ELSE coverage_complete END,
+                stale_reconciliation_allowed = CASE WHEN ?3 = 1 THEN stale_reconciliation_allowed ELSE 0 END,
+                finished_at = ?4, last_checkpoint_at = ?4,
+                error_code = COALESCE(?5, error_code),
+                error_message = COALESCE(?6, error_message),
+                result_json = ?7,
+                revision = revision + 1, updated_at = ?4
+            WHERE id = ?8 AND status IN ('running', 'cancelling')
+              AND revision = ?9 AND lease_token = ?10
+            "#,
+            params![
+                input.terminal_status,
+                bool_to_i64(success),
+                bool_to_i64(input.allow_stale_reconciliation),
+                now,
+                input.error_code,
+                input.error_message,
+                result_json,
+                run_id,
+                expected_run_revision,
+                record.lease_token,
+            ],
+        )?;
+        if changed != 1 {
+            return Err(DbError::Validation(
+                "Scan terminal run CAS failed.".to_string(),
+            ));
+        }
+
+        let health = if success {
+            if input.terminal_status == "completed_with_warnings" {
+                "degraded"
+            } else {
+                "healthy"
+            }
+        } else if matches!(input.error_code.as_deref(), Some("root_missing")) {
+            "missing"
+        } else if matches!(
+            input.error_code.as_deref(),
+            Some("permission_denied" | "root_permission")
+        ) {
+            "permission_required"
+        } else {
+            "reconciliation_required"
+        };
+        let last_successful_generation = if success {
+            Some(record.dto.generation)
+        } else {
+            None
+        };
+        let last_full_scan_at = if success { Some(now) } else { None };
+        let root_changed = tx.execute(
+            r#"
+            UPDATE scan_roots
+            SET active_run_id = NULL,
+                active_generation = NULL,
+                health_status = ?1,
+                last_successful_generation = CASE WHEN ?2 = 1 THEN ?3 ELSE last_successful_generation END,
+                last_full_scan_at = CASE WHEN ?2 = 1 THEN ?4 ELSE last_full_scan_at END,
+                needs_reconciliation = CASE WHEN ?2 = 1 THEN 0 ELSE 1 END,
+                last_error_code = ?5,
+                last_error_message = ?6,
+                revision = revision + 1,
+                updated_at = ?7
+            WHERE id = ?8 AND revision = ?9
+              AND active_run_id = ?10 AND active_generation = ?11
+            "#,
+            params![
+                health,
+                bool_to_i64(success),
+                last_successful_generation,
+                last_full_scan_at,
+                input.error_code,
+                input.error_message,
+                now,
+                record.dto.scan_root_id,
+                expected_root_revision,
+                run_id,
+                record.dto.generation,
+            ],
+        )?;
+        if root_changed != 1 {
+            return Err(DbError::Validation(
+                "Scan terminal root lease CAS failed.".to_string(),
+            ));
+        }
+
+        let mapping_status = if success {
+            if input.terminal_status == "completed_with_warnings" {
+                "completed_with_warnings"
+            } else {
+                "completed"
+            }
+        } else {
+            input.terminal_status.as_str()
+        };
+        tx.execute(
+            r#"
+            UPDATE scan_session_roots
+            SET status = CASE
+                    WHEN ?1 = 1 THEN CASE WHEN resolution = 'effective' THEN ?2 ELSE 'covered' END
+                    ELSE ?3
+                END,
+                updated_at = ?4
+            WHERE run_id = ?5
+            "#,
+            params![
+                bool_to_i64(success),
+                mapping_status,
+                mapping_status,
+                now,
+                run_id,
+            ],
+        )?;
+
+        let session_id =
+            record.dto.parent_session_id.as_deref().ok_or_else(|| {
+                DbError::Validation("Scan run has no parent session.".to_string())
+            })?;
+        let projection =
+            update_session_projection_tx(&tx, session_id, expected_session_revision, now)?;
+        let updated = load_scan_run_record(&tx, run_id)?;
+        let session = load_session(&tx, session_id)?;
+        let dedupe_pending = projection.dedupe_pending;
+        tx.commit()?;
+        Ok(ScanFinalization {
+            run: updated,
+            session,
+            dedupe_pending,
+        })
+    }
+
+    pub(crate) fn record_scan_warning(
+        &self,
+        run_id: &str,
+        expected_run_revision: i64,
+        expected_root_revision: i64,
+        expected_session_revision: i64,
+        warning_code: &str,
+        warning_message: &str,
+    ) -> Result<ScanRunRecord, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let record = load_scan_run_record(&tx, run_id)?;
+        validate_worker_ownership(
+            &record,
+            run_id,
+            expected_run_revision,
+            expected_root_revision,
+            expected_session_revision,
+            true,
+        )?;
+        let now = current_unix_seconds();
+        let run_changed = tx.execute(
+            r#"
+            UPDATE scan_runs
+            SET warnings_count = warnings_count + 1,
+                error_code = COALESCE(error_code, ?1),
+                error_message = COALESCE(error_message, ?2),
+                last_checkpoint_at = ?3, revision = revision + 1, updated_at = ?3
+            WHERE id = ?4 AND status = 'running' AND cancel_requested = 0
+              AND revision = ?5 AND lease_token = ?6
+            "#,
+            params![
+                warning_code,
+                warning_message,
+                now,
+                run_id,
+                expected_run_revision,
+                record.lease_token,
+            ],
+        )?;
+        if run_changed != 1 {
+            return Err(DbError::Validation(
+                "Scan warning run revision CAS failed.".to_string(),
+            ));
+        }
+        let session_id =
+            record.dto.parent_session_id.as_deref().ok_or_else(|| {
+                DbError::Validation("Scan run has no parent session.".to_string())
+            })?;
+        let session_changed = tx.execute(
+            r#"
+            UPDATE scan_sessions
+            SET warnings_count = warnings_count + 1,
+                last_checkpoint_at = ?1, revision = revision + 1, updated_at = ?1
+            WHERE id = ?2 AND revision = ?3 AND cancel_requested = 0
+              AND status IN ('running', 'queued')
+            "#,
+            params![now, session_id, expected_session_revision],
+        )?;
+        if session_changed != 1 {
+            return Err(DbError::Validation(
+                "Scan warning session revision CAS failed.".to_string(),
+            ));
+        }
+        let updated = load_scan_run_record(&tx, run_id)?;
+        tx.commit()?;
+        Ok(updated)
+    }
+
+    pub(crate) fn request_scan_cancellation(&self, run_id: &str) -> Result<ScanRunRecord, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let record = load_scan_run_record(&tx, run_id)?;
+        if is_terminal_status(&record.dto.status) {
+            tx.commit()?;
+            return Ok(record);
+        }
+        if !record.dto.cancel_requested
+            && matches!(
+                record.dto.phase.as_str(),
+                "reconciling_missing" | "optimizing_search" | "finalizing"
+            )
+        {
+            // Once stale reconciliation has committed, cancellation must not
+            // turn a run that already changed stale state into a cancelled run.
+            tx.commit()?;
+            return Ok(record);
+        }
+        let session_id =
+            record.dto.parent_session_id.as_deref().ok_or_else(|| {
+                DbError::Validation("Scan run has no parent session.".to_string())
+            })?;
+        let session = load_session(&tx, session_id)?;
+        let now = current_unix_seconds();
+        let session_changed = tx.execute(
+            r#"
+            UPDATE scan_sessions
+            SET cancel_requested = 1, status = 'cancelling',
+                revision = revision + 1, updated_at = ?1
+            WHERE id = ?2 AND revision = ?3
+              AND status NOT IN ('cancelled', 'completed', 'completed_with_warnings',
+                                 'failed', 'interrupted', 'requires_reconciliation')
+            "#,
+            params![now, session_id, session.revision],
+        )?;
+        if session_changed != 1 {
+            return Err(DbError::Validation(
+                "Scan session cancellation CAS failed.".to_string(),
+            ));
+        }
+        let session_revision = session.revision + 1;
+        let queued_runs = {
+            let mut statement = tx.prepare(
+                "SELECT id FROM scan_runs WHERE parent_session_id = ?1 AND status = 'queued'",
+            )?;
+            let rows = statement
+                .query_map(params![session_id], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+        for queued_run_id in queued_runs {
+            let queued = load_scan_run_record(&tx, &queued_run_id)?;
+            let run_changed = tx.execute(
+                r#"
+                UPDATE scan_runs
+                SET status = 'cancelled', phase = 'completed', cancel_requested = 1,
+                    finished_at = ?1, last_checkpoint_at = ?1,
+                    error_code = 'cancelled_before_start',
+                    error_message = 'Scan was cancelled before this root started.',
+                    revision = revision + 1, updated_at = ?1
+                WHERE id = ?2 AND status = 'queued' AND revision = ?3
+                  AND lease_token = ?4
+                "#,
+                params![now, queued_run_id, queued.dto.revision, queued.lease_token],
+            )?;
+            if run_changed != 1 {
+                return Err(DbError::Validation(
+                    "Queued scan cancellation CAS failed.".to_string(),
+                ));
+            }
+            release_root_lease_tx(&tx, &queued, now, "cancelled_before_start")?;
+            tx.execute(
+                "UPDATE scan_session_roots SET status = 'cancelled_not_started', updated_at = ?1 WHERE run_id = ?2 AND status = 'queued'",
+                params![now, queued_run_id],
+            )?;
+        }
+        if record.dto.status == "running" || record.dto.status == "cancelling" {
+            let changed = tx.execute(
+                r#"
+                UPDATE scan_runs
+                SET status = 'cancelling', cancel_requested = 1,
+                    last_checkpoint_at = ?1, revision = revision + 1, updated_at = ?1
+                WHERE id = ?2 AND status IN ('running', 'cancelling')
+                  AND revision = ?3 AND lease_token = ?4
+                "#,
+                params![now, run_id, record.dto.revision, record.lease_token],
+            )?;
+            if changed != 1 {
+                return Err(DbError::Validation(
+                    "Running scan cancellation CAS failed.".to_string(),
+                ));
+            }
+        }
+        let _ = update_session_projection_tx(&tx, session_id, session_revision, now)?;
+        let updated = load_scan_run_record(&tx, run_id)?;
+        tx.commit()?;
+        Ok(updated)
+    }
+
+    pub(crate) fn recover_interrupted_scan_runs(&self) -> Result<usize, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let ids = {
+            let mut statement = tx.prepare(
+                "SELECT id FROM scan_runs WHERE status IN ('queued', 'running', 'cancelling') ORDER BY created_at",
+            )?;
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+        let now = current_unix_seconds();
+        let mut recovered = 0;
+        for run_id in ids {
+            let record = load_scan_run_record(&tx, &run_id)?;
+            let run_changed = tx.execute(
+                r#"
+                UPDATE scan_runs
+                SET status = 'interrupted', phase = 'completed',
+                    finished_at = ?1, last_checkpoint_at = ?1,
+                    error_code = 'process_interrupted',
+                    error_message = 'The application stopped before this scan finalized.',
+                    revision = revision + 1, updated_at = ?1
+                WHERE id = ?2 AND status IN ('queued', 'running', 'cancelling')
+                  AND revision = ?3 AND lease_token = ?4
+                "#,
+                params![now, run_id, record.dto.revision, record.lease_token],
+            )?;
+            if run_changed != 1 {
+                continue;
+            }
+            release_root_lease_tx(&tx, &record, now, "process_interrupted")?;
+            tx.execute(
+                "UPDATE scan_session_roots SET status = 'interrupted', updated_at = ?1 WHERE run_id = ?2 AND status IN ('queued', 'running')",
+                params![now, run_id],
+            )?;
+            if let Some(session_id) = record.dto.parent_session_id.as_deref() {
+                let current = load_session(&tx, session_id)?;
+                let _ = update_session_projection_tx(&tx, session_id, current.revision, now)?;
+            }
+            recovered += 1;
+        }
+        tx.execute(
+            r#"
+            UPDATE scan_sessions
+            SET dedupe_dispatch_state = 'unknown',
+                dedupe_last_error = 'The process stopped while dispatching dedupe.',
+                revision = revision + 1, updated_at = ?1
+            WHERE dedupe_dispatch_state = 'dispatching'
+              AND status IN ('completed', 'completed_with_warnings')
+            "#,
+            params![now],
+        )?;
+        tx.commit()?;
+        Ok(recovered)
+    }
+
+    pub(crate) fn list_dedupe_dispatch_candidates(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<ScanSessionDto>, DbError> {
+        let conn = self.conn()?;
+        let mut statement = conn.prepare(
+            r#"
+            SELECT id
+            FROM scan_sessions
+            WHERE dedupe_requested = 1
+              AND status IN ('completed', 'completed_with_warnings')
+              AND dedupe_dispatch_state IN ('pending', 'unknown', 'failed')
+            ORDER BY updated_at, id
+            LIMIT ?1
+            "#,
+        )?;
+        let ids = statement
+            .query_map(params![limit.min(1000) as i64], |row| {
+                row.get::<_, String>(0)
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        ids.into_iter()
+            .map(|session_id| load_session(&conn, &session_id))
+            .collect()
+    }
+
+    pub(crate) fn claim_dedupe_dispatch(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<ScanSessionDto>, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let session = load_session(&tx, session_id)?;
+        if !session.dedupe_requested
+            || !matches!(
+                session.status.as_str(),
+                "completed" | "completed_with_warnings"
+            )
+            || !matches!(
+                session.dedupe_dispatch_state.as_str(),
+                "pending" | "unknown" | "failed"
+            )
+        {
+            tx.commit()?;
+            return Ok(None);
+        }
+        let now = current_unix_seconds();
+        let changed = tx.execute(
+            r#"
+            UPDATE scan_sessions
+            SET dedupe_dispatch_state = 'dispatching',
+                dedupe_attempt_count = dedupe_attempt_count + 1,
+                dedupe_last_error = NULL, revision = revision + 1, updated_at = ?1
+            WHERE id = ?2 AND revision = ?3
+              AND dedupe_dispatch_state IN ('pending', 'unknown', 'failed')
+            "#,
+            params![now, session_id, session.revision],
+        )?;
+        if changed != 1 {
+            return Ok(None);
+        }
+        let claimed = load_session(&tx, session_id)?;
+        tx.commit()?;
+        Ok(Some(claimed))
+    }
+
+    pub(crate) fn record_dedupe_dispatch(
+        &self,
+        session_id: &str,
+        expected_revision: i64,
+        job_id: Option<&str>,
+        error: Option<&str>,
+    ) -> Result<ScanSessionDto, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let state = if job_id.is_some() {
+            "dispatched"
+        } else {
+            "failed"
+        };
+        let now = current_unix_seconds();
+        let changed = tx.execute(
+            r#"
+            UPDATE scan_sessions
+            SET dedupe_dispatch_state = ?1, dedupe_job_id = ?2,
+                dedupe_last_error = ?3, revision = revision + 1, updated_at = ?4
+            WHERE id = ?5 AND revision = ?6 AND dedupe_dispatch_state = 'dispatching'
+            "#,
+            params![state, job_id, error, now, session_id, expected_revision],
+        )?;
+        if changed != 1 {
+            return Err(DbError::Validation(
+                "Dedupe dispatch result CAS failed.".to_string(),
+            ));
+        }
+        let session = load_session(&tx, session_id)?;
+        tx.commit()?;
+        Ok(session)
+    }
+
+    pub(crate) fn prune_scan_observations(&self) -> Result<usize, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let now = current_unix_seconds();
+        let mut candidates = Vec::<(String, String)>::new();
+        {
+            let mut statement = tx.prepare(
+                r#"
+                SELECT id, scan_root_id, status, COALESCE(finished_at, created_at)
+                FROM scan_runs
+                WHERE status NOT IN ('queued', 'running', 'cancelling')
+                ORDER BY scan_root_id, created_at DESC
+                "#,
+            )?;
+            let mut newest_by_root = HashMap::<String, usize>::new();
+            let rows = statement.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })?;
+            for row in rows {
+                let (run_id, root_id, status, finished_at) = row?;
+                let newest = newest_by_root.entry(root_id).or_default();
+                let keep_newest = *newest < 2;
+                *newest += 1;
+                let retention =
+                    if matches!(status.as_str(), "completed" | "completed_with_warnings") {
+                        7 * 24 * 60 * 60
+                    } else {
+                        30 * 24 * 60 * 60
+                    };
+                if !keep_newest && finished_at <= now.saturating_sub(retention) {
+                    candidates.push((run_id, status));
+                }
+            }
+        }
+        let mut deleted = 0usize;
+        for (run_id, status) in candidates {
+            if deleted >= 1000 {
+                break;
+            }
+            let remaining = 1000 - deleted;
+            let changed = tx.execute(
+                &format!(
+                    "DELETE FROM scan_seen WHERE rowid IN (SELECT rowid FROM scan_seen WHERE run_id = ?1 LIMIT {remaining})"
+                ),
+                params![run_id],
+            )?;
+            deleted += changed;
+            if deleted >= 1000 {
+                break;
+            }
+            let remaining = 1000 - deleted;
+            let changed = tx.execute(
+                &format!(
+                    "DELETE FROM scan_run_errors WHERE rowid IN (SELECT rowid FROM scan_run_errors WHERE run_id = ?1 LIMIT {remaining})"
+                ),
+                params![run_id],
+            )?;
+            deleted += changed;
+            let _ = status;
+        }
+        tx.commit()?;
+        Ok(deleted)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SessionProjection {
+    dedupe_pending: bool,
+}
+
+fn is_terminal_status(status: &str) -> bool {
+    matches!(
+        status,
+        "cancelled"
+            | "completed"
+            | "completed_with_warnings"
+            | "failed"
+            | "interrupted"
+            | "requires_reconciliation"
+    )
+}
+
+fn release_root_lease_tx(
+    tx: &Transaction<'_>,
+    record: &ScanRunRecord,
+    now: i64,
+    error_code: &str,
+) -> Result<(), DbError> {
+    let changed = tx.execute(
+        r#"
+        UPDATE scan_roots
+        SET active_run_id = NULL, active_generation = NULL,
+            health_status = 'reconciliation_required', needs_reconciliation = 1,
+            last_error_code = ?1,
+            last_error_message = 'Scan did not complete and requires reconciliation.',
+            revision = revision + 1, updated_at = ?2
+        WHERE id = ?3 AND revision = ?4
+          AND active_run_id = ?5 AND active_generation = ?6
+        "#,
+        params![
+            error_code,
+            now,
+            record.dto.scan_root_id,
+            record.root_revision,
+            record.dto.id,
+            record.dto.generation,
+        ],
+    )?;
+    if changed != 1 {
+        return Err(DbError::Validation(
+            "Root lease release CAS failed.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn update_session_projection_tx(
+    tx: &Transaction<'_>,
+    session_id: &str,
+    expected_revision: i64,
+    now: i64,
+) -> Result<SessionProjection, DbError> {
+    let session = load_session(tx, session_id)?;
+    if session.revision != expected_revision {
+        return Err(DbError::Validation(
+            "Scan session projection revision CAS failed.".to_string(),
+        ));
+    }
+    let statuses = {
+        let mut statement = tx.prepare(
+            "SELECT status FROM scan_session_roots WHERE session_id = ?1 ORDER BY requested_index",
+        )?;
+        let rows = statement
+            .query_map(params![session_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+    let terminal = statuses.iter().all(|status| is_mapping_terminal(status));
+    let has_requires = statuses
+        .iter()
+        .any(|status| status == "requires_reconciliation");
+    let has_interrupted = statuses.iter().any(|status| status == "interrupted");
+    let has_failed = statuses
+        .iter()
+        .any(|status| status == "failed" || status == "invalid");
+    let has_cancelled = statuses
+        .iter()
+        .any(|status| status == "cancelled" || status == "cancelled_not_started");
+    let has_warning = statuses
+        .iter()
+        .any(|status| status == "completed_with_warnings");
+    let status = if statuses.is_empty() {
+        "failed"
+    } else if !terminal {
+        if session.cancel_requested {
+            "cancelling"
+        } else {
+            "running"
+        }
+    } else if has_requires {
+        "requires_reconciliation"
+    } else if has_interrupted {
+        "interrupted"
+    } else if has_failed {
+        "failed"
+    } else if has_cancelled {
+        "cancelled"
+    } else if has_warning {
+        "completed_with_warnings"
+    } else {
+        "completed"
+    };
+    let phase = if terminal {
+        "completed"
+    } else {
+        match session.phase.as_str() {
+            "finalizing" => "finalizing",
+            "completed" => "completed",
+            _ => "running",
+        }
+    };
+    let completed_root_count = statuses
+        .iter()
+        .filter(|status| matches!(status.as_str(), "completed" | "completed_with_warnings"))
+        .count() as i64;
+    let failed_root_count = statuses
+        .iter()
+        .filter(|status| matches!(status.as_str(), "failed" | "invalid"))
+        .count() as i64;
+    let cancelled_root_count = statuses
+        .iter()
+        .filter(|status| matches!(status.as_str(), "cancelled" | "cancelled_not_started"))
+        .count() as i64;
+    let covered_root_count = statuses
+        .iter()
+        .filter(|status| matches!(status.as_str(), "covered" | "duplicate" | "nested"))
+        .count() as i64;
+    let unstarted_root_count = statuses
+        .iter()
+        .filter(|status| matches!(status.as_str(), "queued" | "cancelled_not_started"))
+        .count() as i64;
+    // Duplicate detection runs over rows that were successfully indexed; its
+    // correctness does not depend on the index being *complete*.  A run that ended in
+    // `requires_reconciliation` still persisted every file it managed to observe, so
+    // suppressing dedupe there would drop a user-requested result for a reason that
+    // does not affect it.  Only a run that indexed nothing is ineligible.
+    let dedupe_eligible_root_count = statuses
+        .iter()
+        .filter(|status| {
+            matches!(
+                status.as_str(),
+                "completed" | "completed_with_warnings" | "requires_reconciliation"
+            )
+        })
+        .count() as i64;
+    let dedupe_pending = terminal
+        && matches!(
+            status,
+            "completed" | "completed_with_warnings" | "requires_reconciliation"
+        )
+        && session.dedupe_requested
+        && dedupe_eligible_root_count > 0
+        && matches!(
+            session.dedupe_dispatch_state.as_str(),
+            "not_requested" | "pending" | "unknown" | "failed"
+        );
+    let dedupe_state = if dedupe_pending {
+        "pending"
+    } else {
+        &session.dedupe_dispatch_state
+    };
+    let changed = tx.execute(
+        r#"
+        UPDATE scan_sessions
+        SET status = ?1, phase = ?2,
+            completed_root_count = ?3, failed_root_count = ?4,
+            cancelled_root_count = ?5, covered_root_count = ?6,
+            unstarted_root_count = ?7,
+            dedupe_dispatch_state = ?8,
+            finished_at = CASE WHEN ?9 = 1 THEN ?10 ELSE finished_at END,
+            last_checkpoint_at = ?10, revision = revision + 1, updated_at = ?10
+        WHERE id = ?11 AND revision = ?12
+        "#,
+        params![
+            status,
+            phase,
+            completed_root_count,
+            failed_root_count,
+            cancelled_root_count,
+            covered_root_count,
+            unstarted_root_count,
+            dedupe_state,
+            bool_to_i64(terminal),
+            now,
+            session_id,
+            expected_revision,
+        ],
+    )?;
+    if changed != 1 {
+        return Err(DbError::Validation(
+            "Scan session projection update affected no rows.".to_string(),
+        ));
+    }
+    Ok(SessionProjection { dedupe_pending })
+}
+
+fn is_mapping_terminal(status: &str) -> bool {
+    matches!(
+        status,
+        "completed"
+            | "completed_with_warnings"
+            | "failed"
+            | "cancelled"
+            | "interrupted"
+            | "requires_reconciliation"
+            | "covered"
+            | "duplicate"
+            | "nested"
+            | "invalid"
+            | "cancelled_not_started"
+    )
+}
+
+fn validate_worker_ownership(
+    record: &ScanRunRecord,
+    run_id: &str,
+    expected_run_revision: i64,
+    expected_root_revision: i64,
+    expected_session_revision: i64,
+    require_running: bool,
+) -> Result<(), DbError> {
+    if record.dto.id != run_id
+        || record.dto.revision != expected_run_revision
+        || record.root_revision != expected_root_revision
+        || record.session_revision != expected_session_revision
+        || record.lease_token.is_empty()
+        || record.root_active_run_id.as_deref() != Some(run_id)
+        || record.root_active_generation != Some(record.dto.generation)
+    {
+        return Err(DbError::Validation(
+            "Scan worker lost run, root lease, generation, or revision ownership.".to_string(),
+        ));
+    }
+    if require_running && (record.dto.status != "running" || record.dto.cancel_requested) {
+        return Err(DbError::Validation(
+            "Scan worker cannot persist after cancellation or terminal transition.".to_string(),
+        ));
+    }
+    if record.session_status != "running" {
+        return Err(DbError::Validation(
+            "Scan session is not writable by the current worker.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn upsert_scan_files_tx(
+    tx: &Transaction<'_>,
+    run_id: &str,
+    files: &[InsertFileRequest],
+    observed_at: i64,
+) -> Result<(), DbError> {
+    if files.is_empty() {
+        return Ok(());
+    }
+    let mut statement = tx.prepare(
+        r#"
+        INSERT INTO files (
+            id, path, name, extension, size, mtime, ctime, is_dir, state_code,
+            file_type, suggested_name, classification_status, is_stale, last_seen_at
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, ?13)
+        ON CONFLICT(id) DO UPDATE SET
+            path = excluded.path,
+            name = excluded.name,
+            extension = excluded.extension,
+            size = excluded.size,
+            mtime = excluded.mtime,
+            ctime = excluded.ctime,
+            is_dir = excluded.is_dir,
+            state_code = excluded.state_code,
+            file_type = excluded.file_type,
+            suggested_name = CASE
+                WHEN files.suggested_name = '' OR files.suggested_name = files.name
+                THEN excluded.suggested_name
+                ELSE files.suggested_name
+            END,
+            content_hash = CASE
+                WHEN files.size != excluded.size
+                  OR files.mtime != excluded.mtime
+                  OR files.is_dir != excluded.is_dir
+                THEN ''
+                ELSE files.content_hash
+            END,
+            is_stale = 0,
+            last_seen_at = excluded.last_seen_at
+        "#,
+    )?;
+    for file in files {
+        statement.execute(params![
+            file.id,
+            file.path,
+            file.name,
+            file.extension,
+            file.size,
+            file.mtime,
+            file.ctime,
+            bool_to_i64(file.is_dir),
+            file.state_code,
+            infer_file_type(&file.extension, file.is_dir),
+            file.name,
+            CLASSIFICATION_STATUS_UNCLASSIFIED,
+            observed_at,
+        ])?;
+    }
+    drop(statement);
+
+    let mut seen_statement = tx.prepare(
+        r#"
+        INSERT INTO scan_seen (run_id, file_id, observed_path, observed_at)
+        VALUES (?1, ?2, ?3, ?4)
+        ON CONFLICT(run_id, file_id) DO UPDATE SET
+            observed_path = excluded.observed_path,
+            observed_at = excluded.observed_at
+        "#,
+    )?;
+    for file in files {
+        seen_statement.execute(params![run_id, file.id, file.path, observed_at])?;
+    }
+    Ok(())
+}
+
+fn insert_scan_errors_tx(
+    tx: &Transaction<'_>,
+    run_id: &str,
+    errors: &[ScanErrorInput],
+    created_at: i64,
+) -> Result<(), DbError> {
+    if errors.is_empty() {
+        return Ok(());
+    }
+    let mut statement = tx.prepare(
+        r#"
+        INSERT INTO scan_run_errors (
+            id, run_id, path, error_code, error_message, affects_coverage, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        "#,
+    )?;
+    for error in errors {
+        statement.execute(params![
+            new_job_id("scan-error"),
+            run_id,
+            error.path,
+            error.error_code,
+            error.error_message,
+            bool_to_i64(error.affects_coverage),
+            created_at,
+        ])?;
+    }
+    Ok(())
+}
+
+fn root_patterns(root: &str) -> (String, String, String, String) {
+    let slash = root.replace('\\', "/");
+    let backslash = slash.replace('/', "\\");
+    let escaped_slash = escape_like_pattern_local(&slash);
+    let escaped_backslash = escape_like_pattern_local(&backslash);
+    (
+        slash.clone(),
+        format!("{escaped_slash}/%"),
+        backslash.clone(),
+        format!("{escaped_backslash}\\%"),
+    )
+}
+
+fn ignored_subtree_like_patterns(root: &str) -> Vec<String> {
+    let slash_root = escape_like_pattern_local(&root.replace('\\', "/"));
+    let backslash_root = escape_like_pattern_local(&root.replace('\\', "/").replace('/', "\\"));
+    let mut patterns = Vec::new();
+
+    for name in ignored_dir_names() {
+        let name = escape_like_pattern_local(name);
+        patterns.extend([
+            format!("{slash_root}/{name}"),
+            format!("{slash_root}/{name}/%"),
+            format!("{slash_root}/%/{name}"),
+            format!("{slash_root}/%/{name}/%"),
+            format!("{backslash_root}\\{name}"),
+            format!("{backslash_root}\\{name}\\%"),
+            format!("{backslash_root}\\%\\{name}"),
+            format!("{backslash_root}\\%\\{name}\\%"),
+        ]);
+    }
+    for base in generated_dir_variant_bases() {
+        for marker in ['.', '-', '_'] {
+            let variant = escape_like_pattern_local(&format!("{base}{marker}"));
+            patterns.extend([
+                format!("{slash_root}/{variant}%"),
+                format!("{slash_root}/{variant}%/%"),
+                format!("{slash_root}/%/{variant}%"),
+                format!("{slash_root}/%/{variant}%/%"),
+                format!("{backslash_root}\\{variant}%"),
+                format!("{backslash_root}\\{variant}%\\%"),
+                format!("{backslash_root}\\%\\{variant}%"),
+                format!("{backslash_root}\\%\\{variant}%\\%"),
+            ]);
+        }
+    }
+    patterns
+}
+
+fn escape_like_pattern_local(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if matches!(ch, '~' | '%' | '_') {
+            escaped.push('~');
+        }
+        escaped.push(ch);
+    }
+    escaped
+}
+
+fn ensure_scan_root_tx(tx: &Transaction<'_>, path: &str) -> Result<ScanRootSeed, DbError> {
+    let normalized_path = normalize_scan_root_path(path);
+    if normalized_path.is_empty() {
+        return Err(DbError::Validation(
+            "Scan root path cannot be empty.".to_string(),
+        ));
+    }
+    let existing = if cfg!(windows) {
+        tx.query_row(
+            r#"
+            SELECT id, current_generation, revision, active_run_id
+            FROM scan_roots WHERE lower(normalized_path) = lower(?1)
+            "#,
+            params![normalized_path],
+            |row| {
+                Ok(ScanRootSeed {
+                    id: row.get(0)?,
+                    current_generation: row.get(1)?,
+                    revision: row.get(2)?,
+                    active_run_id: row.get(3)?,
+                })
+            },
+        )
+        .optional()?
+    } else {
+        tx.query_row(
+            r#"
+            SELECT id, current_generation, revision, active_run_id
+            FROM scan_roots WHERE normalized_path = ?1
+            "#,
+            params![normalized_path],
+            |row| {
+                Ok(ScanRootSeed {
+                    id: row.get(0)?,
+                    current_generation: row.get(1)?,
+                    revision: row.get(2)?,
+                    active_run_id: row.get(3)?,
+                })
+            },
+        )
+        .optional()?
+    };
+    if let Some(seed) = existing {
+        return Ok(seed);
+    }
+
+    let now = current_unix_seconds();
+    let id = new_job_id("scan-root");
+    let display_name = scan_root_display_name(&normalized_path);
+    tx.execute(
+        r#"
+        INSERT INTO scan_roots (
+            id, normalized_path, display_name, source_kind, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, 'file_library', ?4, ?4)
+        "#,
+        params![id, normalized_path, display_name, now],
+    )?;
+    Ok(ScanRootSeed {
+        id,
+        current_generation: 0,
+        revision: 0,
+        active_run_id: None,
+    })
+}
+
+fn load_admission_tx(
+    tx: &Transaction<'_>,
+    session_id: &str,
+    created: bool,
+) -> Result<ScanAdmission, DbError> {
+    let session = load_session(tx, session_id)?;
+    let mut statement = tx.prepare(&format!(
+        "{SCAN_RUN_SELECT} WHERE run.parent_session_id = ?1 ORDER BY run.created_at, run.id"
+    ))?;
+    let runs = statement
+        .query_map(params![session_id], scan_run_dto_from_row)
+        .map_err(DbError::from)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ScanAdmission {
+        session,
+        runs,
+        created,
+    })
+}
+
+fn load_session(conn: &Connection, session_id: &str) -> Result<ScanSessionDto, DbError> {
+    let session = conn.query_row(
+        r#"
+        SELECT id, request_key, canonical_request_hash, status, phase, cancel_requested,
+               requested_root_count, effective_root_count, completed_root_count,
+               failed_root_count, cancelled_root_count, covered_root_count,
+               unstarted_root_count, dedupe_requested, dedupe_dispatch_state,
+               dedupe_attempt_count, dedupe_job_id, dedupe_last_error, scanned_files,
+               scanned_directories, warnings_count, errors_count, revision, started_at,
+               finished_at, last_checkpoint_at, error_code, error_message, result_json,
+               created_at, updated_at
+        FROM scan_sessions WHERE id = ?1
+        "#,
+        params![session_id],
+        scan_session_from_row,
+    )?;
+    let mut mappings_statement = conn.prepare(
+        r#"
+        SELECT session_id, requested_index, requested_path, normalized_requested_path,
+               resolution, effective_root_id, effective_path, effective_index, run_id,
+               status, reason, created_at, updated_at
+        FROM scan_session_roots
+        WHERE session_id = ?1
+        ORDER BY requested_index
+        "#,
+    )?;
+    let roots = mappings_statement
+        .query_map(params![session_id], scan_session_root_from_row)
+        .map_err(DbError::from)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ScanSessionDto { roots, ..session })
+}
+
+fn load_scan_run_record(conn: &Connection, run_id: &str) -> Result<ScanRunRecord, DbError> {
+    conn.query_row(
+        &format!("{SCAN_RUN_SELECT} WHERE run.id = ?1"),
+        params![run_id],
+        scan_run_record_from_row,
+    )
+    .map_err(DbError::from)
+}
+
+const SCAN_RUN_SELECT: &str = r#"
+    SELECT run.id, run.scan_root_id, root.normalized_path, run.generation,
+           run.parent_session_id, run.lease_token, run.status, run.phase,
+           run.scanned_files, run.scanned_directories, run.processed_bytes,
+           run.warnings_count, run.errors_count, run.metadata_error_count,
+           run.coverage_error_count, run.coverage_complete,
+           run.stale_reconciliation_allowed, run.cancel_requested, run.revision,
+           run.started_at, run.finished_at, run.last_checkpoint_at, run.error_code,
+           run.error_message, run.result_json, run.created_at, run.updated_at,
+           root.revision, root.active_run_id, root.active_generation, root.health_status,
+           session.revision, session.status
+    FROM scan_runs AS run
+    JOIN scan_roots AS root ON root.id = run.scan_root_id
+    LEFT JOIN scan_sessions AS session ON session.id = run.parent_session_id
+"#;
+
+fn scan_run_dto_from_row(row: &Row<'_>) -> rusqlite::Result<ScanRunDto> {
+    Ok(scan_run_record_from_row(row)?.dto)
+}
+
+fn scan_run_record_from_row(row: &Row<'_>) -> rusqlite::Result<ScanRunRecord> {
+    Ok(ScanRunRecord {
+        dto: ScanRunDto {
+            id: row.get(0)?,
+            scan_root_id: row.get(1)?,
+            root_path: row.get(2)?,
+            generation: row.get(3)?,
+            parent_session_id: row.get(4)?,
+            status: row.get(6)?,
+            phase: row.get(7)?,
+            scanned_files: row.get(8)?,
+            scanned_directories: row.get(9)?,
+            processed_bytes: row.get(10)?,
+            warnings_count: row.get(11)?,
+            errors_count: row.get(12)?,
+            metadata_error_count: row.get(13)?,
+            coverage_error_count: row.get(14)?,
+            coverage_complete: row.get::<_, i64>(15)? != 0,
+            stale_reconciliation_allowed: row.get::<_, i64>(16)? != 0,
+            cancel_requested: row.get::<_, i64>(17)? != 0,
+            revision: row.get(18)?,
+            session_revision: row.get::<_, Option<i64>>(31)?.unwrap_or_default(),
+            started_at: row.get(19)?,
+            finished_at: row.get(20)?,
+            last_checkpoint_at: row.get(21)?,
+            error_code: row.get(22)?,
+            error_message: row.get(23)?,
+            result_json: row.get(24)?,
+            created_at: row.get(25)?,
+            updated_at: row.get(26)?,
+        },
+        lease_token: row.get(5)?,
+        root_revision: row.get(27)?,
+        root_active_run_id: row.get(28)?,
+        root_active_generation: row.get(29)?,
+        session_revision: row.get::<_, Option<i64>>(31)?.unwrap_or_default(),
+        session_status: row
+            .get::<_, Option<String>>(32)?
+            .unwrap_or_else(|| "failed".to_string()),
+    })
+}
+
+fn scan_root_from_row(row: &Row<'_>) -> rusqlite::Result<ScanRootDto> {
+    Ok(ScanRootDto {
+        id: row.get(0)?,
+        normalized_path: row.get(1)?,
+        display_name: row.get(2)?,
+        source_kind: row.get(3)?,
+        enabled: row.get::<_, i64>(4)? != 0,
+        health_status: row.get(5)?,
+        current_generation: row.get(6)?,
+        active_run_id: row.get(7)?,
+        active_generation: row.get(8)?,
+        revision: row.get(9)?,
+        last_successful_generation: row.get(10)?,
+        last_full_scan_at: row.get(11)?,
+        needs_reconciliation: row.get::<_, i64>(12)? != 0,
+        last_error_code: row.get(13)?,
+        last_error_message: row.get(14)?,
+        created_at: row.get(15)?,
+        updated_at: row.get(16)?,
+    })
+}
+
+fn scan_session_from_row(row: &Row<'_>) -> rusqlite::Result<ScanSessionDto> {
+    Ok(ScanSessionDto {
+        id: row.get(0)?,
+        request_key: row.get(1)?,
+        canonical_request_hash: row.get(2)?,
+        status: row.get(3)?,
+        phase: row.get(4)?,
+        cancel_requested: row.get::<_, i64>(5)? != 0,
+        requested_root_count: row.get(6)?,
+        effective_root_count: row.get(7)?,
+        completed_root_count: row.get(8)?,
+        failed_root_count: row.get(9)?,
+        cancelled_root_count: row.get(10)?,
+        covered_root_count: row.get(11)?,
+        unstarted_root_count: row.get(12)?,
+        dedupe_requested: row.get::<_, i64>(13)? != 0,
+        dedupe_dispatch_state: row.get(14)?,
+        dedupe_attempt_count: row.get(15)?,
+        dedupe_job_id: row.get(16)?,
+        dedupe_last_error: row.get(17)?,
+        scanned_files: row.get(18)?,
+        scanned_directories: row.get(19)?,
+        warnings_count: row.get(20)?,
+        errors_count: row.get(21)?,
+        revision: row.get(22)?,
+        started_at: row.get(23)?,
+        finished_at: row.get(24)?,
+        last_checkpoint_at: row.get(25)?,
+        error_code: row.get(26)?,
+        error_message: row.get(27)?,
+        result_json: row.get(28)?,
+        created_at: row.get(29)?,
+        updated_at: row.get(30)?,
+        roots: Vec::new(),
+    })
+}
+
+fn scan_session_root_from_row(row: &Row<'_>) -> rusqlite::Result<ScanSessionRootDto> {
+    Ok(ScanSessionRootDto {
+        session_id: row.get(0)?,
+        requested_index: row.get(1)?,
+        requested_path: row.get(2)?,
+        normalized_requested_path: row.get(3)?,
+        resolution: row.get(4)?,
+        effective_root_id: row.get(5)?,
+        effective_path: row.get(6)?,
+        effective_index: row.get(7)?,
+        run_id: row.get(8)?,
+        status: row.get(9)?,
+        reason: row.get(10)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
+    })
+}
+
+fn resolve_requested_roots(paths: &[String]) -> Vec<ResolvedRequestedRoot> {
+    let mut resolved = Vec::with_capacity(paths.len());
+    let mut first_by_key = HashMap::<String, (i64, String)>::new();
+    for (index, requested_path) in paths.iter().enumerate() {
+        let requested_path = requested_path.trim().to_string();
+        let normalized_path = normalize_scan_root_path(&requested_path);
+        let key = root_identity_key(&normalized_path);
+        let invalid = normalized_path.is_empty();
+        if !invalid {
+            first_by_key
+                .entry(key.clone())
+                .or_insert((index as i64, normalized_path.clone()));
+        }
+        resolved.push(ResolvedRequestedRoot {
+            requested_index: index as i64,
+            requested_path,
+            normalized_path,
+            key,
+            resolution: if invalid { "invalid" } else { "effective" },
+            effective_key: None,
+            effective_path: None,
+            effective_index: None,
+            status: if invalid { "invalid" } else { "queued" },
+            reason: invalid.then(|| "empty_root_path".to_string()),
+        });
+    }
+
+    let unique = first_by_key
+        .iter()
+        .map(|(key, (first_index, path))| EffectiveRoot {
+            key: key.clone(),
+            path: path.clone(),
+            first_index: *first_index,
+        })
+        .collect::<Vec<_>>();
+    let effective = unique
+        .iter()
+        .filter(|candidate| {
+            !unique.iter().any(|other| {
+                other.key != candidate.key && is_nested_root(&other.path, &candidate.path)
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut effective = effective;
+    effective.sort_by_key(|root| root.first_index);
+    let effective_by_key = effective
+        .iter()
+        .enumerate()
+        .map(|(index, root)| (root.key.clone(), (root.path.clone(), index as i64)))
+        .collect::<HashMap<_, _>>();
+
+    for item in &mut resolved {
+        if item.resolution == "invalid" {
+            continue;
+        }
+        let first_index = first_by_key
+            .get(&item.key)
+            .map(|value| value.0)
+            .unwrap_or(item.requested_index);
+        let is_duplicate = first_index != item.requested_index;
+        let effective_key = effective_by_key
+            .get(&item.key)
+            .map(|_| item.key.clone())
+            .or_else(|| {
+                effective
+                    .iter()
+                    .filter(|root| is_nested_root(&root.path, &item.normalized_path))
+                    .max_by_key(|root| root.path.len())
+                    .map(|root| root.key.clone())
+            });
+        let Some(effective_key) = effective_key else {
+            item.resolution = "invalid";
+            item.status = "invalid";
+            item.reason = Some("no_effective_root".to_string());
+            continue;
+        };
+        let (effective_path, effective_index) = effective_by_key
+            .get(&effective_key)
+            .expect("effective mapping was computed from the effective set");
+        item.effective_key = Some(effective_key);
+        item.effective_path = Some(effective_path.clone());
+        item.effective_index = Some(*effective_index);
+        if is_duplicate {
+            item.resolution = "duplicate_requested";
+            item.status = "duplicate";
+            item.reason = Some("same_normalized_root_requested_more_than_once".to_string());
+        } else if first_by_key.contains_key(&item.key) && effective_by_key.contains_key(&item.key) {
+            item.resolution = "effective";
+            item.status = "queued";
+        } else {
+            item.resolution = "nested_under_effective";
+            item.status = "nested";
+            item.reason = Some("covered_by_effective_ancestor".to_string());
+        }
+    }
+    resolved
+}
+
+fn effective_roots(resolved: &[ResolvedRequestedRoot]) -> Vec<EffectiveRoot> {
+    let mut roots = resolved
+        .iter()
+        .filter(|item| item.resolution == "effective")
+        .map(|item| EffectiveRoot {
+            key: item.key.clone(),
+            path: item.normalized_path.clone(),
+            first_index: item.requested_index,
+        })
+        .collect::<Vec<_>>();
+    roots.sort_by_key(|root| root.first_index);
+    let mut seen = HashSet::new();
+    roots.retain(|root| seen.insert(root.key.clone()));
+    roots
+}
+
+fn canonical_request_hash(
+    resolved: &[ResolvedRequestedRoot],
+    dedupe: bool,
+) -> Result<String, DbError> {
+    let roots = resolved
+        .iter()
+        .map(|root| root.normalized_path.clone())
+        .collect::<Vec<_>>();
+    let canonical = serde_json::json!({ "roots": roots, "dedupe": dedupe });
+    Ok(blake3::hash(serde_json::to_string(&canonical)?.as_bytes())
+        .to_hex()
+        .to_string())
+}
+
+pub(crate) fn normalize_scan_root_path(path: &str) -> String {
+    let trimmed = trim_trailing_path_separators(path.trim());
+    normalize_path_text(trimmed)
+}
+
+fn root_identity_key(path: &str) -> String {
+    if cfg!(windows) {
+        path.to_ascii_lowercase()
+    } else {
+        path.to_string()
+    }
+}
+
+fn is_nested_root(parent: &str, child: &str) -> bool {
+    let parent = root_identity_key(&normalize_scan_root_path(parent));
+    let child = root_identity_key(&normalize_scan_root_path(child));
+    child != parent
+        && child
+            .strip_prefix(&parent)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+fn root_paths_overlap(left: &str, right: &str) -> bool {
+    let left = normalize_scan_root_path(left);
+    let right = normalize_scan_root_path(right);
+    root_identity_key(&left) == root_identity_key(&right)
+        || is_nested_root(&left, &right)
+        || is_nested_root(&right, &left)
+}
+
+fn scan_root_display_name(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or(path)
+        .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        sync::atomic::{AtomicU64, Ordering},
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    };
+
+    static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn test_db(label: &str) -> Database {
+        let sequence = TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        Database::open(std::env::temp_dir().join(format!(
+            "zen-canvas-scan-{label}-{}-{timestamp}-{sequence}.sqlite3",
+            std::process::id()
+        )))
+        .expect("open scan test database")
+    }
+
+    fn request(root: &str, request_key: &str) -> ScanAdmissionOptions {
+        ScanAdmissionOptions {
+            request: ManagedScanRequest {
+                roots: vec![root.to_string()],
+                request_key: Some(request_key.to_string()),
+                dedupe: false,
+            },
+            run_id_override: None,
+        }
+    }
+
+    #[test]
+    fn requested_root_resolution_preserves_order_and_distinguishes_duplicates_and_nested_roots() {
+        let resolved = resolve_requested_roots(&[
+            "/library".to_string(),
+            "/library/child".to_string(),
+            "/library".to_string(),
+            "".to_string(),
+        ]);
+
+        assert_eq!(resolved[0].resolution, "effective");
+        assert_eq!(resolved[1].resolution, "nested_under_effective");
+        assert_eq!(resolved[2].resolution, "duplicate_requested");
+        assert_eq!(resolved[3].resolution, "invalid");
+        assert_eq!(effective_roots(&resolved).len(), 1);
+        assert_eq!(resolved[1].effective_index, Some(0));
+    }
+
+    #[test]
+    fn admission_is_idempotent_and_rejects_a_second_active_run_for_the_same_root() {
+        let db = test_db("admission");
+        let root = format!("/tmp/zen-canvas-scan-admission-{}", new_job_id("root"));
+        let first = db
+            .admit_managed_scan(&request(&root, "request-1"))
+            .expect("admit first");
+        assert!(first.created);
+        assert_eq!(first.runs[0].generation, 1);
+
+        let duplicate = db
+            .admit_managed_scan(&request(&root, "request-1"))
+            .expect("repeat request is idempotent");
+        assert!(!duplicate.created);
+        assert_eq!(duplicate.session.id, first.session.id);
+        assert_eq!(duplicate.runs[0].id, first.runs[0].id);
+
+        let conflict = db.admit_managed_scan(&request(&root, "request-2"));
+        assert!(conflict.is_err());
+        assert_eq!(db.list_scan_roots().expect("list roots").len(), 1);
+    }
+
+    #[test]
+    fn active_parent_rejects_child_but_allows_a_sibling_root() {
+        let db = test_db("root-overlap-parent");
+        let parent = format!("/tmp/zen-canvas-overlap-parent-{}", new_job_id("root"));
+        let child = format!("{parent}/child");
+        let sibling = format!("/tmp/zen-canvas-overlap-sibling-{}", new_job_id("root"));
+
+        db.admit_managed_scan(&request(&parent, "overlap-parent"))
+            .expect("admit active parent");
+        let child_error = db.admit_managed_scan(&request(&child, "overlap-child"));
+        assert!(child_error.is_err());
+        assert!(db
+            .admit_managed_scan(&request(&sibling, "overlap-sibling"))
+            .is_ok());
+    }
+
+    #[test]
+    fn active_child_rejects_parent_and_root_overlap_normalizes_separators() {
+        let db = test_db("root-overlap-child");
+        let parent = format!("/tmp/zen-canvas-overlap-child-{}", new_job_id("root"));
+        let child = format!("{parent}/child");
+
+        db.admit_managed_scan(&request(&child, "overlap-child-active"))
+            .expect("admit active child");
+        let parent_error = db.admit_managed_scan(&request(&parent, "overlap-parent-late"));
+        assert!(parent_error.is_err());
+        assert!(root_paths_overlap("/tmp/library", "/tmp/library\\child"));
+        #[cfg(windows)]
+        assert!(root_paths_overlap("C:\\Library", "c:/library/child"));
+    }
+
+    #[test]
+    fn generation_is_only_successful_after_terminal_cas_and_then_advances() {
+        let db = test_db("generation");
+        let root = format!("/tmp/zen-canvas-scan-generation-{}", new_job_id("root"));
+        let first = db
+            .admit_managed_scan(&request(&root, "generation-1"))
+            .expect("admit");
+        let run = db.claim_queued_scan_run(&first.runs[0].id).expect("claim");
+        let finalized = db
+            .finalize_scan_run(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .expect("finalize");
+        assert_eq!(finalized.run.dto.generation, 1);
+        assert_eq!(finalized.session.status, "completed");
+        assert!(db
+            .finalize_scan_run(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .is_err());
+
+        let second = db
+            .admit_managed_scan(&request(&root, "generation-2"))
+            .expect("admit second");
+        assert_eq!(second.runs[0].generation, 2);
+    }
+
+    #[test]
+    fn metadata_errors_write_error_ledger_without_seen_or_stale_reconciliation() {
+        let db = test_db("metadata-error");
+        let root = format!("/tmp/zen-canvas-scan-metadata-{}", new_job_id("root"));
+        let old_path = format!("{root}/old.txt");
+        db.insert_file(InsertFileRequest {
+            id: old_path.clone(),
+            path: old_path.clone(),
+            name: "old.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 1,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("insert old file");
+        {
+            let conn = db.conn().expect("db connection");
+            conn.execute(
+                "UPDATE files SET last_seen_at = 0 WHERE id = ?1",
+                params![old_path],
+            )
+            .expect("age old file");
+        }
+
+        let admission = db
+            .admit_managed_scan(&request(&root, "metadata-error-1"))
+            .expect("admit");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        let entry = InsertFileRequest {
+            id: format!("{root}/new.txt"),
+            path: format!("{root}/new.txt"),
+            name: "new.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 2,
+            mtime: 2,
+            ctime: 2,
+            is_dir: false,
+            state_code: 0,
+        };
+        let errors = vec![ScanErrorInput {
+            path: Some(format!("{root}/unreadable")),
+            error_code: "metadata_error".to_string(),
+            error_message: "permission denied".to_string(),
+            affects_coverage: true,
+            metadata_error: true,
+        }];
+        let updated = db
+            .persist_scan_batch(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanBatchInput {
+                    entries: std::slice::from_ref(&entry),
+                    errors: &errors,
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: 2,
+                    warnings: 0,
+                },
+            )
+            .expect("persist metadata error batch");
+        assert_eq!(updated.dto.metadata_error_count, 1);
+        assert_eq!(updated.dto.coverage_error_count, 1);
+
+        let conn = db.conn().expect("db connection");
+        let seen_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_seen WHERE run_id = ?1",
+                params![claimed.dto.id],
+                |row| row.get(0),
+            )
+            .expect("seen count");
+        let error_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_run_errors WHERE run_id = ?1",
+                params![claimed.dto.id],
+                |row| row.get(0),
+            )
+            .expect("error count");
+        let old_stale: i64 = conn
+            .query_row(
+                "SELECT is_stale FROM files WHERE id = ?1",
+                params![old_path],
+                |row| row.get(0),
+            )
+            .expect("old stale state");
+        assert_eq!(seen_count, 1);
+        assert_eq!(error_count, 1);
+        assert_eq!(old_stale, 0);
+        drop(conn);
+        assert!(db
+            .reconcile_missing(
+                &updated.dto.id,
+                updated.dto.revision,
+                updated.root_revision,
+                updated.session_revision,
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn stale_reconciliation_uses_the_authoritative_ignore_contract_at_any_depth() {
+        let db = test_db("stale-ignore-contract");
+        let root = format!("/tmp/zen-canvas-scan-ignore-{}", new_job_id("root"));
+        let fixtures = [
+            (format!("{root}/node_modules/cache.txt"), false),
+            (format!("{root}/project/.git-worktree/data.txt"), false),
+            (format!("{root}/project/Node_Modules.CACHE/data.txt"), false),
+            (format!("{root}\\project\\__PYcache__\\entry.txt"), false),
+            (format!("{root}/project/Library/old.txt"), true),
+        ];
+        for (path, _) in &fixtures {
+            db.insert_file(InsertFileRequest {
+                id: path.clone(),
+                path: path.clone(),
+                name: "entry.txt".to_string(),
+                extension: "txt".to_string(),
+                size: 1,
+                mtime: 1,
+                ctime: 1,
+                is_dir: false,
+                state_code: 0,
+            })
+            .expect("insert ignore fixture");
+        }
+        db.conn()
+            .expect("db connection")
+            .execute("UPDATE files SET last_seen_at = 0", [])
+            .expect("age ignore fixtures");
+
+        let admission = db
+            .admit_managed_scan(&request(&root, "stale-ignore-contract-1"))
+            .expect("admit ignore fixture");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim ignore fixture");
+        let reconciled = db
+            .reconcile_missing(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+            )
+            .expect("reconcile ignore fixture");
+        assert!(reconciled.dto.stale_reconciliation_allowed);
+
+        let conn = db.conn().expect("db connection");
+        for (path, should_be_stale) in fixtures {
+            let stale: i64 = conn
+                .query_row(
+                    "SELECT is_stale FROM files WHERE id = ?1",
+                    params![path],
+                    |row| row.get(0),
+                )
+                .expect("read ignore fixture state");
+            assert_eq!(stale, i64::from(should_be_stale), "fixture path: {path}");
+        }
+    }
+
+    #[test]
+    fn successful_metadata_and_scan_seen_commit_together_and_old_worker_cas_is_rejected() {
+        let db = test_db("batch-cas");
+        let root = format!("/tmp/zen-canvas-scan-batch-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&request(&root, "batch-cas-1"))
+            .expect("admit");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        let entry = InsertFileRequest {
+            id: format!("{root}/ok.txt"),
+            path: format!("{root}/ok.txt"),
+            name: "ok.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 4,
+            mtime: 4,
+            ctime: 4,
+            is_dir: false,
+            state_code: 0,
+        };
+        let _updated = db
+            .persist_scan_batch(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanBatchInput {
+                    entries: std::slice::from_ref(&entry),
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: 4,
+                    warnings: 0,
+                },
+            )
+            .expect("persist successful metadata");
+        let conn = db.conn().expect("db connection");
+        let seen: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_seen WHERE run_id = ?1 AND file_id = ?2",
+                params![claimed.dto.id, entry.id],
+                |row| row.get(0),
+            )
+            .expect("scan seen row");
+        assert_eq!(seen, 1);
+        drop(conn);
+
+        let late_entry = InsertFileRequest {
+            id: format!("{root}/late.txt"),
+            path: format!("{root}/late.txt"),
+            name: "late.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 2,
+            mtime: 2,
+            ctime: 2,
+            is_dir: false,
+            state_code: 0,
+        };
+        assert!(db
+            .persist_scan_batch(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanBatchInput {
+                    entries: std::slice::from_ref(&late_entry),
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: 2,
+                    warnings: 0,
+                },
+            )
+            .is_err());
+        let conn = db.conn().expect("db connection");
+        let late_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE id = ?1",
+                params![late_entry.id],
+                |row| row.get(0),
+            )
+            .expect("late file count");
+        assert_eq!(late_count, 0);
+    }
+
+    #[test]
+    fn complete_reconciliation_stales_only_unseen_rows_and_advances_success_generation() {
+        let db = test_db("stale-success");
+        let root = format!("/tmp/zen-canvas-scan-stale-{}", new_job_id("root"));
+        let old_path = format!("{root}/old.txt");
+        db.insert_file(InsertFileRequest {
+            id: old_path.clone(),
+            path: old_path.clone(),
+            name: "old.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 1,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("insert old file");
+        db.conn()
+            .expect("db connection")
+            .execute(
+                "UPDATE files SET last_seen_at = 0 WHERE id = ?1",
+                params![old_path],
+            )
+            .expect("age old file");
+
+        let admission = db
+            .admit_managed_scan(&request(&root, "stale-success-1"))
+            .expect("admit");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        let entry = InsertFileRequest {
+            id: format!("{root}/new.txt"),
+            path: format!("{root}/new.txt"),
+            name: "new.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 2,
+            mtime: 2,
+            ctime: 2,
+            is_dir: false,
+            state_code: 0,
+        };
+        let updated = db
+            .persist_scan_batch(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanBatchInput {
+                    entries: std::slice::from_ref(&entry),
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: 2,
+                    warnings: 0,
+                },
+            )
+            .expect("persist");
+        let reconciled = db
+            .reconcile_missing(
+                &updated.dto.id,
+                updated.dto.revision,
+                updated.root_revision,
+                updated.session_revision,
+            )
+            .expect("reconcile");
+        assert!(reconciled.dto.stale_reconciliation_allowed);
+        let finalization = db
+            .finalize_scan_run(
+                &reconciled.dto.id,
+                reconciled.dto.revision,
+                reconciled.root_revision,
+                reconciled.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: true,
+                },
+            )
+            .expect("finalize");
+        assert_eq!(finalization.session.status, "completed");
+        let conn = db.conn().expect("db connection");
+        let stale: i64 = conn
+            .query_row(
+                "SELECT is_stale FROM files WHERE id = ?1",
+                params![old_path],
+                |row| row.get(0),
+            )
+            .expect("stale state");
+        let successful_generation: i64 = conn
+            .query_row(
+                "SELECT last_successful_generation FROM scan_roots WHERE id = ?1",
+                params![finalization.run.dto.scan_root_id],
+                |row| row.get(0),
+            )
+            .expect("successful generation");
+        assert_eq!(stale, 1);
+        assert_eq!(successful_generation, 1);
+    }
+
+    #[test]
+    fn cancelled_finalization_never_stales_unseen_files() {
+        let db = test_db("cancel-stale");
+        let root = format!("/tmp/zen-canvas-scan-cancel-{}", new_job_id("root"));
+        let old_path = format!("{root}/old.txt");
+        db.insert_file(InsertFileRequest {
+            id: old_path.clone(),
+            path: old_path.clone(),
+            name: "old.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 1,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("insert old file");
+        let admission = db
+            .admit_managed_scan(&request(&root, "cancel-stale-1"))
+            .expect("admit");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        let cancelling = db
+            .request_scan_cancellation(&claimed.dto.id)
+            .expect("request cancellation");
+        let finalization = db
+            .finalize_scan_run(
+                &cancelling.dto.id,
+                cancelling.dto.revision,
+                cancelling.root_revision,
+                cancelling.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "cancelled".to_string(),
+                    error_code: Some("cancelled".to_string()),
+                    error_message: Some("cancelled by test".to_string()),
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .expect("finalize cancellation");
+        assert_eq!(finalization.run.dto.status, "cancelled");
+        let stale: i64 = db
+            .conn()
+            .expect("db connection")
+            .query_row(
+                "SELECT is_stale FROM files WHERE id = ?1",
+                params![old_path],
+                |row| row.get(0),
+            )
+            .expect("stale state");
+        assert_eq!(stale, 0);
+    }
+
+    #[test]
+    fn multi_root_projection_preserves_mapping_and_terminal_priority() {
+        let db = test_db("multi-root");
+        let parent = format!("/tmp/zen-canvas-scan-multi-{}", new_job_id("root"));
+        let child = format!("{parent}/child");
+        let sibling = format!("/tmp/zen-canvas-scan-sibling-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&ScanAdmissionOptions {
+                request: ManagedScanRequest {
+                    roots: vec![parent.clone(), child, "".to_string(), sibling],
+                    request_key: Some("multi-root-1".to_string()),
+                    dedupe: true,
+                },
+                run_id_override: None,
+            })
+            .expect("admit multi-root request");
+        assert_eq!(admission.runs.len(), 2);
+        assert_eq!(admission.session.requested_root_count, 4);
+        assert_eq!(admission.session.effective_root_count, 2);
+        assert_eq!(admission.session.roots[0].status, "queued");
+        assert_eq!(admission.session.roots[1].status, "nested");
+        assert_eq!(admission.session.roots[2].status, "invalid");
+        assert_eq!(admission.session.roots[3].status, "queued");
+
+        let snapshot = db
+            .get_managed_scan_snapshot(&admission.session.id)
+            .expect("durable session snapshot");
+        assert_eq!(snapshot.session.id, admission.session.id);
+        assert_eq!(snapshot.session.requested_root_count, 4);
+        assert_eq!(snapshot.session.roots.len(), 4);
+        assert_eq!(snapshot.runs.len(), 2);
+        assert_eq!(
+            snapshot
+                .runs
+                .iter()
+                .map(|run| run.id.as_str())
+                .collect::<HashSet<_>>(),
+            admission
+                .runs
+                .iter()
+                .map(|run| run.id.as_str())
+                .collect::<HashSet<_>>()
+        );
+
+        let first = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim first root");
+        let first_finalizing = db
+            .transition_scan_run_phase(
+                &first.dto.id,
+                first.dto.revision,
+                first.root_revision,
+                "finalizing",
+            )
+            .expect("finalize first root");
+        assert_eq!(
+            db.get_scan_session(&admission.session.id)
+                .expect("session after first finalizing")
+                .phase,
+            "running"
+        );
+        let first_final = db
+            .finalize_scan_run(
+                &first_finalizing.dto.id,
+                first_finalizing.dto.revision,
+                first_finalizing.root_revision,
+                first_finalizing.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .expect("complete first root");
+        assert_eq!(first_final.session.status, "running");
+
+        let second = db
+            .claim_queued_scan_run(&admission.runs[1].id)
+            .expect("claim second root");
+        let second_finalizing = db
+            .transition_scan_run_phase(
+                &second.dto.id,
+                second.dto.revision,
+                second.root_revision,
+                "finalizing",
+            )
+            .expect("finalize last root");
+        assert_eq!(
+            db.get_scan_session(&admission.session.id)
+                .expect("session after last finalizing")
+                .phase,
+            "finalizing"
+        );
+        let finalization = db
+            .finalize_scan_run(
+                &second_finalizing.dto.id,
+                second_finalizing.dto.revision,
+                second_finalizing.root_revision,
+                second_finalizing.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "failed".to_string(),
+                    error_code: Some("test_failure".to_string()),
+                    error_message: Some("partial failure".to_string()),
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .expect("fail second root");
+        assert_eq!(finalization.session.status, "failed");
+        assert_eq!(finalization.session.completed_root_count, 1);
+        assert_eq!(finalization.session.failed_root_count, 2);
+        assert_eq!(finalization.session.covered_root_count, 1);
+        assert_eq!(finalization.session.phase, "completed");
+        assert_eq!(finalization.session.dedupe_dispatch_state, "not_requested");
+    }
+
+    #[test]
+    fn cancellation_marks_queued_roots_not_started_and_preserves_failure_priority() {
+        let db = test_db("cancel-queued");
+        let root = format!("/tmp/zen-canvas-scan-cancel-queued-{}", new_job_id("root"));
+        let second_root = format!("/tmp/zen-canvas-scan-cancel-queued-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&ScanAdmissionOptions {
+                request: ManagedScanRequest {
+                    roots: vec![root, second_root, "".to_string()],
+                    request_key: Some("cancel-queued-1".to_string()),
+                    dedupe: false,
+                },
+                run_id_override: None,
+            })
+            .expect("admit");
+        let cancelled = db
+            .request_scan_cancellation(&admission.runs[0].id)
+            .expect("cancel queued run");
+        assert_eq!(cancelled.dto.status, "cancelled");
+        let session = db.get_scan_session(&admission.session.id).expect("session");
+        assert_eq!(session.status, "failed");
+        assert!(session
+            .roots
+            .iter()
+            .filter(|root| root.resolution == "effective")
+            .all(|root| root.status == "cancelled_not_started"));
+        assert_eq!(
+            session
+                .roots
+                .iter()
+                .filter(|root| root.resolution == "invalid")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn dedupe_dispatch_claim_and_retry_are_durable_at_least_once() {
+        let db = test_db("dedupe-dispatch");
+        let root = format!("/tmp/zen-canvas-scan-dedupe-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&ScanAdmissionOptions {
+                request: ManagedScanRequest {
+                    roots: vec![root],
+                    request_key: Some("dedupe-dispatch-1".to_string()),
+                    dedupe: true,
+                },
+                run_id_override: None,
+            })
+            .expect("admit");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        let finalization = db
+            .finalize_scan_run(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .expect("complete");
+        assert!(finalization.dedupe_pending);
+        let dispatching = db
+            .claim_dedupe_dispatch(&admission.session.id)
+            .expect("claim dispatch")
+            .expect("pending dispatch");
+        assert_eq!(dispatching.dedupe_dispatch_state, "dispatching");
+        assert_eq!(dispatching.dedupe_attempt_count, 1);
+        assert!(db
+            .claim_dedupe_dispatch(&admission.session.id)
+            .expect("second claim")
+            .is_none());
+        let failed = db
+            .record_dedupe_dispatch(
+                &admission.session.id,
+                dispatching.revision,
+                None,
+                Some("manager unavailable"),
+            )
+            .expect("record failed dispatch");
+        assert_eq!(failed.dedupe_dispatch_state, "failed");
+        let retry = db
+            .claim_dedupe_dispatch(&admission.session.id)
+            .expect("retry claim")
+            .expect("retry pending");
+        assert_eq!(retry.dedupe_attempt_count, 2);
+    }
+
+    #[test]
+    fn cancellation_is_rejected_after_stale_reconciliation_has_committed() {
+        let db = test_db("cancel-finalizing");
+        let root = format!("/tmp/zen-canvas-scan-finalizing-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&request(&root, "cancel-finalizing-1"))
+            .expect("admit");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        let reconciling = db
+            .transition_scan_run_phase(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                "reconciling_missing",
+            )
+            .expect("phase");
+        let unchanged = db
+            .request_scan_cancellation(&reconciling.dto.id)
+            .expect("late cancel");
+        assert_eq!(unchanged.dto.status, "running");
+        assert!(!unchanged.dto.cancel_requested);
+    }
+
+    #[test]
+    fn missing_root_finalization_preserves_reconciliation_health() {
+        let db = test_db("root-health");
+        let root = format!("/tmp/zen-canvas-scan-health-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&request(&root, "root-health-1"))
+            .expect("admit");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        let finalization = db
+            .finalize_scan_run(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "requires_reconciliation".to_string(),
+                    error_code: Some("root_missing".to_string()),
+                    error_message: Some("root disappeared".to_string()),
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .expect("finalize missing root");
+        let health = db
+            .get_scan_root_health(Some(&finalization.run.dto.scan_root_id), None)
+            .expect("root health");
+        assert_eq!(health.health_status, "missing");
+        assert!(health.needs_reconciliation);
+        assert_eq!(health.last_successful_generation, None);
+    }
+
+    #[test]
+    fn historical_interrupted_and_requires_reconciliation_observations_follow_bounded_retention() {
+        let db = test_db("retention-bounded");
+        let root = format!("/tmp/zen-canvas-scan-retention-{}", new_job_id("root"));
+        let statuses = [
+            "interrupted",
+            "requires_reconciliation",
+            "interrupted",
+            "requires_reconciliation",
+        ];
+        let mut run_ids = Vec::new();
+        for (index, terminal_status) in statuses.iter().enumerate() {
+            let admission = db
+                .admit_managed_scan(&request(&root, &format!("retention-bounded-{index}")))
+                .expect("admit historical run");
+            let claimed = db
+                .claim_queued_scan_run(&admission.runs[0].id)
+                .expect("claim historical run");
+            let entry = InsertFileRequest {
+                id: format!("{root}/observed-{index}.txt"),
+                path: format!("{root}/observed-{index}.txt"),
+                name: format!("observed-{index}.txt"),
+                extension: "txt".to_string(),
+                size: 1,
+                mtime: 1,
+                ctime: 1,
+                is_dir: false,
+                state_code: 0,
+            };
+            let errors = vec![ScanErrorInput {
+                path: Some(format!("{root}/unreadable-{index}")),
+                error_code: "metadata_error".to_string(),
+                error_message: "unreadable".to_string(),
+                affects_coverage: true,
+                metadata_error: true,
+            }];
+            let updated = db
+                .persist_scan_batch(
+                    &claimed.dto.id,
+                    claimed.dto.revision,
+                    claimed.root_revision,
+                    claimed.session_revision,
+                    &ScanBatchInput {
+                        entries: std::slice::from_ref(&entry),
+                        errors: &errors,
+                        scanned_files: 1,
+                        scanned_directories: 0,
+                        processed_bytes: 1,
+                        warnings: 0,
+                    },
+                )
+                .expect("persist historical run");
+            let finalization = db
+                .finalize_scan_run(
+                    &updated.dto.id,
+                    updated.dto.revision,
+                    updated.root_revision,
+                    updated.session_revision,
+                    &ScanFinalizeInput {
+                        terminal_status: (*terminal_status).to_string(),
+                        error_code: Some("coverage_incomplete".to_string()),
+                        error_message: Some("metadata error".to_string()),
+                        allow_stale_reconciliation: false,
+                    },
+                )
+                .expect("finalize historical run");
+            run_ids.push(finalization.run.dto.id);
+        }
+
+        let now = current_unix_seconds();
+        let conn = db.conn().expect("db connection");
+        for (index, run_id) in run_ids.iter().enumerate() {
+            let timestamp = if index < 2 { 0 } else { now + index as i64 };
+            conn.execute(
+                "UPDATE scan_runs SET finished_at = ?1, created_at = ?1 WHERE id = ?2",
+                params![timestamp, run_id],
+            )
+            .expect("age historical run");
+        }
+        drop(conn);
+
+        db.prune_scan_observations().expect("bounded prune");
+        let conn = db.conn().expect("db connection");
+        for (index, run_id) in run_ids.iter().enumerate() {
+            let seen_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM scan_seen WHERE run_id = ?1",
+                    params![run_id],
+                    |row| row.get(0),
+                )
+                .expect("seen count");
+            let error_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM scan_run_errors WHERE run_id = ?1",
+                    params![run_id],
+                    |row| row.get(0),
+                )
+                .expect("error count");
+            if index < 2 {
+                assert_eq!(seen_count, 0, "old run {run_id} scan_seen");
+                assert_eq!(error_count, 0, "old run {run_id} errors");
+            } else {
+                assert_eq!(seen_count, 1, "newest run {run_id} scan_seen");
+                assert_eq!(error_count, 1, "newest run {run_id} errors");
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "bounded performance fixture; invoked by npm run test:performance"]
+    fn performance_100k_scan_seen_missing_reconcile_and_wal_reader() {
+        const FILE_COUNT: usize = 100_000;
+        let db = test_db("performance-100k");
+        let seen_root = format!(
+            "/tmp/zen-canvas-scan-performance-seen-{}",
+            new_job_id("root")
+        );
+        let seen_admission = db
+            .admit_managed_scan(&request(&seen_root, "performance-seen-1"))
+            .expect("admit seen fixture");
+        let seen_run = db
+            .claim_queued_scan_run(&seen_admission.runs[0].id)
+            .expect("claim seen fixture");
+        let seen_entries = (0..FILE_COUNT)
+            .map(|index| {
+                let path = format!("{seen_root}/seen-{index:06}.txt");
+                InsertFileRequest {
+                    id: path.clone(),
+                    path,
+                    name: format!("seen-{index:06}.txt"),
+                    extension: "txt".to_string(),
+                    size: 1,
+                    mtime: 1,
+                    ctime: 1,
+                    is_dir: false,
+                    state_code: 0,
+                }
+            })
+            .collect::<Vec<_>>();
+        let insert_started = Instant::now();
+        let seen_updated = db
+            .persist_scan_batch(
+                &seen_run.dto.id,
+                seen_run.dto.revision,
+                seen_run.root_revision,
+                seen_run.session_revision,
+                &ScanBatchInput {
+                    entries: &seen_entries,
+                    errors: &[],
+                    scanned_files: FILE_COUNT as i64,
+                    scanned_directories: 0,
+                    processed_bytes: FILE_COUNT as i64,
+                    warnings: 0,
+                },
+            )
+            .expect("insert 100k scan_seen rows");
+        let insert_elapsed = insert_started.elapsed();
+        let seen_final = db
+            .finalize_scan_run(
+                &seen_updated.dto.id,
+                seen_updated.dto.revision,
+                seen_updated.root_revision,
+                seen_updated.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .expect("finalize seen fixture");
+
+        let missing_root = format!(
+            "/tmp/zen-canvas-scan-performance-missing-{}",
+            new_job_id("root")
+        );
+        {
+            let mut conn = db.conn().expect("db connection");
+            let tx = conn
+                .transaction()
+                .expect("seed missing fixture transaction");
+            let mut statement = tx
+                .prepare(
+                    "INSERT INTO files (id, path, name, extension, size, mtime, ctime, is_dir, state_code, file_type, suggested_name, classification_status, is_stale, last_seen_at) VALUES (?1, ?1, ?2, 'txt', 1, 1, 1, 0, 0, 'Other', ?2, 'unclassified', 0, 0)",
+                )
+                .expect("prepare missing fixture");
+            for index in 0..FILE_COUNT {
+                let name = format!("missing-{index:06}.txt");
+                let path = format!("{missing_root}/{name}");
+                statement
+                    .execute(params![path, name])
+                    .expect("seed missing file");
+            }
+            drop(statement);
+            tx.commit().expect("commit missing fixture");
+        }
+        let missing_admission = db
+            .admit_managed_scan(&request(&missing_root, "performance-missing-1"))
+            .expect("admit missing fixture");
+        let missing_run = db
+            .claim_queued_scan_run(&missing_admission.runs[0].id)
+            .expect("claim missing fixture");
+        let reconcile_started = Instant::now();
+        let reconciled = db
+            .reconcile_missing(
+                &missing_run.dto.id,
+                missing_run.dto.revision,
+                missing_run.root_revision,
+                missing_run.session_revision,
+            )
+            .expect("reconcile 100k missing rows");
+        let reconcile_elapsed = reconcile_started.elapsed();
+        assert!(reconciled.dto.stale_reconciliation_allowed);
+        let missing_final = db
+            .finalize_scan_run(
+                &reconciled.dto.id,
+                reconciled.dto.revision,
+                reconciled.root_revision,
+                reconciled.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: true,
+                },
+            )
+            .expect("finalize missing fixture");
+
+        let writer = db.conn().expect("writer connection");
+        writer
+            .execute_batch("BEGIN IMMEDIATE; UPDATE scan_roots SET updated_at = updated_at;")
+            .expect("hold WAL writer transaction");
+        let reader_started = Instant::now();
+        let roots = db.list_scan_roots().expect("read roots during writer");
+        let reader_elapsed = reader_started.elapsed();
+        writer
+            .execute_batch("ROLLBACK")
+            .expect("rollback writer transaction");
+        assert!(roots.len() >= 2);
+
+        let prune_started = Instant::now();
+        db.prune_scan_observations().expect("bounded prune");
+        let prune_elapsed = prune_started.elapsed();
+        assert!(seen_final.session.status == "completed");
+        assert_eq!(missing_final.session.status, "completed");
+        assert!(insert_elapsed < Duration::from_secs(120));
+        assert!(reconcile_elapsed < Duration::from_secs(120));
+        assert!(reader_elapsed < Duration::from_secs(10));
+        assert!(prune_elapsed < Duration::from_secs(30));
+        eprintln!(
+            "scan performance: scan_seen_insert={:?}, missing_reconcile={:?}, wal_reader={:?}, prune={:?}",
+            insert_elapsed, reconcile_elapsed, reader_elapsed, prune_elapsed
+        );
+    }
+
+    #[test]
+    fn startup_recovery_interrupts_active_runs_and_releases_the_root_lease() {
+        let db = test_db("recovery");
+        let root = format!("/tmp/zen-canvas-scan-recovery-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&request(&root, "recovery-1"))
+            .expect("admit");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        assert_eq!(db.recover_interrupted_scan_runs().expect("recover"), 1);
+        let recovered = db.get_scan_run_record(&run.dto.id).expect("recovered run");
+        assert_eq!(recovered.dto.status, "interrupted");
+        assert!(recovered.root_active_run_id.is_none());
+        assert_eq!(
+            db.get_scan_session(&admission.session.id)
+                .expect("session")
+                .status,
+            "interrupted"
+        );
+    }
+
+    #[test]
+    fn schema_26_upgrade_creates_ledger_without_fabricating_observations() {
+        let path = {
+            let sequence = TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed);
+            std::env::temp_dir().join(format!(
+                "zen-canvas-scan-schema-26-{}-{sequence}.sqlite3",
+                std::process::id()
+            ))
+        };
+        let db = Database::open(&path).expect("create current fixture");
+        db.insert_file(InsertFileRequest {
+            id: "/tmp/legacy.txt".to_string(),
+            path: "/tmp/legacy.txt".to_string(),
+            name: "legacy.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 1,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("insert legacy file");
+        drop(db);
+        let conn = Connection::open(&path).expect("open fixture");
+        conn.execute_batch(
+            r#"
+            DROP TABLE scan_seen;
+            DROP TABLE scan_run_errors;
+            DROP TABLE scan_session_roots;
+            DROP TABLE scan_runs;
+            DROP TABLE scan_sessions;
+            DROP TABLE scan_roots;
+            PRAGMA user_version = 26;
+            "#,
+        )
+        .expect("downgrade ledger tables for schema 26 fixture");
+        drop(conn);
+
+        let migrated = Database::open(&path).expect("migrate schema 26 fixture");
+        let conn = migrated.conn().expect("inspect migrated fixture");
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("schema version");
+        let file_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE id = '/tmp/legacy.txt'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("legacy file");
+        let seen_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM scan_seen", [], |row| row.get(0))
+            .expect("scan seen count");
+        assert_eq!(version, 27);
+        assert_eq!(file_count, 1);
+        assert_eq!(seen_count, 0);
+    }
+}

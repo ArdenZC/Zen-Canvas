@@ -42,6 +42,12 @@ import type { View } from "../types/ui";
 import { DEFAULT_SEARCH_HOTKEY } from "../utils/hotkeys";
 import type {
   GlobalHotkeyStatus,
+  ManagedScanRequest,
+  ManagedScanSnapshotDto,
+  ManagedScanStartDto,
+  ScanRootDto,
+  ScanRunDto,
+  ScanSessionDto,
   ScanSummary
 } from "./tauriApi";
 
@@ -180,6 +186,7 @@ const mockGlobalEntries: GlobalSearchResult[] = [
 ];
 
 let mockManagedScopeState: ManagedScope[] = [];
+let mockManagedScanState: { request: ManagedScanRequest; start: ManagedScanStartDto } | null = null;
 
 const mockRules: Rule[] = [
   {
@@ -218,6 +225,35 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "rebuild_global_index_source":
     case "set_global_index_source_enabled":
       return undefined as T;
+    case "start_managed_scan":
+      return startMockManagedScan(args?.request as ManagedScanRequest | undefined) as T;
+    case "get_managed_scan_snapshot": {
+      const sessionId = String(args?.sessionId ?? "");
+      const snapshot = mockManagedScanState?.start;
+      if (!snapshot || snapshot.session.id !== sessionId) throw new Error("Mock scan session not found");
+      return snapshot as ManagedScanSnapshotDto as T;
+    }
+    case "cancel_scan_run":
+      return cancelMockManagedScan(String(args?.runId ?? "")) as T;
+    case "retry_interrupted_scan": {
+      const previous = mockManagedScanState?.start.runs.find((item) => item.id === String(args?.runId ?? ""));
+      return startMockManagedScan({
+        roots: [previous?.rootPath ?? "C:/Users/Zen"],
+        requestKey: `mock-retry-${Date.now()}`,
+        dedupe: false
+      }) as T;
+    }
+    case "get_scan_run": {
+      const run = mockManagedScanState?.start.runs.find((item) => item.id === String(args?.runId ?? ""));
+      if (!run) throw new Error("Mock scan run not found");
+      return run as T;
+    }
+    case "list_scan_runs":
+      return (mockManagedScanState?.start.runs ?? []) as T;
+    case "list_scan_roots":
+      return (mockManagedScanRoots()) as T;
+    case "get_scan_root_health":
+      return mockManagedRootsForRequest(mockManagedScanState?.request ?? { roots: [], dedupe: false })[0] as T;
     case "get_paged_files":
       return queryMockFiles(args) as T;
     case "get_stats_summary":
@@ -361,6 +397,148 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     default:
       throw new Error(`Unsupported mock command: ${command}`);
   }
+}
+
+function startMockManagedScan(request?: ManagedScanRequest): ManagedScanStartDto {
+  const normalizedRequest: ManagedScanRequest = {
+    roots: request?.roots?.map((root) => root.trim()).filter(Boolean) ?? [],
+    requestKey: request?.requestKey ?? null,
+    dedupe: request?.dedupe ?? false
+  };
+  if (
+    mockManagedScanState
+    && normalizedRequest.requestKey
+    && mockManagedScanState.request.requestKey === normalizedRequest.requestKey
+  ) {
+    return mockManagedScanState.start;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const sessionId = `mock-scan-session-${Date.now()}`;
+  const roots = normalizedRequest.roots.map((root, index) => ({
+    sessionId,
+    requestedIndex: index,
+    requestedPath: root,
+    normalizedRequestedPath: root.replaceAll("\\\\", "/"),
+    resolution: "effective",
+    effectiveRootId: `mock-scan-root-${index}`,
+    effectivePath: root,
+    effectiveIndex: index,
+    runId: `mock-scan-run-${Date.now()}-${index}`,
+    status: "completed",
+    reason: null,
+    createdAt: now,
+    updatedAt: now
+  }));
+  const runs: ScanRunDto[] = roots.map((root) => ({
+    id: root.runId ?? "",
+    scanRootId: root.effectiveRootId ?? "",
+    rootPath: root.effectivePath ?? root.requestedPath,
+    generation: 1,
+    parentSessionId: sessionId,
+    status: "completed",
+    phase: "completed",
+    scannedFiles: mockFiles.length,
+    scannedDirectories: 3,
+    processedBytes: mockFiles.reduce((total, file) => total + file.size, 0),
+    warningsCount: 0,
+    errorsCount: 0,
+    metadataErrorCount: 0,
+    coverageErrorCount: 0,
+    coverageComplete: true,
+    staleReconciliationAllowed: false,
+    cancelRequested: false,
+    revision: 4,
+    sessionRevision: 4,
+    startedAt: now - 1,
+    finishedAt: now,
+    lastCheckpointAt: now,
+    errorCode: null,
+    errorMessage: null,
+    resultJson: null,
+    createdAt: now - 1,
+    updatedAt: now
+  }));
+  const session: ScanSessionDto = {
+    id: sessionId,
+    requestKey: normalizedRequest.requestKey ?? null,
+    canonicalRequestHash: "browser-mock-canonical-request",
+    status: "completed",
+    phase: "completed",
+    cancelRequested: false,
+    requestedRootCount: roots.length,
+    effectiveRootCount: roots.length,
+    completedRootCount: roots.length,
+    failedRootCount: 0,
+    cancelledRootCount: 0,
+    coveredRootCount: 0,
+    unstartedRootCount: 0,
+    dedupeRequested: normalizedRequest.dedupe,
+    dedupeDispatchState: normalizedRequest.dedupe ? "pending" : "not_requested",
+    dedupeAttemptCount: 0,
+    dedupeJobId: null,
+    dedupeLastError: null,
+    scannedFiles: runs.reduce((total, run) => total + run.scannedFiles, 0),
+    scannedDirectories: runs.reduce((total, run) => total + run.scannedDirectories, 0),
+    warningsCount: 0,
+    errorsCount: 0,
+    revision: 4,
+    startedAt: now - 1,
+    finishedAt: now,
+    lastCheckpointAt: now,
+    errorCode: null,
+    errorMessage: null,
+    resultJson: null,
+    createdAt: now - 1,
+    updatedAt: now,
+    roots
+  };
+  const start = { session, runs };
+  mockManagedScanState = { request: normalizedRequest, start };
+  return start;
+}
+
+function cancelMockManagedScan(runId: string): ScanRunDto {
+  const current = mockManagedScanState?.start.runs.find((run) => run.id === runId);
+  if (!current) throw new Error("Mock scan run not found");
+  const run: ScanRunDto = { ...current, status: "cancelled", cancelRequested: true, errorCode: "cancelled" };
+  const start = mockManagedScanState!.start;
+  mockManagedScanState = {
+    request: mockManagedScanState!.request,
+    start: {
+      ...start,
+      runs: start.runs.map((item) => item.id === runId ? run : item),
+      session: { ...start.session, status: "cancelled", cancelRequested: true }
+    }
+  };
+  return run;
+}
+
+function mockManagedRootsForRequest(request: ManagedScanRequest): ScanRootDto[] {
+  const roots = request.roots.length ? request.roots : ["C:/Users/Zen"];
+  const now = Math.floor(Date.now() / 1000);
+  return roots.map((root, index) => ({
+    id: `mock-scan-root-${index}`,
+    normalizedPath: root.replaceAll("\\\\", "/"),
+    displayName: root.split(/[\\/]/).filter(Boolean).at(-1) ?? root,
+    sourceKind: "file_library",
+    enabled: true,
+    healthStatus: "healthy",
+    currentGeneration: 1,
+    activeRunId: null,
+    activeGeneration: null,
+    revision: 2,
+    lastSuccessfulGeneration: 1,
+    lastFullScanAt: now,
+    needsReconciliation: false,
+    lastErrorCode: null,
+    lastErrorMessage: null,
+    createdAt: now,
+    updatedAt: now
+  }));
+}
+
+function mockManagedScanRoots(): ScanRootDto[] {
+  return mockManagedRootsForRequest(mockManagedScanState?.request ?? { roots: [], dedupe: false });
 }
 
 export function isTauriRuntimeUnavailable(error: unknown): boolean {

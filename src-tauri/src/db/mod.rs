@@ -12,6 +12,7 @@ pub(crate) use classification::{rule_version_for_rules, translate_template};
 pub use commands::*;
 pub use connection::Database;
 pub use learning::*;
+pub use queries::scan;
 pub(crate) use queries::{
     bool_to_i64, current_unix_seconds, indexed_file_from_row, infer_file_type, normalize_path_text,
     optimize_search_index_after_bulk_upsert, parent_directory, path_lookup_candidates, push_unique,

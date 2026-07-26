@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 26;
+const CURRENT_SCHEMA_VERSION: i32 = 27;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -45,6 +45,8 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         ensure_global_index_schema(conn)?;
         ensure_global_index_hardening(conn)?;
         ensure_journal_state_triggers(conn)?;
+        ensure_scan_ledger_schema(conn)?;
+        backfill_scan_roots_from_settings(conn)?;
         return Ok(());
     }
     conn.execute_batch("BEGIN IMMEDIATE")?;
@@ -678,6 +680,11 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             ensure_global_index_hardening(conn)?;
             set_schema_version(conn, 26)?;
         }
+        if version < 27 {
+            ensure_scan_ledger_schema(conn)?;
+            backfill_scan_roots_from_settings(conn)?;
+            set_schema_version(conn, 27)?;
+        }
         Ok(())
     })();
     match migration_result {
@@ -690,6 +697,292 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             Err(error)
         }
     }
+}
+
+fn ensure_scan_ledger_schema(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS scan_roots (
+            id TEXT PRIMARY KEY,
+            normalized_path TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            source_kind TEXT NOT NULL DEFAULT 'file_library',
+            enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+            health_status TEXT NOT NULL DEFAULT 'unknown'
+                CHECK (health_status IN (
+                    'unknown', 'healthy', 'scanning', 'degraded',
+                    'missing', 'permission_required', 'reconciliation_required'
+                )),
+            current_generation INTEGER NOT NULL DEFAULT 0 CHECK (current_generation >= 0),
+            active_run_id TEXT,
+            active_generation INTEGER,
+            revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+            last_successful_generation INTEGER,
+            last_full_scan_at INTEGER,
+            needs_reconciliation INTEGER NOT NULL DEFAULT 1 CHECK (needs_reconciliation IN (0, 1)),
+            last_error_code TEXT,
+            last_error_message TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_scan_roots_enabled_health
+            ON scan_roots(enabled, health_status, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_scan_roots_active_lease
+            ON scan_roots(active_run_id, active_generation);
+
+        CREATE TABLE IF NOT EXISTS scan_sessions (
+            id TEXT PRIMARY KEY,
+            request_key TEXT UNIQUE,
+            canonical_request_hash TEXT,
+            status TEXT NOT NULL
+                CHECK (status IN (
+                    'queued', 'running', 'cancelling', 'cancelled',
+                    'completed', 'completed_with_warnings', 'failed',
+                    'interrupted', 'requires_reconciliation'
+                )),
+            phase TEXT NOT NULL DEFAULT 'preparing'
+                CHECK (phase IN ('preparing', 'running', 'finalizing', 'completed')),
+            cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
+            requested_root_count INTEGER NOT NULL DEFAULT 0,
+            effective_root_count INTEGER NOT NULL DEFAULT 0,
+            completed_root_count INTEGER NOT NULL DEFAULT 0,
+            failed_root_count INTEGER NOT NULL DEFAULT 0,
+            cancelled_root_count INTEGER NOT NULL DEFAULT 0,
+            covered_root_count INTEGER NOT NULL DEFAULT 0,
+            unstarted_root_count INTEGER NOT NULL DEFAULT 0,
+            dedupe_requested INTEGER NOT NULL DEFAULT 0 CHECK (dedupe_requested IN (0, 1)),
+            dedupe_dispatch_state TEXT NOT NULL DEFAULT 'not_requested'
+                CHECK (dedupe_dispatch_state IN (
+                    'not_requested', 'pending', 'dispatching',
+                    'dispatched', 'unknown', 'failed', 'suppressed'
+                )),
+            dedupe_attempt_count INTEGER NOT NULL DEFAULT 0,
+            dedupe_job_id TEXT,
+            dedupe_last_error TEXT,
+            scanned_files INTEGER NOT NULL DEFAULT 0,
+            scanned_directories INTEGER NOT NULL DEFAULT 0,
+            warnings_count INTEGER NOT NULL DEFAULT 0,
+            errors_count INTEGER NOT NULL DEFAULT 0,
+            revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+            started_at INTEGER,
+            finished_at INTEGER,
+            last_checkpoint_at INTEGER,
+            error_code TEXT,
+            error_message TEXT,
+            result_json TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_scan_sessions_status_created
+            ON scan_sessions(status, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS scan_runs (
+            id TEXT PRIMARY KEY,
+            scan_root_id TEXT NOT NULL REFERENCES scan_roots(id) ON DELETE RESTRICT,
+            generation INTEGER NOT NULL CHECK (generation >= 1),
+            parent_session_id TEXT REFERENCES scan_sessions(id) ON DELETE SET NULL,
+            lease_token TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL
+                CHECK (status IN (
+                    'queued', 'running', 'cancelling', 'cancelled',
+                    'completed', 'completed_with_warnings', 'failed',
+                    'interrupted', 'requires_reconciliation'
+                )),
+            phase TEXT NOT NULL
+                CHECK (phase IN (
+                    'preparing', 'discovering', 'persisting',
+                    'reconciling_missing', 'optimizing_search',
+                    'finalizing', 'completed'
+                )),
+            scanned_files INTEGER NOT NULL DEFAULT 0,
+            scanned_directories INTEGER NOT NULL DEFAULT 0,
+            processed_bytes INTEGER NOT NULL DEFAULT 0,
+            warnings_count INTEGER NOT NULL DEFAULT 0,
+            errors_count INTEGER NOT NULL DEFAULT 0,
+            metadata_error_count INTEGER NOT NULL DEFAULT 0,
+            coverage_error_count INTEGER NOT NULL DEFAULT 0,
+            coverage_complete INTEGER NOT NULL DEFAULT 0 CHECK (coverage_complete IN (0, 1)),
+            stale_reconciliation_allowed INTEGER NOT NULL DEFAULT 0
+                CHECK (stale_reconciliation_allowed IN (0, 1)),
+            cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
+            revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+            started_at INTEGER,
+            finished_at INTEGER,
+            last_checkpoint_at INTEGER,
+            error_code TEXT,
+            error_message TEXT,
+            result_json TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            UNIQUE(scan_root_id, generation)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_scan_runs_one_active_per_root
+            ON scan_runs(scan_root_id)
+            WHERE status IN ('queued', 'running', 'cancelling');
+        CREATE INDEX IF NOT EXISTS idx_scan_runs_root_created
+            ON scan_runs(scan_root_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_scan_runs_session_status
+            ON scan_runs(parent_session_id, status, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS scan_session_roots (
+            session_id TEXT NOT NULL REFERENCES scan_sessions(id) ON DELETE CASCADE,
+            requested_index INTEGER NOT NULL CHECK (requested_index >= 0),
+            requested_path TEXT NOT NULL,
+            normalized_requested_path TEXT NOT NULL,
+            resolution TEXT NOT NULL
+                CHECK (resolution IN (
+                    'effective', 'duplicate_requested',
+                    'nested_under_effective', 'invalid'
+                )),
+            effective_root_id TEXT REFERENCES scan_roots(id) ON DELETE RESTRICT,
+            effective_path TEXT,
+            effective_index INTEGER,
+            run_id TEXT REFERENCES scan_runs(id) ON DELETE SET NULL,
+            status TEXT NOT NULL
+                CHECK (status IN (
+                    'pending', 'queued', 'running', 'completed',
+                    'completed_with_warnings', 'failed', 'cancelled',
+                    'interrupted', 'requires_reconciliation', 'covered',
+                    'duplicate', 'nested', 'invalid', 'cancelled_not_started'
+                )),
+            reason TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY(session_id, requested_index)
+        );
+        CREATE INDEX IF NOT EXISTS idx_scan_session_roots_effective
+            ON scan_session_roots(session_id, effective_index, effective_root_id);
+        CREATE INDEX IF NOT EXISTS idx_scan_session_roots_run
+            ON scan_session_roots(run_id, status);
+
+        CREATE TABLE IF NOT EXISTS scan_seen (
+            run_id TEXT NOT NULL REFERENCES scan_runs(id) ON DELETE CASCADE,
+            file_id TEXT NOT NULL,
+            observed_path TEXT NOT NULL,
+            observed_at INTEGER NOT NULL,
+            PRIMARY KEY(run_id, file_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_scan_seen_run_path
+            ON scan_seen(run_id, observed_path);
+
+        CREATE TABLE IF NOT EXISTS scan_run_errors (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL REFERENCES scan_runs(id) ON DELETE CASCADE,
+            path TEXT,
+            error_code TEXT NOT NULL,
+            error_message TEXT,
+            affects_coverage INTEGER NOT NULL DEFAULT 1
+                CHECK (affects_coverage IN (0, 1)),
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_scan_run_errors_run_created
+            ON scan_run_errors(run_id, created_at);
+        "#,
+    )?;
+    Ok(())
+}
+
+fn backfill_scan_roots_from_settings(conn: &Connection) -> Result<(), DbError> {
+    let Some(settings_json) = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = ?1",
+            params![crate::settings::APP_SETTINGS_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+    else {
+        return Ok(());
+    };
+
+    let settings: Value = match serde_json::from_str(&settings_json) {
+        Ok(value) => value,
+        Err(_) => return Ok(()),
+    };
+    let Some(roots) = settings.get("defaultScanFolders").and_then(Value::as_array) else {
+        return Ok(());
+    };
+
+    let now = current_unix_seconds();
+    for root in roots {
+        let (path, display_name, enabled) = match root {
+            Value::String(path) => (path.trim().to_string(), String::new(), true),
+            Value::Object(object) => (
+                object
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string(),
+                object
+                    .get("label")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string(),
+                object
+                    .get("enabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+            ),
+            _ => continue,
+        };
+        let path = trim_trailing_path_separators(&path).trim().to_string();
+        if path.is_empty() {
+            continue;
+        }
+        let normalized_path = normalize_path_text(&path);
+        let display_name = if display_name.is_empty() {
+            normalized_path
+                .trim_end_matches('/')
+                .rsplit('/')
+                .find(|part| !part.is_empty())
+                .unwrap_or(&normalized_path)
+                .to_string()
+        } else {
+            display_name
+        };
+        let id = format!(
+            "scan-root-{}",
+            blake3::hash(normalized_path.as_bytes()).to_hex()
+        );
+        let existing_id = if cfg!(windows) {
+            conn.query_row(
+                "SELECT id FROM scan_roots WHERE lower(normalized_path) = lower(?1) LIMIT 1",
+                params![normalized_path],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+        } else {
+            conn.query_row(
+                "SELECT id FROM scan_roots WHERE normalized_path = ?1 LIMIT 1",
+                params![normalized_path],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+        };
+        if let Some(existing_id) = existing_id {
+            conn.execute(
+                "UPDATE scan_roots SET display_name = ?1, enabled = ?2, updated_at = ?3 WHERE id = ?4",
+                params![display_name, bool_i64(enabled), now, existing_id],
+            )?;
+        } else {
+            conn.execute(
+                r#"
+                INSERT INTO scan_roots (
+                    id, normalized_path, display_name, source_kind, enabled,
+                    health_status, current_generation, needs_reconciliation,
+                    created_at, updated_at
+                ) VALUES (?1, ?2, ?3, 'file_library', ?4, 'unknown', 0, 1, ?5, ?5)
+                "#,
+                params![id, normalized_path, display_name, bool_i64(enabled), now],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn bool_i64(value: bool) -> i64 {
+    i64::from(value)
 }
 
 /// Creates the search-only index domain without coupling it to the existing
