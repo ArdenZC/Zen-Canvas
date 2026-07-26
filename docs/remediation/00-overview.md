@@ -2,6 +2,8 @@
 
 > 本文件是 `docs/remediation/BRIEF.md` 第 7 节要求的跨阶段总览：基线、参考仓库 SHA、许可证表、MIT 引入登记表、跨模块依赖、任务总清单与进度。
 > 建立时间：2026-07-26。所有 SHA 与许可证均为实测记录，非引用二手描述。
+>
+> **⚠️ 开始任何工作前先读第 8 节「决策日志」** —— 它是裁决的唯一事实源。与对话记录、旧文档或其他文件中的过期结论冲突时，以第 8 节为准。
 
 ---
 
@@ -61,19 +63,19 @@
 | spacedrive @ `0.4.3` | **AGPL-3.0-only** | `spacedrive-v1/LICENSE`；`spacedrive-v1/Cargo.toml:17` | **仅概念与架构层借鉴**。禁止复制代码，禁止改写式移植 |
 | czkawka（`czkawka_core`） | **MIT** | `czkawka/czkawka_core/Cargo.toml:8`；`czkawka/LICENSE_MIT_EVERYTHING_OUTSIDE_ANY_CARGO_APP_LIBRARY` | **允许有限复用**，每次复用必须登记到第 4 节 |
 | czkawka（`cedinia`、`krokiet`） | **GPL-3.0-only** | `czkawka/cedinia/Cargo.toml:8`；`czkawka/krokiet/Cargo.toml:8` | **仅概念借鉴**。非模块 1 的对比目标，但不得误取 |
-| tolaria | **AGPL-3.0** | `tolaria/LICENSE` | **仅概念与架构层借鉴** |
+| tolaria | **AGPL-3.0** ⚠️ **推翻 Brief 初始标注** | `tolaria/LICENSE` | **仅概念与架构层借鉴**。Brief 第 4 节原定"代码级（同栈）"，已下调为"设计级（只读析不移植）" |
 | accomplish | **MIT** | `accomplish/LICENSE` | **允许有限复用**，须登记 |
 | opencode | **MIT** | `opencode/LICENSE` | **允许有限复用**，须登记 |
-| ai-file-sorter | **AGPL-3.0** | `ai-file-sorter/LICENSE` | **仅概念与架构层借鉴** |
+| ai-file-sorter | **AGPL-3.0** ⚠️ **推翻 Brief 初始标注** | `ai-file-sorter/LICENSE` | **仅概念与架构层借鉴**。Brief 第 4 节原定"设计级"，已下调为"概念级"；Brief 第 3 节的 AGPL 预期名单未包含它 |
 | local-file-organizer | **MIT** | `local-file-organizer/LICENSE` | **允许有限复用**，须登记 |
 | tagspaces | **AGPL-3.0** | `tagspaces/LICENSE.txt` | **仅概念与架构层借鉴** |
 
-### 3.1 与 BRIEF 预期的偏差（需要注意）
+### 3.1 与 BRIEF 预期的偏差 —— 已推翻初始标注并更新 Brief
 
-Brief 第 3 节按"预期"分类，实测后有两处需要收紧：
+Brief 第 3 节按"预期"分类，实测后有两处推翻了初始标注。**`BRIEF.md` 第 4 节的对比深度表已据此更新**（见本文件第 8 节决策日志 D6）：
 
-1. **ai-file-sorter 实测为 AGPL-3.0**，Brief 的 AGPL 预期名单里没有它。**模块 6「AI 整理预览」必须降为纯概念级借鉴**——即使 Brief 把它定为"设计级"，也不得出现任何形式的源码复制或逐段改写。其分类缓存、taxonomy 归一化等做法只能作为思路输入，实现必须自研。
-2. **tolaria 实测确认为 AGPL-3.0**（Brief 标记为"未确认，按 AGPL 同级处理"）。这与 Brief 第 4 节把模块 4 定为"**代码级**对比（同栈 Tauri + React + TS）"存在张力：同栈 + AGPL 是最容易发生"改写式移植"的组合。因此模块 4 的"代码级"深度限定为——**可以逐行阅读并写出差异分析，产出必须是独立设计**；文档中引用其源码不得超过说明所需的最小摘录，且必须标注 `仓库@SHA 路径:行号`。
+1. **ai-file-sorter 实测为 AGPL-3.0**，Brief 第 3 节的 AGPL 预期名单里没有它。模块 6「AI 整理预览」由"设计级"**下调为概念级**——不得出现任何形式的源码复制或逐段改写。其分类缓存、taxonomy 归一化等做法只能作为思路输入，实现必须自研。
+2. **tolaria 实测确认为 AGPL-3.0**（Brief 标记为"未确认，按 AGPL 同级处理"）。Brief 第 4 节原把模块 4 定为"**代码级**对比（同栈 Tauri + React + TS）"，理由是技术栈一致——但在 AGPL 之下，**同栈反而是风险**：栈越接近，越容易在无意中写出衍生作品。因此**下调为设计级**，限定为**只读源码以理解设计意图，不照结构移植**；引用其源码不得超过说明所需的最小摘录，且必须标注 `仓库@SHA 路径:行号`，产出必须是独立设计。
 
 ### 3.2 czkawka 许可证结构说明
 
@@ -135,28 +137,26 @@ czkawka 仓库根目录的 MIT 文件名为 `LICENSE_MIT_EVERYTHING_OUTSIDE_ANY_
 
 ### 6.3 已解决的阻塞项
 
-裁决 1 的事实基础曾被核实推翻：master 每次扫描都无条件执行 stale 清理（`master:src-tauri/scanner.rs:345-347,634-636`），PR #18 默认不再执行——即"从查变成不查"，而非"保持现状"。
-
-**裁决 5 已解决**：gate 默认值取 `true`，性质由"发布前标志"改为"紧急回退开关"。裁决 1 的语义保留，但适用场景从常态变为异常路径。实施见 `m1-m6-implementation.md`。
+曾因 `pr-18-review.md` 4.1b 的核实结论暂停 M1–M6，**该暂停已由 D5 解除**。完整记录见第 8.1 节。
 
 ### 6.4 待模块 3 承接的设计缺口
 
 索引健康信号（`scan_roots.needs_reconciliation` / `health_status`）目前**只写不读**——没有任何生产代码或 UI 消费它，也没有任何机制会执行对账。这是裁决 2.4 的回答，详见 `m1-m6-implementation.md` 第 6 节。模块 3 方案必须回答谁消费、何时触发、对账动作是什么、如何退出。
 
-### 6.4 阶段 B：模块（**未开始，按 Brief 第 4 节顺序**）
+### 6.5 阶段 B：模块（**未开始，按 Brief 第 4 节顺序**）
 
 | # | 模块 | 参考仓库 | 对比深度 | 状态 |
 |---|---|---|---|---|
 | 1 | 重复检测 | czkawka（`czkawka_core`，MIT） | 代码级 | ⏳ 未开始 |
 | 2 | 大型文件列表 | Spacedrive V1 + 自查 | 概念级 | ⏳ 未开始 |
 | 3 | 扫描与索引 | Spacedrive V1 | 概念级 + 事故复盘 | ⏳ 未开始（PR #18 为已有进展） |
-| 4 | 全局快捷搜索 | Tolaria（AGPL，见 3.1） | 代码级（读析，非移植） | ⏳ 未开始 |
+| 4 | 全局快捷搜索 | Tolaria（AGPL，见 3.1） | **设计级（只读析不移植，D6 下调）** | ⏳ 未开始 |
 | 5 | 文件库 | TagSpaces（AGPL） | 设计级 | ⏳ 未开始 |
 | 6 | AI 整理预览 | ai-file-sorter（**AGPL**，见 3.1） | 概念级（自 Brief 的"设计级"收紧） | ⏳ 未开始 |
 | 7 | 自然语言规则 | Accomplish + OpenCode（均 MIT） | 半代码级 | ⏳ 未开始 |
 | 8 | 本地内容理解 | Local-File-Organizer（MIT） | 轻量设计级 | ⏳ 未开始 |
 
-### 6.5 独立立项
+### 6.6 独立立项
 
 | 项 | 状态 | 产出 |
 |---|---|---|
@@ -179,3 +179,28 @@ czkawka 仓库根目录的 MIT 文件名为 `LICENSE_MIT_EVERYTHING_OUTSIDE_ANY_
 7. AI API Key 保持存放于系统凭据库。
 
 **已核实的相关事实**：stale 标记（`files.is_stale`）**不触及用户文件，也不参与 restore / operation journal / cleanup journal 语义**——`file_ops.rs` 与 `storage_analyzer.rs` 对 `is_stale` 零引用。它只是读侧过滤器。证据见 `pr-18-review.md` 第 4.1b 节。
+
+---
+
+## 8. 决策日志
+
+> **本节是裁决的唯一事实源。** 与任何对话记录、旧文档或过期结论冲突时，以本节为准。
+> 每条决策在被显式取代前持续生效；被取代的条目保留在表中，不删除。
+
+| 编号 | 结论 | 依据 | 状态 |
+|---|---|---|---|
+| **D1**（裁决 1） | gate 关闭时**不伪造对账证据**：作业终态 `completed`、root health 不降级、`last_successful_generation` 正常推进。`requires_reconciliation` / health 降级**只由真实证据触发**（watcher overflow、检测到缺失文件、journal 对账不一致等），"没有去查"本身不构成证据 | 前提已核实：stale 清理只写 `files.is_stale`，不触及用户文件也不参与 restore/journal 语义——`scan.rs:783-803`；`file_ops.rs` 与 `storage_analyzer.rs` 对 `is_stale` 零引用 | **生效**。适用场景经 D5 收窄为异常路径 |
+| **D2**（裁决 2） | 三轴正交：**作业终态 / 索引健康 / generation 指针**互不编码对方含义。消费点逐一分类后再改代码；判定为"对的"的行为**必须重新指向轴 2**，不得因改名静默丢失；验收测试**钉行为不钉状态名** | 7 个消费点分类表见 `m1-m6-implementation.md` 第 3 节；验收测试见其第 5 节 | **生效** |
+| **D3**（裁决 3 原版） | stale gate 保留环境变量，登记为**发布前标志（pre-release flag）**；模块 3 必答"何时转正 / 默认开启的判据" | — | ~~**已被 D3′ 取代**~~ |
+| **D3′**（裁决 3 修正） | gate 性质改为**紧急回退开关（kill switch）**：默认开启，仅用于线上出问题时快速关闭新实现。CI 双路径含义变为"默认路径 + 回退路径"。**模块 3 必答项改为「何时可以彻底移除这个开关」**。显式关闭时在日志与诊断中记录，但**不**降级 per-root health | 实现见 `scanner.rs` 的 `stale_reconciliation_enabled`；关闭痕迹见进程日志与 run 的 `result_json.staleReconciliation` | **生效**，取代 D3 |
+| **D4**（裁决 4） | `file_ops` 并行不稳定性**单独立项、高优先级、不阻塞 PR**。**禁止**先用 `--test-threads=1` 或重试掩盖；串行化只能是定位根因后的显式取舍 | 根因已确认为 Windows `ERROR_SHARING_VIOLATION`（`os error 32`），见 `issue-file-ops-flaky.md` | **生效**，排查已完成，F1–F4 待实施 |
+| **D5**（裁决 5） | stale gate 默认值取 **`true`**。理由：master 无条件执行 stale 清理，PR #18 将其 gate 掉并默认关闭属于**静默的能力回退**，叠加 D1 语义后会导致"索引持续累积已删除文件 + 每次扫描都报 completed + 指针照常推进 + 没有任何信号" | `master:scanner.rs:345-347`（无条件调用）、`master:scanner.rs:634-636`（`should_run_stale_cleanup = !cancelled`，无环境变量） | **生效** |
+| **D6**（许可证实测） | 参考仓库许可证以**实测**为准，推翻 Brief 初始标注：**模块 4（Tolaria）** 由"代码级（同栈）"下调为**设计级（只读析不移植）**；**模块 6（ai-file-sorter）** 由"设计级"下调为**概念级**。`BRIEF.md` 第 4 节表格已据此更新 | `tolaria/LICENSE`、`ai-file-sorter/LICENSE`（均 AGPL-3.0）；实测表见本文件第 3 节 | **生效** |
+
+### 8.1 已解除的阻塞
+
+`pr-18-review.md` 第 4.1b 节的核实结论曾引发 **「M1–M6 暂停」**：当时发现 D1 的事实基础有误——gate 关闭不是"保持现状不查"，而是"从查变成不查"，因此按 D1 字面实施会在索引确实陈旧时声明"扫描成功、索引最新"。
+
+**该暂停已被 D5 吸收并解除，不再有效。** D5 把默认值改为 `true` 后，gate-off 从常态变为异常路径，D1 的语义得以在不伪造健康信号的前提下成立。M1–M6 已实施完毕（PR #19）。
+
+> 任何新会话读到 4.1b 的"暂停"表述时，须以本节为准：**暂停已解除**。

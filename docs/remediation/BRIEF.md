@@ -93,11 +93,16 @@
 | 1 | 重复检测 | Czkawka（重点 `czkawka_core` 的 duplicate 流水线） | 代码级（同为 Rust） | 最新 release tag，记录 SHA |
 | 2 | 大型文件列表 | Spacedrive V1 + 第 6 节自查题 | 概念级 | v0.4.3 |
 | 3 | 扫描与索引 | Spacedrive V1（Job / Location / Indexer） | 概念级 + 事故复盘 | v0.4.3 |
-| 4 | 全局快捷搜索 | Tolaria | 代码级（同栈 Tauri + React + TS） | main，记录 SHA |
+| 4 | 全局快捷搜索 | Tolaria | **设计级（AGPL，只读析不移植）** | main，记录 SHA |
 | 5 | 文件库 | TagSpaces | 设计级 | 最新 release |
-| 6 | AI 整理预览 | ai-file-sorter | 设计级（C++ / Qt，栈不同） | 最新 release |
+| 6 | AI 整理预览 | ai-file-sorter | **概念级（AGPL）** | 最新 release |
 | 7 | 自然语言规则 | Accomplish（agent 核心追溯至 OpenCode） | 半代码级（MIT，Electron 栈需翻译） | main，记录 SHA |
 | 8 | 本地内容理解 | Local-File-Organizer | 轻量设计级（Python 工具，量级有限） | main |
+
+> **模块 4 与模块 6 的深度已按许可证实测结果下调**（实测表见 `00-overview.md` 第 3 节）：
+>
+> - **模块 4（Tolaria）实测为 AGPL-3.0**。本表原标注"代码级（同栈 Tauri + React + TS）"，理由是技术栈一致——但在 AGPL 之下，**同栈反而是风险**：栈越接近，越容易在无意中写出衍生作品。因此限定为**只读源码以理解设计意图，不照结构移植**；文档中引用其源码不得超过说明所需的最小摘录，且必须标注 `仓库@SHA 路径:行号`，产出必须是独立设计。
+> - **模块 6（ai-file-sorter）实测为 AGPL-3.0**，本 Brief 第 3 节的 AGPL 预期名单未包含它。原标注"设计级"下调为**概念级**：其分类缓存、taxonomy 归一化等做法只能作为思路输入，不得出现任何形式的源码复制或逐段改写。
 
 对"概念级 / 设计级"的模块，模板第 2 节允许省略无法适用的栏目（如对 Local-File-Organizer 不必强填状态机与并发模型），但必须写明省略原因。对 Spacedrive V1，第 2 节必须额外包含一小节"它为何失败"：结合其架构复杂度分析哪些设计是我们要**主动拒绝**的（其团队自述 V1 至 2025 年初已不可维护并暂停开发）。
 
