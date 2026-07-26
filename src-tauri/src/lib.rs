@@ -56,8 +56,11 @@ pub use file_ops::{
 };
 pub use runtime_capabilities::{get_runtime_capabilities, RuntimeCapabilities};
 pub use scanner::{
-    cancel_scan, create_scan_job_id, scan_directory, ScanBatchPayload, ScanJobManager,
-    ScanProgressPayload, ScanSummary, ScannedEntry,
+    cancel_scan, cancel_scan_run, create_scan_job_id, get_scan_root_health, get_scan_run,
+    list_scan_roots, list_scan_runs, retry_interrupted_scan, scan_directory, start_managed_scan,
+    ManagedScanEvent, ManagedScanRequest, ManagedScanStartDto, ScanBatchPayload, ScanJobManager,
+    ScanProgressPayload, ScanRootDto, ScanRunDto, ScanSessionDto, ScanSessionRootDto, ScanSummary,
+    ScannedEntry,
 };
 pub use settings::{
     get_app_settings, get_settings, get_versioned_app_settings, save_app_settings,

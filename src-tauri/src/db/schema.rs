@@ -945,20 +945,38 @@ fn backfill_scan_roots_from_settings(conn: &Connection) -> Result<(), DbError> {
             "scan-root-{}",
             blake3::hash(normalized_path.as_bytes()).to_hex()
         );
-        conn.execute(
-            r#"
-            INSERT INTO scan_roots (
-                id, normalized_path, display_name, source_kind, enabled,
-                health_status, current_generation, needs_reconciliation,
-                created_at, updated_at
-            ) VALUES (?1, ?2, ?3, 'file_library', ?4, 'unknown', 0, 1, ?5, ?5)
-            ON CONFLICT(normalized_path) DO UPDATE SET
-                display_name = excluded.display_name,
-                enabled = excluded.enabled,
-                updated_at = excluded.updated_at
-            "#,
-            params![id, normalized_path, display_name, bool_i64(enabled), now],
-        )?;
+        let existing_id = if cfg!(windows) {
+            conn.query_row(
+                "SELECT id FROM scan_roots WHERE lower(normalized_path) = lower(?1) LIMIT 1",
+                params![normalized_path],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+        } else {
+            conn.query_row(
+                "SELECT id FROM scan_roots WHERE normalized_path = ?1 LIMIT 1",
+                params![normalized_path],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+        };
+        if let Some(existing_id) = existing_id {
+            conn.execute(
+                "UPDATE scan_roots SET display_name = ?1, enabled = ?2, updated_at = ?3 WHERE id = ?4",
+                params![display_name, bool_i64(enabled), now, existing_id],
+            )?;
+        } else {
+            conn.execute(
+                r#"
+                INSERT INTO scan_roots (
+                    id, normalized_path, display_name, source_kind, enabled,
+                    health_status, current_generation, needs_reconciliation,
+                    created_at, updated_at
+                ) VALUES (?1, ?2, ?3, 'file_library', ?4, 'unknown', 0, 1, ?5, ?5)
+                "#,
+                params![id, normalized_path, display_name, bool_i64(enabled), now],
+            )?;
+        }
     }
     Ok(())
 }

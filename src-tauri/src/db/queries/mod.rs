@@ -13,7 +13,7 @@ use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 pub(crate) mod files;
 pub(crate) mod operations;
 pub(crate) mod rules_repo;
-pub(crate) mod scan;
+pub mod scan;
 
 use rules_repo::current_timestamp_iso;
 

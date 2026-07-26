@@ -31,6 +31,7 @@ fn main() {
         ))
         .setup(|app| {
             let db = open_database(app.handle()).map_err(io::Error::other)?;
+            zen_canvas_tauri::scanner::recover_scan_state(&db).map_err(io::Error::other)?;
             zen_canvas_tauri::file_ops::reconcile_pending_operation_journal(&db)
                 .map_err(io::Error::other)?;
             zen_canvas_tauri::storage_analyzer::reconcile_pending_cleanup_journal(&db)
@@ -138,6 +139,13 @@ fn main() {
             zen_canvas_tauri::app_control::resize_search_window,
             zen_canvas_tauri::app_control::get_global_hotkey_status,
             zen_canvas_tauri::app_control::register_global_search_hotkey,
+            zen_canvas_tauri::scanner::start_managed_scan,
+            zen_canvas_tauri::scanner::cancel_scan_run,
+            zen_canvas_tauri::scanner::get_scan_run,
+            zen_canvas_tauri::scanner::list_scan_runs,
+            zen_canvas_tauri::scanner::list_scan_roots,
+            zen_canvas_tauri::scanner::get_scan_root_health,
+            zen_canvas_tauri::scanner::retry_interrupted_scan,
             zen_canvas_tauri::scanner::scan_directory,
             zen_canvas_tauri::scanner::create_scan_job_id,
             zen_canvas_tauri::scanner::cancel_scan,

@@ -82,6 +82,7 @@ pub struct ScanRunDto {
     pub stale_reconciliation_allowed: bool,
     pub cancel_requested: bool,
     pub revision: i64,
+    pub session_revision: i64,
     pub started_at: Option<i64>,
     pub finished_at: Option<i64>,
     pub last_checkpoint_at: Option<i64>,
@@ -156,7 +157,6 @@ pub(crate) struct ScanRunRecord {
     pub root_revision: i64,
     pub root_active_run_id: Option<String>,
     pub root_active_generation: Option<i64>,
-    pub root_health_status: String,
     pub session_revision: i64,
     pub session_status: String,
 }
@@ -198,7 +198,6 @@ pub(crate) struct ScanFinalization {
 #[derive(Debug, Clone)]
 struct ScanRootSeed {
     id: String,
-    path: String,
     current_generation: i64,
     revision: i64,
     active_run_id: Option<String>,
@@ -451,18 +450,25 @@ impl Database {
     ) -> Result<ScanRootDto, DbError> {
         let conn = self.conn()?;
         let normalized_path = path.map(normalize_scan_root_path);
+        let path_clause = if cfg!(windows) {
+            "lower(normalized_path) = lower(?2)"
+        } else {
+            "normalized_path = ?2"
+        };
         conn.query_row(
-            r#"
-            SELECT id, normalized_path, display_name, source_kind, enabled, health_status,
-                   current_generation, active_run_id, active_generation, revision,
-                   last_successful_generation, last_full_scan_at, needs_reconciliation,
-                   last_error_code, last_error_message, created_at, updated_at
-            FROM scan_roots
-            WHERE (?1 IS NOT NULL AND id = ?1)
-               OR (?2 IS NOT NULL AND normalized_path = ?2)
-            ORDER BY id
-            LIMIT 1
-            "#,
+            &format!(
+                r#"
+                SELECT id, normalized_path, display_name, source_kind, enabled, health_status,
+                       current_generation, active_run_id, active_generation, revision,
+                       last_successful_generation, last_full_scan_at, needs_reconciliation,
+                       last_error_code, last_error_message, created_at, updated_at
+                FROM scan_roots
+                WHERE (?1 IS NOT NULL AND id = ?1)
+                   OR (?2 IS NOT NULL AND {path_clause})
+                ORDER BY id
+                LIMIT 1
+                "#
+            ),
             params![root_id, normalized_path],
             scan_root_from_row,
         )
@@ -925,6 +931,14 @@ impl Database {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let record = load_scan_run_record(&tx, run_id)?;
         if record.dto.status == input.terminal_status {
+            if record.dto.revision != expected_run_revision
+                || record.root_revision != expected_root_revision
+                || record.session_revision != expected_session_revision
+            {
+                return Err(DbError::Validation(
+                    "Repeated scan finalization lost durable revision ownership.".to_string(),
+                ));
+            }
             let session_id = record.dto.parent_session_id.as_deref().ok_or_else(|| {
                 DbError::Validation("Scan run has no parent session.".to_string())
             })?;
@@ -944,6 +958,12 @@ impl Database {
         if success && record.dto.coverage_error_count > 0 {
             return Err(DbError::Validation(
                 "A coverage-breaking scan cannot finalize successfully.".to_string(),
+            ));
+        }
+        if success && record.dto.cancel_requested {
+            return Err(DbError::Validation(
+                "A scan with a durable cancellation request cannot finalize successfully."
+                    .to_string(),
             ));
         }
         if record.dto.revision != expected_run_revision
@@ -977,7 +997,9 @@ impl Database {
                 coverage_complete = CASE WHEN ?2 = 1 AND coverage_error_count = 0 THEN 1 ELSE coverage_complete END,
                 stale_reconciliation_allowed = CASE WHEN ?3 = 1 THEN stale_reconciliation_allowed ELSE 0 END,
                 finished_at = ?4, last_checkpoint_at = ?4,
-                error_code = ?5, error_message = ?6, result_json = ?7,
+                error_code = COALESCE(?5, error_code),
+                error_message = COALESCE(?6, error_message),
+                result_json = ?7,
                 revision = revision + 1, updated_at = ?4
             WHERE id = ?8 AND status IN ('running', 'cancelling')
               AND revision = ?9 AND lease_token = ?10
@@ -1007,6 +1029,13 @@ impl Database {
             } else {
                 "healthy"
             }
+        } else if matches!(input.error_code.as_deref(), Some("root_missing")) {
+            "missing"
+        } else if matches!(
+            input.error_code.as_deref(),
+            Some("permission_denied" | "root_permission")
+        ) {
+            "permission_required"
         } else {
             "reconciliation_required"
         };
@@ -1097,11 +1126,91 @@ impl Database {
         })
     }
 
+    pub(crate) fn record_scan_warning(
+        &self,
+        run_id: &str,
+        expected_run_revision: i64,
+        expected_root_revision: i64,
+        expected_session_revision: i64,
+        warning_code: &str,
+        warning_message: &str,
+    ) -> Result<ScanRunRecord, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let record = load_scan_run_record(&tx, run_id)?;
+        validate_worker_ownership(
+            &record,
+            run_id,
+            expected_run_revision,
+            expected_root_revision,
+            expected_session_revision,
+            true,
+        )?;
+        let now = current_unix_seconds();
+        let run_changed = tx.execute(
+            r#"
+            UPDATE scan_runs
+            SET warnings_count = warnings_count + 1,
+                error_code = COALESCE(error_code, ?1),
+                error_message = COALESCE(error_message, ?2),
+                last_checkpoint_at = ?3, revision = revision + 1, updated_at = ?3
+            WHERE id = ?4 AND status = 'running' AND cancel_requested = 0
+              AND revision = ?5 AND lease_token = ?6
+            "#,
+            params![
+                warning_code,
+                warning_message,
+                now,
+                run_id,
+                expected_run_revision,
+                record.lease_token,
+            ],
+        )?;
+        if run_changed != 1 {
+            return Err(DbError::Validation(
+                "Scan warning run revision CAS failed.".to_string(),
+            ));
+        }
+        let session_id =
+            record.dto.parent_session_id.as_deref().ok_or_else(|| {
+                DbError::Validation("Scan run has no parent session.".to_string())
+            })?;
+        let session_changed = tx.execute(
+            r#"
+            UPDATE scan_sessions
+            SET warnings_count = warnings_count + 1,
+                last_checkpoint_at = ?1, revision = revision + 1, updated_at = ?1
+            WHERE id = ?2 AND revision = ?3 AND cancel_requested = 0
+              AND status IN ('running', 'queued')
+            "#,
+            params![now, session_id, expected_session_revision],
+        )?;
+        if session_changed != 1 {
+            return Err(DbError::Validation(
+                "Scan warning session revision CAS failed.".to_string(),
+            ));
+        }
+        let updated = load_scan_run_record(&tx, run_id)?;
+        tx.commit()?;
+        Ok(updated)
+    }
+
     pub(crate) fn request_scan_cancellation(&self, run_id: &str) -> Result<ScanRunRecord, DbError> {
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let record = load_scan_run_record(&tx, run_id)?;
         if is_terminal_status(&record.dto.status) {
+            tx.commit()?;
+            return Ok(record);
+        }
+        if !record.dto.cancel_requested
+            && matches!(
+                record.dto.phase.as_str(),
+                "reconciling_missing" | "optimizing_search" | "finalizing"
+            )
+        {
+            // Once stale reconciliation has committed, cancellation must not
+            // turn a run that already changed stale state into a cancelled run.
             tx.commit()?;
             return Ok(record);
         }
@@ -1343,6 +1452,11 @@ impl Database {
             })?;
             for row in rows {
                 let (run_id, root_id, status, finished_at) = row?;
+                if matches!(status.as_str(), "interrupted" | "requires_reconciliation") {
+                    // Recovery-pinned observations and errors remain available for
+                    // the next manual reconciliation decision regardless of age.
+                    continue;
+                }
                 let newest = newest_by_root.entry(root_id).or_default();
                 let keep_newest = *newest < 2;
                 *newest += 1;
@@ -1364,7 +1478,9 @@ impl Database {
             }
             let remaining = 1000 - deleted;
             let changed = tx.execute(
-                &format!("DELETE FROM scan_seen WHERE run_id = ?1 LIMIT {remaining}"),
+                &format!(
+                    "DELETE FROM scan_seen WHERE rowid IN (SELECT rowid FROM scan_seen WHERE run_id = ?1 LIMIT {remaining})"
+                ),
                 params![run_id],
             )?;
             deleted += changed;
@@ -1373,7 +1489,9 @@ impl Database {
             }
             let remaining = 1000 - deleted;
             let changed = tx.execute(
-                &format!("DELETE FROM scan_run_errors WHERE run_id = ?1 LIMIT {remaining}"),
+                &format!(
+                    "DELETE FROM scan_run_errors WHERE rowid IN (SELECT rowid FROM scan_run_errors WHERE run_id = ?1 LIMIT {remaining})"
+                ),
                 params![run_id],
             )?;
             deleted += changed;
@@ -1470,7 +1588,9 @@ fn update_session_projection_tx(
     let has_warning = statuses
         .iter()
         .any(|status| status == "completed_with_warnings");
-    let status = if !terminal {
+    let status = if statuses.is_empty() {
+        "failed"
+    } else if !terminal {
         if session.cancel_requested {
             "cancelling"
         } else {
@@ -1745,25 +1865,42 @@ fn ensure_scan_root_tx(tx: &Transaction<'_>, path: &str) -> Result<ScanRootSeed,
             "Scan root path cannot be empty.".to_string(),
         ));
     }
-    if let Some(seed) = tx
-        .query_row(
+    let existing = if cfg!(windows) {
+        tx.query_row(
             r#"
-            SELECT id, normalized_path, current_generation, revision, active_run_id
+            SELECT id, current_generation, revision, active_run_id
+            FROM scan_roots WHERE lower(normalized_path) = lower(?1)
+            "#,
+            params![normalized_path],
+            |row| {
+                Ok(ScanRootSeed {
+                    id: row.get(0)?,
+                    current_generation: row.get(1)?,
+                    revision: row.get(2)?,
+                    active_run_id: row.get(3)?,
+                })
+            },
+        )
+        .optional()?
+    } else {
+        tx.query_row(
+            r#"
+            SELECT id, current_generation, revision, active_run_id
             FROM scan_roots WHERE normalized_path = ?1
             "#,
             params![normalized_path],
             |row| {
                 Ok(ScanRootSeed {
                     id: row.get(0)?,
-                    path: row.get(1)?,
-                    current_generation: row.get(2)?,
-                    revision: row.get(3)?,
-                    active_run_id: row.get(4)?,
+                    current_generation: row.get(1)?,
+                    revision: row.get(2)?,
+                    active_run_id: row.get(3)?,
                 })
             },
         )
         .optional()?
-    {
+    };
+    if let Some(seed) = existing {
         return Ok(seed);
     }
 
@@ -1780,7 +1917,6 @@ fn ensure_scan_root_tx(tx: &Transaction<'_>, path: &str) -> Result<ScanRootSeed,
     )?;
     Ok(ScanRootSeed {
         id,
-        path: normalized_path,
         current_generation: 0,
         revision: 0,
         active_run_id: None,
@@ -1890,6 +2026,7 @@ fn scan_run_record_from_row(row: &Row<'_>) -> rusqlite::Result<ScanRunRecord> {
             stale_reconciliation_allowed: row.get::<_, i64>(16)? != 0,
             cancel_requested: row.get::<_, i64>(17)? != 0,
             revision: row.get(18)?,
+            session_revision: row.get::<_, Option<i64>>(31)?.unwrap_or_default(),
             started_at: row.get(19)?,
             finished_at: row.get(20)?,
             last_checkpoint_at: row.get(21)?,
@@ -1903,7 +2040,6 @@ fn scan_run_record_from_row(row: &Row<'_>) -> rusqlite::Result<ScanRunRecord> {
         root_revision: row.get(27)?,
         root_active_run_id: row.get(28)?,
         root_active_generation: row.get(29)?,
-        root_health_status: row.get(30)?,
         session_revision: row.get::<_, Option<i64>>(31)?.unwrap_or_default(),
         session_status: row
             .get::<_, Option<String>>(32)?
@@ -2146,4 +2282,998 @@ fn scan_root_display_name(path: &str) -> String {
         .filter(|value| !value.is_empty())
         .unwrap_or(path)
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        sync::atomic::{AtomicU64, Ordering},
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    };
+
+    static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn test_db(label: &str) -> Database {
+        let sequence = TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        Database::open(std::env::temp_dir().join(format!(
+            "zen-canvas-scan-{label}-{}-{timestamp}-{sequence}.sqlite3",
+            std::process::id()
+        )))
+        .expect("open scan test database")
+    }
+
+    fn request(root: &str, request_key: &str) -> ScanAdmissionOptions {
+        ScanAdmissionOptions {
+            request: ManagedScanRequest {
+                roots: vec![root.to_string()],
+                request_key: Some(request_key.to_string()),
+                dedupe: false,
+            },
+            run_id_override: None,
+        }
+    }
+
+    #[test]
+    fn requested_root_resolution_preserves_order_and_distinguishes_duplicates_and_nested_roots() {
+        let resolved = resolve_requested_roots(&[
+            "/library".to_string(),
+            "/library/child".to_string(),
+            "/library".to_string(),
+            "".to_string(),
+        ]);
+
+        assert_eq!(resolved[0].resolution, "effective");
+        assert_eq!(resolved[1].resolution, "nested_under_effective");
+        assert_eq!(resolved[2].resolution, "duplicate_requested");
+        assert_eq!(resolved[3].resolution, "invalid");
+        assert_eq!(effective_roots(&resolved).len(), 1);
+        assert_eq!(resolved[1].effective_index, Some(0));
+    }
+
+    #[test]
+    fn admission_is_idempotent_and_rejects_a_second_active_run_for_the_same_root() {
+        let db = test_db("admission");
+        let root = format!("/tmp/zen-canvas-scan-admission-{}", new_job_id("root"));
+        let first = db
+            .admit_managed_scan(&request(&root, "request-1"))
+            .expect("admit first");
+        assert!(first.created);
+        assert_eq!(first.runs[0].generation, 1);
+
+        let duplicate = db
+            .admit_managed_scan(&request(&root, "request-1"))
+            .expect("repeat request is idempotent");
+        assert!(!duplicate.created);
+        assert_eq!(duplicate.session.id, first.session.id);
+        assert_eq!(duplicate.runs[0].id, first.runs[0].id);
+
+        let conflict = db.admit_managed_scan(&request(&root, "request-2"));
+        assert!(conflict.is_err());
+        assert_eq!(db.list_scan_roots().expect("list roots").len(), 1);
+    }
+
+    #[test]
+    fn generation_is_only_successful_after_terminal_cas_and_then_advances() {
+        let db = test_db("generation");
+        let root = format!("/tmp/zen-canvas-scan-generation-{}", new_job_id("root"));
+        let first = db
+            .admit_managed_scan(&request(&root, "generation-1"))
+            .expect("admit");
+        let run = db.claim_queued_scan_run(&first.runs[0].id).expect("claim");
+        let finalized = db
+            .finalize_scan_run(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .expect("finalize");
+        assert_eq!(finalized.run.dto.generation, 1);
+        assert_eq!(finalized.session.status, "completed");
+        assert!(db
+            .finalize_scan_run(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .is_err());
+
+        let second = db
+            .admit_managed_scan(&request(&root, "generation-2"))
+            .expect("admit second");
+        assert_eq!(second.runs[0].generation, 2);
+    }
+
+    #[test]
+    fn metadata_errors_write_error_ledger_without_seen_or_stale_reconciliation() {
+        let db = test_db("metadata-error");
+        let root = format!("/tmp/zen-canvas-scan-metadata-{}", new_job_id("root"));
+        let old_path = format!("{root}/old.txt");
+        db.insert_file(InsertFileRequest {
+            id: old_path.clone(),
+            path: old_path.clone(),
+            name: "old.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 1,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("insert old file");
+        {
+            let conn = db.conn().expect("db connection");
+            conn.execute(
+                "UPDATE files SET last_seen_at = 0 WHERE id = ?1",
+                params![old_path],
+            )
+            .expect("age old file");
+        }
+
+        let admission = db
+            .admit_managed_scan(&request(&root, "metadata-error-1"))
+            .expect("admit");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        let entry = InsertFileRequest {
+            id: format!("{root}/new.txt"),
+            path: format!("{root}/new.txt"),
+            name: "new.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 2,
+            mtime: 2,
+            ctime: 2,
+            is_dir: false,
+            state_code: 0,
+        };
+        let errors = vec![ScanErrorInput {
+            path: Some(format!("{root}/unreadable")),
+            error_code: "metadata_error".to_string(),
+            error_message: "permission denied".to_string(),
+            affects_coverage: true,
+            metadata_error: true,
+        }];
+        let updated = db
+            .persist_scan_batch(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanBatchInput {
+                    entries: std::slice::from_ref(&entry),
+                    errors: &errors,
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: 2,
+                    warnings: 0,
+                },
+            )
+            .expect("persist metadata error batch");
+        assert_eq!(updated.dto.metadata_error_count, 1);
+        assert_eq!(updated.dto.coverage_error_count, 1);
+
+        let conn = db.conn().expect("db connection");
+        let seen_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_seen WHERE run_id = ?1",
+                params![claimed.dto.id],
+                |row| row.get(0),
+            )
+            .expect("seen count");
+        let error_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_run_errors WHERE run_id = ?1",
+                params![claimed.dto.id],
+                |row| row.get(0),
+            )
+            .expect("error count");
+        let old_stale: i64 = conn
+            .query_row(
+                "SELECT is_stale FROM files WHERE id = ?1",
+                params![old_path],
+                |row| row.get(0),
+            )
+            .expect("old stale state");
+        assert_eq!(seen_count, 1);
+        assert_eq!(error_count, 1);
+        assert_eq!(old_stale, 0);
+        drop(conn);
+        assert!(db
+            .reconcile_missing(
+                &updated.dto.id,
+                updated.dto.revision,
+                updated.root_revision,
+                updated.session_revision,
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn successful_metadata_and_scan_seen_commit_together_and_old_worker_cas_is_rejected() {
+        let db = test_db("batch-cas");
+        let root = format!("/tmp/zen-canvas-scan-batch-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&request(&root, "batch-cas-1"))
+            .expect("admit");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        let entry = InsertFileRequest {
+            id: format!("{root}/ok.txt"),
+            path: format!("{root}/ok.txt"),
+            name: "ok.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 4,
+            mtime: 4,
+            ctime: 4,
+            is_dir: false,
+            state_code: 0,
+        };
+        let _updated = db
+            .persist_scan_batch(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanBatchInput {
+                    entries: std::slice::from_ref(&entry),
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: 4,
+                    warnings: 0,
+                },
+            )
+            .expect("persist successful metadata");
+        let conn = db.conn().expect("db connection");
+        let seen: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_seen WHERE run_id = ?1 AND file_id = ?2",
+                params![claimed.dto.id, entry.id],
+                |row| row.get(0),
+            )
+            .expect("scan seen row");
+        assert_eq!(seen, 1);
+        drop(conn);
+
+        let late_entry = InsertFileRequest {
+            id: format!("{root}/late.txt"),
+            path: format!("{root}/late.txt"),
+            name: "late.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 2,
+            mtime: 2,
+            ctime: 2,
+            is_dir: false,
+            state_code: 0,
+        };
+        assert!(db
+            .persist_scan_batch(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanBatchInput {
+                    entries: std::slice::from_ref(&late_entry),
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: 2,
+                    warnings: 0,
+                },
+            )
+            .is_err());
+        let conn = db.conn().expect("db connection");
+        let late_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE id = ?1",
+                params![late_entry.id],
+                |row| row.get(0),
+            )
+            .expect("late file count");
+        assert_eq!(late_count, 0);
+    }
+
+    #[test]
+    fn complete_reconciliation_stales_only_unseen_rows_and_advances_success_generation() {
+        let db = test_db("stale-success");
+        let root = format!("/tmp/zen-canvas-scan-stale-{}", new_job_id("root"));
+        let old_path = format!("{root}/old.txt");
+        db.insert_file(InsertFileRequest {
+            id: old_path.clone(),
+            path: old_path.clone(),
+            name: "old.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 1,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("insert old file");
+        db.conn()
+            .expect("db connection")
+            .execute(
+                "UPDATE files SET last_seen_at = 0 WHERE id = ?1",
+                params![old_path],
+            )
+            .expect("age old file");
+
+        let admission = db
+            .admit_managed_scan(&request(&root, "stale-success-1"))
+            .expect("admit");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        let entry = InsertFileRequest {
+            id: format!("{root}/new.txt"),
+            path: format!("{root}/new.txt"),
+            name: "new.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 2,
+            mtime: 2,
+            ctime: 2,
+            is_dir: false,
+            state_code: 0,
+        };
+        let updated = db
+            .persist_scan_batch(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanBatchInput {
+                    entries: std::slice::from_ref(&entry),
+                    errors: &[],
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: 2,
+                    warnings: 0,
+                },
+            )
+            .expect("persist");
+        let reconciled = db
+            .reconcile_missing(
+                &updated.dto.id,
+                updated.dto.revision,
+                updated.root_revision,
+                updated.session_revision,
+            )
+            .expect("reconcile");
+        assert!(reconciled.dto.stale_reconciliation_allowed);
+        let finalization = db
+            .finalize_scan_run(
+                &reconciled.dto.id,
+                reconciled.dto.revision,
+                reconciled.root_revision,
+                reconciled.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: true,
+                },
+            )
+            .expect("finalize");
+        assert_eq!(finalization.session.status, "completed");
+        let conn = db.conn().expect("db connection");
+        let stale: i64 = conn
+            .query_row(
+                "SELECT is_stale FROM files WHERE id = ?1",
+                params![old_path],
+                |row| row.get(0),
+            )
+            .expect("stale state");
+        let successful_generation: i64 = conn
+            .query_row(
+                "SELECT last_successful_generation FROM scan_roots WHERE id = ?1",
+                params![finalization.run.dto.scan_root_id],
+                |row| row.get(0),
+            )
+            .expect("successful generation");
+        assert_eq!(stale, 1);
+        assert_eq!(successful_generation, 1);
+    }
+
+    #[test]
+    fn cancelled_finalization_never_stales_unseen_files() {
+        let db = test_db("cancel-stale");
+        let root = format!("/tmp/zen-canvas-scan-cancel-{}", new_job_id("root"));
+        let old_path = format!("{root}/old.txt");
+        db.insert_file(InsertFileRequest {
+            id: old_path.clone(),
+            path: old_path.clone(),
+            name: "old.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 1,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("insert old file");
+        let admission = db
+            .admit_managed_scan(&request(&root, "cancel-stale-1"))
+            .expect("admit");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        let cancelling = db
+            .request_scan_cancellation(&claimed.dto.id)
+            .expect("request cancellation");
+        let finalization = db
+            .finalize_scan_run(
+                &cancelling.dto.id,
+                cancelling.dto.revision,
+                cancelling.root_revision,
+                cancelling.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "cancelled".to_string(),
+                    error_code: Some("cancelled".to_string()),
+                    error_message: Some("cancelled by test".to_string()),
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .expect("finalize cancellation");
+        assert_eq!(finalization.run.dto.status, "cancelled");
+        let stale: i64 = db
+            .conn()
+            .expect("db connection")
+            .query_row(
+                "SELECT is_stale FROM files WHERE id = ?1",
+                params![old_path],
+                |row| row.get(0),
+            )
+            .expect("stale state");
+        assert_eq!(stale, 0);
+    }
+
+    #[test]
+    fn multi_root_projection_preserves_mapping_and_terminal_priority() {
+        let db = test_db("multi-root");
+        let parent = format!("/tmp/zen-canvas-scan-multi-{}", new_job_id("root"));
+        let child = format!("{parent}/child");
+        let sibling = format!("/tmp/zen-canvas-scan-sibling-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&ScanAdmissionOptions {
+                request: ManagedScanRequest {
+                    roots: vec![parent.clone(), child, "".to_string(), sibling],
+                    request_key: Some("multi-root-1".to_string()),
+                    dedupe: true,
+                },
+                run_id_override: None,
+            })
+            .expect("admit multi-root request");
+        assert_eq!(admission.runs.len(), 2);
+        assert_eq!(admission.session.requested_root_count, 4);
+        assert_eq!(admission.session.effective_root_count, 2);
+        assert_eq!(admission.session.roots[0].status, "queued");
+        assert_eq!(admission.session.roots[1].status, "nested");
+        assert_eq!(admission.session.roots[2].status, "invalid");
+        assert_eq!(admission.session.roots[3].status, "queued");
+
+        let first = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim first root");
+        let first_final = db
+            .finalize_scan_run(
+                &first.dto.id,
+                first.dto.revision,
+                first.root_revision,
+                first.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .expect("complete first root");
+        assert_eq!(first_final.session.status, "running");
+
+        let second = db
+            .claim_queued_scan_run(&admission.runs[1].id)
+            .expect("claim second root");
+        let finalization = db
+            .finalize_scan_run(
+                &second.dto.id,
+                second.dto.revision,
+                second.root_revision,
+                second.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "failed".to_string(),
+                    error_code: Some("test_failure".to_string()),
+                    error_message: Some("partial failure".to_string()),
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .expect("fail second root");
+        assert_eq!(finalization.session.status, "failed");
+        assert_eq!(finalization.session.completed_root_count, 1);
+        assert_eq!(finalization.session.failed_root_count, 2);
+        assert_eq!(finalization.session.covered_root_count, 1);
+        assert_eq!(finalization.session.dedupe_dispatch_state, "not_requested");
+    }
+
+    #[test]
+    fn cancellation_marks_queued_roots_not_started_and_preserves_failure_priority() {
+        let db = test_db("cancel-queued");
+        let root = format!("/tmp/zen-canvas-scan-cancel-queued-{}", new_job_id("root"));
+        let second_root = format!("/tmp/zen-canvas-scan-cancel-queued-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&ScanAdmissionOptions {
+                request: ManagedScanRequest {
+                    roots: vec![root, second_root, "".to_string()],
+                    request_key: Some("cancel-queued-1".to_string()),
+                    dedupe: false,
+                },
+                run_id_override: None,
+            })
+            .expect("admit");
+        let cancelled = db
+            .request_scan_cancellation(&admission.runs[0].id)
+            .expect("cancel queued run");
+        assert_eq!(cancelled.dto.status, "cancelled");
+        let session = db.get_scan_session(&admission.session.id).expect("session");
+        assert_eq!(session.status, "failed");
+        assert!(session
+            .roots
+            .iter()
+            .filter(|root| root.resolution == "effective")
+            .all(|root| root.status == "cancelled_not_started"));
+        assert_eq!(
+            session
+                .roots
+                .iter()
+                .filter(|root| root.resolution == "invalid")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn dedupe_dispatch_claim_and_retry_are_durable_at_least_once() {
+        let db = test_db("dedupe-dispatch");
+        let root = format!("/tmp/zen-canvas-scan-dedupe-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&ScanAdmissionOptions {
+                request: ManagedScanRequest {
+                    roots: vec![root],
+                    request_key: Some("dedupe-dispatch-1".to_string()),
+                    dedupe: true,
+                },
+                run_id_override: None,
+            })
+            .expect("admit");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        let finalization = db
+            .finalize_scan_run(
+                &run.dto.id,
+                run.dto.revision,
+                run.root_revision,
+                run.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .expect("complete");
+        assert!(finalization.dedupe_pending);
+        let dispatching = db
+            .claim_dedupe_dispatch(&admission.session.id)
+            .expect("claim dispatch")
+            .expect("pending dispatch");
+        assert_eq!(dispatching.dedupe_dispatch_state, "dispatching");
+        assert_eq!(dispatching.dedupe_attempt_count, 1);
+        assert!(db
+            .claim_dedupe_dispatch(&admission.session.id)
+            .expect("second claim")
+            .is_none());
+        let failed = db
+            .record_dedupe_dispatch(
+                &admission.session.id,
+                dispatching.revision,
+                None,
+                Some("manager unavailable"),
+            )
+            .expect("record failed dispatch");
+        assert_eq!(failed.dedupe_dispatch_state, "failed");
+        let retry = db
+            .claim_dedupe_dispatch(&admission.session.id)
+            .expect("retry claim")
+            .expect("retry pending");
+        assert_eq!(retry.dedupe_attempt_count, 2);
+    }
+
+    #[test]
+    fn cancellation_is_rejected_after_stale_reconciliation_has_committed() {
+        let db = test_db("cancel-finalizing");
+        let root = format!("/tmp/zen-canvas-scan-finalizing-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&request(&root, "cancel-finalizing-1"))
+            .expect("admit");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        let reconciling = db
+            .transition_scan_run_phase(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                "reconciling_missing",
+            )
+            .expect("phase");
+        let unchanged = db
+            .request_scan_cancellation(&reconciling.dto.id)
+            .expect("late cancel");
+        assert_eq!(unchanged.dto.status, "running");
+        assert!(!unchanged.dto.cancel_requested);
+    }
+
+    #[test]
+    fn missing_root_finalization_preserves_reconciliation_health() {
+        let db = test_db("root-health");
+        let root = format!("/tmp/zen-canvas-scan-health-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&request(&root, "root-health-1"))
+            .expect("admit");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        let finalization = db
+            .finalize_scan_run(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "requires_reconciliation".to_string(),
+                    error_code: Some("root_missing".to_string()),
+                    error_message: Some("root disappeared".to_string()),
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .expect("finalize missing root");
+        let health = db
+            .get_scan_root_health(Some(&finalization.run.dto.scan_root_id), None)
+            .expect("root health");
+        assert_eq!(health.health_status, "missing");
+        assert!(health.needs_reconciliation);
+        assert_eq!(health.last_successful_generation, None);
+    }
+
+    #[test]
+    fn recovery_pinned_observations_are_not_pruned() {
+        let db = test_db("retention-pin");
+        let root = format!("/tmp/zen-canvas-scan-retention-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&request(&root, "retention-pin-1"))
+            .expect("admit");
+        let claimed = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        let entry = InsertFileRequest {
+            id: format!("{root}/observed.txt"),
+            path: format!("{root}/observed.txt"),
+            name: "observed.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 1,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        };
+        let errors = vec![ScanErrorInput {
+            path: Some(format!("{root}/unreadable")),
+            error_code: "metadata_error".to_string(),
+            error_message: "unreadable".to_string(),
+            affects_coverage: true,
+            metadata_error: true,
+        }];
+        let updated = db
+            .persist_scan_batch(
+                &claimed.dto.id,
+                claimed.dto.revision,
+                claimed.root_revision,
+                claimed.session_revision,
+                &ScanBatchInput {
+                    entries: std::slice::from_ref(&entry),
+                    errors: &errors,
+                    scanned_files: 1,
+                    scanned_directories: 0,
+                    processed_bytes: 1,
+                    warnings: 0,
+                },
+            )
+            .expect("persist");
+        let finalization = db
+            .finalize_scan_run(
+                &updated.dto.id,
+                updated.dto.revision,
+                updated.root_revision,
+                updated.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "requires_reconciliation".to_string(),
+                    error_code: Some("coverage_incomplete".to_string()),
+                    error_message: Some("metadata error".to_string()),
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .expect("finalize");
+        let conn = db.conn().expect("db connection");
+        conn.execute(
+            "UPDATE scan_runs SET finished_at = 0, created_at = 0 WHERE id = ?1",
+            params![finalization.run.dto.id],
+        )
+        .expect("age pinned run");
+        drop(conn);
+        db.prune_scan_observations().expect("prune");
+        let conn = db.conn().expect("db connection");
+        let seen_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_seen WHERE run_id = ?1",
+                params![finalization.run.dto.id],
+                |row| row.get(0),
+            )
+            .expect("seen count");
+        let error_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_run_errors WHERE run_id = ?1",
+                params![finalization.run.dto.id],
+                |row| row.get(0),
+            )
+            .expect("error count");
+        assert_eq!(seen_count, 1);
+        assert_eq!(error_count, 1);
+    }
+
+    #[test]
+    #[ignore = "bounded performance fixture; invoked by npm run test:performance"]
+    fn performance_100k_scan_seen_missing_reconcile_and_wal_reader() {
+        const FILE_COUNT: usize = 100_000;
+        let db = test_db("performance-100k");
+        let seen_root = format!(
+            "/tmp/zen-canvas-scan-performance-seen-{}",
+            new_job_id("root")
+        );
+        let seen_admission = db
+            .admit_managed_scan(&request(&seen_root, "performance-seen-1"))
+            .expect("admit seen fixture");
+        let seen_run = db
+            .claim_queued_scan_run(&seen_admission.runs[0].id)
+            .expect("claim seen fixture");
+        let seen_entries = (0..FILE_COUNT)
+            .map(|index| {
+                let path = format!("{seen_root}/seen-{index:06}.txt");
+                InsertFileRequest {
+                    id: path.clone(),
+                    path,
+                    name: format!("seen-{index:06}.txt"),
+                    extension: "txt".to_string(),
+                    size: 1,
+                    mtime: 1,
+                    ctime: 1,
+                    is_dir: false,
+                    state_code: 0,
+                }
+            })
+            .collect::<Vec<_>>();
+        let insert_started = Instant::now();
+        let seen_updated = db
+            .persist_scan_batch(
+                &seen_run.dto.id,
+                seen_run.dto.revision,
+                seen_run.root_revision,
+                seen_run.session_revision,
+                &ScanBatchInput {
+                    entries: &seen_entries,
+                    errors: &[],
+                    scanned_files: FILE_COUNT as i64,
+                    scanned_directories: 0,
+                    processed_bytes: FILE_COUNT as i64,
+                    warnings: 0,
+                },
+            )
+            .expect("insert 100k scan_seen rows");
+        let insert_elapsed = insert_started.elapsed();
+        let seen_final = db
+            .finalize_scan_run(
+                &seen_updated.dto.id,
+                seen_updated.dto.revision,
+                seen_updated.root_revision,
+                seen_updated.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: false,
+                },
+            )
+            .expect("finalize seen fixture");
+
+        let missing_root = format!(
+            "/tmp/zen-canvas-scan-performance-missing-{}",
+            new_job_id("root")
+        );
+        {
+            let mut conn = db.conn().expect("db connection");
+            let tx = conn
+                .transaction()
+                .expect("seed missing fixture transaction");
+            let mut statement = tx
+                .prepare(
+                    "INSERT INTO files (id, path, name, extension, size, mtime, ctime, is_dir, state_code, file_type, suggested_name, classification_status, is_stale, last_seen_at) VALUES (?1, ?1, ?2, 'txt', 1, 1, 1, 0, 0, 'Other', ?2, 'unclassified', 0, 0)",
+                )
+                .expect("prepare missing fixture");
+            for index in 0..FILE_COUNT {
+                let name = format!("missing-{index:06}.txt");
+                let path = format!("{missing_root}/{name}");
+                statement
+                    .execute(params![path, name])
+                    .expect("seed missing file");
+            }
+            drop(statement);
+            tx.commit().expect("commit missing fixture");
+        }
+        let missing_admission = db
+            .admit_managed_scan(&request(&missing_root, "performance-missing-1"))
+            .expect("admit missing fixture");
+        let missing_run = db
+            .claim_queued_scan_run(&missing_admission.runs[0].id)
+            .expect("claim missing fixture");
+        let reconcile_started = Instant::now();
+        let reconciled = db
+            .reconcile_missing(
+                &missing_run.dto.id,
+                missing_run.dto.revision,
+                missing_run.root_revision,
+                missing_run.session_revision,
+            )
+            .expect("reconcile 100k missing rows");
+        let reconcile_elapsed = reconcile_started.elapsed();
+        assert!(reconciled.dto.stale_reconciliation_allowed);
+        let missing_final = db
+            .finalize_scan_run(
+                &reconciled.dto.id,
+                reconciled.dto.revision,
+                reconciled.root_revision,
+                reconciled.session_revision,
+                &ScanFinalizeInput {
+                    terminal_status: "completed".to_string(),
+                    error_code: None,
+                    error_message: None,
+                    allow_stale_reconciliation: true,
+                },
+            )
+            .expect("finalize missing fixture");
+
+        let writer = db.conn().expect("writer connection");
+        writer
+            .execute_batch("BEGIN IMMEDIATE; UPDATE scan_roots SET updated_at = updated_at;")
+            .expect("hold WAL writer transaction");
+        let reader_started = Instant::now();
+        let roots = db.list_scan_roots().expect("read roots during writer");
+        let reader_elapsed = reader_started.elapsed();
+        writer
+            .execute_batch("ROLLBACK")
+            .expect("rollback writer transaction");
+        assert!(roots.len() >= 2);
+
+        let prune_started = Instant::now();
+        db.prune_scan_observations().expect("bounded prune");
+        let prune_elapsed = prune_started.elapsed();
+        assert!(seen_final.session.status == "completed");
+        assert_eq!(missing_final.session.status, "completed");
+        assert!(insert_elapsed < Duration::from_secs(120));
+        assert!(reconcile_elapsed < Duration::from_secs(120));
+        assert!(reader_elapsed < Duration::from_secs(10));
+        assert!(prune_elapsed < Duration::from_secs(30));
+        eprintln!(
+            "scan performance: scan_seen_insert={:?}, missing_reconcile={:?}, wal_reader={:?}, prune={:?}",
+            insert_elapsed, reconcile_elapsed, reader_elapsed, prune_elapsed
+        );
+    }
+
+    #[test]
+    fn startup_recovery_interrupts_active_runs_and_releases_the_root_lease() {
+        let db = test_db("recovery");
+        let root = format!("/tmp/zen-canvas-scan-recovery-{}", new_job_id("root"));
+        let admission = db
+            .admit_managed_scan(&request(&root, "recovery-1"))
+            .expect("admit");
+        let run = db
+            .claim_queued_scan_run(&admission.runs[0].id)
+            .expect("claim");
+        assert_eq!(db.recover_interrupted_scan_runs().expect("recover"), 1);
+        let recovered = db.get_scan_run_record(&run.dto.id).expect("recovered run");
+        assert_eq!(recovered.dto.status, "interrupted");
+        assert!(recovered.root_active_run_id.is_none());
+        assert_eq!(
+            db.get_scan_session(&admission.session.id)
+                .expect("session")
+                .status,
+            "interrupted"
+        );
+    }
+
+    #[test]
+    fn schema_26_upgrade_creates_ledger_without_fabricating_observations() {
+        let path = {
+            let sequence = TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed);
+            std::env::temp_dir().join(format!(
+                "zen-canvas-scan-schema-26-{}-{sequence}.sqlite3",
+                std::process::id()
+            ))
+        };
+        let db = Database::open(&path).expect("create current fixture");
+        db.insert_file(InsertFileRequest {
+            id: "/tmp/legacy.txt".to_string(),
+            path: "/tmp/legacy.txt".to_string(),
+            name: "legacy.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 1,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("insert legacy file");
+        drop(db);
+        let conn = Connection::open(&path).expect("open fixture");
+        conn.execute_batch(
+            r#"
+            DROP TABLE scan_seen;
+            DROP TABLE scan_run_errors;
+            DROP TABLE scan_session_roots;
+            DROP TABLE scan_runs;
+            DROP TABLE scan_sessions;
+            DROP TABLE scan_roots;
+            PRAGMA user_version = 26;
+            "#,
+        )
+        .expect("downgrade ledger tables for schema 26 fixture");
+        drop(conn);
+
+        let migrated = Database::open(&path).expect("migrate schema 26 fixture");
+        let conn = migrated.conn().expect("inspect migrated fixture");
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("schema version");
+        let file_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM files WHERE id = '/tmp/legacy.txt'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("legacy file");
+        let seen_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM scan_seen", [], |row| row.get(0))
+            .expect("scan seen count");
+        assert_eq!(version, 27);
+        assert_eq!(file_count, 1);
+        assert_eq!(seen_count, 0);
+    }
 }
