@@ -181,6 +181,21 @@ pub(crate) struct ScanBatchInput<'a> {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct ScanFinalizeInput {
+    pub terminal_status: String,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    pub allow_stale_reconciliation: bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ScanFinalization {
+    pub run: ScanRunRecord,
+    pub session: ScanSessionDto,
+    pub dedupe_pending: bool,
+}
+
+#[derive(Debug, Clone)]
 struct ScanRootSeed {
     id: String,
     path: String,
@@ -372,6 +387,10 @@ impl Database {
             )?;
         }
 
+        if roots_by_key.is_empty() {
+            let _ = update_session_projection_tx(&tx, &session_id, 0, now)?;
+        }
+
         let admission = load_admission_tx(&tx, &session_id, true)?;
         tx.commit()?;
         Ok(admission)
@@ -528,6 +547,10 @@ impl Database {
                 "Scan session claim CAS failed.".to_string(),
             ));
         }
+        tx.execute(
+            "UPDATE scan_session_roots SET status = 'running', updated_at = ?1 WHERE run_id = ?2 AND status = 'queued'",
+            params![now, run_id],
+        )?;
 
         let claimed = load_scan_run_record(&tx, run_id)?;
         tx.commit()?;
@@ -871,6 +894,685 @@ impl Database {
         tx.commit()?;
         Ok(updated)
     }
+
+    pub(crate) fn finalize_scan_run(
+        &self,
+        run_id: &str,
+        expected_run_revision: i64,
+        expected_root_revision: i64,
+        expected_session_revision: i64,
+        input: &ScanFinalizeInput,
+    ) -> Result<ScanFinalization, DbError> {
+        if !matches!(
+            input.terminal_status.as_str(),
+            "cancelled"
+                | "completed"
+                | "completed_with_warnings"
+                | "failed"
+                | "interrupted"
+                | "requires_reconciliation"
+        ) {
+            return Err(DbError::Validation(format!(
+                "Invalid scan terminal status: {}",
+                input.terminal_status
+            )));
+        }
+        let success = matches!(
+            input.terminal_status.as_str(),
+            "completed" | "completed_with_warnings"
+        );
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let record = load_scan_run_record(&tx, run_id)?;
+        if record.dto.status == input.terminal_status {
+            let session_id = record.dto.parent_session_id.as_deref().ok_or_else(|| {
+                DbError::Validation("Scan run has no parent session.".to_string())
+            })?;
+            let session = load_session(&tx, session_id)?;
+            tx.commit()?;
+            return Ok(ScanFinalization {
+                run: record,
+                dedupe_pending: session.dedupe_dispatch_state == "pending",
+                session,
+            });
+        }
+        if !matches!(record.dto.status.as_str(), "running" | "cancelling") {
+            return Err(DbError::Validation(
+                "Terminal scan finalization can only claim a running run.".to_string(),
+            ));
+        }
+        if success && record.dto.coverage_error_count > 0 {
+            return Err(DbError::Validation(
+                "A coverage-breaking scan cannot finalize successfully.".to_string(),
+            ));
+        }
+        if record.dto.revision != expected_run_revision
+            || record.root_revision != expected_root_revision
+            || record.session_revision != expected_session_revision
+            || record.root_active_run_id.as_deref() != Some(run_id)
+            || record.root_active_generation != Some(record.dto.generation)
+        {
+            return Err(DbError::Validation(
+                "Scan finalization lost run, root lease, generation, or session revision."
+                    .to_string(),
+            ));
+        }
+        if success && input.allow_stale_reconciliation && !record.dto.stale_reconciliation_allowed {
+            return Err(DbError::Validation(
+                "Successful finalization requires the stale reconciliation gate.".to_string(),
+            ));
+        }
+
+        let now = current_unix_seconds();
+        let result_json = serde_json::json!({
+            "generation": record.dto.generation,
+            "coverageComplete": record.dto.coverage_error_count == 0,
+            "staleReconciliation": record.dto.stale_reconciliation_allowed,
+        })
+        .to_string();
+        let changed = tx.execute(
+            r#"
+            UPDATE scan_runs
+            SET status = ?1, phase = 'completed',
+                coverage_complete = CASE WHEN ?2 = 1 AND coverage_error_count = 0 THEN 1 ELSE coverage_complete END,
+                stale_reconciliation_allowed = CASE WHEN ?3 = 1 THEN stale_reconciliation_allowed ELSE 0 END,
+                finished_at = ?4, last_checkpoint_at = ?4,
+                error_code = ?5, error_message = ?6, result_json = ?7,
+                revision = revision + 1, updated_at = ?4
+            WHERE id = ?8 AND status IN ('running', 'cancelling')
+              AND revision = ?9 AND lease_token = ?10
+            "#,
+            params![
+                input.terminal_status,
+                bool_to_i64(success),
+                bool_to_i64(input.allow_stale_reconciliation),
+                now,
+                input.error_code,
+                input.error_message,
+                result_json,
+                run_id,
+                expected_run_revision,
+                record.lease_token,
+            ],
+        )?;
+        if changed != 1 {
+            return Err(DbError::Validation(
+                "Scan terminal run CAS failed.".to_string(),
+            ));
+        }
+
+        let health = if success {
+            if input.terminal_status == "completed_with_warnings" {
+                "degraded"
+            } else {
+                "healthy"
+            }
+        } else {
+            "reconciliation_required"
+        };
+        let last_successful_generation = if success {
+            Some(record.dto.generation)
+        } else {
+            None
+        };
+        let last_full_scan_at = if success { Some(now) } else { None };
+        let root_changed = tx.execute(
+            r#"
+            UPDATE scan_roots
+            SET active_run_id = NULL,
+                active_generation = NULL,
+                health_status = ?1,
+                last_successful_generation = CASE WHEN ?2 = 1 THEN ?3 ELSE last_successful_generation END,
+                last_full_scan_at = CASE WHEN ?2 = 1 THEN ?4 ELSE last_full_scan_at END,
+                needs_reconciliation = CASE WHEN ?2 = 1 THEN 0 ELSE 1 END,
+                last_error_code = ?5,
+                last_error_message = ?6,
+                revision = revision + 1,
+                updated_at = ?7
+            WHERE id = ?8 AND revision = ?9
+              AND active_run_id = ?10 AND active_generation = ?11
+            "#,
+            params![
+                health,
+                bool_to_i64(success),
+                last_successful_generation,
+                last_full_scan_at,
+                input.error_code,
+                input.error_message,
+                now,
+                record.dto.scan_root_id,
+                expected_root_revision,
+                run_id,
+                record.dto.generation,
+            ],
+        )?;
+        if root_changed != 1 {
+            return Err(DbError::Validation(
+                "Scan terminal root lease CAS failed.".to_string(),
+            ));
+        }
+
+        let mapping_status = if success {
+            if input.terminal_status == "completed_with_warnings" {
+                "completed_with_warnings"
+            } else {
+                "completed"
+            }
+        } else {
+            input.terminal_status.as_str()
+        };
+        tx.execute(
+            r#"
+            UPDATE scan_session_roots
+            SET status = CASE
+                    WHEN ?1 = 1 THEN CASE WHEN resolution = 'effective' THEN ?2 ELSE 'covered' END
+                    ELSE ?3
+                END,
+                updated_at = ?4
+            WHERE run_id = ?5
+            "#,
+            params![
+                bool_to_i64(success),
+                mapping_status,
+                mapping_status,
+                now,
+                run_id,
+            ],
+        )?;
+
+        let session_id =
+            record.dto.parent_session_id.as_deref().ok_or_else(|| {
+                DbError::Validation("Scan run has no parent session.".to_string())
+            })?;
+        let projection =
+            update_session_projection_tx(&tx, session_id, expected_session_revision, now)?;
+        let updated = load_scan_run_record(&tx, run_id)?;
+        let session = load_session(&tx, session_id)?;
+        let dedupe_pending = projection.dedupe_pending;
+        tx.commit()?;
+        Ok(ScanFinalization {
+            run: updated,
+            session,
+            dedupe_pending,
+        })
+    }
+
+    pub(crate) fn request_scan_cancellation(&self, run_id: &str) -> Result<ScanRunRecord, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let record = load_scan_run_record(&tx, run_id)?;
+        if is_terminal_status(&record.dto.status) {
+            tx.commit()?;
+            return Ok(record);
+        }
+        let session_id =
+            record.dto.parent_session_id.as_deref().ok_or_else(|| {
+                DbError::Validation("Scan run has no parent session.".to_string())
+            })?;
+        let session = load_session(&tx, session_id)?;
+        let now = current_unix_seconds();
+        let session_changed = tx.execute(
+            r#"
+            UPDATE scan_sessions
+            SET cancel_requested = 1, status = 'cancelling',
+                revision = revision + 1, updated_at = ?1
+            WHERE id = ?2 AND revision = ?3
+              AND status NOT IN ('cancelled', 'completed', 'completed_with_warnings',
+                                 'failed', 'interrupted', 'requires_reconciliation')
+            "#,
+            params![now, session_id, session.revision],
+        )?;
+        if session_changed != 1 {
+            return Err(DbError::Validation(
+                "Scan session cancellation CAS failed.".to_string(),
+            ));
+        }
+        let session_revision = session.revision + 1;
+        let queued_runs = {
+            let mut statement = tx.prepare(
+                "SELECT id FROM scan_runs WHERE parent_session_id = ?1 AND status = 'queued'",
+            )?;
+            let rows = statement
+                .query_map(params![session_id], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+        for queued_run_id in queued_runs {
+            let queued = load_scan_run_record(&tx, &queued_run_id)?;
+            let run_changed = tx.execute(
+                r#"
+                UPDATE scan_runs
+                SET status = 'cancelled', phase = 'completed', cancel_requested = 1,
+                    finished_at = ?1, last_checkpoint_at = ?1,
+                    error_code = 'cancelled_before_start',
+                    error_message = 'Scan was cancelled before this root started.',
+                    revision = revision + 1, updated_at = ?1
+                WHERE id = ?2 AND status = 'queued' AND revision = ?3
+                  AND lease_token = ?4
+                "#,
+                params![now, queued_run_id, queued.dto.revision, queued.lease_token],
+            )?;
+            if run_changed != 1 {
+                return Err(DbError::Validation(
+                    "Queued scan cancellation CAS failed.".to_string(),
+                ));
+            }
+            release_root_lease_tx(&tx, &queued, now, "cancelled_before_start")?;
+            tx.execute(
+                "UPDATE scan_session_roots SET status = 'cancelled_not_started', updated_at = ?1 WHERE run_id = ?2 AND status = 'queued'",
+                params![now, queued_run_id],
+            )?;
+        }
+        if record.dto.status == "running" || record.dto.status == "cancelling" {
+            let changed = tx.execute(
+                r#"
+                UPDATE scan_runs
+                SET status = 'cancelling', cancel_requested = 1,
+                    last_checkpoint_at = ?1, revision = revision + 1, updated_at = ?1
+                WHERE id = ?2 AND status IN ('running', 'cancelling')
+                  AND revision = ?3 AND lease_token = ?4
+                "#,
+                params![now, run_id, record.dto.revision, record.lease_token],
+            )?;
+            if changed != 1 {
+                return Err(DbError::Validation(
+                    "Running scan cancellation CAS failed.".to_string(),
+                ));
+            }
+        }
+        let _ = update_session_projection_tx(&tx, session_id, session_revision, now)?;
+        let updated = load_scan_run_record(&tx, run_id)?;
+        tx.commit()?;
+        Ok(updated)
+    }
+
+    pub(crate) fn recover_interrupted_scan_runs(&self) -> Result<usize, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let ids = {
+            let mut statement = tx.prepare(
+                "SELECT id FROM scan_runs WHERE status IN ('queued', 'running', 'cancelling') ORDER BY created_at",
+            )?;
+            let rows = statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+        let now = current_unix_seconds();
+        let mut recovered = 0;
+        for run_id in ids {
+            let record = load_scan_run_record(&tx, &run_id)?;
+            let run_changed = tx.execute(
+                r#"
+                UPDATE scan_runs
+                SET status = 'interrupted', phase = 'completed',
+                    finished_at = ?1, last_checkpoint_at = ?1,
+                    error_code = 'process_interrupted',
+                    error_message = 'The application stopped before this scan finalized.',
+                    revision = revision + 1, updated_at = ?1
+                WHERE id = ?2 AND status IN ('queued', 'running', 'cancelling')
+                  AND revision = ?3 AND lease_token = ?4
+                "#,
+                params![now, run_id, record.dto.revision, record.lease_token],
+            )?;
+            if run_changed != 1 {
+                continue;
+            }
+            release_root_lease_tx(&tx, &record, now, "process_interrupted")?;
+            tx.execute(
+                "UPDATE scan_session_roots SET status = 'interrupted', updated_at = ?1 WHERE run_id = ?2 AND status IN ('queued', 'running')",
+                params![now, run_id],
+            )?;
+            if let Some(session_id) = record.dto.parent_session_id.as_deref() {
+                let current = load_session(&tx, session_id)?;
+                let _ = update_session_projection_tx(&tx, session_id, current.revision, now)?;
+            }
+            recovered += 1;
+        }
+        tx.execute(
+            r#"
+            UPDATE scan_sessions
+            SET dedupe_dispatch_state = 'unknown',
+                dedupe_last_error = 'The process stopped while dispatching dedupe.',
+                revision = revision + 1, updated_at = ?1
+            WHERE dedupe_dispatch_state = 'dispatching'
+              AND status IN ('completed', 'completed_with_warnings')
+            "#,
+            params![now],
+        )?;
+        tx.commit()?;
+        Ok(recovered)
+    }
+
+    pub(crate) fn claim_dedupe_dispatch(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<ScanSessionDto>, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let session = load_session(&tx, session_id)?;
+        if !session.dedupe_requested
+            || !matches!(
+                session.status.as_str(),
+                "completed" | "completed_with_warnings"
+            )
+            || !matches!(
+                session.dedupe_dispatch_state.as_str(),
+                "pending" | "unknown" | "failed"
+            )
+        {
+            tx.commit()?;
+            return Ok(None);
+        }
+        let now = current_unix_seconds();
+        let changed = tx.execute(
+            r#"
+            UPDATE scan_sessions
+            SET dedupe_dispatch_state = 'dispatching',
+                dedupe_attempt_count = dedupe_attempt_count + 1,
+                dedupe_last_error = NULL, revision = revision + 1, updated_at = ?1
+            WHERE id = ?2 AND revision = ?3
+              AND dedupe_dispatch_state IN ('pending', 'unknown', 'failed')
+            "#,
+            params![now, session_id, session.revision],
+        )?;
+        if changed != 1 {
+            return Ok(None);
+        }
+        let claimed = load_session(&tx, session_id)?;
+        tx.commit()?;
+        Ok(Some(claimed))
+    }
+
+    pub(crate) fn record_dedupe_dispatch(
+        &self,
+        session_id: &str,
+        expected_revision: i64,
+        job_id: Option<&str>,
+        error: Option<&str>,
+    ) -> Result<ScanSessionDto, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let state = if job_id.is_some() {
+            "dispatched"
+        } else {
+            "failed"
+        };
+        let now = current_unix_seconds();
+        let changed = tx.execute(
+            r#"
+            UPDATE scan_sessions
+            SET dedupe_dispatch_state = ?1, dedupe_job_id = ?2,
+                dedupe_last_error = ?3, revision = revision + 1, updated_at = ?4
+            WHERE id = ?5 AND revision = ?6 AND dedupe_dispatch_state = 'dispatching'
+            "#,
+            params![state, job_id, error, now, session_id, expected_revision],
+        )?;
+        if changed != 1 {
+            return Err(DbError::Validation(
+                "Dedupe dispatch result CAS failed.".to_string(),
+            ));
+        }
+        let session = load_session(&tx, session_id)?;
+        tx.commit()?;
+        Ok(session)
+    }
+
+    pub(crate) fn prune_scan_observations(&self) -> Result<usize, DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let now = current_unix_seconds();
+        let mut candidates = Vec::<(String, String)>::new();
+        {
+            let mut statement = tx.prepare(
+                r#"
+                SELECT id, scan_root_id, status, COALESCE(finished_at, created_at)
+                FROM scan_runs
+                WHERE status NOT IN ('queued', 'running', 'cancelling')
+                ORDER BY scan_root_id, created_at DESC
+                "#,
+            )?;
+            let mut newest_by_root = HashMap::<String, usize>::new();
+            let rows = statement.query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })?;
+            for row in rows {
+                let (run_id, root_id, status, finished_at) = row?;
+                let newest = newest_by_root.entry(root_id).or_default();
+                let keep_newest = *newest < 2;
+                *newest += 1;
+                let retention =
+                    if matches!(status.as_str(), "completed" | "completed_with_warnings") {
+                        7 * 24 * 60 * 60
+                    } else {
+                        30 * 24 * 60 * 60
+                    };
+                if !keep_newest && finished_at <= now.saturating_sub(retention) {
+                    candidates.push((run_id, status));
+                }
+            }
+        }
+        let mut deleted = 0usize;
+        for (run_id, status) in candidates {
+            if deleted >= 1000 {
+                break;
+            }
+            let remaining = 1000 - deleted;
+            let changed = tx.execute(
+                &format!("DELETE FROM scan_seen WHERE run_id = ?1 LIMIT {remaining}"),
+                params![run_id],
+            )?;
+            deleted += changed;
+            if deleted >= 1000 {
+                break;
+            }
+            let remaining = 1000 - deleted;
+            let changed = tx.execute(
+                &format!("DELETE FROM scan_run_errors WHERE run_id = ?1 LIMIT {remaining}"),
+                params![run_id],
+            )?;
+            deleted += changed;
+            let _ = status;
+        }
+        tx.commit()?;
+        Ok(deleted)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SessionProjection {
+    dedupe_pending: bool,
+}
+
+fn is_terminal_status(status: &str) -> bool {
+    matches!(
+        status,
+        "cancelled"
+            | "completed"
+            | "completed_with_warnings"
+            | "failed"
+            | "interrupted"
+            | "requires_reconciliation"
+    )
+}
+
+fn release_root_lease_tx(
+    tx: &Transaction<'_>,
+    record: &ScanRunRecord,
+    now: i64,
+    error_code: &str,
+) -> Result<(), DbError> {
+    let changed = tx.execute(
+        r#"
+        UPDATE scan_roots
+        SET active_run_id = NULL, active_generation = NULL,
+            health_status = 'reconciliation_required', needs_reconciliation = 1,
+            last_error_code = ?1,
+            last_error_message = 'Scan did not complete and requires reconciliation.',
+            revision = revision + 1, updated_at = ?2
+        WHERE id = ?3 AND revision = ?4
+          AND active_run_id = ?5 AND active_generation = ?6
+        "#,
+        params![
+            error_code,
+            now,
+            record.dto.scan_root_id,
+            record.root_revision,
+            record.dto.id,
+            record.dto.generation,
+        ],
+    )?;
+    if changed != 1 {
+        return Err(DbError::Validation(
+            "Root lease release CAS failed.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn update_session_projection_tx(
+    tx: &Transaction<'_>,
+    session_id: &str,
+    expected_revision: i64,
+    now: i64,
+) -> Result<SessionProjection, DbError> {
+    let session = load_session(tx, session_id)?;
+    if session.revision != expected_revision {
+        return Err(DbError::Validation(
+            "Scan session projection revision CAS failed.".to_string(),
+        ));
+    }
+    let statuses = {
+        let mut statement = tx.prepare(
+            "SELECT status FROM scan_session_roots WHERE session_id = ?1 ORDER BY requested_index",
+        )?;
+        let rows = statement
+            .query_map(params![session_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows
+    };
+    let terminal = statuses.iter().all(|status| is_mapping_terminal(status));
+    let has_requires = statuses
+        .iter()
+        .any(|status| status == "requires_reconciliation");
+    let has_interrupted = statuses.iter().any(|status| status == "interrupted");
+    let has_failed = statuses
+        .iter()
+        .any(|status| status == "failed" || status == "invalid");
+    let has_cancelled = statuses
+        .iter()
+        .any(|status| status == "cancelled" || status == "cancelled_not_started");
+    let has_warning = statuses
+        .iter()
+        .any(|status| status == "completed_with_warnings");
+    let status = if !terminal {
+        if session.cancel_requested {
+            "cancelling"
+        } else {
+            "running"
+        }
+    } else if has_requires {
+        "requires_reconciliation"
+    } else if has_interrupted {
+        "interrupted"
+    } else if has_failed {
+        "failed"
+    } else if has_cancelled {
+        "cancelled"
+    } else if has_warning {
+        "completed_with_warnings"
+    } else {
+        "completed"
+    };
+    let phase = if terminal { "completed" } else { "running" };
+    let completed_root_count = statuses
+        .iter()
+        .filter(|status| matches!(status.as_str(), "completed" | "completed_with_warnings"))
+        .count() as i64;
+    let failed_root_count = statuses
+        .iter()
+        .filter(|status| matches!(status.as_str(), "failed" | "invalid"))
+        .count() as i64;
+    let cancelled_root_count = statuses
+        .iter()
+        .filter(|status| matches!(status.as_str(), "cancelled" | "cancelled_not_started"))
+        .count() as i64;
+    let covered_root_count = statuses
+        .iter()
+        .filter(|status| matches!(status.as_str(), "covered" | "duplicate" | "nested"))
+        .count() as i64;
+    let unstarted_root_count = statuses
+        .iter()
+        .filter(|status| matches!(status.as_str(), "queued" | "cancelled_not_started"))
+        .count() as i64;
+    let dedupe_pending = terminal
+        && matches!(status, "completed" | "completed_with_warnings")
+        && session.dedupe_requested
+        && completed_root_count > 0
+        && matches!(
+            session.dedupe_dispatch_state.as_str(),
+            "not_requested" | "pending" | "unknown" | "failed"
+        );
+    let dedupe_state = if dedupe_pending {
+        "pending"
+    } else {
+        &session.dedupe_dispatch_state
+    };
+    let changed = tx.execute(
+        r#"
+        UPDATE scan_sessions
+        SET status = ?1, phase = ?2,
+            completed_root_count = ?3, failed_root_count = ?4,
+            cancelled_root_count = ?5, covered_root_count = ?6,
+            unstarted_root_count = ?7,
+            dedupe_dispatch_state = ?8,
+            finished_at = CASE WHEN ?9 = 1 THEN ?10 ELSE finished_at END,
+            last_checkpoint_at = ?10, revision = revision + 1, updated_at = ?10
+        WHERE id = ?11 AND revision = ?12
+        "#,
+        params![
+            status,
+            phase,
+            completed_root_count,
+            failed_root_count,
+            cancelled_root_count,
+            covered_root_count,
+            unstarted_root_count,
+            dedupe_state,
+            bool_to_i64(terminal),
+            now,
+            session_id,
+            expected_revision,
+        ],
+    )?;
+    if changed != 1 {
+        return Err(DbError::Validation(
+            "Scan session projection update affected no rows.".to_string(),
+        ));
+    }
+    Ok(SessionProjection { dedupe_pending })
+}
+
+fn is_mapping_terminal(status: &str) -> bool {
+    matches!(
+        status,
+        "completed"
+            | "completed_with_warnings"
+            | "failed"
+            | "cancelled"
+            | "interrupted"
+            | "requires_reconciliation"
+            | "covered"
+            | "duplicate"
+            | "nested"
+            | "invalid"
+            | "cancelled_not_started"
+    )
 }
 
 fn validate_worker_ownership(
