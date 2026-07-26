@@ -120,7 +120,8 @@ czkawka 仓库根目录的 MIT 文件名为 `LICENSE_MIT_EVERYTHING_OUTSIDE_ANY_
 | 用户裁决 | ✅ 已下达 | 裁决 1–4（见 `pr-18-review.md` 第 7 节与本文件 6.3） |
 | 裁决 1 前提核实 | ✅ 完成 | 前提成立，但发现事实基础需修正——见 `pr-18-review.md` 第 4.1b 节 |
 | 裁决 5（gate 默认 `true`） | ✅ 已下达 | kill switch，非 rollout flag |
-| M1–M6 实施 | ✅ 完成，待验收 | `m1-m6-implementation.md`；分支 `remediation/01a-scan-generation-fixes` |
+| M1–M6 实施 | ✅ 完成，待验收 | [PR #19](https://github.com/ArdenZC/Zen-Canvas/pull/19)（Draft，base `master`）；`m1-m6-implementation.md` |
+| PR #18 处置 | ⏸ 待裁决 | 未合并、未关闭、未改动。PR #19 基于其 head，已含其全部内容 |
 | S1–S5 | ⏳ 未开始（未获批准，未改动） | — |
 
 ### 6.2 阶段 B：环境准备
