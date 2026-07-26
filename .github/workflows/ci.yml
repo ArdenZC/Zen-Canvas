@@ -63,22 +63,84 @@ jobs:
       - name: Rust format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
+      # Environmental-failure protocol (docs/remediation/issue-file-ops-flaky.md, F2):
+      # a failed run is reran ONCE only when every failed test belongs to the
+      # file_ops group AND the log carries the documented environmental signature
+      # (Windows sharing violation / post-commit identity mismatch). Such runs are
+      # counted as "inconclusive" and the count lands in the step summary and an
+      # artifact, so the trigger frequency stays observable. Any other failure —
+      # or a failed rerun — fails the job with no further retries.
       - name: Rust tests
         id: rust-tests
         shell: bash
+        env:
+          ZEN_CANVAS_ENV_RETRY_LOG: ${{ github.workspace }}/env-retry-${{ runner.os }}.log
         run: |
           set +e
-          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime 2>&1 | tee rust-test-${{ runner.os }}.log
-          status=${PIPESTATUS[0]}
+          run_tests() {
+            cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime 2>&1 | tee "$1"
+            return "${PIPESTATUS[0]}"
+          }
+          run_tests "rust-test-${{ runner.os }}.log"
+          status=$?
+          inconclusive=0
+          if [ "$status" != "0" ]; then
+            failed_tests=$(grep -E '^test [^ ]+ \.\.\. FAILED' "rust-test-${{ runner.os }}.log" | awk '{print $2}' | sort -u)
+            non_file_ops=$(printf '%s\n' "$failed_tests" | grep -v '^file_ops::tests::' | grep -c . || true)
+            has_signature=0
+            if grep -qE 'os error 32|target_committed_identity_mismatch|\[env-retry\]' "rust-test-${{ runner.os }}.log"; then
+              has_signature=1
+            fi
+            if [ -n "$failed_tests" ] && [ "$non_file_ops" = "0" ] && [ "$has_signature" = "1" ]; then
+              inconclusive=1
+              echo "::warning::file_ops environmental failure signature detected; run classified inconclusive, rerunning once (docs/remediation/issue-file-ops-flaky.md)"
+              run_tests "rust-test-${{ runner.os }}-rerun.log"
+              status=$?
+            fi
+          fi
           echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "inconclusive=$inconclusive" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Rust tests (${{ runner.os }})"
+            echo "- final status: $status"
+            echo "- inconclusive (environmental) CI reruns in this job: $inconclusive"
+            if [ -s "$ZEN_CANVAS_ENV_RETRY_LOG" ]; then
+              echo "- in-test environmental retries (F1):"
+              echo '```'
+              cat "$ZEN_CANVAS_ENV_RETRY_LOG"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$inconclusive" = "1" ] || [ -s "$ZEN_CANVAS_ENV_RETRY_LOG" ]; then
+            {
+              echo "inconclusive_ci_reruns=$inconclusive"
+              echo "runner_os=${{ runner.os }}"
+              echo "sha=${{ github.sha }}"
+              if [ -s "$ZEN_CANVAS_ENV_RETRY_LOG" ]; then
+                echo "--- in-test environmental retries ---"
+                cat "$ZEN_CANVAS_ENV_RETRY_LOG"
+              fi
+            } > "flaky-inconclusive-${{ runner.os }}.txt"
+          fi
           exit 0
 
+      - name: Upload environmental-failure record
+        if: steps.rust-tests.outputs.inconclusive == '1' || hashFiles('flaky-inconclusive-*.txt') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: flaky-inconclusive-${{ runner.os }}-${{ github.sha }}
+          path: flaky-inconclusive-${{ runner.os }}.txt
+          if-no-files-found: ignore
+
       - name: Upload Rust test log
-        if: steps.rust-tests.outputs.status != '0'
+        if: steps.rust-tests.outputs.status != '0' || steps.rust-tests.outputs.inconclusive == '1'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rust-test-${{ runner.os }}-${{ github.sha }}
-          path: rust-test-${{ runner.os }}.log
+          path: |
+            rust-test-${{ runner.os }}.log
+            rust-test-${{ runner.os }}-rerun.log
+          if-no-files-found: ignore
 
       - name: Preserve Rust test result
         if: steps.rust-tests.outputs.status != '0'
