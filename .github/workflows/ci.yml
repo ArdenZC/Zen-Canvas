@@ -64,7 +64,26 @@ jobs:
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
       - name: Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime
+        id: rust-tests
+        shell: bash
+        run: |
+          set +e
+          cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime 2>&1 | tee rust-test-${{ runner.os }}.log
+          status=${PIPESTATUS[0]}
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload Rust test log
+        if: steps.rust-tests.outputs.status != '0'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rust-test-${{ runner.os }}-${{ github.sha }}
+          path: rust-test-${{ runner.os }}.log
+
+      - name: Preserve Rust test result
+        if: steps.rust-tests.outputs.status != '0'
+        shell: bash
+        run: exit 1
 
       - name: Rust clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings
@@ -84,8 +103,12 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml --features "desktop-runtime native-qa" --test native_file_hardening_smoke -- --ignored --nocapture --test-threads=1
 
       - name: Windows production build and NSIS package
-        if: runner.os == 'Windows' && github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: runner.os == 'Windows'
         run: npm run build
+
+      - name: macOS production build and unsigned DMG package
+        if: runner.os == 'macOS'
+        run: npm run build -- --no-sign
 
   dependency-audit:
     name: Dependency audit

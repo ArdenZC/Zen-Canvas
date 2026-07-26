@@ -173,7 +173,8 @@ export function SettingsSectionNav({
               aria-current={active ? "location" : undefined}
               tabIndex={active ? 0 : -1}
               className={cn(
-                "min-h-9 shrink-0 whitespace-nowrap rounded-[var(--zc-radius-control)] border border-transparent px-3 py-2 text-left text-sm font-medium text-[var(--zc-text-secondary)]",
+                "min-h-9 min-w-0 shrink-0 whitespace-nowrap rounded-[var(--zc-radius-control)] border border-transparent px-3 py-2 text-left text-sm font-medium leading-5 text-[var(--zc-text-secondary)]",
+                "min-[1180px]:w-full min-[1180px]:whitespace-normal",
                 "transition-[background,border-color,color] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)]",
                 "hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
                 focusVisible,

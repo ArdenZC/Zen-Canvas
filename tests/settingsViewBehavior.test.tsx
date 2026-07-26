@@ -19,6 +19,10 @@ const mocks = vi.hoisted(() => ({
   scanPath: vi.fn(),
   enqueueRoot: vi.fn(),
   setGlobalHotkeyError: vi.fn(),
+  getGlobalIndexStatus: vi.fn(),
+  listGlobalIndexSources: vi.fn(),
+  listManagedScopes: vi.fn(),
+  getAiManagementStatus: vi.fn(),
   runtimeState: {
     status: "ready" as const,
     settings: { enabled: true, provider: "openai_compatible" as const }
@@ -34,6 +38,10 @@ vi.mock("../src/api/tauriApi", () => ({
     listAIProviderPresets: mocks.listAIProviderPresets,
     saveAISettings: mocks.saveAISettings,
     getGlobalHotkeyStatus: mocks.getGlobalHotkeyStatus,
+    getGlobalIndexStatus: mocks.getGlobalIndexStatus,
+    listGlobalIndexSources: mocks.listGlobalIndexSources,
+    listManagedScopes: mocks.listManagedScopes,
+    getAiManagementStatus: mocks.getAiManagementStatus,
     testAIProviderConnection: mocks.testAIProviderConnection,
     debugAIClassificationOnce: mocks.debugAIClassificationOnce
   }
@@ -225,6 +233,10 @@ beforeEach(async () => {
   });
   mocks.listAIProviderPresets.mockResolvedValue([cloudPreset, customPreset, localPreset]);
   mocks.getGlobalHotkeyStatus.mockResolvedValue({ error: null });
+  mocks.getGlobalIndexStatus.mockResolvedValue({ platform: "browser", enabled: true, status: "ready", processedEntries: 0, collectionComplete: true, totalEntries: 0, indexedVolumes: 0, readyVolumes: 0, pendingVolumes: 0, lastSyncAt: null, lastError: null });
+  mocks.listGlobalIndexSources.mockResolvedValue([]);
+  mocks.listManagedScopes.mockResolvedValue([]);
+  mocks.getAiManagementStatus.mockResolvedValue({ enabledScopeCount: 0, managedEntryCount: 0, pendingJobCount: 0, runningJobCount: 0, cloudScopeCount: 0, policySummary: "managed_scope_only_cloud_disabled" });
   mocks.updateSettings.mockResolvedValue(true);
   mocks.runtimeState.settings = { enabled: true, provider: "openai_compatible" };
   mocks.publishAIProcessingMode.mockImplementation((settings: { enabled: boolean; provider: "openai_compatible" }) => {
@@ -330,6 +342,30 @@ describe("settings view behavior", () => {
     await flushEffects();
     expect(container.querySelector('[data-settings-section="settings-privacy"]')?.getAttribute("aria-current")).toBe("location");
     expect(document.activeElement).toBe(container.querySelector("#settings-privacy-heading"));
+  });
+
+  it("localizes global index privacy errors instead of exposing provider codes", async () => {
+    await act(async () => root.render(null));
+    mocks.getGlobalIndexStatus.mockResolvedValue({
+      platform: "darwin",
+      enabled: true,
+      status: "permission_required",
+      processedEntries: 24,
+      collectionComplete: true,
+      totalEntries: 24,
+      indexedVolumes: 1,
+      readyVolumes: 0,
+      pendingVolumes: 0,
+      lastSyncAt: null,
+      lastError: "macos_spotlight_full_disk_access_required"
+    });
+    await act(async () => root.render(<SettingsView />));
+    await flushEffects();
+
+    expect(container.textContent).toContain("Full Disk Access");
+    expect(container.textContent).not.toContain("macos_spotlight_full_disk_access_required");
+    expect(container.textContent).toContain("Processed");
+    expect(container.textContent).toContain("Initial collection complete");
   });
 
   it("disables AI-dependent controls while off and restores preserved configuration when re-enabled", async () => {
@@ -441,7 +477,7 @@ describe("settings view behavior", () => {
     expect(container.querySelector("[data-ai-unsaved-draft]")).toBeNull();
     expect(save.disabled).toBe(true);
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
-    expect(container.querySelector('[role="status"]')?.textContent).toContain("AI settings saved");
+    expect(container.querySelector('[data-ai-status-region] [role="status"]')?.textContent).toContain("AI settings saved");
     expect(container.querySelector("[data-ai-status-region]")?.querySelectorAll('[role="status"]')).toHaveLength(1);
   });
 

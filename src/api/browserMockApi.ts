@@ -5,6 +5,8 @@ import type {
   AIProviderPreset,
   AIRequestTrace,
   AISettings,
+  AddManagedScopeRequest,
+  AiManagementStatus,
   AppSettings,
   ClassificationCorrectionRequest,
   CleanupRestorePreview,
@@ -17,7 +19,11 @@ import type {
   FileLibraryFilters,
   FileQueryResult,
   FileRecord,
+  GlobalIndexSource,
+  GlobalIndexStatus,
+  GlobalSearchResult,
   LibraryScope,
+  ManagedScope,
   OperationLog,
   OperationPreview,
   OperationPreviewResult,
@@ -27,6 +33,7 @@ import type {
   RuleExecutionSummary,
   SaveSettingsRequest,
   VersionedAppSettings,
+  UpdateManagedScopePolicyRequest,
   StorageAnalysis,
   StorageCandidate,
   StorageCleanupScanStatus
@@ -115,6 +122,65 @@ const mockFiles: FileRecord[] = [
   })
 ];
 
+const mockGlobalEntries: GlobalSearchResult[] = [
+  {
+    id: "global-mock-report",
+    volumeId: "mock-volume",
+    platformFileId: "path:C:/Users/Zen/Documents/project-report.pdf",
+    name: "project-report.pdf",
+    path: "C:/Users/Zen/Documents/project-report.pdf",
+    extension: "pdf",
+    isDirectory: false,
+    size: 2_450_000,
+    createdAtFs: null,
+    modifiedAtFs: Date.parse(now) / 1000,
+    fileAttributes: 0,
+    isHidden: false,
+    isSystem: false,
+    sourceProvider: "windows_mft_usn",
+    managed: false,
+    rank: -1
+  },
+  {
+    id: "global-mock-folder",
+    volumeId: "mock-volume",
+    platformFileId: "path:C:/Users/Zen/Documents",
+    name: "Documents",
+    path: "C:/Users/Zen/Documents",
+    extension: "",
+    isDirectory: true,
+    size: 0,
+    createdAtFs: null,
+    modifiedAtFs: null,
+    fileAttributes: 0,
+    isHidden: false,
+    isSystem: false,
+    sourceProvider: "windows_mft_usn",
+    managed: true,
+    rank: -1
+  },
+  {
+    id: "global-mock-archive",
+    volumeId: "mock-volume",
+    platformFileId: "path:C:/Users/Zen/Downloads/old-design-assets.zip",
+    name: "old-design-assets.zip",
+    path: "C:/Users/Zen/Downloads/old-design-assets.zip",
+    extension: "zip",
+    isDirectory: false,
+    size: 84_000_000,
+    createdAtFs: null,
+    modifiedAtFs: Date.parse(now) / 1000,
+    fileAttributes: 0,
+    isHidden: false,
+    isSystem: false,
+    sourceProvider: "windows_mft_usn",
+    managed: false,
+    rank: -1
+  }
+];
+
+let mockManagedScopeState: ManagedScope[] = [];
+
 const mockRules: Rule[] = [
   {
     id: "mock-rule-sensitive",
@@ -139,11 +205,18 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "cancel_cleanup_restore":
     case "cancel_ai_classification":
     case "reveal_in_folder":
+    case "open_global_search_result":
+    case "reveal_global_search_result":
     case "reveal_storage_candidate":
     case "quit_app":
     case "activate_search_result":
     case "resize_search_window":
     case "insert_file":
+    case "start_global_index":
+    case "pause_global_index":
+    case "resume_global_index":
+    case "rebuild_global_index_source":
+    case "set_global_index_source_enabled":
       return undefined as T;
     case "get_paged_files":
       return queryMockFiles(args) as T;
@@ -151,6 +224,23 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockStats() as T;
     case "search_files":
       return searchMockFiles(String(args?.query ?? ""), Number(args?.limit ?? 12)) as T;
+    case "search_global_entries":
+      return searchMockGlobalEntries(String(args?.query ?? ""), Number(args?.limit ?? 80), Number(args?.offset ?? 0)) as T;
+    case "get_global_index_status":
+      return mockGlobalIndexStatus() as T;
+    case "list_global_index_sources":
+      return mockGlobalIndexSources() as T;
+    case "list_managed_scopes":
+      return mockManagedScopeState as T;
+    case "add_managed_scope":
+      return addMockManagedScope(args?.request as AddManagedScopeRequest | undefined) as T;
+    case "remove_managed_scope":
+      mockManagedScopeState = mockManagedScopeState.filter((scope) => scope.id !== String(args?.id ?? ""));
+      return true as T;
+    case "update_managed_scope_policy":
+      return updateMockManagedScope(args?.request as UpdateManagedScopePolicyRequest | undefined) as T;
+    case "get_ai_management_status":
+      return mockAiManagementStatus() as T;
     case "create_scan_job_id":
       return `scan-${args?.jobKind === "background" ? "background" : "foreground"}-${globalThis.crypto.randomUUID()}` as T;
     case "scan_directory":
@@ -335,6 +425,103 @@ function searchMockFiles(query: string, limit: number): FileRecord[] {
   return mockFiles
     .filter((item) => `${item.name} ${item.path} ${item.purpose}`.toLowerCase().includes(normalized))
     .slice(0, limit);
+}
+
+function searchMockGlobalEntries(query: string, limit: number, offset: number): GlobalSearchResult[] {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return [];
+  return mockGlobalEntries
+    .filter((entry) => `${entry.name} ${entry.path} ${entry.extension}`.toLowerCase().includes(normalized))
+    .slice(offset, offset + limit);
+}
+
+function mockGlobalIndexStatus(): GlobalIndexStatus {
+  return {
+    platform: "browser",
+    enabled: true,
+    status: "ready",
+    providerStatus: "browser_preview",
+    processedEntries: mockGlobalEntries.length,
+    collectionComplete: true,
+    totalEntries: mockGlobalEntries.length,
+    indexedVolumes: 1,
+    readyVolumes: 1,
+    pendingVolumes: 0,
+    lastSyncAt: Date.parse(now) / 1000,
+    lastError: null
+  };
+}
+
+function mockGlobalIndexSources(): GlobalIndexSource[] {
+  return [{
+    volume: {
+      id: "mock-volume",
+      platform: "browser",
+      stableVolumeId: "mock-volume",
+      displayName: "Browser preview",
+      mountPath: "C:/Users/Zen",
+      filesystemType: "mock",
+      driveKind: "fixed",
+      enabled: true,
+      provider: "recursive_fallback",
+      indexStatus: "ready",
+      lastError: null,
+      journalId: null,
+      journalCursor: null,
+      lastFullIndexAt: Date.parse(now) / 1000,
+      lastIncrementalSyncAt: Date.parse(now) / 1000,
+      entryCount: mockGlobalEntries.length,
+      createdAt: Date.parse(now) / 1000,
+      updatedAt: Date.parse(now) / 1000
+    },
+    canPause: true,
+    canRebuild: true,
+    technicalDetail: null
+  }];
+}
+
+function addMockManagedScope(request?: AddManagedScopeRequest): ManagedScope {
+  const scope: ManagedScope = {
+    id: `mock-scope-${mockManagedScopeState.length + 1}`,
+    path: String(request?.path ?? "C:/Users/Zen/Documents"),
+    globalEntryId: request?.globalEntryId ?? null,
+    enabled: request?.enabled ?? true,
+    allowLocalAi: request?.allowLocalAi ?? true,
+    allowCloudAi: request?.allowCloudAi ?? false,
+    createdAt: Date.parse(now) / 1000,
+    updatedAt: Date.parse(now) / 1000
+  };
+  mockManagedScopeState = [...mockManagedScopeState, scope];
+  return scope;
+}
+
+function updateMockManagedScope(request?: UpdateManagedScopePolicyRequest): ManagedScope {
+  const index = mockManagedScopeState.findIndex((scope) => scope.id === request?.id);
+  if (index < 0) throw new Error("managed scope not found");
+  const current = mockManagedScopeState[index];
+  const updated = {
+    ...current,
+    ...(request?.enabled === undefined ? {} : { enabled: request.enabled }),
+    ...(request?.allowLocalAi === undefined ? {} : { allowLocalAi: request.allowLocalAi }),
+    ...(request?.allowCloudAi === undefined ? {} : { allowCloudAi: request.allowCloudAi }),
+    updatedAt: Date.parse(now) / 1000
+  };
+  mockManagedScopeState = mockManagedScopeState.map((scope, itemIndex) => itemIndex === index ? updated : scope);
+  return updated;
+}
+
+function mockAiManagementStatus(): AiManagementStatus {
+  const enabledScopes = mockManagedScopeState.filter((scope) => scope.enabled);
+  return {
+    enabledScopeCount: enabledScopes.length,
+    managedEntryCount: enabledScopes.length,
+    pendingJobCount: 0,
+    runningJobCount: 0,
+    cloudScopeCount: enabledScopes.filter((scope) => scope.allowCloudAi).length,
+    policySummary: enabledScopes.some((scope) => scope.allowCloudAi)
+      ? "managed_scope_only_cloud_enabled"
+      : "managed_scope_only_cloud_disabled"
+  };
 }
 
 function applyLibraryFilter(files: FileRecord[], filter?: FileLibraryFilters["libraryFilter"]): FileRecord[] {

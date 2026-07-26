@@ -9,6 +9,21 @@
 | `remove_files_by_paths` | `main_state_mutation` | main | Remove index rows | default | yes | command permission contract |
 | `upsert_files_by_paths` | `main_state_mutation` | main | Write index rows | default | yes | command permission contract |
 | `search_files` | `read_only` | main/search | Read search index | default/search-window | no | capability allow-list |
+| `search_global_entries` | `read_only` | main/search | Read the independent global metadata index | default/search-window | no | global index isolation tests |
+| `get_global_index_status` | `read_only` | main | Read global index status | default | no | global index status tests |
+| `list_global_index_sources` | `read_only` | main | Read discovered index sources | default | no | global index source tests |
+| `start_global_index` | `main_state_mutation` | main | Start global indexing | default | yes | command permission contract |
+| `pause_global_index` | `main_state_mutation` | main | Pause global indexing | default | yes | command permission contract |
+| `resume_global_index` | `main_state_mutation` | main | Resume global indexing | default | yes | command permission contract |
+| `rebuild_global_index_source` | `main_state_mutation` | main | Rebuild one global index source | default | yes | command permission contract |
+| `set_global_index_source_enabled` | `main_state_mutation` | main | Enable or disable one global index source | default | yes | command permission contract |
+| `open_global_search_result` | `read_only` | main/search | Open a global search result | default/search-window | no | global search navigation tests |
+| `reveal_global_search_result` | `read_only` | main/search | Reveal a global search result | default/search-window | no | global search navigation tests |
+| `list_managed_scopes` | `read_only` | main | Read AI-managed scopes | default | no | managed scope isolation tests |
+| `add_managed_scope` | `main_state_mutation` | main | Add an explicit AI-managed scope | default | yes | managed scope isolation tests |
+| `remove_managed_scope` | `main_state_mutation` | main | Remove an AI-managed scope | default | yes | managed scope isolation tests |
+| `update_managed_scope_policy` | `main_state_mutation` | main | Update AI processing policy for a scope | default | yes | managed scope isolation tests |
+| `get_ai_management_status` | `read_only` | main | Read AI-managed queue status | default | no | managed scope isolation tests |
 | `get_paged_files` | `read_only` | main/search | Read file library | default/search-window | no | capability allow-list |
 | `get_operation_previews_for_scope` | `read_only` | main/search | Read preview data | default/search-window | no | capability allow-list |
 | `get_stats_summary` | `read_only` | main/search | Read statistics | default/search-window | no | capability allow-list |

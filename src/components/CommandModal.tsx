@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type * as React from "react";
-import { Activity, ChevronRight, Clock3, CornerDownLeft, LayoutGrid, Radar, Search, X } from "lucide-react";
+import { Activity, ChevronRight, Clock3, CornerDownLeft, File as FileIcon, Folder, FolderPlus, LayoutGrid, Radar, Search, X } from "lucide-react";
 import { motion } from "motion/react";
 import { tauriApi } from "../api/tauriApi";
-import type { FileRecord, LibraryScope, OperationLog } from "../types/domain";
+import type { FileRecord, GlobalIndexStatus, GlobalSearchResult, OperationLog } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { formatCount } from "../i18n";
-import { buttonSecondary, cn, toneClasses } from "../utils/tw";
+import { cn } from "../utils/tw";
 import { useBackgroundIndexerStore } from "../store/useBackgroundIndexerStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { compactPath, formatDisplayPath, readableError } from "../utils/viewHelpers";
-import { IconButton, StateBlock, ToneBadge, quietText } from "../views/shared/ui";
+import { ConfirmDialog, IconButton, StateBlock, quietText } from "../views/shared/ui";
 import { ModalPortal } from "./modal/ModalPortal";
 import { FileTypeIcon } from "./FileTypeIcon";
 import { createCommandRegistry, executeSpotlightCommand, queryCommandRegistry, requestSettingsSection, type SpotlightCommand } from "./spotlight/commandRegistry";
@@ -80,7 +80,7 @@ export function findSpotlightSettingsRestoreTarget(requestedSection: string | nu
     ?? fallback;
 }
 
-export function filesForCurrentQuery(currentQuery: string, resultQuery: string, files: FileRecord[]) {
+export function filesForCurrentQuery<T>(currentQuery: string, resultQuery: string, files: T[]) {
   return currentQuery === resultQuery ? files : [];
 }
 
@@ -127,9 +127,6 @@ export function CommandModal({
   onClose,
   t,
   onError,
-  searchScope,
-  searchScopeLabel,
-  searchScopeEmptyMessage,
   standalone = false,
   restoreFocusRef
 }: {
@@ -140,78 +137,70 @@ export function CommandModal({
   platform: NodeJS.Platform | "browser";
   t: Translator;
   onError?: (message: string) => void;
-  searchScope?: LibraryScope;
-  searchScopeLabel?: string;
-  searchScopeEmptyMessage?: string;
   standalone?: boolean;
   restoreFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   const [search, setSearch] = useState("");
-  const [fileResultState, setFileResultState] = useState<{ query: string; files: FileRecord[] }>({ query: "", files: [] });
+  const [globalResultState, setGlobalResultState] = useState<{ query: string; results: GlobalSearchResult[] }>({ query: "", results: [] });
   const [queryState, setQueryState] = useState<"idle" | "pending" | "done" | "failed">("idle");
   const [commandError, setCommandError] = useState("");
-  const [commandIndexStatus, setCommandIndexStatus] = useState("");
+  const [globalIndexStatus, setGlobalIndexStatus] = useState<GlobalIndexStatus | null>(null);
+  const [pendingManagedEntry, setPendingManagedEntry] = useState<GlobalSearchResult | null>(null);
+  const [isAddingManagedScope, setIsAddingManagedScope] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [inputFocused, setInputFocused] = useState(false);
   const settingsCommandSectionRef = useRef<string | null>(null);
-  const enqueueBackgroundIndexRoots = useBackgroundIndexerStore((state) => state.enqueueRoots);
   const isBackgroundIndexing = useBackgroundIndexerStore((state) => state.isBackgroundIndexing);
   const currentBackgroundRoot = useBackgroundIndexerStore((state) => state.currentRoot);
   const pendingBackgroundRoots = useBackgroundIndexerStore((state) => state.pendingRoots.length);
   const libraryFiles = useFileLibraryStore((state) => state.libraryPage.files);
   const operationLogs = useOperationQueueStore((state) => state.operationLogs);
   const trimmedSearch = search.trim();
-  const currentFileResults = filesForCurrentQuery(trimmedSearch, fileResultState.query, fileResultState.files);
+  const currentGlobalResults = filesForCurrentQuery(trimmedSearch, globalResultState.query, globalResultState.results);
   const commandRegistry = useMemo(() => createCommandRegistry(t), [t]);
   const commandResults = useMemo(
     () => queryCommandRegistry(trimmedSearch, commandRegistry),
     [commandRegistry, trimmedSearch]
   );
   const visibleResults = useMemo(
-    () => mergeSpotlightResults(currentFileResults, commandResults),
-    [commandResults, currentFileResults]
+    () => mergeSpotlightResults(currentGlobalResults, commandResults),
+    [commandResults, currentGlobalResults]
   );
   const resultGroups = useMemo(() => groupSpotlightResults(visibleResults, t), [t, visibleResults]);
   const recentGroups = useMemo(() => buildRecentGroups(libraryFiles, operationLogs, t), [libraryFiles, operationLogs, t]);
   const showResults = trimmedSearch.length > 0 && visibleResults.length > 0;
   const activeResultId = showResults ? `command-result-${activeIndex}` : undefined;
-  const isScopedEmpty = Boolean(searchScopeEmptyMessage);
-  const isCustomRootNoResults =
-    searchScope?.kind === "roots"
-    && searchScope.roots.length > 0
-    && trimmedSearch.length > 0
-    && queryState === "done"
-    && visibleResults.length === 0;
   const statusTitle =
     queryState === "pending"
       ? t("commandTypingTitle")
       : queryState === "failed"
         ? t("commandFailedTitle")
-        : isScopedEmpty
-          ? t("commandScopedEmptyTitle")
-          : trimmedSearch
-            ? t("commandNoResultsTitle")
-            : t("commandIdleTitle");
+        : trimmedSearch
+          ? t("commandNoResultsTitle")
+          : t("commandIdleTitle");
   const statusDescription =
     queryState === "pending"
       ? t("commandSearching")
       : queryState === "failed"
         ? commandError || t("commandSearchFailed")
-        : isScopedEmpty
-          ? searchScopeEmptyMessage || t("commandScopedEmptyDesc")
-          : isCustomRootNoResults
-            ? commandIndexStatus || t("commandCustomRootsNoResults")
-          : trimmedSearch
-            ? t("commandNoResults")
-            : t("commandIdleDesc");
+        : trimmedSearch
+          ? t("commandNoResults")
+          : t("commandIdleDesc");
   const isStandaloneCollapsed =
     standalone
     && !trimmedSearch
-    && queryState === "idle"
-    && !isScopedEmpty;
+    && queryState === "idle";
   const shouldShowIdleState = !standalone && !trimmedSearch;
-  const shouldShowStateBlock = !showResults && (queryState !== "idle" || isScopedEmpty);
-  const showScopeMeta = Boolean(searchScopeLabel && !isStandaloneCollapsed);
+  const shouldShowStateBlock = !showResults && trimmedSearch.length > 0 && queryState !== "idle";
+  const showGlobalIndexMeta = !isStandaloneCollapsed && Boolean(globalIndexStatus && globalIndexStatus.status !== "ready");
+
+  useEffect(() => {
+    let disposed = false;
+    void tauriApi.getGlobalIndexStatus()
+      .then((status) => { if (!disposed) setGlobalIndexStatus(status); })
+      .catch(() => undefined);
+    return () => { disposed = true; };
+  }, []);
 
   useEffect(() => {
     if (!standalone) return;
@@ -235,7 +224,7 @@ export function CommandModal({
 
   useEffect(() => {
     if (!trimmedSearch) {
-      setFileResultState({ query: "", files: [] });
+      setGlobalResultState({ query: "", results: [] });
       setQueryState("idle");
       setCommandError("");
       setActiveIndex(0);
@@ -244,26 +233,19 @@ export function CommandModal({
 
     let cancelled = false;
     setCommandError("");
-    setCommandIndexStatus("");
-    if (searchScopeEmptyMessage) {
-      setFileResultState({ query: trimmedSearch, files: [] });
-      setQueryState("done");
-      setActiveIndex(0);
-      return;
-    }
-    setFileResultState({ query: trimmedSearch, files: [] });
+    setGlobalResultState({ query: trimmedSearch, results: [] });
     setQueryState("pending");
     const timer = window.setTimeout(() => {
-      tauriApi.searchFiles(trimmedSearch, SEARCH_RESULT_LIMIT, searchScope)
-        .then((files) => {
+      tauriApi.searchGlobalEntries(trimmedSearch, SEARCH_RESULT_LIMIT)
+        .then((results) => {
           if (cancelled) return;
-          setFileResultState({ query: trimmedSearch, files });
+          setGlobalResultState({ query: trimmedSearch, results });
           setQueryState("done");
           setActiveIndex(0);
         })
         .catch(() => {
           if (cancelled) return;
-          setFileResultState({ query: trimmedSearch, files: [] });
+          setGlobalResultState({ query: trimmedSearch, results: [] });
           setQueryState("failed");
           setCommandError(t("commandSearchFailed"));
         });
@@ -273,7 +255,7 @@ export function CommandModal({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [searchScope, searchScopeEmptyMessage, t, trimmedSearch]);
+  }, [t, trimmedSearch]);
 
   useEffect(() => {
     if (!showResults || !activeResultId) return;
@@ -297,13 +279,44 @@ export function CommandModal({
     }
   }
 
-  async function revealFile(file: FileRecord) {
+  async function chooseGlobalEntry(entry: GlobalSearchResult) {
     try {
-      await tauriApi.revealInFolder(file.path);
+      await tauriApi.openGlobalSearchResult(entry.id);
+      onClose();
     } catch (error) {
       const message = readableError(error);
       setCommandError(message);
       onError?.(message);
+    }
+  }
+
+  function requestGlobalEntryManagedScope(entry: GlobalSearchResult) {
+    if (!entry.managed) setPendingManagedEntry(entry);
+  }
+
+  async function confirmGlobalEntryManagedScope() {
+    const entry = pendingManagedEntry;
+    if (!entry || entry.managed || isAddingManagedScope) return;
+    setIsAddingManagedScope(true);
+    try {
+      await tauriApi.addManagedScope({
+        path: entry.isDirectory ? entry.path : parentPathForManagedScope(entry.path),
+        globalEntryId: entry.isDirectory ? entry.id : null,
+        enabled: true,
+        allowLocalAi: true,
+        allowCloudAi: false
+      });
+      setGlobalResultState((current) => ({
+        ...current,
+        results: current.results.map((item) => item.id === entry.id ? { ...item, managed: true } : item)
+      }));
+      setPendingManagedEntry(null);
+    } catch (error) {
+      const message = readableError(error);
+      setCommandError(message);
+      onError?.(message);
+    } finally {
+      setIsAddingManagedScope(false);
     }
   }
 
@@ -326,7 +339,6 @@ export function CommandModal({
 
   function clearSearch() {
     setSearch("");
-    setCommandIndexStatus("");
     setActiveIndex(0);
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }
@@ -354,14 +366,8 @@ export function CommandModal({
   }
 
   function chooseResult(result: SpotlightResult) {
-    if (result.kind === "file") void chooseFile(result.file);
+    if (result.kind === "global") void chooseGlobalEntry(result.entry);
     else void chooseCommand(result);
-  }
-
-  function indexSearchScopeRoots() {
-    if (searchScope?.kind !== "roots") return;
-    enqueueBackgroundIndexRoots(searchScope.roots);
-    setCommandIndexStatus(t("commandIndexQueued"));
   }
 
   function openIdleDestination(view: View) {
@@ -379,19 +385,9 @@ export function CommandModal({
     });
   }
 
-  function openSearchScopeSettings() {
-    const command = commandRegistry.find((item) => item.id === "search-scope-settings");
+  function openGlobalIndexSettings() {
+    const command = commandRegistry.find((item) => item.id === "global-index-settings");
     if (command) void chooseCommand(command);
-  }
-
-  function getResultTone(file: FileRecord) {
-    const purpose = (file.purpose || "").toLowerCase();
-    if (purpose.includes("strategy") || purpose.includes("finance") || file.lifecycle === "Archive") return "purple";
-    if (purpose.includes("media") || purpose.includes("image")) return "amber";
-    if (purpose.includes("code") || purpose.includes("script")) return "green";
-    if (purpose.includes("doc") || purpose.includes("text")) return "blue";
-    if (file.risk_level === "Sensitive" || purpose.includes("sensitive")) return "red";
-    return "slate";
   }
 
   const content = (
@@ -432,12 +428,18 @@ export function CommandModal({
             setActiveIndex((index) => Math.max(index - 1, 0));
           }
           const activeResult = visibleResults[activeIndex];
-          if (event.key === "Enter" && event.altKey && activeResult?.kind === "file") {
+          if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && activeResult?.kind === "global") {
             event.preventDefault();
-            void revealFile(activeResult.file);
+            void tauriApi.revealGlobalSearchResult(activeResult.entry.id)
+              .then(() => onClose())
+              .catch((error) => {
+                const message = readableError(error);
+                setCommandError(message);
+                onError?.(message);
+              });
             return;
           }
-          if (isSortingPreviewShortcut(event)) {
+          if (isSortingPreviewShortcut(event) && activeResult?.kind !== "global") {
             event.preventDefault();
             void openSortingPreview();
             return;
@@ -483,15 +485,15 @@ export function CommandModal({
           )}
           <kbd className={cn(keyBadge, "hidden sm:inline-flex")}>ESC</kbd>
         </div>
-        {showScopeMeta && (
+        {showGlobalIndexMeta && (
           <div className="flex items-center justify-between gap-3 border-b border-[var(--zc-divider)] px-4 py-2 text-[11px] leading-tight text-[var(--zc-text-secondary)]">
-            <span className="min-w-0 truncate">{searchScopeLabel}</span>
+            <span className="min-w-0 truncate">{t("globalSearchIndexMeta")}</span>
             <button
               className="hidden shrink-0 rounded-md px-2 py-1 font-medium text-[var(--zc-primary-text)] hover:bg-[var(--zc-primary-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)] sm:inline"
-              onClick={openSearchScopeSettings}
-              aria-label={t("openSearchScopeSettings")}
+              onClick={openGlobalIndexSettings}
+              aria-label={t("globalSearchManage")}
             >
-              {t("commandScopeMeta")}
+              {t("globalSearchManage")}
             </button>
           </div>
         )}
@@ -509,8 +511,8 @@ export function CommandModal({
                 highlight={trimmedSearch}
                 t={t}
                 onChoose={chooseResult}
+                onManage={requestGlobalEntryManagedScope}
                 onActivate={setActiveIndex}
-                getResultTone={getResultTone}
               />
             </div>
             <div className={commandFooter}>
@@ -537,15 +539,10 @@ export function CommandModal({
         {shouldShowStateBlock && (
           <div className="px-4 py-4" aria-live={queryState === "failed" ? "assertive" : "polite"} role={queryState === "failed" ? "alert" : "status"}>
             <StateBlock
-              tone={queryState === "failed" ? "error" : queryState === "pending" ? "info" : isScopedEmpty ? "warning" : "neutral"}
+              tone={queryState === "failed" ? "error" : queryState === "pending" ? "info" : "neutral"}
               title={statusTitle}
               description={statusDescription}
               density="compact"
-              primaryAction={isCustomRootNoResults ? (
-                <button className={buttonSecondary} onClick={indexSearchScopeRoots}>
-                  {t("indexSearchFolders")}
-                </button>
-              ) : undefined}
             />
           </div>
         )}
@@ -557,7 +554,27 @@ export function CommandModal({
     return findSpotlightSettingsRestoreTarget(settingsCommandSectionRef.current, restoreFocusRef?.current ?? null);
   }
 
-  return standalone ? content : <ModalPortal initialFocusRef={inputRef} restoreFocus={restoreSpotlightFocus} onEscape={onClose}>{content}</ModalPortal>;
+  const spotlight = standalone
+    ? content
+    : <ModalPortal initialFocusRef={inputRef} restoreFocus={restoreSpotlightFocus} onEscape={onClose}>{content}</ModalPortal>;
+
+  return (
+    <>
+      {spotlight}
+      <ConfirmDialog
+        open={Boolean(pendingManagedEntry)}
+        tone="warning"
+        title={t("globalSearchAddManaged")}
+        description={t("managedScopesDesc")}
+        emphasis={t("managedScopePolicySummary")}
+        confirmLabel={t("managedScopeAdd")}
+        cancelLabel={t("cancel")}
+        isProcessing={isAddingManagedScope}
+        onConfirm={() => void confirmGlobalEntryManagedScope()}
+        onCancel={() => { if (!isAddingManagedScope) setPendingManagedEntry(null); }}
+      />
+    </>
+  );
 }
 
 function SpotlightResultGroups({
@@ -567,8 +584,8 @@ function SpotlightResultGroups({
   highlight,
   t,
   onChoose,
-  onActivate,
-  getResultTone
+  onManage,
+  onActivate
 }: {
   groups: ReturnType<typeof groupSpotlightResults>;
   results: SpotlightResult[];
@@ -576,8 +593,8 @@ function SpotlightResultGroups({
   highlight: string;
   t: Translator;
   onChoose: (result: SpotlightResult) => void;
+  onManage: (entry: GlobalSearchResult) => void;
   onActivate: (index: number) => void;
-  getResultTone: (file: FileRecord) => string;
 }) {
   return (
     <div id="command-results" role="listbox" className="grid gap-2">
@@ -612,35 +629,47 @@ function SpotlightResultGroups({
                 );
               }
 
-              const file = result.file;
-              const tone = getResultTone(file);
-              const extension = file.extension ? file.extension.replace(".", "").toUpperCase() : file.file_type;
+              const entry = result.entry;
+              const extension = entry.extension ? entry.extension.replace(".", "").toUpperCase() : t("spotlightFolders");
               return (
-                <button
+                <div
                   key={result.id}
                   id={`command-result-${index}`}
                   role="option"
                   aria-selected={active}
-                  data-result-kind="file"
+                  data-result-kind="global"
                   className={cn(commandResultItemBase, active ? commandResultItemActive : commandResultItemInactive)}
-                  onClick={() => onChoose(result)}
                   onMouseEnter={() => onActivate(index)}
                 >
-                  <span className={cn(commandFileIcon, toneClasses(tone))}>
-                    <FileTypeIcon file={file} size={20} />
+                  <span className={cn(commandFileIcon, "bg-[var(--zc-surface-subtle)] text-[var(--zc-primary)]")}>
+                    {entry.isDirectory ? <Folder size={20} /> : <FileIcon size={20} />}
                   </span>
-                  <span className="grid min-w-0 gap-1.5">
-                    <strong className={commandFileName}><HighlightText text={file.name} highlight={highlight} /></strong>
-                    <span className={commandFileMeta} title={formatDisplayPath(file.path)}>{compactPath(formatDisplayPath(file.path), 74)}</span>
-                <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                      <ToneBadge tone={tone as any}>{file.purpose}</ToneBadge>
-                      <ToneBadge tone="slate">{extension}</ToneBadge>
-                      {file.risk_level !== "Normal" && <ToneBadge tone={file.risk_level === "Sensitive" ? "red" : "amber"}>{file.risk_level === "Sensitive" ? t("sensitiveLabel") : file.risk_level}</ToneBadge>}
-                      {file.is_duplicate && <ToneBadge tone="amber">{t("libraryDuplicateFiles")}</ToneBadge>}
+                  <button
+                    className="grid min-w-0 gap-1.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]"
+                    onClick={() => onChoose(result)}
+                    aria-label={t("commandOpenHint")}
+                  >
+                    <strong className={commandFileName}><HighlightText text={entry.name} highlight={highlight} /></strong>
+                    <span className={commandFileMeta} title={formatDisplayPath(entry.path)}>{compactPath(formatDisplayPath(entry.path), 74)}</span>
+                    <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--zc-text-tertiary)]">{extension}</span>
+                      {entry.managed ? <span className="text-[10px] font-medium text-[var(--zc-primary-text)]">{t("globalSearchManaged")}</span> : null}
                     </span>
-                  </span>
-                  <ChevronRight className={active ? "text-[var(--zc-primary)]" : "text-[var(--zc-text-tertiary)]"} size={16} />
-                </button>
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {!entry.managed ? (
+                      <IconButton
+                        className="h-8 w-8 rounded-[var(--zc-radius-control)] border-transparent bg-transparent text-[var(--zc-text-tertiary)] shadow-none hover:bg-[var(--zc-primary-soft)] hover:text-[var(--zc-primary-text)]"
+                        onClick={() => onManage(entry)}
+                        aria-label={t("globalSearchAddManaged")}
+                        title={t("globalSearchAddManaged")}
+                      >
+                        <FolderPlus size={15} />
+                      </IconButton>
+                    ) : null}
+                    <ChevronRight className={active ? "text-[var(--zc-primary)]" : "text-[var(--zc-text-tertiary)]"} size={16} />
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -648,6 +677,12 @@ function SpotlightResultGroups({
       ))}
     </div>
   );
+}
+
+function parentPathForManagedScope(path: string) {
+  const normalized = path.replace(/[\\/]+$/, "");
+  const separator = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
+  return separator > 0 ? normalized.slice(0, separator) : normalized;
 }
 
 function CommandIdleGroups({

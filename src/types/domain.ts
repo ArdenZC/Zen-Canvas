@@ -434,6 +434,110 @@ export interface FileRecord {
   is_stale?: boolean;
 }
 
+export interface GlobalVolume {
+  id: string;
+  platform: string;
+  stableVolumeId: string;
+  displayName: string;
+  mountPath: string;
+  filesystemType: string;
+  driveKind: string;
+  enabled: boolean;
+  provider: string;
+  indexStatus: string;
+  lastError: string | null;
+  journalId: string | null;
+  journalCursor: string | null;
+  lastFullIndexAt: number | null;
+  lastIncrementalSyncAt: number | null;
+  entryCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface GlobalSearchResult {
+  id: string;
+  volumeId: string;
+  platformFileId: string;
+  name: string;
+  path: string;
+  extension: string;
+  isDirectory: boolean;
+  size: number;
+  createdAtFs: number | null;
+  modifiedAtFs: number | null;
+  fileAttributes: number;
+  isHidden: boolean;
+  isSystem: boolean;
+  sourceProvider: string;
+  managed: boolean;
+  rank: number;
+}
+
+export interface GlobalIndexTechnicalDetail {
+  journalId: string | null;
+  journalCursor: string | null;
+  provider: string;
+  filesystemType: string;
+}
+
+export interface GlobalIndexSource {
+  volume: GlobalVolume;
+  canPause: boolean;
+  canRebuild: boolean;
+  technicalDetail: GlobalIndexTechnicalDetail | null;
+}
+
+export interface GlobalIndexStatus {
+  platform: string;
+  enabled: boolean;
+  status: string;
+  providerStatus?: string | null;
+  processedEntries: number;
+  collectionComplete: boolean;
+  totalEntries: number;
+  indexedVolumes: number;
+  readyVolumes: number;
+  pendingVolumes: number;
+  lastSyncAt: number | null;
+  lastError: string | null;
+}
+
+export interface ManagedScope {
+  id: string;
+  path: string;
+  globalEntryId: string | null;
+  enabled: boolean;
+  allowLocalAi: boolean;
+  allowCloudAi: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AiManagementStatus {
+  enabledScopeCount: number;
+  managedEntryCount: number;
+  pendingJobCount: number;
+  runningJobCount: number;
+  cloudScopeCount: number;
+  policySummary: string;
+}
+
+export interface AddManagedScopeRequest {
+  path: string;
+  globalEntryId?: string | null;
+  enabled?: boolean;
+  allowLocalAi?: boolean;
+  allowCloudAi?: boolean;
+}
+
+export interface UpdateManagedScopePolicyRequest {
+  id: string;
+  enabled?: boolean;
+  allowLocalAi?: boolean;
+  allowCloudAi?: boolean;
+}
+
 export interface ScanRoot {
   id: string;
   path: string;

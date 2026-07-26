@@ -23,6 +23,7 @@ export function createCommandRegistry(t: Translator): SpotlightCommand[] {
     command("automation", t("automation"), t("commandAutomationDesc"), ["自动化", "规则", "automation", "rules"], "actions", "rules"),
     command("settings", t("settings"), t("commandSettingsDesc"), ["设置", "偏好", "settings"], "settings", "settings"),
     command("search-scope-settings", t("searchScopeSettings"), t("commandSearchScopeDesc"), ["搜索范围", "范围设置", "search scope"], "settings", "settings", "settings-search-scope"),
+    command("global-index-settings", t("globalIndexSettings"), t("commandGlobalIndexDesc"), ["全局索引", "managed", "global index", "index"], "settings", "settings", "settings-global-index"),
     command("theme-settings", t("commandThemeSettings"), t("commandThemeDesc"), ["主题", "外观", "深色", "浅色", "theme"], "settings", "settings", "settings-appearance"),
     command("ai-settings", t("commandAISettings"), t("commandAIDesc"), ["AI", "模型", "ollama", "cloud"], "settings", "settings", "settings-ai")
   ];

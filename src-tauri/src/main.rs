@@ -9,12 +9,20 @@ use tauri::Manager;
 use tauri_plugin_autostart::ManagerExt;
 use zen_canvas_tauri::{
     dedupe::DedupeJobManager,
+    global_index::{GlobalIndexCoordinator, ManagedAiWorker},
     open_database, settings,
     watcher::{reload_file_watcher_for_settings, FileWatcherManager},
     AIClassificationCancellationToken, OperationCancellationToken, ScanJobManager,
 };
 
 fn main() {
+    #[cfg(windows)]
+    if std::env::args().any(|argument| argument == "--index-service") {
+        std::process::exit(
+            zen_canvas_tauri::global_index::windows::service_host::run_index_service_process(),
+        );
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(
@@ -28,6 +36,13 @@ fn main() {
             zen_canvas_tauri::storage_analyzer::reconcile_pending_cleanup_journal(&db)
                 .map_err(io::Error::other)?;
             app.manage(db.clone());
+            let global_index_coordinator = GlobalIndexCoordinator::new(db.clone());
+            app.manage(global_index_coordinator.clone());
+            if let Err(error) = global_index_coordinator.start() {
+                eprintln!("Global index startup failed (non-fatal): {error}");
+            }
+            let managed_ai_worker = ManagedAiWorker::start(db.clone());
+            app.manage(managed_ai_worker);
             app.manage(ScanJobManager::default());
             app.manage(DedupeJobManager::default());
             app.manage(OperationCancellationToken::default());
@@ -75,6 +90,21 @@ fn main() {
             zen_canvas_tauri::db::remove_files_by_paths,
             zen_canvas_tauri::db::upsert_files_by_paths,
             zen_canvas_tauri::db::search_files,
+            zen_canvas_tauri::global_index::commands::search_global_entries,
+            zen_canvas_tauri::global_index::commands::get_global_index_status,
+            zen_canvas_tauri::global_index::commands::list_global_index_sources,
+            zen_canvas_tauri::global_index::commands::start_global_index,
+            zen_canvas_tauri::global_index::commands::pause_global_index,
+            zen_canvas_tauri::global_index::commands::resume_global_index,
+            zen_canvas_tauri::global_index::commands::rebuild_global_index_source,
+            zen_canvas_tauri::global_index::commands::set_global_index_source_enabled,
+            zen_canvas_tauri::global_index::commands::open_global_search_result,
+            zen_canvas_tauri::global_index::commands::reveal_global_search_result,
+            zen_canvas_tauri::global_index::commands::list_managed_scopes,
+            zen_canvas_tauri::global_index::commands::add_managed_scope,
+            zen_canvas_tauri::global_index::commands::remove_managed_scope,
+            zen_canvas_tauri::global_index::commands::update_managed_scope_policy,
+            zen_canvas_tauri::global_index::commands::get_ai_management_status,
             zen_canvas_tauri::db::get_paged_files,
             zen_canvas_tauri::db::get_operation_previews_for_scope,
             zen_canvas_tauri::db::get_stats_summary,
@@ -130,6 +160,18 @@ fn main() {
             zen_canvas_tauri::storage_analyzer::restore_cleanup_trash_items,
             zen_canvas_tauri::storage_analyzer::cancel_cleanup_restore
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run Zen Canvas");
+        .build(tauri::generate_context!())
+        .expect("failed to build Zen Canvas")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
+                if let Some(coordinator) = app.try_state::<GlobalIndexCoordinator>() {
+                    if let Err(error) = coordinator.shutdown() {
+                        eprintln!("Global index shutdown failed (non-fatal): {error}");
+                    }
+                }
+                if let Some(worker) = app.try_state::<ManagedAiWorker>() {
+                    worker.shutdown();
+                }
+            }
+        });
 }

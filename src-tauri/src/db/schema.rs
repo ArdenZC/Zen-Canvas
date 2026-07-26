@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-const CURRENT_SCHEMA_VERSION: i32 = 24;
+const CURRENT_SCHEMA_VERSION: i32 = 26;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -42,6 +42,8 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         )));
     }
     if version == CURRENT_SCHEMA_VERSION {
+        ensure_global_index_schema(conn)?;
+        ensure_global_index_hardening(conn)?;
         ensure_journal_state_triggers(conn)?;
         return Ok(());
     }
@@ -668,6 +670,14 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             )?;
             set_schema_version(conn, 24)?;
         }
+        if version < 25 {
+            ensure_global_index_schema(conn)?;
+            set_schema_version(conn, 25)?;
+        }
+        if version < 26 {
+            ensure_global_index_hardening(conn)?;
+            set_schema_version(conn, 26)?;
+        }
         Ok(())
     })();
     match migration_result {
@@ -680,6 +690,267 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             Err(error)
         }
     }
+}
+
+/// Creates the search-only index domain without coupling it to the existing
+/// `files` table.  The external-content FTS table deliberately mirrors only
+/// fields that are safe and useful for global search; it never stores file
+/// contents or AI classification state.
+fn ensure_global_index_schema(conn: &Connection) -> Result<(), DbError> {
+    let fts_exists = conn
+        .query_row(
+            "SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'global_entries_fts'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .is_some();
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS global_volumes (
+            id TEXT PRIMARY KEY,
+            platform TEXT NOT NULL,
+            stable_volume_id TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            mount_path TEXT NOT NULL,
+            filesystem_type TEXT NOT NULL,
+            drive_kind TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+            provider TEXT NOT NULL,
+            index_status TEXT NOT NULL DEFAULT 'discovered',
+            last_error TEXT,
+            journal_id TEXT,
+            journal_cursor TEXT,
+            last_full_index_at INTEGER,
+            last_incremental_sync_at INTEGER,
+            entry_count INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_global_volumes_enabled
+            ON global_volumes(enabled, index_status);
+        CREATE INDEX IF NOT EXISTS idx_global_volumes_mount_path
+            ON global_volumes(mount_path);
+
+        CREATE TABLE IF NOT EXISTS global_entries (
+            id TEXT PRIMARY KEY,
+            volume_id TEXT NOT NULL REFERENCES global_volumes(id) ON DELETE CASCADE,
+            platform_file_id TEXT NOT NULL,
+            parent_platform_file_id TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL,
+            name_normalized TEXT NOT NULL,
+            path TEXT NOT NULL,
+            path_normalized TEXT NOT NULL,
+            extension TEXT NOT NULL DEFAULT '',
+            is_directory INTEGER NOT NULL DEFAULT 0 CHECK (is_directory IN (0, 1)),
+            size INTEGER NOT NULL DEFAULT 0,
+            created_at_fs INTEGER,
+            modified_at_fs INTEGER,
+            file_attributes INTEGER NOT NULL DEFAULT 0,
+            is_hidden INTEGER NOT NULL DEFAULT 0 CHECK (is_hidden IN (0, 1)),
+            is_system INTEGER NOT NULL DEFAULT 0 CHECK (is_system IN (0, 1)),
+            is_stale INTEGER NOT NULL DEFAULT 0 CHECK (is_stale IN (0, 1)),
+            source_provider TEXT NOT NULL,
+            last_seen_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_global_entries_volume
+            ON global_entries(volume_id, is_stale);
+        CREATE INDEX IF NOT EXISTS idx_global_entries_platform_identity
+            ON global_entries(volume_id, platform_file_id, parent_platform_file_id);
+        CREATE INDEX IF NOT EXISTS idx_global_entries_name_normalized
+            ON global_entries(name_normalized);
+        CREATE INDEX IF NOT EXISTS idx_global_entries_path_normalized
+            ON global_entries(path_normalized);
+        CREATE INDEX IF NOT EXISTS idx_global_entries_modified_at
+            ON global_entries(modified_at_fs DESC);
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS global_entries_fts USING fts5(
+            name,
+            path,
+            extension,
+            content='global_entries',
+            content_rowid='rowid',
+            tokenize='trigram'
+        );
+
+        CREATE TRIGGER IF NOT EXISTS global_entries_ai AFTER INSERT ON global_entries BEGIN
+            INSERT INTO global_entries_fts(rowid, name, path, extension)
+            VALUES (new.rowid, new.name, new.path, new.extension);
+        END;
+        CREATE TRIGGER IF NOT EXISTS global_entries_ad AFTER DELETE ON global_entries BEGIN
+            INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
+            VALUES ('delete', old.rowid, old.name, old.path, old.extension);
+        END;
+        CREATE TRIGGER IF NOT EXISTS global_entries_au AFTER UPDATE OF name, path, extension ON global_entries
+        WHEN old.name IS NOT new.name OR old.path IS NOT new.path OR old.extension IS NOT new.extension BEGIN
+            INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
+            VALUES ('delete', old.rowid, old.name, old.path, old.extension);
+            INSERT INTO global_entries_fts(rowid, name, path, extension)
+            VALUES (new.rowid, new.name, new.path, new.extension);
+        END;
+
+        CREATE TABLE IF NOT EXISTS managed_scopes (
+            id TEXT PRIMARY KEY,
+            path TEXT NOT NULL UNIQUE,
+            global_entry_id TEXT REFERENCES global_entries(id) ON DELETE SET NULL,
+            enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+            allow_local_ai INTEGER NOT NULL DEFAULT 1 CHECK (allow_local_ai IN (0, 1)),
+            allow_cloud_ai INTEGER NOT NULL DEFAULT 0 CHECK (allow_cloud_ai IN (0, 1)),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_managed_scopes_enabled
+            ON managed_scopes(enabled, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS managed_entries (
+            id TEXT PRIMARY KEY,
+            global_entry_id TEXT NOT NULL REFERENCES global_entries(id) ON DELETE CASCADE,
+            managed_scope_id TEXT NOT NULL REFERENCES managed_scopes(id) ON DELETE CASCADE,
+            enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            UNIQUE(global_entry_id, managed_scope_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_managed_entries_scope
+            ON managed_entries(managed_scope_id, enabled);
+        CREATE INDEX IF NOT EXISTS idx_managed_entries_global_entry
+            ON managed_entries(global_entry_id, enabled);
+
+        CREATE TABLE IF NOT EXISTS ai_analysis_state (
+            global_entry_id TEXT PRIMARY KEY REFERENCES global_entries(id) ON DELETE CASCADE,
+            status TEXT NOT NULL DEFAULT 'pending',
+            input_fingerprint TEXT NOT NULL DEFAULT '',
+            provider TEXT NOT NULL DEFAULT 'local',
+            model TEXT NOT NULL DEFAULT '',
+            content_summary TEXT,
+            classification_json TEXT,
+            user_corrected INTEGER NOT NULL DEFAULT 0 CHECK (user_corrected IN (0, 1)),
+            last_error TEXT,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS ai_jobs (
+            id TEXT PRIMARY KEY,
+            global_entry_id TEXT NOT NULL REFERENCES global_entries(id) ON DELETE CASCADE,
+            managed_scope_id TEXT NOT NULL REFERENCES managed_scopes(id) ON DELETE CASCADE,
+            input_fingerprint TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL DEFAULT '',
+            processing_mode TEXT NOT NULL DEFAULT 'metadata',
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'running', 'completed', 'failed', 'canceled', 'stale', 'blocked_by_policy')),
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            created_at INTEGER NOT NULL,
+            started_at INTEGER,
+            completed_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_jobs_status_created
+            ON ai_jobs(status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_ai_jobs_entry_fingerprint
+            ON ai_jobs(global_entry_id, input_fingerprint);
+
+        CREATE TABLE IF NOT EXISTS ai_job_items (
+            id TEXT PRIMARY KEY,
+            job_id TEXT NOT NULL REFERENCES ai_jobs(id) ON DELETE CASCADE,
+            global_entry_id TEXT NOT NULL REFERENCES global_entries(id) ON DELETE CASCADE,
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'running', 'completed', 'failed', 'canceled', 'stale', 'blocked_by_policy')),
+            last_error TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            UNIQUE(job_id, global_entry_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_job_items_status
+            ON ai_job_items(status, updated_at);
+        "#,
+    )?;
+
+    // A database can be upgraded from a partially created development build.
+    // Rebuilding is needed only when the virtual table was just created; doing
+    // it on every application start would turn a cheap health check into a
+    // full-database operation.
+    if !fts_exists {
+        conn.execute(
+            "INSERT INTO global_entries_fts(global_entries_fts) VALUES ('rebuild')",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+fn ensure_global_index_hardening(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        r#"
+        DROP TRIGGER IF EXISTS global_entries_au;
+        CREATE TRIGGER global_entries_au
+        AFTER UPDATE OF name, path, extension ON global_entries
+        WHEN old.name IS NOT new.name
+          OR old.path IS NOT new.path
+          OR old.extension IS NOT new.extension
+        BEGIN
+            INSERT INTO global_entries_fts(global_entries_fts, rowid, name, path, extension)
+            VALUES ('delete', old.rowid, old.name, old.path, old.extension);
+            INSERT INTO global_entries_fts(rowid, name, path, extension)
+            VALUES (new.rowid, new.name, new.path, new.extension);
+        END;
+
+        DROP TRIGGER IF EXISTS global_entries_count_ai;
+        DROP TRIGGER IF EXISTS global_entries_count_ad;
+        DROP TRIGGER IF EXISTS global_entries_count_au;
+        CREATE TRIGGER global_entries_count_ai
+        AFTER INSERT ON global_entries
+        WHEN new.is_stale = 0
+        BEGIN
+            UPDATE global_volumes
+            SET entry_count = entry_count + 1, updated_at = new.last_seen_at
+            WHERE id = new.volume_id;
+        END;
+        CREATE TRIGGER global_entries_count_ad
+        AFTER DELETE ON global_entries
+        WHEN old.is_stale = 0
+        BEGIN
+            UPDATE global_volumes
+            SET entry_count = MAX(0, entry_count - 1), updated_at = unixepoch()
+            WHERE id = old.volume_id;
+        END;
+        CREATE TRIGGER global_entries_count_au
+        AFTER UPDATE OF is_stale, volume_id ON global_entries
+        WHEN old.is_stale IS NOT new.is_stale OR old.volume_id IS NOT new.volume_id
+        BEGIN
+            UPDATE global_volumes
+            SET entry_count = MAX(0, entry_count - CASE WHEN old.is_stale = 0 THEN 1 ELSE 0 END),
+                updated_at = unixepoch()
+            WHERE id = old.volume_id;
+            UPDATE global_volumes
+            SET entry_count = entry_count + CASE WHEN new.is_stale = 0 THEN 1 ELSE 0 END,
+                updated_at = unixepoch()
+            WHERE id = new.volume_id;
+        END;
+
+        DROP TRIGGER IF EXISTS ai_jobs_canceled_terminal;
+        CREATE TRIGGER ai_jobs_canceled_terminal
+        BEFORE UPDATE OF status ON ai_jobs
+        WHEN old.status = 'canceled' AND new.status <> 'canceled'
+        BEGIN
+            SELECT RAISE(ABORT, 'canceled AI jobs are terminal');
+        END;
+
+        CREATE INDEX IF NOT EXISTS idx_global_entries_active_name
+            ON global_entries(name_normalized, modified_at_fs DESC)
+            WHERE is_stale = 0;
+        CREATE INDEX IF NOT EXISTS idx_global_entries_active_extension
+            ON global_entries(extension, modified_at_fs DESC)
+            WHERE is_stale = 0;
+
+        UPDATE global_volumes
+        SET entry_count = (
+            SELECT COUNT(*) FROM global_entries entry
+            WHERE entry.volume_id = global_volumes.id AND entry.is_stale = 0
+        );
+        "#,
+    )?;
+    Ok(())
 }
 
 fn ensure_journal_state_triggers(conn: &Connection) -> Result<(), DbError> {
