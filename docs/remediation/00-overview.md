@@ -157,7 +157,7 @@ czkawka 仓库根目录的 MIT 文件名为 `LICENSE_MIT_EVERYTHING_OUTSIDE_ANY_
 
 | # | 模块 | 参考仓库 | 对比深度 | 状态 |
 |---|---|---|---|---|
-| 1 | 重复检测 | czkawka（`czkawka_core`，MIT） | 代码级 | ⏳ 未开始 |
+| 1 | 重复检测 | czkawka（`czkawka_core`，MIT） | 代码级 | 🔶 **方案已产出待批**：`01-dedupe.md`（基线 `0dfedf6`，未实施） |
 | 2 | 大型文件列表 | Spacedrive V1 + 自查 | 概念级 | ⏳ 未开始 |
 | 3 | 扫描与索引 | Spacedrive V1 | 概念级 + 事故复盘 | ⏳ 未开始（PR #18 为已有进展） |
 | 4 | 全局快捷搜索 | Tolaria（AGPL，见 3.1） | **设计级（只读析不移植，D6 下调）** | ⏳ 未开始 |
