@@ -1,59 +1,59 @@
 # Remediation Risk Register
 
-这是 PR #15 合并后、Task 00 审计形成的风险基线。风险记录的是当前架构在后续整改时可能被放大的 failure mode，不是本次要修复的业务问题。Task 00 不改变任何风险对应的生产行为。
+这是 PR #15 合并后、Task 00 审计形成的风险基线。风险记录后续整改可能放大的 failure mode，不代表当前阶段可以修改对应生产行为。
 
-等级定义：
+等级：
 
-- **Critical**：可能越过文件/AI/隐私/恢复安全边界，或造成不可逆数据后果。
-- **High**：可能造成跨域数据错误、任务丢失、错误执行或不可兼容迁移。
-- **Medium**：会造成一致性、性能、可观测性或维护风险，但当前有局部缓解。
-- **Low**：影响范围或概率较低，但需要在对应阶段留下证据。
-
-| ID | 风险 | 等级 | 触发条件/影响 | 当前证据 | 阻断/缓解与验收条件 | 状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| R-001 | 重建第二套 Global Index | Critical | 新模块重新扫描全盘、产生第二套 volume/entry/FTS，导致 search、AI、scope、stale 事实分裂 | `db/schema.rs::ensure_global_index_schema`; `global_index/coordinator.rs`; `global_index/repository.rs` | 所有 global discovery/search/managed resolution 必须复用 `global_*`；需要 architecture guard 和 source ownership review | 已登记，阻断后续越界 |
-| R-002 | 把 Managed AI `ai_jobs` 误作通用 Job Runtime | High | 扫描/cleanup/dedupe 复用 AI 字段，污染 provider/scope/fingerprint/correction 状态或绕过校验 | `managed_worker_hardened.rs`; `legacy_queue.rs`; schema `ai_jobs` | 先定义跨域 lifecycle primitives；保持 Managed AI 表/worker 独立；必须有 policy/correction regression tests | 已登记，禁止直接泛化 |
-| R-003 | 引入无边界的跨域 durable queue | Critical | 同一 task 同时由 renderer、Tauri thread、native service、provider worker 消费，重复执行或丢失 | `watcher.rs`; `useFsWatcher.ts`; `coordinator.rs`;各 domain manager | 每个任务定义唯一 owner、claim、idempotency key、cancel、retry、recovery；未定义前不得建 queue | 已登记 |
-| R-004 | Scan 崩溃/重启后误判为完成 | High | in-memory scan job 消失但 `files` 已部分写入，stale cleanup/generation 不知道边界 | `scanner.rs::ScanJobManager/scan_directory_blocking`; `useBackgroundIndexerStore.ts` | 先设计 generation/run/partial semantics；用 kill/restart/partial batch 测试；旧 scan path 保持 fallback | 已登记 |
-| R-005 | Watcher overflow 后最终一致性丢失 | High | bounded notify channel 或 renderer queue overflow，变化信号丢失且没有 durable change journal | `watcher.rs` capacity 2048/overflow；`fsWatcherQueue.ts`; `windows/fallback.rs` | 明确 overflow -> authoritative rescan、owner 和 source cursor；必须有 duplicate/missed event test | 已登记 |
-| R-006 | 多个 watcher/provider 重复消费同一变化 | High | File Library watcher、USN、FSEvents、Spotlight reconcile 同时写不同表或同表 | `watcher.rs`; `global_index/windows/usn.rs`; `global_index/macos/mod.rs` | 保持 files/global 的边界；未来必须有 source id/generation/idempotency evidence | 已登记 |
-| R-007 | Path ID 与 native ID 混用 | Critical | rename/cross-volume/case change 后把不同实体误合并，或丢失 operation/AI history | `scanner.rs::scanned_entry_to_insert_request` (`id = path`); `global_index/models.rs::stable_entry_id`; `path_identity.rs` | 先做 mapping、collision、backfill、rollback 设计；禁止无迁移改 `files.id` | 已登记，阻断 identity phase |
-| R-008 | 把 operation identity 当成普通 file fingerprint | Critical | 外部修改、symlink/reparse、目录 manifest、claim/restore semantics 被弱化，错误移动或恢复 | `fs_safety/identity.rs`; `file_ops.rs`; `db/queries/operations.rs` | 所有 mutation 继续走 claim + identity + preview；抽象只读 identity components 要有 negative tests | 已登记 |
-| R-009 | Dedupe 只按 size/hash 产生错误用户语义 | High | hardlink、物理同一文件、同内容独立文件、外部变化被混为 duplicate/reclaim | `dedupe.rs::run_duplicate_detection_job`; `files.content_hash`/`idx_files_dedupe` | 先定义 group/finding/physical identity/reclaim；未经确认不能自动 move/delete | 已登记 |
-| R-010 | Dedupe/cleanup finding 在重启后丢失 | High | 用户看到的分析列表和确认状态属于内存 job，重启后无法重放或审计 | `dedupe.rs::DedupeJobManager`; `storage_analyzer.rs::StorageCleanupState` | 先设计 analysis run/finding；Safe Trash journal 独立保持现有恢复链 | 已登记 |
-| R-011 | Global cursor/checkpoint 被误认为通用 generation | High | USN/FSEvents/Spotlight/fallback 的 cursor 语义不同，回放时跳过或重复 | `global_index/coordinator.rs`; `windows/usn.rs::sync_volume`; `macos/mod.rs::PendingUpdates` | 每个 provider 声明 cursor/rebuild/permission contract；用 journal gap/rename/permission 测试 | 已登记 |
-| R-012 | Managed Scope/Cloud AI 越权 | Critical | global search 或 unmanaged File Library row 直接进入 AI；cloud provider 读取未授权内容/路径 | `managed_scope.rs`; `legacy_queue.rs`; worker pre/post validation; `ai/settings.rs` | 保持 scope enabled + managed entry + provider policy + user correction 四重 gate；加 negative tests | 已登记，必须阻断 AI 扩展 |
-| R-013 | AI 结果覆盖用户纠正 | Critical | force reanalysis、provider retry 或 scope backfill 覆盖 correction | `managed_worker_hardened.rs` `user_corrected`; `legacy_queue.rs` force update; schema state | correction 永远阻断完成写入；任何新 consumer 要有 correction precedence test | 已登记 |
-| R-014 | Content Artifact 泄露隐私/密钥 | Critical | 默认读取文件内容、将内容发送 cloud、长期保存 raw/extracted text 或 trace | `managed_worker_hardened.rs::build_managed_ai_request`; `ai/trace.rs`; `ai_analysis_state.content_summary='metadata_only'` | 先人工决定类型、大小、脱敏、加密、retention、local/cloud consent；Task 00 不创建 artifact | 已登记，阻断 content phase |
-| R-015 | 把 AI trace 当业务内容库 | High | ring buffer 截断/重启丢失/secret redaction 造成内容不可复用或错误授权 | `ai/trace.rs::MAX_AI_TRACE_COUNT/MAX_EXTRACTED_CONTENT_CHARS/record_trace` | trace 仅诊断；artifact 必须有独立 schema、权限、版本和删除语义 | 已登记 |
-| R-016 | Organization Plan 过期仍执行 | Critical | renderer 持有旧 preview，文件已变更/AI 已重算，执行错误移动或错误重命名 | `file_ops.rs::execute_moves`; `get_operation_previews_by_file_ids`; `verify_indexed_file_identity` | Plan 必须绑定 revision/snapshot/identity/server preview；执行仍只接受 authoritative preview | 已登记，阻断 plan phase |
-| R-017 | 业务层绕过 preview/journal/restore | Critical | AI、cleanup、自然语言规则或跨页 selection 直接调用 filesystem API，无法恢复 | `file_ops.rs`; `storage_analyzer.rs`; `ai/prompts.rs` safety contract | 所有 mutation 经过现有 preview + identity + journal + Safe Trash；加 source-contract guard | 已登记 |
-| R-018 | OFFSET 在 realtime 数据中跳页/重复 | High | scan/watcher/stale update 在分页期间改变排序，用户/plan 选择错行 | `db/queries/files.rs` 多处 `LIMIT/OFFSET`; `global_index/search.rs`; `VaultView.tsx` | 先决定 snapshot/cursor；并发 scan/watcher/query 测试；保留 Query V1 fallback | 已登记 |
-| R-019 | 跨页选择表达不真实 | High | UI 只选择 loaded rows，却把操作描述成全结果；未加载 rows 没有 server-side selection | `VaultView.tsx::selectedIds/selectedFiles`; `fileLibraryModel.ts::selectionForRowClick`; `FileLibraryList.tsx` | Query V2 设计 query selection/plan binding；不要仅扩大 renderer array | 已登记 |
-| R-020 | 大表 total/count 和排序成本失控 | Medium | CTE/duplicate join/total count + OFFSET 在大表或连续 watcher 下变慢，UI 事实滞后 | `get_paged_files_in_scope_with_filter`; performance benchmark | 先用现有 benchmark 建 threshold/plan evidence；再决定 index/cursor，不在 Task 00 优化 | 已登记 |
-| R-021 | Native helper/service 协议漂移 | High | Windows service pipe 版本、desktop fallback、installer/CI 不一致造成不可用或安全降级 | `global_index/windows/service.rs`; `service_host.rs`; `.github/workflows/ci.yml`; release workflow | 保持 versioned protocol、source snapshot validation、direct fallback；必须做 native smoke/release test | 已登记 |
-| R-022 | 权限/partial index 被当作 complete | High | Spotlight/MFT/FSEvents/fallback 只返回部分结果，但 UI/AI 当全量事实 | provider status enums; `SettingsView.tsx` status mapping; coordinator status | 状态必须带 source/completeness/error/permission；managed AI 默认不消费 stale/partial 未授权条目 | 已登记 |
-| R-023 | 迁移破坏 operation/cleanup 账本 | Critical | 新 identity/plan/finding schema 破坏 schema v18–26 字段、恢复阶段或 startup reconcile | `db/schema.rs::migrate`; `db/queries/operations.rs`; cleanup journal | 每次迁移需 forward/backward/fixture/rollback/reconcile tests；不得在 Task 00 改 schema | 已登记 |
-| R-024 | 同一主库中的跨域锁竞争 | High | 新表/长事务在 global upsert、AI claim、library query、operation journal 间产生 SQLite busy/尾延迟 | `Database` single SQLite; global repository transactions; worker `TransactionBehavior::Immediate` | 先测锁边界/事务时长；禁止把大型 analysis 或内容写入放进 mutation transaction | 已登记 |
-| R-025 | 文档与实现漂移 | Medium | 旧 remediation/design/security docs 的阶段、表名或边界与 PR #15 当前源码不一致，后续按错规格实现 | `docs/design/*`; `docs/security/*`; 本目录 task/index 与当前 source map | 以当前代码/测试为事实；每阶段更新 source evidence；将 drift 纳入 CI/manual review | 已登记 |
-| R-026 | 阶段顺序产生循环依赖 | High | Plan 需要 finding，finding 需要 identity/run，run 又依赖通用 runtime，导致半成品 schema 互相引用 | 本报告第 12 节阶段顺序；`CODEX_REMEDIATION_INDEX_V1.md` | 每阶段声明 prerequisite/non-goal/migration/rollback；人工批准后逐阶段合并 | 已登记 |
-| R-027 | 性能基线被优化步骤掩盖 | Medium | benchmark pre-optimize 约 50 秒，post-optimize p95 仅毫秒，误把一次性建索引成本当作持续性能 | `npm run test:performance` 输出；`scripts/runPerformanceTest.mjs` | 保留 cold/warm/optimize 分段指标和阈值；后续大表/增量/重启 benchmark | 已登记 |
-| R-028 | 安全审计 warning 被误当修复完成 | Medium | cargo audit exit 0 但有 15 allowed warnings，GTK/glib advisory 未解决 | `npm run security:audit:rust` 输出 | 在 release/security gate 记录 warning inventory 和 owner；Task 00 不升级为代码修复 | 已登记 |
-| R-029 | 过早扩大 scope 造成越权扫描 | Critical | global index root、cleanup root、search root、Managed Scope 混为一套，扫描/AI/清理越过用户授权 | `global_index/managed_scope.rs`; `storage_analyzer.rs::validate_cleanup_roots`; Settings search scope | 每个 root/scope 类型保持显式；跨域需要授权映射和 negative tests | 已登记 |
-| R-030 | 发布/分支混入非 Task 00 文件 | High | mixed worktree 下 stage -A 或 broad commit 把生产代码、permissions、build output 一并发布 | Task 00 allowed path；当前工作树初始有未跟踪内容 | 只用 `git add docs/remediation`，cached diff/stat/path check 后再 commit；Draft PR review scope | 已登记 |
-
-## Task 01A Review Risks
-
-PR #17 Task 01A 人工审核新增的五项阻塞风险，已分别冻结在 Task 01A 任务书中；本风险登记仍不授权生产实施。
+- **Critical**：可能越过文件、AI、隐私或恢复安全边界，或造成不可逆数据后果。
+- **High**：可能造成跨域数据错误、任务丢失、错误执行或不兼容迁移。
+- **Medium**：会造成一致性、性能、可观测性或维护风险，但有局部缓解。
+- **Low**：影响较小，仍需在对应阶段留下证据。
 
 | ID | 风险 | 等级 | 触发条件/影响 | 当前证据 | 阻断/缓解与验收条件 | 状态 |
-| --- | --- | --- | --- | --- | --- | --- |
-| R-031 | 同一 scan root 的 active run/旧 generation 竞争 | Critical | 两个 session 对同一 root 并发 start，旧 worker 后完成并回写 last_successful_generation 或 stale，覆盖新 generation 的事实 | PR #17 Task 01A 人工审核；现有 schema 仅有 scan_root_id + generation 唯一 | 01A 必须冻结 queued/running/cancelling partial unique index、root active lease、lease_token、request idempotency、generation ownership 和 finalization affected-row/CAS；必须有 old-worker race/rollback tests | Task 01A 文档阻断，待人工验收 |
-| R-032 | metadata error 伪造 scan_seen 或错误 stale | Critical | 真实存在但 metadata 读取失败的 entry 没有 seen fact，却被 stale reconciliation 当作 missing；全量 scan_seen 无限增长 | PR #17 Task 01A 人工审核；当前 scanner metadata error 只计数/发事件，files.last_seen_at 由多个 owner 写入 | 01A 选择 coverage-breaking semantics：写 scan_run_errors、不写 scan_seen、禁止 stale；success 7 天/terminal failure 30 天加 newest-two retention，active/recovery pin 和 bounded prune | Task 01A 文档阻断，待人工验收 |
-| R-033 | multi-root requested/effective mapping 或 dedupe dispatch 丢失/重复 | High | nested/duplicate/invalid/未启动取消的 root 无法解释；session crash 后 dedupe 既可能漏调度也可能重复调度 | PR #17 Task 01A 人工审核；现有多 root 只在 renderer 顺序拼接，dedupe 绑定最后一个 job | 01A 必须持久化 scan_session_roots、固定 terminal priority 和 scan_session_effects dispatch_key；下游必须能按 key 查询/幂等，不能用 best-effort 文案替代 | Task 01A 文档阻断，待人工验收 |
-| R-034 | schema 27 post-migration rollback 与 schema-26 future-schema guard 冲突 | High | schema 27 数据库无法被旧 binary 打开；若把旧 binary 当代码回退会在启动时拒绝或被迫绕过 guard | PR #17 Task 01A 人工审核；db schema 当前保留 future schema rejection | 明确 migration commit 前可 rollback 到 26；commit 后只允许 schema-27-capable build 关闭 feature gate，schema-26 binary 只能通过恢复 schema-26 backup 回退 | Task 01A 文档阻断，待人工验收 |
-| R-035 | renderer 重启后旧 scan event 覆盖新状态 | High | 内存 sequence 丢失或旧事件晚到，renderer 把旧 generation/progress/terminal 投影到当前 run | PR #17 Task 01A 人工审核；现有事件主要按 activeScanJobId 过滤且无 durable revision | 01A 必须持久化 run/session revision，在状态 transaction 中递增并在 commit 后发送；renderer 先 hydrate durable state，按 revision/generation/identity 拒绝旧或 gap event | Task 01A 文档阻断，待人工验收 |
+|---|---|---|---|---|---|---|
+| R-001 | 重建第二套 Global Index | Critical | 新模块重新扫描全盘并建立第二套 volume/entry/FTS，导致 search、AI、scope 和 stale 事实分裂 | `global_index/coordinator.rs`、`repository.rs`、global schema | 所有 global discovery/search 复用 `global_*`；架构 guard | 持续阻断越界 |
+| R-002 | 把 Managed AI `ai_jobs` 误作通用 Job Runtime | High | scan/cleanup/dedupe 污染 provider、scope、fingerprint、correction | Managed AI worker/schema | 保持 AI 表和 worker 领域专用 | 禁止泛化 |
+| R-003 | 无边界跨域 durable queue | Critical | renderer、Tauri、native service 和 provider 重复消费，造成重复执行或丢失 | watcher、AI worker、global coordinator | 每个 domain 定义唯一 owner、claim、cancel、retry 和 recovery | 未定义前阻断 |
+| R-004 | Scan 崩溃后误判完成 | High | 内存 job 消失但 `files` 已部分写入，旧逻辑可能执行 stale | `scanner.rs::ScanJobManager` | Task 01A 建立 run/generation/scan_seen/recovery | Task 01A 处理 |
+| R-005 | Watcher overflow 后最终一致性丢失 | High | bounded channel/renderer queue 丢事件且无 durable owner | `watcher.rs`、`fsWatcherQueue.ts` | Task 01B 定义 authoritative reconcile 和 replay | 等待 01B |
+| R-006 | 多 watcher/provider 重复消费 | High | File Library watcher、USN、FSEvents、Spotlight 写入边界混淆 | watcher 与 global provider | 保持 files/global 数据域隔离 | 持续监控 |
+| R-007 | Path ID 与 native ID 混用 | Critical | rename/cross-volume/case 后误合并实体或丢历史 | scanner path-id、global stable id、path identity | 先做 mapping/collision/backfill/rollback；禁止直接改 `files.id` | 阻断 identity 迁移 |
+| R-008 | operation identity 被弱化为普通 fingerprint | Critical | symlink/reparse、claim/restore 语义丢失，错误移动或恢复 | `fs_safety/identity.rs`、`file_ops.rs` | mutation 继续走 claim、preview、identity、journal | 持续阻断 |
+| R-009 | Dedupe 产生错误用户语义 | High | hardlink、物理同一文件、同内容文件和外部变化被混为 reclaim | `dedupe.rs`、`files.content_hash` | Task 02 定义 physical identity、group 和 reclaim；不得自动删除 | 等待 02 |
+| R-010 | Dedupe/cleanup finding 重启丢失 | High | 内存结果无法重放或审计 | `DedupeJobManager`、`StorageCleanupState` | Task 03 建立 analysis run/finding；Safe Trash journal 保持独立 | 等待 03 |
+| R-011 | Global cursor 被误作通用 generation | High | USN/FSEvents/Spotlight cursor 语义不同，回放跳过或重复 | global coordinator/provider | File Library generation 独立 | 已冻结 |
+| R-012 | Managed Scope/Cloud AI 越权 | Critical | unmanaged/global row 进入 AI 或 cloud 读取未授权内容 | managed scope、AI worker pre/post validation | 保持 scope、managed entry、provider policy、correction 四重 gate | 持续阻断 |
+| R-013 | AI 覆盖用户纠正 | Critical | reanalysis/retry 覆盖 correction | Managed AI `user_corrected` | correction 永远优先；所有新 consumer 加 negative tests | 持续阻断 |
+| R-014 | Content Artifact 泄露隐私/密钥 | Critical | 默认读取/上传内容或长期保存正文/trace | metadata-only request、AI trace | Task 08 先定义预算、脱敏、加密、retention 和 consent | 阻断 08 |
+| R-015 | 把 AI trace 当内容库 | High | trace 截断/重启丢失/脱敏造成错误复用 | `ai/trace.rs` | trace 仅诊断；artifact 独立 schema | 持续阻断 |
+| R-016 | Organization Plan 过期仍执行 | Critical | renderer 持旧 preview，文件或 AI 结果已改变 | operation preview/identity | Plan 绑定 revision/snapshot/identity，执行仍走 authoritative preview | 阻断 05 |
+| R-017 | 业务层绕过 preview/journal/restore | Critical | AI、cleanup、NL rule 或 selection 直接调用 filesystem | `file_ops.rs`、storage analyzer | 所有 mutation 经过 preview、identity、journal、Safe Trash | 持续阻断 |
+| R-018 | OFFSET 在 realtime 数据中跳页/重复 | High | scan/watcher 改变排序，用户或 plan 选择错行 | files queries 的 LIMIT/OFFSET | Task 04 定义 snapshot/cursor 和 fallback | 等待 04 |
+| R-019 | 跨页选择表达不真实 | High | UI 只选 loaded rows 却描述为全结果 | File Library selection | Query V2 建立 server-side selection | 等待 04 |
+| R-020 | 大表 count/sort 成本失控 | Medium | CTE/count/OFFSET 在大表和 watcher 下变慢 | library queries/performance tests | 保留 cold/warm/plan evidence，再决定 index/cursor | 等待 04 |
+| R-021 | Native helper/service 协议漂移 | High | Windows service、desktop fallback、installer/CI 不一致 | Windows service/protocol/CI | versioned protocol、source validation、native smoke | 持续监控 |
+| R-022 | partial index 被当 complete | High | provider 权限或 fallback 只返回部分结果但 UI/AI 当全量 | provider status/coordinator | 状态带 completeness/source/error；AI 不消费未授权 partial | 持续监控 |
+| R-023 | 迁移破坏 operation/cleanup 账本 | Critical | 新 schema 破坏 v18–26 恢复字段或 startup reconcile | schema migrations、operation queries | 每次 migration 必须有真实 fixture、rollback 和 reconcile tests | 持续阻断 |
+| R-024 | 主库跨域锁竞争 | High | 新表/长事务导致 global upsert、AI claim、library query、journal busy | 单 SQLite、Immediate transaction | 测事务时长和 WAL reader；禁止把大型分析塞入 mutation transaction | 持续监控 |
+| R-025 | 文档与实现漂移 | Medium | 旧文档阶段、表名或边界与源码不一致 | remediation/design/security docs | 当前代码和测试为事实；每阶段更新 evidence/closeout | 持续监控 |
+| R-026 | 阶段循环依赖 | High | Plan、finding、identity、runtime 相互等待，产生半成品 schema | remediation index | 每阶段声明 prerequisite/non-goal/migration/rollback | 已拆分 |
+| R-027 | 性能基线被 optimize 掩盖 | Medium | pre-optimize 很慢、post-optimize 很快，误判持续性能 | performance script | 保留 cold/warm/optimize 分段指标 | 持续监控 |
+| R-028 | 安全 audit warning 被误当修复 | Medium | audit exit 0 但 allowed warnings 未解决 | Rust audit inventory | release gate 记录 owner 和 warning inventory | 持续监控 |
+| R-029 | 过早扩大 scope | Critical | global/search/cleanup/Managed Scope 混为一套，越权扫描或 AI | scope/root validation | 每种 root/scope 显式，跨域需授权映射和 negative tests | 持续阻断 |
+| R-030 | 分支混入无关文件 | High | broad stage/commit 混入生产代码、权限或 build output |阶段 allowed path | path guard、cached diff、Draft PR scope review | 持续门禁 |
 
-## Task 00 风险结论
+## Task 01A 专项风险
 
-当前没有需要在 Task 00 中修复的生产缺陷。风险登记的目的，是在人工验收后把“架构可扩展”与“现在可以动代码”分开。任何 Critical/High 风险在对应阶段没有 owner、测试、迁移和 rollback 证据时，保持该阶段不可执行。
+| ID | 风险 | 等级 | 触发条件/影响 | 最终契约 | 状态 |
+|---|---|---|---|---|---|
+| R-031 | 同 root active run/旧 generation 竞争 | Critical | 两个 session 并发或旧 worker 晚回写，造成 generation 倒退或错误 stale | partial unique index + root active pointer + lease token + generation/revision CAS；affected-row 必须为 1 | 任务书已解决，实施验收 |
+| R-032 | metadata error 导致错误 stale 或 scan_seen 无限增长 | Critical | 真实文件 metadata 失败却被当 missing；observation 永久增长 | metadata error coverage-breaking、禁止 stale；7/30 日 + newest-two + active/recovery pin 的 bounded prune | 任务书已解决，实施验收 |
+| R-033 | multi-root mapping 或 dedupe 调度语义不真实 | High | nested/duplicate/invalid/unstarted 无法解释；把内存 dedupe 误称 exactly-once | `scan_session_roots` 持久 requested→effective；session terminal priority 固定。Dedupe 仅记录 durable intent，采用 at-least-once 安全重算，不承诺跨重启 exactly-once | 任务书已解决；durable dedupe 延后 Task 02 |
+| R-034 | schema 27 rollback 与旧 binary guard 冲突 | High | schema 27 无法被 schema-26 binary 打开，错误回退会绕过 guard | commit 前 transaction rollback；commit 后只用 schema-27-capable build 关 gate；旧 binary 保持 future-schema rejection | 任务书已解决，migration 验收 |
+| R-035 | renderer 重启后旧 scan event 覆盖新状态 | High | 内存 sequence 丢失或晚到事件回退 generation/status | run/session durable revision；先 hydrate，按 revision/generation/identity 过滤和 gap refetch | 任务书已解决，前端验收 |
+| R-036 | Session phase 随 root phase 倒退 | High | 多 root 顺序扫描中，前一个 finalizing 后下一个 preparing，renderer 将 session 看作倒退 | session 使用独立聚合 phase `preparing/running/finalizing/completed`；root phase 单独展示 | 任务书已解决，前端验收 |
+| R-037 | 把内存 DedupeJobManager 误作持久幂等下游 | High | crash 后无法按 dispatch key 查询旧 job，错误承诺 logical at-most-once | Task 01A 不改 dedupe；允许 at-least-once 重算，重复计算不得影响 scan/stale/用户文件；durable dedupe 归 Task 02 | 任务书已解决，实施需验证幂等安全 |
+
+## 风险结论
+
+Task 01A 任务书已经完成架构验收，但生产实施仍必须通过 migration、并发、crash、stale、性能和跨平台 CI。任何 Critical/High 风险在对应实现没有 owner、测试、迁移和 rollback 证据前，继续阻断合并和后续阶段。
