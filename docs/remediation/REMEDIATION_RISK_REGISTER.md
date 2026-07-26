@@ -42,6 +42,18 @@
 | R-029 | 过早扩大 scope 造成越权扫描 | Critical | global index root、cleanup root、search root、Managed Scope 混为一套，扫描/AI/清理越过用户授权 | `global_index/managed_scope.rs`; `storage_analyzer.rs::validate_cleanup_roots`; Settings search scope | 每个 root/scope 类型保持显式；跨域需要授权映射和 negative tests | 已登记 |
 | R-030 | 发布/分支混入非 Task 00 文件 | High | mixed worktree 下 stage -A 或 broad commit 把生产代码、permissions、build output 一并发布 | Task 00 allowed path；当前工作树初始有未跟踪内容 | 只用 `git add docs/remediation`，cached diff/stat/path check 后再 commit；Draft PR review scope | 已登记 |
 
+## Task 01A Review Risks
+
+PR #17 Task 01A 人工审核新增的五项阻塞风险，已分别冻结在 Task 01A 任务书中；本风险登记仍不授权生产实施。
+
+| ID | 风险 | 等级 | 触发条件/影响 | 当前证据 | 阻断/缓解与验收条件 | 状态 |
+| --- | --- | --- | --- | --- | --- | --- |
+| R-031 | 同一 scan root 的 active run/旧 generation 竞争 | Critical | 两个 session 对同一 root 并发 start，旧 worker 后完成并回写 last_successful_generation 或 stale，覆盖新 generation 的事实 | PR #17 Task 01A 人工审核；现有 schema 仅有 scan_root_id + generation 唯一 | 01A 必须冻结 queued/running/cancelling partial unique index、root active lease、lease_token、request idempotency、generation ownership 和 finalization affected-row/CAS；必须有 old-worker race/rollback tests | Task 01A 文档阻断，待人工验收 |
+| R-032 | metadata error 伪造 scan_seen 或错误 stale | Critical | 真实存在但 metadata 读取失败的 entry 没有 seen fact，却被 stale reconciliation 当作 missing；全量 scan_seen 无限增长 | PR #17 Task 01A 人工审核；当前 scanner metadata error 只计数/发事件，files.last_seen_at 由多个 owner 写入 | 01A 选择 coverage-breaking semantics：写 scan_run_errors、不写 scan_seen、禁止 stale；success 7 天/terminal failure 30 天加 newest-two retention，active/recovery pin 和 bounded prune | Task 01A 文档阻断，待人工验收 |
+| R-033 | multi-root requested/effective mapping 或 dedupe dispatch 丢失/重复 | High | nested/duplicate/invalid/未启动取消的 root 无法解释；session crash 后 dedupe 既可能漏调度也可能重复调度 | PR #17 Task 01A 人工审核；现有多 root 只在 renderer 顺序拼接，dedupe 绑定最后一个 job | 01A 必须持久化 scan_session_roots、固定 terminal priority 和 scan_session_effects dispatch_key；下游必须能按 key 查询/幂等，不能用 best-effort 文案替代 | Task 01A 文档阻断，待人工验收 |
+| R-034 | schema 27 post-migration rollback 与 schema-26 future-schema guard 冲突 | High | schema 27 数据库无法被旧 binary 打开；若把旧 binary 当代码回退会在启动时拒绝或被迫绕过 guard | PR #17 Task 01A 人工审核；db schema 当前保留 future schema rejection | 明确 migration commit 前可 rollback 到 26；commit 后只允许 schema-27-capable build 关闭 feature gate，schema-26 binary 只能通过恢复 schema-26 backup 回退 | Task 01A 文档阻断，待人工验收 |
+| R-035 | renderer 重启后旧 scan event 覆盖新状态 | High | 内存 sequence 丢失或旧事件晚到，renderer 把旧 generation/progress/terminal 投影到当前 run | PR #17 Task 01A 人工审核；现有事件主要按 activeScanJobId 过滤且无 durable revision | 01A 必须持久化 run/session revision，在状态 transaction 中递增并在 commit 后发送；renderer 先 hydrate durable state，按 revision/generation/identity 拒绝旧或 gap event | Task 01A 文档阻断，待人工验收 |
+
 ## Task 00 风险结论
 
 当前没有需要在 Task 00 中修复的生产缺陷。风险登记的目的，是在人工验收后把“架构可扩展”与“现在可以动代码”分开。任何 Critical/High 风险在对应阶段没有 owner、测试、迁移和 rollback 证据时，保持该阶段不可执行。

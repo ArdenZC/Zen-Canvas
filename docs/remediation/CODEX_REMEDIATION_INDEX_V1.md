@@ -9,7 +9,7 @@ Task 01 已按领域拆分为 File Library Scan Generation Foundation（01A）�
 | 阶段 | 任务书 | 目标 | 状态 |
 |---|---|---|---|
 | 00 | `TASK_00_POST_MERGE_BASELINE_AUDIT.md` | PR #15 合并后代码、数据和安全边界审计 | **已验收并合并** |
-| 01A | `TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md` | File Library Scan 的 root、run、generation、stale safety、恢复和多根 session 规格 | **待人工验收，禁止执行** |
+| 01A | `TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md` | File Library Scan 的 root lease、run/generation ownership、scan_seen/stale safety、恢复、durable revision 和多根 session 规格 | **待人工验收，禁止执行** |
 | 01B | 待创建 | Watcher Reconciliation Ownership、overflow replay 和 durable watcher owner | **等待 Task 01A，禁止执行** |
 | 02 | 待创建 | 原生身份、fingerprint、prehash 与 duplicate group/finding | **后续阶段，禁止执行** |
 | 03 | 待创建 | Analysis Run、Finding 与 detector | **后续阶段，禁止执行** |
@@ -153,6 +153,11 @@ git status --short
 4. File Library Scan 和 Global Index 是两个独立 domain；Global provider 的 native cursor/journal checkpoint 不是 File Library generation。
 5. Query V2 必须先于 Organization Plan；在 query/scope/snapshot/selection 语义未稳定前，不得实施 Organization Plan。
 6. files 的 path id、Global Index native id、operation identity 和 AI fingerprint 继续隔离；Task 01A 不迁移 `files.id`。
+7. 同一 scan root 的 active 集合只包含 queued/running/cancelling，必须由数据库 partial unique index 加 root active_run_id/active_generation/lease_token/revision CAS 共同保护；重复 start 不得分配第二个 generation。
+8. metadata error 若不能形成成功 metadata fact，必须记录 scan_run_errors、标记 coverage-breaking、禁止 stale；scan_seen 只保留成功 fact，并按 7/30 日 cutoff 加每 root newest-two 的 retention/prune 规则清理。
+9. 每个 multi-root session 必须持久化 requested_index 到 effective_root/run 的映射，包括 duplicate、nested、invalid 和 cancelled_not_started；session terminal priority 与 dedupe dispatch_key/effect ledger 是实现前置条件。
+10. schema 27 commit 前的 migration rollback 与 commit 后的 code rollback 分开；schema 27 只能由 schema-27-capable build 关闭 feature gate 回退，旧 schema-26 binary 必须继续 future-schema rejection。
+11. scan run/session 的 durable revision 是事件水位；renderer restart 先 hydrate durable state，按 revision、generation、run/session identity 拒绝旧、重复和越代事件。事件不得升级为 raw watcher persistence。
 
 未完成 01A 任务书人工验收前，不得实施 Task 01A；未完成 01A 实施验收前，不得开始 Task 01B。
 

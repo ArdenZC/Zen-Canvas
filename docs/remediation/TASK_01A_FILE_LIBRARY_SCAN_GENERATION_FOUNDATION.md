@@ -26,7 +26,13 @@ a2c0516dc7a8628cb7210003da3d66f5d84f3a2f
 - 当前 schema 版本为 26，证据为 src-tauri/src/db/schema.rs 的 CURRENT_SCHEMA_VERSION。
 - Task 00 已由人工接受；Task 01A 仍需单独人工验收，验收前不得实施 Task 01A，也不得开始 Task 01B。
 
-### 1.1 依赖与非依赖
+### 1.1 PR #17 最新人工审核闭环
+
+2026-07-26 PR #17 Conversation 的最新人工意见要求补齐五项进入实施授权前的阻塞契约：同一 root 的唯一 active lease、重复 start 与 generation ownership/finalization CAS；metadata error 下 scan_seen/stale 的保守语义与 retention/prune；multi-root requested-to-effective durable mapping、session terminal priority 与 dedupe dispatch idempotency；schema 27 rollback 与旧 schema-26 future-schema rejection 的版本矩阵；以及 run/session durable revision 与 renderer restart 的旧事件拒绝规则。
+
+本次修订只更新 remediation 文档，逐项将上述规则写入领域模型、完整 SQL 草案、状态机、transaction 顺序、测试计划、rollout/rollback 和验收标准。Task 01A 仍是“待人工验收，禁止执行”；本节不构成生产实现授权，Task 01B 和后续任务继续禁止。
+
+### 1.2 依赖与非依赖
 
 Task 01A 依赖：
 
@@ -145,14 +151,17 @@ Task 01A 不建立跨领域 generic Job Runtime。未来可以复用极小的 Ru
 
 ### 5.1 推荐模型总览
 
-推荐建立四张 File Library Scan 专用表：
+推荐建立七个 File Library Scan 专用持久模型：
 
 1. scan_roots：持久 root identity、health 和 generation 账本；
 2. scan_sessions：一次用户/后台多 root 请求的父聚合；
-3. scan_runs：一个 root 的一个 generation 的状态机；
-4. scan_seen：该 run 由 scanner 观察到的文件事实。
+3. scan_session_roots：保留每个 requested root 与 effective root/run 的映射；
+4. scan_session_effects：保留 session terminal 后下游 effect（当前仅 dedupe）的幂等 dispatch ledger；
+5. scan_runs：一个 root 的一个 generation 的状态机和 durable revision；
+6. scan_seen：该 run 由 scanner 观察到的文件事实；
+7. scan_run_errors：coverage-breaking metadata/traversal error 的诊断事实。
 
-这四张表不是通用 job runtime，也不复用 ai_jobs、job_runs 或 Global Index 表。每张表的生命周期、状态和 foreign key 都只服务 File Library Scan。
+这七个模型不是通用 job runtime，也不复用 ai_jobs、job_runs 或 Global Index 表。每张表的生命周期、状态和 foreign key 都只服务 File Library Scan。
 
 ### 5.2 ScanRoot
 
@@ -166,7 +175,10 @@ Task 01A 不建立跨领域 generic Job Runtime。未来可以复用极小的 Ru
 | enabled | INTEGER；控制默认后台是否可入队，不阻止显式一次性扫描 |
 | health_status | TEXT；建议 unknown/healthy/scanning/degraded/missing/permission_required/reconciliation_required |
 | current_generation | INTEGER NOT NULL；每次创建新 run 单调增加，不代表成功 |
+| active_run_id | TEXT NULL；该 root 当前唯一 lease owner；只允许指向 queued/running/cancelling run，不能由 renderer 写入 |
+| active_generation | INTEGER NULL；active_run_id 对应的 generation，和 active_run_id 一起做 ownership/CAS 校验 |
 | last_successful_generation | INTEGER NULL；只由成功 finalization 更新 |
+| revision | INTEGER NOT NULL；root ledger 的 durable revision，用于 lease、health 和 generation CAS |
 | last_full_scan_at | INTEGER NULL；只由成功 discovery reconciliation 更新 |
 | needs_reconciliation | INTEGER；失败、取消、root 变化、watcher overflow 或旧数据未归属时置 1 |
 | last_error_code | TEXT NULL；稳定错误码，不把完整日志塞进字段 |
@@ -180,12 +192,20 @@ Task 01A 不建立跨领域 generic Job Runtime。未来可以复用极小的 Ru
 推荐单独建立小型、领域专用的 scan_sessions，而不是把 parent-child 关系塞进 generic runtime。候选字段：
 
 - id、status、phase、cancel_requested；
-- requested_root_count、completed_root_count、failed_root_count、cancelled_root_count；
+- request_key、requested_root_count、effective_root_count、completed_root_count、failed_root_count、cancelled_root_count、covered_root_count、unstarted_root_count；
+- dedupe_requested；
 - scanned_files、scanned_directories、warnings_count、errors_count；
+- revision；每次 session 状态、聚合计数、terminal/effect 状态变化递增，并作为 session event sequence；
 - started_at、finished_at、last_checkpoint_at；
 - error_code、error_message、result_json。
 
-session 只聚合 root run，不拥有 scanner 看到的事实；每个事实仍归属于 scan_runs 和 scan_seen。
+session 只聚合 root run，不拥有 scanner 看到的事实；每个事实仍归属于 scan_runs 和 scan_seen。request_key 为空时不承诺重复请求语义；request_key 非空时，同一 canonical root request 必须返回已有 session，key 与 root 集合不一致必须拒绝。
+
+### 5.3.1 Requested root 与 effective root 的持久映射
+
+每个 session 必须为每个用户传入的 requested root 保留一行 scan_session_roots，即使该 root 尚未启动、被重复项去重、被祖先 root 吸收、解析失败或在 session cancel 前未启动。该行至少记录 requested_index、requested_path、normalized_requested_path、resolution、effective_root_id、effective_path、effective_index、run_id、status 和 reason。
+
+resolution 的固定值为 effective、duplicate_requested、nested_under_effective、invalid；requested_index 保留原始请求顺序，effective_index 由规范化后的有效 root 集合确定。duplicate_requested 和 nested_under_effective 行可以共享同一 effective root/run，但不能创建第二个 generation。尚未启动即取消的有效 root 保留 resolution=effective、run_id=NULL、status=cancelled_not_started。
 
 ### 5.4 ScanRun
 
@@ -208,6 +228,8 @@ session 只聚合 root run，不拥有 scanner 看到的事实；每个事实仍
 
 同一 (scan_root_id, generation) 必须唯一；重试创建新 generation，不重写旧 run 的历史。
 
+scan_run 另有 lease_token、revision、coverage_complete、stale_reconciliation_allowed、metadata_error_count、coverage_error_count 和 request_key_snapshot。lease_token 由 backend 生成；任何 worker、batch、stale 或 finalization 写入都必须同时验证 run id、scan_root_id、generation、lease_token、scan_roots.active_run_id 和 expected revision。generation ownership 不由 renderer、session 或旧 jobId 推断。
+
 ### 5.5 Scanner attribution 的四个候选方案
 
 | 方案 | 结论 | 主要问题 |
@@ -227,6 +249,8 @@ session 只聚合 root run，不拥有 scanner 看到的事实；每个事实仍
 4. 当前 files.id=path 的 cross-root move 不在 01A 改造成 stable identity；scanner 看到新 path 时按现有 upsert 语义处理，旧 path 由 operation/watcher/下一次完整 scan 的既有规则处理。
 5. watcher 在扫描期间可以继续更新 files，但不得写 scan_seen。stale query 只把 scanner scan_seen 当“本轮已见”；对 last_seen_at >= run.started_at 的行采取保守不 stale 策略，因此 watcher 只能延迟 stale，不能伪造 scanner fact。
 6. 当前 last_seen_at 精度为 Unix 秒；严格使用 < started_at，同秒更新宁可留下待 reconcile，也不能作为 missing 依据。generation 和 scan_seen 才是新契约的事实。
+7. 同一 scan root 的 active run 集合严格定义为 queued、running、cancelling；同一 root 同时最多一个 active run。requires_reconciliation、failed、cancelled、interrupted 和其他 terminal 状态不持有 active lease，但 needs_reconciliation 仍可阻止把它们当成功。
+8. start_managed_scan 对 canonical request 采用全量 admission：只要任一 effective root 已有其他 session 的 active lease，整个 start 拒绝且不分配 generation；相同 non-null request_key 且 canonical root hash 相同则返回已有 session/run，绝不创建重复 generation。
 
 ### 5.7 settings 兼容和旧 files
 
@@ -262,13 +286,27 @@ requires_reconciliation
 | running | cancelling、completed、completed_with_warnings、failed、interrupted、requires_reconciliation | completed 只能由 finalization 产生 |
 | cancelling | cancelled、interrupted、requires_reconciliation、failed | 取消请求不是终态；要等 backend 收尾 |
 | completed | 无 | 成功终态 |
-| completed_with_warnings | 无 | discovery 完整、结果可用但 optimize/entry metadata 等有 warning |
+| completed_with_warnings | 无 | discovery 完整、结果可用但 optimize 或其他不影响 coverage 的 warning |
 | cancelled | 无 | 重试创建新 run |
 | failed | 无 | 重试创建新 run；不把它伪装成 interrupted |
 | interrupted | 无 | startup 将遗留 running/cancelling 标记为 interrupted |
 | requires_reconciliation | 无 | 需要显式 retry/full scan，不直接自动把它当 success |
 
 requires_reconciliation 表示该 run 或 root 的安全状态还不能证明 missing reconcile 已完成；它不是“部分成功也可以当完成”的别名。
+
+### 6.1.1 Session terminal state machine
+
+session 的状态由持久化 scan_session_roots 映射聚合，不能由 renderer totals 或最后一个 run 事件直接决定：
+
+~~~text
+queued -> running -> cancelling -> terminal
+queued -> cancelled
+running -> interrupted / requires_reconciliation
+terminal = requires_reconciliation | failed | cancelled
+         | completed_with_warnings | completed
+~~~
+
+只有所有 requested mapping 都是 terminal 或 covered、所有 effective run 都已 terminal、且 session revision CAS 成功时，session 才能进入 terminal。聚合优先级固定为 requires_reconciliation/interrupted > failed/invalid > cancelled/cancelled_not_started > completed_with_warnings > completed；terminal 后不可回退。session 的 active 只表示仍有 effective run 处于 active lease，不新增另一套 queue owner。
 
 ### 6.2 Phase
 
@@ -288,12 +326,12 @@ preparing -> discovering -> persisting -> reconciling_missing
 ### 6.3 启动恢复、取消和错误
 
 - 启动扫描任务时先以 BEGIN IMMEDIATE 原子分配下一个 generation 并插入 queued run；current_generation 增加不等于成功。
-- 应用启动扫描恢复时，所有遗留 running 或 cancelling run 标记为 interrupted，对应 root needs_reconciliation=1；不恢复旧 jwalk iterator，不继续旧 run 的 stale。
+- 应用启动扫描恢复时，所有遗留 running 或 cancelling run 标记为 interrupted，并在同一 recovery transaction 中以 run id/generation/lease_token/active_run_id CAS 清除对应 root lease、置 needs_reconciliation=1；不恢复旧 jwalk iterator，不继续旧 run 的 stale。queued run 也必须按同一规则转为 interrupted 或 cancelled_not_started，不能遗留 active lease。
 - preparing/discovering/persisting 中收到 cancel：设置 cancel_requested，停止后续 batch，回滚当前 transaction，终态 cancelled。
 - reconciling_missing 前收到 cancel：不进入 stale transaction，终态 cancelled 或 requires_reconciliation。
 - reconciling_missing transaction 中收到 cancel：若 transaction 尚未提交则 rollback 并 requires_reconciliation；提交后不得假称取消回滚，需在 finalization 记录已完成的安全结果并带 warning。
 - root 不存在、不是 directory、权限不足、被卸载：该 run failed 或 requires_reconciliation，root health 为 missing/permission_required，禁止 stale。
-- 单个 entry metadata error：计入 warning/error，若 coverage 仍可证明完整则可 completed_with_warnings；root enumeration、DB 锁、磁盘错误等破坏 coverage 的错误必须 failed/requires_reconciliation。
+- 单个 entry metadata error：记录 scan_run_errors，不能形成 scan_seen fact；本版选择把这类错误定义为 coverage-breaking，整个 run 禁止进入 stale reconciliation，终态为 requires_reconciliation（而不是 completed_with_warnings）。只有不影响目录 coverage 的 optimize 或展示性 warning 才能使用 completed_with_warnings。
 - optimize 失败：不回滚 files，也不把完整 discovery 改为 failed；status 可为 completed_with_warnings，保留 error code。
 - root 恢复可访问后，health 由下一次成功的 preparing/discovery/finalization 更新为 healthy；没有成功完整 run 不得清除 needs_reconciliation。
 
@@ -311,6 +349,11 @@ preparing -> discovering -> persisting -> reconciling_missing
 8. optimize 失败可以产生 completed_with_warnings，但不能把未完成 discovery 当 completed。
 9. nested/overlap effective root 不得因为一个子 root 的 incomplete run 把父 root 覆盖范围内的 rows 批量 stale。
 10. 旧 last_seen_at、旧 files path-id、旧 operation/restore 行必须继续可读；没有回填依据时保持 unknown/reconciliation required。
+11. 旧 worker 即使持有旧 run id，也不能在 root lease、generation 或 revision CAS 失败后写 files、scan_seen、stale、root health 或 terminal success。
+12. finalization 必须验证 run update、root ownership update 和 session aggregate update 的 affected-row；任一为 0 都不能发出 completed/completed_with_warnings 事件。
+13. metadata error 没有 scan_seen-only fallback；无法形成成功 metadata fact 的 entry 必须使 coverage_complete=0 和 stale_reconciliation_allowed=0。
+14. scan_seen 只在 successful metadata upsert 的同一 batch transaction 中写入；active run 永不 prune，terminal run 按固定 retention/prune 规则清理。
+15. run.revision 和 session.revision 是 durable state sequence；事件必须在对应 transaction commit 后发送，renderer 以 durable revision 做水位线。
 
 ### 7.2 推荐 transaction 顺序（伪 SQL）
 
@@ -400,16 +443,476 @@ COMMIT;
 
 last_successful_generation 的 update 必须和 terminal status、root health 在同一个 finalization transaction 中完成；任何一项失败都不能暴露成功事实。
 
+### 7.2.1 五项阻塞规则的规范 transaction 顺序
+
+下列顺序是实现时唯一可直接翻译的规范；本节前面的短 SQL 仅为概念示意。每个写 transaction 都必须检查 affected-row；检查失败必须 rollback，并且不得发送比数据库事实更新的事件。
+
+1. start admission、request idempotency 和 generation ownership：
+
+~~~sql
+BEGIN IMMEDIATE;
+
+-- same non-null request_key + same canonical_request_hash is an idempotent read.
+SELECT id, canonical_request_hash, status, result_json
+  FROM scan_sessions
+ WHERE request_key = :request_key;
+-- Existing row + matching hash returns it; existing row + different hash
+-- aborts with request_key_conflict.
+
+-- The resolver has already produced the request-local effective_root_ids set;
+-- any active row here rejects the whole canonical multi-root request.
+SELECT r.id, r.active_run_id, r.active_generation
+   FROM scan_roots r
+ WHERE r.id IN :effective_root_ids
+   AND r.active_run_id IS NOT NULL;
+
+-- Resolve/insert all requested-root mappings before allocating any run.
+INSERT INTO scan_sessions(
+    id, request_key, canonical_request_hash, status, phase,
+    requested_root_count, effective_root_count, dedupe_requested,
+    revision, created_at, updated_at
+) VALUES (
+    :session_id, :request_key, :canonical_request_hash, 'queued',
+    'preparing', :requested_count, :effective_count, :dedupe_requested,
+    1, :now, :now
+);
+
+INSERT INTO scan_session_roots(
+    session_id, requested_index, requested_path, normalized_requested_path,
+    resolution, effective_root_id, effective_path, effective_index,
+    status, created_at, updated_at
+) VALUES (...);
+
+-- The root lease is claimed before the run is visible as executable.
+UPDATE scan_roots
+   SET current_generation = current_generation + 1,
+       active_generation = current_generation + 1,
+       revision = revision + 1,
+       health_status = 'scanning',
+       updated_at = :now
+ WHERE id = :root_id
+   AND active_run_id IS NULL
+   AND revision = :root_revision;
+-- require exactly one affected row; :next_generation is the returned value.
+
+INSERT INTO scan_runs(
+    id, scan_root_id, generation, parent_session_id, lease_token,
+    status, phase, coverage_complete, stale_reconciliation_allowed,
+    revision, created_at, updated_at
+) VALUES (
+    :run_id, :root_id, :next_generation, :session_id, :lease_token,
+    'queued', 'preparing', 0, 0, 1, :now, :now
+);
+
+UPDATE scan_roots
+   SET active_run_id = :run_id,
+       active_generation = :next_generation,
+       revision = revision + 1,
+       updated_at = :now
+ WHERE id = :root_id
+   AND active_run_id IS NULL
+   AND active_generation = :next_generation
+   AND current_generation = :next_generation
+   AND revision = :root_revision_after_generation;
+-- require exactly one affected row; otherwise rollback the whole admission.
+
+UPDATE scan_session_roots
+   SET run_id = :run_id, status = 'queued', updated_at = :now
+ WHERE session_id = :session_id
+   AND effective_root_id = :root_id
+   AND resolution = 'effective';
+
+COMMIT;
+-- emit queued only after commit, using run.revision=1/session.revision=1.
+~~~
+
+The actual implementation must use a deterministic effective-root resolution before the first generation update. A request with no request_key never silently joins an active run. A request with an existing request_key either returns the existing session without writes or fails with request_key_conflict; it never allocates a second session.
+
+2. run claim, batch persistence and metadata error：
+
+~~~sql
+BEGIN IMMEDIATE;
+UPDATE scan_runs
+   SET status = 'running',
+       phase = 'discovering',
+       started_at = COALESCE(started_at, :now),
+       revision = revision + 1,
+       updated_at = :now
+ WHERE id = :run_id
+   AND scan_root_id = :root_id
+   AND generation = :generation
+   AND lease_token = :lease_token
+   AND revision = :expected_revision
+   AND status = 'queued'
+   AND EXISTS (
+       SELECT 1 FROM scan_roots
+        WHERE id = :root_id
+          AND active_run_id = :run_id
+          AND active_generation = :generation
+   );
+-- require one row; a zero-row claim is an old-worker/lease loss.
+COMMIT;
+
+BEGIN;
+-- For each successful metadata entry, these two writes are one fact:
+UPSERT files (..., is_stale = 0, last_seen_at = :now);
+INSERT OR IGNORE INTO scan_seen(
+    run_id, file_id, observed_path, observed_at
+) VALUES (:run_id, :file_id, :observed_path, :now);
+
+-- For each metadata error, record the error but deliberately write no scan_seen.
+INSERT INTO scan_run_errors(
+    id, run_id, path, error_code, error_message,
+    affects_coverage, created_at
+) VALUES (:error_id, :run_id, :path, :code, :message, 1, :now);
+
+UPDATE scan_runs
+   SET scanned_files = :files,
+       scanned_directories = :directories,
+       processed_bytes = :bytes,
+       metadata_error_count = :metadata_errors,
+       coverage_complete = CASE WHEN :metadata_errors = 0
+                                AND :coverage_errors = 0 THEN 1 ELSE 0 END,
+       stale_reconciliation_allowed = CASE WHEN :metadata_errors = 0
+                                           AND :coverage_errors = 0
+                                           AND cancel_requested = 0
+                                           THEN 1 ELSE 0 END,
+       last_checkpoint_at = :now,
+       revision = revision + 1,
+       updated_at = :now
+ WHERE id = :run_id
+   AND scan_root_id = :root_id
+   AND generation = :generation
+   AND lease_token = :lease_token
+   AND revision = :expected_revision
+   AND status IN ('running', 'cancelling')
+   AND EXISTS (
+       SELECT 1 FROM scan_roots
+        WHERE id = :root_id
+          AND active_run_id = :run_id
+          AND active_generation = :generation
+   );
+-- require one row; otherwise rollback and discard the batch.
+UPDATE scan_sessions
+   SET scanned_files = scanned_files + :batch_files,
+       scanned_directories = scanned_directories + :batch_directories,
+       warnings_count = warnings_count + :batch_warnings,
+       errors_count = errors_count + :batch_errors,
+       revision = revision + 1,
+       last_checkpoint_at = :now,
+       updated_at = :now
+ WHERE id = :session_id
+   AND status IN ('queued', 'running', 'cancelling')
+   AND revision = :expected_session_revision;
+-- require one row; session revision is part of the same batch CAS.
+COMMIT;
+~~~
+
+A metadata error is therefore observable in diagnostics but cannot make an unseen old file stale. An implementation that instead writes an entry-observed scan_seen-only fact must obtain separate human approval; it is not the 01A contract.
+
+3. cancel and stale gate：
+
+~~~sql
+BEGIN IMMEDIATE;
+UPDATE scan_runs
+   SET cancel_requested = 1,
+       status = CASE WHEN status = 'queued' THEN 'cancelled'
+                     ELSE 'cancelling' END,
+       phase = CASE WHEN status = 'queued' THEN 'completed' ELSE phase END,
+       finished_at = CASE WHEN status = 'queued' THEN :now ELSE NULL END,
+       revision = revision + 1,
+       updated_at = :now
+ WHERE id = :run_id
+   AND scan_root_id = :root_id
+   AND generation = :generation
+   AND lease_token = :lease_token
+   AND revision = :expected_revision
+   AND status IN ('queued', 'running');
+-- require one row; queued cancellation also clears the root lease below.
+UPDATE scan_roots
+   SET active_run_id = NULL,
+       active_generation = NULL,
+       health_status = 'reconciliation_required',
+       needs_reconciliation = 1,
+       revision = revision + 1,
+       updated_at = :now
+ WHERE id = :root_id
+   AND active_run_id = :run_id
+   AND active_generation = :generation
+   AND :cancelled_terminal = 1;
+COMMIT;
+
+BEGIN IMMEDIATE;
+SELECT status, phase, cancel_requested, coverage_complete,
+       stale_reconciliation_allowed, revision
+  FROM scan_runs
+ WHERE id = :run_id
+   AND scan_root_id = :root_id
+   AND generation = :generation
+   AND lease_token = :lease_token;
+-- Proceed only when status is running, cancel_requested=0,
+-- coverage_complete=1, stale_reconciliation_allowed=1 and the root
+-- still has active_run_id=:run_id and active_generation=:generation.
+UPDATE scan_runs
+   SET phase = 'reconciling_missing',
+       revision = revision + 1,
+       updated_at = :now
+ WHERE id = :run_id
+   AND status = 'running'
+   AND cancel_requested = 0
+   AND coverage_complete = 1
+   AND stale_reconciliation_allowed = 1
+   AND revision = :expected_revision
+   AND EXISTS (
+       SELECT 1 FROM scan_roots
+        WHERE id = :root_id
+          AND active_run_id = :run_id
+          AND active_generation = :generation
+   );
+-- require one row, then commit this phase transition.
+COMMIT;
+
+BEGIN IMMEDIATE;
+UPDATE files
+   SET is_stale = 1
+ WHERE is_stale = 0
+   AND path IN :effective_root_coverage
+   AND last_seen_at < :run_started_at
+   AND NOT EXISTS (
+       SELECT 1 FROM scan_seen
+        WHERE scan_seen.run_id = :run_id
+          AND scan_seen.file_id = files.id
+   )
+   AND EXISTS (
+       SELECT 1 FROM scan_runs
+        WHERE id = :run_id
+          AND scan_root_id = :root_id
+          AND generation = :generation
+          AND status = 'running'
+          AND cancel_requested = 0
+          AND coverage_complete = 1
+          AND stale_reconciliation_allowed = 1
+   )
+   AND EXISTS (
+       SELECT 1 FROM scan_roots
+        WHERE id = :root_id
+          AND active_run_id = :run_id
+          AND active_generation = :generation
+   );
+UPDATE scan_runs
+   SET phase = 'optimizing_search',
+       revision = revision + 1,
+       last_checkpoint_at = :now,
+       updated_at = :now
+ WHERE id = :run_id
+   AND scan_root_id = :root_id
+   AND generation = :generation
+   AND revision = :expected_revision;
+-- require one run-row update; if owner/CAS is lost, rollback the stale update.
+COMMIT;
+~~~
+
+The existing path-coverage predicate must also encode ignored/protected subtree and nested-root exclusions. It cannot be replaced by a broad root exemption.
+
+4. finalization CAS、generation monotonicity and session aggregation：
+
+~~~sql
+BEGIN IMMEDIATE;
+UPDATE scan_runs
+   SET status = :terminal_status,
+       phase = 'completed',
+       finished_at = :now,
+       last_checkpoint_at = :now,
+       error_code = :error_code,
+       error_message = :error_message,
+       result_json = :result_json,
+       revision = revision + 1,
+       updated_at = :now
+ WHERE id = :run_id
+   AND scan_root_id = :root_id
+   AND generation = :generation
+   AND lease_token = :lease_token
+   AND phase IN ('optimizing_search', 'finalizing')
+   AND status = 'running'
+   AND revision = :expected_revision
+   AND (
+       :terminal_status IN ('completed', 'completed_with_warnings')
+       AND coverage_complete = 1
+       AND stale_reconciliation_allowed = 1
+       OR :terminal_status IN ('failed', 'cancelled', 'requires_reconciliation')
+   );
+-- require exactly one affected row.
+
+UPDATE scan_roots
+   SET last_successful_generation = :generation,
+       last_full_scan_at = :now,
+       health_status = :health,
+       needs_reconciliation = 0,
+       active_run_id = NULL,
+       active_generation = NULL,
+       last_error_code = :warning_code,
+       last_error_message = :warning_message,
+       revision = revision + 1,
+       updated_at = :now
+ WHERE id = :root_id
+   AND active_run_id = :run_id
+   AND active_generation = :generation
+   AND current_generation = :generation
+   AND (last_successful_generation IS NULL
+        OR last_successful_generation < :generation)
+   AND revision = :expected_root_revision;
+-- require exactly one affected row. A zero-row result is not success.
+
+UPDATE scan_session_roots
+   SET status = :requested_projection_status,
+       updated_at = :now
+ WHERE session_id = :session_id
+   AND run_id = :run_id;
+
+UPDATE scan_sessions
+   SET revision = revision + 1,
+       last_checkpoint_at = :now,
+       updated_at = :now
+ WHERE id = :session_id
+   AND revision = :expected_session_revision;
+-- require one row; the terminal aggregator then re-reads all mapping rows,
+-- applies the fixed priority, and performs one session terminal CAS.
+COMMIT;
+~~~
+
+For failed/cancelled/requires_reconciliation finalization, the run terminal update and root lease clear still use run id, generation, lease_token, root active pointer and expected revision; they never update last_successful_generation. If any finalization CAS affects zero rows, the transaction must not expose terminal success. Recovery may mark the run requires_reconciliation only through a fresh owner/recovery CAS. A replay that finds an already-terminal run may return the existing durable result, but must not emit a second success event or lower last_successful_generation.
+
+4.1 session terminal 与 dedupe effect dispatch：
+
+~~~sql
+BEGIN IMMEDIATE;
+-- Re-read all requested mappings and apply the fixed terminal priority.
+SELECT status, resolution, run_id
+  FROM scan_session_roots
+ WHERE session_id = :session_id
+ ORDER BY requested_index;
+
+UPDATE scan_sessions
+   SET status = :session_terminal_status,
+       phase = 'completed',
+       completed_root_count = :completed_count,
+       failed_root_count = :failed_count,
+       cancelled_root_count = :cancelled_count,
+       covered_root_count = :covered_count,
+       unstarted_root_count = :unstarted_count,
+       finished_at = :now,
+       revision = revision + 1,
+       updated_at = :now
+ WHERE id = :session_id
+   AND revision = :expected_session_revision
+   AND :all_mappings_terminal_or_covered = 1;
+-- require exactly one row; a second aggregator re-reads the terminal row.
+
+INSERT OR IGNORE INTO scan_session_effects(
+    session_id, effect_kind, dispatch_key, status, created_at, updated_at
+) SELECT :session_id, 'dedupe', :dispatch_key, 'pending', :now, :now
+  WHERE :session_terminal_status IN ('completed', 'completed_with_warnings')
+    AND :dedupe_requested = 1
+    AND :successful_effective_run_count > 0;
+
+INSERT OR IGNORE INTO scan_session_effects(
+    session_id, effect_kind, dispatch_key, status, created_at, updated_at
+) SELECT :session_id, 'dedupe', :dispatch_key, 'suppressed', :now, :now
+  WHERE NOT (:session_terminal_status IN ('completed', 'completed_with_warnings')
+             AND :dedupe_requested = 1
+             AND :successful_effective_run_count > 0);
+
+UPDATE scan_session_effects
+   SET status = 'dispatching',
+       attempt_count = attempt_count + 1,
+       claimed_at = :now,
+       updated_at = :now
+ WHERE session_id = :session_id
+   AND effect_kind = 'dedupe'
+   AND dispatch_key = :dispatch_key
+   AND status = 'pending';
+-- zero rows means another dispatcher owns it or it is already terminal.
+COMMIT;
+
+-- Outside the transaction, call DedupeJobManager with the same dispatch_key.
+-- Then record dispatched/completed/failed with a CAS on status+dispatch_key.
+-- On crash after claim, startup changes only stale dispatching rows to unknown;
+-- recovery first queries the downstream by dispatch_key and never makes a new key.
+~~~
+
+effect 状态变更若要向 renderer 暴露，也必须在同一 effect transaction 中递增 scan_sessions.revision；effect ledger 的 revision 不能由内存 attempt counter 代替。
+
+5. scan_seen retention/prune：
+
+~~~sql
+-- Run in bounded maintenance transactions; never include active runs.
+DELETE FROM scan_seen
+ WHERE rowid IN (
+   SELECT ss.rowid
+     FROM scan_seen ss
+     JOIN scan_runs r ON r.id = ss.run_id
+     WHERE (
+         r.status IN ('completed', 'completed_with_warnings')
+         AND r.finished_at < :success_cutoff
+       OR r.status IN ('failed', 'cancelled', 'interrupted',
+                       'requires_reconciliation')
+         AND r.finished_at < :terminal_cutoff
+     )
+       AND EXISTS (
+           SELECT 1 FROM scan_runs newer
+            WHERE newer.scan_root_id = r.scan_root_id
+              AND newer.status IN ('completed', 'completed_with_warnings',
+                                   'failed', 'cancelled', 'interrupted',
+                                   'requires_reconciliation')
+              AND newer.finished_at IS NOT NULL
+              AND newer.finished_at > r.finished_at
+              AND newer.id <> r.id
+            LIMIT 1 OFFSET 1
+       )
+    LIMIT 1000
+ );
+
+DELETE FROM scan_run_errors
+ WHERE id IN (
+   SELECT e.id
+     FROM scan_run_errors e
+     JOIN scan_runs r ON r.id = e.run_id
+    WHERE r.status IN ('failed', 'cancelled', 'interrupted',
+                       'requires_reconciliation')
+      AND r.finished_at < :terminal_cutoff
+      AND EXISTS (
+          SELECT 1 FROM scan_runs newer
+           WHERE newer.scan_root_id = r.scan_root_id
+             AND newer.status IN ('completed', 'completed_with_warnings',
+                                  'failed', 'cancelled', 'interrupted',
+                                  'requires_reconciliation')
+             AND newer.finished_at IS NOT NULL
+             AND newer.finished_at > r.finished_at
+             AND newer.id <> r.id
+           LIMIT 1 OFFSET 1
+      )
+    LIMIT 1000
+ );
+~~~
+
+The exact retention policy is fixed: completed/completed_with_warnings scan_seen is retained for 7 days after finished_at and at least the newest two terminal runs per root, whichever retains more; failed/cancelled/interrupted/requires_reconciliation scan_seen and scan_run_errors are retained for 30 days and at least the newest two terminal runs per root. The maintenance job deletes in 1000-row batches, never prunes queued/running/cancelling rows, never runs while a run is being finalized, and keeps scan_runs history/counts after scan_seen deletion. If a run is selected for an active recovery/reconciliation operation, it is pinned until that operation is terminal. The prune policy is not user-configurable in 01A and any change requires a later task/re-review.
+
 ## 8. Multi-root session 规格
 
 1. 推荐持久化 scan_sessions；parent_session_id 是 domain-specific parent，不是 generic Job Runtime。
 2. 默认先采用顺序 root 执行，保持当前前端行为、SQLite 锁压力和 progress 解释简单；并发扫描不是 01A 第一版要求。
 3. session cancel 设置 session cancel_requested，backend 传播给当前 run，并阻止尚未开始的 queued roots；当前 run 达到终态后，未启动 roots 不创建成功 run，并计入 cancelled_root_count。
-4. 一个 root failed 或 requires-reconciliation 时，默认继续尝试其余 roots；session 最终为：全部成功则 completed，至少一个成功且有 warning/failed root 则 completed_with_warnings，全部失败则 failed，用户取消则 cancelled，任何 coverage 未安全闭合则保留 requires_reconciliation 汇总。
+4. 一个 root failed 或 requires-reconciliation 时，默认继续尝试其余 roots；只有所有 requested root mapping 都达到 terminal/covered 状态后才聚合 session。terminal 优先级固定为：requires_reconciliation/interrupted > failed/invalid > cancelled/cancelled_not_started > completed_with_warnings > completed。也就是说 failed 不会被成功 root 降级成 completed_with_warnings，cancel 请求也不会掩盖 failed/reconciliation。
 5. session counts 从持久 root runs 聚合，不从 renderer 的 totalFiles 拼接推断；每个 root 的失败、warning、health 都可查询。
-6. dedupe 只能作为已完成 scan run/session 的下游 hook。多 root session 的 dedupe timing 需要在实现阶段固定为“session terminal 后一次调度”；legacy 单 root compatibility call 保留旧 runDedupe 行为，不能让 dedupe 反过来决定 scan completion。
+6. dedupe 只能作为已完成 scan run/session 的下游 hook。只有 session terminal 为 completed 或 completed_with_warnings 且至少一个 effective run 成功时才创建 dedupe effect；failed、cancelled、interrupted 或 requires_reconciliation session 不调度。session terminal 后通过 scan_session_effects 的唯一键和 dispatch_key 只产生一个逻辑 dispatch；legacy 单 root compatibility call 也必须经过同一 marker，不能让 dedupe 反过来决定 scan completion。
 7. session 不拥有 Global Index volume、Managed AI job 或 watcher event；这些 domain 继续各自运行。
 8. LibraryScope::CurrentScan.scanSessionId 可在后续 renderer/API 兼容层中使用，但 SQLite scan session 才是事实 owner，localStorage 只保存当前展示选择。
+
+session terminal 和 dedupe effect 的事务规则：
+
+- terminal aggregator 必须用 session.revision CAS，在看到所有 requested mapping 已达到 terminal/covered 状态后一次性写 session status、counts、finished_at 和 revision；
+- dedupe effect 使用 session_id + effect_kind 的唯一键。插入 pending、claim dispatch、记录 dispatched/failed/unknown 都是可重试的 durable 状态变更；重复 aggregator 只能读到既有 effect，不能再插入第二个；
+- dispatch_key 必须传给既有 DedupeJobManager 适配层作为幂等 key。dispatching 期间进程崩溃后，启动恢复先用同一 key 查询/确认下游，再决定 dispatched 或 retry；不能生成新 key，也不能无条件重发。若下游无法按 key 查询或幂等，必须停在人工决策，不能宣称“只调度一次”。
 
 ## 9. API 与事件契约（仅规格，不实现）
 
@@ -433,6 +936,10 @@ last_successful_generation 的 update 必须和 terminal status、root health �
 
 ~~~text
 sequence
+event_id
+generation
+run_revision
+session_revision
 run_id
 scan_root_id
 parent_session_id
@@ -450,17 +957,24 @@ error_message
 timestamp
 ~~~
 
-sequence 必须在 run/session 内单调，终态事件可重放；事件是 UI projection，不是数据库事实。current_path 可以为空，不能把文件完整内容或 raw watcher event 放进 scan event。
+run_revision/session_revision 是由 scan_runs/scan_sessions 持久化的单调水位；sequence 只作为兼容别名，不得由内存计数器独立生成。event_id 至少由 domain、run_id、run_revision、session_revision 组成，事件必须在对应状态 transaction commit 后发送。事件是 UI projection，不是数据库事实；current_path 可以为空，不能把文件完整内容或 raw watcher event 放进 scan event。
 
 ### 9.3 旧事件兼容
 
 - scan-started 映射到 queued/running + preparing；
 - scan-batch/scan-progress 继续提供旧 jobId/jobKind/root 和计数；
-- scan-error 对应 entry warning 时继续作为 warning，不把所有 metadata error 误报成 fatal；
+- scan-error 对应无法形成 scan_seen 的 metadata error 时标记 coverage-breaking/requires_reconciliation；只有不影响 coverage 的 warning 才继续作为 warning；
 - scan-complete 只有在新 run finalization 完成后发出；
 - scan-canceled 只有 backend 已确认 cancelled 后发出；
 - 新 status/phase/run id 可作为扩展字段，旧 renderer 仍可按 jobId 过滤；
 - command 返回的 ScanSummary 在兼容期仍可保留，但后端必须保证返回前已有 durable terminal state。
+
+renderer restart/旧事件规则：
+
+1. renderer 启动或重新订阅时，先调用 get_scan_run/list_scan_runs 读取 durable state，再把该 run_revision/session_revision 设为水位线；水位线建立前不得把缓存事件写入 projection。
+2. 对同一 run，event.run_revision 小于水位线直接丢弃；等于水位线且 event_id 相同视为重复；等于水位线但 event_id 不同触发 durable refetch；大于当前水位线但出现 gap 时先 refetch，只有 refetch 返回的 revision 不低于事件 revision 才能应用。
+3. generation、run_id、session_id 任一不匹配当前 projection 的事件直接丢弃；旧 jobId 事件不能覆盖已 hydrate 的新 run。终态水位一旦建立，任何更低 revision 的 progress/error/complete/cancel event 都不能回退状态。
+4. 事件丢失不是数据丢失：renderer 只以 durable get/list 结果恢复；01A 不建立 raw watcher event queue 或 pending_fs_changes。
 
 不得新增 pending_fs_changes、raw notify::Event 持久队列或把 fs-event 改造成 Task 01A 的扫描事件。watcher owner、overflow replay 和 durable event cursor 属于 Task 01B。
 
@@ -483,6 +997,9 @@ CREATE TABLE IF NOT EXISTS scan_roots (
             'missing', 'permission_required', 'reconciliation_required'
         )),
     current_generation INTEGER NOT NULL DEFAULT 0 CHECK (current_generation >= 0),
+    active_run_id TEXT,
+    active_generation INTEGER,
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
     last_successful_generation INTEGER,
     last_full_scan_at INTEGER,
     needs_reconciliation INTEGER NOT NULL DEFAULT 1 CHECK (needs_reconciliation IN (0, 1)),
@@ -497,6 +1014,8 @@ CREATE INDEX IF NOT EXISTS idx_scan_roots_enabled_health
 
 CREATE TABLE IF NOT EXISTS scan_sessions (
     id TEXT PRIMARY KEY,
+    request_key TEXT UNIQUE,
+    canonical_request_hash TEXT,
     status TEXT NOT NULL
         CHECK (status IN (
             'queued', 'running', 'cancelling', 'cancelled',
@@ -511,13 +1030,18 @@ CREATE TABLE IF NOT EXISTS scan_sessions (
         )),
     cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
     requested_root_count INTEGER NOT NULL DEFAULT 0,
+    effective_root_count INTEGER NOT NULL DEFAULT 0,
     completed_root_count INTEGER NOT NULL DEFAULT 0,
     failed_root_count INTEGER NOT NULL DEFAULT 0,
     cancelled_root_count INTEGER NOT NULL DEFAULT 0,
+    covered_root_count INTEGER NOT NULL DEFAULT 0,
+    unstarted_root_count INTEGER NOT NULL DEFAULT 0,
+    dedupe_requested INTEGER NOT NULL DEFAULT 0 CHECK (dedupe_requested IN (0, 1)),
     scanned_files INTEGER NOT NULL DEFAULT 0,
     scanned_directories INTEGER NOT NULL DEFAULT 0,
     warnings_count INTEGER NOT NULL DEFAULT 0,
     errors_count INTEGER NOT NULL DEFAULT 0,
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
     started_at INTEGER,
     finished_at INTEGER,
     last_checkpoint_at INTEGER,
@@ -536,6 +1060,8 @@ CREATE TABLE IF NOT EXISTS scan_runs (
     scan_root_id TEXT NOT NULL REFERENCES scan_roots(id) ON DELETE RESTRICT,
     generation INTEGER NOT NULL CHECK (generation >= 1),
     parent_session_id TEXT REFERENCES scan_sessions(id) ON DELETE SET NULL,
+    lease_token TEXT NOT NULL UNIQUE,
+    request_key_snapshot TEXT,
     status TEXT NOT NULL
         CHECK (status IN (
             'queued', 'running', 'cancelling', 'cancelled',
@@ -553,7 +1079,13 @@ CREATE TABLE IF NOT EXISTS scan_runs (
     processed_bytes INTEGER NOT NULL DEFAULT 0,
     warnings_count INTEGER NOT NULL DEFAULT 0,
     errors_count INTEGER NOT NULL DEFAULT 0,
+    metadata_error_count INTEGER NOT NULL DEFAULT 0,
+    coverage_error_count INTEGER NOT NULL DEFAULT 0,
+    coverage_complete INTEGER NOT NULL DEFAULT 0 CHECK (coverage_complete IN (0, 1)),
+    stale_reconciliation_allowed INTEGER NOT NULL DEFAULT 0
+        CHECK (stale_reconciliation_allowed IN (0, 1)),
     cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
+    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
     started_at INTEGER,
     finished_at INTEGER,
     last_checkpoint_at INTEGER,
@@ -580,6 +1112,84 @@ CREATE TABLE IF NOT EXISTS scan_seen (
 
 CREATE INDEX IF NOT EXISTS idx_scan_seen_run_path
     ON scan_seen(run_id, observed_path);
+
+-- One lease owner per root. requires_reconciliation is terminal and does not
+-- remain active; needs_reconciliation on scan_roots still blocks false success.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scan_runs_one_active_per_root
+    ON scan_runs(scan_root_id)
+ WHERE status IN ('queued', 'running', 'cancelling');
+
+CREATE INDEX IF NOT EXISTS idx_scan_roots_active_lease
+    ON scan_roots(active_run_id, active_generation);
+
+CREATE TABLE IF NOT EXISTS scan_session_roots (
+    session_id TEXT NOT NULL REFERENCES scan_sessions(id) ON DELETE CASCADE,
+    requested_index INTEGER NOT NULL CHECK (requested_index >= 0),
+    requested_path TEXT NOT NULL,
+    normalized_requested_path TEXT NOT NULL,
+    resolution TEXT NOT NULL
+        CHECK (resolution IN (
+            'effective', 'duplicate_requested',
+            'nested_under_effective', 'invalid'
+        )),
+    effective_root_id TEXT REFERENCES scan_roots(id) ON DELETE RESTRICT,
+    effective_path TEXT,
+    effective_index INTEGER,
+    run_id TEXT REFERENCES scan_runs(id) ON DELETE SET NULL,
+    status TEXT NOT NULL
+        CHECK (status IN (
+            'pending', 'queued', 'running', 'completed',
+            'completed_with_warnings', 'failed', 'cancelled',
+            'interrupted', 'requires_reconciliation', 'covered',
+            'duplicate', 'nested', 'invalid', 'cancelled_not_started'
+        )),
+    reason TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY(session_id, requested_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_scan_session_roots_effective
+    ON scan_session_roots(session_id, effective_index, effective_root_id);
+CREATE INDEX IF NOT EXISTS idx_scan_session_roots_run
+    ON scan_session_roots(run_id, status);
+
+CREATE TABLE IF NOT EXISTS scan_session_effects (
+    session_id TEXT NOT NULL REFERENCES scan_sessions(id) ON DELETE CASCADE,
+    effect_kind TEXT NOT NULL CHECK (effect_kind IN ('dedupe')),
+    dispatch_key TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL
+        CHECK (status IN (
+            'suppressed', 'pending', 'dispatching', 'dispatched',
+            'completed', 'failed', 'unknown'
+        )),
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error_code TEXT,
+    last_error_message TEXT,
+    claimed_at INTEGER,
+    dispatched_at INTEGER,
+    completed_at INTEGER,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY(session_id, effect_kind)
+);
+
+CREATE INDEX IF NOT EXISTS idx_scan_session_effects_status
+    ON scan_session_effects(status, updated_at);
+
+CREATE TABLE IF NOT EXISTS scan_run_errors (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES scan_runs(id) ON DELETE CASCADE,
+    path TEXT,
+    error_code TEXT NOT NULL,
+    error_message TEXT,
+    affects_coverage INTEGER NOT NULL DEFAULT 1
+        CHECK (affects_coverage IN (0, 1)),
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_scan_run_errors_run_created
+    ON scan_run_errors(run_id, created_at);
 ~~~
 
 补充约束：
@@ -587,7 +1197,12 @@ CREATE INDEX IF NOT EXISTS idx_scan_seen_run_path
 - scan_seen.file_id 第一版不强制 REFERENCES files(id)，因为 files path-id 会被 operation/restore path change 影响；observed_path 保留事实，run retention 负责清理。
 - 所有 status/phase 字符串必须由 domain repository 统一常量管理；SQL CHECK 只做 fail-closed guard。
 - migration 必须在当前 schema migration 的单个 BEGIN IMMEDIATE/rollback 机制中完成；不能删除旧表或重建 files。
-- schema 27 完成后，当前版本拒绝 future schema 的既有行为必须保留。
+- active_run_id/active_generation 是 scan_roots 的 lease 账本；因为 scan_roots 先于 scan_runs 创建，active_run_id 不依赖循环 foreign key，所有引用完整性由同一事务的 root ownership/CAS 和 active-run partial unique index 保证。
+- idx_scan_runs_one_active_per_root 的 active 集合只有 queued/running/cancelling；terminal run 不占 lease。
+- run.revision/session.revision 每次状态、phase、counter、coverage、health 或 effect 聚合变化递增；它们是 durable sequence，不是 renderer 内存计数器。
+- metadata error 必须进入 scan_run_errors 且 affects_coverage=1；该 run 的 coverage_complete 和 stale_reconciliation_allowed 必须保持 0，不能仅用 warning count 表示。
+- schema 27 migration 事务提交前失败时必须完整 rollback 到 schema 26；提交后不允许把 user_version 降回 26，也不允许删除新表来伪造 downgrade。
+- schema 27 完成后，schema-26 binary 对 future schema 的既有拒绝行为必须保留。
 
 ### 10.2 Backfill 和 fixture
 
@@ -597,8 +1212,11 @@ CREATE INDEX IF NOT EXISTS idx_scan_seen_run_path
 4. old files backfill：不写 scan_seen，不写 last_successful_generation；root 置 needs_reconciliation=1，第一次完整 scan 后才建立 success fact。
 5. 已有 zc-library-scope localStorage 不进入 SQLite migration；它不是数据库事实。
 6. 迁移必须可重复执行；已存在 root/table/index 时不重复生成 generation，不覆盖已有 error 或用户 enabled 选择。
-7. 中途失败必须 rollback 到 schema 26；新旧表都不能被部分使用。磁盘不足、WAL/lock busy、foreign key 失败均要在测试中记录。
+7. migration transaction 在 schema 27 commit 前中途失败必须 rollback 到 schema 26；新旧表都不能被部分使用。磁盘不足、WAL/lock busy、foreign key 失败均要在测试中记录。这个 rollback 只指 migration failure，不表示 schema 27 commit 后可以运行 schema-26 binary。
 8. 大表风险主要来自新增索引、settings backfill 和后续 stale reconcile；第一版避免 ALTER files，并以 100k files fixture 测 transaction time 和 query plan。
+9. migration fixture 必须覆盖 schema-27-capable binary 在 feature gate 关闭时读取 schema 27、旧 schema-26 binary 读取 schema 27 时稳定得到 future-schema rejection，以及恢复 schema-26 backup 后旧 binary 可打开的路径。
+10. scan_seen retention fixture 必须证明 active/dispatching/recovery-pinned run 不被 prune，completed run 按 7 天加 newest-two 规则、非成功 terminal run 按 30 天加 newest-two 规则清理，scan_runs 历史仍保留。
+11. requested/effective fixture 必须保留原始 requested_index、duplicate/nested mapping、invalid root、cancelled_not_started root 和同一 session 的 run_id 映射；重复 migration 不得重排或重新分配 generation。
 
 ## 11. Crash、恢复与人工介入
 
@@ -609,12 +1227,15 @@ CREATE INDEX IF NOT EXISTS idx_scan_seen_run_path
 | reconciling_missing 前断电 | run interrupted/requires-reconciliation | 否 | 重试完整 scan |
 | stale transaction 内 DB busy/断电 | transaction rollback；run requires-reconciliation | 否 | 等待 DB 空闲后 retry |
 | stale transaction 已提交、finalization 未提交 | 启动按 phase 校验；只能补全可证明的 finalization 或标记 requires-reconciliation，不能猜 | 不新增 stale | 人工 retry/审查 |
-| optimize_search_index 失败 | 保留 discovery 结果，status completed_with_warnings | 允许此前已原子完成的 stale | 可稍后重试 optimize/scan |
+| optimize_search_index 失败 | 保留 discovery 结果，status completed_with_warnings | 允许此前已原子完成且 coverage_complete=1 的 stale | 可稍后重试 optimize/scan |
+| entry metadata error | 保留成功 batch 与 scan_run_errors，run 标记 coverage-breaking/requires_reconciliation | 否；该 run 不得进入 stale | 修复权限/文件状态后 retry full scan |
 | root 被删除、卸载或失去权限 | failed/requires-reconciliation，health missing/permission_required | 否 | root 恢复后显式 retry |
-| renderer 重启但 app 进程仍在 | get/list command 读取 durable run；事件可按 sequence 补投影 | 按 backend 状态 | UI 重新订阅 |
+| renderer 重启但 app 进程仍在 | 先 get/list hydrate durable state，再以 run/session revision 为水位拒绝旧事件 | 按 backend 状态 | UI 重新订阅；revision gap 触发 refetch |
+| old worker 在新 run/lease 后返回 | root active_run_id、generation、lease_token 或 revision CAS 失败；丢弃其 batch/finalization | 否 | 由 current owner 或人工 recovery 处理 |
+| session terminal 后 dedupe dispatching 期间崩溃 | effect 保留 unknown，恢复先用同一 dispatch_key 查询下游，不自动生成新 dispatch | 不影响已完成 scan 的 stale 事实 | 查询确认后标记 dispatched 或人工 retry |
 | app 正常退出 | scan backend 先收到 shutdown/cancel；不能留下假 success | 否 | 下次启动查看 interrupted |
 
-第一版不做目录遍历断点 resume。即使部分 files 已写入，只有新的、覆盖完整的 generation 才能执行 missing reconciliation；这牺牲重复遍历时间以换取不误 stale 的安全边界。不得自动删除 files 行、不得永久删除文件、不得自动移动文件。
+第一版不做目录遍历断点 resume。即使部分 files 已写入，只有新的、覆盖完整且拥有当前 root lease 的 generation 才能执行 missing reconciliation；这牺牲重复遍历时间以换取不误 stale 的安全边界。不得自动删除 files 行、不得永久删除文件、不得自动移动文件。
 
 ## 12. 测试计划
 
@@ -625,14 +1246,15 @@ Task 01A 实施时必须新增或扩展测试；本任务只定义计划，不�
 - success：单 root full discovery 写入 run/root/scan_seen，generation 单调，finalization 更新 last_successful_generation 和 health。
 - cancel：在 preparing、discovery、batch flush、reconciling_missing 各阶段取消；均不能产生错误 stale。
 - failure/interrupted：注入 metadata、permission、root disappearance、DB busy、process exit marker；startup 可识别并标记 interrupted。
-- stale contract：unseen row 只在 completed discovery stale；cancelled/failed/interrupted 不 stale；watcher upsert 不插 scan_seen；同秒 last_seen update 采用保守 < started_at。
+- stale contract：unseen row 只在 completed discovery stale；cancelled/failed/interrupted/requires_reconciliation 不 stale；watcher upsert 不插 scan_seen；同秒 last_seen update 采用保守 < started_at；metadata error 没有 scan_seen-only fallback 且 coverage-breaking。
 - optimize：optimize 成功为 completed，失败为 completed_with_warnings，files/FTS 仍可查询。
 - root health：missing、permission_required、degraded、recovery、needs_reconciliation 的持久转移。
-- generation/idempotency：重复 start 不复用 generation；同 root 并发 start 的唯一约束和 cancel race。
+- generation/idempotency：同 root 只有 queued/running/cancelling 一个 active lease；相同 request_key 返回既有 session、不同 request 拒绝且不分配 generation；旧 worker 的 lease/generation/revision CAS 失败不能写入；finalization 每个 affected-row 都必须验证。
 - nested/overlap/case：Windows slash/case、macOS case-sensitive、duplicate roots、nested roots、ignored/protected subtree、symlink/reparse point。
 - watcher concurrency：scan_seen 只由 scanner 写；watcher 同时 upsert/stale 不伪造 generation；重命名和 cross-root move 保持 path-id 兼容。
-- multi-root：顺序执行、一个 root failed 仍可继续、session aggregate、cancel propagation、all-failed/partial statuses。
-- dedupe：每个 session 只执行一次 downstream schedule 语义；dedupe failure 不回滚 scan completion。
+- multi-root：顺序执行、requested_index 到 effective root/run durable mapping、duplicate/nested/invalid/cancelled_not_started、一个 root failed 仍可继续、固定 terminal priority、session aggregate 和 cancel propagation。
+- dedupe：scan_session_effects 唯一键、dispatch_key、dispatching crash/unknown recovery、重复 terminal aggregator 不重复调度；dedupe failure 不回滚 scan completion。
+- revision/event：run/session revision 在同一 state transaction 中递增；renderer restart hydrate 水位、duplicate/gap/old terminal event rejection 和 generation mismatch。
 
 ### 12.2 Migration tests
 
@@ -641,19 +1263,22 @@ Task 01A 实施时必须新增或扩展测试；本任务只定义计划，不�
 - old settings string/object roots、duplicate normalized roots、disabled roots；
 - old files rows 无误 backfill，last_seen_at 不伪造 generation；
 - migration 重复执行和 future schema rejection；
+- schema 27 migration commit 前失败回滚到 26；schema 27 commit 后 schema-26 binary 必须拒绝，schema-27-capable binary 关闭 feature gate 可继续打开；仅恢复 schema-26 backup 才允许旧 binary 回退；
 - malformed settings、缺字段、duplicate path、foreign key/CHECK 失败；
 - migration rollback、WAL lock、disk/error injection；
-- 100k files migration/scan_seen retention 和 stale reconcile 交易时间。
+- 100k files migration/scan_seen retention 和 stale reconcile 交易时间；验证 7/30 日 retention、newest-two 保留、active/recovery pin 不被 prune。
 
 ### 12.3 Frontend/API compatibility tests
 
 - old scan_directory/create_scan_job_id/cancel_scan adapter 事件；
-- renderer 在重启后先 get_scan_run/list_scan_runs，不依赖旧内存 progress；
+- renderer 在重启后先 get_scan_run/list_scan_runs，不依赖旧内存 progress；以 durable revision hydrate 并拒绝旧、重复、越代、gap 未 refetch 的事件；
 - old scan-progress/scan-complete/cancelled payload 映射；
 - session partial root、root health、retry interrupted；
+- requested/effective root mapping、original order、nested coverage、duplicate、invalid 和 cancelled_not_started projection；
 - cancel request 在 terminal confirmation 前保持 cancelling；
 - useScanManagerStore 不再成为事实 owner，scope 只使用 backend session id；
 - 多根不再以 renderer totals 作为最终事实；
+- session terminal priority deterministic；dedupe effect 在 crash/retry 后按 dispatch_key 保证 logical at-most-once/可确认重试；
 - background queue 仍尊重 foreground lock、force 语义和旧 UI copy；
 - global search、Managed AI、operation preview/journal 的既有 API 无回归。
 
@@ -666,17 +1291,29 @@ Task 01A 实施时必须新增或扩展测试；本任务只定义计划，不�
 - FTS optimize 成功/失败路径；
 - nested/overlap scope predicate query plan；
 - files 既有 library page/search/count latency 不得因 scan tables 引入回归；
-- scan_seen retention/prune 不得锁住正常 File Library 查询。
+- scan_seen retention/prune 不得锁住正常 File Library 查询；bounded batch、active/recovery pin 和 7/30 日 cutoff 必须可观测。
 
 ## 13. Rollout、fallback 与 rollback
 
-1. 先以内部 feature gate managed_scan_generation_v1 关闭；schema 迁移与新 backend path 分开可验证。
+1. 先部署 schema-27-capable binary，feature gate managed_scan_generation_v1 保持关闭；schema migration、durable ledger 和新 backend path 分开可验证。旧 schema-26 binary 不能读取已升级到 27 的数据库。
 2. 保留旧 scan_directory adapter 一段明确的 compatibility window；旧 payload 由 backend durable run 投影，不允许旧 renderer 自己制造成功。
 3. 新 stale reconciliation 必须有独立 gate；gate 关闭时可以继续写新 run/scan_seen，但禁用新的 missing stale，回到人工/旧 rescan 语义。
-4. migration 失败时拒绝启用新 path，保留 schema 26 和旧 commands；不删除新表、不删除旧 files、不删除 journal。
+4. migration commit 前失败时拒绝启用新 path，事务 rollback 到 schema 26，保留旧 commands；不删除新表、不删除旧 files、不删除 journal。
 5. 一旦新 path 成为唯一事实 owner，清理 compatibility 代码需要单独任务，不保留长期双轨写入。
-6. rollback 只允许禁用 feature gate、回退代码并保留新表；禁止降级 schema、删除 scan ledger 或通过永久删除数据库恢复。
+6. rollback 必须区分两个时间点：schema 27 commit 前可回滚 migration；schema 27 commit 后只能回到仍能理解 schema 27 的 schema-27-capable build 并关闭 feature gate，保留新表和 user_version=27。不得把 schema-26 binary 当作 post-migration code rollback，不得降低 schema、删除 scan ledger 或通过永久删除数据库恢复。
 7. Global Index、Managed AI、operation/cleanup journal 必须在 gate 开关和 migration 前后继续可用，不能以 scan 迁移为理由重启或重建这些 domain。
+
+rollback matrix（必须进入 rollout 验证）：
+
+| 数据库状态 | 允许的 binary | 结果 |
+|---|---|---|
+| schema 26，migration 未提交 | schema-26 或 schema-27-capable | schema-26 正常；schema-27-capable 可继续执行 migration/保持 gate 关闭 |
+| schema 27，feature gate 关闭 | schema-27-capable | 允许启动，读取 ledger 但不启用新 scan/stale path |
+| schema 27，feature gate 已启用后需要回退 | schema-27-capable rollback build | 关闭 gate，保留 user_version=27 和新表；只读/旧 adapter 是否可用必须有兼容测试 |
+| schema 27，尝试使用旧 schema-26 binary | 任意 schema-26 binary | 必须稳定 future-schema rejection；禁止绕过 guard |
+| 必须运行 schema-26 binary | 恢复经过校验的 schema-26 backup | 这是数据库恢复而非代码 rollback；明确接受 backup 之后的新 ledger 写入丢失，并在启动前停止所有 writer |
+
+因此“回退代码并保留新表”只适用于 schema-27-capable rollback build；旧 binary 的 future-schema rejection 是保留的安全行为，不是待修复的兼容缺陷。
 
 ## 14. 后续实施允许路径与禁止路径
 
@@ -730,7 +1367,12 @@ Task 01A 实施时必须新增或扩展测试；本任务只定义计划，不�
 11. 100k migration/reconcile 和既有 files query 无回归证据；
 12. stale predicate 对 nested/overlap/ignored/symlink/reparse/case 行为有测试；
 13. 新表、状态机、事件和 migration 都有唯一 owner、幂等规则和 rollback gate；
-14. 只改动 Task 01A 允许路径，Task 01B 和后续任务保持未执行。
+14. 同一 root 的 active 集合只有 queued/running/cancelling 一个 lease；重复 start、request_key、generation owner、finalization affected-row/CAS 和旧 worker 拒绝都有明确实现测试；
+15. metadata error 必须保留 scan_run_errors、禁止 stale；scan_seen retention/prune 有 7/30 日 cutoff、newest-two、active/recovery pin 和 bounded delete 证据；
+16. 每个 requested root 都有 durable requested-to-effective mapping，nested/duplicate/invalid/cancelled_not_started 可查询；session terminal priority 和 dedupe dispatch_key/idempotency 在 crash 后可证明；
+17. schema 27 migration failure rollback 与 post-commit feature rollback 已分离；schema-26 binary 对 schema 27 的 future-schema rejection 测试通过，只有 schema-27-capable rollback build 可关闭 feature gate；
+18. run/session revision 在状态 transaction 中持久递增；renderer restart 先 hydrate durable state，并拒绝旧、重复、越代、generation mismatch 和未 refetch 的 gap event；
+19. 只改动 Task 01A 允许路径，Task 01B 和后续任务保持未执行。
 
 ## 17. 停止条件
 
@@ -744,6 +1386,9 @@ Task 01A 实施时必须新增或扩展测试；本任务只定义计划，不�
 - 需要修改 operation/cleanup journal、Safe Trash、restore 或自动文件移动/删除；
 - 需要新增依赖、改变 schema 26 兼容性、删除旧数据库或绕过 migration rollback；
 - 无法保证唯一 owner、generation idempotency、run terminal semantics 或 stale safety；
+- 无法证明 schema 27 commit 后只使用 schema-27-capable rollback build，或有人要求让 schema-26 binary 直接打开 schema 27；
+- 下游 dedupe consumer 无法用 dispatch_key 查询/幂等，导致只能在 crash 后猜测是否重复调度；
+- event revision 无法持久化，或 renderer 只能依赖进程内 sequence 恢复状态；
 - 需要因无关测试 race、平台工具链或性能问题去放宽断言、删除测试或顺手修复业务；
 - 需要开始 Task 01B、Task 02 或任何后续阶段。
 
