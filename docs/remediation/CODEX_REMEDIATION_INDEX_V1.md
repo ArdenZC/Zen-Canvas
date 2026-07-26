@@ -1,71 +1,46 @@
 # Zen Canvas Codex Remediation Index V1
 
-## 1. 执行状态
+## 1. 当前执行状态
 
-当前只允许执行 **Task 00**。Task 00 的代码级审计已完成，状态转为**待人工验收**；人工验收前不得执行任何后续 Task。
+Task 00 已完成人工验收并通过 PR #16 合并。
 
-Task 01 及之后的名称、顺序和范围都是暂定项，必须等待 Task 00 的代码级审计结论和人工验收后再冻结。
+Task 01A 任务书已由人工完成最终修订和验收。**PR #17 合并到 `master` 后，Task 01A 实施可执行。** 在 PR #17 合并前不得开始生产实施。
 
 | 阶段 | 任务书 | 目标 | 状态 |
 |---|---|---|---|
-| 00 | `TASK_00_POST_MERGE_BASELINE_AUDIT.md` | PR #15 合并后代码、数据和安全边界审计 | **待人工验收** |
-| 01 | 待创建 | Scan Generation、Watcher Reconciliation 与恢复基础 | 暂定，禁止执行 |
-| 02 | 待创建 | 原生身份、fingerprint、prehash 与 duplicate group/finding | 暂定，禁止执行 |
-| 03 | 待创建 | Analysis Run、Finding 与 detector | 暂定，禁止执行 |
-| 04 | 待创建 | File Query V2、snapshot、cursor 与跨页 selection | 暂定，禁止执行 |
-| 05 | 待创建 | Organization Plan 后端领域模型 | 暂定，禁止执行 |
-| 06 | 待创建 | 整理工作区迁移到持久化 Plan | 暂定，禁止执行 |
-| 07 | 待创建 | 文件库标签、Saved Views、Inspector 分层 | 暂定，禁止执行 |
-| 08 | 待创建 | Content Artifact 与受控 Extractor | 暂定，禁止执行 |
-| 09 | 待创建 | 自然语言 Proposal 到受约束 Rule AST | 暂定，禁止执行 |
-| 10 | 待创建 | Spotlight Provider 与 Command Manifest | 暂定，禁止执行 |
-| 11 | 待创建 | 数据迁移、10万/100万性能与跨平台整合验收 | 暂定，禁止执行 |
+| 00 | `TASK_00_POST_MERGE_BASELINE_AUDIT.md` | PR #15 合并后架构、安全和数据基线审计 | **已验收并合并** |
+| 01A | `TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md` | File Library Scan root lease、session/run/generation、scan_seen、stale safety、恢复和 durable revision | **已批准；PR #17 合并后可执行** |
+| 01B | 待创建 | Watcher Reconciliation Ownership、overflow replay 和 durable watcher owner | **等待 Task 01A 实施验收，禁止执行** |
+| 02 | 待创建 | 文件 identity/fingerprint、prehash、duplicate group 和 durable dedupe | **后续阶段，禁止执行** |
+| 03 | 待创建 | Analysis Run、Finding 与 detector | **后续阶段，禁止执行** |
+| 04 | 待创建 | File Query V2、snapshot、cursor 与跨页 selection | **后续阶段，禁止执行** |
+| 05 | 待创建 | Organization Plan 后端领域模型 | **后续阶段，禁止执行** |
+| 06 | 待创建 | 整理工作区迁移到持久化 Plan | **后续阶段，禁止执行** |
+| 07 | 待创建 | 文件库标签、Saved Views、Inspector 分层 | **后续阶段，禁止执行** |
+| 08 | 待创建 | Content Artifact 与受控 Extractor | **后续阶段，禁止执行** |
+| 09 | 待创建 | 自然语言 Proposal 到受约束 Rule AST | **后续阶段，禁止执行** |
+| 10 | 待创建 | Spotlight Provider 与 Command Manifest | **后续阶段，禁止执行** |
+| 11 | 待创建 | 数据迁移、10万/100万性能与跨平台整合验收 | **后续阶段，禁止执行** |
 
 ---
 
-## 2. Task 00 的输入
+## 2. 文档和事实优先级
 
-必须基于：
+每阶段开始前依次读取：
 
-- `master` 的实际最新提交；
-- PR #15 合并提交锚点 `a2c0516dc7a8628cb7210003da3d66f5d84f3a2f`；
-- 当前仓库根开发说明；
-- 当前 schema、migration、Rust、Tauri、React、Zustand、测试和 CI；
-- 不得把 PR #15 合并前的分析当作当前事实。
+1. 根目录当前开发说明；
+2. `docs/remediation/README.md`；
+3. `REMEDIATION_MASTER_PLAN_V1.md`；
+4. 本索引；
+5. 当前阶段任务书；
+6. 已合并 closeout、测试和实际源码；
+7. 涉及 UI 时读取当前 `docs/design/`。
 
----
-
-## 3. Task 00 的输出
-
-Codex 应新增：
-
-```text
-docs/remediation/POST_MERGE_BASELINE_AUDIT.md
-docs/remediation/REMEDIATION_CAPABILITY_MATRIX.md
-docs/remediation/REMEDIATION_RISK_REGISTER.md
-```
-
-并在有充分源码证据时更新本索引：
-
-- 修正后续阶段顺序；
-- 合并重复阶段；
-- 拆分过大阶段；
-- 标注前置依赖；
-- 标注不应建设的能力；
-- 但不得创建 Task 01 的实施代码。
-
-Task 00 完成后，本索引的下一状态应是：
-
-```text
-Task 00：待人工验收
-Task 01：仍不可执行
-```
-
-只有人工审核明确通过后，才创建 `TASK_01_*.md` 并把 Task 01 标记为可执行。
+安全边界、当前源码和测试事实高于旧文档。发现冲突时停止，不自行扩大范围。
 
 ---
 
-## 4. 每阶段统一门禁
+## 3. 每阶段统一门禁
 
 ### 开始前
 
@@ -77,7 +52,7 @@ npm run typecheck
 npm test
 ```
 
-根据任务影响范围，再运行：
+按影响范围再运行：
 
 ```bash
 npm run test:remediation
@@ -88,26 +63,18 @@ npm run security:audit
 npm run security:audit:rust
 ```
 
-若环境不支持某一平台专用验证：
-
-- 不伪造通过结果；
-- 记录平台、命令和错误；
-- 不通过修改生产代码规避环境问题；
-- 继续执行不依赖该命令的只读调查；
-- 在 PR 中保留 CI 作为最终权威门禁。
+环境不支持某项验证时，记录事实并保留 CI 作为权威门禁，不得通过修改生产代码或放宽测试规避。
 
 ### 实施中
 
-- 只修改当前任务书允许的路径；
-- 先写/更新测试，再完成实现；
-- 不把临时兼容层变成永久双轨；
-- 不在前端重复 Rust 已有安全解析；
-- 不绕过 current managed scope、AI queue、global index 或 operation journal；
-- 不跨阶段修改后续模块。
+- 只修改任务书允许路径；
+-先写或同步更新测试；
+-不把兼容层变成永久双轨；
+-不在 renderer 重复 Rust 的安全解析；
+-不绕过 Managed Scope、Global Index、AI queue、preview、journal 和 restore；
+-不跨阶段顺手重构。
 
 ### 完成后
-
-最低执行：
 
 ```bash
 npm run typecheck
@@ -119,78 +86,97 @@ git diff --check
 git status --short
 ```
 
-性能、原生、安全或数据库阶段还必须执行对应专项门禁。
+数据库、性能、原生和安全阶段还必须运行对应专项门禁。
 
 ---
 
-## 5. 标准交付
+## 4. 标准交付
 
 每阶段：
 
-1. 创建 `remediation/<stage>-<name>` 分支；
-2. 只完成当前任务；
-3. 创建独立提交；
-4. 推送分支；
-5. 创建 Draft PR；
-6. PR 描述引用当前任务书；
-7. 汇报测试和风险；
-8. 停止等待人工验收。
-
-不得自动合并，不得自动开始下一阶段。
+1. 独立分支；
+2. 一个 Draft PR；
+3. 按任务书拆成原子提交；
+4.完整验证；
+5.提交 closeout；
+6.停止等待人工验收；
+7.不得自动合并或开始下一阶段。
 
 ---
 
-## 6. Task 00 后的人工决策点
+## 5. Task 01A 最终冻结决定
 
-审计后必须由人工确认：
-
-- 是否建立通用 Job Runtime；
-- Managed AI queue 是否只保持领域专用；
-- global index 与 managed scan 的复用边界；
-- watcher 是否已经具有 durable reconciliation；
-- native identity 是否足以作为 fingerprint 基础；
-- 当前 duplicate/cache 是否需要迁移；
-- Organization Plan 是否应先于 Query V2；
-- 哪些 OFFSET 查询需要 cursor；
-- content artifact 是否已有可扩展基础；
-- 哪些旧文档需要归档或标记过时。
-
-未完成这些决策前，不得实施 Task 01。
-
----
-
-## 7. Task 00 审计产物和证据入口
-
-Task 00 的独立产物为：
-
-- `POST_MERGE_BASELINE_AUDIT.md`：基线、运行时/数据库关系、各域调用链、PR #15 影响、人工决策点和暂定实施顺序；
-- `REMEDIATION_CAPABILITY_MATRIX.md`：按任务书五种状态盘点当前能力，标记可复用、可扩展、冲突和不应建设的能力；
-- `REMEDIATION_RISK_REGISTER.md`：Critical/High/Medium 风险、源码证据、阻断条件、测试和 rollback 要求。
-
-审计确认的硬边界：
-
-1. Global Index 继续复用 `global_volumes/global_entries/global_entries_fts`，不建设第二套全局索引。
-2. Managed AI 继续复用 `managed_scopes/managed_entries/ai_jobs/ai_job_items/ai_analysis_state`，不把 `ai_jobs` 直接改造成通用 Job Runtime。
-3. 整理、清理、恢复继续经过 server-authoritative preview、filesystem identity、operation/cleanup journal、Safe Trash 和 restore；AI 只能写建议/分析。
-4. `files` 的 path id、Global Index 的 native id、operation identity 和 AI fingerprint 暂不合并，任何迁移前必须有 mapping、冲突、回滚和旧账本兼容方案。
-5. Content Artifact、Organization Plan、Analysis Run/Findings、NL Rule Proposal、Search Provider/Command Manifest 均未达到可执行状态。
+1. 不建立跨领域通用 Job Runtime；`ai_jobs` 保持 Managed AI 专用。
+2. File Library Managed Scan 与 Global Index 是两个独立领域；不修改 `global_*` 或平台 provider。
+3. Task 01A 不持久化 raw watcher event，不创建 `pending_fs_changes`；watcher owner 属于 Task 01B。
+4. Task 01A 不修改 `files.id`、operation/cleanup journal、Safe Trash 或 restore。
+5. 同一 root 的 active 集合仅为 `queued/running/cancelling`；partial unique index、root active pointer、lease token、generation 和 durable revision 共同保护 owner。
+6.重复 start：相同 `request_key + canonical request hash` 幂等返回；其他 active root 冲突拒绝整个请求，不分配 generation。
+7. metadata error 是 coverage-breaking：记录 `scan_run_errors`、不写 `scan_seen`、禁止 stale。
+8. `scan_seen` successful 保留 7 天，非成功 terminal 保留 30 天，每 root 至少保留最新两个 terminal run；active/recovery-pinned 不 prune。
+9. multi-root session 持久化 requested→effective mapping，包括 duplicate、nested、invalid 和 cancelled-not-started。
+10. session phase 是独立聚合阶段：`preparing -> running -> finalizing -> completed`，不跟随 root phase 倒退。
+11. run/session revision 是 renderer 的 durable 事件水位；先 hydrate，后接收事件。
+12. schema 27 commit 前可以 transaction rollback；commit 后只能使用 schema-27-capable build 关闭 feature gate，旧 schema-26 binary 必须继续拒绝 future schema。
+13. Task 01A 不修改 dedupe 实现，不承诺 logical at-most-once。Dedupe 是 at-least-once、安全可重复计算的下游；crash 可产生重复 hash 计算，但不得影响 scan terminal、generation、stale 或用户文件。
+14. durable dedupe job、固定 idempotency、prehash/cache/group 归 Task 02。
+15. Query V2 必须先于 Organization Plan。
 
 ---
 
-## 8. 审计后暂定阶段契约（全部不可执行）
+## 6. Task 01A 实施入口
 
-| 阶段 | 必须先回答 | 明确不做 | 可能涉及的数据变化 | 专项验证/回滚 |
-|---|---|---|---|---|
-| 01 Scan/Watcher | owner、generation、overflow、cursor、crash recovery | 不重建 Global Index，不统一所有队列 | 先写契约和 fixture；是否建 run/change 表待批准 | kill/restart、overflow、duplicate replay；旧 rescan 保留 |
-| 02 Identity/Dedupe | path/native/operation/AI identity 关系、hardlink 语义 | 不直接改 `files.id`，不自动清理 | mapping/backfill/冲突方案 | rename/cross-volume/hardlink/changed file；可回退旧字段 |
-| 03 Analysis | run/finding identity、版本、stale、decision | 不把内存 cleanup/dedupe 结果冒充 artifact | run/finding 草案 | cancel/partial/re-run/idempotency；旧分析继续可用 |
-| 04 Query V2 | source/scope/snapshot/sort/cursor/selection | 不把 Global Search join 到 Library，不扩大 renderer selection | cursor/snapshot/selection contract | concurrent scan/watcher、cross-page selection；Query V1 fallback |
-| 05 Organization Plan | plan revision、preview reference、identity expiry | 不直接执行 filesystem mutation | plan/decision/revision 草案 | diff/expiry/confirm/restore；废弃 plan 可安全回退 |
-| 06 Workspace migration | Query/Plan 已有稳定契约 | 不绕过 operation journal/Safe Trash | 旧 preview 到 plan 的映射 | old/new path、stale plan、restore；保留旧入口 fallback |
-| 07 Library surface | Query/Plan 的稳定 selection semantics | 不把 UI sorting 当后端事实 | Saved View/tag 草案 | large list/virtual list/accessibility；只读 UI 可回退 |
-| 08 Content Artifact | 文件类型、大小、脱敏、local/cloud、retention | 不默认读内容，不绕过 Managed Scope | artifact metadata/version 草案 | privacy/provider/expiry/rebuild；可禁用 artifact consumer |
-| 09 NL Rule | AST、validation、approval、version、rollback | 不直接写 rule 或执行 move | proposal/diff/approval 草案 | invalid/malicious output；proposal 单独丢弃 |
-| 10 Spotlight | source/provider/capability/permission/ranking | 不把 command 当 mutation authorization | manifest 草案 | unavailable/source attribution；旧 registry 保留 |
-| 11 Integration | 所有前置人工验收 | 不夹带业务修复 | migrations/release only after approval | full CI、性能、native/security、rollback drill |
+PR #17 合并后，Codex 只需读取并执行：
 
-只有人工确认每阶段的前置条件、非目标、数据迁移和 rollback 后，才可创建对应 `TASK_0N_*.md`；在此之前不得创建 Task 01 任务书、代码或 schema。
+```text
+docs/remediation/TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md
+```
+
+推荐实施分支：
+
+```text
+remediation/01a-scan-generation-foundation
+```
+
+Task 01A 完成后必须新增 closeout，并将本索引更新为：
+
+```text
+Task 01A：实施完成，待人工验收
+Task 01B：仍禁止执行
+```
+
+只有 Task 01A 生产实施通过人工验收并合并后，才由人工创建 Task 01B 任务书。
+
+---
+
+## 7. 审计产物
+
+- `POST_MERGE_BASELINE_AUDIT.md`：当前进程、数据库、任务和安全边界；
+- `REMEDIATION_CAPABILITY_MATRIX.md`：已有、部分、缺失、冲突和不应建设的能力；
+- `REMEDIATION_RISK_REGISTER.md`：Critical/High 风险与阶段门禁。
+
+硬边界：
+
+- 不建设第二套 Global Index；
+-不泛化 Managed AI queue；
+-所有用户文件变更继续走 server-authoritative preview、identity、journal、Safe Trash 和 restore；
+-Path ID、native identity、operation identity 和 AI fingerprint 在正式 mapping/migration 前继续隔离。
+
+---
+
+## 8. 后续阶段契约
+
+| 阶段 | 必须先回答 | 明确不做 | 专项验证 |
+|---|---|---|---|
+| 01A Scan Generation | root lease、generation、scan_seen、stale、crash recovery | 不重建 Global Index、不持久化 watcher、不改 dedupe | migration、kill/restart、cancel、stale safety、100k |
+| 01B Watcher | durable owner、overflow、replay、renderer 脱离 | 不伪造 scanner generation | overflow、rename/delete、renderer restart、跨平台 |
+| 02 Identity/Dedupe | path/native/physical identity、prehash/cache/group | 不直接迁移 `files.id`、不自动删除 | rename、hardlink、changed file、durable dedupe |
+| 03 Analysis | run/finding identity、stale、decision | 不把内存结果冒充 artifact | cancel、partial、rerun、idempotency |
+| 04 Query V2 | scope、snapshot、sort、cursor、selection | 不把 Global Search join 到 Library | concurrent scan/watcher、跨页选择、100k/1M |
+| 05 Organization Plan | plan revision、identity expiry、decision | 不直接执行 filesystem mutation | diff、expiry、confirm、restore |
+| 06 Workspace migration | Query/Plan 已稳定 | 不绕过 operation journal | old/new path、stale plan、fallback |
+| 07 Library surface | Query/Plan selection 稳定 | 不把 UI sorting 当后端事实 | virtual list、a11y、Saved View/tag |
+| 08 Content Artifact | extractor、budget、consent、retention | 不默认读取/上传内容 | type/size/secret/cloud/local |
+| 09 NL Rule | allowlist、ambiguity、preview | 不生成 shell/SQL/绝对执行路径 | adversarial prompt、scope、preview |
+| 10 Spotlight | provider、ranking、permission、manifest | 不把 command 当 mutation 授权 | unavailable、source attribution、keyboard |
+| 11 Integration | 全部前置验收 | 不夹带业务修复 | full CI、migration、performance、native/security rollback |
