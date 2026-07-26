@@ -489,6 +489,96 @@ pub fn recover_scan_state(db: &Database) -> Result<usize, DbError> {
     Ok(recovered)
 }
 
+pub(crate) fn schedule_watcher_reconciliations<R: Runtime>(
+    app: AppHandle<R>,
+    db: Database,
+    jobs: ScanJobManager,
+    dedupe_jobs: DedupeJobManager,
+) -> Result<usize, String> {
+    let roots = db.list_scan_roots().map_err(|error| error.to_string())?;
+    let mut scheduled = 0;
+    for root in roots
+        .into_iter()
+        .filter(|root| root.enabled && root.source_kind == "file_library")
+    {
+        let path = PathBuf::from(&root.normalized_path);
+        if !path.exists() {
+            db.mark_watcher_root_missing(
+                &root.id,
+                "missing",
+                "Managed scan root is not available; automatic reconciliation is paused.",
+            )
+            .map_err(|error| error.to_string())?;
+            continue;
+        }
+        if !path.is_dir() {
+            db.mark_watcher_root_missing(
+                &root.id,
+                "permission_required",
+                "Managed scan root is not a readable directory; automatic reconciliation is paused.",
+            )
+            .map_err(|error| error.to_string())?;
+            continue;
+        }
+        if !root.needs_reconciliation && root.watcher_revision <= root.watcher_applied_revision {
+            continue;
+        }
+
+        let request = ManagedScanRequest {
+            roots: vec![root.normalized_path.clone()],
+            request_key: Some(format!(
+                "watcher-reconcile:{}:{}",
+                root.id, root.watcher_revision
+            )),
+            dedupe: false,
+        };
+        let admission = match db.admit_managed_scan(&ScanAdmissionOptions {
+            request,
+            run_id_override: None,
+        }) {
+            Ok(admission) => admission,
+            Err(error) if error.to_string().contains("active run") => continue,
+            Err(error) if error.to_string().contains("active root lease") => continue,
+            Err(error) => {
+                db.mark_watcher_reconciliation(
+                    &root.id,
+                    "reconciliation_admission_failed",
+                    &error.to_string(),
+                )
+                .map_err(|mark_error| mark_error.to_string())?;
+                continue;
+            }
+        };
+        if !admission.created || admission.runs.is_empty() {
+            continue;
+        }
+        for run in &admission.runs {
+            jobs.register(&run.id)?;
+        }
+        let session_id = admission.session.id.clone();
+        let run_ids = admission.runs.clone();
+        let app_for_task = app.clone();
+        let db_for_task = db.clone();
+        let jobs_for_task = jobs.clone();
+        let dedupe_for_task = dedupe_jobs.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(error) = run_managed_session(
+                app_for_task,
+                db_for_task,
+                jobs_for_task,
+                dedupe_for_task,
+                session_id,
+                run_ids,
+                None,
+            ) {
+                eprintln!("Watcher reconciliation session failed: {error}");
+            }
+        });
+        scheduled += 1;
+    }
+    Ok(scheduled)
+}
+
 pub fn resume_pending_dedupe_dispatches<R: Runtime>(
     app: AppHandle<R>,
     db: Database,
@@ -1105,6 +1195,12 @@ fn emit_terminal_events<R: Runtime>(
     legacy: Option<&LegacyScanContext>,
 ) {
     emit_managed_event_with_session_best_effort(app, &finalization.run, &finalization.session);
+    crate::watcher::emit_watcher_reconciliation_status(
+        app,
+        db,
+        &finalization.run.dto.scan_root_id,
+        None,
+    );
     let Some(legacy) = legacy else {
         return;
     };

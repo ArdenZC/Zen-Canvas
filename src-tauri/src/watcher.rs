@@ -1,5 +1,8 @@
 use crate::{
+    db::{Database, DbError},
+    dedupe::DedupeJobManager,
     path_filter::is_ignored_dir_name,
+    scanner::ScanJobManager,
     settings::{AppSettings, ScanRootSetting, SearchRootSetting},
 };
 use notify::{
@@ -24,7 +27,17 @@ use thiserror::Error;
 const FILE_EVENT_NAME: &str = "fs-event";
 const WATCHER_READY_EVENT_NAME: &str = "fs-watcher-ready";
 const WATCHER_ERROR_EVENT_NAME: &str = "fs-watcher-error";
+pub const WATCHER_RECONCILIATION_STATUS_EVENT_NAME: &str = "watcher-reconciliation-status";
+pub const WATCHER_BACKEND_ENV: &str = "ZEN_CANVAS_BACKEND_WATCHER_RECONCILIATION";
 const WATCHER_CHANNEL_CAPACITY: usize = 2048;
+const WATCHER_BATCH_LIMIT: usize = 500;
+const WATCHER_MAX_ATTEMPTS: usize = 8;
+const WATCHER_RETRY_DELAYS: [Duration; 4] = [
+    Duration::from_millis(250),
+    Duration::from_millis(500),
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+];
 const WATCHER_COALESCE_WINDOW: Duration = Duration::from_millis(150);
 
 #[derive(Debug, Error)]
@@ -52,6 +65,7 @@ pub struct FileWatchEvent {
     pub paths: Vec<String>,
     pub stale_paths: Vec<String>,
     pub upsert_paths: Vec<String>,
+    pub reconciliation_paths: Vec<String>,
     pub timestamp_ms: u128,
 }
 
@@ -66,6 +80,30 @@ pub struct WatcherReadyEvent {
 #[serde(rename_all = "camelCase")]
 pub struct WatcherErrorEvent {
     pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatcherReconciliationStatusEvent {
+    pub scan_root_id: String,
+    pub path: String,
+    pub root_revision: i64,
+    pub watcher_revision: i64,
+    pub watcher_applied_revision: i64,
+    pub pending: bool,
+    pub needs_reconciliation: bool,
+    pub health_status: String,
+    pub active_run_id: Option<String>,
+    pub last_event_at: Option<i64>,
+    pub last_applied_at: Option<i64>,
+    pub last_error_code: Option<String>,
+    pub last_error_message: Option<String>,
+    pub pending_batch: i64,
+    pub timestamp: i64,
+}
+
+enum WatcherInput {
+    Notify(notify::Result<Event>),
 }
 
 #[derive(Default)]
@@ -114,7 +152,24 @@ impl FileWatcherManager {
             return Ok(changed);
         }
 
-        self.restart_with_roots(roots, |roots| start_watcher_session(app, roots))
+        self.restart_with_roots(roots, |roots| start_legacy_watcher_session(app, roots))
+    }
+
+    fn restart_backend<R: Runtime>(
+        &self,
+        app: AppHandle<R>,
+        paths: Vec<PathBuf>,
+        db: Database,
+        jobs: ScanJobManager,
+        dedupe_jobs: DedupeJobManager,
+    ) -> Result<bool, WatcherError> {
+        let roots = normalize_watch_roots(paths)?;
+        if roots.is_empty() {
+            return self.restart_with_roots(Vec::new(), |_| unreachable!());
+        }
+        self.restart_with_roots(roots, |roots| {
+            start_backend_watcher_session(app, roots, db, jobs, dedupe_jobs)
+        })
     }
 
     fn restart_with_roots(
@@ -163,10 +218,61 @@ pub fn setup_file_watcher<R: Runtime>(
 pub fn reload_file_watcher_for_settings<R: Runtime>(
     app: AppHandle<R>,
     manager: &FileWatcherManager,
+    db: &Database,
+    jobs: &ScanJobManager,
+    dedupe_jobs: &DedupeJobManager,
     settings: &AppSettings,
 ) -> Result<bool, String> {
-    let paths = existing_watch_paths_from_settings(settings);
-    reload_file_watcher(app, manager, paths)
+    db.sync_file_library_watcher_roots(&settings.default_scan_folders)
+        .map_err(|error| error.to_string())?;
+    if backend_watcher_reconciliation_enabled() {
+        let paths = existing_watch_paths_from_default_scan_folders(&settings.default_scan_folders);
+        let root_labels = paths
+            .iter()
+            .map(|path| normalize_path(path))
+            .collect::<Vec<_>>();
+        let changed = manager
+            .restart_backend(
+                app.clone(),
+                paths,
+                db.clone(),
+                jobs.clone(),
+                dedupe_jobs.clone(),
+            )
+            .map_err(|error| error.to_string())?;
+        crate::scanner::schedule_watcher_reconciliations(
+            app.clone(),
+            db.clone(),
+            jobs.clone(),
+            dedupe_jobs.clone(),
+        )?;
+        if changed {
+            emit_watcher_ready(&app, root_labels).map_err(|error| error.to_string())?;
+        }
+        Ok(changed)
+    } else {
+        eprintln!(
+            "{WATCHER_BACKEND_ENV}=false: using the legacy renderer watcher adapter; Rust will not mutate managed files or watcher revisions"
+        );
+        let paths = existing_watch_paths_from_settings(settings);
+        manager
+            .restart(app, paths)
+            .map_err(|error| error.to_string())
+    }
+}
+
+pub fn backend_watcher_reconciliation_enabled() -> bool {
+    backend_watcher_reconciliation_enabled_value(std::env::var(WATCHER_BACKEND_ENV).ok().as_deref())
+}
+
+fn backend_watcher_reconciliation_enabled_value(value: Option<&str>) -> bool {
+    match value {
+        Some(value) => !matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "0" | "false" | "off" | "no" | "disabled"
+        ),
+        None => true,
+    }
 }
 
 pub fn reload_file_watcher<R: Runtime>(
@@ -232,12 +338,12 @@ fn setup_file_watcher_inner<R: Runtime>(
         emit_watcher_ready(&app, Vec::new())?;
         return Ok(());
     }
-    let session = start_watcher_session(app, roots)?;
+    let session = start_legacy_watcher_session(app, roots)?;
     session.detach();
     Ok(())
 }
 
-fn start_watcher_session<R: Runtime>(
+fn start_legacy_watcher_session<R: Runtime>(
     app: AppHandle<R>,
     roots: Vec<PathBuf>,
 ) -> Result<WatcherSession, WatcherError> {
@@ -271,7 +377,53 @@ fn start_watcher_session<R: Runtime>(
 
     let handle = thread::Builder::new()
         .name("zen-canvas-file-watcher".to_string())
-        .spawn(move || run_watcher_loop(app, watcher, rx, stop_rx))
+        .spawn(move || run_legacy_watcher_loop(app, watcher, rx, stop_rx))
+        .map_err(WatcherError::Thread)?;
+
+    Ok(WatcherSession::new(roots, move || {
+        stop_watcher(stop_tx, handle)
+    }))
+}
+
+fn start_backend_watcher_session<R: Runtime>(
+    app: AppHandle<R>,
+    roots: Vec<PathBuf>,
+    db: Database,
+    jobs: ScanJobManager,
+    dedupe_jobs: DedupeJobManager,
+) -> Result<WatcherSession, WatcherError> {
+    let (tx, rx) = mpsc::sync_channel::<WatcherInput>(WATCHER_CHANNEL_CAPACITY);
+    let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    let overflow_signal = Arc::new(AtomicBool::new(false));
+    let overflow_burst_active = Arc::new(AtomicBool::new(false));
+    let overflow_signal_for_callback = Arc::clone(&overflow_signal);
+    let overflow_burst_for_callback = Arc::clone(&overflow_burst_active);
+
+    let mut watcher = recommended_watcher(move |event| {
+        if let Err(TrySendError::Full(_)) = tx.try_send(WatcherInput::Notify(event)) {
+            signal_overflow(&overflow_burst_for_callback, &overflow_signal_for_callback);
+        }
+    })?;
+
+    for root in &roots {
+        watcher.watch(root, RecursiveMode::Recursive)?;
+    }
+
+    let handle = thread::Builder::new()
+        .name("zen-canvas-file-watcher-backend".to_string())
+        .spawn(move || {
+            run_backend_watcher_loop(
+                app,
+                watcher,
+                rx,
+                stop_rx,
+                db,
+                jobs,
+                dedupe_jobs,
+                overflow_signal,
+                overflow_burst_active,
+            )
+        })
         .map_err(WatcherError::Thread)?;
 
     Ok(WatcherSession::new(roots, move || {
@@ -298,7 +450,7 @@ fn emit_watcher_ready<R: Runtime>(
     Ok(())
 }
 
-fn run_watcher_loop(
+fn run_legacy_watcher_loop(
     app: AppHandle<impl Runtime>,
     _watcher: RecommendedWatcher,
     rx: Receiver<notify::Result<Event>>,
@@ -334,12 +486,379 @@ fn run_watcher_loop(
     }
 }
 
+fn signal_overflow(burst_active: &AtomicBool, signal: &AtomicBool) {
+    if !burst_active.swap(true, Ordering::AcqRel) {
+        signal.store(true, Ordering::Release);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_backend_watcher_loop<R: Runtime>(
+    app: AppHandle<R>,
+    _watcher: RecommendedWatcher,
+    rx: Receiver<WatcherInput>,
+    stop_rx: Receiver<()>,
+    db: Database,
+    jobs: ScanJobManager,
+    dedupe_jobs: DedupeJobManager,
+    overflow_signal: Arc<AtomicBool>,
+    overflow_burst_active: Arc<AtomicBool>,
+) {
+    let mut last_schedule = Instant::now() - Duration::from_secs(2);
+    loop {
+        if stop_rx.try_recv().is_ok() {
+            break;
+        }
+
+        if overflow_signal.swap(false, Ordering::AcqRel) {
+            mark_all_roots_for_reconciliation(
+                &app,
+                &db,
+                "watcher_overflow",
+                "The bounded watcher queue overflowed; a managed scan is required.",
+            );
+            emit_file_watcher_error(
+                &app,
+                "File watcher overflowed its bounded queue. Durable reconciliation was scheduled."
+                    .to_string(),
+            );
+        }
+
+        match rx.recv_timeout(Duration::from_millis(250)) {
+            Ok(WatcherInput::Notify(Ok(event))) => {
+                let mut payloads = event_to_payload(event).into_iter().collect::<Vec<_>>();
+                let deadline = Instant::now() + WATCHER_COALESCE_WINDOW;
+                while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+                    match rx.recv_timeout(remaining) {
+                        Ok(WatcherInput::Notify(Ok(event))) => {
+                            payloads.extend(event_to_payload(event));
+                        }
+                        Ok(WatcherInput::Notify(Err(error))) => {
+                            mark_all_roots_for_reconciliation(
+                                &app,
+                                &db,
+                                "watcher_notify_error",
+                                &error.to_string(),
+                            );
+                        }
+                        Err(RecvTimeoutError::Timeout) => break,
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+                if let Some(payload) = coalesce_payloads(payloads) {
+                    process_backend_payload(&app, &db, &jobs, &dedupe_jobs, payload);
+                }
+            }
+            Ok(WatcherInput::Notify(Err(error))) => {
+                mark_all_roots_for_reconciliation(
+                    &app,
+                    &db,
+                    "watcher_notify_error",
+                    &error.to_string(),
+                );
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                overflow_burst_active.store(false, Ordering::Release);
+            }
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+
+        if last_schedule.elapsed() >= Duration::from_secs(1) {
+            if let Err(error) = crate::scanner::schedule_watcher_reconciliations(
+                app.clone(),
+                db.clone(),
+                jobs.clone(),
+                dedupe_jobs.clone(),
+            ) {
+                emit_file_watcher_error(&app, error);
+            }
+            last_schedule = Instant::now();
+        }
+    }
+}
+
+fn process_backend_payload<R: Runtime>(
+    app: &AppHandle<R>,
+    db: &Database,
+    jobs: &ScanJobManager,
+    dedupe_jobs: &DedupeJobManager,
+    payload: FileWatchEvent,
+) {
+    let Ok(configs) = db.list_watcher_root_configs() else {
+        emit_file_watcher_error(app, "Unable to load managed watcher roots.".to_string());
+        return;
+    };
+    let directory_paths = payload
+        .reconciliation_paths
+        .iter()
+        .map(|path| normalize_path(&PathBuf::from(path)))
+        .collect::<HashSet<_>>();
+    let paths = payload
+        .paths
+        .iter()
+        .map(|path| normalize_path(&PathBuf::from(path)))
+        .filter(|path| !is_ignored_path(Path::new(path)))
+        .collect::<HashSet<_>>();
+    let mut grouped = HashMap::<String, Vec<String>>::new();
+    let mut ambiguous = HashMap::<String, Vec<String>>::new();
+
+    for path in paths {
+        let matches = configs
+            .iter()
+            .filter(|root| path_within_root(&root.path, &path))
+            .collect::<Vec<_>>();
+        match matches.as_slice() {
+            [root] => grouped.entry(root.id.clone()).or_default().push(path),
+            [] => {}
+            _ => {
+                for root in matches {
+                    ambiguous
+                        .entry(root.id.clone())
+                        .or_default()
+                        .push(path.clone());
+                }
+            }
+        }
+    }
+
+    for (root_id, paths) in ambiguous {
+        let Some(batch) = begin_watcher_batch(app, db, &root_id) else {
+            continue;
+        };
+        let message = format!(
+            "Watcher path batch is ambiguous across managed roots: {}",
+            paths.join(", ")
+        );
+        let _ = db.mark_watcher_reconciliation(&root_id, "ambiguous_root", &message);
+        emit_root_status(app, db, &root_id, Some(batch.watcher_revision));
+    }
+
+    for (root_id, mut paths) in grouped {
+        let oversized = paths.len() > WATCHER_BATCH_LIMIT;
+        if oversized {
+            paths.truncate(WATCHER_BATCH_LIMIT);
+        }
+        let Some(batch) = begin_watcher_batch(app, db, &root_id) else {
+            continue;
+        };
+        let result =
+            apply_watcher_exact_mutations_with_retry(db, &root_id, &paths, &directory_paths);
+        match result {
+            Ok(result) => {
+                let mut reconciliation_required = result.reconciliation_required || oversized;
+                let mut rule_warning = None;
+                if let Some(warning) = result.warning.as_deref() {
+                    let _ = db.record_watcher_warning(&root_id, "watcher_partial_update", warning);
+                    emit_file_watcher_error(app, warning.to_string());
+                }
+                if !result.upserted_paths.is_empty() {
+                    match db
+                        .get_user_rules()
+                        .and_then(|rules| db.execute_rules_for_paths(&result.upserted_paths, rules))
+                    {
+                        Ok(_) => {}
+                        Err(error) => {
+                            let message = error.to_string();
+                            rule_warning = Some(message.clone());
+                            reconciliation_required = true;
+                            emit_file_watcher_error(app, message);
+                        }
+                    }
+                }
+                if reconciliation_required {
+                    let message = if oversized {
+                        "Watcher event batch exceeded the bounded mutation batch; a full reconciliation is required."
+                    } else if let Some(rule_warning) = rule_warning.as_deref() {
+                        rule_warning
+                    } else {
+                        result.warning.as_deref().unwrap_or(
+                            "Watcher directory or ambiguous event requires reconciliation.",
+                        )
+                    };
+                    let _ = db.mark_watcher_reconciliation(
+                        &root_id,
+                        "watcher_reconciliation_required",
+                        message,
+                    );
+                } else if !db
+                    .complete_watcher_revision(&root_id, batch.watcher_revision)
+                    .unwrap_or(false)
+                {
+                    let _ = db.mark_watcher_reconciliation(
+                        &root_id,
+                        "watcher_revision_cas_failed",
+                        "Watcher applied revision CAS failed; a full reconciliation is required.",
+                    );
+                }
+                if let Some(message) = rule_warning {
+                    let _ = db.record_watcher_warning(&root_id, "watcher_rule_failure", &message);
+                }
+            }
+            Err(error) => {
+                let message = error.to_string();
+                let _ =
+                    db.mark_watcher_reconciliation(&root_id, "watcher_mutation_failed", &message);
+                emit_file_watcher_error(app, message);
+            }
+        }
+        emit_root_status(app, db, &root_id, Some(batch.watcher_revision));
+    }
+
+    if let Err(error) = crate::scanner::schedule_watcher_reconciliations(
+        app.clone(),
+        db.clone(),
+        jobs.clone(),
+        dedupe_jobs.clone(),
+    ) {
+        emit_file_watcher_error(app, error);
+    }
+}
+
+fn apply_watcher_exact_mutations_with_retry(
+    db: &Database,
+    root_id: &str,
+    paths: &[String],
+    directory_paths: &HashSet<String>,
+) -> Result<crate::db::scan::WatcherMutationResult, DbError> {
+    let mut last_error = None;
+    for attempt in 0..WATCHER_MAX_ATTEMPTS {
+        match db.apply_watcher_exact_mutations(root_id, paths, directory_paths) {
+            Ok(result) => return Ok(result),
+            Err(error) => {
+                last_error = Some(error);
+                if attempt + 1 < WATCHER_MAX_ATTEMPTS {
+                    let delay = WATCHER_RETRY_DELAYS[attempt.min(WATCHER_RETRY_DELAYS.len() - 1)];
+                    thread::sleep(delay);
+                }
+            }
+        }
+    }
+    Err(last_error.expect("watcher mutation retry loop always records an error"))
+}
+
+fn begin_watcher_batch<R: Runtime>(
+    app: &AppHandle<R>,
+    db: &Database,
+    root_id: &str,
+) -> Option<crate::db::scan::WatcherRevisionStart> {
+    match db.begin_watcher_revision(root_id) {
+        Ok(Some(batch)) => Some(batch),
+        Ok(None) => None,
+        Err(error) => {
+            emit_file_watcher_error(app, error.to_string());
+            None
+        }
+    }
+}
+
+fn mark_all_roots_for_reconciliation<R: Runtime>(
+    app: &AppHandle<R>,
+    db: &Database,
+    error_code: &str,
+    message: &str,
+) {
+    let Ok(configs) = db.list_watcher_root_configs() else {
+        emit_file_watcher_error(
+            app,
+            "Unable to load managed watcher roots for recovery.".to_string(),
+        );
+        return;
+    };
+    for root in configs {
+        if let Some(batch) = begin_watcher_batch(app, db, &root.id) {
+            let _ = db.mark_watcher_reconciliation(&root.id, error_code, message);
+            emit_root_status(app, db, &root.id, Some(batch.watcher_revision));
+        }
+    }
+}
+
+pub(crate) fn emit_watcher_reconciliation_status<R: Runtime>(
+    app: &AppHandle<R>,
+    db: &Database,
+    root_id: &str,
+    _batch_revision: Option<i64>,
+) {
+    let Ok(root) = db.get_scan_root_health(Some(root_id), None) else {
+        return;
+    };
+    let payload = WatcherReconciliationStatusEvent {
+        scan_root_id: root.id,
+        path: root.normalized_path,
+        root_revision: root.revision,
+        watcher_revision: root.watcher_revision,
+        watcher_applied_revision: root.watcher_applied_revision,
+        pending: root.watcher_revision > root.watcher_applied_revision || root.needs_reconciliation,
+        needs_reconciliation: root.needs_reconciliation,
+        health_status: root.health_status,
+        active_run_id: root.active_run_id,
+        last_event_at: root.watcher_last_event_at,
+        last_applied_at: root.watcher_last_applied_at,
+        last_error_code: root.watcher_last_error_code.or(root.last_error_code),
+        last_error_message: root.watcher_last_error_message.or(root.last_error_message),
+        pending_batch: (root.watcher_revision - root.watcher_applied_revision).max(0),
+        timestamp: current_timestamp_ms() as i64,
+    };
+    if let Err(error) = app.emit(WATCHER_RECONCILIATION_STATUS_EVENT_NAME, payload) {
+        eprintln!("Failed to emit watcher reconciliation status: {error}");
+    }
+}
+
+fn emit_root_status<R: Runtime>(
+    app: &AppHandle<R>,
+    db: &Database,
+    root_id: &str,
+    batch_revision: Option<i64>,
+) {
+    emit_watcher_reconciliation_status(app, db, root_id, batch_revision);
+}
+
+fn path_within_root(root: &str, path: &str) -> bool {
+    let root = normalize_path(Path::new(root))
+        .trim_end_matches('/')
+        .to_string();
+    let path = normalize_path(Path::new(path));
+    let (root, path) = if cfg!(windows) {
+        (root.to_ascii_lowercase(), path.to_ascii_lowercase())
+    } else {
+        (root, path)
+    };
+    path == root
+        || path
+            .strip_prefix(&root)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+pub fn recover_watcher_reconciliation_state<R: Runtime>(
+    app: AppHandle<R>,
+    db: Database,
+) -> Result<usize, String> {
+    let roots = db.list_scan_roots().map_err(|error| error.to_string())?;
+    let mut recovered = 0;
+    for root in roots
+        .into_iter()
+        .filter(|root| root.enabled && root.source_kind == "file_library")
+    {
+        if root.watcher_revision > root.watcher_applied_revision {
+            db.mark_watcher_reconciliation(
+                &root.id,
+                "startup_revision_gap",
+                "A previous watcher batch was not durably applied before shutdown.",
+            )
+            .map_err(|error| error.to_string())?;
+            emit_root_status(&app, &db, &root.id, None);
+            recovered += 1;
+        }
+    }
+    Ok(recovered)
+}
+
 fn coalesce_payloads(payloads: Vec<FileWatchEvent>) -> Option<FileWatchEvent> {
     if payloads.is_empty() {
         return None;
     }
     let mut paths = HashSet::new();
     let mut latest_route = HashMap::<String, bool>::new();
+    let mut reconciliation_paths = HashSet::new();
     for payload in payloads {
         paths.extend(payload.paths);
         for path in payload.stale_paths {
@@ -348,6 +867,7 @@ fn coalesce_payloads(payloads: Vec<FileWatchEvent>) -> Option<FileWatchEvent> {
         for path in payload.upsert_paths {
             latest_route.insert(path, true);
         }
+        reconciliation_paths.extend(payload.reconciliation_paths);
     }
     let mut paths = paths.into_iter().collect::<Vec<_>>();
     let mut stale_paths = latest_route
@@ -358,14 +878,17 @@ fn coalesce_payloads(payloads: Vec<FileWatchEvent>) -> Option<FileWatchEvent> {
         .into_iter()
         .filter_map(|(path, upsert)| upsert.then_some(path))
         .collect::<Vec<_>>();
+    let mut reconciliation_paths = reconciliation_paths.into_iter().collect::<Vec<_>>();
     paths.sort();
     stale_paths.sort();
     upsert_paths.sort();
+    reconciliation_paths.sort();
     Some(FileWatchEvent {
         event_type: "batch".to_string(),
         paths,
         stale_paths,
         upsert_paths,
+        reconciliation_paths,
         timestamp_ms: current_timestamp_ms(),
     })
 }
@@ -382,14 +905,28 @@ fn event_to_payload(event: Event) -> Option<FileWatchEvent> {
     }
 
     let (stale_paths, upsert_paths) = route_event_paths(&event.kind, &event.paths);
+    let reconciliation_paths = if is_directory_event(&event.kind) {
+        normalize_event_paths(&event.paths)
+    } else {
+        Vec::new()
+    };
 
     Some(FileWatchEvent {
         event_type: event_type(&event.kind).to_string(),
         paths,
         stale_paths,
         upsert_paths,
+        reconciliation_paths,
         timestamp_ms: current_timestamp_ms(),
     })
+}
+
+fn is_directory_event(kind: &EventKind) -> bool {
+    matches!(
+        kind,
+        EventKind::Create(notify::event::CreateKind::Folder)
+            | EventKind::Remove(notify::event::RemoveKind::Folder)
+    )
 }
 
 fn route_event_paths(kind: &EventKind, paths: &[PathBuf]) -> (Vec<String>, Vec<String>) {
@@ -587,6 +1124,62 @@ mod tests {
         assert!(created.stale_paths.is_empty());
     }
 
+    #[test]
+    fn directory_events_are_marked_for_full_reconciliation() {
+        let payload = event_to_payload(Event {
+            kind: EventKind::Create(notify::event::CreateKind::Folder),
+            paths: vec![PathBuf::from("/Users/zen/Documents/new-folder")],
+            attrs: EventAttributes::new(),
+        })
+        .expect("directory create payload");
+
+        assert_eq!(
+            payload.reconciliation_paths,
+            vec!["/Users/zen/Documents/new-folder"]
+        );
+    }
+
+    #[test]
+    fn watcher_root_matching_is_boundary_aware() {
+        assert!(path_within_root(
+            "/Users/zen/Library",
+            "/Users/zen/Library/report.pdf"
+        ));
+        assert!(path_within_root("C:/Library", "C:/Library/report.pdf"));
+        assert!(!path_within_root(
+            "/Users/zen/Library",
+            "/Users/zen/Library-old/report.pdf"
+        ));
+    }
+
+    #[test]
+    fn overflow_signal_is_once_per_burst() {
+        let burst_active = AtomicBool::new(false);
+        let signal = AtomicBool::new(false);
+
+        signal_overflow(&burst_active, &signal);
+        signal_overflow(&burst_active, &signal);
+        assert!(signal.swap(false, Ordering::AcqRel));
+        assert!(!signal.load(Ordering::Acquire));
+
+        signal_overflow(&burst_active, &signal);
+        assert!(!signal.load(Ordering::Acquire));
+        burst_active.store(false, Ordering::Release);
+        signal_overflow(&burst_active, &signal);
+        assert!(signal.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn backend_owner_switch_defaults_on_and_accepts_explicit_legacy_values() {
+        assert!(backend_watcher_reconciliation_enabled_value(None));
+        assert!(backend_watcher_reconciliation_enabled_value(Some("true")));
+        assert!(!backend_watcher_reconciliation_enabled_value(Some("false")));
+        assert!(!backend_watcher_reconciliation_enabled_value(Some("0")));
+        assert!(!backend_watcher_reconciliation_enabled_value(Some(
+            "disabled"
+        )));
+    }
+
     fn scan_root(id: &str, path: &str, enabled: bool) -> ScanRootSetting {
         ScanRootSetting {
             id: id.to_string(),
@@ -605,6 +1198,7 @@ mod tests {
             paths: vec![path.clone()],
             stale_paths: Vec::new(),
             upsert_paths: vec![path.clone()],
+            reconciliation_paths: Vec::new(),
             timestamp_ms: 1,
         };
         let removed = FileWatchEvent {
@@ -612,6 +1206,7 @@ mod tests {
             paths: vec![path.clone()],
             stale_paths: vec![path.clone()],
             upsert_paths: Vec::new(),
+            reconciliation_paths: Vec::new(),
             timestamp_ms: 2,
         };
 

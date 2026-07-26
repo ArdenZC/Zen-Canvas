@@ -83,10 +83,23 @@ fn main() {
             ) {
                 eprintln!("Global search hotkey setup failed (non-fatal): {error}");
             }
+            db.sync_file_library_watcher_roots(&app_settings.default_scan_folders)
+                .map_err(io::Error::other)?;
             let watcher_manager = app.state::<FileWatcherManager>();
+            if zen_canvas_tauri::watcher::backend_watcher_reconciliation_enabled() {
+                if let Err(error) = zen_canvas_tauri::watcher::recover_watcher_reconciliation_state(
+                    app.handle().clone(),
+                    db.clone(),
+                ) {
+                    eprintln!("Watcher reconciliation recovery failed (non-fatal): {error}");
+                }
+            }
             if let Err(error) = reload_file_watcher_for_settings(
                 app.handle().clone(),
                 &watcher_manager,
+                &db,
+                app.state::<ScanJobManager>().inner(),
+                app.state::<DedupeJobManager>().inner(),
                 &app_settings,
             ) {
                 eprintln!("File watcher init failed (non-fatal): {error}");
