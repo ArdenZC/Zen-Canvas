@@ -122,9 +122,13 @@ czkawka 仓库根目录的 MIT 文件名为 `LICENSE_MIT_EVERYTHING_OUTSIDE_ANY_
 | 用户裁决 | ✅ 已下达 | 裁决 1–4（见 `pr-18-review.md` 第 7 节与本文件 6.3） |
 | 裁决 1 前提核实 | ✅ 完成 | 前提成立，但发现事实基础需修正——见 `pr-18-review.md` 第 4.1b 节 |
 | 裁决 5（gate 默认 `true`） | ✅ 已下达 | kill switch，非 rollout flag |
-| M1–M6 实施 | ✅ 完成，待验收 | [PR #19](https://github.com/ArdenZC/Zen-Canvas/pull/19)（Draft，base `master`）；`m1-m6-implementation.md` |
-| PR #18 处置 | ⏸ 待裁决 | 未合并、未关闭、未改动。PR #19 基于其 head，已含其全部内容 |
+| M1–M6 实施 | ✅ **已合并**（人工验收通过，2026-07-26） | [PR #19](https://github.com/ArdenZC/Zen-Canvas/pull/19) 以 merge commit `7822594` 合入 master；`m1-m6-implementation.md` |
+| PR #18 处置 | ✅ **已结**——GitHub 自动标记为 MERGED | 其 head `c259fa7` 经 PR #19 的 merge commit 在 master 上可达 |
 | S1–S5 | ⏳ 未开始（未获批准，未改动） | — |
+| CLAUDE.md 合入 | ✅ 完成 | `docs/claude-md` rebase 后 fast-forward 合入，master `f5d36c7` |
+| 分支清理 | ✅ 完成 | 已删除远端与本地的 `remediation/01a-scan-generation-fixes`、`remediation/01a-scan-generation-foundation`、本地 `docs/claude-md` |
+
+**阶段 A 收尾后的 master HEAD：`f5d36c7`**（= merge commit `7822594` + CLAUDE.md `f5d36c7`）。模块 1 开始时按 `README.md` 第 1 节要求重新记录实际 HEAD。
 
 ### 6.2 阶段 B：环境准备
 
@@ -133,7 +137,13 @@ czkawka 仓库根目录的 MIT 文件名为 `LICENSE_MIT_EVERYTHING_OUTSIDE_ANY_
 | 参考仓库浅克隆（8 个，含 OpenCode） | ✅ 完成，SHA 已记录（第 2 节） |
 | 许可证实测与登记 | ✅ 完成（第 3 节），发现 2 处需收紧（3.1 节） |
 | 基线 commit SHA 记录 | ✅ 完成（第 1 节） |
-| 基线验证（完整 `npm run verify` 门槛） | 🔶 部分完成——master 侧仅跑了 `cargo test --lib` |
+| 基线验证（完整 `npm run verify` 门槛） | ✅ 完成——PR #19 合并后在 master `f5d36c7` 全套通过（见下） |
+
+**master `f5d36c7` 的完整 verify 结果（2026-07-26，合并后复验）**：
+
+- `verify:frontend`：通过（typecheck、481 前端测试、remediation 13、FTS/managed-scan 100k 性能夹具、build + NSIS bundle）。
+- `verify:rust`：**首轮 exit 101**——3 个 `file_ops` 用例失败（`execute_moves_core_moves_files_and_returns_success_log`、`execute_moves_core_marks_remaining_operations_skipped_when_cancelled`、`restore_moves_core_marks_remaining_logs_canceled_when_cancelled`），全部命中 `issue-file-ops-flaky.md` 的已知环境性特征（同组真实文件移动用例、计数差一 / `source.exists()`、触发条件为 release 构建 + 打包刚结束的累积负载）。**非回归证据**：`git diff 3b3d7b8..f5d36c7 -- src-tauri/src/file_ops.rs src-tauri/src/fs_safety/` 为空，合并未触碰该测试组。静默状态复跑 exit 0（fmt + lib 420 + 集成 119 + clippy 全过）。按 `issue-file-ops-flaky.md` 第 8 节协议判定为环境性失败，不计入验收；此次命中同时**提升了 F1/F2（测试层韧性 + 失败分类）的实施优先级**。
+- `verify:security`：通过（npm audit 0 漏洞；cargo audit exit 0，15 条既有 allowed 警告）。
 
 ### 6.3 已解决的阻塞项
 
