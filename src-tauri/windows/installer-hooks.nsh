@@ -69,6 +69,70 @@ delete_wait_timeout:
   Abort
 FunctionEnd
 
+; NSIS requires uninstall-section calls to target functions prefixed with `un.`.
+; Keep uninstall service cleanup independent from installer functions so the
+; generated uninstaller compiles and preserves the same fail-closed behavior.
+Function un.StopZenCanvasIndexService
+  DetailPrint "Stopping Zen Canvas Global Index service..."
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" stop "ZenCanvasGlobalIndex"'
+  Pop $0
+  Pop $1
+
+  StrCpy $2 0
+un_stop_wait_loop:
+  IntCmp $2 40 un_stop_wait_timeout 0 0
+  nsExec::ExecToStack '"$SYSDIR\cmd.exe" /D /S /C "\"$SYSDIR\sc.exe\" query \"ZenCanvasGlobalIndex\" | \"$SYSDIR\findstr.exe\" /C:\"STOPPED\" >NUL"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 0
+    Return
+  ${EndIf}
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "ZenCanvasGlobalIndex"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 1060
+    Return
+  ${EndIf}
+  Sleep 250
+  IntOp $2 $2 + 1
+  Goto un_stop_wait_loop
+
+un_stop_wait_timeout:
+  MessageBox MB_ICONSTOP|MB_OK "Zen Canvas Global Index service did not stop in time.$\r$\n$\r$\n$1"
+  Abort
+FunctionEnd
+
+Function un.DeleteZenCanvasIndexService
+  DetailPrint "Removing Zen Canvas Global Index service registration..."
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" delete "ZenCanvasGlobalIndex"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 1060
+    Return
+  ${EndIf}
+  ${If} $0 != 0
+    MessageBox MB_ICONSTOP|MB_OK "Could not remove the Zen Canvas Global Index service.$\r$\n$\r$\n$1"
+    Abort
+  ${EndIf}
+
+  StrCpy $2 0
+un_delete_wait_loop:
+  IntCmp $2 40 un_delete_wait_timeout 0 0
+  nsExec::ExecToStack '"$SYSDIR\sc.exe" query "ZenCanvasGlobalIndex"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 1060
+    Return
+  ${EndIf}
+  Sleep 250
+  IntOp $2 $2 + 1
+  Goto un_delete_wait_loop
+
+un_delete_wait_timeout:
+  MessageBox MB_ICONSTOP|MB_OK "The Zen Canvas Global Index service is still pending deletion. Restart Windows to finish cleanup."
+  Abort
+FunctionEnd
+
 Function InstallZenCanvasIndexService
   DetailPrint "Installing Zen Canvas Global Index service..."
   nsExec::ExecToStack '"$SYSDIR\sc.exe" create "ZenCanvasGlobalIndex" binPath= "\"$INSTDIR\Zen Canvas.exe\" --index-service" start= auto obj= LocalSystem DisplayName= "Zen Canvas Global Index"'
@@ -114,6 +178,6 @@ FunctionEnd
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
-  Call StopZenCanvasIndexService
-  Call DeleteZenCanvasIndexService
+  Call un.StopZenCanvasIndexService
+  Call un.DeleteZenCanvasIndexService
 !macroend
