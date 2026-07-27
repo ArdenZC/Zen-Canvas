@@ -51,6 +51,69 @@
         .expect("insert scoped file");
     }
 
+    fn publish_test_duplicate_group(db: &Database, file_ids: &[&str], full_hash: &str) {
+        assert!(file_ids.len() > 1, "duplicate groups need at least two files");
+        let conn = Connection::open(db.path()).expect("open migrated database");
+        let run_id = format!("test-dedupe-run-{full_hash}");
+        let group_id = format!("test-duplicate-group-{full_hash}");
+        conn.execute(
+            r#"
+            INSERT INTO dedupe_runs (
+                id, request_key, request_attempt, scope_json, scope_hash,
+                scope_snapshot_json, scope_snapshot_hash, status, phase,
+                revision, finished_at, created_at, updated_at
+            ) VALUES (?1, ?2, 1, '{"kind":"test"}', ?3, '[]', ?4,
+                      'completed', 'completed', 1, 1, 1, 1)
+            "#,
+            params![run_id, format!("test-request-{full_hash}"), full_hash, full_hash],
+        )
+        .expect("insert test dedupe run");
+
+        let first_size: i64 = conn
+            .query_row(
+                "SELECT size FROM files WHERE id = ?1",
+                params![file_ids[0]],
+                |row| row.get(0),
+            )
+            .expect("read first duplicate size");
+        let member_count = i64::try_from(file_ids.len()).expect("member count fits i64");
+        let reclaimable = first_size * (member_count - 1);
+        conn.execute(
+            r#"
+            INSERT INTO duplicate_groups (
+                id, size_each, full_hash, full_hash_algorithm, full_hash_version,
+                member_count, physical_copy_count, hardlink_alias_count,
+                exact_reclaimable_bytes, potential_reclaimable_bytes,
+                reclaimable_confidence, status, last_built_run_id, revision,
+                created_at, updated_at, last_verified_at
+            ) VALUES (?1, ?2, ?3, 'blake3', 1, ?4, ?4, 0, ?5, ?5,
+                      'exact', 'active', ?6, 1, 1, 1, 1)
+            "#,
+            params![group_id, first_size, full_hash, member_count, reclaimable, run_id],
+        )
+        .expect("insert test duplicate group");
+
+        for file_id in file_ids {
+            let (path, size, mtime): (String, i64, i64) = conn
+                .query_row(
+                    "SELECT path, size, mtime FROM files WHERE id = ?1",
+                    params![file_id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .expect("read duplicate member");
+            conn.execute(
+                r#"
+                INSERT INTO duplicate_group_members (
+                    group_id, file_id, path_snapshot, physical_key,
+                    identity_status, is_hardlink_alias, size, modified_ns, verified_at
+                ) VALUES (?1, ?2, ?3, NULL, 'path_only', 0, ?4, ?5, 1)
+                "#,
+                params![group_id, file_id, path, size, mtime],
+            )
+            .expect("insert test duplicate member");
+        }
+    }
+
     fn operation_log(id: &str, batch_id: &str, status: &str) -> OperationLogDto {
         let success = status == "success";
         OperationLogDto {

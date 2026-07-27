@@ -379,7 +379,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .expect("schema version"),
-            28
+            29
         );
         assert_eq!(
             conn.query_row(
@@ -465,12 +465,12 @@
     }
 
     #[test]
-    fn database_rejects_a_future_schema_version() {
+    fn database_rejects_schema_30_as_a_future_version() {
         let path = test_db_path();
         let db = Database::open(&path).expect("create database");
         drop(db);
         let conn = Connection::open(&path).expect("open sqlite");
-        conn.execute_batch("PRAGMA user_version = 999;")
+        conn.execute_batch("PRAGMA user_version = 30;")
             .expect("set future version");
         drop(conn);
 
@@ -528,10 +528,99 @@
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("watcher defaults");
+        let rule_recovery_required: i64 = conn
+            .query_row(
+                "SELECT watcher_rule_recovery_required FROM scan_roots WHERE id = 'schema-27-root'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("rule recovery default");
+        let fabricated_dedupe_rows: i64 = conn
+            .query_row(
+                "SELECT (SELECT COUNT(*) FROM dedupe_runs) + (SELECT COUNT(*) FROM file_fingerprints) + (SELECT COUNT(*) FROM duplicate_groups)",
+                [],
+                |row| row.get(0),
+            )
+            .expect("dedupe backfill count");
 
-        assert_eq!(version, 28);
+        assert_eq!(version, 29);
         assert_eq!(ledger_tables, 4);
         assert_eq!(watcher_defaults, (0, 0));
+        assert_eq!(rule_recovery_required, 0);
+        assert_eq!(fabricated_dedupe_rows, 0);
+    }
+
+    #[test]
+    fn schema_28_to_29_conflict_rolls_back_dedupe_migration_atomically() {
+        let path = test_db_path();
+        let db = Database::open(&path).expect("create schema 29 fixture");
+        drop(db);
+
+        let conn = Connection::open(&path).expect("open schema fixture");
+        conn.execute(
+            "INSERT INTO scan_roots (id, normalized_path, display_name, created_at, updated_at) VALUES ('schema-28-root', '/tmp/schema-28-root', 'schema-28-root', 1, 1)",
+            [],
+        )
+        .expect("seed schema 28 scan ledger");
+        conn.execute_batch(
+            r#"
+            DROP VIEW IF EXISTS active_duplicate_membership;
+            DROP TABLE IF EXISTS duplicate_group_members;
+            DROP TABLE IF EXISTS duplicate_groups;
+            DROP TABLE IF EXISTS dedupe_run_errors;
+            DROP TABLE IF EXISTS file_fingerprints;
+            DROP TABLE IF EXISTS dedupe_runs;
+            ALTER TABLE scan_roots DROP COLUMN watcher_rule_recovery_required;
+            CREATE TABLE file_fingerprints (file_id TEXT PRIMARY KEY);
+            PRAGMA user_version = 28;
+            "#,
+        )
+        .expect("create conflicting schema 28 fixture");
+        drop(conn);
+
+        let error = match Database::open(&path) {
+            Ok(_) => panic!("schema 29 migration should fail on the conflicting table"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("physical_key"));
+
+        let conn = Connection::open(&path).expect("inspect rolled back schema 28 fixture");
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("schema version");
+        let root_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM scan_roots WHERE id = 'schema-28-root'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("scan root survives rollback");
+        assert_eq!(version, 28);
+        assert_eq!(root_count, 1);
+        let watcher_flag_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('scan_roots') WHERE name = 'watcher_rule_recovery_required'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("watcher flag column count");
+        let conflicting_columns: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('file_fingerprints')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("conflicting fingerprint columns");
+        assert_eq!(watcher_flag_count, 0);
+        assert_eq!(conflicting_columns, 1);
+        let dedupe_table_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = 'dedupe_runs'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("dedupe table count");
+        assert_eq!(dedupe_table_count, 0);
     }
 
     #[test]
@@ -740,6 +829,11 @@
             [],
         )
         .expect("set duplicate content hash");
+        publish_test_duplicate_group(
+            &db,
+            &["file-duplicate-a", "file-duplicate-b"],
+            "same-content",
+        );
         conn.execute(
             "UPDATE files SET risk_level = 'Sensitive' WHERE path = '/tmp/root-a/passport.pdf'",
             [],
@@ -858,6 +952,11 @@
             [],
         )
         .expect("set duplicate content hash");
+        publish_test_duplicate_group(
+            &db,
+            &["duplicate-root-a", "duplicate-root-b"],
+            "same-global-content",
+        );
         let root_a_scope = LibraryScope::Roots {
             roots: vec!["/tmp/root-a".to_string()],
         };

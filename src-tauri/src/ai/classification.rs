@@ -1893,7 +1893,9 @@ fn select_indexed_file_columns(alias: &str) -> String {
                {alias}.risk_level, {alias}.suggested_action, {alias}.suggested_target_path,
                {alias}.suggested_name, {alias}.confidence, {alias}.classification_reason,
                {alias}.classification_status, {alias}.matched_rules, {alias}.requires_confirmation,
-               {alias}.content_hash, 0 AS is_duplicate, {alias}.is_stale, {alias}.last_seen_at,
+               {alias}.content_hash,
+               EXISTS (SELECT 1 FROM active_duplicate_membership WHERE file_id = {alias}.id) AS is_duplicate,
+               {alias}.is_stale, {alias}.last_seen_at,
                {alias}.last_classified_at, {alias}.classified_rule_version,
                {alias}.last_classified_mtime, {alias}.last_classified_size
         "#

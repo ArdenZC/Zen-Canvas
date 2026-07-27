@@ -153,3 +153,95 @@ if (scanPerformance.status !== 0) {
 }
 
 console.log("Managed-scan 100k observation benchmark passed.");
+
+console.log("Running schema 28->29 100k-file migration/WAL-reader benchmark...");
+const migrationPerformance = spawnSync(
+  "cargo",
+  [
+    "test",
+    "--release",
+    "--manifest-path",
+    "src-tauri/Cargo.toml",
+    "performance_100k_files_schema_28_to_29_and_wal_reader",
+    "--",
+    "--ignored",
+    "--nocapture",
+  ],
+  { cwd: root, stdio: "inherit" },
+);
+
+if (migrationPerformance.error) {
+  console.error(`Schema migration benchmark failed to start: ${migrationPerformance.error.message}`);
+  process.exit(1);
+}
+
+if (migrationPerformance.status !== 0) {
+  console.error(`Schema migration benchmark failed with exit code ${migrationPerformance.status}.`);
+  process.exit(migrationPerformance.status ?? 1);
+}
+
+console.log("Schema 28->29 migration/WAL-reader benchmark passed.");
+
+console.log("Running Task 02 dedupe repository benchmark...");
+const dedupePerformance = spawnSync(
+  "cargo",
+  [
+    "test",
+    "--release",
+    "--manifest-path",
+    "src-tauri/Cargo.toml",
+    "performance_task02_repository_100k_and_group_pages",
+    "--",
+    "--ignored",
+    "--nocapture",
+  ],
+  { cwd: root, stdio: "inherit" },
+);
+
+if (dedupePerformance.error) {
+  console.error(`Task 02 dedupe benchmark failed to start: ${dedupePerformance.error.message}`);
+  process.exit(1);
+}
+
+if (dedupePerformance.status !== 0) {
+  console.error(`Task 02 dedupe benchmark failed with exit code ${dedupePerformance.status}.`);
+  process.exit(dedupePerformance.status ?? 1);
+}
+
+console.log("Task 02 dedupe repository benchmark passed.");
+
+console.log("Running Task 02 bounded hash IO benchmark with the reduced CI fixture...");
+const ioPerformance = spawnSync(
+  "cargo",
+  [
+    "test",
+    "--release",
+    "--manifest-path",
+    "src-tauri/Cargo.toml",
+    "performance_task02_hash_io_1000x16mib_1_worker_and_default_workers",
+    "--",
+    "--ignored",
+    "--nocapture",
+  ],
+  {
+    cwd: root,
+    env: {
+      ...process.env,
+      ZC_TASK02_IO_FILES: "16",
+      ZC_TASK02_IO_BYTES: "1048576",
+    },
+    stdio: "inherit",
+  },
+);
+
+if (ioPerformance.error) {
+  console.error(`Task 02 hash IO benchmark failed to start: ${ioPerformance.error.message}`);
+  process.exit(1);
+}
+
+if (ioPerformance.status !== 0) {
+  console.error(`Task 02 hash IO benchmark failed with exit code ${ioPerformance.status}.`);
+  process.exit(ioPerformance.status ?? 1);
+}
+
+console.log("Task 02 bounded hash IO benchmark passed.");

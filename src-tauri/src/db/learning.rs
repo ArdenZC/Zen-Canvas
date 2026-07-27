@@ -371,7 +371,9 @@ fn indexed_file_by_id(db: &Database, file_id: &str) -> Result<IndexedFileRow, Db
                f.risk_level, f.suggested_action, f.suggested_target_path,
                f.suggested_name, f.confidence, f.classification_reason,
                f.classification_status, f.matched_rules, f.requires_confirmation,
-               f.content_hash, 0 AS is_duplicate, f.is_stale, f.last_seen_at,
+               f.content_hash,
+               EXISTS (SELECT 1 FROM active_duplicate_membership WHERE file_id = f.id) AS is_duplicate,
+               f.is_stale, f.last_seen_at,
                f.last_classified_at, f.classified_rule_version,
                f.last_classified_mtime, f.last_classified_size
         FROM files AS f

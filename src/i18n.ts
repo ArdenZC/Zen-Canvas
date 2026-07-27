@@ -1491,7 +1491,29 @@ const zh = {
   autoCreateFolders: "将创建目录",
   previewTruncatedWarning: "本次预览已达到安全上限，仅显示前 {limit} / {total} 项。",
   autoCreateFolderHint: "{count} 个目标文件夹不存在，执行时会先安全创建。",
-  showMorePreviewItems: "再显示 {count} 个"
+  showMorePreviewItems: "再显示 {count} 个",
+  duplicateGroupsTitle: "重复文件组",
+  duplicateGroupsDescription: "基于持久化指纹与完整哈希生成；这里只读展示，不会移动或删除文件。",
+  duplicateGroupsStart: "扫描重复文件",
+  duplicateGroupsCancel: "停止扫描",
+  duplicateGroupsRetry: "重试扫描",
+  duplicateGroupsLoading: "正在读取重复文件组",
+  duplicateGroupsEmpty: "当前没有已确认的重复文件组",
+  duplicateGroupsRunStatus: "状态：{status} · 阶段：{phase}",
+  duplicateGroupsProgress: "已处理 {processed} / {total} 个文件",
+  duplicateGroupsBytes: "已读取 {processed} / {total}",
+  duplicateGroupsSummary: "{groups} 组 · {members} 个成员 · 可回收 {bytes}",
+  duplicateGroupsMembers: "查看成员",
+  duplicateGroupsReveal: "打开位置",
+  duplicateGroupsMore: "加载更多",
+  duplicateGroupsExact: "精确估算",
+  duplicateGroupsEstimated: "保守估算",
+  duplicateGroupsReadOnlyHint: "重复组只提供核对线索；任何文件操作仍需进入预览并人工确认。",
+  duplicateGroupsLatestRun: "最近状态：{status} · {phase}",
+  duplicateGroupsReclaimable: "{confidence} · 精确 {exact} · 潜在 {potential}",
+  duplicateGroupsIdentity: "身份：{status}",
+  duplicateGroupsHardlinkAlias: "硬链接别名",
+  duplicateGroupsEmptyFilesNote: "空文件不会进入内容重复组。"
 } as const;
 
 const en: Record<keyof typeof zh, string> = {
@@ -2985,7 +3007,29 @@ const en: Record<keyof typeof zh, string> = {
   autoCreateFolders: "Folders to create",
   previewTruncatedWarning: "This preview reached the safety limit and shows {limit} / {total} items.",
   autoCreateFolderHint: "{count} target folders do not exist and will be created safely before execution.",
-  showMorePreviewItems: "Show {count} more"
+  showMorePreviewItems: "Show {count} more",
+  duplicateGroupsTitle: "Duplicate groups",
+  duplicateGroupsDescription: "Built from durable physical identity and full hashes. This panel is read-only and never moves or deletes files.",
+  duplicateGroupsStart: "Scan for duplicates",
+  duplicateGroupsCancel: "Stop scan",
+  duplicateGroupsRetry: "Retry scan",
+  duplicateGroupsLoading: "Loading duplicate groups",
+  duplicateGroupsEmpty: "No confirmed duplicate groups yet",
+  duplicateGroupsRunStatus: "Status: {status} · Phase: {phase}",
+  duplicateGroupsProgress: "Processed {processed} / {total} files",
+  duplicateGroupsBytes: "Read {processed} / {total}",
+  duplicateGroupsSummary: "{groups} groups · {members} members · reclaimable {bytes}",
+  duplicateGroupsMembers: "View members",
+  duplicateGroupsReveal: "Open location",
+  duplicateGroupsMore: "Load more",
+  duplicateGroupsExact: "Exact estimate",
+  duplicateGroupsEstimated: "Conservative estimate",
+  duplicateGroupsReadOnlyHint: "Duplicate groups are review signals only; file operations still require Preview and explicit confirmation.",
+  duplicateGroupsLatestRun: "Latest status: {status} · {phase}",
+  duplicateGroupsReclaimable: "{confidence} · exact {exact} · potential {potential}",
+  duplicateGroupsIdentity: "Identity: {status}",
+  duplicateGroupsHardlinkAlias: "hardlink alias",
+  duplicateGroupsEmptyFilesNote: "Empty files are excluded from content duplicate groups."
 };
 
 const dict = { zh, en } as const;

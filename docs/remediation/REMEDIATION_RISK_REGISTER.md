@@ -58,18 +58,18 @@
 
 | ID | 风险 | 等级 | 触发条件/影响 | Task 02 最终契约 | 状态 |
 |---|---|---|---|---|---|
-| R-038 | 最近 watcher error 擦除待恢复规则失败 | High | A规则失败后B正常事件清空error，full scan错误healthy | 独立 `watcher_rule_recovery_required`，仅成功root恢复清零 | Task 02 第一项强制修复 |
-| R-039 | 轻量 identity 误替代 operation identity | Critical | 为复用native ID修改mutation claim/hash语义 | 新 helper只读metadata/native ID；operation identity不变 | Task 02 阻断项 |
-| R-040 | Hardlink 被计为可释放副本 | Critical | 多路径同inode/file-index导致空间夸大和错误清理 | physical key去重；hardlink-only不建内容重复组 | Task 02 阻断项 |
-| R-041 | Fingerprint stale cache 误确认重复 | Critical | same-second修改、rename、算法升级或CAS漏失效 | live modified_ns + physical identity + version + before/after + DB CAS | Task 02 阻断项 |
-| R-042 | Prehash 被误当最终证据 | Critical | sample相同但内容不同建立重复组 | prehash只淘汰；full BLAKE3唯一确认 | Task 02 阻断项 |
-| R-043 | Dedupe crash 后丢失历史或重复并行IO | High | 内存job消失、scan dispatch重放多worker | durable `dedupe_runs`、one-active-scope、interrupted恢复、cache复用 | Task 02 必须关闭 |
-| R-044 | Group publication 空窗或半成品 | High | 先删旧组再长事务重建，UI瞬间错误 | deterministic group + 短事务原子publication + snapshot guard | Task 02 阻断项 |
-| R-045 | Scope变化时发布不完整组 | High | run期间scan/watcher变化，新文件缺失或旧文件已变 | scope snapshot hash；变化则warnings/rerun，不替换权威全集 | Task 02 阻断项 |
-| R-046 | Dedupe worker压垮磁盘/内存/SQLite | High | 无界队列、多线程写库、长事务 | 1..8有界worker、single DB writer、bounded channel、字节基准 | Task 02 性能门禁 |
-| R-047 | Duplicate UI 越权执行删除 | Critical | 从“识别”直接进入自动清理且无journal | Task02 UI只读；Task03 Finding，后续mutation仍走Safe Trash/journal | 持续阻断 |
-| R-048 | 旧 `content_hash` 与新 group 双重事实 | High | filter/classification仍查旧CTE，结果漂移 | group membership唯一authority；content_hash仅compat mirror | Task 02 必须关闭 |
+| R-038 | 最近 watcher error 擦除待恢复规则失败 | High | A规则失败后B正常事件清空error，full scan错误healthy | 独立 `watcher_rule_recovery_required`，仅成功root恢复清零 | 已实施，PR #26 Draft，待人工验收 |
+| R-039 | 轻量 identity 误替代 operation identity | Critical | 为复用native ID修改mutation claim/hash语义 | 新 helper只读metadata/native ID；operation identity不变 | 已实施，PR #26 Draft，待人工验收 |
+| R-040 | Hardlink 被计为可释放副本 | Critical | 多路径同inode/file-index导致空间夸大和错误清理 | physical key去重；hardlink-only不建内容重复组 | 已实施，PR #26 Draft，待人工验收 |
+| R-041 | Fingerprint stale cache 误确认重复 | Critical | same-second修改、rename、算法升级或CAS漏失效 | live modified_ns + physical identity + version + before/after + DB CAS | 已实施，PR #26 Draft，待人工验收 |
+| R-042 | Prehash 被误当最终证据 | Critical | sample相同但内容不同建立重复组 | prehash只淘汰；full BLAKE3唯一确认 | 已实施，PR #26 Draft，待人工验收 |
+| R-043 | Dedupe crash 后丢失历史或重复并行IO | High | 内存job消失、scan dispatch重放多worker | durable `dedupe_runs`、one-active-scope、interrupted恢复、cache复用 | 已实施，PR #26 Draft，待人工验收 |
+| R-044 | Group publication 空窗或半成品 | High | 先删旧组再长事务重建，UI瞬间错误 | deterministic group + 短事务原子publication + snapshot guard | 已实施，PR #26 Draft，待人工验收 |
+| R-045 | Scope变化时发布不完整组 | High | run期间scan/watcher变化，新文件缺失或旧文件已变 | scope snapshot hash；变化则warnings/rerun，不替换权威全集 | 已实施，PR #26 Draft，待人工验收 |
+| R-046 | Dedupe worker压垮磁盘/内存/SQLite | High | 无界队列、多线程写库、长事务 | 1..8有界worker、single DB writer、bounded channel、字节基准 | 本地缩小/1000×16MiB性能证据及 GitHub CI run `30237626153` Windows/macOS 通过；待人工验收 |
+| R-047 | Duplicate UI 越权执行删除 | Critical | 从“识别”直接进入自动清理且无journal | Task02 UI只读；Task03 Finding，后续mutation仍走Safe Trash/journal | 已实施且持续阻断 mutation，待人工验收 |
+| R-048 | 旧 `content_hash` 与新 group 双重事实 | High | filter/classification仍查旧CTE，结果漂移 | group membership唯一authority；content_hash仅compat mirror | 已实施，PR #26 Draft，待人工验收 |
 
 ## 风险结论
 
-Task 02 是 identity、hash IO、持久运行和用户空间语义交汇点。任何关于主键迁移、hardlink、cache validity、group原子性、文件 mutation或跨域scope的 Critical/High 风险，在没有 migration、平台测试、crash/cancel、性能和双平台 CI 证据前继续阻断合并。
+Task 02 已完成 identity、hash IO、持久运行和用户空间语义实现；PR #26 保持 Draft，Windows/macOS CI 已通过。任何关于主键迁移、hardlink、cache validity、group原子性、文件 mutation或跨域scope的 Critical/High 风险，在人工验收完成前继续阻断合并；Task 03 仍禁止执行。

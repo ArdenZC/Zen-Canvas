@@ -461,7 +461,7 @@ export const useScanManagerStore = create<ScanManagerStore>((set, get) => ({
             if (!isCurrentDedupeEvent(payload, activeDedupeParentScanJobId, activeDedupeJobId)) return;
             activeDedupeJobId = null;
             activeDedupeParentScanJobId = null;
-            if (payload.status === "completed") {
+            if (payload.status === "completed" || payload.status === "completed_with_warnings") {
               void useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
             }
           })

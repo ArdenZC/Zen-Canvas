@@ -15,6 +15,10 @@ import type {
   CleanupExecutionResult,
   CleanupPreviewItem,
   DashboardStats,
+  DedupeGroup,
+  DedupeGroupMember,
+  DedupeGroupPage,
+  DedupeRun,
   ExecuteOperationResult,
   FileLibraryFilters,
   FileQueryResult,
@@ -187,6 +191,58 @@ const mockGlobalEntries: GlobalSearchResult[] = [
 
 let mockManagedScopeState: ManagedScope[] = [];
 let mockManagedScanState: { request: ManagedScanRequest; start: ManagedScanStartDto } | null = null;
+let mockDedupeRuns: DedupeRun[] = [];
+
+const mockDuplicateGroups: DedupeGroup[] = [
+  {
+    id: "mock-duplicate-group",
+    sizeEach: 810_000,
+    fullHash: "mock-blake3-hash",
+    fullHashAlgorithm: "blake3",
+    fullHashVersion: 1,
+    memberCount: 2,
+    physicalCopyCount: 2,
+    hardlinkAliasCount: 0,
+    exactReclaimableBytes: 810_000,
+    potentialReclaimableBytes: 810_000,
+    reclaimableConfidence: "exact",
+    status: "active",
+    lastBuiltRunId: "mock-dedupe-run",
+    revision: 1,
+    createdAt: Math.floor(Date.now() / 1000),
+    updatedAt: Math.floor(Date.now() / 1000),
+    lastVerifiedAt: Math.floor(Date.now() / 1000),
+    representativePaths: [
+      "C:/Users/Zen/Desktop/invoice-copy.pdf",
+      "C:/Users/Zen/Documents/invoice.pdf"
+    ]
+  }
+];
+
+const mockDuplicateMembers: DedupeGroupMember[] = [
+  {
+    groupId: "mock-duplicate-group",
+    fileId: "mock-duplicate",
+    pathSnapshot: "C:/Users/Zen/Desktop/invoice-copy.pdf",
+    physicalKey: "windows:v1:mock:1",
+    identityStatus: "verified",
+    isHardlinkAlias: false,
+    size: 810_000,
+    modifiedNs: null,
+    verifiedAt: Math.floor(Date.now() / 1000)
+  },
+  {
+    groupId: "mock-duplicate-group",
+    fileId: "mock-invoice",
+    pathSnapshot: "C:/Users/Zen/Documents/invoice.pdf",
+    physicalKey: "windows:v1:mock:2",
+    identityStatus: "verified",
+    isHardlinkAlias: false,
+    size: 810_000,
+    modifiedNs: null,
+    verifiedAt: Math.floor(Date.now() / 1000)
+  }
+];
 
 const mockRules: Rule[] = [
   {
@@ -225,6 +281,50 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "rebuild_global_index_source":
     case "set_global_index_source_enabled":
       return undefined as T;
+    case "start_dedupe_run":
+      return startMockDedupeRun(args?.request as { parentScanSessionId?: string | null } | undefined) as T;
+    case "retry_dedupe_run": {
+      const previous = mockDedupeRuns.find((run) => run.id === String(args?.runId ?? ""));
+      if (!previous) throw new Error("Mock dedupe run not found");
+      return startMockDedupeRun({ parentScanSessionId: previous.parentScanSessionId }) as T;
+    }
+    case "cancel_dedupe_run": {
+      const runId = String(args?.runId ?? "");
+      const current = mockDedupeRuns.find((run) => run.id === runId);
+      if (!current) throw new Error("Mock dedupe run not found");
+      const cancelled = { ...current, status: "cancelled", cancelRequested: true, revision: current.revision + 1 };
+      mockDedupeRuns = mockDedupeRuns.map((run) => run.id === runId ? cancelled : run);
+      return cancelled as T;
+    }
+    case "cancel_dedupe": {
+      const runId = String(args?.jobId ?? "");
+      const current = mockDedupeRuns.find((run) => run.id === runId);
+      if (!current) throw new Error("Mock dedupe run not found");
+      const cancelled = { ...current, status: "cancelled", cancelRequested: true, revision: current.revision + 1 };
+      mockDedupeRuns = mockDedupeRuns.map((run) => run.id === runId ? cancelled : run);
+      return undefined as T;
+    }
+    case "get_dedupe_run": {
+      const run = mockDedupeRuns.find((item) => item.id === String(args?.runId ?? ""));
+      if (!run) throw new Error("Mock dedupe run not found");
+      return run as T;
+    }
+    case "list_dedupe_runs":
+      return mockDedupeRuns.slice(0, Number(args?.limit ?? 20)) as T;
+    case "get_active_dedupe_run":
+      return (mockDedupeRuns.find((run) => ["queued", "running", "cancelling"].includes(run.status)) ?? null) as T;
+    case "list_duplicate_groups":
+      return {
+        groups: mockDuplicateGroups,
+        nextCursor: null,
+        limit: Number(args?.limit ?? 50)
+      } satisfies DedupeGroupPage as T;
+    case "get_duplicate_group":
+      return (mockDuplicateGroups.find((group) => group.id === String(args?.groupId ?? "")) ?? null) as T;
+    case "list_duplicate_group_members":
+      return mockDuplicateMembers.filter((member) => member.groupId === String(args?.groupId ?? "")) as T;
+    case "get_file_duplicate_membership":
+      return mockDuplicateGroups.filter((group) => mockDuplicateMembers.some((member) => member.fileId === String(args?.fileId ?? "") && member.groupId === group.id)) as T;
     case "start_managed_scan":
       return startMockManagedScan(args?.request as ManagedScanRequest | undefined) as T;
     case "get_managed_scan_snapshot": {
@@ -400,6 +500,52 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
   }
 }
 
+function startMockDedupeRun(request?: { parentScanSessionId?: string | null }): DedupeRun {
+  const now = Math.floor(Date.now() / 1000);
+  const run: DedupeRun = {
+    id: `mock-dedupe-run-${Date.now()}`,
+    requestKey: `mock-dedupe-request-${Date.now()}`,
+    requestAttempt: 1,
+    parentScanSessionId: request?.parentScanSessionId ?? null,
+    scope: { kind: "all_managed_file_library", rootIds: [] },
+    scopeSnapshot: [],
+    scopeHash: "mock-scope-hash",
+    scopeSnapshotHash: "mock-snapshot-hash",
+    status: "completed",
+    phase: "completed",
+    revision: 2,
+    cancelRequested: false,
+    rerunRequired: false,
+    candidateFiles: mockFiles.length,
+    candidatePhysicalObjects: mockFiles.length,
+    candidateBytes: mockFiles.reduce((total, file) => total + file.size, 0),
+    identityVerifiedFiles: mockFiles.length,
+    identityUnknownFiles: 0,
+    hardlinkAliases: 0,
+    prehashedFiles: mockFiles.length,
+    prehashPrunedFiles: 0,
+    fullHashedFiles: mockFiles.length,
+    duplicateGroups: 1,
+    duplicateMembers: 2,
+    exactReclaimableBytes: 810_000,
+    potentialReclaimableBytes: 810_000,
+    processedFiles: mockFiles.length,
+    processedBytes: mockFiles.reduce((total, file) => total + file.size, 0),
+    totalBytes: mockFiles.reduce((total, file) => total + file.size, 0),
+    warningCount: 0,
+    errorCount: 0,
+    startedAt: now,
+    finishedAt: now,
+    lastCheckpointAt: now,
+    createdAt: now,
+    updatedAt: now,
+    errorCode: null,
+    errorMessage: null
+  };
+  mockDedupeRuns = [run, ...mockDedupeRuns].slice(0, 20);
+  return run;
+}
+
 function startMockManagedScan(request?: ManagedScanRequest): ManagedScanStartDto {
   const normalizedRequest: ManagedScanRequest = {
     roots: request?.roots?.map((root) => root.trim()).filter(Boolean) ?? [],
@@ -540,6 +686,7 @@ function mockManagedRootsForRequest(request: ManagedScanRequest): ScanRootDto[] 
     watcherLastAppliedAt: now,
     watcherLastErrorCode: null,
     watcherLastErrorMessage: null,
+    watcherRuleRecoveryRequired: false,
     createdAt: now,
     updatedAt: now
   }));

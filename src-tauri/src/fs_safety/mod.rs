@@ -3,6 +3,7 @@ pub mod atomic_move;
 pub mod copy_commit;
 pub mod identity;
 pub mod path_guard;
+pub mod physical;
 pub mod platform_support;
 pub mod source_claim;
 pub mod verified_directory;
@@ -16,6 +17,9 @@ pub use identity::{
     IdentityError,
 };
 pub use path_guard::{create_directory_chain_no_links, PathGuardError};
+pub use physical::{
+    capture_physical_identity, PhysicalFileIdentity, PhysicalIdentityError, PhysicalPlatform,
+};
 pub use platform_support::{
     ensure_supported_cleanup_mutation, ensure_supported_file_mutation, PlatformSupportError,
     MACOS_FILE_MUTATION_SOURCE_BINDING_UNSUPPORTED, UNSUPPORTED_PLATFORM_LINUX,
