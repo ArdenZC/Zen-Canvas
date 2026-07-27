@@ -14,13 +14,13 @@
 | R-001 | 重建第二套 Global Index | Critical | 新模块重新扫描全盘并建立第二套 volume/entry/FTS，导致 search、AI、scope 和 stale 事实分裂 | `global_index/coordinator.rs`、`repository.rs`、global schema | 所有 global discovery/search 复用 `global_*`；架构 guard | 持续阻断越界 |
 | R-002 | 把 Managed AI `ai_jobs` 误作通用 Job Runtime | High | scan/cleanup/dedupe 污染 provider、scope、fingerprint、correction | Managed AI worker/schema | 保持 AI 表和 worker 领域专用 | 禁止泛化 |
 | R-003 | 无边界跨域 durable queue | Critical | renderer、Tauri、native service 和 provider 重复消费，造成重复执行或丢失 | watcher、AI worker、global coordinator | 每个 domain 定义唯一 owner、claim、cancel、retry 和 recovery | 未定义前阻断 |
-| R-004 | Scan 崩溃后误判完成 | High | 内存 job 消失但 `files` 已部分写入，旧逻辑可能执行 stale | `scanner.rs::ScanJobManager` | Task 01A 建立 run/generation/scan_seen/recovery | Task 01A 处理 |
-| R-005 | Watcher overflow 后最终一致性丢失 | High | bounded channel/renderer queue 丢事件且无 durable owner | `watcher.rs`、`fsWatcherQueue.ts` | Task 01B 定义 authoritative reconcile 和 replay | 等待 01B |
+| R-004 | Scan 崩溃后误判完成 | High | 内存 job 消失但 `files` 已部分写入，旧逻辑可能执行 stale | `scanner.rs::ScanJobManager` | Task 01A 已建立 run/generation/scan_seen/recovery | 已由 01A 缓解，持续回归 |
+| R-005 | Watcher overflow 后最终一致性丢失 | High | bounded channel/renderer queue 丢事件且无 durable owner | `watcher.rs`、`fsWatcherQueue.ts` | Task 01B 已建立 Rust owner、revision gap 和 managed reconciliation | 已由 01B 缓解，持续回归 |
 | R-006 | 多 watcher/provider 重复消费 | High | File Library watcher、USN、FSEvents、Spotlight 写入边界混淆 | watcher 与 global provider | 保持 files/global 数据域隔离 | 持续监控 |
 | R-007 | Path ID 与 native ID 混用 | Critical | rename/cross-volume/case 后误合并实体或丢历史 | scanner path-id、global stable id、path identity | 先做 mapping/collision/backfill/rollback；禁止直接改 `files.id` | 阻断 identity 迁移 |
 | R-008 | operation identity 被弱化为普通 fingerprint | Critical | symlink/reparse、claim/restore 语义丢失，错误移动或恢复 | `fs_safety/identity.rs`、`file_ops.rs` | mutation 继续走 claim、preview、identity、journal | 持续阻断 |
-| R-009 | Dedupe 产生错误用户语义 | High | hardlink、物理同一文件、同内容文件和外部变化被混为 reclaim | `dedupe.rs`、`files.content_hash` | Task 02 定义 physical identity、group 和 reclaim；不得自动删除 | 等待 02 |
-| R-010 | Dedupe/cleanup finding 重启丢失 | High | 内存结果无法重放或审计 | `DedupeJobManager`、`StorageCleanupState` | Task 03 建立 analysis run/finding；Safe Trash journal 保持独立 | 等待 03 |
+| R-009 | Dedupe 产生错误用户语义 | High | hardlink、物理同一文件、同内容文件和外部变化被混为 reclaim | `dedupe.rs`、`files.content_hash` | Task 02B/02C 定义 physical identity、group 和 reclaim；不得自动删除 | 等待 02B/02C |
+| R-010 | Dedupe/cleanup finding 重启丢失 | High | 内存结果无法重放或审计 | `DedupeJobManager`、`StorageCleanupState` | Task 02A 建立 durable dedupe run；Task 03 建 analysis finding | 02A/03 分阶段处理 |
 | R-011 | Global cursor 被误作通用 generation | High | USN/FSEvents/Spotlight cursor 语义不同，回放跳过或重复 | global coordinator/provider | File Library generation 独立 | 已冻结 |
 | R-012 | Managed Scope/Cloud AI 越权 | Critical | unmanaged/global row 进入 AI 或 cloud 读取未授权内容 | managed scope、AI worker pre/post validation | 保持 scope、managed entry、provider policy、correction 四重 gate | 持续阻断 |
 | R-013 | AI 覆盖用户纠正 | Critical | reanalysis/retry 覆盖 correction | Managed AI `user_corrected` | correction 永远优先；所有新 consumer 加 negative tests | 持续阻断 |
@@ -33,7 +33,7 @@
 | R-020 | 大表 count/sort 成本失控 | Medium | CTE/count/OFFSET 在大表和 watcher 下变慢 | library queries/performance tests | 保留 cold/warm/plan evidence，再决定 index/cursor | 等待 04 |
 | R-021 | Native helper/service 协议漂移 | High | Windows service、desktop fallback、installer/CI 不一致 | Windows service/protocol/CI | versioned protocol、source validation、native smoke | 持续监控 |
 | R-022 | partial index 被当 complete | High | provider 权限或 fallback 只返回部分结果但 UI/AI 当全量 | provider status/coordinator | 状态带 completeness/source/error；AI 不消费未授权 partial | 持续监控 |
-| R-023 | 迁移破坏 operation/cleanup 账本 | Critical | 新 schema 破坏 v18–26 恢复字段或 startup reconcile | schema migrations、operation queries | 每次 migration 必须有真实 fixture、rollback 和 reconcile tests | 持续阻断 |
+| R-023 | 迁移破坏 operation/cleanup 账本 | Critical | 新 schema 破坏 v18–28 恢复字段或 startup reconcile | schema migrations、operation queries | 每次 migration 必须有真实 fixture、rollback 和 reconcile tests | 持续阻断 |
 | R-024 | 主库跨域锁竞争 | High | 新表/长事务导致 global upsert、AI claim、library query、journal busy | 单 SQLite、Immediate transaction | 测事务时长和 WAL reader；禁止把大型分析塞入 mutation transaction | 持续监控 |
 | R-025 | 文档与实现漂移 | Medium | 旧文档阶段、表名或边界与源码不一致 | remediation/design/security docs | 当前代码和测试为事实；每阶段更新 evidence/closeout | 持续监控 |
 | R-026 | 阶段循环依赖 | High | Plan、finding、identity、runtime 相互等待，产生半成品 schema | remediation index | 每阶段声明 prerequisite/non-goal/migration/rollback | 已拆分 |
@@ -46,14 +46,25 @@
 
 | ID | 风险 | 等级 | 触发条件/影响 | 最终契约 | 状态 |
 |---|---|---|---|---|---|
-| R-031 | 同 root active run/旧 generation 竞争 | Critical | 两个 session 并发或旧 worker 晚回写，造成 generation 倒退或错误 stale | partial unique index + root active pointer + lease token + generation/revision CAS；affected-row 必须为 1 | 任务书已解决，实施验收 |
-| R-032 | metadata error 导致错误 stale 或 scan_seen 无限增长 | Critical | 真实文件 metadata 失败却被当 missing；observation 永久增长 | metadata error coverage-breaking、禁止 stale；7/30 日 + newest-two 的 bounded prune，不以 terminal status 永久 pin | 任务书已解决，实施验收 |
-| R-033 | multi-root mapping 或 dedupe 调度语义不真实 | High | nested/duplicate/invalid/unstarted 无法解释；把内存 dedupe 误称 exactly-once | `scan_session_roots` 持久 requested→effective；session terminal priority 固定。Dedupe 仅记录 durable intent，采用 at-least-once 安全重算，不承诺跨重启 exactly-once | 任务书已解决；durable dedupe 延后 Task 02 |
-| R-034 | schema 27 rollback 与旧 binary guard 冲突 | High | schema 27 无法被 schema-26 binary 打开，错误回退会绕过 guard | commit 前 transaction rollback；commit 后只用 schema-27-capable build 关 gate；旧 binary 保持 future-schema rejection | 任务书已解决，migration 验收 |
-| R-035 | renderer 重启后旧 scan event 覆盖新状态 | High | 内存 sequence 丢失或晚到事件回退 generation/status | run/session durable revision；先 hydrate，按 revision/generation/identity 过滤和 gap refetch | 任务书已解决，前端验收 |
-| R-036 | Session phase 随 root phase 倒退 | High | 多 root 顺序扫描中，前一个 finalizing 后下一个 preparing，renderer 将 session 看作倒退 | session 使用独立聚合 phase `preparing/running/finalizing/completed`；root phase 单独展示 | 任务书已解决，前端验收 |
-| R-037 | 把内存 DedupeJobManager 误作持久幂等下游 | High | crash 后无法按 dispatch key 查询旧 job，错误承诺 logical at-most-once | Task 01A 不改 dedupe；允许 at-least-once 重算，重复计算不得影响 scan/stale/用户文件；durable dedupe 归 Task 02 | 任务书已解决，实施需验证幂等安全 |
+| R-031 | 同 root active run/旧 generation 竞争 | Critical | 两个 session 并发或旧 worker 晚回写，造成 generation 倒退或错误 stale | partial unique index + root active pointer + lease token + generation/revision CAS；affected-row 必须为 1 | 已实施，持续回归 |
+| R-032 | metadata error 导致错误 stale 或 scan_seen 无限增长 | Critical | 真实文件 metadata 失败却被当 missing；observation 永久增长 | metadata error coverage-breaking、禁止 stale；7/30 日 + newest-two bounded prune | 已实施，持续回归 |
+| R-033 | multi-root mapping 或 dedupe 调度语义不真实 | High | nested/duplicate/invalid/unstarted 无法解释；把内存 dedupe 误称 exactly-once | `scan_session_roots` 持久 mapping；dedupe只保证at-least-once | durable run进入02A |
+| R-034 | schema 27 rollback 与旧 binary guard 冲突 | High | schema 27 无法被 schema-26 binary 打开 | commit前rollback；commit后仅schema-capable build关gate；旧binary拒绝future | 已实施，持续迁移门禁 |
+| R-035 | renderer重启后旧scan event覆盖新状态 | High | 内存sequence丢失或晚到事件回退状态 | durable revision；先hydrate，gap refetch | 已实施，持续回归 |
+| R-036 | Session phase随root phase倒退 | High | 多root顺序扫描状态倒退 |独立聚合phase | 已实施 |
+| R-037 | 把内存DedupeJobManager误作持久幂等下游 | High | crash后无法查询run，错误承诺exactly-once | 01A保持at-least-once；Task02A建立run ledger | 等待02A |
+
+## Task 01B / Task 02A 专项风险
+
+| ID | 风险 | 等级 | 触发条件/影响 | 冻结处理 | 状态 |
+|---|---|---|---|---|---|
+| R-038 | 未恢复 rule failure 被最近错误字段擦除 | High | A规则失败后B正常事件清空 `watcher_last_error_code`，full scan不再执行规则恢复却把root标healthy | schema29新增独立 `watcher_rule_recovery_required`；普通事件不得清除；成功CAS恢复后才清零 | **Task02A首项，未完成前阻断02A合并** |
+| R-039 | 内存 dedupe run 崩溃后状态丢失 | High | running/cancelling消失，用户和scan session无法查询终态 | schema29 `dedupe_runs`/errors、startup interrupted、queued pump、durable cancel/revision | 等待02A |
+| R-040 | 两个全局 dedupe worker 并发 | High | 两个run同时遍历和写hash，计数、取消、I/O和事件互相干扰 |全局single-worker partial unique index + claim CAS，允许多个queued | 等待02A |
+| R-041 | 把旧active run误当作新scan的dedupe结果 | High | active run在scan完成前已收集候选，后来的scan session链接它导致漏检 |每个scan dispatch创建独立queued run；Task02A不提前coalesce | 等待02A |
+| R-042 | durable checkpoint放大SQLite锁竞争 | Medium |按文件或chunk写进度，阻塞File Library/AI/journal | batch或时间节流checkpoint；WAL reader和100k基准 | 等待02A |
+| R-043 | Task02A提前混入prehash/group/identity迁移 | High |单PR同时改runtime、算法、identity和UI，难以回滚 |02A只持久run与现有算法；02B/02C独立任务书 | 持续阻断越界 |
 
 ## 风险结论
 
-Task 01A 任务书已经完成架构验收，但生产实施仍必须通过 migration、并发、crash、stale、性能和跨平台 CI。任何 Critical/High 风险在对应实现没有 owner、测试、迁移和 rollback 证据前，继续阻断合并和后续阶段。
+Task 01A 与 Task 01B 已进入 `master`。Task 02A 必须先消除 R-038，并为 R-039～R-042 提供 owner、状态机、迁移、崩溃恢复和性能证据。任何 Critical/High 风险在对应实现没有明确 owner、测试、migration 和 rollback 证据前，继续阻断合并和后续阶段。
