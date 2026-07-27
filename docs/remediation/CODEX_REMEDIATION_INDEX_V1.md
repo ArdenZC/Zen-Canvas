@@ -5,19 +5,19 @@
 - Task 00 已通过 PR #16 完成人工验收并合并。
 - Task 01A 已完成生产实施、人工验收并合并。
 - Task 01B 已完成生产实施、条件验收并通过 PR #23 合并，合并提交为 `1bc9ead144601892feb13feaf53a6a6137df3904`。
-- Task 02 已通过 PR #26 合并，合并提交为 `ac0ffd78244d61833d13c8ff7878be0a0e2bceaf`，数据库基线为 schema 29。
-- Task 02 人工审查确认的 6 个遗留正确性问题没有遗失，已被冻结为 Task 03 第一组强制生产改动。
-- Task 03 由人工编写为一个完整任务，不拆分为 03A/03B/03C，不创建多个生产 PR。
-- Task 03 任务书合并到 `master` 后，Task 03 可执行。
+- Task 02 已通过 PR #26 合并，合并提交为 `ac0ffd78244d61833d13c8ff7878be0a0e2bceaf`，当前数据库基线为 schema 29。
+- Task 02 人工审查确认的 6 个遗留正确性问题已被冻结为 Task 03 第一组强制生产改动，不得再次后移。
+- Task 03 任务书已通过 PR #27 合并，合并提交为 `d2f5093713d38928c9ba36b6193589ed956bf053`。
+- **Task 03 现在是唯一可执行阶段。**
 - Task 04 及所有后续阶段继续禁止执行。
 
 | 阶段 | 任务书 | 目标 | 状态 |
 |---|---|---|---|
 | 00 | `TASK_00_POST_MERGE_BASELINE_AUDIT.md` | PR #15 合并后架构、安全和数据基线审计 | **已验收并合并** |
-| 01A | `TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md` | File Library Scan root lease、session/run/generation、scan_seen、stale safety、恢复和 durable revision | **已验收并合并** |
+| 01A | `TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md` | Scan root lease、session/run/generation、scan_seen、stale safety、恢复和 durable revision | **已验收并合并** |
 | 01B | `TASK_01B_WATCHER_RECONCILIATION_OWNERSHIP.md` | Rust watcher owner、durable revision gap、overflow/startup reconciliation、renderer 脱离 | **已验收并合并** |
 | 02 | `TASK_02_IDENTITY_FINGERPRINT_AND_DUPE.md` | physical identity、fingerprint cache、prehash/full hash、durable run、hardlink-safe duplicate groups | **已合并，schema 29** |
-| 03 | `TASK_03_ANALYSIS_RUN_FINDING_AND_DETECTORS.md` | 关闭 Task 02 遗留；durable Analysis Run、Detector、Finding、Evidence、Decision 与 cleanup 兼容 | **任务书待合并；合并后可执行** |
+| 03 | `TASK_03_ANALYSIS_RUN_FINDING_AND_DETECTORS.md` | 关闭 Task 02 遗留；durable Analysis Run、Detector、Finding、Evidence、Decision 与 cleanup 兼容 | **可执行，目标 schema 30** |
 | 04 | 待创建 | File Query V2、snapshot、cursor 与跨页 selection | **等待 Task 03，禁止执行** |
 | 05 | 待创建 | Organization Plan 后端领域模型 | **后续阶段，禁止执行** |
 | 06 | 待创建 | 整理工作区迁移到持久化 Plan | **后续阶段，禁止执行** |
@@ -35,7 +35,7 @@
 
 1. 根目录当前开发说明；
 2. `docs/remediation/README.md`；
-3. `REMEDIATION_MASTER_PLAN_V1.md`；
+3. `docs/remediation/REMEDIATION_MASTER_PLAN_V1.md`；
 4. 本索引；
 5. 当前人工编写并批准的阶段任务书；
 6. 已合并 closeout、测试和实际源码；
@@ -49,7 +49,9 @@
 + 任务书已合并到 master
 ```
 
-`BRIEF.md`、`00-overview.md`、`01-dedupe.md`、旧 plan 或对标资料没有执行授权，不得改变阶段顺序、schema 分配、任务范围或前置关系。
+Task 03 已满足以上三个条件。
+
+`BRIEF.md`、`00-overview.md`、`01-dedupe.md`、旧 plan 或其他对标资料没有执行授权，不得改变阶段顺序、schema 分配、任务范围或前置关系。
 
 任务书和架构设计由人工编写。Codex 只执行生产代码、migration、测试、提交、一个 Draft PR 和 Closeout；不得重新设计任务书或拆分执行授权。
 
@@ -121,50 +123,35 @@ git status --short
 
 ---
 
-## 5. Task 01A 已冻结决定
+## 5. 已冻结的前置边界
 
-1. 不建立跨领域通用 Job Runtime；`ai_jobs` 保持 Managed AI 专用。
-2. File Library Managed Scan 与 Global Index 是两个独立领域。
-3. Task 01A 不持久化 raw watcher event。
-4. 不修改 `files.id`、operation/cleanup journal、Safe Trash 或 restore。
-5. root active pointer、lease、generation、revision 和 partial unique index共同保护扫描 owner。
-6. metadata error coverage-breaking，不写 `scan_seen`，禁止错误 stale。
-7. multi-root session 持久化 requested→effective mapping。
-8. renderer 先 hydrate，按 durable revision/generation 过滤事件。
-9. durable dedupe 归 Task 02。
-10. Query V2 必须先于 Organization Plan 的大规模选择执行。
+### Task 01A
 
----
+- 不建立跨领域通用 Job Runtime；`ai_jobs` 保持 Managed AI 专用。
+- File Library Managed Scan 与 Global Index 是两个独立领域。
+- scanner 是 `scan_seen` 和 generation 的唯一 owner。
+- 不修改 `files.id`、operation/cleanup journal、Safe Trash 或 restore。
+- root lease、generation、revision 和持久 session/run 共同保护扫描事实。
 
-## 6. Task 01B 已冻结决定
+### Task 01B
 
-1. Rust/Tauri 是 File Library watcher mutation/reconciliation 唯一默认 owner。
-2. renderer 只投影状态和刷新。
-3. 不持久化逐条 raw notify event，使用 root watcher revision/applied revision。
-4. watcher 不写 `scan_seen`、不推进 generation 或 last successful generation。
-5. overflow、ambiguity、revision gap 和 active scan race 升级 managed scan。
-6. custom search roots 和 Global Index 不得写 managed `files`。
-7. backend rule evaluation 不触发 AI、不覆盖 user correction。
-8. 默认只有一个 mutation owner。
-9. watcher rule recovery 独立持久事实已由 Task 02 建立。
+- Rust/Tauri 是 File Library watcher mutation/reconciliation 唯一默认 owner。
+- renderer 只投影状态和刷新。
+- watcher 不写 `scan_seen`、不推进 generation。
+- overflow、ambiguity、revision gap 和 active scan race 升级 managed reconciliation。
+- custom search roots 和 Global Index 不得写 managed `files`。
+- watcher rule recovery 独立持久事实已由 Task 02 建立。
 
----
+### Task 02
 
-## 7. Task 02 已冻结决定
-
-1. 基线 schema 28，目标并已合并 schema 29。
-2. 不迁移 `files.id`，使用旁路 `file_fingerprints`。
-3. operation/restore identity 与 dedupe physical identity 分离。
-4. `files.content_hash` 仅为兼容镜像；active duplicate membership 是重复权威。
-5. prehash 只淘汰，完整 BLAKE3 才确认。
-6. hardlink 多路径只算一个物理副本。
-7. 使用领域专用 durable `dedupe_runs`，不泛化 `ai_jobs`。
-8. crash 后 active run 标 interrupted，下一 run 重新 collection 并复用有效 cache。
-9. worker 使用标准库有界池，不新增并发依赖。
-10. scanner/watcher 只做短事务 fingerprint/group invalidation。
-11. group publication 是短事务且受 scope snapshot 保护。
-12. Duplicate Groups UI 只读。
-13. Task 03 才建设 Analysis Run、Finding、风险分层和 cleanup 建议。
+- 不迁移 `files.id`，使用旁路 `file_fingerprints`。
+- operation/restore identity 与 dedupe physical identity 分离。
+- `files.content_hash` 仅为兼容镜像；active duplicate group/member 是重复权威。
+- prehash 只淘汰，完整 BLAKE3 才确认。
+- hardlink 多路径只算一个物理副本。
+- Dedupe 使用领域专用 durable `dedupe_runs`，不泛化 `ai_jobs`。
+- scanner/watcher 只做短事务 fingerprint/group invalidation。
+- Duplicate Groups UI 只读。
 
 ### Task 02 合并时接受并转入 Task 03 的强制遗留
 
@@ -179,12 +166,12 @@ git status --short
 
 ---
 
-## 8. Task 03 冻结决定
+## 6. Task 03 冻结决定
 
 1. Task 03 是一个完整任务，不拆成 03A/03B/03C 或多个生产 PR。
 2. 基线 schema 29，目标 schema 30。
-3. 第一组生产改动是关闭上节 6 个 Task 02 遗留问题。
-4. active duplicate groups 是全部 enabled managed roots 的全局 authority；局部/diagnostic run不得发布或 stale 全局 group。
+3. 第一组生产改动是关闭上述 6 个 Task 02 遗留问题。
+4. active duplicate groups 是全部 enabled managed roots 的全局 authority；局部或 diagnostic run 不得发布或 stale 全局 group。
 5. 建立 durable dedupe authority revision/health，供 Analysis snapshot 使用。
 6. 建立领域专用 `analysis_runs`、`analysis_run_detectors`、`analysis_findings`、`analysis_finding_evidence` 和 `analysis_finding_decisions`。
 7. Detector 使用固定 Rust allowlist，不允许动态脚本、任意 SQL、renderer detector 或模型工具。
@@ -192,24 +179,24 @@ git status --short
 9. staged finding 只有在 source snapshot 未变化、run 未取消且 detector 成功时才能原子发布。
 10. 一个 detector 失败不得删除该 detector 上一次 active findings。
 11. finding key 必须包含 identity 版本，旧 dismissal 不得作用于已变化文件。
-12. Safe/Review/Caution 必须由后端规则约束；AI 只能追加评估或提高风险，不能升级为 Safe/可执行。
+12. Safe/Review/Caution 必须由后端规则约束；AI 只能追加评估或提高风险，不能升级为 Safe 或可执行。
 13. duplicate finding 永远只读，不自动选择 keeper 或删除。
-14. 现有 cleanup mutation 只能通过 finding→authoritative preview→identity→cleanup journal→Safe Trash→restore 兼容适配。
+14. 现有 cleanup mutation 只能通过 finding → authoritative preview → identity → cleanup journal → Safe Trash → restore 兼容适配。
 15. 不修改 cleanup/operation journal schema，不弱化 restore。
 16. 不建设 Organization Plan、Query V2、Content Artifact、NL Rule 或 Spotlight。
 17. Task 04 只有在 Task 03 通过人工验收并合并后才能创建任务书。
 
 ---
 
-## 9. Task 03 实施入口
+## 7. Task 03 实施入口
 
-Codex 只需读取并完整执行：
+Codex 现在只需读取并完整执行：
 
 ```text
 docs/remediation/TASK_03_ANALYSIS_RUN_FINDING_AND_DETECTORS.md
 ```
 
-推荐实施分支：
+唯一实施分支：
 
 ```text
 remediation/03-analysis-run-findings
@@ -230,7 +217,7 @@ Task 04：仍禁止执行
 
 ---
 
-## 10. 审计产物与硬边界
+## 8. 审计产物与硬边界
 
 - `POST_MERGE_BASELINE_AUDIT.md`：当前进程、数据库、任务和安全边界；
 - `REMEDIATION_CAPABILITY_MATRIX.md`：已有、部分、缺失、冲突和不应建设的能力；
@@ -246,7 +233,7 @@ Task 04：仍禁止执行
 
 ---
 
-## 11. 后续阶段契约
+## 9. 后续阶段契约
 
 | 阶段 | 必须先回答 | 明确不做 | 专项验证 |
 |---|---|---|---|
@@ -258,7 +245,7 @@ Task 04：仍禁止执行
 | 05 Organization Plan | plan revision、identity expiry、decision | 不直接执行 filesystem mutation | diff、expiry、confirm、restore |
 | 06 Workspace migration | Query/Plan 已稳定 | 不绕过 operation journal | old/new path、stale plan、fallback |
 | 07 Library surface | Query/Plan selection 稳定 | 不把 UI sorting 当后端事实 | virtual list、a11y、Saved View/tag |
-| 08 Content Artifact | extractor、budget、consent、retention | 不默认读取/上传内容 | type/size/secret/cloud/local |
+| 08 Content Artifact | extractor、budget、consent、retention | 不默认读取或上传内容 | type/size/secret/cloud/local |
 | 09 NL Rule | allowlist、ambiguity、preview | 不生成 shell/SQL/绝对执行路径 | adversarial prompt、scope、preview |
 | 10 Spotlight | provider、ranking、permission、manifest | 不把 command 当 mutation 授权 | unavailable、source attribution、keyboard |
 | 11 Integration | 全部前置验收 | 不夹带业务修复 | full CI、migration、performance、native/security rollback |
