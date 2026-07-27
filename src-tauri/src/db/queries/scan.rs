@@ -1,4 +1,5 @@
 use super::super::*;
+use super::dedupe::{invalidate_file_in_transaction, invalidate_stale_files_in_transaction};
 use super::*;
 use crate::ids::new_job_id;
 use crate::path_filter::{generated_dir_variant_bases, ignored_dir_names};
@@ -53,6 +54,7 @@ pub struct ScanRootDto {
     pub watcher_last_applied_at: Option<i64>,
     pub watcher_last_error_code: Option<String>,
     pub watcher_last_error_message: Option<String>,
+    pub watcher_rule_recovery_required: bool,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -525,7 +527,8 @@ impl Database {
                    last_successful_generation, last_full_scan_at, needs_reconciliation,
                    last_error_code, last_error_message, watcher_revision,
                    watcher_applied_revision, watcher_last_event_at, watcher_last_applied_at,
-                   watcher_last_error_code, watcher_last_error_message, created_at, updated_at
+                   watcher_last_error_code, watcher_last_error_message,
+                   watcher_rule_recovery_required, created_at, updated_at
             FROM scan_roots
             ORDER BY normalized_path
             "#,
@@ -642,7 +645,8 @@ impl Database {
                        last_successful_generation, last_full_scan_at, needs_reconciliation,
                        last_error_code, last_error_message, watcher_revision,
                        watcher_applied_revision, watcher_last_event_at, watcher_last_applied_at,
-                       watcher_last_error_code, watcher_last_error_message, created_at, updated_at
+                       watcher_last_error_code, watcher_last_error_message,
+                       watcher_rule_recovery_required, created_at, updated_at
                 FROM scan_roots
                 WHERE (?1 IS NOT NULL AND id = ?1)
                    OR (?2 IS NOT NULL AND {path_clause})
@@ -722,6 +726,28 @@ impl Database {
                 ],
             )?;
         }
+        tx.execute(
+            r#"
+            UPDATE duplicate_groups
+            SET status = 'stale',
+                revision = revision + 1,
+                updated_at = ?1
+            WHERE status = 'active'
+              AND id IN (
+                  SELECT DISTINCT member.group_id
+                  FROM duplicate_group_members AS member
+                  JOIN files AS file_row ON file_row.id = member.file_id
+                  JOIN scan_roots AS root ON root.source_kind = 'file_library'
+                  WHERE root.enabled = 0
+                    AND (
+                        file_row.path = root.normalized_path
+                        OR substr(file_row.path, 1, length(root.normalized_path) + 1) = root.normalized_path || '/'
+                        OR substr(file_row.path, 1, length(root.normalized_path) + 1) = root.normalized_path || '\\'
+                    )
+              )
+            "#,
+            params![current_unix_seconds()],
+        )?;
         tx.commit()?;
         Ok(())
     }
@@ -800,6 +826,14 @@ impl Database {
                 watcher_last_applied_at = ?2,
                 watcher_last_error_code = NULL,
                 watcher_last_error_message = NULL,
+                health_status = CASE
+                    WHEN watcher_rule_recovery_required = 1 THEN 'reconciliation_required'
+                    ELSE health_status
+                END,
+                needs_reconciliation = CASE
+                    WHEN watcher_rule_recovery_required = 1 THEN 1
+                    ELSE needs_reconciliation
+                END,
                 revision = revision + 1,
                 updated_at = ?2
             WHERE id = ?3
@@ -830,6 +864,10 @@ impl Database {
                     WHEN health_status IN ('missing', 'permission_required') THEN health_status
                     ELSE 'reconciliation_required'
                 END,
+                watcher_rule_recovery_required = CASE
+                    WHEN ?1 IN ('watcher_rule_failure', 'watcher_rule_retry_exhausted') THEN 1
+                    ELSE watcher_rule_recovery_required
+                END,
                 watcher_last_error_code = ?1,
                 watcher_last_error_message = ?2,
                 revision = revision + 1,
@@ -855,6 +893,10 @@ impl Database {
             UPDATE scan_roots
             SET watcher_last_error_code = ?1,
                 watcher_last_error_message = ?2,
+                watcher_rule_recovery_required = CASE
+                    WHEN ?1 IN ('watcher_rule_failure', 'watcher_rule_retry_exhausted') THEN 1
+                    ELSE watcher_rule_recovery_required
+                END,
                 health_status = CASE
                     WHEN health_status IN ('missing', 'permission_required', 'reconciliation_required')
                     THEN health_status
@@ -979,6 +1021,7 @@ impl Database {
                 )?;
             }
         }
+        invalidate_stale_files_in_transaction(&tx)?;
         tx.commit()?;
         Ok(WatcherMutationResult {
             upserted_paths,
@@ -1278,6 +1321,9 @@ impl Database {
             0
         };
         let now = current_unix_seconds();
+        if changed > 0 {
+            invalidate_stale_files_in_transaction(&tx)?;
+        }
         let run_changed = tx.execute(
             r#"
             UPDATE scan_runs
@@ -1463,11 +1509,15 @@ impl Database {
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let record = load_scan_run_record(&tx, run_id)?;
-        let (root_watcher_error_code, root_watcher_error_message): (Option<String>, Option<String>) =
+        let (
+            root_watcher_error_code,
+            root_watcher_error_message,
+            root_rule_recovery_required,
+        ): (Option<String>, Option<String>, bool) =
             tx.query_row(
-                "SELECT watcher_last_error_code, watcher_last_error_message FROM scan_roots WHERE id = ?1",
+                "SELECT watcher_last_error_code, watcher_last_error_message, watcher_rule_recovery_required FROM scan_roots WHERE id = ?1",
                 params![record.dto.scan_root_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, i64>(2)? != 0)),
             )?;
         if record.dto.status == input.terminal_status {
             if record.dto.revision != expected_run_revision
@@ -1533,13 +1583,14 @@ impl Database {
             && (matches!(
                 root_watcher_error_code.as_deref(),
                 Some("watcher_rule_failure" | "watcher_rule_retry_exhausted")
-            ) || input.error_code.as_deref() == Some("watcher_rule_failure"));
+            ) || root_rule_recovery_required
+                || input.error_code.as_deref() == Some("watcher_rule_failure"));
         let effective_terminal_status = if watcher_changed_during_scan || rule_failure_pending {
             "completed_with_warnings"
         } else {
             input.terminal_status.as_str()
         };
-        let durable_success = success && !watcher_changed_during_scan;
+        let durable_success = success && !watcher_changed_during_scan && !rule_failure_pending;
         let final_error_code = if watcher_changed_during_scan {
             Some("watcher_changed_during_scan")
         } else if rule_failure_pending {
@@ -1655,6 +1706,11 @@ impl Database {
                     WHEN ?2 = 1 AND watcher_revision >= ?12 THEN NULL
                     ELSE watcher_last_error_message
                 END,
+                watcher_rule_recovery_required = CASE
+                    WHEN ?14 = 1 THEN 0
+                    WHEN ?15 = 1 THEN 1
+                    ELSE watcher_rule_recovery_required
+                END,
                 last_successful_generation = CASE WHEN ?2 = 1 THEN ?3 ELSE last_successful_generation END,
                 last_full_scan_at = CASE WHEN ?2 = 1 THEN ?4 ELSE last_full_scan_at END,
                 needs_reconciliation = CASE
@@ -1683,6 +1739,7 @@ impl Database {
                 record.current_watcher_revision,
                 bool_to_i64(rule_failure_pending),
                 bool_to_i64(rule_recovery_succeeded),
+                bool_to_i64(rule_failure_pending),
             ],
         )?;
         if root_changed != 1 {
@@ -2446,7 +2503,8 @@ fn upsert_file_rows_tx(
                 ELSE files.suggested_name
             END,
             content_hash = CASE
-                WHEN files.size != excluded.size
+                WHEN files.path != excluded.path
+                  OR files.size != excluded.size
                   OR files.mtime != excluded.mtime
                   OR files.is_dir != excluded.is_dir
                 THEN ''
@@ -2456,7 +2514,23 @@ fn upsert_file_rows_tx(
             last_seen_at = excluded.last_seen_at
         "#,
     )?;
+    let mut invalidations = Vec::new();
     for file in files {
+        let previous = tx
+            .query_row(
+                "SELECT path, size, mtime, is_dir, is_stale FROM files WHERE id = ?1",
+                params![file.id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, i64>(4)?,
+                    ))
+                },
+            )
+            .optional()?;
         statement.execute(params![
             file.id,
             file.path,
@@ -2472,6 +2546,26 @@ fn upsert_file_rows_tx(
             CLASSIFICATION_STATUS_UNCLASSIFIED,
             observed_at,
         ])?;
+        if let Some((old_path, old_size, old_mtime, old_is_dir, old_is_stale)) = previous {
+            if old_path != file.path
+                || old_size != file.size
+                || old_mtime != file.mtime
+                || old_is_dir != bool_to_i64(file.is_dir)
+            {
+                invalidations.push((
+                    file.id.clone(),
+                    if old_is_stale != 0 {
+                        "missing"
+                    } else {
+                        "stale"
+                    },
+                ));
+            }
+        }
+    }
+    drop(statement);
+    for (file_id, stale_status) in invalidations {
+        invalidate_file_in_transaction(tx, &file_id, stale_status)?;
     }
     Ok(())
 }
@@ -2807,8 +2901,9 @@ fn scan_root_from_row(row: &Row<'_>) -> rusqlite::Result<ScanRootDto> {
         watcher_last_applied_at: row.get(18)?,
         watcher_last_error_code: row.get(19)?,
         watcher_last_error_message: row.get(20)?,
-        created_at: row.get(21)?,
-        updated_at: row.get(22)?,
+        watcher_rule_recovery_required: row.get::<_, i64>(21)? != 0,
+        created_at: row.get(22)?,
+        updated_at: row.get(23)?,
     })
 }
 
@@ -4815,7 +4910,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("watcher defaults");
-        assert_eq!(version, 28);
+        assert_eq!(version, 29);
         assert_eq!(file_count, 1);
         assert_eq!(seen_count, 0);
         assert_eq!(watcher_defaults, (0, 0));

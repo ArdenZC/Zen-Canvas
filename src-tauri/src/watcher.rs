@@ -95,6 +95,7 @@ pub struct WatcherReconciliationStatusEvent {
     pub watcher_applied_revision: i64,
     pub pending: bool,
     pub needs_reconciliation: bool,
+    pub watcher_rule_recovery_required: bool,
     pub health_status: String,
     pub active_run_id: Option<String>,
     pub last_event_at: Option<i64>,
@@ -895,9 +896,16 @@ pub(crate) fn emit_watcher_reconciliation_status<R: Runtime>(
         root_revision: root.revision,
         watcher_revision: root.watcher_revision,
         watcher_applied_revision: root.watcher_applied_revision,
-        pending: root.watcher_revision > root.watcher_applied_revision || root.needs_reconciliation,
-        needs_reconciliation: root.needs_reconciliation,
-        health_status: root.health_status,
+        pending: root.watcher_revision > root.watcher_applied_revision
+            || root.needs_reconciliation
+            || root.watcher_rule_recovery_required,
+        needs_reconciliation: root.needs_reconciliation || root.watcher_rule_recovery_required,
+        watcher_rule_recovery_required: root.watcher_rule_recovery_required,
+        health_status: if root.watcher_rule_recovery_required {
+            "reconciliation_required".to_string()
+        } else {
+            root.health_status
+        },
         active_run_id: root.active_run_id,
         last_event_at: root.watcher_last_event_at,
         last_applied_at: root.watcher_last_applied_at,

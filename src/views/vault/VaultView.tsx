@@ -14,6 +14,7 @@ import { FileClassificationDetails } from "./components/FileClassificationDetail
 import { FileLibraryFilterPopover } from "./components/FileLibraryFilterPopover";
 import { FileLibraryInspector, FileLibraryPreviewDialog, libraryRevealLabel } from "./components/FileLibraryInspector";
 import { FileLibraryList } from "./components/FileLibraryList";
+import { DuplicateGroupsPanel } from "./components/DuplicateGroupsPanel";
 import {
   defaultLibrarySort,
   classifyLibraryError,
@@ -431,6 +432,8 @@ export function VaultView() {
           <span>{selectedIds.length ? t("librarySelectedLoadedCount").replace("{count}", String(selectedIds.length)) : t("libraryScopeHint")}</span>
         </div> : null}
       </section>
+
+      <DuplicateGroupsPanel />
 
       <div className={cn("grid min-h-0 flex-1 gap-4 overflow-hidden max-[1100px]:grid-cols-1 max-[1100px]:overflow-auto", showInspectorLayout(isNoIndexState))}>
         <section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>

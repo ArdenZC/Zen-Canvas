@@ -53,26 +53,19 @@ impl Database {
             r#"
                 WITH {},
                 dup_groups AS (
-                    SELECT size, content_hash
-                    FROM files
-                    WHERE is_dir = 0
-                      AND is_stale = 0
-                      AND size > 0
-                      AND content_hash <> ''
-                    GROUP BY size, content_hash
-                    HAVING COUNT(*) > 1
+                    SELECT file_id, size, content_hash
+                    FROM active_duplicate_membership
                 )
                 SELECT f.id, f.path, f.name, f.extension, f.size, f.mtime, f.ctime, f.is_dir, f.state_code,
                        f.file_type, f.purpose, f.lifecycle, f.context, f.risk_level, f.suggested_action,
                        f.suggested_target_path, f.suggested_name, f.confidence, f.classification_reason,
                        f.classification_status, f.matched_rules, f.requires_confirmation, f.content_hash,
-                       (dg.content_hash IS NOT NULL) AS is_duplicate,
+                       (dg.file_id IS NOT NULL) AS is_duplicate,
                        f.is_stale, f.last_seen_at, f.last_classified_at, f.classified_rule_version,
                        f.last_classified_mtime, f.last_classified_size
                 FROM scoped_files AS f
                 LEFT JOIN dup_groups AS dg
-                  ON dg.size = f.size
-                 AND dg.content_hash = f.content_hash
+                  ON dg.file_id = f.id
                 {}
                 ORDER BY f.mtime DESC, f.name COLLATE NOCASE ASC
                 "#,
@@ -148,26 +141,19 @@ impl Database {
         let mut stmt = read_conn.prepare(
             r#"
                 WITH dup_groups AS (
-                    SELECT size, content_hash
-                    FROM files
-                    WHERE is_dir = 0
-                      AND is_stale = 0
-                      AND size > 0
-                      AND content_hash <> ''
-                    GROUP BY size, content_hash
-                    HAVING COUNT(*) > 1
+                    SELECT file_id, size, content_hash
+                    FROM active_duplicate_membership
                 )
                 SELECT f.id, f.path, f.name, f.extension, f.size, f.mtime, f.ctime, f.is_dir, f.state_code,
                        f.file_type, f.purpose, f.lifecycle, f.context, f.risk_level, f.suggested_action,
                        f.suggested_target_path, f.suggested_name, f.confidence, f.classification_reason,
                        f.classification_status, f.matched_rules, f.requires_confirmation, f.content_hash,
-                       (dg.content_hash IS NOT NULL) AS is_duplicate,
+                       (dg.file_id IS NOT NULL) AS is_duplicate,
                        f.is_stale, f.last_seen_at, f.last_classified_at, f.classified_rule_version,
                        f.last_classified_mtime, f.last_classified_size
                 FROM files AS f
                 LEFT JOIN dup_groups AS dg
-                  ON dg.size = f.size
-                 AND dg.content_hash = f.content_hash
+                  ON dg.file_id = f.id
                 WHERE f.lifecycle = 'Inbox'
                   AND f.is_stale = 0
                 ORDER BY f.mtime DESC, f.name COLLATE NOCASE ASC
@@ -264,26 +250,19 @@ impl Database {
         let sql = format!(
             r#"
             WITH dup_groups AS (
-                SELECT size, content_hash
-                FROM files
-                WHERE is_dir = 0
-                  AND is_stale = 0
-                  AND size > 0
-                  AND content_hash <> ''
-                GROUP BY size, content_hash
-                HAVING COUNT(*) > 1
+                SELECT file_id, size, content_hash
+                FROM active_duplicate_membership
             )
             SELECT f.id, f.path, f.name, f.extension, f.size, f.mtime, f.ctime, f.is_dir, f.state_code,
                    f.file_type, f.purpose, f.lifecycle, f.context, f.risk_level, f.suggested_action,
                    f.suggested_target_path, f.suggested_name, f.confidence, f.classification_reason,
                    f.classification_status, f.matched_rules, f.requires_confirmation, f.content_hash,
-                   (dg.content_hash IS NOT NULL) AS is_duplicate,
+                   (dg.file_id IS NOT NULL) AS is_duplicate,
                    f.is_stale, f.last_seen_at, f.last_classified_at, f.classified_rule_version,
                    f.last_classified_mtime, f.last_classified_size
             FROM files AS f
             LEFT JOIN dup_groups AS dg
-              ON dg.size = f.size
-             AND dg.content_hash = f.content_hash
+              ON dg.file_id = f.id
             WHERE f.lifecycle = 'Inbox'
               AND f.is_stale = 0
               AND f.path IN ({placeholders})

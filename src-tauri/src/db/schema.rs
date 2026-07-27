@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 28;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 29;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -47,6 +47,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         ensure_journal_state_triggers(conn)?;
         ensure_scan_ledger_schema(conn)?;
         ensure_watcher_reconciliation_schema(conn)?;
+        ensure_dedupe_schema(conn)?;
         backfill_scan_roots_from_settings(conn)?;
         return Ok(());
     }
@@ -690,6 +691,10 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             ensure_watcher_reconciliation_schema(conn)?;
             set_schema_version(conn, 28)?;
         }
+        if version < 29 {
+            ensure_dedupe_schema(conn)?;
+            set_schema_version(conn, 29)?;
+        }
         Ok(())
     })();
     match migration_result {
@@ -904,6 +909,195 @@ fn ensure_watcher_reconciliation_schema(conn: &Connection) -> Result<(), DbError
         r#"
         CREATE INDEX IF NOT EXISTS idx_scan_roots_reconciliation_enabled
             ON scan_roots(enabled, needs_reconciliation, updated_at);
+        "#,
+    )?;
+    Ok(())
+}
+
+/// Task 02 durable identity/fingerprint/dedupe ledger.
+///
+/// This function is intentionally called only while migrating to schema 29
+/// (or when a schema-29 connection is reopened).  The watcher recovery flag
+/// is kept in the same migration as the dedupe tables so a failed migration
+/// leaves the complete schema-28 ledger untouched.
+fn ensure_dedupe_schema(conn: &Connection) -> Result<(), DbError> {
+    execute_column_migrations(
+        conn,
+        &[r#"
+            ALTER TABLE scan_roots
+            ADD COLUMN watcher_rule_recovery_required INTEGER NOT NULL DEFAULT 0
+            CHECK (watcher_rule_recovery_required IN (0, 1));
+        "#],
+    )?;
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS dedupe_runs (
+            id TEXT PRIMARY KEY,
+            request_key TEXT NOT NULL,
+            request_attempt INTEGER NOT NULL DEFAULT 1 CHECK (request_attempt > 0),
+            parent_scan_session_id TEXT,
+            scope_json TEXT NOT NULL,
+            scope_hash TEXT NOT NULL,
+            scope_snapshot_json TEXT NOT NULL DEFAULT '{}',
+            scope_snapshot_hash TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL CHECK (status IN (
+                'queued', 'running', 'cancelling',
+                'completed', 'completed_with_warnings',
+                'cancelled', 'failed', 'interrupted'
+            )),
+            phase TEXT NOT NULL CHECK (phase IN (
+                'collecting', 'capturing_identity', 'prehashing',
+                'full_hashing', 'building_groups', 'finalizing', 'completed'
+            )),
+            revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+            cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
+            rerun_required INTEGER NOT NULL DEFAULT 0 CHECK (rerun_required IN (0, 1)),
+            candidate_files INTEGER NOT NULL DEFAULT 0,
+            candidate_physical_objects INTEGER NOT NULL DEFAULT 0,
+            candidate_bytes INTEGER NOT NULL DEFAULT 0,
+            identity_verified_files INTEGER NOT NULL DEFAULT 0,
+            identity_unknown_files INTEGER NOT NULL DEFAULT 0,
+            hardlink_aliases INTEGER NOT NULL DEFAULT 0,
+            prehashed_files INTEGER NOT NULL DEFAULT 0,
+            prehash_pruned_files INTEGER NOT NULL DEFAULT 0,
+            full_hashed_files INTEGER NOT NULL DEFAULT 0,
+            duplicate_groups INTEGER NOT NULL DEFAULT 0,
+            duplicate_members INTEGER NOT NULL DEFAULT 0,
+            exact_reclaimable_bytes INTEGER NOT NULL DEFAULT 0,
+            potential_reclaimable_bytes INTEGER NOT NULL DEFAULT 0,
+            processed_files INTEGER NOT NULL DEFAULT 0,
+            processed_bytes INTEGER NOT NULL DEFAULT 0,
+            total_bytes INTEGER NOT NULL DEFAULT 0,
+            warning_count INTEGER NOT NULL DEFAULT 0,
+            error_count INTEGER NOT NULL DEFAULT 0,
+            started_at INTEGER,
+            finished_at INTEGER,
+            last_checkpoint_at INTEGER,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            error_code TEXT,
+            error_message TEXT,
+            UNIQUE(request_key, request_attempt)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_dedupe_runs_one_active_scope
+            ON dedupe_runs(scope_hash)
+            WHERE status IN ('queued', 'running', 'cancelling');
+        CREATE INDEX IF NOT EXISTS idx_dedupe_runs_created
+            ON dedupe_runs(created_at DESC, id);
+        CREATE INDEX IF NOT EXISTS idx_dedupe_runs_parent_scan
+            ON dedupe_runs(parent_scan_session_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS file_fingerprints (
+            file_id TEXT PRIMARY KEY,
+            path_snapshot TEXT NOT NULL,
+            identity_status TEXT NOT NULL CHECK (identity_status IN (
+                'verified', 'path_only', 'unsupported', 'missing', 'stale', 'error'
+            )),
+            platform_kind TEXT NOT NULL DEFAULT '',
+            platform_volume_id TEXT,
+            platform_file_id TEXT,
+            physical_key TEXT,
+            link_count INTEGER,
+            size INTEGER NOT NULL,
+            modified_ns INTEGER,
+            prehash TEXT,
+            prehash_algorithm TEXT NOT NULL DEFAULT 'blake3-head-tail',
+            prehash_version INTEGER NOT NULL DEFAULT 1,
+            prehash_sample_bytes INTEGER NOT NULL DEFAULT 4096,
+            full_hash TEXT,
+            full_hash_algorithm TEXT NOT NULL DEFAULT 'blake3',
+            full_hash_version INTEGER NOT NULL DEFAULT 1,
+            fingerprint_status TEXT NOT NULL CHECK (fingerprint_status IN (
+                'identity_only', 'prehash_complete', 'complete', 'stale',
+                'missing', 'unsupported', 'error'
+            )),
+            captured_at INTEGER NOT NULL,
+            prehashed_at INTEGER,
+            full_hashed_at INTEGER,
+            last_verified_at INTEGER NOT NULL,
+            error_code TEXT,
+            error_message TEXT,
+            revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+            FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_file_fingerprints_physical
+            ON file_fingerprints(physical_key) WHERE physical_key IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_file_fingerprints_validity
+            ON file_fingerprints(size, modified_ns, fingerprint_status);
+        CREATE INDEX IF NOT EXISTS idx_file_fingerprints_prehash
+            ON file_fingerprints(size, prehash) WHERE prehash IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_file_fingerprints_full_hash
+            ON file_fingerprints(size, full_hash) WHERE full_hash IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS dedupe_run_errors (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            file_id TEXT,
+            path_snapshot TEXT NOT NULL,
+            phase TEXT NOT NULL,
+            error_code TEXT NOT NULL,
+            error_message TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY (run_id) REFERENCES dedupe_runs(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_dedupe_run_errors_run
+            ON dedupe_run_errors(run_id, created_at, id);
+
+        CREATE TABLE IF NOT EXISTS duplicate_groups (
+            id TEXT PRIMARY KEY,
+            size_each INTEGER NOT NULL,
+            full_hash TEXT NOT NULL,
+            full_hash_algorithm TEXT NOT NULL DEFAULT 'blake3',
+            full_hash_version INTEGER NOT NULL DEFAULT 1,
+            member_count INTEGER NOT NULL,
+            physical_copy_count INTEGER NOT NULL,
+            hardlink_alias_count INTEGER NOT NULL DEFAULT 0,
+            exact_reclaimable_bytes INTEGER,
+            potential_reclaimable_bytes INTEGER NOT NULL,
+            reclaimable_confidence TEXT NOT NULL CHECK (
+                reclaimable_confidence IN ('exact', 'estimated', 'unknown')
+            ),
+            status TEXT NOT NULL CHECK (status IN ('active', 'stale', 'superseded')),
+            last_built_run_id TEXT NOT NULL,
+            revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            last_verified_at INTEGER NOT NULL,
+            UNIQUE(size_each, full_hash, full_hash_algorithm, full_hash_version),
+            FOREIGN KEY (last_built_run_id) REFERENCES dedupe_runs(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_duplicate_groups_active_reclaimable
+            ON duplicate_groups(status, potential_reclaimable_bytes DESC, size_each DESC, id);
+
+        CREATE TABLE IF NOT EXISTS duplicate_group_members (
+            group_id TEXT NOT NULL,
+            file_id TEXT NOT NULL,
+            path_snapshot TEXT NOT NULL,
+            physical_key TEXT,
+            identity_status TEXT NOT NULL,
+            is_hardlink_alias INTEGER NOT NULL DEFAULT 0 CHECK (is_hardlink_alias IN (0, 1)),
+            size INTEGER NOT NULL,
+            modified_ns INTEGER,
+            verified_at INTEGER NOT NULL,
+            PRIMARY KEY (group_id, file_id),
+            FOREIGN KEY (group_id) REFERENCES duplicate_groups(id) ON DELETE CASCADE,
+            FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_duplicate_group_members_file
+            ON duplicate_group_members(file_id, group_id);
+        CREATE INDEX IF NOT EXISTS idx_duplicate_group_members_physical
+            ON duplicate_group_members(group_id, physical_key);
+
+        DROP VIEW IF EXISTS active_duplicate_membership;
+        CREATE VIEW active_duplicate_membership AS
+        SELECT
+            member.file_id,
+            group_row.id AS group_id,
+            group_row.size_each AS size,
+            group_row.full_hash AS content_hash
+        FROM duplicate_group_members AS member
+        JOIN duplicate_groups AS group_row ON group_row.id = member.group_id
+        WHERE group_row.status = 'active';
         "#,
     )?;
     Ok(())

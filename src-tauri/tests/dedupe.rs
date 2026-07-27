@@ -1,4 +1,4 @@
-use rusqlite::Connection;
+use rusqlite::{params, Connection};
 use std::{
     collections::HashMap,
     fs,
@@ -46,7 +46,7 @@ fn current_schema_retains_content_hash_and_dedupe_index() {
         )
         .expect("cleanup trash tables");
 
-    assert_eq!(version, 28);
+    assert_eq!(version, 29);
     assert_eq!(cleanup_table_count, 2);
     assert_eq!(content_hash_type, "TEXT");
     assert_eq!(content_hash_notnull, 1);
@@ -65,9 +65,183 @@ fn current_schema_retains_content_hash_and_dedupe_index() {
 }
 
 #[test]
+fn durable_run_persists_fingerprints_groups_and_invalidates_on_metadata_change() {
+    let dir = test_dir("durable-ledger");
+    let db = Database::open(dir.join("db.sqlite3")).expect("open database");
+    insert_managed_root(&db, &dir, "root-ledger");
+    let first = write_indexed_file(&db, &dir, "first.txt", b"same-content", 1);
+    let second = write_indexed_file(&db, &dir, "second.txt", b"same-content", 2);
+    write_indexed_file(&db, &dir, "different.txt", b"other-value", 3);
+
+    let summary = run_duplicate_detection(&db, &NoopDedupeEventEmitter).expect("durable run");
+    assert_eq!(summary.candidate_files, 2);
+    assert_eq!(summary.duplicate_files, 2);
+    let progress: (i64, i64, i64, i64) = Connection::open(db.path())
+        .expect("open run database")
+        .query_row(
+            "SELECT processed_files, candidate_files, processed_bytes, total_bytes FROM dedupe_runs ORDER BY created_at DESC LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .expect("completed dedupe run progress");
+    assert!(progress.0 <= progress.1);
+    assert!(progress.2 <= progress.3);
+
+    let mut warm_cache_hasher = CountingHasher::default();
+    let warm_summary =
+        run_duplicate_detection_with_hasher(&db, &NoopDedupeEventEmitter, &mut warm_cache_hasher)
+            .expect("warm-cache dedupe run");
+    assert_eq!(warm_summary.duplicate_files, 2);
+    assert_eq!(warm_cache_hasher.calls, 0);
+
+    let conn = Connection::open(db.path()).expect("open migrated database");
+    let fingerprint_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM file_fingerprints", [], |row| {
+            row.get(0)
+        })
+        .expect("fingerprint rows");
+    let active_group_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM duplicate_groups WHERE status = 'active'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("active groups");
+    let active_members: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM active_duplicate_membership",
+            [],
+            |row| row.get(0),
+        )
+        .expect("active memberships");
+    assert_eq!(fingerprint_count, 2);
+    assert_eq!(active_group_count, 1);
+    assert_eq!(active_members, 2);
+
+    let page = db
+        .get_paged_files(Some(20), Some(0), None)
+        .expect("paged files");
+    assert!(page
+        .files
+        .iter()
+        .any(|file| file.path == first.to_string_lossy() && file.is_duplicate));
+    assert!(page
+        .files
+        .iter()
+        .any(|file| file.path == second.to_string_lossy() && file.is_duplicate));
+
+    let changed_path = first.to_string_lossy().to_string();
+    fs::write(&first, b"changed").expect("change file");
+    let metadata = fs::metadata(&first).expect("changed metadata");
+    db.insert_file(InsertFileRequest {
+        id: changed_path.clone(),
+        path: changed_path,
+        name: "first.txt".to_string(),
+        extension: "txt".to_string(),
+        size: i64::try_from(metadata.len()).expect("size"),
+        mtime: metadata
+            .modified()
+            .expect("mtime")
+            .duration_since(UNIX_EPOCH)
+            .expect("unix mtime")
+            .as_secs() as i64,
+        ctime: 0,
+        is_dir: false,
+        state_code: 0,
+    })
+    .expect("invalidate changed fingerprint");
+    let stale_group_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM duplicate_groups WHERE status = 'active'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("active groups after invalidation");
+    assert_eq!(stale_group_count, 0);
+    let stale_fingerprint: String = conn
+        .query_row(
+            "SELECT fingerprint_status FROM file_fingerprints WHERE file_id = ?1",
+            params![first.to_string_lossy().to_string()],
+            |row| row.get(0),
+        )
+        .expect("stale fingerprint");
+    assert_eq!(stale_fingerprint, "stale");
+}
+
+#[test]
+fn hardlink_aliases_share_identity_without_becoming_duplicate_copies() {
+    let dir = test_dir("durable-hardlink");
+    let db = Database::open(dir.join("db.sqlite3")).expect("open database");
+    insert_managed_root(&db, &dir, "root-hardlink");
+    let first = write_indexed_file(&db, &dir, "hardlink-a.bin", b"hardlink-content", 1);
+    let alias = dir.join("hardlink-b.bin");
+    fs::hard_link(&first, &alias).expect("create hardlink");
+    insert_path_only_indexed_file(&db, &alias, "hardlink-b.bin");
+
+    let summary =
+        run_duplicate_detection(&db, &NoopDedupeEventEmitter).expect("durable hardlink run");
+    assert_eq!(summary.duplicate_files, 0);
+    let conn = Connection::open(db.path()).expect("open database connection");
+    let physical_keys: i64 = conn
+        .query_row(
+            "SELECT COUNT(DISTINCT physical_key) FROM file_fingerprints WHERE physical_key IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("physical keys");
+    let aliases: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM file_fingerprints WHERE link_count > 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("hardlink count");
+    assert_eq!(physical_keys, 1);
+    assert_eq!(aliases, 2);
+}
+
+#[test]
+fn hardlink_alias_and_true_copy_have_physical_reclaim_semantics() {
+    let dir = test_dir("durable-hardlink-copy");
+    let db = Database::open(dir.join("db.sqlite3")).expect("open database");
+    insert_managed_root(&db, &dir, "root-hardlink-copy");
+    let first = write_indexed_file(&db, &dir, "original.bin", b"same-physical-content", 1);
+    let alias = dir.join("alias.bin");
+    fs::hard_link(&first, &alias).expect("create hardlink");
+    insert_path_only_indexed_file(&db, &alias, "alias.bin");
+    write_indexed_file(&db, &dir, "true-copy.bin", b"same-physical-content", 2);
+
+    let summary = run_duplicate_detection(&db, &NoopDedupeEventEmitter).expect("run dedupe");
+    assert_eq!(summary.duplicate_files, 3);
+    let conn = Connection::open(db.path()).expect("open database connection");
+    let (member_count, physical_copy_count, hardlink_alias_count, exact, potential, confidence): (
+        i64,
+        i64,
+        i64,
+        Option<i64>,
+        i64,
+        String,
+    ) = conn
+        .query_row(
+            "SELECT member_count, physical_copy_count, hardlink_alias_count, exact_reclaimable_bytes, potential_reclaimable_bytes, reclaimable_confidence FROM duplicate_groups WHERE status = 'active'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+        )
+        .expect("duplicate group");
+    let size = i64::try_from(b"same-physical-content".len()).expect("size");
+    assert_eq!(member_count, 3);
+    assert_eq!(physical_copy_count, 2);
+    assert_eq!(hardlink_alias_count, 1);
+    assert_eq!(exact, Some(size));
+    assert_eq!(potential, size);
+    assert_eq!(confidence, "exact");
+}
+
+#[test]
 fn duplicate_detection_marks_only_same_size_same_content_files_as_duplicates() {
     let dir = test_dir("dedupe-content");
     let db = Database::open(dir.join("db.sqlite3")).expect("open test database");
+    insert_managed_root(&db, &dir, "root-content");
     let duplicate_a = write_indexed_file(&db, &dir, "duplicate-a.txt", b"abc123abc123", 10);
     let duplicate_b = write_indexed_file(&db, &dir, "duplicate-b.txt", b"abc123abc123", 11);
     let same_size_different = write_indexed_file(&db, &dir, "different.txt", b"xyz789xyz789", 12);
@@ -92,7 +266,7 @@ fn duplicate_detection_marks_only_same_size_same_content_files_as_duplicates() {
         .expect("different content");
 
     assert_eq!(summary.candidate_files, 3);
-    assert_eq!(summary.hashed_files, 3);
+    assert_eq!(summary.hashed_files, 2);
     assert_eq!(summary.duplicate_files, 2);
     assert!(duplicate_a.is_duplicate);
     assert!(duplicate_b.is_duplicate);
@@ -110,9 +284,18 @@ fn duplicate_detection_marks_only_same_size_same_content_files_as_duplicates() {
 
 #[test]
 fn unique_file_sizes_do_not_trigger_hash_calculation() {
-    let db = Database::open(test_db_path()).expect("open test database");
+    let dir = test_dir("dedupe-unique");
+    let db = Database::open(dir.join("db.sqlite3")).expect("open test database");
+    insert_managed_root(&db, &dir, "root-unique");
     for index in 0..128 {
-        insert_virtual_file(&db, &format!("unique-{index}.bin"), index + 1, index as i64);
+        let bytes = vec![b'x'; index + 1];
+        write_indexed_file(
+            &db,
+            &dir,
+            &format!("unique-{index}.bin"),
+            &bytes,
+            index as i64,
+        );
     }
     let mut hasher = CountingHasher::default();
 
@@ -128,6 +311,7 @@ fn unique_file_sizes_do_not_trigger_hash_calculation() {
 fn duplicate_detection_hashes_new_file_when_matching_size_already_has_hash() {
     let dir = test_dir("dedupe-incremental");
     let db = Database::open(dir.join("db.sqlite3")).expect("open test database");
+    insert_managed_root(&db, &dir, "root-incremental");
     let bytes = b"already-hashed";
     let existing = write_indexed_file(&db, &dir, "existing.txt", bytes, 20);
     let new_file = write_indexed_file(&db, &dir, "new.txt", bytes, 21);
@@ -154,8 +338,8 @@ fn duplicate_detection_hashes_new_file_when_matching_size_already_has_hash() {
         .get(&new_file.to_string_lossy().to_string())
         .expect("new file");
 
-    assert_eq!(summary.candidate_files, 1);
-    assert_eq!(summary.hashed_files, 1);
+    assert_eq!(summary.candidate_files, 2);
+    assert_eq!(summary.hashed_files, 2);
     assert_eq!(summary.duplicate_files, 2);
     assert_eq!(existing.hash.as_deref(), Some(existing_hash.as_str()));
     assert_eq!(new_file.hash.as_deref(), Some(existing_hash.as_str()));
@@ -167,8 +351,9 @@ fn duplicate_detection_hashes_new_file_when_matching_size_already_has_hash() {
 fn duplicate_detection_does_not_persist_a_hash_when_file_changes_during_hashing() {
     let dir = test_dir("dedupe-race");
     let db = Database::open(dir.join("db.sqlite3")).expect("open test database");
-    let changing = write_indexed_file(&db, &dir, "changing.txt", b"same-size-1", 30);
-    write_indexed_file(&db, &dir, "peer.txt", b"same-size-2", 31);
+    insert_managed_root(&db, &dir, "root-race");
+    let changing = write_indexed_file(&db, &dir, "changing.txt", b"same-content", 30);
+    write_indexed_file(&db, &dir, "peer.txt", b"same-content", 31);
     let mut hasher = MutatingHasher {
         target: changing.clone(),
     };
@@ -236,6 +421,40 @@ fn write_indexed_file(db: &Database, dir: &Path, name: &str, bytes: &[u8], _mtim
     })
     .expect("insert file");
     path
+}
+
+fn insert_path_only_indexed_file(db: &Database, path: &Path, name: &str) {
+    let metadata = fs::metadata(path).expect("file metadata");
+    db.insert_file(InsertFileRequest {
+        id: path.to_string_lossy().into_owned(),
+        path: path.to_string_lossy().into_owned(),
+        name: name.to_string(),
+        extension: "bin".to_string(),
+        size: i64::try_from(metadata.len()).expect("size"),
+        mtime: metadata
+            .modified()
+            .expect("modified")
+            .duration_since(UNIX_EPOCH)
+            .expect("unix mtime")
+            .as_secs() as i64,
+        ctime: 0,
+        is_dir: false,
+        state_code: 0,
+    })
+    .expect("insert hardlink file");
+}
+
+fn insert_managed_root(db: &Database, dir: &Path, id: &str) {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("unix time")
+        .as_secs() as i64;
+    let conn = Connection::open(db.path()).expect("open database connection");
+    conn.execute(
+        "INSERT INTO scan_roots (id, normalized_path, display_name, source_kind, enabled, health_status, current_generation, needs_reconciliation, created_at, updated_at) VALUES (?1, ?2, ?3, 'file_library', 1, 'healthy', 0, 0, ?4, ?4)",
+        params![id, dir.to_string_lossy().to_string(), id, now],
+    )
+    .expect("insert managed root");
 }
 
 fn insert_virtual_file(db: &Database, name: &str, size: usize, mtime: i64) {

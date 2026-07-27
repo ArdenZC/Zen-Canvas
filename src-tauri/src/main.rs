@@ -31,6 +31,10 @@ fn main() {
         ))
         .setup(|app| {
             let db = open_database(app.handle()).map_err(io::Error::other)?;
+            db.recover_dedupe_runs().map_err(io::Error::other)?;
+            if let Err(error) = db.prune_dedupe_artifacts() {
+                eprintln!("Dedupe retention prune skipped: {error}");
+            }
             zen_canvas_tauri::scanner::recover_scan_state(&db).map_err(io::Error::other)?;
             zen_canvas_tauri::file_ops::reconcile_pending_operation_journal(&db)
                 .map_err(io::Error::other)?;
@@ -172,6 +176,16 @@ fn main() {
             zen_canvas_tauri::scanner::create_scan_job_id,
             zen_canvas_tauri::scanner::cancel_scan,
             zen_canvas_tauri::dedupe::cancel_dedupe,
+            zen_canvas_tauri::dedupe::start_dedupe_run,
+            zen_canvas_tauri::dedupe::retry_dedupe_run,
+            zen_canvas_tauri::dedupe::cancel_dedupe_run,
+            zen_canvas_tauri::dedupe::get_dedupe_run,
+            zen_canvas_tauri::dedupe::list_dedupe_runs,
+            zen_canvas_tauri::dedupe::get_active_dedupe_run,
+            zen_canvas_tauri::dedupe::list_duplicate_groups,
+            zen_canvas_tauri::dedupe::get_duplicate_group,
+            zen_canvas_tauri::dedupe::list_duplicate_group_members,
+            zen_canvas_tauri::dedupe::get_file_duplicate_membership,
             zen_canvas_tauri::file_ops::reveal_in_folder,
             zen_canvas_tauri::file_ops::execute_moves,
             zen_canvas_tauri::file_ops::restore_moves,

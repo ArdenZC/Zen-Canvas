@@ -1,10 +1,13 @@
 use super::super::*;
+use super::dedupe::{invalidate_file_in_transaction, invalidate_stale_files_in_transaction};
 use super::*;
 use crate::file_naming::{
     normalize_proposed_file_name, split_filename_from_target_directory, ExtensionChangePolicy,
 };
 use crate::file_ops::OperationLogDto;
-use rusqlite::{params, params_from_iter, types::Value as SqlValue, Connection, Transaction};
+use rusqlite::{
+    params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension, Transaction,
+};
 use std::{
     collections::HashMap,
     env, fs,
@@ -97,7 +100,8 @@ impl Database {
                     ELSE files.suggested_name
                 END,
                 content_hash = CASE
-                    WHEN files.size != excluded.size
+                    WHEN files.path != excluded.path
+                      OR files.size != excluded.size
                       OR files.mtime != excluded.mtime
                       OR files.is_dir != excluded.is_dir
                     THEN ''
@@ -109,6 +113,21 @@ impl Database {
             )?;
 
             for file in files {
+                let previous = tx
+                    .query_row(
+                        "SELECT path, size, mtime, is_dir, is_stale FROM files WHERE id = ?1",
+                        params![file.id],
+                        |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, i64>(1)?,
+                                row.get::<_, i64>(2)?,
+                                row.get::<_, i64>(3)?,
+                                row.get::<_, i64>(4)?,
+                            ))
+                        },
+                    )
+                    .optional()?;
                 let file_type = infer_file_type(&file.extension, file.is_dir);
                 stmt.execute(params![
                     file.id,
@@ -125,6 +144,23 @@ impl Database {
                     CLASSIFICATION_STATUS_UNCLASSIFIED,
                     last_seen_at
                 ])?;
+                if let Some((old_path, old_size, old_mtime, old_is_dir, old_is_stale)) = previous {
+                    let changed = old_path != file.path
+                        || old_size != file.size
+                        || old_mtime != file.mtime
+                        || old_is_dir != bool_to_i64(file.is_dir);
+                    if changed {
+                        invalidate_file_in_transaction(
+                            &tx,
+                            &file.id,
+                            if old_is_stale != 0 {
+                                "missing"
+                            } else {
+                                "stale"
+                            },
+                        )?;
+                    }
+                }
             }
         }
         tx.commit()?;
@@ -175,6 +211,7 @@ impl Database {
                 }
             }
         }
+        invalidate_stale_files_in_transaction(&tx)?;
         tx.commit()?;
         Ok(removed)
     }
@@ -218,6 +255,7 @@ impl Database {
                 ])?;
             }
         }
+        invalidate_stale_files_in_transaction(&tx)?;
         tx.commit()?;
         Ok(marked)
     }
@@ -565,6 +603,20 @@ impl Database {
             return Ok(false);
         };
 
+        // A successful move/rename changes the indexed identity.  Remove the
+        // old fingerprint and membership before changing files.id so the
+        // schema-29 foreign keys cannot retain stale group ownership or block
+        // the existing operation-journal path update.
+        invalidate_file_in_transaction(&tx, &current_id, "stale")?;
+        tx.execute(
+            "DELETE FROM duplicate_group_members WHERE file_id = ?1",
+            params![current_id],
+        )?;
+        tx.execute(
+            "DELETE FROM file_fingerprints WHERE file_id = ?1",
+            params![current_id],
+        )?;
+
         for candidate in target_candidates {
             tx.execute(
                 r#"
@@ -636,14 +688,8 @@ impl Database {
             WITH {},
             {},
             dup_groups AS (
-                SELECT size, content_hash
-                FROM files
-                WHERE is_dir = 0
-                  AND is_stale = 0
-                  AND size > 0
-                  AND content_hash <> ''
-                GROUP BY size, content_hash
-                HAVING COUNT(*) > 1
+                SELECT file_id, size, content_hash
+                FROM active_duplicate_membership
             )
             SELECT
                 f.id,
@@ -669,7 +715,7 @@ impl Database {
                 f.matched_rules,
                 f.requires_confirmation,
                 f.content_hash,
-                (dg.content_hash IS NOT NULL) AS is_duplicate,
+                (dg.file_id IS NOT NULL) AS is_duplicate,
                 f.is_stale,
                 f.last_seen_at,
                 f.last_classified_at,
@@ -680,8 +726,7 @@ impl Database {
             FROM best_matches AS bm
             JOIN scoped_files AS f ON f.rowid = bm.rowid
             LEFT JOIN dup_groups AS dg
-              ON dg.size = f.size
-             AND dg.content_hash = f.content_hash
+              ON dg.file_id = f.id
             ORDER BY bm.rank ASC, f.mtime DESC, length(f.path) ASC
             LIMIT ?
             "#,
@@ -745,21 +790,14 @@ impl Database {
                     WITH {},
                     {},
                     dup_groups AS (
-                        SELECT size, content_hash
-                        FROM files
-                        WHERE is_dir = 0
-                          AND is_stale = 0
-                          AND size > 0
-                          AND content_hash <> ''
-                        GROUP BY size, content_hash
-                        HAVING COUNT(*) > 1
+                        SELECT file_id, size, content_hash
+                        FROM active_duplicate_membership
                     )
                     SELECT COUNT(*)
                     FROM best_matches AS bm
                     JOIN scoped_files AS f ON f.rowid = bm.rowid
                     LEFT JOIN dup_groups AS dg
-                      ON dg.size = f.size
-                     AND dg.content_hash = f.content_hash
+                      ON dg.file_id = f.id
                     {}
                     "#,
                     scoped.cte,
@@ -794,14 +832,8 @@ impl Database {
                 WITH {},
                 {},
                 dup_groups AS (
-                    SELECT size, content_hash
-                    FROM files
-                    WHERE is_dir = 0
-                      AND is_stale = 0
-                      AND size > 0
-                      AND content_hash <> ''
-                    GROUP BY size, content_hash
-                    HAVING COUNT(*) > 1
+                    SELECT file_id, size, content_hash
+                    FROM active_duplicate_membership
                 )
                 SELECT
                     f.id,
@@ -827,7 +859,7 @@ impl Database {
                     f.matched_rules,
                     f.requires_confirmation,
                     f.content_hash,
-                    (dg.content_hash IS NOT NULL) AS is_duplicate,
+                    (dg.file_id IS NOT NULL) AS is_duplicate,
                     f.is_stale,
                     f.last_seen_at,
                     f.last_classified_at,
@@ -838,8 +870,7 @@ impl Database {
                 FROM best_matches AS bm
                 JOIN scoped_files AS f ON f.rowid = bm.rowid
                 LEFT JOIN dup_groups AS dg
-                  ON dg.size = f.size
-                 AND dg.content_hash = f.content_hash
+                  ON dg.file_id = f.id
                 {}
                 ORDER BY bm.rank ASC, f.mtime DESC, length(f.path) ASC
                 LIMIT ? OFFSET ?
@@ -878,20 +909,13 @@ impl Database {
                 r#"
                 WITH {},
                 dup_groups AS (
-                    SELECT size, content_hash
-                    FROM files
-                    WHERE is_dir = 0
-                      AND is_stale = 0
-                      AND size > 0
-                      AND content_hash <> ''
-                    GROUP BY size, content_hash
-                    HAVING COUNT(*) > 1
+                    SELECT file_id, size, content_hash
+                    FROM active_duplicate_membership
                 )
                 SELECT COUNT(*)
                 FROM scoped_files AS f
                 LEFT JOIN dup_groups AS dg
-                  ON dg.size = f.size
-                 AND dg.content_hash = f.content_hash
+                  ON dg.file_id = f.id
                 {}
                 "#,
                 scoped.cte,
@@ -908,26 +932,19 @@ impl Database {
             r#"
             WITH {},
             dup_groups AS (
-                SELECT size, content_hash
-                FROM files
-                WHERE is_dir = 0
-                  AND is_stale = 0
-                  AND size > 0
-                  AND content_hash <> ''
-                GROUP BY size, content_hash
-                HAVING COUNT(*) > 1
+                SELECT file_id, size, content_hash
+                FROM active_duplicate_membership
             )
             SELECT f.id, f.path, f.name, f.extension, f.size, f.mtime, f.ctime, f.is_dir, f.state_code,
                    f.file_type, f.purpose, f.lifecycle, f.context, f.risk_level, f.suggested_action,
                    f.suggested_target_path, f.suggested_name, f.confidence, f.classification_reason,
                    f.classification_status, f.matched_rules, f.requires_confirmation, f.content_hash,
-                   (dg.content_hash IS NOT NULL) AS is_duplicate,
+                   (dg.file_id IS NOT NULL) AS is_duplicate,
                    f.is_stale, f.last_seen_at, f.last_classified_at, f.classified_rule_version,
                    f.last_classified_mtime, f.last_classified_size
             FROM scoped_files AS f
             LEFT JOIN dup_groups AS dg
-              ON dg.size = f.size
-             AND dg.content_hash = f.content_hash
+              ON dg.file_id = f.id
             {}
             ORDER BY f.mtime DESC, f.name COLLATE NOCASE ASC
             LIMIT ? OFFSET ?
@@ -1044,26 +1061,19 @@ impl Database {
             r#"
             WITH {},
             dup_groups AS (
-                SELECT size, content_hash
-                FROM files
-                WHERE is_dir = 0
-                  AND is_stale = 0
-                  AND size > 0
-                  AND content_hash <> ''
-                GROUP BY size, content_hash
-                HAVING COUNT(*) > 1
+                SELECT file_id, size, content_hash
+                FROM active_duplicate_membership
             )
             SELECT f.id, f.path, f.name, f.extension, f.size, f.mtime, f.ctime, f.is_dir, f.state_code,
                    f.file_type, f.purpose, f.lifecycle, f.context, f.risk_level, f.suggested_action,
                    f.suggested_target_path, f.suggested_name, f.confidence, f.classification_reason,
                    f.classification_status, f.matched_rules, f.requires_confirmation, f.content_hash,
-                   (dg.content_hash IS NOT NULL) AS is_duplicate,
+                   (dg.file_id IS NOT NULL) AS is_duplicate,
                    f.is_stale, f.last_seen_at, f.last_classified_at, f.classified_rule_version,
                    f.last_classified_mtime, f.last_classified_size
             FROM scoped_files AS f
             LEFT JOIN dup_groups AS dg
-              ON dg.size = f.size
-             AND dg.content_hash = f.content_hash
+              ON dg.file_id = f.id
             ORDER BY f.mtime DESC, f.name COLLATE NOCASE ASC
             LIMIT ? OFFSET ?
             "#,
@@ -1109,13 +1119,8 @@ impl Database {
                    f.suggested_target_path, f.suggested_name, f.confidence, f.classification_reason,
                    f.classification_status, f.matched_rules, f.requires_confirmation, f.content_hash,
                    EXISTS (
-                       SELECT 1 FROM files AS other
-                       WHERE other.id <> f.id
-                         AND other.is_dir = 0
-                         AND other.is_stale = 0
-                         AND other.size = f.size
-                         AND other.content_hash = f.content_hash
-                         AND f.content_hash <> ''
+                       SELECT 1 FROM active_duplicate_membership AS membership
+                       WHERE membership.file_id = f.id
                    ) AS is_duplicate,
                    f.is_stale, f.last_seen_at, f.last_classified_at, f.classified_rule_version,
                    f.last_classified_mtime, f.last_classified_size
@@ -1151,14 +1156,8 @@ impl Database {
             r#"
             WITH {},
             dup_groups AS (
-                SELECT size, content_hash
-                FROM files
-                WHERE is_dir = 0
-                  AND is_stale = 0
-                  AND size > 0
-                  AND content_hash <> ''
-                GROUP BY size, content_hash
-                HAVING COUNT(*) > 1
+                SELECT file_id, size, content_hash
+                FROM active_duplicate_membership
             )
             SELECT
                 COUNT(*)        FILTER (WHERE f.is_dir = 0),
@@ -1167,12 +1166,11 @@ impl Database {
                 COUNT(*)        FILTER (WHERE f.is_dir = 0
                                   AND (f.risk_level = 'Sensitive' OR f.lifecycle = 'Sensitive')),
                 COUNT(*)        FILTER (WHERE f.is_dir = 0 AND f.requires_confirmation = 1),
-                COUNT(*)        FILTER (WHERE f.is_dir = 0 AND dg.content_hash IS NOT NULL),
+                COUNT(*)        FILTER (WHERE f.is_dir = 0 AND dg.file_id IS NOT NULL),
                 MAX(f.mtime)
             FROM scoped_files AS f
             LEFT JOIN dup_groups AS dg
-              ON dg.size = f.size
-             AND dg.content_hash = f.content_hash
+              ON dg.file_id = f.id
             "#,
             scoped.cte
         );
@@ -1342,7 +1340,7 @@ fn library_filter_pre_dup_clause(filter: Option<&FileLibraryFilter>) -> Option<&
 
 fn library_filter_post_dup_clause(filter: Option<&FileLibraryFilter>) -> Option<&'static str> {
     match filter.and_then(|filter| filter.library_filter.as_ref()) {
-        Some(LibraryFilter::Duplicate) => Some("dg.content_hash IS NOT NULL"),
+        Some(LibraryFilter::Duplicate) => Some("dg.file_id IS NOT NULL"),
         _ => None,
     }
 }
@@ -1355,14 +1353,8 @@ fn duplicate_filter_cte(clause: Option<&str>) -> &'static str {
 
     r#",
             dup_groups AS (
-                SELECT size, content_hash
-                FROM files
-                WHERE is_dir = 0
-                  AND is_stale = 0
-                  AND size > 0
-                  AND content_hash <> ''
-                GROUP BY size, content_hash
-                HAVING COUNT(*) > 1
+                SELECT file_id, size, content_hash
+                FROM active_duplicate_membership
             )"#
 }
 
@@ -1374,8 +1366,7 @@ fn duplicate_filter_join(clause: Option<&str>) -> &'static str {
 
     r#"
             LEFT JOIN dup_groups AS dg
-              ON dg.size = f.size
-             AND dg.content_hash = f.content_hash"#
+              ON dg.file_id = f.id"#
 }
 
 fn post_join_where_clause(clause: Option<&str>) -> String {

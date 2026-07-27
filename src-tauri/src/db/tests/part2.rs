@@ -180,6 +180,11 @@
             [],
         )
         .expect("set duplicate content hash");
+        publish_test_duplicate_group(
+            &db,
+            &["duplicate-root-a", "duplicate-root-b"],
+            "same-global-content",
+        );
         let duplicate_rule = Rule {
             id: "global-duplicate-rule".to_string(),
             name: "Global Duplicate Rule".to_string(),

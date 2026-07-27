@@ -362,6 +362,97 @@ export type LibraryScope =
   | { kind: "roots"; roots: string[] }
   | { kind: "all" };
 
+export type DedupeScopeRequest = {
+  kind: "allManagedFileLibrary" | "explicitEnabledScanRoots";
+  rootIds?: string[];
+};
+
+export interface StartDedupeRunRequest {
+  scope: DedupeScopeRequest;
+  requestKey?: string | null;
+  parentScanSessionId?: string | null;
+}
+
+export interface DedupeRun {
+  id: string;
+  requestKey: string;
+  requestAttempt: number;
+  parentScanSessionId: string | null;
+  scope: Record<string, unknown>;
+  scopeSnapshot: unknown;
+  scopeHash: string;
+  scopeSnapshotHash: string;
+  status: string;
+  phase: string;
+  revision: number;
+  cancelRequested: boolean;
+  rerunRequired: boolean;
+  candidateFiles: number;
+  candidatePhysicalObjects: number;
+  candidateBytes: number;
+  identityVerifiedFiles: number;
+  identityUnknownFiles: number;
+  hardlinkAliases: number;
+  prehashedFiles: number;
+  prehashPrunedFiles: number;
+  fullHashedFiles: number;
+  duplicateGroups: number;
+  duplicateMembers: number;
+  exactReclaimableBytes: number;
+  potentialReclaimableBytes: number;
+  processedFiles: number;
+  processedBytes: number;
+  totalBytes: number;
+  warningCount: number;
+  errorCount: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  lastCheckpointAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+export interface DedupeGroup {
+  id: string;
+  sizeEach: number;
+  fullHash: string;
+  fullHashAlgorithm: string;
+  fullHashVersion: number;
+  memberCount: number;
+  physicalCopyCount: number;
+  hardlinkAliasCount: number;
+  exactReclaimableBytes: number | null;
+  potentialReclaimableBytes: number;
+  reclaimableConfidence: "exact" | "estimated" | "unknown" | string;
+  status: string;
+  lastBuiltRunId: string;
+  revision: number;
+  createdAt: number;
+  updatedAt: number;
+  lastVerifiedAt: number;
+  representativePaths: string[];
+}
+
+export interface DedupeGroupMember {
+  groupId: string;
+  fileId: string;
+  pathSnapshot: string;
+  physicalKey: string | null;
+  identityStatus: string;
+  isHardlinkAlias: boolean;
+  size: number;
+  modifiedNs: number | null;
+  verifiedAt: number;
+}
+
+export interface DedupeGroupPage {
+  groups: DedupeGroup[];
+  nextCursor: string | null;
+  limit: number;
+}
+
 export type LibraryFilter = "all" | "active" | "archive" | "review" | "duplicate" | "sensitive";
 
 export interface FileLibraryFilters {

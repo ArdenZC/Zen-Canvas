@@ -523,7 +523,10 @@ pub(crate) fn schedule_watcher_reconciliations<R: Runtime>(
             .map_err(|error| error.to_string())?;
             continue;
         }
-        if !root.needs_reconciliation && root.watcher_revision <= root.watcher_applied_revision {
+        if !root.needs_reconciliation
+            && !root.watcher_rule_recovery_required
+            && root.watcher_revision <= root.watcher_applied_revision
+        {
             continue;
         }
 
@@ -539,8 +542,8 @@ pub(crate) fn schedule_watcher_reconciliations<R: Runtime>(
             WatcherReconciliationAdmission::Active
             | WatcherReconciliationAdmission::Backoff { .. } => continue,
             WatcherReconciliationAdmission::Exhausted { attempts } => {
-                let rule_recovery_exhausted = root.watcher_last_error_code.as_deref()
-                    == Some("watcher_rule_failure")
+                let rule_recovery_exhausted = root.watcher_rule_recovery_required
+                    || root.watcher_last_error_code.as_deref() == Some("watcher_rule_failure")
                     || root.watcher_last_error_code.as_deref()
                         == Some("watcher_rule_retry_exhausted");
                 let exhausted_code = if rule_recovery_exhausted {
@@ -778,14 +781,7 @@ fn run_scan_run<R: Runtime>(
     let root = PathBuf::from(&root_label);
     let rule_recovery_required = db
         .get_scan_root_health(Some(&claimed.dto.scan_root_id), None)?
-        .watcher_last_error_code
-        .as_deref()
-        .is_some_and(|code| {
-            matches!(
-                code,
-                "watcher_rule_failure" | "watcher_rule_retry_exhausted"
-            )
-        });
+        .watcher_rule_recovery_required;
 
     if let Err(error) = validate_root(&root) {
         // An unopenable root means the scan never ran, which is a failed job (axis 1) —

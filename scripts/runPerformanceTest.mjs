@@ -153,3 +153,31 @@ if (scanPerformance.status !== 0) {
 }
 
 console.log("Managed-scan 100k observation benchmark passed.");
+
+console.log("Running Task 02 dedupe repository benchmark...");
+const dedupePerformance = spawnSync(
+  "cargo",
+  [
+    "test",
+    "--release",
+    "--manifest-path",
+    "src-tauri/Cargo.toml",
+    "performance_task02_repository_100k_and_group_pages",
+    "--",
+    "--ignored",
+    "--nocapture",
+  ],
+  { cwd: root, stdio: "inherit" },
+);
+
+if (dedupePerformance.error) {
+  console.error(`Task 02 dedupe benchmark failed to start: ${dedupePerformance.error.message}`);
+  process.exit(1);
+}
+
+if (dedupePerformance.status !== 0) {
+  console.error(`Task 02 dedupe benchmark failed with exit code ${dedupePerformance.status}.`);
+  process.exit(dedupePerformance.status ?? 1);
+}
+
+console.log("Task 02 dedupe repository benchmark passed.");

@@ -18,6 +18,11 @@ import type {
   CleanupExecutionResult,
   CleanupPreviewItem,
   DashboardStats,
+  DedupeGroup,
+  DedupeGroupMember,
+  DedupeGroupPage,
+  DedupeRun,
+  StartDedupeRunRequest,
   ExecuteOperationRequest,
   ExecuteOperationResult,
   FileLibraryFilters,
@@ -112,6 +117,7 @@ export interface ScanRootDto {
   watcherLastAppliedAt: number | null;
   watcherLastErrorCode: string | null;
   watcherLastErrorMessage: string | null;
+  watcherRuleRecoveryRequired?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -253,15 +259,27 @@ export interface DedupeProgressPayload {
   parentScanJobId: string | null;
   processed: number;
   total: number;
-  status: "running";
+  status: string;
+  phase?: string;
+  processedBytes?: number;
+  totalBytes?: number;
+  revision?: number;
+  warningCount?: number;
+  errorCount?: number;
 }
 
 export interface DedupeCompletePayload {
   dedupeJobId: string;
   parentScanJobId: string | null;
-  status: "completed" | "cancelled" | "failed";
+  status: "completed" | "completed_with_warnings" | "cancelled" | "failed" | "interrupted";
   success: boolean;
   error: string | null;
+  phase?: string;
+  revision?: number;
+  processedBytes?: number;
+  totalBytes?: number;
+  warningCount?: number;
+  errorCode?: string | null;
 }
 
 export interface OperationProgressPayload {
@@ -463,6 +481,49 @@ export const tauriApi = {
 
   cancelDedupe(jobId: string): Promise<void> {
     return invokeCommand<void>("cancel_dedupe", { jobId });
+  },
+
+  startDedupeRun(request: StartDedupeRunRequest): Promise<DedupeRun> {
+    return invokeCommand<DedupeRun>("start_dedupe_run", { request });
+  },
+
+  retryDedupeRun(runId: string): Promise<DedupeRun> {
+    return invokeCommand<DedupeRun>("retry_dedupe_run", { runId });
+  },
+
+  cancelDedupeRun(runId: string): Promise<DedupeRun> {
+    return invokeCommand<DedupeRun>("cancel_dedupe_run", { runId });
+  },
+
+  getDedupeRun(runId: string): Promise<DedupeRun> {
+    return invokeCommand<DedupeRun>("get_dedupe_run", { runId });
+  },
+
+  listDedupeRuns(limit = 20): Promise<DedupeRun[]> {
+    return invokeCommand<DedupeRun[]>("list_dedupe_runs", { limit });
+  },
+
+  getActiveDedupeRun(): Promise<DedupeRun | null> {
+    return invokeCommand<DedupeRun | null>("get_active_dedupe_run");
+  },
+
+  listDuplicateGroups(cursor?: string | null, limit = 50): Promise<DedupeGroupPage> {
+    return invokeCommand<DedupeGroupPage>("list_duplicate_groups", {
+      cursor: cursor ?? null,
+      limit
+    });
+  },
+
+  getDuplicateGroup(groupId: string): Promise<DedupeGroup | null> {
+    return invokeCommand<DedupeGroup | null>("get_duplicate_group", { groupId });
+  },
+
+  listDuplicateGroupMembers(groupId: string): Promise<DedupeGroupMember[]> {
+    return invokeCommand<DedupeGroupMember[]>("list_duplicate_group_members", { groupId });
+  },
+
+  getFileDuplicateMembership(fileId: string): Promise<DedupeGroup[]> {
+    return invokeCommand<DedupeGroup[]>("get_file_duplicate_membership", { fileId });
   },
 
   executeMoves(operations: OperationPreview[]): Promise<ExecuteOperationResult> {
@@ -756,6 +817,10 @@ export const tauriApi = {
 
   onDedupeComplete(handler: EventHandler<DedupeCompletePayload>): Promise<UnlistenFn> {
     return listenTo("dedupe-complete", handler);
+  },
+
+  onDedupeRunUpdated(handler: EventHandler<DedupeRun>): Promise<UnlistenFn> {
+    return listenTo("dedupe-run-updated", handler);
   },
 
   onOperationProgress(handler: EventHandler<OperationProgressPayload>): Promise<UnlistenFn> {

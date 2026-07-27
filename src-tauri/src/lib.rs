@@ -47,6 +47,10 @@ pub use db::{
     OperationPreviewScopeResult, PagedFilesResult, Rule, RuleExecutionMode, RuleExecutionSummary,
     StatsSummary,
 };
+pub use db::{
+    DedupeGroupDto, DedupeGroupMemberDto, DedupeGroupPageDto, DedupeRunDto, DedupeScopeRequest,
+    StartDedupeRunRequest,
+};
 pub use file_ops::{
     cancel_operations, execute_moves, move_file, reconcile_pending_operation_journal, rename_file,
     restore_moves, ExecuteMovesByIdRequest, ExecuteMovesRequest, ExecuteMovesResult,

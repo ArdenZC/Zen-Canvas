@@ -69,6 +69,16 @@
 | `create_scan_job_id` | `read_only` | main | Create opaque job ID | default | no | command permission contract |
 | `cancel_scan` | `main_state_mutation` | main | Cancel scan job | default | yes | command permission contract |
 | `cancel_dedupe` | `main_state_mutation` | main | Cancel dedupe job | default | yes | command permission contract |
+| `start_dedupe_run` | `main_state_mutation` | main | Admit and start a durable managed-scope duplicate run | default | yes | durable dedupe admission tests |
+| `retry_dedupe_run` | `main_state_mutation` | main | Create a new attempt for a terminal durable duplicate run | default | yes | durable retry/restart tests |
+| `cancel_dedupe_run` | `main_state_mutation` | main | Request cancellation of a durable duplicate run | default | yes | durable cancellation tests |
+| `get_dedupe_run` | `read_only` | main | Read one durable duplicate run | default | no | durable dedupe query tests |
+| `list_dedupe_runs` | `read_only` | main | List durable duplicate runs | default | no | durable dedupe query tests |
+| `get_active_dedupe_run` | `read_only` | main | Read the active durable duplicate run | default | no | durable admission tests |
+| `list_duplicate_groups` | `read_only` | main | Read active duplicate groups with a keyset cursor | default | no | duplicate group cursor tests |
+| `get_duplicate_group` | `read_only` | main | Read one duplicate group | default | no | duplicate group query tests |
+| `list_duplicate_group_members` | `read_only` | main | Read the members of one duplicate group | default | no | duplicate group query tests |
+| `get_file_duplicate_membership` | `read_only` | main | Read duplicate groups containing one file | default | no | duplicate membership query tests |
 | `reveal_in_folder` | `read_only` | main | Open containing folder | default | no | command permission contract |
 | `execute_moves` | `filesystem_mutation` | main | Move/rename files | default | yes | filesystem safety tests |
 | `restore_moves` | `filesystem_mutation` | main | Restore files | default | yes | identity/restore tests |

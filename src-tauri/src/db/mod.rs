@@ -12,6 +12,14 @@ pub(crate) use classification::{rule_version_for_rules, translate_template};
 pub use commands::*;
 pub use connection::Database;
 pub use learning::*;
+pub(crate) use queries::dedupe::{
+    BuiltGroup, BuiltMember, DedupeCandidate, DedupeCheckpoint, FingerprintCas, FingerprintRow,
+    PublishOutcome, PREHASH_MIN_SIZE, PREHASH_SAMPLE_BYTES,
+};
+pub use queries::dedupe::{
+    DedupeGroupDto, DedupeGroupMemberDto, DedupeGroupPageDto, DedupeRunDto, DedupeScopeRequest,
+    StartDedupeRunRequest,
+};
 pub use queries::scan;
 pub(crate) use queries::{
     bool_to_i64, current_unix_seconds, indexed_file_from_row, infer_file_type, normalize_path_text,
