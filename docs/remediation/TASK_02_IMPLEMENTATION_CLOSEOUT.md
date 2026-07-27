@@ -122,6 +122,7 @@ Rust/TS/contract/integration coverage includes:
 | `npm run verify:security` | passed: npm audit 0 vulnerabilities; cargo audit exit 0 with 15 existing advisory warnings |
 | Task 02 performance | passed: 100k candidate/FTS fixtures, fingerprint index/query, 10k groups/20k members, keyset page, prune cap |
 | installer/build | passed: `Zen Canvas_0.1.40_x64-setup.exe` generated |
+| GitHub CI run `30234699071` | passed: Dependency audit, Windows Quality 15m23s, macOS Quality 5m29s |
 | `git diff --check` | passed; only Windows LF→CRLF normalization warnings |
 
 Representative Task 02 performance run:
@@ -138,6 +139,6 @@ The task-book 1000 × 16 MiB 1-worker/default-worker IO workload is explicitly a
 
 ## 10. Remaining acceptance and stop state
 
-GitHub Windows/macOS CI is the remaining remote verification gate and must be recorded on PR #26 before acceptance. Native platform identity and extended large-file IO remain manual-review evidence; path-only fallback is intentionally fail-closed.
+GitHub CI run `30234699071` passed on both Windows and macOS. Native platform identity and extended large-file IO remain manual-review evidence; path-only fallback is intentionally fail-closed.
 
 Task 02 is complete as an implementation, but remains Draft and must stop here for human review. No automatic merge and no Task 03 start are permitted.

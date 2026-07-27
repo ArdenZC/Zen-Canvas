@@ -8,14 +8,14 @@
 - Task 01B 遗留的 watcher 规则恢复持久状态，已被列为 Task 02 第一项强制实施内容。
 - PR #21 因越过 Task 01B 提前进入旧版 dedupe/schema 28，已关闭且未合并；不得整体恢复或 cherry-pick，其代码只能作为人工对照资料。
 - Task 02 任务书由人工完整编写，不拆分为 02A/02B 等授权任务；生产实施已在 `remediation/02-identity-fingerprint-dedupe` 完成。
-- Task 02 代码实现提交为 `615e42e`，当前 Draft PR 为 [#26](https://github.com/ArdenZC/Zen-Canvas/pull/26)，等待 Windows/macOS CI 和人工代码级验收。
+- Task 02 代码实现提交为 `615e42e`，当前 Draft PR 为 [#26](https://github.com/ArdenZC/Zen-Canvas/pull/26)；GitHub CI run `30234699071` 的 Windows/macOS 矩阵已通过，仍等待人工代码级验收。
 
 | 阶段 | 任务书 | 目标 | 状态 |
 |---|---|---|---|
 | 00 | `TASK_00_POST_MERGE_BASELINE_AUDIT.md` | PR #15 合并后架构、安全和数据基线审计 | **已验收并合并** |
 | 01A | `TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md` | File Library Scan root lease、session/run/generation、scan_seen、stale safety、恢复和 durable revision | **已验收并合并** |
 | 01B | `TASK_01B_WATCHER_RECONCILIATION_OWNERSHIP.md` | Rust watcher owner、durable revision gap、overflow/startup reconciliation、renderer 脱离 | **已验收并合并** |
-| 02 | `TASK_02_IDENTITY_FINGERPRINT_AND_DUPE.md` | watcher rule recovery debt、physical identity、fingerprint cache、prehash/full hash、durable run、hardlink-safe duplicate groups | **实施完成，PR #26 Draft，待人工验收** |
+| 02 | `TASK_02_IDENTITY_FINGERPRINT_AND_DUPE.md` | watcher rule recovery debt、physical identity、fingerprint cache、prehash/full hash、durable run、hardlink-safe duplicate groups | **实施完成，PR #26 Draft，CI 通过，待人工验收** |
 | 03 | 待创建 | Analysis Run、Finding 与 detector | **等待 Task 02，禁止执行** |
 | 04 | 待创建 | File Query V2、snapshot、cursor 与跨页 selection | **后续阶段，禁止执行** |
 | 05 | 待创建 | Organization Plan 后端领域模型 | **后续阶段，禁止执行** |
@@ -206,7 +206,7 @@ docs/remediation/TASK_02_IMPLEMENTATION_CLOSEOUT.md
 并将本索引更新为：
 
 ```text
-Task 02：实施完成，PR #26 Draft，待人工验收
+Task 02：实施完成，PR #26 Draft，CI 通过，待人工验收
 Task 03：仍禁止执行
 ```
 
