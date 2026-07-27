@@ -8,10 +8,10 @@
 | 基线 | `master` gate 已通过；实际基线 `7f1454475a87b66d1fbb6479b72a49107bae3c6e`，schema 28 |
 | 分支 | `remediation/02-identity-fingerprint-dedupe` |
 | Draft PR | [#26](https://github.com/ArdenZC/Zen-Canvas/pull/26) — `feat: add durable file fingerprints and duplicate groups` |
-| 代码实现提交 | `615e42e` |
+| 代码实现提交 | `615e42e` + follow-up cache/test/benchmark commit（以 PR head 为准） |
 | 状态 | 已完成生产实施，保持 Draft，等待人工代码级验收 |
 
-本 Closeout 记录的是代码实现提交 `615e42e`；后续仅有 remediation 文档提交，最终分支 HEAD 以 PR head 为准。
+本 Closeout 记录的是代码实现提交 `615e42e`；后续包含 cache/test/benchmark 证据提交，最终分支 HEAD 以 PR head 为准。
 
 ## 2. Scope and hard boundaries
 
@@ -94,7 +94,7 @@ scope snapshot 记录 canonical managed roots、watcher revision/applied revisio
 
 ## 8. Duplicate group semantics and consumers
 
-publication 在一个短事务内写 deterministic groups/members，并以 snapshot/CAS guard 防止半成品可见。分页使用 `(updated_at, id)` keyset cursor；`active_duplicate_membership` 是 File Library、classification、learning、AI duplicate projection 和 browser mock 的共同 membership authority。
+publication 在一个短事务内写 deterministic groups/members，并以 snapshot/CAS guard 防止半成品可见。分页使用本模块专用的 `(potential_reclaimable_bytes DESC, size_each DESC, full_hash ASC, id ASC)` keyset cursor；`active_duplicate_membership` 是 File Library、classification、learning、AI duplicate projection 和 browser mock 的共同 membership authority。
 
 - hardlink-only paths 共享一个 physical key，不产生可释放 duplicate copy。
 - hardlink + true copy 可形成内容 group，但 exact reclaimable 只计算物理副本；hardlink alias 单独计数。
@@ -110,15 +110,17 @@ Rust/TS/contract/integration coverage includes:
 - recovery flag interleaving and root health semantics;
 - active-scope admission/idempotency, retry, startup interrupted recovery, cancellation, revision CAS and scope snapshot/rerun exhaustion;
 - physical identity, symlink/reparse fail-closed, hardlink-only, hardlink + true copy, same-size/different-content and changed-during-hash;
-- prehash/full-hash, cold/warm cache (warm custom hasher calls = 0), fingerprint invalidation/error retention, bounded error ledger;
-- group atomic publication, stale-on-invalidation, keyset cursor, consumer projections, progress bounds and read-only UI/permission surface.
+- physical identity path-only/cross-volume/rename reuse, same-second `modified_ns` detection, hardlink versus true-copy accounting and algorithm/version invalidation;
+- prehash/full-hash, cold/warm cache (warm custom hasher calls = 0), distinct-sample pruning, prehash collision full-hash confirmation, fingerprint invalidation/error retention, fingerprint CAS and bounded error ledger;
+- group atomic publication, stale-on-invalidation, deterministic group revision, keyset cursor, file/group membership projections, legacy `content_hash` false-group guard, cancellation preservation and read-only UI/permission surface;
+- bounded worker parity (1 versus multi-worker) and the repository/performance gate's candidate, fingerprint, publication, keyset and retention measurements.
 
 | Gate | Result |
 |---|---|
 | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | passed |
 | `cargo clippy --features desktop-runtime --all-targets -- -D warnings` | passed |
-| `npm run verify:frontend` | passed: 71 files / 489 tests, remediation 13/13, performance and build passed |
-| `npm run verify:rust` | passed: 455 library tests, all integration suites and doc tests; 0 failures |
+| `npm run verify:frontend` | passed: 71 files / 490 tests, remediation 13/13, performance and build passed |
+| `npm run verify:rust` | passed: 460 library tests, all integration suites and doc tests; 0 failures |
 | `npm run verify:security` | passed: npm audit 0 vulnerabilities; cargo audit exit 0 with 15 existing advisory warnings |
 | Task 02 performance | passed: 100k candidate/FTS fixtures, fingerprint index/query, 10k groups/20k members, keyset page, prune cap |
 | installer/build | passed: `Zen Canvas_0.1.40_x64-setup.exe` generated |
@@ -128,17 +130,26 @@ Rust/TS/contract/integration coverage includes:
 Representative Task 02 performance run:
 
 ```text
-candidate_collection_ms=153.985
-fingerprint_batch_and_index_query_ms=1368.999
-publication_10k_groups_20k_members_ms=502.688
-keyset_page_100_ms=5.580
-prune_1000_cap_ms=22.664
+candidate_collection_ms=136.106
+fingerprint_batch_write_and_index_query_ms=1293.846
+publication_10k_groups_20k_members_ms=482.865
+keyset_page_100_ms=5.576
+prune_1000_cap_ms=19.582
 ```
 
-The task-book 1000 × 16 MiB 1-worker/default-worker IO workload is explicitly a local-only extended benchmark; the checked-in performance gate uses the permitted reduced CI-sized fixture. No result is claimed for that extended workload.
+Hash IO benchmark evidence (same implementation, release build):
+
+```text
+reduced CI fixture: files=16, bytes_each=1048576, identity_io_ms=0.733, prehash_bytes=131072, prehash_ms=0.549, full_hash_bytes=16777216, one_worker_ms=7.026, default_workers=4, default_worker_ms=2.815
+local 1000x16MiB: files=1000, bytes_each=16777216, identity_io_ms=43.942, prehash_bytes=8192000, prehash_ms=34.823, full_hash_bytes=16777216000, one_worker_ms=4239.608, default_workers=4, default_worker_ms=1350.852
+100k schema migration/WAL reader: schema_28_to_29_ms=14.089, wal_reader_count_ms=1.056
+warm fingerprint cache: custom hasher calls=0; no full-hash content IO on the warm integration run
+```
+
+The task-book 1000 × 16 MiB workload is a local-only evidence item; the checked-in performance gate uses the permitted reduced CI-sized fixture. The repository benchmark separately covers the database write/index query, atomic publication, keyset page, and bounded prune stages.
 
 ## 10. Remaining acceptance and stop state
 
-GitHub CI run `30234699071` passed on both Windows and macOS. Native platform identity and extended large-file IO remain manual-review evidence; path-only fallback is intentionally fail-closed.
+The pre-follow-up GitHub CI run `30234699071` passed on both Windows and macOS; the follow-up cache/test/benchmark commit requires a fresh PR CI run before final human review. Native platform identity remains platform-review evidence; path-only fallback is intentionally fail-closed. The extended large-file IO benchmark has now been executed locally and is recorded above.
 
 Task 02 is complete as an implementation, but remains Draft and must stop here for human review. No automatic merge and no Task 03 start are permitted.

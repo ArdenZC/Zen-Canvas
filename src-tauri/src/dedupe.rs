@@ -956,8 +956,18 @@ fn bounded_hash_subjects(
             .ok()
             .as_deref(),
     );
+    let results = bounded_hash_subjects_with_workers(tasks, cancel_flag, workers)?;
+    Ok((results, invalid_override))
+}
+
+fn bounded_hash_subjects_with_workers(
+    tasks: Vec<HashTask>,
+    cancel_flag: Arc<AtomicBool>,
+    workers: usize,
+) -> Result<Vec<HashResult>, DedupeError> {
+    let workers = workers.max(1);
     if tasks.is_empty() {
-        return Ok((Vec::new(), invalid_override));
+        return Ok(Vec::new());
     }
     let (task_tx, task_rx) = sync_channel::<Option<HashTask>>(workers.saturating_mul(2).max(1));
     let (result_tx, result_rx) = std::sync::mpsc::channel::<HashResult>();
@@ -1019,7 +1029,7 @@ fn bounded_hash_subjects(
     for handle in handles {
         let _ = handle.join();
     }
-    Ok((results, invalid_override))
+    Ok(results)
 }
 
 fn hash_subject_with_identity(
@@ -1476,7 +1486,7 @@ fn hash_file_blake3(path: &Path) -> Result<String, DedupeError> {
 #[cfg(test)]
 mod job_manager_tests {
     use super::*;
-    use std::{fs, path::PathBuf};
+    use std::{fs, io::Write, path::PathBuf};
 
     #[test]
     fn scan_jobs_map_to_independent_dedupe_jobs() {
@@ -1532,6 +1542,163 @@ mod job_manager_tests {
         assert_eq!(dedupe_worker_count(8, Some("0")), (4, true));
         assert_eq!(dedupe_worker_count(8, Some("nine")), (4, true));
         assert_eq!(dedupe_worker_count(2, Some("8")), (2, false));
+    }
+
+    #[test]
+    fn one_worker_and_multi_worker_hash_results_are_identical() {
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-dedupe-worker-parity-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).expect("create fixture directory");
+        let first = root.join("first.bin");
+        let second = root.join("second.bin");
+        fs::write(&first, vec![1_u8; 2 * 1024 * 1024]).expect("first fixture");
+        fs::write(&second, vec![2_u8; 2 * 1024 * 1024]).expect("second fixture");
+        let first_identity = capture_physical_identity(&first).expect("first identity");
+        let second_identity = capture_physical_identity(&second).expect("second identity");
+        let tasks = || {
+            vec![
+                HashTask {
+                    subject_index: 0,
+                    path: first.clone(),
+                    expected_identity: first_identity.clone(),
+                },
+                HashTask {
+                    subject_index: 1,
+                    path: second.clone(),
+                    expected_identity: second_identity.clone(),
+                },
+            ]
+        };
+        let mut one_worker =
+            bounded_hash_subjects_with_workers(tasks(), Arc::new(AtomicBool::new(false)), 1)
+                .expect("one worker");
+        let mut many_workers =
+            bounded_hash_subjects_with_workers(tasks(), Arc::new(AtomicBool::new(false)), 4)
+                .expect("multiple workers");
+        let normalize = |results: &mut Vec<HashResult>| {
+            results.sort_by_key(|result| result.subject_index);
+            results
+                .iter()
+                .map(|result| {
+                    (
+                        result.subject_index,
+                        result.result.as_ref().expect("hash result").clone(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(normalize(&mut one_worker), normalize(&mut many_workers));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    #[ignore = "Task 02 hash IO benchmark; invoked with a reduced fixture by npm run test:performance"]
+    fn performance_task02_hash_io_1000x16mib_1_worker_and_default_workers() {
+        let file_count = std::env::var("ZC_TASK02_IO_FILES")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(16)
+            .max(2);
+        let bytes_each = std::env::var("ZC_TASK02_IO_BYTES")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(1024 * 1024)
+            .max(1);
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-dedupe-io-benchmark-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&root).expect("create IO benchmark directory");
+        let chunk = vec![0_u8; 1024 * 1024];
+        let mut paths = Vec::with_capacity(file_count);
+        for index in 0..file_count {
+            let path = root.join(format!("file-{index:04}.bin"));
+            let mut file = File::create(&path).expect("create IO benchmark file");
+            let fill = u8::try_from(index % 251).expect("fixture pattern fits");
+            let mut remaining = bytes_each;
+            while remaining > 0 {
+                let write_len = remaining.min(chunk.len());
+                if fill == 0 {
+                    file.write_all(&chunk[..write_len])
+                        .expect("write IO benchmark chunk");
+                } else {
+                    file.write_all(&vec![fill; write_len])
+                        .expect("write IO benchmark chunk");
+                }
+                remaining -= write_len;
+            }
+            paths.push(path);
+        }
+
+        let identity_started = Instant::now();
+        let identities = paths
+            .iter()
+            .map(|path| capture_physical_identity(path).expect("capture benchmark identity"))
+            .collect::<Vec<_>>();
+        let identity_elapsed = identity_started.elapsed();
+
+        let prehash_started = Instant::now();
+        for path in &paths {
+            hash_file_prehash(path, i64::try_from(bytes_each).expect("fixture size fits"))
+                .expect("prehash benchmark file");
+        }
+        let prehash_elapsed = prehash_started.elapsed();
+        let prehash_bytes_each = if bytes_each < PREHASH_MIN_SIZE as usize {
+            bytes_each
+        } else {
+            PREHASH_SAMPLE_BYTES.saturating_mul(2)
+        };
+        let prehash_bytes = prehash_bytes_each.saturating_mul(file_count);
+        let full_hash_bytes = bytes_each.saturating_mul(file_count);
+        let tasks = || {
+            paths
+                .iter()
+                .zip(identities.iter())
+                .enumerate()
+                .map(|(subject_index, (path, expected_identity))| HashTask {
+                    subject_index,
+                    path: path.clone(),
+                    expected_identity: expected_identity.clone(),
+                })
+                .collect::<Vec<_>>()
+        };
+
+        let one_worker_started = Instant::now();
+        let one_worker =
+            bounded_hash_subjects_with_workers(tasks(), Arc::new(AtomicBool::new(false)), 1)
+                .expect("one-worker full hash benchmark");
+        let one_worker_elapsed = one_worker_started.elapsed();
+        assert_eq!(one_worker.len(), file_count);
+        assert!(one_worker.iter().all(|result| result.result.is_ok()));
+
+        let detected = thread::available_parallelism()
+            .map(|value| value.get())
+            .unwrap_or(2);
+        let (default_workers, _) = dedupe_worker_count(detected, None);
+        let default_worker_started = Instant::now();
+        let default_worker = bounded_hash_subjects_with_workers(
+            tasks(),
+            Arc::new(AtomicBool::new(false)),
+            default_workers,
+        )
+        .expect("default-worker full hash benchmark");
+        let default_worker_elapsed = default_worker_started.elapsed();
+        assert_eq!(default_worker.len(), file_count);
+        assert!(default_worker.iter().all(|result| result.result.is_ok()));
+
+        println!(
+            "Task 02 hash IO benchmark: files={file_count}, bytes_each={bytes_each}, identity_io_ms={:.3}, prehash_bytes={prehash_bytes}, prehash_ms={:.3}, full_hash_bytes={full_hash_bytes}, one_worker_ms={:.3}, default_workers={default_workers}, default_worker_ms={:.3}",
+            identity_elapsed.as_secs_f64() * 1000.0,
+            prehash_elapsed.as_secs_f64() * 1000.0,
+            one_worker_elapsed.as_secs_f64() * 1000.0,
+            default_worker_elapsed.as_secs_f64() * 1000.0,
+        );
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

@@ -117,6 +117,21 @@ fn durable_run_persists_fingerprints_groups_and_invalidates_on_metadata_change()
     assert_eq!(fingerprint_count, 2);
     assert_eq!(active_group_count, 1);
     assert_eq!(active_members, 2);
+    let (group_id, group_revision): (String, i64) = conn
+        .query_row(
+            "SELECT id, revision FROM duplicate_groups WHERE status = 'active' LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("initial deterministic group");
+    let memberships: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM active_duplicate_membership WHERE file_id = ?1",
+            [second.to_string_lossy().to_string()],
+            |row| row.get(0),
+        )
+        .expect("file duplicate membership");
+    assert_eq!(memberships, 1);
 
     let page = db
         .get_paged_files(Some(20), Some(0), None)
@@ -166,6 +181,186 @@ fn durable_run_persists_fingerprints_groups_and_invalidates_on_metadata_change()
         )
         .expect("stale fingerprint");
     assert_eq!(stale_fingerprint, "stale");
+
+    fs::write(&first, b"same-content").expect("restore original content");
+    let restored_metadata = fs::metadata(&first).expect("restored metadata");
+    db.insert_file(InsertFileRequest {
+        id: first.to_string_lossy().to_string(),
+        path: first.to_string_lossy().to_string(),
+        name: "first.txt".to_string(),
+        extension: "txt".to_string(),
+        size: i64::try_from(restored_metadata.len()).expect("restored size"),
+        mtime: restored_metadata
+            .modified()
+            .expect("restored mtime")
+            .duration_since(UNIX_EPOCH)
+            .expect("restored unix mtime")
+            .as_secs() as i64,
+        ctime: 0,
+        is_dir: false,
+        state_code: 0,
+    })
+    .expect("restore indexed row");
+    run_duplicate_detection(&db, &NoopDedupeEventEmitter).expect("republish restored group");
+    let (restored_group_id, restored_revision): (String, i64) = conn
+        .query_row(
+            "SELECT id, revision FROM duplicate_groups WHERE status = 'active' LIMIT 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("republished deterministic group");
+    assert_eq!(restored_group_id, group_id);
+    assert!(restored_revision > group_revision);
+}
+
+#[test]
+fn stale_rename_fingerprint_is_reused_for_the_same_physical_file() {
+    let dir = test_dir("durable-rename-cache");
+    let db = Database::open(dir.join("db.sqlite3")).expect("open database");
+    insert_managed_root(&db, &dir, "root-rename-cache");
+    let old_path = write_indexed_file(&db, &dir, "old-name.bin", b"rename-cache", 1);
+    write_indexed_file(&db, &dir, "peer.bin", b"rename-cache", 2);
+
+    run_duplicate_detection(&db, &NoopDedupeEventEmitter).expect("seed durable cache");
+    let old_path_text = old_path.to_string_lossy().to_string();
+    let renamed_path = dir.join("new-name.bin");
+    fs::rename(&old_path, &renamed_path).expect("rename physical file");
+    db.remove_files_by_paths(std::slice::from_ref(&old_path_text))
+        .expect("invalidate old path");
+    insert_path_only_indexed_file(&db, &renamed_path, "new-name.bin");
+
+    let mut hasher = CountingHasher::default();
+    let summary = run_duplicate_detection_with_hasher(&db, &NoopDedupeEventEmitter, &mut hasher)
+        .expect("reuse renamed fingerprint");
+
+    assert_eq!(hasher.calls, 0, "rename should reuse the retained cache");
+    assert_eq!(summary.duplicate_files, 2);
+    let conn = Connection::open(db.path()).expect("open database connection");
+    let (status, hash): (String, String) = conn
+        .query_row(
+            "SELECT fingerprint_status, COALESCE(full_hash, '') FROM file_fingerprints WHERE file_id = ?1",
+            [renamed_path.to_string_lossy().to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("renamed fingerprint");
+    assert_eq!(status, "complete");
+    assert!(!hash.is_empty());
+}
+
+#[test]
+fn prehash_prunes_distinct_large_samples_and_full_hashes_collisions_without_false_groups() {
+    let dir = test_dir("dedupe-prehash-stages");
+    let db = Database::open(dir.join("db.sqlite3")).expect("open database");
+    insert_managed_root(&db, &dir, "root-prehash-stages");
+    let size = 1024 * 1024;
+
+    let mut distinct_a = vec![0_u8; size];
+    distinct_a[..4096].fill(1);
+    distinct_a[size - 4096..].fill(9);
+    let mut distinct_b = distinct_a.clone();
+    distinct_b[..4096].fill(2);
+    let mut collision_a = vec![0_u8; size];
+    collision_a[..4096].fill(7);
+    collision_a[size - 4096..].fill(8);
+    collision_a[4096..size - 4096].fill(3);
+    let mut collision_b = collision_a.clone();
+    collision_b[4096..size - 4096].fill(4);
+
+    write_indexed_file(&db, &dir, "distinct-a.bin", &distinct_a, 1);
+    write_indexed_file(&db, &dir, "distinct-b.bin", &distinct_b, 2);
+    write_indexed_file(&db, &dir, "collision-a.bin", &collision_a, 3);
+    write_indexed_file(&db, &dir, "collision-b.bin", &collision_b, 4);
+
+    let mut hasher = CountingHasher::default();
+    let summary = run_duplicate_detection_with_hasher(&db, &NoopDedupeEventEmitter, &mut hasher)
+        .expect("run staged prehash");
+
+    assert_eq!(summary.candidate_files, 4);
+    assert_eq!(summary.hashed_files, 2);
+    assert_eq!(hasher.calls, 2);
+    assert_eq!(summary.duplicate_files, 0);
+    let conn = Connection::open(db.path()).expect("open database connection");
+    let prehash_pruned: i64 = conn
+        .query_row(
+            "SELECT prehash_pruned_files FROM dedupe_runs ORDER BY created_at DESC, id DESC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("prehash pruning count");
+    assert_eq!(prehash_pruned, 2);
+    let active_groups: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM duplicate_groups WHERE status = 'active'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("active groups");
+    assert_eq!(active_groups, 0);
+}
+
+#[test]
+fn fingerprint_algorithm_version_change_forces_full_hash_again() {
+    let dir = test_dir("dedupe-fingerprint-version");
+    let db = Database::open(dir.join("db.sqlite3")).expect("open database");
+    insert_managed_root(&db, &dir, "root-fingerprint-version");
+    write_indexed_file(&db, &dir, "version-a.bin", b"versioned-content", 1);
+    write_indexed_file(&db, &dir, "version-b.bin", b"versioned-content", 2);
+    run_duplicate_detection(&db, &NoopDedupeEventEmitter).expect("seed fingerprint cache");
+
+    let conn = Connection::open(db.path()).expect("open database connection");
+    conn.execute(
+        "UPDATE file_fingerprints SET prehash_algorithm = 'legacy', prehash_version = 99, full_hash_algorithm = 'legacy', full_hash_version = 99",
+        [],
+    )
+    .expect("invalidate algorithm version");
+    drop(conn);
+
+    let mut hasher = CountingHasher::default();
+    let summary = run_duplicate_detection_with_hasher(&db, &NoopDedupeEventEmitter, &mut hasher)
+        .expect("recompute changed algorithm cache");
+    assert_eq!(hasher.calls, 2);
+    assert_eq!(summary.duplicate_files, 0);
+}
+
+#[test]
+fn modified_ns_detects_same_second_same_size_content_change() {
+    let dir = test_dir("dedupe-modified-ns");
+    let db = Database::open(dir.join("db.sqlite3")).expect("open database");
+    insert_managed_root(&db, &dir, "root-modified-ns");
+    let size = 1024 * 1024;
+    let mut original = vec![0_u8; size];
+    original[..4096].fill(5);
+    original[size - 4096..].fill(6);
+    original[4096..size - 4096].fill(1);
+    let mut changed = original.clone();
+    changed[4096..size - 4096].fill(2);
+    let changed_path = write_indexed_file(&db, &dir, "modified-ns-a.bin", &original, 1);
+    write_indexed_file(&db, &dir, "modified-ns-b.bin", &original, 2);
+    run_duplicate_detection(&db, &NoopDedupeEventEmitter).expect("seed same-content group");
+
+    let old_mtime: i64 = Connection::open(db.path())
+        .expect("open database connection")
+        .query_row(
+            "SELECT mtime FROM files WHERE path = ?1",
+            [changed_path.to_string_lossy().to_string()],
+            |row| row.get(0),
+        )
+        .expect("old mtime");
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    fs::write(&changed_path, &changed).expect("change content");
+    Connection::open(db.path())
+        .expect("open database connection")
+        .execute(
+            "UPDATE files SET mtime = ?1 WHERE path = ?2",
+            rusqlite::params![old_mtime, changed_path.to_string_lossy().to_string()],
+        )
+        .expect("retain same-second indexed mtime");
+
+    let mut hasher = CountingHasher::default();
+    let summary = run_duplicate_detection_with_hasher(&db, &NoopDedupeEventEmitter, &mut hasher)
+        .expect("detect modified nanosecond identity");
+    assert_eq!(hasher.calls, 1);
+    assert_eq!(summary.duplicate_files, 0);
 }
 
 #[test]
@@ -235,6 +430,14 @@ fn hardlink_alias_and_true_copy_have_physical_reclaim_semantics() {
     assert_eq!(exact, Some(size));
     assert_eq!(potential, size);
     assert_eq!(confidence, "exact");
+    let physical_keys: i64 = conn
+        .query_row(
+            "SELECT COUNT(DISTINCT physical_key) FROM file_fingerprints WHERE physical_key IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("distinct physical keys");
+    assert_eq!(physical_keys, 2);
 }
 
 #[test]
@@ -245,6 +448,10 @@ fn duplicate_detection_marks_only_same_size_same_content_files_as_duplicates() {
     let duplicate_a = write_indexed_file(&db, &dir, "duplicate-a.txt", b"abc123abc123", 10);
     let duplicate_b = write_indexed_file(&db, &dir, "duplicate-b.txt", b"abc123abc123", 11);
     let same_size_different = write_indexed_file(&db, &dir, "different.txt", b"xyz789xyz789", 12);
+    Connection::open(db.path())
+        .expect("open database connection")
+        .execute("UPDATE files SET content_hash = 'legacy-shared-hash'", [])
+        .expect("seed legacy compatibility hashes");
 
     let summary =
         run_duplicate_detection(&db, &NoopDedupeEventEmitter).expect("run duplicate detection");

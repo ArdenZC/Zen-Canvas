@@ -668,7 +668,7 @@ impl Database {
         };
         let conn = self.conn()?;
         conn.query_row(
-            &format!("{FINGERPRINT_SELECT} WHERE physical_key = ?1 AND file_id <> ?2 AND size = ?3 AND modified_ns IS ?4 AND identity_status = 'verified' AND prehash_algorithm = 'blake3-head-tail' AND prehash_version = 1 AND full_hash_algorithm = 'blake3' AND full_hash_version = 1 AND fingerprint_status IN ('prehash_complete', 'complete') AND EXISTS (SELECT 1 FROM files WHERE files.id = file_fingerprints.file_id AND files.path = file_fingerprints.path_snapshot AND files.is_dir = 0 AND files.is_stale = 0 AND files.size = file_fingerprints.size) ORDER BY full_hashed_at DESC, file_id LIMIT 1"),
+            &format!("{FINGERPRINT_SELECT} WHERE physical_key = ?1 AND file_id <> ?2 AND size = ?3 AND modified_ns IS ?4 AND identity_status IN ('verified', 'stale', 'missing') AND prehash_algorithm = 'blake3-head-tail' AND prehash_version = 1 AND full_hash_algorithm = 'blake3' AND full_hash_version = 1 AND fingerprint_status IN ('prehash_complete', 'complete', 'stale', 'missing') AND EXISTS (SELECT 1 FROM files WHERE files.id = file_fingerprints.file_id AND files.path = file_fingerprints.path_snapshot AND files.is_dir = 0 AND files.size = file_fingerprints.size) ORDER BY full_hashed_at DESC, file_id LIMIT 1"),
             params![physical_key, exclude_file_id, i64::try_from(identity.size).unwrap_or(i64::MAX), identity.modified_ns],
             fingerprint_from_row,
         )
@@ -864,8 +864,8 @@ impl Database {
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute(
-            "UPDATE file_fingerprints SET prehash = ?1, prehashed_at = ?2, full_hash = ?3, full_hashed_at = ?4, fingerprint_status = ?5, revision = revision + 1, last_verified_at = ?2, error_code = NULL, error_message = NULL WHERE file_id = ?6 AND size = ?7 AND modified_ns IS ?8 AND physical_key = ?9",
-            params![cached.prehash, cached.prehashed_at, cached.full_hash, cached.full_hashed_at, cached.fingerprint_status, candidate.file_id, cached.size, cached.modified_ns, cached.physical_key],
+            "UPDATE file_fingerprints SET prehash = ?1, prehashed_at = ?2, full_hash = ?3, full_hashed_at = ?4, fingerprint_status = CASE WHEN ?3 IS NOT NULL AND ?3 <> '' THEN 'complete' WHEN ?1 IS NOT NULL AND ?1 <> '' THEN 'prehash_complete' ELSE 'identity_only' END, revision = revision + 1, last_verified_at = ?2, error_code = NULL, error_message = NULL WHERE file_id = ?5 AND size = ?6 AND modified_ns IS ?7 AND physical_key = ?8",
+            params![cached.prehash, cached.prehashed_at, cached.full_hash, cached.full_hashed_at, candidate.file_id, cached.size, cached.modified_ns, cached.physical_key],
         )?;
         let row = query_fingerprint(&tx, &candidate.file_id)?;
         tx.commit()?;
@@ -1864,6 +1864,226 @@ mod tests {
     }
 
     #[test]
+    fn path_only_fallback_and_cross_volume_cache_rules_are_fail_closed() {
+        let db_path = std::env::temp_dir().join(format!(
+            "zen-canvas-dedupe-identity-rules-{}-{}.sqlite3",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let db = Database::open(&db_path).expect("database");
+        db.insert_file(InsertFileRequest {
+            id: "/tmp/path-only.txt".into(),
+            path: "/tmp/path-only.txt".into(),
+            name: "path-only.txt".into(),
+            extension: "txt".into(),
+            size: 4,
+            mtime: 11,
+            ctime: 11,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("path-only file row");
+        let path_only = db
+            .upsert_physical_identity(
+                &DedupeCandidate {
+                    file_id: "/tmp/path-only.txt".into(),
+                    path: "/tmp/path-only.txt".into(),
+                    size: 4,
+                    mtime: 11,
+                },
+                &PhysicalFileIdentity {
+                    size: 4,
+                    modified_ns: None,
+                    platform_kind: crate::fs_safety::PhysicalPlatform::Other,
+                    platform_volume_id: None,
+                    platform_file_id: None,
+                    physical_key: None,
+                    link_count: None,
+                },
+            )
+            .expect("path-only identity");
+        assert_eq!(path_only.identity_status, "path_only");
+        assert!(path_only.physical_key.is_none());
+
+        db.insert_file(InsertFileRequest {
+            id: "/tmp/old-volume.txt".into(),
+            path: "/tmp/old-volume.txt".into(),
+            name: "old-volume.txt".into(),
+            extension: "txt".into(),
+            size: 4,
+            mtime: 11,
+            ctime: 11,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("old volume file row");
+        let conn = db.conn().expect("connection");
+        conn.execute(
+            "INSERT INTO file_fingerprints (file_id, path_snapshot, identity_status, platform_kind, platform_volume_id, platform_file_id, physical_key, size, modified_ns, full_hash, fingerprint_status, captured_at, last_verified_at) VALUES ('/tmp/old-volume.txt', '/tmp/old-volume.txt', 'verified', 'unix', 'old-volume', '1', 'unix:v1:old-volume:1', 4, 11, 'cached-hash', 'complete', 1, 1)",
+            [],
+        )
+        .expect("old volume fingerprint");
+        let new_volume = PhysicalFileIdentity {
+            size: 4,
+            modified_ns: Some(11),
+            platform_kind: crate::fs_safety::PhysicalPlatform::Unix,
+            platform_volume_id: Some("new-volume".into()),
+            platform_file_id: Some("1".into()),
+            physical_key: Some("unix:v1:new-volume:1".into()),
+            link_count: Some(1),
+        };
+        assert!(db
+            .find_cached_fingerprint_by_physical(&new_volume, "/tmp/new-volume.txt")
+            .expect("cross-volume lookup")
+            .is_none());
+
+        let same_physical = PhysicalFileIdentity {
+            physical_key: Some("unix:v1:old-volume:1".into()),
+            platform_volume_id: Some("old-volume".into()),
+            ..new_volume.clone()
+        };
+        assert!(db
+            .find_cached_fingerprint_by_physical(&same_physical, "/tmp/renamed.txt")
+            .expect("same-volume lookup")
+            .is_some());
+        conn.execute(
+            "UPDATE files SET is_stale = 1 WHERE id = '/tmp/old-volume.txt'",
+            [],
+        )
+        .expect("mark old row stale");
+        conn.execute(
+            "UPDATE file_fingerprints SET identity_status = 'missing', fingerprint_status = 'missing' WHERE file_id = '/tmp/old-volume.txt'",
+            [],
+        )
+        .expect("retain stale rename cache");
+        assert!(db
+            .find_cached_fingerprint_by_physical(&same_physical, "/tmp/renamed.txt")
+            .expect("stale rename lookup")
+            .is_some());
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn fingerprint_write_cas_rejects_stale_revision_for_prehash_and_full_hash() {
+        let db_path = std::env::temp_dir().join(format!(
+            "zen-canvas-dedupe-fingerprint-cas-{}-{}.sqlite3",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let db = Database::open(&db_path).expect("database");
+        db.insert_file(InsertFileRequest {
+            id: "/tmp/cas.txt".into(),
+            path: "/tmp/cas.txt".into(),
+            name: "cas.txt".into(),
+            extension: "txt".into(),
+            size: 4,
+            mtime: 11,
+            ctime: 11,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("cas file row");
+        let identity = PhysicalFileIdentity {
+            size: 4,
+            modified_ns: Some(22),
+            platform_kind: crate::fs_safety::PhysicalPlatform::Unix,
+            platform_volume_id: Some("cas-volume".into()),
+            platform_file_id: Some("cas-file".into()),
+            physical_key: Some("unix:v1:cas-volume:cas-file".into()),
+            link_count: Some(1),
+        };
+        let candidate = DedupeCandidate {
+            file_id: "/tmp/cas.txt".into(),
+            path: "/tmp/cas.txt".into(),
+            size: 4,
+            mtime: 11,
+        };
+        let fingerprint = db
+            .upsert_physical_identity(&candidate, &identity)
+            .expect("identity row");
+        let cas = FingerprintCas {
+            file_id: candidate.file_id.clone(),
+            path_snapshot: candidate.path.clone(),
+            size: candidate.size,
+            indexed_mtime: candidate.mtime,
+            modified_ns: identity.modified_ns,
+            physical_key: identity.physical_key.clone(),
+            expected_revision: fingerprint.revision,
+        };
+        let conn = db.conn().expect("connection");
+        conn.execute(
+            "UPDATE file_fingerprints SET revision = revision + 1 WHERE file_id = '/tmp/cas.txt'",
+            [],
+        )
+        .expect("advance competing revision");
+        let prehash_updated = db
+            .save_prehash(std::slice::from_ref(&cas), "prehash")
+            .expect("prehash CAS");
+        assert_eq!(prehash_updated, 0);
+        let full_hash_updated = db
+            .save_full_hash(&[(cas, "full-hash".into())])
+            .expect("full-hash CAS");
+        assert_eq!(full_hash_updated, 0);
+        let stored = db
+            .get_fingerprint("/tmp/cas.txt")
+            .expect("stored fingerprint");
+        assert!(stored.and_then(|row| row.full_hash).is_none());
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn per_run_error_details_are_capped_and_truncation_is_durable() {
+        let db_path = std::env::temp_dir().join(format!(
+            "zen-canvas-dedupe-error-cap-{}-{}.sqlite3",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let db = Database::open(&db_path).expect("database");
+        let conn = db.conn().expect("connection");
+        conn.execute(
+            "INSERT INTO scan_roots (id, normalized_path, display_name, source_kind, enabled, health_status, needs_reconciliation, created_at, updated_at) VALUES ('error-cap-root', '/tmp/error-cap-root', 'error-cap-root', 'file_library', 1, 'healthy', 0, 1, 1)",
+            [],
+        )
+        .expect("managed root");
+        let admission = db
+            .start_dedupe_run(&StartDedupeRunRequest {
+                scope: DedupeScopeRequest {
+                    kind: "explicitEnabledScanRoots".into(),
+                    root_ids: vec!["error-cap-root".into()],
+                },
+                request_key: Some("error-cap-request".into()),
+                parent_scan_session_id: None,
+            })
+            .expect("admission");
+        let mut run = admission.run;
+        for index in 0..=DEDUPE_ERROR_DETAIL_LIMIT {
+            run = db
+                .record_dedupe_error(
+                    &run.id,
+                    run.revision,
+                    None,
+                    &format!("/tmp/error-{index}"),
+                    "full_hashing",
+                    "synthetic_error",
+                    "synthetic error",
+                )
+                .expect("record bounded error");
+        }
+        let details: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM dedupe_run_errors WHERE run_id = ?1",
+                [&run.id],
+                |row| row.get(0),
+            )
+            .expect("error details");
+        assert_eq!(details, DEDUPE_ERROR_DETAIL_LIMIT);
+        assert_eq!(run.error_count, DEDUPE_ERROR_DETAIL_LIMIT + 1);
+        assert_eq!(run.warning_count, 1);
+        assert_eq!(run.error_code.as_deref(), Some("errors_truncated"));
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
     fn invalidation_stales_group_and_clears_only_compatibility_in_caller_transaction() {
         let db_path = std::env::temp_dir().join(format!(
             "zen-canvas-dedupe-invalidation-{}-{}.sqlite3",
@@ -2089,6 +2309,99 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_preserves_completed_fingerprint_and_skips_partial_publication() {
+        let db_path = std::env::temp_dir().join(format!(
+            "zen-canvas-dedupe-cancel-{}-{}.sqlite3",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let db = Database::open(&db_path).expect("database");
+        let conn = db.conn().expect("connection");
+        conn.execute(
+            "INSERT INTO scan_roots (id, normalized_path, display_name, source_kind, enabled, health_status, needs_reconciliation, created_at, updated_at) VALUES ('cancel-root', '/tmp/cancel-root', 'cancel-root', 'file_library', 1, 'healthy', 0, 1, 1)",
+            [],
+        )
+        .expect("managed root");
+        db.insert_file(InsertFileRequest {
+            id: "/tmp/cancel-root/file.bin".into(),
+            path: "/tmp/cancel-root/file.bin".into(),
+            name: "file.bin".into(),
+            extension: "bin".into(),
+            size: 4,
+            mtime: 11,
+            ctime: 11,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("cancel fixture file");
+        let admission = db
+            .start_dedupe_run(&StartDedupeRunRequest {
+                scope: DedupeScopeRequest {
+                    kind: "explicitEnabledScanRoots".into(),
+                    root_ids: vec!["cancel-root".into()],
+                },
+                request_key: Some("cancel-request".into()),
+                parent_scan_session_id: None,
+            })
+            .expect("admission");
+        let running = db
+            .claim_dedupe_run(&admission.run.id)
+            .expect("claim")
+            .expect("running");
+        db.upsert_physical_identity(
+            &DedupeCandidate {
+                file_id: "/tmp/cancel-root/file.bin".into(),
+                path: "/tmp/cancel-root/file.bin".into(),
+                size: 4,
+                mtime: 11,
+            },
+            &PhysicalFileIdentity {
+                size: 4,
+                modified_ns: Some(22),
+                platform_kind: crate::fs_safety::PhysicalPlatform::Other,
+                platform_volume_id: None,
+                platform_file_id: None,
+                physical_key: None,
+                link_count: None,
+            },
+        )
+        .expect("persist completed identity");
+        let cancelling = db
+            .request_dedupe_cancellation(&running.id)
+            .expect("request cancellation");
+        assert_eq!(cancelling.status, "cancelling");
+        let cancelled = db
+            .mark_dedupe_terminal(
+                &running.id,
+                cancelling.revision,
+                "cancelled",
+                Some("cancelled"),
+                Some("synthetic cancellation"),
+                &DedupeCheckpoint {
+                    phase: "full_hashing".into(),
+                    identity_verified_files: 1,
+                    ..DedupeCheckpoint::default()
+                },
+            )
+            .expect("terminal cancellation");
+        assert_eq!(cancelled.status, "cancelled");
+        assert!(db
+            .get_fingerprint("/tmp/cancel-root/file.bin")
+            .expect("retained fingerprint")
+            .is_some());
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM duplicate_groups WHERE status = 'active'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("partial groups"),
+            0
+        );
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
     fn duplicate_group_cursor_is_keyset_strict_and_rejects_invalid_input() {
         let db_path = std::env::temp_dir().join(format!(
             "zen-canvas-dedupe-cursor-{}-{}.sqlite3",
@@ -2128,6 +2441,34 @@ mod tests {
             )
             .expect("cursor group");
         }
+        db.insert_file(InsertFileRequest {
+            id: "/tmp/cursor-member.txt".into(),
+            path: "/tmp/cursor-member.txt".into(),
+            name: "cursor-member.txt".into(),
+            extension: "txt".into(),
+            size: 10,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("cursor member file");
+        conn.execute(
+            "INSERT INTO duplicate_group_members (group_id, file_id, path_snapshot, physical_key, identity_status, size, verified_at) VALUES ('cursor-group-0', '/tmp/cursor-member.txt', '/tmp/cursor-member.txt', 'unix:v1:cursor:0', 'verified', 10, 1)",
+            [],
+        )
+        .expect("cursor member");
+        let memberships = db
+            .get_file_duplicate_membership("/tmp/cursor-member.txt")
+            .expect("file membership");
+        assert_eq!(memberships.len(), 1);
+        assert_eq!(memberships[0].id, "cursor-group-0");
+        assert_eq!(
+            db.list_duplicate_group_members("cursor-group-0")
+                .expect("group members")
+                .len(),
+            1
+        );
 
         let first_page = db
             .list_duplicate_groups(None, 2)
@@ -2188,6 +2529,20 @@ mod tests {
             .expect("claim")
             .expect("running");
         conn.execute(
+            r#"
+            INSERT INTO duplicate_groups (
+                id, size_each, full_hash, full_hash_algorithm, full_hash_version,
+                member_count, physical_copy_count, hardlink_alias_count,
+                exact_reclaimable_bytes, potential_reclaimable_bytes,
+                reclaimable_confidence, status, last_built_run_id, revision,
+                created_at, updated_at, last_verified_at
+            ) VALUES ('preexisting-snapshot-group', 4, 'preexisting-hash', 'blake3', 1,
+                      2, 2, 0, 4, 4, 'exact', 'active', ?1, 1, 1, 1, 1)
+            "#,
+            [&running.id],
+        )
+        .expect("preexisting active group");
+        conn.execute(
             "UPDATE scan_roots SET watcher_revision = watcher_revision + 1 WHERE id = 'snapshot-root'",
             [],
         )
@@ -2210,6 +2565,14 @@ mod tests {
             final_run.error_code.as_deref(),
             Some("scope_changed_during_run")
         );
+        let preserved_group_status: String = conn
+            .query_row(
+                "SELECT status FROM duplicate_groups WHERE id = 'preexisting-snapshot-group'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("preserved active group");
+        assert_eq!(preserved_group_status, "active");
         let session_state: String = conn
             .query_row(
                 "SELECT dedupe_dispatch_state FROM scan_sessions WHERE id = 'snapshot-session'",
@@ -2540,7 +2903,7 @@ mod tests {
         assert_eq!(pruned, 1_000);
 
         println!(
-            "Task 02 performance: candidate_collection_ms={:.3}, fingerprint_batch_and_index_query_ms={:.3}, publication_10k_groups_20k_members_ms={:.3}, keyset_page_100_ms={:.3}, prune_1000_cap_ms={:.3}",
+            "Task 02 performance: candidate_collection_ms={:.3}, fingerprint_batch_write_and_index_query_ms={:.3}, publication_10k_groups_20k_members_ms={:.3}, keyset_page_100_ms={:.3}, prune_1000_cap_ms={:.3}",
             candidate_elapsed.as_secs_f64() * 1000.0,
             fingerprint_elapsed.as_secs_f64() * 1000.0,
             publication_elapsed.as_secs_f64() * 1000.0,
