@@ -8,7 +8,7 @@
 - Task 01B 遗留的 watcher 规则恢复持久状态，已被列为 Task 02 第一项强制实施内容。
 - PR #21 因越过 Task 01B 提前进入旧版 dedupe/schema 28，已关闭且未合并；不得整体恢复或 cherry-pick，其代码只能作为人工对照资料。
 - Task 02 任务书由人工完整编写，不拆分为 02A/02B 等授权任务；生产实施已在 `remediation/02-identity-fingerprint-dedupe` 完成。
-- Task 02 代码实现提交为 `615e42e`，当前 Draft PR 为 [#26](https://github.com/ArdenZC/Zen-Canvas/pull/26)；GitHub CI run `30234699071` 的 Windows/macOS 矩阵已通过，仍等待人工代码级验收。
+- Task 02 代码实现提交为 `615e42e`，最终补强提交为 `91b5d2c46ae66695f98453d95d86d601740319a2`，当前 Draft PR 为 [#26](https://github.com/ArdenZC/Zen-Canvas/pull/26)；GitHub CI run `30237626153` 的 Dependency audit、Windows/macOS 矩阵已通过，仍等待人工代码级验收。
 
 | 阶段 | 任务书 | 目标 | 状态 |
 |---|---|---|---|

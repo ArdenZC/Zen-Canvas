@@ -66,7 +66,7 @@
 | R-043 | Dedupe crash 后丢失历史或重复并行IO | High | 内存job消失、scan dispatch重放多worker | durable `dedupe_runs`、one-active-scope、interrupted恢复、cache复用 | 已实施，PR #26 Draft，待人工验收 |
 | R-044 | Group publication 空窗或半成品 | High | 先删旧组再长事务重建，UI瞬间错误 | deterministic group + 短事务原子publication + snapshot guard | 已实施，PR #26 Draft，待人工验收 |
 | R-045 | Scope变化时发布不完整组 | High | run期间scan/watcher变化，新文件缺失或旧文件已变 | scope snapshot hash；变化则warnings/rerun，不替换权威全集 | 已实施，PR #26 Draft，待人工验收 |
-| R-046 | Dedupe worker压垮磁盘/内存/SQLite | High | 无界队列、多线程写库、长事务 | 1..8有界worker、single DB writer、bounded channel、字节基准 | 本地缩小性能门禁及 CI Windows/macOS 通过；待人工验收 |
+| R-046 | Dedupe worker压垮磁盘/内存/SQLite | High | 无界队列、多线程写库、长事务 | 1..8有界worker、single DB writer、bounded channel、字节基准 | 本地缩小/1000×16MiB性能证据及 GitHub CI run `30237626153` Windows/macOS 通过；待人工验收 |
 | R-047 | Duplicate UI 越权执行删除 | Critical | 从“识别”直接进入自动清理且无journal | Task02 UI只读；Task03 Finding，后续mutation仍走Safe Trash/journal | 已实施且持续阻断 mutation，待人工验收 |
 | R-048 | 旧 `content_hash` 与新 group 双重事实 | High | filter/classification仍查旧CTE，结果漂移 | group membership唯一authority；content_hash仅compat mirror | 已实施，PR #26 Draft，待人工验收 |
 

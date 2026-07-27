@@ -8,10 +8,10 @@
 | 基线 | `master` gate 已通过；实际基线 `7f1454475a87b66d1fbb6479b72a49107bae3c6e`，schema 28 |
 | 分支 | `remediation/02-identity-fingerprint-dedupe` |
 | Draft PR | [#26](https://github.com/ArdenZC/Zen-Canvas/pull/26) — `feat: add durable file fingerprints and duplicate groups` |
-| 代码实现提交 | `615e42e` + follow-up cache/test/benchmark commit（以 PR head 为准） |
+| 代码实现提交 | `615e42e` + `91b5d2c46ae66695f98453d95d86d601740319a2`（最终 HEAD） |
 | 状态 | 已完成生产实施，保持 Draft，等待人工代码级验收 |
 
-本 Closeout 记录的是代码实现提交 `615e42e`；后续包含 cache/test/benchmark 证据提交，最终分支 HEAD 以 PR head 为准。
+本 Closeout 记录代码实现提交 `615e42e` 以及后续 cache/test/benchmark 补强提交 `91b5d2c46ae66695f98453d95d86d601740319a2`；PR #26 当前 HEAD 与该 SHA 一致。
 
 ## 2. Scope and hard boundaries
 
@@ -124,7 +124,7 @@ Rust/TS/contract/integration coverage includes:
 | `npm run verify:security` | passed: npm audit 0 vulnerabilities; cargo audit exit 0 with 15 existing advisory warnings |
 | Task 02 performance | passed: 100k candidate/FTS fixtures, fingerprint index/query, 10k groups/20k members, keyset page, prune cap |
 | installer/build | passed: `Zen Canvas_0.1.40_x64-setup.exe` generated |
-| GitHub CI run `30234699071` | passed: Dependency audit, Windows Quality 15m23s, macOS Quality 5m29s |
+| GitHub CI run `30237626153` | passed: Dependency audit, Windows Quality 16m35s, macOS Quality 5m19s；HEAD 与 PR #26 一致 |
 | `git diff --check` | passed; only Windows LF→CRLF normalization warnings |
 
 Representative Task 02 performance run:
@@ -150,6 +150,6 @@ The task-book 1000 × 16 MiB workload is a local-only evidence item; the checked
 
 ## 10. Remaining acceptance and stop state
 
-The pre-follow-up GitHub CI run `30234699071` passed on both Windows and macOS; the follow-up cache/test/benchmark commit requires a fresh PR CI run before final human review. Native platform identity remains platform-review evidence; path-only fallback is intentionally fail-closed. The extended large-file IO benchmark has now been executed locally and is recorded above.
+GitHub CI run `30237626153` 已针对最终代码 HEAD `91b5d2c46ae66695f98453d95d86d601740319a2` 完成并通过 Dependency audit、Windows Quality 和 macOS Quality。Native platform identity remains platform-review evidence; path-only fallback is intentionally fail-closed. The extended large-file IO benchmark has now been executed locally and is recorded above.
 
 Task 02 is complete as an implementation, but remains Draft and must stop here for human review. No automatic merge and no Task 03 start are permitted.
