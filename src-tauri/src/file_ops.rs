@@ -2467,12 +2467,9 @@ pub(crate) fn move_path_to_system_trash_with_safety(
     Err("system_trash_source_binding_unsupported".to_string())
 }
 
-fn validate_cleanup_trash_source(
-    path: &Path,
-    app_data_dir: Option<&Path>,
-) -> Result<PathBuf, String> {
+fn validate_cleanup_path_syntax(path: &Path) -> Result<(), String> {
     if path.as_os_str().is_empty()
-        || path.to_string_lossy().contains('\0')
+        || path.to_string_lossy().contains(' ')
         || path.to_string_lossy().contains('*')
         || path.to_string_lossy().contains('?')
         || path
@@ -2486,19 +2483,37 @@ fn validate_cleanup_trash_source(
     if !path.is_absolute() {
         return Err(FileOpError::RelativePath.to_string());
     }
-    if !path.exists() {
-        return Err(FileOpError::SourceMissing.to_string());
-    }
-    if fs::symlink_metadata(path)
-        .map(|metadata| metadata.file_type().is_symlink())
-        .unwrap_or(false)
-    {
+    Ok(())
+}
+
+fn validate_cleanup_trash_source(
+    path: &Path,
+    app_data_dir: Option<&Path>,
+) -> Result<PathBuf, String> {
+    validate_cleanup_path_syntax(path)?;
+
+    // Reject protected roots before any filesystem access. This keeps policy tests
+    // deterministic and avoids touching real system trees such as System32.
+    ensure_general_file_operation_allowed(path)?;
+
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            FileOpError::SourceMissing.to_string()
+        } else {
+            FileOpError::Io(error).to_string()
+        }
+    })?;
+    if metadata.file_type().is_symlink() {
         return Err(FileOpError::ProtectedPath(normalize_path(path)).to_string());
     }
 
     let source = path
         .canonicalize()
         .map_err(|error| FileOpError::Io(error).to_string())?;
+
+    // Repeat protection after canonicalization so links and reparse aliases cannot
+    // escape the lexical check.
+    ensure_general_file_operation_allowed(&source)?;
     ensure_cleanup_operation_allowed(&source, app_data_dir)?;
     Ok(source)
 }
@@ -3875,33 +3890,14 @@ mod tests {
     }
 
     #[test]
-    fn execute_moves_core_refuses_dangerous_move_to_trash_paths() {
-        let protected_path = if cfg!(windows) {
-            "C:/Windows/System32"
-        } else if cfg!(target_os = "macos") {
-            "/System"
-        } else {
-            "/etc"
-        };
-        let result = execute_moves_core(ExecuteMovesRequest {
-            operations: vec![OperationPreviewRequest {
-                id: "trash-system".to_string(),
-                file_id: protected_path.to_string(),
-                operation_type: "move_to_trash".to_string(),
-                source_path: protected_path.to_string(),
-                target_path: "Recycle Bin".to_string(),
-                old_name: "protected-system-path".to_string(),
-                new_name: "protected-system-path".to_string(),
-                is_executable: Some(true),
-            }],
-        });
+    fn cleanup_rejects_windows_system_directory_without_filesystem_access() {
+        let error = ensure_general_file_operation_allowed_for_os(
+            Path::new("C:/Windows/System32"),
+            "windows",
+        )
+        .expect_err("Windows system directories must be rejected lexically");
 
-        assert_eq!(result.logs[0].status, "failed");
-        assert!(result.logs[0]
-            .error_message
-            .as_deref()
-            .unwrap_or("")
-            .contains("protected"));
+        assert!(error.contains("protected system location"));
     }
 
     #[test]
