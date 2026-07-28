@@ -1,463 +1,406 @@
 # Zen Canvas Architecture Remediation Master Plan V1
 
-## 1. 目标
+## 1. 总目标
 
-Zen Canvas 的下一阶段不是继续堆叠小工具，而是把已存在的扫描、系统级搜索、Managed AI、规则分类、重复检测、清理、整理建议、文件操作和恢复能力，收敛为一套一致、可持久、可审计、可扩展的文件治理架构。
+Zen Canvas 的整改目标不是继续堆叠零散工具，而是把已有扫描、系统级搜索、Managed AI、规则分类、重复检测、空间分析、整理建议、文件操作和恢复能力，收敛为一套：
 
-目标产品定位：
+- 本地优先；
+-安全审核；
+-持久事实；
+-可恢复执行；
+-跨平台一致；
+-用户拥有最终控制权；
+-可继续扩展但不泛化失控；
 
-> 一个以本地优先、安全审核、内容理解、可恢复执行和用户最终控制权为核心的智能文件治理工作台。
+的智能文件治理工作台。
 
-本计划不试图把 Zen Canvas 改造成：
+Zen Canvas 不改造成：
 
 - 完整文件资源管理器；
-- 多设备分布式文件系统；
-- 云盘；
-- 通用桌面 Agent；
-- OCR/格式转换工具箱；
-- 文件编辑器或媒体播放器集合。
+-多设备分布式文件系统；
+-云盘；
+-通用自治桌面 Agent；
+-OCR/格式转换工具箱；
+-文件编辑器或媒体播放器集合。
 
 ---
 
-## 2. 参考矩阵
+## 2. 固定的 8 个产品功能模块
 
-| Zen Canvas 模块 | 主要参考项目 | 重点参考 | 明确不照搬 |
-|---|---|---|---|
-| 扫描与索引 | Spacedrive | Job、Location、Indexer phase、健康状态、事件体系 | 分布式设备、云同步、完整资源管理器 |
-| 重复与垃圾检测 | Czkawka | 大小分组、预哈希、完整哈希、缓存、硬链接、取消 | 独立工具集合式产品形态 |
-| AI 整理预览 | AI File Sorter | Dry Run、计划审核、批准决策、持久 Undo 思想 | 简单一次性 AI 分类器架构 |
-| 文件库 | TagSpaces | Location、标签、筛选、Inspector、批量操作分层 | AGPL 代码、文件名内嵌标签、笔记应用边界 |
-| 自然语言规则 | Accomplish/Coworker | scope 授权、提议/执行分离、permission gate、日志 | Bash、浏览器 Agent、自治桌面控制 |
-| 本地内容理解 | Local File Organizer | 文本/图片先提取中间语义，再分类和命名 | 顺序脚本、无预算全文传模、弱安全执行 |
-| 全局快捷搜索 | Tolaria | 命令注册、fuzzy ranking、键盘优先、菜单一致性 | 笔记应用业务和开放式 AI 聊天 |
-| 大型文件列表 | Spacedrive | 虚拟列表、选择 Set、数据来源集中、键盘导航 | 一次请求 1000 条或无限目录列表 |
+整改始终围绕以下 8 个功能模块。不得因为技术债、schema 或内部类名发明新的产品模块。
 
-参考实现只提供设计证据。不得复制与 Zen Canvas 许可证、产品边界或安全模型不兼容的代码。
+| 原模块 | Zen Canvas 功能 | 主要参考项目 | 重点参考 | 借鉴边界 |
+|---|---|---|---|---|
+| 1 | 重复检测 | Czkawka | size grouping、prehash、full hash、cache、hardlink、cancel | 按 LICENSE 登记；优先独立实现 |
+| 2 | 大型文件列表/空间分析 | Spacedrive V1 | 大文件/目录、后台分析、结果投影、虚拟列表 | 概念级；主动拒绝其过度复杂 V1 架构 |
+| 3 | 扫描与索引 | Spacedrive V1 | Job、Location、Indexer phase、health、reconciliation | 概念级 + 事故复盘；不建第二套 Global Index |
+| 4 | 全局快捷搜索 | Tolaria | keyboard-first、Command Palette、稳定 command metadata、菜单/快捷键一致性 | AGPL 设计级，只读分析不移植 |
+| 5 | 文件库 | TagSpaces | Location、标签、筛选、Saved View、Inspector、批量交互分层 | 设计级；不复制 AGPL 实现 |
+| 6 | AI 整理预览 | ai-file-sorter | taxonomy、dry run、建议计划、分类缓存、审核 | AGPL 概念级；不复制代码或结构 |
+| 7 | 自然语言规则 | Accomplish + OpenCode | agent/tool 边界、proposal、permission、structured execution | 按 LICENSE 登记；翻译到 Zen Canvas 安全模型 |
+| 8 | 本地内容理解 | Local-File-Organizer | 本地提取、轻量语义、摘要与分类输入 | 轻量设计级；不引入无预算全文处理 |
+
+参考实现只提供设计证据。任何与 Zen Canvas 许可证、数据域或安全模型冲突的做法必须进入拒绝清单。
 
 ---
 
-## 3. PR #15 后的架构前提
+## 3. 实施阶段与产品模块映射
 
-PR #15 已合并，后续所有设计必须承认以下既有能力。
+依赖关系要求扫描/索引先于重复检测和分析，因此实施阶段不机械照抄原模块编号，但始终服务于上述 8 个功能模块。
 
-### 3.1 系统级全局索引
+| Task | 产品模块 | 状态 |
+|---|---|---|
+| 00 | 合并后架构基线审计 | 已完成 |
+| 01A + 01B | 模块 3：扫描与索引 | 已完成 |
+| 02 | 模块 1：重复检测 | 已完成，schema 29 |
+| 03 | 模块 2：大型文件列表/空间分析 | 已完成，schema 30 |
+| 04 | 模块 4：全局快捷搜索 | 当前完整模块 |
+| 05 | 模块 5：文件库 | 等待 Task 04 |
+| 06 | 模块 6：AI 整理预览 | 等待 Task 05 |
+| 07 | 模块 7：自然语言规则 | 等待 Task 06 |
+| 08 | 模块 8：本地内容理解 | 等待 Task 07 |
 
-- Windows：MFT/USN 及安全回退；
+每个 Task 是一个完整产品模块，不拆为 A/B/C，不创建单独“收尾任务”。上一阶段人工接受的遗留，必须作为下一完整模块的第一组生产改动完成，然后继续完成该模块全部目标。
+
+---
+
+## 4. PR #15 后不可回退的架构前提
+
+### 4.1 系统级 Global Index
+
+- Windows：MFT/USN 与安全回退；
 - macOS：Spotlight/FSEvents；
 - volume 级启用、禁用、状态和增量同步；
-- disabled volume 不得进入搜索、计数、状态、打开或 reveal；
-- 原生文件身份和短查询性能策略；
-- 系统级索引与 managed 数据域隔离。
+- disabled volume 不进入搜索、计数、状态、打开或 reveal；
+-原生文件身份与短查询性能策略；
+-系统级索引与 managed 数据域隔离；
+-Global Search 不 join File Library `files`；
+-open/reveal 只接受 entry ID 并由 backend revalidate。
 
-### 3.2 Managed AI
+### 4.2 Managed AI
 
-- 持久 AI job/queue；
-- backpressure；
-- scope ownership；
-- provider policy；
-- fingerprint；
-- cancellation；
-- 用户 correction；
-- provider 输出类型验证；
-- 调用前后重新验证。
+-持久 AI job/queue；
+-backpressure；
+-scope ownership；
+-provider policy；
+-fingerprint；
+-cancellation；
+-用户 correction；
+-provider 输出类型验证；
+-调用前后重新验证。
 
-### 3.3 平台与 CI
+### 4.3 文件 mutation 与恢复
 
-- Windows Named Pipe 安全边界；
-- 安装与卸载回滚钩子；
-- Windows/macOS Rust、前端、原生回归、性能、安全审计和打包验证。
+-所有移动、重命名和清理必须先 preview；
+-operation/cleanup journal 是恢复事实；
+-Safe Trash 与 restore 不得弱化；
+-operation identity 不得被 dedupe fingerprint 替代；
+-renderer 不得提交任意 path 绕过 backend authoritative resolve。
 
-这些能力应优先扩展，而不是旁路或重建。
+### 4.4 平台与 CI
+
+- Windows Named Pipe 和 native service 安全边界；
+-安装/卸载回滚钩子；
+-Windows/macOS Rust、前端、原生回归、性能、安全审计和打包验证。
+
+后续优先扩展这些能力，不旁路或重建。
 
 ---
 
-## 4. 八个整改模块
+## 5. 已完成模块
 
-## 4.1 扫描与索引
+### 5.1 模块 3：扫描与索引（Task 01A/01B）
+
+已完成：
+
+- scan root lease；
+-session/run/generation；
+-scanner-owned `scan_seen`；
+-stale safety；
+-crash recovery；
+-multi-root mapping；
+-durable revision；
+-Rust watcher mutation owner；
+-overflow/revision-gap reconciliation；
+-renderer 脱离最终一致性 owner。
+
+持续边界：
+
+- File Library Scan 与 Global Index 独立；
+- watcher 不写 `scan_seen`、不推进 generation；
+-不建立 raw watcher event 通用日志；
+-不泛化 `ai_jobs`。
+
+### 5.2 模块 1：重复检测（Task 02）
+
+已完成：
+
+- lightweight physical identity；
+-fingerprint cache；
+-prehash/full BLAKE3；
+-bounded worker；
+-durable dedupe run；
+-hardlink-safe duplicate groups；
+-global authority；
+-read-only duplicate UI；
+-cancel/restart/cache reuse。
+
+持续边界：
+
+-不迁移 `files.id`；
+-`files.content_hash` 只是兼容镜像；
+-active group/member 是 duplicate authority；
+-不自动 keeper/delete。
+
+### 5.3 模块 2：大型文件/空间分析（Task 03）
+
+已完成：
+
+- durable Analysis Run；
+-fixed Detector registry；
+-Finding/Evidence/Decision；
+-large file/large directory；
+-cleanup heuristic；
+-Safe/Review/Caution；
+-atomic staged publication；
+-invalidation/retention；
+-cleanup/AI compatibility；
+-durable frontend hydration。
+
+Task 03 唯一接受遗留：
+
+- duplicate exact 与 Safe exact 对同一 physical subject 仍可能重复累计。
+
+该遗留必须在 Task 04 第一组关闭，不得成为独立技术任务。
+
+---
+
+## 6. 当前模块：Task 04 全局快捷搜索
+
+主要参考 Tolaria，但仅设计级借鉴。
 
 目标：
 
-- 明确全局索引与 Managed Index 的边界；
-- 统一或协调扫描任务生命周期；
-- 持久化 scan root 健康状态；
-- 引入正式 scan generation；
-- 将 watcher 最终一致性从 React 移到后端；
-- 建立 durable reconciliation；
-- 多 root 扫描形成父子任务；
-- 避免与 PR #15 建立第二套系统级索引。
+-先关闭 Task 03 exact physical-union 遗留；
+-将全局快捷搜索收敛为明确的 window/hotkey/query session 架构；
+-Global Index 继续是唯一文件搜索 authority；
+-建立 latest-request-wins；
+-响应携带 index health/completeness；
+-稳定 ranking/tie-breaker；
+-open/reveal live revalidation；
+-Rust 独占 search window 与 global shortcut lifecycle；
+-建立 Zen Canvas 自有 stable command catalog；
+-command metadata 与 context execution 分离；
+-command 不成为 mutation authority；
+-standalone/main/browser 共享语义；
+-完整 keyboard、IME、ARIA、focus、reduced-motion；
+-100k/1M、rapid query、Windows/macOS 性能与打包门禁。
 
-候选能力：
+默认：
+
+- schema 保持 30；
+-无新依赖；
+-不修改 native providers/service；
+-不开始 File Library Query V2。
+
+Task 04 权威合同：
 
 ```text
-scan_roots
-scan_runs / job_runs
-job_failures
-pending_fs_changes
-scan_generation
-root health
-global → managed bootstrap
+docs/remediation/TASK_04_GLOBAL_SHORTCUT_SEARCH.md
 ```
-
-是否真的需要通用 Job Runtime，必须由 Task 00 判断。Managed AI queue 不得未经证据直接泛化。
 
 ---
 
-## 4.2 重复与空间分析
+## 7. 后续完整模块
+
+### 7.1 Task 05：文件库（TagSpaces）
 
 目标：
 
-- 按大小分组；
-- 排除硬链接；
-- 头尾预哈希；
-- 完整 BLAKE3；
-- 持久 fingerprint cache；
-- 正式 duplicate group；
-- 持久 analysis run/finding；
-- 区分“占用空间”和“可安全释放空间”；
-- 保留 Safe/Review/Caution 和 Safe Trash 安全边界。
+- FileQuerySpec V2；
+-keyset cursor 与 snapshot；
+-跨页 selection；
+-筛选/排序下沉 SQLite；
+-用户 tags 与系统 Purpose/Lifecycle/Risk 分离；
+-Saved Views；
+-Summary DTO 与 Inspector Detail DTO；
+-列表、查询、选择、Inspector store 分层；
+-虚拟列表、键盘和无障碍；
+-10 万日常基准、100 万性能门槛。
 
-候选能力：
+Task 04 的遗留若被人工接受，将作为 Task 05 第一组处理。
 
-```text
-file_fingerprints
-duplicate_groups
-duplicate_group_members
-analysis_runs
-analysis_findings
-detector architecture
-```
+明确不做：
 
----
+- Organization Plan；
+-AI 自动整理；
+-Content Artifact；
+-把 Global Search cursor 当 Library snapshot。
 
-## 4.3 Organization Plan
+### 7.2 Task 06：AI 整理预览（ai-file-sorter）
 
 目标：
 
-- 把规则、AI、重复检测和用户修正生成的整理建议收敛为正式计划；
-- 计划、项目、证据、冲突、决策和版本持久化；
-- 用户可跨重启继续审核；
-- 执行只接受 plan ID、revision 和批准范围；
-- 后端重新解析权威 source/target；
-- 最终仍进入既有 operation journal 和恢复系统。
+-把规则、AI、duplicate/finding 和用户修正生成的整理建议收敛为 Organization Plan；
+-plan/item/evidence/conflict/decision/revision 持久化；
+-dry run 与 diff；
+-跨重启审核；
+-identity expiry；
+-后端解析 source/target；
+-执行继续进入 operation journal、Safe Trash 和 restore；
+-taxonomy 与分类缓存使用 Zen Canvas 自有 schema。
 
-候选能力：
+明确不做：
 
-```text
-organization_plans
-organization_plan_items
-organization_plan_evidence
-organization_plan_decisions
-organization_plan_conflicts
-plan validation
-execution adapter
-```
+-直接执行模型输出；
+-自动移动/删除；
+-绕过 preview/journal/restore；
+-复制 ai-file-sorter AGPL 代码。
 
-Organization Plan 是整改计划中最重要的领域边界之一。
-
----
-
-## 4.4 文件库
+### 7.3 Task 07：自然语言规则（Accomplish + OpenCode）
 
 目标：
 
-- 统一 QuerySpec；
-- 筛选和排序下沉 SQLite；
-- 用户标签与 Purpose/Lifecycle/Risk 分离；
-- Saved Views；
-- 列表 Summary DTO 和 Inspector Detail DTO 分离；
-- Store 按查询、选择、Inspector、内容理解和计划拆分；
-- 文件库不再承担整理计划全量拼接。
+-自然语言只生成 proposal；
+-编译为现有受约束 Rule AST；
+-严格 allowlist；
+-歧义询问；
+-保存前模拟匹配；
+-新规则默认关闭；
+-provenance、revision、approval；
+-agent/tool permission boundary；
+-规则只产生分类/计划建议，不直接执行文件操作。
 
-候选能力：
+禁止生成 Bash、PowerShell、任意 SQL、任意绝对执行路径或永久删除动作。
 
-```text
-FileQuerySpec V2
-tags
-file_tags
-saved_library_views
-FileSummaryDto
-FileDetailDto
-```
-
-TagSpaces 只参考状态和交互分层，不复制 AGPL 实现。
-
----
-
-## 4.5 自然语言规则
+### 7.4 Task 08：本地内容理解（Local-File-Organizer）
 
 目标：
 
-- 自然语言只编译为现有 Rule AST；
-- 不创建第二套规则执行器；
-- 严格 schema 与 allowlist；
-- 歧义必须询问；
-- 保存前执行模拟匹配；
-- 新规则默认关闭；
-- 规则只产生分类和整理建议，不直接执行文件操作；
-- 记录 proposal provenance。
+-受预算控制的 Extractor；
+-Content Artifact；
+-模型只接收 Artifact，不读取任意 path；
+-local/cloud policy 分离；
+-fingerprint/version/policy cache；
+-consent、脱敏、retention；
+-用户 correction 最高优先；
+-OCR/视觉模型可选，不成为基础安装依赖；
+-完成全部模块后的 migration、10万/100万、跨平台整合验收。
 
-候选能力：
+明确不做：
+
+-默认读取或上传全文；
+-把 AI trace 当内容库；
+-无预算 OCR；
+-自治文件 mutation。
+
+---
+
+## 8. 依赖关系
 
 ```text
-rule_proposals
-NaturalLanguageRuleRequest
-RuleProposal
-ambiguity flow
-rule preview
+Task 00 基线审计
+        │
+        ▼
+Task 01A/01B 扫描与索引
+        │
+        ▼
+Task 02 重复检测
+        │
+        ▼
+Task 03 大型文件/空间分析
+        │
+        ▼
+Task 04 全局快捷搜索
+        │
+        ▼
+Task 05 文件库
+        │
+        ▼
+Task 06 AI 整理预览
+        │
+        ▼
+Task 07 自然语言规则
+        │
+        ▼
+Task 08 本地内容理解 + 最终整合
 ```
 
-明确禁止生成 Bash、PowerShell、任意 SQL、任意绝对执行路径和永久删除动作。
+依赖图是执行顺序。参考项目模块编号仍按第 2 节固定，不因实现顺序改变。
 
 ---
 
-## 4.6 本地内容理解
+## 9. 遗留处理规则
 
-目标：
+人工验收可以在不破坏当前模块核心安全与可用性的前提下接受有限遗留，但必须：
 
-- 文件先进入受预算控制的 Extractor；
-- 生成 Content Artifact；
-- 模型只接收 Artifact，不直接读取任意路径；
-- 本地与云策略分离；
-- 提取、摘要和理解缓存以 fingerprint/version/policy 为键；
-- 用户 correction 最高优先级；
-- OCR 和视觉模型可选，不成为基础安装强依赖。
+1. 明确记录 failure mode；
+2.登记 Risk Register；
+3.冻结为下一完整模块第一组生产改动；
+4.下一任务书给出针对性测试；
+5.不得再次后移；
+6.不得创建独立 debt-cleanup 阶段；
+7.修复后继续完成下一完整模块，而不是停止。
 
-候选能力：
+---
+
+## 10. 任务治理
+
+每个完整模块：
+
+-任务书由人工编写并合并；
+-Codex 只执行；
+-一个分支；
+-一个 Draft PR；
+-原子提交；
+-完整测试、性能、安全、跨平台与打包；
+-Closeout；
+-停止等待人工代码级验收；
+-不得自动合并；
+-不得提前开始下一模块。
+
+当前事实优先级：
 
 ```text
-content_artifacts
-content_extraction_runs
-ContentExtractor
-ExtractionBudget
-privacy/provider policy
+生产源码与测试
+> 当前人工 TASK_*.md
+> CODEX_REMEDIATION_INDEX_V1.md
+> 本 Master Plan
+> 参考分析/旧 Brief/旧讨论
 ```
 
----
-
-## 4.7 全局快捷搜索
-
-目标：
-
-- 将超大 CommandModal 拆分；
-- 建立 Search Provider；
-- 文件、命令、设置、任务和历史使用统一结果协议；
-- 建立 query sequence/cancellation 状态机；
-- 每类结果有配额；
-- 统一 Command Manifest 生成 Spotlight、快捷键、菜单和测试；
-- 保留 PR #15 disabled/unavailable 安全过滤。
-
-候选能力：
-
-```text
-SearchCoordinator
-SearchProvider
-UnifiedSearchResult
-CommandManifest
-SearchSession
-ranking/quota
-```
+许可证、安全和恢复边界不因参考项目设计更“方便”而降低。
 
 ---
 
-## 4.8 大型文件列表
-
-目标：
-
-- 后端 keyset cursor；
-- 查询快照；
-- 局部失效；
-- O(1) 选择；
-- 跨页 `all_matching` 选择；
-- 页面缓存；
-- 列表轻 DTO；
-- 组织计划后端分页；
-- 10 万文件日常基准、100 万文件性能门槛。
-
-候选能力：
-
-```text
-CursorPage
-queryHash
-snapshotRevision
-SelectionScope
-QueryCache
-```
-
-是否立即替换所有 OFFSET，必须根据 Task 00 对当前查询和 PR #15 搜索路径的审计决定。
-
----
-
-## 5. 依赖关系
-
-```text
-PR #15 合并后基线审计
-          │
-          ▼
-扫描/索引/身份/任务基础
-          │
-   ┌──────┴────────┐
-   ▼               ▼
-指纹与重复检测     内容 Artifact 基础
-   │               │
-   └──────┬────────┘
-          ▼
-   Organization Plan
-          │
-   ┌──────┴─────────────┐
-   ▼                    ▼
-文件查询与大型列表       自然语言规则
-   │
-   ▼
-文件库标签/视图/Inspector
-   │
-   ▼
-Spotlight Provider 重构
-   │
-   ▼
-集成、迁移、性能与发布 QA
-```
-
-该依赖图只是规划草案。Task 00 必须根据合并后真实代码修正。
-
----
-
-## 6. 暂定阶段
-
-| 阶段 | 暂定名称 | 状态 |
-|---|---|---|
-| 00 | Post-Merge Baseline Audit | 可执行 |
-| 01 | Job, Scan and Reconciliation Foundation | 待 Task 00 冻结 |
-| 02 | File Identity, Fingerprint and Dedupe | 待 Task 00 冻结 |
-| 03 | Storage Analysis Runs and Findings | 待 Task 00 冻结 |
-| 04 | Organization Plan Core | 待 Task 00 冻结 |
-| 05 | Organization Plan Workspace Migration | 待 Task 04 |
-| 06 | File Query V2 and Cursor Pagination | 待 Task 00 冻结 |
-| 07 | Library Tags, Saved Views and Inspector | 待 Task 06 |
-| 08 | Content Artifact Pipeline | 待 Task 00 冻结 |
-| 09 | Natural Language Rule Compiler | 待 Task 08 或审计结论 |
-| 10 | Spotlight Provider Architecture | 待 Task 06 与 PR #15 稳定 |
-| 11 | Integration, Migration and Performance QA | 待前置阶段 |
-
----
-
-## 7. 优先级
+## 11. 优先级
 
 ### P0
 
-- 合并后基线审计；
-- 索引域边界；
-- watcher durable reconciliation；
-- scan generation；
-- Organization Plan；
-- fingerprint；
-- 查询筛选排序后端化；
-- 迁移安全。
+-数据域与 owner 边界；
+-迁移和恢复安全；
+-scan/watcher/dedupe/analysis durable truth；
+-Global Search fail-closed 与 lifecycle；
+-Organization Plan identity/revision；
+-所有 mutation 的 preview/journal/restore。
 
 ### P1
 
-- duplicate groups；
-- analysis findings；
-- keyset cursor；
-- 跨页选择；
-- content artifact；
-- plan evidence/conflict；
-- 持久化任务结果。
+-File Query V2；
+-keyset cursor 与跨页选择；
+-Tag/Saved View/Inspector；
+-command catalog；
+-content artifact；
+-natural-language proposal；
+-持久化任务结果与性能。
 
 ### P2
 
-- 自然语言规则；
-- 用户标签；
-- Saved Views；
-- 本地文档与图片理解；
-- Spotlight provider 化。
+-高级 taxonomy；
+-更丰富本地文档/图片理解；
+-可选 OCR；
+-相似图片；
+-代码项目理解；
+-音视频语义。
 
-### P3
-
-- OCR；
-- 相似图片；
-- 代码项目理解；
-- 音视频语义；
-- 复杂 taxonomy；
-- 可选本地 VLM。
-
----
-
-## 8. 数据库原则
-
-后续可能新增的表仅为候选，不是 Task 00 的实施授权：
-
-```text
-scan_roots
-job_runs
-job_failures
-pending_fs_changes
-
-file_fingerprints
-duplicate_groups
-duplicate_group_members
-analysis_runs
-analysis_findings
-
-organization_plans
-organization_plan_items
-organization_plan_evidence
-organization_plan_decisions
-
-tags
-file_tags
-saved_library_views
-
-content_artifacts
-content_extraction_runs
-rule_proposals
-```
-
-数据库演进必须满足：
-
-- 空数据库升级；
-- 当前版本用户数据库升级；
-- 迁移幂等边界；
-- 失败时明确报错；
-- 不得要求用户删除数据库；
-- 不得丢失 operation journal、AI queue、全局索引状态、规则或用户修正；
-- 大型表迁移必须评估锁时长、磁盘增长和回滚策略。
-
----
-
-## 9. 非目标
-
-本轮架构整改不包含：
-
-- Ubuntu/Linux 正式发布支持扩张；
-- 版本号提升；
-- release/tag；
-- 代码签名和 notarization；
-- 云同步；
-- P2P；
-- 移动端；
-- 浏览器自动化；
-- 邮件/日历；
-- 格式转换；
-- 通用 OCR 工作台；
-- 通用 Agent；
-- 完整文件管理器替代。
-
-任何阶段发现必须引入上述能力才能继续时，应停止并提交架构问题，不得自行扩张产品范围。
-
----
-
-## 10. 成功标准
-
-整改完成后，Zen Canvas 应具备：
-
-1. 全局索引、Managed Index 和内容理解边界清晰；
-2. 所有长期任务可观察、可取消、可恢复或明确标记中断；
-3. watcher 不依赖 React 保证最终一致性；
-4. 重复检测有缓存、分阶段哈希和正式组；
-5. 清理结果可持久、可解释且不夸大可释放空间；
-6. 整理建议是版本化、持久化的 Organization Plan；
-7. 文件库对大规模数据执行真正的后端查询；
-8. 内容理解有预算、缓存和隐私策略；
-9. 自然语言规则只能生成受限 Rule AST；
-10. Spotlight 与命令系统有统一来源；
-11. 既有文件操作、journal、恢复、scope 和 Managed AI 安全边界不退化。
+P2 能力不得在 Task 04–07 中夹带实施。
