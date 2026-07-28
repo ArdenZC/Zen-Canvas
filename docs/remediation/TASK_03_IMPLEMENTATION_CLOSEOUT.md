@@ -134,7 +134,7 @@ Waiting for human code-level acceptance.
 
 ## 12. Delivery record
 
-- Implementation commit：`43cb64c540360644bfc69a9f6dac6d3f26bd3a1f`；本次 review 修订提交 SHA 在最终汇报后补记。
-- Final delivery HEAD：本次 closeout delivery commit 的 SHA 在最终汇报中记录；工作树保持干净。
+- Implementation commits：`5b22eeed68edb886ceb48f5ca110653bac9da3ce`、`5f0c308e422fd9f090efb7ad27b68d8c8ad3ab13`。
+- Final delivery HEAD：`5f0c308e422fd9f090efb7ad27b68d8c8ad3ab13`；工作树保持干净。
 - Draft PR：[#28](https://github.com/ArdenZC/Zen-Canvas/pull/28)，`feat: add durable analysis runs and findings`。
-- GitHub CI run：`30344608991`；Windows/macOS Quality 与 Dependency audit 全部通过。
+- GitHub CI run：`30360573025`；Windows/macOS Quality 与 Dependency audit 全部通过。
