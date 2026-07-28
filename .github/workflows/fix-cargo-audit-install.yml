@@ -20,11 +20,11 @@ jobs:
           fetch-depth: 0
       - name: Restore compatible cargo-audit installation
         run: python3 scripts/fixCargoAuditInstall.py
-      - name: Commit corrected workflow
+      - name: Commit corrected CI workflow only
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
+          git add .github/workflows/ci.yml
           git diff --cached --check
           git commit -m "ci: restore compatible cargo-audit version"
           git push origin HEAD:${{ github.head_ref }}
