@@ -125,8 +125,7 @@ pub(crate) fn search_global_entries_on_connection(
 fn layer_limit(target: u32, seen: usize) -> u32 {
     target
         .saturating_add(seen.min(MAX_TIER_CANDIDATES as usize) as u32)
-        .min(MAX_TIER_CANDIDATES)
-        .max(1)
+        .clamp(1, MAX_TIER_CANDIDATES)
 }
 
 fn append_unique(

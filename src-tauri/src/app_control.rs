@@ -239,6 +239,7 @@ impl SearchWindowLifecycleState {
             })
     }
 
+    #[cfg(test)]
     fn begin_show(&self) -> Result<SearchWindowSnapshot, String> {
         let _owner = self
             .operation_owner
@@ -278,6 +279,7 @@ impl SearchWindowLifecycleState {
         )
     }
 
+    #[cfg(test)]
     fn resize(&self, request: &SearchWindowResizeRequest) -> Result<SearchWindowSnapshot, String> {
         let _owner = self
             .operation_owner
@@ -305,6 +307,7 @@ impl SearchWindowLifecycleState {
         )
     }
 
+    #[cfg(test)]
     fn begin_hide(
         &self,
         request: Option<&SearchWindowMutationRequest>,
@@ -342,6 +345,7 @@ impl SearchWindowLifecycleState {
         )
     }
 
+    #[cfg(test)]
     fn complete_hide(
         &self,
         session_id: u64,
