@@ -102,7 +102,7 @@ The focused checks completed while implementing the second-round fixes are:
 | `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` | pass |
 | `git diff --check` | pass before documentation commit |
 
-The complete frontend, Rust, remediation, performance, security, and build gates are green. A prior static-CTE performance attempt was stopped after it exposed an unacceptable punctuation/extension fast-path regression; that implementation was replaced by the sequential short-circuit design above and both 100k and 1M benchmarks now pass within threshold. GitHub Windows/macOS CI evidence is appended after the push to the existing Draft PR.
+The complete frontend, Rust, remediation, performance, security, and build gates are green. A prior static-CTE performance attempt was stopped after it exposed an unacceptable punctuation/extension fast-path regression; that implementation was replaced by the sequential short-circuit design above and both 100k and 1M benchmarks now pass within threshold. GitHub Windows/macOS CI also passed on the pushed implementation head.
 
 ## 6. Compatibility, rollback, and non-goals
 
@@ -125,7 +125,9 @@ Task 04 second-round implementation remediation is complete on the branch, but t
 
 ## 8. Delivery record
 
-- Final branch HEAD and full local validation results are updated here after the final commit.
+- Pushed implementation validation HEAD: `9f43f8461bb412281bb62fc8eed04921e8341e93`.
 - Draft PR: [#35](https://github.com/ArdenZC/Zen-Canvas/pull/35), `feat: harden global shortcut search and command surface`.
+- GitHub CI run `30390854218` completed successfully for that implementation head: scope/document contract, frontend/format, full performance profile, dependency audit, Rust quality on Windows/macOS, release compile on Windows/macOS, and platform quality on Windows/macOS all passed. Draft-only NSIS and unsigned DMG jobs were skipped by workflow condition.
+- This evidence-only closeout update adds no production behavior after the validated implementation head.
 - The branch must be pushed to the existing PR only; no new PR is to be created.
 - Merge: prohibited; stop after reporting validation and wait for human review.
