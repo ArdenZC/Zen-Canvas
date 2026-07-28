@@ -11,6 +11,7 @@
     "dev": "tauri dev --features desktop-runtime",
     "build": "tauri build --features desktop-runtime",
     "test": "vitest run",
+    "test:docs": "node scripts/checkDocumentation.mjs",
     "test:remediation": "vitest run tests/remediationContract.test.ts",
     "test:performance": "node scripts/runPerformanceTest.mjs",
     "typecheck": "tsc -p tsconfig.json",
