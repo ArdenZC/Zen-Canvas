@@ -118,16 +118,19 @@ for (const file of markdownFiles) {
 const remediationDirectory = resolve(root, "docs/remediation");
 const remediationIndex = resolve(remediationDirectory, "CODEX_REMEDIATION_INDEX_V1.md");
 if (existsSync(remediationIndex)) {
-  const indexContent = readFileSync(remediationIndex, "utf8");
-  const taskReferences = new Set(
-    [...indexContent.matchAll(/`(TASK_[^`/\\]+\.md)`/gu)].map((match) => match[1])
-  );
+  const indexLines = readFileSync(remediationIndex, "utf8").split(/\r?\n/u);
+  const authorizedTaskReferences = new Set();
 
-  for (const taskReference of taskReferences) {
+  for (const line of indexLines) {
+    const match = line.match(/^\|\s*[0-9A-Z]+\s*\|\s*`(TASK_[^`/\\]+\.md)`\s*\|/u);
+    if (match) authorizedTaskReferences.add(match[1]);
+  }
+
+  for (const taskReference of authorizedTaskReferences) {
     if (!existsSync(resolve(remediationDirectory, taskReference))) {
       addFailure(
         "docs/remediation/CODEX_REMEDIATION_INDEX_V1.md",
-        `referenced task document does not exist: ${taskReference}`
+        `authorized task document does not exist: ${taskReference}`
       );
     }
   }
