@@ -2469,7 +2469,7 @@ pub(crate) fn move_path_to_system_trash_with_safety(
 
 fn validate_cleanup_path_syntax(path: &Path) -> Result<(), String> {
     if path.as_os_str().is_empty()
-        || path.to_string_lossy().contains(' ')
+        || path.to_string_lossy().contains('\0')
         || path.to_string_lossy().contains('*')
         || path.to_string_lossy().contains('?')
         || path
