@@ -8,7 +8,7 @@
 - Task 02 已通过 PR #26 合并，合并提交为 `ac0ffd78244d61833d13c8ff7878be0a0e2bceaf`，当前数据库基线为 schema 29。
 - Task 02 人工审查确认的 6 个遗留正确性问题已被冻结为 Task 03 第一组强制生产改动，不得再次后移。
 - Task 03 任务书已通过 PR #27 合并，合并提交为 `d2f5093713d38928c9ba36b6193589ed956bf053`。
-- **Task 03 现在是唯一可执行阶段。**
+- **Task 03 已完成实施，Draft PR 和 CI 待人工验收。**
 - Task 04 及所有后续阶段继续禁止执行。
 
 | 阶段 | 任务书 | 目标 | 状态 |
@@ -17,7 +17,7 @@
 | 01A | `TASK_01A_FILE_LIBRARY_SCAN_GENERATION_FOUNDATION.md` | Scan root lease、session/run/generation、scan_seen、stale safety、恢复和 durable revision | **已验收并合并** |
 | 01B | `TASK_01B_WATCHER_RECONCILIATION_OWNERSHIP.md` | Rust watcher owner、durable revision gap、overflow/startup reconciliation、renderer 脱离 | **已验收并合并** |
 | 02 | `TASK_02_IDENTITY_FINGERPRINT_AND_DUPE.md` | physical identity、fingerprint cache、prehash/full hash、durable run、hardlink-safe duplicate groups | **已合并，schema 29** |
-| 03 | `TASK_03_ANALYSIS_RUN_FINDING_AND_DETECTORS.md` | 关闭 Task 02 遗留；durable Analysis Run、Detector、Finding、Evidence、Decision 与 cleanup 兼容 | **可执行，目标 schema 30** |
+| 03 | `TASK_03_ANALYSIS_RUN_FINDING_AND_DETECTORS.md` | 关闭 Task 02 遗留；durable Analysis Run、Detector、Finding、Evidence、Decision 与 cleanup 兼容 | **实施完成，Draft PR 和 CI 待人工验收，schema 30** |
 | 04 | 待创建 | File Query V2、snapshot、cursor 与跨页 selection | **等待 Task 03，禁止执行** |
 | 05 | 待创建 | Organization Plan 后端领域模型 | **后续阶段，禁止执行** |
 | 06 | 待创建 | 整理工作区迁移到持久化 Plan | **后续阶段，禁止执行** |

@@ -379,7 +379,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .expect("schema version"),
-            29
+            30
         );
         assert_eq!(
             conn.query_row(
@@ -465,12 +465,12 @@
     }
 
     #[test]
-    fn database_rejects_schema_30_as_a_future_version() {
+    fn database_rejects_schema_31_as_a_future_version() {
         let path = test_db_path();
         let db = Database::open(&path).expect("create database");
         drop(db);
         let conn = Connection::open(&path).expect("open sqlite");
-        conn.execute_batch("PRAGMA user_version = 30;")
+        conn.execute_batch("PRAGMA user_version = 31;")
             .expect("set future version");
         drop(conn);
 
@@ -543,7 +543,7 @@
             )
             .expect("dedupe backfill count");
 
-        assert_eq!(version, 29);
+        assert_eq!(version, 30);
         assert_eq!(ledger_tables, 4);
         assert_eq!(watcher_defaults, (0, 0));
         assert_eq!(rule_recovery_required, 0);

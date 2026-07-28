@@ -182,6 +182,117 @@ if (migrationPerformance.status !== 0) {
 
 console.log("Schema 28->29 migration/WAL-reader benchmark passed.");
 
+console.log("Running schema 29->30 analysis migration/WAL-reader benchmark...");
+const analysisMigrationPerformance = spawnSync(
+  "cargo",
+  [
+    "test",
+    "--release",
+    "--manifest-path",
+    "src-tauri/Cargo.toml",
+    "performance_100k_files_schema_29_to_30_analysis_and_wal_reader",
+    "--",
+    "--ignored",
+    "--nocapture",
+  ],
+  { cwd: root, stdio: "inherit" },
+);
+
+if (analysisMigrationPerformance.error) {
+  console.error(`Task 03 schema migration benchmark failed to start: ${analysisMigrationPerformance.error.message}`);
+  process.exit(1);
+}
+
+if (analysisMigrationPerformance.status !== 0) {
+  console.error(`Task 03 schema migration benchmark failed with exit code ${analysisMigrationPerformance.status}.`);
+  process.exit(analysisMigrationPerformance.status ?? 1);
+}
+
+console.log("Schema 29->30 analysis migration/WAL-reader benchmark passed.");
+
+console.log("Running Task 03 analysis finding 100k/WAL-reader benchmark...");
+const analysisPerformance = spawnSync(
+  "cargo",
+  [
+    "test",
+    "--release",
+    "--manifest-path",
+    "src-tauri/Cargo.toml",
+    "performance_task03_analysis_100k_findings_and_wal_reader",
+    "--",
+    "--ignored",
+    "--nocapture",
+  ],
+  { cwd: root, stdio: "inherit" },
+);
+
+if (analysisPerformance.error) {
+  console.error(`Task 03 analysis finding benchmark failed to start: ${analysisPerformance.error.message}`);
+  process.exit(1);
+}
+
+if (analysisPerformance.status !== 0) {
+  console.error(`Task 03 analysis finding benchmark failed with exit code ${analysisPerformance.status}.`);
+  process.exit(analysisPerformance.status ?? 1);
+}
+
+console.log("Task 03 analysis finding 100k/WAL-reader benchmark passed.");
+
+console.log("Running Task 03 10k finding publication benchmark...");
+const analysisPublicationPerformance = spawnSync(
+  "cargo",
+  [
+    "test",
+    "--release",
+    "--manifest-path",
+    "src-tauri/Cargo.toml",
+    "performance_task03_10k_finding_publication_transaction",
+    "--",
+    "--ignored",
+    "--nocapture",
+  ],
+  { cwd: root, stdio: "inherit" },
+);
+
+if (analysisPublicationPerformance.error) {
+  console.error(`Task 03 finding publication benchmark failed to start: ${analysisPublicationPerformance.error.message}`);
+  process.exit(1);
+}
+
+if (analysisPublicationPerformance.status !== 0) {
+  console.error(`Task 03 finding publication benchmark failed with exit code ${analysisPublicationPerformance.status}.`);
+  process.exit(analysisPublicationPerformance.status ?? 1);
+}
+
+console.log("Task 03 10k finding publication benchmark passed.");
+
+console.log("Running Task 03 global prune budget/WAL-reader check...");
+const analysisPrune = spawnSync(
+  "cargo",
+  [
+    "test",
+    "--release",
+    "--manifest-path",
+    "src-tauri/Cargo.toml",
+    "analysis_prune_uses_one_global_child_first_row_budget_and_wal_reader",
+    "--",
+    "--nocapture",
+  ],
+  { cwd: root, stdio: "inherit" },
+);
+
+if (analysisPrune.error) {
+  console.error(`Task 03 prune budget check failed to start: ${analysisPrune.error.message}`);
+  process.exit(1);
+}
+
+if (analysisPrune.status !== 0) {
+  console.error(`Task 03 prune budget check failed with exit code ${analysisPrune.status}.`);
+  process.exit(analysisPrune.status ?? 1);
+}
+
+console.log("Task 03 global prune budget/WAL-reader check passed.");
+
 console.log("Running Task 02 dedupe repository benchmark...");
 const dedupePerformance = spawnSync(
   "cargo",

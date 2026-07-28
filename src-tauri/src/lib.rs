@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod analysis;
 pub mod app_control;
 pub mod db;
 pub mod dedupe;
@@ -32,6 +33,13 @@ pub use ai::settings::{
     test_ai_provider_connection, AISettings,
 };
 pub use ai::trace::{clear_ai_request_traces, export_ai_request_traces, list_ai_request_traces};
+pub use analysis::{
+    cancel_analysis_run, get_active_analysis_run, get_analysis_finding, get_analysis_run,
+    get_dedupe_authority, list_analysis_detectors, list_analysis_finding_evidence,
+    list_analysis_findings, list_analysis_run_detectors, list_analysis_runs, retry_analysis_run,
+    revalidate_analysis_finding, set_analysis_finding_decision, start_analysis_run,
+    AnalysisDetectorDescriptor, AnalysisRunManager,
+};
 pub use app_control::{
     activate_search_result, get_global_hotkey_status, quit_app, register_global_search_hotkey,
     resize_search_window, GlobalHotkeyStatus, GlobalHotkeyStatusState, SearchNavigatePayload,
@@ -46,6 +54,11 @@ pub use db::{
     InsertFileRequest, LibraryFilter, LibraryScope, OperationPreviewDto,
     OperationPreviewScopeResult, PagedFilesResult, Rule, RuleExecutionMode, RuleExecutionSummary,
     StatsSummary,
+};
+pub use db::{
+    AnalysisDetectorDto, AnalysisFindingDecisionDto, AnalysisFindingDto,
+    AnalysisFindingEvidenceDto, AnalysisFindingPageDto, AnalysisRunDto, AnalysisScopeRequest,
+    DedupeAuthorityDto, StartAnalysisRunRequest,
 };
 pub use db::{
     DedupeGroupDto, DedupeGroupMemberDto, DedupeGroupPageDto, DedupeRunDto, DedupeScopeRequest,
@@ -75,14 +88,14 @@ pub use settings::{
 pub use storage_analyzer::{
     cancel_cleanup_restore, cancel_storage_cleanup_scan, get_storage_cleanup_candidate_page,
     get_storage_cleanup_scan_status, is_main_window_label_for_test, list_cleanup_trash_batches,
-    move_cleanup_candidates_to_safe_trash, move_cleanup_candidates_to_trash,
-    preview_cleanup_candidates, preview_cleanup_operations, preview_cleanup_restore_item_for_test,
-    preview_restore_cleanup_trash, restore_cleanup_trash_items, reveal_storage_candidate,
-    run_cleanup_restore_job_for_test, start_storage_cleanup_scan, CleanupActionKind,
-    CleanupExecutionLog, CleanupExecutionResult, CleanupPreviewItem, CleanupRestoreJobStatus,
-    CleanupRestoreLog, CleanupRestorePreview, CleanupRestorePreviewItem,
-    CleanupRestoreProgressPayload, CleanupRestoreResult, CleanupRestoreState,
-    CleanupRestoreTestOutcome, CleanupTier, CleanupTrashBatch, CleanupTrashItem, StorageAnalysis,
+    move_cleanup_candidates_to_safe_trash, preview_cleanup_candidates, preview_cleanup_operations,
+    preview_cleanup_restore_item_for_test, preview_restore_cleanup_trash,
+    restore_cleanup_trash_items, reveal_storage_candidate, run_cleanup_restore_job_for_test,
+    start_storage_cleanup_scan, CleanupActionKind, CleanupExecutionLog, CleanupExecutionResult,
+    CleanupFindingSelection, CleanupPreviewItem, CleanupRestoreJobStatus, CleanupRestoreLog,
+    CleanupRestorePreview, CleanupRestorePreviewItem, CleanupRestoreProgressPayload,
+    CleanupRestoreResult, CleanupRestoreState, CleanupRestoreTestOutcome, CleanupTier,
+    CleanupTrashBatch, CleanupTrashItem, ReviewFindingConfirmation, StorageAnalysis,
     StorageCandidate, StorageCleanupCompleted, StorageCleanupJobMessage, StorageCleanupProgress,
     StorageCleanupScanStatus, StorageCleanupState,
 };

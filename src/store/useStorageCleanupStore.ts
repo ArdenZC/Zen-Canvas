@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   CleanupExecutionResult,
   CleanupTier,
+  AnalysisRun,
   StorageAnalysis,
   StorageCandidate,
   StorageCleanupProgress,
@@ -19,6 +20,10 @@ type StorageCleanupApi = {
   cancelStorageCleanupScan(jobId: string): Promise<void>;
   getStorageCleanupScanStatus(jobId: string): Promise<StorageCleanupScanStatus>;
   getStorageCleanupCandidatePage?(jobId: string, offset: number, limit?: number): Promise<StorageAnalysis>;
+  getActiveAnalysisRun?(): Promise<AnalysisRun | null>;
+  listAnalysisRuns?(limit?: number): Promise<AnalysisRun[]>;
+  getAnalysisRun?(runId: string): Promise<AnalysisRun>;
+  onAnalysisRunUpdated?(handler: (run: AnalysisRun) => void): Promise<() => void>;
 };
 
 interface StorageCleanupStore {
@@ -39,9 +44,11 @@ interface StorageCleanupStore {
   isAnalyzingWithAI: boolean;
   activeTierFilter: CleanupTier | "All";
   lastCompletedAt: string | null;
+  durableRunRevision: number;
   setSelectedRoots: (roots: string[]) => void;
   beginDisplayingJob: (jobId: string) => void;
   displayJob: (api: StorageCleanupApi, jobId: string) => Promise<void>;
+  hydrateDurable: (api: StorageCleanupApi, preferredRunId?: string) => Promise<void>;
   startScan: (api: StorageCleanupApi) => Promise<void>;
   applyScanProgress: (progress: StorageCleanupProgress) => void;
   completeScan: (jobId: string, analysis: StorageAnalysis) => void;
@@ -77,6 +84,7 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
   isAnalyzingWithAI: false,
   activeTierFilter: "All",
   lastCompletedAt: null,
+  durableRunRevision: 0,
 
   setSelectedRoots(roots) {
     const cleaned = roots.map((root) => root.trim()).filter(Boolean);
@@ -94,7 +102,8 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
       scanProgress: null,
       scanStatus: "idle",
       cancelRequestedJobId: null,
-      activeTierFilter: "All"
+      activeTierFilter: "All",
+      durableRunRevision: 0
     });
   },
 
@@ -118,7 +127,8 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
       aiAnalyzedCandidateIds: new Set(),
       aiDowngradedCandidateIds: new Set(),
       aiCleanupStatus: "",
-      activeTierFilter: "All"
+      activeTierFilter: "All",
+      durableRunRevision: 0
     });
     try {
       const jobId = await api.startStorageCleanupScan(roots);
@@ -126,7 +136,7 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
       try {
         const status = await api.getStorageCleanupScanStatus(jobId);
         if (get().activeJobId !== jobId) return;
-        if (status.status === "completed" && status.analysis) {
+        if (["completed", "completed_with_warnings"].includes(status.status) && status.analysis) {
           get().completeScan(jobId, status.analysis);
         } else if (status.status === "failed") {
           get().failScan(jobId, status.error || "cleanup_scan_not_completed");
@@ -146,6 +156,75 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
         cancelRequestedJobId: null,
         scanError: readableStoreError(error)
       });
+    }
+  },
+
+  async hydrateDurable(api, preferredRunId) {
+    if (
+      !api.getActiveAnalysisRun
+      || !api.listAnalysisRuns
+      || !api.getStorageCleanupScanStatus
+      || !api.getStorageCleanupCandidatePage
+    ) return;
+    try {
+      let run = preferredRunId && api.getAnalysisRun
+        ? await api.getAnalysisRun(preferredRunId)
+        : await api.getActiveAnalysisRun()
+          || (await api.listAnalysisRuns(30)).find((item) => item.scope.kind === "approved_cleanup_paths");
+      if ((!run || run.scope.kind !== "approved_cleanup_paths") && api.listAnalysisRuns) {
+        run = (await api.listAnalysisRuns(30)).find((item) => item.scope.kind === "approved_cleanup_paths");
+      }
+      if (!run || run.scope.kind !== "approved_cleanup_paths") return;
+      const currentRevision = get().durableRunRevision;
+      if (
+        preferredRunId
+        && (get().displayedJobId === preferredRunId || get().activeJobId === preferredRunId)
+        && run.revision <= currentRevision
+      ) return;
+      const status = await api.getStorageCleanupScanStatus(run.id);
+      if (["queued", "running", "cancelling"].includes(run.status)) {
+        set({
+          isScanning: true,
+          scanStatus: run.status === "cancelling" ? "cancel_requested" : "running",
+          activeJobId: run.id,
+          cancelRequestedJobId: run.status === "cancelling" ? run.id : null,
+          displayedJobId: null,
+          scanProgress: status.progress,
+          scanError: status.error ?? "",
+          durableRunRevision: run.revision
+        });
+        return;
+      }
+      if (["completed", "completed_with_warnings"].includes(run.status) && status.analysis) {
+        cancellationPollGeneration += 1;
+        set({
+          analysis: status.analysis,
+          isScanning: false,
+          scanStatus: "completed",
+          activeJobId: null,
+          cancelRequestedJobId: null,
+          displayedJobId: run.id,
+          scanProgress: status.progress,
+          scanError: status.error ?? "",
+          selectedCleanupIds: new Set(defaultSelectedCleanupIds(status.analysis)),
+          lastCompletedAt: run.finishedAt ? new Date(run.finishedAt * 1000).toISOString() : null,
+          durableRunRevision: run.revision
+        });
+      } else if (["failed", "interrupted", "cancelled"].includes(run.status)) {
+        set({
+          isScanning: false,
+          scanStatus: run.status === "cancelled"
+            ? "cancelled"
+            : run.status === "interrupted" ? "interrupted" : "failed",
+          activeJobId: null,
+          cancelRequestedJobId: null,
+          displayedJobId: run.id,
+          scanError: status.error ?? run.status,
+          durableRunRevision: run.revision
+        });
+      }
+    } catch (error) {
+      set({ scanError: readableStoreError(error) });
     }
   },
 
@@ -364,7 +443,8 @@ export const useStorageCleanupStore = create<StorageCleanupStore>((set, get) => 
       isAnalyzingWithAI: false,
       scanError: "",
       scanProgress: null,
-      activeTierFilter: "All"
+      activeTierFilter: "All",
+      durableRunRevision: 0
     });
   }
 }));
@@ -388,7 +468,8 @@ export function resetStorageCleanupStoreForTest() {
     aiCleanupStatus: "",
     isAnalyzingWithAI: false,
     activeTierFilter: "All",
-    lastCompletedAt: null
+    lastCompletedAt: null,
+    durableRunRevision: 0
   });
 }
 
@@ -500,7 +581,7 @@ async function waitForCancellationConfirmation(
       useStorageCleanupStore.getState().confirmCancelled(jobId, status.error || "cleanup_cancelled");
       return;
     }
-    if (status.status === "completed") {
+    if (["completed", "completed_with_warnings"].includes(status.status)) {
       if (status.analysis) useStorageCleanupStore.getState().completeScan(jobId, status.analysis);
       else useStorageCleanupStore.getState().failScan(jobId, "cleanup_scan_completed_without_analysis");
       return;

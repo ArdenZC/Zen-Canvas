@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, Runtime, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State, WebviewWindow};
 
 use super::{
     ollama::OllamaProvider,
@@ -17,7 +17,10 @@ use super::{
 };
 use crate::{
     db::Database,
-    storage_analyzer::{CleanupActionKind, CleanupTier, StorageCandidate, StorageCleanupState},
+    storage_analyzer::{
+        resolve_analysis_candidates_for_cleanup, storage_candidate_from_analysis_finding,
+        CleanupActionKind, CleanupTier, StorageCandidate,
+    },
     window_auth::require_main_window,
 };
 
@@ -65,23 +68,63 @@ pub async fn analyze_cleanup_candidates_with_ai<R: Runtime>(
     ids: Vec<String>,
     app: AppHandle<R>,
     db: State<'_, Database>,
-    state: State<'_, StorageCleanupState>,
 ) -> Result<Vec<StorageCandidate>, String> {
     require_main_window(&window)?;
     let app_data_dir = app.path().app_data_dir().ok();
     let db = db.inner().clone();
-    let state = state.inner().clone();
+    let app_for_events = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let settings =
             normalize_ai_settings(get_ai_settings_for_db(&db).map_err(|error| error.to_string())?);
-        let candidates = state.candidates_by_job_and_ids(&job_id, &ids)?;
+        let selections = ids
+            .iter()
+            .map(|id| {
+                let finding = db
+                    .get_analysis_finding(id)
+                    .map_err(|error| error.to_string())?
+                    .ok_or_else(|| format!("AI cleanup finding not found: {id}"))?;
+                Ok(crate::storage_analyzer::CleanupFindingSelection {
+                    finding_id: id.clone(),
+                    expected_revision: finding.revision,
+                    review_confirmation: None,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let candidates = resolve_analysis_candidates_for_cleanup(&db, &job_id, &selections, false)?;
         let updated = analyze_cleanup_candidates_with_configured_provider(
             candidates,
             &settings,
             app_data_dir,
         )?;
-        state.update_candidates_for_job(&job_id, &updated)?;
-        Ok(updated)
+        let mut persisted = Vec::with_capacity(updated.len());
+        for candidate in updated {
+            let finding = db
+                .get_analysis_finding(&candidate.id)
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| format!("AI cleanup finding disappeared: {}", candidate.id))?;
+            let assessment = serde_json::json!({
+                "tier": tier_to_string(&candidate.tier),
+                "category": candidate.category,
+                "suggestedAction": action_to_string(&candidate.suggested_action),
+                "reason": candidate.reason,
+                "riskNote": candidate.risk_note,
+                "trashAllowed": candidate.trash_allowed,
+                "selectedByDefault": candidate.selected_by_default
+            });
+            let finding = db
+                .append_analysis_ai_assessment(
+                    &finding.id,
+                    tier_to_string(&candidate.tier),
+                    candidate.trash_allowed,
+                    &assessment,
+                )
+                .map_err(|error| error.to_string())?;
+            if let Ok(run) = db.get_analysis_run(&finding.run_id) {
+                let _ = app_for_events.emit(crate::analysis::ANALYSIS_RUN_UPDATED_EVENT, run);
+            }
+            persisted.push(storage_candidate_from_analysis_finding(&finding)?);
+        }
+        Ok(persisted)
     })
     .await
     .map_err(|error| error.to_string())?

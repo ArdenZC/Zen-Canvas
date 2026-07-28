@@ -12,6 +12,16 @@ pub(crate) use classification::{rule_version_for_rules, translate_template};
 pub use commands::*;
 pub use connection::Database;
 pub use learning::*;
+pub(crate) use queries::analysis::{
+    bump_dedupe_authority_tx, invalidate_analysis_findings_for_file_tx,
+    invalidate_analysis_findings_for_group_tx, AnalysisFindingFilter, AnalysisPublishOutcome,
+    FindingDraft, FindingEvidenceDraft, ManagedAnalysisFile, ManagedAnalysisFingerprint,
+};
+pub use queries::analysis::{
+    AnalysisDetectorDto, AnalysisFindingDecisionDto, AnalysisFindingDto,
+    AnalysisFindingEvidenceDto, AnalysisFindingPageDto, AnalysisRunDto, AnalysisScopeRequest,
+    DedupeAuthorityDto, StartAnalysisRunRequest,
+};
 pub(crate) use queries::dedupe::{
     BuiltGroup, BuiltMember, DedupeCandidate, DedupeCheckpoint, FingerprintCas, FingerprintRow,
     PublishOutcome, PREHASH_MIN_SIZE, PREHASH_SAMPLE_BYTES,

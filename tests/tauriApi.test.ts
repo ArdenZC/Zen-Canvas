@@ -42,14 +42,13 @@ describe("tauriApi", () => {
     const results = await Promise.allSettled([
       tauriApi.executeMoves([{ id: "op", fileId: "file", old_name: "a", new_name: "b" } as never]),
       tauriApi.restoreMoves([{ id: "log" } as never]),
-      tauriApi.moveCleanupCandidatesToTrash("job", ["item"]),
-      tauriApi.moveCleanupCandidatesToSafeTrash("job", ["item"]),
+      tauriApi.moveCleanupCandidatesToSafeTrash("job", [{ findingId: "item", expectedRevision: 1 }]),
       tauriApi.restoreCleanupTrashItems(["item"])
     ]);
 
     expect(results.every((result) => result.status === "rejected")).toBe(true);
     expect(results.map((result) => result.status === "rejected" ? String(result.reason) : ""))
-      .toEqual(Array(5).fill("Error: macos_file_mutation_source_binding_unsupported"));
+      .toEqual(Array(4).fill("Error: macos_file_mutation_source_binding_unsupported"));
     expect(apiMocks.invoke).not.toHaveBeenCalled();
 
     await tauriApi.executeRulesForScope({ kind: "all" }, []);
@@ -89,15 +88,15 @@ describe("tauriApi", () => {
   });
 
   it("calls storage cleanup commands with conservative arguments", async () => {
+    const selections = [{ findingId: "storage-safe-1", expectedRevision: 3 }];
     await tauriApi.startStorageCleanupScan(["F:/Downloads"]);
     await tauriApi.getStorageCleanupScanStatus("job-1");
     await tauriApi.cancelStorageCleanupScan("job-1");
     await tauriApi.revealStorageCandidate("F:/Downloads/big.zip");
-    await tauriApi.previewCleanupCandidates("job-1", ["storage-safe-1"]);
-    await tauriApi.previewCleanupOperations("job-1", ["storage-safe-1"]);
+    await tauriApi.previewCleanupCandidates("job-1", selections);
+    await tauriApi.previewCleanupOperations("job-1", selections);
     await tauriApi.analyzeCleanupCandidatesWithAI("job-1", ["storage-safe-1"]);
-    await tauriApi.moveCleanupCandidatesToTrash("job-1", ["storage-safe-1"]);
-    await tauriApi.moveCleanupCandidatesToSafeTrash("job-1", ["storage-safe-1"]);
+    await tauriApi.moveCleanupCandidatesToSafeTrash("job-1", selections);
     await tauriApi.listCleanupTrashBatches();
     await tauriApi.previewRestoreCleanupTrash("batch-1");
     await tauriApi.restoreCleanupTrashItems(["item-1"]);
@@ -117,33 +116,29 @@ describe("tauriApi", () => {
     });
     expect(apiMocks.invoke).toHaveBeenNthCalledWith(5, "preview_cleanup_candidates", {
       jobId: "job-1",
-      ids: ["storage-safe-1"]
+      selections
     });
     expect(apiMocks.invoke).toHaveBeenNthCalledWith(6, "preview_cleanup_operations", {
       jobId: "job-1",
-      ids: ["storage-safe-1"]
+      selections
     });
     expect(apiMocks.invoke).toHaveBeenNthCalledWith(7, "analyze_cleanup_candidates_with_ai", {
       jobId: "job-1",
       ids: ["storage-safe-1"]
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(8, "move_cleanup_candidates_to_trash", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(8, "move_cleanup_candidates_to_safe_trash", {
       jobId: "job-1",
-      ids: ["storage-safe-1"]
+      selections
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(9, "move_cleanup_candidates_to_safe_trash", {
-      jobId: "job-1",
-      ids: ["storage-safe-1"]
-    });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(10, "list_cleanup_trash_batches", undefined);
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(11, "preview_restore_cleanup_trash", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(9, "list_cleanup_trash_batches", undefined);
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(10, "preview_restore_cleanup_trash", {
       batchId: "batch-1"
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(12, "restore_cleanup_trash_items", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(11, "restore_cleanup_trash_items", {
       itemIds: ["item-1"],
       jobId: null
     });
-    expect(apiMocks.invoke).toHaveBeenNthCalledWith(13, "cancel_cleanup_restore", {
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(12, "cancel_cleanup_restore", {
       jobId: "cleanup-job-1"
     });
   });

@@ -16,12 +16,23 @@ import type {
   CleanupRestoreResult,
   CleanupTrashBatch,
   CleanupExecutionResult,
+  CleanupFindingSelection,
   CleanupPreviewItem,
   DashboardStats,
   DedupeGroup,
   DedupeGroupMember,
   DedupeGroupPage,
   DedupeRun,
+  AnalysisDetector,
+  AnalysisDetectorDescriptor,
+  AnalysisFinding,
+  AnalysisFindingDecision,
+  AnalysisFindingEvidence,
+  AnalysisFindingPage,
+  AnalysisRun,
+  AnalysisScopeRequest,
+  DedupeAuthority,
+  StartAnalysisRunRequest,
   StartDedupeRunRequest,
   ExecuteOperationRequest,
   ExecuteOperationResult,
@@ -507,6 +518,94 @@ export const tauriApi = {
     return invokeCommand<DedupeRun | null>("get_active_dedupe_run");
   },
 
+  listAnalysisDetectors(): Promise<AnalysisDetectorDescriptor[]> {
+    return invokeCommand<AnalysisDetectorDescriptor[]>("list_analysis_detectors");
+  },
+
+  startAnalysisRun(request: StartAnalysisRunRequest): Promise<AnalysisRun> {
+    return invokeCommand<AnalysisRun>("start_analysis_run", { request });
+  },
+
+  cancelAnalysisRun(runId: string): Promise<AnalysisRun> {
+    return invokeCommand<AnalysisRun>("cancel_analysis_run", { runId });
+  },
+
+  retryAnalysisRun(runId: string): Promise<AnalysisRun> {
+    return invokeCommand<AnalysisRun>("retry_analysis_run", { runId });
+  },
+
+  getAnalysisRun(runId: string): Promise<AnalysisRun> {
+    return invokeCommand<AnalysisRun>("get_analysis_run", { runId });
+  },
+
+  getActiveAnalysisRun(): Promise<AnalysisRun | null> {
+    return invokeCommand<AnalysisRun | null>("get_active_analysis_run");
+  },
+
+  listAnalysisRuns(limit = 20): Promise<AnalysisRun[]> {
+    return invokeCommand<AnalysisRun[]>("list_analysis_runs", { limit });
+  },
+
+  listAnalysisRunDetectors(runId: string): Promise<AnalysisDetector[]> {
+    return invokeCommand<AnalysisDetector[]>("list_analysis_run_detectors", { runId });
+  },
+
+  listAnalysisFindings(options: {
+    runId?: string;
+    detectorId?: string;
+    tier?: string;
+    category?: string;
+    decision?: string;
+    status?: string;
+    executableOnly?: boolean;
+    cursor?: string | null;
+    limit?: number;
+  } = {}): Promise<AnalysisFindingPage> {
+    return invokeCommand<AnalysisFindingPage>("list_analysis_findings", {
+      runId: options.runId ?? null,
+      detectorId: options.detectorId ?? null,
+      tier: options.tier ?? null,
+      category: options.category ?? null,
+      decision: options.decision ?? null,
+      status: options.status ?? null,
+      executableOnly: options.executableOnly ?? false,
+      cursor: options.cursor ?? null,
+      limit: options.limit ?? 100
+    });
+  },
+
+  getAnalysisFinding(findingId: string): Promise<AnalysisFinding | null> {
+    return invokeCommand<AnalysisFinding | null>("get_analysis_finding", { findingId });
+  },
+
+  listAnalysisFindingEvidence(findingId: string): Promise<AnalysisFindingEvidence[]> {
+    return invokeCommand<AnalysisFindingEvidence[]>("list_analysis_finding_evidence", { findingId });
+  },
+
+  getDedupeAuthority(): Promise<DedupeAuthority> {
+    return invokeCommand<DedupeAuthority>("get_dedupe_authority");
+  },
+
+  setAnalysisFindingDecision(request: {
+    findingKey: string;
+    decision: AnalysisFindingDecision["decision"];
+    snoozedUntil?: number | null;
+    note?: string | null;
+    expectedRevision: number;
+  }): Promise<AnalysisFindingDecision> {
+    return invokeCommand<AnalysisFindingDecision>("set_analysis_finding_decision", {
+      findingKey: request.findingKey,
+      decision: request.decision,
+      snoozedUntil: request.snoozedUntil ?? null,
+      note: request.note ?? null,
+      expectedRevision: request.expectedRevision
+    });
+  },
+
+  revalidateAnalysisFinding(findingId: string): Promise<AnalysisFinding> {
+    return invokeCommand<AnalysisFinding>("revalidate_analysis_finding", { findingId });
+  },
+
   listDuplicateGroups(cursor?: string | null, limit = 50): Promise<DedupeGroupPage> {
     return invokeCommand<DedupeGroupPage>("list_duplicate_groups", {
       cursor: cursor ?? null,
@@ -593,24 +692,18 @@ export const tauriApi = {
     return invokeCommand<void>("reveal_storage_candidate", { path });
   },
 
-  previewCleanupCandidates(jobId: string, ids: string[]): Promise<CleanupPreviewItem[]> {
-    return invokeCommand<CleanupPreviewItem[]>("preview_cleanup_candidates", { jobId, ids });
+  previewCleanupCandidates(jobId: string, selections: CleanupFindingSelection[]): Promise<CleanupPreviewItem[]> {
+    return invokeCommand<CleanupPreviewItem[]>("preview_cleanup_candidates", { jobId, selections });
   },
 
-  previewCleanupOperations(jobId: string, ids: string[]): Promise<OperationPreviewResult> {
-    return invokeCommand<OperationPreviewResult>("preview_cleanup_operations", { jobId, ids });
+  previewCleanupOperations(jobId: string, selections: CleanupFindingSelection[]): Promise<OperationPreviewResult> {
+    return invokeCommand<OperationPreviewResult>("preview_cleanup_operations", { jobId, selections });
   },
 
-  moveCleanupCandidatesToTrash(jobId: string, ids: string[]): Promise<CleanupExecutionResult> {
+  moveCleanupCandidatesToSafeTrash(jobId: string, selections: CleanupFindingSelection[]): Promise<CleanupExecutionResult> {
     const unavailable = rejectUnavailableFileMutation<CleanupExecutionResult>();
     if (unavailable) return unavailable;
-    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_trash", { jobId, ids });
-  },
-
-  moveCleanupCandidatesToSafeTrash(jobId: string, ids: string[]): Promise<CleanupExecutionResult> {
-    const unavailable = rejectUnavailableFileMutation<CleanupExecutionResult>();
-    if (unavailable) return unavailable;
-    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_safe_trash", { jobId, ids });
+    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_safe_trash", { jobId, selections });
   },
 
   analyzeCleanupCandidatesWithAI(jobId: string, ids: string[]): Promise<StorageCandidate[]> {
@@ -821,6 +914,18 @@ export const tauriApi = {
 
   onDedupeRunUpdated(handler: EventHandler<DedupeRun>): Promise<UnlistenFn> {
     return listenTo("dedupe-run-updated", handler);
+  },
+
+  onAnalysisRunUpdated(handler: EventHandler<AnalysisRun>): Promise<UnlistenFn> {
+    return listenTo("analysis-run-updated", handler);
+  },
+
+  onAnalysisDetectorUpdated(handler: EventHandler<AnalysisDetector>): Promise<UnlistenFn> {
+    return listenTo("analysis-detector-updated", handler);
+  },
+
+  onAnalysisFindingsPublished(handler: EventHandler<AnalysisRun>): Promise<UnlistenFn> {
+    return listenTo("analysis-findings-published", handler);
   },
 
   onOperationProgress(handler: EventHandler<OperationProgressPayload>): Promise<UnlistenFn> {

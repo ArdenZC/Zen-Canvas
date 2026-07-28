@@ -49,7 +49,7 @@ fn schema_18_adds_safe_trash_identity_columns() {
         })
         .expect("schema version");
 
-    assert_eq!(version, 29);
+    assert_eq!(version, 30);
     assert!(columns.iter().any(|column| column == "source_modified_ns"));
     assert!(columns
         .iter()
@@ -142,8 +142,7 @@ use zen_canvas_tauri::storage_analyzer::{
 };
 #[cfg(windows)]
 use zen_canvas_tauri::storage_analyzer::{
-    move_cleanup_candidates_to_safe_trash_for_candidates,
-    move_cleanup_candidates_to_trash_for_candidates, preview_cleanup_restore_item_for_test,
+    move_cleanup_candidates_to_safe_trash_for_candidates, preview_cleanup_restore_item_for_test,
     reconcile_pending_cleanup_journal, restore_cleanup_trash_items_for_db,
     restore_cleanup_trash_items_for_db_with_cancel_for_test,
 };
@@ -924,72 +923,6 @@ fn cleanup_operation_preview_rejects_system_and_app_data_paths() {
 
     assert!(preview.previews.is_empty());
     assert_eq!(preview.total, 0);
-}
-
-#[test]
-#[cfg(windows)]
-fn system_trash_fails_closed_after_candidate_validation_without_touching_source() {
-    let root = test_dir();
-    let safe_path = root.join("node_modules");
-    write_file(&safe_path.join("package").join("index.js"), 128);
-    let safe = classify_candidate_for_test(&safe_path, 128);
-    let review = classify_candidate_for_test(&root.join("Downloads").join("movie.mp4"), 128);
-    let caution = classify_candidate_for_test(&PathBuf::from("C:/Program Files/Example"), 128);
-
-    let result = move_cleanup_candidates_to_trash_for_candidates(
-        vec![
-            safe.id.clone(),
-            review.id.clone(),
-            caution.id.clone(),
-            "missing-id".to_string(),
-        ],
-        &[safe.clone(), review, caution],
-        None,
-    )
-    .expect("move cleanup candidates to trash");
-
-    assert_eq!(result.moved, 0);
-    assert_eq!(result.skipped, 3);
-    assert_eq!(result.failed, 1);
-    assert!(result.logs.iter().any(|log| log.status == "failed"
-        && log.path == safe.path
-        && log
-            .message
-            .contains("system_trash_source_binding_unsupported")));
-    assert!(safe_path.exists());
-}
-
-#[test]
-#[cfg(windows)]
-fn move_cleanup_candidates_to_trash_revalidates_execution_forbidden_paths() {
-    let root = test_dir();
-    let app_data = root.join("Zen Canvas");
-    let app_data_child = app_data.join("cache");
-    write_file(&app_data_child.join("owned.txt"), 64);
-    let forged = StorageCandidate {
-        id: "forged-app-data".to_string(),
-        path: app_data_child.to_string_lossy().replace('\\', "/"),
-        name: "cache".to_string(),
-        size: 64,
-        tier: CleanupTier::Safe,
-        category: "Forged".to_string(),
-        reason: "Client supplied".to_string(),
-        suggested_action: CleanupActionKind::MoveToTrash,
-        risk_note: None,
-        trash_allowed: true,
-        selected_by_default: true,
-    };
-
-    let result = move_cleanup_candidates_to_trash_for_candidates(
-        vec![forged.id.clone()],
-        &[forged],
-        Some(&app_data),
-    )
-    .expect("move cleanup candidates to trash");
-
-    assert_eq!(result.moved, 0);
-    assert_eq!(result.skipped, 1);
-    assert!(app_data_child.exists());
 }
 
 #[test]

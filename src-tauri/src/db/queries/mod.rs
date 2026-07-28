@@ -10,6 +10,7 @@ use std::{
 use tauri::{AppHandle, Emitter, Runtime};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
+pub(crate) mod analysis;
 pub(crate) mod dedupe;
 pub(crate) mod files;
 pub(crate) mod operations;
