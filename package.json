@@ -10,9 +10,13 @@
   "scripts": {
     "dev": "tauri dev --features desktop-runtime",
     "build": "tauri build --features desktop-runtime",
+    "build:check": "vite build && cargo check --release --manifest-path src-tauri/Cargo.toml --features desktop-runtime",
     "test": "vitest run",
+    "test:docs": "node scripts/checkDocumentation.mjs",
     "test:remediation": "vitest run tests/remediationContract.test.ts",
     "test:performance": "node scripts/runPerformanceTest.mjs",
+    "test:performance:pr": "node scripts/runPerformanceTestPr.mjs",
+    "test:performance:full": "node scripts/runPerformanceTest.mjs",
     "typecheck": "tsc -p tsconfig.json",
     "security:audit": "npm audit --audit-level=high",
     "security:audit:rust": "cargo audit --file src-tauri/Cargo.lock",
