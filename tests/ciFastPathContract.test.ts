@@ -39,6 +39,12 @@ describe("code pull-request CI fast path", () => {
     expect(buildCheck).not.toContain("tauri build");
   });
 
+  it("only packages pull requests when package-sensitive paths changed", () => {
+    const packageCondition =
+      "github.event_name != 'pull_request' || needs.change-scope.outputs.package_sensitive == 'true'";
+    expect(workflow.match(new RegExp(packageCondition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))).toHaveLength(2);
+  });
+
   it("preserves stable required check names", () => {
     expect(workflow).toContain("name: Quality (windows-latest)");
     expect(workflow).toContain("name: Quality (macos-latest)");
