@@ -129,12 +129,14 @@ describe("remediation contracts", () => {
     expect(packageJson).toContain("cargo audit --file src-tauri/Cargo.lock");
   });
 
-  it("keeps the supported-platform policy Windows/macOS-only", () => {
+  it("keeps the supported product policy Windows/macOS-only", () => {
     expect(supportedPlatforms).toContain("Windows");
     expect(supportedPlatforms).toContain("macOS");
     expect(supportedPlatforms).toMatch(/Linux is not a supported product platform/);
-    expect(workflows).toContain("os: [windows-latest, macos-latest]");
-    expect(workflows).not.toContain("ubuntu-latest");
+    expect(workflows).toContain("runs-on: windows-latest");
+    expect(workflows).toContain("runs-on: macos-latest");
+    expect(workflows).toContain("Frontend and format quality");
+    expect(workflows).toContain("runs-on: ubuntu-latest");
     expect(workflows).not.toContain("Linux Tauri dependencies");
     expect(cargo).not.toContain('target_os = "linux"');
     expect(fileOps).not.toContain("xdg-open");
