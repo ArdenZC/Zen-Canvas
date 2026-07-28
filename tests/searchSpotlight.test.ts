@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { activateCommandNavigation, isSortingPreviewShortcut } from "../src/components/CommandModal";
 import { makeTranslator } from "../src/i18n";
-import { applySearchNavigation } from "../src/utils/searchNavigation";
+import { applySearchNavigation, shouldApplySearchNavigation } from "../src/utils/searchNavigation";
+import { committedSpotlightInput, completedSpotlightComposition } from "../src/components/spotlight/spotlightComposition";
+import { mockInvokeCommand } from "../src/api/browserMockApi";
 import { DEFAULT_SEARCH_HOTKEY, formatHotkeyLabel } from "../src/utils/hotkeys";
 
 describe("spotlight search navigation", () => {
@@ -30,10 +32,44 @@ describe("spotlight search navigation", () => {
       activateSearchResult
     });
 
-    expect(activateSearchResult).toHaveBeenCalledWith("library", "file-1");
+    expect(activateSearchResult).toHaveBeenCalledWith("library", "file-1", undefined);
     expect(setSelectedFileId).not.toHaveBeenCalled();
     expect(setView).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("carries only fixed settings targets through standalone navigation", async () => {
+    const activateSearchResult = vi.fn(async () => {});
+
+    await activateCommandNavigation({
+      standalone: true,
+      view: "settings",
+      fileId: null,
+      settingsTarget: "global-index",
+      windowSnapshot: { sessionId: 4, revision: 9, phase: "visible_collapsed" },
+      setView: vi.fn(),
+      setSelectedFileId: vi.fn(),
+      onClose: vi.fn(),
+      activateSearchResult
+    });
+
+    expect(activateSearchResult).toHaveBeenCalledWith(
+      "settings",
+      null,
+      { sessionId: 4, revision: 9, phase: "visible_collapsed" },
+      "global-index"
+    );
+  });
+
+  it("commits one final IME value and never commits composition updates", () => {
+    let committed = "";
+    const compositionUpdates = ["z", "zh", "zhong"];
+    for (const value of compositionUpdates) {
+      expect(committedSpotlightInput(value, true, true, 229)).toBeNull();
+    }
+    committed = completedSpotlightComposition("中");
+    expect(committed).toBe("中");
+    expect(committedSpotlightInput(committed, false, false, 0)).toBe("中");
   });
 
   it("keeps in-window command navigation local", async () => {
@@ -71,15 +107,61 @@ describe("spotlight search navigation", () => {
     expect(setSelectedFileId).toHaveBeenCalledTimes(1);
   });
 
+  it("applies fixed standalone settings targets and rejects illegal targets", () => {
+    const setView = vi.fn();
+    const setSelectedFileId = vi.fn();
+    const requestSettingsSection = vi.fn();
+
+    expect(applySearchNavigation(
+      {
+        view: "settings",
+        fileId: null,
+        nonce: 5,
+        sessionId: 2,
+        revision: 8,
+        settingsTarget: "global-index"
+      },
+      setView,
+      setSelectedFileId,
+      requestSettingsSection
+    )).toBe(true);
+    expect(requestSettingsSection).toHaveBeenCalledWith("settings-global-index");
+    expect(applySearchNavigation(
+      { view: "settings", fileId: null, settingsTarget: "not-a-settings-section" },
+      setView,
+      setSelectedFileId,
+      requestSettingsSection
+    )).toBe(false);
+    expect(requestSettingsSection).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the browser mock wire-compatible without faking native navigation", async () => {
+    await expect(mockInvokeCommand("activate_search_result", {
+      request: {
+        sessionId: 2,
+        expectedRevision: 8,
+        view: "settings",
+        fileId: null,
+        settingsTarget: "global-index"
+      }
+    })).resolves.toBeUndefined();
+    await expect(mockInvokeCommand("activate_search_result", {
+      request: { view: "settings", settingsTarget: "arbitrary-selector" }
+    })).rejects.toThrow("search_navigation_settings_target_invalid");
+  });
+
   it("uses the independent global index for command and standalone Spotlight results", () => {
     const commandModal = readFileSync(resolve("src/components/CommandModal.tsx"), "utf8");
     const appShell = readFileSync(resolve("src/components/AppShell.tsx"), "utf8");
 
     expect(commandModal).toContain("const SEARCH_RESULT_LIMIT = 80");
-    expect(commandModal).toContain("tauriApi.searchGlobalEntries(trimmedSearch, SEARCH_RESULT_LIMIT)");
+    expect(commandModal).toContain("tauriApi.searchGlobalEntries(request)");
+    expect(commandModal).toContain("queryControllerRef.current.nextRequest(committedTrimmedSearch, SEARCH_RESULT_LIMIT)");
+    expect(commandModal).toContain("committedSpotlightInput");
+    expect(commandModal).toContain("queryControllerRef.current.accepts(response)");
     expect(commandModal).toContain("mergeSpotlightResults(currentGlobalResults, commandResults)");
     expect(commandModal).toContain("filesForCurrentQuery(trimmedSearch, globalResultState.query, globalResultState.results)");
-    expect(commandModal).toContain('setGlobalResultState({ query: trimmedSearch, results: [] })');
+    expect(commandModal).toContain('setGlobalResultState({ query: committedTrimmedSearch, results: [] })');
     expect(commandModal).toContain("queryCommandRegistry(trimmedSearch, commandRegistry)");
     expect(commandModal).toContain("groupSpotlightResults(visibleResults, t)");
     expect(commandModal).not.toContain("results.slice(0, 12)");
@@ -93,34 +175,71 @@ describe("spotlight search navigation", () => {
     expect(appShell).not.toContain("searchScope={effectiveSearchScope}");
   });
 
-  it("opens in-window Spotlight when the native search window falls back", () => {
+  it("acknowledges Rust-owned main-window navigation readiness", () => {
     const runtimeProviders = readFileSync(resolve("src/components/AppRuntimeProviders.tsx"), "utf8");
 
-    expect(runtimeProviders).toContain("tauriApi.onGlobalSearchRequested");
-    expect(runtimeProviders).toContain("setIsCommandOpen(true)");
+    expect(runtimeProviders).toContain("tauriApi.onMainWindowReadyRequest");
+    expect(runtimeProviders).toContain("sessionId = null, revision = null");
+    expect(runtimeProviders).toContain("tauriApi.acknowledgeMainWindowReady(nonce)");
+    expect(runtimeProviders).toContain("tauriApi.markMainWindowReady(true)");
+    expect(runtimeProviders).not.toContain("onGlobalSearchRequested");
   });
 
-  it("uses folder-aware wording, plural-safe counts, and shared file icons", () => {
+  it("rejects late navigation after the user changes main-window state", () => {
+    const pending = { nonce: 9, view: "scanner" as const, selectedFileId: "", sessionId: 4, revision: 12 };
+    expect(shouldApplySearchNavigation(
+      { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
+      pending,
+      { view: "scanner", selectedFileId: "" }
+    )).toBe(true);
+    expect(shouldApplySearchNavigation(
+      { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
+      pending,
+      { view: "settings", selectedFileId: "" }
+    )).toBe(false);
+    expect(shouldApplySearchNavigation(
+      { nonce: 8, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
+      pending,
+      { view: "scanner", selectedFileId: "" }
+    )).toBe(false);
+    expect(shouldApplySearchNavigation(
+      { nonce: 9, view: "settings", fileId: null, sessionId: 4, revision: 12, settingsTarget: "not-a-settings-section" },
+      pending,
+      { view: "scanner", selectedFileId: "" }
+    )).toBe(false);
+    expect(shouldApplySearchNavigation(
+      { nonce: 9, view: "library", fileId: "file-1", sessionId: 3, revision: 12 },
+      pending,
+      { view: "scanner", selectedFileId: "" }
+    )).toBe(false);
+    expect(shouldApplySearchNavigation(
+      { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 11 },
+      pending,
+      { view: "scanner", selectedFileId: "" }
+    )).toBe(false);
+  });
+
+  it("uses folder-aware wording, plural-safe counts, and neutral indexed-entry icons", () => {
     const commandModal = readFileSync(resolve("src/components/CommandModal.tsx"), "utf8");
     const en = makeTranslator("en");
     expect(en("globalSearch")).toBe("Search folders, files, actions, or settings");
     expect(commandModal).toContain("formatCount(t, visibleResults.length");
-    expect(commandModal).toContain("<FileTypeIcon file={file}");
-    expect(commandModal).toContain("<FileTypeIcon file={file} size={17}");
+    expect(commandModal).toContain("entry.isDirectory ? <Folder size={20} /> : <FileIcon size={20} />");
+    expect(commandModal).not.toContain("<FileTypeIcon");
   });
 
-  it("falls back to the library for an invalid runtime view payload", () => {
+  it("fails closed for an invalid runtime view payload", () => {
     const setView = vi.fn();
     const setSelectedFileId = vi.fn();
 
-    applySearchNavigation(
+    expect(applySearchNavigation(
       { view: "destructive-unknown-view", fileId: "file-1" },
       setView,
       setSelectedFileId
-    );
+    )).toBe(false);
 
-    expect(setView).toHaveBeenCalledWith("library");
-    expect(setSelectedFileId).toHaveBeenCalledWith("file-1");
+    expect(setView).not.toHaveBeenCalled();
+    expect(setSelectedFileId).not.toHaveBeenCalled();
   });
 
   it("keeps Tab available for focus movement and uses primary-key shortcuts for sorting preview", () => {
@@ -164,14 +283,14 @@ describe("spotlight search navigation", () => {
     expect(appControl).not.toContain("SEARCH_WINDOW_HEIGHT: f64 = 320.0");
     expect(appControl).toContain("pub fn resize_search_window<R: Runtime>");
     expect(appControl).toContain("expanded: bool");
-    expect(appControl).toContain("if let Some(window) = app.get_webview_window(SEARCH_WINDOW_LABEL)");
+    expect(appControl).toContain('.ok_or_else(|| "search_window_missing".to_string())?');
     expect(appControl).toContain("SEARCH_WINDOW_EXPANDED_HEIGHT");
-    expect(appControl).toContain("window.center()?");
+    expect(appControl).toContain("window.center().map_err(|error| error.to_string())?");
     expect(setupSearchWindow).toContain(".inner_size(SEARCH_WINDOW_WIDTH, SEARCH_WINDOW_COLLAPSED_HEIGHT)");
     expect(setupSearchWindow).toContain(".min_inner_size(SEARCH_WINDOW_WIDTH, SEARCH_WINDOW_COLLAPSED_HEIGHT)");
     expect(setupSearchWindow).toContain(".max_inner_size(SEARCH_WINDOW_WIDTH, SEARCH_WINDOW_EXPANDED_HEIGHT)");
     expect(setupSearchWindow).toContain(".shadow(false)");
-    expect(appControl).toContain("window.set_size(Size::Logical(LogicalSize");
+    expect(appControl).toContain(".set_size(Size::Logical(LogicalSize");
     expect(appControl).toContain("height: if expanded");
     expect(appControl).toContain("SEARCH_WINDOW_EXPANDED_HEIGHT");
     expect(appControl).toContain("SEARCH_WINDOW_COLLAPSED_HEIGHT");
@@ -183,8 +302,9 @@ describe("spotlight search navigation", () => {
     expect(setupSearchWindow).toContain(".skip_taskbar(true)");
     expect(setupSearchWindow).toContain(".always_on_top(true)");
     expect(mainRs).toContain("zen_canvas_tauri::app_control::resize_search_window");
-    expect(tauriApi).toContain("resizeSearchWindow(expanded: boolean): Promise<void>");
-    expect(tauriApi).toContain('invokeCommand<void>("resize_search_window", { expanded })');
+    expect(mainRs).toContain("zen_canvas_tauri::app_control::hide_search_window_command");
+    expect(tauriApi).toContain("resizeSearchWindow(snapshot: SearchWindowSnapshot, expanded: boolean)");
+    expect(tauriApi).toContain('invokeCommand<SearchWindowSnapshot>("resize_search_window"');
     expect(appShell).toContain("const searchWindowRoot =");
     expect(appShell).toContain("bg-transparent");
     expect(appShell).toContain("h-full w-full");
@@ -195,7 +315,9 @@ describe("spotlight search navigation", () => {
     expect(commandModal).toContain("standaloneSearchWindowExpandedHeight = 660");
     expect(commandModal).toContain("max-h-[50vh] overflow-y-auto p-2");
     expect(commandModal).toContain("const isStandaloneCollapsed =");
-    expect(commandModal).toContain("void tauriApi.resizeSearchWindow(!isStandaloneCollapsed).catch(() => undefined)");
+    expect(commandModal).toContain("tauriApi.resizeSearchWindow(searchWindowSnapshot, expanded)");
+    expect(commandModal).toContain("tauriApi.hideSearchWindow(snapshot)");
+    expect(commandModal).toContain("tauriApi.onSearchWindowState(updateSearchWindowSnapshot)");
     expect(commandModal).toContain("commandShellBase");
     expect(commandModal).toContain("commandShellCollapsed");
     expect(commandModal).toContain("commandShellExpanded");

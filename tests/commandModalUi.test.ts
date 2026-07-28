@@ -26,7 +26,7 @@ describe("command modal spotlight polish", () => {
     const commandModal = read("src/components/CommandModal.tsx");
     const icon = read("src/components/FileTypeIcon.tsx");
 
-    expect(commandModal).toContain("FileTypeIcon");
+    expect(commandModal).not.toContain("FileTypeIcon");
     expect(commandModal).toContain("entry.isDirectory ? <Folder size={20} /> : <FileIcon size={20} />");
     expect(icon).toContain("fileIconForRecord");
     expect(icon).toContain("aria-hidden=\"true\"");
@@ -69,12 +69,12 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).toContain("layout");
     expect(commandModal).toContain('window.addEventListener("blur", handleBlur)');
     expect(commandModal).toContain('window.removeEventListener("blur", handleBlur)');
-    expect(commandModal).toContain("const handleBlur = () => onClose();");
-    expect(commandModal).toContain("}, [standalone, onClose]);");
-    expect(commandModal).toContain("initial={{ opacity: 0, y: 8 }}");
+    expect(commandModal).toContain("const blurredSnapshot = searchWindowSnapshotRef.current;");
+    expect(commandModal).toContain("requestSearchWindowHide(blurredSnapshot)");
+    expect(commandModal).toContain("initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}");
     expect(commandModal).toContain("animate={{ opacity: 1, y: 0 }}");
     expect(commandModal).toContain("exit={{ opacity: 0, y: 8 }}");
-    expect(commandModal).toContain("transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}");
+    expect(commandModal).toContain("prefersReducedMotion ? { duration: 0 }");
     expect(commandModal).not.toContain("scale:");
   });
 
@@ -143,11 +143,20 @@ describe("command modal spotlight polish", () => {
     expect(commandModal).toContain('title={t("commandClearSearch")}');
     expect(commandModal).toContain("<ModalPortal initialFocusRef={inputRef}");
     expect(commandModal).toContain("initialFocusRef={inputRef}");
-    expect(commandModal).toContain("onEscape={onClose}");
+    expect(commandModal).toContain("onEscape={closeSpotlight}");
     expect(commandModal).not.toContain("cycleDialogFocus");
     expect(commandModal).toContain("aria-activedescendant={activeResultId}");
     expect(commandModal).toContain("aria-selected={active}");
     expect(commandModal).toContain('scrollIntoView({ block: "nearest" })');
+    expect(commandModal).toContain('event.key === "Home"');
+    expect(commandModal).toContain('event.key === "End"');
+    expect(commandModal).toContain('event.key === "PageDown"');
+    expect(commandModal).toContain('event.key === "PageUp"');
+    expect(commandModal).toContain('event.key === "Tab"');
+    expect(commandModal).toContain("event.nativeEvent.isComposing");
+    expect(commandModal).toContain("event.nativeEvent.keyCode === 229");
+    expect(commandModal).toContain("onCompositionStart");
+    expect(commandModal).toContain("onCompositionEnd");
   });
 
   it("restores Spotlight setting commands to their target section heading", () => {

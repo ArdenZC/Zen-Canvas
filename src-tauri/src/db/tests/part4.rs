@@ -1297,19 +1297,112 @@ fn analysis_totals_do_not_double_count_overlapping_subjects() {
 #[test]
 fn analysis_totals_retain_duplicate_exact_bytes_when_large_file_shares_path() {
     let root = test_dir();
+    let keeper_path = root.join("keeper.bin").to_string_lossy().into_owned();
+    let keeper_alias_path = root.join("keeper-alias.bin").to_string_lossy().into_owned();
     let shared_path = root.join("shared.bin").to_string_lossy().into_owned();
-    let db = Database::open(test_db_path()).expect("open duplicate exact aggregation database");
+    let other_copy_path = root.join("other-copy.bin").to_string_lossy().into_owned();
+    let unrelated_path = root.join("unrelated.bin").to_string_lossy().into_owned();
+    let db_path = test_db_path();
+    let db = Database::open(&db_path).expect("open duplicate exact aggregation database");
+    insert_test_file_at_path(
+        &db,
+        "shared-duplicate-keeper",
+        &keeper_path,
+        "keeper.bin",
+        "bin",
+        100,
+        1,
+    );
+    insert_test_file_at_path(
+        &db,
+        "shared-duplicate-keeper-alias",
+        &keeper_alias_path,
+        "keeper-alias.bin",
+        "bin",
+        100,
+        1,
+    );
+    insert_test_file_at_path(
+        &db,
+        "shared-large-file-id",
+        &shared_path,
+        "shared.bin",
+        "bin",
+        100,
+        1,
+    );
+    insert_test_file_at_path(
+        &db,
+        "shared-duplicate-other-copy",
+        &other_copy_path,
+        "other-copy.bin",
+        "bin",
+        100,
+        1,
+    );
+    insert_test_file_at_path(
+        &db,
+        "shared-safe-unrelated",
+        &unrelated_path,
+        "unrelated.bin",
+        "bin",
+        50,
+        1,
+    );
     let conn = db.conn().expect("open duplicate exact root connection");
     conn.execute(
         "INSERT INTO scan_roots (id, normalized_path, display_name, source_kind, enabled, health_status, created_at, updated_at) VALUES ('analysis-exact-root', ?1, 'analysis-exact-root', 'file_library', 1, 'healthy', 1, 1)",
         params![root.to_string_lossy().into_owned()],
     )
     .expect("insert duplicate exact managed root");
+    conn.execute(
+        "INSERT INTO dedupe_runs (id, request_key, request_attempt, scope_json, scope_hash, scope_snapshot_json, scope_snapshot_hash, status, phase, revision, finished_at, created_at, updated_at) VALUES ('shared-duplicate-run', 'shared-duplicate-request', 1, '{\"kind\":\"allEnabledScanRoots\"}', 'shared-scope', '[]', 'shared-snapshot', 'completed', 'completed', 1, 1, 1, 1)",
+        [],
+    )
+    .expect("insert authoritative duplicate run");
+    conn.execute(
+        "INSERT INTO duplicate_groups (id, size_each, full_hash, full_hash_algorithm, full_hash_version, member_count, physical_copy_count, hardlink_alias_count, exact_reclaimable_bytes, potential_reclaimable_bytes, reclaimable_confidence, status, last_built_run_id, revision, created_at, updated_at, last_verified_at) VALUES ('shared-duplicate-group', 100, 'shared-duplicate-hash', 'blake3', 1, 4, 3, 1, 200, 200, 'exact', 'active', 'shared-duplicate-run', 1, 1, 1, 1)",
+        [],
+    )
+    .expect("insert authoritative duplicate group");
+    for (file_id, path, physical_key, is_alias) in [
+        (
+            "shared-duplicate-keeper",
+            keeper_path.as_str(),
+            "physical-keeper",
+            0,
+        ),
+        (
+            "shared-duplicate-keeper-alias",
+            keeper_alias_path.as_str(),
+            "physical-keeper",
+            1,
+        ),
+        (
+            "shared-large-file-id",
+            shared_path.as_str(),
+            "physical-reclaimable",
+            0,
+        ),
+        (
+            "shared-duplicate-other-copy",
+            other_copy_path.as_str(),
+            "physical-other-copy",
+            0,
+        ),
+    ] {
+        conn.execute(
+            "INSERT INTO duplicate_group_members (group_id, file_id, path_snapshot, physical_key, identity_status, is_hardlink_alias, size, modified_ns, verified_at) VALUES ('shared-duplicate-group', ?1, ?2, ?3, 'verified', ?4, 100, 1, 1)",
+            params![file_id, path, physical_key, is_alias],
+        )
+        .expect("insert authoritative duplicate member");
+    }
     drop(conn);
 
     let detector_set = vec![
         ("duplicate_reclaimable_v1".to_string(), 1_i64),
         ("large_file_v1".to_string(), 1_i64),
+        ("cleanup_heuristics_v1".to_string(), 1_i64),
     ];
     let run = db
         .start_analysis_run(
@@ -1361,10 +1454,11 @@ fn analysis_totals_retain_duplicate_exact_bytes_when_large_file_shares_path() {
     duplicate.path_snapshot = Some(shared_path.clone());
     duplicate.identity_snapshot = json!({
         "groupId": "shared-duplicate-group",
-        "fullHash": "shared-duplicate-hash"
+        "fullHash": "shared-duplicate-hash",
+        "revision": 1
     });
-    duplicate.exact_reclaimable_bytes = Some(100);
-    duplicate.potential_reclaimable_bytes = 100;
+    duplicate.exact_reclaimable_bytes = Some(200);
+    duplicate.potential_reclaimable_bytes = 200;
 
     let mut large_file = test_finding_draft("shared-large-file", "shared-large-file-key");
     large_file.detector_id = "large_file_v1".to_string();
@@ -1380,7 +1474,44 @@ fn analysis_totals_retain_duplicate_exact_bytes_when_large_file_shares_path() {
     });
     large_file.exact_reclaimable_bytes = None;
     large_file.potential_reclaimable_bytes = 100;
-    db.stage_analysis_findings(&run.id, &run.scope_hash, &[duplicate, large_file])
+
+    let mut same_physical_safe =
+        test_finding_draft("shared-safe-exact", "shared-safe-exact-key");
+    same_physical_safe.detector_id = "cleanup_heuristics_v1".to_string();
+    same_physical_safe.primary_subject_kind = "approved_path".to_string();
+    same_physical_safe.primary_subject_id = shared_path.clone();
+    same_physical_safe.path_snapshot = Some(shared_path.clone());
+    same_physical_safe.identity_snapshot = json!({
+        "physical": {"physicalKey": "physical-reclaimable"},
+        "size": 100
+    });
+    same_physical_safe.exact_reclaimable_bytes = Some(100);
+    same_physical_safe.potential_reclaimable_bytes = 100;
+
+    let mut unrelated_safe =
+        test_finding_draft("unrelated-safe-exact", "unrelated-safe-exact-key");
+    unrelated_safe.detector_id = "cleanup_heuristics_v1".to_string();
+    unrelated_safe.primary_subject_kind = "approved_path".to_string();
+    unrelated_safe.primary_subject_id = unrelated_path.clone();
+    unrelated_safe.path_snapshot = Some(unrelated_path);
+    unrelated_safe.identity_snapshot = json!({
+        "physical": {"physicalKey": "physical-unrelated"},
+        "size": 50
+    });
+    unrelated_safe.size_bytes = 50;
+    unrelated_safe.exact_reclaimable_bytes = Some(50);
+    unrelated_safe.potential_reclaimable_bytes = 50;
+
+    db.stage_analysis_findings(
+        &run.id,
+        &run.scope_hash,
+        &[
+            unrelated_safe,
+            large_file,
+            same_physical_safe,
+            duplicate,
+        ],
+    )
         .expect("stage duplicate and large-file findings at shared path");
     for detector in running {
         db.set_analysis_detector_status(
@@ -1390,12 +1521,16 @@ fn analysis_totals_retain_duplicate_exact_bytes_when_large_file_shares_path() {
             "completed",
             1,
             1,
-            if detector.detector_id == "duplicate_reclaimable_v1" {
-                100
-            } else {
-                0
+            match detector.detector_id.as_str() {
+                "duplicate_reclaimable_v1" => 200,
+                "cleanup_heuristics_v1" => 150,
+                _ => 0,
             },
-            100,
+            match detector.detector_id.as_str() {
+                "duplicate_reclaimable_v1" => 200,
+                "cleanup_heuristics_v1" => 150,
+                _ => 100,
+            },
             None,
             None,
         )
@@ -1406,8 +1541,59 @@ fn analysis_totals_retain_duplicate_exact_bytes_when_large_file_shares_path() {
     let final_run = db
         .get_analysis_run(&run.id)
         .expect("read duplicate exact aggregation run");
-    assert_eq!(final_run.exact_reclaimable_bytes, 100);
-    assert_eq!(final_run.potential_reclaimable_bytes, 100);
+    assert_eq!(final_run.exact_reclaimable_bytes, 250);
+    assert_eq!(final_run.potential_reclaimable_bytes, 250);
+
+    let duplicate_finding_id: String = db
+        .conn()
+        .expect("open AI aggregate connection")
+        .query_row(
+            "SELECT id FROM analysis_findings WHERE run_id = ?1 AND finding_key = 'shared-duplicate-key' AND status = 'active'",
+            params![run.id],
+            |row| row.get(0),
+        )
+        .expect("read duplicate finding for AI refresh");
+    db.append_analysis_ai_assessment(
+        &duplicate_finding_id,
+        "review",
+        false,
+        &json!({"source": "physical-union-refresh"}),
+    )
+    .expect("refresh physical union after AI assessment");
+    let refreshed = db
+        .get_analysis_run(&run.id)
+        .expect("read refreshed physical union");
+    assert_eq!(refreshed.exact_reclaimable_bytes, 250);
+    assert_eq!(refreshed.potential_reclaimable_bytes, 250);
+
+    drop(db);
+    let reopened = Database::open(db_path).expect("reopen physical union database");
+    let hydrated = reopened
+        .get_analysis_run(&run.id)
+        .expect("hydrate physical union after reopen");
+    assert_eq!(hydrated.exact_reclaimable_bytes, 250);
+    assert_eq!(hydrated.potential_reclaimable_bytes, 250);
+
+    reopened
+        .conn()
+        .expect("open stale group connection")
+        .execute(
+            "UPDATE duplicate_groups SET status = 'stale', revision = revision + 1 WHERE id = 'shared-duplicate-group'",
+            [],
+        )
+        .expect("stale duplicate authority");
+    reopened
+        .append_analysis_ai_assessment(
+            &duplicate_finding_id,
+            "review",
+            false,
+            &json!({"source": "stale-group-refresh"}),
+        )
+        .expect("refresh aggregate after duplicate group becomes stale");
+    let stale_group_refresh = reopened
+        .get_analysis_run(&run.id)
+        .expect("read aggregate with stale duplicate group");
+    assert_eq!(stale_group_refresh.exact_reclaimable_bytes, 150);
 }
 
 #[test]

@@ -1,5 +1,5 @@
 import type { Translator } from "../../types/ui";
-import type { FileRecord, GlobalSearchResult, OperationLog } from "../../types/domain";
+import type { GlobalSearchResult } from "../../types/domain";
 import type { SpotlightCommand, SpotlightCommandGroup } from "./commandRegistry";
 
 export type SpotlightGlobalResult = { kind: "global"; id: string; entry: GlobalSearchResult };
@@ -22,27 +22,6 @@ export function groupSpotlightResults(results: SpotlightResult[], t?: Translator
   });
 }
 
-export function selectRecentFiles(files: FileRecord[], limit = 4) {
-  return [...files]
-    .sort((left, right) => recentFileTime(right) - recentFileTime(left))
-    .slice(0, limit);
-}
-
-export function selectRecentOperations(operations: OperationLog[], limit = 3) {
-  return [...operations]
-    .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))
-    .slice(0, limit);
-}
-
-export function buildRecentGroups(files: FileRecord[], operations: OperationLog[], t: Translator) {
-  const recentFiles = selectRecentFiles(files);
-  const recentOperations = selectRecentOperations(operations);
-  return [
-    ...(recentFiles.length ? [{ type: "recent-files" as const, label: t("spotlightRecentFiles"), items: recentFiles }] : []),
-    ...(recentOperations.length ? [{ type: "recent-operations" as const, label: t("spotlightRecentOperations"), items: recentOperations }] : [])
-  ];
-}
-
 function resultGroup(result: SpotlightResult): SpotlightResultGroupType {
   if (result.kind === "command") return result.group;
   return result.entry.isDirectory ? "folders" : "files";
@@ -55,8 +34,4 @@ function groupLabel(type: SpotlightResultGroupType, t?: Translator) {
   if (type === "actions") return t("spotlightActions");
   if (type === "settings") return t("settings");
   return t("history");
-}
-
-function recentFileTime(file: FileRecord) {
-  return Date.parse(file.last_opened_at || file.modified_at || file.indexed_at || "") || 0;
 }

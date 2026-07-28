@@ -3,6 +3,7 @@ use crate::db::Database;
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Barrier};
 use std::time::Instant;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -218,6 +219,294 @@ fn global_search_is_independent_from_legacy_files_and_ai_is_scope_gated() {
 }
 
 #[test]
+fn global_search_ranking_is_exact_then_prefix_then_extension_with_stable_id_ties() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+
+    let mut exact = test_entry(r"C:\Global\r", "r", false);
+    exact.platform_file_id = "identity-exact".to_string();
+    exact.modified_at_fs = Some(20);
+    let mut prefix_b = test_entry(r"C:\Global\report-b.txt", "report-b.txt", false);
+    prefix_b.platform_file_id = "identity-prefix-b".to_string();
+    prefix_b.modified_at_fs = Some(10);
+    let mut prefix_a = test_entry(r"C:\Global\report-a.txt", "report-a.txt", false);
+    prefix_a.platform_file_id = "identity-prefix-a".to_string();
+    prefix_a.modified_at_fs = Some(10);
+    let prefix_a_id = prefix_a.entry_id();
+    let prefix_b_id = prefix_b.entry_id();
+    let mut extension = test_entry(r"C:\Global\archive.r", "archive.r", false);
+    extension.platform_file_id = "identity-extension".to_string();
+    extension.extension = "r".to_string();
+    extension.modified_at_fs = Some(9);
+    let mut extension_prefix = test_entry(r"C:\Global\archive.rust", "archive.rust", false);
+    extension_prefix.platform_file_id = "identity-extension-prefix".to_string();
+    extension_prefix.extension = "rust".to_string();
+    extension_prefix.modified_at_fs = Some(8);
+
+    db.upsert_global_entries_batch(&[prefix_b, extension, exact, prefix_a, extension_prefix])
+        .expect("insert ranked entries");
+    let results = db.search_global_entries("r", 20, 0).expect("ranked search");
+    assert_eq!(results.len(), 5);
+    assert_eq!(results[0].name, "r");
+    let mut expected_prefix_ids = vec![prefix_a_id, prefix_b_id];
+    expected_prefix_ids.sort();
+    assert_eq!(
+        results[1..3]
+            .iter()
+            .map(|entry| entry.id.clone())
+            .collect::<Vec<_>>(),
+        expected_prefix_ids
+    );
+    assert_eq!(results[3].name, "archive.r");
+    assert_eq!(results[4].name, "archive.rust");
+    let result_ids = results
+        .iter()
+        .map(|entry| entry.id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        result_ids
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        result_ids.len(),
+        "layer union must not duplicate an entry"
+    );
+    let limited = db
+        .search_global_entries("r", 3, 0)
+        .expect("bounded ranked search");
+    assert_eq!(
+        limited
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["r", results[1].name.as_str(), results[2].name.as_str()]
+    );
+    let page_after_prefix = db
+        .search_global_entries("r", 20, 2)
+        .expect("offset in deduplicated tier stream");
+    assert_eq!(
+        page_after_prefix
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>(),
+        results[2..]
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>()
+    );
+    let prefix_results = db
+        .search_global_entries("rep", 20, 0)
+        .expect("prefix search");
+    assert_eq!(prefix_results.len(), 2);
+    assert!(prefix_results
+        .iter()
+        .all(|entry| entry.name.starts_with("report-")));
+    let extension_results = db
+        .search_global_entries("r", 20, 0)
+        .expect("extension search");
+    assert_eq!(extension_results[3].name, "archive.r");
+    assert_eq!(extension_results[4].name, "archive.rust");
+    let repeated_ids = db
+        .search_global_entries("rep", 20, 0)
+        .expect("repeat ranked search")
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        prefix_results
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>(),
+        repeated_ids
+    );
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn global_search_fts_layer_fills_remaining_page_and_offset_is_stable() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+
+    let mut name_match = test_entry(r"C:\Global\archive-needle.txt", "archive-needle.txt", false);
+    name_match.platform_file_id = "identity-fts-name".to_string();
+    name_match.modified_at_fs = Some(20);
+    let mut path_match = test_entry(r"C:\Global\needle\deep.log", "deep.log", false);
+    path_match.platform_file_id = "identity-fts-path".to_string();
+    path_match.extension = "log".to_string();
+    path_match.modified_at_fs = Some(10);
+    db.upsert_global_entries_batch(&[name_match, path_match])
+        .expect("insert FTS entries");
+
+    let full = db
+        .search_global_entries("needle", 20, 0)
+        .expect("FTS search");
+    assert_eq!(full.len(), 2);
+    let full_ids = full
+        .iter()
+        .map(|entry| entry.id.clone())
+        .collect::<Vec<_>>();
+
+    let first_page = db
+        .search_global_entries("needle", 1, 0)
+        .expect("first FTS page");
+    let second_page = db
+        .search_global_entries("needle", 1, 1)
+        .expect("second FTS page");
+    let paged_ids = first_page
+        .iter()
+        .chain(second_page.iter())
+        .map(|entry| entry.id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(paged_ids, full_ids);
+    assert_ne!(first_page[0].id, second_page[0].id);
+
+    let repeated_ids = db
+        .search_global_entries("needle", 20, 0)
+        .expect("repeat FTS search")
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+    assert_eq!(repeated_ids, full_ids);
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn global_search_snapshot_filters_disabled_sources_and_tracks_entry_revision() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+    db.update_global_volume_state(
+        "gv_test",
+        INDEX_STATUS_READY,
+        None,
+        None,
+        None,
+        None,
+        Some(31),
+    )
+    .expect("mark source ready");
+    let document = test_entry(r"C:\Global\snapshot-note.txt", "snapshot-note.txt", false);
+    let document_id = document.entry_id();
+    db.upsert_global_entries_batch(std::slice::from_ref(&document))
+        .expect("insert snapshot entry");
+
+    let ready = db
+        .search_global_entries_snapshot("snapshot", 20, 0)
+        .expect("read consistent search snapshot");
+    assert_eq!(ready.results.len(), 1);
+    assert_eq!(ready.source_health.len(), 1);
+    assert!(ready.source_health[0].enabled);
+    assert_eq!(ready.source_health[0].status, INDEX_STATUS_READY);
+    assert!(ready.index_status.collection_complete);
+    assert!(!ready.source_revision.is_empty());
+
+    db.set_global_volume_enabled("gv_test", false)
+        .expect("disable source");
+    let disabled = db
+        .search_global_entries_snapshot("snapshot", 20, 0)
+        .expect("read disabled source snapshot");
+    assert!(disabled.results.is_empty());
+    assert!(!disabled.source_health[0].enabled);
+    assert_eq!(disabled.index_status.status, INDEX_STATUS_UNAVAILABLE);
+    assert_ne!(ready.source_revision, disabled.source_revision);
+
+    db.set_global_volume_enabled("gv_test", true)
+        .expect("re-enable source");
+    db.mark_global_entry_stale(&document_id)
+        .expect("mark entry stale");
+    let stale = db
+        .search_global_entries_snapshot("snapshot", 20, 0)
+        .expect("read stale entry snapshot");
+    assert!(stale.results.is_empty());
+    assert_ne!(disabled.source_revision, stale.source_revision);
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn global_search_snapshot_remains_source_consistent_during_status_rebuild_changes() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+    db.update_global_volume_state(
+        "gv_test",
+        INDEX_STATUS_READY,
+        None,
+        None,
+        None,
+        None,
+        Some(31),
+    )
+    .expect("mark source ready");
+    let document = test_entry(
+        r"C:\Global\concurrent-note.txt",
+        "concurrent-note.txt",
+        false,
+    );
+    db.upsert_global_entries_batch(std::slice::from_ref(&document))
+        .expect("insert concurrent entry");
+
+    let start = Arc::new(Barrier::new(2));
+    let worker_db = db.clone();
+    let worker_start = Arc::clone(&start);
+    let worker = std::thread::spawn(move || {
+        worker_start.wait();
+        for index in 0..24 {
+            let enabled = index % 2 == 0;
+            worker_db
+                .set_global_volume_enabled("gv_test", enabled)
+                .expect("toggle source");
+            worker_db
+                .update_global_volume_state(
+                    "gv_test",
+                    if enabled {
+                        INDEX_STATUS_READY
+                    } else {
+                        INDEX_STATUS_REBUILD_REQUIRED
+                    },
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(40 + index),
+                )
+                .expect("update source status");
+        }
+    });
+    start.wait();
+    for _ in 0..24 {
+        let snapshot = db
+            .search_global_entries_snapshot("concurrent", 20, 0)
+            .expect("read concurrent snapshot");
+        let source = &snapshot.source_health[0];
+        assert!(snapshot
+            .results
+            .iter()
+            .all(|result| result.volume_id == source.source_id && source.enabled));
+        if snapshot.index_status.collection_complete {
+            assert!(source.enabled);
+            assert_eq!(source.status, INDEX_STATUS_READY);
+        }
+        assert!(!snapshot.source_revision.is_empty());
+    }
+    worker.join().expect("status worker");
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn disabled_ai_policy_creates_no_jobs_without_removing_global_search() {
     let path = test_db_path();
     let db = Database::open(&path).expect("open test database");
@@ -396,6 +685,98 @@ fn removing_the_last_managed_scope_clears_ai_state_but_keeps_global_entry() {
 }
 
 #[test]
+#[ignore = "runs the required one-hundred-thousand-entry global search benchmark"]
+fn global_search_performance_100k_synthetic_entries() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open benchmark database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert benchmark volume");
+
+    {
+        let mut conn = db.conn().expect("benchmark database connection");
+        conn.pragma_update(None, "synchronous", "OFF")
+            .expect("set benchmark synchronous mode");
+        let transaction = conn.transaction().expect("benchmark transaction");
+        transaction
+            .execute_batch(
+                r#"
+                DROP TRIGGER IF EXISTS global_entries_ai;
+                DROP TRIGGER IF EXISTS global_entries_count_ai;
+                WITH RECURSIVE numbers(n) AS (
+                    SELECT 1
+                    UNION ALL
+                    SELECT n + 1 FROM numbers WHERE n < 100000
+                )
+                INSERT INTO global_entries (
+                    id, volume_id, platform_file_id, parent_platform_file_id,
+                    name, name_normalized, path, path_normalized, extension,
+                    is_directory, size, created_at_fs, modified_at_fs,
+                    file_attributes, is_hidden, is_system, is_stale,
+                    source_provider, last_seen_at
+                )
+                SELECT
+                    'ge_perf_' || n, 'gv_test', 'frn:perf:' || n, 'frn:perf-parent',
+                    printf('Report-%06d.txt', n), lower(printf('report-%06d.txt', n)),
+                    'C:\\Global\\Benchmark\\' || printf('Report-%06d.txt', n),
+                    lower('c:\\global\\benchmark\\' || printf('report-%06d.txt', n)),
+                    'txt', 0, 1024, 10, 20, 0, 0, 0, 0, 'windows_mft_usn', 30
+                FROM numbers;
+                INSERT INTO global_entries_fts(global_entries_fts) VALUES ('rebuild');
+                UPDATE global_volumes
+                SET entry_count = (SELECT COUNT(*) FROM global_entries WHERE volume_id = 'gv_test'),
+                    updated_at = 30
+                WHERE id = 'gv_test';
+                "#,
+            )
+            .expect("insert one hundred thousand benchmark entries");
+        transaction.commit().expect("commit benchmark entries");
+    }
+
+    let queries = [
+        ("R", "Report-000001.txt"),
+        ("Report-050000", "Report-050000.txt"),
+        ("Report-100000", "Report-100000.txt"),
+        ("txt", "Report-000001.txt"),
+        ("Report-050000!", "Report-050000.txt"),
+    ];
+    let mut timings_ms = Vec::with_capacity(queries.len() * 3);
+    for (query, expected_name) in queries {
+        for _ in 0..3 {
+            let started = Instant::now();
+            let results = db
+                .search_global_entries(query, 80, 0)
+                .expect("search 100k benchmark entries");
+            let elapsed_ms = started.elapsed().as_secs_f64() * 1_000.0;
+            eprintln!("Task 04 100k query {query:?}: {elapsed_ms:.3}ms");
+            timings_ms.push(elapsed_ms);
+            if query != "Report-050000!" {
+                assert!(
+                    results.iter().any(|result| result.name == expected_name),
+                    "global search query {query:?} should return {expected_name:?}"
+                );
+            }
+            assert!(results.len() <= 80);
+        }
+    }
+    timings_ms.sort_by(f64::total_cmp);
+    let p95_index = ((timings_ms.len() as f64 * 0.95).ceil() as usize)
+        .saturating_sub(1)
+        .min(timings_ms.len().saturating_sub(1));
+    let p95_ms = timings_ms[p95_index];
+    eprintln!(
+        "global search over 100,000 entries: samples={} p95_ms={p95_ms:.3} threshold_ms={GLOBAL_SEARCH_P95_LIMIT_MS:.3}",
+        timings_ms.len()
+    );
+    assert!(
+        p95_ms <= GLOBAL_SEARCH_P95_LIMIT_MS,
+        "global search p95 {p95_ms:.3}ms exceeded {GLOBAL_SEARCH_P95_LIMIT_MS:.3}ms"
+    );
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 #[ignore = "runs the required one-million-entry global search benchmark"]
 fn global_search_performance_one_million_synthetic_entries() {
     let path = test_db_path();
@@ -411,6 +792,8 @@ fn global_search_performance_one_million_synthetic_entries() {
         transaction
             .execute_batch(
                 r#"
+                DROP TRIGGER IF EXISTS global_entries_ai;
+                DROP TRIGGER IF EXISTS global_entries_count_ai;
                 WITH RECURSIVE numbers(n) AS (
                     SELECT 1
                     UNION ALL
@@ -435,6 +818,11 @@ fn global_search_performance_one_million_synthetic_entries() {
                     'txt', 0, 1024, 10, 20, 0, 0, 0, 0,
                     'windows_mft_usn', 30
                 FROM numbers;
+                INSERT INTO global_entries_fts(global_entries_fts) VALUES ('rebuild');
+                UPDATE global_volumes
+                SET entry_count = (SELECT COUNT(*) FROM global_entries WHERE volume_id = 'gv_test'),
+                    updated_at = 30
+                WHERE id = 'gv_test';
                 "#,
             )
             .expect("insert one million benchmark entries");
@@ -448,6 +836,24 @@ fn global_search_performance_one_million_synthetic_entries() {
         ("Report-750000", "Report-750000.txt"),
         ("Report-999999", "Report-999999.txt"),
     ];
+    {
+        let conn = db.conn().expect("explain benchmark query");
+        let mut statement = conn
+            .prepare(
+                "EXPLAIN QUERY PLAN SELECT ge.id FROM global_entries ge INDEXED BY idx_global_entries_active_name \
+                 JOIN global_volumes gv ON gv.id = ge.volume_id \
+                 WHERE gv.enabled = 1 AND ge.is_stale = 0 \
+                   AND ge.name_normalized GLOB ?1 \
+                 ORDER BY ge.modified_at_fs DESC, ge.id ASC LIMIT 20",
+            )
+            .expect("prepare benchmark plan");
+        let plan = statement
+            .query_map(["report-500000*"], |row| row.get::<_, String>(3))
+            .expect("query benchmark plan")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect benchmark plan");
+        eprintln!("Task 04 1M prefix query plan: {plan:?}");
+    }
     let mut timings_ms = Vec::with_capacity(queries.len() * 3);
     for (query, expected_name) in queries {
         for _ in 0..3 {
@@ -455,7 +861,9 @@ fn global_search_performance_one_million_synthetic_entries() {
             let results = db
                 .search_global_entries(query, 20, 0)
                 .expect("search one million benchmark entries");
-            timings_ms.push(started.elapsed().as_secs_f64() * 1_000.0);
+            let elapsed_ms = started.elapsed().as_secs_f64() * 1_000.0;
+            eprintln!("Task 04 1M query {query:?}: {elapsed_ms:.3}ms");
+            timings_ms.push(elapsed_ms);
             assert!(
                 results.iter().any(|result| result.name == expected_name),
                 "global search query {query:?} should return {expected_name:?}"

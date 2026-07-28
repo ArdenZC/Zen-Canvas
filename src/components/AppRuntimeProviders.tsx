@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { tauriApi } from "../api/tauriApi";
 import { ChromeProvider, RulesProvider, SettingsProvider } from "../contexts/AppContexts";
 import { useAppChrome } from "../hooks/useAppChrome";
@@ -14,6 +14,7 @@ import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { persistRuleEnabledToggle, persistUserRuleDelete } from "../store/rulePersistence";
 import { useRulesStore } from "../store/useRulesStore";
 import { useScanManagerStore } from "../store/useScanManagerStore";
+import { requestSettingsSection } from "./spotlight/commandRegistry";
 import type {
   CloseBehavior,
   FolderNamingLanguage,
@@ -24,7 +25,8 @@ import type {
   SearchScopeMode,
   Rule
 } from "../types/domain";
-import { applySearchNavigation } from "../utils/searchNavigation";
+import type { View } from "../types/ui";
+import { applySearchNavigation, shouldApplySearchNavigation } from "../utils/searchNavigation";
 import { localizedStableError, normalizePathLike, readableError } from "../utils/viewHelpers";
 
 export function AppRuntimeProviders({ children }: { children: ReactNode }) {
@@ -41,6 +43,13 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   const removeUserRule = useRulesStore((state) => state.removeUserRule);
   const hydrateUserRulesFromSQLite = useRulesStore((state) => state.hydrateUserRulesFromSQLite);
   const t = useMemo(() => makeTranslator(language), [language]);
+  const pendingSearchNavigationRef = useRef<{
+    nonce: number;
+    view: View;
+    selectedFileId: string;
+    sessionId: number | null;
+    revision: number | null;
+  } | null>(null);
   const refreshCurrentQuery = useCallback(
     () => useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery),
     []
@@ -128,7 +137,19 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     let unlisten: (() => void) | undefined;
 
     void tauriApi.onSearchNavigate((payload) => {
-      applySearchNavigation(payload, setView, useFileLibraryStore.getState().setSelectedFileId);
+      const pending = pendingSearchNavigationRef.current;
+      const currentLibrary = useFileLibraryStore.getState();
+      if (!shouldApplySearchNavigation(payload, pending, {
+        view: useAppStore.getState().view,
+        selectedFileId: currentLibrary.selectedFileId
+      })) return;
+      pendingSearchNavigationRef.current = null;
+      applySearchNavigation(
+        payload,
+        setView,
+        useFileLibraryStore.getState().setSelectedFileId,
+        requestSettingsSection
+      );
     }).then((dispose) => {
       if (disposed) dispose();
       else unlisten = dispose;
@@ -148,8 +169,17 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
-    void tauriApi.onGlobalSearchRequested(() => {
-      setIsCommandOpen(true);
+    void tauriApi.onMainWindowReadyRequest(({ nonce, sessionId = null, revision = null }) => {
+      pendingSearchNavigationRef.current = {
+        nonce,
+        view: useAppStore.getState().view,
+        selectedFileId: useFileLibraryStore.getState().selectedFileId,
+        sessionId,
+        revision
+      };
+      void tauriApi.acknowledgeMainWindowReady(nonce).catch((error) => {
+        if (!disposed) showError(readableError(error));
+      });
     }).then((dispose) => {
       if (disposed) dispose();
       else unlisten = dispose;
@@ -161,7 +191,15 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
       disposed = true;
       unlisten?.();
     };
-  }, [isSearchMode, setIsCommandOpen, showError]);
+  }, [isSearchMode, showError]);
+
+  useEffect(() => {
+    if (isSearchMode) return;
+    void tauriApi.markMainWindowReady(true).catch((error) => showError(readableError(error)));
+    return () => {
+      void tauriApi.markMainWindowReady(false).catch(() => undefined);
+    };
+  }, [isSearchMode, showError]);
 
   useEffect(() => {
     if (isSearchMode) return;
@@ -232,7 +270,11 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
       try {
         const status = await tauriApi.registerGlobalSearchHotkey(next);
         useAppStore.getState().setGlobalHotkeyError(status.error ?? "");
-        if (!status.registered) {
+        if (
+          !status.registered
+          || status.effectiveAccelerator !== next
+          || status.error
+        ) {
           if (status.error) showError(status.error);
           return false;
         }

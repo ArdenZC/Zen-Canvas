@@ -126,6 +126,29 @@ if (benchmark.status !== 0) {
 
 console.log("SQLite/FTS benchmark passed.");
 
+console.log("Running Task 04 global-search 100k benchmark...");
+const globalSearchPerformance = spawnSync(
+  "cargo",
+  [
+    "test",
+    "--release",
+    "--manifest-path",
+    "src-tauri/Cargo.toml",
+    "global_search_performance_100k_synthetic_entries",
+    "--",
+    "--ignored",
+    "--nocapture",
+  ],
+  { cwd: root, stdio: "inherit" },
+);
+if (globalSearchPerformance.error || globalSearchPerformance.status !== 0) {
+  console.error(globalSearchPerformance.error
+    ? `Task 04 global-search benchmark failed to start: ${globalSearchPerformance.error.message}`
+    : `Task 04 global-search benchmark failed with exit code ${globalSearchPerformance.status}.`);
+  process.exit(globalSearchPerformance.status ?? 1);
+}
+console.log("Task 04 global-search 100k benchmark passed.");
+
 console.log("Running managed-scan 100k observation benchmark...");
 const scanPerformance = spawnSync(
   "cargo",

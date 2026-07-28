@@ -1,10 +1,28 @@
 use super::models::*;
 use crate::db::{Database, DbError};
 use rusqlite::{params, OptionalExtension, Transaction};
+use serde::Serialize;
 use std::path::Path;
 
-const MAX_SEARCH_LIMIT: u32 = 200;
-const MAX_SEARCH_OFFSET: u32 = 1_000_000;
+#[derive(Debug, Clone)]
+pub(crate) struct GlobalSearchSnapshot {
+    pub results: Vec<GlobalSearchResult>,
+    pub source_health: Vec<GlobalSearchSourceHealth>,
+    pub source_revision: String,
+    pub index_status: GlobalIndexStatus,
+}
+
+#[derive(Debug, Serialize)]
+struct GlobalSearchRevisionFact {
+    source_id: String,
+    enabled: bool,
+    provider: String,
+    status: String,
+    last_error: Option<String>,
+    updated_at: i64,
+    active_entry_count: i64,
+    max_last_seen_at: Option<i64>,
+}
 
 struct GlobalIndexStatusCounts {
     total_entries: i64,
@@ -306,105 +324,7 @@ impl Database {
 
     pub fn global_index_status(&self) -> Result<GlobalIndexStatus, DbError> {
         let conn = self.conn()?;
-        let GlobalIndexStatusCounts {
-            total_entries,
-            indexed_volumes,
-            ready_volumes,
-            pending_volumes,
-            spotlight_not_indexed_volumes,
-            permission_required_volumes,
-            spotlight_unavailable_volumes,
-            spotlight_external_not_indexed_volumes,
-            fsevents_unavailable_volumes,
-            unavailable_volumes,
-            error_volumes,
-            paused_volumes,
-            last_sync_at,
-            last_error,
-        } = conn.query_row(
-            r#"
-            SELECT
-                (SELECT COUNT(*)
-                 FROM global_entries entry
-                 JOIN global_volumes volume ON volume.id = entry.volume_id
-                 WHERE entry.is_stale = 0 AND volume.enabled = 1),
-                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1),
-                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'ready'),
-                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status IN ('discovered', 'indexing', 'syncing', 'rebuild_required')),
-                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_not_indexed'),
-                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'permission_required'),
-                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_unavailable'),
-                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_external_not_indexed'),
-                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'fsevents_unavailable'),
-                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'unavailable'),
-                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'error'),
-                (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'paused'),
-                (SELECT MAX(last_incremental_sync_at) FROM global_volumes WHERE enabled = 1),
-                (SELECT last_error FROM global_volumes WHERE enabled = 1 AND last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1)
-            "#,
-            [],
-            |row| {
-                Ok(GlobalIndexStatusCounts {
-                    total_entries: row.get(0)?,
-                    indexed_volumes: row.get(1)?,
-                    ready_volumes: row.get(2)?,
-                    pending_volumes: row.get(3)?,
-                    spotlight_not_indexed_volumes: row.get(4)?,
-                    permission_required_volumes: row.get(5)?,
-                    spotlight_unavailable_volumes: row.get(6)?,
-                    spotlight_external_not_indexed_volumes: row.get(7)?,
-                    fsevents_unavailable_volumes: row.get(8)?,
-                    unavailable_volumes: row.get(9)?,
-                    error_volumes: row.get(10)?,
-                    paused_volumes: row.get(11)?,
-                    last_sync_at: row.get(12)?,
-                    last_error: row.get(13)?,
-                })
-            },
-        )?;
-        let status = if indexed_volumes == 0 {
-            INDEX_STATUS_UNAVAILABLE
-        } else if ready_volumes == indexed_volumes {
-            INDEX_STATUS_READY
-        } else if ready_volumes > 0 {
-            "partial"
-        } else if unavailable_volumes > 0 {
-            INDEX_STATUS_UNAVAILABLE
-        } else if error_volumes > 0 {
-            INDEX_STATUS_ERROR
-        } else if spotlight_not_indexed_volumes > 0 {
-            INDEX_STATUS_SPOTLIGHT_NOT_INDEXED
-        } else if permission_required_volumes > 0 {
-            INDEX_STATUS_PERMISSION_REQUIRED
-        } else if spotlight_unavailable_volumes > 0 {
-            INDEX_STATUS_SPOTLIGHT_UNAVAILABLE
-        } else if spotlight_external_not_indexed_volumes > 0 {
-            INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED
-        } else if fsevents_unavailable_volumes > 0 {
-            INDEX_STATUS_FSEVENTS_UNAVAILABLE
-        } else if paused_volumes > 0 {
-            INDEX_STATUS_PAUSED
-        } else {
-            INDEX_STATUS_INDEXING
-        };
-        Ok(GlobalIndexStatus {
-            platform: std::env::consts::OS.to_string(),
-            enabled: indexed_volumes > 0,
-            status: status.to_string(),
-            provider_status: None,
-            processed_entries: total_entries,
-            collection_complete: indexed_volumes > 0
-                && pending_volumes == 0
-                && unavailable_volumes == 0
-                && error_volumes == 0
-                && paused_volumes == 0,
-            total_entries,
-            indexed_volumes,
-            ready_volumes,
-            pending_volumes,
-            last_sync_at,
-            last_error,
-        })
+        global_index_status_from_connection(&conn)
     }
 
     pub fn search_global_entries(
@@ -413,93 +333,29 @@ impl Database {
         limit: u32,
         offset: u32,
     ) -> Result<Vec<GlobalSearchResult>, DbError> {
-        let query = query.trim();
-        if query.is_empty() {
-            return Ok(Vec::new());
-        }
-        let limit = limit.clamp(1, MAX_SEARCH_LIMIT);
-        let offset = offset.min(MAX_SEARCH_OFFSET);
-        let conn = self.conn()?;
-        let mut results = if query.chars().count() >= 3 {
-            let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
-            let mut statement = conn.prepare(
-                r#"
-                SELECT ge.id, ge.volume_id, ge.platform_file_id, ge.name, ge.path,
-                       ge.extension, ge.is_directory, ge.size, ge.created_at_fs,
-                       ge.modified_at_fs, ge.file_attributes, ge.is_hidden, ge.is_system,
-                       ge.source_provider,
-                       EXISTS (
-                           SELECT 1
-                           FROM managed_entries me
-                           JOIN managed_scopes ms ON ms.id = me.managed_scope_id
-                           WHERE me.global_entry_id = ge.id
-                             AND me.enabled = 1
-                             AND ms.enabled = 1
-                       ) AS managed,
-                       bm25(global_entries_fts, 8.0, 2.0, 1.0) AS rank
-                FROM global_entries_fts
-                JOIN global_entries ge ON ge.rowid = global_entries_fts.rowid
-                WHERE global_entries_fts MATCH ?1 AND ge.is_stale = 0
-                ORDER BY
-                    CASE WHEN ge.name_normalized = lower(?2) THEN 0
-                         WHEN ge.name_normalized LIKE lower(?2) || '%' THEN 1
-                         WHEN ge.name_normalized LIKE '%' || lower(?2) || '%' THEN 2
-                         ELSE 3 END,
-                    rank,
-                    ge.modified_at_fs DESC
-                LIMIT ?3 OFFSET ?4
-                "#,
-            )?;
-            let fts_results = statement
-                .query_map(
-                    params![fts_query, query, limit, offset],
-                    map_global_search_result,
-                )?
-                .collect::<Result<Vec<_>, _>>()?;
-            fts_results
-        } else {
-            Vec::new()
-        };
-        if results.is_empty() {
-            let pattern = format!("%{}%", escape_like(query));
-            let mut statement = conn.prepare(
-                r#"
-                SELECT ge.id, ge.volume_id, ge.platform_file_id, ge.name, ge.path,
-                       ge.extension, ge.is_directory, ge.size, ge.created_at_fs,
-                       ge.modified_at_fs, ge.file_attributes, ge.is_hidden, ge.is_system,
-                       ge.source_provider,
-                       EXISTS (
-                           SELECT 1
-                           FROM managed_entries me
-                           JOIN managed_scopes ms ON ms.id = me.managed_scope_id
-                           WHERE me.global_entry_id = ge.id
-                             AND me.enabled = 1
-                             AND ms.enabled = 1
-                       ) AS managed,
-                       0.0 AS rank
-                FROM global_entries ge
-                WHERE ge.is_stale = 0
-                  AND (ge.name_normalized LIKE lower(?1) ESCAPE '~'
-                       OR ge.path_normalized LIKE lower(?1) ESCAPE '~'
-                       OR ge.extension LIKE lower(?1) ESCAPE '~')
-                ORDER BY
-                    CASE WHEN ge.name_normalized = lower(?2) THEN 0
-                         WHEN ge.name_normalized LIKE lower(?2) || '%' THEN 1
-                         WHEN ge.name_normalized LIKE '%' || lower(?2) || '%' THEN 2
-                         WHEN ge.extension LIKE '%' || lower(?2) || '%' THEN 3
-                         ELSE 4 END,
-                    ge.modified_at_fs DESC
-                LIMIT ?3 OFFSET ?4
-                "#,
-            )?;
-            results = statement
-                .query_map(
-                    params![pattern, query, limit, offset],
-                    map_global_search_result,
-                )?
-                .collect::<Result<Vec<_>, _>>()?;
-        }
-        Ok(results)
+        super::search::search_global_entries(self, query, limit, offset)
+    }
+
+    pub(crate) fn search_global_entries_snapshot(
+        &self,
+        query: &str,
+        limit: u32,
+        offset: u32,
+    ) -> Result<GlobalSearchSnapshot, DbError> {
+        let mut conn = self.conn()?;
+        let transaction = conn.transaction()?;
+        let results =
+            super::search::search_global_entries_on_connection(&transaction, query, limit, offset)?;
+        let (source_health, source_revision) =
+            load_global_search_sources_from_connection(&transaction)?;
+        let index_status = global_index_status_from_connection(&transaction)?;
+        transaction.commit()?;
+        Ok(GlobalSearchSnapshot {
+            results,
+            source_health,
+            source_revision,
+            index_status,
+        })
     }
 
     pub fn global_entry_for_path(&self, path: &Path) -> Result<Option<GlobalEntry>, DbError> {
@@ -564,6 +420,166 @@ impl Database {
         .optional()
         .map_err(DbError::from)
     }
+}
+
+fn global_index_status_from_connection(
+    conn: &rusqlite::Connection,
+) -> Result<GlobalIndexStatus, DbError> {
+    let GlobalIndexStatusCounts {
+        total_entries,
+        indexed_volumes,
+        ready_volumes,
+        pending_volumes,
+        spotlight_not_indexed_volumes,
+        permission_required_volumes,
+        spotlight_unavailable_volumes,
+        spotlight_external_not_indexed_volumes,
+        fsevents_unavailable_volumes,
+        unavailable_volumes,
+        error_volumes,
+        paused_volumes,
+        last_sync_at,
+        last_error,
+    } = conn.query_row(
+        r#"
+        SELECT
+            (SELECT COUNT(*)
+             FROM global_entries entry
+             JOIN global_volumes volume ON volume.id = entry.volume_id
+             WHERE entry.is_stale = 0 AND volume.enabled = 1),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'ready'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status IN ('discovered', 'indexing', 'syncing', 'rebuild_required')),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_not_indexed'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'permission_required'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_unavailable'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'spotlight_external_not_indexed'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'fsevents_unavailable'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'unavailable'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'error'),
+            (SELECT COUNT(*) FROM global_volumes WHERE enabled = 1 AND index_status = 'paused'),
+            (SELECT MAX(last_incremental_sync_at) FROM global_volumes WHERE enabled = 1),
+            (SELECT last_error FROM global_volumes WHERE enabled = 1 AND last_error IS NOT NULL ORDER BY updated_at DESC LIMIT 1)
+        "#,
+        [],
+        |row| {
+            Ok(GlobalIndexStatusCounts {
+                total_entries: row.get(0)?,
+                indexed_volumes: row.get(1)?,
+                ready_volumes: row.get(2)?,
+                pending_volumes: row.get(3)?,
+                spotlight_not_indexed_volumes: row.get(4)?,
+                permission_required_volumes: row.get(5)?,
+                spotlight_unavailable_volumes: row.get(6)?,
+                spotlight_external_not_indexed_volumes: row.get(7)?,
+                fsevents_unavailable_volumes: row.get(8)?,
+                unavailable_volumes: row.get(9)?,
+                error_volumes: row.get(10)?,
+                paused_volumes: row.get(11)?,
+                last_sync_at: row.get(12)?,
+                last_error: row.get(13)?,
+            })
+        },
+    )?;
+    let status = if indexed_volumes == 0 {
+        INDEX_STATUS_UNAVAILABLE
+    } else if ready_volumes == indexed_volumes {
+        INDEX_STATUS_READY
+    } else if ready_volumes > 0 {
+        "partial"
+    } else if unavailable_volumes > 0 {
+        INDEX_STATUS_UNAVAILABLE
+    } else if error_volumes > 0 {
+        INDEX_STATUS_ERROR
+    } else if spotlight_not_indexed_volumes > 0 {
+        INDEX_STATUS_SPOTLIGHT_NOT_INDEXED
+    } else if permission_required_volumes > 0 {
+        INDEX_STATUS_PERMISSION_REQUIRED
+    } else if spotlight_unavailable_volumes > 0 {
+        INDEX_STATUS_SPOTLIGHT_UNAVAILABLE
+    } else if spotlight_external_not_indexed_volumes > 0 {
+        INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED
+    } else if fsevents_unavailable_volumes > 0 {
+        INDEX_STATUS_FSEVENTS_UNAVAILABLE
+    } else if paused_volumes > 0 {
+        INDEX_STATUS_PAUSED
+    } else {
+        INDEX_STATUS_INDEXING
+    };
+    Ok(GlobalIndexStatus {
+        platform: std::env::consts::OS.to_string(),
+        enabled: indexed_volumes > 0,
+        status: status.to_string(),
+        provider_status: None,
+        processed_entries: total_entries,
+        collection_complete: indexed_volumes > 0
+            && pending_volumes == 0
+            && unavailable_volumes == 0
+            && error_volumes == 0
+            && paused_volumes == 0,
+        total_entries,
+        indexed_volumes,
+        ready_volumes,
+        pending_volumes,
+        last_sync_at,
+        last_error,
+    })
+}
+
+fn load_global_search_sources_from_connection(
+    conn: &rusqlite::Connection,
+) -> Result<(Vec<GlobalSearchSourceHealth>, String), DbError> {
+    let mut statement = conn.prepare(
+        r#"
+        SELECT gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at,
+               COUNT(ge.id), MAX(ge.last_seen_at)
+        FROM global_volumes gv
+        LEFT JOIN global_entries ge
+          ON ge.volume_id = gv.id AND ge.is_stale = 0
+        GROUP BY gv.id, gv.enabled, gv.provider, gv.index_status, gv.last_error, gv.updated_at
+        ORDER BY gv.id ASC
+        "#,
+    )?;
+    let mut facts = Vec::new();
+    let mut source_health = Vec::new();
+    let rows = statement.query_map([], |row| {
+        let source_id = row.get::<_, String>(0)?;
+        let enabled = row.get::<_, i64>(1)? != 0;
+        let provider = row.get::<_, String>(2)?;
+        let status = row.get::<_, String>(3)?;
+        let last_error = row.get::<_, Option<String>>(4)?;
+        let updated_at = row.get::<_, i64>(5)?;
+        let active_entry_count = row.get::<_, i64>(6)?;
+        let max_last_seen_at = row.get::<_, Option<i64>>(7)?;
+        Ok((
+            GlobalSearchSourceHealth {
+                source_id: source_id.clone(),
+                enabled,
+                provider: provider.clone(),
+                status: status.clone(),
+                last_error: last_error.clone(),
+                updated_at,
+            },
+            GlobalSearchRevisionFact {
+                source_id,
+                enabled,
+                provider,
+                status,
+                last_error,
+                updated_at,
+                active_entry_count,
+                max_last_seen_at,
+            },
+        ))
+    })?;
+    for row in rows {
+        let (health, fact) = row?;
+        source_health.push(health);
+        facts.push(fact);
+    }
+    let serialized = serde_json::to_vec(&facts).unwrap_or_default();
+    let revision = blake3::hash(&serialized).to_hex().to_string();
+    Ok((source_health, revision))
 }
 
 #[derive(Debug, Clone)]
@@ -773,18 +789,6 @@ fn path_is_within(path: &str, scope: &str) -> bool {
     path == scope || path.starts_with(&format!("{scope}/"))
 }
 
-fn escape_like(value: &str) -> String {
-    value
-        .chars()
-        .fold(String::with_capacity(value.len()), |mut result, ch| {
-            if matches!(ch, '~' | '%' | '_') {
-                result.push('~');
-            }
-            result.push(ch.to_ascii_lowercase());
-            result
-        })
-}
-
 pub(crate) fn global_entry_input_from_row(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<GlobalEntryInput> {
@@ -851,27 +855,6 @@ fn map_global_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalEntry> {
         is_stale: row.get::<_, i64>(16)? != 0,
         source_provider: row.get(17)?,
         last_seen_at: row.get(18)?,
-    })
-}
-
-fn map_global_search_result(row: &rusqlite::Row<'_>) -> rusqlite::Result<GlobalSearchResult> {
-    Ok(GlobalSearchResult {
-        id: row.get(0)?,
-        volume_id: row.get(1)?,
-        platform_file_id: row.get(2)?,
-        name: row.get(3)?,
-        path: row.get(4)?,
-        extension: row.get(5)?,
-        is_directory: row.get::<_, i64>(6)? != 0,
-        size: row.get(7)?,
-        created_at_fs: row.get(8)?,
-        modified_at_fs: row.get(9)?,
-        file_attributes: row.get(10)?,
-        is_hidden: row.get::<_, i64>(11)? != 0,
-        is_system: row.get::<_, i64>(12)? != 0,
-        source_provider: row.get(13)?,
-        managed: row.get::<_, i64>(14)? != 0,
-        rank: row.get(15)?,
     })
 }
 

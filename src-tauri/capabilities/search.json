@@ -5,19 +5,15 @@
   "windows": ["search"],
   "permissions": [
     "core:default",
-    "core:window:allow-hide",
-    "core:window:allow-set-focus",
-    "core:window:allow-center",
     "allow-get-settings",
-    "allow-search-files",
     "allow-search-global-entries",
     "allow-open-global-search-result",
     "allow-reveal-global-search-result",
-    "allow-get-paged-files",
-    "allow-get-operation-previews-for-scope",
-    "allow-get-stats-summary",
     "allow-get-runtime-capabilities",
     "allow-activate-search-result",
-    "allow-resize-search-window"
+    "allow-get-search-window-state",
+    "allow-search-window-ready",
+    "allow-resize-search-window",
+    "allow-hide-search-window-command"
   ]
 }

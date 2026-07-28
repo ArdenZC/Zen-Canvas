@@ -5,7 +5,10 @@ use rusqlite::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::HashMap, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 pub const ANALYSIS_REGISTRY_VERSION: i64 = 1;
 pub const ANALYSIS_FINDING_DETAIL_LIMIT: usize = 1000;
@@ -1829,8 +1832,16 @@ struct ReclaimableSubject {
     stable_key: String,
     kind: String,
     path: Option<String>,
+    identity_json: String,
     exact: i64,
     potential: i64,
+}
+
+#[derive(Debug, Clone)]
+struct ExactPhysicalSubject {
+    stable_key: String,
+    paths: Vec<String>,
+    bytes: i64,
 }
 
 fn analysis_reclaimable_totals_tx(
@@ -1853,7 +1864,7 @@ fn analysis_reclaimable_totals_tx(
     })?;
     for row in rows {
         let (kind, subject_id, path, identity, exact, potential) = row?;
-        let key = (kind, subject_id, identity);
+        let key = (kind, subject_id, identity.clone());
         let kind = key.0.clone();
         let stable_key = reclaimable_subject_key(&key.0, &key.1, &key.2, path.as_deref());
         subjects
@@ -1866,6 +1877,7 @@ fn analysis_reclaimable_totals_tx(
                 stable_key,
                 kind,
                 path,
+                identity_json: identity,
                 exact,
                 potential,
             });
@@ -1900,58 +1912,207 @@ fn analysis_reclaimable_totals_tx(
     for subject in subjects.values().filter(|subject| subject.path.is_none()) {
         potential = potential.saturating_add(subject.potential);
     }
-    // Exact bytes use the path hierarchy for path-owned claims, but are
-    // aggregated separately from potential bytes.  Duplicate-group claims
-    // are physical-group claims: keep them out of the path winner selection
-    // so a large-file finding at the same representative path cannot erase
-    // the duplicate group's exact bytes. Stable physical/group keys retain
-    // only the largest claim for a repeated physical subject.
-    let mut exact_duplicate_groups = HashMap::<String, i64>::new();
-    let mut exact_path_subjects = subjects
-        .values()
-        .filter(|subject| subject.exact > 0 && subject.kind != "duplicate_group")
-        .cloned()
+    let mut exact_subjects = Vec::<ExactPhysicalSubject>::new();
+    for subject in subjects.values().filter(|subject| subject.exact > 0) {
+        if subject.kind == "duplicate_group" {
+            exact_subjects.extend(authoritative_duplicate_exact_subjects_tx(tx, subject)?);
+        } else {
+            exact_subjects.push(ExactPhysicalSubject {
+                stable_key: subject.stable_key.clone(),
+                paths: subject.path.iter().cloned().collect(),
+                bytes: subject.exact,
+            });
+        }
+    }
+    let exact = exact_physical_union(exact_subjects);
+    Ok((exact, potential))
+}
+
+fn authoritative_duplicate_exact_subjects_tx(
+    tx: &Transaction<'_>,
+    finding: &ReclaimableSubject,
+) -> Result<Vec<ExactPhysicalSubject>, DbError> {
+    let identity = serde_json::from_str::<Value>(&finding.identity_json).unwrap_or(Value::Null);
+    let group_id = identity
+        .get("groupId")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let expected_hash = identity
+        .get("fullHash")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let Some(expected_revision) = identity.get("revision").and_then(Value::as_i64) else {
+        return Ok(Vec::new());
+    };
+    if group_id.is_empty() || expected_hash.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let group = tx
+        .query_row(
+            "SELECT status, full_hash, revision, physical_copy_count, exact_reclaimable_bytes, reclaimable_confidence FROM duplicate_groups WHERE id = ?1",
+            params![group_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((status, full_hash, revision, physical_copy_count, group_exact, confidence)) = group
+    else {
+        return Ok(Vec::new());
+    };
+    if status != "active"
+        || full_hash != expected_hash
+        || revision != expected_revision
+        || confidence != "exact"
+        || physical_copy_count < 2
+    {
+        return Ok(Vec::new());
+    }
+
+    let mut statement = tx.prepare(
+        "SELECT member.file_id, member.path_snapshot, member.physical_key, member.identity_status, member.size, f.is_stale
+         FROM duplicate_group_members AS member
+         JOIN files AS f ON f.id = member.file_id
+         WHERE member.group_id = ?1
+         ORDER BY member.path_snapshot COLLATE NOCASE, member.file_id",
+    )?;
+    let rows = statement.query_map(params![group_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, String>(3)?,
+            row.get::<_, i64>(4)?,
+            row.get::<_, i64>(5)? != 0,
+        ))
+    })?;
+    let mut physical = HashMap::<String, (String, String, i64, Vec<String>)>::new();
+    for row in rows {
+        let (file_id, path, physical_key, identity_status, size, is_stale) = row?;
+        let Some(physical_key) = physical_key.filter(|value| !value.is_empty()) else {
+            return Ok(Vec::new());
+        };
+        if is_stale || identity_status != "verified" || size <= 0 {
+            return Ok(Vec::new());
+        }
+        let normalized_path = normalized_aggregate_path(&path);
+        physical
+            .entry(physical_key)
+            .and_modify(|current| {
+                current.3.push(normalized_path.clone());
+                if (normalized_path.as_str(), file_id.as_str())
+                    < (current.0.as_str(), current.1.as_str())
+                {
+                    current.0 = normalized_path.clone();
+                    current.1 = file_id.clone();
+                }
+                if current.2 != size {
+                    current.2 = -1;
+                }
+            })
+            .or_insert((
+                normalized_path.clone(),
+                file_id,
+                size,
+                vec![normalized_path],
+            ));
+    }
+    if physical.len() != usize::try_from(physical_copy_count).unwrap_or_default()
+        || physical.values().any(|subject| subject.2 <= 0)
+    {
+        return Ok(Vec::new());
+    }
+
+    let mut physical = physical.into_iter().collect::<Vec<_>>();
+    physical.sort_by(|left, right| {
+        left.1
+             .0
+            .cmp(&right.1 .0)
+            .then_with(|| left.1 .1.cmp(&right.1 .1))
+            .then_with(|| left.0.cmp(&right.0))
+    });
+    let reclaimable = physical
+        .into_iter()
+        .skip(1)
+        .map(|(physical_key, (_, _, bytes, mut paths))| {
+            paths.sort();
+            paths.dedup();
+            ExactPhysicalSubject {
+                stable_key: format!("physical:{physical_key}"),
+                paths,
+                bytes,
+            }
+        })
         .collect::<Vec<_>>();
-    exact_path_subjects.sort_by(|left, right| {
-        normalized_aggregate_path(left.path.as_deref().unwrap_or_default())
-            .len()
-            .cmp(&normalized_aggregate_path(right.path.as_deref().unwrap_or_default()).len())
-            .then_with(|| right.exact.cmp(&left.exact))
+    let resolved_exact = reclaimable
+        .iter()
+        .map(|subject| subject.bytes)
+        .fold(0_i64, i64::saturating_add);
+    if group_exact.unwrap_or_default().max(0) != resolved_exact || finding.exact != resolved_exact {
+        return Ok(Vec::new());
+    }
+    Ok(reclaimable)
+}
+
+fn exact_physical_union(subjects: Vec<ExactPhysicalSubject>) -> i64 {
+    let mut by_stable_key = HashMap::<String, ExactPhysicalSubject>::new();
+    for mut subject in subjects.into_iter().filter(|subject| subject.bytes > 0) {
+        subject.paths = subject
+            .paths
+            .into_iter()
+            .map(|path| normalized_aggregate_path(&path))
+            .filter(|path| !path.is_empty())
+            .collect();
+        subject.paths.sort();
+        subject.paths.dedup();
+        by_stable_key
+            .entry(subject.stable_key.clone())
+            .and_modify(|current| {
+                current.bytes = current.bytes.max(subject.bytes);
+                current.paths.extend(subject.paths.clone());
+                current.paths.sort();
+                current.paths.dedup();
+            })
+            .or_insert(subject);
+    }
+
+    let mut subjects = by_stable_key.into_values().collect::<Vec<_>>();
+    subjects.sort_by(|left, right| {
+        shortest_path_len(&left.paths)
+            .cmp(&shortest_path_len(&right.paths))
+            .then_with(|| right.bytes.cmp(&left.bytes))
             .then_with(|| left.stable_key.cmp(&right.stable_key))
     });
-    let mut exact_retained_paths = Vec::<String>::new();
+    let mut retained_paths = Vec::<String>::new();
+    let mut retained_keys = HashSet::<String>::new();
     let mut exact = 0_i64;
-    for subject in exact_path_subjects {
-        let Some(path) = subject.path.as_deref() else {
-            exact = exact.saturating_add(subject.exact);
-            continue;
-        };
-        let path = normalized_aggregate_path(path);
-        if exact_retained_paths
-            .iter()
-            .any(|parent| aggregate_path_is_same_or_child(&path, parent))
-        {
+    for subject in subjects {
+        if !retained_keys.insert(subject.stable_key) {
             continue;
         }
-        exact_retained_paths.push(path);
-        exact = exact.saturating_add(subject.exact);
+        if subject.paths.iter().any(|path| {
+            retained_paths
+                .iter()
+                .any(|parent| aggregate_path_is_same_or_child(path, parent))
+        }) {
+            continue;
+        }
+        retained_paths.extend(subject.paths);
+        exact = exact.saturating_add(subject.bytes);
     }
-    for subject in subjects
-        .values()
-        .filter(|subject| subject.exact > 0 && subject.kind == "duplicate_group")
-    {
-        exact_duplicate_groups
-            .entry(subject.stable_key.clone())
-            .and_modify(|value| *value = (*value).max(subject.exact))
-            .or_insert(subject.exact);
-    }
-    exact = exact.saturating_add(
-        exact_duplicate_groups
-            .values()
-            .copied()
-            .fold(0_i64, i64::saturating_add),
-    );
-    Ok((exact, potential))
+    exact
+}
+
+fn shortest_path_len(paths: &[String]) -> usize {
+    paths.iter().map(String::len).min().unwrap_or(usize::MAX)
 }
 
 fn refresh_analysis_run_aggregate_tx(
@@ -2307,5 +2468,39 @@ fn higher_risk_tier(current: &str, requested: &str) -> &'static str {
             "review" => "review",
             _ => "caution",
         }
+    }
+}
+
+#[cfg(test)]
+mod exact_physical_union_tests {
+    use super::{exact_physical_union, ExactPhysicalSubject};
+
+    #[test]
+    fn physical_union_is_insertion_order_independent_and_counts_each_subject_once() {
+        let claims = vec![
+            ExactPhysicalSubject {
+                stable_key: "physical:shared".to_string(),
+                paths: vec!["/root/shared.bin".to_string()],
+                bytes: 100,
+            },
+            ExactPhysicalSubject {
+                stable_key: "physical:unrelated".to_string(),
+                paths: vec!["/root/unrelated.bin".to_string()],
+                bytes: 50,
+            },
+            ExactPhysicalSubject {
+                stable_key: "physical:shared".to_string(),
+                paths: vec![
+                    "/root/shared.bin".to_string(),
+                    "/root/shared-hardlink.bin".to_string(),
+                ],
+                bytes: 100,
+            },
+        ];
+        let mut reversed = claims.clone();
+        reversed.reverse();
+
+        assert_eq!(exact_physical_union(claims), 150);
+        assert_eq!(exact_physical_union(reversed), 150);
     }
 }

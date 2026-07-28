@@ -49,6 +49,25 @@ describe("Tauri command permission contract", () => {
     expect(databaseBootstrapperSource).toContain("if (isSearchWindowMode)");
   });
 
+  it("keeps the search window on the bounded global-search and lifecycle allowlist", () => {
+    expect(searchCapability.permissions).toEqual([
+      "core:default",
+      "allow-get-settings",
+      "allow-search-global-entries",
+      "allow-open-global-search-result",
+      "allow-reveal-global-search-result",
+      "allow-get-runtime-capabilities",
+      "allow-activate-search-result",
+      "allow-get-search-window-state",
+      "allow-search-window-ready",
+      "allow-resize-search-window",
+      "allow-hide-search-window-command"
+    ]);
+    expect(searchCapability.permissions).not.toContain("core:window:allow-hide");
+    expect(searchCapability.permissions).not.toContain("allow-search-files");
+    expect(searchCapability.permissions).not.toContain("allow-get-paged-files");
+  });
+
   it("keeps the mutation defense-in-depth checks in command modules", () => {
     const sourceByCommand = [
       "src-tauri/src/settings.rs",

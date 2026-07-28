@@ -138,3 +138,32 @@ Waiting for human code-level acceptance.
 - Final delivery HEAD：`5f0c308e422fd9f090efb7ad27b68d8c8ad3ab13`；工作树保持干净。
 - Draft PR：[#28](https://github.com/ArdenZC/Zen-Canvas/pull/28)，`feat: add durable analysis runs and findings`。
 - GitHub CI run：`30360573025`；Windows/macOS Quality 与 Dependency audit 全部通过。
+
+## 13. Post-merge record and Task 04 physical-union hardening
+
+Task 03 后续人工修订后的 source branch final HEAD 为
+`bed37313930653ecbc43d420ccbc356650ca9e39`。PR
+[#28](https://github.com/ArdenZC/Zen-Canvas/pull/28) 已合并；master squash merge
+commit 为 `70427ff648dd5b9fab66e247fbf0a5ddf8912f45`，最终验收 CI run 为
+`30362271784`。本节覆盖上方第 12 节的早期 Draft delivery snapshot；原实施与修订提交、
+source branch final HEAD、master squash merge commit 和最终 CI run 是不同事实。
+
+Task 03 人工验收接受并明确后移的 run-level exact reclaimable physical-union 遗留，
+已在 Task 04 的第一组生产改动中关闭：
+
+- duplicate exact 不再把 group total 作为不可分的单项与 path total 聚合，而是按 active
+  authoritative group revision/full hash 重新读取 `duplicate_group_members`；
+- verified physical subjects 按稳定 path/file/key 顺序选出唯一 keeper，keeper 不计入
+  reclaimable；hardlink aliases 按相同 `physical_key` 折叠；
+- duplicate reclaimable member、Safe exact managed/approved physical subject 和 path-owned
+  exact subject 进入同一 deterministic union；相同物理 subject 最多计一次，不相关 subject
+  正常相加；
+- potential-only finding 不参与 exact winner selection；stale/inactive group 与非 active
+  finding fail closed；
+- terminal publication 与 AI aggregate refresh 继续调用同一
+  `analysis_reclaimable_totals_tx`，数据库 reopen 读取同一 durable aggregate。
+
+新增 targeted Rust coverage 固定 duplicate + 同 member Safe exact、不相关 Safe exact、
+keeper、hardlink alias、potential-only overlap、任意插入顺序、AI repeated refresh、
+stale group 和 database reopen。该 hardening 保持 schema 30，未新增依赖，也未修改
+Global Index、Managed AI、`files.id` 或 operation/cleanup journal。

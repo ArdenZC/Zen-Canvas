@@ -68,6 +68,8 @@ fn main() {
             app.manage(FileWatcherManager::default());
             app.manage(zen_canvas_tauri::storage_analyzer::CleanupRestoreState::default());
             app.manage(zen_canvas_tauri::app_control::GlobalHotkeyStatusState::default());
+            app.manage(zen_canvas_tauri::app_control::SearchWindowLifecycleState::default());
+            app.manage(zen_canvas_tauri::app_control::MainWindowReadinessState::default());
             zen_canvas_tauri::app_control::setup_tray(app).map_err(io::Error::other)?;
             zen_canvas_tauri::app_control::setup_search_window(app).map_err(io::Error::other)?;
             let app_settings = settings::get_app_settings(&db).map_err(io::Error::other)?;
@@ -166,6 +168,11 @@ fn main() {
             zen_canvas_tauri::app_control::quit_app,
             zen_canvas_tauri::app_control::activate_search_result,
             zen_canvas_tauri::app_control::resize_search_window,
+            zen_canvas_tauri::app_control::get_search_window_state,
+            zen_canvas_tauri::app_control::search_window_ready,
+            zen_canvas_tauri::app_control::hide_search_window_command,
+            zen_canvas_tauri::app_control::mark_main_window_ready,
+            zen_canvas_tauri::app_control::acknowledge_main_window_ready,
             zen_canvas_tauri::app_control::get_global_hotkey_status,
             zen_canvas_tauri::app_control::register_global_search_hotkey,
             zen_canvas_tauri::scanner::start_managed_scan,

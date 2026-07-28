@@ -711,6 +711,38 @@ export interface GlobalSearchResult {
   rank: number;
 }
 
+export interface GlobalSearchRequest {
+  version: 2;
+  requestId: string;
+  query: string;
+  limit: number;
+  offset: number;
+  cursor?: string | null;
+}
+
+export interface GlobalSearchSourceHealth {
+  sourceId: string;
+  enabled: boolean;
+  provider: string;
+  status: string;
+  lastError: string | null;
+  updatedAt: number;
+}
+
+export type GlobalSearchResultState = "pending" | "complete" | "partial" | "empty" | "failed";
+
+export interface GlobalSearchResponse {
+  version: 2;
+  requestId: string;
+  normalizedQuery: string;
+  results: GlobalSearchResult[];
+  indexStatus: GlobalIndexStatus;
+  collectionComplete: boolean;
+  resultState: GlobalSearchResultState;
+  sourceRevision: string;
+  sourceHealth: GlobalSearchSourceHealth[];
+}
+
 export interface GlobalIndexTechnicalDetail {
   journalId: string | null;
   journalCursor: string | null;

@@ -146,18 +146,23 @@ describe("App Shell v4.1 behavior", () => {
     expect(groups.map((group: any) => group.type)).toEqual(["folders", "files", "settings"]);
   });
 
-  it("uses true recent files and operations, caps them, and hides empty groups", async () => {
+  it("does not synthesize recent activity from the current File Library page", async () => {
     const model = await modelModule();
-    const files = [
-      file("old", "old.txt", "document", "2026-07-01T10:00:00Z"),
-      file("recent", "recent.txt", "document", "2026-07-09T10:00:00Z", "2026-07-11T10:00:00Z"),
-      file("middle", "middle.txt", "document", "2026-07-10T10:00:00Z")
-    ];
-    const operations = [operation("old", "2026-07-01T10:00:00Z"), operation("new", "2026-07-11T10:00:00Z")];
+    const commands = await commandModule();
 
-    expect(model.selectRecentFiles(files, 2).map((item: FileRecord) => item.id)).toEqual(["recent", "middle"]);
-    expect(model.selectRecentOperations(operations, 1).map((item: OperationLog) => item.id)).toEqual(["new"]);
-    expect(model.buildRecentGroups([], [], t)).toEqual([]);
+    expect(model.selectRecentFiles).toBeUndefined();
+    expect(model.selectRecentOperations).toBeUndefined();
+    expect(model.buildRecentGroups).toBeUndefined();
+    expect(commands.SPOTLIGHT_COMMAND_CATALOG.map((item: any) => item.id))
+      .toEqual(commands.createCommandRegistry(t).map((item: any) => item.id));
+    const mainOnly = {
+      ...commands.SPOTLIGHT_COMMAND_CATALOG[0],
+      availability: ["main"]
+    };
+    expect(commands.resolveSpotlightCommandAvailability(mainOnly, "standalone")).toEqual({
+      enabled: false,
+      disabledReason: "command_surface_unavailable"
+    });
   });
 
   it("executes the search range command as a real settings-section action", async () => {

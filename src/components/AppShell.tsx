@@ -22,7 +22,6 @@ import { ViewErrorBoundary } from "./ErrorBoundary";
 import { AmbientMesh, CloseChoiceDialog, ZenMark } from "./ShellChrome";
 import { requestSettingsSection } from "./spotlight/commandRegistry";
 import { useChromeContext } from "../contexts/AppContexts";
-import { hideToBackground } from "../hooks/useWindowBehavior";
 import { useAppStore } from "../store/useAppStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { useOrganizeDecisionStore } from "../store/useOrganizeDecisionStore";
@@ -164,12 +163,7 @@ function CommandLauncher({
   const setSelectedFileId = useFileLibraryStore((state) => state.setSelectedFileId);
 
   function closeCommand() {
-    setIsCommandOpen(false);
-    if (standalone) {
-      void hideToBackground((error) => {
-        onError(`${t("windowActionFailed")}：${readableError(error)}`);
-      });
-    }
+    if (!standalone) setIsCommandOpen(false);
   }
 
   return (

@@ -105,7 +105,7 @@ describe("App Shell v4", () => {
     expect(commandModal).toContain('if (event.key === "ArrowDown")');
     expect(commandModal).toContain('if (event.key === "ArrowUp")');
     expect(commandModal).toContain('if (event.key === "Enter"');
-    expect(commandModal).toContain("onEscape={onClose}");
+    expect(commandModal).toContain("onEscape={closeSpotlight}");
     expect(commandModal).toContain("initialFocusRef={inputRef}");
     expect(commandModal).toContain("isSortingPreviewShortcut(event)");
   });

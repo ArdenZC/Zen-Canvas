@@ -41,9 +41,13 @@ pub use analysis::{
     AnalysisDetectorDescriptor, AnalysisRunManager,
 };
 pub use app_control::{
-    activate_search_result, get_global_hotkey_status, quit_app, register_global_search_hotkey,
-    resize_search_window, GlobalHotkeyStatus, GlobalHotkeyStatusState, SearchNavigatePayload,
-    SearchView,
+    acknowledge_main_window_ready, activate_search_result, get_global_hotkey_status,
+    get_search_window_state, hide_search_window_command, mark_main_window_ready, quit_app,
+    register_global_search_hotkey, resize_search_window, search_window_ready,
+    ActivateSearchResultRequest, GlobalHotkeyStatus, GlobalHotkeyStatusState,
+    MainWindowReadinessState, SearchNavigatePayload, SearchSettingsTarget, SearchView,
+    SearchWindowLifecycleState, SearchWindowMutationRequest, SearchWindowPhase,
+    SearchWindowResizeRequest, SearchWindowSnapshot,
 };
 pub use db::{
     confirm_classification, correct_classification, delete_user_rule, execute_rules_for_paths,
