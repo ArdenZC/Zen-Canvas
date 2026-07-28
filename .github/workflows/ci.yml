@@ -355,8 +355,8 @@ jobs:
           node-version: 24
       - name: npm audit
         run: npm run security:audit
-      - name: Install pinned cargo-audit
-        run: cargo install cargo-audit --version 0.21.2 --locked
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
       - name: RustSec audit
         run: npm run security:audit:rust
 
