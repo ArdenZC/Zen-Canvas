@@ -17,8 +17,88 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  change-scope:
+    name: Change scope / documentation contract
+    runs-on: windows-latest
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+      diff_base: ${{ steps.classify.outputs.diff_base }}
+      diff_head: ${{ steps.classify.outputs.diff_head }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: classify
+        shell: pwsh
+        run: |
+          $head = "${{ github.sha }}"
+          if ("${{ github.event_name }}" -eq "pull_request") {
+            $base = "${{ github.event.pull_request.base.sha }}"
+            $head = "${{ github.event.pull_request.head.sha }}"
+          } else {
+            $base = "${{ github.event.before }}"
+          }
+
+          if ([string]::IsNullOrWhiteSpace($base) -or $base -match '^0+$') {
+            $base = (git rev-list --max-parents=0 $head | Select-Object -First 1)
+          }
+
+          $files = @(git diff --name-only --diff-filter=ACMR $base $head)
+          $docsOnly = $files.Count -gt 0
+
+          foreach ($file in $files) {
+            $isDocumentation =
+              $file -like 'docs/*' -or
+              $file -match '(?i)(^|/)[^/]+\.mdx?$' -or
+              $file -match '(?i)^LICENSE(?:\..*)?$' -or
+              $file -like '.github/ISSUE_TEMPLATE/*' -or
+              $file -like '.github/PULL_REQUEST_TEMPLATE*'
+
+            if (-not $isDocumentation) {
+              $docsOnly = $false
+              break
+            }
+          }
+
+          $docsOnlyValue = $docsOnly.ToString().ToLowerInvariant()
+          "docs_only=$docsOnlyValue" >> $env:GITHUB_OUTPUT
+          "diff_base=$base" >> $env:GITHUB_OUTPUT
+          "diff_head=$head" >> $env:GITHUB_OUTPUT
+
+          "## Change scope" >> $env:GITHUB_STEP_SUMMARY
+          "- documentation-only: $docsOnlyValue" >> $env:GITHUB_STEP_SUMMARY
+          "- diff base: $base" >> $env:GITHUB_STEP_SUMMARY
+          "- diff head: $head" >> $env:GITHUB_STEP_SUMMARY
+          "- changed files: $($files.Count)" >> $env:GITHUB_STEP_SUMMARY
+          foreach ($file in $files) {
+            "  - $file" >> $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Setup Node for documentation validation
+        if: steps.classify.outputs.docs_only == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+
+      - name: Validate documentation-only change
+        if: steps.classify.outputs.docs_only == 'true'
+        shell: pwsh
+        env:
+          DOCS_DIFF_BASE: ${{ steps.classify.outputs.diff_base }}
+          DOCS_DIFF_HEAD: ${{ steps.classify.outputs.diff_head }}
+        run: |
+          npm run test:docs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --check $env:DOCS_DIFF_BASE $env:DOCS_DIFF_HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   quality:
     name: Quality (${{ matrix.os }})
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -174,6 +254,8 @@ jobs:
 
   dependency-audit:
     name: Dependency audit
+    needs: change-scope
+    if: ${{ needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: windows-latest
     steps:
       - name: Checkout
