@@ -7,9 +7,8 @@
 - Task 01B 已完成生产实施、条件验收并通过 PR #23 合并。
 - Task 02 已通过 PR #26 合并，数据库推进至 schema 29。
 - Task 03 已通过 PR #28 合并，合并提交为 `70427ff648dd5b9fab66e247fbf0a5ddf8912f45`，数据库推进至 schema 30。
-- Task 03 最终接受的 exact reclaimable physical-union 遗留，已冻结为 Task 04 第一组强制生产改动，不得再次后移。
-- Task 04 是当前下一完整产品模块：**全局快捷搜索与命令面**，参考 Tolaria，仅允许 AGPL 设计级借鉴。
-- 当 `TASK_04_GLOBAL_SHORTCUT_SEARCH.md` 已位于当前 `master` 时，Task 04 自动成为唯一可执行阶段，不依赖额外状态文字或 PR 编号。
+- Task 03 最终接受的 exact reclaimable physical-union 遗留已由 Task 04 第一组生产改动关闭。
+- Task 04 全局快捷搜索与命令面已完成生产实施，Draft PR 和 CI 待人工验收。
 - Task 05–08 继续禁止执行。
 
 | 阶段 | 任务书 | 产品模块/目标 | 状态 |
@@ -19,7 +18,7 @@
 | 01B | `TASK_01B_WATCHER_RECONCILIATION_OWNERSHIP.md` | Rust watcher owner、revision gap、overflow/startup reconciliation | **已验收并合并** |
 | 02 | `TASK_02_IDENTITY_FINGERPRINT_AND_DUPE.md` | 模块 1：重复检测；Czkawka 对标；identity、fingerprint、durable dedupe、duplicate groups | **已合并，schema 29** |
 | 03 | `TASK_03_ANALYSIS_RUN_FINDING_AND_DETECTORS.md` | 模块 2：大型文件/空间分析；Spacedrive V1 对标；Analysis Run、Detector、Finding | **已合并，schema 30** |
-| 04 | `TASK_04_GLOBAL_SHORTCUT_SEARCH.md` | 模块 4：全局快捷搜索；Tolaria 设计级对标；window/hotkey/query/command surface | **任务书进入 master 后唯一可执行，schema 保持 30** |
+| 04 | `TASK_04_GLOBAL_SHORTCUT_SEARCH.md` | 模块 4：全局快捷搜索；Tolaria 设计级对标；window/hotkey/query/command surface | **实施完成，Draft PR 和 CI 待人工验收；schema 30** |
 | 05 | 待创建 | 模块 5：文件库；TagSpaces 对标；Query V2、cursor、selection、tag、Saved View、Inspector | **等待 Task 04，禁止执行** |
 | 06 | 待创建 | 模块 6：AI 整理预览；ai-file-sorter 概念级对标；Organization Plan、workspace、preview | **后续阶段，禁止执行** |
 | 07 | 待创建 | 模块 7：自然语言规则；Accomplish + OpenCode 对标；Proposal 到受约束 Rule AST | **后续阶段，禁止执行** |

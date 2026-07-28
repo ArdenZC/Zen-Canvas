@@ -93,17 +93,17 @@
 
 | ID | 风险 | 等级 | 触发条件/影响 | Task 04 阻断/验收条件 | 状态 |
 |---|---|---|---|---|---|
-| R-061 | 同一 physical subject 的 exact reclaimable 被重复累计 | High | duplicate member 同时属于 Safe exact finding，run total 翻倍 | authoritative member physical union；hardlink/keeper/order/AI refresh tests | Task 04 第一组强制修复 |
-| R-062 | 迟到 query response 覆盖新输入或新窗口 session | High | rapid typing、相同 query 重发、hide/reopen 后旧 invoke 返回 | session + request ID；latest-request-wins；old session reject | Task 04 必须处理 |
-| R-063 | Search window 或 hotkey 多 owner | High | reload/settings race 创建双窗口、双快捷键、旧 blur 隐藏新 session | Rust 唯一 lifecycle owner；transactional hotkey rollback；session revision | Task 04 必须处理 |
-| R-064 | partial/degraded index 被呈现为完整搜索 | High | status 只在 mount 读取或 query 不携带 health | response/status 同 revision；明确 coverage/source UI | Task 04 必须处理 |
-| R-065 | stale/disabled/missing result 被打开 | Critical | source 状态在展示后变化，renderer 持旧 path | ID-only backend revalidation；live path/native identity；fail closed | Task 04 必须处理 |
-| R-066 | Command Palette 绕过领域安全边界 | Critical | command ID 拼接 invoke、直接移动/删除、执行 AI/finding | metadata/execute 分离；固定 adapter allowlist；preview/journal/restore 不变 | Task 04 必须处理 |
-| R-067 | Tolaria AGPL 代码或结构被移植 | Critical | 同栈导致复制 manifest/component/command 实现并触发许可证风险 | 只读设计级；记录 SHA/LICENSE；无代码/结构移植审查 | Task 04 许可证门禁 |
-| R-068 | 键盘、IME、ARIA 与结果列表状态漂移 | High | composition Enter 误执行、active index 越界、虚拟滚动失焦 | IME guard、stable IDs、ARIA、focus/scroll tests | Task 04 必须处理 |
+| R-061 | 同一 physical subject 的 exact reclaimable 被重复累计 | High | duplicate member 同时属于 Safe exact finding，run total 翻倍 | authoritative member physical union；hardlink/keeper/order/AI refresh tests | 已处理，持续回归 |
+| R-062 | 迟到 query response 覆盖新输入或新窗口 session | High | rapid typing、相同 query 重发、hide/reopen 后旧 invoke 返回 | session + request ID；latest-request-wins；old session reject | 已处理，持续回归 |
+| R-063 | Search window 或 hotkey 多 owner | High | reload/settings race 创建双窗口、双快捷键、旧 blur 隐藏新 session | Rust 唯一 lifecycle owner；transactional hotkey rollback；session revision | 已处理，待跨平台验收 |
+| R-064 | partial/degraded index 被呈现为完整搜索 | High | status 只在 mount 读取或 query 不携带 health | response/status 同 revision；明确 coverage/source UI | 已处理，持续回归 |
+| R-065 | stale/disabled/missing result 被打开 | Critical | source 状态在展示后变化，renderer 持旧 path | ID-only backend revalidation；live path/native identity；fail closed | 已处理，持续回归 |
+| R-066 | Command Palette 绕过领域安全边界 | Critical | command ID 拼接 invoke、直接移动/删除、执行 AI/finding | metadata/execute 分离；固定 adapter allowlist；preview/journal/restore 不变 | 已处理，持续阻断越界 |
+| R-067 | Tolaria AGPL 代码或结构被移植 | Critical | 同栈导致复制 manifest/component/command 实现并触发许可证风险 | 只读设计级；记录 SHA/LICENSE；无代码/结构移植审查 | 已完成许可证门禁 |
+| R-068 | 键盘、IME、ARIA 与结果列表状态漂移 | High | composition Enter 误执行、active index 越界、虚拟滚动失焦 | IME guard、stable IDs、ARIA、focus/scroll tests | 已处理，待人工交互验收 |
 | R-069 | Global Search 与 File Library Query V2 混为一套 | Critical | Spotlight cursor/scope 被用于 library bulk selection，扩大 AI/selection scope | Task 04 仅 bounded top-N；Query V2 延至 Task 05 | 持续阻断 |
-| R-070 | Search 状态/metadata N+1 造成性能退化 | Medium | 每行磁盘访问或每结果 source/status 查询 | bounded DTO、单次 health summary、100k/1M/WAL benchmark | Task 04 性能门禁 |
+| R-070 | Search 状态/metadata N+1 造成性能退化 | Medium | 每行磁盘访问或每结果 source/status 查询 | bounded DTO、单次 health summary、100k/1M/WAL benchmark | 已处理，持续性能门禁 |
 
 ## 风险结论
 
-Task 03 已通过 PR #28 合并并形成 schema 30 基线。Task 04 必须作为完整的全局快捷搜索模块推进，而不是独立技术债收尾：先关闭 R-061，再完成 Tolaria 设计级对标下的 query/session、window、hotkey、health、command catalog、open/reveal、keyboard/IME/a11y 和跨平台整改。Task 05 File Library 及后续完整模块在 Task 04 人工验收并合并前继续禁止执行。
+Task 03 已通过 PR #28 合并并形成 schema 30 基线。Task 04 已关闭 R-061，并完成 Tolaria 设计级边界下的 query/session、window、hotkey、health、command catalog、open/reveal、keyboard/IME/a11y 和权限/性能整改。Windows/macOS CI 与人工代码级验收仍是合并门禁；R-069 继续阻断 Task 05 File Library 及后续模块提前执行。
