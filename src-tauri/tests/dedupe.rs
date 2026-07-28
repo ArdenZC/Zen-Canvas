@@ -46,7 +46,7 @@ fn current_schema_retains_content_hash_and_dedupe_index() {
         )
         .expect("cleanup trash tables");
 
-    assert_eq!(version, 29);
+    assert_eq!(version, 30);
     assert_eq!(cleanup_table_count, 2);
     assert_eq!(content_hash_type, "TEXT");
     assert_eq!(content_hash_notnull, 1);
@@ -236,15 +236,19 @@ fn stale_rename_fingerprint_is_reused_for_the_same_physical_file() {
     assert_eq!(hasher.calls, 0, "rename should reuse the retained cache");
     assert_eq!(summary.duplicate_files, 2);
     let conn = Connection::open(db.path()).expect("open database connection");
-    let (status, hash): (String, String) = conn
+    let (status, hash, mirror_hash): (String, String, String) = conn
         .query_row(
-            "SELECT fingerprint_status, COALESCE(full_hash, '') FROM file_fingerprints WHERE file_id = ?1",
+            "SELECT fingerprint_status, COALESCE(full_hash, ''), COALESCE((SELECT content_hash FROM files WHERE id = file_fingerprints.file_id), '') FROM file_fingerprints WHERE file_id = ?1",
             [renamed_path.to_string_lossy().to_string()],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .expect("renamed fingerprint");
     assert_eq!(status, "complete");
     assert!(!hash.is_empty());
+    assert_eq!(
+        mirror_hash, hash,
+        "files.content_hash must mirror the full hash"
+    );
 }
 
 #[test]
@@ -473,7 +477,10 @@ fn duplicate_detection_marks_only_same_size_same_content_files_as_duplicates() {
         .expect("different content");
 
     assert_eq!(summary.candidate_files, 3);
-    assert_eq!(summary.hashed_files, 2);
+    // Small files below PREHASH_MIN_SIZE are intentionally read once in the
+    // full-hash path; both equal-size candidates and the same-size mismatch
+    // therefore count as real hash work.
+    assert_eq!(summary.hashed_files, 3);
     assert_eq!(summary.duplicate_files, 2);
     assert!(duplicate_a.is_duplicate);
     assert!(duplicate_b.is_duplicate);

@@ -79,6 +79,20 @@
 | `get_duplicate_group` | `read_only` | main | Read one duplicate group | default | no | duplicate group query tests |
 | `list_duplicate_group_members` | `read_only` | main | Read the members of one duplicate group | default | no | duplicate group query tests |
 | `get_file_duplicate_membership` | `read_only` | main | Read duplicate groups containing one file | default | no | duplicate membership query tests |
+| `list_analysis_detectors` | `read_only` | main | Read the fixed analysis detector registry | default | no | analysis contract tests |
+| `start_analysis_run` | `main_state_mutation` | main | Admit and start a durable analysis run | default | yes | analysis admission tests |
+| `cancel_analysis_run` | `main_state_mutation` | main | Request durable analysis cancellation | default | yes | analysis cancellation tests |
+| `retry_analysis_run` | `main_state_mutation` | main | Create a new analysis request attempt | default | yes | analysis retry tests |
+| `get_analysis_run` | `read_only` | main | Read one durable analysis run | default | no | analysis query tests |
+| `get_active_analysis_run` | `read_only` | main | Read the active analysis run | default | no | analysis admission tests |
+| `list_analysis_runs` | `read_only` | main | List durable analysis run history | default | no | analysis query tests |
+| `list_analysis_run_detectors` | `read_only` | main | Read detector progress for a run | default | no | detector lifecycle tests |
+| `list_analysis_findings` | `read_only` | main | Read typed findings with a keyset cursor | default | no | finding cursor tests |
+| `get_analysis_finding` | `read_only` | main | Read one finding and its decision projection | default | no | finding detail tests |
+| `list_analysis_finding_evidence` | `read_only` | main | Read typed finding evidence | default | no | evidence tests |
+| `get_dedupe_authority` | `read_only` | main | Read the global duplicate authority watermark | default | no | authority tests |
+| `set_analysis_finding_decision` | `main_state_mutation` | main | Persist a triage decision with CAS | default | yes | decision tests |
+| `revalidate_analysis_finding` | `main_state_mutation` | main | Revalidate a finding identity and stale state | default | yes | cleanup safety tests |
 | `reveal_in_folder` | `read_only` | main | Open containing folder | default | no | command permission contract |
 | `execute_moves` | `filesystem_mutation` | main | Move/rename files | default | yes | filesystem safety tests |
 | `restore_moves` | `filesystem_mutation` | main | Restore files | default | yes | identity/restore tests |

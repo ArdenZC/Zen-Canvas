@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { StorageAnalysis } from "../src/types/domain";
+import type { AnalysisRun, StorageAnalysis } from "../src/types/domain";
 import {
   canAutoSelectForCleanup,
   canManuallySelectForCleanup,
@@ -230,6 +230,37 @@ describe("useStorageCleanupStore", () => {
     expect(state.analysis?.candidates[0].id).toBe("safe-cache");
   });
 
+  it("hydrates durable cleanup findings after renderer restart and rejects an older run revision", async () => {
+    const run = makeDurableCleanupRun(7);
+    const api = {
+      startStorageCleanupScan: vi.fn(),
+      cancelStorageCleanupScan: vi.fn(),
+      getStorageCleanupScanStatus: vi.fn().mockResolvedValue({
+        jobId: run.id,
+        status: "completed",
+        progress: null,
+        analysis,
+        error: null,
+        startedAt: "1",
+        completedAt: "2"
+      } as never),
+      getActiveAnalysisRun: vi.fn().mockResolvedValue(run),
+      listAnalysisRuns: vi.fn().mockResolvedValue([run]),
+      getAnalysisRun: vi.fn().mockImplementation(async () => ({ ...run, revision: 7 })),
+      getStorageCleanupCandidatePage: vi.fn()
+    };
+
+    await useStorageCleanupStore.getState().hydrateDurable(api);
+    expect(useStorageCleanupStore.getState().displayedJobId).toBe(run.id);
+    expect(useStorageCleanupStore.getState().durableRunRevision).toBe(7);
+    expect(useStorageCleanupStore.getState().analysis?.candidates[0].id).toBe("safe-cache");
+
+    await useStorageCleanupStore.getState().hydrateDurable(api, run.id);
+    expect(api.getStorageCleanupScanStatus).toHaveBeenCalledTimes(1);
+    expect(useStorageCleanupStore.getState().durableRunRevision).toBe(7);
+    expect(useStorageCleanupStore.getState().analysis?.candidates[0].reason).toBe("Regenerable");
+  });
+
   it("switching displayed jobs clears selection and old candidate pages", () => {
     useStorageCleanupStore.setState({ activeJobId: "job-a" });
     useStorageCleanupStore.getState().completeScan("job-a", analysis);
@@ -344,6 +375,44 @@ describe("useStorageCleanupStore", () => {
     expect(cleanupSelectionDisabledReason(blocked)).toContain("不允许移动到 Safe Trash");
   });
 });
+
+function makeDurableCleanupRun(revision: number): AnalysisRun {
+  return {
+    id: "analysis-cleanup-run",
+    requestKey: "analysis-cleanup-request",
+    requestAttempt: 1,
+    scope: { kind: "approved_cleanup_paths", paths: ["F:/scope"] },
+    scopeHash: "scope-hash",
+    sourceSnapshot: { paths: ["F:/scope"] },
+    sourceSnapshotHash: "source-hash",
+    detectorSet: ["large_file_v1:v1"],
+    detectorSetHash: "detector-hash",
+    status: "completed",
+    phase: "completed",
+    revision,
+    cancelRequested: false,
+    rerunRequired: false,
+    detectorsTotal: 1,
+    detectorsCompleted: 1,
+    detectorsFailed: 0,
+    findingsStaged: 1,
+    findingsPublished: 1,
+    safeCount: 1,
+    reviewCount: 0,
+    cautionCount: 0,
+    exactReclaimableBytes: 60,
+    potentialReclaimableBytes: 60,
+    warningCount: 0,
+    errorCount: 0,
+    startedAt: 1,
+    finishedAt: 2,
+    lastCheckpointAt: 2,
+    createdAt: 1,
+    updatedAt: 2,
+    errorCode: null,
+    errorMessage: null
+  };
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

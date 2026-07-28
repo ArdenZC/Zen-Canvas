@@ -1,4 +1,5 @@
 use super::super::*;
+use super::analysis::{bump_dedupe_authority_tx, invalidate_analysis_findings_for_root_tx};
 use super::dedupe::{invalidate_file_in_transaction, invalidate_stale_files_in_transaction};
 use super::*;
 use crate::ids::new_job_id;
@@ -748,6 +749,18 @@ impl Database {
             "#,
             params![current_unix_seconds()],
         )?;
+        let disabled_roots = tx
+            .prepare(
+                "SELECT normalized_path FROM scan_roots WHERE source_kind = 'file_library' AND enabled = 0",
+            )?
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        for root_path in &disabled_roots {
+            invalidate_analysis_findings_for_root_tx(&tx, root_path)?;
+        }
+        if !disabled_roots.is_empty() {
+            bump_dedupe_authority_tx(&tx, "rebuild_required")?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -798,6 +811,9 @@ impl Database {
             tx.commit()?;
             return Ok(None);
         }
+        // A new watcher revision makes the previously published global
+        // duplicate universe incomplete until the batch is applied.
+        bump_dedupe_authority_tx(&tx, "rebuild_required")?;
         let result = tx.query_row(
             "SELECT id, normalized_path, watcher_revision, revision, active_run_id FROM scan_roots WHERE id = ?1",
             params![root_id],
@@ -843,6 +859,9 @@ impl Database {
             "#,
             params![batch_revision, now, root_id],
         )?;
+        if changed > 0 {
+            bump_dedupe_authority_tx(&tx, "rebuild_required")?;
+        }
         tx.commit()?;
         Ok(changed == 1)
     }
@@ -876,6 +895,9 @@ impl Database {
             "#,
             params![error_code, error_message, now, root_id],
         )?;
+        if changed > 0 {
+            bump_dedupe_authority_tx(&tx, "rebuild_required")?;
+        }
         tx.commit()?;
         Ok(changed == 1)
     }
@@ -908,6 +930,9 @@ impl Database {
             "#,
             params![error_code, error_message, current_unix_seconds(), root_id],
         )?;
+        if changed > 0 {
+            bump_dedupe_authority_tx(&tx, "rebuild_required")?;
+        }
         tx.commit()?;
         Ok(changed == 1)
     }
@@ -945,6 +970,9 @@ impl Database {
                 root_id
             ],
         )?;
+        if changed > 0 {
+            bump_dedupe_authority_tx(&tx, "rebuild_required")?;
+        }
         tx.commit()?;
         Ok(changed == 1)
     }
@@ -4910,7 +4938,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("watcher defaults");
-        assert_eq!(version, 29);
+        assert_eq!(version, 30);
         assert_eq!(file_count, 1);
         assert_eq!(seen_count, 0);
         assert_eq!(watcher_defaults, (0, 0));

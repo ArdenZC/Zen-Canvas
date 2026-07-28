@@ -17,4 +17,5 @@ static TEST_PATH_COUNTER: AtomicU64 = AtomicU64::new(0);
 include!("part1.rs");
 include!("part2.rs");
 include!("part3.rs");
+include!("part4.rs");
 include!("helpers.rs");

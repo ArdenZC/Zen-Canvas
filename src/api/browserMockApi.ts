@@ -19,6 +19,13 @@ import type {
   DedupeGroupMember,
   DedupeGroupPage,
   DedupeRun,
+  AnalysisDetector,
+  AnalysisDetectorDescriptor,
+  AnalysisFinding,
+  AnalysisFindingDecision,
+  AnalysisFindingEvidence,
+  AnalysisFindingPage,
+  AnalysisRun,
   ExecuteOperationResult,
   FileLibraryFilters,
   FileQueryResult,
@@ -192,6 +199,43 @@ const mockGlobalEntries: GlobalSearchResult[] = [
 let mockManagedScopeState: ManagedScope[] = [];
 let mockManagedScanState: { request: ManagedScanRequest; start: ManagedScanStartDto } | null = null;
 let mockDedupeRuns: DedupeRun[] = [];
+let mockAnalysisRuns: AnalysisRun[] = [];
+let mockAnalysisFindings: AnalysisFinding[] = [];
+
+const mockAnalysisDetectors: AnalysisDetectorDescriptor[] = [
+  {
+    detectorId: "duplicate_reclaimable_v1",
+    version: 1,
+    title: "Duplicate reclaimable groups",
+    description: "Read-only duplicate group findings.",
+    supportsAllManagedScope: true,
+    supportsApprovedPaths: false
+  },
+  {
+    detectorId: "large_file_v1",
+    version: 1,
+    title: "Large files",
+    description: "Large file review findings.",
+    supportsAllManagedScope: true,
+    supportsApprovedPaths: true
+  },
+  {
+    detectorId: "large_directory_v1",
+    version: 1,
+    title: "Large directories",
+    description: "Large directory review findings.",
+    supportsAllManagedScope: true,
+    supportsApprovedPaths: true
+  },
+  {
+    detectorId: "cleanup_heuristics_v1",
+    version: 1,
+    title: "Cleanup heuristics",
+    description: "Deterministic cleanup classification.",
+    supportsAllManagedScope: true,
+    supportsApprovedPaths: true
+  }
+];
 
 const mockDuplicateGroups: DedupeGroup[] = [
   {
@@ -313,6 +357,58 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockDedupeRuns.slice(0, Number(args?.limit ?? 20)) as T;
     case "get_active_dedupe_run":
       return (mockDedupeRuns.find((run) => ["queued", "running", "cancelling"].includes(run.status)) ?? null) as T;
+    case "list_analysis_detectors":
+      return mockAnalysisDetectors as T;
+    case "start_analysis_run":
+      return startMockAnalysisRun(args?.request as { requestKey?: string | null } | undefined) as T;
+    case "retry_analysis_run": {
+      const previous = mockAnalysisRuns.find((run) => run.id === String(args?.runId ?? ""));
+      if (!previous) throw new Error("Mock analysis run not found");
+      return startMockAnalysisRun({ requestKey: previous.requestKey }) as T;
+    }
+    case "cancel_analysis_run": {
+      const runId = String(args?.runId ?? "");
+      const current = mockAnalysisRuns.find((run) => run.id === runId);
+      if (!current) throw new Error("Mock analysis run not found");
+      const cancelled = { ...current, status: "cancelled", cancelRequested: true, revision: current.revision + 1 };
+      mockAnalysisRuns = mockAnalysisRuns.map((run) => run.id === runId ? cancelled : run);
+      return cancelled as T;
+    }
+    case "get_analysis_run": {
+      const run = mockAnalysisRuns.find((item) => item.id === String(args?.runId ?? ""));
+      if (!run) throw new Error("Mock analysis run not found");
+      return run as T;
+    }
+    case "get_active_analysis_run":
+      return (mockAnalysisRuns.find((run) => ["queued", "running", "cancelling"].includes(run.status)) ?? null) as T;
+    case "list_analysis_runs":
+      return mockAnalysisRuns.slice(0, Number(args?.limit ?? 20)) as T;
+    case "list_analysis_run_detectors":
+      return [] as T;
+    case "list_analysis_findings": {
+      const findings = mockAnalysisFindings.filter((finding) => !args?.runId || finding.runId === String(args.runId));
+      return { findings, nextCursor: null, limit: Number(args?.limit ?? 100) } satisfies AnalysisFindingPage as T;
+    }
+    case "get_analysis_finding":
+      return (mockAnalysisFindings.find((finding) => finding.id === String(args?.findingId ?? "")) ?? null) as T;
+    case "list_analysis_finding_evidence":
+      return [] as AnalysisFindingEvidence[] as T;
+    case "get_dedupe_authority":
+      return { revision: 1, status: "healthy", lastAuthoritativeRunId: "mock-dedupe-run", scopeHash: "mock", updatedAt: Math.floor(Date.now() / 1000) } as T;
+    case "set_analysis_finding_decision": {
+      const decision: AnalysisFindingDecision = {
+        findingKey: String(args?.findingKey ?? ""),
+        decision: String(args?.decision ?? "open") as AnalysisFindingDecision["decision"],
+        snoozedUntil: args?.snoozedUntil == null ? null : Number(args.snoozedUntil),
+        note: args?.note == null ? null : String(args.note),
+        revision: 1,
+        createdAt: Math.floor(Date.now() / 1000),
+        updatedAt: Math.floor(Date.now() / 1000)
+      };
+      return decision as T;
+    }
+    case "revalidate_analysis_finding":
+      return (mockAnalysisFindings.find((finding) => finding.id === String(args?.findingId ?? "")) ?? null) as T;
     case "list_duplicate_groups":
       return {
         groups: mockDuplicateGroups,
@@ -511,6 +607,7 @@ function startMockDedupeRun(request?: { parentScanSessionId?: string | null }): 
     scopeSnapshot: [],
     scopeHash: "mock-scope-hash",
     scopeSnapshotHash: "mock-snapshot-hash",
+    publicationMode: "authoritative",
     status: "completed",
     phase: "completed",
     revision: 2,
@@ -543,6 +640,47 @@ function startMockDedupeRun(request?: { parentScanSessionId?: string | null }): 
     errorMessage: null
   };
   mockDedupeRuns = [run, ...mockDedupeRuns].slice(0, 20);
+  return run;
+}
+
+function startMockAnalysisRun(request?: { requestKey?: string | null }): AnalysisRun {
+  const now = Math.floor(Date.now() / 1000);
+  const run: AnalysisRun = {
+    id: `mock-analysis-run-${Date.now()}`,
+    requestKey: request?.requestKey ?? `mock-analysis-request-${Date.now()}`,
+    requestAttempt: 1,
+    scope: { kind: "approved_cleanup_paths", paths: [] },
+    scopeHash: "mock-analysis-scope",
+    sourceSnapshot: {},
+    sourceSnapshotHash: "mock-analysis-snapshot",
+    detectorSet: mockAnalysisDetectors.map((detector) => `${detector.detectorId}:v${detector.version}`),
+    detectorSetHash: "mock-analysis-detectors",
+    status: "completed",
+    phase: "completed",
+    revision: 2,
+    cancelRequested: false,
+    rerunRequired: false,
+    detectorsTotal: mockAnalysisDetectors.length,
+    detectorsCompleted: mockAnalysisDetectors.length,
+    detectorsFailed: 0,
+    findingsStaged: 0,
+    findingsPublished: 0,
+    safeCount: 0,
+    reviewCount: 0,
+    cautionCount: 0,
+    exactReclaimableBytes: 0,
+    potentialReclaimableBytes: 0,
+    warningCount: 0,
+    errorCount: 0,
+    startedAt: now,
+    finishedAt: now,
+    lastCheckpointAt: now,
+    createdAt: now,
+    updatedAt: now,
+    errorCode: null,
+    errorMessage: null
+  };
+  mockAnalysisRuns = [run, ...mockAnalysisRuns].slice(0, 20);
   return run;
 }
 

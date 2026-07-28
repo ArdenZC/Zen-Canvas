@@ -220,6 +220,14 @@ impl DedupeSummary {
 
 pub trait ContentHasher {
     fn hash_file(&mut self, path: &Path) -> Result<String, DedupeError>;
+
+    fn hash_file_with_bytes(&mut self, path: &Path) -> Result<(String, u64), DedupeError> {
+        let hash = self.hash_file(path)?;
+        let bytes = std::fs::metadata(path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        Ok((hash, bytes))
+    }
 }
 
 pub struct Blake3ContentHasher;
@@ -227,6 +235,10 @@ pub struct Blake3ContentHasher;
 impl ContentHasher for Blake3ContentHasher {
     fn hash_file(&mut self, path: &Path) -> Result<String, DedupeError> {
         hash_file_blake3(path)
+    }
+
+    fn hash_file_with_bytes(&mut self, path: &Path) -> Result<(String, u64), DedupeError> {
+        hash_file_blake3_with_bytes(path)
     }
 }
 
@@ -342,6 +354,7 @@ struct HashTask {
 struct HashResult {
     subject_index: usize,
     result: Result<String, DedupeError>,
+    bytes_read: u64,
 }
 
 fn run_durable_dedupe_with_custom_hasher(
@@ -402,7 +415,11 @@ fn run_durable_dedupe_inner(
         .iter()
         .map(|candidate| candidate.size.max(0))
         .fold(0_i64, i64::saturating_add);
-    checkpoint.total_bytes = checkpoint.candidate_bytes;
+    // Metadata and physical-identity reads are not content-byte IO.  The
+    // byte budget is populated only after the prehash/full-hash work is
+    // known, so a scan cannot report a fake 100% content completion while it
+    // is still hashing.
+    checkpoint.total_bytes = 0;
     emit_checkpoint(db, emitter, &mut run, &checkpoint)?;
 
     let mut by_subject = HashMap::<String, Vec<DurableCandidate>>::new();
@@ -411,7 +428,6 @@ fn run_durable_dedupe_inner(
         if should_cancel(db, &run.id, cancel_flag.as_ref())? {
             return finish_cancelled(db, emitter, &run, checkpoint, started_at);
         }
-        let candidate_progress_bytes = candidate.size.max(0);
         match capture_physical_identity(Path::new(&candidate.path)) {
             Ok(identity) => {
                 let mut fingerprint = db.upsert_physical_identity(&candidate, &identity)?;
@@ -469,9 +485,6 @@ fn run_durable_dedupe_inner(
             }
         }
         checkpoint.processed_files = checkpoint.processed_files.saturating_add(1);
-        checkpoint.processed_bytes = checkpoint
-            .processed_bytes
-            .saturating_add(candidate_progress_bytes);
         if checkpoint.processed_files % 64 == 0 {
             emit_checkpoint(db, emitter, &mut run, &checkpoint)?;
         }
@@ -487,6 +500,7 @@ fn run_durable_dedupe_inner(
     emit_checkpoint(db, emitter, &mut run, &checkpoint)?;
 
     let mut subjects = Vec::<HashSubject>::with_capacity(by_subject.len());
+    let mut prehash_io_bytes = 0_u64;
     for (_subject_key, mut members) in by_subject {
         members.sort_by(|left, right| {
             left.candidate
@@ -519,10 +533,18 @@ fn run_durable_dedupe_inner(
                 .flatten()
         }) {
             subject.prehash = prehash;
-        } else {
-            match hash_file_prehash(&subject.path, subject.size) {
-                Ok(prehash) => {
+        } else if subject.size >= PREHASH_MIN_SIZE {
+            match hash_file_prehash_with_identity(
+                &subject.path,
+                subject.size,
+                &subject.members[0].identity,
+            ) {
+                Ok((prehash, bytes_read)) => {
                     subject.prehash = prehash.clone();
+                    prehash_io_bytes = prehash_io_bytes.saturating_add(bytes_read);
+                    checkpoint.processed_bytes = checkpoint
+                        .processed_bytes
+                        .saturating_add(i64::try_from(bytes_read).unwrap_or(i64::MAX));
                     let entries = subject
                         .members
                         .iter()
@@ -577,19 +599,31 @@ fn run_durable_dedupe_inner(
 
     let mut prehash_buckets = HashMap::<(i64, String), Vec<usize>>::new();
     for (index, subject) in subjects.iter().enumerate() {
+        let bucket_key = if subject.size < PREHASH_MIN_SIZE {
+            // Small files intentionally skip the sample stage and proceed to
+            // one full read.  They must never be pruned by an empty or
+            // synthetic prehash bucket.
+            "__small_file_full_hash__".to_string()
+        } else {
+            subject.prehash.clone()
+        };
         prehash_buckets
-            .entry((subject.size, subject.prehash.clone()))
+            .entry((subject.size, bucket_key))
             .or_default()
             .push(index);
     }
     checkpoint.prehash_pruned_files = prehash_buckets
         .values()
-        .filter(|indexes| indexes.len() == 1)
+        .filter(|indexes| {
+            indexes.len() == 1
+                && subjects[indexes[0]].size >= PREHASH_MIN_SIZE
+                && subjects[indexes[0]].full_hash.is_none()
+        })
         .map(|indexes| subjects[indexes[0]].file_ids.len() as i64)
         .fold(0_i64, i64::saturating_add);
     let mut hash_indexes = Vec::new();
     for indexes in prehash_buckets.values() {
-        if indexes.len() > 1 {
+        if indexes.len() > 1 || subjects[indexes[0]].size < PREHASH_MIN_SIZE {
             hash_indexes.extend(
                 indexes
                     .iter()
@@ -600,20 +634,25 @@ fn run_durable_dedupe_inner(
     }
     hash_indexes.sort_unstable();
     hash_indexes.dedup();
+    let full_hash_io_budget = hash_indexes.iter().fold(0_u64, |total, index| {
+        total.saturating_add(subjects[*index].size.max(0).try_into().unwrap_or(u64::MAX))
+    });
+    checkpoint.total_bytes =
+        i64::try_from(prehash_io_bytes.saturating_add(full_hash_io_budget)).unwrap_or(i64::MAX);
 
     checkpoint.phase = "full_hashing".to_string();
     emit_checkpoint(db, emitter, &mut run, &checkpoint)?;
     let mut hash_results = Vec::new();
     if let Some(hasher) = custom_hasher {
-        for index in hash_indexes {
+        for index in hash_indexes.iter().copied() {
             if should_cancel(db, &run.id, cancel_flag.as_ref())? {
-                return finish_cancelled(db, emitter, &run, checkpoint, started_at);
+                break;
             }
             let subject = &subjects[index];
             let before = capture_physical_identity(&subject.path);
             let result = match before {
                 Ok(identity) if identity == subject.members[0].identity => {
-                    hasher.hash_file(&subject.path)
+                    hasher.hash_file_with_bytes(&subject.path)
                 }
                 Ok(_) => Err(DedupeError::Db(DbError::Validation(
                     "file_changed_before_hash".to_string(),
@@ -624,8 +663,8 @@ fn run_durable_dedupe_inner(
                 }),
             };
             let result = match result {
-                Ok(hash) => match capture_physical_identity(&subject.path) {
-                    Ok(after) if after == subject.members[0].identity => Ok(hash),
+                Ok((hash, bytes_read)) => match capture_physical_identity(&subject.path) {
+                    Ok(after) if after == subject.members[0].identity => Ok((hash, bytes_read)),
                     Ok(_) => Err(DedupeError::Db(DbError::Validation(
                         "file_changed_during_hash".to_string(),
                     ))),
@@ -639,9 +678,14 @@ fn run_durable_dedupe_inner(
                 },
                 Err(error) => Err(error),
             };
+            let (result, bytes_read) = match result {
+                Ok((hash, bytes_read)) => (Ok(hash), bytes_read),
+                Err(error) => (Err(error), 0),
+            };
             hash_results.push(HashResult {
                 subject_index: index,
                 result,
+                bytes_read,
             });
         }
     } else {
@@ -668,9 +712,9 @@ fn run_durable_dedupe_inner(
         hash_results = results;
     }
     for hash_result in hash_results {
-        if should_cancel(db, &run.id, cancel_flag.as_ref())? {
-            return finish_cancelled(db, emitter, &run, checkpoint, started_at);
-        }
+        checkpoint.processed_bytes = checkpoint
+            .processed_bytes
+            .saturating_add(i64::try_from(hash_result.bytes_read).unwrap_or(i64::MAX));
         let subject = &mut subjects[hash_result.subject_index];
         match hash_result.result {
             Ok(hash) => {
@@ -732,6 +776,9 @@ fn run_durable_dedupe_inner(
         }
     }
     emit_checkpoint(db, emitter, &mut run, &checkpoint)?;
+    if should_cancel(db, &run.id, cancel_flag.as_ref())? {
+        return finish_cancelled(db, emitter, &run, checkpoint, started_at);
+    }
 
     checkpoint.phase = "building_groups".to_string();
     let groups = build_duplicate_groups(&subjects);
@@ -898,11 +945,58 @@ fn hash_error_code(error: &DedupeError) -> &'static str {
         DedupeError::Db(DbError::Validation(message)) if message == "file_changed_before_hash" => {
             "file_changed_before_hash"
         }
+        DedupeError::Db(DbError::Validation(message))
+            if message == "file_changed_during_prehash" =>
+        {
+            "file_changed_during_prehash"
+        }
+        DedupeError::Db(DbError::Validation(message))
+            if message == "file_changed_before_prehash" =>
+        {
+            "file_changed_before_prehash"
+        }
         _ => "hash_failed",
     }
 }
 
+#[allow(dead_code)]
 fn hash_file_prehash(path: &Path, expected_size: i64) -> Result<String, DedupeError> {
+    hash_file_prehash_bytes(path, expected_size).map(|(hash, _)| hash)
+}
+
+fn hash_file_prehash_with_identity(
+    path: &Path,
+    expected_size: i64,
+    expected_identity: &PhysicalFileIdentity,
+) -> Result<(String, u64), DedupeError> {
+    match capture_physical_identity(path) {
+        Ok(identity) if identity == *expected_identity => {}
+        Ok(_) => {
+            return Err(DedupeError::Db(DbError::Validation(
+                "file_changed_before_prehash".to_string(),
+            )))
+        }
+        Err(error) => {
+            return Err(DedupeError::Io {
+                path: path.to_string_lossy().into_owned(),
+                source: std::io::Error::new(std::io::ErrorKind::NotFound, error.to_string()),
+            })
+        }
+    }
+    let result = hash_file_prehash_bytes(path, expected_size)?;
+    match capture_physical_identity(path) {
+        Ok(identity) if identity == *expected_identity => Ok(result),
+        Ok(_) => Err(DedupeError::Db(DbError::Validation(
+            "file_changed_during_prehash".to_string(),
+        ))),
+        Err(error) => Err(DedupeError::Io {
+            path: path.to_string_lossy().into_owned(),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, error.to_string()),
+        }),
+    }
+}
+
+fn hash_file_prehash_bytes(path: &Path, expected_size: i64) -> Result<(String, u64), DedupeError> {
     let mut file = File::open(path).map_err(|source| DedupeError::Io {
         path: path.to_string_lossy().into_owned(),
         source,
@@ -940,7 +1034,10 @@ fn hash_file_prehash(path: &Path, expected_size: i64) -> Result<String, DedupeEr
     hasher.update(&expected_size.to_le_bytes());
     hasher.update(&head);
     hasher.update(&tail);
-    Ok(hasher.finalize().to_hex().to_string())
+    Ok((
+        hasher.finalize().to_hex().to_string(),
+        head.len().saturating_add(tail.len()) as u64,
+    ))
 }
 
 fn bounded_hash_subjects(
@@ -987,21 +1084,30 @@ fn bounded_hash_subjects_with_workers(
             let Ok(Some(task)) = task else { return };
             // The flag is owned by the run and outlives the bounded worker set.
             let cancelled = cancel_flag.load(Ordering::Acquire);
-            let result = if cancelled {
-                Err(DedupeError::Db(DbError::Validation(
-                    "cancelled".to_string(),
-                )))
+            let (result, bytes_read) = if cancelled {
+                (
+                    Err(DedupeError::Db(DbError::Validation(
+                        "cancelled".to_string(),
+                    ))),
+                    0,
+                )
             } else {
-                hash_subject_with_identity(
+                let result = hash_subject_with_identity(
                     &task.path,
                     &task.expected_identity,
                     cancel_flag.as_ref(),
-                )
+                );
+                let (result, bytes_read) = match result {
+                    Ok((hash, bytes_read)) => (Ok(hash), bytes_read),
+                    Err(error) => (Err(error), 0),
+                };
+                (result, bytes_read)
             };
             if result_tx
                 .send(HashResult {
                     subject_index: task.subject_index,
                     result,
+                    bytes_read,
                 })
                 .is_err()
             {
@@ -1036,11 +1142,11 @@ fn hash_subject_with_identity(
     path: &Path,
     expected_identity: &PhysicalFileIdentity,
     cancel_flag: &AtomicBool,
-) -> Result<String, DedupeError> {
+) -> Result<(String, u64), DedupeError> {
     let before = capture_physical_identity(path);
     let result = match before {
         Ok(identity) if identity == *expected_identity => {
-            hash_file_blake3_cancellable(path, cancel_flag)
+            hash_file_blake3_cancellable_with_bytes(path, cancel_flag)
         }
         Ok(_) => Err(DedupeError::Db(DbError::Validation(
             "file_changed_before_hash".to_string(),
@@ -1074,16 +1180,17 @@ fn dedupe_worker_count(detected: usize, configured: Option<&str>) -> (usize, boo
     }
 }
 
-fn hash_file_blake3_cancellable(
+fn hash_file_blake3_cancellable_with_bytes(
     path: &Path,
     cancel_flag: &AtomicBool,
-) -> Result<String, DedupeError> {
+) -> Result<(String, u64), DedupeError> {
     let mut file = File::open(path).map_err(|source| DedupeError::Io {
         path: path.to_string_lossy().into_owned(),
         source,
     })?;
     let mut hasher = blake3::Hasher::new();
     let mut buffer = [0_u8; 1024 * 1024];
+    let mut bytes_read = 0_u64;
     loop {
         if cancel_flag.load(Ordering::Acquire) {
             return Err(DedupeError::Db(DbError::Validation(
@@ -1098,8 +1205,9 @@ fn hash_file_blake3_cancellable(
             break;
         }
         hasher.update(&buffer[..read]);
+        bytes_read = bytes_read.saturating_add(read as u64);
     }
-    Ok(hasher.finalize().to_hex().to_string())
+    Ok((hasher.finalize().to_hex().to_string(), bytes_read))
 }
 
 fn build_duplicate_groups(subjects: &[HashSubject]) -> Vec<BuiltGroup> {
@@ -1468,6 +1576,10 @@ pub fn cancel_dedupe<R: Runtime>(
 }
 
 fn hash_file_blake3(path: &Path) -> Result<String, DedupeError> {
+    hash_file_blake3_with_bytes(path).map(|(hash, _)| hash)
+}
+
+fn hash_file_blake3_with_bytes(path: &Path) -> Result<(String, u64), DedupeError> {
     let mut file = File::open(path).map_err(|source| DedupeError::Io {
         path: path.to_string_lossy().into_owned(),
         source,
@@ -1479,8 +1591,11 @@ fn hash_file_blake3(path: &Path) -> Result<String, DedupeError> {
             path: path.to_string_lossy().into_owned(),
             source,
         })?;
+    let bytes_read = std::fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
 
-    Ok(hasher.finalize().to_hex().to_string())
+    Ok((hasher.finalize().to_hex().to_string(), bytes_read))
 }
 
 #[cfg(test)]

@@ -7,6 +7,7 @@ use rusqlite::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::collections::HashSet;
 
 pub const PREHASH_MIN_SIZE: i64 = 1024 * 1024;
 pub const PREHASH_SAMPLE_BYTES: usize = 4096;
@@ -41,6 +42,7 @@ pub struct DedupeRunDto {
     pub scope_snapshot: Value,
     pub scope_hash: String,
     pub scope_snapshot_hash: String,
+    pub publication_mode: String,
     pub status: String,
     pub phase: String,
     pub revision: i64,
@@ -281,9 +283,15 @@ impl Database {
                 "The scan session has no effective managed roots for dedupe.".to_string(),
             ));
         }
+        // A scan-triggered run is the sole authoritative publication path.
+        // The effective roots are still validated above for dispatch
+        // ownership, but publication always re-reads every enabled managed
+        // File Library root so a partial session can never publish a local
+        // duplicate universe.
+        let _ = root_ids;
         let scope = DedupeScopeRequest {
-            kind: "explicitEnabledScanRoots".to_string(),
-            root_ids,
+            kind: "allManagedFileLibrary".to_string(),
+            root_ids: Vec::new(),
         };
         let request_key = format!("scan-session:{session_id}");
         let existing = conn
@@ -336,8 +344,19 @@ impl Database {
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let (scope_spec, scope_hash) = canonical_scope(&tx, scope_request)?;
+        let publication_mode = if scope_spec.kind == "all_managed_file_library" {
+            "authoritative"
+        } else {
+            "diagnostic"
+        };
         let scope_json = serde_json::to_string(&scope_spec)?;
-        let (snapshot_json, snapshot_hash) = scope_snapshot(&tx, &scope_spec.root_ids)?;
+        let (root_snapshot_json, _root_snapshot_hash) = scope_snapshot(&tx, &scope_spec.root_ids)?;
+        let snapshot_json_value = json!({
+            "scopeHash": scope_hash,
+            "roots": serde_json::from_str::<Value>(&root_snapshot_json)?,
+        });
+        let snapshot_json = serde_json::to_string(&snapshot_json_value)?;
+        let snapshot_hash = blake3::hash(snapshot_json.as_bytes()).to_hex().to_string();
 
         let existing = tx
             .query_row(
@@ -393,8 +412,8 @@ impl Database {
             INSERT INTO dedupe_runs (
                 id, request_key, request_attempt, parent_scan_session_id,
                 scope_json, scope_hash, scope_snapshot_json, scope_snapshot_hash,
-                status, phase, revision, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'queued', 'collecting', 1, ?9, ?9)
+                publication_mode, status, phase, revision, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'queued', 'collecting', 1, ?10, ?10)
             "#,
             params![
                 id,
@@ -405,6 +424,7 @@ impl Database {
                 scope_hash,
                 snapshot_json,
                 snapshot_hash,
+                publication_mode,
                 now,
             ],
         )?;
@@ -864,8 +884,12 @@ impl Database {
         let mut conn = self.conn()?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute(
-            "UPDATE file_fingerprints SET prehash = ?1, prehashed_at = ?2, full_hash = ?3, full_hashed_at = ?4, fingerprint_status = CASE WHEN ?3 IS NOT NULL AND ?3 <> '' THEN 'complete' WHEN ?1 IS NOT NULL AND ?1 <> '' THEN 'prehash_complete' ELSE 'identity_only' END, revision = revision + 1, last_verified_at = ?2, error_code = NULL, error_message = NULL WHERE file_id = ?5 AND size = ?6 AND modified_ns IS ?7 AND physical_key = ?8",
-            params![cached.prehash, cached.prehashed_at, cached.full_hash, cached.full_hashed_at, candidate.file_id, cached.size, cached.modified_ns, cached.physical_key],
+            "UPDATE file_fingerprints SET prehash = ?1, prehashed_at = ?2, full_hash = ?3, full_hashed_at = ?4, fingerprint_status = CASE WHEN ?3 IS NOT NULL AND ?3 <> '' THEN 'complete' WHEN ?1 IS NOT NULL AND ?1 <> '' THEN 'prehash_complete' ELSE 'identity_only' END, revision = revision + 1, last_verified_at = ?9, error_code = NULL, error_message = NULL WHERE file_id = ?5 AND size = ?6 AND modified_ns IS ?7 AND physical_key = ?8",
+            params![cached.prehash, cached.prehashed_at, cached.full_hash, cached.full_hashed_at, candidate.file_id, cached.size, cached.modified_ns, cached.physical_key, current_unix_seconds()],
+        )?;
+        tx.execute(
+            "UPDATE files SET content_hash = CASE WHEN ?1 IS NOT NULL AND ?1 <> '' THEN ?1 ELSE '' END WHERE id = ?2 AND path = ?3 AND size = ?4 AND mtime = ?5 AND is_dir = 0 AND is_stale = 0",
+            params![cached.full_hash, candidate.file_id, candidate.path, candidate.size, candidate.mtime],
         )?;
         let row = query_fingerprint(&tx, &candidate.file_id)?;
         tx.commit()?;
@@ -1039,12 +1063,38 @@ impl Database {
             tx.commit()?;
             return Ok(PublishOutcome::Cancelled);
         }
+        if run.publication_mode != "authoritative" {
+            let mut warning_checkpoint = checkpoint.clone();
+            warning_checkpoint.warning_count = warning_checkpoint.warning_count.saturating_add(1);
+            mark_dedupe_terminal_tx(
+                &tx,
+                run_id,
+                run.revision,
+                "completed_with_warnings",
+                "completed",
+                Some("diagnostic_only"),
+                Some("Explicit-root dedupe runs are diagnostic only and cannot publish or replace the global duplicate authority."),
+                &warning_checkpoint,
+            )?;
+            tx.commit()?;
+            return Ok(PublishOutcome::CompletedWithWarnings);
+        }
         let scope = scope_request_from_value(&run.scope)?;
-        let scope_spec = ScopeSpec {
-            kind: scope.kind.clone(),
-            root_ids: scope.root_ids.clone(),
-        };
-        let (_snapshot_json, snapshot_hash) = scope_snapshot(&tx, &scope.root_ids)?;
+        let (scope_spec, current_scope_hash) = canonical_scope(
+            &tx,
+            &DedupeScopeRequest {
+                kind: "all_managed_file_library".to_string(),
+                root_ids: Vec::new(),
+            },
+        )?;
+        let (root_snapshot_json, _root_snapshot_hash) = scope_snapshot(&tx, &scope_spec.root_ids)?;
+        let current_snapshot_json = serde_json::to_string(&json!({
+            "scopeHash": current_scope_hash,
+            "roots": serde_json::from_str::<Value>(&root_snapshot_json)?,
+        }))?;
+        let snapshot_hash = blake3::hash(current_snapshot_json.as_bytes())
+            .to_hex()
+            .to_string();
         if snapshot_hash != run.scope_snapshot_hash {
             let now = current_unix_seconds();
             let auto_retry = run.parent_scan_session_id.is_some() && run.request_attempt < 3;
@@ -1073,14 +1123,47 @@ impl Database {
             return Ok(PublishOutcome::CompletedWithWarnings);
         }
 
-        let old_group_ids = scoped_active_group_ids(&tx, &scope_spec)?;
-        let now = current_unix_seconds();
-        for group_id in old_group_ids {
-            tx.execute(
-                "UPDATE duplicate_groups SET status = 'stale', revision = revision + 1, updated_at = ?1 WHERE id = ?2 AND status = 'active'",
-                params![now, group_id],
-            )?;
+        if scope.kind != "all_managed_file_library" {
+            return Err(DbError::Validation(
+                "Authoritative dedupe runs must use the all-managed scope.".to_string(),
+            ));
         }
+        let total_roots: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM scan_roots WHERE enabled = 1 AND source_kind = 'file_library'",
+            [],
+            |row| row.get(0),
+        )?;
+        let unhealthy_roots: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM scan_roots WHERE enabled = 1 AND source_kind = 'file_library' AND (health_status <> 'healthy' OR needs_reconciliation <> 0 OR watcher_rule_recovery_required <> 0 OR watcher_revision <> watcher_applied_revision)",
+            [],
+            |row| row.get(0),
+        )?;
+        if total_roots == 0 || unhealthy_roots > 0 {
+            let mut warning_checkpoint = checkpoint.clone();
+            warning_checkpoint.warning_count = warning_checkpoint.warning_count.saturating_add(1);
+            bump_dedupe_authority_tx(&tx, "rebuild_required")?;
+            mark_dedupe_terminal_tx(
+                &tx,
+                run_id,
+                run.revision,
+                "completed_with_warnings",
+                "completed",
+                Some("dedupe_authority_unhealthy"),
+                Some("At least one enabled managed root is unhealthy or requires reconciliation; the global duplicate authority was not replaced."),
+                &warning_checkpoint,
+            )?;
+            tx.commit()?;
+            return Ok(PublishOutcome::CompletedWithWarnings);
+        }
+        let old_group_ids = tx
+            .prepare("SELECT id FROM duplicate_groups WHERE status = 'active'")?
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        let new_group_ids = groups
+            .iter()
+            .map(|group| group.id.as_str())
+            .collect::<HashSet<_>>();
+        let now = current_unix_seconds();
         for group in groups {
             tx.execute(
                 r#"
@@ -1131,6 +1214,20 @@ impl Database {
                 )?;
             }
         }
+        for group_id in old_group_ids {
+            if new_group_ids.contains(group_id.as_str()) {
+                continue;
+            }
+            tx.execute(
+                "UPDATE duplicate_groups SET status = 'stale', revision = revision + 1, updated_at = ?1 WHERE id = ?2 AND status = 'active'",
+                params![now, group_id],
+            )?;
+            invalidate_analysis_findings_for_group_tx(&tx, &group_id)?;
+        }
+        tx.execute(
+            "UPDATE dedupe_authority_state SET revision = revision + 1, status = 'healthy', last_authoritative_run_id = ?1, scope_hash = ?2, updated_at = ?3 WHERE id = 1",
+            params![run_id, run.scope_hash, now],
+        )?;
         mark_dedupe_terminal_tx(
             &tx,
             run_id,
@@ -1501,6 +1598,7 @@ fn scope_file_filter(
     Ok((clauses.join(" OR "), values))
 }
 
+#[allow(dead_code)]
 fn scoped_active_group_ids(conn: &Connection, scope: &ScopeSpec) -> Result<Vec<String>, DbError> {
     let request = DedupeScopeRequest {
         kind: scope.kind.clone(),
@@ -1611,6 +1709,7 @@ fn mark_dedupe_terminal_tx(
 const DEDUPE_RUN_SELECT: &str = r#"
     SELECT id, request_key, request_attempt, parent_scan_session_id,
            scope_json, scope_snapshot_json, scope_hash, scope_snapshot_hash,
+           publication_mode,
            status, phase, revision, cancel_requested, rerun_required,
            candidate_files, candidate_physical_objects, candidate_bytes,
            identity_verified_files, identity_unknown_files, hardlink_aliases,
@@ -1643,36 +1742,37 @@ fn dedupe_run_from_row(row: &Row<'_>) -> rusqlite::Result<DedupeRunDto> {
         scope_snapshot: serde_json::from_str(&snapshot_json).unwrap_or(Value::Null),
         scope_hash: row.get(6)?,
         scope_snapshot_hash: row.get(7)?,
-        status: row.get(8)?,
-        phase: row.get(9)?,
-        revision: row.get(10)?,
-        cancel_requested: row.get::<_, i64>(11)? != 0,
-        rerun_required: row.get::<_, i64>(12)? != 0,
-        candidate_files: row.get(13)?,
-        candidate_physical_objects: row.get(14)?,
-        candidate_bytes: row.get(15)?,
-        identity_verified_files: row.get(16)?,
-        identity_unknown_files: row.get(17)?,
-        hardlink_aliases: row.get(18)?,
-        prehashed_files: row.get(19)?,
-        prehash_pruned_files: row.get(20)?,
-        full_hashed_files: row.get(21)?,
-        duplicate_groups: row.get(22)?,
-        duplicate_members: row.get(23)?,
-        exact_reclaimable_bytes: row.get(24)?,
-        potential_reclaimable_bytes: row.get(25)?,
-        processed_files: row.get(26)?,
-        processed_bytes: row.get(27)?,
-        total_bytes: row.get(28)?,
-        warning_count: row.get(29)?,
-        error_count: row.get(30)?,
-        started_at: row.get(31)?,
-        finished_at: row.get(32)?,
-        last_checkpoint_at: row.get(33)?,
-        created_at: row.get(34)?,
-        updated_at: row.get(35)?,
-        error_code: row.get(36)?,
-        error_message: row.get(37)?,
+        publication_mode: row.get(8)?,
+        status: row.get(9)?,
+        phase: row.get(10)?,
+        revision: row.get(11)?,
+        cancel_requested: row.get::<_, i64>(12)? != 0,
+        rerun_required: row.get::<_, i64>(13)? != 0,
+        candidate_files: row.get(14)?,
+        candidate_physical_objects: row.get(15)?,
+        candidate_bytes: row.get(16)?,
+        identity_verified_files: row.get(17)?,
+        identity_unknown_files: row.get(18)?,
+        hardlink_aliases: row.get(19)?,
+        prehashed_files: row.get(20)?,
+        prehash_pruned_files: row.get(21)?,
+        full_hashed_files: row.get(22)?,
+        duplicate_groups: row.get(23)?,
+        duplicate_members: row.get(24)?,
+        exact_reclaimable_bytes: row.get(25)?,
+        potential_reclaimable_bytes: row.get(26)?,
+        processed_files: row.get(27)?,
+        processed_bytes: row.get(28)?,
+        total_bytes: row.get(29)?,
+        warning_count: row.get(30)?,
+        error_count: row.get(31)?,
+        started_at: row.get(32)?,
+        finished_at: row.get(33)?,
+        last_checkpoint_at: row.get(34)?,
+        created_at: row.get(35)?,
+        updated_at: row.get(36)?,
+        error_code: row.get(37)?,
+        error_message: row.get(38)?,
     })
 }
 
@@ -1804,6 +1904,10 @@ pub(crate) fn invalidate_file_in_transaction(
     file_id: &str,
     stale_status: &str,
 ) -> Result<(), DbError> {
+    let group_ids = tx
+        .prepare("SELECT group_id FROM duplicate_group_members WHERE file_id = ?1")?
+        .query_map(params![file_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
     tx.execute(
         "UPDATE files SET content_hash = '' WHERE id = ?1 AND content_hash <> ''",
         params![file_id],
@@ -1816,10 +1920,21 @@ pub(crate) fn invalidate_file_in_transaction(
         "UPDATE duplicate_groups SET status = 'stale', revision = revision + 1, updated_at = ?1 WHERE status = 'active' AND id IN (SELECT group_id FROM duplicate_group_members WHERE file_id = ?2)",
         params![current_unix_seconds(), file_id],
     )?;
+    crate::db::invalidate_analysis_findings_for_file_tx(tx, file_id)?;
+    for group_id in group_ids {
+        crate::db::invalidate_analysis_findings_for_group_tx(tx, &group_id)?;
+    }
+    crate::db::bump_dedupe_authority_tx(tx, "rebuild_required")?;
     Ok(())
 }
 
 pub(crate) fn invalidate_stale_files_in_transaction(tx: &Transaction<'_>) -> Result<(), DbError> {
+    let group_ids = tx
+        .prepare(
+            "SELECT DISTINCT group_id FROM duplicate_group_members WHERE file_id IN (SELECT id FROM files WHERE is_stale = 1)",
+        )?
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
     tx.execute(
         "UPDATE files SET content_hash = '' WHERE is_stale = 1 AND content_hash <> ''",
         [],
@@ -1832,6 +1947,10 @@ pub(crate) fn invalidate_stale_files_in_transaction(tx: &Transaction<'_>) -> Res
         "UPDATE duplicate_groups SET status = 'stale', revision = revision + 1, updated_at = ?1 WHERE status = 'active' AND id IN (SELECT group_id FROM duplicate_group_members WHERE file_id IN (SELECT id FROM files WHERE is_stale = 1))",
         params![current_unix_seconds()],
     )?;
+    for group_id in group_ids {
+        crate::db::invalidate_analysis_findings_for_group_tx(tx, &group_id)?;
+    }
+    crate::db::bump_dedupe_authority_tx(tx, "rebuild_required")?;
     Ok(())
 }
 
@@ -2517,8 +2636,8 @@ mod tests {
         let admission = db
             .start_dedupe_run(&StartDedupeRunRequest {
                 scope: DedupeScopeRequest {
-                    kind: "explicitEnabledScanRoots".into(),
-                    root_ids: vec!["snapshot-root".into()],
+                    kind: "allManagedFileLibrary".into(),
+                    root_ids: vec![],
                 },
                 request_key: Some("scan-session:snapshot-session".into()),
                 parent_scan_session_id: Some("snapshot-session".into()),
@@ -2828,8 +2947,8 @@ mod tests {
         let admission = db
             .start_dedupe_run(&StartDedupeRunRequest {
                 scope: DedupeScopeRequest {
-                    kind: "explicitEnabledScanRoots".into(),
-                    root_ids: vec![root_id.into()],
+                    kind: "allManagedFileLibrary".into(),
+                    root_ids: Vec::new(),
                 },
                 request_key: Some("task02-performance-run".into()),
                 parent_scan_session_id: None,

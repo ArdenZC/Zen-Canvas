@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod analysis;
 pub mod app_control;
 pub mod db;
 pub mod dedupe;
@@ -32,6 +33,13 @@ pub use ai::settings::{
     test_ai_provider_connection, AISettings,
 };
 pub use ai::trace::{clear_ai_request_traces, export_ai_request_traces, list_ai_request_traces};
+pub use analysis::{
+    cancel_analysis_run, get_active_analysis_run, get_analysis_finding, get_analysis_run,
+    get_dedupe_authority, list_analysis_detectors, list_analysis_finding_evidence,
+    list_analysis_findings, list_analysis_run_detectors, list_analysis_runs, retry_analysis_run,
+    revalidate_analysis_finding, set_analysis_finding_decision, start_analysis_run,
+    AnalysisDetectorDescriptor, AnalysisRunManager,
+};
 pub use app_control::{
     activate_search_result, get_global_hotkey_status, quit_app, register_global_search_hotkey,
     resize_search_window, GlobalHotkeyStatus, GlobalHotkeyStatusState, SearchNavigatePayload,
@@ -46,6 +54,11 @@ pub use db::{
     InsertFileRequest, LibraryFilter, LibraryScope, OperationPreviewDto,
     OperationPreviewScopeResult, PagedFilesResult, Rule, RuleExecutionMode, RuleExecutionSummary,
     StatsSummary,
+};
+pub use db::{
+    AnalysisDetectorDto, AnalysisFindingDecisionDto, AnalysisFindingDto,
+    AnalysisFindingEvidenceDto, AnalysisFindingPageDto, AnalysisRunDto, AnalysisScopeRequest,
+    DedupeAuthorityDto, StartAnalysisRunRequest,
 };
 pub use db::{
     DedupeGroupDto, DedupeGroupMemberDto, DedupeGroupPageDto, DedupeRunDto, DedupeScopeRequest,

@@ -248,7 +248,7 @@ fn schema_16_migrates_settings_and_recovery_identity_without_trusting_legacy_row
         )
         .expect("read legacy trash identity state");
 
-    assert_eq!(version, 29);
+    assert_eq!(version, 30);
     assert!(settings_json.contains("minimize"));
     assert_eq!(revision, 0);
     assert_eq!(can_restore, 0);
@@ -316,7 +316,7 @@ fn schema_20_and_21_migrate_to_schema_23_with_independent_restore_claim_columns(
         let migrated_version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("read migrated journal version");
-        assert_eq!(migrated_version, 29);
+        assert_eq!(migrated_version, 30);
         assert_schema_23_journal_columns(&conn);
         let restore_phase: String = conn
             .query_row(
@@ -448,6 +448,79 @@ fn performance_100k_files_schema_28_to_29_and_wal_reader() {
     let _ = fs::remove_file(path);
 }
 
+#[test]
+#[ignore = "Task 03 schema 29->30 migration/WAL benchmark; invoked by npm run test:performance"]
+fn performance_100k_files_schema_29_to_30_analysis_and_wal_reader() {
+    const FILE_COUNT: usize = 100_000;
+    let path = test_db_path("performance-100k-schema-30");
+    let db = Database::open(&path).expect("create schema 30 fixture");
+    drop(db);
+
+    let conn = Connection::open(&path).expect("open schema 30 fixture");
+    conn.execute(
+        "INSERT INTO scan_roots (id, normalized_path, display_name, source_kind, enabled, health_status, current_generation, needs_reconciliation, created_at, updated_at) VALUES ('analysis-migration-root', '/tmp/analysis-migration-root', 'analysis-migration-root', 'file_library', 1, 'healthy', 0, 0, 1, 1)",
+        [],
+    )
+    .expect("seed analysis migration root");
+    let tx = conn
+        .unchecked_transaction()
+        .expect("start analysis migration file fixture transaction");
+    for index in 0..FILE_COUNT {
+        let path_text = format!("/tmp/analysis-migration-root/file-{index:06}.bin");
+        tx.execute(
+            "INSERT INTO files (id, path, name, extension, size, mtime, is_dir, state_code) VALUES (?1, ?1, ?2, 'bin', 4096, 1, 0, 0)",
+            params![path_text, format!("file-{index:06}.bin")],
+        )
+        .expect("seed analysis migration file");
+    }
+    tx.commit().expect("commit 100k analysis migration files");
+    conn.execute_batch(
+        r#"
+        DROP TABLE analysis_finding_evidence;
+        DROP TABLE analysis_finding_decisions;
+        DROP TABLE analysis_findings;
+        DROP TABLE analysis_run_detectors;
+        DROP TABLE analysis_runs;
+        DROP TABLE dedupe_authority_state;
+        ALTER TABLE dedupe_runs DROP COLUMN publication_mode;
+        PRAGMA user_version = 29;
+        "#,
+    )
+    .expect("downgrade fixture to schema 29");
+    drop(conn);
+
+    let migration_started = Instant::now();
+    let migrated = Database::open(&path).expect("migrate 100k-file schema 29 fixture");
+    let migration_elapsed = migration_started.elapsed();
+    drop(migrated);
+
+    let reader = Connection::open(&path).expect("open schema 30 WAL reader");
+    reader
+        .execute_batch("PRAGMA journal_mode = WAL;")
+        .expect("enable schema 30 WAL reader mode");
+    let reader_started = Instant::now();
+    let count: i64 = reader
+        .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+        .expect("read migrated 100k files");
+    let analysis_tables: i64 = reader
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name IN ('analysis_runs', 'analysis_findings', 'analysis_finding_decisions')",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read schema 30 analysis tables");
+    let reader_elapsed = reader_started.elapsed();
+    assert_eq!(count, FILE_COUNT as i64);
+    assert_eq!(analysis_tables, 3);
+    println!(
+        "Task 03 migration performance: files={FILE_COUNT}, schema_29_to_30_ms={:.3}, wal_reader_count_ms={:.3}",
+        migration_elapsed.as_secs_f64() * 1000.0,
+        reader_elapsed.as_secs_f64() * 1000.0,
+    );
+    drop(reader);
+    let _ = fs::remove_file(path);
+}
+
 fn downgrade_current_fixture_to_schema_22(path: &PathBuf) {
     let db = Database::open(path).expect("create current schema 23 database");
     drop(db);
@@ -483,7 +556,7 @@ fn schema_22_to_23_adds_restore_claim_defaults_and_repairs_all_journal_triggers(
     assert_eq!(
         conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
             .expect("read schema version"),
-        29
+        30
     );
     assert_schema_23_journal_columns(&conn);
 

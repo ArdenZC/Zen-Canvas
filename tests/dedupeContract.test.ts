@@ -8,7 +8,7 @@ describe("Task 02 durable dedupe contract", () => {
     const schema = read("src-tauri/src/db/schema.rs");
     const queries = read("src-tauri/src/db/queries/dedupe.rs");
 
-    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 29");
+    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 30");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS file_fingerprints");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS dedupe_runs");
     expect(schema).toContain("CREATE TABLE IF NOT EXISTS duplicate_groups");
@@ -76,5 +76,74 @@ describe("Task 02 durable dedupe contract", () => {
     ]) {
       expect(matrix).toContain(`| \`${command}\` |`);
     }
+  });
+});
+
+describe("Task 03 durable analysis contract", () => {
+  it("uses a fixed detector registry and durable run/finding ledger", () => {
+    const schema = read("src-tauri/src/db/schema.rs");
+    const analysis = read("src-tauri/src/analysis.rs");
+    const queries = read("src-tauri/src/db/queries/analysis.rs");
+
+    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 30");
+    for (const table of [
+      "analysis_runs",
+      "analysis_run_detectors",
+      "analysis_findings",
+      "analysis_finding_evidence",
+      "analysis_finding_decisions",
+      "dedupe_authority_state"
+    ]) {
+      expect(schema).toContain(`CREATE TABLE IF NOT EXISTS ${table}`);
+    }
+    expect(schema).toContain("ON DELETE SET NULL");
+    for (const detector of [
+      "duplicate_reclaimable_v1",
+      "large_file_v1",
+      "large_directory_v1",
+      "cleanup_heuristics_v1"
+    ]) {
+      expect(analysis).toContain(detector);
+    }
+    expect(analysis).toContain("resolve_detector_ids");
+    expect(analysis).toContain("stage_analysis_findings");
+    expect(queries).toContain("publish_analysis_run");
+    expect(queries).toContain("source_changed_during_run");
+    expect(queries).toContain("deterministic_finding_id");
+    expect(queries).toContain("analysis_finding_decisions");
+  });
+
+  it("keeps analysis findings advisory and preserves the existing mutation boundaries", () => {
+    const analysis = read("src-tauri/src/analysis.rs");
+    const cleanup = read("src-tauri/src/storage_analyzer.rs");
+    const aiCleanup = read("src-tauri/src/ai/cleanup.rs");
+    const api = read("src/api/tauriApi.ts");
+
+    expect(analysis).toContain("becomes an authority for a run");
+    expect(analysis).not.toContain("std::process::Command");
+    expect(analysis).not.toContain("execute_moves");
+    expect(cleanup).toContain("resolve_analysis_candidates_for_cleanup");
+    expect(cleanup).toContain("Storage cleanup finding identity changed");
+    expect(cleanup).toContain("move_cleanup_candidates_to_safe_trash");
+    expect(aiCleanup).toContain("append_analysis_ai_assessment");
+    expect(aiCleanup).not.toContain("execute_moves");
+    expect(api).toContain("listAnalysisFindings");
+    expect(api).toContain("setAnalysisFindingDecision");
+  });
+
+  it("hydrates cleanup from durable revisions and never exposes analysis mutation commands", () => {
+    const store = read("src/store/useStorageCleanupStore.ts");
+    const view = read("src/views/cleanup/StorageCleanupView.tsx");
+
+    expect(store).toContain("hydrateDurable");
+    expect(store).toContain("durableRunRevision");
+    expect(store).toContain("run.revision <= currentRevision");
+    expect(view).toContain("onAnalysisRunUpdated");
+    expect(view).toContain("onAnalysisFindingsPublished");
+    expect(view).toContain("knownDetectorRevisions");
+    expect(view).toContain("detector.revision <= known");
+    expect(view).toContain("hydrateDurable(api, run.id)");
+    expect(view).not.toContain("startAnalysisRun");
+    expect(view).toContain("setAnalysisFindingDecision");
   });
 });

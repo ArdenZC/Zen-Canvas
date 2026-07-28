@@ -74,17 +74,19 @@
 
 | ID | 风险 | 等级 | 触发条件/影响 | Task 03 合同 | 状态 |
 |---|---|---|---|---|---|
-| R-049 | 局部 dedupe run 破坏跨 root group | Critical | A/B 跨 root group 后只重扫 A，旧 group 被 stale | authoritative publication 固定覆盖全部 enabled managed roots；diagnostic scope不得发布 | 阻断 Task 03 合并 |
-| R-050 | Prehash/取消/progress 产生错误 cache 或进度 | High | prehash 期间变化；cancel 丢已完成 hash；metadata 阶段显示 100% | before/after identity；drain valid results；真实 read byte budget；小文件读一次 | 阻断 Task 03 合并 |
-| R-051 | Partial/cancelled analysis findings 被当 active | Critical | detector 只跑一半或 run 取消仍替换旧结果 | staged findings + source snapshot + atomic successful-detector publication | 阻断 Task 03 合并 |
-| R-052 | Detector 失败擦除上次有效发现 | High | 新 run 单 detector 失败后旧 active findings 被 supersede | 只替换成功 detector/scope；失败保留旧 active set | 阻断 Task 03 合并 |
-| R-053 | Finding decision 错误继承到新内容 | High | 同一路径文件已变化，旧 dismissed 仍隐藏 | identity-sensitive `finding_key`；changed identity 新 key | 阻断 Task 03 合并 |
+| R-049 | 局部 dedupe run 破坏跨 root group | Critical | A/B 跨 root group 后只重扫 A，旧 group 被 stale | authoritative publication 固定覆盖全部 enabled managed roots；diagnostic scope不得发布 | 已实现，待人工验收 |
+| R-050 | Prehash/取消/progress 产生错误 cache 或进度 | High | prehash 期间变化；cancel 丢已完成 hash；metadata 阶段显示 100% | before/after identity；drain valid results；真实 read byte budget；小文件读一次 | 已实现，待人工验收 |
+| R-051 | Partial/cancelled analysis findings 被当 active | Critical | detector 只跑一半或 run 取消仍替换旧结果 | staged findings + source snapshot + atomic successful-detector publication | 已实现，待人工验收 |
+| R-052 | Detector 失败擦除上次有效发现 | High | 新 run 单 detector 失败后旧 active findings 被 supersede | 只替换成功 detector/scope；失败保留旧 active set | 已实现，待人工验收 |
+| R-053 | Finding decision 错误继承到新内容 | High | 同一路径文件已变化，旧 dismissed 仍隐藏 | identity-sensitive `finding_key`；changed identity 新 key | 已实现，待人工验收 |
 | R-054 | Finding/AI 越权成为执行授权 | Critical | AI 升级 Safe、renderer 提交 path 或 finding 直接删除 | AI 只能提高风险；finding 不是授权；preview/identity/journal/Safe Trash gate | 持续阻断 |
-| R-055 | exact/potential 与重叠 finding 双重计数 | High | duplicate、large file、large dir 对同一物理对象重复求和 | exact/potential 分离；unique subject aggregation；目录不天真求和 | 阻断 Task 03 合并 |
+| R-055 | exact/potential 与重叠 finding 双重计数 | High | duplicate、large file、large dir 对同一物理对象重复求和 | exact/potential 分离；unique subject aggregation；目录不天真求和 | 已实现，待人工验收 |
 | R-056 | 任意 path/detector 注入 | Critical | renderer 传任意 managed path、脚本、SQL 或动态 detector | fixed Rust registry；managed root IDs；approved cleanup path validation | 持续阻断 |
-| R-057 | 内存 cleanup candidate 跨重启失效但仍可执行 | Critical | job result丢失/ID重用/renderer持旧对象 | durable run/finding/revision；执行前 DB resolve + live identity revalidation | 阻断 Task 03 合并 |
-| R-058 | Analysis schema/事务拖慢主库 | High | 10k finding长写事务或 traversal 持锁 | staging 短写、atomic short publication、WAL reader benchmarks | 阻断 Task 03 性能门禁 |
+| R-057 | 内存 cleanup candidate 跨重启失效但仍可执行 | Critical | job result丢失/ID重用/renderer持旧对象 | durable run/finding/revision；执行前 DB resolve + live identity revalidation | 已实现，待人工验收 |
+| R-058 | Analysis schema/事务拖慢主库 | High | 10k finding长写事务或 traversal 持锁 | staging 短写、atomic short publication、WAL reader benchmarks | 已实现，性能证据待人工验收 |
+| R-059 | Analysis retention 删除仍被引用的 finding | High | 运行历史 prune 级联删除 active finding 或决定事实 | active finding 保留；stale/superseded/discarded 30d；run 90d；decision 180d；每轮最多 1000 | 已实现，待人工验收 |
+| R-060 | renderer 只显示事件而不从 durable ledger 恢复 | High | 重启或 revision gap 后显示旧 finding/状态 | cleanup surface 启动 hydrate；run revision 拒绝旧事件并在 gap 时 refetch；keyset finding page | 已实现，待人工验收 |
 
 ## 风险结论
 
-Task 02 已合并为 schema 29 基线。其 6 个接受遗留已正式转入 Task 03 的第一组强制改动，不得在 Task 03 实施中再次后移。Task 03 必须同时证明全局 dedupe authority、schema 30、durable Analysis Run/Detector/Finding、partial publication safety、identity-sensitive decision、Safe/Review/Caution 语义和现有 Safe Trash/journal 边界。Task 04 在 Task 03 人工验收并合并前继续禁止执行。
+Task 02 已合并为 schema 29 基线。Task 03 已在本实现分支完成 schema 29→30、六项遗留关闭、durable Analysis Run/Detector/Finding/Evidence/Decision、partial publication safety、identity-sensitive decision、Safe/Review/Caution 语义和现有 Safe Trash/journal 边界的实现与本地验证；Draft PR、Windows/macOS CI 和人工验收仍是合并门禁。Task 04 在 Task 03 人工验收并合并前继续禁止执行。

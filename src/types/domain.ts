@@ -382,6 +382,7 @@ export interface DedupeRun {
   scopeSnapshot: unknown;
   scopeHash: string;
   scopeSnapshotHash: string;
+  publicationMode: "authoritative" | "diagnostic" | string;
   status: string;
   phase: string;
   revision: number;
@@ -412,6 +413,150 @@ export interface DedupeRun {
   updatedAt: number;
   errorCode: string | null;
   errorMessage: string | null;
+}
+
+export type AnalysisScopeRequest = {
+  kind: "allManagedFileLibrary" | "explicitEnabledScanRoots" | "approvedCleanupPaths";
+  rootIds?: string[];
+  paths?: string[];
+};
+
+export interface StartAnalysisRunRequest {
+  scope: AnalysisScopeRequest;
+  detectorIds?: string[];
+  requestKey?: string | null;
+}
+
+export interface AnalysisRun {
+  id: string;
+  requestKey: string;
+  requestAttempt: number;
+  scope: Record<string, unknown>;
+  scopeHash: string;
+  sourceSnapshot: unknown;
+  sourceSnapshotHash: string;
+  detectorSet: string[];
+  detectorSetHash: string;
+  status: string;
+  phase: "preparing" | "running_detectors" | "finalizing" | "completed" | string;
+  revision: number;
+  cancelRequested: boolean;
+  rerunRequired: boolean;
+  detectorsTotal: number;
+  detectorsCompleted: number;
+  detectorsFailed: number;
+  findingsStaged: number;
+  findingsPublished: number;
+  safeCount: number;
+  reviewCount: number;
+  cautionCount: number;
+  exactReclaimableBytes: number;
+  potentialReclaimableBytes: number;
+  warningCount: number;
+  errorCount: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  lastCheckpointAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+export interface AnalysisDetector {
+  runId: string;
+  detectorId: string;
+  detectorVersion: number;
+  status: string;
+  revision: number;
+  scannedSubjects: number;
+  findingsStaged: number;
+  findingsPublished: number;
+  exactReclaimableBytes: number;
+  potentialReclaimableBytes: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+export interface AnalysisDetectorDescriptor {
+  detectorId: string;
+  version: number;
+  title: string;
+  description: string;
+  supportsAllManagedScope: boolean;
+  supportsApprovedPaths: boolean;
+}
+
+export interface AnalysisFinding {
+  id: string;
+  findingKey: string;
+  runId: string;
+  detectorId: string;
+  detectorVersion: number;
+  scopeHash: string;
+  status: "staged" | "active" | "stale" | "superseded" | "discarded" | string;
+  tier: "safe" | "review" | "caution" | string;
+  category: string;
+  actionKind: string;
+  title: string;
+  reason: string;
+  riskNote: string | null;
+  confidence: "exact" | "estimated" | "unknown" | string;
+  sizeBytes: number;
+  exactReclaimableBytes: number | null;
+  potentialReclaimableBytes: number;
+  requiresConfirmation: boolean;
+  executable: boolean;
+  primarySubjectKind: string;
+  primarySubjectId: string;
+  pathSnapshot: string | null;
+  identitySnapshot: Record<string, unknown>;
+  evidenceSummary: Record<string, unknown>;
+  revision: number;
+  createdAt: number;
+  updatedAt: number;
+  publishedAt: number | null;
+  staleAt: number | null;
+  decision: "open" | "acknowledged" | "dismissed" | "snoozed" | null;
+  snoozedUntil: number | null;
+  decisionRevision: number | null;
+}
+
+export interface AnalysisFindingEvidence {
+  id: string;
+  findingId: string;
+  evidenceKind: string;
+  subjectKind: string;
+  subjectId: string | null;
+  pathSnapshot: string | null;
+  value: Record<string, unknown>;
+  createdAt: number;
+}
+
+export interface AnalysisFindingDecision {
+  findingKey: string;
+  decision: "open" | "acknowledged" | "dismissed" | "snoozed";
+  snoozedUntil: number | null;
+  note: string | null;
+  revision: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AnalysisFindingPage {
+  findings: AnalysisFinding[];
+  nextCursor: string | null;
+  limit: number;
+}
+
+export interface DedupeAuthority {
+  revision: number;
+  status: "healthy" | "rebuild_required" | "degraded" | string;
+  lastAuthoritativeRunId: string | null;
+  scopeHash: string;
+  updatedAt: number;
 }
 
 export interface DedupeGroup {
@@ -831,7 +976,7 @@ export interface CleanupRestoreProgressPayload {
 
 export interface StorageCleanupScanStatus {
   jobId: string;
-  status: "running" | "completed" | "failed" | "cancelled";
+  status: "queued" | "running" | "cancelling" | "completed" | "completed_with_warnings" | "failed" | "interrupted" | "cancelled";
   progress: StorageCleanupProgress;
   analysis: StorageAnalysis | null;
   error: string | null;

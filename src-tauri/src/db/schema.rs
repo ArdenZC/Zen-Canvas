@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 29;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 30;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -48,6 +48,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         ensure_scan_ledger_schema(conn)?;
         ensure_watcher_reconciliation_schema(conn)?;
         ensure_dedupe_schema(conn)?;
+        ensure_analysis_schema(conn)?;
         backfill_scan_roots_from_settings(conn)?;
         return Ok(());
     }
@@ -695,6 +696,10 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
             ensure_dedupe_schema(conn)?;
             set_schema_version(conn, 29)?;
         }
+        if version < 30 {
+            ensure_analysis_schema(conn)?;
+            set_schema_version(conn, 30)?;
+        }
         Ok(())
     })();
     match migration_result {
@@ -1098,6 +1103,185 @@ fn ensure_dedupe_schema(conn: &Connection) -> Result<(), DbError> {
         FROM duplicate_group_members AS member
         JOIN duplicate_groups AS group_row ON group_row.id = member.group_id
         WHERE group_row.status = 'active';
+        "#,
+    )?;
+    Ok(())
+}
+
+/// Task 03 durable analysis/finding ledger.
+///
+/// The migration deliberately creates no history rows.  In particular, the
+/// dedupe authority starts in `rebuild_required`; an existing schema-29
+/// duplicate group is retained for compatibility but is not silently promoted
+/// to a healthy global publication.
+fn ensure_analysis_schema(conn: &Connection) -> Result<(), DbError> {
+    execute_column_migrations(
+        conn,
+        &[r#"
+            ALTER TABLE dedupe_runs
+            ADD COLUMN publication_mode TEXT NOT NULL DEFAULT 'diagnostic'
+            CHECK (publication_mode IN ('authoritative', 'diagnostic'));
+        "#],
+    )?;
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS dedupe_authority_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+            status TEXT NOT NULL CHECK (status IN ('healthy', 'rebuild_required', 'degraded')),
+            last_authoritative_run_id TEXT,
+            scope_hash TEXT NOT NULL DEFAULT '',
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (last_authoritative_run_id) REFERENCES dedupe_runs(id) ON DELETE SET NULL
+        );
+        INSERT OR IGNORE INTO dedupe_authority_state (
+            id, revision, status, last_authoritative_run_id, scope_hash, updated_at
+        ) VALUES (1, 1, 'rebuild_required', NULL, '', unixepoch());
+
+        CREATE TABLE IF NOT EXISTS analysis_runs (
+            id TEXT PRIMARY KEY,
+            request_key TEXT NOT NULL,
+            request_attempt INTEGER NOT NULL DEFAULT 1 CHECK (request_attempt > 0),
+            scope_json TEXT NOT NULL,
+            scope_hash TEXT NOT NULL,
+            source_snapshot_json TEXT NOT NULL,
+            source_snapshot_hash TEXT NOT NULL,
+            detector_set_json TEXT NOT NULL,
+            detector_set_hash TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN (
+                'queued', 'running', 'cancelling',
+                'completed', 'completed_with_warnings',
+                'cancelled', 'failed', 'interrupted'
+            )),
+            phase TEXT NOT NULL CHECK (phase IN (
+                'preparing', 'running_detectors', 'finalizing', 'completed'
+            )),
+            revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+            cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
+            rerun_required INTEGER NOT NULL DEFAULT 0 CHECK (rerun_required IN (0, 1)),
+            detectors_total INTEGER NOT NULL DEFAULT 0,
+            detectors_completed INTEGER NOT NULL DEFAULT 0,
+            detectors_failed INTEGER NOT NULL DEFAULT 0,
+            findings_staged INTEGER NOT NULL DEFAULT 0,
+            findings_published INTEGER NOT NULL DEFAULT 0,
+            safe_count INTEGER NOT NULL DEFAULT 0,
+            review_count INTEGER NOT NULL DEFAULT 0,
+            caution_count INTEGER NOT NULL DEFAULT 0,
+            exact_reclaimable_bytes INTEGER NOT NULL DEFAULT 0,
+            potential_reclaimable_bytes INTEGER NOT NULL DEFAULT 0,
+            warning_count INTEGER NOT NULL DEFAULT 0,
+            error_count INTEGER NOT NULL DEFAULT 0,
+            started_at INTEGER,
+            finished_at INTEGER,
+            last_checkpoint_at INTEGER,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            error_code TEXT,
+            error_message TEXT,
+            UNIQUE(request_key, request_attempt)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_runs_one_active_scope
+            ON analysis_runs(scope_hash, detector_set_hash)
+            WHERE status IN ('queued', 'running', 'cancelling');
+        CREATE INDEX IF NOT EXISTS idx_analysis_runs_created
+            ON analysis_runs(created_at DESC, id);
+
+        CREATE TABLE IF NOT EXISTS analysis_run_detectors (
+            run_id TEXT NOT NULL REFERENCES analysis_runs(id) ON DELETE CASCADE,
+            detector_id TEXT NOT NULL,
+            detector_version INTEGER NOT NULL CHECK (detector_version > 0),
+            status TEXT NOT NULL CHECK (status IN (
+                'queued', 'running', 'completed', 'completed_with_warnings',
+                'skipped', 'cancelled', 'failed', 'interrupted'
+            )),
+            revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+            scanned_subjects INTEGER NOT NULL DEFAULT 0,
+            findings_staged INTEGER NOT NULL DEFAULT 0,
+            findings_published INTEGER NOT NULL DEFAULT 0,
+            exact_reclaimable_bytes INTEGER NOT NULL DEFAULT 0,
+            potential_reclaimable_bytes INTEGER NOT NULL DEFAULT 0,
+            started_at INTEGER,
+            finished_at INTEGER,
+            error_code TEXT,
+            error_message TEXT,
+            PRIMARY KEY (run_id, detector_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_analysis_run_detectors_status
+            ON analysis_run_detectors(run_id, status, detector_id);
+
+        CREATE TABLE IF NOT EXISTS analysis_findings (
+            id TEXT PRIMARY KEY,
+            finding_key TEXT NOT NULL,
+            run_id TEXT NOT NULL REFERENCES analysis_runs(id) ON DELETE CASCADE,
+            detector_id TEXT NOT NULL,
+            detector_version INTEGER NOT NULL CHECK (detector_version > 0),
+            scope_hash TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN (
+                'staged', 'active', 'stale', 'superseded', 'discarded'
+            )),
+            tier TEXT NOT NULL CHECK (tier IN ('safe', 'review', 'caution')),
+            category TEXT NOT NULL,
+            action_kind TEXT NOT NULL CHECK (action_kind IN (
+                'reveal', 'review_duplicate_group', 'uninstall_advice',
+                'app_internal_cleanup', 'safe_trash_candidate', 'none'
+            )),
+            title TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            risk_note TEXT,
+            confidence TEXT NOT NULL CHECK (confidence IN ('exact', 'estimated', 'unknown')),
+            size_bytes INTEGER NOT NULL DEFAULT 0,
+            exact_reclaimable_bytes INTEGER,
+            potential_reclaimable_bytes INTEGER NOT NULL DEFAULT 0,
+            requires_confirmation INTEGER NOT NULL DEFAULT 1 CHECK (requires_confirmation IN (0, 1)),
+            executable INTEGER NOT NULL DEFAULT 0 CHECK (executable IN (0, 1)),
+            primary_subject_kind TEXT NOT NULL,
+            primary_subject_id TEXT NOT NULL,
+            path_snapshot TEXT,
+            identity_snapshot_json TEXT NOT NULL DEFAULT '{}',
+            evidence_summary_json TEXT NOT NULL DEFAULT '{}',
+            revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            published_at INTEGER,
+            stale_at INTEGER,
+            UNIQUE(run_id, finding_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_analysis_findings_active_page
+            ON analysis_findings(status, tier, potential_reclaimable_bytes DESC, updated_at DESC, id);
+        CREATE INDEX IF NOT EXISTS idx_analysis_findings_key
+            ON analysis_findings(finding_key, status, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_analysis_findings_subject
+            ON analysis_findings(primary_subject_kind, primary_subject_id, status);
+        CREATE INDEX IF NOT EXISTS idx_analysis_findings_run_detector
+            ON analysis_findings(run_id, detector_id, status);
+
+        CREATE TABLE IF NOT EXISTS analysis_finding_evidence (
+            id TEXT PRIMARY KEY,
+            finding_id TEXT NOT NULL REFERENCES analysis_findings(id) ON DELETE CASCADE,
+            evidence_kind TEXT NOT NULL,
+            subject_kind TEXT NOT NULL,
+            subject_id TEXT,
+            path_snapshot TEXT,
+            value_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_analysis_finding_evidence_finding
+            ON analysis_finding_evidence(finding_id, created_at, id);
+        CREATE INDEX IF NOT EXISTS idx_analysis_finding_evidence_subject
+            ON analysis_finding_evidence(subject_kind, subject_id, finding_id);
+
+        CREATE TABLE IF NOT EXISTS analysis_finding_decisions (
+            finding_key TEXT PRIMARY KEY,
+            decision TEXT NOT NULL CHECK (decision IN ('open', 'acknowledged', 'dismissed', 'snoozed')),
+            snoozed_until INTEGER,
+            note TEXT,
+            revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            CHECK (decision <> 'snoozed' OR snoozed_until IS NOT NULL)
+        );
+        CREATE INDEX IF NOT EXISTS idx_analysis_finding_decisions_updated
+            ON analysis_finding_decisions(updated_at DESC, finding_key);
         "#,
     )?;
     Ok(())

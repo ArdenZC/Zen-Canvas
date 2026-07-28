@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { desktopDir, documentDir, downloadDir, tempDir } from "@tauri-apps/api/path";
@@ -27,6 +27,10 @@ import {
   useStorageCleanupStore
 } from "../../store/useStorageCleanupStore";
 import type {
+  AnalysisDetector,
+  AnalysisFinding,
+  AnalysisFindingEvidence,
+  AnalysisRun,
   CleanupExecutionResult,
   CleanupTier,
   StorageAnalysis,
@@ -71,6 +75,19 @@ type StorageCleanupApi = Pick<
       | "onStorageCleanupCompleted"
       | "onStorageCleanupFailed"
       | "onStorageCleanupCancelled"
+      | "getActiveAnalysisRun"
+      | "listAnalysisRuns"
+      | "getAnalysisRun"
+      | "listAnalysisRunDetectors"
+      | "listAnalysisFindings"
+      | "listAnalysisFindingEvidence"
+      | "setAnalysisFindingDecision"
+      | "revalidateAnalysisFinding"
+      | "retryAnalysisRun"
+      | "cancelAnalysisRun"
+      | "onAnalysisRunUpdated"
+      | "onAnalysisFindingsPublished"
+      | "onAnalysisDetectorUpdated"
     >
   >;
 
@@ -105,6 +122,7 @@ function StorageCleanupPanel({
   // re-render the complete cleanup surface.
   const analysisState = useStorageCleanupStore((state) => state.analysis);
   const displayedJobIdState = useStorageCleanupStore((state) => state.displayedJobId);
+  const activeJobIdState = useStorageCleanupStore((state) => state.activeJobId);
   const selectedRootsState = useStorageCleanupStore((state) => state.selectedRoots);
   const selectedCleanupIdsState = useStorageCleanupStore((state) => state.selectedCleanupIds);
   const activeTierFilterState = useStorageCleanupStore((state) => state.activeTierFilter);
@@ -173,6 +191,31 @@ function StorageCleanupPanel({
       while (disposers.length) disposers.pop()?.();
     };
   }, [api, initialAnalysis, t]);
+
+  useEffect(() => {
+    if (initialAnalysis || !api.getActiveAnalysisRun || !api.listAnalysisRuns || !api.onAnalysisRunUpdated) {
+      return undefined;
+    }
+    let disposed = false;
+    const disposers: UnlistenFn[] = [];
+    void useStorageCleanupStore.getState().hydrateDurable(api);
+    async function wireDurableRunEvents() {
+      const off = await api.onAnalysisRunUpdated?.((run) => {
+        if (!disposed && run.scope.kind === "approved_cleanup_paths") {
+          void useStorageCleanupStore.getState().hydrateDurable(api, run.id);
+        }
+      });
+      if (off) disposers.push(off);
+      if (disposed) {
+        while (disposers.length) disposers.pop()?.();
+      }
+    }
+    void wireDurableRunEvents();
+    return () => {
+      disposed = true;
+      while (disposers.length) disposers.pop()?.();
+    };
+  }, [api, initialAnalysis]);
 
   useEffect(() => {
     if (initialAnalysis || !api.getAISettings) {
@@ -400,6 +443,13 @@ function StorageCleanupPanel({
             ))}
           </div>
         </section>
+
+        {!initialAnalysis && (
+          <DurableAnalysisPanel
+            api={api}
+            currentRunId={displayedJobIdState ?? activeJobIdState}
+          />
+        )}
 
         {isScanning && (
           <NoticeBanner tone="info" title={t("storageCleanupLoading")}>
@@ -699,6 +749,450 @@ function StorageCleanupPanel({
         onCancel={() => setReviewConfirmCandidate(null)}
       />
     </>
+  );
+}
+
+function DurableAnalysisPanel({
+  api,
+  currentRunId
+}: {
+  api: StorageCleanupApi;
+  currentRunId: string | null;
+}) {
+  const [runs, setRuns] = useState<AnalysisRun[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(currentRunId);
+  const [run, setRun] = useState<AnalysisRun | null>(null);
+  const [detectors, setDetectors] = useState<AnalysisDetector[]>([]);
+  const [findings, setFindings] = useState<AnalysisFinding[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [tierFilter, setTierFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [decisionFilter, setDecisionFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("active");
+  const [expandedFindingId, setExpandedFindingId] = useState<string | null>(null);
+  const [evidenceByFinding, setEvidenceByFinding] = useState<Record<string, AnalysisFindingEvidence[]>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const requestSequence = useRef(0);
+  const knownRunRevision = useRef(0);
+  const knownDetectorRevisions = useRef(new Map<string, number>());
+
+  const supported = Boolean(api.listAnalysisRuns && api.listAnalysisFindings);
+
+  const loadRuns = useCallback(async () => {
+    if (!api.listAnalysisRuns) return;
+    try {
+      const listed = await api.listAnalysisRuns(20);
+      const cleanupRuns = listed.filter((item) => item.scope.kind === "approved_cleanup_paths");
+      setRuns(cleanupRuns);
+      setSelectedRunId((previous) => {
+        if (currentRunId && cleanupRuns.some((item) => item.id === currentRunId)) return currentRunId;
+        if (previous && cleanupRuns.some((item) => item.id === previous)) return previous;
+        return cleanupRuns[0]?.id ?? null;
+      });
+    } catch (loadError) {
+      setError(readableError(loadError));
+    }
+  }, [api, currentRunId]);
+
+  const loadFindings = useCallback(async (runId: string, cursor: string | null = null, append = false) => {
+    if (!api.listAnalysisFindings) return;
+    const requestId = ++requestSequence.current;
+    setLoading(true);
+    try {
+      const page = await api.listAnalysisFindings({
+        runId,
+        tier: tierFilter === "all" ? undefined : tierFilter,
+        category: categoryFilter === "all" ? undefined : categoryFilter,
+        decision: decisionFilter === "all" ? undefined : decisionFilter,
+        status: statusFilter === "all" ? undefined : statusFilter,
+        cursor,
+        limit: 30
+      });
+      if (requestId !== requestSequence.current) return;
+      setFindings((previous) => {
+        if (!append) return page.findings;
+        const existing = new Set(previous.map((finding) => finding.id));
+        return [...previous, ...page.findings.filter((finding) => !existing.has(finding.id))];
+      });
+      setNextCursor(page.nextCursor);
+      setError("");
+    } catch (loadError) {
+      if (requestId === requestSequence.current) setError(readableError(loadError));
+    } finally {
+      if (requestId === requestSequence.current) setLoading(false);
+    }
+  }, [api, categoryFilter, decisionFilter, statusFilter, tierFilter]);
+
+  const loadRunDetails = useCallback(async (runId: string) => {
+    try {
+      const [runResult, detectorResult] = await Promise.all([
+        api.getAnalysisRun?.(runId),
+        api.listAnalysisRunDetectors?.(runId)
+      ]);
+      if (runResult && runResult.revision >= knownRunRevision.current) {
+        knownRunRevision.current = runResult.revision;
+        setRun(runResult);
+      }
+      if (detectorResult) {
+        const durableDetectors = detectorResult.filter((detector) => {
+          const known = knownDetectorRevisions.current.get(detector.detectorId) ?? 0;
+          if (detector.revision < known) return false;
+          knownDetectorRevisions.current.set(detector.detectorId, detector.revision);
+          return true;
+        });
+        setDetectors(durableDetectors);
+      }
+      setError("");
+    } catch (loadError) {
+      setError(readableError(loadError));
+    }
+  }, [api]);
+
+  useEffect(() => {
+    if (!supported) return;
+    void loadRuns();
+  }, [loadRuns, supported]);
+
+  useEffect(() => {
+    if (!selectedRunId) {
+      setRun(null);
+      setDetectors([]);
+      setFindings([]);
+      setNextCursor(null);
+      return;
+    }
+    void loadRunDetails(selectedRunId);
+    void loadFindings(selectedRunId);
+  }, [loadFindings, loadRunDetails, selectedRunId]);
+
+  useEffect(() => {
+    if (!api.onAnalysisRunUpdated) return undefined;
+    let disposed = false;
+    let disposer: (() => void) | undefined;
+    const handleRunEvent = (updatedRun: AnalysisRun) => {
+      if (disposed || updatedRun.scope.kind !== "approved_cleanup_paths") return;
+      void loadRuns();
+      if (!selectedRunId || updatedRun.id !== selectedRunId) return;
+      const known = knownRunRevision.current;
+      if (updatedRun.revision <= known) return;
+      if (known > 0 && updatedRun.revision > known + 1) {
+        void loadRunDetails(updatedRun.id);
+        void loadFindings(updatedRun.id);
+        void useStorageCleanupStore.getState().hydrateDurable(api, updatedRun.id);
+        return;
+      }
+      knownRunRevision.current = updatedRun.revision;
+      setRun(updatedRun);
+      setRuns((previous) => previous.map((item) => item.id === updatedRun.id ? updatedRun : item));
+      void loadFindings(updatedRun.id);
+    };
+    async function subscribe() {
+      const off = await api.onAnalysisRunUpdated?.(handleRunEvent);
+      disposer = off;
+      if (disposed) disposer?.();
+    }
+    void subscribe();
+    return () => {
+      disposed = true;
+      disposer?.();
+    };
+  }, [api, loadFindings, loadRunDetails, loadRuns, selectedRunId]);
+
+  useEffect(() => {
+    knownRunRevision.current = 0;
+    knownDetectorRevisions.current.clear();
+  }, [selectedRunId]);
+
+  useEffect(() => {
+    if (!selectedRunId || !api.onAnalysisFindingsPublished) return undefined;
+    let disposed = false;
+    let disposer: (() => void) | undefined;
+    const handlePublishedEvent = (updatedRun: AnalysisRun) => {
+      if (disposed || updatedRun.id !== selectedRunId) return;
+      const known = knownRunRevision.current;
+      if (updatedRun.revision <= known) return;
+      if (known > 0 && updatedRun.revision > known + 1) {
+        void loadRunDetails(updatedRun.id);
+        void loadFindings(updatedRun.id);
+        void useStorageCleanupStore.getState().hydrateDurable(api, updatedRun.id);
+        return;
+      }
+      knownRunRevision.current = updatedRun.revision;
+      setRun(updatedRun);
+      setRuns((previous) => previous.map((item) => item.id === updatedRun.id ? updatedRun : item));
+      void loadFindings(updatedRun.id);
+    };
+    void api.onAnalysisFindingsPublished(handlePublishedEvent).then((off) => {
+      disposer = off;
+      if (disposed) disposer();
+    });
+    return () => {
+      disposed = true;
+      disposer?.();
+    };
+  }, [api, loadFindings, selectedRunId]);
+
+  useEffect(() => {
+    if (!selectedRunId || !api.onAnalysisDetectorUpdated) return undefined;
+    let disposed = false;
+    let disposer: (() => void) | undefined;
+    void api.onAnalysisDetectorUpdated((detector) => {
+      if (disposed || detector.runId !== selectedRunId) return;
+      const known = knownDetectorRevisions.current.get(detector.detectorId) ?? 0;
+      if (detector.revision <= known) return;
+      if (known > 0 && detector.revision > known + 1) {
+        void loadRunDetails(selectedRunId);
+        return;
+      }
+      knownDetectorRevisions.current.set(detector.detectorId, detector.revision);
+      setDetectors((previous) => {
+        const found = previous.some((item) => item.detectorId === detector.detectorId);
+        return found
+          ? previous.map((item) => item.detectorId === detector.detectorId ? detector : item)
+          : [...previous, detector];
+      });
+    }).then((off) => {
+      disposer = off;
+      if (disposed) disposer();
+    });
+    return () => {
+      disposed = true;
+      disposer?.();
+    };
+  }, [api, loadRunDetails, selectedRunId]);
+
+  if (!supported) return null;
+
+  async function chooseRun(runId: string) {
+    setSelectedRunId(runId);
+    await useStorageCleanupStore.getState().hydrateDurable(api, runId);
+  }
+
+  async function changeRun(action: "cancel" | "retry") {
+    if (!selectedRunId) return;
+    const method = action === "cancel" ? api.cancelAnalysisRun : api.retryAnalysisRun;
+    if (!method) return;
+    try {
+      const next = await method(selectedRunId);
+      knownRunRevision.current = next.revision;
+      setRun(next);
+      setRuns((previous) => [next, ...previous.filter((item) => item.id !== next.id)].slice(0, 20));
+      if (action === "retry") await chooseRun(next.id);
+    } catch (runError) {
+      setError(readableError(runError));
+    }
+  }
+
+  async function toggleEvidence(finding: AnalysisFinding) {
+    if (expandedFindingId === finding.id) {
+      setExpandedFindingId(null);
+      return;
+    }
+    setExpandedFindingId(finding.id);
+    if (!api.listAnalysisFindingEvidence || evidenceByFinding[finding.id]) return;
+    try {
+      const evidence = await api.listAnalysisFindingEvidence(finding.id);
+      setEvidenceByFinding((previous) => ({ ...previous, [finding.id]: evidence }));
+    } catch (evidenceError) {
+      setError(readableError(evidenceError));
+    }
+  }
+
+  async function updateDecision(
+    finding: AnalysisFinding,
+    decision: "open" | "acknowledged" | "dismissed" | "snoozed"
+  ) {
+    if (!api.setAnalysisFindingDecision || !selectedRunId) return;
+    try {
+      await api.setAnalysisFindingDecision({
+        findingKey: finding.findingKey,
+        decision,
+        snoozedUntil: decision === "snoozed" ? Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60 : null,
+        expectedRevision: finding.decisionRevision ?? 0
+      });
+      await loadFindings(selectedRunId);
+    } catch (decisionError) {
+      setError(readableError(decisionError));
+    }
+  }
+
+  async function revalidate(finding: AnalysisFinding) {
+    if (!api.revalidateAnalysisFinding || !selectedRunId) return;
+    try {
+      await api.revalidateAnalysisFinding(finding.id);
+      await loadFindings(selectedRunId);
+    } catch (revalidateError) {
+      setError(readableError(revalidateError));
+    }
+  }
+
+  return (
+    <section className={cn(contentPanel, "grid gap-3 p-4")} data-analysis-ledger>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className={sectionHeading}>Durable Analysis / Findings</h2>
+            {run && <ToneBadge tone={analysisRunTone(run.status)}>{run.status}</ToneBadge>}
+          </div>
+          <p className={sectionDescription}>
+            SQLite durable runs, detector progress, evidence and review decisions; findings never authorize a mutation by themselves.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {run && ["queued", "running", "cancelling"].includes(run.status) && api.cancelAnalysisRun && (
+            <button className={buttonSecondary} onClick={() => void changeRun("cancel")}>Cancel run</button>
+          )}
+          {run && ["completed_with_warnings", "failed", "interrupted", "cancelled"].includes(run.status) && api.retryAnalysisRun && (
+            <button className={buttonSecondary} onClick={() => void changeRun("retry")}>Retry run</button>
+          )}
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-[minmax(190px,0.35fr)_minmax(0,1fr)]">
+        <div className="grid content-start gap-2">
+          <span className={metadataText}>Recent cleanup runs</span>
+          {runs.length === 0 ? (
+            <span className={quietText}>No durable cleanup run has been recorded.</span>
+          ) : runs.slice(0, 8).map((item) => (
+            <button
+              key={item.id}
+              className={cn(
+                buttonSecondary,
+                "justify-between text-left",
+                item.id === selectedRunId && "border-[var(--accent)] bg-[var(--accent-soft)]"
+              )}
+              onClick={() => void chooseRun(item.id)}
+            >
+              <span className="min-w-0 truncate">{item.id}</span>
+              <ToneBadge tone={analysisRunTone(item.status)}>{item.status}</ToneBadge>
+            </button>
+          ))}
+        </div>
+
+        <div className="grid gap-3">
+          {run && (
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-2">
+              <MetricCard label="Phase" value={run.phase} hint={`revision ${run.revision}`} tone="blue" />
+              <MetricCard label="Safe" value={run.safeCount} hint={formatBytes(run.exactReclaimableBytes)} tone="green" />
+              <MetricCard label="Review" value={run.reviewCount} hint={formatBytes(run.potentialReclaimableBytes)} tone="amber" />
+              <MetricCard label="Caution" value={run.cautionCount} hint="never executable" tone="red" />
+            </div>
+          )}
+          {detectors.length > 0 && (
+            <div className="grid gap-2">
+              <span className={metadataText}>Detector progress</span>
+              {detectors.map((detector) => (
+                <div key={detector.detectorId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--line)] px-3 py-2 text-sm">
+                  <span>{detector.detectorId}</span>
+                  <span className={quietText}>{detector.status} · {detector.findingsPublished.toLocaleString()} published</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {selectedRunId && (
+        <>
+          <div className="flex flex-wrap items-center gap-2 border-t border-[var(--line)] pt-3">
+            <span className={metadataText}>Finding filters</span>
+            <select className={buttonSecondary} value={tierFilter} onChange={(event) => setTierFilter(event.target.value)}>
+              <option value="all">All tiers</option>
+              <option value="safe">Safe</option>
+              <option value="review">Review</option>
+              <option value="caution">Caution</option>
+            </select>
+            <select className={buttonSecondary} value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
+              <option value="all">All categories</option>
+              <option value="duplicate_group">Duplicate group</option>
+              <option value="large_file">Large file</option>
+              <option value="large_directory">Large directory</option>
+              <option value="temp_cache">Cleanup heuristic</option>
+            </select>
+            <select className={buttonSecondary} value={decisionFilter} onChange={(event) => setDecisionFilter(event.target.value)}>
+              <option value="all">All decisions</option>
+              <option value="open">Open</option>
+              <option value="acknowledged">Acknowledged</option>
+              <option value="dismissed">Dismissed</option>
+              <option value="snoozed">Snoozed</option>
+            </select>
+            <select className={buttonSecondary} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="active">Active</option>
+              <option value="stale">Stale</option>
+              <option value="all">All statuses</option>
+            </select>
+          </div>
+
+          {error && <NoticeBanner tone="warning">{error}</NoticeBanner>}
+          {loading && <NoticeBanner tone="info">Loading durable findings…</NoticeBanner>}
+          {!loading && findings.length === 0 ? (
+            <StateBlock density="compact" tone="info" title="No findings for this run" description="Change the filters or run the approved cleanup analysis again." />
+          ) : (
+            <div className="grid gap-2">
+              {findings.map((finding) => {
+                const evidence = evidenceByFinding[finding.id] ?? [];
+                const expanded = expandedFindingId === finding.id;
+                return (
+                  <article key={finding.id} className="grid gap-2 rounded-xl border border-[var(--line)] p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <strong className="text-sm text-[var(--ink)]">{finding.title}</strong>
+                          <ToneBadge tone={analysisFindingTone(finding.tier)}>{finding.tier}</ToneBadge>
+                          {finding.status !== "active" && <ToneBadge tone="warning">{finding.status}</ToneBadge>}
+                          {finding.decision && <ToneBadge tone="slate">{finding.decision}</ToneBadge>}
+                        </div>
+                        <p className={cn(quietText, "mt-1")}>{finding.reason}</p>
+                        {finding.pathSnapshot && <p className={cn(quietText, "truncate")} title={finding.pathSnapshot}>{compactPath(finding.pathSnapshot, 120)}</p>}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {finding.pathSnapshot && api.revealStorageCandidate && (
+                          <button className={buttonSecondary} onClick={() => void api.revealStorageCandidate?.(finding.pathSnapshot!)}>Reveal</button>
+                        )}
+                        <button className={buttonSecondary} onClick={() => void toggleEvidence(finding)}>{expanded ? "Hide evidence" : "Evidence"}</button>
+                        {finding.status === "stale" && api.revalidateAnalysisFinding && (
+                          <button className={buttonSecondary} onClick={() => void revalidate(finding)}>Revalidate</button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--ink-muted)]">
+                      <span>Detector: {finding.detectorId}</span>
+                      <span>Action: {finding.actionKind}</span>
+                      <span>Exact: {formatBytes(finding.exactReclaimableBytes ?? 0)}</span>
+                      <span>Potential: {formatBytes(finding.potentialReclaimableBytes)}</span>
+                      {finding.category === "duplicate_group" && <span>Read-only duplicate group</span>}
+                    </div>
+                    {api.setAnalysisFindingDecision && (
+                      <div className="flex flex-wrap gap-2">
+                        <button className={buttonSecondary} onClick={() => void updateDecision(finding, "acknowledged")}>Acknowledge</button>
+                        <button className={buttonSecondary} onClick={() => void updateDecision(finding, "dismissed")}>Dismiss</button>
+                        <button className={buttonSecondary} onClick={() => void updateDecision(finding, "snoozed")}>Snooze 7d</button>
+                        {finding.decision && <button className={buttonSecondary} onClick={() => void updateDecision(finding, "open")}>Reopen</button>}
+                      </div>
+                    )}
+                    {expanded && (
+                      <div className="grid gap-1 rounded-lg bg-[var(--surface-muted)] p-3 text-xs">
+                        <span>Identity: {finding.identitySnapshot ? JSON.stringify(finding.identitySnapshot) : "unknown"}</span>
+                        <span>Source revision: {finding.revision}</span>
+                        {evidence.map((item) => (
+                          <span key={item.id}>{item.evidenceKind === "ai_assessment" ? "AI assessment" : item.evidenceKind}: {JSON.stringify(item.value)}</span>
+                        ))}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+              {nextCursor && (
+                <button className={buttonSecondary} onClick={() => void loadFindings(selectedRunId, nextCursor, true)} disabled={loading}>
+                  Load more findings
+                </button>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 
@@ -1034,4 +1528,19 @@ function filterTitle(filter: CleanupTier | "All", t: Translator) {
   if (filter === "Safe") return t("storageCleanupSafeTier");
   if (filter === "Review") return t("storageCleanupReviewTier");
   return t("storageCleanupCautionTier");
+}
+
+function analysisRunTone(status: string): "green" | "amber" | "red" | "slate" | "blue" {
+  if (status === "completed") return "green";
+  if (status === "completed_with_warnings" || status === "cancelling") return "amber";
+  if (status === "failed" || status === "interrupted") return "red";
+  if (status === "cancelled") return "slate";
+  return "blue";
+}
+
+function analysisFindingTone(tier: string): "green" | "amber" | "red" | "slate" {
+  if (tier === "safe") return "green";
+  if (tier === "review") return "amber";
+  if (tier === "caution") return "red";
+  return "slate";
 }

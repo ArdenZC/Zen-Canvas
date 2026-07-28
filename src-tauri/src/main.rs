@@ -32,6 +32,10 @@ fn main() {
         .setup(|app| {
             let db = open_database(app.handle()).map_err(io::Error::other)?;
             db.recover_dedupe_runs().map_err(io::Error::other)?;
+            db.recover_analysis_runs().map_err(io::Error::other)?;
+            if let Err(error) = db.prune_analysis_artifacts() {
+                eprintln!("Analysis retention prune skipped: {error}");
+            }
             if let Err(error) = db.prune_dedupe_artifacts() {
                 eprintln!("Dedupe retention prune skipped: {error}");
             }
@@ -51,6 +55,7 @@ fn main() {
             app.manage(ScanJobManager::default());
             let dedupe_jobs = DedupeJobManager::default();
             app.manage(dedupe_jobs.clone());
+            app.manage(zen_canvas_tauri::analysis::AnalysisRunManager::default());
             if let Err(error) = zen_canvas_tauri::scanner::resume_pending_dedupe_dispatches(
                 app.handle().clone(),
                 db.clone(),
@@ -61,7 +66,6 @@ fn main() {
             app.manage(OperationCancellationToken::default());
             app.manage(AIClassificationCancellationToken::default());
             app.manage(FileWatcherManager::default());
-            app.manage(zen_canvas_tauri::storage_analyzer::StorageCleanupState::default());
             app.manage(zen_canvas_tauri::storage_analyzer::CleanupRestoreState::default());
             app.manage(zen_canvas_tauri::app_control::GlobalHotkeyStatusState::default());
             zen_canvas_tauri::app_control::setup_tray(app).map_err(io::Error::other)?;
@@ -186,6 +190,20 @@ fn main() {
             zen_canvas_tauri::dedupe::get_duplicate_group,
             zen_canvas_tauri::dedupe::list_duplicate_group_members,
             zen_canvas_tauri::dedupe::get_file_duplicate_membership,
+            zen_canvas_tauri::analysis::list_analysis_detectors,
+            zen_canvas_tauri::analysis::start_analysis_run,
+            zen_canvas_tauri::analysis::cancel_analysis_run,
+            zen_canvas_tauri::analysis::retry_analysis_run,
+            zen_canvas_tauri::analysis::get_analysis_run,
+            zen_canvas_tauri::analysis::get_active_analysis_run,
+            zen_canvas_tauri::analysis::list_analysis_runs,
+            zen_canvas_tauri::analysis::list_analysis_run_detectors,
+            zen_canvas_tauri::analysis::list_analysis_findings,
+            zen_canvas_tauri::analysis::get_analysis_finding,
+            zen_canvas_tauri::analysis::list_analysis_finding_evidence,
+            zen_canvas_tauri::analysis::get_dedupe_authority,
+            zen_canvas_tauri::analysis::set_analysis_finding_decision,
+            zen_canvas_tauri::analysis::revalidate_analysis_finding,
             zen_canvas_tauri::file_ops::reveal_in_folder,
             zen_canvas_tauri::file_ops::execute_moves,
             zen_canvas_tauri::file_ops::restore_moves,
