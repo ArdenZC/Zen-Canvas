@@ -121,3 +121,15 @@ body.search-window-root {
     scroll-behavior: auto !important;
   }
 }
+
+@media (prefers-contrast: more), (forced-colors: active) {
+  [role="option"][aria-selected="true"] {
+    outline: 2px solid CanvasText;
+    outline-offset: -2px;
+  }
+
+  [role="search"],
+  [role="dialog"] {
+    border-color: CanvasText;
+  }
+}

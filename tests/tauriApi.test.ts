@@ -175,12 +175,36 @@ describe("tauriApi", () => {
     });
   });
 
-  it("subscribes to the native global-search fallback event", async () => {
+  it("subscribes to the Rust-owned search lifecycle and main readiness event", async () => {
     apiMocks.listen.mockResolvedValueOnce(() => undefined);
 
-    await tauriApi.onGlobalSearchRequested(() => undefined);
+    await tauriApi.onMainWindowReadyRequest(() => undefined);
 
-    expect(apiMocks.listen).toHaveBeenCalledWith("global-search-requested", expect.any(Function));
+    expect(apiMocks.listen).toHaveBeenCalledWith("search-main-ready-request", expect.any(Function));
+  });
+
+  it("sends the versioned global-search request and lifecycle CAS payloads", async () => {
+    const request = {
+      version: 2 as const,
+      requestId: "spotlight:4:9",
+      query: "报告",
+      limit: 80,
+      offset: 0,
+      cursor: null
+    };
+    const snapshot = { sessionId: 4, revision: 9, phase: "visible_collapsed" as const };
+
+    await tauriApi.searchGlobalEntries(request);
+    await tauriApi.resizeSearchWindow(snapshot, true);
+    await tauriApi.hideSearchWindow(snapshot);
+
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(1, "search_global_entries", { request });
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(2, "resize_search_window", {
+      request: { sessionId: 4, expectedRevision: 9, expanded: true }
+    });
+    expect(apiMocks.invoke).toHaveBeenNthCalledWith(3, "hide_search_window_command", {
+      request: { sessionId: 4, expectedRevision: 9 }
+    });
   });
 
   it("falls back to browser mock data when the Tauri runtime is unavailable in dev", async () => {

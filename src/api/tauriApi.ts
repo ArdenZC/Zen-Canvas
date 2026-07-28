@@ -41,7 +41,8 @@ import type {
   FileRecord,
   GlobalIndexSource,
   GlobalIndexStatus,
-  GlobalSearchResult,
+  GlobalSearchRequest,
+  GlobalSearchResponse,
   LibraryScope,
   ManagedScope,
   OperationLog,
@@ -306,9 +307,28 @@ export interface GlobalHotkeyErrorPayload {
 }
 
 export interface GlobalHotkeyStatus {
-  accelerator: string;
+  requestedAccelerator: string;
+  effectiveAccelerator: string | null;
   registered: boolean;
   error: string | null;
+  revision: number;
+}
+
+export type SearchWindowPhase =
+  | "hidden"
+  | "showing"
+  | "visible_collapsed"
+  | "visible_expanded"
+  | "hiding";
+
+export interface SearchWindowSnapshot {
+  sessionId: number;
+  revision: number;
+  phase: SearchWindowPhase;
+}
+
+export interface MainWindowReadyRequest {
+  nonce: number;
 }
 
 export interface TauriSearchFileResult {
@@ -373,8 +393,8 @@ export const tauriApi = {
     return invokeCommand<FileRecord[]>("search_files", { query, limit, scope: scope ?? null });
   },
 
-  searchGlobalEntries(query: string, limit = 80, offset = 0): Promise<GlobalSearchResult[]> {
-    return invokeCommand<GlobalSearchResult[]>("search_global_entries", { query, limit, offset });
+  searchGlobalEntries(request: GlobalSearchRequest): Promise<GlobalSearchResponse> {
+    return invokeCommand<GlobalSearchResponse>("search_global_entries", { request });
   },
 
   getGlobalIndexStatus(): Promise<GlobalIndexStatus> {
@@ -846,12 +866,53 @@ export const tauriApi = {
     return invokeCommand<void>("quit_app");
   },
 
-  activateSearchResult(view: View, fileId: string | null): Promise<void> {
-    return invokeCommand<void>("activate_search_result", { view, fileId });
+  activateSearchResult(
+    view: View,
+    fileId: string | null,
+    snapshot?: Pick<SearchWindowSnapshot, "sessionId" | "revision">
+  ): Promise<void> {
+    return invokeCommand<void>("activate_search_result", {
+      request: {
+        sessionId: snapshot?.sessionId ?? null,
+        expectedRevision: snapshot?.revision ?? null,
+        view,
+        fileId
+      }
+    });
   },
 
-  resizeSearchWindow(expanded: boolean): Promise<void> {
-    return invokeCommand<void>("resize_search_window", { expanded });
+  getSearchWindowState(): Promise<SearchWindowSnapshot> {
+    return invokeCommand<SearchWindowSnapshot>("get_search_window_state");
+  },
+
+  searchWindowReady(snapshot: SearchWindowSnapshot): Promise<SearchWindowSnapshot> {
+    return invokeCommand<SearchWindowSnapshot>("search_window_ready", {
+      request: { sessionId: snapshot.sessionId, expectedRevision: snapshot.revision }
+    });
+  },
+
+  resizeSearchWindow(snapshot: SearchWindowSnapshot, expanded: boolean): Promise<SearchWindowSnapshot> {
+    return invokeCommand<SearchWindowSnapshot>("resize_search_window", {
+      request: {
+        sessionId: snapshot.sessionId,
+        expectedRevision: snapshot.revision,
+        expanded
+      }
+    });
+  },
+
+  hideSearchWindow(snapshot: SearchWindowSnapshot): Promise<SearchWindowSnapshot> {
+    return invokeCommand<SearchWindowSnapshot>("hide_search_window_command", {
+      request: { sessionId: snapshot.sessionId, expectedRevision: snapshot.revision }
+    });
+  },
+
+  markMainWindowReady(ready: boolean): Promise<void> {
+    return invokeCommand<void>("mark_main_window_ready", { ready });
+  },
+
+  acknowledgeMainWindowReady(nonce: number): Promise<void> {
+    return invokeCommand<void>("acknowledge_main_window_ready", { nonce });
   },
 
   initDatabase(): Promise<void> {
@@ -940,8 +1001,12 @@ export const tauriApi = {
     return listenTo("search-navigate", handler);
   },
 
-  onGlobalSearchRequested(handler: EventHandler<null>): Promise<UnlistenFn> {
-    return listenTo("global-search-requested", handler);
+  onSearchWindowState(handler: EventHandler<SearchWindowSnapshot>): Promise<UnlistenFn> {
+    return listenTo("search-window-state", handler);
+  },
+
+  onMainWindowReadyRequest(handler: EventHandler<MainWindowReadyRequest>): Promise<UnlistenFn> {
+    return listenTo("search-main-ready-request", handler);
   },
 
   onGlobalHotkeyRegistrationFailed(handler: EventHandler<GlobalHotkeyErrorPayload>): Promise<UnlistenFn> {

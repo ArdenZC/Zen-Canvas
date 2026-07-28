@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { FolderPlus, Keyboard, Play, Trash2 } from "lucide-react";
 import packageInfo from "../../../package.json";
-import { tauriApi, type WatcherReconciliationStatus } from "../../api/tauriApi";
+import { tauriApi, type GlobalHotkeyStatus, type WatcherReconciliationStatus } from "../../api/tauriApi";
 import { useChromeContext, useSettingsContext } from "../../contexts/AppContexts";
 import {
   removeSearchRoot,
@@ -280,6 +280,7 @@ export function SettingsView() {
   const [settingsStatusTone, setSettingsStatusTone] = useState<StatusTone>("success");
   const [isRecordingHotkey, setIsRecordingHotkey] = useState(false);
   const [recordingHotkeyPreview, setRecordingHotkeyPreview] = useState("");
+  const [globalHotkeyStatus, setGlobalHotkeyStatus] = useState<GlobalHotkeyStatus | null>(null);
   const [folderDeleteConfirm, setFolderDeleteConfirm] = useState<FolderDeleteConfirmState | null>(null);
   const [isDeletingFolderConfig, setIsDeletingFolderConfig] = useState(false);
   const [globalIndexStatus, setGlobalIndexStatus] = useState<GlobalIndexStatus | null>(null);
@@ -415,6 +416,7 @@ export function SettingsView() {
     let disposed = false;
     void tauriApi.getGlobalHotkeyStatus().then((status) => {
       if (!disposed) {
+        setGlobalHotkeyStatus(status);
         setGlobalHotkeyError(status?.error ?? "");
       }
     }).catch(() => {
@@ -738,6 +740,8 @@ export function SettingsView() {
     }
 
     const saved = await setSearchHotkey(next);
+    const status = await tauriApi.getGlobalHotkeyStatus().catch(() => null);
+    setGlobalHotkeyStatus(status);
     if (saved) {
       showStatus(t("hotkeySaved"));
       setIsRecordingHotkey(false);
@@ -1265,6 +1269,15 @@ export function SettingsView() {
           ) : (
             <span className={quietText}>{t("hotkeyActiveHint")}</span>
           )}
+          {globalHotkeyStatus ? (
+            <span className={quietText}>
+              {t("hotkeyCaptureCurrent")}: {formatHotkeyLabel(globalHotkeyStatus.requestedAccelerator, platform)}
+              {" · "}
+              {t("hotkeyActiveHint")}: {globalHotkeyStatus.effectiveAccelerator
+                ? formatHotkeyLabel(globalHotkeyStatus.effectiveAccelerator, platform)
+                : t("globalIndexStatusUnavailable")}
+            </span>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             {["CmdOrCtrl+K", "CmdOrCtrl+Shift+K", "Alt+Space", "CmdOrCtrl+Alt+Space"].map((accelerator) => (
               <button

@@ -3,31 +3,93 @@ use super::models::*;
 use super::search::search_global_entries as search_global_entries_impl;
 use crate::db::Database;
 use crate::window_auth::require_main_window;
-use std::process::Command;
+use std::{collections::HashSet, fs, process::Command};
 use tauri::{Runtime, State, WebviewWindow};
 
 #[tauri::command]
 pub fn search_global_entries(
     db: State<'_, Database>,
-    query: String,
-    limit: Option<u32>,
-    offset: Option<u32>,
-) -> Result<Vec<GlobalSearchResult>, String> {
-    search_global_entries_impl(db.inner(), &query, limit.unwrap_or(80), offset.unwrap_or(0))
-        .map_err(|error| error.to_string())
+    coordinator: State<'_, GlobalIndexCoordinator>,
+    request: GlobalSearchRequest,
+) -> Result<GlobalSearchResponse, String> {
+    let (request_id, normalized_query, offset) = validate_global_search_request(&request)?;
+    let mut results =
+        search_global_entries_impl(db.inner(), &normalized_query, request.limit, offset)
+            .map_err(|error| error.to_string())?;
+    let source_health = global_search_source_health(db.inner())?;
+    retain_enabled_source_results(&mut results, &source_health);
+
+    let index_status = load_global_index_status(coordinator.inner())?;
+    let collection_complete = index_status.collection_complete;
+    let result_state = global_search_result_state(results.is_empty(), collection_complete);
+    let source_revision = source_health_revision(&source_health);
+    Ok(GlobalSearchResponse {
+        version: 2,
+        request_id,
+        normalized_query,
+        results,
+        index_status,
+        collection_complete,
+        result_state: result_state.to_string(),
+        source_revision,
+        source_health,
+    })
+}
+
+fn validate_global_search_request(
+    request: &GlobalSearchRequest,
+) -> Result<(String, String, u32), String> {
+    if request.version != 2 {
+        return Err("global_search_contract_version_unsupported".to_string());
+    }
+    let request_id = request.request_id.trim();
+    if request_id.is_empty() || request_id.len() > 128 {
+        return Err("global_search_request_id_invalid".to_string());
+    }
+    let normalized_query = request.query.trim().to_string();
+    if normalized_query.chars().count() > 512 {
+        return Err("global_search_query_too_long".to_string());
+    }
+    let offset = request
+        .cursor
+        .as_deref()
+        .map(parse_search_cursor)
+        .transpose()?
+        .unwrap_or(request.offset);
+    Ok((request_id.to_string(), normalized_query, offset))
+}
+
+fn retain_enabled_source_results(
+    results: &mut Vec<GlobalSearchResult>,
+    source_health: &[GlobalSearchSourceHealth],
+) {
+    let enabled_sources = source_health
+        .iter()
+        .filter(|source| source.enabled)
+        .map(|source| source.source_id.as_str())
+        .collect::<HashSet<_>>();
+    results.retain(|result| enabled_sources.contains(result.volume_id.as_str()));
+}
+
+fn global_search_result_state(results_empty: bool, collection_complete: bool) -> &'static str {
+    if results_empty {
+        if collection_complete {
+            "empty"
+        } else {
+            "pending"
+        }
+    } else if collection_complete {
+        "complete"
+    } else {
+        "partial"
+    }
 }
 
 #[tauri::command]
 pub fn get_global_index_status(
     coordinator: State<'_, GlobalIndexCoordinator>,
 ) -> Result<GlobalIndexStatus, String> {
-    let mut status = coordinator.status().map_err(|error| error.to_string())?;
-    status.provider_status = coordinator.provider_status().ok();
-    // `collection_complete` means coverage is complete and healthy, not merely
-    // that an initial provider pass returned. Permission, Spotlight/FSEvents,
-    // unavailable, partial, paused, and rebuild states remain incomplete.
-    status.collection_complete = status.status == INDEX_STATUS_READY;
-    Ok(status)
+    load_global_index_status(coordinator.inner())
 }
 
 #[tauri::command]
@@ -109,7 +171,7 @@ pub fn set_global_index_source_enabled<R: Runtime>(
 
 #[tauri::command]
 pub fn open_global_search_result(db: State<'_, Database>, entry_id: String) -> Result<(), String> {
-    let entry = active_global_entry(db.inner(), &entry_id)?;
+    let entry = revalidated_global_entry(db.inner(), &entry_id)?;
     open_path(&entry.path)
 }
 
@@ -118,7 +180,7 @@ pub fn reveal_global_search_result(
     db: State<'_, Database>,
     entry_id: String,
 ) -> Result<(), String> {
-    let entry = active_global_entry(db.inner(), &entry_id)?;
+    let entry = revalidated_global_entry(db.inner(), &entry_id)?;
     crate::file_ops::reveal_in_folder(entry.path)
 }
 
@@ -165,20 +227,153 @@ pub fn get_ai_management_status(db: State<'_, Database>) -> Result<AiManagementS
     db.ai_management_status().map_err(|error| error.to_string())
 }
 
-fn active_global_entry(db: &Database, entry_id: &str) -> Result<GlobalEntry, String> {
+fn load_global_index_status(
+    coordinator: &GlobalIndexCoordinator,
+) -> Result<GlobalIndexStatus, String> {
+    let mut status = coordinator.status().map_err(|error| error.to_string())?;
+    status.provider_status = coordinator.provider_status().ok();
+    // Coverage is complete only when every enabled source is ready. Degraded,
+    // paused, permission, rebuild and unavailable states remain explicitly
+    // incomplete even if some rows are searchable.
+    status.collection_complete = status.status == INDEX_STATUS_READY;
+    Ok(status)
+}
+
+fn global_search_source_health(db: &Database) -> Result<Vec<GlobalSearchSourceHealth>, String> {
+    db.list_global_volumes()
+        .map(|volumes| {
+            volumes
+                .into_iter()
+                .map(|volume| GlobalSearchSourceHealth {
+                    source_id: volume.id,
+                    enabled: volume.enabled,
+                    provider: volume.provider,
+                    status: volume.index_status,
+                    last_error: volume.last_error,
+                    updated_at: volume.updated_at,
+                })
+                .collect()
+        })
+        .map_err(|error| error.to_string())
+}
+
+fn source_health_revision(source_health: &[GlobalSearchSourceHealth]) -> String {
+    let mut sources = source_health.to_vec();
+    sources.sort_by(|left, right| left.source_id.cmp(&right.source_id));
+    let serialized = serde_json::to_vec(&sources).unwrap_or_default();
+    blake3::hash(&serialized).to_hex().to_string()
+}
+
+fn parse_search_cursor(cursor: &str) -> Result<u32, String> {
+    let cursor = cursor.trim();
+    if cursor.is_empty() || cursor.len() > 16 {
+        return Err("global_search_cursor_invalid".to_string());
+    }
+    cursor
+        .parse::<u32>()
+        .map_err(|_| "global_search_cursor_invalid".to_string())
+}
+
+fn revalidated_global_entry(db: &Database, entry_id: &str) -> Result<GlobalEntry, String> {
+    if entry_id.trim().is_empty() || entry_id.len() > 256 {
+        return Err("global_search_entry_id_invalid".to_string());
+    }
     let entry = db
         .get_global_entry(entry_id)
         .map_err(|error| error.to_string())?
         .filter(|entry| !entry.is_stale)
         .ok_or_else(|| "global_search_result_not_found".to_string())?;
-    let enabled = db
+    let volume = db
         .get_global_volume(&entry.volume_id)
         .map_err(|error| error.to_string())?
-        .is_some_and(|volume| volume.enabled);
-    if !enabled {
+        .ok_or_else(|| "global_search_source_not_found".to_string())?;
+    if !volume.enabled {
         return Err("global_search_source_disabled".to_string());
     }
+    if !trusted_global_provider(&entry.source_provider)
+        || !trusted_global_provider(&volume.provider)
+        || entry.source_provider != volume.provider
+    {
+        return Err("global_search_provider_untrusted".to_string());
+    }
+    if !path_is_same_or_child(&entry.path, &volume.mount_path) {
+        return Err("global_search_path_outside_source".to_string());
+    }
+    let metadata = fs::symlink_metadata(&entry.path).map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound => "global_search_result_missing".to_string(),
+        _ => "global_search_result_unreadable".to_string(),
+    })?;
+    if metadata.file_type().is_symlink() {
+        return Err("global_search_result_identity_changed".to_string());
+    }
+    if metadata.is_dir() != entry.is_directory {
+        return Err("global_search_result_kind_changed".to_string());
+    }
+    if !live_entry_identity_matches(&entry, &metadata) {
+        return Err("global_search_result_identity_changed".to_string());
+    }
     Ok(entry)
+}
+
+fn trusted_global_provider(provider: &str) -> bool {
+    matches!(
+        provider,
+        PROVIDER_WINDOWS_MFT_USN
+            | PROVIDER_WINDOWS_RECURSIVE_FALLBACK
+            | PROVIDER_MACOS_SPOTLIGHT
+            | PROVIDER_MACOS_FSEVENTS_RECONCILE
+            | PROVIDER_RECURSIVE_FALLBACK
+    )
+}
+
+fn path_is_same_or_child(path: &str, root: &str) -> bool {
+    let path = normalize_path(path).trim_end_matches('/').to_string();
+    let root = normalize_path(root).trim_end_matches('/').to_string();
+    !root.is_empty() && (path == root || path.starts_with(&format!("{root}/")))
+}
+
+fn live_entry_identity_matches(entry: &GlobalEntry, metadata: &fs::Metadata) -> bool {
+    if let Some(path_identity) = entry.platform_file_id.strip_prefix("path:") {
+        return path_identity == normalize_path(&entry.path);
+    }
+    live_native_file_id(&entry.path, metadata)
+        .is_some_and(|identity| identity == entry.platform_file_id)
+}
+
+#[cfg(target_os = "macos")]
+fn live_native_file_id(_path: &str, metadata: &fs::Metadata) -> Option<String> {
+    use std::os::unix::fs::MetadataExt;
+    Some(format!(
+        "mac:dev:{:x}:ino:{:x}",
+        metadata.dev(),
+        metadata.ino()
+    ))
+}
+
+#[cfg(windows)]
+fn live_native_file_id(path: &str, _metadata: &fs::Metadata) -> Option<String> {
+    use std::fs::OpenOptions;
+    use std::os::windows::{fs::OpenOptionsExt, io::AsRawHandle};
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS,
+        FILE_FLAG_OPEN_REPARSE_POINT,
+    };
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+        .ok()?;
+    let mut info = unsafe { std::mem::zeroed::<BY_HANDLE_FILE_INFORMATION>() };
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+        return None;
+    }
+    let file_id = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    Some(format!("{file_id:016x}"))
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn live_native_file_id(_path: &str, _metadata: &fs::Metadata) -> Option<String> {
+    None
 }
 
 fn open_path(path: &str) -> Result<(), String> {
@@ -212,5 +407,97 @@ fn open_path(path: &str) -> Result<(), String> {
     #[cfg(not(any(windows, unix)))]
     {
         Err("global_search_open_unsupported".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request(request_id: &str, query: &str) -> GlobalSearchRequest {
+        GlobalSearchRequest {
+            version: 2,
+            request_id: request_id.to_string(),
+            query: query.to_string(),
+            limit: 80,
+            offset: 0,
+            cursor: None,
+        }
+    }
+
+    fn result(source_id: &str) -> GlobalSearchResult {
+        GlobalSearchResult {
+            id: format!("entry-{source_id}"),
+            volume_id: source_id.to_string(),
+            platform_file_id: format!("path:/tmp/{source_id}"),
+            name: "report.txt".to_string(),
+            path: format!("/tmp/{source_id}/report.txt"),
+            extension: "txt".to_string(),
+            is_directory: false,
+            size: 1,
+            created_at_fs: None,
+            modified_at_fs: None,
+            file_attributes: 0,
+            is_hidden: false,
+            is_system: false,
+            source_provider: PROVIDER_RECURSIVE_FALLBACK.to_string(),
+            managed: false,
+            rank: 1.0,
+        }
+    }
+
+    fn health(source_id: &str, enabled: bool) -> GlobalSearchSourceHealth {
+        GlobalSearchSourceHealth {
+            source_id: source_id.to_string(),
+            enabled,
+            provider: PROVIDER_RECURSIVE_FALLBACK.to_string(),
+            status: INDEX_STATUS_READY.to_string(),
+            last_error: None,
+            updated_at: 1,
+        }
+    }
+
+    #[test]
+    fn v2_request_validation_echoes_identity_and_normalizes_query() {
+        let (request_id, query, offset) =
+            validate_global_search_request(&request("request-7", "  报告  "))
+                .expect("valid request");
+        assert_eq!(request_id, "request-7");
+        assert_eq!(query, "报告");
+        assert_eq!(offset, 0);
+
+        let mut unsupported = request("request-8", "report");
+        unsupported.version = 1;
+        assert_eq!(
+            validate_global_search_request(&unsupported),
+            Err("global_search_contract_version_unsupported".to_string())
+        );
+    }
+
+    #[test]
+    fn disabled_sources_fail_closed_after_query_collection() {
+        let mut results = vec![result("enabled"), result("disabled")];
+        retain_enabled_source_results(
+            &mut results,
+            &[health("enabled", true), health("disabled", false)],
+        );
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].volume_id, "enabled");
+    }
+
+    #[test]
+    fn result_state_exposes_collection_completeness() {
+        assert_eq!(global_search_result_state(true, false), "pending");
+        assert_eq!(global_search_result_state(false, false), "partial");
+        assert_eq!(global_search_result_state(true, true), "empty");
+        assert_eq!(global_search_result_state(false, true), "complete");
+    }
+
+    #[test]
+    fn open_revalidation_helpers_reject_untrusted_provider_and_path_escape() {
+        assert!(trusted_global_provider(PROVIDER_RECURSIVE_FALLBACK));
+        assert!(!trusted_global_provider("renderer-cache"));
+        assert!(path_is_same_or_child("/volume/reports/a.txt", "/volume"));
+        assert!(!path_is_same_or_child("/volume-escape/a.txt", "/volume"));
     }
 }

@@ -2115,40 +2115,6 @@ fn shortest_path_len(paths: &[String]) -> usize {
     paths.iter().map(String::len).min().unwrap_or(usize::MAX)
 }
 
-#[cfg(test)]
-mod exact_physical_union_tests {
-    use super::{exact_physical_union, ExactPhysicalSubject};
-
-    #[test]
-    fn physical_union_is_insertion_order_independent_and_counts_each_subject_once() {
-        let claims = vec![
-            ExactPhysicalSubject {
-                stable_key: "physical:shared".to_string(),
-                paths: vec!["/root/shared.bin".to_string()],
-                bytes: 100,
-            },
-            ExactPhysicalSubject {
-                stable_key: "physical:unrelated".to_string(),
-                paths: vec!["/root/unrelated.bin".to_string()],
-                bytes: 50,
-            },
-            ExactPhysicalSubject {
-                stable_key: "physical:shared".to_string(),
-                paths: vec![
-                    "/root/shared.bin".to_string(),
-                    "/root/shared-hardlink.bin".to_string(),
-                ],
-                bytes: 100,
-            },
-        ];
-        let mut reversed = claims.clone();
-        reversed.reverse();
-
-        assert_eq!(exact_physical_union(claims), 150);
-        assert_eq!(exact_physical_union(reversed), 150);
-    }
-}
-
 fn refresh_analysis_run_aggregate_tx(
     tx: &Transaction<'_>,
     run_id: &str,
@@ -2502,5 +2468,39 @@ fn higher_risk_tier(current: &str, requested: &str) -> &'static str {
             "review" => "review",
             _ => "caution",
         }
+    }
+}
+
+#[cfg(test)]
+mod exact_physical_union_tests {
+    use super::{exact_physical_union, ExactPhysicalSubject};
+
+    #[test]
+    fn physical_union_is_insertion_order_independent_and_counts_each_subject_once() {
+        let claims = vec![
+            ExactPhysicalSubject {
+                stable_key: "physical:shared".to_string(),
+                paths: vec!["/root/shared.bin".to_string()],
+                bytes: 100,
+            },
+            ExactPhysicalSubject {
+                stable_key: "physical:unrelated".to_string(),
+                paths: vec!["/root/unrelated.bin".to_string()],
+                bytes: 50,
+            },
+            ExactPhysicalSubject {
+                stable_key: "physical:shared".to_string(),
+                paths: vec![
+                    "/root/shared.bin".to_string(),
+                    "/root/shared-hardlink.bin".to_string(),
+                ],
+                bytes: 100,
+            },
+        ];
+        let mut reversed = claims.clone();
+        reversed.reverse();
+
+        assert_eq!(exact_physical_union(claims), 150);
+        assert_eq!(exact_physical_union(reversed), 150);
     }
 }

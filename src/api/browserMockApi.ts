@@ -32,6 +32,8 @@ import type {
   FileRecord,
   GlobalIndexSource,
   GlobalIndexStatus,
+  GlobalSearchRequest,
+  GlobalSearchResponse,
   GlobalSearchResult,
   LibraryScope,
   ManagedScope,
@@ -59,10 +61,16 @@ import type {
   ScanRootDto,
   ScanRunDto,
   ScanSessionDto,
-  ScanSummary
+  ScanSummary,
+  SearchWindowSnapshot
 } from "./tauriApi";
 
 const now = "2026-07-06T09:00:00.000Z";
+let mockSearchWindowState: SearchWindowSnapshot = {
+  sessionId: 1,
+  revision: 1,
+  phase: "visible_collapsed"
+};
 
 type MockCleanupRestoreState = Pick<CleanupTrashBatch["items"][number], "status" | "restoredAt" | "message">;
 
@@ -317,14 +325,30 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "reveal_storage_candidate":
     case "quit_app":
     case "activate_search_result":
-    case "resize_search_window":
     case "insert_file":
     case "start_global_index":
     case "pause_global_index":
     case "resume_global_index":
     case "rebuild_global_index_source":
     case "set_global_index_source_enabled":
+    case "mark_main_window_ready":
+    case "acknowledge_main_window_ready":
       return undefined as T;
+    case "get_search_window_state":
+      return mockSearchWindowState as T;
+    case "search_window_ready":
+      mockSearchWindowState = nextMockSearchWindowState("visible_collapsed");
+      return mockSearchWindowState as T;
+    case "resize_search_window": {
+      const request = args?.request as { expanded?: boolean } | undefined;
+      mockSearchWindowState = nextMockSearchWindowState(
+        request?.expanded ? "visible_expanded" : "visible_collapsed"
+      );
+      return mockSearchWindowState as T;
+    }
+    case "hide_search_window_command":
+      mockSearchWindowState = nextMockSearchWindowState("hidden");
+      return mockSearchWindowState as T;
     case "start_dedupe_run":
       return startMockDedupeRun(args?.request as { parentScanSessionId?: string | null } | undefined) as T;
     case "retry_dedupe_run": {
@@ -457,7 +481,7 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "search_files":
       return searchMockFiles(String(args?.query ?? ""), Number(args?.limit ?? 12)) as T;
     case "search_global_entries":
-      return searchMockGlobalEntries(String(args?.query ?? ""), Number(args?.limit ?? 80), Number(args?.offset ?? 0)) as T;
+      return searchMockGlobalEntries(args?.request as GlobalSearchRequest | undefined) as T;
     case "get_global_index_status":
       return mockGlobalIndexStatus() as T;
     case "list_global_index_sources":
@@ -582,9 +606,11 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "get_global_hotkey_status":
     case "register_global_search_hotkey":
       return {
-        accelerator: String(args?.accelerator ?? DEFAULT_SEARCH_HOTKEY),
+        requestedAccelerator: String(args?.accelerator ?? DEFAULT_SEARCH_HOTKEY),
+        effectiveAccelerator: null,
         registered: false,
-        error: "Browser mock mode"
+        error: "Browser mock mode",
+        revision: 1
       } satisfies GlobalHotkeyStatus as T;
     case "remove_files_by_paths":
     case "upsert_files_by_paths":
@@ -896,12 +922,43 @@ function searchMockFiles(query: string, limit: number): FileRecord[] {
     .slice(0, limit);
 }
 
-function searchMockGlobalEntries(query: string, limit: number, offset: number): GlobalSearchResult[] {
+function searchMockGlobalEntries(request?: GlobalSearchRequest): GlobalSearchResponse {
+  const query = request?.query ?? "";
+  const limit = request?.limit ?? 80;
+  const offset = request?.cursor ? Number(request.cursor) : (request?.offset ?? 0);
   const normalized = query.trim().toLowerCase();
-  if (!normalized) return [];
-  return mockGlobalEntries
+  const results = normalized
+    ? mockGlobalEntries
     .filter((entry) => `${entry.name} ${entry.path} ${entry.extension}`.toLowerCase().includes(normalized))
-    .slice(offset, offset + limit);
+    .slice(offset, offset + limit)
+    : [];
+  const indexStatus = mockGlobalIndexStatus();
+  return {
+    version: 2,
+    requestId: request?.requestId ?? "browser-request",
+    normalizedQuery: query.trim(),
+    results,
+    indexStatus,
+    collectionComplete: true,
+    resultState: results.length ? "complete" : "empty",
+    sourceRevision: "browser-source-revision-1",
+    sourceHealth: [{
+      sourceId: "mock-volume",
+      enabled: true,
+      provider: "recursive_fallback",
+      status: "ready",
+      lastError: null,
+      updatedAt: Date.parse(now) / 1000
+    }]
+  };
+}
+
+function nextMockSearchWindowState(phase: SearchWindowSnapshot["phase"]): SearchWindowSnapshot {
+  return {
+    ...mockSearchWindowState,
+    revision: mockSearchWindowState.revision + 1,
+    phase
+  };
 }
 
 function mockGlobalIndexStatus(): GlobalIndexStatus {

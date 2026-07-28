@@ -1,21 +1,19 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type * as React from "react";
-import { Activity, ChevronRight, Clock3, CornerDownLeft, File as FileIcon, Folder, FolderPlus, LayoutGrid, Radar, Search, X } from "lucide-react";
-import { motion } from "motion/react";
-import { tauriApi } from "../api/tauriApi";
-import type { FileRecord, GlobalIndexStatus, GlobalSearchResult, OperationLog } from "../types/domain";
+import { Activity, ChevronRight, CornerDownLeft, File as FileIcon, Folder, LayoutGrid, Radar, Search, X } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
+import { tauriApi, type SearchWindowSnapshot } from "../api/tauriApi";
+import type { GlobalIndexStatus, GlobalSearchResult } from "../types/domain";
 import type { Translator, View } from "../types/ui";
 import { formatCount } from "../i18n";
 import { cn } from "../utils/tw";
 import { useBackgroundIndexerStore } from "../store/useBackgroundIndexerStore";
-import { useFileLibraryStore } from "../store/useFileLibraryStore";
-import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { compactPath, formatDisplayPath, readableError } from "../utils/viewHelpers";
-import { ConfirmDialog, IconButton, StateBlock, quietText } from "../views/shared/ui";
+import { IconButton, StateBlock, quietText } from "../views/shared/ui";
 import { ModalPortal } from "./modal/ModalPortal";
-import { FileTypeIcon } from "./FileTypeIcon";
 import { createCommandRegistry, executeSpotlightCommand, queryCommandRegistry, requestSettingsSection, type SpotlightCommand } from "./spotlight/commandRegistry";
-import { buildRecentGroups, groupSpotlightResults, mergeSpotlightResults, type SpotlightResult } from "./spotlight/spotlightModel";
+import { groupSpotlightResults, mergeSpotlightResults, type SpotlightResult } from "./spotlight/spotlightModel";
+import { SpotlightQueryController } from "./spotlight/spotlightQueryController";
 
 const keyBadge =
   "flex items-center justify-center rounded border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[var(--zc-text-tertiary)] shadow-sm";
@@ -86,6 +84,7 @@ export function filesForCurrentQuery<T>(currentQuery: string, resultQuery: strin
 
 export async function activateCommandNavigation({
   standalone,
+  windowSnapshot,
   view,
   fileId,
   setView,
@@ -94,15 +93,20 @@ export async function activateCommandNavigation({
   activateSearchResult = tauriApi.activateSearchResult
 }: {
   standalone: boolean;
+  windowSnapshot?: SearchWindowSnapshot | null;
   view: View;
   fileId: string | null;
   setView: (view: View) => void;
   setSelectedFileId: (id: string) => void;
   onClose: () => void;
-  activateSearchResult?: (view: View, fileId: string | null) => Promise<void>;
+  activateSearchResult?: (
+    view: View,
+    fileId: string | null,
+    snapshot?: Pick<SearchWindowSnapshot, "sessionId" | "revision">
+  ) => Promise<void>;
 }) {
   if (standalone) {
-    await activateSearchResult(view, fileId);
+    await activateSearchResult(view, fileId, windowSnapshot ?? undefined);
     return;
   }
 
@@ -125,6 +129,7 @@ export function CommandModal({
   setView,
   setSelectedFileId,
   onClose,
+  platform,
   t,
   onError,
   standalone = false,
@@ -142,22 +147,27 @@ export function CommandModal({
 }) {
   const [search, setSearch] = useState("");
   const [globalResultState, setGlobalResultState] = useState<{ query: string; results: GlobalSearchResult[] }>({ query: "", results: [] });
-  const [queryState, setQueryState] = useState<"idle" | "pending" | "done" | "failed">("idle");
+  const [queryState, setQueryState] = useState<"idle" | "pending" | "complete" | "partial" | "empty" | "failed">("idle");
   const [commandError, setCommandError] = useState("");
   const [globalIndexStatus, setGlobalIndexStatus] = useState<GlobalIndexStatus | null>(null);
-  const [pendingManagedEntry, setPendingManagedEntry] = useState<GlobalSearchResult | null>(null);
-  const [isAddingManagedScope, setIsAddingManagedScope] = useState(false);
+  const [searchWindowSnapshot, setSearchWindowSnapshot] = useState<SearchWindowSnapshot | null>(null);
+  const [revisionRefetchNonce, setRevisionRefetchNonce] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
   const [inputFocused, setInputFocused] = useState(false);
+  const [isComposing, setIsComposing] = useState(false);
   const settingsCommandSectionRef = useRef<string | null>(null);
+  const queryControllerRef = useRef(new SpotlightQueryController());
+  const searchWindowSnapshotRef = useRef<SearchWindowSnapshot | null>(null);
   const isBackgroundIndexing = useBackgroundIndexerStore((state) => state.isBackgroundIndexing);
   const currentBackgroundRoot = useBackgroundIndexerStore((state) => state.currentRoot);
   const pendingBackgroundRoots = useBackgroundIndexerStore((state) => state.pendingRoots.length);
-  const libraryFiles = useFileLibraryStore((state) => state.libraryPage.files);
-  const operationLogs = useOperationQueueStore((state) => state.operationLogs);
+  const prefersReducedMotion = useReducedMotion();
   const trimmedSearch = search.trim();
   const currentGlobalResults = filesForCurrentQuery(trimmedSearch, globalResultState.query, globalResultState.results);
-  const commandRegistry = useMemo(() => createCommandRegistry(t), [t]);
+  const commandRegistry = useMemo(
+    () => createCommandRegistry(t, platform === "browser" ? "browser" : standalone ? "standalone" : "main"),
+    [platform, standalone, t]
+  );
   const commandResults = useMemo(
     () => queryCommandRegistry(trimmedSearch, commandRegistry),
     [commandRegistry, trimmedSearch]
@@ -167,12 +177,13 @@ export function CommandModal({
     [commandResults, currentGlobalResults]
   );
   const resultGroups = useMemo(() => groupSpotlightResults(visibleResults, t), [t, visibleResults]);
-  const recentGroups = useMemo(() => buildRecentGroups(libraryFiles, operationLogs, t), [libraryFiles, operationLogs, t]);
   const showResults = trimmedSearch.length > 0 && visibleResults.length > 0;
   const activeResultId = showResults ? `command-result-${activeIndex}` : undefined;
   const statusTitle =
     queryState === "pending"
       ? t("commandTypingTitle")
+      : queryState === "partial"
+        ? t("globalIndexStatusPartial")
       : queryState === "failed"
         ? t("commandFailedTitle")
         : trimmedSearch
@@ -181,6 +192,8 @@ export function CommandModal({
   const statusDescription =
     queryState === "pending"
       ? t("commandSearching")
+      : queryState === "partial"
+        ? t("globalSearchIndexMeta")
       : queryState === "failed"
         ? commandError || t("commandSearchFailed")
         : trimmedSearch
@@ -192,35 +205,120 @@ export function CommandModal({
     && queryState === "idle";
   const shouldShowIdleState = !standalone && !trimmedSearch;
   const shouldShowStateBlock = !showResults && trimmedSearch.length > 0 && queryState !== "idle";
-  const showGlobalIndexMeta = !isStandaloneCollapsed && Boolean(globalIndexStatus && globalIndexStatus.status !== "ready");
+  const showGlobalIndexMeta = !isStandaloneCollapsed && Boolean(
+    globalIndexStatus
+    && (globalIndexStatus.status !== "ready" || !globalIndexStatus.collectionComplete)
+  );
+  const globalSearchIndexMeta = globalIndexStatus
+    ? `${t("globalSearchIndexMeta")} · ${t("globalIndexStatus")}: ${globalIndexStatusLabel(globalIndexStatus.status, t)}`
+    : t("globalSearchIndexMeta");
 
-  useEffect(() => {
-    let disposed = false;
-    void tauriApi.getGlobalIndexStatus()
-      .then((status) => { if (!disposed) setGlobalIndexStatus(status); })
-      .catch(() => undefined);
-    return () => { disposed = true; };
+  const updateSearchWindowSnapshot = useCallback((next: SearchWindowSnapshot) => {
+    const current = searchWindowSnapshotRef.current;
+    if (
+      current
+      && (next.sessionId < current.sessionId
+        || (next.sessionId === current.sessionId && next.revision <= current.revision))
+    ) return;
+    if (!current || next.sessionId !== current.sessionId) {
+      queryControllerRef.current.openSession(next.sessionId);
+      setSearch("");
+      setGlobalResultState({ query: "", results: [] });
+      setQueryState("idle");
+      setActiveIndex(0);
+    }
+    searchWindowSnapshotRef.current = next;
+    setSearchWindowSnapshot(next);
   }, []);
 
+  const requestSearchWindowHide = useCallback((snapshot: SearchWindowSnapshot) => {
+    void tauriApi.hideSearchWindow(snapshot)
+      .then(updateSearchWindowSnapshot)
+      .catch((error) => {
+        const message = readableError(error);
+        setCommandError(message);
+        onError?.(message);
+      });
+  }, [onError, updateSearchWindowSnapshot]);
+
+  const closeSpotlight = useCallback(() => {
+    if (!standalone) {
+      onClose();
+      return;
+    }
+    const snapshot = searchWindowSnapshotRef.current;
+    if (snapshot) requestSearchWindowHide(snapshot);
+  }, [onClose, requestSearchWindowHide, standalone]);
+
   useEffect(() => {
-    if (!standalone) return;
-    const focusFrame = requestAnimationFrame(() => inputRef.current?.focus());
+    if (!standalone) {
+      queryControllerRef.current.openSession();
+      return () => queryControllerRef.current.closeSession();
+    }
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void tauriApi.onSearchWindowState(updateSearchWindowSnapshot).then((dispose) => {
+      if (disposed) dispose();
+      else unlisten = dispose;
+    }).catch((error) => {
+      if (!disposed) onError?.(readableError(error));
+    });
+    void tauriApi.getSearchWindowState()
+      .then(async (snapshot) => {
+        if (disposed) return;
+        updateSearchWindowSnapshot(snapshot);
+        if (snapshot.phase === "showing") {
+          updateSearchWindowSnapshot(await tauriApi.searchWindowReady(snapshot));
+        }
+      })
+      .catch((error) => {
+        if (!disposed) onError?.(readableError(error));
+      });
     return () => {
-      cancelAnimationFrame(focusFrame);
+      disposed = true;
+      unlisten?.();
+      queryControllerRef.current.closeSession();
     };
-  }, [inputRef, standalone]);
+  }, [onError, standalone, updateSearchWindowSnapshot]);
+
+  useEffect(() => {
+    if (!standalone || !searchWindowSnapshot) return;
+    if (!searchWindowSnapshot.phase.startsWith("visible_")) return;
+    const expanded = !isStandaloneCollapsed;
+    const alreadySized = expanded
+      ? searchWindowSnapshot.phase === "visible_expanded"
+      : searchWindowSnapshot.phase === "visible_collapsed";
+    if (alreadySized) return;
+    void tauriApi.resizeSearchWindow(searchWindowSnapshot, expanded)
+      .then(updateSearchWindowSnapshot)
+      .catch(() => undefined);
+  }, [isStandaloneCollapsed, searchWindowSnapshot, standalone, updateSearchWindowSnapshot]);
 
   useEffect(() => {
     if (!standalone) return;
-    void tauriApi.resizeSearchWindow(!isStandaloneCollapsed).catch(() => undefined);
-  }, [isStandaloneCollapsed, standalone]);
+    if (!searchWindowSnapshot?.phase.startsWith("visible_")) return;
+    const focusFrame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(focusFrame);
+  }, [inputRef, searchWindowSnapshot, standalone]);
 
   useEffect(() => {
     if (!standalone) return;
-    const handleBlur = () => onClose();
+    let blurTimer: number | undefined;
+    const handleBlur = () => {
+      if (isComposing) return;
+      const blurredSnapshot = searchWindowSnapshotRef.current;
+      if (!blurredSnapshot) return;
+      window.clearTimeout(blurTimer);
+      blurTimer = window.setTimeout(() => {
+        if (!document.hasFocus()) requestSearchWindowHide(blurredSnapshot);
+      }, 120);
+    };
     window.addEventListener("blur", handleBlur);
-    return () => window.removeEventListener("blur", handleBlur);
-  }, [standalone, onClose]);
+    return () => {
+      window.clearTimeout(blurTimer);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, [isComposing, requestSearchWindowHide, standalone]);
 
   useEffect(() => {
     if (!trimmedSearch) {
@@ -236,12 +334,23 @@ export function CommandModal({
     setGlobalResultState({ query: trimmedSearch, results: [] });
     setQueryState("pending");
     const timer = window.setTimeout(() => {
-      tauriApi.searchGlobalEntries(trimmedSearch, SEARCH_RESULT_LIMIT)
-        .then((results) => {
-          if (cancelled) return;
-          setGlobalResultState({ query: trimmedSearch, results });
-          setQueryState("done");
+      const request = queryControllerRef.current.nextRequest(trimmedSearch, SEARCH_RESULT_LIMIT);
+      tauriApi.searchGlobalEntries(request)
+        .then((response) => {
+          if (cancelled || !queryControllerRef.current.accepts(response)) return;
+          setGlobalResultState({ query: response.normalizedQuery, results: response.results });
+          setGlobalIndexStatus(response.indexStatus);
+          setQueryState(
+            response.resultState === "complete"
+              ? "complete"
+              : response.resultState === "pending"
+                ? "partial"
+                : response.resultState
+          );
           setActiveIndex(0);
+          if (queryControllerRef.current.acceptSourceRevision(response.sourceRevision)) {
+            setRevisionRefetchNonce((value) => value + 1);
+          }
         })
         .catch(() => {
           if (cancelled) return;
@@ -255,68 +364,25 @@ export function CommandModal({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [t, trimmedSearch]);
+  }, [revisionRefetchNonce, t, trimmedSearch]);
+
+  useEffect(() => {
+    setActiveIndex((index) => Math.min(index, Math.max(0, visibleResults.length - 1)));
+  }, [visibleResults.length]);
 
   useEffect(() => {
     if (!showResults || !activeResultId) return;
     document.getElementById(activeResultId)?.scrollIntoView({ block: "nearest" });
   }, [activeIndex, activeResultId, showResults]);
 
-  async function chooseFile(file: FileRecord) {
-    try {
-      await activateCommandNavigation({
-        standalone,
-        view: "library",
-        fileId: file.id,
-        setView,
-        setSelectedFileId,
-        onClose
-      });
-    } catch (error) {
-      const message = readableError(error);
-      setCommandError(message);
-      onError?.(message);
-    }
-  }
-
   async function chooseGlobalEntry(entry: GlobalSearchResult) {
     try {
       await tauriApi.openGlobalSearchResult(entry.id);
-      onClose();
+      closeSpotlight();
     } catch (error) {
       const message = readableError(error);
       setCommandError(message);
       onError?.(message);
-    }
-  }
-
-  function requestGlobalEntryManagedScope(entry: GlobalSearchResult) {
-    if (!entry.managed) setPendingManagedEntry(entry);
-  }
-
-  async function confirmGlobalEntryManagedScope() {
-    const entry = pendingManagedEntry;
-    if (!entry || entry.managed || isAddingManagedScope) return;
-    setIsAddingManagedScope(true);
-    try {
-      await tauriApi.addManagedScope({
-        path: entry.isDirectory ? entry.path : parentPathForManagedScope(entry.path),
-        globalEntryId: entry.isDirectory ? entry.id : null,
-        enabled: true,
-        allowLocalAi: true,
-        allowCloudAi: false
-      });
-      setGlobalResultState((current) => ({
-        ...current,
-        results: current.results.map((item) => item.id === entry.id ? { ...item, managed: true } : item)
-      }));
-      setPendingManagedEntry(null);
-    } catch (error) {
-      const message = readableError(error);
-      setCommandError(message);
-      onError?.(message);
-    } finally {
-      setIsAddingManagedScope(false);
     }
   }
 
@@ -324,6 +390,7 @@ export function CommandModal({
     try {
       await activateCommandNavigation({
         standalone,
+        windowSnapshot: searchWindowSnapshotRef.current,
         view: "preview",
         fileId: null,
         setView,
@@ -344,10 +411,15 @@ export function CommandModal({
   }
 
   async function chooseCommand(command: SpotlightCommand) {
+    if (!command.enabled) {
+      setCommandError(command.disabledReason ?? "command_unavailable");
+      return;
+    }
     try {
       if (standalone) {
         await activateCommandNavigation({
           standalone,
+          windowSnapshot: searchWindowSnapshotRef.current,
           view: command.view,
           fileId: null,
           setView,
@@ -373,6 +445,7 @@ export function CommandModal({
   function openIdleDestination(view: View) {
     void activateCommandNavigation({
       standalone,
+      windowSnapshot: searchWindowSnapshotRef.current,
       view,
       fileId: null,
       setView,
@@ -397,7 +470,7 @@ export function CommandModal({
           ? "relative z-10 flex h-full w-full items-start justify-center bg-transparent pt-8 px-8"
           : "fixed inset-0 z-40 flex items-start justify-center bg-[var(--zc-overlay)] px-5 pt-[15vh] backdrop-blur-sm sm:pt-[20vh]"
       )}
-      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+      onMouseDown={(event) => event.target === event.currentTarget && closeSpotlight()}
     >
       <motion.div
         layout
@@ -406,18 +479,48 @@ export function CommandModal({
           isStandaloneCollapsed ? commandShellCollapsed : commandShellExpanded,
           !isStandaloneCollapsed && (standalone ? commandShellStandaloneExpanded : commandShellDialogWidth)
         )}
-        initial={{ opacity: 0, y: 8 }}
+        initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 8 }}
-        transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
+        transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
         role={standalone ? "search" : "dialog"}
         aria-modal={standalone ? undefined : true}
         aria-label={t("globalSearch")}
         aria-busy={queryState === "pending"}
         onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            closeSpotlight();
+            return;
+          }
+          if (isComposing || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+          if (event.key === "Tab" && visibleResults.length > 0) {
+            event.preventDefault();
+            setActiveIndex((index) => event.shiftKey
+              ? Math.max(index - 1, 0)
+              : Math.min(index + 1, visibleResults.length - 1));
+            inputRef.current?.focus();
+            return;
+          }
           if ((event.metaKey && event.key === "Backspace") || (event.ctrlKey && event.key === "Backspace")) {
             event.preventDefault();
             clearSearch();
+          }
+          if (event.key === "Home") {
+            event.preventDefault();
+            setActiveIndex(0);
+          }
+          if (event.key === "End") {
+            event.preventDefault();
+            setActiveIndex(Math.max(0, visibleResults.length - 1));
+          }
+          if (event.key === "PageDown") {
+            event.preventDefault();
+            setActiveIndex((index) => Math.min(index + 5, Math.max(0, visibleResults.length - 1)));
+          }
+          if (event.key === "PageUp") {
+            event.preventDefault();
+            setActiveIndex((index) => Math.max(index - 5, 0));
           }
           if (event.key === "ArrowDown") {
             event.preventDefault();
@@ -431,7 +534,7 @@ export function CommandModal({
           if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && activeResult?.kind === "global") {
             event.preventDefault();
             void tauriApi.revealGlobalSearchResult(activeResult.entry.id)
-              .then(() => onClose())
+              .then(closeSpotlight)
               .catch((error) => {
                 const message = readableError(error);
                 setCommandError(message);
@@ -468,6 +571,11 @@ export function CommandModal({
             value={search}
             placeholder={t("commandPlaceholder")}
             onChange={(event) => setSearch(event.target.value)}
+            onCompositionStart={() => setIsComposing(true)}
+            onCompositionEnd={(event) => {
+              setIsComposing(false);
+              setSearch(event.currentTarget.value);
+            }}
             onClick={() => inputRef.current?.focus()}
             onFocus={() => setInputFocused(true)}
             onBlur={() => setInputFocused(false)}
@@ -487,7 +595,7 @@ export function CommandModal({
         </div>
         {showGlobalIndexMeta && (
           <div className="flex items-center justify-between gap-3 border-b border-[var(--zc-divider)] px-4 py-2 text-[11px] leading-tight text-[var(--zc-text-secondary)]">
-            <span className="min-w-0 truncate">{t("globalSearchIndexMeta")}</span>
+            <span className="min-w-0 truncate">{globalSearchIndexMeta}</span>
             <button
               className="hidden shrink-0 rounded-md px-2 py-1 font-medium text-[var(--zc-primary-text)] hover:bg-[var(--zc-primary-soft)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)] sm:inline"
               onClick={openGlobalIndexSettings}
@@ -511,7 +619,6 @@ export function CommandModal({
                 highlight={trimmedSearch}
                 t={t}
                 onChoose={chooseResult}
-                onManage={requestGlobalEntryManagedScope}
                 onActivate={setActiveIndex}
               />
             </div>
@@ -531,15 +638,13 @@ export function CommandModal({
             isBackgroundIndexing={isBackgroundIndexing}
             currentBackgroundRoot={currentBackgroundRoot}
             pendingBackgroundRoots={pendingBackgroundRoots}
-            recentGroups={recentGroups}
             onOpen={openIdleDestination}
-            onOpenFile={(file) => void chooseFile(file)}
           />
         )}
         {shouldShowStateBlock && (
           <div className="px-4 py-4" aria-live={queryState === "failed" ? "assertive" : "polite"} role={queryState === "failed" ? "alert" : "status"}>
             <StateBlock
-              tone={queryState === "failed" ? "error" : queryState === "pending" ? "info" : "neutral"}
+              tone={queryState === "failed" ? "error" : queryState === "pending" || queryState === "partial" ? "info" : "neutral"}
               title={statusTitle}
               description={statusDescription}
               density="compact"
@@ -556,25 +661,9 @@ export function CommandModal({
 
   const spotlight = standalone
     ? content
-    : <ModalPortal initialFocusRef={inputRef} restoreFocus={restoreSpotlightFocus} onEscape={onClose}>{content}</ModalPortal>;
+    : <ModalPortal initialFocusRef={inputRef} restoreFocus={restoreSpotlightFocus} onEscape={closeSpotlight}>{content}</ModalPortal>;
 
-  return (
-    <>
-      {spotlight}
-      <ConfirmDialog
-        open={Boolean(pendingManagedEntry)}
-        tone="warning"
-        title={t("globalSearchAddManaged")}
-        description={t("managedScopesDesc")}
-        emphasis={t("managedScopePolicySummary")}
-        confirmLabel={t("managedScopeAdd")}
-        cancelLabel={t("cancel")}
-        isProcessing={isAddingManagedScope}
-        onConfirm={() => void confirmGlobalEntryManagedScope()}
-        onCancel={() => { if (!isAddingManagedScope) setPendingManagedEntry(null); }}
-      />
-    </>
-  );
+  return spotlight;
 }
 
 function SpotlightResultGroups({
@@ -584,7 +673,6 @@ function SpotlightResultGroups({
   highlight,
   t,
   onChoose,
-  onManage,
   onActivate
 }: {
   groups: ReturnType<typeof groupSpotlightResults>;
@@ -593,7 +681,6 @@ function SpotlightResultGroups({
   highlight: string;
   t: Translator;
   onChoose: (result: SpotlightResult) => void;
-  onManage: (entry: GlobalSearchResult) => void;
   onActivate: (index: number) => void;
 }) {
   return (
@@ -615,7 +702,7 @@ function SpotlightResultGroups({
                     data-result-kind="command"
                     className={cn(commandResultItemBase, active ? commandResultItemActive : commandResultItemInactive)}
                     onClick={() => onChoose(result)}
-                    onMouseEnter={() => onActivate(index)}
+                    onMouseMove={() => onActivate(index)}
                   >
                     <span className="grid h-10 w-10 place-items-center rounded-lg bg-[var(--zc-primary-soft)] text-[var(--zc-primary-text)]">
                       <Search size={18} />
@@ -632,44 +719,31 @@ function SpotlightResultGroups({
               const entry = result.entry;
               const extension = entry.extension ? entry.extension.replace(".", "").toUpperCase() : t("spotlightFolders");
               return (
-                <div
+                <button
                   key={result.id}
                   id={`command-result-${index}`}
                   role="option"
                   aria-selected={active}
                   data-result-kind="global"
                   className={cn(commandResultItemBase, active ? commandResultItemActive : commandResultItemInactive)}
-                  onMouseEnter={() => onActivate(index)}
+                  onMouseMove={() => onActivate(index)}
+                  onClick={() => onChoose(result)}
                 >
                   <span className={cn(commandFileIcon, "bg-[var(--zc-surface-subtle)] text-[var(--zc-primary)]")}>
                     {entry.isDirectory ? <Folder size={20} /> : <FileIcon size={20} />}
                   </span>
-                  <button
-                    className="grid min-w-0 gap-1.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--zc-focus-ring)]"
-                    onClick={() => onChoose(result)}
-                    aria-label={t("commandOpenHint")}
-                  >
+                  <span className="grid min-w-0 gap-1.5 text-left">
                     <strong className={commandFileName}><HighlightText text={entry.name} highlight={highlight} /></strong>
                     <span className={commandFileMeta} title={formatDisplayPath(entry.path)}>{compactPath(formatDisplayPath(entry.path), 74)}</span>
                     <span className="flex min-w-0 flex-wrap items-center gap-1.5">
                       <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--zc-text-tertiary)]">{extension}</span>
                       {entry.managed ? <span className="text-[10px] font-medium text-[var(--zc-primary-text)]">{t("globalSearchManaged")}</span> : null}
                     </span>
-                  </button>
-                  <div className="flex items-center gap-1">
-                    {!entry.managed ? (
-                      <IconButton
-                        className="h-8 w-8 rounded-[var(--zc-radius-control)] border-transparent bg-transparent text-[var(--zc-text-tertiary)] shadow-none hover:bg-[var(--zc-primary-soft)] hover:text-[var(--zc-primary-text)]"
-                        onClick={() => onManage(entry)}
-                        aria-label={t("globalSearchAddManaged")}
-                        title={t("globalSearchAddManaged")}
-                      >
-                        <FolderPlus size={15} />
-                      </IconButton>
-                    ) : null}
+                  </span>
+                  <span className="flex items-center gap-1">
                     <ChevronRight className={active ? "text-[var(--zc-primary)]" : "text-[var(--zc-text-tertiary)]"} size={16} />
-                  </div>
-                </div>
+                  </span>
+                </button>
               );
             })}
           </div>
@@ -679,28 +753,18 @@ function SpotlightResultGroups({
   );
 }
 
-function parentPathForManagedScope(path: string) {
-  const normalized = path.replace(/[\\/]+$/, "");
-  const separator = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"));
-  return separator > 0 ? normalized.slice(0, separator) : normalized;
-}
-
 function CommandIdleGroups({
   t,
   isBackgroundIndexing,
   currentBackgroundRoot,
   pendingBackgroundRoots,
-  recentGroups,
-  onOpen,
-  onOpenFile
+  onOpen
 }: {
   t: Translator;
   isBackgroundIndexing: boolean;
   currentBackgroundRoot: string | null;
   pendingBackgroundRoots: number;
-  recentGroups: ReturnType<typeof buildRecentGroups>;
   onOpen: (view: View) => void;
-  onOpenFile: (file: FileRecord) => void;
 }) {
   const backgroundDescription = isBackgroundIndexing && currentBackgroundRoot
     ? compactPath(formatDisplayPath(currentBackgroundRoot), 42)
@@ -711,17 +775,6 @@ function CommandIdleGroups({
   return (
     <>
       <div className={commandIdleGroups} aria-label={t("commandIdleTitle")}>
-        {recentGroups.map((group) => (
-          <IdleGroup title={group.label} key={group.type}>
-            {group.type === "recent-files"
-              ? group.items.map((file) => (
-                  <IdleAction key={file.id} icon={<FileTypeIcon file={file} size={17} className="text-[var(--zc-primary)]" />} label={file.name} onClick={() => onOpenFile(file)} />
-                ))
-              : group.items.map((operation) => (
-                  <IdleAction key={operation.id} icon={<Clock3 size={17} className="text-[var(--zc-primary)]" aria-hidden="true" />} label={operationLabel(operation)} onClick={() => onOpen("restore")} />
-                ))}
-          </IdleGroup>
-        ))}
         <IdleGroup title={t("spotlightCommonTasks")}>
           <IdleAction icon={<Radar size={17} className="text-[var(--zc-primary)]" aria-hidden="true" />} label={t("overview")} onClick={() => onOpen("scanner")} />
           <IdleAction icon={<LayoutGrid size={17} className="text-[var(--zc-primary)]" aria-hidden="true" />} label={t("organizeSuggestions")} onClick={() => onOpen("organize")} />
@@ -733,12 +786,6 @@ function CommandIdleGroups({
       </div>
     </>
   );
-}
-
-function operationLabel(operation: OperationLog) {
-  const from = operation.old_name || operation.name_before || operation.source_path;
-  const to = operation.new_name || operation.name_after || operation.target_path;
-  return from && to && from !== to ? `${from} → ${to}` : to || from || operation.operation_type;
 }
 
 function IdleGroup({ title, children }: { title: string; children: React.ReactNode }) {
@@ -775,6 +822,19 @@ function ShortcutHint({ badge, label }: { badge: React.ReactNode; label: string 
       <span className={shortcutHintLabel}>{label}</span>
     </span>
   );
+}
+
+function globalIndexStatusLabel(status: string, t: Translator) {
+  if (status === "ready") return t("globalIndexStatusReady");
+  if (status === "indexing") return t("globalIndexStatusIndexing");
+  if (status === "syncing") return t("globalIndexStatusSyncing");
+  if (status === "paused") return t("globalIndexStatusPaused");
+  if (status === "partial") return t("globalIndexStatusPartial");
+  if (status === "rebuild_required") return t("globalIndexStatusRebuildRequired");
+  if (status === "permission_required") return t("globalIndexStatusPermissionRequired");
+  if (status === "unavailable") return t("globalIndexStatusUnavailable");
+  if (status === "error") return t("globalIndexStatusError");
+  return t("globalIndexStatusUnknown");
 }
 
 function HighlightText({ text, highlight }: { text: string; highlight: string }) {

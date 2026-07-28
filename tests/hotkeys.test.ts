@@ -70,7 +70,9 @@ describe("search hotkeys", () => {
 
     expect(setSearchHotkey.indexOf("tauriApi.registerGlobalSearchHotkey(next)"))
       .toBeLessThan(setSearchHotkey.indexOf("updateSettings({ searchHotkey: next })"));
-    expect(setSearchHotkey).toContain("if (!status.registered)");
+    expect(setSearchHotkey).toContain("!status.registered");
+    expect(setSearchHotkey).toContain("status.effectiveAccelerator !== next");
+    expect(setSearchHotkey).toContain("|| status.error");
     expect(setSearchHotkey).toContain("return false");
     expect(setSearchHotkey).toContain("registerGlobalSearchHotkey(previous)");
     expect(setSearchHotkey).toContain("if (savedSettings.searchHotkey === next) return true");

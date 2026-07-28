@@ -214,8 +214,10 @@ describe("app settings helpers", () => {
 
     expect(appControlSource).toContain("get_global_hotkey_status");
     expect(appControlSource).toContain("register_global_search_hotkey");
-    expect(appControlSource).toContain("SearchWindowAction::ShowMainFallback");
-    expect(appControlSource).toContain("GLOBAL_SEARCH_REQUESTED_EVENT");
+    expect(appControlSource).toContain("SearchWindowAction::ShowStandalone");
+    expect(appControlSource).toContain("SearchWindowLifecycleState");
+    expect(appControlSource).toContain("requested_accelerator");
+    expect(appControlSource).toContain("effective_accelerator");
     expect(appControlSource).toContain("window.unminimize()?");
     expect(mainSource).toContain("GlobalHotkeyStatusState::default()");
     expect(mainSource).toContain("get_global_hotkey_status");

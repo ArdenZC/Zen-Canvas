@@ -218,6 +218,61 @@ fn global_search_is_independent_from_legacy_files_and_ai_is_scope_gated() {
 }
 
 #[test]
+fn global_search_ranking_is_exact_then_prefix_then_extension_with_stable_id_ties() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+
+    let mut exact = test_entry(r"C:\Global\r", "r", false);
+    exact.platform_file_id = "identity-exact".to_string();
+    exact.modified_at_fs = Some(20);
+    let mut prefix_b = test_entry(r"C:\Global\report-b.txt", "report-b.txt", false);
+    prefix_b.platform_file_id = "identity-prefix-b".to_string();
+    prefix_b.modified_at_fs = Some(10);
+    let mut prefix_a = test_entry(r"C:\Global\report-a.txt", "report-a.txt", false);
+    prefix_a.platform_file_id = "identity-prefix-a".to_string();
+    prefix_a.modified_at_fs = Some(10);
+    let mut extension = test_entry(r"C:\Global\archive.r", "archive.r", false);
+    extension.platform_file_id = "identity-extension".to_string();
+    extension.extension = "zz".to_string();
+
+    db.upsert_global_entries_batch(&[prefix_b, extension, exact, prefix_a])
+        .expect("insert ranked entries");
+    let results = db.search_global_entries("r", 20, 0).expect("ranked search");
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "r");
+    let prefix_results = db
+        .search_global_entries("rep", 20, 0)
+        .expect("prefix search");
+    assert_eq!(prefix_results.len(), 2);
+    assert!(prefix_results
+        .iter()
+        .all(|entry| entry.name.starts_with("report-")));
+    let extension_results = db
+        .search_global_entries("zz", 20, 0)
+        .expect("extension search");
+    assert_eq!(extension_results.len(), 1);
+    assert_eq!(extension_results[0].name, "archive.r");
+    let repeated_ids = db
+        .search_global_entries("rep", 20, 0)
+        .expect("repeat ranked search")
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        prefix_results
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>(),
+        repeated_ids
+    );
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn disabled_ai_policy_creates_no_jobs_without_removing_global_search() {
     let path = test_db_path();
     let db = Database::open(&path).expect("open test database");
@@ -396,6 +451,98 @@ fn removing_the_last_managed_scope_clears_ai_state_but_keeps_global_entry() {
 }
 
 #[test]
+#[ignore = "runs the required one-hundred-thousand-entry global search benchmark"]
+fn global_search_performance_100k_synthetic_entries() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open benchmark database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert benchmark volume");
+
+    {
+        let mut conn = db.conn().expect("benchmark database connection");
+        conn.pragma_update(None, "synchronous", "OFF")
+            .expect("set benchmark synchronous mode");
+        let transaction = conn.transaction().expect("benchmark transaction");
+        transaction
+            .execute_batch(
+                r#"
+                DROP TRIGGER IF EXISTS global_entries_ai;
+                DROP TRIGGER IF EXISTS global_entries_count_ai;
+                WITH RECURSIVE numbers(n) AS (
+                    SELECT 1
+                    UNION ALL
+                    SELECT n + 1 FROM numbers WHERE n < 100000
+                )
+                INSERT INTO global_entries (
+                    id, volume_id, platform_file_id, parent_platform_file_id,
+                    name, name_normalized, path, path_normalized, extension,
+                    is_directory, size, created_at_fs, modified_at_fs,
+                    file_attributes, is_hidden, is_system, is_stale,
+                    source_provider, last_seen_at
+                )
+                SELECT
+                    'ge_perf_' || n, 'gv_test', 'frn:perf:' || n, 'frn:perf-parent',
+                    printf('Report-%06d.txt', n), lower(printf('report-%06d.txt', n)),
+                    'C:\\Global\\Benchmark\\' || printf('Report-%06d.txt', n),
+                    lower('c:\\global\\benchmark\\' || printf('report-%06d.txt', n)),
+                    'txt', 0, 1024, 10, 20, 0, 0, 0, 0, 'windows_mft_usn', 30
+                FROM numbers;
+                INSERT INTO global_entries_fts(global_entries_fts) VALUES ('rebuild');
+                UPDATE global_volumes
+                SET entry_count = (SELECT COUNT(*) FROM global_entries WHERE volume_id = 'gv_test'),
+                    updated_at = 30
+                WHERE id = 'gv_test';
+                "#,
+            )
+            .expect("insert one hundred thousand benchmark entries");
+        transaction.commit().expect("commit benchmark entries");
+    }
+
+    let queries = [
+        ("R", "Report-000001.txt"),
+        ("Report-050000", "Report-050000.txt"),
+        ("Report-100000", "Report-100000.txt"),
+        ("txt", "Report-000001.txt"),
+        ("Report-050000!", "Report-050000.txt"),
+    ];
+    let mut timings_ms = Vec::with_capacity(queries.len() * 3);
+    for (query, expected_name) in queries {
+        for _ in 0..3 {
+            let started = Instant::now();
+            let results = db
+                .search_global_entries(query, 80, 0)
+                .expect("search 100k benchmark entries");
+            let elapsed_ms = started.elapsed().as_secs_f64() * 1_000.0;
+            eprintln!("Task 04 100k query {query:?}: {elapsed_ms:.3}ms");
+            timings_ms.push(elapsed_ms);
+            if query != "Report-050000!" {
+                assert!(
+                    results.iter().any(|result| result.name == expected_name),
+                    "global search query {query:?} should return {expected_name:?}"
+                );
+            }
+            assert!(results.len() <= 80);
+        }
+    }
+    timings_ms.sort_by(f64::total_cmp);
+    let p95_index = ((timings_ms.len() as f64 * 0.95).ceil() as usize)
+        .saturating_sub(1)
+        .min(timings_ms.len().saturating_sub(1));
+    let p95_ms = timings_ms[p95_index];
+    eprintln!(
+        "global search over 100,000 entries: samples={} p95_ms={p95_ms:.3} threshold_ms={GLOBAL_SEARCH_P95_LIMIT_MS:.3}",
+        timings_ms.len()
+    );
+    assert!(
+        p95_ms <= GLOBAL_SEARCH_P95_LIMIT_MS,
+        "global search p95 {p95_ms:.3}ms exceeded {GLOBAL_SEARCH_P95_LIMIT_MS:.3}ms"
+    );
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 #[ignore = "runs the required one-million-entry global search benchmark"]
 fn global_search_performance_one_million_synthetic_entries() {
     let path = test_db_path();
@@ -411,6 +558,8 @@ fn global_search_performance_one_million_synthetic_entries() {
         transaction
             .execute_batch(
                 r#"
+                DROP TRIGGER IF EXISTS global_entries_ai;
+                DROP TRIGGER IF EXISTS global_entries_count_ai;
                 WITH RECURSIVE numbers(n) AS (
                     SELECT 1
                     UNION ALL
@@ -435,6 +584,11 @@ fn global_search_performance_one_million_synthetic_entries() {
                     'txt', 0, 1024, 10, 20, 0, 0, 0, 0,
                     'windows_mft_usn', 30
                 FROM numbers;
+                INSERT INTO global_entries_fts(global_entries_fts) VALUES ('rebuild');
+                UPDATE global_volumes
+                SET entry_count = (SELECT COUNT(*) FROM global_entries WHERE volume_id = 'gv_test'),
+                    updated_at = 30
+                WHERE id = 'gv_test';
                 "#,
             )
             .expect("insert one million benchmark entries");
@@ -448,6 +602,24 @@ fn global_search_performance_one_million_synthetic_entries() {
         ("Report-750000", "Report-750000.txt"),
         ("Report-999999", "Report-999999.txt"),
     ];
+    {
+        let conn = db.conn().expect("explain benchmark query");
+        let mut statement = conn
+            .prepare(
+                "EXPLAIN QUERY PLAN SELECT ge.id FROM global_entries ge INDEXED BY idx_global_entries_active_name \
+                 JOIN global_volumes gv ON gv.id = ge.volume_id \
+                 WHERE gv.enabled = 1 AND ge.is_stale = 0 \
+                   AND ge.name_normalized GLOB ?1 \
+                 ORDER BY ge.modified_at_fs DESC, ge.id ASC LIMIT 20",
+            )
+            .expect("prepare benchmark plan");
+        let plan = statement
+            .query_map(["report-500000*"], |row| row.get::<_, String>(3))
+            .expect("query benchmark plan")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect benchmark plan");
+        eprintln!("Task 04 1M prefix query plan: {plan:?}");
+    }
     let mut timings_ms = Vec::with_capacity(queries.len() * 3);
     for (query, expected_name) in queries {
         for _ in 0..3 {
@@ -455,7 +627,9 @@ fn global_search_performance_one_million_synthetic_entries() {
             let results = db
                 .search_global_entries(query, 20, 0)
                 .expect("search one million benchmark entries");
-            timings_ms.push(started.elapsed().as_secs_f64() * 1_000.0);
+            let elapsed_ms = started.elapsed().as_secs_f64() * 1_000.0;
+            eprintln!("Task 04 1M query {query:?}: {elapsed_ms:.3}ms");
+            timings_ms.push(elapsed_ms);
             assert!(
                 results.iter().any(|result| result.name == expected_name),
                 "global search query {query:?} should return {expected_name:?}"

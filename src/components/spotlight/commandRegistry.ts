@@ -1,6 +1,20 @@
 import type { Translator, View } from "../../types/ui";
 
 export type SpotlightCommandGroup = "actions" | "settings" | "history";
+export type SpotlightCommandSurface = "main" | "standalone" | "browser";
+type TranslationKey = Parameters<Translator>[0];
+
+export type SpotlightCommandDefinition = {
+  id: string;
+  labelKey: TranslationKey;
+  descriptionKey: TranslationKey;
+  keywords: readonly string[];
+  group: SpotlightCommandGroup;
+  view: View;
+  settingsSection?: string;
+  defaultShortcutHint: string | null;
+  availability: readonly SpotlightCommandSurface[];
+};
 
 export type SpotlightCommand = {
   kind: "command";
@@ -11,22 +25,56 @@ export type SpotlightCommand = {
   group: SpotlightCommandGroup;
   view: View;
   settingsSection?: string;
+  defaultShortcutHint: string | null;
+  enabled: boolean;
+  disabledReason: string | null;
 };
 
-export function createCommandRegistry(t: Translator): SpotlightCommand[] {
-  return [
-    command("overview", t("overview"), t("commandOverviewDesc"), ["概览", "overview", "扫描", "scan"], "actions", "scanner"),
-    command("library", t("fileLibrary"), t("commandLibraryDesc"), ["文件", "library", "files"], "actions", "library"),
-    command("suggestions", t("organizeSuggestions"), t("commandSuggestionsDesc"), ["整理", "建议", "organize", "suggestions"], "actions", "organize"),
-    command("cleanup", t("storageCleanup"), t("commandCleanupDesc"), ["清理", "空间", "cleanup", "storage", "safe trash"], "actions", "cleanup"),
-    command("history", t("history"), t("commandHistoryDesc"), ["历史", "恢复", "history", "restore"], "history", "restore"),
-    command("automation", t("automation"), t("commandAutomationDesc"), ["自动化", "规则", "automation", "rules"], "actions", "rules"),
-    command("settings", t("settings"), t("commandSettingsDesc"), ["设置", "偏好", "settings"], "settings", "settings"),
-    command("search-scope-settings", t("searchScopeSettings"), t("commandSearchScopeDesc"), ["搜索范围", "范围设置", "search scope"], "settings", "settings", "settings-search-scope"),
-    command("global-index-settings", t("globalIndexSettings"), t("commandGlobalIndexDesc"), ["全局索引", "managed", "global index", "index"], "settings", "settings", "settings-global-index"),
-    command("theme-settings", t("commandThemeSettings"), t("commandThemeDesc"), ["主题", "外观", "深色", "浅色", "theme"], "settings", "settings", "settings-appearance"),
-    command("ai-settings", t("commandAISettings"), t("commandAIDesc"), ["AI", "模型", "ollama", "cloud"], "settings", "settings", "settings-ai")
-  ];
+export const SPOTLIGHT_COMMAND_CATALOG: readonly SpotlightCommandDefinition[] = [
+  definition("overview", "overview", "commandOverviewDesc", ["概览", "overview", "扫描", "scan"], "actions", "scanner"),
+  definition("library", "fileLibrary", "commandLibraryDesc", ["文件", "library", "files"], "actions", "library"),
+  definition("suggestions", "organizeSuggestions", "commandSuggestionsDesc", ["整理", "建议", "organize", "suggestions"], "actions", "organize"),
+  definition("cleanup", "storageCleanup", "commandCleanupDesc", ["清理", "空间", "cleanup", "storage", "safe trash"], "actions", "cleanup"),
+  definition("history", "history", "commandHistoryDesc", ["历史", "恢复", "history", "restore"], "history", "restore"),
+  definition("automation", "automation", "commandAutomationDesc", ["自动化", "规则", "automation", "rules"], "actions", "rules"),
+  definition("settings", "settings", "commandSettingsDesc", ["设置", "偏好", "settings"], "settings", "settings"),
+  definition("search-scope-settings", "searchScopeSettings", "commandSearchScopeDesc", ["搜索范围", "范围设置", "search scope"], "settings", "settings", "all", "settings-search-scope"),
+  definition("global-index-settings", "globalIndexSettings", "commandGlobalIndexDesc", ["全局索引", "managed", "global index", "index"], "settings", "settings", "all", "settings-global-index"),
+  definition("theme-settings", "commandThemeSettings", "commandThemeDesc", ["主题", "外观", "深色", "浅色", "theme"], "settings", "settings", "all", "settings-appearance"),
+  definition("ai-settings", "commandAISettings", "commandAIDesc", ["AI", "模型", "ollama", "cloud"], "settings", "settings", "all", "settings-ai")
+] as const;
+
+export function createCommandRegistry(
+  t: Translator,
+  surface: SpotlightCommandSurface = "main"
+): SpotlightCommand[] {
+  return SPOTLIGHT_COMMAND_CATALOG
+    .map((item) => {
+      const commandAvailability = resolveSpotlightCommandAvailability(item, surface);
+      return {
+      kind: "command",
+      id: item.id,
+      label: t(item.labelKey),
+      description: t(item.descriptionKey),
+      keywords: [...item.keywords],
+      group: item.group,
+      view: item.view,
+      settingsSection: item.settingsSection,
+      defaultShortcutHint: item.defaultShortcutHint,
+      ...commandAvailability
+    };
+    });
+}
+
+export function resolveSpotlightCommandAvailability(
+  definition: SpotlightCommandDefinition,
+  surface: SpotlightCommandSurface
+) {
+  const enabled = definition.availability.includes(surface);
+  return {
+    enabled,
+    disabledReason: enabled ? null : "command_surface_unavailable"
+  };
 }
 
 export function queryCommandRegistry(query: string, registry: SpotlightCommand[]) {
@@ -64,14 +112,25 @@ export function requestSettingsSection(sectionId: string) {
   window.dispatchEvent(new CustomEvent(SETTINGS_SECTION_EVENT, { detail: sectionId }));
 }
 
-function command(
+function definition(
   id: string,
-  label: string,
-  description: string,
-  keywords: string[],
+  labelKey: TranslationKey,
+  descriptionKey: TranslationKey,
+  keywords: readonly string[],
   group: SpotlightCommandGroup,
   view: View,
+  _availability: "all" = "all",
   settingsSection?: string
-): SpotlightCommand {
-  return { kind: "command", id, label, description, keywords, group, view, settingsSection };
+): SpotlightCommandDefinition {
+  return {
+    id,
+    labelKey,
+    descriptionKey,
+    keywords,
+    group,
+    view,
+    settingsSection,
+    defaultShortcutHint: null,
+    availability: ["main", "standalone", "browser"]
+  };
 }

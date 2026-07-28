@@ -138,6 +138,46 @@ pub struct GlobalIndexStatus {
     pub last_error: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalSearchRequest {
+    #[serde(default = "default_search_contract_version")]
+    pub version: u32,
+    pub request_id: String,
+    pub query: String,
+    #[serde(default = "default_search_limit")]
+    pub limit: u32,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default)]
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalSearchSourceHealth {
+    pub source_id: String,
+    pub enabled: bool,
+    pub provider: String,
+    pub status: String,
+    pub last_error: Option<String>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GlobalSearchResponse {
+    pub version: u32,
+    pub request_id: String,
+    pub normalized_query: String,
+    pub results: Vec<GlobalSearchResult>,
+    pub index_status: GlobalIndexStatus,
+    pub collection_complete: bool,
+    pub result_state: String,
+    pub source_revision: String,
+    pub source_health: Vec<GlobalSearchSourceHealth>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ManagedScope {
@@ -203,6 +243,10 @@ pub struct GlobalSearchQuery {
     pub limit: u32,
     #[serde(default)]
     pub offset: u32,
+}
+
+const fn default_search_contract_version() -> u32 {
+    2
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

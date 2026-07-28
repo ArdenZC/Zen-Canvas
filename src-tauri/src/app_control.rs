@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
+use std::{
+    sync::{Condvar, Mutex},
+    time::{Duration, Instant},
+};
 use tauri::{AppHandle, Runtime, State, WebviewWindow};
 
 use crate::{settings::DEFAULT_SEARCH_HOTKEY, window_auth::require_main_window};
@@ -9,7 +12,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    App, Emitter, LogicalSize, Manager, Size, WebviewUrl, WebviewWindowBuilder,
+    App, Emitter, LogicalSize, Manager, Size, WebviewUrl, WebviewWindowBuilder, WindowEvent,
 };
 #[cfg(feature = "desktop-runtime")]
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -20,9 +23,7 @@ const TRAY_SHOW_MAIN_WINDOW_ID: &str = "show-main-window";
 const TRAY_QUIT_APP_ID: &str = "quit-app";
 #[cfg(feature = "desktop-runtime")]
 const TRAY_ICON_BYTES: &[u8] = include_bytes!("../../build/icon.png");
-#[cfg(feature = "desktop-runtime")]
 const MAIN_WINDOW_LABEL: &str = "main";
-#[cfg(feature = "desktop-runtime")]
 const SEARCH_WINDOW_LABEL: &str = "search";
 const SEARCH_WINDOW_URL: &str = "index.html?mode=search";
 #[cfg(feature = "desktop-runtime")]
@@ -34,15 +35,19 @@ const SEARCH_WINDOW_EXPANDED_HEIGHT: f64 = 660.0;
 #[cfg(feature = "desktop-runtime")]
 const SEARCH_NAVIGATE_EVENT: &str = "search-navigate";
 #[cfg(feature = "desktop-runtime")]
-const GLOBAL_SEARCH_REQUESTED_EVENT: &str = "global-search-requested";
-#[cfg(feature = "desktop-runtime")]
 const GLOBAL_HOTKEY_REGISTRATION_FAILED_EVENT: &str = "global-hotkey-registration-failed";
+#[cfg(feature = "desktop-runtime")]
+const SEARCH_WINDOW_STATE_EVENT: &str = "search-window-state";
+#[cfg(feature = "desktop-runtime")]
+const MAIN_WINDOW_READY_REQUEST_EVENT: &str = "search-main-ready-request";
+const MAIN_WINDOW_READY_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchNavigatePayload {
     pub view: SearchView,
     pub file_id: Option<String>,
+    pub nonce: u64,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -67,9 +72,11 @@ pub struct GlobalHotkeyErrorPayload {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct GlobalHotkeyStatus {
-    pub accelerator: String,
+    pub requested_accelerator: String,
+    pub effective_accelerator: Option<String>,
     pub registered: bool,
     pub error: Option<String>,
+    pub revision: u64,
 }
 
 #[cfg(any(feature = "desktop-runtime", test))]
@@ -84,9 +91,79 @@ pub struct GlobalHotkeyStatusState {
     status: Mutex<Option<GlobalHotkeyStatus>>,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchWindowPhase {
+    Hidden,
+    Showing,
+    VisibleCollapsed,
+    VisibleExpanded,
+    Hiding,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchWindowSnapshot {
+    pub session_id: u64,
+    pub revision: u64,
+    pub phase: SearchWindowPhase,
+}
+
+#[derive(Debug)]
+pub struct SearchWindowLifecycleState {
+    snapshot: Mutex<SearchWindowSnapshot>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchWindowMutationRequest {
+    pub session_id: u64,
+    pub expected_revision: u64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchWindowResizeRequest {
+    pub session_id: u64,
+    pub expected_revision: u64,
+    pub expanded: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivateSearchResultRequest {
+    pub session_id: Option<u64>,
+    pub expected_revision: Option<u64>,
+    pub view: SearchView,
+    pub file_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MainWindowReadyRequest {
+    pub nonce: u64,
+}
+
+#[derive(Debug, Default)]
+struct MainWindowReadiness {
+    ready: bool,
+    next_nonce: u64,
+    acknowledged_nonce: u64,
+}
+
+#[derive(Debug, Default)]
+pub struct MainWindowReadinessState {
+    readiness: Mutex<MainWindowReadiness>,
+    changed: Condvar,
+}
+
 impl SearchNavigatePayload {
     pub fn new(view: SearchView, file_id: Option<String>) -> Self {
-        Self { view, file_id }
+        Self {
+            view,
+            file_id,
+            nonce: 0,
+        }
     }
 }
 
@@ -99,6 +176,216 @@ impl GlobalHotkeyStatusState {
 
     pub fn get(&self) -> Option<GlobalHotkeyStatus> {
         self.status.lock().ok().and_then(|guard| guard.clone())
+    }
+}
+
+impl Default for SearchWindowLifecycleState {
+    fn default() -> Self {
+        Self {
+            snapshot: Mutex::new(SearchWindowSnapshot {
+                session_id: 0,
+                revision: 1,
+                phase: SearchWindowPhase::Hidden,
+            }),
+        }
+    }
+}
+
+impl SearchWindowLifecycleState {
+    pub fn get(&self) -> SearchWindowSnapshot {
+        self.snapshot
+            .lock()
+            .map(|snapshot| snapshot.clone())
+            .unwrap_or(SearchWindowSnapshot {
+                session_id: 0,
+                revision: 1,
+                phase: SearchWindowPhase::Hidden,
+            })
+    }
+
+    fn begin_show(&self) -> Result<SearchWindowSnapshot, String> {
+        let mut state = self
+            .snapshot
+            .lock()
+            .map_err(|_| "search_window_state_unavailable".to_string())?;
+        if state.phase != SearchWindowPhase::Hidden {
+            return Err("search_window_already_visible".to_string());
+        }
+        state.session_id = state.session_id.saturating_add(1);
+        state.revision = state.revision.saturating_add(1);
+        state.phase = SearchWindowPhase::Showing;
+        Ok(state.clone())
+    }
+
+    fn complete_show(
+        &self,
+        session_id: u64,
+        expected_revision: u64,
+    ) -> Result<SearchWindowSnapshot, String> {
+        self.transition(
+            session_id,
+            expected_revision,
+            &[SearchWindowPhase::Showing],
+            SearchWindowPhase::VisibleCollapsed,
+        )
+    }
+
+    fn resize(&self, request: &SearchWindowResizeRequest) -> Result<SearchWindowSnapshot, String> {
+        self.transition(
+            request.session_id,
+            request.expected_revision,
+            &[
+                SearchWindowPhase::VisibleCollapsed,
+                SearchWindowPhase::VisibleExpanded,
+            ],
+            if request.expanded {
+                SearchWindowPhase::VisibleExpanded
+            } else {
+                SearchWindowPhase::VisibleCollapsed
+            },
+        )
+    }
+
+    fn begin_hide(
+        &self,
+        request: Option<&SearchWindowMutationRequest>,
+    ) -> Result<SearchWindowSnapshot, String> {
+        let current = self.get();
+        if current.phase == SearchWindowPhase::Hidden {
+            return Ok(current);
+        }
+        if let Some(request) = request {
+            validate_search_window_cas(&current, request.session_id, request.expected_revision)?;
+        }
+        if current.phase == SearchWindowPhase::Hiding {
+            return Ok(current);
+        }
+        self.transition(
+            current.session_id,
+            current.revision,
+            &[
+                SearchWindowPhase::Showing,
+                SearchWindowPhase::VisibleCollapsed,
+                SearchWindowPhase::VisibleExpanded,
+            ],
+            SearchWindowPhase::Hiding,
+        )
+    }
+
+    fn complete_hide(
+        &self,
+        session_id: u64,
+        expected_revision: u64,
+    ) -> Result<SearchWindowSnapshot, String> {
+        self.transition(
+            session_id,
+            expected_revision,
+            &[SearchWindowPhase::Hiding],
+            SearchWindowPhase::Hidden,
+        )
+    }
+
+    fn transition(
+        &self,
+        session_id: u64,
+        expected_revision: u64,
+        allowed: &[SearchWindowPhase],
+        next: SearchWindowPhase,
+    ) -> Result<SearchWindowSnapshot, String> {
+        let mut state = self
+            .snapshot
+            .lock()
+            .map_err(|_| "search_window_state_unavailable".to_string())?;
+        validate_search_window_cas(&state, session_id, expected_revision)?;
+        if !allowed.contains(&state.phase) {
+            return Err("search_window_transition_invalid".to_string());
+        }
+        state.revision = state.revision.saturating_add(1);
+        state.phase = next;
+        Ok(state.clone())
+    }
+}
+
+fn validate_search_window_cas(
+    current: &SearchWindowSnapshot,
+    session_id: u64,
+    expected_revision: u64,
+) -> Result<(), String> {
+    if current.session_id != session_id {
+        return Err("search_window_session_stale".to_string());
+    }
+    if current.revision != expected_revision {
+        return Err("search_window_revision_stale".to_string());
+    }
+    Ok(())
+}
+
+impl MainWindowReadinessState {
+    fn set_ready(&self, ready: bool) {
+        if let Ok(mut state) = self.readiness.lock() {
+            state.ready = ready;
+            self.changed.notify_all();
+        }
+    }
+
+    fn begin_request(&self, timeout: Duration) -> Result<u64, String> {
+        let deadline = Instant::now() + timeout;
+        let mut state = self
+            .readiness
+            .lock()
+            .map_err(|_| "main_window_readiness_unavailable".to_string())?;
+        while !state.ready {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err("main_window_not_ready".to_string());
+            }
+            let (next, wait) = self
+                .changed
+                .wait_timeout(state, remaining)
+                .map_err(|_| "main_window_readiness_unavailable".to_string())?;
+            state = next;
+            if wait.timed_out() && !state.ready {
+                return Err("main_window_not_ready".to_string());
+            }
+        }
+        state.next_nonce = state.next_nonce.saturating_add(1);
+        Ok(state.next_nonce)
+    }
+
+    fn acknowledge(&self, nonce: u64) -> Result<(), String> {
+        let mut state = self
+            .readiness
+            .lock()
+            .map_err(|_| "main_window_readiness_unavailable".to_string())?;
+        if nonce == 0 || nonce != state.next_nonce {
+            return Err("main_window_ready_nonce_stale".to_string());
+        }
+        state.acknowledged_nonce = nonce;
+        self.changed.notify_all();
+        Ok(())
+    }
+
+    fn wait_for_ack(&self, nonce: u64, timeout: Duration) -> Result<(), String> {
+        let deadline = Instant::now() + timeout;
+        let mut state = self
+            .readiness
+            .lock()
+            .map_err(|_| "main_window_readiness_unavailable".to_string())?;
+        while state.acknowledged_nonce < nonce {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err("main_window_ready_ack_timeout".to_string());
+            }
+            let (next, wait) = self
+                .changed
+                .wait_timeout(state, remaining)
+                .map_err(|_| "main_window_readiness_unavailable".to_string())?;
+            state = next;
+            if wait.timed_out() && state.acknowledged_nonce < nonce {
+                return Err("main_window_ready_ack_timeout".to_string());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -129,12 +416,24 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 
 #[tauri::command]
 pub fn activate_search_result<R: Runtime>(
+    window: WebviewWindow<R>,
     app: AppHandle<R>,
-    view: SearchView,
-    file_id: Option<String>,
+    lifecycle: State<'_, SearchWindowLifecycleState>,
+    readiness: State<'_, MainWindowReadinessState>,
+    request: ActivateSearchResultRequest,
 ) -> Result<(), String> {
-    let payload = SearchNavigatePayload::new(view, file_id);
-    activate_search_result_payload(&app, payload).map_err(|error| error.to_string())
+    if window.label() == SEARCH_WINDOW_LABEL {
+        let (Some(session_id), Some(expected_revision)) =
+            (request.session_id, request.expected_revision)
+        else {
+            return Err("search_window_session_required".to_string());
+        };
+        validate_search_window_cas(&lifecycle.get(), session_id, expected_revision)?;
+    } else {
+        require_main_window(&window)?;
+    }
+    let payload = SearchNavigatePayload::new(request.view, request.file_id);
+    activate_search_result_payload(&app, &lifecycle, &readiness, payload)
 }
 
 #[tauri::command]
@@ -152,36 +451,121 @@ pub fn register_global_search_hotkey<R: Runtime>(
     accelerator: String,
 ) -> GlobalHotkeyStatus {
     if require_main_window(&window).is_err() {
+        let previous = status_state.get();
         return GlobalHotkeyStatus {
-            registered: false,
-            accelerator: accelerator.clone(),
+            requested_accelerator: global_search_accelerator(&accelerator).to_string(),
+            effective_accelerator: previous
+                .as_ref()
+                .and_then(|status| status.effective_accelerator.clone()),
+            registered: previous.as_ref().is_some_and(|status| status.registered),
             error: Some("main_window_required".to_string()),
+            revision: previous.map_or(1, |status| status.revision.saturating_add(1)),
         };
     }
     register_global_search_shortcut(&app, &status_state, &accelerator)
 }
 
 #[tauri::command]
-pub fn resize_search_window<R: Runtime>(app: AppHandle<R>, expanded: bool) -> Result<(), String> {
-    resize_search_window_for_state(&app, expanded).map_err(|error| error.to_string())
+pub fn get_search_window_state(
+    lifecycle: State<'_, SearchWindowLifecycleState>,
+) -> SearchWindowSnapshot {
+    lifecycle.get()
+}
+
+#[tauri::command]
+pub fn search_window_ready<R: Runtime>(
+    window: WebviewWindow<R>,
+    app: AppHandle<R>,
+    lifecycle: State<'_, SearchWindowLifecycleState>,
+    request: SearchWindowMutationRequest,
+) -> Result<SearchWindowSnapshot, String> {
+    require_search_window(&window)?;
+    let snapshot = lifecycle.complete_show(request.session_id, request.expected_revision)?;
+    emit_search_window_state(&app, &snapshot);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn resize_search_window<R: Runtime>(
+    window: WebviewWindow<R>,
+    app: AppHandle<R>,
+    lifecycle: State<'_, SearchWindowLifecycleState>,
+    request: SearchWindowResizeRequest,
+) -> Result<SearchWindowSnapshot, String> {
+    require_search_window(&window)?;
+    validate_search_window_cas(
+        &lifecycle.get(),
+        request.session_id,
+        request.expected_revision,
+    )?;
+    resize_search_window_for_state(&app, request.expanded).map_err(|error| error.to_string())?;
+    let snapshot = lifecycle.resize(&request)?;
+    emit_search_window_state(&app, &snapshot);
+    Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn hide_search_window_command<R: Runtime>(
+    window: WebviewWindow<R>,
+    app: AppHandle<R>,
+    lifecycle: State<'_, SearchWindowLifecycleState>,
+    request: SearchWindowMutationRequest,
+) -> Result<SearchWindowSnapshot, String> {
+    require_search_window(&window)?;
+    hide_search_window_with_state(&app, &lifecycle, Some(&request))
+}
+
+#[tauri::command]
+pub fn mark_main_window_ready<R: Runtime>(
+    window: WebviewWindow<R>,
+    readiness: State<'_, MainWindowReadinessState>,
+    ready: bool,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    readiness.set_ready(ready);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn acknowledge_main_window_ready<R: Runtime>(
+    window: WebviewWindow<R>,
+    readiness: State<'_, MainWindowReadinessState>,
+    nonce: u64,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    readiness.acknowledge(nonce)
 }
 
 #[cfg(feature = "desktop-runtime")]
 fn activate_search_result_payload<R: Runtime>(
     app: &AppHandle<R>,
-    payload: SearchNavigatePayload,
-) -> tauri::Result<()> {
-    show_main_window(app)?;
-    app.emit_to(MAIN_WINDOW_LABEL, SEARCH_NAVIGATE_EVENT, payload)?;
-    hide_search_window(app)?;
+    lifecycle: &SearchWindowLifecycleState,
+    readiness: &MainWindowReadinessState,
+    mut payload: SearchNavigatePayload,
+) -> Result<(), String> {
+    show_main_window(app).map_err(|error| error.to_string())?;
+    let nonce = readiness.begin_request(MAIN_WINDOW_READY_TIMEOUT)?;
+    payload.nonce = nonce;
+    app.emit_to(
+        MAIN_WINDOW_LABEL,
+        MAIN_WINDOW_READY_REQUEST_EVENT,
+        MainWindowReadyRequest { nonce },
+    )
+    .map_err(|error| error.to_string())?;
+    readiness.wait_for_ack(nonce, MAIN_WINDOW_READY_TIMEOUT)?;
+    app.emit_to(MAIN_WINDOW_LABEL, SEARCH_NAVIGATE_EVENT, payload)
+        .map_err(|error| error.to_string())?;
+    hide_search_window_with_state(app, lifecycle, None)?;
     Ok(())
 }
 
 #[cfg(not(feature = "desktop-runtime"))]
 fn activate_search_result_payload<R: Runtime>(
     _app: &AppHandle<R>,
+    _lifecycle: &SearchWindowLifecycleState,
+    _readiness: &MainWindowReadinessState,
     _payload: SearchNavigatePayload,
-) -> tauri::Result<()> {
+) -> Result<(), String> {
     Ok(())
 }
 
@@ -191,7 +575,7 @@ pub fn setup_search_window(app: &mut App) -> tauri::Result<()> {
         return Ok(());
     }
 
-    WebviewWindowBuilder::new(
+    let search_window = WebviewWindowBuilder::new(
         app,
         SEARCH_WINDOW_LABEL,
         WebviewUrl::App(search_window_url().into()),
@@ -209,6 +593,16 @@ pub fn setup_search_window(app: &mut App) -> tauri::Result<()> {
     .visible(false)
     .center()
     .build()?;
+    let app_handle = app.handle().clone();
+    search_window.on_window_event(move |event| {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let lifecycle = app_handle.state::<SearchWindowLifecycleState>();
+            if let Err(error) = hide_search_window_with_state(&app_handle, &lifecycle, None) {
+                eprintln!("Hide search window after close request failed: {error}");
+            }
+        }
+    });
     Ok(())
 }
 
@@ -244,84 +638,95 @@ fn register_global_search_shortcut<R: Runtime>(
     status_state: &GlobalHotkeyStatusState,
     accelerator: &str,
 ) -> GlobalHotkeyStatus {
-    let accelerator = global_search_accelerator(accelerator).to_string();
+    let requested = global_search_accelerator(accelerator).to_string();
     let previous_status = status_state.get();
     if let Some(previous) = previous_status
         .as_ref()
-        .filter(|status| status.registered && status.accelerator == accelerator)
+        .filter(|status| hotkey_registration_is_idempotent(status, &requested))
     {
         return previous.clone();
     }
-    let shortcut = match global_search_shortcut(&accelerator) {
+    let next_revision = previous_status
+        .as_ref()
+        .map_or(1, |status| status.revision.saturating_add(1));
+    let shortcut = match global_search_shortcut(&requested) {
         Ok(shortcut) => shortcut,
         Err(error) => {
             let message =
-                format!("Global search hotkey registration failed for {accelerator}: {error}");
+                format!("Global search hotkey registration failed for {requested}: {error}");
             eprintln!("{message}");
             emit_global_hotkey_error(app, message.clone());
             let status = GlobalHotkeyStatus {
-                accelerator,
-                registered: false,
+                requested_accelerator: requested,
+                effective_accelerator: previous_status
+                    .as_ref()
+                    .and_then(|status| status.effective_accelerator.clone()),
+                registered: previous_status
+                    .as_ref()
+                    .is_some_and(|status| status.registered),
                 error: Some(message),
+                revision: next_revision,
             };
+            status_state.set(status.clone());
             return status;
         }
     };
 
-    if let Some(previous) = previous_status.as_ref().filter(|status| status.registered) {
-        if previous.accelerator != accelerator {
-            match global_search_shortcut(&previous.accelerator) {
-                Ok(previous_shortcut) => {
-                    if let Err(error) = app.global_shortcut().unregister(previous_shortcut) {
-                        let rollback = hotkey_registration_failure_with_rollback(
-                            accelerator,
-                            format!("Global search hotkey reset failed: {error}"),
-                            previous_status,
-                            None,
-                        );
-                        if let Some(message) = rollback.returned_status.error.clone() {
-                            eprintln!("{message}");
-                            emit_global_hotkey_error(app, message);
-                        }
-                        status_state.set(rollback.state_status.clone());
-                        return rollback.returned_status;
-                    }
-                }
-                Err(error) => {
-                    let message = format!(
-                        "Previous global search hotkey could not be parsed for rollback: {error}"
-                    );
-                    eprintln!("{message}");
-                    emit_global_hotkey_error(app, message.clone());
-                    let status = GlobalHotkeyStatus {
-                        accelerator,
-                        registered: false,
-                        error: Some(message),
-                    };
-                    status_state.set(status.clone());
-                    return status;
-                }
+    let previous_effective = previous_status.as_ref().and_then(|status| {
+        status
+            .registered
+            .then(|| status.effective_accelerator.clone())
+            .flatten()
+    });
+    if let Some(previous_accelerator) = previous_effective.as_deref() {
+        let previous_shortcut = match global_search_shortcut(previous_accelerator) {
+            Ok(shortcut) => shortcut,
+            Err(error) => {
+                let message = format!("Previous global search hotkey could not be parsed: {error}");
+                let status = GlobalHotkeyStatus {
+                    requested_accelerator: requested,
+                    effective_accelerator: previous_effective,
+                    registered: true,
+                    error: Some(message.clone()),
+                    revision: next_revision,
+                };
+                emit_global_hotkey_error(app, message);
+                status_state.set(status.clone());
+                return status;
             }
+        };
+        if let Err(error) = app.global_shortcut().unregister(previous_shortcut) {
+            let message = format!("Global search hotkey reset failed: {error}");
+            let status = GlobalHotkeyStatus {
+                requested_accelerator: requested,
+                effective_accelerator: previous_effective,
+                registered: true,
+                error: Some(message.clone()),
+                revision: next_revision,
+            };
+            emit_global_hotkey_error(app, message);
+            status_state.set(status.clone());
+            return status;
         }
     }
 
     let status = match app.global_shortcut().register(shortcut) {
         Ok(()) => GlobalHotkeyStatus {
-            accelerator,
+            requested_accelerator: requested,
+            effective_accelerator: Some(global_search_accelerator(accelerator).to_string()),
             registered: true,
             error: None,
+            revision: next_revision,
         },
         Err(error) => {
-            let previous_for_restore = previous_status
-                .clone()
-                .filter(|status| status.registered && status.accelerator != accelerator);
             let restore_error =
-                restore_previous_global_hotkey(app, previous_for_restore.as_ref()).err();
+                restore_previous_global_hotkey(app, previous_effective.as_deref()).err();
             let rollback = hotkey_registration_failure_with_rollback(
-                accelerator,
+                requested,
                 error.to_string(),
-                previous_for_restore,
+                previous_effective,
                 restore_error,
+                next_revision,
             );
             if let Some(message) = rollback.returned_status.error.clone() {
                 eprintln!("{message}");
@@ -335,15 +740,21 @@ fn register_global_search_shortcut<R: Runtime>(
     status
 }
 
+fn hotkey_registration_is_idempotent(previous: &GlobalHotkeyStatus, requested: &str) -> bool {
+    previous.registered
+        && previous.error.is_none()
+        && previous.effective_accelerator.as_deref() == Some(requested)
+}
+
 #[cfg(feature = "desktop-runtime")]
 fn restore_previous_global_hotkey<R: Runtime>(
     app: &AppHandle<R>,
-    previous_status: Option<&GlobalHotkeyStatus>,
+    previous_accelerator: Option<&str>,
 ) -> Result<(), String> {
-    let Some(previous) = previous_status else {
+    let Some(previous_accelerator) = previous_accelerator else {
         return Ok(());
     };
-    let previous_shortcut = global_search_shortcut(&previous.accelerator)?;
+    let previous_shortcut = global_search_shortcut(previous_accelerator)?;
     app.global_shortcut()
         .register(previous_shortcut)
         .map_err(|error| error.to_string())
@@ -353,36 +764,41 @@ fn restore_previous_global_hotkey<R: Runtime>(
 fn hotkey_registration_failure_with_rollback(
     requested_accelerator: String,
     registration_error: String,
-    previous_status: Option<GlobalHotkeyStatus>,
+    previous_effective: Option<String>,
     restore_error: Option<String>,
+    revision: u64,
 ) -> HotkeyRollbackResult {
     let base_message = format!(
         "Global search hotkey registration failed for {requested_accelerator}: {registration_error}"
     );
 
-    match (previous_status, restore_error) {
-        (Some(previous), None) if previous.registered => {
+    match (previous_effective, restore_error) {
+        (Some(previous), None) => {
             let returned_status = GlobalHotkeyStatus {
-                accelerator: requested_accelerator,
-                registered: false,
+                requested_accelerator,
+                effective_accelerator: Some(previous.clone()),
+                registered: true,
                 error: Some(format!(
                     "{base_message}; restored previous hotkey {}",
-                    previous.accelerator
+                    previous
                 )),
+                revision,
             };
             HotkeyRollbackResult {
-                returned_status,
-                state_status: previous,
+                returned_status: returned_status.clone(),
+                state_status: returned_status,
             }
         }
-        (Some(previous), Some(restore_error)) if previous.registered => {
+        (Some(previous), Some(restore_error)) => {
             let returned_status = GlobalHotkeyStatus {
-                accelerator: requested_accelerator,
+                requested_accelerator,
+                effective_accelerator: None,
                 registered: false,
                 error: Some(format!(
                     "{base_message}; restore previous hotkey failed for {}: {restore_error}",
-                    previous.accelerator
+                    previous
                 )),
+                revision,
             };
             HotkeyRollbackResult {
                 returned_status: returned_status.clone(),
@@ -391,9 +807,11 @@ fn hotkey_registration_failure_with_rollback(
         }
         _ => {
             let returned_status = GlobalHotkeyStatus {
-                accelerator: requested_accelerator,
+                requested_accelerator,
+                effective_accelerator: None,
                 registered: false,
                 error: Some(base_message),
+                revision,
             };
             HotkeyRollbackResult {
                 returned_status: returned_status.clone(),
@@ -410,9 +828,13 @@ fn register_global_search_shortcut<R: Runtime>(
     accelerator: &str,
 ) -> GlobalHotkeyStatus {
     let status = GlobalHotkeyStatus {
-        accelerator: global_search_accelerator(accelerator).to_string(),
+        requested_accelerator: global_search_accelerator(accelerator).to_string(),
+        effective_accelerator: None,
         registered: false,
         error: Some("Global hotkeys require the desktop runtime.".to_string()),
+        revision: status_state
+            .get()
+            .map_or(1, |status| status.revision.saturating_add(1)),
     };
     status_state.set(status.clone());
     status
@@ -446,18 +868,21 @@ fn emit_global_hotkey_error<R: Runtime>(app: &AppHandle<R>, message: String) {
 fn resize_search_window_for_state<R: Runtime>(
     app: &AppHandle<R>,
     expanded: bool,
-) -> tauri::Result<()> {
-    if let Some(window) = app.get_webview_window(SEARCH_WINDOW_LABEL) {
-        window.set_size(Size::Logical(LogicalSize {
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window(SEARCH_WINDOW_LABEL)
+        .ok_or_else(|| "search_window_missing".to_string())?;
+    window
+        .set_size(Size::Logical(LogicalSize {
             width: SEARCH_WINDOW_WIDTH,
             height: if expanded {
                 SEARCH_WINDOW_EXPANDED_HEIGHT
             } else {
                 SEARCH_WINDOW_COLLAPSED_HEIGHT
             },
-        }))?;
-        window.center()?;
-    }
+        }))
+        .map_err(|error| error.to_string())?;
+    window.center().map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -470,28 +895,12 @@ fn resize_search_window_for_state<R: Runtime>(
 }
 
 #[cfg(feature = "desktop-runtime")]
-pub fn toggle_search_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
-    if let Some(window) = app.get_webview_window(SEARCH_WINDOW_LABEL) {
-        let visibility = match window.is_visible() {
-            Ok(is_visible) => Some(is_visible),
-            Err(error) => {
-                eprintln!(
-                    "Read search window visibility failed; opening Spotlight in the main window: {error}"
-                );
-                None
-            }
-        };
-        match search_window_action(visibility) {
-            SearchWindowAction::ShowStandalone => {
-                resize_search_window_for_state(app, false)?;
-                window.show()?;
-                window.set_focus()?;
-            }
-            SearchWindowAction::HideStandalone => window.hide()?,
-            SearchWindowAction::ShowMainFallback => {
-                show_main_window(app)?;
-                app.emit_to(MAIN_WINDOW_LABEL, GLOBAL_SEARCH_REQUESTED_EVENT, ())?;
-            }
+pub fn toggle_search_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    let lifecycle = app.state::<SearchWindowLifecycleState>();
+    match search_window_action(lifecycle.get().phase) {
+        SearchWindowAction::ShowStandalone => show_search_window(app, &lifecycle)?,
+        SearchWindowAction::HideStandalone => {
+            hide_search_window_with_state(app, &lifecycle, None)?;
         }
     }
     Ok(())
@@ -502,24 +911,92 @@ pub fn toggle_search_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()>
 enum SearchWindowAction {
     ShowStandalone,
     HideStandalone,
-    ShowMainFallback,
 }
 
 #[cfg(any(feature = "desktop-runtime", test))]
-fn search_window_action(is_visible: Option<bool>) -> SearchWindowAction {
-    match is_visible {
-        Some(true) => SearchWindowAction::HideStandalone,
-        Some(false) => SearchWindowAction::ShowStandalone,
-        None => SearchWindowAction::ShowMainFallback,
+fn search_window_action(phase: SearchWindowPhase) -> SearchWindowAction {
+    match phase {
+        SearchWindowPhase::Hidden => SearchWindowAction::ShowStandalone,
+        SearchWindowPhase::Showing
+        | SearchWindowPhase::VisibleCollapsed
+        | SearchWindowPhase::VisibleExpanded
+        | SearchWindowPhase::Hiding => SearchWindowAction::HideStandalone,
     }
 }
 
 #[cfg(feature = "desktop-runtime")]
-pub fn hide_search_window<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
-    if let Some(window) = app.get_webview_window(SEARCH_WINDOW_LABEL) {
-        window.hide()?;
+fn show_search_window<R: Runtime>(
+    app: &AppHandle<R>,
+    lifecycle: &SearchWindowLifecycleState,
+) -> Result<(), String> {
+    let snapshot = lifecycle.begin_show()?;
+    let result = (|| {
+        let window = app
+            .get_webview_window(SEARCH_WINDOW_LABEL)
+            .ok_or_else(|| "search_window_missing".to_string())?;
+        resize_search_window_for_state(app, false).map_err(|error| error.to_string())?;
+        window.show().map_err(|error| error.to_string())?;
+        window.set_focus().map_err(|error| error.to_string())?;
+        emit_search_window_state(app, &snapshot);
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = hide_search_window_with_state(app, lifecycle, None);
     }
-    Ok(())
+    result
+}
+
+#[cfg(feature = "desktop-runtime")]
+fn hide_search_window_with_state<R: Runtime>(
+    app: &AppHandle<R>,
+    lifecycle: &SearchWindowLifecycleState,
+    request: Option<&SearchWindowMutationRequest>,
+) -> Result<SearchWindowSnapshot, String> {
+    let hiding = lifecycle.begin_hide(request)?;
+    if hiding.phase == SearchWindowPhase::Hidden {
+        return Ok(hiding);
+    }
+    emit_search_window_state(app, &hiding);
+    let window = app
+        .get_webview_window(SEARCH_WINDOW_LABEL)
+        .ok_or_else(|| "search_window_missing".to_string())?;
+    window.hide().map_err(|error| error.to_string())?;
+    let hidden = lifecycle.complete_hide(hiding.session_id, hiding.revision)?;
+    emit_search_window_state(app, &hidden);
+    Ok(hidden)
+}
+
+#[cfg(not(feature = "desktop-runtime"))]
+fn hide_search_window_with_state<R: Runtime>(
+    _app: &AppHandle<R>,
+    lifecycle: &SearchWindowLifecycleState,
+    request: Option<&SearchWindowMutationRequest>,
+) -> Result<SearchWindowSnapshot, String> {
+    let hiding = lifecycle.begin_hide(request)?;
+    if hiding.phase == SearchWindowPhase::Hidden {
+        return Ok(hiding);
+    }
+    lifecycle.complete_hide(hiding.session_id, hiding.revision)
+}
+
+#[cfg(feature = "desktop-runtime")]
+fn emit_search_window_state<R: Runtime>(app: &AppHandle<R>, snapshot: &SearchWindowSnapshot) {
+    let _ = app.emit_to(
+        SEARCH_WINDOW_LABEL,
+        SEARCH_WINDOW_STATE_EVENT,
+        snapshot.clone(),
+    );
+}
+
+#[cfg(not(feature = "desktop-runtime"))]
+fn emit_search_window_state<R: Runtime>(_app: &AppHandle<R>, _snapshot: &SearchWindowSnapshot) {}
+
+fn require_search_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
+    if window.label() == SEARCH_WINDOW_LABEL {
+        Ok(())
+    } else {
+        Err("search_window_required".to_string())
+    }
 }
 
 #[cfg(feature = "desktop-runtime")]
@@ -588,18 +1065,102 @@ mod tests {
     }
 
     #[test]
-    fn search_hotkey_shows_window_when_visibility_cannot_be_read() {
+    fn search_window_action_is_owned_by_the_durable_phase() {
         assert_eq!(
-            search_window_action(None),
-            SearchWindowAction::ShowMainFallback
-        );
-        assert_eq!(
-            search_window_action(Some(false)),
+            search_window_action(SearchWindowPhase::Hidden),
             SearchWindowAction::ShowStandalone
         );
         assert_eq!(
-            search_window_action(Some(true)),
+            search_window_action(SearchWindowPhase::Showing),
             SearchWindowAction::HideStandalone
+        );
+        assert_eq!(
+            search_window_action(SearchWindowPhase::VisibleCollapsed),
+            SearchWindowAction::HideStandalone
+        );
+    }
+
+    #[test]
+    fn search_window_rejects_old_session_and_revision_mutations() {
+        let lifecycle = SearchWindowLifecycleState::default();
+        let showing = lifecycle.begin_show().expect("begin show");
+        assert_eq!(showing.phase, SearchWindowPhase::Showing);
+        assert_eq!(
+            lifecycle
+                .complete_show(showing.session_id.saturating_sub(1), showing.revision)
+                .expect_err("old session rejected"),
+            "search_window_session_stale"
+        );
+        let visible = lifecycle
+            .complete_show(showing.session_id, showing.revision)
+            .expect("complete show");
+        let stale_resize = SearchWindowResizeRequest {
+            session_id: visible.session_id,
+            expected_revision: visible.revision.saturating_sub(1),
+            expanded: true,
+        };
+        assert_eq!(
+            lifecycle
+                .resize(&stale_resize)
+                .expect_err("old revision rejected"),
+            "search_window_revision_stale"
+        );
+    }
+
+    #[test]
+    fn search_window_lifecycle_hides_and_reopens_with_a_new_session() {
+        let lifecycle = SearchWindowLifecycleState::default();
+        let showing = lifecycle.begin_show().expect("begin show");
+        let visible = lifecycle
+            .complete_show(showing.session_id, showing.revision)
+            .expect("complete show");
+        let expanded = lifecycle
+            .resize(&SearchWindowResizeRequest {
+                session_id: visible.session_id,
+                expected_revision: visible.revision,
+                expanded: true,
+            })
+            .expect("expand");
+        let hiding = lifecycle.begin_hide(None).expect("begin hide");
+        assert_eq!(hiding.phase, SearchWindowPhase::Hiding);
+        assert_eq!(
+            lifecycle.begin_hide(None).expect("retry begin hide"),
+            hiding
+        );
+        let hidden = lifecycle
+            .complete_hide(hiding.session_id, hiding.revision)
+            .expect("complete hide");
+        assert_eq!(hidden.phase, SearchWindowPhase::Hidden);
+        assert!(hidden.revision > expanded.revision);
+
+        let reopened = lifecycle.begin_show().expect("reopen");
+        assert!(reopened.session_id > hidden.session_id);
+        assert_eq!(reopened.phase, SearchWindowPhase::Showing);
+    }
+
+    #[test]
+    fn main_window_readiness_rejects_stale_nonce_and_accepts_current_ack() {
+        let readiness = MainWindowReadinessState::default();
+        readiness.set_ready(true);
+        let nonce = readiness
+            .begin_request(Duration::from_millis(5))
+            .expect("ready request");
+        assert_eq!(
+            readiness.acknowledge(nonce.saturating_add(1)),
+            Err("main_window_ready_nonce_stale".to_string())
+        );
+        readiness.acknowledge(nonce).expect("ack current nonce");
+        readiness
+            .wait_for_ack(nonce, Duration::from_millis(5))
+            .expect("observe ack");
+    }
+
+    #[test]
+    fn main_window_readiness_fails_closed_when_renderer_is_not_ready() {
+        let readiness = MainWindowReadinessState::default();
+        assert_eq!(
+            readiness.begin_request(Duration::from_millis(1)),
+            Err("main_window_not_ready".to_string())
         );
     }
 
@@ -610,51 +1171,47 @@ mod tests {
 
         assert_eq!(value["view"], "library");
         assert_eq!(value["fileId"], "file-1");
+        assert_eq!(value["nonce"], 0);
     }
 
     #[test]
     fn hotkey_registration_failure_restores_previous_status_when_fallback_succeeds() {
-        let previous = GlobalHotkeyStatus {
-            accelerator: "CmdOrCtrl+K".to_string(),
-            registered: true,
-            error: None,
-        };
-
         let rollback = hotkey_registration_failure_with_rollback(
             "Alt+Space".to_string(),
             "shortcut already registered".to_string(),
-            Some(previous.clone()),
+            Some("CmdOrCtrl+K".to_string()),
             None,
+            2,
         );
 
-        assert!(!rollback.returned_status.registered);
-        assert_eq!(rollback.returned_status.accelerator, "Alt+Space");
+        assert!(rollback.returned_status.registered);
+        assert_eq!(rollback.returned_status.requested_accelerator, "Alt+Space");
+        assert_eq!(
+            rollback.returned_status.effective_accelerator.as_deref(),
+            Some("CmdOrCtrl+K")
+        );
         assert!(rollback
             .returned_status
             .error
             .as_deref()
             .unwrap_or_default()
             .contains("restored previous hotkey CmdOrCtrl+K"));
-        assert_eq!(rollback.state_status, previous);
+        assert_eq!(rollback.state_status, rollback.returned_status);
     }
 
     #[test]
     fn hotkey_registration_failure_keeps_failure_status_when_fallback_fails() {
-        let previous = GlobalHotkeyStatus {
-            accelerator: "CmdOrCtrl+K".to_string(),
-            registered: true,
-            error: None,
-        };
-
         let rollback = hotkey_registration_failure_with_rollback(
             "Alt+Space".to_string(),
             "shortcut already registered".to_string(),
-            Some(previous),
+            Some("CmdOrCtrl+K".to_string()),
             Some("restore failed".to_string()),
+            2,
         );
 
         assert!(!rollback.returned_status.registered);
-        assert_eq!(rollback.returned_status.accelerator, "Alt+Space");
+        assert_eq!(rollback.returned_status.requested_accelerator, "Alt+Space");
+        assert_eq!(rollback.returned_status.effective_accelerator, None);
         assert!(rollback
             .returned_status
             .error
@@ -662,5 +1219,24 @@ mod tests {
             .unwrap_or_default()
             .contains("restore previous hotkey failed"));
         assert_eq!(rollback.state_status, rollback.returned_status);
+    }
+
+    #[test]
+    fn hotkey_same_effective_value_is_idempotent_only_for_a_healthy_registration() {
+        let healthy = GlobalHotkeyStatus {
+            requested_accelerator: "CmdOrCtrl+K".to_string(),
+            effective_accelerator: Some("CmdOrCtrl+K".to_string()),
+            registered: true,
+            error: None,
+            revision: 4,
+        };
+        assert!(hotkey_registration_is_idempotent(&healthy, "CmdOrCtrl+K"));
+        assert!(!hotkey_registration_is_idempotent(&healthy, "Alt+Space"));
+
+        let failed = GlobalHotkeyStatus {
+            error: Some("registration failed".to_string()),
+            ..healthy
+        };
+        assert!(!hotkey_registration_is_idempotent(&failed, "CmdOrCtrl+K"));
     }
 }
