@@ -7,11 +7,12 @@
 - Implementation branch: `remediation/04-global-shortcut-search`.
 - Exact physical-union commit: `ccae24c85f82f640eb99cabecc7a4aea43529b39`.
 - Global shortcut search implementation commit: `d898fd7`.
-- Final delivery HEAD, Draft PR URL, and GitHub CI run are recorded in section 13 after publication.
+- Validated implementation/closeout HEAD: `b853618af5dd502b1005754999417f59183643ed`.
+- Draft PR URL and GitHub CI evidence are recorded in section 13.
 - Database remains schema 30. No dependency or lockfile was changed.
 - Task 05 was not started.
 
-Task 04 production implementation is complete and remains pending Draft PR CI and human code-level acceptance.
+Task 04 production implementation and cross-platform CI are complete. The Draft PR remains pending human code-level acceptance.
 
 ## 2. Tolaria reference and license boundary
 
@@ -108,12 +109,14 @@ Task 04 implementation is complete on one implementation branch and one Draft PR
 Task 03 exact physical-union debt is closed.
 Schema remains 30 and no dependency or lockfile changed.
 Task 05 was not started.
-Waiting for Windows, macOS, Dependency audit, and human code-level acceptance.
+Windows, macOS, package, performance, and Dependency audit CI passed.
+Waiting for human code-level acceptance.
 ```
 
 ## 13. Delivery record
 
-- Final delivery HEAD: pending publication.
-- Draft PR: pending publication.
-- GitHub CI: pending publication.
+- Validated implementation/closeout HEAD: `b853618af5dd502b1005754999417f59183643ed`.
+- Draft PR: [#35](https://github.com/ArdenZC/Zen-Canvas/pull/35), `feat: harden global shortcut search and command surface`.
+- GitHub CI run: `30380922718`; scope/document contract, frontend/format, Rust quality on Windows/macOS, release compile on Windows/macOS, NSIS, unsigned DMG, performance profile, platform quality, and Dependency audit all passed.
+- This section is an evidence-only follow-up; its commit SHA is the final PR HEAD reported at handoff.
 - Merge: prohibited; human acceptance required.
