@@ -215,7 +215,6 @@ fn main() {
             zen_canvas_tauri::storage_analyzer::reveal_storage_candidate,
             zen_canvas_tauri::storage_analyzer::preview_cleanup_candidates,
             zen_canvas_tauri::storage_analyzer::preview_cleanup_operations,
-            zen_canvas_tauri::storage_analyzer::move_cleanup_candidates_to_trash,
             zen_canvas_tauri::storage_analyzer::move_cleanup_candidates_to_safe_trash,
             zen_canvas_tauri::storage_analyzer::list_cleanup_trash_batches,
             zen_canvas_tauri::storage_analyzer::preview_restore_cleanup_trash,

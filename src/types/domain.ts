@@ -940,6 +940,14 @@ export interface StorageCandidate {
   selected_by_default: boolean;
 }
 
+export interface CleanupFindingSelection {
+  findingId: string;
+  expectedRevision: number;
+  reviewConfirmation?: {
+    decisionRevision: number;
+  };
+}
+
 export interface StorageAnalysis {
   total_size: number;
   reclaimable_estimate: number;

@@ -16,6 +16,7 @@ import type {
   CleanupRestoreResult,
   CleanupTrashBatch,
   CleanupExecutionResult,
+  CleanupFindingSelection,
   CleanupPreviewItem,
   DashboardStats,
   DedupeGroup,
@@ -590,14 +591,14 @@ export const tauriApi = {
     decision: AnalysisFindingDecision["decision"];
     snoozedUntil?: number | null;
     note?: string | null;
-    expectedRevision?: number | null;
+    expectedRevision: number;
   }): Promise<AnalysisFindingDecision> {
     return invokeCommand<AnalysisFindingDecision>("set_analysis_finding_decision", {
       findingKey: request.findingKey,
       decision: request.decision,
       snoozedUntil: request.snoozedUntil ?? null,
       note: request.note ?? null,
-      expectedRevision: request.expectedRevision ?? null
+      expectedRevision: request.expectedRevision
     });
   },
 
@@ -691,24 +692,18 @@ export const tauriApi = {
     return invokeCommand<void>("reveal_storage_candidate", { path });
   },
 
-  previewCleanupCandidates(jobId: string, ids: string[]): Promise<CleanupPreviewItem[]> {
-    return invokeCommand<CleanupPreviewItem[]>("preview_cleanup_candidates", { jobId, ids });
+  previewCleanupCandidates(jobId: string, selections: CleanupFindingSelection[]): Promise<CleanupPreviewItem[]> {
+    return invokeCommand<CleanupPreviewItem[]>("preview_cleanup_candidates", { jobId, selections });
   },
 
-  previewCleanupOperations(jobId: string, ids: string[]): Promise<OperationPreviewResult> {
-    return invokeCommand<OperationPreviewResult>("preview_cleanup_operations", { jobId, ids });
+  previewCleanupOperations(jobId: string, selections: CleanupFindingSelection[]): Promise<OperationPreviewResult> {
+    return invokeCommand<OperationPreviewResult>("preview_cleanup_operations", { jobId, selections });
   },
 
-  moveCleanupCandidatesToTrash(jobId: string, ids: string[]): Promise<CleanupExecutionResult> {
+  moveCleanupCandidatesToSafeTrash(jobId: string, selections: CleanupFindingSelection[]): Promise<CleanupExecutionResult> {
     const unavailable = rejectUnavailableFileMutation<CleanupExecutionResult>();
     if (unavailable) return unavailable;
-    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_trash", { jobId, ids });
-  },
-
-  moveCleanupCandidatesToSafeTrash(jobId: string, ids: string[]): Promise<CleanupExecutionResult> {
-    const unavailable = rejectUnavailableFileMutation<CleanupExecutionResult>();
-    if (unavailable) return unavailable;
-    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_safe_trash", { jobId, ids });
+    return invokeCommand<CleanupExecutionResult>("move_cleanup_candidates_to_safe_trash", { jobId, selections });
   },
 
   analyzeCleanupCandidatesWithAI(jobId: string, ids: string[]): Promise<StorageCandidate[]> {

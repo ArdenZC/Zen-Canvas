@@ -99,7 +99,6 @@ const COMMANDS: &[&str] = &[
     "reveal_storage_candidate",
     "preview_cleanup_candidates",
     "preview_cleanup_operations",
-    "move_cleanup_candidates_to_trash",
     "move_cleanup_candidates_to_safe_trash",
     "list_cleanup_trash_batches",
     "preview_restore_cleanup_trash",

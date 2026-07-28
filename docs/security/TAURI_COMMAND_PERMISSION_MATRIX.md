@@ -104,7 +104,6 @@
 | `reveal_storage_candidate` | `read_only` | main | Open candidate folder | default | no | command permission contract |
 | `preview_cleanup_candidates` | `read_only` | main | Build cleanup preview | default | no | preview tests |
 | `preview_cleanup_operations` | `read_only` | main | Build operation preview | default | no | preview tests |
-| `move_cleanup_candidates_to_trash` | `filesystem_mutation` | main | Move to system trash | default | yes | cleanup safety tests |
 | `move_cleanup_candidates_to_safe_trash` | `filesystem_mutation` | main | Move to Safe Trash | default | yes | cleanup safety tests |
 | `list_cleanup_trash_batches` | `read_only` | main | Read Safe Trash journal | default | no | command permission contract |
 | `preview_restore_cleanup_trash` | `read_only` | main | Build restore preview | default | no | restore tests |

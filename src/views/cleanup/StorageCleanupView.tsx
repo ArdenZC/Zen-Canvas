@@ -32,6 +32,7 @@ import type {
   AnalysisFindingEvidence,
   AnalysisRun,
   CleanupExecutionResult,
+  CleanupFindingSelection,
   CleanupTier,
   StorageAnalysis,
   StorageCandidate
@@ -79,8 +80,9 @@ type StorageCleanupApi = Pick<
       | "listAnalysisRuns"
       | "getAnalysisRun"
       | "listAnalysisRunDetectors"
-      | "listAnalysisFindings"
-      | "listAnalysisFindingEvidence"
+       | "listAnalysisFindings"
+       | "getAnalysisFinding"
+       | "listAnalysisFindingEvidence"
       | "setAnalysisFindingDecision"
       | "revalidateAnalysisFinding"
       | "retryAnalysisRun"
@@ -315,7 +317,8 @@ function StorageCleanupPanel({
     setIsExecuting(true);
     setLocalError("");
     try {
-      const result: CleanupExecutionResult = await api.moveCleanupCandidatesToSafeTrash(displayedJobId, [...selectedCleanupIds]);
+      const selections = await buildCleanupFindingSelections(api, [...selectedCleanupIds]);
+      const result: CleanupExecutionResult = await api.moveCleanupCandidatesToSafeTrash(displayedJobId, selections);
       if (useStorageCleanupStore.getState().displayedJobId !== displayedJobId) return;
       useStorageCleanupStore.getState().setExecutionResult(result);
       setConfirmOpen(false);
@@ -383,10 +386,22 @@ function StorageCleanupPanel({
     useStorageCleanupStore.getState().toggleCleanupCandidate(candidate);
   }
 
-  function confirmReviewCandidate() {
-    if (!reviewConfirmCandidate) return;
-    useStorageCleanupStore.getState().toggleCleanupCandidate(reviewConfirmCandidate);
-    setReviewConfirmCandidate(null);
+  async function confirmReviewCandidate() {
+    if (!reviewConfirmCandidate || !api.getAnalysisFinding || !api.setAnalysisFindingDecision) return;
+    try {
+      const finding = await api.getAnalysisFinding(reviewConfirmCandidate.id);
+      if (!finding || finding.tier !== "review") throw new Error("review_finding_changed");
+      const decision = await api.setAnalysisFindingDecision({
+        findingKey: finding.findingKey,
+        decision: "acknowledged",
+        expectedRevision: finding.decisionRevision ?? 0
+      });
+      if (decision.decision !== "acknowledged") throw new Error("review_confirmation_not_persisted");
+      useStorageCleanupStore.getState().toggleCleanupCandidate(reviewConfirmCandidate);
+      setReviewConfirmCandidate(null);
+    } catch (confirmationError) {
+      reportError(confirmationError);
+    }
   }
 
   function reportError(errorValue: unknown) {
@@ -1399,6 +1414,30 @@ function cleanupAIIdsForMode(
   return candidates
     .filter((candidate) => mode === "all" || candidate.tier === "Review" || candidate.tier === "Caution")
     .map((candidate) => candidate.id);
+}
+
+async function buildCleanupFindingSelections(
+  api: StorageCleanupApi,
+  ids: string[]
+): Promise<CleanupFindingSelection[]> {
+  if (!api.getAnalysisFinding) throw new Error("analysis_finding_selection_unsupported");
+  const findings = await Promise.all(ids.map((id) => api.getAnalysisFinding!(id)));
+  return findings.map((finding, index) => {
+    if (!finding) throw new Error(`analysis_finding_not_found:${ids[index]}`);
+    const selection: CleanupFindingSelection = {
+      findingId: finding.id,
+      expectedRevision: finding.revision
+    };
+    if (finding.tier === "review") {
+      if (finding.decision !== "acknowledged" || finding.decisionRevision == null) {
+        throw new Error(`review_confirmation_required:${finding.id}`);
+      }
+      selection.reviewConfirmation = {
+        decisionRevision: finding.decisionRevision
+      };
+    }
+    return selection;
+  });
 }
 
 function ensureCleanupAIReady(

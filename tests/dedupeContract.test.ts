@@ -131,6 +131,31 @@ describe("Task 03 durable analysis contract", () => {
     expect(api).toContain("setAnalysisFindingDecision");
   });
 
+  it("requires durable identity dispatch, detector-owned review contracts, and full selection CAS", () => {
+    const analysis = read("src-tauri/src/analysis.rs");
+    const queries = read("src-tauri/src/db/queries/analysis.rs");
+    const cleanup = read("src-tauri/src/storage_analyzer.rs");
+    const aiCleanup = read("src-tauri/src/ai/cleanup.rs");
+    const api = read("src/api/tauriApi.ts");
+
+    expect(analysis).toContain('"managed_file" | "file"');
+    expect(analysis).toContain('"duplicate_group" => duplicate_group_identity_matches');
+    expect(analysis).toContain('"directory" => directory_identity_matches');
+    expect(analysis).toContain('"approved_path" => approved_path_identity_matches');
+    expect(analysis).toContain('"detectorContract": "review_reveal"');
+    expect(analysis).toContain("CLEANUP_HEURISTICS_DETECTOR.to_string()");
+    expect(queries).toContain("ANALYSIS_PRUNE_ROW_BUDGET: usize = 1000");
+    expect(queries).toContain("refresh_analysis_run_aggregate_tx");
+    expect(queries).toContain("revision = revision + 1");
+    expect(cleanup).toContain("expected_revision: i64");
+    expect(cleanup).toContain("ReviewFindingConfirmation");
+    expect(cleanup).toContain("authorize_cleanup_candidate");
+    expect(cleanup).not.toContain("move_path_to_system_trash_with_safety");
+    expect(aiCleanup).toContain("ANALYSIS_RUN_UPDATED_EVENT");
+    expect(api).toContain("expectedRevision: number");
+    expect(api).toContain("selections: CleanupFindingSelection[]");
+  });
+
   it("hydrates cleanup from durable revisions and never exposes analysis mutation commands", () => {
     const store = read("src/store/useStorageCleanupStore.ts");
     const view = read("src/views/cleanup/StorageCleanupView.tsx");

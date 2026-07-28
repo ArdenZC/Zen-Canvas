@@ -29,27 +29,33 @@ describe("remediation contracts", () => {
     for (const command of [
       "preview_cleanup_candidates",
       "preview_cleanup_operations",
-      "move_cleanup_candidates_to_trash",
       "move_cleanup_candidates_to_safe_trash"
     ]) {
-      expect(cleanup).toMatch(new RegExp(`pub fn ${command}[\\s\\S]{0,220}?job_id: String`));
+      expect(cleanup).toMatch(new RegExp(`pub fn ${command}[\\s\\S]{0,260}?job_id: String`));
+      expect(cleanup).toMatch(new RegExp(`pub fn ${command}[\\s\\S]{0,360}?selections: Vec<CleanupFindingSelection>`));
     }
     expect(cleanupAI).toMatch(/pub async fn analyze_cleanup_candidates_with_ai[\s\S]{0,220}?job_id: String/);
     for (const method of [
       "previewCleanupCandidates",
       "previewCleanupOperations",
-      "moveCleanupCandidatesToTrash",
-      "moveCleanupCandidatesToSafeTrash",
-      "analyzeCleanupCandidatesWithAI"
+      "moveCleanupCandidatesToSafeTrash"
     ]) {
-      expect(api).toMatch(new RegExp(`${method}\\(jobId: string, ids: string\\[\\]\\)`));
+      expect(api).toMatch(new RegExp(`${method}\\(jobId: string, selections: CleanupFindingSelection\\[\\]\\)`));
     }
+    expect(api).not.toContain("moveCleanupCandidatesToTrash");
+    expect(cleanup).not.toContain("move_cleanup_candidates_to_trash");
+    expect(cleanup).not.toContain("move_path_to_system_trash_with_safety");
+    expect(source("src-tauri/build.rs")).not.toContain("move_cleanup_candidates_to_trash");
+    expect(source("src-tauri/src/main.rs")).not.toContain("move_cleanup_candidates_to_trash");
   });
 
   it("keeps cleanup candidates job-scoped and cross-job resolution atomic", () => {
     expect(cleanup).toContain("jobs: Mutex<HashMap<String, StorageCleanupJob>>");
     expect(cleanup).toContain("job.candidates_by_id.get(id).cloned().ok_or_else");
     expect(cleanup).toContain("does not belong to job {job_id}");
+    expect(cleanup).toContain("finding.revision != selection.expected_revision");
+    expect(cleanup).toContain("finding_identity_matches(db, &finding)");
+    expect(cleanup).toContain("Review finding requires explicit acknowledged confirmation");
     expect(cleanup).not.toMatch(/latest_candidates/i);
   });
 

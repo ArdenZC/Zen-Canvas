@@ -266,6 +266,33 @@ if (analysisPublicationPerformance.status !== 0) {
 
 console.log("Task 03 10k finding publication benchmark passed.");
 
+console.log("Running Task 03 global prune budget/WAL-reader check...");
+const analysisPrune = spawnSync(
+  "cargo",
+  [
+    "test",
+    "--release",
+    "--manifest-path",
+    "src-tauri/Cargo.toml",
+    "analysis_prune_uses_one_global_child_first_row_budget_and_wal_reader",
+    "--",
+    "--nocapture",
+  ],
+  { cwd: root, stdio: "inherit" },
+);
+
+if (analysisPrune.error) {
+  console.error(`Task 03 prune budget check failed to start: ${analysisPrune.error.message}`);
+  process.exit(1);
+}
+
+if (analysisPrune.status !== 0) {
+  console.error(`Task 03 prune budget check failed with exit code ${analysisPrune.status}.`);
+  process.exit(analysisPrune.status ?? 1);
+}
+
+console.log("Task 03 global prune budget/WAL-reader check passed.");
+
 console.log("Running Task 02 dedupe repository benchmark...");
 const dedupePerformance = spawnSync(
   "cargo",

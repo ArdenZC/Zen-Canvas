@@ -9,7 +9,8 @@ use crate::{
         AnalysisDetectorDto, AnalysisFindingDecisionDto, AnalysisFindingDto,
         AnalysisFindingEvidenceDto, AnalysisFindingFilter, AnalysisFindingPageDto, AnalysisRunDto,
         Database, DedupeAuthorityDto, DedupeGroupDto, DedupeGroupMemberDto, FindingDraft,
-        FindingEvidenceDraft, StartAnalysisRunRequest,
+        FindingEvidenceDraft, ManagedAnalysisFile, ManagedAnalysisFingerprint,
+        StartAnalysisRunRequest,
     },
     fs_safety::capture_physical_identity,
     storage_analyzer::{self, CleanupActionKind, CleanupTier, StorageCandidate},
@@ -338,7 +339,7 @@ pub fn set_analysis_finding_decision<R: Runtime>(
     decision: String,
     snoozed_until: Option<i64>,
     note: Option<String>,
-    expected_revision: Option<i64>,
+    expected_revision: i64,
 ) -> Result<AnalysisFindingDecisionDto, String> {
     require_main_window(&window)?;
     let result = db
@@ -365,7 +366,7 @@ pub fn revalidate_analysis_finding<R: Runtime>(
         .get_analysis_finding(finding_id.trim())
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "Analysis finding was not found.".to_string())?;
-    if finding.status == "active" && !finding_identity_matches(&finding) {
+    if finding.status == "active" && !finding_identity_matches(db.inner(), &finding) {
         db.mark_analysis_finding_stale(&finding.id)
             .map_err(|error| error.to_string())?;
     }
@@ -862,18 +863,37 @@ fn build_cleanup_findings(
         }
         let metadata = fs::symlink_metadata(&candidate.path).ok();
         let is_dir = metadata.as_ref().is_some_and(fs::Metadata::is_dir);
-        let detector_id = if is_dir && candidate.size >= LARGE_DIRECTORY_THRESHOLD {
-            if has_large_directory_ancestor(&candidate.path, &candidates) {
-                continue;
+        // Every detector owns its own risk/action contract.  A large item can
+        // therefore produce both the existing cleanup-heuristic finding and a
+        // review-only size finding; publication aggregation, rather than
+        // detector selection, is responsible for avoiding double counting.
+        if is_dir && candidate.size >= LARGE_DIRECTORY_THRESHOLD {
+            if !has_large_directory_ancestor(&candidate.path, &candidates) {
+                result.push((
+                    LARGE_DIRECTORY_DETECTOR.to_string(),
+                    large_size_review_finding(
+                        LARGE_DIRECTORY_DETECTOR,
+                        "directory",
+                        candidate,
+                        metadata.as_ref(),
+                    )?,
+                ));
             }
-            LARGE_DIRECTORY_DETECTOR
         } else if !is_dir && candidate.size >= LARGE_FILE_THRESHOLD {
-            LARGE_FILE_DETECTOR
-        } else {
-            CLEANUP_HEURISTICS_DETECTOR
-        };
-        let finding = cleanup_finding(detector_id, candidate, metadata.as_ref())?;
-        result.push((detector_id.to_string(), finding));
+            result.push((
+                LARGE_FILE_DETECTOR.to_string(),
+                large_size_review_finding(
+                    LARGE_FILE_DETECTOR,
+                    "approved_path",
+                    candidate,
+                    metadata.as_ref(),
+                )?,
+            ));
+        }
+        result.push((
+            CLEANUP_HEURISTICS_DETECTOR.to_string(),
+            cleanup_finding(CLEANUP_HEURISTICS_DETECTOR, candidate, metadata.as_ref())?,
+        ));
     }
     Ok(result)
 }
@@ -900,30 +920,33 @@ fn build_managed_large_file_findings(
         .map_err(|error| error.to_string())?;
     files
         .into_iter()
-        .map(|(path, size)| {
+        .map(|file| {
             if cancel_flag.load(Ordering::Acquire) {
                 return Err("analysis_cancelled".to_string());
             }
-            let metadata = fs::symlink_metadata(&path).ok();
-            let name = Path::new(&path)
+            let metadata = fs::symlink_metadata(&file.path).ok();
+            let name = Path::new(&file.path)
                 .file_name()
                 .and_then(|value| value.to_str())
-                .unwrap_or(&path)
+                .unwrap_or(&file.path)
                 .to_string();
             let candidate = StorageCandidate {
                 id: String::new(),
-                path: path.clone(),
+                path: file.path.clone(),
                 name,
-                size: size.max(0) as u64,
+                size: file.size.max(0) as u64,
                 tier: CleanupTier::Review,
                 category: "large_file".to_string(),
-                reason: format!("Managed file is larger than {} bytes.", size.max(0)),
+                reason: format!(
+                    "Managed file is larger than {} bytes.",
+                    file.size.max(0)
+                ),
                 suggested_action: CleanupActionKind::Reveal,
                 risk_note: Some("Large files are review-only; the analysis detector never moves or deletes them.".to_string()),
                 trash_allowed: false,
                 selected_by_default: false,
             };
-            cleanup_finding(LARGE_FILE_DETECTOR, &candidate, metadata.as_ref())
+            managed_large_file_finding(db, &file, &candidate, metadata.as_ref())
                 .map(|finding| (LARGE_FILE_DETECTOR.to_string(), finding))
         })
         .collect()
@@ -1013,6 +1036,90 @@ fn cleanup_finding(
     })
 }
 
+fn large_size_review_finding(
+    detector_id: &str,
+    subject_kind: &str,
+    candidate: &StorageCandidate,
+    metadata: Option<&fs::Metadata>,
+) -> Result<FindingDraft, String> {
+    let identity = candidate_identity(&candidate.path, candidate.size, metadata);
+    review_reveal_finding(
+        detector_id,
+        subject_kind,
+        &normalize_path_text(&candidate.path),
+        candidate,
+        identity,
+    )
+}
+
+fn managed_large_file_finding(
+    _db: &Database,
+    file: &ManagedAnalysisFile,
+    candidate: &StorageCandidate,
+    _metadata: Option<&fs::Metadata>,
+) -> Result<FindingDraft, String> {
+    review_reveal_finding(
+        LARGE_FILE_DETECTOR,
+        "managed_file",
+        &file.file_id,
+        candidate,
+        managed_file_identity_snapshot(file),
+    )
+}
+
+fn review_reveal_finding(
+    detector_id: &str,
+    subject_kind: &str,
+    subject_id: &str,
+    candidate: &StorageCandidate,
+    identity: Value,
+) -> Result<FindingDraft, String> {
+    let identity_hash = blake3::hash(
+        serde_json::to_string(&identity)
+            .unwrap_or_default()
+            .as_bytes(),
+    )
+    .to_hex()
+    .to_string();
+    let finding_key = format!("{detector_id}:{subject_kind}:{subject_id}:{identity_hash}");
+    Ok(FindingDraft {
+        id: deterministic_id("analysis-finding", &finding_key),
+        finding_key,
+        detector_id: detector_id.to_string(),
+        detector_version: DETECTOR_VERSION,
+        tier: "review".to_string(),
+        category: candidate.category.clone(),
+        action_kind: "reveal".to_string(),
+        title: candidate.name.clone(),
+        reason: candidate.reason.clone(),
+        risk_note: candidate.risk_note.clone(),
+        confidence: "estimated".to_string(),
+        size_bytes: candidate.size as i64,
+        exact_reclaimable_bytes: None,
+        potential_reclaimable_bytes: candidate.size as i64,
+        requires_confirmation: true,
+        executable: false,
+        primary_subject_kind: subject_kind.to_string(),
+        primary_subject_id: subject_id.to_string(),
+        path_snapshot: Some(normalize_path_text(&candidate.path)),
+        identity_snapshot: identity.clone(),
+        evidence_summary: json!({
+            "detectorContract": "review_reveal",
+            "trashAllowed": false
+        }),
+        evidence: vec![FindingEvidenceDraft {
+            evidence_kind: "path_identity".to_string(),
+            subject_kind: subject_kind.to_string(),
+            subject_id: Some(subject_id.to_string()),
+            path_snapshot: Some(normalize_path_text(&candidate.path)),
+            value: json!({
+                "size": candidate.size,
+                "identity": identity
+            }),
+        }],
+    })
+}
+
 pub(crate) fn candidate_identity(
     path: &str,
     candidate_size: u64,
@@ -1044,9 +1151,117 @@ pub(crate) fn candidate_identity(
     })
 }
 
-pub(crate) fn finding_identity_matches(finding: &AnalysisFindingDto) -> bool {
+fn physical_identity_value(identity: &crate::fs_safety::PhysicalFileIdentity) -> Value {
+    json!({
+        "size": identity.size,
+        "modifiedNs": identity.modified_ns,
+        "platformKind": identity.platform_kind.as_str(),
+        "platformVolumeId": identity.platform_volume_id,
+        "platformFileId": identity.platform_file_id,
+        "physicalKey": identity.physical_key,
+        "linkCount": identity.link_count
+    })
+}
+
+fn fingerprint_identity_value(fingerprint: &ManagedAnalysisFingerprint) -> Value {
+    json!({
+        "identityStatus": fingerprint.identity_status,
+        "platformKind": fingerprint.platform_kind,
+        "platformVolumeId": fingerprint.platform_volume_id,
+        "platformFileId": fingerprint.platform_file_id,
+        "physicalKey": fingerprint.physical_key,
+        "size": fingerprint.size,
+        "modifiedNs": fingerprint.modified_ns,
+        "fullHash": fingerprint.full_hash,
+        "fingerprintStatus": fingerprint.fingerprint_status,
+        "revision": fingerprint.revision
+    })
+}
+
+fn managed_file_identity_snapshot(file: &ManagedAnalysisFile) -> Value {
+    let live = capture_physical_identity(Path::new(&file.path))
+        .ok()
+        .map(|identity| physical_identity_value(&identity));
+    json!({
+        "fileId": file.file_id,
+        "path": normalize_path_text(&file.path),
+        "indexedSize": file.size,
+        "indexedMtime": file.mtime,
+        "isStale": file.is_stale,
+        "fingerprint": file.fingerprint.as_ref().map(fingerprint_identity_value),
+        "live": live
+    })
+}
+
+pub(crate) fn finding_identity_matches(db: &Database, finding: &AnalysisFindingDto) -> bool {
+    match finding.primary_subject_kind.as_str() {
+        "duplicate_group" => duplicate_group_identity_matches(db, finding),
+        "managed_file" | "file" => managed_file_identity_matches(db, finding),
+        "directory" => directory_identity_matches(finding),
+        "approved_path" => approved_path_identity_matches(finding),
+        _ => false,
+    }
+}
+
+fn duplicate_group_identity_matches(db: &Database, finding: &AnalysisFindingDto) -> bool {
+    let group_id = finding
+        .identity_snapshot
+        .get("groupId")
+        .and_then(Value::as_str)
+        .unwrap_or(finding.primary_subject_id.as_str());
+    let Some(group) = db.get_duplicate_group(group_id).ok().flatten() else {
+        return false;
+    };
+    group.status == "active"
+        && finding
+            .identity_snapshot
+            .get("fullHash")
+            .and_then(Value::as_str)
+            == Some(group.full_hash.as_str())
+        && finding
+            .identity_snapshot
+            .get("memberCount")
+            .and_then(Value::as_i64)
+            == Some(group.member_count)
+        && finding
+            .identity_snapshot
+            .get("revision")
+            .and_then(Value::as_i64)
+            == Some(group.revision)
+}
+
+fn managed_file_identity_matches(db: &Database, finding: &AnalysisFindingDto) -> bool {
+    let Some(file) = db
+        .get_managed_file_for_analysis(&finding.primary_subject_id)
+        .ok()
+        .flatten()
+    else {
+        return false;
+    };
+    !file.is_stale && finding.identity_snapshot == managed_file_identity_snapshot(&file)
+}
+
+fn directory_identity_matches(finding: &AnalysisFindingDto) -> bool {
     let Some(path) = finding.path_snapshot.as_deref() else {
-        return true;
+        return false;
+    };
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    if !metadata.is_dir() {
+        return false;
+    }
+    let size = finding
+        .identity_snapshot
+        .get("size")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    candidate_identity(path, size, Some(&metadata)) == finding.identity_snapshot
+}
+
+fn approved_path_identity_matches(finding: &AnalysisFindingDto) -> bool {
+    let Some(path) = finding.path_snapshot.as_deref() else {
+        return false;
     };
     let Ok(metadata) = fs::symlink_metadata(path) else {
         return false;
@@ -1088,5 +1303,289 @@ fn emit_run<R: Runtime>(app: &AppHandle<R>, run: &AnalysisRunDto) {
 fn emit_detector<R: Runtime>(app: &AppHandle<R>, detector: &AnalysisDetectorDto) {
     if let Err(error) = app.emit(ANALYSIS_DETECTOR_UPDATED_EVENT, detector.clone()) {
         eprintln!("Analysis detector event failed: {error}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::params;
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+
+    fn test_path(prefix: &str) -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        std::env::temp_dir().join(format!(
+            "zen-canvas-analysis-{prefix}-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, AtomicOrdering::Relaxed)
+        ))
+    }
+
+    fn finding_fixture(
+        kind: &str,
+        action: &str,
+        tier: &str,
+        executable: bool,
+        decision: Option<&str>,
+        decision_revision: Option<i64>,
+    ) -> AnalysisFindingDto {
+        AnalysisFindingDto {
+            id: "finding-fixture".to_string(),
+            finding_key: "finding-fixture-key".to_string(),
+            run_id: "run-fixture".to_string(),
+            detector_id: LARGE_FILE_DETECTOR.to_string(),
+            detector_version: DETECTOR_VERSION,
+            scope_hash: "scope-fixture".to_string(),
+            status: "active".to_string(),
+            tier: tier.to_string(),
+            category: "large_file".to_string(),
+            action_kind: action.to_string(),
+            title: "Fixture".to_string(),
+            reason: "Fixture".to_string(),
+            risk_note: None,
+            confidence: "estimated".to_string(),
+            size_bytes: 1,
+            exact_reclaimable_bytes: None,
+            potential_reclaimable_bytes: 1,
+            requires_confirmation: true,
+            executable,
+            primary_subject_kind: kind.to_string(),
+            primary_subject_id: "subject-fixture".to_string(),
+            path_snapshot: Some("C:/fixture/file.bin".to_string()),
+            identity_snapshot: json!({"size": 1}),
+            evidence_summary: json!({"trashAllowed": executable}),
+            revision: 4,
+            created_at: 1,
+            updated_at: 1,
+            published_at: Some(1),
+            stale_at: None,
+            decision: decision.map(str::to_string),
+            snoozed_until: None,
+            decision_revision,
+        }
+    }
+
+    #[test]
+    fn large_detectors_keep_review_reveal_contract_and_independent_heuristic_finding() {
+        let root = test_path("detector-contract");
+        fs::create_dir_all(&root).expect("create detector fixture root");
+        let path = root.join("large.bin");
+        fs::write(&path, b"large-detector-fixture").expect("write detector fixture");
+        let metadata = fs::symlink_metadata(&path).expect("read detector fixture metadata");
+        let candidate = StorageCandidate {
+            id: "candidate".to_string(),
+            path: path.to_string_lossy().into_owned(),
+            name: "large.bin".to_string(),
+            size: 700 * 1024 * 1024,
+            tier: CleanupTier::Safe,
+            category: "developer_cache".to_string(),
+            reason: "Fixture heuristic candidate".to_string(),
+            suggested_action: CleanupActionKind::MoveToTrash,
+            risk_note: None,
+            trash_allowed: true,
+            selected_by_default: true,
+        };
+
+        let size_finding = large_size_review_finding(
+            LARGE_FILE_DETECTOR,
+            "approved_path",
+            &candidate,
+            Some(&metadata),
+        )
+        .expect("build large-file review finding");
+        let heuristic_finding =
+            cleanup_finding(CLEANUP_HEURISTICS_DETECTOR, &candidate, Some(&metadata))
+                .expect("build independent heuristic finding");
+
+        assert_eq!(size_finding.tier, "review");
+        assert_eq!(size_finding.action_kind, "reveal");
+        assert!(!size_finding.executable);
+        assert_eq!(
+            size_finding.evidence_summary["detectorContract"],
+            "review_reveal"
+        );
+        assert_eq!(heuristic_finding.tier, "safe");
+        assert_eq!(heuristic_finding.action_kind, "safe_trash_candidate");
+        assert!(heuristic_finding.executable);
+        assert_eq!(
+            size_finding.primary_subject_id,
+            heuristic_finding.primary_subject_id
+        );
+        assert_ne!(size_finding.finding_key, heuristic_finding.finding_key);
+
+        fs::remove_dir_all(root).expect("remove detector fixture root");
+    }
+
+    #[test]
+    fn managed_finding_identity_contains_library_row_fingerprint_and_live_physical_identity() {
+        let root = test_path("managed-identity");
+        fs::create_dir_all(&root).expect("create managed identity root");
+        let path = root.join("managed.bin");
+        fs::write(&path, b"managed-identity-before").expect("write managed identity fixture");
+        let live = capture_physical_identity(&path).expect("capture live identity");
+        let file = ManagedAnalysisFile {
+            file_id: "managed-file-id".to_string(),
+            path: path.to_string_lossy().into_owned(),
+            size: 23,
+            mtime: 100,
+            is_stale: false,
+            fingerprint: Some(ManagedAnalysisFingerprint {
+                identity_status: "verified".to_string(),
+                platform_kind: live.platform_kind.as_str().to_string(),
+                platform_volume_id: live.platform_volume_id.clone(),
+                platform_file_id: live.platform_file_id.clone(),
+                physical_key: live.physical_key.clone(),
+                size: live.size as i64,
+                modified_ns: live.modified_ns,
+                full_hash: Some("full-hash-before".to_string()),
+                fingerprint_status: "complete".to_string(),
+                revision: 7,
+            }),
+        };
+        let before = managed_file_identity_snapshot(&file);
+        assert_eq!(before["fileId"], "managed-file-id");
+        assert_eq!(before["indexedSize"], 23);
+        assert_eq!(before["fingerprint"]["revision"], 7);
+        assert!(before["live"].is_object());
+
+        fs::write(&path, b"managed-identity-after-with-a-different-size")
+            .expect("rewrite managed identity fixture");
+        let after = managed_file_identity_snapshot(&file);
+        assert_ne!(before["live"], after["live"]);
+
+        fs::remove_dir_all(root).expect("remove managed identity root");
+    }
+
+    #[test]
+    fn duplicate_group_revalidation_requires_current_group_hash_membership_and_revision() {
+        let db_path = test_path("duplicate-revalidation").with_extension("sqlite3");
+        let db = Database::open(&db_path).expect("open duplicate revalidation database");
+        let conn = db
+            .conn()
+            .expect("open duplicate revalidation root connection");
+        conn.execute(
+            "INSERT INTO scan_roots (id, normalized_path, display_name, source_kind, enabled, health_status, created_at, updated_at) VALUES ('analysis-duplicate-root', 'C:/analysis-duplicate-root', 'analysis-duplicate-root', 'file_library', 1, 'healthy', 1, 1)",
+            [],
+        )
+        .expect("insert enabled managed root for duplicate authority");
+        drop(conn);
+        let dedupe_run = db
+            .start_dedupe_run(&crate::db::StartDedupeRunRequest {
+                scope: crate::db::DedupeScopeRequest {
+                    kind: "all_managed_file_library".to_string(),
+                    root_ids: Vec::new(),
+                },
+                request_key: Some("analysis-duplicate-revalidation".to_string()),
+                parent_scan_session_id: None,
+            })
+            .expect("create duplicate authority run")
+            .run;
+        let conn = db.conn().expect("open duplicate revalidation connection");
+        conn.execute(
+            "INSERT INTO duplicate_groups (id, size_each, full_hash, full_hash_algorithm, full_hash_version, member_count, physical_copy_count, hardlink_alias_count, exact_reclaimable_bytes, potential_reclaimable_bytes, reclaimable_confidence, status, last_built_run_id, revision, created_at, updated_at, last_verified_at) VALUES (?1, 10, 'hash-a', 'blake3', 1, 2, 2, 0, 10, 10, 'exact', 'active', ?2, 3, 1, 1, 1)",
+            params!["group-fixture", dedupe_run.id],
+        )
+        .expect("insert duplicate group fixture");
+        drop(conn);
+
+        let finding = finding_fixture(
+            "duplicate_group",
+            "review_duplicate_group",
+            "review",
+            false,
+            None,
+            None,
+        );
+        let finding = AnalysisFindingDto {
+            primary_subject_id: "group-fixture".to_string(),
+            identity_snapshot: json!({
+                "groupId": "group-fixture",
+                "fullHash": "hash-a",
+                "memberCount": 2,
+                "revision": 3
+            }),
+            ..finding
+        };
+        assert!(finding_identity_matches(&db, &finding));
+
+        let conn = db.conn().expect("reopen duplicate group fixture");
+        conn.execute(
+            "UPDATE duplicate_groups SET revision = 4 WHERE id = 'group-fixture'",
+            [],
+        )
+        .expect("advance duplicate group revision");
+        drop(conn);
+        assert!(!finding_identity_matches(&db, &finding));
+        let _ = fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn review_confirmation_authorization_is_server_side_and_per_item() {
+        let mut candidate = StorageCandidate {
+            id: "review-item".to_string(),
+            path: "C:/fixture/file.bin".to_string(),
+            name: "file.bin".to_string(),
+            size: 10,
+            tier: CleanupTier::Review,
+            category: "large_file".to_string(),
+            reason: "Review item".to_string(),
+            suggested_action: CleanupActionKind::MoveToTrash,
+            risk_note: None,
+            trash_allowed: true,
+            selected_by_default: false,
+        };
+        let finding = finding_fixture(
+            "approved_path",
+            "safe_trash_candidate",
+            "review",
+            false,
+            Some("acknowledged"),
+            Some(6),
+        );
+        assert!(storage_analyzer::authorize_cleanup_candidate(
+            &finding,
+            &mut candidate,
+            Some(&storage_analyzer::ReviewFindingConfirmation {
+                decision_revision: 6,
+            }),
+        )
+        .is_ok());
+        assert_eq!(candidate.tier, CleanupTier::Safe);
+
+        let mut unconfirmed = candidate.clone();
+        assert!(
+            storage_analyzer::authorize_cleanup_candidate(&finding, &mut unconfirmed, None)
+                .is_err()
+        );
+        let caution = finding_fixture(
+            "approved_path",
+            "safe_trash_candidate",
+            "caution",
+            true,
+            None,
+            None,
+        );
+        assert!(storage_analyzer::authorize_cleanup_candidate(
+            &caution,
+            &mut candidate.clone(),
+            None
+        )
+        .is_err());
+        let duplicate = finding_fixture(
+            "duplicate_group",
+            "safe_trash_candidate",
+            "review",
+            false,
+            Some("acknowledged"),
+            Some(6),
+        );
+        assert!(storage_analyzer::authorize_cleanup_candidate(
+            &duplicate,
+            &mut candidate,
+            Some(&storage_analyzer::ReviewFindingConfirmation {
+                decision_revision: 6,
+            }),
+        )
+        .is_err());
     }
 }

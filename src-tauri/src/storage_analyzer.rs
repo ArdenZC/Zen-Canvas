@@ -9,7 +9,7 @@ use crate::{
     window_auth::{is_main_window_label, require_main_window},
 };
 use rusqlite::{params, OptionalExtension, Row, Transaction};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     env, fs,
@@ -203,6 +203,20 @@ pub struct StorageCandidate {
     pub risk_note: Option<String>,
     pub trash_allowed: bool,
     pub selected_by_default: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupFindingSelection {
+    pub finding_id: String,
+    pub expected_revision: i64,
+    pub review_confirmation: Option<ReviewFindingConfirmation>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewFindingConfirmation {
+    pub decision_revision: i64,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -1043,57 +1057,51 @@ pub fn reveal_storage_candidate(path: String) -> Result<(), String> {
 #[tauri::command]
 pub fn preview_cleanup_candidates(
     job_id: String,
-    ids: Vec<String>,
+    selections: Vec<CleanupFindingSelection>,
     db: State<'_, Database>,
 ) -> Result<Vec<CleanupPreviewItem>, String> {
-    let candidates = resolve_analysis_candidates_for_cleanup(db.inner(), &job_id, &ids, false)?;
+    let ids = selections
+        .iter()
+        .map(|selection| selection.finding_id.clone())
+        .collect::<Vec<_>>();
+    let candidates =
+        resolve_analysis_candidates_for_cleanup(db.inner(), &job_id, &selections, true)?;
     cleanup_preview_items_for_candidates(ids, &candidates)
 }
 
 #[tauri::command]
 pub fn preview_cleanup_operations<R: Runtime>(
     job_id: String,
-    ids: Vec<String>,
+    selections: Vec<CleanupFindingSelection>,
     app: AppHandle<R>,
     db: State<'_, Database>,
 ) -> Result<OperationPreviewScopeResult, String> {
     let app_data_dir = app.path().app_data_dir().ok();
-    let candidates = resolve_analysis_candidates_for_cleanup(db.inner(), &job_id, &ids, false)?;
+    let ids = selections
+        .iter()
+        .map(|selection| selection.finding_id.clone())
+        .collect::<Vec<_>>();
+    let candidates =
+        resolve_analysis_candidates_for_cleanup(db.inner(), &job_id, &selections, true)?;
     preview_cleanup_operations_for_candidates(ids, &candidates, app_data_dir.as_deref())
-}
-
-#[tauri::command]
-pub fn move_cleanup_candidates_to_trash<R: Runtime>(
-    window: WebviewWindow<R>,
-    job_id: String,
-    ids: Vec<String>,
-    app: AppHandle<R>,
-    db: State<'_, Database>,
-) -> Result<CleanupExecutionResult, String> {
-    require_main_window(&window)?;
-    let app_data_dir = app.path().app_data_dir().ok();
-    let candidates = resolve_analysis_candidates_for_cleanup(db.inner(), &job_id, &ids, true)?;
-    let result = move_cleanup_candidates_to_trash_for_candidates(
-        ids.clone(),
-        &candidates,
-        app_data_dir.as_deref(),
-    )?;
-    let consumed = successful_cleanup_ids(&ids, &result);
-    mark_analysis_candidates_consumed(db.inner(), &consumed);
-    Ok(result)
 }
 
 #[tauri::command]
 pub fn move_cleanup_candidates_to_safe_trash<R: Runtime>(
     window: WebviewWindow<R>,
     job_id: String,
-    ids: Vec<String>,
+    selections: Vec<CleanupFindingSelection>,
     app: AppHandle<R>,
     db: State<'_, Database>,
 ) -> Result<CleanupExecutionResult, String> {
     require_main_window(&window)?;
     let app_data_dir = app.path().app_data_dir().ok();
-    let candidates = resolve_analysis_candidates_for_cleanup(db.inner(), &job_id, &ids, true)?;
+    let ids = selections
+        .iter()
+        .map(|selection| selection.finding_id.clone())
+        .collect::<Vec<_>>();
+    let candidates =
+        resolve_analysis_candidates_for_cleanup(db.inner(), &job_id, &selections, true)?;
     let result = move_cleanup_candidates_to_safe_trash_for_candidates(
         ids.clone(),
         &candidates,
@@ -1113,14 +1121,14 @@ fn successful_cleanup_ids(ids: &[String], result: &CleanupExecutionResult) -> Ve
         .collect()
 }
 
-/// Resolve the legacy cleanup command's candidate IDs from the durable
-/// analysis finding ledger.  `StorageCleanupState` remains available only for
-/// old Rust unit-test helpers; production commands never use it as an
-/// authority after the Task 03 migration.
+/// Resolve the legacy cleanup adapter's durable selections from the analysis
+/// finding ledger. `StorageCleanupState` remains available only for old Rust
+/// unit-test helpers; production commands never use it as an authority after
+/// the Task 03 migration.
 pub(crate) fn resolve_analysis_candidates_for_cleanup(
     db: &Database,
     job_id: &str,
-    ids: &[String],
+    selections: &[CleanupFindingSelection],
     require_executable: bool,
 ) -> Result<Vec<StorageCandidate>, String> {
     let run = db
@@ -1132,10 +1140,11 @@ pub(crate) fn resolve_analysis_candidates_for_cleanup(
     if !matches!(run.status.as_str(), "completed" | "completed_with_warnings") {
         return Err(format!("Analysis run is not executable: {}", run.status));
     }
-    let mut seen = HashSet::with_capacity(ids.len());
-    let mut candidates = Vec::with_capacity(ids.len());
-    for id in ids {
-        if !seen.insert(id.as_str()) {
+    let mut seen = HashSet::with_capacity(selections.len());
+    let mut candidates = Vec::with_capacity(selections.len());
+    for selection in selections {
+        let id = selection.finding_id.trim();
+        if id.is_empty() || !seen.insert(id.to_string()) {
             return Err(format!(
                 "Storage cleanup candidate request contains duplicate ID: {id}"
             ));
@@ -1152,6 +1161,12 @@ pub(crate) fn resolve_analysis_candidates_for_cleanup(
         if finding.status != "active" {
             return Err(format!("Storage cleanup finding is no longer active: {id}"));
         }
+        if finding.revision != selection.expected_revision {
+            return Err(format!(
+                "Storage cleanup finding revision is stale: {id} (expected {}, current {})",
+                selection.expected_revision, finding.revision
+            ));
+        }
         let Some(path) = finding.path_snapshot.as_deref() else {
             return Err(format!(
                 "Storage cleanup finding has no path snapshot: {id}"
@@ -1163,23 +1178,84 @@ pub(crate) fn resolve_analysis_candidates_for_cleanup(
                 "Storage cleanup finding path is no longer present: {id}"
             ));
         }
-        if finding.executable && !crate::analysis::finding_identity_matches(&finding) {
+        if !crate::analysis::finding_identity_matches(db, &finding) {
             let _ = db.mark_analysis_finding_stale(&finding.id);
             return Err(format!("Storage cleanup finding identity changed: {id}"));
         }
-        let candidate = storage_candidate_from_analysis_finding(&finding)?;
-        if require_executable
-            && (!candidate.trash_allowed
-                || candidate.tier != CleanupTier::Safe
-                || candidate.suggested_action != CleanupActionKind::MoveToTrash)
-        {
+        let mut candidate = storage_candidate_from_analysis_finding(&finding)?;
+        if require_executable {
+            authorize_cleanup_candidate(
+                &finding,
+                &mut candidate,
+                selection.review_confirmation.as_ref(),
+            )?;
+        } else if selection.review_confirmation.is_some() {
             return Err(format!(
-                "Storage cleanup finding is not Safe Trash executable: {id}"
+                "Review confirmation is only valid for cleanup execution: {id}"
             ));
         }
         candidates.push(candidate);
     }
     Ok(candidates)
+}
+
+pub(crate) fn authorize_cleanup_candidate(
+    finding: &AnalysisFindingDto,
+    candidate: &mut StorageCandidate,
+    review_confirmation: Option<&ReviewFindingConfirmation>,
+) -> Result<(), String> {
+    match finding.tier.as_str() {
+        "safe" => {
+            if finding.executable
+                && finding.action_kind == "safe_trash_candidate"
+                && candidate.trash_allowed
+            {
+                Ok(())
+            } else {
+                Err(format!(
+                    "Storage cleanup finding is not Safe Trash executable: {}",
+                    finding.id
+                ))
+            }
+        }
+        "review" => {
+            if finding.primary_subject_kind == "duplicate_group"
+                || finding.action_kind != "safe_trash_candidate"
+            {
+                return Err(format!(
+                    "Review finding is reveal-only or duplicate-blocked: {}",
+                    finding.id
+                ));
+            }
+            let Some(confirmation) = review_confirmation else {
+                return Err(format!(
+                    "Review finding requires explicit acknowledged confirmation: {}",
+                    finding.id
+                ));
+            };
+            if finding.decision.as_deref() != Some("acknowledged")
+                || finding.decision_revision != Some(confirmation.decision_revision)
+            {
+                return Err(format!(
+                    "Review finding confirmation is stale or not acknowledged: {}",
+                    finding.id
+                ));
+            }
+            // The durable finding remains Review; this internal projection is
+            // the server-authorized Safe Trash capability for this exact CAS
+            // selection and cannot be reused without resolving it again.
+            candidate.tier = CleanupTier::Safe;
+            candidate.suggested_action = CleanupActionKind::MoveToTrash;
+            candidate.trash_allowed = true;
+            candidate.selected_by_default = false;
+            Ok(())
+        }
+        "caution" => Err(format!(
+            "Caution findings are never executable: {}",
+            finding.id
+        )),
+        other => Err(format!("Invalid analysis finding tier: {other}")),
+    }
 }
 
 pub(crate) fn storage_candidate_from_analysis_finding(
@@ -1210,6 +1286,11 @@ pub(crate) fn storage_candidate_from_analysis_finding(
         "none" | "review_duplicate_group" => CleanupActionKind::None,
         other => return Err(format!("Analysis finding has invalid action: {other}")),
     };
+    let trash_allowed = finding
+        .evidence_summary
+        .get("trashAllowed")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(finding.executable);
     Ok(StorageCandidate {
         id: finding.id.clone(),
         path,
@@ -1220,7 +1301,7 @@ pub(crate) fn storage_candidate_from_analysis_finding(
         reason: finding.reason.clone(),
         suggested_action,
         risk_note: finding.risk_note.clone(),
-        trash_allowed: finding.executable,
+        trash_allowed,
         selected_by_default: finding.executable && finding.tier == "safe",
     })
 }
@@ -1562,95 +1643,6 @@ pub fn classify_candidate_for_test(path: &Path, size: u64) -> StorageCandidate {
 
 pub fn default_scan_roots_for_test() -> Vec<PathBuf> {
     default_scan_roots()
-}
-
-pub fn move_cleanup_candidates_to_trash_for_candidates(
-    ids: Vec<String>,
-    candidates: &[StorageCandidate],
-    app_data_dir: Option<&Path>,
-) -> Result<CleanupExecutionResult, String> {
-    crate::fs_safety::platform_support::ensure_supported_cleanup_mutation()
-        .map_err(|error| error.to_string())?;
-    let by_id = candidates
-        .iter()
-        .map(|candidate| (candidate.id.as_str(), candidate))
-        .collect::<HashMap<_, _>>();
-    let mut result = CleanupExecutionResult {
-        moved: 0,
-        skipped: 0,
-        failed: 0,
-        logs: Vec::new(),
-    };
-
-    for id in ids {
-        let Some(candidate) = by_id.get(id.as_str()) else {
-            result.skipped += 1;
-            result.logs.push(CleanupExecutionLog {
-                path: String::new(),
-                name: id,
-                size: 0,
-                status: "skipped".to_string(),
-                message: "Candidate id was not found in the resolved storage cleanup job."
-                    .to_string(),
-                item_id: None,
-                trash_path: None,
-            });
-            continue;
-        };
-
-        let path = Path::new(&candidate.path);
-        if !cleanup_candidate_can_enter_operation_preview(candidate, app_data_dir) {
-            result.skipped += 1;
-            result.logs.push(CleanupExecutionLog {
-                path: candidate.path.clone(),
-                name: candidate.name.clone(),
-                size: candidate.size,
-                status: "skipped".to_string(),
-                message:
-                    "Only safe recycle-bin cleanup candidates from the resolved job can be moved."
-                        .to_string(),
-                item_id: None,
-                trash_path: None,
-            });
-            continue;
-        }
-
-        match crate::file_ops::move_path_to_system_trash_with_safety(
-            path,
-            None,
-            None,
-            &candidate.id,
-        ) {
-            Ok(()) => {
-                result.moved += 1;
-                result.logs.push(CleanupExecutionLog {
-                    path: candidate.path.clone(),
-                    name: candidate.name.clone(),
-                    size: candidate.size,
-                    status: "success".to_string(),
-                    message:
-                        "Moved to the system trash. Restore it from the system trash if needed."
-                            .to_string(),
-                    item_id: None,
-                    trash_path: None,
-                });
-            }
-            Err(error) => {
-                result.failed += 1;
-                result.logs.push(CleanupExecutionLog {
-                    path: candidate.path.clone(),
-                    name: candidate.name.clone(),
-                    size: candidate.size,
-                    status: "failed".to_string(),
-                    message: format!("Failed to move to system trash: {error}"),
-                    item_id: None,
-                    trash_path: None,
-                });
-            }
-        }
-    }
-
-    Ok(result)
 }
 
 pub fn move_cleanup_candidates_to_safe_trash_for_candidates(
@@ -5608,5 +5600,195 @@ mod temp_safety_tests {
 
         assert_eq!(candidate.tier, CleanupTier::Review);
         assert!(!candidate.selected_by_default);
+    }
+}
+
+#[cfg(test)]
+mod analysis_cleanup_contract_tests {
+    use super::*;
+    use crate::db::{
+        AnalysisFindingDto, AnalysisScopeRequest, FindingDraft, FindingEvidenceDraft,
+        StartAnalysisRunRequest,
+    };
+    use serde_json::json;
+
+    fn durable_cleanup_finding(
+        db: &Database,
+        path: &Path,
+        tier: &str,
+        executable: bool,
+    ) -> AnalysisFindingDto {
+        let run = db
+            .start_analysis_run(
+                &StartAnalysisRunRequest {
+                    scope: AnalysisScopeRequest {
+                        kind: "approved_cleanup_paths".to_string(),
+                        root_ids: Vec::new(),
+                        paths: vec![path
+                            .parent()
+                            .expect("cleanup fixture parent")
+                            .to_string_lossy()
+                            .into_owned()],
+                    },
+                    detector_ids: vec!["cleanup_heuristics_v1".to_string()],
+                    request_key: Some(format!("cleanup-selection-{}", new_job_id("test"))),
+                },
+                &[("cleanup_heuristics_v1".to_string(), 1)],
+            )
+            .expect("start durable cleanup fixture")
+            .run;
+        let _running = db
+            .claim_analysis_run(&run.id)
+            .expect("claim durable cleanup fixture")
+            .expect("durable cleanup fixture is queued");
+        let detector = db
+            .list_analysis_run_detectors(&run.id)
+            .expect("list cleanup fixture detector")
+            .into_iter()
+            .next()
+            .expect("cleanup fixture detector");
+        let running_detector = db
+            .set_analysis_detector_status(
+                &run.id,
+                &detector.detector_id,
+                detector.revision,
+                "running",
+                1,
+                0,
+                0,
+                0,
+                None,
+                None,
+            )
+            .expect("start cleanup fixture detector");
+        let metadata = fs::symlink_metadata(path).expect("read cleanup fixture metadata");
+        let identity =
+            crate::analysis::candidate_identity(&path.to_string_lossy(), 10, Some(&metadata));
+        db.stage_analysis_findings(
+            &run.id,
+            &run.scope_hash,
+            &[FindingDraft {
+                id: "cleanup-selection-finding".to_string(),
+                finding_key: "cleanup-selection-key".to_string(),
+                detector_id: "cleanup_heuristics_v1".to_string(),
+                detector_version: 1,
+                tier: tier.to_string(),
+                category: "test_cleanup".to_string(),
+                action_kind: "safe_trash_candidate".to_string(),
+                title: "Cleanup fixture".to_string(),
+                reason: "Cleanup fixture".to_string(),
+                risk_note: None,
+                confidence: if tier == "safe" {
+                    "exact".to_string()
+                } else {
+                    "estimated".to_string()
+                },
+                size_bytes: 10,
+                exact_reclaimable_bytes: executable.then_some(10),
+                potential_reclaimable_bytes: 10,
+                requires_confirmation: true,
+                executable,
+                primary_subject_kind: "approved_path".to_string(),
+                primary_subject_id: path.to_string_lossy().into_owned(),
+                path_snapshot: Some(path.to_string_lossy().into_owned()),
+                identity_snapshot: identity,
+                evidence_summary: json!({"trashAllowed": executable}),
+                evidence: vec![FindingEvidenceDraft {
+                    evidence_kind: "test_identity".to_string(),
+                    subject_kind: "approved_path".to_string(),
+                    subject_id: Some(path.to_string_lossy().into_owned()),
+                    path_snapshot: Some(path.to_string_lossy().into_owned()),
+                    value: json!({"test": true}),
+                }],
+            }],
+        )
+        .expect("stage cleanup fixture finding");
+        let completed_detector = db
+            .set_analysis_detector_status(
+                &run.id,
+                &running_detector.detector_id,
+                running_detector.revision,
+                "completed",
+                1,
+                1,
+                if executable { 10 } else { 0 },
+                10,
+                None,
+                None,
+            )
+            .expect("complete cleanup fixture detector");
+        db.publish_analysis_run(&run.id)
+            .expect("publish cleanup fixture run");
+        let finding = db
+            .get_analysis_finding("cleanup-selection-finding")
+            .expect("load cleanup fixture finding")
+            .expect("cleanup fixture finding exists");
+        assert_eq!(completed_detector.status, "completed");
+        finding
+    }
+
+    #[test]
+    fn cleanup_selection_requires_finding_revision_and_review_decision_cas() {
+        let root = std::env::temp_dir().join(format!(
+            "zen-canvas-analysis-cleanup-selection-{}",
+            new_job_id("test")
+        ));
+        fs::create_dir_all(&root).expect("create cleanup selection root");
+        let path = root.join("candidate.txt");
+        fs::write(&path, b"1234567890").expect("write cleanup selection candidate");
+        let db_path = root.join("database.sqlite3");
+        let db = Database::open(&db_path).expect("open cleanup selection database");
+        let finding = durable_cleanup_finding(&db, &path, "review", false);
+
+        let stale = CleanupFindingSelection {
+            finding_id: finding.id.clone(),
+            expected_revision: finding.revision.saturating_sub(1),
+            review_confirmation: None,
+        };
+        assert!(
+            resolve_analysis_candidates_for_cleanup(&db, &finding.run_id, &[stale], true,).is_err()
+        );
+
+        let unconfirmed = CleanupFindingSelection {
+            finding_id: finding.id.clone(),
+            expected_revision: finding.revision,
+            review_confirmation: None,
+        };
+        assert!(resolve_analysis_candidates_for_cleanup(
+            &db,
+            &finding.run_id,
+            &[unconfirmed],
+            true,
+        )
+        .is_err());
+
+        let decision = db
+            .set_analysis_finding_decision(
+                &finding.finding_key,
+                "acknowledged",
+                None,
+                Some("explicit review confirmation"),
+                0,
+            )
+            .expect("acknowledge review finding");
+        let confirmed = CleanupFindingSelection {
+            finding_id: finding.id.clone(),
+            expected_revision: finding.revision,
+            review_confirmation: Some(ReviewFindingConfirmation {
+                decision_revision: decision.revision,
+            }),
+        };
+        let candidates =
+            resolve_analysis_candidates_for_cleanup(&db, &finding.run_id, &[confirmed], true)
+                .expect("server validated review confirmation");
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].tier, CleanupTier::Safe);
+        assert_eq!(
+            candidates[0].suggested_action,
+            CleanupActionKind::MoveToTrash
+        );
+
+        drop(db);
+        fs::remove_dir_all(root).expect("remove cleanup selection root");
     }
 }

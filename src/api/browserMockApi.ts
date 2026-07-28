@@ -503,8 +503,6 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockStorageAnalysis() as T;
     case "cancel_storage_cleanup_scan":
       return undefined as T;
-    case "move_cleanup_candidates_to_trash":
-      return mockCleanupExecutionResult(args) as T;
     case "move_cleanup_candidates_to_safe_trash":
       return mockSafeTrashExecutionResult(args) as T;
     case "analyze_cleanup_candidates_with_ai":
@@ -1293,7 +1291,7 @@ function mockStorageCleanupStatus(jobId: string): StorageCleanupScanStatus {
 }
 
 function mockCleanupExecutionResult(args?: Record<string, unknown>): CleanupExecutionResult {
-  const ids = new Set(Array.isArray(args?.ids) ? args.ids.map(String) : []);
+  const ids = new Set(cleanupSelectionIds(args));
   const logs: CleanupExecutionResult["logs"] = mockStorageAnalysis()
     .candidates
     .filter((candidate) => ids.has(candidate.id))
@@ -1308,7 +1306,7 @@ function mockCleanupExecutionResult(args?: Record<string, unknown>): CleanupExec
         size: candidate.size,
         status: allowed ? "success" : "skipped",
         message: allowed
-          ? "Moved to the system trash. Restore it from the system trash if needed."
+          ? "Moved to Zen Canvas Safe Trash. Restore it from Recovery records."
           : "Only safe cleanup candidates can be moved."
       };
     });
@@ -1507,7 +1505,7 @@ function mockCleanupRestoreResult(args?: Record<string, unknown>): CleanupRestor
 }
 
 function mockCleanupPreviewCandidates(args?: Record<string, unknown>): CleanupPreviewItem[] {
-  const ids = new Set(Array.isArray(args?.ids) ? args.ids.map(String) : []);
+  const ids = new Set(cleanupSelectionIds(args));
   return mockStorageAnalysis()
     .candidates
     .filter((candidate) => ids.has(candidate.id))
@@ -1531,7 +1529,7 @@ function mockCleanupPreviewCandidates(args?: Record<string, unknown>): CleanupPr
 }
 
 function mockCleanupPreviewOperations(args?: Record<string, unknown>): OperationPreviewResult {
-  const ids = new Set(Array.isArray(args?.ids) ? args.ids.map(String) : []);
+  const ids = new Set(cleanupSelectionIds(args));
   const previews: OperationPreview[] = mockStorageAnalysis()
     .candidates
     .filter((candidate) => ids.has(candidate.id))
@@ -1566,6 +1564,17 @@ function mockCleanupPreviewOperations(args?: Record<string, unknown>): Operation
     truncated: false,
     hasMore: false
   };
+}
+
+function cleanupSelectionIds(args?: Record<string, unknown>): string[] {
+  if (!Array.isArray(args?.selections)) return [];
+  return args.selections
+    .map((selection) => {
+      if (!selection || typeof selection !== "object") return null;
+      const value = (selection as { findingId?: unknown }).findingId;
+      return typeof value === "string" ? value : null;
+    })
+    .filter((value): value is string => value !== null);
 }
 
 function mockSettings(settings?: AppSettings): AppSettings {

@@ -198,9 +198,22 @@ describe("StorageCleanupView", () => {
 
     expect(source).toContain("const displayedJobIdState = useStorageCleanupStore((state) => state.displayedJobId)");
     expect(source).toContain("const displayedJobId = initialAnalysis ? null : displayedJobIdState");
-    expect(source).toContain("api.moveCleanupCandidatesToSafeTrash(displayedJobId, [...selectedCleanupIds])");
+    expect(source).toContain("api.moveCleanupCandidatesToSafeTrash(displayedJobId, selections)");
     expect(source).toContain("if (!displayedJobId)");
     expect(source).toContain("disabled={!selectedCleanupIds.size || isExecuting || !displayedJobId || Boolean(mutationUnavailable)}");
+  });
+
+  it("requires durable finding revision and acknowledged decision revision for Review cleanup", () => {
+    const source = read("src/views/cleanup/StorageCleanupView.tsx");
+
+    expect(source).toContain("buildCleanupFindingSelections(api, [...selectedCleanupIds])");
+    expect(source).toContain("expectedRevision: finding.revision");
+    expect(source).toContain("selection.reviewConfirmation = {");
+    expect(source).toContain("decisionRevision: finding.decisionRevision");
+    expect(source).toContain('decision: "acknowledged"');
+    expect(source).toContain("decision.decision !== \"acknowledged\"");
+    expect(source).toContain("api.getAnalysisFinding");
+    expect(source).toContain("api.setAnalysisFindingDecision");
   });
 
   it("documents AI cleanup readiness states and settings guidance", () => {

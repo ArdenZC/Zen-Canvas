@@ -9,6 +9,7 @@ use std::{collections::HashMap, path::Path};
 
 pub const ANALYSIS_REGISTRY_VERSION: i64 = 1;
 pub const ANALYSIS_FINDING_DETAIL_LIMIT: usize = 1000;
+pub const ANALYSIS_PRUNE_ROW_BUDGET: usize = 1000;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -206,6 +207,30 @@ pub(crate) struct FindingDraft {
     pub identity_snapshot: Value,
     pub evidence_summary: Value,
     pub evidence: Vec<FindingEvidenceDraft>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ManagedAnalysisFingerprint {
+    pub identity_status: String,
+    pub platform_kind: String,
+    pub platform_volume_id: Option<String>,
+    pub platform_file_id: Option<String>,
+    pub physical_key: Option<String>,
+    pub size: i64,
+    pub modified_ns: Option<i64>,
+    pub full_hash: Option<String>,
+    pub fingerprint_status: String,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ManagedAnalysisFile {
+    pub file_id: String,
+    pub path: String,
+    pub size: i64,
+    pub mtime: i64,
+    pub is_stale: bool,
+    pub fingerprint: Option<ManagedAnalysisFingerprint>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -514,26 +539,141 @@ impl Database {
         }
         let finding_cutoff = current_unix_seconds().saturating_sub(30 * 24 * 60 * 60);
         let run_cutoff = current_unix_seconds().saturating_sub(90 * 24 * 60 * 60);
-        let deleted_findings = tx.execute(
-            "DELETE FROM analysis_findings WHERE id IN (SELECT id FROM analysis_findings WHERE status IN ('staged', 'stale', 'superseded', 'discarded') AND updated_at <= ?1 ORDER BY updated_at, id LIMIT 1000)",
-            params![finding_cutoff],
-        )?;
-        let deleted_runs = tx.execute(
-            "DELETE FROM analysis_runs WHERE id IN (SELECT r.id FROM analysis_runs AS r WHERE r.status IN ('completed', 'completed_with_warnings', 'cancelled', 'failed', 'interrupted') AND COALESCE(r.finished_at, r.updated_at) <= ?1 AND NOT EXISTS (SELECT 1 FROM analysis_findings AS f WHERE f.run_id = r.id AND f.status IN ('active', 'staged')) ORDER BY COALESCE(r.finished_at, r.updated_at), r.id LIMIT 1000)",
-            params![run_cutoff],
-        )?;
-        // Decisions are keyed by the stable finding identity so they can
-        // survive a successful rerun.  Once all corresponding finding rows
-        // have expired, remove them in the same bounded retention pass; a
-        // missing row must never make a retained decision executable.
-        tx.execute(
-            "DELETE FROM analysis_finding_decisions WHERE finding_key IN (SELECT d.finding_key FROM analysis_finding_decisions AS d LEFT JOIN analysis_findings AS f ON f.finding_key = d.finding_key GROUP BY d.finding_key HAVING COUNT(f.id) = 0 AND MAX(d.updated_at) <= ?1 ORDER BY MAX(d.updated_at), d.finding_key LIMIT 1000)",
-            params![
-                current_unix_seconds().saturating_sub(180 * 24 * 60 * 60),
-            ],
-        )?;
+        let decision_cutoff = current_unix_seconds().saturating_sub(180 * 24 * 60 * 60);
+        let mut remaining = ANALYSIS_PRUNE_ROW_BUDGET;
+        let mut deleted = 0usize;
+
+        // Delete children first and charge every physical row to one global
+        // budget.  We deliberately delete one row at a time so a foreign-key
+        // cascade can never turn a nominal 1000-row pass into an unbounded
+        // writer lock.
+        if remaining > 0 {
+            let mut statement = tx.prepare(
+                "SELECT e.id FROM analysis_finding_evidence AS e JOIN analysis_findings AS f ON f.id = e.finding_id WHERE f.status IN ('staged', 'stale', 'superseded', 'discarded') AND f.updated_at <= ?1 ORDER BY e.created_at, e.id LIMIT ?2",
+            )?;
+            let ids = statement
+                .query_map(params![finding_cutoff, remaining as i64], |row| {
+                    row.get::<_, String>(0)
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            drop(statement);
+            for id in ids {
+                if tx.execute(
+                    "DELETE FROM analysis_finding_evidence WHERE id = ?1",
+                    params![id],
+                )? == 1
+                {
+                    deleted += 1;
+                    remaining -= 1;
+                    if remaining == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+        if remaining > 0 {
+            let mut statement = tx.prepare(
+                "SELECT f.id FROM analysis_findings AS f WHERE f.status IN ('staged', 'stale', 'superseded', 'discarded') AND f.updated_at <= ?1 AND NOT EXISTS (SELECT 1 FROM analysis_finding_evidence AS e WHERE e.finding_id = f.id) ORDER BY f.updated_at, f.id LIMIT ?2",
+            )?;
+            let ids = statement
+                .query_map(params![finding_cutoff, remaining as i64], |row| {
+                    row.get::<_, String>(0)
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            drop(statement);
+            for id in ids {
+                if tx.execute(
+                    "DELETE FROM analysis_findings WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM analysis_finding_evidence WHERE finding_id = ?1)",
+                    params![id],
+                )? == 1
+                {
+                    deleted += 1;
+                    remaining -= 1;
+                    if remaining == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+        // Decisions are keyed by stable finding identity so they may survive
+        // a successful rerun.  Only prune an orphan after all finding rows
+        // have gone, and charge it against the same global budget.
+        if remaining > 0 {
+            let mut statement = tx.prepare(
+                "SELECT d.finding_key FROM analysis_finding_decisions AS d WHERE d.updated_at <= ?1 AND NOT EXISTS (SELECT 1 FROM analysis_findings AS f WHERE f.finding_key = d.finding_key) ORDER BY d.updated_at, d.finding_key LIMIT ?2",
+            )?;
+            let keys = statement
+                .query_map(params![decision_cutoff, remaining as i64], |row| {
+                    row.get::<_, String>(0)
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            drop(statement);
+            for key in keys {
+                if tx.execute(
+                    "DELETE FROM analysis_finding_decisions WHERE finding_key = ?1",
+                    params![key],
+                )? == 1
+                {
+                    deleted += 1;
+                    remaining -= 1;
+                    if remaining == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+        // A run is deleted only after its detector children are explicitly
+        // removed.  This makes the final run DELETE cascade-free.
+        if remaining > 0 {
+            let mut statement = tx.prepare(
+                "SELECT d.run_id, d.detector_id FROM analysis_run_detectors AS d JOIN analysis_runs AS r ON r.id = d.run_id WHERE r.status IN ('completed', 'completed_with_warnings', 'cancelled', 'failed', 'interrupted') AND COALESCE(r.finished_at, r.updated_at) <= ?1 AND NOT EXISTS (SELECT 1 FROM analysis_findings AS f WHERE f.run_id = r.id) ORDER BY COALESCE(r.finished_at, r.updated_at), d.run_id, d.detector_id LIMIT ?2",
+            )?;
+            let detector_ids = statement
+                .query_map(params![run_cutoff, remaining as i64], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            drop(statement);
+            for (run_id, detector_id) in detector_ids {
+                if tx.execute(
+                    "DELETE FROM analysis_run_detectors WHERE run_id = ?1 AND detector_id = ?2 AND NOT EXISTS (SELECT 1 FROM analysis_findings WHERE run_id = ?1)",
+                    params![run_id, detector_id],
+                )? == 1
+                {
+                    deleted += 1;
+                    remaining -= 1;
+                    if remaining == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+        if remaining > 0 {
+            let mut statement = tx.prepare(
+                "SELECT r.id FROM analysis_runs AS r WHERE r.status IN ('completed', 'completed_with_warnings', 'cancelled', 'failed', 'interrupted') AND COALESCE(r.finished_at, r.updated_at) <= ?1 AND NOT EXISTS (SELECT 1 FROM analysis_findings WHERE run_id = r.id) AND NOT EXISTS (SELECT 1 FROM analysis_run_detectors WHERE run_id = r.id) ORDER BY COALESCE(r.finished_at, r.updated_at), r.id LIMIT ?2",
+            )?;
+            let run_ids = statement
+                .query_map(params![run_cutoff, remaining as i64], |row| {
+                    row.get::<_, String>(0)
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            drop(statement);
+            for run_id in run_ids {
+                if tx.execute(
+                    "DELETE FROM analysis_runs WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM analysis_findings WHERE run_id = ?1) AND NOT EXISTS (SELECT 1 FROM analysis_run_detectors WHERE run_id = ?1)",
+                    params![run_id],
+                )? == 1
+                {
+                    deleted += 1;
+                    remaining -= 1;
+                    if remaining == 0 {
+                        break;
+                    }
+                }
+            }
+        }
         tx.commit()?;
-        Ok(deleted_findings + deleted_runs)
+        Ok(deleted)
     }
 
     pub(crate) fn checkpoint_analysis_run(
@@ -1085,25 +1225,40 @@ impl Database {
         &self,
         root_ids: &[String],
         minimum_size: i64,
-    ) -> Result<Vec<(String, i64)>, DbError> {
+    ) -> Result<Vec<ManagedAnalysisFile>, DbError> {
         if root_ids.is_empty() {
             return Ok(Vec::new());
         }
         let conn = self.conn()?;
         let placeholders = vec!["?"; root_ids.len()].join(",");
         let sql = format!(
-            "SELECT f.path, f.size FROM files AS f WHERE f.is_dir = 0 AND f.is_stale = 0 AND f.size >= ? AND EXISTS (SELECT 1 FROM scan_roots AS r WHERE r.id IN ({placeholders}) AND r.enabled = 1 AND r.source_kind = 'file_library' AND (f.path = r.normalized_path OR f.path LIKE r.normalized_path || '/%' OR f.path LIKE r.normalized_path || '\\%')) ORDER BY f.size DESC, f.path COLLATE NOCASE ASC"
+            "SELECT f.id, f.path, f.size, f.mtime, f.is_stale, fp.identity_status, fp.platform_kind, fp.platform_volume_id, fp.platform_file_id, fp.physical_key, fp.size, fp.modified_ns, fp.full_hash, fp.fingerprint_status, fp.revision FROM files AS f LEFT JOIN file_fingerprints AS fp ON fp.file_id = f.id WHERE f.is_dir = 0 AND f.is_stale = 0 AND f.size >= ? AND EXISTS (SELECT 1 FROM scan_roots AS r WHERE r.id IN ({placeholders}) AND r.enabled = 1 AND r.source_kind = 'file_library' AND (f.path = r.normalized_path OR f.path LIKE r.normalized_path || '/%' OR f.path LIKE r.normalized_path || '\\%')) ORDER BY f.size DESC, f.path COLLATE NOCASE ASC"
         );
         let mut values = Vec::<rusqlite::types::Value>::with_capacity(root_ids.len() + 1);
         values.push(minimum_size.into());
         values.extend(root_ids.iter().cloned().map(Into::into));
         let mut statement = conn.prepare(&sql)?;
         let result = statement
-            .query_map(params_from_iter(values.iter()), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-            })?
+            .query_map(
+                params_from_iter(values.iter()),
+                managed_analysis_file_from_row,
+            )?
             .collect::<Result<Vec<_>, _>>();
         result.map_err(DbError::from)
+    }
+
+    pub(crate) fn get_managed_file_for_analysis(
+        &self,
+        file_id: &str,
+    ) -> Result<Option<ManagedAnalysisFile>, DbError> {
+        let conn = self.conn()?;
+        conn.query_row(
+            "SELECT f.id, f.path, f.size, f.mtime, f.is_stale, fp.identity_status, fp.platform_kind, fp.platform_volume_id, fp.platform_file_id, fp.physical_key, fp.size, fp.modified_ns, fp.full_hash, fp.fingerprint_status, fp.revision FROM files AS f LEFT JOIN file_fingerprints AS fp ON fp.file_id = f.id WHERE f.id = ?1",
+            params![file_id],
+            managed_analysis_file_from_row,
+        )
+        .optional()
+        .map_err(DbError::from)
     }
 
     pub(crate) fn get_analysis_finding(
@@ -1144,7 +1299,7 @@ impl Database {
         decision: &str,
         snoozed_until: Option<i64>,
         note: Option<&str>,
-        expected_revision: Option<i64>,
+        expected_revision: i64,
     ) -> Result<AnalysisFindingDecisionDto, DbError> {
         if !matches!(decision, "open" | "acknowledged" | "dismissed" | "snoozed") {
             return Err(DbError::Validation("Invalid finding decision.".to_string()));
@@ -1174,13 +1329,13 @@ impl Database {
                 |row| row.get::<_, i64>(0),
             )
             .optional()?;
-        match (existing, expected_revision) {
-            (Some(revision), Some(expected)) if revision != expected => {
+        match existing {
+            Some(revision) if revision != expected_revision => {
                 return Err(DbError::Validation(
                     "Finding decision revision is stale.".to_string(),
                 ))
             }
-            (None, Some(expected)) if expected != 0 => {
+            None if expected_revision != 0 => {
                 return Err(DbError::Validation(
                     "Finding decision revision is stale.".to_string(),
                 ))
@@ -1283,6 +1438,7 @@ impl Database {
             "INSERT INTO analysis_finding_evidence (id, finding_id, evidence_kind, subject_kind, subject_id, path_snapshot, value_json, created_at) VALUES (?1, ?2, 'ai_assessment', 'analysis_finding', ?2, ?3, ?4, ?5)",
             params![new_job_id("analysis-ai-evidence"), finding_id, finding.path_snapshot, serde_json::to_string(assessment)?, now],
         )?;
+        refresh_analysis_run_aggregate_tx(&tx, &finding.run_id, now)?;
         let result = tx.query_row(
             &format!("{ANALYSIS_FINDING_SELECT} LEFT JOIN analysis_finding_decisions AS d ON d.finding_key = f.finding_key WHERE f.id = ?1"),
             params![finding_id],
@@ -1670,6 +1826,8 @@ fn finish_analysis_run_tx(
 
 #[derive(Debug, Clone)]
 struct ReclaimableSubject {
+    stable_key: String,
+    kind: String,
     path: Option<String>,
     exact: i64,
     potential: i64,
@@ -1696,6 +1854,8 @@ fn analysis_reclaimable_totals_tx(
     for row in rows {
         let (kind, subject_id, path, identity, exact, potential) = row?;
         let key = (kind, subject_id, identity);
+        let kind = key.0.clone();
+        let stable_key = reclaimable_subject_key(&key.0, &key.1, &key.2, path.as_deref());
         subjects
             .entry(key)
             .and_modify(|subject| {
@@ -1703,6 +1863,8 @@ fn analysis_reclaimable_totals_tx(
                 subject.potential = subject.potential.max(potential);
             })
             .or_insert(ReclaimableSubject {
+                stable_key,
+                kind,
                 path,
                 exact,
                 potential,
@@ -1720,9 +1882,9 @@ fn analysis_reclaimable_totals_tx(
             .len()
             .cmp(&normalized_aggregate_path(right.path.as_deref().unwrap_or_default()).len())
             .then_with(|| right.potential.cmp(&left.potential))
+            .then_with(|| left.stable_key.cmp(&right.stable_key))
     });
     let mut retained_paths = Vec::<String>::new();
-    let mut exact = 0_i64;
     let mut potential = 0_i64;
     for subject in with_paths {
         let path = normalized_aggregate_path(subject.path.as_deref().unwrap_or_default());
@@ -1733,14 +1895,132 @@ fn analysis_reclaimable_totals_tx(
             continue;
         }
         retained_paths.push(path);
-        exact = exact.saturating_add(subject.exact);
         potential = potential.saturating_add(subject.potential);
     }
     for subject in subjects.values().filter(|subject| subject.path.is_none()) {
-        exact = exact.saturating_add(subject.exact);
         potential = potential.saturating_add(subject.potential);
     }
+    // Exact bytes use the path hierarchy for path-owned claims, but are
+    // aggregated separately from potential bytes.  Duplicate-group claims
+    // are physical-group claims: keep them out of the path winner selection
+    // so a large-file finding at the same representative path cannot erase
+    // the duplicate group's exact bytes. Stable physical/group keys retain
+    // only the largest claim for a repeated physical subject.
+    let mut exact_duplicate_groups = HashMap::<String, i64>::new();
+    let mut exact_path_subjects = subjects
+        .values()
+        .filter(|subject| subject.exact > 0 && subject.kind != "duplicate_group")
+        .cloned()
+        .collect::<Vec<_>>();
+    exact_path_subjects.sort_by(|left, right| {
+        normalized_aggregate_path(left.path.as_deref().unwrap_or_default())
+            .len()
+            .cmp(&normalized_aggregate_path(right.path.as_deref().unwrap_or_default()).len())
+            .then_with(|| right.exact.cmp(&left.exact))
+            .then_with(|| left.stable_key.cmp(&right.stable_key))
+    });
+    let mut exact_retained_paths = Vec::<String>::new();
+    let mut exact = 0_i64;
+    for subject in exact_path_subjects {
+        let Some(path) = subject.path.as_deref() else {
+            exact = exact.saturating_add(subject.exact);
+            continue;
+        };
+        let path = normalized_aggregate_path(path);
+        if exact_retained_paths
+            .iter()
+            .any(|parent| aggregate_path_is_same_or_child(&path, parent))
+        {
+            continue;
+        }
+        exact_retained_paths.push(path);
+        exact = exact.saturating_add(subject.exact);
+    }
+    for subject in subjects
+        .values()
+        .filter(|subject| subject.exact > 0 && subject.kind == "duplicate_group")
+    {
+        exact_duplicate_groups
+            .entry(subject.stable_key.clone())
+            .and_modify(|value| *value = (*value).max(subject.exact))
+            .or_insert(subject.exact);
+    }
+    exact = exact.saturating_add(
+        exact_duplicate_groups
+            .values()
+            .copied()
+            .fold(0_i64, i64::saturating_add),
+    );
     Ok((exact, potential))
+}
+
+fn refresh_analysis_run_aggregate_tx(
+    tx: &Transaction<'_>,
+    run_id: &str,
+    now: i64,
+) -> Result<AnalysisRunDto, DbError> {
+    let safe_count: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM analysis_findings WHERE run_id = ?1 AND status = 'active' AND tier = 'safe'",
+        params![run_id],
+        |row| row.get(0),
+    )?;
+    let review_count: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM analysis_findings WHERE run_id = ?1 AND status = 'active' AND tier = 'review'",
+        params![run_id],
+        |row| row.get(0),
+    )?;
+    let caution_count: i64 = tx.query_row(
+        "SELECT COUNT(*) FROM analysis_findings WHERE run_id = ?1 AND status = 'active' AND tier = 'caution'",
+        params![run_id],
+        |row| row.get(0),
+    )?;
+    let (exact, potential) = analysis_reclaimable_totals_tx(tx, run_id)?;
+    let changed = tx.execute(
+        "UPDATE analysis_runs SET findings_published = (SELECT COUNT(*) FROM analysis_findings WHERE run_id = ?1 AND status = 'active'), safe_count = ?2, review_count = ?3, caution_count = ?4, exact_reclaimable_bytes = ?5, potential_reclaimable_bytes = ?6, revision = revision + 1, updated_at = ?7 WHERE id = ?1 AND status IN ('completed', 'completed_with_warnings', 'cancelled', 'failed', 'interrupted')",
+        params![run_id, safe_count, review_count, caution_count, exact, potential, now],
+    )?;
+    if changed != 1 {
+        return Err(DbError::Validation(
+            "Analysis run aggregate refresh was rejected by the durable run state.".to_string(),
+        ));
+    }
+    query_analysis_run(tx, run_id)
+}
+
+fn reclaimable_subject_key(
+    subject_kind: &str,
+    subject_id: &str,
+    identity_json: &str,
+    path: Option<&str>,
+) -> String {
+    let identity = serde_json::from_str::<Value>(identity_json).unwrap_or(Value::Null);
+    if subject_kind == "duplicate_group" {
+        return format!(
+            "duplicate-group:{subject_id}:{}",
+            identity
+                .get("fullHash")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+        );
+    }
+    let physical = identity
+        .get("physical")
+        .and_then(|value| value.get("physicalKey"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            identity
+                .get("live")
+                .and_then(|value| value.get("physicalKey"))
+                .and_then(Value::as_str)
+        })
+        .or_else(|| identity.get("physicalKey").and_then(Value::as_str));
+    if let Some(physical) = physical.filter(|value| !value.is_empty()) {
+        return format!("physical:{physical}");
+    }
+    format!(
+        "{subject_kind}:{subject_id}:{}",
+        normalized_aggregate_path(path.unwrap_or_default())
+    )
 }
 
 fn normalized_aggregate_path(path: &str) -> String {
@@ -1938,6 +2218,30 @@ fn analysis_decision_from_row(row: &Row<'_>) -> rusqlite::Result<AnalysisFinding
         revision: row.get(4)?,
         created_at: row.get(5)?,
         updated_at: row.get(6)?,
+    })
+}
+
+fn managed_analysis_file_from_row(row: &Row<'_>) -> rusqlite::Result<ManagedAnalysisFile> {
+    let fingerprint_status: Option<String> = row.get(13)?;
+    let fingerprint = fingerprint_status.map(|fingerprint_status| ManagedAnalysisFingerprint {
+        identity_status: row.get(5).unwrap_or_default(),
+        platform_kind: row.get(6).unwrap_or_default(),
+        platform_volume_id: row.get(7).unwrap_or_default(),
+        platform_file_id: row.get(8).unwrap_or_default(),
+        physical_key: row.get(9).unwrap_or_default(),
+        size: row.get(10).unwrap_or_default(),
+        modified_ns: row.get(11).unwrap_or_default(),
+        full_hash: row.get(12).unwrap_or_default(),
+        fingerprint_status,
+        revision: row.get(14).unwrap_or_default(),
+    });
+    Ok(ManagedAnalysisFile {
+        file_id: row.get(0)?,
+        path: row.get(1)?,
+        size: row.get(2)?,
+        mtime: row.get(3)?,
+        is_stale: row.get::<_, i64>(4)? != 0,
+        fingerprint,
     })
 }
 

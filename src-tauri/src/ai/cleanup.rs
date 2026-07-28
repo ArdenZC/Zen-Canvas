@@ -1,7 +1,7 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, Runtime, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State, WebviewWindow};
 
 use super::{
     ollama::OllamaProvider,
@@ -72,10 +72,25 @@ pub async fn analyze_cleanup_candidates_with_ai<R: Runtime>(
     require_main_window(&window)?;
     let app_data_dir = app.path().app_data_dir().ok();
     let db = db.inner().clone();
+    let app_for_events = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let settings =
             normalize_ai_settings(get_ai_settings_for_db(&db).map_err(|error| error.to_string())?);
-        let candidates = resolve_analysis_candidates_for_cleanup(&db, &job_id, &ids, false)?;
+        let selections = ids
+            .iter()
+            .map(|id| {
+                let finding = db
+                    .get_analysis_finding(id)
+                    .map_err(|error| error.to_string())?
+                    .ok_or_else(|| format!("AI cleanup finding not found: {id}"))?;
+                Ok(crate::storage_analyzer::CleanupFindingSelection {
+                    finding_id: id.clone(),
+                    expected_revision: finding.revision,
+                    review_confirmation: None,
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let candidates = resolve_analysis_candidates_for_cleanup(&db, &job_id, &selections, false)?;
         let updated = analyze_cleanup_candidates_with_configured_provider(
             candidates,
             &settings,
@@ -104,6 +119,9 @@ pub async fn analyze_cleanup_candidates_with_ai<R: Runtime>(
                     &assessment,
                 )
                 .map_err(|error| error.to_string())?;
+            if let Ok(run) = db.get_analysis_run(&finding.run_id) {
+                let _ = app_for_events.emit(crate::analysis::ANALYSIS_RUN_UPDATED_EVENT, run);
+            }
             persisted.push(storage_candidate_from_analysis_finding(&finding)?);
         }
         Ok(persisted)

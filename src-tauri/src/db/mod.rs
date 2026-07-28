@@ -15,7 +15,7 @@ pub use learning::*;
 pub(crate) use queries::analysis::{
     bump_dedupe_authority_tx, invalidate_analysis_findings_for_file_tx,
     invalidate_analysis_findings_for_group_tx, AnalysisFindingFilter, AnalysisPublishOutcome,
-    FindingDraft, FindingEvidenceDraft,
+    FindingDraft, FindingEvidenceDraft, ManagedAnalysisFile, ManagedAnalysisFingerprint,
 };
 pub use queries::analysis::{
     AnalysisDetectorDto, AnalysisFindingDecisionDto, AnalysisFindingDto,

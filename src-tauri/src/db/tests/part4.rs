@@ -129,7 +129,7 @@ fn schema_30_reopen_preserves_analysis_run_finding_evidence_and_decision() {
         "acknowledged",
         None,
         Some("persisted review"),
-        None,
+        0,
     )
     .expect("persist analysis decision");
     drop(db);
@@ -367,6 +367,73 @@ fn performance_task03_10k_finding_publication_transaction() {
 }
 
 #[test]
+fn analysis_prune_uses_one_global_child_first_row_budget_and_wal_reader() {
+    const RETENTION_FIXTURE_ROWS: usize = 1100;
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open analysis prune budget database");
+    let mut conn = db.conn().expect("open analysis prune fixture connection");
+    let tx = conn
+        .transaction()
+        .expect("start analysis prune fixture transaction");
+    tx.execute(
+        "INSERT INTO analysis_runs (id, request_key, scope_json, scope_hash, source_snapshot_json, source_snapshot_hash, detector_set_json, detector_set_hash, status, phase, created_at, updated_at, finished_at) VALUES ('analysis-prune-budget-run', 'analysis-prune-budget-request', '{\"kind\":\"approved_cleanup_paths\"}', 'analysis-prune-budget-scope', '{}', 'analysis-prune-budget-source', '[\"cleanup_heuristics_v1:v1\"]', 'analysis-prune-budget-detectors', 'completed', 'completed', 1, 1, 1)",
+        [],
+    )
+    .expect("insert old terminal analysis run");
+    for index in 0..RETENTION_FIXTURE_ROWS {
+        let finding_id = format!("analysis-prune-finding-{index:04}");
+        let finding_key = format!("analysis-prune-key-{index:04}");
+        let evidence_id = format!("analysis-prune-evidence-{index:04}");
+        tx.execute(
+            "INSERT INTO analysis_findings (id, finding_key, run_id, detector_id, detector_version, scope_hash, status, tier, category, action_kind, title, reason, confidence, size_bytes, potential_reclaimable_bytes, requires_confirmation, executable, primary_subject_kind, primary_subject_id, path_snapshot, identity_snapshot_json, evidence_summary_json, revision, created_at, updated_at) VALUES (?1, ?2, 'analysis-prune-budget-run', 'cleanup_heuristics_v1', 1, 'analysis-prune-budget-scope', 'stale', 'review', 'retention_fixture', 'reveal', 'Retention fixture', 'Retention fixture', 'estimated', 1, 1, 1, 0, 'approved_path', ?2, ?3, '{}', '{}', 1, 1, 1)",
+            params![finding_id, finding_key, format!("/tmp/analysis-prune/{index:04}.bin")],
+        )
+        .expect("insert old analysis finding");
+        tx.execute(
+            "INSERT INTO analysis_finding_evidence (id, finding_id, evidence_kind, subject_kind, subject_id, path_snapshot, value_json, created_at) VALUES (?1, ?2, 'retention_fixture', 'approved_path', ?3, ?3, '{}', 1)",
+            params![evidence_id, finding_id, format!("/tmp/analysis-prune/{index:04}.bin")],
+        )
+        .expect("insert old analysis evidence");
+    }
+    tx.commit().expect("commit analysis prune fixture");
+    drop(conn);
+
+    let deleted = db
+        .prune_analysis_artifacts()
+        .expect("prune analysis artifacts");
+    assert_eq!(deleted, 1000, "one global budget must cap physical row deletes");
+
+    let reader = Connection::open(&path).expect("open WAL reader after analysis prune");
+    reader
+        .busy_timeout(std::time::Duration::from_secs(5))
+        .expect("set analysis prune reader timeout");
+    assert_eq!(
+        reader
+            .query_row("SELECT COUNT(*) FROM analysis_findings", [], |row| row
+                .get::<_, i64>(0))
+            .expect("read retained findings from WAL"),
+        RETENTION_FIXTURE_ROWS as i64,
+    );
+    assert_eq!(
+        reader
+            .query_row("SELECT COUNT(*) FROM analysis_finding_evidence", [], |row| row
+                .get::<_, i64>(0))
+            .expect("read retained evidence from WAL"),
+        (RETENTION_FIXTURE_ROWS - 1000) as i64,
+    );
+    assert_eq!(
+        reader
+            .query_row(
+                "SELECT COUNT(*) FROM analysis_runs WHERE id = 'analysis-prune-budget-run'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("verify child-bearing run remains"),
+        1,
+    );
+}
+
+#[test]
 fn analysis_runs_are_idempotent_revisioned_and_retryable_without_overwriting_active_findings() {
     let root = test_dir();
     fs::write(root.join("candidate.txt"), b"candidate").expect("write candidate");
@@ -413,7 +480,7 @@ fn analysis_runs_are_idempotent_revisioned_and_retryable_without_overwriting_act
         .is_err());
     complete_test_analysis_run(&db, &first.id, &first.scope_hash, "stable-finding-key");
     let first_active = active_analysis_finding(&db, &first.id);
-    db.set_analysis_finding_decision("stable-finding-key", "dismissed", None, None, None)
+    db.set_analysis_finding_decision("stable-finding-key", "dismissed", None, None, 0)
         .expect("dismiss finding");
 
     let retry = db
@@ -470,6 +537,200 @@ fn analysis_runs_are_idempotent_revisioned_and_retryable_without_overwriting_act
         db.count_analysis_findings_for_run(&first.id, "active")
             .expect("old active count"),
         0
+    );
+}
+
+#[test]
+fn analysis_ai_assessment_refreshes_run_aggregate_revision_and_durable_evidence() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open AI aggregate refresh database");
+    let detector_set = vec!["cleanup_heuristics_v1".to_string()];
+    let detector_pairs = vec![("cleanup_heuristics_v1".to_string(), 1_i64)];
+    let run = db
+        .start_analysis_run(
+            &StartAnalysisRunRequest {
+                scope: AnalysisScopeRequest {
+                    kind: "approved_cleanup_paths".to_string(),
+                    root_ids: Vec::new(),
+                    paths: vec![root.to_string_lossy().into_owned()],
+                },
+                detector_ids: detector_set,
+                request_key: Some("analysis-ai-aggregate-refresh".to_string()),
+            },
+            &detector_pairs,
+        )
+        .expect("start AI aggregate run")
+        .run;
+    complete_test_analysis_run(&db, &run.id, &run.scope_hash, "ai-aggregate-key");
+    let before_run = db.get_analysis_run(&run.id).expect("read AI run before assessment");
+    let before_finding = active_analysis_finding(&db, &run.id);
+    let assessed = db
+        .append_analysis_ai_assessment(
+            &before_finding.id,
+            "review",
+            false,
+            &json!({"source": "targeted-ai-test", "tier": "review"}),
+        )
+        .expect("append AI assessment");
+    let after_run = db.get_analysis_run(&run.id).expect("read AI run after assessment");
+    assert_eq!(assessed.revision, before_finding.revision + 1);
+    assert_eq!(after_run.revision, before_run.revision + 1);
+    assert_eq!(after_run.findings_published, 1);
+    assert_eq!(after_run.review_count, 1);
+    assert_eq!(after_run.safe_count, 0);
+    assert_eq!(after_run.exact_reclaimable_bytes, before_run.exact_reclaimable_bytes);
+    assert_eq!(after_run.potential_reclaimable_bytes, before_run.potential_reclaimable_bytes);
+    assert_eq!(
+        db.list_analysis_finding_evidence(&assessed.id)
+            .expect("list AI evidence")
+            .iter()
+            .filter(|evidence| evidence.evidence_kind == "ai_assessment")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn analysis_finding_decision_requires_zero_for_new_row_and_current_revision_for_updates() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open finding decision CAS database");
+    let detector_set = vec!["cleanup_heuristics_v1".to_string()];
+    let detector_pairs = vec![("cleanup_heuristics_v1".to_string(), 1_i64)];
+    let run = db
+        .start_analysis_run(
+            &StartAnalysisRunRequest {
+                scope: AnalysisScopeRequest {
+                    kind: "approved_cleanup_paths".to_string(),
+                    root_ids: Vec::new(),
+                    paths: vec![root.to_string_lossy().into_owned()],
+                },
+                detector_ids: detector_set,
+                request_key: Some("analysis-decision-cas".to_string()),
+            },
+            &detector_pairs,
+        )
+        .expect("start finding decision CAS run")
+        .run;
+    complete_test_analysis_run(&db, &run.id, &run.scope_hash, "decision-cas-key");
+    let finding = active_analysis_finding(&db, &run.id);
+    assert!(db
+        .set_analysis_finding_decision(&finding.finding_key, "acknowledged", None, None, 1)
+        .is_err());
+    let first = db
+        .set_analysis_finding_decision(&finding.finding_key, "acknowledged", None, None, 0)
+        .expect("create finding decision with explicit zero revision");
+    let second = db
+        .set_analysis_finding_decision(
+            &finding.finding_key,
+            "dismissed",
+            None,
+            Some("current revision update"),
+            first.revision,
+        )
+        .expect("update finding decision with current revision");
+    assert_eq!(second.revision, first.revision + 1);
+    assert!(db
+        .set_analysis_finding_decision(
+            &finding.finding_key,
+            "open",
+            None,
+            None,
+            first.revision,
+        )
+        .is_err());
+}
+
+#[test]
+fn managed_file_mutation_invalidates_managed_file_findings_in_the_same_transaction() {
+    let root = test_dir();
+    let db = Database::open(test_db_path()).expect("open managed finding invalidation database");
+    let detector_set = vec!["cleanup_heuristics_v1".to_string()];
+    let detector_pairs = vec![("cleanup_heuristics_v1".to_string(), 1_i64)];
+    let run = db
+        .start_analysis_run(
+            &StartAnalysisRunRequest {
+                scope: AnalysisScopeRequest {
+                    kind: "approved_cleanup_paths".to_string(),
+                    root_ids: Vec::new(),
+                    paths: vec![root.to_string_lossy().into_owned()],
+                },
+                detector_ids: detector_set,
+                request_key: Some("analysis-managed-file-invalidation".to_string()),
+            },
+            &detector_pairs,
+        )
+        .expect("start managed finding invalidation run")
+        .run;
+    db.claim_analysis_run(&run.id)
+        .expect("claim managed finding invalidation run")
+        .expect("managed finding invalidation run claimed");
+    let detector = db
+        .list_analysis_run_detectors(&run.id)
+        .expect("list managed finding invalidation detector")
+        .into_iter()
+        .next()
+        .expect("managed finding invalidation detector");
+    let running = db
+        .set_analysis_detector_status(
+            &run.id,
+            &detector.detector_id,
+            detector.revision,
+            "running",
+            1,
+            0,
+            0,
+            0,
+            None,
+            None,
+        )
+        .expect("start managed finding invalidation detector");
+    let mut draft = test_finding_draft("managed-invalidation", "managed-invalidation-key");
+    draft.primary_subject_kind = "managed_file".to_string();
+    draft.primary_subject_id = "managed-file-invalidation-id".to_string();
+    db.stage_analysis_findings(&run.id, &run.scope_hash, &[draft])
+        .expect("stage managed finding invalidation finding");
+    db.set_analysis_detector_status(
+        &run.id,
+        &running.detector_id,
+        running.revision,
+        "completed",
+        1,
+        1,
+        8,
+        8,
+        None,
+        None,
+    )
+    .expect("complete managed finding invalidation detector");
+    db.publish_analysis_run(&run.id)
+        .expect("publish managed finding invalidation run");
+    assert_eq!(
+        active_analysis_finding(&db, &run.id).status,
+        "active",
+        "fixture must publish before mutation invalidation"
+    );
+
+    let mut conn = db.conn().expect("open managed finding invalidation transaction");
+    let tx = conn
+        .transaction()
+        .expect("start managed finding invalidation transaction");
+    assert_eq!(
+        crate::db::invalidate_analysis_findings_for_file_tx(
+            &tx,
+            "managed-file-invalidation-id",
+        )
+        .expect("invalidate managed finding"),
+        1
+    );
+    tx.commit().expect("commit managed finding invalidation");
+    drop(conn);
+    assert_eq!(
+        db.get_analysis_finding("managed-invalidation")
+            .expect("read invalidated managed finding")
+            .expect("invalidated managed finding exists")
+            .status,
+        "stale",
+        "file mutation must make the durable managed finding non-executable"
     );
 }
 
@@ -676,7 +937,7 @@ fn expired_snooze_is_projected_as_open_without_erasing_the_decision_fact() {
             "snoozed",
             Some(current_unix_seconds().saturating_sub(1)),
             Some("expired fixture"),
-            None,
+            0,
         )
         .expect("store expired snooze");
     assert_eq!(decision.decision, "snoozed");
@@ -1029,6 +1290,122 @@ fn analysis_totals_do_not_double_count_overlapping_subjects() {
     db.publish_analysis_run(&run.id)
         .expect("publish totals run");
     let final_run = db.get_analysis_run(&run.id).expect("final totals run");
+    assert_eq!(final_run.exact_reclaimable_bytes, 100);
+    assert_eq!(final_run.potential_reclaimable_bytes, 100);
+}
+
+#[test]
+fn analysis_totals_retain_duplicate_exact_bytes_when_large_file_shares_path() {
+    let root = test_dir();
+    let shared_path = root.join("shared.bin").to_string_lossy().into_owned();
+    let db = Database::open(test_db_path()).expect("open duplicate exact aggregation database");
+    let conn = db.conn().expect("open duplicate exact root connection");
+    conn.execute(
+        "INSERT INTO scan_roots (id, normalized_path, display_name, source_kind, enabled, health_status, created_at, updated_at) VALUES ('analysis-exact-root', ?1, 'analysis-exact-root', 'file_library', 1, 'healthy', 1, 1)",
+        params![root.to_string_lossy().into_owned()],
+    )
+    .expect("insert duplicate exact managed root");
+    drop(conn);
+
+    let detector_set = vec![
+        ("duplicate_reclaimable_v1".to_string(), 1_i64),
+        ("large_file_v1".to_string(), 1_i64),
+    ];
+    let run = db
+        .start_analysis_run(
+            &StartAnalysisRunRequest {
+                scope: AnalysisScopeRequest {
+                    kind: "all_managed_file_library".to_string(),
+                    root_ids: Vec::new(),
+                    paths: Vec::new(),
+                },
+                detector_ids: detector_set.iter().map(|(id, _)| id.clone()).collect(),
+                request_key: Some("analysis-exact-shared-path".to_string()),
+            },
+            &detector_set,
+        )
+        .expect("start duplicate exact aggregation run")
+        .run;
+    db.claim_analysis_run(&run.id)
+        .expect("claim duplicate exact aggregation run")
+        .expect("duplicate exact aggregation run claimed");
+    let detectors = db
+        .list_analysis_run_detectors(&run.id)
+        .expect("list duplicate exact detectors");
+    let mut running = Vec::new();
+    for detector in detectors {
+        running.push(
+            db.set_analysis_detector_status(
+                &run.id,
+                &detector.detector_id,
+                detector.revision,
+                "running",
+                1,
+                0,
+                0,
+                0,
+                None,
+                None,
+            )
+            .expect("start duplicate exact detector"),
+        );
+    }
+
+    let mut duplicate = test_finding_draft("shared-duplicate", "shared-duplicate-key");
+    duplicate.detector_id = "duplicate_reclaimable_v1".to_string();
+    duplicate.tier = "review".to_string();
+    duplicate.action_kind = "review_duplicate_group".to_string();
+    duplicate.executable = false;
+    duplicate.primary_subject_kind = "duplicate_group".to_string();
+    duplicate.primary_subject_id = "shared-duplicate-group".to_string();
+    duplicate.path_snapshot = Some(shared_path.clone());
+    duplicate.identity_snapshot = json!({
+        "groupId": "shared-duplicate-group",
+        "fullHash": "shared-duplicate-hash"
+    });
+    duplicate.exact_reclaimable_bytes = Some(100);
+    duplicate.potential_reclaimable_bytes = 100;
+
+    let mut large_file = test_finding_draft("shared-large-file", "shared-large-file-key");
+    large_file.detector_id = "large_file_v1".to_string();
+    large_file.tier = "review".to_string();
+    large_file.action_kind = "reveal".to_string();
+    large_file.executable = false;
+    large_file.primary_subject_kind = "managed_file".to_string();
+    large_file.primary_subject_id = "shared-large-file-id".to_string();
+    large_file.path_snapshot = Some(shared_path.clone());
+    large_file.identity_snapshot = json!({
+        "physical": {"physicalKey": "shared-large-file-physical"},
+        "size": 100
+    });
+    large_file.exact_reclaimable_bytes = None;
+    large_file.potential_reclaimable_bytes = 100;
+    db.stage_analysis_findings(&run.id, &run.scope_hash, &[duplicate, large_file])
+        .expect("stage duplicate and large-file findings at shared path");
+    for detector in running {
+        db.set_analysis_detector_status(
+            &run.id,
+            &detector.detector_id,
+            detector.revision,
+            "completed",
+            1,
+            1,
+            if detector.detector_id == "duplicate_reclaimable_v1" {
+                100
+            } else {
+                0
+            },
+            100,
+            None,
+            None,
+        )
+        .expect("complete duplicate exact detector");
+    }
+    db.publish_analysis_run(&run.id)
+        .expect("publish duplicate exact aggregation run");
+    let final_run = db
+        .get_analysis_run(&run.id)
+        .expect("read duplicate exact aggregation run");
     assert_eq!(final_run.exact_reclaimable_bytes, 100);
     assert_eq!(final_run.potential_reclaimable_bytes, 100);
 }
