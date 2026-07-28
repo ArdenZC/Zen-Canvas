@@ -106,7 +106,9 @@ Storage Cleanup surface 现已提供 durable run history、phase/status、detect
 | analysis findings 100k/WAL | pass；latest page 41.923 ms，review filter page 31.181 ms，decision/detail/evidence 0.159 ms，reader 3.816 ms |
 | 10k finding publication | pass；latest publication transaction 4344.017 ms |
 | `npm run build` / installer | pass；`src-tauri/target/release/bundle/nsis/Zen Canvas_0.1.40_x64-setup.exe` |
-| GitHub Windows/macOS CI | 待 Draft PR 推送后记录；若平台不可用或 pending，将原样报告，不以本地结果替代 |
+| GitHub Windows Quality | pass；run `30344608991` / job `90227780430`，16m55s；frontend、Remediation、Rust format/tests/clippy、100k search、native hardening、Windows NSIS package 通过 |
+| GitHub macOS Quality | pass；run `30344608991` / job `90227780561`，4m08s；frontend、Remediation、Rust format/tests/clippy、macOS path policy、macOS packaging 通过 |
+| GitHub Dependency audit | pass；run `30344608991` / job `90227780382`，7m04s；npm audit 与 RustSec audit 通过 |
 
 ## 10. Known risks and gates
 
@@ -126,7 +128,7 @@ Waiting for human code-level acceptance.
 
 ## 12. Delivery record
 
-- Implementation commit：待提交后补记。
-- Final HEAD：待 closeout delivery commit 后补记。
-- Draft PR：待推送后补记。
-- GitHub Windows/macOS CI：待 PR checks 触发后补记。
+- Implementation commit：`43cb64c540360644bfc69a9f6dac6d3f26bd3a1f`。
+- Final delivery HEAD：本次 closeout delivery commit 的 SHA 在最终汇报中记录；工作树保持干净。
+- Draft PR：[#28](https://github.com/ArdenZC/Zen-Canvas/pull/28)，`feat: add durable analysis runs and findings`。
+- GitHub CI run：`30344608991`；Windows/macOS Quality 与 Dependency audit 全部通过。
