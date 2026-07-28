@@ -1,0 +1,32 @@
+name: Apply file-ops CI safety patch
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'ci/code-pr-fast-path'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout pull-request branch
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Apply lexical safety patch
+        run: python3 scripts/applyFileOpsCiSafetyPatch.py
+
+      - name: Commit generated source change
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: reject protected cleanup paths before filesystem access"
+          git push origin HEAD:${{ github.head_ref }}
