@@ -327,6 +327,58 @@ fn global_search_ranking_is_exact_then_prefix_then_extension_with_stable_id_ties
 }
 
 #[test]
+fn global_search_fts_layer_fills_remaining_page_and_offset_is_stable() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+
+    let mut name_match = test_entry(r"C:\Global\archive-needle.txt", "archive-needle.txt", false);
+    name_match.platform_file_id = "identity-fts-name".to_string();
+    name_match.modified_at_fs = Some(20);
+    let mut path_match = test_entry(r"C:\Global\needle\deep.log", "deep.log", false);
+    path_match.platform_file_id = "identity-fts-path".to_string();
+    path_match.extension = "log".to_string();
+    path_match.modified_at_fs = Some(10);
+    db.upsert_global_entries_batch(&[name_match, path_match])
+        .expect("insert FTS entries");
+
+    let full = db
+        .search_global_entries("needle", 20, 0)
+        .expect("FTS search");
+    assert_eq!(full.len(), 2);
+    let full_ids = full
+        .iter()
+        .map(|entry| entry.id.clone())
+        .collect::<Vec<_>>();
+
+    let first_page = db
+        .search_global_entries("needle", 1, 0)
+        .expect("first FTS page");
+    let second_page = db
+        .search_global_entries("needle", 1, 1)
+        .expect("second FTS page");
+    let paged_ids = first_page
+        .iter()
+        .chain(second_page.iter())
+        .map(|entry| entry.id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(paged_ids, full_ids);
+    assert_ne!(first_page[0].id, second_page[0].id);
+
+    let repeated_ids = db
+        .search_global_entries("needle", 20, 0)
+        .expect("repeat FTS search")
+        .into_iter()
+        .map(|entry| entry.id)
+        .collect::<Vec<_>>();
+    assert_eq!(repeated_ids, full_ids);
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn global_search_snapshot_filters_disabled_sources_and_tracks_entry_revision() {
     let path = test_db_path();
     let db = Database::open(&path).expect("open test database");

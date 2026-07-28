@@ -47,6 +47,8 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     nonce: number;
     view: View;
     selectedFileId: string;
+    sessionId: number | null;
+    revision: number | null;
   } | null>(null);
   const refreshCurrentQuery = useCallback(
     () => useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery),
@@ -167,11 +169,13 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     let disposed = false;
     let unlisten: (() => void) | undefined;
 
-    void tauriApi.onMainWindowReadyRequest(({ nonce }) => {
+    void tauriApi.onMainWindowReadyRequest(({ nonce, sessionId = null, revision = null }) => {
       pendingSearchNavigationRef.current = {
         nonce,
         view: useAppStore.getState().view,
-        selectedFileId: useFileLibraryStore.getState().selectedFileId
+        selectedFileId: useFileLibraryStore.getState().selectedFileId,
+        sessionId,
+        revision
       };
       void tauriApi.acknowledgeMainWindowReady(nonce).catch((error) => {
         if (!disposed) showError(readableError(error));

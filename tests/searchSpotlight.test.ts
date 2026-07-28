@@ -179,30 +179,41 @@ describe("spotlight search navigation", () => {
     const runtimeProviders = readFileSync(resolve("src/components/AppRuntimeProviders.tsx"), "utf8");
 
     expect(runtimeProviders).toContain("tauriApi.onMainWindowReadyRequest");
+    expect(runtimeProviders).toContain("sessionId = null, revision = null");
     expect(runtimeProviders).toContain("tauriApi.acknowledgeMainWindowReady(nonce)");
     expect(runtimeProviders).toContain("tauriApi.markMainWindowReady(true)");
     expect(runtimeProviders).not.toContain("onGlobalSearchRequested");
   });
 
   it("rejects late navigation after the user changes main-window state", () => {
-    const pending = { nonce: 9, view: "scanner" as const, selectedFileId: "" };
+    const pending = { nonce: 9, view: "scanner" as const, selectedFileId: "", sessionId: 4, revision: 12 };
     expect(shouldApplySearchNavigation(
-      { nonce: 9, view: "library", fileId: "file-1" },
+      { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
       pending,
       { view: "scanner", selectedFileId: "" }
     )).toBe(true);
     expect(shouldApplySearchNavigation(
-      { nonce: 9, view: "library", fileId: "file-1" },
+      { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
       pending,
       { view: "settings", selectedFileId: "" }
     )).toBe(false);
     expect(shouldApplySearchNavigation(
-      { nonce: 8, view: "library", fileId: "file-1" },
+      { nonce: 8, view: "library", fileId: "file-1", sessionId: 4, revision: 12 },
       pending,
       { view: "scanner", selectedFileId: "" }
     )).toBe(false);
     expect(shouldApplySearchNavigation(
-      { nonce: 9, view: "settings", fileId: null, settingsTarget: "not-a-settings-section" },
+      { nonce: 9, view: "settings", fileId: null, sessionId: 4, revision: 12, settingsTarget: "not-a-settings-section" },
+      pending,
+      { view: "scanner", selectedFileId: "" }
+    )).toBe(false);
+    expect(shouldApplySearchNavigation(
+      { nonce: 9, view: "library", fileId: "file-1", sessionId: 3, revision: 12 },
+      pending,
+      { view: "scanner", selectedFileId: "" }
+    )).toBe(false);
+    expect(shouldApplySearchNavigation(
+      { nonce: 9, view: "library", fileId: "file-1", sessionId: 4, revision: 11 },
       pending,
       { view: "scanner", selectedFileId: "" }
     )).toBe(false);
@@ -217,18 +228,18 @@ describe("spotlight search navigation", () => {
     expect(commandModal).not.toContain("<FileTypeIcon");
   });
 
-  it("falls back to the library for an invalid runtime view payload", () => {
+  it("fails closed for an invalid runtime view payload", () => {
     const setView = vi.fn();
     const setSelectedFileId = vi.fn();
 
-    applySearchNavigation(
+    expect(applySearchNavigation(
       { view: "destructive-unknown-view", fileId: "file-1" },
       setView,
       setSelectedFileId
-    );
+    )).toBe(false);
 
-    expect(setView).toHaveBeenCalledWith("library");
-    expect(setSelectedFileId).toHaveBeenCalledWith("file-1");
+    expect(setView).not.toHaveBeenCalled();
+    expect(setSelectedFileId).not.toHaveBeenCalled();
   });
 
   it("keeps Tab available for focus movement and uses primary-key shortcuts for sorting preview", () => {

@@ -160,6 +160,8 @@ pub struct ActivateSearchResultRequest {
 #[serde(rename_all = "camelCase")]
 pub struct MainWindowReadyRequest {
     pub nonce: u64,
+    pub session_id: Option<u64>,
+    pub revision: Option<u64>,
 }
 
 #[derive(Debug, Default)]
@@ -725,7 +727,11 @@ fn activate_search_result_payload<R: Runtime>(
     app.emit_to(
         MAIN_WINDOW_LABEL,
         MAIN_WINDOW_READY_REQUEST_EVENT,
-        MainWindowReadyRequest { nonce },
+        MainWindowReadyRequest {
+            nonce,
+            session_id: payload.session_id,
+            revision: payload.revision,
+        },
     )
     .map_err(|error| error.to_string())?;
     readiness.wait_for_ack(nonce, MAIN_WINDOW_READY_TIMEOUT)?;
@@ -1479,6 +1485,20 @@ mod tests {
         assert!(
             serde_json::from_value::<SearchSettingsTarget>(serde_json::json!("arbitrary")).is_err()
         );
+    }
+
+    #[test]
+    fn main_window_ready_request_carries_search_context_for_renderer_parity() {
+        let value = serde_json::to_value(MainWindowReadyRequest {
+            nonce: 21,
+            session_id: Some(7),
+            revision: Some(12),
+        })
+        .expect("serialize main window ready request");
+
+        assert_eq!(value["nonce"], 21);
+        assert_eq!(value["sessionId"], 7);
+        assert_eq!(value["revision"], 12);
     }
 
     #[test]

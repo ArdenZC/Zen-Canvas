@@ -329,6 +329,8 @@ export interface SearchWindowSnapshot {
 
 export interface MainWindowReadyRequest {
   nonce: number;
+  sessionId: number | null;
+  revision: number | null;
 }
 
 export interface TauriSearchFileResult {
