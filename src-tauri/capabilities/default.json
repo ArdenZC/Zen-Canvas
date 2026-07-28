@@ -107,7 +107,6 @@
     "allow-reveal-storage-candidate",
     "allow-preview-cleanup-candidates",
     "allow-preview-cleanup-operations",
-    "allow-move-cleanup-candidates-to-trash",
     "allow-move-cleanup-candidates-to-safe-trash",
     "allow-list-cleanup-trash-batches",
     "allow-preview-restore-cleanup-trash",

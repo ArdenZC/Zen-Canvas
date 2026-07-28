@@ -13,6 +13,7 @@ const safeTrash = cleanup;
 const dedupe = source("src-tauri/src/dedupe.rs");
 const ids = source("src-tauri/src/ids.rs");
 const capabilities = source("src-tauri/src/runtime_capabilities.rs");
+const tauriCapabilities = source("src-tauri/capabilities/default.json");
 const cargo = source("src-tauri/Cargo.toml");
 const api = source("src/api/tauriApi.ts");
 const packageJson = source("package.json");
@@ -47,6 +48,7 @@ describe("remediation contracts", () => {
     expect(cleanup).not.toContain("move_path_to_system_trash_with_safety");
     expect(source("src-tauri/build.rs")).not.toContain("move_cleanup_candidates_to_trash");
     expect(source("src-tauri/src/main.rs")).not.toContain("move_cleanup_candidates_to_trash");
+    expect(tauriCapabilities).not.toContain("allow-move-cleanup-candidates-to-trash");
   });
 
   it("keeps cleanup candidates job-scoped and cross-job resolution atomic", () => {
