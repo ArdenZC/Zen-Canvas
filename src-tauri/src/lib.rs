@@ -45,9 +45,9 @@ pub use app_control::{
     get_search_window_state, hide_search_window_command, mark_main_window_ready, quit_app,
     register_global_search_hotkey, resize_search_window, search_window_ready,
     ActivateSearchResultRequest, GlobalHotkeyStatus, GlobalHotkeyStatusState,
-    MainWindowReadinessState, SearchNavigatePayload, SearchView, SearchWindowLifecycleState,
-    SearchWindowMutationRequest, SearchWindowPhase, SearchWindowResizeRequest,
-    SearchWindowSnapshot,
+    MainWindowReadinessState, SearchNavigatePayload, SearchSettingsTarget, SearchView,
+    SearchWindowLifecycleState, SearchWindowMutationRequest, SearchWindowPhase,
+    SearchWindowResizeRequest, SearchWindowSnapshot,
 };
 pub use db::{
     confirm_classification, correct_classification, delete_user_rule, execute_rules_for_paths,

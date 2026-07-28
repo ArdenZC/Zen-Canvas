@@ -65,7 +65,7 @@ import type {
 } from "../types/domain";
 import { rejectUnavailableFileMutation } from "../utils/fileMutationCapability";
 import type { View } from "../types/ui";
-import type { SearchNavigatePayload } from "../utils/searchNavigation";
+import type { SearchNavigatePayload, SearchSettingsTarget } from "../utils/searchNavigation";
 import { isBrowserMockEnabled, mockInvokeCommand } from "./browserMockApi";
 
 export interface ScannedEntry {
@@ -869,14 +869,16 @@ export const tauriApi = {
   activateSearchResult(
     view: View,
     fileId: string | null,
-    snapshot?: Pick<SearchWindowSnapshot, "sessionId" | "revision">
+    snapshot?: Pick<SearchWindowSnapshot, "sessionId" | "revision">,
+    settingsTarget?: SearchSettingsTarget | null
   ): Promise<void> {
     return invokeCommand<void>("activate_search_result", {
       request: {
         sessionId: snapshot?.sessionId ?? null,
         expectedRevision: snapshot?.revision ?? null,
         view,
-        fileId
+        fileId,
+        settingsTarget: settingsTarget ?? null
       }
     });
   },

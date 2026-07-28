@@ -48,6 +48,9 @@ pub struct SearchNavigatePayload {
     pub view: SearchView,
     pub file_id: Option<String>,
     pub nonce: u64,
+    pub session_id: Option<u64>,
+    pub revision: Option<u64>,
+    pub settings_target: Option<SearchSettingsTarget>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -61,6 +64,15 @@ pub enum SearchView {
     Rules,
     Restore,
     Settings,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum SearchSettingsTarget {
+    SearchScope,
+    GlobalIndex,
+    Appearance,
+    Ai,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -112,6 +124,11 @@ pub struct SearchWindowSnapshot {
 #[derive(Debug)]
 pub struct SearchWindowLifecycleState {
     snapshot: Mutex<SearchWindowSnapshot>,
+    // Every native window side effect must be performed while holding this
+    // owner. A CAS check followed by a later native call is not sufficient:
+    // an older resize could otherwise pass the check and mutate the window
+    // after a newer lifecycle revision has committed.
+    operation_owner: Mutex<()>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -136,6 +153,7 @@ pub struct ActivateSearchResultRequest {
     pub expected_revision: Option<u64>,
     pub view: SearchView,
     pub file_id: Option<String>,
+    pub settings_target: Option<SearchSettingsTarget>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -163,7 +181,22 @@ impl SearchNavigatePayload {
             view,
             file_id,
             nonce: 0,
+            session_id: None,
+            revision: None,
+            settings_target: None,
         }
+    }
+
+    pub fn with_window_context(
+        mut self,
+        session_id: Option<u64>,
+        revision: Option<u64>,
+        settings_target: Option<SearchSettingsTarget>,
+    ) -> Self {
+        self.session_id = session_id;
+        self.revision = revision;
+        self.settings_target = settings_target;
+        self
     }
 }
 
@@ -187,6 +220,7 @@ impl Default for SearchWindowLifecycleState {
                 revision: 1,
                 phase: SearchWindowPhase::Hidden,
             }),
+            operation_owner: Mutex::new(()),
         }
     }
 }
@@ -204,6 +238,14 @@ impl SearchWindowLifecycleState {
     }
 
     fn begin_show(&self) -> Result<SearchWindowSnapshot, String> {
+        let _owner = self
+            .operation_owner
+            .lock()
+            .map_err(|_| "search_window_operation_unavailable".to_string())?;
+        self.begin_show_locked()
+    }
+
+    fn begin_show_locked(&self) -> Result<SearchWindowSnapshot, String> {
         let mut state = self
             .snapshot
             .lock()
@@ -222,7 +264,11 @@ impl SearchWindowLifecycleState {
         session_id: u64,
         expected_revision: u64,
     ) -> Result<SearchWindowSnapshot, String> {
-        self.transition(
+        let _owner = self
+            .operation_owner
+            .lock()
+            .map_err(|_| "search_window_operation_unavailable".to_string())?;
+        self.transition_locked(
             session_id,
             expected_revision,
             &[SearchWindowPhase::Showing],
@@ -231,7 +277,18 @@ impl SearchWindowLifecycleState {
     }
 
     fn resize(&self, request: &SearchWindowResizeRequest) -> Result<SearchWindowSnapshot, String> {
-        self.transition(
+        let _owner = self
+            .operation_owner
+            .lock()
+            .map_err(|_| "search_window_operation_unavailable".to_string())?;
+        self.resize_locked(request)
+    }
+
+    fn resize_locked(
+        &self,
+        request: &SearchWindowResizeRequest,
+    ) -> Result<SearchWindowSnapshot, String> {
+        self.transition_locked(
             request.session_id,
             request.expected_revision,
             &[
@@ -250,7 +307,18 @@ impl SearchWindowLifecycleState {
         &self,
         request: Option<&SearchWindowMutationRequest>,
     ) -> Result<SearchWindowSnapshot, String> {
-        let current = self.get();
+        let _owner = self
+            .operation_owner
+            .lock()
+            .map_err(|_| "search_window_operation_unavailable".to_string())?;
+        self.begin_hide_locked(request)
+    }
+
+    fn begin_hide_locked(
+        &self,
+        request: Option<&SearchWindowMutationRequest>,
+    ) -> Result<SearchWindowSnapshot, String> {
+        let current = self.snapshot_locked()?;
         if current.phase == SearchWindowPhase::Hidden {
             return Ok(current);
         }
@@ -260,7 +328,7 @@ impl SearchWindowLifecycleState {
         if current.phase == SearchWindowPhase::Hiding {
             return Ok(current);
         }
-        self.transition(
+        self.transition_locked(
             current.session_id,
             current.revision,
             &[
@@ -277,7 +345,11 @@ impl SearchWindowLifecycleState {
         session_id: u64,
         expected_revision: u64,
     ) -> Result<SearchWindowSnapshot, String> {
-        self.transition(
+        let _owner = self
+            .operation_owner
+            .lock()
+            .map_err(|_| "search_window_operation_unavailable".to_string())?;
+        self.transition_locked(
             session_id,
             expected_revision,
             &[SearchWindowPhase::Hiding],
@@ -285,7 +357,14 @@ impl SearchWindowLifecycleState {
         )
     }
 
-    fn transition(
+    fn snapshot_locked(&self) -> Result<SearchWindowSnapshot, String> {
+        self.snapshot
+            .lock()
+            .map(|snapshot| snapshot.clone())
+            .map_err(|_| "search_window_state_unavailable".to_string())
+    }
+
+    fn transition_locked(
         &self,
         session_id: u64,
         expected_revision: u64,
@@ -303,6 +382,103 @@ impl SearchWindowLifecycleState {
         state.revision = state.revision.saturating_add(1);
         state.phase = next;
         Ok(state.clone())
+    }
+
+    /// Validates the CAS, performs the injected native resize while the
+    /// operation owner is held, and commits the new revision only after the
+    /// native call succeeds. Tests use the injected closure as the native
+    /// adapter; production passes the real Tauri resize operation.
+    fn resize_with_native<F>(
+        &self,
+        request: &SearchWindowResizeRequest,
+        native: F,
+    ) -> Result<SearchWindowSnapshot, String>
+    where
+        F: FnOnce() -> Result<(), String>,
+    {
+        let _owner = self
+            .operation_owner
+            .lock()
+            .map_err(|_| "search_window_operation_unavailable".to_string())?;
+        let current = self.snapshot_locked()?;
+        validate_search_window_cas(&current, request.session_id, request.expected_revision)?;
+        if !matches!(
+            current.phase,
+            SearchWindowPhase::VisibleCollapsed | SearchWindowPhase::VisibleExpanded
+        ) {
+            return Err("search_window_transition_invalid".to_string());
+        }
+        native()?;
+        self.resize_locked(request)
+    }
+
+    /// Owns the entire show sequence. Native failure rolls the durable phase
+    /// back to Hidden so a failed start is retryable and never leaves a stuck
+    /// Showing phase behind.
+    fn show_with_native<F, E>(&self, native: F, mut emit: E) -> Result<SearchWindowSnapshot, String>
+    where
+        F: FnOnce() -> Result<(), String>,
+        E: FnMut(&SearchWindowSnapshot),
+    {
+        let _owner = self
+            .operation_owner
+            .lock()
+            .map_err(|_| "search_window_operation_unavailable".to_string())?;
+        let previous = self.snapshot_locked()?;
+        let showing = self.begin_show_locked()?;
+        if let Err(error) = native() {
+            self.restore_snapshot_locked(&previous)?;
+            return Err(error);
+        }
+        emit(&showing);
+        Ok(showing)
+    }
+
+    /// Owns hide transition, native hide, and finalization. On a native
+    /// failure the prior visible snapshot is restored and emitted, so a
+    /// renderer can retry instead of being trapped in Hiding.
+    fn hide_with_native<F, E>(
+        &self,
+        request: Option<&SearchWindowMutationRequest>,
+        native: F,
+        mut emit: E,
+    ) -> Result<SearchWindowSnapshot, String>
+    where
+        F: FnOnce() -> Result<(), String>,
+        E: FnMut(&SearchWindowSnapshot),
+    {
+        let _owner = self
+            .operation_owner
+            .lock()
+            .map_err(|_| "search_window_operation_unavailable".to_string())?;
+        let previous = self.snapshot_locked()?;
+        let hiding = self.begin_hide_locked(request)?;
+        if hiding.phase == SearchWindowPhase::Hidden {
+            return Ok(hiding);
+        }
+        emit(&hiding);
+        if let Err(error) = native() {
+            self.restore_snapshot_locked(&previous)?;
+            emit(&previous);
+            return Err(error);
+        }
+        let hidden = self.transition_locked(
+            hiding.session_id,
+            hiding.revision,
+            &[SearchWindowPhase::Hiding],
+            SearchWindowPhase::Hidden,
+        )?;
+        emit(&hidden);
+        Ok(hidden)
+    }
+
+    fn restore_snapshot_locked(&self, previous: &SearchWindowSnapshot) -> Result<(), String> {
+        let mut state = self
+            .snapshot
+            .lock()
+            .map_err(|_| "search_window_state_unavailable".to_string())?;
+        *state = previous.clone();
+        Ok(())
     }
 }
 
@@ -432,7 +608,11 @@ pub fn activate_search_result<R: Runtime>(
     } else {
         require_main_window(&window)?;
     }
-    let payload = SearchNavigatePayload::new(request.view, request.file_id);
+    let payload = SearchNavigatePayload::new(request.view, request.file_id).with_window_context(
+        request.session_id,
+        request.expected_revision,
+        request.settings_target,
+    );
     activate_search_result_payload(&app, &lifecycle, &readiness, payload)
 }
 
@@ -493,13 +673,9 @@ pub fn resize_search_window<R: Runtime>(
     request: SearchWindowResizeRequest,
 ) -> Result<SearchWindowSnapshot, String> {
     require_search_window(&window)?;
-    validate_search_window_cas(
-        &lifecycle.get(),
-        request.session_id,
-        request.expected_revision,
-    )?;
-    resize_search_window_for_state(&app, request.expanded).map_err(|error| error.to_string())?;
-    let snapshot = lifecycle.resize(&request)?;
+    let snapshot = lifecycle.resize_with_native(&request, || {
+        resize_search_window_for_state(&app, request.expanded).map_err(|error| error.to_string())
+    })?;
     emit_search_window_state(&app, &snapshot);
     Ok(snapshot)
 }
@@ -929,21 +1105,20 @@ fn show_search_window<R: Runtime>(
     app: &AppHandle<R>,
     lifecycle: &SearchWindowLifecycleState,
 ) -> Result<(), String> {
-    let snapshot = lifecycle.begin_show()?;
-    let result = (|| {
-        let window = app
-            .get_webview_window(SEARCH_WINDOW_LABEL)
-            .ok_or_else(|| "search_window_missing".to_string())?;
-        resize_search_window_for_state(app, false).map_err(|error| error.to_string())?;
-        window.show().map_err(|error| error.to_string())?;
-        window.set_focus().map_err(|error| error.to_string())?;
-        emit_search_window_state(app, &snapshot);
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = hide_search_window_with_state(app, lifecycle, None);
-    }
-    result
+    lifecycle
+        .show_with_native(
+            || {
+                let window = app
+                    .get_webview_window(SEARCH_WINDOW_LABEL)
+                    .ok_or_else(|| "search_window_missing".to_string())?;
+                resize_search_window_for_state(app, false).map_err(|error| error.to_string())?;
+                window.show().map_err(|error| error.to_string())?;
+                window.set_focus().map_err(|error| error.to_string())?;
+                Ok(())
+            },
+            |snapshot| emit_search_window_state(app, snapshot),
+        )
+        .map(|_| ())
 }
 
 #[cfg(feature = "desktop-runtime")]
@@ -952,31 +1127,29 @@ fn hide_search_window_with_state<R: Runtime>(
     lifecycle: &SearchWindowLifecycleState,
     request: Option<&SearchWindowMutationRequest>,
 ) -> Result<SearchWindowSnapshot, String> {
-    let hiding = lifecycle.begin_hide(request)?;
-    if hiding.phase == SearchWindowPhase::Hidden {
-        return Ok(hiding);
-    }
-    emit_search_window_state(app, &hiding);
-    let window = app
-        .get_webview_window(SEARCH_WINDOW_LABEL)
-        .ok_or_else(|| "search_window_missing".to_string())?;
-    window.hide().map_err(|error| error.to_string())?;
-    let hidden = lifecycle.complete_hide(hiding.session_id, hiding.revision)?;
-    emit_search_window_state(app, &hidden);
-    Ok(hidden)
+    lifecycle.hide_with_native(
+        request,
+        || {
+            let window = app
+                .get_webview_window(SEARCH_WINDOW_LABEL)
+                .ok_or_else(|| "search_window_missing".to_string())?;
+            window.hide().map_err(|error| error.to_string())
+        },
+        |snapshot| emit_search_window_state(app, snapshot),
+    )
 }
 
 #[cfg(not(feature = "desktop-runtime"))]
 fn hide_search_window_with_state<R: Runtime>(
-    _app: &AppHandle<R>,
+    app: &AppHandle<R>,
     lifecycle: &SearchWindowLifecycleState,
     request: Option<&SearchWindowMutationRequest>,
 ) -> Result<SearchWindowSnapshot, String> {
-    let hiding = lifecycle.begin_hide(request)?;
-    if hiding.phase == SearchWindowPhase::Hidden {
-        return Ok(hiding);
-    }
-    lifecycle.complete_hide(hiding.session_id, hiding.revision)
+    lifecycle.hide_with_native(
+        request,
+        || Ok(()),
+        |snapshot| emit_search_window_state(app, snapshot),
+    )
 }
 
 #[cfg(feature = "desktop-runtime")]
@@ -1045,6 +1218,10 @@ pub fn setup_tray(app: &mut App) -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Arc,
+    };
 
     #[test]
     fn global_search_shortcut_matches_documented_accelerator() {
@@ -1139,6 +1316,126 @@ mod tests {
     }
 
     #[test]
+    fn stale_resize_is_rejected_before_the_native_adapter_runs() {
+        let lifecycle = SearchWindowLifecycleState::default();
+        let showing = lifecycle.begin_show().expect("begin show");
+        let visible = lifecycle
+            .complete_show(showing.session_id, showing.revision)
+            .expect("complete show");
+        let calls = AtomicUsize::new(0);
+        let stale = SearchWindowResizeRequest {
+            session_id: visible.session_id,
+            expected_revision: visible.revision.saturating_sub(1),
+            expanded: true,
+        };
+
+        assert_eq!(
+            lifecycle
+                .resize_with_native(&stale, || {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                })
+                .expect_err("stale resize"),
+            "search_window_revision_stale"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn lifecycle_owner_serializes_native_resize_and_rejects_old_race() {
+        let lifecycle = Arc::new(SearchWindowLifecycleState::default());
+        let showing = lifecycle.begin_show().expect("begin show");
+        let visible = lifecycle
+            .complete_show(showing.session_id, showing.revision)
+            .expect("complete show");
+        let old_request = SearchWindowResizeRequest {
+            session_id: visible.session_id,
+            expected_revision: visible.revision,
+            expanded: true,
+        };
+        let new_request = old_request.clone();
+        let native_calls = Arc::new(AtomicUsize::new(0));
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let new_lifecycle = Arc::clone(&lifecycle);
+        let new_calls = Arc::clone(&native_calls);
+        let newer = std::thread::spawn(move || {
+            new_lifecycle.resize_with_native(&new_request, || {
+                new_calls.fetch_add(1, Ordering::SeqCst);
+                entered_tx.send(()).expect("notify native entry");
+                release_rx.recv().expect("release native adapter");
+                Ok(())
+            })
+        });
+        entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("new request owns native adapter");
+
+        let old_lifecycle = Arc::clone(&lifecycle);
+        let old_calls = Arc::clone(&native_calls);
+        let older = std::thread::spawn(move || {
+            old_lifecycle.resize_with_native(&old_request, || {
+                old_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        release_tx.send(()).expect("release new native adapter");
+
+        newer
+            .join()
+            .expect("newer request thread")
+            .expect("newer resize succeeds");
+        assert_eq!(
+            older.join().expect("older request thread"),
+            Err("search_window_revision_stale".to_string())
+        );
+        assert_eq!(native_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn native_failure_restores_retryable_phase_without_stuck_transition() {
+        let lifecycle = SearchWindowLifecycleState::default();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let first_events = Arc::clone(&events);
+        assert_eq!(
+            lifecycle
+                .show_with_native(
+                    || Err("native_show_failed".to_string()),
+                    |snapshot| first_events.lock().unwrap().push(snapshot.phase),
+                )
+                .expect_err("show failure"),
+            "native_show_failed"
+        );
+        assert_eq!(lifecycle.get().phase, SearchWindowPhase::Hidden);
+
+        let showing = lifecycle
+            .show_with_native(|| Ok(()), |_| {})
+            .expect("retry show");
+        let visible = lifecycle
+            .complete_show(showing.session_id, showing.revision)
+            .expect("complete retry show");
+        let second_events = Arc::clone(&events);
+        assert_eq!(
+            lifecycle
+                .hide_with_native(
+                    None,
+                    || Err("native_hide_failed".to_string()),
+                    |snapshot| second_events.lock().unwrap().push(snapshot.phase),
+                )
+                .expect_err("hide failure"),
+            "native_hide_failed"
+        );
+        assert_eq!(lifecycle.get(), visible);
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            &[
+                SearchWindowPhase::Hiding,
+                SearchWindowPhase::VisibleCollapsed
+            ]
+        );
+    }
+
+    #[test]
     fn main_window_readiness_rejects_stale_nonce_and_accepts_current_ack() {
         let readiness = MainWindowReadinessState::default();
         readiness.set_ready(true);
@@ -1166,12 +1463,22 @@ mod tests {
 
     #[test]
     fn search_navigation_payload_serializes_camel_case_file_id() {
-        let payload = SearchNavigatePayload::new(SearchView::Library, Some("file-1".to_string()));
+        let payload = SearchNavigatePayload::new(SearchView::Settings, None).with_window_context(
+            Some(7),
+            Some(12),
+            Some(SearchSettingsTarget::GlobalIndex),
+        );
         let value = serde_json::to_value(payload).expect("serialize search navigation payload");
 
-        assert_eq!(value["view"], "library");
-        assert_eq!(value["fileId"], "file-1");
+        assert_eq!(value["view"], "settings");
+        assert_eq!(value["fileId"], serde_json::Value::Null);
         assert_eq!(value["nonce"], 0);
+        assert_eq!(value["sessionId"], 7);
+        assert_eq!(value["revision"], 12);
+        assert_eq!(value["settingsTarget"], "global-index");
+        assert!(
+            serde_json::from_value::<SearchSettingsTarget>(serde_json::json!("arbitrary")).is_err()
+        );
     }
 
     #[test]

@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { activateCommandNavigation, isSortingPreviewShortcut } from "../src/components/CommandModal";
 import { makeTranslator } from "../src/i18n";
 import { applySearchNavigation, shouldApplySearchNavigation } from "../src/utils/searchNavigation";
+import { committedSpotlightInput, completedSpotlightComposition } from "../src/components/spotlight/spotlightComposition";
+import { mockInvokeCommand } from "../src/api/browserMockApi";
 import { DEFAULT_SEARCH_HOTKEY, formatHotkeyLabel } from "../src/utils/hotkeys";
 
 describe("spotlight search navigation", () => {
@@ -34,6 +36,40 @@ describe("spotlight search navigation", () => {
     expect(setSelectedFileId).not.toHaveBeenCalled();
     expect(setView).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("carries only fixed settings targets through standalone navigation", async () => {
+    const activateSearchResult = vi.fn(async () => {});
+
+    await activateCommandNavigation({
+      standalone: true,
+      view: "settings",
+      fileId: null,
+      settingsTarget: "global-index",
+      windowSnapshot: { sessionId: 4, revision: 9, phase: "visible_collapsed" },
+      setView: vi.fn(),
+      setSelectedFileId: vi.fn(),
+      onClose: vi.fn(),
+      activateSearchResult
+    });
+
+    expect(activateSearchResult).toHaveBeenCalledWith(
+      "settings",
+      null,
+      { sessionId: 4, revision: 9, phase: "visible_collapsed" },
+      "global-index"
+    );
+  });
+
+  it("commits one final IME value and never commits composition updates", () => {
+    let committed = "";
+    const compositionUpdates = ["z", "zh", "zhong"];
+    for (const value of compositionUpdates) {
+      expect(committedSpotlightInput(value, true, true, 229)).toBeNull();
+    }
+    committed = completedSpotlightComposition("中");
+    expect(committed).toBe("中");
+    expect(committedSpotlightInput(committed, false, false, 0)).toBe("中");
   });
 
   it("keeps in-window command navigation local", async () => {
@@ -71,17 +107,61 @@ describe("spotlight search navigation", () => {
     expect(setSelectedFileId).toHaveBeenCalledTimes(1);
   });
 
+  it("applies fixed standalone settings targets and rejects illegal targets", () => {
+    const setView = vi.fn();
+    const setSelectedFileId = vi.fn();
+    const requestSettingsSection = vi.fn();
+
+    expect(applySearchNavigation(
+      {
+        view: "settings",
+        fileId: null,
+        nonce: 5,
+        sessionId: 2,
+        revision: 8,
+        settingsTarget: "global-index"
+      },
+      setView,
+      setSelectedFileId,
+      requestSettingsSection
+    )).toBe(true);
+    expect(requestSettingsSection).toHaveBeenCalledWith("settings-global-index");
+    expect(applySearchNavigation(
+      { view: "settings", fileId: null, settingsTarget: "not-a-settings-section" },
+      setView,
+      setSelectedFileId,
+      requestSettingsSection
+    )).toBe(false);
+    expect(requestSettingsSection).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the browser mock wire-compatible without faking native navigation", async () => {
+    await expect(mockInvokeCommand("activate_search_result", {
+      request: {
+        sessionId: 2,
+        expectedRevision: 8,
+        view: "settings",
+        fileId: null,
+        settingsTarget: "global-index"
+      }
+    })).resolves.toBeUndefined();
+    await expect(mockInvokeCommand("activate_search_result", {
+      request: { view: "settings", settingsTarget: "arbitrary-selector" }
+    })).rejects.toThrow("search_navigation_settings_target_invalid");
+  });
+
   it("uses the independent global index for command and standalone Spotlight results", () => {
     const commandModal = readFileSync(resolve("src/components/CommandModal.tsx"), "utf8");
     const appShell = readFileSync(resolve("src/components/AppShell.tsx"), "utf8");
 
     expect(commandModal).toContain("const SEARCH_RESULT_LIMIT = 80");
     expect(commandModal).toContain("tauriApi.searchGlobalEntries(request)");
-    expect(commandModal).toContain("queryControllerRef.current.nextRequest(trimmedSearch, SEARCH_RESULT_LIMIT)");
+    expect(commandModal).toContain("queryControllerRef.current.nextRequest(committedTrimmedSearch, SEARCH_RESULT_LIMIT)");
+    expect(commandModal).toContain("committedSpotlightInput");
     expect(commandModal).toContain("queryControllerRef.current.accepts(response)");
     expect(commandModal).toContain("mergeSpotlightResults(currentGlobalResults, commandResults)");
     expect(commandModal).toContain("filesForCurrentQuery(trimmedSearch, globalResultState.query, globalResultState.results)");
-    expect(commandModal).toContain('setGlobalResultState({ query: trimmedSearch, results: [] })');
+    expect(commandModal).toContain('setGlobalResultState({ query: committedTrimmedSearch, results: [] })');
     expect(commandModal).toContain("queryCommandRegistry(trimmedSearch, commandRegistry)");
     expect(commandModal).toContain("groupSpotlightResults(visibleResults, t)");
     expect(commandModal).not.toContain("results.slice(0, 12)");
@@ -118,6 +198,11 @@ describe("spotlight search navigation", () => {
     )).toBe(false);
     expect(shouldApplySearchNavigation(
       { nonce: 8, view: "library", fileId: "file-1" },
+      pending,
+      { view: "scanner", selectedFileId: "" }
+    )).toBe(false);
+    expect(shouldApplySearchNavigation(
+      { nonce: 9, view: "settings", fileId: null, settingsTarget: "not-a-settings-section" },
       pending,
       { view: "scanner", selectedFileId: "" }
     )).toBe(false);

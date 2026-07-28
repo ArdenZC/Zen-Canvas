@@ -14,6 +14,7 @@ import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { persistRuleEnabledToggle, persistUserRuleDelete } from "../store/rulePersistence";
 import { useRulesStore } from "../store/useRulesStore";
 import { useScanManagerStore } from "../store/useScanManagerStore";
+import { requestSettingsSection } from "./spotlight/commandRegistry";
 import type {
   CloseBehavior,
   FolderNamingLanguage,
@@ -141,7 +142,12 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
         selectedFileId: currentLibrary.selectedFileId
       })) return;
       pendingSearchNavigationRef.current = null;
-      applySearchNavigation(payload, setView, useFileLibraryStore.getState().setSelectedFileId);
+      applySearchNavigation(
+        payload,
+        setView,
+        useFileLibraryStore.getState().setSelectedFileId,
+        requestSettingsSection
+      );
     }).then((dispose) => {
       if (disposed) dispose();
       else unlisten = dispose;

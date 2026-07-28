@@ -324,7 +324,6 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "reveal_global_search_result":
     case "reveal_storage_candidate":
     case "quit_app":
-    case "activate_search_result":
     case "insert_file":
     case "start_global_index":
     case "pause_global_index":
@@ -334,6 +333,8 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     case "mark_main_window_ready":
     case "acknowledge_main_window_ready":
       return undefined as T;
+    case "activate_search_result":
+      return mockActivateSearchResult(args?.request as Record<string, unknown> | undefined) as T;
     case "get_search_window_state":
       return mockSearchWindowState as T;
     case "search_window_ready":
@@ -920,6 +921,18 @@ function searchMockFiles(query: string, limit: number): FileRecord[] {
   return mockFiles
     .filter((item) => `${item.name} ${item.path} ${item.purpose}`.toLowerCase().includes(normalized))
     .slice(0, limit);
+}
+
+function mockActivateSearchResult(request?: Record<string, unknown>) {
+  // Browser preview accepts the same wire DTO but deliberately does not
+  // pretend to show/hide a native search window or mutate native navigation.
+  const settingsTarget = request?.settingsTarget;
+  if (settingsTarget !== undefined
+    && settingsTarget !== null
+    && !["search-scope", "global-index", "appearance", "ai"].includes(String(settingsTarget))) {
+    throw new Error("search_navigation_settings_target_invalid");
+  }
+  return undefined;
 }
 
 function searchMockGlobalEntries(request?: GlobalSearchRequest): GlobalSearchResponse {

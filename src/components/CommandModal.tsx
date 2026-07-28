@@ -12,8 +12,10 @@ import { compactPath, formatDisplayPath, readableError } from "../utils/viewHelp
 import { IconButton, StateBlock, quietText } from "../views/shared/ui";
 import { ModalPortal } from "./modal/ModalPortal";
 import { createCommandRegistry, executeSpotlightCommand, queryCommandRegistry, requestSettingsSection, type SpotlightCommand } from "./spotlight/commandRegistry";
+import { completedSpotlightComposition, committedSpotlightInput } from "./spotlight/spotlightComposition";
 import { groupSpotlightResults, mergeSpotlightResults, type SpotlightResult } from "./spotlight/spotlightModel";
 import { SpotlightQueryController } from "./spotlight/spotlightQueryController";
+import { settingsTargetForSection, type SearchSettingsTarget } from "../utils/searchNavigation";
 
 const keyBadge =
   "flex items-center justify-center rounded border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[var(--zc-text-tertiary)] shadow-sm";
@@ -87,6 +89,7 @@ export async function activateCommandNavigation({
   windowSnapshot,
   view,
   fileId,
+  settingsTarget,
   setView,
   setSelectedFileId,
   onClose,
@@ -96,17 +99,23 @@ export async function activateCommandNavigation({
   windowSnapshot?: SearchWindowSnapshot | null;
   view: View;
   fileId: string | null;
+  settingsTarget?: SearchSettingsTarget | null;
   setView: (view: View) => void;
   setSelectedFileId: (id: string) => void;
   onClose: () => void;
   activateSearchResult?: (
     view: View,
     fileId: string | null,
-    snapshot?: Pick<SearchWindowSnapshot, "sessionId" | "revision">
+    snapshot?: Pick<SearchWindowSnapshot, "sessionId" | "revision">,
+    settingsTarget?: SearchSettingsTarget | null
   ) => Promise<void>;
 }) {
   if (standalone) {
-    await activateSearchResult(view, fileId, windowSnapshot ?? undefined);
+    if (settingsTarget) {
+      await activateSearchResult(view, fileId, windowSnapshot ?? undefined, settingsTarget);
+    } else {
+      await activateSearchResult(view, fileId, windowSnapshot ?? undefined);
+    }
     return;
   }
 
@@ -146,6 +155,7 @@ export function CommandModal({
   restoreFocusRef?: React.RefObject<HTMLElement | null>;
 }) {
   const [search, setSearch] = useState("");
+  const [committedSearch, setCommittedSearch] = useState("");
   const [globalResultState, setGlobalResultState] = useState<{ query: string; results: GlobalSearchResult[] }>({ query: "", results: [] });
   const [queryState, setQueryState] = useState<"idle" | "pending" | "complete" | "partial" | "empty" | "failed">("idle");
   const [commandError, setCommandError] = useState("");
@@ -155,6 +165,7 @@ export function CommandModal({
   const [activeIndex, setActiveIndex] = useState(0);
   const [inputFocused, setInputFocused] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
+  const isComposingRef = useRef(false);
   const settingsCommandSectionRef = useRef<string | null>(null);
   const queryControllerRef = useRef(new SpotlightQueryController());
   const searchWindowSnapshotRef = useRef<SearchWindowSnapshot | null>(null);
@@ -223,6 +234,7 @@ export function CommandModal({
     if (!current || next.sessionId !== current.sessionId) {
       queryControllerRef.current.openSession(next.sessionId);
       setSearch("");
+      setCommittedSearch("");
       setGlobalResultState({ query: "", results: [] });
       setQueryState("idle");
       setActiveIndex(0);
@@ -305,11 +317,12 @@ export function CommandModal({
     if (!standalone) return;
     let blurTimer: number | undefined;
     const handleBlur = () => {
-      if (isComposing) return;
+      if (isComposingRef.current) return;
       const blurredSnapshot = searchWindowSnapshotRef.current;
       if (!blurredSnapshot) return;
       window.clearTimeout(blurTimer);
       blurTimer = window.setTimeout(() => {
+        if (isComposingRef.current) return;
         if (!document.hasFocus()) requestSearchWindowHide(blurredSnapshot);
       }, 120);
     };
@@ -321,7 +334,8 @@ export function CommandModal({
   }, [isComposing, requestSearchWindowHide, standalone]);
 
   useEffect(() => {
-    if (!trimmedSearch) {
+    const committedTrimmedSearch = committedSearch.trim();
+    if (!committedTrimmedSearch) {
       setGlobalResultState({ query: "", results: [] });
       setQueryState("idle");
       setCommandError("");
@@ -331,10 +345,10 @@ export function CommandModal({
 
     let cancelled = false;
     setCommandError("");
-    setGlobalResultState({ query: trimmedSearch, results: [] });
+    setGlobalResultState({ query: committedTrimmedSearch, results: [] });
     setQueryState("pending");
     const timer = window.setTimeout(() => {
-      const request = queryControllerRef.current.nextRequest(trimmedSearch, SEARCH_RESULT_LIMIT);
+      const request = queryControllerRef.current.nextRequest(committedTrimmedSearch, SEARCH_RESULT_LIMIT);
       tauriApi.searchGlobalEntries(request)
         .then((response) => {
           if (cancelled || !queryControllerRef.current.accepts(response)) return;
@@ -354,7 +368,7 @@ export function CommandModal({
         })
         .catch(() => {
           if (cancelled) return;
-          setGlobalResultState({ query: trimmedSearch, results: [] });
+          setGlobalResultState({ query: committedTrimmedSearch, results: [] });
           setQueryState("failed");
           setCommandError(t("commandSearchFailed"));
         });
@@ -364,7 +378,7 @@ export function CommandModal({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [revisionRefetchNonce, t, trimmedSearch]);
+  }, [committedSearch, revisionRefetchNonce, t]);
 
   useEffect(() => {
     setActiveIndex((index) => Math.min(index, Math.max(0, visibleResults.length - 1)));
@@ -406,6 +420,7 @@ export function CommandModal({
 
   function clearSearch() {
     setSearch("");
+    setCommittedSearch("");
     setActiveIndex(0);
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }
@@ -422,6 +437,7 @@ export function CommandModal({
           windowSnapshot: searchWindowSnapshotRef.current,
           view: command.view,
           fileId: null,
+          settingsTarget: settingsTargetForSection(command.settingsSection),
           setView,
           setSelectedFileId,
           onClose
@@ -488,12 +504,12 @@ export function CommandModal({
         aria-label={t("globalSearch")}
         aria-busy={queryState === "pending"}
         onKeyDown={(event) => {
+          if (isComposingRef.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
           if (event.key === "Escape") {
             event.preventDefault();
             closeSpotlight();
             return;
           }
-          if (isComposing || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
           if (event.key === "Tab" && visibleResults.length > 0) {
             event.preventDefault();
             setActiveIndex((index) => event.shiftKey
@@ -570,11 +586,31 @@ export function CommandModal({
             aria-activedescendant={activeResultId}
             value={search}
             placeholder={t("commandPlaceholder")}
-            onChange={(event) => setSearch(event.target.value)}
-            onCompositionStart={() => setIsComposing(true)}
+            onChange={(event) => {
+              const value = event.target.value;
+              const nativeEvent = event.nativeEvent as Event & {
+                isComposing?: boolean;
+                keyCode?: number;
+              };
+              setSearch(value);
+              const committed = committedSpotlightInput(
+                value,
+                isComposingRef.current,
+                nativeEvent.isComposing === true,
+                nativeEvent.keyCode ?? 0
+              );
+              if (committed !== null) setCommittedSearch(committed);
+            }}
+            onCompositionStart={() => {
+              isComposingRef.current = true;
+              setIsComposing(true);
+            }}
             onCompositionEnd={(event) => {
+              isComposingRef.current = false;
               setIsComposing(false);
-              setSearch(event.currentTarget.value);
+              const value = completedSpotlightComposition(event.currentTarget.value);
+              setSearch(value);
+              setCommittedSearch(value);
             }}
             onClick={() => inputRef.current?.focus()}
             onFocus={() => setInputFocused(true)}

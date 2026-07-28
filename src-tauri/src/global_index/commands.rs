@@ -1,9 +1,8 @@
 use super::coordinator::GlobalIndexCoordinator;
 use super::models::*;
-use super::search::search_global_entries as search_global_entries_impl;
 use crate::db::Database;
 use crate::window_auth::require_main_window;
-use std::{collections::HashSet, fs, process::Command};
+use std::{fs, process::Command};
 use tauri::{Runtime, State, WebviewWindow};
 
 #[tauri::command]
@@ -13,26 +12,35 @@ pub fn search_global_entries(
     request: GlobalSearchRequest,
 ) -> Result<GlobalSearchResponse, String> {
     let (request_id, normalized_query, offset) = validate_global_search_request(&request)?;
-    let mut results =
-        search_global_entries_impl(db.inner(), &normalized_query, request.limit, offset)
-            .map_err(|error| error.to_string())?;
-    let source_health = global_search_source_health(db.inner())?;
-    retain_enabled_source_results(&mut results, &source_health);
-
-    let index_status = load_global_index_status(coordinator.inner())?;
-    let collection_complete = index_status.collection_complete;
-    let result_state = global_search_result_state(results.is_empty(), collection_complete);
-    let source_revision = source_health_revision(&source_health);
+    let snapshot = db
+        .search_global_entries_snapshot(&normalized_query, request.limit, offset)
+        .map_err(|error| error.to_string())?;
+    let coordinator_status = coordinator.status().ok();
+    let coordinator_conflict = coordinator_status
+        .as_ref()
+        .map(|status| !same_global_index_facts(status, &snapshot.index_status))
+        .unwrap_or(true);
+    let mut index_status = snapshot.index_status;
+    index_status.provider_status = coordinator.provider_status().ok();
+    let has_enabled_sources = snapshot.source_health.iter().any(|source| source.enabled);
+    let collection_complete = index_status.collection_complete && !coordinator_conflict;
+    let result_state = global_search_result_state(
+        snapshot.results.is_empty(),
+        collection_complete,
+        has_enabled_sources,
+        &index_status,
+        coordinator_conflict,
+    );
     Ok(GlobalSearchResponse {
         version: 2,
         request_id,
         normalized_query,
-        results,
+        results: snapshot.results,
         index_status,
         collection_complete,
         result_state: result_state.to_string(),
-        source_revision,
-        source_health,
+        source_revision: snapshot.source_revision,
+        source_health: snapshot.source_health,
     })
 }
 
@@ -59,22 +67,46 @@ fn validate_global_search_request(
     Ok((request_id.to_string(), normalized_query, offset))
 }
 
-fn retain_enabled_source_results(
-    results: &mut Vec<GlobalSearchResult>,
-    source_health: &[GlobalSearchSourceHealth],
-) {
-    let enabled_sources = source_health
-        .iter()
-        .filter(|source| source.enabled)
-        .map(|source| source.source_id.as_str())
-        .collect::<HashSet<_>>();
-    results.retain(|result| enabled_sources.contains(result.volume_id.as_str()));
+fn same_global_index_facts(left: &GlobalIndexStatus, right: &GlobalIndexStatus) -> bool {
+    left.enabled == right.enabled
+        && left.status == right.status
+        && left.processed_entries == right.processed_entries
+        && left.collection_complete == right.collection_complete
+        && left.total_entries == right.total_entries
+        && left.indexed_volumes == right.indexed_volumes
+        && left.ready_volumes == right.ready_volumes
+        && left.pending_volumes == right.pending_volumes
+        && left.last_sync_at == right.last_sync_at
+        && left.last_error == right.last_error
 }
 
-fn global_search_result_state(results_empty: bool, collection_complete: bool) -> &'static str {
+fn global_search_result_state(
+    results_empty: bool,
+    collection_complete: bool,
+    has_enabled_sources: bool,
+    index_status: &GlobalIndexStatus,
+    coordinator_conflict: bool,
+) -> &'static str {
+    if results_empty && !has_enabled_sources {
+        return "empty";
+    }
+    if coordinator_conflict {
+        return if results_empty { "pending" } else { "partial" };
+    }
     if results_empty {
         if collection_complete {
             "empty"
+        } else if matches!(
+            index_status.status.as_str(),
+            INDEX_STATUS_ERROR
+                | INDEX_STATUS_UNAVAILABLE
+                | INDEX_STATUS_PERMISSION_REQUIRED
+                | INDEX_STATUS_SPOTLIGHT_UNAVAILABLE
+                | INDEX_STATUS_SPOTLIGHT_NOT_INDEXED
+                | INDEX_STATUS_SPOTLIGHT_EXTERNAL_NOT_INDEXED
+                | INDEX_STATUS_FSEVENTS_UNAVAILABLE
+        ) {
+            "failed"
         } else {
             "pending"
         }
@@ -239,31 +271,6 @@ fn load_global_index_status(
     Ok(status)
 }
 
-fn global_search_source_health(db: &Database) -> Result<Vec<GlobalSearchSourceHealth>, String> {
-    db.list_global_volumes()
-        .map(|volumes| {
-            volumes
-                .into_iter()
-                .map(|volume| GlobalSearchSourceHealth {
-                    source_id: volume.id,
-                    enabled: volume.enabled,
-                    provider: volume.provider,
-                    status: volume.index_status,
-                    last_error: volume.last_error,
-                    updated_at: volume.updated_at,
-                })
-                .collect()
-        })
-        .map_err(|error| error.to_string())
-}
-
-fn source_health_revision(source_health: &[GlobalSearchSourceHealth]) -> String {
-    let mut sources = source_health.to_vec();
-    sources.sort_by(|left, right| left.source_id.cmp(&right.source_id));
-    let serialized = serde_json::to_vec(&sources).unwrap_or_default();
-    blake3::hash(&serialized).to_hex().to_string()
-}
-
 fn parse_search_cursor(cursor: &str) -> Result<u32, String> {
     let cursor = cursor.trim();
     if cursor.is_empty() || cursor.len() > 16 {
@@ -425,38 +432,6 @@ mod tests {
         }
     }
 
-    fn result(source_id: &str) -> GlobalSearchResult {
-        GlobalSearchResult {
-            id: format!("entry-{source_id}"),
-            volume_id: source_id.to_string(),
-            platform_file_id: format!("path:/tmp/{source_id}"),
-            name: "report.txt".to_string(),
-            path: format!("/tmp/{source_id}/report.txt"),
-            extension: "txt".to_string(),
-            is_directory: false,
-            size: 1,
-            created_at_fs: None,
-            modified_at_fs: None,
-            file_attributes: 0,
-            is_hidden: false,
-            is_system: false,
-            source_provider: PROVIDER_RECURSIVE_FALLBACK.to_string(),
-            managed: false,
-            rank: 1.0,
-        }
-    }
-
-    fn health(source_id: &str, enabled: bool) -> GlobalSearchSourceHealth {
-        GlobalSearchSourceHealth {
-            source_id: source_id.to_string(),
-            enabled,
-            provider: PROVIDER_RECURSIVE_FALLBACK.to_string(),
-            status: INDEX_STATUS_READY.to_string(),
-            last_error: None,
-            updated_at: 1,
-        }
-    }
-
     #[test]
     fn v2_request_validation_echoes_identity_and_normalizes_query() {
         let (request_id, query, offset) =
@@ -475,22 +450,58 @@ mod tests {
     }
 
     #[test]
-    fn disabled_sources_fail_closed_after_query_collection() {
-        let mut results = vec![result("enabled"), result("disabled")];
-        retain_enabled_source_results(
-            &mut results,
-            &[health("enabled", true), health("disabled", false)],
-        );
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].volume_id, "enabled");
-    }
-
-    #[test]
     fn result_state_exposes_collection_completeness() {
-        assert_eq!(global_search_result_state(true, false), "pending");
-        assert_eq!(global_search_result_state(false, false), "partial");
-        assert_eq!(global_search_result_state(true, true), "empty");
-        assert_eq!(global_search_result_state(false, true), "complete");
+        let ready = GlobalIndexStatus {
+            platform: "test".to_string(),
+            enabled: true,
+            status: INDEX_STATUS_READY.to_string(),
+            provider_status: None,
+            processed_entries: 1,
+            collection_complete: true,
+            total_entries: 1,
+            indexed_volumes: 1,
+            ready_volumes: 1,
+            pending_volumes: 0,
+            last_sync_at: None,
+            last_error: None,
+        };
+        assert_eq!(
+            global_search_result_state(true, false, true, &ready, false),
+            "pending"
+        );
+        assert_eq!(
+            global_search_result_state(false, false, true, &ready, false),
+            "partial"
+        );
+        assert_eq!(
+            global_search_result_state(true, true, true, &ready, false),
+            "empty"
+        );
+        assert_eq!(
+            global_search_result_state(false, true, true, &ready, false),
+            "complete"
+        );
+        assert_eq!(
+            global_search_result_state(true, false, false, &ready, false),
+            "empty"
+        );
+        assert_eq!(
+            global_search_result_state(
+                true,
+                false,
+                true,
+                &GlobalIndexStatus {
+                    status: INDEX_STATUS_ERROR.to_string(),
+                    ..ready.clone()
+                },
+                false
+            ),
+            "failed"
+        );
+        assert_eq!(
+            global_search_result_state(false, true, true, &ready, true),
+            "partial"
+        );
     }
 
     #[test]

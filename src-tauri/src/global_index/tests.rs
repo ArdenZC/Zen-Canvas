@@ -3,6 +3,7 @@ use crate::db::Database;
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Barrier};
 use std::time::Instant;
 
 static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -233,15 +234,68 @@ fn global_search_ranking_is_exact_then_prefix_then_extension_with_stable_id_ties
     let mut prefix_a = test_entry(r"C:\Global\report-a.txt", "report-a.txt", false);
     prefix_a.platform_file_id = "identity-prefix-a".to_string();
     prefix_a.modified_at_fs = Some(10);
+    let prefix_a_id = prefix_a.entry_id();
+    let prefix_b_id = prefix_b.entry_id();
     let mut extension = test_entry(r"C:\Global\archive.r", "archive.r", false);
     extension.platform_file_id = "identity-extension".to_string();
-    extension.extension = "zz".to_string();
+    extension.extension = "r".to_string();
+    extension.modified_at_fs = Some(9);
+    let mut extension_prefix = test_entry(r"C:\Global\archive.rust", "archive.rust", false);
+    extension_prefix.platform_file_id = "identity-extension-prefix".to_string();
+    extension_prefix.extension = "rust".to_string();
+    extension_prefix.modified_at_fs = Some(8);
 
-    db.upsert_global_entries_batch(&[prefix_b, extension, exact, prefix_a])
+    db.upsert_global_entries_batch(&[prefix_b, extension, exact, prefix_a, extension_prefix])
         .expect("insert ranked entries");
     let results = db.search_global_entries("r", 20, 0).expect("ranked search");
-    assert_eq!(results.len(), 1);
+    assert_eq!(results.len(), 5);
     assert_eq!(results[0].name, "r");
+    let mut expected_prefix_ids = vec![prefix_a_id, prefix_b_id];
+    expected_prefix_ids.sort();
+    assert_eq!(
+        results[1..3]
+            .iter()
+            .map(|entry| entry.id.clone())
+            .collect::<Vec<_>>(),
+        expected_prefix_ids
+    );
+    assert_eq!(results[3].name, "archive.r");
+    assert_eq!(results[4].name, "archive.rust");
+    let result_ids = results
+        .iter()
+        .map(|entry| entry.id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        result_ids
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        result_ids.len(),
+        "layer union must not duplicate an entry"
+    );
+    let limited = db
+        .search_global_entries("r", 3, 0)
+        .expect("bounded ranked search");
+    assert_eq!(
+        limited
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["r", results[1].name.as_str(), results[2].name.as_str()]
+    );
+    let page_after_prefix = db
+        .search_global_entries("r", 20, 2)
+        .expect("offset in deduplicated tier stream");
+    assert_eq!(
+        page_after_prefix
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>(),
+        results[2..]
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>()
+    );
     let prefix_results = db
         .search_global_entries("rep", 20, 0)
         .expect("prefix search");
@@ -250,10 +304,10 @@ fn global_search_ranking_is_exact_then_prefix_then_extension_with_stable_id_ties
         .iter()
         .all(|entry| entry.name.starts_with("report-")));
     let extension_results = db
-        .search_global_entries("zz", 20, 0)
+        .search_global_entries("r", 20, 0)
         .expect("extension search");
-    assert_eq!(extension_results.len(), 1);
-    assert_eq!(extension_results[0].name, "archive.r");
+    assert_eq!(extension_results[3].name, "archive.r");
+    assert_eq!(extension_results[4].name, "archive.rust");
     let repeated_ids = db
         .search_global_entries("rep", 20, 0)
         .expect("repeat ranked search")
@@ -267,6 +321,134 @@ fn global_search_ranking_is_exact_then_prefix_then_extension_with_stable_id_ties
             .collect::<Vec<_>>(),
         repeated_ids
     );
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn global_search_snapshot_filters_disabled_sources_and_tracks_entry_revision() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+    db.update_global_volume_state(
+        "gv_test",
+        INDEX_STATUS_READY,
+        None,
+        None,
+        None,
+        None,
+        Some(31),
+    )
+    .expect("mark source ready");
+    let document = test_entry(r"C:\Global\snapshot-note.txt", "snapshot-note.txt", false);
+    let document_id = document.entry_id();
+    db.upsert_global_entries_batch(std::slice::from_ref(&document))
+        .expect("insert snapshot entry");
+
+    let ready = db
+        .search_global_entries_snapshot("snapshot", 20, 0)
+        .expect("read consistent search snapshot");
+    assert_eq!(ready.results.len(), 1);
+    assert_eq!(ready.source_health.len(), 1);
+    assert!(ready.source_health[0].enabled);
+    assert_eq!(ready.source_health[0].status, INDEX_STATUS_READY);
+    assert!(ready.index_status.collection_complete);
+    assert!(!ready.source_revision.is_empty());
+
+    db.set_global_volume_enabled("gv_test", false)
+        .expect("disable source");
+    let disabled = db
+        .search_global_entries_snapshot("snapshot", 20, 0)
+        .expect("read disabled source snapshot");
+    assert!(disabled.results.is_empty());
+    assert!(!disabled.source_health[0].enabled);
+    assert_eq!(disabled.index_status.status, INDEX_STATUS_UNAVAILABLE);
+    assert_ne!(ready.source_revision, disabled.source_revision);
+
+    db.set_global_volume_enabled("gv_test", true)
+        .expect("re-enable source");
+    db.mark_global_entry_stale(&document_id)
+        .expect("mark entry stale");
+    let stale = db
+        .search_global_entries_snapshot("snapshot", 20, 0)
+        .expect("read stale entry snapshot");
+    assert!(stale.results.is_empty());
+    assert_ne!(disabled.source_revision, stale.source_revision);
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn global_search_snapshot_remains_source_consistent_during_status_rebuild_changes() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+    db.update_global_volume_state(
+        "gv_test",
+        INDEX_STATUS_READY,
+        None,
+        None,
+        None,
+        None,
+        Some(31),
+    )
+    .expect("mark source ready");
+    let document = test_entry(
+        r"C:\Global\concurrent-note.txt",
+        "concurrent-note.txt",
+        false,
+    );
+    db.upsert_global_entries_batch(std::slice::from_ref(&document))
+        .expect("insert concurrent entry");
+
+    let start = Arc::new(Barrier::new(2));
+    let worker_db = db.clone();
+    let worker_start = Arc::clone(&start);
+    let worker = std::thread::spawn(move || {
+        worker_start.wait();
+        for index in 0..24 {
+            let enabled = index % 2 == 0;
+            worker_db
+                .set_global_volume_enabled("gv_test", enabled)
+                .expect("toggle source");
+            worker_db
+                .update_global_volume_state(
+                    "gv_test",
+                    if enabled {
+                        INDEX_STATUS_READY
+                    } else {
+                        INDEX_STATUS_REBUILD_REQUIRED
+                    },
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(40 + index),
+                )
+                .expect("update source status");
+        }
+    });
+    start.wait();
+    for _ in 0..24 {
+        let snapshot = db
+            .search_global_entries_snapshot("concurrent", 20, 0)
+            .expect("read concurrent snapshot");
+        let source = &snapshot.source_health[0];
+        assert!(snapshot
+            .results
+            .iter()
+            .all(|result| result.volume_id == source.source_id && source.enabled));
+        if snapshot.index_status.collection_complete {
+            assert!(source.enabled);
+            assert_eq!(source.status, INDEX_STATUS_READY);
+        }
+        assert!(!snapshot.source_revision.is_empty());
+    }
+    worker.join().expect("status worker");
 
     drop(db);
     let _ = std::fs::remove_file(path);
