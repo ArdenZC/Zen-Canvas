@@ -2,6 +2,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as {
+  scripts: Record<string, string>;
+};
 
 describe("code pull-request CI fast path", () => {
   it("classifies deletions and both sides of renames", () => {
@@ -26,6 +29,14 @@ describe("code pull-request CI fast path", () => {
     expect(workflow).toContain("needs.change-scope.outputs.package_sensitive");
     expect(workflow).toContain("npm run build:check");
     expect(workflow).toContain("npm run build -- --no-sign");
+  });
+
+  it("checks production frontend and release Rust without linking ordinary PRs", () => {
+    const buildCheck = packageJson.scripts["build:check"];
+    expect(buildCheck).toContain("vite build");
+    expect(buildCheck).toContain("cargo check --release");
+    expect(buildCheck).toContain("--features desktop-runtime");
+    expect(buildCheck).not.toContain("tauri build");
   });
 
   it("preserves stable required check names", () => {

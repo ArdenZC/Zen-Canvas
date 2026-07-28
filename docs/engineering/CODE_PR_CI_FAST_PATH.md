@@ -6,8 +6,8 @@ Code pull requests use parallel, purpose-specific jobs instead of one serial pla
 - Windows and macOS Rust validation run in parallel.
 - Ordinary pull requests use the bounded performance profile plus one 100k FTS complexity sentinel.
 - Database, search, scan, dedupe, and analysis-sensitive pull requests run the full performance suite.
-- Ordinary pull requests compile release applications with `--no-bundle`.
-- Packaging-sensitive pull requests, `master` pushes, nightly runs, and manual runs build NSIS and unsigned DMG packages.
+- Ordinary pull requests build the Vite production frontend and run a platform-specific Rust release `cargo check`; they do not perform a full Tauri link or bundle.
+- Packaging-sensitive pull requests, `master` pushes, nightly runs, and manual runs perform the full link and build NSIS and unsigned DMG packages.
 - Dependency audit runs on Ubuntu.
 - The required check names `Quality (windows-latest)`, `Quality (macos-latest)`, and `Dependency audit` remain stable.
 

@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "tauri dev --features desktop-runtime",
     "build": "tauri build --features desktop-runtime",
-    "build:check": "tauri build --features desktop-runtime --no-bundle",
+    "build:check": "vite build && cargo check --release --manifest-path src-tauri/Cargo.toml --features desktop-runtime",
     "test": "vitest run",
     "test:docs": "node scripts/checkDocumentation.mjs",
     "test:remediation": "vitest run tests/remediationContract.test.ts",
