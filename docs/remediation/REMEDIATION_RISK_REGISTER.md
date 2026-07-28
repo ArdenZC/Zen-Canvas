@@ -94,16 +94,19 @@
 | ID | 风险 | 等级 | 触发条件/影响 | Task 04 阻断/验收条件 | 状态 |
 |---|---|---|---|---|---|
 | R-061 | 同一 physical subject 的 exact reclaimable 被重复累计 | High | duplicate member 同时属于 Safe exact finding，run total 翻倍 | authoritative member physical union；hardlink/keeper/order/AI refresh tests | 已处理，持续回归 |
-| R-062 | 迟到 query response 覆盖新输入或新窗口 session | High | rapid typing、相同 query 重发、hide/reopen 后旧 invoke 返回 | session + request ID；latest-request-wins；old session reject | 已处理，持续回归 |
-| R-063 | Search window 或 hotkey 多 owner | High | reload/settings race 创建双窗口、双快捷键、旧 blur 隐藏新 session | Rust 唯一 lifecycle owner；transactional hotkey rollback；session revision | 已处理，待跨平台验收 |
-| R-064 | partial/degraded index 被呈现为完整搜索 | High | status 只在 mount 读取或 query 不携带 health | response/status 同 revision；明确 coverage/source UI | 已处理，持续回归 |
+| R-062 | 迟到 query response 覆盖新输入或新窗口 session | High | rapid typing、相同 query 重发、hide/reopen 后旧 invoke 返回 | session + request ID；latest-request-wins；old session reject | 二轮已处理，待第二轮人工验收 |
+| R-063 | Search window 或 hotkey 多 owner | High | reload/settings race 创建双窗口、双快捷键、旧 blur 隐藏新 session | Rust 唯一 lifecycle owner；transactional hotkey rollback；session revision | 二轮已处理，待跨平台验收 |
+| R-064 | partial/degraded index 被呈现为完整搜索 | High | status 只在 mount 读取或 query 不携带 health | response/status 同 revision；明确 coverage/source UI | 二轮已处理，持续回归 |
 | R-065 | stale/disabled/missing result 被打开 | Critical | source 状态在展示后变化，renderer 持旧 path | ID-only backend revalidation；live path/native identity；fail closed | 已处理，持续回归 |
 | R-066 | Command Palette 绕过领域安全边界 | Critical | command ID 拼接 invoke、直接移动/删除、执行 AI/finding | metadata/execute 分离；固定 adapter allowlist；preview/journal/restore 不变 | 已处理，持续阻断越界 |
 | R-067 | Tolaria AGPL 代码或结构被移植 | Critical | 同栈导致复制 manifest/component/command 实现并触发许可证风险 | 只读设计级；记录 SHA/LICENSE；无代码/结构移植审查 | 已完成许可证门禁 |
-| R-068 | 键盘、IME、ARIA 与结果列表状态漂移 | High | composition Enter 误执行、active index 越界、虚拟滚动失焦 | IME guard、stable IDs、ARIA、focus/scroll tests | 已处理，待人工交互验收 |
+| R-068 | 键盘、IME、ARIA 与结果列表状态漂移 | High | composition Enter 误执行、active index 越界、虚拟滚动失焦 | IME guard、stable IDs、ARIA、focus/scroll tests | 二轮已处理，待人工交互验收 |
 | R-069 | Global Search 与 File Library Query V2 混为一套 | Critical | Spotlight cursor/scope 被用于 library bulk selection，扩大 AI/selection scope | Task 04 仅 bounded top-N；Query V2 延至 Task 05 | 持续阻断 |
-| R-070 | Search 状态/metadata N+1 造成性能退化 | Medium | 每行磁盘访问或每结果 source/status 查询 | bounded DTO、单次 health summary、100k/1M/WAL benchmark | 已处理，持续性能门禁 |
+| R-070 | Search 状态/metadata N+1 造成性能退化 | Medium | 每行磁盘访问或每结果 source/status 查询 | bounded DTO、单次 health summary、100k/1M/WAL benchmark | 二轮已处理，持续性能门禁 |
+| R-071 | 分层 Top-N 截断导致后层饥饿或 cursor 漂移 | High | exact/prefix/extension 重叠、后层无法填满 limit、OFFSET 重复或漏项 | sequential bounded layers；`target + seen`；stable-ID dedupe；post-dedupe cursor tests | 二轮已处理，待性能与人工验收 |
+| R-072 | Search navigation context 或 settings target 越权 | High | nonce 正确但 session/revision/view/fileId 不一致，或 renderer 注入任意 settings selector | fixed enum DTO；ready request context parity；invalid/stale fail closed；browser mock wire test | 二轮已处理，待人工验收 |
+| R-073 | Search snapshot 与 coordinator/source health 不一致 | High | results、source health、revision、completeness 来自不同 SQLite 时点，冲突被误报 complete | one read transaction/repository snapshot；grouped source facts；conflict -> pending/partial/retry | 二轮已处理，持续回归 |
 
 ## 风险结论
 
-Task 03 已通过 PR #28 合并并形成 schema 30 基线。Task 04 已关闭 R-061，并完成 Tolaria 设计级边界下的 query/session、window、hotkey、health、command catalog、open/reveal、keyboard/IME/a11y 和权限/性能整改。Windows/macOS CI 与人工代码级验收仍是合并门禁；R-069 继续阻断 Task 05 File Library 及后续模块提前执行。
+Task 03 已通过 PR #28 合并并形成 schema 30 基线。Task 04 第一轮交付后的第二轮人工意见已逐项落实：分层 Top-N/cursor、IME committed query、settings DTO context parity、Rust lifecycle owner/native rollback，以及单事务 search snapshot 均已有实现和针对性测试。Windows/macOS CI 与第二轮人工代码级验收仍是合并门禁；R-069 继续阻断 Task 05 File Library 及后续模块提前执行。

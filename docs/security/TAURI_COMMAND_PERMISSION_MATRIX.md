@@ -53,11 +53,11 @@
 | `get_runtime_capabilities` | `read_only` | main/search | Read feature flags | default/search-window | no | capability allow-list |
 | `analyze_cleanup_candidates_with_ai` | `main_state_mutation` | main | Write cleanup suggestions | default | yes | command permission contract |
 | `quit_app` | `window_internal` | main | Quit application | default | yes | command permission contract |
-| `activate_search_result` | `window_internal` | search | Navigate main window | default/search-window | no | capability allow-list |
+| `activate_search_result` | `window_internal` | search | Navigate main window with fixed view/file/settings target | default/search-window | no | capability allow-list + navigation DTO tests |
 | `get_search_window_state` | `read_only` | main/search | Hydrate the Rust-owned search-window lifecycle projection | default/search-window | no | lifecycle CAS tests |
 | `search_window_ready` | `window_internal` | search | Complete the current showing transition with session/revision CAS | search-window | no | lifecycle CAS tests |
-| `resize_search_window` | `window_internal` | search | Resize search window with session/revision CAS | default/search-window | no | lifecycle CAS tests |
-| `hide_search_window_command` | `window_internal` | search | Hide search window with session/revision CAS | search-window | no | lifecycle CAS tests |
+| `resize_search_window` | `window_internal` | search | Serialize session/revision CAS, native resize/center, and revision commit under one Rust operation owner | default/search-window | no | lifecycle CAS/race tests |
+| `hide_search_window_command` | `window_internal` | search | Hide search window with session/revision CAS and retryable native-failure rollback | search-window | no | lifecycle CAS/failure tests |
 | `mark_main_window_ready` | `window_internal` | main | Publish main renderer readiness | default | yes | navigation readiness tests |
 | `acknowledge_main_window_ready` | `window_internal` | main | Acknowledge a Rust-issued navigation readiness nonce | default | yes | navigation readiness tests |
 | `get_global_hotkey_status` | `read_only` | main | Read hotkey status | default | no | command permission contract |
@@ -116,3 +116,9 @@
 | `cancel_cleanup_restore` | `main_state_mutation` | main | Cancel restore job | default | yes | command permission contract |
 
 The search capability intentionally contains no settings save, credential, rule write, scan, cleanup, file operation, restore, or debug permission. The runtime check remains defense in depth for mutation commands; capability denial is not treated as the only boundary.
+
+## Search navigation DTO boundary
+
+`activate_search_result` accepts `sessionId`, `expectedRevision`, `view`, `fileId`, and an optional `settingsTarget`. The target is a Rust-deserialized fixed enum (`search-scope`, `global-index`, `appearance`, or `ai`); arbitrary DOM selectors, paths, command IDs, and native commands are rejected. The emitted `search-main-ready-request` and `search-navigate` payloads carry the nonce plus the optional session/revision context and the same fixed target. The main renderer applies it only when nonce, session, revision, view, and selection/file context still match the readiness snapshot; an illegal target, view/file combination, or stale context fails closed.
+
+The browser mock validates the same target field but performs no native window or navigation mutation. Search-window resize/show/hide native side effects are serialized by one Rust lifecycle operation owner, and a native failure restores the prior durable phase for retry.
