@@ -45,7 +45,7 @@ Zen Canvas 不改造成完整文件资源管理器、多设备文件系统、云
 | 03 | 模块 2：大型文件/空间分析 | 已完成，schema 30 |
 | 04 | 模块 4：全局快捷搜索 | 已通过 PR #35 合并，schema 30 |
 | 05 | 模块 5：文件库 | 已通过 PR #38 合并，schema 31 |
-| 06 | 模块 6：AI 整理预览 | **当前完整模块，授权 schema 32** |
+| 06 | 模块 6：AI 整理预览 | **实施完成，单一 Draft PR 人工验收中；未合并** |
 | 07 | 模块 7：自然语言规则 | 等待 Task 06 |
 | 08 | 模块 8：本地内容理解 | 等待 Task 07 |
 
@@ -172,6 +172,8 @@ PR #38 squash merge：
 ---
 
 ## 6. 当前模块：Task 06 Durable Organization Plan
+
+Implementation status: the complete module and the nine accepted Task 05 findings are implemented on `remediation/06-organization-plan`, with evidence in `TASK_06_IMPLEMENTATION_CLOSEOUT.md`. The implementation remains unmerged and does not unlock Task 07.
 
 ### 6.1 参考边界
 
