@@ -1356,27 +1356,50 @@ fn build_library_count_query(
     tag_invalid: bool,
 ) -> Result<(String, Vec<SqlValue>), DbError> {
     let any_tags = &canonical.spec.filters.tags_any_of;
-    if !tag_invalid && canonical.spec.text.is_none() && !any_tags.is_empty() {
-        // A positive tag-any predicate can be counted from the tag index first.
-        // The page query still scans in sort order so keyset pagination keeps its
-        // stop-at-page-size behavior; only the exact first-page count uses this
-        // duplicate-safe, tag-driven plan.
+    let none_tags = &canonical.spec.filters.tags_none_of;
+    if !tag_invalid
+        && canonical.spec.text.is_none()
+        && (!any_tags.is_empty() || !none_tags.is_empty())
+    {
+        // Positive and negative tag predicates can use the file primary key for
+        // duplicate-safe existence checks per candidate. The page query still
+        // scans in sort order so keyset pagination keeps its stop-at-page-size
+        // behavior; only the exact first-page count uses this plan.
         let mut count_spec = canonical.spec.clone();
         count_spec.filters.tags_any_of.clear();
+        count_spec.filters.tags_none_of.clear();
         let count_canonical = CanonicalQuery {
             spec: count_spec,
             fingerprint: String::new(),
         };
         let parts = build_query_parts(conn, &count_canonical, scope, None, false, false)?;
-        let placeholders = std::iter::repeat_n("?", any_tags.len())
+        let any_placeholders = std::iter::repeat_n("?", any_tags.len())
             .collect::<Vec<_>>()
             .join(",");
+        let none_placeholders = std::iter::repeat_n("?", none_tags.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut tag_conditions = Vec::new();
+        if !any_tags.is_empty() {
+            tag_conditions.push(format!(
+                "EXISTS (SELECT 1 FROM file_user_tags AS tf_any_count WHERE tf_any_count.file_id = f.id AND tf_any_count.tag_id IN ({any_placeholders}))"
+            ));
+        }
+        if !none_tags.is_empty() {
+            tag_conditions.push(format!(
+                "NOT EXISTS (SELECT 1 FROM file_user_tags AS tf_none_count WHERE tf_none_count.file_id = f.id AND tf_none_count.tag_id IN ({none_placeholders}))"
+            ));
+        }
         let sql = format!(
-            "{} SELECT COUNT(DISTINCT tf.file_id) FROM file_user_tags AS tf INDEXED BY idx_file_user_tags_tag_file JOIN {} ON f.id = tf.file_id WHERE {} AND tf.tag_id IN ({placeholders})",
-            parts.ctes, parts.from, parts.where_clause
+            "{} SELECT COUNT(*) FROM {} WHERE {} AND {}",
+            parts.ctes,
+            parts.from,
+            parts.where_clause,
+            tag_conditions.join(" AND ")
         );
         let mut params = parts.params;
         params.extend(any_tags.iter().cloned().map(SqlValue::Text));
+        params.extend(none_tags.iter().cloned().map(SqlValue::Text));
         return Ok((sql, params));
     }
 
