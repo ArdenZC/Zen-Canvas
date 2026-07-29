@@ -1950,7 +1950,9 @@ mod tests {
                 }],
             })
             .expect_err("live collision must block safe batch");
-        assert!(error.to_string().contains("organization_safe_batch_item_blocked"));
+        assert!(error
+            .to_string()
+            .contains("organization_safe_batch_item_blocked"));
         drop(db);
         let _ = std::fs::remove_file(target);
         let _ = std::fs::remove_dir(fixture);
