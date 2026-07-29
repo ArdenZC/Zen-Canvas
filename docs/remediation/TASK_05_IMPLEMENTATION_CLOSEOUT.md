@@ -2,160 +2,202 @@
 
 ## 1. Delivery state
 
-- Baseline HEAD before Task 05: `409e6bdca3ed4e2210462f6ae4d0b5b105b64eef`.
-- Final HEAD: recorded in the delivery commit after this closeout is committed.
+- Baseline HEAD: `409e6bdca3ed4e2210462f6ae4d0b5b105b64eef`.
 - Implementation branch: `remediation/05-file-library`.
-- Draft PR title: `feat: rebuild file library query tags and saved views`.
-- This is one complete File Library module. It is not split into 05A/05B/05C.
+- Implementation final HEAD: `2a9ec7f676a6863ef4db615fcde3383fca2bacc4`.
+- PR: `#38 feat: rebuild file library query tags and saved views`.
+- Squash merge: `5468a17790165a149c462a17b64d011750b45410`.
 - Schema: `30 → 31`.
-- No dependency, package lockfile, Cargo lockfile, release/version/tag, journal, Managed AI, Global Index, or `files.id` migration was added.
-- Task 06 and all later modules were not started.
+- Task 05 was one complete File Library module and was not split into 05A/05B/05C.
+- No dependency, package lockfile, Cargo lockfile, release/version/tag, journal, Managed AI, Global Index or `files.id` migration was added.
 
-The taskbook was treated as the implementation contract. It was not rewritten.
+Task 05 is now the accepted production baseline for Task 06. The human review findings listed in section 15 were deliberately accepted into Task 06 rather than packaged as a standalone cleanup task.
+
+---
 
 ## 2. Task 04 accepted-debt handoff
 
-The four Task 04 accepted items were closed before the File Library implementation was exercised:
+Task 05 closed the four Task 04 accepted items:
 
-1. degraded/permission-required Global Search sources remain `partial`/`pending`, never `complete`;
+1. degraded/permission-required Global Search sources remain partial/pending, never complete;
 2. ready-ACK navigation revalidates the original session/revision and cannot hide a newer session;
 3. extension tiers use durable entry-ID tie breaking and punctuation fallback preserves query semantics;
 4. mounted CommandModal IME interaction suppresses intermediate backend queries and submits the committed value once.
 
-The retained implementation/evidence is in `src-tauri/src/global_index/**`, `src-tauri/src/app_control.rs`, `src/components/CommandModal.tsx`, `src/components/spotlight/spotlightComposition.ts`, `src/utils/searchNavigation.ts`, and `tests/searchSpotlight.test.ts` plus the focused Rust global-index/lifecycle tests. Task 05 did not create a second Search authority or alter those contracts.
+These remain continuous regression contracts.
+
+---
 
 ## 3. Reference and license boundary
 
-- Reference: `tagspaces/tagspaces` at fixed SHA `7ec3a2e8632b8bf5db685436e6d2d8805977a880`.
-- License: repository `LICENSE.txt`, GNU AGPL-3.0.
-- Borrowed only: location-aware scope presentation, tag AND/OR/NOT concepts, named saved-query concepts, on-demand inspector, explicit selection, and separate user metadata.
-- Refused: TagSpaces source, manifest, component hierarchy, directory structure, CSS, localStorage truth, filename/sidecar tags, file-content preview, and implementation skeleton.
+- Reference: `tagspaces/tagspaces`.
+- Fixed SHA: `7ec3a2e8632b8bf5db685436e6d2d8805977a880`.
+- License: GNU AGPL-3.0.
+- Borrowed only: location-aware scope, user tag vocabulary, tag AND/OR/NOT, named saved-query concepts, on-demand Inspector and explicit selection.
+- Refused: source, component/context structure, query schema, CSS/UI, localStorage native truth, filename/sidecar tags and content preview.
 
-## 4. Schema 31, migration, rollback
+---
 
-`src-tauri/src/db/schema.rs` keeps `CURRENT_SCHEMA_VERSION = 31` and adds only:
+## 4. Schema 31
+
+Task 05 added only small side tables and evidence-backed indexes:
 
 - `user_tags`;
-- `file_user_tags` with `file_id REFERENCES files(id) ON UPDATE CASCADE ON DELETE CASCADE`;
-- `library_saved_views` with `query_spec_version = 2`;
-- singleton `library_query_state` revision clock;
-- five evidence-backed File Library sort indexes and the tag/saved-view indexes.
+- `file_user_tags` with `ON UPDATE CASCADE` and `ON DELETE CASCADE`;
+- `library_saved_views` with QuerySpec V2 only;
+- singleton `library_query_state` revision.
 
-Migration from schema 30 runs inside the existing `BEGIN IMMEDIATE` migration transaction and sets `user_version = 31` last. Any table/index/seed failure rolls back and leaves `user_version = 30`; no `files` column or row rewrite is performed. Current-schema startup re-runs the idempotent ensure path. Schema 32 is rejected by the existing future-schema guard.
+Migration used the existing transactional migration path, set `user_version = 31` last, preserved `files.id`, did not rewrite `files`, and retained the future-schema guard.
 
-Focused coverage includes a real schema-30 fixture, atomic malformed-table rollback, preserved `files.id`, foreign-key cascade, empty new metadata tables, future-schema rejection, 100k migration, 1M migration, and WAL readers.
+---
 
-## 5. QuerySpec V2 and canonical form
+## 5. FileQuerySpec V2
 
-`src-tauri/src/db/queries/library.rs` is the sole File Library V2 repository. The backend owns:
+`src-tauri/src/db/queries/library.rs` introduced:
 
-- strict `FileQueryRequestV2`/`FileQuerySpecV2` DTO validation;
-- durable scope variants `all_enabled_roots`, `roots { scanRootIds }`, and `current_scan { scanSessionId }`;
-- trim/empty normalization, stable sorted/deduplicated enum and ID arrays, range validation, fixed enum domains, bounded text/array lengths, and relevance/text compatibility;
-- canonical JSON and BLAKE3 fingerprint generation;
-- injection-safe reuse of the managed `files_fts` query builder;
-- no renderer path authority and no `global_entries` join.
+- strict versioned request/query DTOs;
+- durable root/session scopes;
+- SQLite-authoritative text/filter/sort;
+- canonical JSON and BLAKE3 fingerprint;
+- managed `files_fts` only, with no Global Index join;
+- File Library-specific revision snapshot;
+- keyset cursor;
+- exact count and scope-health projection;
+- `snapshot_expired` response.
 
-The renderer carries the returned fingerprint but cannot declare it authoritative. Saved Views store only this canonical typed query JSON; they do not store SQL, cursor, selection, revision, or arbitrary filesystem paths.
+The renderer no longer owns advanced filtering/sorting truth for Vault.
 
-## 6. Snapshot, cursor, and revision owner
+---
 
-`library_query_state.revision` is the File Library-only consistency clock. `bump_library_query_revision_in_transaction(tx)` is the single owner and bumps at most once per business transaction. Audited production paths are:
+## 6. DTO separation
 
-- `db/queries/files.rs`: insert/restore, stale marking, path/id upsert, and removal;
-- `db/queries/scan.rs`: scanner batch persistence, watcher mutation, stale/reconciliation changes;
-- `db/queries/dedupe.rs`: active duplicate publication/invalidation and query-visible fingerprint changes;
-- `db/classification/engine.rs`: rule classification batch;
-- `ai/classification.rs`: AI classification batch;
-- `db/learning.rs`: confirmation/correction classification writes;
-- `library.rs`: user-tag assign/remove/create/rename/delete.
+- `FileLibrarySummaryDto`: bounded list metadata and tag preview/count.
+- `FileLibraryDetailDto`: ID-only metadata, root health, tags, classification and duplicate summary.
+- `FileLibrarySelectionSummaryDto`: backend count/size/type/missing/excluded summary.
 
-Saved View writes deliberately do not bump the file-query revision. Failed transactions roll back both their data and any attempted revision bump.
+Inspector detail and reveal are ID-only and do not read file content.
 
-The response reads revision, scope health, exact count, and rows in one short SQLite read transaction. The exact count is carried in the backend-issued revision-bound cursor, so later keyset pages do not rescan the membership set; first-page counts may also reuse a bounded in-memory entry keyed by `revision + membership fingerprint`. This cache is an optimization only: it has no authority, is capped at 32 entries, and is never used across a revision change. Positive `tags_any_of` first-page counts use a duplicate-safe `EXISTS` probe through the `file_user_tags` primary-key index, so a file carrying more than one requested tag is still counted once; the page query remains sort-driven for keyset stop-at-page-size behavior. Subsequent pages use an opaque hex/JSON cursor with contract version, fingerprint, revision, exact total count, sort kind/direction, complete tuple, and durable file ID. V2 never uses `OFFSET`, materializes a million-item snapshot, or holds a transaction across IPC. Tampering, query mismatch, invalid numeric tuple, and stale revision fail closed; stale cursors return `snapshot_expired` without mixing old and new pages.
+---
 
-## 7. DTO separation
+## 7. Selection
 
-- `FileLibrarySummaryDto`: bounded list metadata, display directory, durable ID, sort fields, classification summary, duplicate/review/stale flags, and a fixed tag preview/count. It omits content hash, full rule evidence, AI trace, operation journal, and file content.
-- `FileLibraryDetailDto`: ID-only on-demand metadata/path, root health, all user tags, classification provenance, duplicate group summary, stale state, and safe actions. It never reads content.
-- `FileLibrarySelectionSummaryDto`: backend count, size, type counts, excluded/missing counts, fingerprint, and revision.
+`LibrarySelectionV1` supports:
 
-Inspector detail and reveal are ID-only. Detail requests use latest-request-wins state, and selection summary is never inferred by walking loaded renderer rows.
+```text
+explicit { fileIds[] }
+all_matching { canonical query, fingerprint, revision, exclusions[] }
+```
 
-## 8. Selection contract
+Task 05 added truthful two-stage selection and restricted bulk mutation to user-tag metadata. Selection did not gain move/delete/rename/classify authority.
 
-`LibrarySelectionV1` supports explicit IDs and `all_matching { canonical query, fingerprint, revision, exclusions }`. Query changes clear selection; snapshot expiry rejects all-matching selection; exclusions are normalized and bounded. Backend selection resolution is authoritative and fail-closed for missing/stale IDs, invalid roots, missing tags, and degraded scopes.
+---
 
-The only new bulk mutation is atomic user-tag metadata mutation. The backend validates the main-window boundary, snapshot/fingerprint, target count, 100,000 safety cap, and tag IDs before one set-based/chunk-safe transaction, then bumps the revision once and returns applied/already-present/missing/excluded counts. Selection cannot move, delete, rename, classify, execute a suggestion, or bypass operation/journal/Safe Trash boundaries.
+## 8. User tags
 
-## 9. User tags
+Task 05 added durable, normalized, fixed-color user tags and file-tag relations. Backend supports list/create/update/delete and explicit/all-matching assign/remove. Tags remain separate from Purpose/Lifecycle/Risk, filename, sidecar, rules and AI.
 
-`user_tags` and `file_user_tags` are independent metadata. Rust validates names, normalization/case collisions, control characters, reserved prefixes, fixed color tokens, expected timestamps, and usage-confirmed deletion. Add/remove is idempotent and works for explicit and all-matching selections. Tag filters support all/any/none and reference IDs only.
+---
 
-Tag operations do not modify path, filename, Purpose, Lifecycle, Risk, AI classification, rule state, sidecars, or files. `ON UPDATE CASCADE` preserves tags when an existing operation/restore path updates a `files.id`.
+## 9. Saved Views
 
-## 10. Saved Views
+Task 05 added durable Saved Views storing only canonical QuerySpec V2. They do not store cursor, selection, SQL, script or arbitrary path. Missing roots/tags are exposed as invalid references, and opening a view creates a new query snapshot.
 
-Saved View create/update/delete/list uses durable `library_saved_views`, expected `updatedAt`, canonical QuerySpec V2 JSON, stable position ordering, and no query-revision bump. Open creates a new query snapshot. Missing/disabled/degraded roots and deleted tags are projected as `invalidReferences` and never silently broaden the result. Browser mock state is explicitly in-memory and native reveal/persistence is rejected rather than faked.
+---
 
-## 11. Scope and root health
+## 10. UI and stores
 
-Rust resolves root/session IDs through `scan_roots`/`scan_session_roots` and authoritative normalized paths. Only `source_kind = 'file_library'` roots participate. Missing, disabled, degraded, reconciliation-required, and unavailable roots are projected as invalid/partial health; available rows are never replaced by all-root fallback. Current-scan sessions that cannot resolve fail with a stable error. Selection and mutation refuse non-healthy scopes.
+Task 05 introduced separate Zustand stores for query, result, selection, Inspector, tags and Saved Views, and migrated Vault to Query V2 with cursor paging, server filters/sorts, cross-page selection, ID-only detail/reveal and metadata-only preview.
 
-## 12. UI/store architecture
+The existing virtual list and accessibility model remained the rendering base.
 
-`useFileLibraryV2Store.ts` separates query, result/cursor, selection, inspector, tag catalog/mutation, and Saved View state. `VaultView` uses server-authoritative V2 filters/sorts, next-cursor paging, two-stage selection messaging, snapshot-expired refresh, backend multi-selection summary, ID-only detail/reveal, and metadata-only preview. It contains no `collectLibraryPages`, renderer full-collection truth workaround, renderer filtering/sorting authority, or legacy `getPagedFiles` path.
+---
 
-The existing virtual list and keyboard/accessibility boundaries remain in place; Task 05 adds V2 contract and interaction coverage without adding a list/state dependency.
+## 11. Permissions and browser mock
 
-## 13. Commands, permissions, and browser mock
+The File Library commands were registered across Rust, Tauri capabilities, TypeScript API and browser mock. Commands require the main window; Search window does not receive tag/Saved View/bulk write permissions. Browser mock does not claim native filesystem reveal or durable native persistence.
 
-The 13 File Library commands are registered in `build.rs`/`main.rs`, capability JSON, Rust command guards, TypeScript API, and browser mock. Query, detail, reveal, tag, and Saved View commands require the main File Library window; Search window permissions do not include the library mutation surface. Reveal accepts only `fileId` and backend-resolves/revalidates the live path.
+---
 
-`docs/security/TAURI_COMMAND_PERMISSION_MATRIX.md` is synchronized. Static permission tests reject truncated command names, generic invoke/SQL/shell expansion, arbitrary path authority, and Search-window access.
+## 12. Validation evidence
 
-## 14. Test and performance evidence
+Implementation reported and CI confirmed:
 
-Focused Task 05 evidence:
+- frontend/typecheck: 74 files / 517 tests;
+- remediation: 13/13;
+- Rust: 510 passed, 7 ignored, rustfmt and Clippy passed;
+- npm audit: 0 vulnerabilities;
+- cargo audit: exit 0 with existing allowed warnings;
+-100k common/complex, 1M common/complex diagnostic, migration and WAL benchmarks;
+- Windows/macOS Rust and release compile;
+- GitHub run `30438985165` passed all applicable quality, performance and security jobs;
+- NSIS/DMG package jobs were skipped under the Draft workflow condition; local NSIS evidence existed.
 
-| Area | Result |
-|---|---|
-| Frontend/typecheck | pass; `npm run typecheck`; full suite 74 files / 517 tests |
-| Query V2/UI/browser mock | pass; `tests/fileLibraryV2.test.ts` plus adapted Vault/architecture/permission tests |
-| Rust Query V2 | pass; 9 library tests including canonical membership reuse, cursor, relevance, scope, failed transaction, selection cap, tags, Saved Views, and cascade |
-| Remediation | pass; 13/13 |
-| Migration/rollback | pass; schema 30→31, rollback, future-schema, 100k and 1M fixtures |
-| 100k File Library | pass; common matrix p95 0.603ms (cold default page 13.607ms), complex p95 89.936ms, detail 0.115ms, selection summary 54.102ms, bulk tag 305.646ms |
-| 1M File Library | pass; common matrix p95 0.786ms (cold default page 106.473ms), complex exact p95 920.580ms (diagnostic), detail 0.119ms, deep keyset 20 pages / 8.338ms, selection summary 521.334ms, bulk tag 507.315ms |
-| Schema 30→31 migration | pass; 100k 469.740ms, 1M 4,809.093ms, WAL reader row counts preserved |
-| Query plans | pass; modified/created/name/size/confidence indexes, tag `(tag_id,file_id)` filter plan, file-user-tag primary-key count probe, materialized FTS plan |
-| Existing Task 02–04 performance | pass through `npm run test:performance` |
+---
 
-The 1M 150ms target is applied to common pages as defined by the taskbook; complex exact counts remain exact and are reported separately rather than estimated or hidden.
+## 13. Known performance fact
 
-## 15. Security, build, platform, and package evidence
+Task 05 preserved exact counts. Common 1M pages met the interactive target, while complex exact counts were measured around sub-second to multi-second depending on environment. This was truthful but did not satisfy the original bounded-interactive requirement. Task 06 therefore freezes a deferred exact-count contract: no estimate, bounded first page, exact resolution on demand.
 
-Local delivery gates pass on the final implementation worktree:
+---
 
-- `npm run verify:frontend`: typecheck, 74 Vitest files / 517 tests, remediation 13/13, performance suites, and Windows release build all pass.
-- `npm run verify:rust`: rustfmt, 510 Rust tests passed / 7 ignored, and clippy with `-D warnings` pass.
-- `npm run verify:security`: npm audit reports 0 vulnerabilities; cargo audit exits 0 with the repository's 15 existing allowed RustSec advisories.
-- `DOCS_DIFF_BASE=origin/master npm run test:docs`, `git diff --check`, and the scoped-change audit pass.
-- Local Windows packaging produces `src-tauri/target/release/bundle/nsis/Zen Canvas_0.1.40_x64-setup.exe`.
+## 14. Merge record
 
-The full GitHub Windows/macOS workflow for implementation HEAD `3578e2bf4b2a71a366970b1460cf768d37dd2eb4` passed in [run 30437340299](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30437340299): change-scope/documentation, frontend/format, Rust quality on Windows and macOS, release compile on Windows and macOS, dependency audit, performance profile, and platform quality checks all succeeded. Its recorded Task 05 performance evidence is 100k common p95 `0.961ms`, complex p95 `147.532ms`, and 1M common p95 `0.942ms`; the 1M complex exact count `1675.452ms` is diagnostic only, as required by the taskbook. The 100k and 1M schema-30-to-31 migration probes also passed (`8405.506ms` and `120260.426ms`) with WAL row counts preserved. Draft-only NSIS and unsigned-DMG jobs were skipped by workflow condition; the local NSIS artifact is the available package evidence.
+PR #38 was marked ready only because GitHub does not merge Draft PRs, then squash merged by explicit human decision.
 
-## 16. Rollback and known risks
+```text
+Merge commit
+5468a17790165a149c462a17b64d011750b45410
+```
 
-- Source rollback is a revert of the Task 05 implementation commits.
-- Database rollback is the transaction-safe schema-30 fixture path; no production downgrade migration or `files` backfill is required.
-- Exact counts on complex 1M filters are slower than common pages but remain truthful; no estimate/fail-open substitution was introduced.
-- Existing non-desktop cfg dead-code warnings and pre-existing RustSec advisories remain outside this task’s dependency scope.
-- Temporary ignored-benchmark SQLite fixtures are outside the repository and are not staged.
+The merge does not assert that the accepted findings below were already fixed. It establishes the Task 05 code as the baseline from which Task 06 must close them.
 
-## 17. Delivery record
+---
 
-- Implementation commits: `f566920c380d43360b4e187d822b426a3227c203`, `e7a6cb149b8081f97abdd4e4f3c361a1b72882e9`, `ddd9c52e2a58634a18d847ec7c271723c6c41fd9`, and `3578e2bf4b2a71a366970b1460cf768d37dd2eb4`. The closeout documentation commit is the final delivery commit on `remediation/05-file-library`; its SHA is reported in the handoff after push.
-- Draft PR: [#38](https://github.com/ArdenZC/Zen-Canvas/pull/38), title `feat: rebuild file library query tags and saved views`, head `remediation/05-file-library`, remains open and Draft.
-- Draft PR remains Draft and is not auto-merged.
-- Human code-level acceptance is required before any merge or Task 06 work.
+## 15. Accepted handoff to Task 06
+
+The following nine findings from human review `4806627795` are mandatory Task 06 first-group work and may not be deferred again:
+
+1. `VaultView` query effect can repeatedly call `loadFirstPage(spec)` because query execution mutates the same spec state;
+2. hex-encoded JSON cursor lacks authoritative live-anchor/tuple verification and can be validly edited;
+3. 100,000 explicit selection eventually creates an unsafe giant SQL parameter set, while exclusions inherit an unintended 128-ID limit;
+4. snapshot-expired state enters generic error UI, replaces current rows and does not correctly invalidate all-matching selection;
+5. user tag UI lacks full rename/color/delete-confirm lifecycle, and Saved View UI lacks rename/update/position;
+6. detail lacks active finding summary, and multi-selection lacks common directory/tag commonality;
+7. optional second-resolution timestamp CAS can permit stale writes;
+8. virtual-list `aria-activedescendant` can reference an unmounted option;
+9. 1M complex exact count was treated as diagnostic instead of receiving a bounded truthful product contract.
+
+Frozen Task 06 solutions:
+
+- one-way query flow and mounted invoke-count tests;
+- backend live anchor membership + complete tuple cursor validation;
+- request-local SQLite TEMP selection set;
+- nonblocking snapshot-expired banner and selection invalidation;
+- complete tag/Saved View UI;
+- bounded finding/common-directory/tag summaries;
+- schema 32 monotonic revisions;
+- mounted-row-only ARIA target;
+- deferred exact count with no estimates.
+
+---
+
+## 16. Next stage
+
+Task 06 is the complete AI organization preview module:
+
+```text
+Durable Organization Plan
++ human review
++ authoritative dry run
++ existing Managed AI adapter
++ existing operation journal execution
++ restart/result projection
+```
+
+Task 06 authority is defined only by:
+
+```text
+docs/remediation/TASK_06_DURABLE_ORGANIZATION_PLAN_AND_DRY_RUN.md
+```
+
+Task 07 and Task 08 remain forbidden until Task 06 is implemented, reviewed and merged.

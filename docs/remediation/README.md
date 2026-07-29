@@ -15,10 +15,10 @@
 - 默认分支：`master`；
 - PR #15 锚点：`a2c0516dc7a8628cb7210003da3d66f5d84f3a2f`；
 - Task 03 / PR #28 merge：`70427ff648dd5b9fab66e247fbf0a5ddf8912f45`；
-- Task 04 / PR #35 source HEAD：`5a42b0312286ae5eab2b01e9bdc13662ba761e5a`；
 - Task 04 / PR #35 squash merge：`14616d4344314afce0878dbc681988c04183a9bc`；
-- 当前数据库基线：schema 30；
-- Task 05 授权目标：schema 31；
+- Task 05 / PR #38 squash merge：`5468a17790165a149c462a17b64d011750b45410`；
+- 当前数据库基线：schema 31；
+- Task 06 授权目标：schema 32；
 - 当前版本线：`0.1.40`。
 
 每个任务开始时必须记录实际 `HEAD` 并确认包含对应前置合并提交，不得 reset 到文档中的旧 SHA。
@@ -42,10 +42,11 @@
 - Task 02：重复检测，已完成；
 - Task 03：大型文件/空间分析，已完成；
 - Task 04：全局快捷搜索，已通过 PR #35 合并；
-- Task 05：文件库，当前唯一可执行模块；
-- Task 06–08：禁止执行。
+- Task 05：文件库，已通过 PR #38 合并，schema 31；
+- Task 06：Durable Organization Plan、审核式 dry run 与安全执行，当前唯一可执行完整模块；
+- Task 07–08：禁止执行。
 
-禁止创建独立 debt-cleanup、04.5、05A/05B/05C 或其他产品模块。上一阶段人工接受的遗留进入下一完整模块第一组，然后继续完成该模块，不单独停点。
+禁止创建独立 debt-cleanup、05.5、06A/06B/06C 或其他产品模块。上一阶段人工接受的遗留进入下一完整模块第一组，然后继续完成该模块，不单独停点。
 
 ---
 
@@ -72,10 +73,10 @@ Codex 开始阶段前依次阅读：
 任务书已位于当前 master
 ```
 
-Task 05 权威入口：
+Task 06 权威入口：
 
 ```text
-docs/remediation/TASK_05_FILE_LIBRARY_QUERY_TAGS_SAVED_VIEWS.md
+docs/remediation/TASK_06_DURABLE_ORGANIZATION_PLAN_AND_DRY_RUN.md
 ```
 
 任务书进入 master 即满足文档门禁，不得再使用旧 PR 的 Draft/Open 文案制造额外阻断。
@@ -100,44 +101,52 @@ docs/remediation/TASK_05_FILE_LIBRARY_QUERY_TAGS_SAVED_VIEWS.md
 
 人工接受有限遗留时必须记录 failure mode、登记 Risk Register、转入下一完整模块第一组、给出测试，且不得再次后移。
 
-Task 05 第一组必须关闭：
+Task 06 第一组必须关闭 Task 05 人工审查的 9 项：
 
-1. degraded Global Search source 不得 complete；
-2. standalone navigation ACK 后重新验证原 session/revision，旧请求不得隐藏新窗口；
-3. extension stable-ID tie-break 与 punctuation correctness；
-4. mounted IME interaction test。
+1. Vault query effect / `loadFirstPage` 持续请求循环；
+2. 可被合法 JSON 篡改的 File Library cursor；
+3. 非真正 chunk-safe 的 100,000 explicit selection 与 exclusions 上限错误；
+4. snapshot-expired 覆盖列表且未失效 all-matching selection；
+5. 用户标签与 Saved Views CRUD UI 不完整；
+6. Detail 缺 active finding、selection summary 缺 common directory/tag commonality；
+7. optional/秒级 optimistic concurrency；
+8. `aria-activedescendant` 指向未挂载虚拟行；
+9. 1M complex exact count 未按门禁处理。
+
+这些问题采用 Task 06 任务书冻结的 authoritative cursor anchor、TEMP selection set、revision CAS 和 deferred exact count 方案，不得再次后移。
 
 ### 4.4 不得重复建设
 
-后续扩展现有 Global Index、Managed AI、scan/watcher、dedupe、Analysis/Finding、preview/journal/Safe Trash/restore，不建设第二套索引、队列、文件 mutation 或恢复入口。
+后续扩展现有 Global Index、Managed AI、scan/watcher、dedupe、Analysis/Finding、preview/journal/Safe Trash/restore，不建设第二套索引、AI 队列、文件 mutation 或恢复入口。
 
-### 4.5 Task 05 特别授权与禁止
+### 4.5 Task 06 特别授权与禁止
 
-Task 05 授权 schema 30→31，新增 File Library tags、Saved Views 和 query revision；禁止 ALTER `files` 大表、迁移 `files.id`、复用 Global Search cursor、增加文件系统 mutation、修改 journal/Managed AI schema、读取文件内容、开始 Organization Plan 或新增依赖/lockfile。
+Task 06 授权 schema 31→32，新增 Organization Plan/Item ledger，并为 Task 05 小表补单调 revision。禁止 ALTER `files` 大表、迁移 `files.id`、修改 operation/cleanup journal schema、建设第二 AI queue、读取文件内容、开始自然语言规则或 Content Artifact、增加依赖或 lockfile。
 
 ---
 
 ## 5. 持续安全不变量
 
-1. 扫描、索引、搜索、分析和 metadata tagging 本身不修改用户文件；
+1. 扫描、索引、搜索、分析、tag 和 plan 构建本身不修改用户文件；
 2. Global Index 与 managed File Library 是独立数据域；
-3. Global Search 与 File Library Query V2 的 scope/cursor/revision 不互用；
+3. Global Search、File Library Query V2 和 Organization Plan revision 不互用；
 4. 只有明确 managed scope 才可进入 AI/整理；
 5. 文件 mutation 继续经过 authoritative preview、identity、journal、Safe Trash 和 restore；
 6. renderer path 不成为 action authority；
-7. disabled、unavailable、partial、expired 或 stale 不得表示为 complete/safe；
+7. disabled、unavailable、partial、expired、stale 或 blocked 不得表示为 complete/safe；
 8. user tag 与 Purpose/Lifecycle/Risk/AI classification 分离；
 9. all-matching selection 必须绑定 canonical query、fingerprint 和 snapshot revision；
-10. command、selection、tag 和 Saved View 都不成为任意文件操作入口；
-11.参考项目许可证边界不得因同栈而降低。
+10. Organization Plan 是审核与 provenance artifact，不是 operation journal；
+11. AI 不得自动接受或执行计划；
+12. delete/trash 不进入 Task 06 Organization Plan；
+13.参考项目许可证边界不得因同栈而降低。
 
 ---
 
 ## 6. 标准分支
 
 ```text
-remediation/05-file-library
-remediation/06-ai-organization-preview
+remediation/06-organization-plan
 remediation/07-natural-language-rules
 remediation/08-local-content-understanding
 ```
@@ -166,10 +175,12 @@ docs/remediation/
 ├── TASK_03_IMPLEMENTATION_CLOSEOUT.md
 ├── TASK_04_GLOBAL_SHORTCUT_SEARCH.md
 ├── TASK_04_IMPLEMENTATION_CLOSEOUT.md
-└── TASK_05_FILE_LIBRARY_QUERY_TAGS_SAVED_VIEWS.md
+├── TASK_05_FILE_LIBRARY_QUERY_TAGS_SAVED_VIEWS.md
+├── TASK_05_IMPLEMENTATION_CLOSEOUT.md
+└── TASK_06_DURABLE_ORGANIZATION_PLAN_AND_DRY_RUN.md
 ```
 
-Task 06–08 的任务书只能在前一完整模块人工验收合并后创建。
+Task 07–08 的任务书只能在前一完整模块人工验收合并后创建。
 
 ---
 
