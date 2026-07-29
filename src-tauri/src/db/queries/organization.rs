@@ -1722,7 +1722,7 @@ fn selected_plan_items(
     conn: &rusqlite::Connection,
     request: &OrganizationPlanSelectionRequest,
 ) -> Result<Vec<OrganizationPlanItemDto>, DbError> {
-    if request.all_accepted == !request.item_ids.is_empty() {
+    if request.all_accepted != request.item_ids.is_empty() {
         return Err(DbError::Validation(
             "organization_selection_invalid".to_string(),
         ));
@@ -1774,7 +1774,7 @@ fn encode_item_cursor(cursor: &OrganizationItemCursor) -> String {
 }
 
 fn decode_item_cursor(value: &str) -> Result<OrganizationItemCursor, DbError> {
-    if value.is_empty() || value.len() > 2048 || value.len() % 2 != 0 {
+    if value.is_empty() || value.len() > 2048 || !value.len().is_multiple_of(2) {
         return Err(DbError::Validation(
             "organization_item_cursor_invalid".to_string(),
         ));
