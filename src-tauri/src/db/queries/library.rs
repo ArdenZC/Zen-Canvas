@@ -699,16 +699,12 @@ impl Database {
         } else if let Some(cached) = self.cached_library_count(revision, &count_key) {
             cached
         } else {
-            let count_parts = build_query_parts(&tx, &canonical, &scope, None, tag_invalid, false)?;
-            let count_sql = format!(
-                "{} SELECT COUNT(*) FROM {} WHERE {}",
-                count_parts.ctes, count_parts.from, count_parts.where_clause
-            );
-            let total_count: i64 = tx.query_row(
-                &count_sql,
-                params_from_iter(count_parts.params.iter()),
-                |row| row.get(0),
-            )?;
+            let (count_sql, count_params) =
+                build_library_count_query(&tx, &canonical, &scope, tag_invalid)?;
+            let total_count: i64 =
+                tx.query_row(&count_sql, params_from_iter(count_params.iter()), |row| {
+                    row.get(0)
+                })?;
             self.cache_library_count(revision, count_key, total_count);
             total_count
         };
@@ -1351,6 +1347,45 @@ fn build_query_parts(
         params,
         order,
     })
+}
+
+fn build_library_count_query(
+    conn: &Connection,
+    canonical: &CanonicalQuery,
+    scope: &ResolvedScope,
+    tag_invalid: bool,
+) -> Result<(String, Vec<SqlValue>), DbError> {
+    let any_tags = &canonical.spec.filters.tags_any_of;
+    if !tag_invalid && canonical.spec.text.is_none() && !any_tags.is_empty() {
+        // A positive tag-any predicate can be counted from the tag index first.
+        // The page query still scans in sort order so keyset pagination keeps its
+        // stop-at-page-size behavior; only the exact first-page count uses this
+        // duplicate-safe, tag-driven plan.
+        let mut count_spec = canonical.spec.clone();
+        count_spec.filters.tags_any_of.clear();
+        let count_canonical = CanonicalQuery {
+            spec: count_spec,
+            fingerprint: String::new(),
+        };
+        let parts = build_query_parts(conn, &count_canonical, scope, None, false, false)?;
+        let placeholders = std::iter::repeat_n("?", any_tags.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "{} SELECT COUNT(DISTINCT tf.file_id) FROM file_user_tags AS tf INDEXED BY idx_file_user_tags_tag_file JOIN {} ON f.id = tf.file_id WHERE {} AND tf.tag_id IN ({placeholders})",
+            parts.ctes, parts.from, parts.where_clause
+        );
+        let mut params = parts.params;
+        params.extend(any_tags.iter().cloned().map(SqlValue::Text));
+        return Ok((sql, params));
+    }
+
+    let parts = build_query_parts(conn, canonical, scope, None, tag_invalid, false)?;
+    let sql = format!(
+        "{} SELECT COUNT(*) FROM {} WHERE {}",
+        parts.ctes, parts.from, parts.where_clause
+    );
+    Ok((sql, parts.params))
 }
 
 fn append_filters(
@@ -2687,6 +2722,26 @@ mod tests {
             })
             .expect("query bulk-tagged files");
         assert_eq!(bulk_query.total_count, 2);
+
+        let any_tag_query = db
+            .query_file_library_v2(FileQueryRequestV2 {
+                version: 2,
+                request_id: "library-any-tag-request".into(),
+                query: FileQuerySpecV2 {
+                    scope: FileLibraryScopeV2::AllEnabledRoots,
+                    text: None,
+                    filters: FileQueryFiltersV2 {
+                        tags_any_of: vec![tag.id.clone(), bulk_tag.id.clone()],
+                        ..Default::default()
+                    },
+                    sort: FileLibrarySortV2::default(),
+                },
+                page_size: 50,
+                cursor: None,
+            })
+            .expect("query any-tag files without duplicate counts");
+        assert_eq!(any_tag_query.total_count, 2);
+        assert_eq!(any_tag_query.files.len(), 2);
 
         let detail = db
             .get_file_library_detail("library-file-a")
