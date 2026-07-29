@@ -379,7 +379,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .expect("schema version"),
-            30
+            31
         );
         assert_eq!(
             conn.query_row(
@@ -465,12 +465,12 @@
     }
 
     #[test]
-    fn database_rejects_schema_31_as_a_future_version() {
+    fn database_rejects_schema_32_as_a_future_version() {
         let path = test_db_path();
         let db = Database::open(&path).expect("create database");
         drop(db);
         let conn = Connection::open(&path).expect("open sqlite");
-        conn.execute_batch("PRAGMA user_version = 31;")
+        conn.execute_batch("PRAGMA user_version = 32;")
             .expect("set future version");
         drop(conn);
 
@@ -480,6 +480,184 @@
         };
 
         assert!(error.to_string().contains("newer than this app supports"));
+    }
+
+    #[test]
+    fn schema_30_to_31_creates_file_library_tables_without_changing_files_ids() {
+        let path = test_db_path();
+        let db = Database::open(&path).expect("create schema 31 database");
+        db.insert_file(InsertFileRequest {
+            id: "schema-30-legacy-file".to_string(),
+            path: "/tmp/schema-30-legacy-file.txt".to_string(),
+            name: "schema-30-legacy-file.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 10,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("seed legacy file");
+        drop(db);
+
+        let conn = Connection::open(&path).expect("open schema 30 fixture");
+        conn.execute_batch(
+            r#"
+            DROP TABLE file_user_tags;
+            DROP TABLE user_tags;
+            DROP TABLE library_saved_views;
+            DROP TABLE library_query_state;
+            DROP INDEX idx_library_files_modified;
+            DROP INDEX idx_library_files_created;
+            DROP INDEX idx_library_files_name;
+            DROP INDEX idx_library_files_size;
+            DROP INDEX idx_library_files_confidence;
+            PRAGMA user_version = 30;
+            "#,
+        )
+        .expect("create real schema 30 fixture");
+        drop(conn);
+
+        let migrated = Database::open(&path).expect("migrate schema 30 fixture");
+        let conn = migrated.conn().expect("inspect schema 31 database");
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("schema version");
+        assert_eq!(version, 31);
+        for table in [
+            "user_tags",
+            "file_user_tags",
+            "library_saved_views",
+            "library_query_state",
+        ] {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+                    params![table],
+                    |row| row.get(0),
+                )
+                .expect("file library table lookup");
+            assert_eq!(count, 1, "missing schema 31 table {table}");
+        }
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'index' AND name IN ('idx_user_tags_name', 'idx_file_user_tags_tag_file', 'idx_library_saved_views_position')",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("file library indexes"),
+            3
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'index' AND name IN ('idx_library_files_modified', 'idx_library_files_created', 'idx_library_files_name', 'idx_library_files_size', 'idx_library_files_confidence')",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("file library sort indexes"),
+            5
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT id FROM files WHERE id = 'schema-30-legacy-file'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("legacy files id"),
+            "schema-30-legacy-file"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT revision FROM library_query_state WHERE singleton_id = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("library revision singleton"),
+            1
+        );
+        drop(conn);
+        drop(migrated);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn schema_30_to_31_conflict_rolls_back_file_library_migration_atomically() {
+        let path = test_db_path();
+        let db = Database::open(&path).expect("create schema 31 database");
+        db.insert_file(InsertFileRequest {
+            id: "schema-30-rollback-file".to_string(),
+            path: "/tmp/schema-30-rollback-file.txt".to_string(),
+            name: "schema-30-rollback-file.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 10,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("seed rollback file");
+        drop(db);
+
+        let conn = Connection::open(&path).expect("open schema 30 conflict fixture");
+        conn.execute_batch(
+            r#"
+            DROP TABLE file_user_tags;
+            DROP TABLE user_tags;
+            DROP TABLE library_saved_views;
+            DROP TABLE library_query_state;
+            DROP INDEX idx_library_files_modified;
+            DROP INDEX idx_library_files_created;
+            DROP INDEX idx_library_files_name;
+            DROP INDEX idx_library_files_size;
+            DROP INDEX idx_library_files_confidence;
+            CREATE TABLE user_tags (id TEXT PRIMARY KEY);
+            PRAGMA user_version = 30;
+            "#,
+        )
+        .expect("create conflicting schema 30 fixture");
+        drop(conn);
+
+        let error = match Database::open(&path) {
+            Ok(_) => panic!("schema 31 migration should reject the conflicting user_tags table"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("normalized_name"));
+
+        let conn = Connection::open(&path).expect("inspect rolled back schema 30 fixture");
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("rolled back schema version"),
+            30
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT id FROM files WHERE id = 'schema-30-rollback-file'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("legacy file survives rollback"),
+            "schema-30-rollback-file"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name IN ('file_user_tags', 'library_saved_views', 'library_query_state')",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("new tables remain absent after rollback"),
+            0
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('user_tags')",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("conflicting table survives rollback"),
+            1
+        );
+        drop(conn);
+        let _ = fs::remove_file(path);
     }
 
     #[test]
@@ -543,7 +721,7 @@
             )
             .expect("dedupe backfill count");
 
-        assert_eq!(version, 30);
+        assert_eq!(version, 31);
         assert_eq!(ledger_tables, 4);
         assert_eq!(watcher_defaults, (0, 0));
         assert_eq!(rule_recovery_required, 0);

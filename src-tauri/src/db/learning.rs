@@ -65,6 +65,7 @@ impl Database {
         if let Some(rule) = learn_rule_from_confirmed_classification(&snapshot)? {
             insert_learned_rule(&tx, &rule)?;
         }
+        crate::db::bump_library_query_revision_in_transaction(&tx)?;
         tx.commit()?;
         Ok(())
     }
@@ -167,6 +168,7 @@ impl Database {
         if let Some(rule) = learn_rule_from_correction(&corrected, &correction)? {
             insert_learned_rule(&tx, &rule)?;
         }
+        crate::db::bump_library_query_revision_in_transaction(&tx)?;
         tx.commit()?;
         Ok(())
     }

@@ -121,7 +121,11 @@ The complete frontend, Rust, remediation, performance, security, and build gates
 - Existing dependency-owner RustSec advisories, if reported by the security job, are pre-existing and no dependency changed in Task 04.
 - The search response is intentionally bounded to 4,096 de-duplicated candidates; a cursor beyond that boundary returns no page rather than silently scanning the full index.
 
-Task 04 second-round implementation remediation is complete on the branch, but the Draft PR remains pending second human code-level acceptance. Do not merge and do not begin Task 05.
+Task 04 second-round implementation remediation was complete at the time of its PR #35 closeout. PR #35 has since been merged. The four accepted Task 04 debts are carried forward as the first handoff of Task 05 and are documented as revalidated there. Do not merge Task 05 and do not begin Task 06.
+
+## 9. Task 05 handoff
+
+The earlier Task 04 closeout statements that said Task 05 had not started are historical and are superseded by the separately tracked `TASK_05_IMPLEMENTATION_CLOSEOUT.md`. Task 05 is implemented only on `remediation/05-file-library`, with schema 31 and a Draft PR pending human acceptance. Task 06 and all later stages remain prohibited.
 
 ## 8. Delivery record
 

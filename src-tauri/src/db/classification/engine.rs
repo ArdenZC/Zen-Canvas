@@ -493,6 +493,9 @@ fn execute_classification_batch(
             updated += 1;
         }
     }
+    if updated > 0 {
+        crate::db::bump_library_query_revision_in_transaction(&tx)?;
+    }
     tx.commit()?;
 
     Ok(RuleExecutionSummary {

@@ -86,41 +86,41 @@
 | R-061 | exact physical subject 重复累计 | High | duplicate + Safe exact authoritative union | 已关闭，持续回归 |
 | R-062 | 迟到 response 覆盖新 query/session | High | request/session identity、latest wins | 已关闭，持续回归 |
 | R-063 | Search window/hotkey 多 owner | High | Rust lifecycle owner + rollback | 已关闭，持续跨平台回归 |
-| R-064 | degraded source 被表示为 complete | High |所有非 ready enabled source 排除 completeness | **接受遗留，Task 05 第一组，不得后移** |
+| R-064 | degraded source 被表示为 complete | High |所有非 ready enabled source 排除 completeness | **已关闭；Task 05 持续回归** |
 | R-065 | stale/disabled/missing result 被打开 | Critical | ID-only backend live revalidation | 已关闭，持续回归 |
 | R-066 | Command Palette 绕过安全边界 | Critical | metadata/execute 分离、fixed adapters | 已关闭，持续阻断 |
 | R-067 | Tolaria AGPL 代码/结构移植 | Critical | design-only、SHA/LICENSE、无移植审查 | 已通过许可证门禁 |
-| R-068 | IME 行为没有 mounted invoke 证明 | High | mounted interaction：composition 期间 0 query，结束后 1 query | **接受遗留，Task 05 第一组，不得后移** |
-| R-069 | Global Search 与 File Query V2 混用 | Critical |独立 authority/scope/cursor/revision | Task 05 持续阻断 |
+| R-068 | IME 行为没有 mounted invoke 证明 | High | mounted interaction：composition 期间 0 query，结束后 1 query | **已关闭；Task 05 持续回归** |
+| R-069 | Global Search 与 File Query V2 混用 | Critical |独立 authority/scope/cursor/revision | **已关闭；持续隔离回归** |
 | R-070 | Search metadata N+1 | Medium | single snapshot/grouped health | 已关闭，持续性能门禁 |
-| R-071 | tier tie-break/punctuation 语义不稳定 | High | extension durable ID；标点查询正确性测试 | **接受遗留，Task 05 第一组，不得后移** |
-| R-072 | ACK 后旧 navigation 隐藏新 session | High | ACK 后 revalidate；scoped hide 原 session | **接受遗留，Task 05 第一组，不得后移** |
+| R-071 | tier tie-break/punctuation 语义不稳定 | High | extension durable ID；标点查询正确性测试 | **已关闭；Task 05 持续回归** |
+| R-072 | ACK 后旧 navigation 隐藏新 session | High | ACK 后 revalidate；scoped hide 原 session | **已关闭；Task 05 持续回归** |
 | R-073 | results/health/revision 不同 snapshot | High | one SQLite read transaction；conflict partial | 已关闭，持续回归 |
 
 ## Task 05 文件库专项风险
 
 | ID | 风险 | 等级 | 触发条件/影响 | Task 05 阻断/验收条件 | 状态 |
 |---|---|---|---|---|---|
-| R-074 | Query V2 revision 漏 bump | Critical | scanner/watcher/operation/classification/dedupe/tag 写入后旧 cursor 仍被接受 |统一 transaction helper；各写路径 integration/architecture tests | 当前强制整改 |
-| R-075 | Cursor 可伪造或绑定错误 query | Critical | renderer 修改 sort tuple/revision/fingerprint，跨 query 取页 | backend opaque parse、version/length/type/fingerprint binding、tamper tests | 当前强制整改 |
-| R-076 | Renderer filtering/sorting 伪装全库真值 | High | loaded 50/10k rows被当全部结果 | filter/sort 下沉 SQLite；移除 `collectLibraryPages` truth workaround | 当前强制整改 |
-| R-077 | all_matching selection 与 snapshot/query 不一致 | Critical | tag 错误文件或遗漏目标 | canonical query + fingerprint + revision + exclusions；expired fail closed | 当前强制整改 |
-| R-078 | Tag metadata 与系统分类或文件名混用 | Critical | user tag 覆盖 Purpose/Lifecycle/Risk、写 filename/sidecar、触发 AI |独立 tables/DTO；metadata-only；negative tests | 当前强制整改 |
-| R-079 | Bulk tag 部分提交或越权 | High | 超限、stale ID、非法 scope 导致半写 | main-window auth、authoritative set、100k cap、single transaction/single bump | 当前强制整改 |
-| R-080 | `files.id` 更新破坏 tag FK | Critical | ordinary move/restore 更新主键后 tag 丢失或阻断 | `ON UPDATE CASCADE` + operation/restore fixture tests | 当前强制整改 |
-| R-081 | Saved View 注入/静默扩大 scope | Critical | 任意 SQL/path、缺失 root/tag 被忽略 | canonical typed JSON；root/tag ID；invalid references 显式 fail/partial | 当前强制整改 |
-| R-082 | Saved View 保存 cursor/selection 造成过期行为 | High | 重启后复用旧 snapshot/selection |只持久 QuerySpec；打开创建新 snapshot | 当前强制整改 |
-| R-083 | Summary DTO 过宽或 Inspector N+1/泄露 | High |每行 detail/tag/finding 查询、传 content/hash/trace | summary/detail 分离；fixed bounded queries；no content | 当前强制整改 |
-| R-084 | Snapshot 实现长期占用 WAL 或物化百万 IDs | High |跨 IPC transaction、snapshot table 爆炸 | revision-validated stateless snapshot；短 read transaction；禁止 item materialization | 当前强制整改 |
-| R-085 | Root scope 由 renderer path 注入或缺失时回退 all | Critical |越过 managed roots、扩大 AI/selection scope | durable scan root/session IDs；backend resolve；missing/degraded 不扩大 | 当前强制整改 |
-| R-086 | schema 31 migration 非原子或破坏大表 | Critical | partial tables/user_version 31、ALTER files、旧 binary 不兼容 | `BEGIN IMMEDIATE`、rollback fixture、no ALTER files、future-schema guard | 当前强制整改 |
-| R-087 | Tag/Saved View 写入造成主库锁竞争 | High | 100k bulk insert、长 count/query 阻塞 scanner/journal | set-based/chunked short transaction、WAL benchmark、single revision bump | 当前性能门禁 |
-| R-088 | Keyset sort null/collation/tie 漂移 | High | name/date/confidence/relevance 跨页重复漏项 |每种 sort 固定 null/collation + durable file ID final tie | 当前强制整改 |
-| R-089 | 1M count/deep query 无界 | High | exact count/FTS/tag join 超时或全表 sort | indexes + EXPLAIN + 1M benchmark；不得谎报估算 count | 当前性能门禁 |
-| R-090 | TagSpaces AGPL 代码/结构被移植 | Critical |同为 React/TS 导致复制 Query/context/component | design-only；冻结 SHA/LICENSE；无源码/结构移植审查 | 当前许可证门禁 |
-| R-091 | Search window 获得 Library write 权限 | Critical |全局搜索窗口调用 tag/Saved View/bulk mutation | File Library commands 仅 main window；capability negative tests | 当前权限门禁 |
-| R-092 | Selection 成为文件 mutation authority | Critical |all_matching 直接 move/delete/rename/classify | Task 05 selection 只授权 user tag metadata；文件操作仍走后续 plan/journal | 持续阻断 |
+| R-074 | Query V2 revision 漏 bump | Critical | scanner/watcher/operation/classification/dedupe/tag 写入后旧 cursor 仍被接受 |统一 transaction helper；各写路径 integration/architecture tests | **已实现；待人工验收** |
+| R-075 | Cursor 可伪造或绑定错误 query | Critical | renderer 修改 sort tuple/revision/fingerprint，跨 query 取页 | backend opaque parse、version/length/type/fingerprint binding、tamper tests | **已实现；待人工验收** |
+| R-076 | Renderer filtering/sorting 伪装全库真值 | High | loaded 50/10k rows被当全部结果 | filter/sort 下沉 SQLite；移除 `collectLibraryPages` truth workaround | **已实现；待人工验收** |
+| R-077 | all_matching selection 与 snapshot/query 不一致 | Critical | tag 错误文件或遗漏目标 | canonical query + fingerprint + revision + exclusions；expired fail closed | **已实现；待人工验收** |
+| R-078 | Tag metadata 与系统分类或文件名混用 | Critical | user tag 覆盖 Purpose/Lifecycle/Risk、写 filename/sidecar、触发 AI |独立 tables/DTO；metadata-only；negative tests | **已实现；待人工验收** |
+| R-079 | Bulk tag 部分提交或越权 | High | 超限、stale ID、非法 scope 导致半写 | main-window auth、authoritative set、100k cap、single transaction/single bump | **已实现；待人工验收** |
+| R-080 | `files.id` 更新破坏 tag FK | Critical | ordinary move/restore 更新主键后 tag 丢失或阻断 | `ON UPDATE CASCADE` + operation/restore fixture tests | **已实现；待人工验收** |
+| R-081 | Saved View 注入/静默扩大 scope | Critical | 任意 SQL/path、缺失 root/tag 被忽略 | canonical typed JSON；root/tag ID；invalid references 显式 fail/partial | **已实现；待人工验收** |
+| R-082 | Saved View 保存 cursor/selection 造成过期行为 | High | 重启后复用旧 snapshot/selection |只持久 QuerySpec；打开创建新 snapshot | **已实现；待人工验收** |
+| R-083 | Summary DTO 过宽或 Inspector N+1/泄露 | High |每行 detail/tag/finding 查询、传 content/hash/trace | summary/detail 分离；fixed bounded queries；no content | **已实现；待人工验收** |
+| R-084 | Snapshot 实现长期占用 WAL 或物化百万 IDs | High |跨 IPC transaction、snapshot table 爆炸 | revision-validated stateless snapshot；短 read transaction；禁止 item materialization | **已实现；待人工验收** |
+| R-085 | Root scope 由 renderer path 注入或缺失时回退 all | Critical |越过 managed roots、扩大 AI/selection scope | durable scan root/session IDs；backend resolve；missing/degraded 不扩大 | **已实现；待人工验收** |
+| R-086 | schema 31 migration 非原子或破坏大表 | Critical | partial tables/user_version 31、ALTER files、旧 binary 不兼容 | `BEGIN IMMEDIATE`、rollback fixture、no ALTER files、future-schema guard | **已实现；待人工验收** |
+| R-087 | Tag/Saved View 写入造成主库锁竞争 | High | 100k bulk insert、长 count/query 阻塞 scanner/journal | set-based/chunked short transaction、WAL benchmark、single revision bump | **已验证；待人工验收** |
+| R-088 | Keyset sort null/collation/tie 漂移 | High | name/date/confidence/relevance 跨页重复漏项 |每种 sort 固定 null/collation + durable file ID final tie | **已实现；待人工验收** |
+| R-089 | 1M count/deep query 无界 | High | exact count/FTS/tag join 超时或全表 sort | indexes + EXPLAIN + 1M benchmark；不得谎报估算 count | **已验证；待人工验收** |
+| R-090 | TagSpaces AGPL 代码/结构被移植 | Critical |同为 React/TS 导致复制 Query/context/component | design-only；冻结 SHA/LICENSE；无源码/结构移植审查 | **已通过许可证门禁；待人工验收** |
+| R-091 | Search window 获得 Library write 权限 | Critical |全局搜索窗口调用 tag/Saved View/bulk mutation | File Library commands 仅 main window；capability negative tests | **已实现；待人工验收** |
+| R-092 | Selection 成为文件 mutation authority | Critical |all_matching 直接 move/delete/rename/classify | Task 05 selection 只授权 user tag metadata；文件操作仍走后续 plan/journal | **边界已实现；持续阻断后续文件 mutation** |
 
 ## 风险结论
 
-Task 04 已通过 PR #35 合并。R-064、R-068、R-071、R-072 经人工接受，必须在 Task 05 第一组关闭且不得再次后移。Task 05 当前围绕 schema 31、FileQuerySpec V2、revision/keyset cursor、真实跨页 selection、user tags、durable Saved Views 和 ID-only Inspector 展开；R-074–R-092 是本阶段代码级验收和性能/权限/许可证门禁。Task 06–08 继续禁止执行。
+Task 04 已通过 PR #35 合并。R-064、R-068、R-071、R-072 已在 Task 05 第一组实现并保留持续回归。Task 05 已完成 schema 31、FileQuerySpec V2、revision/keyset cursor、真实跨页 selection、user tags、durable Saved Views 和 ID-only Inspector；R-074–R-092 已有实现/性能/权限/许可证证据，状态为待人工代码级验收。Task 06–08 继续禁止执行。

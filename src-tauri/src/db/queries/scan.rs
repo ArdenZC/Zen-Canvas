@@ -1050,6 +1050,9 @@ impl Database {
             }
         }
         invalidate_stale_files_in_transaction(&tx)?;
+        if !files.is_empty() || !stale_paths.is_empty() {
+            super::library::bump_library_query_revision_in_transaction(&tx)?;
+        }
         tx.commit()?;
         Ok(WatcherMutationResult {
             upserted_paths,
@@ -1267,6 +1270,10 @@ impl Database {
             ));
         }
 
+        if !batch.entries.is_empty() {
+            super::library::bump_library_query_revision_in_transaction(&tx)?;
+        }
+
         let updated = load_scan_run_record(&tx, run_id)?;
         tx.commit()?;
         Ok(updated)
@@ -1351,6 +1358,7 @@ impl Database {
         let now = current_unix_seconds();
         if changed > 0 {
             invalidate_stale_files_in_transaction(&tx)?;
+            super::library::bump_library_query_revision_in_transaction(&tx)?;
         }
         let run_changed = tx.execute(
             r#"
@@ -4938,7 +4946,7 @@ mod tests {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .expect("watcher defaults");
-        assert_eq!(version, 30);
+        assert_eq!(version, 31);
         assert_eq!(file_count, 1);
         assert_eq!(seen_count, 0);
         assert_eq!(watcher_defaults, (0, 0));

@@ -25,6 +25,19 @@
 | `update_managed_scope_policy` | `main_state_mutation` | main | Update AI processing policy for a scope | default | yes | managed scope isolation tests |
 | `get_ai_management_status` | `read_only` | main | Read AI-managed queue status | default | no | managed scope isolation tests |
 | `get_paged_files` | `read_only` | main | Read file library | default | no | capability allow-list |
+| `query_file_library_v2` | `read_only` | main | Read the durable File Library query snapshot | default | no | File Library V2 query tests |
+| `get_file_library_detail` | `read_only` | main | Read metadata-only detail by durable file ID | default | no | File Library V2 detail tests |
+| `get_file_library_selection_summary` | `read_only` | main | Summarize an explicit or all-matching File Library selection | default | no | File Library V2 selection tests |
+| `reveal_file_library_entry` | `read_only` | main | Reveal a durable file ID after backend path resolution | default | no | File Library V2 reveal tests |
+| `list_user_tags` | `read_only` | main | Read durable File Library user tags | default | no | File Library V2 tag tests |
+| `create_user_tag` | `main_state_mutation` | main | Create a durable File Library user tag | default | yes | File Library V2 tag tests |
+| `update_user_tag` | `main_state_mutation` | main | Update a durable File Library user tag | default | yes | File Library V2 tag tests |
+| `delete_user_tag` | `main_state_mutation` | main | Delete a durable File Library user tag with usage confirmation | default | yes | File Library V2 tag tests |
+| `mutate_file_user_tags` | `main_state_mutation` | main | Apply durable user tags to an explicit or all-matching selection | default | yes | File Library V2 selection tests |
+| `list_library_saved_views` | `read_only` | main | Read durable File Library Saved Views | default | no | File Library V2 Saved View tests |
+| `create_library_saved_view` | `main_state_mutation` | main | Create a canonical durable File Library Saved View | default | yes | File Library V2 Saved View tests |
+| `update_library_saved_view` | `main_state_mutation` | main | Update a canonical durable File Library Saved View with CAS | default | yes | File Library V2 Saved View tests |
+| `delete_library_saved_view` | `main_state_mutation` | main | Delete a durable File Library Saved View with CAS | default | yes | File Library V2 Saved View tests |
 | `get_operation_previews_for_scope` | `read_only` | main | Read preview data | default | no | capability allow-list |
 | `get_stats_summary` | `read_only` | main | Read statistics | default | no | capability allow-list |
 | `get_operation_logs` | `read_only` | main | Read operation history | default | no | command permission contract |

@@ -58,7 +58,10 @@ describe("app render architecture", () => {
     expect(vault).not.toContain('useState<LibraryFilter>("all")');
     expect(fileLibraryStore).toContain("libraryFilter: LibraryFilter");
     expect(fileLibraryStore).toContain("setLibraryFilter");
-    expect(vault).toContain("tauriApi.getPagedFiles(LIBRARY_PAGE_SIZE, nextOffset, debouncedSearchQuery, scope, filters)");
+    expect(vault).toContain("useFileLibraryResultStore");
+    expect(vault).toContain("loadFirstPage(spec)");
+    expect(vault).toContain("resolveLegacyLibraryScope");
+    expect(read("src/store/useFileLibraryV2Store.ts")).toContain("queryFileLibraryV2");
     expect(vault).not.toContain("setSearchQuery(filter.key)");
   });
 

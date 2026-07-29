@@ -163,6 +163,7 @@ impl Database {
                 }
             }
         }
+        super::library::bump_library_query_revision_in_transaction(&tx)?;
         tx.commit()?;
         Ok(())
     }
@@ -212,6 +213,9 @@ impl Database {
             }
         }
         invalidate_stale_files_in_transaction(&tx)?;
+        if removed > 0 {
+            super::library::bump_library_query_revision_in_transaction(&tx)?;
+        }
         tx.commit()?;
         Ok(removed)
     }
@@ -256,6 +260,9 @@ impl Database {
             }
         }
         invalidate_stale_files_in_transaction(&tx)?;
+        if marked > 0 {
+            super::library::bump_library_query_revision_in_transaction(&tx)?;
+        }
         tx.commit()?;
         Ok(marked)
     }
@@ -494,6 +501,7 @@ impl Database {
                 log.id
             )));
         }
+        super::library::bump_library_query_revision_in_transaction(&tx)?;
         tx.commit()?;
         Ok(())
     }
@@ -656,6 +664,9 @@ impl Database {
             ],
         )?;
 
+        if updated > 0 {
+            super::library::bump_library_query_revision_in_transaction(&tx)?;
+        }
         tx.commit()?;
         Ok(updated > 0)
     }

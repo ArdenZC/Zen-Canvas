@@ -929,6 +929,9 @@ fn apply_ai_classification_batch_results(
             updated += 1;
         }
     }
+    if updated > 0 {
+        crate::db::bump_library_query_revision_in_transaction(&tx)?;
+    }
     tx.commit()?;
 
     Ok(RuleExecutionSummary {

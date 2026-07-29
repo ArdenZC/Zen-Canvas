@@ -11,12 +11,12 @@ const searchCapability = JSON.parse(readFileSync(resolve("src-tauri/capabilities
 
 function handlerCommands() {
   const handlerBlock = mainSource.match(/generate_handler!\[([\s\S]*?)\]\)/)?.[1] ?? "";
-  return [...handlerBlock.matchAll(/zen_canvas_tauri::(?:[a-z_]+::)+([a-z_]+)/g)].map((match) => match[1]);
+  return [...handlerBlock.matchAll(/zen_canvas_tauri::(?:[a-z0-9_]+::)+([a-z0-9_]+)/g)].map((match) => match[1]);
 }
 
 function manifestCommands() {
   const commandsBlock = buildSource.match(/const COMMANDS:[\s\S]*?= &\[(?<commands>[\s\S]*?)\];/)?.groups?.commands ?? "";
-  return [...commandsBlock.matchAll(/"([a-z_]+)"/g)].map((match) => match[1]);
+  return [...commandsBlock.matchAll(/"([a-z0-9_]+)"/g)].map((match) => match[1]);
 }
 
 describe("Tauri command permission contract", () => {
