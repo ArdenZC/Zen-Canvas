@@ -100,6 +100,17 @@ pub fn query_file_library_v2<R: Runtime>(
 }
 
 #[tauri::command]
+pub fn resolve_file_library_exact_count_v2<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: ResolveFileLibraryExactCountRequestV2,
+) -> Result<ResolveFileLibraryExactCountResponseV2, String> {
+    require_main_window(&window)?;
+    db.resolve_file_library_exact_count_v2(request)
+        .map_err(command_error)
+}
+
+#[tauri::command]
 pub fn get_file_library_detail<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,
@@ -219,6 +230,148 @@ pub fn delete_library_saved_view<R: Runtime>(
 ) -> Result<bool, String> {
     require_main_window(&window)?;
     db.delete_library_saved_view(request).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn create_organization_plan<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: CreateOrganizationPlanRequestV1,
+) -> Result<OrganizationPlanDto, String> {
+    require_main_window(&window)?;
+    db.create_organization_plan(request).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn list_organization_plans<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+) -> Result<Vec<OrganizationPlanDto>, String> {
+    require_main_window(&window)?;
+    db.list_organization_plans().map_err(command_error)
+}
+
+#[tauri::command]
+pub fn get_organization_plan<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    plan_id: String,
+) -> Result<OrganizationPlanDto, String> {
+    require_main_window(&window)?;
+    db.get_organization_plan(&plan_id).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn query_organization_plan_items<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: QueryOrganizationPlanItemsRequest,
+) -> Result<OrganizationPlanItemPageDto, String> {
+    require_main_window(&window)?;
+    db.query_organization_plan_items(request)
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub fn update_organization_plan_decisions<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: UpdateOrganizationPlanDecisionsRequest,
+) -> Result<OrganizationPlanDto, String> {
+    require_main_window(&window)?;
+    db.update_organization_plan_decisions(request)
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub fn refresh_organization_plan<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: OrganizationPlanRevisionRequest,
+) -> Result<OrganizationPlanDto, String> {
+    require_main_window(&window)?;
+    db.refresh_organization_plan(request).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn cancel_organization_plan<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: OrganizationPlanRevisionRequest,
+) -> Result<OrganizationPlanDto, String> {
+    require_main_window(&window)?;
+    db.cancel_organization_plan(request).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn delete_organization_plan<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: DeleteOrganizationPlanRequest,
+) -> Result<bool, String> {
+    require_main_window(&window)?;
+    db.delete_organization_plan(request).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn analyze_organization_plan_items<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: AnalyzeOrganizationPlanItemsRequest,
+) -> Result<AnalyzeOrganizationPlanItemsResult, String> {
+    require_main_window(&window)?;
+    db.analyze_organization_plan_items(request)
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub fn get_organization_plan_dry_run<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: OrganizationPlanSelectionRequest,
+) -> Result<OrganizationPlanDryRunDto, String> {
+    require_main_window(&window)?;
+    db.get_organization_plan_dry_run(request)
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub async fn execute_organization_plan<R: Runtime>(
+    window: WebviewWindow<R>,
+    app: AppHandle<R>,
+    db: State<'_, Database>,
+    cancel: State<'_, crate::file_ops::OperationCancellationToken>,
+    request: ExecuteOrganizationPlanRequest,
+) -> Result<ExecuteOrganizationPlanResultDto, String> {
+    require_main_window(&window)?;
+    let database = db.inner().clone();
+    let dispatch = database
+        .begin_organization_plan_execution(&request)
+        .map_err(command_error)?;
+    let move_request = crate::file_ops::ExecuteMovesByIdRequest {
+        operations: dispatch.selections.clone(),
+    };
+    let execution = crate::file_ops::execute_authoritative_selections(
+        app,
+        database.clone(),
+        cancel.inner().clone(),
+        move_request,
+        dispatch.operation_batch_id.clone(),
+    )
+    .await;
+    match execution {
+        Ok(result) => database
+            .finalize_organization_plan_execution(&request.plan_id, &dispatch, &result.logs)
+            .map_err(command_error),
+        Err(error) => {
+            let _ = database.fail_unjournaled_organization_execution(
+                &request.plan_id,
+                &dispatch,
+                &error,
+            );
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]

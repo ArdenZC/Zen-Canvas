@@ -622,6 +622,63 @@ pub(crate) fn enqueue_ai_jobs_for_entry(
     enqueue_ai_jobs_for_entry_with_scopes(transaction, entry_id, entry, &scopes)
 }
 
+pub(crate) fn enqueue_managed_ai_for_library_files(
+    transaction: &Transaction<'_>,
+    file_ids: &[String],
+) -> Result<usize, DbError> {
+    let mut queued = 0usize;
+    for file_id in file_ids {
+        let path = transaction
+            .query_row(
+                "SELECT path FROM files WHERE id = ?1 AND is_stale = 0",
+                params![file_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(path) = path else {
+            continue;
+        };
+        let normalized = normalize_path(&path);
+        let entry = transaction
+            .query_row(
+                "SELECT id, volume_id, platform_file_id, parent_platform_file_id, name,
+                        path, extension, is_directory, size, created_at_fs, modified_at_fs,
+                        file_attributes, is_hidden, is_system, source_provider, last_seen_at
+                 FROM global_entries WHERE path_normalized = ?1 AND is_stale = 0
+                 ORDER BY updated_at DESC, id LIMIT 1",
+                params![normalized],
+                |row| {
+                    let id = row.get::<_, String>(0)?;
+                    let input = GlobalEntryInput {
+                        volume_id: row.get(1)?,
+                        platform_file_id: row.get(2)?,
+                        parent_platform_file_id: row.get(3)?,
+                        name: row.get(4)?,
+                        path: row.get(5)?,
+                        extension: row.get(6)?,
+                        is_directory: row.get::<_, i64>(7)? != 0,
+                        size: row.get(8)?,
+                        created_at_fs: row.get(9)?,
+                        modified_at_fs: row.get(10)?,
+                        file_attributes: row.get(11)?,
+                        is_hidden: row.get::<_, i64>(12)? != 0,
+                        is_system: row.get::<_, i64>(13)? != 0,
+                        source_provider: row.get(14)?,
+                        last_seen_at: row.get(15)?,
+                    };
+                    Ok((id, input))
+                },
+            )
+            .optional()?;
+        let Some((entry_id, input)) = entry else {
+            continue;
+        };
+        enqueue_ai_jobs_for_entry(transaction, &entry_id, &input)?;
+        queued += 1;
+    }
+    Ok(queued)
+}
+
 pub(crate) fn enqueue_ai_jobs_for_entry_with_scopes(
     transaction: &Transaction<'_>,
     entry_id: &str,

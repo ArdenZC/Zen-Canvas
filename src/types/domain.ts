@@ -702,11 +702,39 @@ export interface FileQueryResponseV2 {
   queryFingerprint: string;
   snapshotRevision: number;
   files: FileLibrarySummary[];
-  totalCount: number;
+  totalCount: number | null;
+  countState: "exact" | "deferred";
+  countToken: string | null;
   nextCursor: string | null;
   hasMore: boolean;
   resultState: "complete" | "partial" | "empty" | "failed" | "snapshot_expired" | string;
   scopeHealth: LibraryScopeHealth;
+}
+
+export interface ResolveFileLibraryExactCountRequestV2 {
+  version: 2;
+  requestId: string;
+  countToken: string;
+}
+
+export interface ResolveFileLibraryExactCountResponseV2 {
+  version: 2;
+  requestId: string;
+  queryFingerprint: string;
+  snapshotRevision: number;
+  totalCount: number;
+  countState: "exact";
+}
+
+export interface FileLibraryFindingSummary {
+  id: string;
+  findingType: string;
+  severity: string;
+  detector: string;
+  state: string;
+  decision: string;
+  evidenceSummary: unknown;
+  analysisRevision: number;
 }
 
 export interface FileLibraryDetail {
@@ -741,6 +769,7 @@ export interface FileLibraryDetail {
   duplicateGroupId: string | null;
   duplicateGroupSize: number;
   tags: UserTagPreview[];
+  activeFindings: FileLibraryFindingSummary[];
   safeActions: string[];
   revision: number;
 }
@@ -755,7 +784,12 @@ export interface FileLibrarySelectionSummary {
   totalSize: number;
   typeCounts: LibraryTypeCount[];
   missingCount: number;
+  staleCount: number;
   excludedCount: number;
+  commonDirectory: string | null;
+  commonTags: UserTagPreview[];
+  commonTagIds: string[];
+  partialTagCommonalityCount: number;
   snapshotRevision: number;
   queryFingerprint: string | null;
 }
@@ -792,6 +826,7 @@ export interface UserTag {
   usageCount: number;
   createdAt: number;
   updatedAt: number;
+  revision: number;
 }
 
 export interface CreateUserTagRequest {
@@ -803,14 +838,14 @@ export interface UpdateUserTagRequest {
   id: string;
   displayName: string;
   colorToken: string;
-  expectedUpdatedAt?: number | null;
+  expectedRevision: number;
 }
 
 export interface DeleteUserTagRequest {
   id: string;
   confirm: boolean;
   expectedUsageCount: number;
-  expectedUpdatedAt?: number | null;
+  expectedRevision: number;
 }
 
 export interface LibrarySavedView {
@@ -821,6 +856,7 @@ export interface LibrarySavedView {
   position: number;
   createdAt: number;
   updatedAt: number;
+  revision: number;
   invalidReferences: string[];
 }
 
@@ -835,12 +871,124 @@ export interface UpdateLibrarySavedViewRequest {
   displayName: string;
   query: FileQuerySpecV2;
   position: number;
-  expectedUpdatedAt: number;
+  expectedRevision: number;
 }
 
 export interface DeleteLibrarySavedViewRequest {
   id: string;
-  expectedUpdatedAt: number;
+  expectedRevision: number;
+}
+
+export type OrganizationPlanStatus =
+  | "draft"
+  | "building"
+  | "ready"
+  | "stale"
+  | "executing"
+  | "partially_completed"
+  | "completed"
+  | "cancelled"
+  | "failed";
+
+export interface OrganizationPlan {
+  id: string;
+  title: string;
+  status: OrganizationPlanStatus;
+  sourceKind: "explicit" | "all_matching";
+  sourceQueryFingerprint: string | null;
+  sourceSnapshotRevision: number;
+  requestedCount: number;
+  materializedCount: number;
+  plannerVersion: number;
+  revision: number;
+  activeExecutionId: string | null;
+  activeOperationBatchId: string | null;
+  lastErrorCode: string | null;
+  lastErrorDetail: string | null;
+  createdAt: number;
+  updatedAt: number;
+  readyAt: number | null;
+  completedAt: number | null;
+}
+
+export interface OrganizationPlanItem {
+  id: string;
+  planId: string;
+  ordinal: number;
+  fileIdSnapshot: string;
+  sourcePathSnapshot: string;
+  sourceNameSnapshot: string;
+  sourceSizeSnapshot: number;
+  sourceMtimeSnapshot: number;
+  sourceIsDirSnapshot: boolean;
+  proposalFingerprint: string;
+  proposalKind: "move" | "rename" | "move_rename" | "keep" | "blocked";
+  proposedTargetDirectory: string;
+  proposedName: string;
+  proposedTargetPath: string;
+  decision: "undecided" | "accepted" | "kept" | "edited";
+  editedName: string | null;
+  validity: "ready" | "needs_analysis" | "needs_review" | "blocked" | "stale" | "executing" | "executed" | "failed" | "skipped";
+  confidence: number;
+  riskLevel: string;
+  requiresConfirmation: boolean;
+  blockingCode: string | null;
+  blockingDetail: string | null;
+  authoritativePreviewId: string | null;
+  operationLogId: string | null;
+  executionId: string | null;
+  revision: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface OrganizationPlanItemPage {
+  planId: string;
+  planRevision: number;
+  items: OrganizationPlanItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface OrganizationDryRunItem {
+  itemId: string;
+  operationKind: string;
+  from: string;
+  to: string;
+  editedFilename: string | null;
+  parentDirectoryToCreate: string | null;
+  collision: boolean;
+  crossVolume: boolean;
+  riskLevel: string;
+  requiresConfirmation: boolean;
+  sourceHealth: string;
+  authoritativePreviewId: string | null;
+  executable: boolean;
+  blockingCode: string | null;
+}
+
+export interface OrganizationPlanDryRun {
+  planId: string;
+  planRevision: number;
+  selectedCount: number;
+  executableCount: number;
+  blockedCount: number;
+  staleCount: number;
+  totalBytes: number;
+  operationKinds: string[];
+  items: OrganizationDryRunItem[];
+  executionBatchLimit: number;
+  dryRunFingerprint: string;
+}
+
+export interface ExecuteOrganizationPlanResult {
+  plan: OrganizationPlan;
+  executionId: string;
+  operationBatchId: string;
+  attemptedCount: number;
+  succeededCount: number;
+  failedCount: number;
+  skippedCount: number;
 }
 
 export interface AppSettings {

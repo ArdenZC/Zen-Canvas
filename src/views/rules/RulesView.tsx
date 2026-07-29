@@ -30,8 +30,8 @@ export function RulesView() {
   const { t, setView } = useChromeContext();
   const { rules, saveRule, toggleRuleEnabled, deleteRule } = useRulesContext();
   const scope = useFileLibraryStore((state) => state.scope);
-  const needsReview = useFileLibraryStore((state) => state.organizeQueueTotal);
-  const isLoadingReview = useFileLibraryStore((state) => state.isLoadingOrganizeQueue);
+  const needsReview = useFileLibraryStore((state) => state.stats.needsConfirmation);
+  const isLoadingReview = false;
   const userRules = useMemo(() => rules.filter((rule) => rule.source === "user"), [rules]);
   const enabledUserRules = useMemo(() => userRules.filter((rule) => rule.enabled), [userRules]);
   const overview = useMemo(() => automationOverview(userRules, needsReview), [needsReview, userRules]);
@@ -209,7 +209,7 @@ export function RulesView() {
         return;
       }
       await Promise.all([
-        useFileLibraryStore.getState().loadOrganizeQueue(scope),
+        useFileLibraryStore.getState().loadStats(scope),
         useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery)
       ]);
       if (!runResultIsCurrent(context)) {

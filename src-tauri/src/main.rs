@@ -42,6 +42,7 @@ fn main() {
             zen_canvas_tauri::scanner::recover_scan_state(&db).map_err(io::Error::other)?;
             zen_canvas_tauri::file_ops::reconcile_pending_operation_journal(&db)
                 .map_err(io::Error::other)?;
+            db.recover_organization_plans().map_err(io::Error::other)?;
             zen_canvas_tauri::storage_analyzer::reconcile_pending_cleanup_journal(&db)
                 .map_err(io::Error::other)?;
             app.manage(db.clone());
@@ -87,6 +88,9 @@ fn main() {
             };
             db.prune_operation_logs(app_settings.restore_retention_days)
                 .map_err(io::Error::other)?;
+            if let Err(error) = db.prune_organization_plans() {
+                eprintln!("Organization plan retention prune skipped: {error}");
+            }
             if let Err(error) = zen_canvas_tauri::app_control::setup_global_search_shortcut(
                 app,
                 &app_settings.search_hotkey,
@@ -139,6 +143,7 @@ fn main() {
             zen_canvas_tauri::global_index::commands::get_ai_management_status,
             zen_canvas_tauri::db::get_paged_files,
             zen_canvas_tauri::db::query_file_library_v2,
+            zen_canvas_tauri::db::resolve_file_library_exact_count_v2,
             zen_canvas_tauri::db::get_file_library_detail,
             zen_canvas_tauri::db::get_file_library_selection_summary,
             zen_canvas_tauri::db::reveal_file_library_entry,
@@ -151,6 +156,17 @@ fn main() {
             zen_canvas_tauri::db::create_library_saved_view,
             zen_canvas_tauri::db::update_library_saved_view,
             zen_canvas_tauri::db::delete_library_saved_view,
+            zen_canvas_tauri::db::create_organization_plan,
+            zen_canvas_tauri::db::list_organization_plans,
+            zen_canvas_tauri::db::get_organization_plan,
+            zen_canvas_tauri::db::query_organization_plan_items,
+            zen_canvas_tauri::db::update_organization_plan_decisions,
+            zen_canvas_tauri::db::refresh_organization_plan,
+            zen_canvas_tauri::db::cancel_organization_plan,
+            zen_canvas_tauri::db::delete_organization_plan,
+            zen_canvas_tauri::db::analyze_organization_plan_items,
+            zen_canvas_tauri::db::get_organization_plan_dry_run,
+            zen_canvas_tauri::db::execute_organization_plan,
             zen_canvas_tauri::db::get_operation_previews_for_scope,
             zen_canvas_tauri::db::get_stats_summary,
             zen_canvas_tauri::db::get_operation_logs,

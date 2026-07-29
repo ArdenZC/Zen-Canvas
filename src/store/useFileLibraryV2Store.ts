@@ -127,13 +127,17 @@ export const useFileLibraryQueryStore = create<QueryState>((set) => ({
 
 interface ResultState {
   files: FileLibrarySummary[];
-  totalCount: number;
+  totalCount: number | null;
+  countState: "exact" | "deferred";
+  countToken: string | null;
+  isCountLoading: boolean;
   nextCursor: string | null;
   hasMore: boolean;
   resultState: string;
   isLoading: boolean;
   error: string | null;
   requestEpoch: number;
+  activeQueryKey: string | null;
   loadFirstPage: (spec?: FileQuerySpecV2) => Promise<void>;
   loadNextPage: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -163,18 +167,23 @@ async function executeLibraryQuery(
 export const useFileLibraryResultStore = create<ResultState>((set, get) => ({
   files: [],
   totalCount: 0,
+  countState: "exact",
+  countToken: null,
+  isCountLoading: false,
   nextCursor: null,
   hasMore: false,
   resultState: "empty",
   isLoading: false,
   error: null,
   requestEpoch: 0,
+  activeQueryKey: null,
   loadFirstPage: async (spec) => {
     const queryStore = useFileLibraryQueryStore.getState();
     const nextSpec = spec ?? queryStore.spec;
-    if (spec) queryStore.setSpec(nextSpec);
+    const activeQueryKey = JSON.stringify(nextSpec);
+    if (get().isLoading && get().activeQueryKey === activeQueryKey) return;
     const epoch = get().requestEpoch + 1;
-    set({ isLoading: true, error: null, requestEpoch: epoch, files: [], nextCursor: null, hasMore: false, totalCount: 0 });
+    set({ isLoading: true, error: null, requestEpoch: epoch, activeQueryKey, files: [], nextCursor: null, hasMore: false, totalCount: 0, countState: "exact", countToken: null, isCountLoading: false });
     try {
       const response = await executeLibraryQuery(nextSpec, FILE_LIBRARY_V2_PAGE_SIZE, null, epoch);
       if (epoch !== get().requestEpoch) return;
@@ -182,22 +191,53 @@ export const useFileLibraryResultStore = create<ResultState>((set, get) => ({
       set({
         files: response.files,
         totalCount: response.totalCount,
+        countState: response.countState,
+        countToken: response.countToken,
+        isCountLoading: response.countState === "deferred",
         nextCursor: response.nextCursor,
         hasMore: response.hasMore,
         resultState: response.resultState,
         isLoading: false,
+        activeQueryKey: null,
         error: response.resultState === "snapshot_expired" ? "library_snapshot_expired" : null
       });
+      if (response.countState === "deferred" && response.countToken) {
+        void tauriApi.resolveFileLibraryExactCountV2({
+          version: 2,
+          requestId: nextRequestId(epoch),
+          countToken: response.countToken
+        }).then((count) => {
+          if (epoch !== get().requestEpoch) return;
+          const query = useFileLibraryQueryStore.getState();
+          if (count.queryFingerprint !== query.fingerprint || count.snapshotRevision !== query.snapshotRevision) return;
+          set({ totalCount: count.totalCount, countState: "exact", countToken: null, isCountLoading: false });
+        }).catch((error) => {
+          if (epoch !== get().requestEpoch) return;
+          const message = readableError(error);
+          if (message.includes("library_snapshot_expired")) {
+            set({ resultState: "snapshot_expired", error: "library_snapshot_expired", isCountLoading: false });
+            if (useFileLibrarySelectionStore.getState().selection?.kind === "all_matching") {
+              useFileLibrarySelectionStore.getState().clear();
+            }
+          } else {
+            set({ error: message, isCountLoading: false });
+          }
+        });
+      }
     } catch (error) {
       if (epoch !== get().requestEpoch) return;
-      set({ isLoading: false, error: readableError(error), resultState: "failed" });
+      const message = readableError(error);
+      set({ isLoading: false, activeQueryKey: null, error: message, resultState: message.includes("library_snapshot_expired") ? "snapshot_expired" : "failed" });
+      if (message.includes("library_snapshot_expired") && useFileLibrarySelectionStore.getState().selection?.kind === "all_matching") {
+        useFileLibrarySelectionStore.getState().clear();
+      }
     }
   },
   loadNextPage: async () => {
     const cursor = get().nextCursor;
     if (get().isLoading || !get().hasMore || !cursor) return;
     const epoch = get().requestEpoch;
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, activeQueryKey: null, error: null });
     try {
       const response = await executeLibraryQuery(
         useFileLibraryQueryStore.getState().spec,
@@ -208,26 +248,41 @@ export const useFileLibraryResultStore = create<ResultState>((set, get) => ({
       if (epoch !== get().requestEpoch) return;
       useFileLibraryQueryStore.getState().applyResponse(response);
       if (response.resultState === "snapshot_expired") {
-        set({ isLoading: false, error: "library_snapshot_expired", resultState: response.resultState });
+        set({ isLoading: false, activeQueryKey: null, error: "library_snapshot_expired", resultState: response.resultState });
+        if (useFileLibrarySelectionStore.getState().selection?.kind === "all_matching") {
+          useFileLibrarySelectionStore.getState().clear();
+        }
         return;
       }
       set((state) => ({
         files: [...state.files, ...response.files],
-        totalCount: response.totalCount,
+        totalCount: response.totalCount ?? state.totalCount,
+        countState: state.countState === "exact" && state.totalCount !== null ? "exact" : response.countState,
+        countToken: state.countState === "exact" ? null : response.countToken,
         nextCursor: response.nextCursor,
         hasMore: response.hasMore,
         resultState: response.resultState,
         isLoading: false,
+        activeQueryKey: null,
         error: null
       }));
     } catch (error) {
       if (epoch !== get().requestEpoch) return;
-      set({ isLoading: false, error: readableError(error), resultState: "failed" });
+      const message = readableError(error);
+      set({
+        isLoading: false,
+        activeQueryKey: null,
+        error: message,
+        resultState: message.includes("library_snapshot_expired") ? "snapshot_expired" : "failed"
+      });
+      if (message.includes("library_snapshot_expired") && useFileLibrarySelectionStore.getState().selection?.kind === "all_matching") {
+        useFileLibrarySelectionStore.getState().clear();
+      }
     }
   },
   refresh: async () => get().loadFirstPage(),
   clear: () => {
-    set({ files: [], totalCount: 0, nextCursor: null, hasMore: false, resultState: "empty", error: null });
+    set({ files: [], totalCount: 0, countState: "exact", countToken: null, isCountLoading: false, nextCursor: null, hasMore: false, resultState: "empty", error: null, activeQueryKey: null });
     useFileLibraryQueryStore.getState().clearSnapshot();
   }
 }));

@@ -215,7 +215,9 @@ pub struct FileQueryResponseV2 {
     pub query_fingerprint: String,
     pub snapshot_revision: i64,
     pub files: Vec<FileLibrarySummaryDto>,
-    pub total_count: i64,
+    pub total_count: Option<i64>,
+    pub count_state: String,
+    pub count_token: Option<String>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
     pub result_state: String,
@@ -310,8 +312,42 @@ pub struct FileLibraryDetailDto {
     pub duplicate_group_id: Option<String>,
     pub duplicate_group_size: i64,
     pub tags: Vec<UserTagPreviewDto>,
+    pub active_findings: Vec<FileLibraryFindingSummaryDto>,
     pub safe_actions: Vec<String>,
     pub revision: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveFileLibraryExactCountRequestV2 {
+    pub version: i32,
+    pub request_id: String,
+    pub count_token: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveFileLibraryExactCountResponseV2 {
+    pub version: i32,
+    pub request_id: String,
+    pub query_fingerprint: String,
+    pub snapshot_revision: i64,
+    pub total_count: i64,
+    pub count_state: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileLibraryFindingSummaryDto {
+    pub id: String,
+    pub finding_type: String,
+    pub severity: String,
+    pub detector: String,
+    pub state: String,
+    pub decision: String,
+    pub evidence_summary: serde_json::Value,
+    pub analysis_revision: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -328,7 +364,12 @@ pub struct FileLibrarySelectionSummaryDto {
     pub total_size: i64,
     pub type_counts: Vec<LibraryTypeCountDto>,
     pub missing_count: i64,
+    pub stale_count: i64,
     pub excluded_count: i64,
+    pub common_directory: Option<String>,
+    pub common_tags: Vec<UserTagPreviewDto>,
+    pub common_tag_ids: Vec<String>,
+    pub partial_tag_commonality_count: i64,
     pub snapshot_revision: i64,
     pub query_fingerprint: Option<String>,
 }
@@ -387,6 +428,7 @@ pub struct UserTagDto {
     pub usage_count: i64,
     pub created_at: i64,
     pub updated_at: i64,
+    pub revision: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -405,7 +447,7 @@ pub struct UpdateUserTagRequest {
     pub id: String,
     pub display_name: String,
     pub color_token: String,
-    pub expected_updated_at: Option<i64>,
+    pub expected_revision: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -415,7 +457,7 @@ pub struct DeleteUserTagRequest {
     pub id: String,
     pub confirm: bool,
     pub expected_usage_count: i64,
-    pub expected_updated_at: Option<i64>,
+    pub expected_revision: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -428,6 +470,7 @@ pub struct LibrarySavedViewDto {
     pub position: i64,
     pub created_at: i64,
     pub updated_at: i64,
+    pub revision: i64,
     pub invalid_references: Vec<String>,
 }
 
@@ -449,7 +492,7 @@ pub struct UpdateLibrarySavedViewRequest {
     pub display_name: String,
     pub query: FileQuerySpecV2,
     pub position: i64,
-    pub expected_updated_at: i64,
+    pub expected_revision: i64,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -457,7 +500,7 @@ pub struct UpdateLibrarySavedViewRequest {
 #[serde(rename_all = "camelCase")]
 pub struct DeleteLibrarySavedViewRequest {
     pub id: String,
-    pub expected_updated_at: i64,
+    pub expected_revision: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -678,7 +721,9 @@ impl Database {
                 query_fingerprint: fingerprint,
                 snapshot_revision: revision,
                 files: Vec::new(),
-                total_count: 0,
+                total_count: None,
+                count_state: "deferred".to_string(),
+                count_token: None,
                 next_cursor: None,
                 has_more: false,
                 result_state: "snapshot_expired".to_string(),
@@ -694,10 +739,14 @@ impl Database {
         }
 
         let tag_invalid = query_has_missing_tags(&tx, &canonical.spec.filters)?;
-        let total_count = if let Some(cursor) = cursor.as_ref() {
-            cursor.total_count
+        let defer_count = cursor.as_ref().is_some_and(|cursor| cursor.total_count < 0)
+            || (cursor.is_none()
+                && query_supports_deferred_count(&canonical.spec)
+                && active_library_rows_exceed_deferred_threshold(&tx)?);
+        let total_count = if defer_count {
+            None
         } else if let Some(cached) = self.cached_library_count(revision, &count_key) {
-            cached
+            Some(cached)
         } else {
             let (count_sql, count_params) =
                 build_library_count_query(&tx, &canonical, &scope, tag_invalid)?;
@@ -706,8 +755,11 @@ impl Database {
                     row.get(0)
                 })?;
             self.cache_library_count(revision, count_key, total_count);
-            total_count
+            Some(total_count)
         };
+        if let Some(cursor) = cursor.as_ref() {
+            validate_cursor_authority(&tx, &canonical, &scope, cursor, tag_invalid, total_count)?;
+        }
         let parts = build_query_parts(&tx, &canonical, &scope, cursor.as_ref(), tag_invalid, true)?;
         let row_sql = format!(
             "{} SELECT f.id, f.name, f.path, f.extension, f.size, f.mtime, f.ctime, f.is_dir, f.file_type, f.purpose, f.lifecycle, f.risk_level, f.confidence, (EXISTS (SELECT 1 FROM active_duplicate_membership AS adm WHERE adm.file_id = f.id)) AS is_duplicate, f.requires_confirmation, f.is_stale, {}, (SELECT COALESCE(json_group_array(json_object('id', t.id, 'displayName', t.display_name, 'colorToken', t.color_token)), '[]') FROM (SELECT t.id, t.display_name, t.color_token FROM file_user_tags AS fut JOIN user_tags AS t ON t.id = fut.tag_id WHERE fut.file_id = f.id ORDER BY t.normalized_name COLLATE NOCASE, t.id LIMIT {}) AS t), (SELECT COUNT(*) FROM file_user_tags AS fut WHERE fut.file_id = f.id) FROM {} WHERE {} ORDER BY {} LIMIT ?",
@@ -735,7 +787,7 @@ impl Database {
                     summary,
                     &canonical,
                     revision,
-                    total_count,
+                    total_count.unwrap_or(-1),
                 ))
             })
         });
@@ -753,6 +805,21 @@ impl Database {
             snapshot_revision: revision,
             files: summaries,
             total_count,
+            count_state: if total_count.is_some() {
+                "exact".to_string()
+            } else {
+                "deferred".to_string()
+            },
+            count_token: total_count.is_none().then(|| {
+                encode_count_token(&LibraryCountToken {
+                    version: LIBRARY_QUERY_VERSION,
+                    query: canonical.spec.clone(),
+                    fingerprint: canonical.fingerprint.clone(),
+                    membership_fingerprint: membership_fingerprint(&canonical.spec)
+                        .unwrap_or_default(),
+                    revision,
+                })
+            }),
             next_cursor,
             has_more,
             result_state: result_state.to_string(),
@@ -771,6 +838,65 @@ impl Database {
         Ok(response)
     }
 
+    pub fn resolve_file_library_exact_count_v2(
+        &self,
+        request: ResolveFileLibraryExactCountRequestV2,
+    ) -> Result<ResolveFileLibraryExactCountResponseV2, DbError> {
+        if request.version != LIBRARY_QUERY_VERSION
+            || request.request_id.trim().is_empty()
+            || request.request_id.chars().count() > 128
+            || request.count_token.len() > 64_000
+        {
+            return Err(DbError::Validation(
+                "library_count_request_invalid".to_string(),
+            ));
+        }
+        let token = decode_count_token(&request.count_token)?;
+        if token.version != LIBRARY_QUERY_VERSION {
+            return Err(DbError::Validation(
+                "library_count_token_invalid".to_string(),
+            ));
+        }
+        let (spec, _json, fingerprint) = canonicalize_file_query_spec(token.query)?;
+        let membership = membership_fingerprint(&spec)?;
+        if fingerprint != token.fingerprint || membership != token.membership_fingerprint {
+            return Err(DbError::Validation(
+                "library_count_token_binding_invalid".to_string(),
+            ));
+        }
+        let canonical = CanonicalQuery { spec, fingerprint };
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        let revision = current_library_revision(&tx)?;
+        if revision != token.revision {
+            return Err(DbError::Validation("library_snapshot_expired".to_string()));
+        }
+        let scope = resolve_scope(&tx, &canonical.spec.scope)?;
+        if scope.health.state != "healthy" || query_has_missing_tags(&tx, &canonical.spec.filters)?
+        {
+            return Err(DbError::Validation(
+                "library_count_scope_unavailable".to_string(),
+            ));
+        }
+        let (sql, sql_params) = build_library_count_query(&tx, &canonical, &scope, false)?;
+        let total_count =
+            tx.query_row(&sql, params_from_iter(sql_params.iter()), |row| row.get(0))?;
+        self.cache_library_count(
+            revision,
+            membership_fingerprint(&canonical.spec)?,
+            total_count,
+        );
+        tx.commit()?;
+        Ok(ResolveFileLibraryExactCountResponseV2 {
+            version: LIBRARY_QUERY_VERSION,
+            request_id: request.request_id,
+            query_fingerprint: canonical.fingerprint,
+            snapshot_revision: revision,
+            total_count,
+            count_state: "exact".to_string(),
+        })
+    }
+
     pub fn get_file_library_detail(&self, file_id: &str) -> Result<FileLibraryDetailDto, DbError> {
         let file_id = validate_file_id(file_id)?;
         let mut conn = self.conn()?;
@@ -787,6 +913,7 @@ impl Database {
             return Err(DbError::Validation("library_file_not_found".to_string()));
         };
         detail.tags = load_file_tags(&tx, &file_id)?;
+        detail.active_findings = load_active_finding_summaries(&tx, &file_id)?;
         // Resolve the root with a bounded Rust loop over the small root ledger.
         let root = find_root_for_path(&tx, &detail.path)?;
         detail.scan_root_id = root.as_ref().map(|(id, _, _)| id.clone());
@@ -853,13 +980,59 @@ impl Database {
             })?;
             type_rows.collect::<Result<Vec<_>, _>>()?
         };
+        let (minimum_path, maximum_path): (Option<String>, Option<String>) = tx.query_row(
+            &format!("SELECT MIN(f.path), MAX(f.path) FROM files AS f WHERE {where_sql}"),
+            params_from_iter(params.iter()),
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let common_directory = minimum_path
+            .zip(maximum_path)
+            .and_then(|(minimum, maximum)| common_directory_for_paths(&minimum, &maximum));
+        let tag_sql = format!(
+            "SELECT t.id, t.display_name, t.color_token, COUNT(*) \
+             FROM files AS f JOIN file_user_tags AS fut ON fut.file_id = f.id \
+             JOIN user_tags AS t ON t.id = fut.tag_id WHERE {where_sql} \
+             GROUP BY t.id, t.display_name, t.color_token \
+             ORDER BY t.normalized_name COLLATE NOCASE, t.id"
+        );
+        let tag_commonality = {
+            let mut stmt = tx.prepare(&tag_sql)?;
+            let rows = stmt.query_map(params_from_iter(params.iter()), |row| {
+                Ok((
+                    UserTagPreviewDto {
+                        id: row.get(0)?,
+                        display_name: row.get(1)?,
+                        color_token: row.get(2)?,
+                    },
+                    row.get::<_, i64>(3)?,
+                ))
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        let common_tags = tag_commonality
+            .iter()
+            .filter(|(_, tagged_count)| *tagged_count == count)
+            .map(|(tag, _)| tag.clone())
+            .collect::<Vec<_>>();
+        let common_tag_ids = common_tags.iter().map(|tag| tag.id.clone()).collect();
+        let partial_tag_commonality_count = tag_commonality
+            .iter()
+            .filter(|(_, tagged_count)| *tagged_count > 0 && *tagged_count < count)
+            .count() as i64;
+        let stale_count = selection_stale_count(&tx, &selection)?;
+        clear_temp_selection_ids(&tx)?;
         tx.commit()?;
         Ok(FileLibrarySelectionSummaryDto {
             count,
             total_size,
             type_counts,
             missing_count,
+            stale_count,
             excluded_count,
+            common_directory,
+            common_tags,
+            common_tag_ids,
+            partial_tag_commonality_count,
             snapshot_revision: current_revision,
             query_fingerprint: fingerprint,
         })
@@ -868,7 +1041,7 @@ impl Database {
     pub fn list_user_tags(&self) -> Result<Vec<UserTagDto>, DbError> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
-            "SELECT t.id, t.display_name, t.color_token, (SELECT COUNT(*) FROM file_user_tags AS fut WHERE fut.tag_id = t.id), t.created_at, t.updated_at FROM user_tags AS t ORDER BY t.normalized_name COLLATE NOCASE, t.id",
+            "SELECT t.id, t.display_name, t.color_token, (SELECT COUNT(*) FROM file_user_tags AS fut WHERE fut.tag_id = t.id), t.created_at, t.updated_at, t.revision FROM user_tags AS t ORDER BY t.normalized_name COLLATE NOCASE, t.id",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(UserTagDto {
@@ -878,6 +1051,7 @@ impl Database {
                 usage_count: row.get(3)?,
                 created_at: row.get(4)?,
                 updated_at: row.get(5)?,
+                revision: row.get(6)?,
             })
         })?;
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
@@ -905,6 +1079,7 @@ impl Database {
             usage_count: 0,
             created_at: now,
             updated_at: now,
+            revision: 1,
         })
     }
 
@@ -917,8 +1092,8 @@ impl Database {
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
         let updated = tx.execute(
-            "UPDATE user_tags SET display_name = ?1, normalized_name = ?2, color_token = ?3, updated_at = ?4 WHERE id = ?5 AND (?6 IS NULL OR updated_at = ?6)",
-            params![display_name, normalized_name, color, now, id, request.expected_updated_at],
+            "UPDATE user_tags SET display_name = ?1, normalized_name = ?2, color_token = ?3, updated_at = ?4, revision = revision + 1 WHERE id = ?5 AND revision = ?6",
+            params![display_name, normalized_name, color, now, id, request.expected_revision],
         ).map_err(map_tag_write_error)?;
         if updated != 1 {
             return Err(DbError::Validation(
@@ -939,6 +1114,7 @@ impl Database {
             usage_count,
             created_at,
             updated_at: now,
+            revision: request.expected_revision + 1,
         })
     }
 
@@ -951,16 +1127,12 @@ impl Database {
         }
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
-        let (usage, updated_at): (i64, i64) = tx.query_row(
-            "SELECT (SELECT COUNT(*) FROM file_user_tags WHERE tag_id = t.id), t.updated_at FROM user_tags AS t WHERE t.id = ?1",
+        let (usage, revision): (i64, i64) = tx.query_row(
+            "SELECT (SELECT COUNT(*) FROM file_user_tags WHERE tag_id = t.id), t.revision FROM user_tags AS t WHERE t.id = ?1",
             params![id],
             |row| Ok((row.get(0)?, row.get(1)?)),
         ).optional()?.ok_or_else(|| DbError::Validation("library_tag_not_found".to_string()))?;
-        if usage != request.expected_usage_count
-            || request
-                .expected_updated_at
-                .is_some_and(|expected| expected != updated_at)
-        {
+        if usage != request.expected_usage_count || revision != request.expected_revision {
             return Err(DbError::Validation("library_tag_stale_usage".to_string()));
         }
         tx.execute("DELETE FROM user_tags WHERE id = ?1", params![id])?;
@@ -1036,6 +1208,7 @@ impl Database {
         } else {
             current_revision
         };
+        clear_temp_selection_ids(&tx)?;
         tx.commit()?;
         let _ = fingerprint;
         Ok(MutateFileUserTagsResultDto {
@@ -1050,7 +1223,7 @@ impl Database {
     pub fn list_library_saved_views(&self) -> Result<Vec<LibrarySavedViewDto>, DbError> {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
-            "SELECT id, display_name, query_spec_json, position, created_at, updated_at FROM library_saved_views ORDER BY position, updated_at DESC, id",
+            "SELECT id, display_name, query_spec_json, position, created_at, updated_at, revision FROM library_saved_views ORDER BY position, updated_at DESC, id",
         )?;
         let rows = stmt.query_map([], |row| saved_view_from_row(&conn, row))?;
         rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
@@ -1081,6 +1254,7 @@ impl Database {
             position,
             created_at: now,
             updated_at: now,
+            revision: 1,
             invalid_references: Vec::new(),
         })
     }
@@ -1097,8 +1271,8 @@ impl Database {
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
         let updated = tx.execute(
-            "UPDATE library_saved_views SET display_name = ?1, normalized_name = ?2, query_spec_version = 2, query_spec_json = ?3, position = ?4, updated_at = ?5 WHERE id = ?6 AND updated_at = ?7",
-            params![display_name, normalized_name, json, request.position.max(0), now, id, request.expected_updated_at],
+            "UPDATE library_saved_views SET display_name = ?1, normalized_name = ?2, query_spec_version = 2, query_spec_json = ?3, position = ?4, updated_at = ?5, revision = revision + 1 WHERE id = ?6 AND revision = ?7",
+            params![display_name, normalized_name, json, request.position.max(0), now, id, request.expected_revision],
         ).map_err(map_saved_view_write_error)?;
         if updated != 1 {
             return Err(DbError::Validation(
@@ -1119,6 +1293,7 @@ impl Database {
             position: request.position.max(0),
             created_at,
             updated_at: now,
+            revision: request.expected_revision + 1,
             invalid_references: Vec::new(),
         })
     }
@@ -1130,8 +1305,8 @@ impl Database {
         let id = validate_file_id(&request.id)?;
         let conn = self.conn()?;
         let changed = conn.execute(
-            "DELETE FROM library_saved_views WHERE id = ?1 AND updated_at = ?2",
-            params![id, request.expected_updated_at],
+            "DELETE FROM library_saved_views WHERE id = ?1 AND revision = ?2",
+            params![id, request.expected_revision],
         )?;
         if changed != 1 {
             return Err(DbError::Validation(
@@ -1168,7 +1343,7 @@ fn validate_query_request(request: &FileQueryRequestV2) -> Result<(), DbError> {
     Ok(())
 }
 
-fn current_library_revision(conn: &Connection) -> Result<i64, DbError> {
+pub(crate) fn current_library_revision(conn: &Connection) -> Result<i64, DbError> {
     conn.query_row(
         "SELECT revision FROM library_query_state WHERE singleton_id = 1",
         [],
@@ -1712,7 +1887,7 @@ fn validate_cursor_binding(
         || cursor
             .last_rank_bits
             .is_some_and(|bits| !f64::from_bits(bits).is_finite())
-        || cursor.total_count < 0
+        || cursor.total_count < -1
     {
         return Err(DbError::Validation(
             "library_cursor_binding_invalid".to_string(),
@@ -1761,6 +1936,77 @@ fn validate_cursor_binding(
     Ok(())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LibraryCountToken {
+    version: i32,
+    query: FileQuerySpecV2,
+    fingerprint: String,
+    membership_fingerprint: String,
+    revision: i64,
+}
+
+fn validate_cursor_authority(
+    conn: &Connection,
+    canonical: &CanonicalQuery,
+    scope: &ResolvedScope,
+    cursor: &LibraryCursor,
+    tag_invalid: bool,
+    authoritative_total_count: Option<i64>,
+) -> Result<(), DbError> {
+    if cursor.total_count >= 0 && Some(cursor.total_count) != authoritative_total_count {
+        return Err(DbError::Validation(
+            "library_cursor_authority_mismatch".to_string(),
+        ));
+    }
+    let parts = build_query_parts(conn, canonical, scope, None, tag_invalid, true)?;
+    let sql = format!(
+        "{} SELECT f.mtime, f.ctime, f.name, f.size, f.confidence, {} \
+         FROM {} WHERE {} AND f.id = ? LIMIT 1",
+        parts.ctes,
+        if canonical.spec.text.is_some() {
+            "fm.rank"
+        } else {
+            "NULL"
+        },
+        parts.from,
+        parts.where_clause,
+    );
+    let mut query_params = parts.params;
+    query_params.push(SqlValue::Text(cursor.file_id.clone()));
+    let tuple = conn
+        .query_row(&sql, params_from_iter(query_params.iter()), |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, f64>(4)?,
+                row.get::<_, Option<f64>>(5)?,
+            ))
+        })
+        .optional()?
+        .ok_or_else(|| DbError::Validation("library_cursor_anchor_missing".to_string()))?;
+    let valid = match canonical.spec.sort.kind {
+        LibrarySortKind::Modified => cursor.last_i64 == Some(tuple.0),
+        LibrarySortKind::Created => cursor.last_i64 == Some(tuple.1),
+        LibrarySortKind::Name => cursor.last_text.as_deref() == Some(tuple.2.as_str()),
+        LibrarySortKind::Size => cursor.last_i64 == Some(tuple.3),
+        LibrarySortKind::Confidence => cursor.last_f64_bits == Some(tuple.4.to_bits()),
+        LibrarySortKind::Relevance => {
+            cursor.last_rank_bits == tuple.5.map(f64::to_bits)
+                && cursor.last_mtime == Some(tuple.0)
+                && cursor.last_text.as_deref() == Some(tuple.2.as_str())
+        }
+    };
+    if !valid {
+        return Err(DbError::Validation(
+            "library_cursor_tuple_mismatch".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn encode_cursor(cursor: &LibraryCursor) -> String {
     let bytes = serde_json::to_vec(cursor).unwrap_or_default();
     let mut encoded = String::with_capacity(bytes.len() * 2);
@@ -1768,6 +2014,71 @@ fn encode_cursor(cursor: &LibraryCursor) -> String {
         encoded.push_str(&format!("{byte:02x}"));
     }
     encoded
+}
+
+fn query_supports_deferred_count(spec: &FileQuerySpecV2) -> bool {
+    let filters = &spec.filters;
+    let dimensions = [
+        !filters.file_types.is_empty(),
+        !filters.purposes.is_empty(),
+        !filters.lifecycles.is_empty(),
+        !filters.risks.is_empty(),
+        filters.size_min.is_some() || filters.size_max.is_some(),
+        filters.modified_from.is_some() || filters.modified_to.is_some(),
+        filters.created_from.is_some() || filters.created_to.is_some(),
+        !matches!(&filters.duplicate, LibraryMatchMode::Any),
+        !matches!(&filters.review, LibraryMatchMode::Any),
+    ]
+    .into_iter()
+    .filter(|active| *active)
+    .count();
+    spec.text.is_some()
+        || !filters.tags_all_of.is_empty()
+        || !filters.tags_any_of.is_empty()
+        || !filters.tags_none_of.is_empty()
+        || dimensions >= 2
+}
+
+fn active_library_rows_exceed_deferred_threshold(conn: &Connection) -> Result<bool, DbError> {
+    Ok(conn
+        .query_row(
+            "SELECT 1 FROM files INDEXED BY idx_library_files_modified \
+             WHERE is_stale = 0 LIMIT 1 OFFSET 250000",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?
+        .is_some())
+}
+
+fn encode_count_token(token: &LibraryCountToken) -> String {
+    let bytes = serde_json::to_vec(token).unwrap_or_default();
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write;
+        let _ = write!(encoded, "{byte:02x}");
+    }
+    encoded
+}
+
+fn decode_count_token(value: &str) -> Result<LibraryCountToken, DbError> {
+    if value.is_empty()
+        || value.len() % 2 != 0
+        || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(DbError::Validation(
+            "library_count_token_invalid".to_string(),
+        ));
+    }
+    let bytes = (0..value.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&value[index..index + 2], 16)
+                .map_err(|_| DbError::Validation("library_count_token_invalid".to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    serde_json::from_slice(&bytes)
+        .map_err(|_| DbError::Validation("library_count_token_invalid".to_string()))
 }
 
 fn decode_cursor(value: &str) -> Result<LibraryCursor, DbError> {
@@ -1822,6 +2133,7 @@ fn detail_from_row(row: &Row<'_>) -> rusqlite::Result<FileLibraryDetailDto> {
         duplicate_group_id: None,
         duplicate_group_size: 0,
         tags: Vec::new(),
+        active_findings: Vec::new(),
         safe_actions: if row.get::<_, i64>(22)? == 0 {
             vec!["reveal".to_string()]
         } else {
@@ -1838,6 +2150,40 @@ fn load_file_tags(conn: &Connection, file_id: &str) -> Result<Vec<UserTagPreview
             id: row.get(0)?,
             display_name: row.get(1)?,
             color_token: row.get(2)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
+}
+
+fn load_active_finding_summaries(
+    conn: &Connection,
+    file_id: &str,
+) -> Result<Vec<FileLibraryFindingSummaryDto>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT af.id, af.category, af.tier, af.detector_id, af.status, \
+                COALESCE(afd.decision, 'open'), af.evidence_summary_json, af.revision \
+         FROM analysis_findings AS af \
+         LEFT JOIN analysis_finding_decisions AS afd ON afd.finding_key = af.finding_key \
+         WHERE af.status = 'active' AND ( \
+             (af.primary_subject_kind = 'file' AND af.primary_subject_id = ?1) OR \
+             EXISTS (SELECT 1 FROM analysis_finding_evidence AS afe \
+                     WHERE afe.finding_id = af.id AND afe.subject_kind = 'file' \
+                       AND afe.subject_id = ?1)) \
+         ORDER BY CASE af.tier WHEN 'caution' THEN 0 WHEN 'review' THEN 1 ELSE 2 END, \
+                  af.updated_at DESC, af.id LIMIT 8",
+    )?;
+    let rows = stmt.query_map(params![file_id], |row| {
+        let evidence_json: String = row.get(6)?;
+        Ok(FileLibraryFindingSummaryDto {
+            id: row.get(0)?,
+            finding_type: row.get(1)?,
+            severity: row.get(2)?,
+            detector: row.get(3)?,
+            state: row.get(4)?,
+            decision: row.get(5)?,
+            evidence_summary: serde_json::from_str(&evidence_json)
+                .unwrap_or(serde_json::Value::Null),
+            analysis_revision: row.get(7)?,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(DbError::from)
@@ -1871,13 +2217,49 @@ fn find_root_for_path(
     Ok(None)
 }
 
-type SelectionWhere = (String, Vec<SqlValue>, i64, i64, Option<String>);
+pub(crate) type SelectionWhere = (String, Vec<SqlValue>, i64, i64, Option<String>);
 
-fn selection_where(
+fn selection_stale_count(
+    conn: &Connection,
+    selection: &LibrarySelectionV1,
+) -> Result<i64, DbError> {
+    if !matches!(selection, LibrarySelectionV1::Explicit { .. }) {
+        return Ok(0);
+    }
+    conn.query_row(
+        "SELECT COUNT(*) FROM files AS f \
+         JOIN temp.library_selection_ids AS selected ON selected.file_id = f.id \
+         WHERE selected.kind = 'explicit' AND f.is_stale = 1",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(DbError::from)
+}
+
+fn common_directory_for_paths(left: &str, right: &str) -> Option<String> {
+    let left = normalize_path_text(&parent_directory(left));
+    let right = normalize_path_text(&parent_directory(right));
+    let left_parts = left.split('/').collect::<Vec<_>>();
+    let right_parts = right.split('/').collect::<Vec<_>>();
+    let common = left_parts
+        .iter()
+        .zip(right_parts.iter())
+        .take_while(|(left, right)| left.eq_ignore_ascii_case(right))
+        .map(|(part, _)| *part)
+        .collect::<Vec<_>>();
+    if common.is_empty() {
+        None
+    } else {
+        Some(common.join("/"))
+    }
+}
+
+pub(crate) fn selection_where(
     conn: &Connection,
     selection: &LibrarySelectionV1,
     current_revision: i64,
 ) -> Result<SelectionWhere, DbError> {
+    clear_temp_selection_ids(conn)?;
     match selection {
         LibrarySelectionV1::Explicit { file_ids } => {
             if file_ids.len() > LIBRARY_SELECTION_MAX {
@@ -1891,33 +2273,21 @@ fn selection_where(
                 .collect::<Result<Vec<_>, _>>()?;
             ids.sort();
             ids.dedup();
-            let mut params = Vec::new();
-            let mut clauses = Vec::new();
-            let mut missing = 0_i64;
-            for chunk in ids.chunks(100) {
-                let placeholders = std::iter::repeat_n("?", chunk.len())
-                    .collect::<Vec<_>>()
-                    .join(",");
-                let mut stmt = conn.prepare(&format!(
-                    "SELECT COUNT(*) FROM files WHERE id IN ({placeholders}) AND is_stale = 0"
-                ))?;
-                let chunk_params = chunk
-                    .iter()
-                    .cloned()
-                    .map(SqlValue::Text)
-                    .collect::<Vec<_>>();
-                let present: i64 =
-                    stmt.query_row(params_from_iter(chunk_params.iter()), |row| row.get(0))?;
-                missing += i64::try_from(chunk.len()).unwrap_or(0) - present;
-                clauses.push(format!("f.id IN ({placeholders})"));
-                params.extend(chunk.iter().cloned().map(SqlValue::Text));
-            }
-            let where_sql = if clauses.is_empty() {
+            materialize_temp_selection_ids(conn, "explicit", &ids)?;
+            let present: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM files AS f \
+                 JOIN temp.library_selection_ids AS selected ON selected.file_id = f.id \
+                 WHERE selected.kind = 'explicit'",
+                [],
+                |row| row.get(0),
+            )?;
+            let missing = i64::try_from(ids.len()).unwrap_or(0) - present;
+            let where_sql = if ids.is_empty() {
                 "1 = 0".to_string()
             } else {
-                format!("f.is_stale = 0 AND ({})", clauses.join(" OR "))
+                "f.is_stale = 0 AND EXISTS (SELECT 1 FROM temp.library_selection_ids AS selected WHERE selected.kind = 'explicit' AND selected.file_id = f.id)".to_string()
             };
-            Ok((where_sql, params, missing, 0, None))
+            Ok((where_sql, Vec::new(), missing, 0, None))
         }
         LibrarySelectionV1::AllMatching {
             query,
@@ -1967,8 +2337,12 @@ fn selection_where(
             params.extend(scope.params);
             append_filters(conn, &mut conditions, &mut params, &canonical.spec.filters)?;
             let base_where = conditions.join(" AND ");
-            let mut exclusions = excluded_file_ids.clone();
-            normalize_id_vec(&mut exclusions, "file")?;
+            let mut exclusions = excluded_file_ids
+                .iter()
+                .map(|id| validate_file_id(id))
+                .collect::<Result<Vec<_>, _>>()?;
+            exclusions.sort();
+            exclusions.dedup();
             if exclusions.len() > LIBRARY_SELECTION_MAX {
                 return Err(DbError::Validation(
                     "library_selection_too_large".to_string(),
@@ -1976,18 +2350,21 @@ fn selection_where(
             }
             let mut excluded_count = 0_i64;
             if !exclusions.is_empty() {
-                let placeholders = std::iter::repeat_n("?", exclusions.len())
-                    .collect::<Vec<_>>()
-                    .join(",");
-                let count_sql = format!("SELECT COUNT(*) FROM files AS f WHERE {base_where} AND f.id IN ({placeholders})");
-                let mut count_params = params.clone();
-                count_params.extend(exclusions.iter().cloned().map(SqlValue::Text));
+                materialize_temp_selection_ids(conn, "excluded", &exclusions)?;
+                let count_sql = format!(
+                    "SELECT COUNT(*) FROM files AS f WHERE {base_where} AND EXISTS \
+                     (SELECT 1 FROM temp.library_selection_ids AS excluded \
+                      WHERE excluded.kind = 'excluded' AND excluded.file_id = f.id)"
+                );
                 excluded_count =
-                    conn.query_row(&count_sql, params_from_iter(count_params.iter()), |row| {
+                    conn.query_row(&count_sql, params_from_iter(params.iter()), |row| {
                         row.get(0)
                     })?;
-                conditions.push(format!("f.id NOT IN ({placeholders})"));
-                params.extend(exclusions.iter().cloned().map(SqlValue::Text));
+                conditions.push(
+                    "NOT EXISTS (SELECT 1 FROM temp.library_selection_ids AS excluded \
+                     WHERE excluded.kind = 'excluded' AND excluded.file_id = f.id)"
+                        .to_string(),
+                );
             }
             Ok((
                 conditions.join(" AND "),
@@ -1998,6 +2375,40 @@ fn selection_where(
             ))
         }
     }
+}
+
+pub(crate) fn clear_temp_selection_ids(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        "CREATE TEMP TABLE IF NOT EXISTS library_selection_ids (
+            kind TEXT NOT NULL,
+            file_id TEXT NOT NULL,
+            PRIMARY KEY(kind, file_id)
+        ) WITHOUT ROWID;
+        DELETE FROM temp.library_selection_ids;",
+    )?;
+    Ok(())
+}
+
+fn materialize_temp_selection_ids(
+    conn: &Connection,
+    kind: &str,
+    ids: &[String],
+) -> Result<(), DbError> {
+    debug_assert!(matches!(kind, "explicit" | "excluded"));
+    for chunk in ids.chunks(500) {
+        let placeholders = std::iter::repeat_n(format!("('{kind}', ?)"), chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "INSERT OR IGNORE INTO temp.library_selection_ids(kind, file_id) VALUES {placeholders}"
+        );
+        let mut values = Vec::with_capacity(chunk.len());
+        for id in chunk {
+            values.push(SqlValue::Text(id.clone()));
+        }
+        conn.execute(&sql, params_from_iter(values.iter()))?;
+    }
+    Ok(())
 }
 
 fn tag_exists(conn: &Connection, id: &str) -> Result<bool, DbError> {
@@ -2099,6 +2510,7 @@ fn saved_view_from_row(conn: &Connection, row: &Row<'_>) -> rusqlite::Result<Lib
         position: row.get(3)?,
         created_at: row.get(4)?,
         updated_at: row.get(5)?,
+        revision: row.get(6)?,
         invalid_references,
     })
 }
@@ -2262,6 +2674,38 @@ mod tests {
     }
 
     #[test]
+    fn temp_selection_set_chunks_100k_ids_and_cleans_between_requests() {
+        let conn = Connection::open_in_memory().expect("temporary selection connection");
+        clear_temp_selection_ids(&conn).expect("create temp selection table");
+        for count in [0_usize, 1, 128, 129, 999, 32_766, 99_999, 100_000] {
+            let ids = (0..count)
+                .map(|index| format!("selection-{index:06}"))
+                .collect::<Vec<_>>();
+            materialize_temp_selection_ids(&conn, "explicit", &ids)
+                .expect("chunked selection materialization");
+            assert_eq!(
+                conn.query_row(
+                    "SELECT COUNT(*) FROM temp.library_selection_ids WHERE kind = 'explicit'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("selection count"),
+                count as i64
+            );
+            clear_temp_selection_ids(&conn).expect("request cleanup");
+            assert_eq!(
+                conn.query_row(
+                    "SELECT COUNT(*) FROM temp.library_selection_ids",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("clean selection count"),
+                0
+            );
+        }
+    }
+
+    #[test]
     fn cursor_rejects_non_finite_numeric_tuples_and_unknown_saved_view_fields() {
         let cursor = LibraryCursor {
             version: LIBRARY_CURSOR_VERSION,
@@ -2364,7 +2808,7 @@ mod tests {
         let all_enabled = db
             .query_file_library_v2(request(FileLibraryScopeV2::AllEnabledRoots))
             .expect("query all enabled roots");
-        assert_eq!(all_enabled.total_count, 1);
+        assert_eq!(all_enabled.total_count, Some(1));
         assert_eq!(all_enabled.result_state, "partial");
         assert!(all_enabled
             .scope_health
@@ -2377,7 +2821,7 @@ mod tests {
                 scan_root_ids: vec!["scope-degraded".into()],
             }))
             .expect("query degraded root");
-        assert_eq!(degraded.total_count, 0);
+        assert_eq!(degraded.total_count, Some(0));
         assert_eq!(degraded.result_state, "partial");
 
         let missing = db
@@ -2385,7 +2829,7 @@ mod tests {
                 scan_root_ids: vec!["missing-root".into()],
             }))
             .expect("query missing root");
-        assert_eq!(missing.total_count, 0);
+        assert_eq!(missing.total_count, Some(0));
         assert_eq!(missing.result_state, "partial");
         assert_eq!(missing.scope_health.state, "invalid_reference");
 
@@ -2449,6 +2893,72 @@ mod tests {
             0
         );
         drop(conn);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn tag_and_saved_view_revision_cas_rejects_same_second_stale_writers() {
+        let path = std::env::temp_dir().join(format!(
+            "zen-canvas-library-cas-test-{}-{}.sqlite3",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let db = Database::open(&path).expect("open CAS test database");
+        let tag = db
+            .create_user_tag(CreateUserTagRequest {
+                display_name: "CAS tag".into(),
+                color_token: "blue".into(),
+            })
+            .expect("create tag");
+        assert_eq!(tag.revision, 1);
+        let changed_tag = db
+            .update_user_tag(UpdateUserTagRequest {
+                id: tag.id.clone(),
+                display_name: "CAS tag renamed".into(),
+                color_token: "green".into(),
+                expected_revision: 1,
+            })
+            .expect("update tag");
+        assert_eq!(changed_tag.revision, 2);
+        assert!(db
+            .update_user_tag(UpdateUserTagRequest {
+                id: tag.id,
+                display_name: "stale writer".into(),
+                color_token: "red".into(),
+                expected_revision: 1,
+            })
+            .is_err());
+
+        let view = db
+            .create_library_saved_view(CreateLibrarySavedViewRequest {
+                display_name: "CAS view".into(),
+                query: FileQuerySpecV2 {
+                    scope: FileLibraryScopeV2::AllEnabledRoots,
+                    text: None,
+                    filters: Default::default(),
+                    sort: FileLibrarySortV2::default(),
+                },
+                position: Some(0),
+            })
+            .expect("create saved view");
+        assert_eq!(view.revision, 1);
+        let changed_view = db
+            .update_library_saved_view(UpdateLibrarySavedViewRequest {
+                id: view.id.clone(),
+                display_name: "CAS view renamed".into(),
+                query: view.query.clone(),
+                position: 0,
+                expected_revision: 1,
+            })
+            .expect("update saved view");
+        assert_eq!(changed_view.revision, 2);
+        assert!(db
+            .delete_library_saved_view(DeleteLibrarySavedViewRequest {
+                id: view.id,
+                expected_revision: 1,
+            })
+            .is_err());
+        drop(db);
         let _ = std::fs::remove_file(path);
     }
 
@@ -2605,9 +3115,39 @@ mod tests {
         let first = db
             .query_file_library_v2(request(None))
             .expect("query first library page");
-        assert_eq!(first.total_count, 2);
+        assert_eq!(first.total_count, Some(2));
         assert_eq!(first.files[0].id, "library-file-a");
         let cursor = first.next_cursor.clone().expect("second page cursor");
+        let issued = decode_cursor(&cursor).expect("issued cursor JSON");
+        let mut tampered = Vec::new();
+        let mut total = issued.clone();
+        total.total_count += 1;
+        tampered.push(total);
+        let mut file_id = issued.clone();
+        file_id.file_id = "library-file-b".into();
+        tampered.push(file_id);
+        let mut name = issued.clone();
+        name.last_text = Some("forged.txt".into());
+        tampered.push(name);
+        let mut direction = issued.clone();
+        direction.direction = LibrarySortDirection::Desc;
+        tampered.push(direction);
+        let mut fingerprint = issued.clone();
+        fingerprint.fingerprint = "0".repeat(64);
+        tampered.push(fingerprint);
+        let mut revision = issued.clone();
+        revision.revision += 1;
+        tampered.push(revision);
+        for forged in tampered {
+            let result = db.query_file_library_v2(request(Some(encode_cursor(&forged))));
+            assert!(
+                result.is_err()
+                    || result
+                        .as_ref()
+                        .is_ok_and(|response| response.result_state == "snapshot_expired"),
+                "legally encoded cursor tampering must fail closed"
+            );
+        }
         assert_eq!(
             db.cached_library_count(
                 first.snapshot_revision,
@@ -2626,7 +3166,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["library-file-b"]
         );
-        assert_eq!(second.total_count, 2);
+        assert_eq!(second.total_count, Some(2));
         assert!(!second.has_more);
 
         db.insert_file(InsertFileRequest {
@@ -2744,7 +3284,7 @@ mod tests {
                 cursor: None,
             })
             .expect("query bulk-tagged files");
-        assert_eq!(bulk_query.total_count, 2);
+        assert_eq!(bulk_query.total_count, Some(2));
 
         let any_tag_query = db
             .query_file_library_v2(FileQueryRequestV2 {
@@ -2763,7 +3303,7 @@ mod tests {
                 cursor: None,
             })
             .expect("query any-tag files without duplicate counts");
-        assert_eq!(any_tag_query.total_count, 2);
+        assert_eq!(any_tag_query.total_count, Some(2));
         assert_eq!(any_tag_query.files.len(), 2);
 
         let detail = db
@@ -2830,7 +3370,7 @@ mod tests {
                 display_name: "Renamed pinned files".into(),
                 query: tagged_query_spec(&tag.id),
                 position: 1,
-                expected_updated_at: view.updated_at,
+                expected_revision: view.revision,
             })
             .expect("update saved view");
         assert_eq!(
@@ -2843,7 +3383,7 @@ mod tests {
                 id: tag.id.clone(),
                 confirm: true,
                 expected_usage_count: 1,
-                expected_updated_at: None,
+                expected_revision: tag.revision,
             })
             .expect("delete used tag with confirmation"));
         let invalid_views = db
@@ -2856,7 +3396,7 @@ mod tests {
         assert!(db
             .delete_library_saved_view(DeleteLibrarySavedViewRequest {
                 id: updated_view.id,
-                expected_updated_at: updated_view.updated_at,
+                expected_revision: updated_view.revision,
             })
             .expect("delete saved view"));
         assert!(db

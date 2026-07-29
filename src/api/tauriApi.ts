@@ -45,6 +45,8 @@ import type {
   FileLibrarySelectionSummary,
   FileQueryRequestV2,
   FileQueryResponseV2,
+  ResolveFileLibraryExactCountRequestV2,
+  ResolveFileLibraryExactCountResponseV2,
   FileQueryResult,
   FileRecord,
   GlobalIndexSource,
@@ -60,6 +62,10 @@ import type {
   OperationLog,
   OperationPreview,
   OperationPreviewResult,
+  OrganizationPlan,
+  OrganizationPlanDryRun,
+  OrganizationPlanItemPage,
+  ExecuteOrganizationPlanResult,
   RestoreMovesResult,
   RuntimeCapabilities,
   Rule,
@@ -406,6 +412,15 @@ export const tauriApi = {
     return invokeCommand<FileQueryResponseV2>("query_file_library_v2", { request });
   },
 
+  resolveFileLibraryExactCountV2(
+    request: ResolveFileLibraryExactCountRequestV2
+  ): Promise<ResolveFileLibraryExactCountResponseV2> {
+    return invokeCommand<ResolveFileLibraryExactCountResponseV2>(
+      "resolve_file_library_exact_count_v2",
+      { request }
+    );
+  },
+
   getFileLibraryDetail(fileId: string): Promise<FileLibraryDetail> {
     return invokeCommand<FileLibraryDetail>("get_file_library_detail", { fileId });
   },
@@ -452,6 +467,86 @@ export const tauriApi = {
 
   deleteLibrarySavedView(request: DeleteLibrarySavedViewRequest): Promise<boolean> {
     return invokeCommand<boolean>("delete_library_saved_view", { request });
+  },
+
+  createOrganizationPlan(request: {
+    version: 1;
+    requestId: string;
+    title?: string | null;
+    source: LibrarySelectionV1;
+    expectedCount?: number | null;
+  }): Promise<OrganizationPlan> {
+    return invokeCommand<OrganizationPlan>("create_organization_plan", { request });
+  },
+
+  listOrganizationPlans(): Promise<OrganizationPlan[]> {
+    return invokeCommand<OrganizationPlan[]>("list_organization_plans");
+  },
+
+  getOrganizationPlan(planId: string): Promise<OrganizationPlan> {
+    return invokeCommand<OrganizationPlan>("get_organization_plan", { planId });
+  },
+
+  queryOrganizationPlanItems(request: {
+    planId: string;
+    cursor?: string | null;
+    pageSize: number;
+  }): Promise<OrganizationPlanItemPage> {
+    return invokeCommand<OrganizationPlanItemPage>("query_organization_plan_items", { request });
+  },
+
+  updateOrganizationPlanDecisions(request: {
+    planId: string;
+    expectedPlanRevision: number;
+    safeBatch?: boolean;
+    mutations: Array<{
+      itemId: string;
+      expectedItemRevision: number;
+      decision: "accepted" | "kept" | "edited" | "undecided";
+      editedFilename?: string | null;
+    }>;
+  }): Promise<OrganizationPlan> {
+    return invokeCommand<OrganizationPlan>("update_organization_plan_decisions", { request });
+  },
+
+  refreshOrganizationPlan(request: { planId: string; expectedPlanRevision: number }): Promise<OrganizationPlan> {
+    return invokeCommand<OrganizationPlan>("refresh_organization_plan", { request });
+  },
+
+  cancelOrganizationPlan(request: { planId: string; expectedPlanRevision: number }): Promise<OrganizationPlan> {
+    return invokeCommand<OrganizationPlan>("cancel_organization_plan", { request });
+  },
+
+  deleteOrganizationPlan(request: { planId: string; expectedPlanRevision: number; confirmed: boolean }): Promise<boolean> {
+    return invokeCommand<boolean>("delete_organization_plan", { request });
+  },
+
+  analyzeOrganizationPlanItems(request: {
+    planId: string;
+    expectedPlanRevision: number;
+    itemIds?: string[];
+  }): Promise<{ planId: string; queuedCount: number; requiresRefresh: boolean }> {
+    return invokeCommand("analyze_organization_plan_items", { request });
+  },
+
+  getOrganizationPlanDryRun(request: {
+    planId: string;
+    expectedPlanRevision: number;
+    itemIds?: string[];
+    allAccepted: boolean;
+  }): Promise<OrganizationPlanDryRun> {
+    return invokeCommand<OrganizationPlanDryRun>("get_organization_plan_dry_run", { request });
+  },
+
+  executeOrganizationPlan(request: {
+    planId: string;
+    expectedPlanRevision: number;
+    dryRunFingerprint: string;
+    itemIds?: string[];
+    allAccepted: boolean;
+    confirmed: boolean;
+  }): Promise<ExecuteOrganizationPlanResult> {
+    return invokeCommand<ExecuteOrganizationPlanResult>("execute_organization_plan", { request });
   },
 
   getStatsSummary(scope?: LibraryScope): Promise<DashboardStats> {

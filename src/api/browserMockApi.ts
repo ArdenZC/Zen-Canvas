@@ -51,6 +51,9 @@ import type {
   OperationLog,
   OperationPreview,
   OperationPreviewResult,
+  OrganizationPlan,
+  OrganizationPlanDryRun,
+  OrganizationPlanItem,
   RestoreMovesResult,
   Rule,
   RuleExecutionMode,
@@ -171,7 +174,8 @@ let mockUserTags: UserTag[] = [
     colorToken: "blue",
     usageCount: 1,
     createdAt: Date.parse(now) / 1000,
-    updatedAt: Date.parse(now) / 1000
+    updatedAt: Date.parse(now) / 1000,
+    revision: 1
   },
   {
     id: "mock-tag-review",
@@ -179,7 +183,8 @@ let mockUserTags: UserTag[] = [
     colorToken: "yellow",
     usageCount: 1,
     createdAt: Date.parse(now) / 1000,
-    updatedAt: Date.parse(now) / 1000
+    updatedAt: Date.parse(now) / 1000,
+    revision: 1
   }
 ];
 const mockFileTagIds = new Map<string, Set<string>>([
@@ -187,6 +192,8 @@ const mockFileTagIds = new Map<string, Set<string>>([
   ["mock-duplicate", new Set(["mock-tag-review"])]
 ]);
 let mockLibrarySavedViews: LibrarySavedView[] = [];
+let mockOrganizationPlans: OrganizationPlan[] = [];
+const mockOrganizationItems = new Map<string, OrganizationPlanItem[]>();
 
 const mockGlobalEntries: GlobalSearchResult[] = [
   {
@@ -520,6 +527,15 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return queryMockFiles(args) as T;
     case "query_file_library_v2":
       return queryMockFileLibraryV2(args) as T;
+    case "resolve_file_library_exact_count_v2":
+      return {
+        version: 2,
+        requestId: String((args?.request as { requestId?: string } | undefined)?.requestId ?? ""),
+        queryFingerprint: "",
+        snapshotRevision: mockLibraryRevision,
+        totalCount: mockFiles.filter((file) => !file.is_stale).length,
+        countState: "exact"
+      } as T;
     case "get_file_library_detail":
       return getMockFileLibraryDetail(String(args?.fileId ?? "")) as T;
     case "get_file_library_selection_summary":
@@ -544,6 +560,31 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return updateMockLibrarySavedView(args?.request as UpdateLibrarySavedViewRequest | undefined) as T;
     case "delete_library_saved_view":
       return deleteMockLibrarySavedView(args?.request as DeleteLibrarySavedViewRequest | undefined) as T;
+    case "create_organization_plan":
+      return createMockOrganizationPlan(args?.request as { title?: string; source?: LibrarySelectionV1; expectedCount?: number } | undefined) as T;
+    case "list_organization_plans":
+      return mockOrganizationPlans as T;
+    case "get_organization_plan": {
+      const plan = mockOrganizationPlans.find((item) => item.id === String(args?.planId ?? ""));
+      if (!plan) throw new Error("organization_plan_not_found");
+      return plan as T;
+    }
+    case "query_organization_plan_items":
+      return queryMockOrganizationItems(args?.request as { planId?: string; cursor?: string | null; pageSize?: number } | undefined) as T;
+    case "update_organization_plan_decisions":
+      return updateMockOrganizationDecisions(args?.request as MockOrganizationDecisionRequest | undefined) as T;
+    case "refresh_organization_plan":
+      return refreshMockOrganizationPlan(args?.request as { planId?: string; expectedPlanRevision?: number } | undefined) as T;
+    case "cancel_organization_plan":
+      return cancelMockOrganizationPlan(args?.request as { planId?: string; expectedPlanRevision?: number } | undefined) as T;
+    case "delete_organization_plan":
+      return deleteMockOrganizationPlan(args?.request as { planId?: string; expectedPlanRevision?: number; confirmed?: boolean } | undefined) as T;
+    case "analyze_organization_plan_items":
+      return { planId: String((args?.request as { planId?: string } | undefined)?.planId ?? ""), queuedCount: 0, requiresRefresh: true } as T;
+    case "get_organization_plan_dry_run":
+      return getMockOrganizationDryRun(args?.request as { planId?: string; expectedPlanRevision?: number; itemIds?: string[]; allAccepted?: boolean } | undefined) as T;
+    case "execute_organization_plan":
+      throw new Error("browser_mock_native_execution_unavailable");
     case "get_stats_summary":
       return mockStats() as T;
     case "search_files":
@@ -994,7 +1035,9 @@ function queryMockFileLibraryV2(args?: Record<string, unknown>): FileQueryRespon
       queryFingerprint: fingerprint,
       snapshotRevision: mockLibraryRevision,
       files: [],
-      totalCount: 0,
+      totalCount: null,
+      countState: "deferred",
+      countToken: null,
       nextCursor: null,
       hasMore: false,
       resultState: "snapshot_expired",
@@ -1014,6 +1057,8 @@ function queryMockFileLibraryV2(args?: Record<string, unknown>): FileQueryRespon
     snapshotRevision: mockLibraryRevision,
     files: page.map(toMockFileLibrarySummary),
     totalCount: sorted.length,
+    countState: "exact",
+    countToken: null,
     nextCursor: hasMore ? encodeMockLibraryCursor({
       fingerprint,
       revision: mockLibraryRevision,
@@ -1171,6 +1216,7 @@ function getMockFileLibraryDetail(fileId: string): FileLibraryDetail {
     duplicateGroupId: file.is_duplicate ? "mock-duplicate-group" : null,
     duplicateGroupSize: file.is_duplicate ? 2 : 0,
     tags: mockFileTags(file.id),
+    activeFindings: [],
     safeActions: file.is_stale ? [] : ["preview", "reveal"],
     revision: mockLibraryRevision
   };
@@ -1183,7 +1229,12 @@ function getMockFileLibrarySelectionSummary(selection?: LibrarySelectionV1): Fil
       totalSize: 0,
       typeCounts: [],
       missingCount: 0,
+      staleCount: 0,
       excludedCount: 0,
+      commonDirectory: null,
+      commonTags: [],
+      commonTagIds: [],
+      partialTagCommonalityCount: 0,
       snapshotRevision: mockLibraryRevision,
       queryFingerprint: null
     };
@@ -1212,7 +1263,12 @@ function getMockFileLibrarySelectionSummary(selection?: LibrarySelectionV1): Fil
     totalSize: files.reduce((sum, file) => sum + file.size, 0),
     typeCounts,
     missingCount: 0,
+    staleCount: selection.kind === "explicit" ? selection.fileIds.filter((id) => mockFiles.some((file) => file.id === id && file.is_stale)).length : 0,
     excludedCount,
+    commonDirectory: files.length && files.every((file) => file.directory === files[0].directory) ? files[0].directory : null,
+    commonTags: [],
+    commonTagIds: [],
+    partialTagCommonalityCount: 0,
     snapshotRevision: mockLibraryRevision,
     queryFingerprint
   };
@@ -1229,7 +1285,8 @@ function createMockUserTag(request?: CreateUserTagRequest): UserTag {
     colorToken: request?.colorToken ?? "neutral",
     usageCount: 0,
     createdAt: timestamp,
-    updatedAt: timestamp
+    updatedAt: timestamp,
+    revision: 1
   };
   mockUserTags = [...mockUserTags, tag];
   mockLibraryRevision += 1;
@@ -1240,8 +1297,8 @@ function updateMockUserTag(request?: UpdateUserTagRequest): UserTag {
   const index = mockUserTags.findIndex((tag) => tag.id === request?.id);
   if (index < 0) throw new Error("library_tag_not_found");
   const current = mockUserTags[index];
-  if (request?.expectedUpdatedAt !== null && request?.expectedUpdatedAt !== undefined && request.expectedUpdatedAt !== current.updatedAt) throw new Error("library_tag_stale_or_missing");
-  const updated = { ...current, displayName: String(request?.displayName ?? "").trim(), colorToken: request?.colorToken ?? current.colorToken, updatedAt: Math.floor(Date.now() / 1000) };
+  if (request?.expectedRevision !== current.revision) throw new Error("library_tag_stale_or_missing");
+  const updated = { ...current, displayName: String(request?.displayName ?? "").trim(), colorToken: request?.colorToken ?? current.colorToken, updatedAt: Math.floor(Date.now() / 1000), revision: current.revision + 1 };
   mockUserTags = mockUserTags.map((tag, itemIndex) => itemIndex === index ? updated : tag);
   mockLibraryRevision += 1;
   return updated;
@@ -1252,6 +1309,7 @@ function deleteMockUserTag(request?: DeleteUserTagRequest): boolean {
   if (!tag) throw new Error("library_tag_not_found");
   if (!request?.confirm) throw new Error("library_tag_delete_confirmation_required");
   if (tag.usageCount !== request.expectedUsageCount) throw new Error("library_tag_stale_usage");
+  if (tag.revision !== request.expectedRevision) throw new Error("library_tag_stale_usage");
   mockUserTags = mockUserTags.filter((item) => item.id !== tag.id);
   for (const ids of mockFileTagIds.values()) ids.delete(tag.id);
   mockLibraryRevision += 1;
@@ -1313,7 +1371,8 @@ function createMockLibrarySavedView(request?: CreateLibrarySavedViewRequest): Li
     position: Math.max(0, Number(request?.position ?? 0)),
     createdAt: timestamp,
     updatedAt: timestamp,
-    invalidReferences: invalidMockSavedViewReferences(request?.query)
+    invalidReferences: invalidMockSavedViewReferences(request?.query),
+    revision: 1
   };
   mockLibrarySavedViews = [...mockLibrarySavedViews, view];
   return view;
@@ -1323,7 +1382,7 @@ function updateMockLibrarySavedView(request?: UpdateLibrarySavedViewRequest): Li
   const index = mockLibrarySavedViews.findIndex((view) => view.id === request?.id);
   if (index < 0) throw new Error("library_saved_view_stale_or_missing");
   const current = mockLibrarySavedViews[index];
-  if (current.updatedAt !== request?.expectedUpdatedAt) throw new Error("library_saved_view_stale_or_missing");
+  if (current.revision !== request?.expectedRevision) throw new Error("library_saved_view_stale_or_missing");
   const updated: LibrarySavedView = {
     ...current,
     displayName: String(request?.displayName ?? "").trim(),
@@ -1331,7 +1390,8 @@ function updateMockLibrarySavedView(request?: UpdateLibrarySavedViewRequest): Li
     queryFingerprint: mockLibraryFingerprint(request?.query),
     position: Math.max(0, Number(request?.position ?? 0)),
     updatedAt: Math.floor(Date.now() / 1000),
-    invalidReferences: invalidMockSavedViewReferences(request?.query)
+    invalidReferences: invalidMockSavedViewReferences(request?.query),
+    revision: current.revision + 1
   };
   mockLibrarySavedViews = mockLibrarySavedViews.map((view, itemIndex) => itemIndex === index ? updated : view);
   return updated;
@@ -1339,9 +1399,216 @@ function updateMockLibrarySavedView(request?: UpdateLibrarySavedViewRequest): Li
 
 function deleteMockLibrarySavedView(request?: DeleteLibrarySavedViewRequest): boolean {
   const view = mockLibrarySavedViews.find((item) => item.id === request?.id);
-  if (!view || view.updatedAt !== request?.expectedUpdatedAt) throw new Error("library_saved_view_stale_or_missing");
+  if (!view || view.revision !== request?.expectedRevision) throw new Error("library_saved_view_stale_or_missing");
   mockLibrarySavedViews = mockLibrarySavedViews.filter((item) => item.id !== view.id);
   return true;
+}
+
+interface MockOrganizationDecisionRequest {
+  planId?: string;
+  expectedPlanRevision?: number;
+  safeBatch?: boolean;
+  mutations?: Array<{
+    itemId: string;
+    expectedItemRevision: number;
+    decision: OrganizationPlanItem["decision"];
+    editedFilename?: string | null;
+  }>;
+}
+
+function createMockOrganizationPlan(request?: { title?: string; source?: LibrarySelectionV1; expectedCount?: number }): OrganizationPlan {
+  if (!request?.source) throw new Error("organization_plan_request_invalid");
+  const source = request.source;
+  const summary = getMockFileLibrarySelectionSummary(source);
+  if (request.expectedCount !== undefined && request.expectedCount !== summary.count) throw new Error("organization_plan_expected_count_mismatch");
+  if (summary.count > 10_000) throw new Error("organization_plan_too_large");
+  const timestamp = Math.floor(Date.now() / 1000);
+  const id = `browser-organization-plan-${Date.now()}`;
+  const plan: OrganizationPlan = {
+    id,
+    title: request.title?.trim() || "Organization plan",
+    status: "ready",
+    sourceKind: source.kind,
+    sourceQueryFingerprint: source.kind === "all_matching" ? source.queryFingerprint : null,
+    sourceSnapshotRevision: source.kind === "all_matching" ? source.snapshotRevision : mockLibraryRevision,
+    requestedCount: summary.count,
+    materializedCount: summary.count,
+    plannerVersion: 1,
+    revision: 1,
+    activeExecutionId: null,
+    activeOperationBatchId: null,
+    lastErrorCode: null,
+    lastErrorDetail: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    readyAt: timestamp,
+    completedAt: null
+  };
+  const sourceFiles = source.kind === "explicit"
+    ? mockFiles.filter((file) => source.fileIds.includes(file.id) && !file.is_stale)
+    : filterMockLibraryFiles(source.query).filter((file) => !source.excludedFileIds.includes(file.id));
+  mockOrganizationItems.set(id, sourceFiles.sort((left, right) => left.id.localeCompare(right.id)).map((file, ordinal) => {
+    const proposedTargetPath = file.suggested_target_path
+      ? `${file.suggested_target_path.replace(/[\\/]$/, "")}/${file.suggested_name || file.name}`
+      : file.path;
+    const actionable = ["Move", "Rename", "MoveAndRename", "Archive"].includes(file.suggested_action);
+    const blocked = ["Review", "DeleteCandidate"].includes(file.suggested_action);
+    return {
+      id: `${id}-item-${ordinal}`,
+      planId: id,
+      ordinal,
+      fileIdSnapshot: file.id,
+      sourcePathSnapshot: file.path,
+      sourceNameSnapshot: file.name,
+      sourceSizeSnapshot: file.size,
+      sourceMtimeSnapshot: mockFileTimestamp(file.modified_at),
+      sourceIsDirSnapshot: false,
+      proposalFingerprint: mockLibraryFingerprint(defaultFileLibraryQueryForMock(file.id)),
+      proposalKind: blocked ? "blocked" : actionable ? (file.suggested_action === "Rename" ? "rename" : "move") : "keep",
+      proposedTargetDirectory: file.suggested_target_path || file.directory,
+      proposedName: file.suggested_name || file.name,
+      proposedTargetPath,
+      decision: "undecided",
+      editedName: null,
+      validity: blocked ? "blocked" : actionable ? (file.requires_confirmation || file.confidence < 0.8 ? "needs_review" : "ready") : "needs_analysis",
+      confidence: file.confidence,
+      riskLevel: file.risk_level,
+      requiresConfirmation: file.requires_confirmation,
+      blockingCode: blocked ? "cleanup_review_required" : null,
+      blockingDetail: blocked ? "Use the Cleanup review flow for delete or review candidates." : null,
+      authoritativePreviewId: actionable ? `mock-preview-${file.id}` : null,
+      operationLogId: null,
+      executionId: null,
+      revision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    } satisfies OrganizationPlanItem;
+  }));
+  mockOrganizationPlans = [plan, ...mockOrganizationPlans];
+  return plan;
+}
+
+function queryMockOrganizationItems(request?: { planId?: string; cursor?: string | null; pageSize?: number }) {
+  const plan = mockOrganizationPlans.find((item) => item.id === request?.planId);
+  if (!plan) throw new Error("organization_plan_not_found");
+  const all = mockOrganizationItems.get(plan.id) ?? [];
+  const offset = Number(request?.cursor ?? 0) || 0;
+  const pageSize = Math.max(1, Math.min(200, Number(request?.pageSize ?? 100)));
+  const items = all.slice(offset, offset + pageSize);
+  const next = offset + items.length;
+  return {
+    planId: plan.id,
+    planRevision: plan.revision,
+    items,
+    nextCursor: next < all.length ? String(next) : null,
+    hasMore: next < all.length
+  };
+}
+
+function updateMockOrganizationDecisions(request?: MockOrganizationDecisionRequest): OrganizationPlan {
+  const plan = mockOrganizationPlans.find((item) => item.id === request?.planId);
+  if (!plan || plan.revision !== request?.expectedPlanRevision) throw new Error("organization_plan_revision_conflict");
+  const items = mockOrganizationItems.get(plan.id) ?? [];
+  for (const mutation of request?.mutations ?? []) {
+    const item = items.find((candidate) => candidate.id === mutation.itemId);
+    if (!item || item.revision !== mutation.expectedItemRevision) throw new Error("organization_item_revision_conflict");
+    if (request?.safeBatch && (
+      mutation.decision !== "accepted"
+      || item.validity !== "ready"
+      || item.riskLevel !== "Normal"
+      || item.confidence < 0.8
+      || item.requiresConfirmation
+      || item.blockingCode !== null
+      || item.authoritativePreviewId === null
+    )) {
+      throw new Error("organization_safe_batch_item_blocked");
+    }
+    item.decision = mutation.decision;
+    item.editedName = mutation.decision === "edited" ? mutation.editedFilename ?? null : null;
+    item.revision += 1;
+  }
+  const updated = { ...plan, revision: plan.revision + 1, updatedAt: Math.floor(Date.now() / 1000) };
+  mockOrganizationPlans = mockOrganizationPlans.map((item) => item.id === plan.id ? updated : item);
+  return updated;
+}
+
+function refreshMockOrganizationPlan(request?: { planId?: string; expectedPlanRevision?: number }): OrganizationPlan {
+  const plan = mockOrganizationPlans.find((item) => item.id === request?.planId);
+  if (!plan || plan.revision !== request?.expectedPlanRevision) throw new Error("organization_plan_revision_conflict");
+  const updated = { ...plan, status: "ready" as const, revision: plan.revision + 1, updatedAt: Math.floor(Date.now() / 1000) };
+  mockOrganizationPlans = mockOrganizationPlans.map((item) => item.id === plan.id ? updated : item);
+  return updated;
+}
+
+function cancelMockOrganizationPlan(request?: { planId?: string; expectedPlanRevision?: number }): OrganizationPlan {
+  const plan = mockOrganizationPlans.find((item) => item.id === request?.planId);
+  if (!plan || plan.revision !== request?.expectedPlanRevision) throw new Error("organization_plan_revision_conflict");
+  const updated = { ...plan, status: "cancelled" as const, revision: plan.revision + 1, updatedAt: Math.floor(Date.now() / 1000) };
+  mockOrganizationPlans = mockOrganizationPlans.map((item) => item.id === plan.id ? updated : item);
+  return updated;
+}
+
+function deleteMockOrganizationPlan(request?: { planId?: string; expectedPlanRevision?: number; confirmed?: boolean }): boolean {
+  const plan = mockOrganizationPlans.find((item) => item.id === request?.planId);
+  if (!request?.confirmed || !plan || plan.revision !== request.expectedPlanRevision || !["completed", "cancelled", "failed"].includes(plan.status)) {
+    throw new Error("organization_plan_delete_blocked");
+  }
+  mockOrganizationPlans = mockOrganizationPlans.filter((item) => item.id !== plan.id);
+  mockOrganizationItems.delete(plan.id);
+  return true;
+}
+
+function getMockOrganizationDryRun(request?: { planId?: string; expectedPlanRevision?: number; itemIds?: string[]; allAccepted?: boolean }): OrganizationPlanDryRun {
+  const plan = mockOrganizationPlans.find((item) => item.id === request?.planId);
+  if (!plan || plan.revision !== request?.expectedPlanRevision) throw new Error("organization_plan_revision_conflict");
+  const requested = new Set(request?.itemIds ?? []);
+  const selected = (mockOrganizationItems.get(plan.id) ?? []).filter((item) =>
+    ["accepted", "edited"].includes(item.decision) && (request?.allAccepted || requested.has(item.id))
+  );
+  const items = selected.map((item) => ({
+    itemId: item.id,
+    operationKind: item.proposalKind,
+    from: item.sourcePathSnapshot,
+    to: item.editedName ? `${item.proposedTargetDirectory}/${item.editedName}` : item.proposedTargetPath,
+    editedFilename: item.editedName,
+    parentDirectoryToCreate: null,
+    collision: false,
+    crossVolume: false,
+    riskLevel: item.riskLevel,
+    requiresConfirmation: item.requiresConfirmation,
+    sourceHealth: "healthy",
+    authoritativePreviewId: item.authoritativePreviewId,
+    executable: item.validity === "ready" && item.authoritativePreviewId !== null,
+    blockingCode: item.blockingCode
+  }));
+  const executable = items.filter((item) => item.executable);
+  return {
+    planId: plan.id,
+    planRevision: plan.revision,
+    selectedCount: items.length,
+    executableCount: executable.length,
+    blockedCount: items.length - executable.length,
+    staleCount: 0,
+    totalBytes: selected.filter((_, index) => items[index]?.executable).reduce((sum, item) => sum + item.sourceSizeSnapshot, 0),
+    operationKinds: [...new Set(executable.map((item) => item.operationKind))].sort(),
+    items,
+    executionBatchLimit: 1000,
+    dryRunFingerprint: mockLibraryFingerprint(defaultFileLibraryQueryForMock(`${plan.id}:${plan.revision}:${items.map((item) => item.itemId).join(",")}`))
+  };
+}
+
+function defaultFileLibraryQueryForMock(marker: string): FileQueryRequestV2["query"] {
+  return {
+    scope: { kind: "all_enabled_roots" },
+    text: marker,
+    filters: {
+      fileTypes: [], purposes: [], lifecycles: [], risks: [],
+      sizeMin: null, sizeMax: null, modifiedFrom: null, modifiedTo: null,
+      createdFrom: null, createdTo: null, duplicate: "any", review: "any",
+      tagsAllOf: [], tagsAnyOf: [], tagsNoneOf: []
+    },
+    sort: { kind: "modified", direction: "desc" }
+  };
 }
 
 function invalidMockSavedViewReferences(query: FileQueryRequestV2["query"] | undefined) {

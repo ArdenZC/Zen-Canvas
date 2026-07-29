@@ -17,6 +17,7 @@ pub use commands::*;
 pub use coordinator::{GlobalIndexCoordinator, GlobalIndexProvider, GlobalIndexSink};
 pub use managed_worker::ManagedAiWorker;
 pub use models::*;
+pub(crate) use repository::enqueue_managed_ai_for_library_files;
 pub use search::search_global_entries;
 
 #[cfg(test)]
