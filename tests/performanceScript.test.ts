@@ -24,4 +24,11 @@ describe("performance benchmark script", () => {
     expect(source).toContain('ZC_TASK02_IO_FILES: "16"');
     expect(source).toContain('ZC_TASK02_IO_BYTES: "1048576"');
   });
+
+  it("runs the Task 05 handoff and Task 06 durable plan performance gates", () => {
+    const source = fs.readFileSync(path.join(process.cwd(), "scripts/runPerformanceTest.mjs"), "utf8");
+
+    expect(source).toContain("performance_1m_file_library_query_matrix");
+    expect(source).toContain("performance_task06_plan_100_1k_10k_repository");
+  });
 });

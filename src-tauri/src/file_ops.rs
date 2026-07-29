@@ -407,6 +407,34 @@ pub async fn execute_moves<R: Runtime>(
             cancel_flag,
             &emitter,
             app_data_dir,
+            None,
+        )
+    })
+    .await
+    .map_err(|error| format!("operation task failed: {error}"))?
+}
+
+pub(crate) async fn execute_authoritative_selections<R: Runtime>(
+    app: AppHandle<R>,
+    db: Database,
+    cancel: OperationCancellationToken,
+    request: ExecuteMovesByIdRequest,
+    batch_id: String,
+) -> Result<ExecuteMovesResult, String> {
+    let request = resolve_execute_selections(&db, request)?;
+    let app_data_dir = app.path().app_data_dir().ok();
+    let guard = cancel.begin()?;
+    let cancel_flag = Arc::clone(&cancel.cancel);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _guard = guard;
+        let emitter = TauriOperationProgressEmitter::new(app);
+        execute_moves_with_persistence_with_progress_and_app_data(
+            &db,
+            request,
+            cancel_flag,
+            &emitter,
+            app_data_dir,
+            Some(batch_id),
         )
     })
     .await
@@ -520,6 +548,7 @@ fn execute_moves_with_persistence_with_progress(
         cancel_flag,
         emitter,
         None,
+        None,
     )
 }
 
@@ -529,11 +558,12 @@ fn execute_moves_with_persistence_with_progress_and_app_data(
     cancel_flag: Arc<AtomicBool>,
     emitter: &impl OperationProgressEmitter,
     app_data_dir: Option<PathBuf>,
+    caller_batch_id: Option<String>,
 ) -> Result<ExecuteMovesResult, String> {
     crate::fs_safety::platform_support::ensure_supported_file_mutation()
         .map_err(|error| error.to_string())?;
     let operations = request.operations.clone();
-    let batch_id = new_job_id("operation-batch");
+    let batch_id = caller_batch_id.unwrap_or_else(|| new_job_id("operation-batch"));
     let created_at = current_timestamp_ms().to_string();
     let prepared_operations =
         persist_pending_operation_journal(db, &request, &batch_id, &created_at)?;
@@ -2528,7 +2558,7 @@ fn ensure_cleanup_operation_allowed(
     Ok(())
 }
 
-fn validate_safe_file_name(name: &str) -> Result<(), String> {
+pub(crate) fn validate_safe_file_name(name: &str) -> Result<(), String> {
     let trimmed = name.trim();
     if trimmed.is_empty()
         || trimmed == "."

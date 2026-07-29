@@ -379,7 +379,7 @@
         assert_eq!(
             conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i32>(0))
                 .expect("schema version"),
-            31
+            32
         );
         assert_eq!(
             conn.query_row(
@@ -465,12 +465,12 @@
     }
 
     #[test]
-    fn database_rejects_schema_32_as_a_future_version() {
+    fn database_rejects_schema_33_as_a_future_version() {
         let path = test_db_path();
         let db = Database::open(&path).expect("create database");
         drop(db);
         let conn = Connection::open(&path).expect("open sqlite");
-        conn.execute_batch("PRAGMA user_version = 32;")
+        conn.execute_batch("PRAGMA user_version = 33;")
             .expect("set future version");
         drop(conn);
 
@@ -523,7 +523,7 @@
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("schema version");
-        assert_eq!(version, 31);
+        assert_eq!(version, 32);
         for table in [
             "user_tags",
             "file_user_tags",
@@ -578,6 +578,120 @@
         drop(conn);
         drop(migrated);
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn schema_31_to_32_creates_organization_ledger_and_revision_cas_without_changing_files_ids() {
+        let path = test_db_path();
+        let db = Database::open(&path).expect("create current database");
+        db.insert_file(InsertFileRequest {
+            id: "schema-31-stable-file-id".to_string(),
+            path: "/tmp/schema-31-stable-file-id.txt".to_string(),
+            name: "schema-31-stable-file-id.txt".to_string(),
+            extension: "txt".to_string(),
+            size: 10,
+            mtime: 1,
+            ctime: 1,
+            is_dir: false,
+            state_code: 0,
+        })
+        .expect("seed stable file id");
+        drop(db);
+
+        let conn = Connection::open(&path).expect("open schema fixture");
+        conn.execute_batch(
+            r#"
+            DROP TABLE organization_plan_items;
+            DROP TABLE organization_plans;
+            ALTER TABLE user_tags DROP COLUMN revision;
+            ALTER TABLE library_saved_views DROP COLUMN revision;
+            PRAGMA user_version = 31;
+            "#,
+        )
+        .expect("construct real schema 31 fixture");
+        drop(conn);
+
+        let migrated = Database::open(&path).expect("migrate schema 31 to 32");
+        let conn = migrated.conn().expect("inspect schema 32");
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("schema version"),
+            32
+        );
+        for table in ["organization_plans", "organization_plan_items"] {
+            assert_eq!(
+                conn.query_row(
+                    "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+                    params![table],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("organization table"),
+                1
+            );
+        }
+        for table in ["user_tags", "library_saved_views"] {
+            assert_eq!(
+                conn.query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info(?1) WHERE name = 'revision' AND \"notnull\" = 1 AND dflt_value = '1'",
+                    params![table],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("revision column"),
+                1
+            );
+        }
+        assert_eq!(
+            conn.query_row(
+                "SELECT id FROM files WHERE path = '/tmp/schema-31-stable-file-id.txt'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("stable file id"),
+            "schema-31-stable-file-id"
+        );
+    }
+
+    #[test]
+    fn schema_31_to_32_conflict_rolls_back_atomically() {
+        let path = test_db_path();
+        let db = Database::open(&path).expect("create current database");
+        drop(db);
+        let conn = Connection::open(&path).expect("open schema fixture");
+        conn.execute_batch(
+            r#"
+            DROP TABLE organization_plan_items;
+            DROP TABLE organization_plans;
+            CREATE TABLE idx_organization_plans_status_updated (conflict TEXT);
+            PRAGMA user_version = 31;
+            "#,
+        )
+        .expect("construct conflicting schema 31 fixture");
+        drop(conn);
+
+        let error = match Database::open(&path) {
+            Ok(_) => panic!("duplicate revision columns must fail"),
+            Err(error) => error,
+        };
+        assert!(
+            error.to_string().contains("already a table"),
+            "unexpected migration error: {error}"
+        );
+
+        let conn = Connection::open(&path).expect("inspect rolled back fixture");
+        assert_eq!(
+            conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+                .expect("schema version"),
+            31
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name LIKE 'organization_plan%'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("no partial organization tables"),
+            0
+        );
     }
 
     #[test]
@@ -721,7 +835,7 @@
             )
             .expect("dedupe backfill count");
 
-        assert_eq!(version, 31);
+        assert_eq!(version, 32);
         assert_eq!(ledger_tables, 4);
         assert_eq!(watcher_defaults, (0, 0));
         assert_eq!(rule_recovery_required, 0);

@@ -8,7 +8,8 @@ use rusqlite::{params, Connection};
 use zen_canvas_tauri::db::{
     Database, FileLibraryScopeV2, FileLibrarySortV2, FileQueryFiltersV2, FileQueryRequestV2,
     FileQuerySpecV2, InsertFileRequest, LibraryMatchMode, LibrarySelectionV1, LibrarySortDirection,
-    LibrarySortKind, MutateFileUserTagsRequest, UserTagMutationOperation,
+    LibrarySortKind, MutateFileUserTagsRequest, ResolveFileLibraryExactCountRequestV2,
+    UserTagMutationOperation,
 };
 
 const ROOT_ID: &str = "task05-benchmark-root";
@@ -49,6 +50,7 @@ fn run_query_matrix(row_count: usize, label: &str) {
     let db = seed_library(&path, row_count);
     let mut common_timings = Vec::new();
     let mut complex_timings = Vec::new();
+    let mut deferred_exact_count_timings = Vec::new();
 
     let basic = |sort_kind, direction| FileQuerySpecV2 {
         scope: FileLibraryScopeV2::AllEnabledRoots,
@@ -174,7 +176,28 @@ fn run_query_matrix(row_count: usize, label: &str) {
     for (name, spec) in filter_specs {
         let (elapsed, response) = measure_query(&db, name, spec, None);
         assert!(response.result_state != "failed");
-        complex_timings.push(elapsed);
+        let expects_deferred =
+            row_count > 250_000 && !matches!(name, "review_only" | "duplicate_only");
+        if expects_deferred {
+            assert_eq!(response.count_state, "deferred");
+            assert!(response.total_count.is_none());
+            let exact_start = Instant::now();
+            let exact = db
+                .resolve_file_library_exact_count_v2(ResolveFileLibraryExactCountRequestV2 {
+                    version: 2,
+                    request_id: format!("task06-exact-{name}"),
+                    count_token: response.count_token.expect("deferred count token"),
+                })
+                .expect("resolve exact deferred count");
+            deferred_exact_count_timings.push(exact_start.elapsed());
+            assert!(exact.total_count >= 0);
+        } else {
+            assert_eq!(response.count_state, "exact");
+            assert!(response.total_count.is_some());
+        }
+        if row_count <= 250_000 || expects_deferred {
+            complex_timings.push(elapsed);
+        }
     }
 
     let deep_spec = basic(LibrarySortKind::Name, LibrarySortDirection::Asc);
@@ -238,7 +261,7 @@ fn run_query_matrix(row_count: usize, label: &str) {
         }
     };
     let (_, bulk_page) = measure_query(&db, "bulk_selection_source", bulk_query.clone(), None);
-    assert_eq!(bulk_page.total_count, bulk_target_count as i64);
+    assert_eq!(bulk_page.total_count, Some(bulk_target_count as i64));
     let bulk_selection = LibrarySelectionV1::AllMatching {
         query: Box::new(bulk_query),
         query_fingerprint: bulk_page.query_fingerprint,
@@ -287,8 +310,10 @@ fn run_query_matrix(row_count: usize, label: &str) {
 
     let common_p95 = percentile(&common_timings, 0.95);
     let complex_p95 = percentile(&complex_timings, 0.95);
+    let deferred_exact_p95 = (!deferred_exact_count_timings.is_empty())
+        .then(|| percentile(&deferred_exact_count_timings, 0.95));
     println!(
-        "Task 05 {label} rows={} common_query_p95_ms={common_p95:.3} complex_query_p95_ms={complex_p95:.3} detail_ms={detail_ms:.3} selection_summary_ms={summary_ms:.3} bulk_tag_ms={bulk_ms:.3} wal_rows={wal_count}",
+        "Task 05/06 {label} rows={} common_query_p95_ms={common_p95:.3} complex_first_page_p95_ms={complex_p95:.3} deferred_exact_count_p95_ms={deferred_exact_p95:?} detail_ms={detail_ms:.3} selection_summary_ms={summary_ms:.3} bulk_tag_ms={bulk_ms:.3} wal_rows={wal_count}",
         row_count + 1
     );
     if row_count <= 100_000 {
@@ -305,9 +330,11 @@ fn run_query_matrix(row_count: usize, label: &str) {
             common_p95 <= UPPER_COMMON_QUERY_P95_LIMIT_MS,
             "Task 05 {label} common query p95 {common_p95:.3}ms exceeded {UPPER_COMMON_QUERY_P95_LIMIT_MS:.3}ms"
         );
-        println!(
-            "Task 05 {label} complex exact-count p95 is diagnostic at 1M: {complex_p95:.3}ms; the taskbook gate is the common-page p95"
+        assert!(
+            complex_p95 <= COMPLEX_QUERY_P95_LIMIT_MS,
+            "Task 06 {label} deferred complex first-page p95 {complex_p95:.3}ms exceeded {COMPLEX_QUERY_P95_LIMIT_MS:.3}ms"
         );
+        println!("Task 06 {label} exact count is measured separately without a false 150ms gate: {deferred_exact_p95:?}");
     }
     assert!(
         detail_ms <= 50.0,
@@ -342,7 +369,7 @@ fn run_schema_migration_benchmark(row_count: usize, label: &str) {
     drop(conn);
 
     let migration_start = Instant::now();
-    let migrated = Database::open(&path).expect("migrate schema 30 to 31");
+    let migrated = Database::open(&path).expect("migrate schema 30 through 32");
     let migration_ms = duration_ms(migration_start.elapsed());
     let conn = Connection::open(&path).expect("open migrated WAL reader");
     conn.execute_batch("PRAGMA journal_mode = WAL;")
@@ -360,11 +387,11 @@ fn run_schema_migration_benchmark(row_count: usize, label: &str) {
             |row| row.get(0),
         )
         .expect("read migrated file library indexes");
-    assert_eq!(version, 31);
+    assert_eq!(version, 32);
     assert_eq!(file_count, row_count as i64);
     assert_eq!(index_count, 5);
     println!(
-        "Task 05 {label} rows={row_count} schema_30_to_31_ms={migration_ms:.3} wal_rows={file_count}"
+        "Task 05/06 {label} rows={row_count} schema_30_to_32_ms={migration_ms:.3} wal_rows={file_count}"
     );
     drop(conn);
     drop(migrated);
@@ -436,6 +463,8 @@ fn seed_library(path: &PathBuf, row_count: usize) -> Database {
                 VALUES('delete', old.rowid, old.name, old.path);
                 INSERT INTO files_fts(rowid, name, path) VALUES (new.rowid, new.name, new.path);
             END;
+            INSERT INTO files_fts(files_fts) VALUES('optimize');
+            PRAGMA optimize;
             "#,
         )
         .expect("rebuild and restore FTS triggers for the 1M fixture");
@@ -481,7 +510,7 @@ fn measure_query(
         .unwrap_or_else(|error| panic!("Task 05 query {label} failed: {error}"));
     let elapsed = started.elapsed();
     println!(
-        "[task05-bench] label={label} total={} rows={} elapsed_ms={:.3} state={}",
+        "[task05-bench] label={label} total={:?} rows={} elapsed_ms={:.3} state={}",
         response.total_count,
         response.files.len(),
         duration_ms(elapsed),
@@ -559,18 +588,19 @@ fn assert_query_plans(conn: &Connection) {
 
     let tag_plan = explain_plan(
         conn,
-        "EXPLAIN QUERY PLAN SELECT f.id FROM files f WHERE f.is_stale = 0 AND f.id IN (SELECT fut.file_id FROM file_user_tags fut WHERE fut.tag_id = 'task05-benchmark-tag-a') ORDER BY f.mtime DESC, f.id LIMIT 50",
+        "EXPLAIN QUERY PLAN SELECT f.id FROM files f WHERE f.is_stale = 0 AND EXISTS (SELECT 1 FROM file_user_tags fut WHERE fut.file_id = f.id AND fut.tag_id = 'task05-benchmark-tag-a') ORDER BY f.mtime DESC, f.id LIMIT 50",
     );
     assert!(
-        tag_plan
-            .iter()
-            .any(|detail| detail.contains("idx_file_user_tags_tag_file")),
-        "tag query must use the tag/file covering index: {tag_plan:?}"
+        tag_plan.iter().any(|detail| {
+            detail.contains("sqlite_autoindex_file_user_tags_1")
+                || detail.contains("idx_file_user_tags_tag_file")
+        }),
+        "sorted tag page must use the file/tag primary covering index per candidate: {tag_plan:?}"
     );
 
     let fts_plan = explain_plan(
         conn,
-        "EXPLAIN QUERY PLAN WITH fts_matches AS MATERIALIZED (SELECT files_fts.rowid, bm25(files_fts, 6.0, 1.5) AS rank FROM files_fts WHERE files_fts MATCH '\"report\"') SELECT f.id FROM files AS f JOIN fts_matches AS fm ON fm.rowid = f.rowid WHERE f.is_stale = 0 AND f.file_type = 'Document' AND f.lifecycle = 'Active' ORDER BY fm.rank ASC, f.mtime DESC, f.name COLLATE NOCASE ASC, f.id ASC LIMIT 50",
+        "EXPLAIN QUERY PLAN WITH fts_matches AS NOT MATERIALIZED (SELECT files_fts.rowid, bm25(files_fts, 6.0, 1.5) AS rank FROM files_fts WHERE files_fts MATCH '\"report\"') SELECT f.id FROM files AS f JOIN fts_matches AS fm ON fm.rowid = f.rowid WHERE f.is_stale = 0 AND f.file_type = 'Document' AND f.lifecycle = 'Active' ORDER BY fm.rank ASC, f.mtime DESC, f.name COLLATE NOCASE ASC, f.id ASC LIMIT 50",
     );
     assert!(
         fts_plan

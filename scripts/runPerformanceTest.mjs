@@ -48,6 +48,7 @@ const dbFiles = [
   "src-tauri/src/db/classification/naming.rs",
   "src-tauri/src/db/queries/files.rs",
   "src-tauri/src/db/queries/library.rs",
+  "src-tauri/src/db/queries/organization.rs",
   "src-tauri/src/db/queries/mod.rs",
   "src-tauri/src/db/queries/operations.rs",
   "src-tauri/src/db/queries/rules_repo.rs"
@@ -55,6 +56,7 @@ const dbFiles = [
 const db = dbFiles.map(read).join("\n");
 const benchmarkSource = read("src-tauri/tests/fts_benchmark.rs");
 const fileLibraryBenchmarkSource = read("src-tauri/tests/file_library_performance.rs");
+const organizationBenchmarkSource = read("src-tauri/src/db/queries/organization.rs");
 const requiredBenchmarkScenarios = [
   "english_search",
   "cjk_search",
@@ -71,13 +73,14 @@ assert(!db.includes("fetch_database"), "Rust backend must not register fetch_dat
 assert(fileLibraryStore.includes("LIBRARY_PAGE_SIZE = 50"), "File library page size should remain bounded at 50.");
 assert(fileLibraryList.includes("useVirtualizer") && fileLibraryList.includes("shouldTriggerLoadMore") && fileLibraryList.includes("onLoadMore"), "File library must combine virtualization with incremental load-more triggering.");
 assert(fileLibraryV2Store.includes("queryFileLibraryV2") && fileLibraryV2Store.includes("nextCursor"), "File Library V2 store must use backend query snapshots and keyset cursors.");
-assert(fileLibraryView.includes("loadFirstPage(spec)") && fileLibraryView.includes("onLoadMore={() => void loadNextPage()}"), "Vault must request bounded V2 pages through the backend cursor.");
+assert(fileLibraryView.includes("loadFirstPage()") && fileLibraryView.includes("onLoadMore={() => void loadNextPage()}"), "Vault must request bounded V2 pages through the canonical store query and backend cursor.");
 assert(!fileLibraryView.includes("collectLibraryPages") && !fileLibraryView.includes("getPagedFiles"), "Vault must not retain the renderer full-collection or OFFSET path.");
 assert(virtualization.includes("!hasMore || isLoading || rowCount <= 0") && virtualization.includes("lastVisibleRowIndex >= rowCount - 1 - threshold"), "File library load-more trigger must stop when complete or already loading.");
 assert(fileLibraryModel.includes("LIBRARY_COLLECTION_MAX_PAGES") && fileLibraryModel.includes("LIBRARY_COLLECTION_MAX_FILES") && fileLibraryModel.includes("if (!newFiles.length)"), "Advanced library collection must retain page, entry, and no-progress bounds.");
 assert(!runtimeUi.includes("demoData"), "Runtime UI must not depend on demo data.");
 assert(!runtimeUi.includes("window.fileManager"), "Runtime UI must not depend on Electron preload APIs.");
 assert(fileLibraryBenchmarkSource.includes("assert_query_plans") && fileLibraryBenchmarkSource.includes("performance_1m_file_library_query_matrix"), "Task 05 performance source must include query-plan and 1M gates.");
+assert(organizationBenchmarkSource.includes("performance_task06_plan_100_1k_10k_repository"), "Task 06 performance source must include the 100/1k/10k durable plan benchmark.");
 for (const scenario of requiredBenchmarkScenarios) {
   assert(benchmarkSource.includes(scenario), `SQLite benchmark must cover ${scenario}.`);
 }
@@ -416,3 +419,26 @@ for (const [testName, label] of task05PerformanceTests) {
   }
   console.log(`${label} benchmark passed.`);
 }
+
+console.log("Running Task 06 durable plan 100/1k/10k benchmark...");
+const task06Performance = spawnSync(
+  "cargo",
+  [
+    "test",
+    "--release",
+    "--manifest-path",
+    "src-tauri/Cargo.toml",
+    "performance_task06_plan_100_1k_10k_repository",
+    "--",
+    "--ignored",
+    "--nocapture",
+  ],
+  { cwd: root, stdio: "inherit" },
+);
+if (task06Performance.error || task06Performance.status !== 0) {
+  console.error(task06Performance.error
+    ? `Task 06 durable plan benchmark failed to start: ${task06Performance.error.message}`
+    : `Task 06 durable plan benchmark failed with exit code ${task06Performance.status}.`);
+  process.exit(task06Performance.status ?? 1);
+}
+console.log("Task 06 durable plan 100/1k/10k benchmark passed.");

@@ -59,7 +59,8 @@ describe("app render architecture", () => {
     expect(fileLibraryStore).toContain("libraryFilter: LibraryFilter");
     expect(fileLibraryStore).toContain("setLibraryFilter");
     expect(vault).toContain("useFileLibraryResultStore");
-    expect(vault).toContain("loadFirstPage(spec)");
+    expect(vault).toContain("setQuerySpec(spec)");
+    expect(vault).toContain("void loadFirstPage()");
     expect(vault).toContain("resolveLegacyLibraryScope");
     expect(read("src/store/useFileLibraryV2Store.ts")).toContain("queryFileLibraryV2");
     expect(vault).not.toContain("setSearchQuery(filter.key)");
@@ -76,18 +77,18 @@ describe("app render architecture", () => {
     expect(bootstrapper).not.toContain("syncPreviews(files)");
   });
 
-  it("refreshes operation previews after AI classification before opening preview", () => {
+  it("uses the durable plan and existing managed-AI adapter instead of the legacy preview walk", () => {
     const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
-
-    expect(view).toContain("AI_ANALYSIS_LIMIT = 100");
-    expect(view).toContain("const refreshPreviewsForFiles = useOperationQueueStore((state) => state.refreshPreviewsForFiles)");
-    expect(view).toContain("await refreshPreviewsForFiles(scope, new Set(currentFiles.map((file) => file.id)))");
-    expect(view).not.toContain("while (useOperationQueueStore.getState().previewHasMore)");
-    expect(view).not.toContain("useOperationQueueStore((state) => state.runDispatch)");
-    expect(view).toContain("pendingOnly: true, force: false, limit: AI_ANALYSIS_LIMIT");
-    expect(view).toContain("force: true, allowOverwriteUserCorrections: false, limit: AI_ANALYSIS_LIMIT");
-    expect(view).toContain("startOrganizePreviewSession(organizeScopeKey(scope), ids)");
-    expect(view).toContain('setView("preview")');
+    const store = read("src/store/useOrganizationPlanStore.ts");
+    const organization = read("src-tauri/src/db/queries/organization.rs");
+    expect(view).toContain("useOrganizationPlanStore");
+    expect(view).toContain("analyzeMissing");
+    expect(view).toContain("createDryRun");
+    expect(view).not.toContain("useOperationQueueStore");
+    expect(view).not.toContain("loadOrganizeQueue");
+    expect(store).toContain("analyzeOrganizationPlanItems");
+    expect(organization).toContain("enqueue_managed_ai_for_library_files");
+    expect(organization).not.toContain("classify_files_with_ai");
     expect(view).not.toMatch(/temperature|top_p|endpoint|modelName/i);
   });
 

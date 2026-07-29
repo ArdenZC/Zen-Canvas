@@ -201,3 +201,11 @@ docs/remediation/TASK_06_DURABLE_ORGANIZATION_PLAN_AND_DRY_RUN.md
 ```
 
 Task 07 and Task 08 remain forbidden until Task 06 is implemented, reviewed and merged.
+
+---
+
+## 17. Task 06 handoff closure
+
+The nine accepted findings in section 15 were closed on `remediation/06-organization-plan` as the first implementation group of the complete Task 06 module. Evidence is recorded in `TASK_06_IMPLEMENTATION_CLOSEOUT.md`: mounted one-way Vault queries, authoritative cursor revalidation, request-local 100k selection sets, snapshot-expired row retention, complete tag/Saved View UI, completed detail/selection DTOs, schema 32 revision CAS, mounted-row ARIA ownership and deferred exact counts.
+
+This update records implementation only. Task 06 remains in a Draft PR awaiting human code-level review and merge; Task 07 and Task 08 remain forbidden.

@@ -1386,7 +1386,7 @@ fn post_join_where_clause(clause: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
-fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPreviewDto> {
+pub(crate) fn operation_preview_from_indexed(row: IndexedFileRow) -> Option<OperationPreviewDto> {
     let source_directory = parent_directory(&row.path);
     let proposed_name = if row.suggested_name.trim().is_empty() {
         row.name.clone()

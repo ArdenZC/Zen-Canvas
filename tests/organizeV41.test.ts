@@ -7,37 +7,30 @@ const read = (file: string) => readFileSync(resolve(file), "utf8");
 
 describe("Organize Suggestions v4.1 interaction contracts", () => {
   it("uses separate active-row and batch-checkbox semantics", () => {
-    const list = read("src/views/organize/OrganizeSuggestionList.tsx");
     const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
-    expect(list).toContain('role="listitem"');
-    expect(list).toContain('aria-current={active ? "true" : undefined}');
-    expect(list).not.toContain("aria-selected={active}");
-    expect(list).not.toContain('role="option"');
-    expect(view).toContain('organizeSpaceAction(batchMode) === "toggle-batch"');
-    expect(view).toContain('else applyDecision(activeSuggestion, "accepted")');
-    expect(view).toContain("requestAnimationFrame(() => listRef.current?.focus())");
+    expect(view).toContain('role="listbox"');
+    expect(view).toContain('role="option"');
+    expect(view).toContain("aria-selected={active}");
+    expect(view).toContain('type="checkbox"');
+    expect(view).toContain("toggleBatch(activeItem.id)");
   });
 
-  it("restores the Inspector to its top only when the active file changes", () => {
+  it("keeps virtual focus references limited to a mounted active row", () => {
     const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
-    expect(view).toContain("if (inspectorRef.current) inspectorRef.current.scrollTop = 0");
-    expect(view).toContain("[activeSuggestion?.file.id]");
+    expect(view).toContain("virtualRows.some");
+    expect(view).toContain("aria-activedescendant={mountedActiveId}");
+    expect(view).toContain("virtualizer.scrollToIndex");
   });
 
-  it("uses bounded targeted preview loading instead of an unbounded loop", () => {
+  it("uses keyset plan pages instead of a legacy OFFSET preview scan", () => {
     const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
-    const store = read("src/store/useOperationQueueStore.ts");
-    expect(view).toContain("refreshPreviewsForFiles");
-    expect(view).not.toContain("while (useOperationQueueStore.getState().previewHasMore)");
-    expect(store).toContain("pages >= maxPages");
-    expect(store).toContain('stopReason = "page-limit"');
-    expect(store).toContain("scannedEntries >= maxEntries");
-    expect(store).toContain('stopReason = "entry-limit"');
-    expect(store).toContain("newPreviewIds === 0");
-    expect(store).toContain("scannedPreviewIds");
-    expect(store).toContain("previewRequestId !== requestId");
-    expect(view).toContain("workspaceRequestRef.current");
-    expect(view).toContain("requestId !== workspaceRequestRef.current");
+    const store = read("src/store/useOrganizationPlanStore.ts");
+    expect(view).toContain("loadNextPage");
+    expect(view).not.toContain("refreshPreviewsForFiles");
+    expect(view).not.toContain("useOperationQueueStore");
+    expect(store).toContain("nextCursor");
+    expect(store).toContain("requestEpoch");
+    expect(store).not.toContain("OFFSET");
   });
 
   it("localizes badge, risk summary, and result states in both languages", () => {

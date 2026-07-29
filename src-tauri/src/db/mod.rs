@@ -31,6 +31,7 @@ pub use queries::dedupe::{
     StartDedupeRunRequest,
 };
 pub use queries::library::*;
+pub use queries::organization::*;
 pub use queries::scan;
 pub(crate) use queries::{
     bool_to_i64, current_unix_seconds, indexed_file_from_row, infer_file_type, normalize_path_text,

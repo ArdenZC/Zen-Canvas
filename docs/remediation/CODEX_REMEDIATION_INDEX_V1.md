@@ -9,7 +9,7 @@
 - Task 04 已通过 PR #35 合并，squash merge 为 `14616d4344314afce0878dbc681988c04183a9bc`；
 - Task 05 已通过 PR #38 合并，squash merge 为 `5468a17790165a149c462a17b64d011750b45410`，数据库推进至 schema 31；
 - Task 05 人工接受的 9 项遗留已冻结为 Task 06 第一组生产改动，不得再次后移；
-- Task 06 是当前唯一可执行完整产品模块，授权 schema 32；
+- Task 06 已在 `remediation/06-organization-plan` 完整实施并进入唯一 Draft PR 验收，schema 32；尚未合并；
 - Task 07–08 继续禁止执行。
 
 | 阶段 | 任务书 | 产品模块/目标 | 状态 |
@@ -21,7 +21,7 @@
 | 03 | `TASK_03_ANALYSIS_RUN_FINDING_AND_DETECTORS.md` | 模块 2：大型文件/空间分析；Spacedrive V1 对标 | 已合并，schema 30 |
 | 04 | `TASK_04_GLOBAL_SHORTCUT_SEARCH.md` | 模块 4：全局快捷搜索；Tolaria 设计级对标 | 已合并，schema 30 |
 | 05 | `TASK_05_FILE_LIBRARY_QUERY_TAGS_SAVED_VIEWS.md` | 模块 5：文件库；Query V2、selection、tags、Saved Views、Inspector | 已合并，schema 31；9 项遗留转入 Task 06 |
-| 06 | `TASK_06_DURABLE_ORGANIZATION_PLAN_AND_DRY_RUN.md` | 模块 6：AI 整理预览；Durable Organization Plan、review、dry run、安全执行 | **当前唯一可执行；授权 schema 32** |
+| 06 | `TASK_06_DURABLE_ORGANIZATION_PLAN_AND_DRY_RUN.md` | 模块 6：AI 整理预览；Durable Organization Plan、review、dry run、安全执行 | **实施完成；Draft PR 人工验收中，未合并** |
 | 07 | 待创建 | 模块 7：自然语言规则；Proposal → Rule AST | 禁止执行 |
 | 08 | 待创建 | 模块 8：本地内容理解；Content Artifact | 禁止执行 |
 
@@ -262,3 +262,7 @@ Task 06 完成时必须：
 9. `TASK_06_IMPLEMENTATION_CLOSEOUT.md`；
 10. 停止等待人工验收；
 11. 不自动合并、不开始 Task 07。
+
+### Task 06 implementation record
+
+Implementation is recorded in `TASK_06_IMPLEMENTATION_CLOSEOUT.md`. The Task 05 nine-item handoff, schema 32 ledger, Managed AI adapter, human review, authoritative dry run, existing-journal execution, restart projection, UI, permissions, mock and performance gates are implemented on the single Task 06 branch. This status does not authorize Task 07: Task 06 must remain stopped until human review and merge.

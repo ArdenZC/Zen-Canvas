@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 31;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 32;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -50,6 +50,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         ensure_dedupe_schema(conn)?;
         ensure_analysis_schema(conn)?;
         ensure_file_library_schema(conn)?;
+        ensure_organization_plan_schema(conn)?;
         backfill_scan_roots_from_settings(conn)?;
         return Ok(());
     }
@@ -704,6 +705,10 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         if version < 31 {
             ensure_file_library_schema(conn)?;
             set_schema_version(conn, 31)?;
+        }
+        if version < 32 {
+            ensure_organization_plan_schema(conn)?;
+            set_schema_version(conn, 32)?;
         }
         Ok(())
     })();
@@ -1719,6 +1724,95 @@ fn ensure_file_library_schema(conn: &Connection) -> Result<(), DbError> {
         );
         INSERT OR IGNORE INTO library_query_state(singleton_id, revision, updated_at)
         VALUES (1, 1, strftime('%s', 'now'));
+        "#,
+    )?;
+    Ok(())
+}
+
+/// Task 06 durable organization-plan ledger. The large `files` authority and
+/// the existing operation/cleanup journals are intentionally untouched.
+fn ensure_organization_plan_schema(conn: &Connection) -> Result<(), DbError> {
+    execute_column_migrations(
+        conn,
+        &[
+            "ALTER TABLE user_tags ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;",
+            "ALTER TABLE library_saved_views ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;",
+        ],
+    )?;
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS organization_plans (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN (
+                'draft', 'building', 'ready', 'stale', 'executing',
+                'partially_completed', 'completed', 'cancelled', 'failed'
+            )),
+            source_kind TEXT NOT NULL CHECK (source_kind IN ('explicit', 'all_matching')),
+            source_query_spec_json TEXT,
+            source_query_fingerprint TEXT,
+            source_snapshot_revision INTEGER NOT NULL,
+            requested_count INTEGER NOT NULL CHECK (requested_count >= 0),
+            materialized_count INTEGER NOT NULL CHECK (materialized_count >= 0),
+            planner_version INTEGER NOT NULL,
+            revision INTEGER NOT NULL CHECK (revision >= 1),
+            active_execution_id TEXT,
+            active_operation_batch_id TEXT,
+            last_error_code TEXT,
+            last_error_detail TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            ready_at INTEGER,
+            completed_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_organization_plans_status_updated
+            ON organization_plans(status, updated_at DESC, id);
+
+        CREATE TABLE IF NOT EXISTS organization_plan_items (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL REFERENCES organization_plans(id) ON DELETE CASCADE,
+            ordinal INTEGER NOT NULL,
+            file_id_snapshot TEXT NOT NULL,
+            source_path_snapshot TEXT NOT NULL,
+            source_name_snapshot TEXT NOT NULL,
+            source_size_snapshot INTEGER NOT NULL,
+            source_mtime_snapshot INTEGER NOT NULL,
+            source_is_dir_snapshot INTEGER NOT NULL,
+            proposal_fingerprint TEXT NOT NULL,
+            proposal_kind TEXT NOT NULL CHECK (proposal_kind IN (
+                'move', 'rename', 'move_rename', 'keep', 'blocked'
+            )),
+            proposed_target_directory TEXT NOT NULL,
+            proposed_name TEXT NOT NULL,
+            proposed_target_path TEXT NOT NULL,
+            decision TEXT NOT NULL CHECK (decision IN (
+                'undecided', 'accepted', 'kept', 'edited'
+            )),
+            edited_name TEXT,
+            validity TEXT NOT NULL CHECK (validity IN (
+                'ready', 'needs_analysis', 'needs_review', 'blocked',
+                'stale', 'executing', 'executed', 'failed', 'skipped'
+            )),
+            confidence REAL NOT NULL,
+            risk_level TEXT NOT NULL,
+            requires_confirmation INTEGER NOT NULL,
+            blocking_code TEXT,
+            blocking_detail TEXT,
+            authoritative_preview_id TEXT,
+            operation_log_id TEXT,
+            execution_id TEXT,
+            revision INTEGER NOT NULL CHECK (revision >= 1),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            UNIQUE(plan_id, ordinal),
+            UNIQUE(plan_id, file_id_snapshot)
+        );
+        CREATE INDEX IF NOT EXISTS idx_organization_plan_items_plan_state
+            ON organization_plan_items(plan_id, validity, decision, ordinal, id);
+        CREATE INDEX IF NOT EXISTS idx_organization_plan_items_file
+            ON organization_plan_items(file_id_snapshot, plan_id);
+        CREATE INDEX IF NOT EXISTS idx_organization_plan_items_execution
+            ON organization_plan_items(execution_id, validity, id);
         "#,
     )?;
     Ok(())

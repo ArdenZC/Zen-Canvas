@@ -61,7 +61,11 @@ describe("Task 05 File Library Query V2 contracts", () => {
     expect(store).toContain("useFileLibrarySavedViewStore");
     expect(library).toContain("FileQuerySpecV2");
     expect(library).toContain("LIMIT ?");
-    expect(library).not.toMatch(/query_file_library_v2[\s\S]*OFFSET/);
+    const queryImplementation = library.slice(
+      library.indexOf("pub fn query_file_library_v2"),
+      library.indexOf("pub fn resolve_file_library_exact_count_v2")
+    );
+    expect(queryImplementation).not.toContain("OFFSET");
     expect(library).not.toContain("GlobalIndex");
     expect(library).toContain("LibrarySelectionV1");
     expect(library).toContain("bump_library_query_revision_in_transaction");
@@ -80,6 +84,8 @@ describe("Task 05 File Library Query V2 contracts", () => {
       snapshotRevision: 7,
       files: [],
       totalCount: 0,
+      countState: "exact",
+      countToken: null,
       nextCursor: null,
       hasMore: false,
       resultState: "empty",
@@ -158,5 +164,48 @@ describe("Task 05 File Library Query V2 contracts", () => {
       expect(read(relativePath), relativePath).toContain("bump_library_query_revision_in_transaction");
     }
     expect(tauriApi.revealFileLibraryEntry.length).toBe(1);
+  });
+
+  it("keeps browser organization review durable in memory but denies native execution", async () => {
+    const plan = await mockInvokeCommand<any>("create_organization_plan", {
+      request: {
+        version: 1,
+        requestId: "browser-plan-contract",
+        title: "Browser review",
+        source: { kind: "explicit", fileIds: ["mock-report"] },
+        expectedCount: 1
+      }
+    });
+    expect(plan).toMatchObject({ status: "ready", materializedCount: 1, revision: 1 });
+    const page = await mockInvokeCommand<any>("query_organization_plan_items", {
+      request: { planId: plan.id, pageSize: 100, cursor: null }
+    });
+    expect(page.items).toHaveLength(1);
+    const changed = await mockInvokeCommand<any>("update_organization_plan_decisions", {
+      request: {
+        planId: plan.id,
+        expectedPlanRevision: 1,
+        mutations: [{
+          itemId: page.items[0].id,
+          expectedItemRevision: 1,
+          decision: "accepted"
+        }]
+      }
+    });
+    expect(changed.revision).toBe(2);
+    const dryRun = await mockInvokeCommand<any>("get_organization_plan_dry_run", {
+      request: { planId: plan.id, expectedPlanRevision: 2, itemIds: [], allAccepted: true }
+    });
+    expect(dryRun.executableCount).toBeGreaterThanOrEqual(0);
+    await expect(mockInvokeCommand("execute_organization_plan", {
+      request: {
+        planId: plan.id,
+        expectedPlanRevision: 2,
+        dryRunFingerprint: dryRun.dryRunFingerprint,
+        itemIds: [],
+        allAccepted: true,
+        confirmed: true
+      }
+    })).rejects.toThrow("browser_mock_native_execution_unavailable");
   });
 });

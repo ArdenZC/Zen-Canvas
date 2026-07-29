@@ -28,11 +28,11 @@
 | R-013 | AI 覆盖用户 correction/decision | Critical | retry/reanalysis 覆盖人工决定 | correction/decision 最高优先 | 持续阻断 |
 | R-014 | Content Artifact 泄露隐私 | Critical | 默认读取/上传或长期保存正文 | Task 08 consent/预算/脱敏/retention | 阻断提前建设 |
 | R-015 | AI trace 被当内容库 | High | 截断/脱敏数据被业务复用 | trace 仅诊断 | 持续阻断 |
-| R-016 | 过期 Organization Plan 仍执行 | Critical | renderer 持旧 plan/dry run | plan/item revision、live preview/identity、dry-run fingerprint | **Task 06 当前强制整改** |
+| R-016 | 过期 Organization Plan 仍执行 | Critical | renderer 持旧 plan/dry run | plan/item revision、live preview/identity、dry-run fingerprint | 已实现，持续回归 |
 | R-017 | 业务绕过 preview/journal/restore | Critical | AI/finding/plan/command 直接 filesystem | 所有 mutation 经过既有安全链 | 持续阻断 |
 | R-018 | OFFSET 在实时 File Library 跳页/重复 | High | scan/watcher 改变排序 | Library revision snapshot + keyset cursor | 已实现，Task 06 补 cursor integrity |
 | R-019 | 跨页选择表达不真实 | High | loaded rows 被描述为全部结果 | explicit/all_matching selection contract | 已实现，Task 06 补 100k truth |
-| R-020 | 大表 count/sort 成本失控 | Medium | CTE/count/deep pagination 拖慢 100k/1M | deferred exact count、query plan、cold/warm benchmark | **Task 06 第一组** |
+| R-020 | 大表 count/sort 成本失控 | Medium | CTE/count/deep pagination 拖慢 100k/1M | deferred exact count、query plan、cold/warm benchmark | 已关闭，持续性能门禁 |
 | R-021 | Native helper/service 协议漂移 | High | service/fallback/installer 不一致 | versioned protocol、native smoke | 持续监控 |
 | R-022 | partial/degraded 被当 complete | High | 权限/provider 仅返回部分结果 | health/completeness 同 snapshot | 已处理，持续回归 |
 | R-023 | 迁移破坏 operation/cleanup 账本 | Critical | schema 改动破坏恢复 | fixture、rollback、reconcile tests | 持续阻断 |
@@ -102,21 +102,21 @@
 | ID | 风险 | 等级 | 最终合同 | 状态 |
 |---|---|---|---|---|
 | R-074 | Query V2 revision 漏 bump | Critical |统一 transaction helper、写路径 tests | 已实现，持续回归 |
-| R-075 | Cursor 可伪造或绑定错误 query | Critical | backend anchor membership + complete tuple validation | **Task 06 第一组，不得后移** |
+| R-075 | Cursor 可伪造或绑定错误 query | Critical | backend anchor membership + complete tuple validation | 已关闭，持续回归 |
 | R-076 | Renderer filtering/sorting 伪装全库真值 | High | filter/sort 下沉 SQLite | 已关闭 |
 | R-077 | all_matching selection 与 snapshot/query 不一致 | Critical | canonical query + fingerprint + revision + exclusions | 已实现，Task 06 补大规模边界 |
 | R-078 | Tag metadata 与系统分类或文件名混用 | Critical |独立 tables/DTO；metadata-only | 已关闭，持续阻断 |
-| R-079 | Bulk tag 部分提交或越权 | High | authoritative set、100k cap、single transaction | **Task 06 补 TEMP set** |
+| R-079 | Bulk tag 部分提交或越权 | High | authoritative set、100k cap、single transaction | 已关闭，持续回归 |
 | R-080 | `files.id` 更新破坏 tag FK | Critical | ON UPDATE CASCADE | 已关闭 |
 | R-081 | Saved View 注入/静默扩大 scope | Critical | canonical typed JSON；invalid references | 已关闭，持续回归 |
 | R-082 | Saved View 保存 cursor/selection | High |只持久 QuerySpec | 已关闭 |
-| R-083 | Summary DTO 过宽或 Detail 不完整 | High | summary/detail/selection 分离 | **Task 06 补 finding/common tags** |
+| R-083 | Summary DTO 过宽或 Detail 不完整 | High | summary/detail/selection 分离 | 已关闭，持续回归 |
 | R-084 | Snapshot 长期占用 WAL/物化百万 IDs | High | stateless query snapshot | 已关闭 |
 | R-085 | Root scope 由 renderer path 注入 | Critical | durable IDs、backend resolve | 已关闭 |
 | R-086 | schema 31 migration 非原子 | Critical | transaction rollback、future guard | 已关闭 |
 | R-087 | Tag/Saved View 主库锁竞争 | High | set-based short transaction | 已验证，持续性能门禁 |
 | R-088 | Keyset sort tie 漂移 | High | fixed collation/null + durable ID | 已实现，Task 06 补 cursor anchor |
-| R-089 | 1M exact count 无界 | High | deferred exact count，不估算 | **Task 06 第一组，不得后移** |
+| R-089 | 1M exact count 无界 | High | deferred exact count，不估算 | 已关闭，持续性能门禁 |
 | R-090 | TagSpaces AGPL 移植 | Critical | design-only | 已通过许可证门禁 |
 | R-091 | Search window 获得 Library write 权限 | Critical | main-only capability | 已关闭，持续权限门禁 |
 | R-092 | Selection 成为直接文件 mutation authority | Critical | Task 05 只允许 metadata；Task 06 先 plan 再 journal | 持续阻断 |
@@ -125,36 +125,36 @@
 
 | ID | 风险 | 等级 | Task 06 强制解决方案 | 状态 |
 |---|---|---|---|---|
-| R-093 | Vault query effect 无限/重复请求 | High | 单向 query flow + mounted invoke-count | **当前第一组** |
-| R-094 | 合法 JSON cursor 篡改 | Critical | live anchor membership/tuple revalidation；不信任 cursor count | **当前第一组** |
-| R-095 | 100k explicit selection SQL 参数爆炸 | Critical | backend TEMP/request-local selection set | **当前第一组** |
-| R-096 | snapshot expired 清空真实画面 | High |保留 rows、banner、all_matching invalidation | **当前第一组** |
-| R-097 | Tags/Saved Views 产品 CRUD 不完整 | High |完整 UI/CAS/focus/error tests | **当前第一组** |
-| R-098 | Detail/selection summary 缺关键事实 | High | active finding/common directory/tag commonality | **当前第一组** |
-| R-099 | 秒级/optional CAS 覆盖新写入 | Critical | schema32 mandatory monotonic revision | **当前第一组** |
-| R-100 | virtual ARIA 引用未挂载 row | Medium | mounted-row-only active descendant | **当前第一组** |
-| R-101 | 1M complex count 被自行降级为 diagnostic | High |批准的 deferred exact count contract | **当前第一组** |
+| R-093 | Vault query effect 无限/重复请求 | High | 单向 query flow + mounted invoke-count | 已关闭，持续回归 |
+| R-094 | 合法 JSON cursor 篡改 | Critical | live anchor membership/tuple revalidation；不信任 cursor count | 已关闭，持续回归 |
+| R-095 | 100k explicit selection SQL 参数爆炸 | Critical | backend TEMP/request-local selection set | 已关闭，持续回归 |
+| R-096 | snapshot expired 清空真实画面 | High |保留 rows、banner、all_matching invalidation | 已关闭，持续回归 |
+| R-097 | Tags/Saved Views 产品 CRUD 不完整 | High |完整 UI/CAS/focus/error tests | 已关闭，持续回归 |
+| R-098 | Detail/selection summary 缺关键事实 | High | active finding/common directory/tag commonality | 已关闭，持续回归 |
+| R-099 | 秒级/optional CAS 覆盖新写入 | Critical | schema32 mandatory monotonic revision | 已关闭，持续回归 |
+| R-100 | virtual ARIA 引用未挂载 row | Medium | mounted-row-only active descendant | 已关闭，持续回归 |
+| R-101 | 1M complex count 被自行降级为 diagnostic | High |批准的 deferred exact count contract | 已关闭，持续性能门禁 |
 
 ## Task 06 Organization Plan 风险
 
 | ID | 风险 | 等级 | 阻断/验收条件 | 状态 |
 |---|---|---|---|---|
-| R-102 | 内存 organize decision 被当 durable truth | Critical | schema32 plan/item ledger、restart hydrate | 当前强制整改 |
-| R-103 | Plan snapshot 被当实时 file identity | Critical | snapshot 仅历史；execution live preview/identity | 当前强制整改 |
-| R-104 | renderer 修改 target path/operation kind | Critical | request 只允许 IDs/decision/filename；backend proposal | 当前强制整改 |
-| R-105 | stale proposal 继承 accepted decision | Critical | proposal fingerprint change → needs-review | 当前强制整改 |
-| R-106 | Plan 建第二套 operation/undo journal | Critical | operation journal 唯一 truth；plan 仅 mapping/projection | 当前持续阻断 |
-| R-107 | AI 自动接受或执行 | Critical | Managed AI adapter 只分析；explicit refresh/review/confirm | 当前持续阻断 |
-| R-108 | Plan 绕过 managed scope/provider policy | Critical | source V2 selection、managed AI gate、negative tests | 当前强制整改 |
-| R-109 | Plan 创建半成品/超过上限部分提交 | High | staged atomic publication、10k preflight cap | 当前强制整改 |
-| R-110 | Dry run 过期仍执行 | Critical | fingerprint 绑定 revision/item set/live facts | 当前强制整改 |
-| R-111 | 执行崩溃后重复 mutation | Critical | caller batch ID、journal reconciliation、no auto replay | 当前强制整改 |
-| R-112 | 10k plan/1k execution 阻塞主库或 UI | High | keyset/virtual、short transaction、WAL/performance gates | 当前性能门禁 |
-| R-113 | cleanup/delete 混入 Organization Plan | Critical | proposal blocked；无 move_to_trash/delete API | 当前持续阻断 |
-| R-114 | ai-file-sorter AGPL 代码/结构移植 | Critical | fixed SHA/license、concept-only、no transplant tests | 当前许可证门禁 |
-| R-115 | terminal plan retention 删除 journal | Critical | plan prune 不删除 operation/cleanup logs | 当前强制整改 |
-| R-116 | Search window 调用 plan/AI/execution | Critical | main-only capabilities、negative tests | 当前权限门禁 |
+| R-102 | 内存 organize decision 被当 durable truth | Critical | schema32 plan/item ledger、restart hydrate | 已关闭，持续回归 |
+| R-103 | Plan snapshot 被当实时 file identity | Critical | snapshot 仅历史；execution live preview/identity | 已关闭，持续回归 |
+| R-104 | renderer 修改 target path/operation kind | Critical | request 只允许 IDs/decision/filename；backend proposal | 已关闭，持续阻断 |
+| R-105 | stale proposal 继承 accepted decision | Critical | proposal fingerprint change → needs-review | 已关闭，持续回归 |
+| R-106 | Plan 建第二套 operation/undo journal | Critical | operation journal 唯一 truth；plan 仅 mapping/projection | 已阻断，持续回归 |
+| R-107 | AI 自动接受或执行 | Critical | Managed AI adapter 只分析；explicit refresh/review/confirm | 已阻断，持续回归 |
+| R-108 | Plan 绕过 managed scope/provider policy | Critical | source V2 selection、managed AI gate、negative tests | 已关闭，持续回归 |
+| R-109 | Plan 创建半成品/超过上限部分提交 | High | staged atomic publication、10k preflight cap | 已关闭，持续回归 |
+| R-110 | Dry run 过期仍执行 | Critical | fingerprint 绑定 revision/item set/live facts | 已关闭，持续回归 |
+| R-111 | 执行崩溃后重复 mutation | Critical | caller batch ID、journal reconciliation、no auto replay | 已关闭，持续回归 |
+| R-112 | 10k plan/1k execution 阻塞主库或 UI | High | keyset/virtual、short transaction、WAL/performance gates | 已通过本地门禁，等待跨平台 CI |
+| R-113 | cleanup/delete 混入 Organization Plan | Critical | proposal blocked；无 move_to_trash/delete API | 已阻断，持续回归 |
+| R-114 | ai-file-sorter AGPL 代码/结构移植 | Critical | fixed SHA/license、concept-only、no transplant tests | 已通过许可证门禁 |
+| R-115 | terminal plan retention 删除 journal | Critical | plan prune 不删除 operation/cleanup logs | 已关闭，持续回归 |
+| R-116 | Search window 调用 plan/AI/execution | Critical | main-only capabilities、negative tests | 已关闭，持续权限门禁 |
 
 ## 风险结论
 
-Task 05 已通过 PR #38 squash 合并，merge commit 为 `5468a17790165a149c462a17b64d011750b45410`。R-093–R-101 是人工明确接受并转入 Task 06 第一组的最后遗留，不得再次后移。Task 06 必须建立 durable Organization Plan，同时保持 Managed AI queue、authoritative preview、operation journal、Safe Trash 和 restore 的既有 owner。Task 07–08 继续禁止执行。
+Task 05 已通过 PR #38 squash 合并，merge commit 为 `5468a17790165a149c462a17b64d011750b45410`。R-093–R-101 已在 Task 06 第一组关闭。Task 06 的 durable Organization Plan 已保持 Managed AI queue、authoritative preview、operation journal、Safe Trash 和 restore 的既有 owner，并停在单一 Draft PR 等待人工代码级验收。Task 07–08 继续禁止执行。

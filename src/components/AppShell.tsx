@@ -24,7 +24,7 @@ import { requestSettingsSection } from "./spotlight/commandRegistry";
 import { useChromeContext } from "../contexts/AppContexts";
 import { useAppStore } from "../store/useAppStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
-import { useOrganizeDecisionStore } from "../store/useOrganizeDecisionStore";
+import { useOrganizationPlanStore } from "../store/useOrganizationPlanStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
 import { resolveAIProcessingMode, useAIProcessingModeStore, type AIProcessingModeState } from "../store/useAIProcessingModeStore";
 import type { DashboardStats, LibraryScope } from "../types/domain";
@@ -33,7 +33,6 @@ import { formatDate } from "../utils/format";
 import { cn, statusToast, toastTone } from "../utils/tw";
 import { libraryScopeLabel, readableError } from "../utils/viewHelpers";
 import { PageHeader, pageFrame, softPanel, viewStage } from "../views/shared/ui";
-import { organizeScopeKey } from "../views/organize/organizeModel";
 import { APP_SHELL_CONTENT_ID, ModalHost } from "./modal/ModalPortal";
 
 const ScannerView = lazy(() => import("../views/scanner/ScannerView").then((module) => ({ default: module.ScannerView })));
@@ -87,9 +86,7 @@ export function AppShell() {
   } = useChromeContext();
   const stats = useFileLibraryStore((state) => state.stats);
   const scope = useFileLibraryStore((state) => state.scope);
-  const decisions = useOrganizeDecisionStore((state) => state.decisions);
-  const organizeFiles = useFileLibraryStore((state) => state.organizeQueue);
-  const previewActionCount = organizePendingCount(scope, organizeFiles.map((file) => file.id), decisions);
+  const previewActionCount = useOrganizationPlanStore((state) => state.items.filter((item) => item.decision === "undecided" || item.validity === "needs_review").length);
   const executionIntent = useOperationQueueStore((state) => state.executionIntent);
   const spotlightTriggerRef = useRef<HTMLButtonElement | null>(null);
 
@@ -220,9 +217,7 @@ function WindowsControls() {
 function Sidebar({ groups }: { groups: NavGroup[] }) {
   const { view, setView, t } = useChromeContext();
   const scope = useFileLibraryStore((state) => state.scope);
-  const organizeFiles = useFileLibraryStore((state) => state.organizeQueue);
-  const decisions = useOrganizeDecisionStore((state) => state.decisions);
-  const previewActionCount = organizePendingCount(scope, organizeFiles.map((file) => file.id), decisions);
+  const previewActionCount = useOrganizationPlanStore((state) => state.items.filter((item) => item.decision === "undecided" || item.validity === "needs_review").length);
   const aiModeStatus = useAIProcessingModeStore((state) => state.status);
   const aiModeSettings = useAIProcessingModeStore((state) => state.settings);
   const aiModeError = useAIProcessingModeStore((state) => state.error);
@@ -342,14 +337,6 @@ function AppViewContent() {
   else if (view === "restore") content = <RestoreView />;
   else content = <SettingsView />;
   return <Suspense fallback={<div className={softPanel}>{t("loading")}</div>}>{content}</Suspense>;
-}
-
-function organizePendingCount(scope: LibraryScope, fileIds: string[], decisions: Record<string, { state: string }>) {
-  const scopeKey = organizeScopeKey(scope);
-  return fileIds.filter((fileId) => {
-    const state = decisions[`${scopeKey}::${fileId}`]?.state;
-    return state === "undecided" || state === "needs-review";
-  }).length;
 }
 
 export function AIProcessingModeStatus({
