@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 
 import { act, createElement, useRef, useState } from "react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChromeProvider, type ChromeContextValue } from "../src/contexts/AppContexts";
@@ -346,38 +348,14 @@ describe("organize v4.2.1 component interactions", () => {
     expect(confirmed).toHaveBeenCalledTimes(tone === "danger" ? 1 : 0);
   });
 
-  it("keeps wide Inspector semantics out of the DOM and switches narrow details with row focus restoration", async () => {
-    const previews = [preview("one"), preview("two")];
-    useFileLibraryStore.setState({ organizeQueue: [file("one"), file("two")], organizeQueueTotal: 2 });
-    setPreviewState(previews, new Set());
-    useOperationQueueStore.setState({ refreshPreviewsForFiles: vi.fn().mockResolvedValue({ previews, total: 2, limit: 100, offset: 0, truncated: false, hasMore: false }) });
-    narrowMatches = false;
-    render(createElement(OrganizeSuggestionsView));
-    await vi.waitFor(() => expect(container.querySelector("#organize-inspector")).not.toBeNull());
-    expect(container.textContent).not.toContain("返回文件列表");
-    expect(container.querySelector("#organize-suggestion-pane")).not.toBeNull();
-    expect(container.querySelector("#organize-inspector")).not.toBeNull();
-    expect(container.querySelector("[data-narrow-pane]")).toBeNull();
-    await act(async () => container.querySelector("#organize-inspector")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    expect(container.querySelector("#organize-suggestion-pane")).not.toBeNull();
-
-    await setNarrowLayout(true);
-    await vi.waitFor(() => expect(container.querySelector('[data-narrow-pane="list"]')).not.toBeNull());
-
-    await act(async () => buttonWithText("查看文件详情").click());
-    expect(container.querySelector('[data-narrow-pane="details"]')).not.toBeNull();
-    const inspector = container.querySelector<HTMLElement>("#organize-inspector")!;
-    inspector.scrollTop = 80;
-    await act(async () => inspector.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
-    await act(async () => await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-    expect(container.querySelector('[data-narrow-pane="list"]')).not.toBeNull();
-    const list = container.querySelector<HTMLElement>('[role="list"]')!;
-    const activeRow = container.querySelector<HTMLElement>('[role="listitem"][aria-current="true"]')!;
-    expect(document.activeElement).toBe(activeRow ?? list);
-    expect(list.getAttribute("aria-activedescendant")).toBe("organize-suggestion-file-one");
-
-    await act(async () => list.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
-    expect(inspector.scrollTop).toBe(0);
+  it("keeps the durable organize view independent from the legacy queue and preview store", () => {
+    const source = readFileSync(resolve("src/views/organize/OrganizeSuggestionsView.tsx"), "utf8");
+    expect(source).toContain("useOrganizationPlanStore");
+    expect(source).toContain("aria-activedescendant={mountedActiveId}");
+    expect(source).toContain("max-[900px]:grid-cols-1");
+    expect(source).not.toContain("useOrganizeDecisionStore");
+    expect(source).not.toContain("useOperationQueueStore");
+    expect(source).not.toContain("loadOrganizeQueue");
   });
 });
 

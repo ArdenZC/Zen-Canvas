@@ -103,8 +103,10 @@ describe("Organize Suggestions decision workbench", () => {
     const hub = fs.readFileSync(path.join(process.cwd(), "src/views/hub/HubView.tsx"), "utf8");
     const view = fs.readFileSync(path.join(process.cwd(), "src/views/organize/OrganizeSuggestionsView.tsx"), "utf8");
     expect(hub).toContain("OrganizeSuggestionsView");
-    expect(view).toContain("pendingOnly: true");
-    expect(view).toContain("allowOverwriteUserCorrections: false");
+    expect(view).toContain("useOrganizationPlanStore");
+    expect(view).toContain("analyzeMissing");
+    expect(view).not.toContain("useOrganizeDecisionStore");
+    expect(view).not.toContain("loadOrganizeQueue");
     expect(view).not.toMatch(/temperature|top_p|modelName|endpoint/i);
     expect(view).not.toContain("window.confirm");
   });

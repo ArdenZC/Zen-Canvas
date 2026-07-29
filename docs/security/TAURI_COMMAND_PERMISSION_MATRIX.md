@@ -26,6 +26,7 @@
 | `get_ai_management_status` | `read_only` | main | Read AI-managed queue status | default | no | managed scope isolation tests |
 | `get_paged_files` | `read_only` | main | Read file library | default | no | capability allow-list |
 | `query_file_library_v2` | `read_only` | main | Read the durable File Library query snapshot | default | no | File Library V2 query tests |
+| `resolve_file_library_exact_count_v2` | `read_only` | main | Resolve a deferred exact count bound to the canonical query snapshot | default | no | File Library V2 deferred-count tests |
 | `get_file_library_detail` | `read_only` | main | Read metadata-only detail by durable file ID | default | no | File Library V2 detail tests |
 | `get_file_library_selection_summary` | `read_only` | main | Summarize an explicit or all-matching File Library selection | default | no | File Library V2 selection tests |
 | `reveal_file_library_entry` | `read_only` | main | Reveal a durable file ID after backend path resolution | default | no | File Library V2 reveal tests |
@@ -38,6 +39,17 @@
 | `create_library_saved_view` | `main_state_mutation` | main | Create a canonical durable File Library Saved View | default | yes | File Library V2 Saved View tests |
 | `update_library_saved_view` | `main_state_mutation` | main | Update a canonical durable File Library Saved View with CAS | default | yes | File Library V2 Saved View tests |
 | `delete_library_saved_view` | `main_state_mutation` | main | Delete a durable File Library Saved View with CAS | default | yes | File Library V2 Saved View tests |
+| `create_organization_plan` | `main_state_mutation` | main | Atomically materialize an ID-only File Library selection into a durable review plan | default | yes | organization plan materialization tests |
+| `list_organization_plans` | `read_only` | main | List durable organization plan summaries | default | no | organization plan query tests |
+| `get_organization_plan` | `read_only` | main | Read one durable organization plan summary by ID | default | no | organization plan query tests |
+| `query_organization_plan_items` | `read_only` | main | Read organization plan items with a keyset cursor | default | no | organization plan cursor tests |
+| `update_organization_plan_decisions` | `main_state_mutation` | main | Persist review decisions with plan and item revision CAS | default | yes | organization plan decision tests |
+| `refresh_organization_plan` | `main_state_mutation` | main | Revalidate plan items against current indexed metadata and previews | default | yes | organization plan refresh tests |
+| `cancel_organization_plan` | `main_state_mutation` | main | Cancel a non-terminal plan with revision CAS | default | yes | organization plan state tests |
+| `delete_organization_plan` | `main_state_mutation` | main | Delete a confirmed terminal plan with revision CAS | default | yes | organization plan retention tests |
+| `analyze_organization_plan_items` | `main_state_mutation` | main | Enqueue bounded managed-scope items on the existing AI queue | default | yes | organization managed-AI adapter tests |
+| `get_organization_plan_dry_run` | `read_only` | main | Build a live metadata-only authoritative dry run by plan and item IDs | default | no | organization dry-run tests |
+| `execute_organization_plan` | `filesystem_mutation` | main | Execute a confirmed non-stale dry run through the existing operation journal | default | yes | organization execution and recovery tests |
 | `get_operation_previews_for_scope` | `read_only` | main | Read preview data | default | no | capability allow-list |
 | `get_stats_summary` | `read_only` | main | Read statistics | default | no | capability allow-list |
 | `get_operation_logs` | `read_only` | main | Read operation history | default | no | command permission contract |

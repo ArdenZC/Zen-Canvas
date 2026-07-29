@@ -147,52 +147,32 @@ describe("Organize Suggestions v4.2 hardening", () => {
     expect(markup).toContain("归档保存");
   });
 
-  it("provides an explicit narrow details mode with Escape and focus restoration", () => {
+  it("provides a responsive virtual review list and mounted-row ARIA contract", () => {
     const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
-    const inspector = read("src/views/organize/OrganizeSuggestionInspector.tsx");
-    expect(view).toContain('useState<"list" | "details">("list")');
-    expect(view).toContain('aria-controls="organize-inspector"');
-    expect(view).toContain("openInspectorDetails()");
-    expect(view).toContain('setNarrowPane("details")');
-    expect(view).toContain("requestAnimationFrame(() => inspectorRef.current?.focus())");
-    expect(view).toContain('setNarrowPane("list")');
-    expect(view).toContain("activeRow ?? listRef.current");
-    expect(view).not.toContain("max-[1100px]:overflow-auto");
-    expect(inspector).toContain('event.key === "Escape"');
-    expect(inspector).toContain("overflow-y-auto overflow-x-hidden overscroll-contain");
-    expect(inspector).toContain('aria-keyshortcuts={isNarrowLayout ? "Escape" : undefined}');
-    expect(inspector).toContain('t("organizeDetailsForFile")');
+    expect(view).toContain("useVirtualizer");
+    expect(view).toContain("max-[900px]:grid-cols-1");
+    expect(view).toContain("aria-activedescendant={mountedActiveId}");
+    expect(view).toContain("virtualRows.some");
   });
 
   it("preserves ordinary and batch Space behavior and AI user-correction protection", () => {
     const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
-    const inspector = read("src/views/organize/OrganizeSuggestionInspector.tsx");
-    expect(view).toContain('organizeSpaceAction(batchMode) === "toggle-batch"');
-    expect(view).toContain('else applyDecision(activeSuggestion, "accepted")');
-    expect(view).toContain("force: true, allowOverwriteUserCorrections: false, limit: AI_ANALYSIS_LIMIT");
-    expect(view).toContain("displayedPreview?.new_name !== suggestion.editedName");
-    expect(inspector).toContain("userFacingMatchedRules(suggestion, t)");
-    expect(inspector).toContain("userFacingContext(suggestion, t)");
-    expect(inspector).toContain("userFacingTechnicalBasis(suggestion, t)");
-    expect(inspector).not.toContain("file.matched_rules.join");
+    const organization = read("src-tauri/src/db/queries/organization.rs");
+    expect(view).toContain("toggleBatch(activeItem.id)");
+    expect(view).toContain('event.key.toLowerCase() === "k"');
+    expect(view).toContain('event.key.toLowerCase() === "e"');
+    expect(view).toContain("analyzeMissing");
+    expect(organization).toContain("enqueue_managed_ai_for_library_files");
+    expect(organization).not.toContain("allow_overwrite_user_corrections");
   });
 
   it("uses natural suggestion copy, one decision badge, and the shared file icon", () => {
-    const list = read("src/views/organize/OrganizeSuggestionList.tsx");
     const view = read("src/views/organize/OrganizeSuggestionsView.tsx");
-    const inspector = read("src/views/organize/OrganizeSuggestionInspector.tsx");
-    const en = makeTranslator("en");
-    expect(en("organizeAnalyzePending")).toBe("Analyze unreviewed files");
-    expect(en("organizeReanalyzeScope")).toBe("Reanalyze all files in this scope");
-    expect(en("organizeTargetUnavailable")).toBe("No safe destination is currently available");
-    expect(en("organizeNoExecutableAction")).toBe("No file action is currently proposed");
-    expect(en("organizeReasonUnavailable")).toBe("There is not enough information to make a reliable suggestion");
-    expect(en("organizeSafetyHint")).toBe("Files are moved only after you review the Preview and explicitly confirm execution.");
-    expect(list).toContain("FileTypeIcon");
-    expect(list).toContain("<DecisionBadge");
-    expect(list).not.toContain('t("organizeNeedsConfirmation")');
-    expect(view).toContain('t("organizeSafetyHint")');
-    expect(inspector).toContain('t("organizeTargetUnavailable")');
+    expect(view).toContain("Plans are durable review artifacts");
+    expect(view).toContain("AI suggests");
+    expect(view).toContain("From");
+    expect(view).toContain("To");
+    expect(view).toContain("No delete or trash operation is permitted");
   });
 
   it("keeps dialog focus semantics, tabular numbers, token tones, and native confirms out", () => {
