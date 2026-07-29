@@ -591,12 +591,10 @@ fn assert_query_plans(conn: &Connection) {
         "EXPLAIN QUERY PLAN SELECT f.id FROM files f WHERE f.is_stale = 0 AND EXISTS (SELECT 1 FROM file_user_tags fut WHERE fut.file_id = f.id AND fut.tag_id = 'task05-benchmark-tag-a') ORDER BY f.mtime DESC, f.id LIMIT 50",
     );
     assert!(
-        tag_plan
-            .iter()
-            .any(|detail| {
-                detail.contains("sqlite_autoindex_file_user_tags_1")
-                    || detail.contains("idx_file_user_tags_tag_file")
-            }),
+        tag_plan.iter().any(|detail| {
+            detail.contains("sqlite_autoindex_file_user_tags_1")
+                || detail.contains("idx_file_user_tags_tag_file")
+        }),
         "sorted tag page must use the file/tag primary covering index per candidate: {tag_plan:?}"
     );
 
