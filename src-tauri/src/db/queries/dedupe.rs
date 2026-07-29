@@ -791,6 +791,7 @@ impl Database {
         let row = query_fingerprint(&tx, &candidate.file_id)?.ok_or_else(|| {
             DbError::Validation("Fingerprint identity upsert did not return a row.".to_string())
         })?;
+        super::library::bump_library_query_revision_in_transaction(&tx)?;
         tx.commit()?;
         Ok(row)
     }
@@ -864,6 +865,7 @@ impl Database {
                 error_message,
             ],
         )?;
+        super::library::bump_library_query_revision_in_transaction(&tx)?;
         tx.commit()?;
         Ok(())
     }
@@ -1242,6 +1244,7 @@ impl Database {
             None,
             checkpoint,
         )?;
+        super::library::bump_library_query_revision_in_transaction(&tx)?;
         tx.commit()?;
         if checkpoint.warning_count > 0 {
             Ok(PublishOutcome::CompletedWithWarnings)

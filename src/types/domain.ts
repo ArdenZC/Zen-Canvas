@@ -604,6 +604,245 @@ export interface FileLibraryFilters {
   libraryFilter?: LibraryFilter;
 }
 
+export type LibraryMatchMode = "any" | "only" | "exclude";
+
+export type FileLibraryScopeV2 =
+  | { kind: "all_enabled_roots" }
+  | { kind: "roots"; scanRootIds: string[] }
+  | { kind: "current_scan"; scanSessionId: string };
+
+export interface FileQueryFiltersV2 {
+  fileTypes: FileType[];
+  purposes: Purpose[];
+  lifecycles: Lifecycle[];
+  risks: RiskLevel[];
+  sizeMin: number | null;
+  sizeMax: number | null;
+  modifiedFrom: number | null;
+  modifiedTo: number | null;
+  createdFrom: number | null;
+  createdTo: number | null;
+  duplicate: LibraryMatchMode;
+  review: LibraryMatchMode;
+  tagsAllOf: string[];
+  tagsAnyOf: string[];
+  tagsNoneOf: string[];
+}
+
+export type FileLibrarySortKind = "relevance" | "modified" | "created" | "name" | "size" | "confidence";
+export type FileLibrarySortDirection = "asc" | "desc";
+
+export interface FileLibrarySortV2 {
+  kind: FileLibrarySortKind;
+  direction: FileLibrarySortDirection;
+}
+
+export interface FileQuerySpecV2 {
+  scope: FileLibraryScopeV2;
+  text: string | null;
+  filters: FileQueryFiltersV2;
+  sort: FileLibrarySortV2;
+}
+
+export interface FileQueryRequestV2 {
+  version: 2;
+  requestId: string;
+  query: FileQuerySpecV2;
+  pageSize: number;
+  cursor?: string | null;
+}
+
+export interface UserTagPreview {
+  id: string;
+  displayName: string;
+  colorToken: string;
+}
+
+export interface FileLibrarySummary {
+  id: string;
+  name: string;
+  extension: string;
+  displayDirectory: string;
+  size: number;
+  modifiedAt: number;
+  createdAt: number;
+  isDirectory: boolean;
+  fileType: string;
+  purpose: string;
+  lifecycle: string;
+  risk: string;
+  confidence: number;
+  isDuplicate: boolean;
+  requiresReview: boolean;
+  isStale: boolean;
+  tags: UserTagPreview[];
+  tagCount: number;
+}
+
+export interface LibraryScopeRootHealth {
+  id: string;
+  displayName: string;
+  healthStatus: string;
+  enabled: boolean;
+  available: boolean;
+  generation: number;
+  message: string | null;
+}
+
+export interface LibraryScopeHealth {
+  state: string;
+  roots: LibraryScopeRootHealth[];
+  invalidReferences: string[];
+  message: string | null;
+}
+
+export interface FileQueryResponseV2 {
+  version: 2;
+  requestId: string;
+  queryFingerprint: string;
+  snapshotRevision: number;
+  files: FileLibrarySummary[];
+  totalCount: number;
+  nextCursor: string | null;
+  hasMore: boolean;
+  resultState: "complete" | "partial" | "empty" | "failed" | "snapshot_expired" | string;
+  scopeHealth: LibraryScopeHealth;
+}
+
+export interface FileLibraryDetail {
+  id: string;
+  name: string;
+  path: string;
+  directory: string;
+  extension: string;
+  size: number;
+  modifiedAt: number;
+  createdAt: number;
+  isDirectory: boolean;
+  fileType: string;
+  purpose: string;
+  lifecycle: string;
+  context: string;
+  risk: string;
+  confidence: number;
+  classificationStatus: string;
+  classificationReason: string;
+  matchedRules: string[];
+  suggestedAction: string;
+  suggestedTargetPath: string;
+  suggestedName: string;
+  isDuplicate: boolean;
+  requiresReview: boolean;
+  isStale: boolean;
+  lastSeenAt: number;
+  scanRootId: string | null;
+  scanRootName: string | null;
+  scopeHealth: string | null;
+  duplicateGroupId: string | null;
+  duplicateGroupSize: number;
+  tags: UserTagPreview[];
+  safeActions: string[];
+  revision: number;
+}
+
+export interface LibraryTypeCount {
+  fileType: string;
+  count: number;
+}
+
+export interface FileLibrarySelectionSummary {
+  count: number;
+  totalSize: number;
+  typeCounts: LibraryTypeCount[];
+  missingCount: number;
+  excludedCount: number;
+  snapshotRevision: number;
+  queryFingerprint: string | null;
+}
+
+export type LibrarySelectionV1 =
+  | { kind: "explicit"; fileIds: string[] }
+  | {
+    kind: "all_matching";
+    query: FileQuerySpecV2;
+    queryFingerprint: string;
+    snapshotRevision: number;
+    excludedFileIds: string[];
+  };
+
+export interface MutateFileUserTagsRequest {
+  selection: LibrarySelectionV1;
+  tagIds: string[];
+  operation: "add" | "remove";
+  expectedCount?: number | null;
+}
+
+export interface MutateFileUserTagsResult {
+  appliedCount: number;
+  alreadyPresentCount: number;
+  missingCount: number;
+  excludedCount: number;
+  revision: number;
+}
+
+export interface UserTag {
+  id: string;
+  displayName: string;
+  colorToken: string;
+  usageCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CreateUserTagRequest {
+  displayName: string;
+  colorToken: string;
+}
+
+export interface UpdateUserTagRequest {
+  id: string;
+  displayName: string;
+  colorToken: string;
+  expectedUpdatedAt?: number | null;
+}
+
+export interface DeleteUserTagRequest {
+  id: string;
+  confirm: boolean;
+  expectedUsageCount: number;
+  expectedUpdatedAt?: number | null;
+}
+
+export interface LibrarySavedView {
+  id: string;
+  displayName: string;
+  query: FileQuerySpecV2;
+  queryFingerprint: string;
+  position: number;
+  createdAt: number;
+  updatedAt: number;
+  invalidReferences: string[];
+}
+
+export interface CreateLibrarySavedViewRequest {
+  displayName: string;
+  query: FileQuerySpecV2;
+  position?: number | null;
+}
+
+export interface UpdateLibrarySavedViewRequest {
+  id: string;
+  displayName: string;
+  query: FileQuerySpecV2;
+  position: number;
+  expectedUpdatedAt: number;
+}
+
+export interface DeleteLibrarySavedViewRequest {
+  id: string;
+  expectedUpdatedAt: number;
+}
+
 export interface AppSettings {
   closeBehavior: CloseBehavior;
   folderNamingLanguage: FolderNamingLanguage;

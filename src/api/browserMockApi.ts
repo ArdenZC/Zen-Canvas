@@ -14,7 +14,11 @@ import type {
   CleanupTrashBatch,
   CleanupExecutionResult,
   CleanupPreviewItem,
+  CreateLibrarySavedViewRequest,
+  CreateUserTagRequest,
   DashboardStats,
+  DeleteLibrarySavedViewRequest,
+  DeleteUserTagRequest,
   DedupeGroup,
   DedupeGroupMember,
   DedupeGroupPage,
@@ -28,6 +32,11 @@ import type {
   AnalysisRun,
   ExecuteOperationResult,
   FileLibraryFilters,
+  FileLibraryDetail,
+  FileLibrarySelectionSummary,
+  FileLibrarySummary,
+  FileQueryRequestV2,
+  FileQueryResponseV2,
   FileQueryResult,
   FileRecord,
   GlobalIndexSource,
@@ -35,6 +44,8 @@ import type {
   GlobalSearchRequest,
   GlobalSearchResponse,
   GlobalSearchResult,
+  LibrarySavedView,
+  LibrarySelectionV1,
   LibraryScope,
   ManagedScope,
   OperationLog,
@@ -44,8 +55,13 @@ import type {
   Rule,
   RuleExecutionMode,
   RuleExecutionSummary,
+  MutateFileUserTagsRequest,
+  MutateFileUserTagsResult,
   SaveSettingsRequest,
   VersionedAppSettings,
+  UpdateLibrarySavedViewRequest,
+  UpdateUserTagRequest,
+  UserTag,
   UpdateManagedScopePolicyRequest,
   StorageAnalysis,
   StorageCandidate,
@@ -146,6 +162,31 @@ const mockFiles: FileRecord[] = [
     confidence: 0.74
   })
 ];
+
+let mockLibraryRevision = 1;
+let mockUserTags: UserTag[] = [
+  {
+    id: "mock-tag-work",
+    displayName: "Work",
+    colorToken: "blue",
+    usageCount: 1,
+    createdAt: Date.parse(now) / 1000,
+    updatedAt: Date.parse(now) / 1000
+  },
+  {
+    id: "mock-tag-review",
+    displayName: "Review later",
+    colorToken: "yellow",
+    usageCount: 1,
+    createdAt: Date.parse(now) / 1000,
+    updatedAt: Date.parse(now) / 1000
+  }
+];
+const mockFileTagIds = new Map<string, Set<string>>([
+  ["mock-report", new Set(["mock-tag-work"])],
+  ["mock-duplicate", new Set(["mock-tag-review"])]
+]);
+let mockLibrarySavedViews: LibrarySavedView[] = [];
 
 const mockGlobalEntries: GlobalSearchResult[] = [
   {
@@ -477,6 +518,32 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockManagedRootsForRequest(mockManagedScanState?.request ?? { roots: [], dedupe: false })[0] as T;
     case "get_paged_files":
       return queryMockFiles(args) as T;
+    case "query_file_library_v2":
+      return queryMockFileLibraryV2(args) as T;
+    case "get_file_library_detail":
+      return getMockFileLibraryDetail(String(args?.fileId ?? "")) as T;
+    case "get_file_library_selection_summary":
+      return getMockFileLibrarySelectionSummary(args?.selection as LibrarySelectionV1 | undefined) as T;
+    case "reveal_file_library_entry":
+      throw new Error("browser_mock_reveal_unavailable");
+    case "list_user_tags":
+      return mockUserTags as T;
+    case "create_user_tag":
+      return createMockUserTag(args?.request as CreateUserTagRequest | undefined) as T;
+    case "update_user_tag":
+      return updateMockUserTag(args?.request as UpdateUserTagRequest | undefined) as T;
+    case "delete_user_tag":
+      return deleteMockUserTag(args?.request as DeleteUserTagRequest | undefined) as T;
+    case "mutate_file_user_tags":
+      return mutateMockFileUserTags(args?.request as MutateFileUserTagsRequest | undefined) as T;
+    case "list_library_saved_views":
+      return mockLibrarySavedViews as T;
+    case "create_library_saved_view":
+      return createMockLibrarySavedView(args?.request as CreateLibrarySavedViewRequest | undefined) as T;
+    case "update_library_saved_view":
+      return updateMockLibrarySavedView(args?.request as UpdateLibrarySavedViewRequest | undefined) as T;
+    case "delete_library_saved_view":
+      return deleteMockLibrarySavedView(args?.request as DeleteLibrarySavedViewRequest | undefined) as T;
     case "get_stats_summary":
       return mockStats() as T;
     case "search_files":
@@ -913,6 +980,414 @@ function queryMockFiles(args?: Record<string, unknown>): FileQueryResult {
     limit,
     offset
   };
+}
+
+function queryMockFileLibraryV2(args?: Record<string, unknown>): FileQueryResponseV2 {
+  const request = args?.request as FileQueryRequestV2 | undefined;
+  if (!request || request.version !== 2) throw new Error("library_query_version_unsupported");
+  const fingerprint = mockLibraryFingerprint(request.query);
+  const cursor = decodeMockLibraryCursor(request.cursor ?? null);
+  if (cursor && (cursor.fingerprint !== fingerprint || cursor.revision !== mockLibraryRevision)) {
+    return {
+      version: 2,
+      requestId: request.requestId,
+      queryFingerprint: fingerprint,
+      snapshotRevision: mockLibraryRevision,
+      files: [],
+      totalCount: 0,
+      nextCursor: null,
+      hasMore: false,
+      resultState: "snapshot_expired",
+      scopeHealth: mockLibraryScopeHealth(request.query.scope)
+    };
+  }
+  const filtered = filterMockLibraryFiles(request.query);
+  const sorted = [...filtered].sort((left, right) => compareMockLibraryFiles(left, right, request.query));
+  const pageSize = Math.max(1, Math.min(200, Number(request.pageSize) || 50));
+  const start = cursor?.offset ?? 0;
+  const page = sorted.slice(start, start + pageSize);
+  const hasMore = start + page.length < sorted.length;
+  return {
+    version: 2,
+    requestId: request.requestId,
+    queryFingerprint: fingerprint,
+    snapshotRevision: mockLibraryRevision,
+    files: page.map(toMockFileLibrarySummary),
+    totalCount: sorted.length,
+    nextCursor: hasMore ? encodeMockLibraryCursor({
+      fingerprint,
+      revision: mockLibraryRevision,
+      offset: start + page.length
+    }) : null,
+    hasMore,
+    resultState: sorted.length ? "complete" : "empty",
+    scopeHealth: mockLibraryScopeHealth(request.query.scope)
+  };
+}
+
+function mockLibraryScopeHealth(scope: FileQueryRequestV2["query"]["scope"]): FileQueryResponseV2["scopeHealth"] {
+  const roots = scope.kind === "roots"
+    ? scope.scanRootIds.map((id) => mockLibraryRootHealth(id))
+    : [mockLibraryRootHealth("mock-scan-root-0")];
+  return {
+    state: roots.every((root) => root.available && root.enabled) ? "healthy" : "partial",
+    roots,
+    invalidReferences: [],
+    message: null
+  };
+}
+
+function mockLibraryRootHealth(id: string) {
+  return {
+    id,
+    displayName: id === "mock-scan-root-0" ? "Browser preview" : id,
+    healthStatus: "ready",
+    enabled: true,
+    available: true,
+    generation: 1,
+    message: null
+  };
+}
+
+function filterMockLibraryFiles(query: FileQueryRequestV2["query"]) {
+  const filters = query.filters;
+  const text = query.text?.trim().toLowerCase() ?? "";
+  return mockFiles.filter((file) => {
+    if (text && !`${file.name} ${file.path} ${file.purpose}`.toLowerCase().includes(text)) return false;
+    if (filters.fileTypes?.length && !filters.fileTypes.includes(file.file_type)) return false;
+    if (filters.purposes?.length && !filters.purposes.includes(file.purpose)) return false;
+    if (filters.lifecycles?.length && !filters.lifecycles.includes(file.lifecycle)) return false;
+    if (filters.risks?.length && !filters.risks.includes(file.risk_level)) return false;
+    if (filters.sizeMin !== null && filters.sizeMin !== undefined && file.size < filters.sizeMin) return false;
+    if (filters.sizeMax !== null && filters.sizeMax !== undefined && file.size > filters.sizeMax) return false;
+    const modifiedAt = mockFileTimestamp(file.modified_at);
+    const createdAt = mockFileTimestamp(file.created_at);
+    if (filters.modifiedFrom !== null && filters.modifiedFrom !== undefined && modifiedAt < filters.modifiedFrom) return false;
+    if (filters.modifiedTo !== null && filters.modifiedTo !== undefined && modifiedAt > filters.modifiedTo) return false;
+    if (filters.createdFrom !== null && filters.createdFrom !== undefined && createdAt < filters.createdFrom) return false;
+    if (filters.createdTo !== null && filters.createdTo !== undefined && createdAt > filters.createdTo) return false;
+    if (filters.duplicate === "only" && !file.is_duplicate) return false;
+    if (filters.duplicate === "exclude" && file.is_duplicate) return false;
+    if (filters.review === "only" && !file.requires_confirmation) return false;
+    if (filters.review === "exclude" && file.requires_confirmation) return false;
+    const tags = mockFileTagIds.get(file.id) ?? new Set<string>();
+    if (filters.tagsAllOf?.some((tagId) => !tags.has(tagId))) return false;
+    if (filters.tagsAnyOf?.length && !filters.tagsAnyOf.some((tagId) => tags.has(tagId))) return false;
+    if (filters.tagsNoneOf?.some((tagId) => tags.has(tagId))) return false;
+    return !file.is_stale;
+  });
+}
+
+function compareMockLibraryFiles(left: FileRecord, right: FileRecord, query: FileQueryRequestV2["query"]) {
+  const kind = query.sort.kind;
+  const leftValue = kind === "relevance"
+    ? mockRelevance(left, query.text)
+    : kind === "name"
+      ? left.name.toLocaleLowerCase()
+      : kind === "size"
+        ? left.size
+        : kind === "confidence"
+          ? left.confidence
+          : kind === "created"
+            ? mockFileTimestamp(left.created_at)
+            : mockFileTimestamp(left.modified_at);
+  const rightValue = kind === "relevance"
+    ? mockRelevance(right, query.text)
+    : kind === "name"
+      ? right.name.toLocaleLowerCase()
+      : kind === "size"
+        ? right.size
+        : kind === "confidence"
+          ? right.confidence
+          : kind === "created"
+            ? mockFileTimestamp(right.created_at)
+            : mockFileTimestamp(right.modified_at);
+  const comparison = leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0;
+  const directed = query.sort.direction === "desc" ? -comparison : comparison;
+  return directed || left.id.localeCompare(right.id);
+}
+
+function mockRelevance(file: FileRecord, text: string | null) {
+  const query = text?.trim().toLowerCase() ?? "";
+  if (!query) return 0;
+  return file.name.toLowerCase() === query ? 3 : file.name.toLowerCase().includes(query) ? 2 : 1;
+}
+
+function toMockFileLibrarySummary(file: FileRecord): FileLibrarySummary {
+  return {
+    id: file.id,
+    name: file.name,
+    extension: file.extension,
+    displayDirectory: file.directory,
+    size: file.size,
+    modifiedAt: mockFileTimestamp(file.modified_at),
+    createdAt: mockFileTimestamp(file.created_at),
+    isDirectory: false,
+    fileType: file.file_type,
+    purpose: file.purpose,
+    lifecycle: file.lifecycle,
+    risk: file.risk_level,
+    confidence: file.confidence,
+    isDuplicate: file.is_duplicate,
+    requiresReview: file.requires_confirmation,
+    isStale: Boolean(file.is_stale),
+    tags: mockFileTags(file.id),
+    tagCount: (mockFileTagIds.get(file.id) ?? new Set()).size
+  };
+}
+
+function getMockFileLibraryDetail(fileId: string): FileLibraryDetail {
+  const file = mockFiles.find((item) => item.id === fileId);
+  if (!file) throw new Error("library_file_not_found");
+  return {
+    id: file.id,
+    name: file.name,
+    path: file.path,
+    directory: file.directory,
+    extension: file.extension,
+    size: file.size,
+    modifiedAt: mockFileTimestamp(file.modified_at),
+    createdAt: mockFileTimestamp(file.created_at),
+    isDirectory: false,
+    fileType: file.file_type,
+    purpose: file.purpose,
+    lifecycle: file.lifecycle,
+    context: file.context,
+    risk: file.risk_level,
+    confidence: file.confidence,
+    classificationStatus: file.classification_status,
+    classificationReason: file.classification_reason,
+    matchedRules: [...file.matched_rules],
+    suggestedAction: file.suggested_action,
+    suggestedTargetPath: file.suggested_target_path,
+    suggestedName: file.suggested_name,
+    isDuplicate: file.is_duplicate,
+    requiresReview: file.requires_confirmation,
+    isStale: Boolean(file.is_stale),
+    lastSeenAt: mockFileTimestamp(file.last_seen_at),
+    scanRootId: "mock-scan-root-0",
+    scanRootName: "Browser preview",
+    scopeHealth: "ready",
+    duplicateGroupId: file.is_duplicate ? "mock-duplicate-group" : null,
+    duplicateGroupSize: file.is_duplicate ? 2 : 0,
+    tags: mockFileTags(file.id),
+    safeActions: file.is_stale ? [] : ["preview", "reveal"],
+    revision: mockLibraryRevision
+  };
+}
+
+function getMockFileLibrarySelectionSummary(selection?: LibrarySelectionV1): FileLibrarySelectionSummary {
+  if (!selection) {
+    return {
+      count: 0,
+      totalSize: 0,
+      typeCounts: [],
+      missingCount: 0,
+      excludedCount: 0,
+      snapshotRevision: mockLibraryRevision,
+      queryFingerprint: null
+    };
+  }
+  let files: FileRecord[];
+  let excludedCount = 0;
+  let queryFingerprint: string | null = null;
+  if (selection.kind === "explicit") {
+    const requested = new Set(selection.fileIds);
+    files = mockFiles.filter((file) => requested.has(file.id) && !file.is_stale);
+    excludedCount = selection.fileIds.filter((id) => !files.some((file) => file.id === id)).length;
+  } else {
+    queryFingerprint = mockLibraryFingerprint(selection.query);
+    if (queryFingerprint !== selection.queryFingerprint || selection.snapshotRevision !== mockLibraryRevision) {
+      throw new Error("library_snapshot_expired");
+    }
+    const excluded = new Set(selection.excludedFileIds);
+    files = filterMockLibraryFiles(selection.query).filter((file) => !excluded.has(file.id));
+    excludedCount = selection.excludedFileIds.filter((id) => !files.some((file) => file.id === id)).length;
+  }
+  const typeCounts = [...files.reduce((counts, file) => counts.set(file.file_type, (counts.get(file.file_type) ?? 0) + 1), new Map<string, number>())]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([fileType, count]) => ({ fileType, count }));
+  return {
+    count: files.length,
+    totalSize: files.reduce((sum, file) => sum + file.size, 0),
+    typeCounts,
+    missingCount: 0,
+    excludedCount,
+    snapshotRevision: mockLibraryRevision,
+    queryFingerprint
+  };
+}
+
+function createMockUserTag(request?: CreateUserTagRequest): UserTag {
+  const displayName = String(request?.displayName ?? "").trim();
+  if (!displayName) throw new Error("library_tag_name_invalid");
+  if (mockUserTags.some((tag) => tag.displayName.toLowerCase() === displayName.toLowerCase())) throw new Error("library_tag_conflict");
+  const timestamp = Math.floor(Date.now() / 1000);
+  const tag: UserTag = {
+    id: `browser-user-tag-${Date.now()}`,
+    displayName,
+    colorToken: request?.colorToken ?? "neutral",
+    usageCount: 0,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  };
+  mockUserTags = [...mockUserTags, tag];
+  mockLibraryRevision += 1;
+  return tag;
+}
+
+function updateMockUserTag(request?: UpdateUserTagRequest): UserTag {
+  const index = mockUserTags.findIndex((tag) => tag.id === request?.id);
+  if (index < 0) throw new Error("library_tag_not_found");
+  const current = mockUserTags[index];
+  if (request?.expectedUpdatedAt !== null && request?.expectedUpdatedAt !== undefined && request.expectedUpdatedAt !== current.updatedAt) throw new Error("library_tag_stale_or_missing");
+  const updated = { ...current, displayName: String(request?.displayName ?? "").trim(), colorToken: request?.colorToken ?? current.colorToken, updatedAt: Math.floor(Date.now() / 1000) };
+  mockUserTags = mockUserTags.map((tag, itemIndex) => itemIndex === index ? updated : tag);
+  mockLibraryRevision += 1;
+  return updated;
+}
+
+function deleteMockUserTag(request?: DeleteUserTagRequest): boolean {
+  const tag = mockUserTags.find((item) => item.id === request?.id);
+  if (!tag) throw new Error("library_tag_not_found");
+  if (!request?.confirm) throw new Error("library_tag_delete_confirmation_required");
+  if (tag.usageCount !== request.expectedUsageCount) throw new Error("library_tag_stale_usage");
+  mockUserTags = mockUserTags.filter((item) => item.id !== tag.id);
+  for (const ids of mockFileTagIds.values()) ids.delete(tag.id);
+  mockLibraryRevision += 1;
+  refreshMockTagUsage();
+  return true;
+}
+
+function mutateMockFileUserTags(request?: MutateFileUserTagsRequest): MutateFileUserTagsResult {
+  if (!request?.tagIds?.length) throw new Error("library_tag_mutation_invalid_tags");
+  const selection = request.selection;
+  const summary = getMockFileLibrarySelectionSummary(selection);
+  const targetFiles = selection.kind === "explicit"
+    ? mockFiles.filter((file) => selection.fileIds.includes(file.id) && !file.is_stale)
+    : filterMockLibraryFiles(selection.query).filter((file) => !selection.excludedFileIds.includes(file.id));
+  let appliedCount = 0;
+  let alreadyPresentCount = 0;
+  for (const file of targetFiles) {
+    const ids = mockFileTagIds.get(file.id) ?? new Set<string>();
+    mockFileTagIds.set(file.id, ids);
+    for (const tagId of request.tagIds) {
+      if (!mockUserTags.some((tag) => tag.id === tagId)) throw new Error("library_tag_not_found");
+      if (request.operation === "add") {
+        if (ids.has(tagId)) alreadyPresentCount += 1;
+        else { ids.add(tagId); appliedCount += 1; }
+      } else if (ids.delete(tagId)) {
+        appliedCount += 1;
+      }
+    }
+  }
+  if (appliedCount) mockLibraryRevision += 1;
+  refreshMockTagUsage();
+  return {
+    appliedCount,
+    alreadyPresentCount,
+    missingCount: summary.missingCount,
+    excludedCount: summary.excludedCount,
+    revision: mockLibraryRevision
+  };
+}
+
+function refreshMockTagUsage() {
+  mockUserTags = mockUserTags.map((tag) => ({
+    ...tag,
+    usageCount: [...mockFileTagIds.values()].filter((ids) => ids.has(tag.id)).length
+  }));
+}
+
+function createMockLibrarySavedView(request?: CreateLibrarySavedViewRequest): LibrarySavedView {
+  const displayName = String(request?.displayName ?? "").trim();
+  if (!displayName) throw new Error("library_saved_view_name_invalid");
+  if (!request?.query) throw new Error("library_saved_view_query_invalid");
+  if (mockLibrarySavedViews.some((view) => view.displayName.toLowerCase() === displayName.toLowerCase())) throw new Error("library_saved_view_conflict");
+  const timestamp = Math.floor(Date.now() / 1000);
+  const view: LibrarySavedView = {
+    id: `browser-library-view-${Date.now()}`,
+    displayName,
+    query: request.query,
+    queryFingerprint: mockLibraryFingerprint(request?.query),
+    position: Math.max(0, Number(request?.position ?? 0)),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    invalidReferences: invalidMockSavedViewReferences(request?.query)
+  };
+  mockLibrarySavedViews = [...mockLibrarySavedViews, view];
+  return view;
+}
+
+function updateMockLibrarySavedView(request?: UpdateLibrarySavedViewRequest): LibrarySavedView {
+  const index = mockLibrarySavedViews.findIndex((view) => view.id === request?.id);
+  if (index < 0) throw new Error("library_saved_view_stale_or_missing");
+  const current = mockLibrarySavedViews[index];
+  if (current.updatedAt !== request?.expectedUpdatedAt) throw new Error("library_saved_view_stale_or_missing");
+  const updated: LibrarySavedView = {
+    ...current,
+    displayName: String(request?.displayName ?? "").trim(),
+    query: request?.query,
+    queryFingerprint: mockLibraryFingerprint(request?.query),
+    position: Math.max(0, Number(request?.position ?? 0)),
+    updatedAt: Math.floor(Date.now() / 1000),
+    invalidReferences: invalidMockSavedViewReferences(request?.query)
+  };
+  mockLibrarySavedViews = mockLibrarySavedViews.map((view, itemIndex) => itemIndex === index ? updated : view);
+  return updated;
+}
+
+function deleteMockLibrarySavedView(request?: DeleteLibrarySavedViewRequest): boolean {
+  const view = mockLibrarySavedViews.find((item) => item.id === request?.id);
+  if (!view || view.updatedAt !== request?.expectedUpdatedAt) throw new Error("library_saved_view_stale_or_missing");
+  mockLibrarySavedViews = mockLibrarySavedViews.filter((item) => item.id !== view.id);
+  return true;
+}
+
+function invalidMockSavedViewReferences(query: FileQueryRequestV2["query"] | undefined) {
+  if (!query) return ["query_missing"];
+  const tagIds = [...query.filters.tagsAllOf, ...query.filters.tagsAnyOf, ...query.filters.tagsNoneOf];
+  return tagIds.filter((id, index, all) => !mockUserTags.some((tag) => tag.id === id) && all.indexOf(id) === index);
+}
+
+function mockLibraryFingerprint(query: FileQueryRequestV2["query"] | undefined) {
+  const value = JSON.stringify(query ?? null);
+  let digest = "";
+  for (let lane = 0; lane < 8; lane += 1) {
+    let hash = (2166136261 ^ Math.imul(lane + 1, 0x9e3779b9)) >>> 0;
+    for (let index = 0; index < value.length; index += 1) {
+      hash = Math.imul(hash ^ value.charCodeAt(index), 16777619);
+    }
+    digest += (hash >>> 0).toString(16).padStart(8, "0");
+  }
+  return digest;
+}
+
+function encodeMockLibraryCursor(cursor: { fingerprint: string; revision: number; offset: number }) {
+  return `browser-library-cursor:${encodeURIComponent(JSON.stringify(cursor))}`;
+}
+
+function decodeMockLibraryCursor(value: string | null) {
+  if (!value) return null;
+  if (!value.startsWith("browser-library-cursor:")) throw new Error("library_cursor_invalid");
+  try {
+    return JSON.parse(decodeURIComponent(value.slice("browser-library-cursor:".length))) as { fingerprint: string; revision: number; offset: number };
+  } catch {
+    throw new Error("library_cursor_invalid");
+  }
+}
+
+function mockFileTags(fileId: string) {
+  const ids = mockFileTagIds.get(fileId) ?? new Set<string>();
+  return [...ids]
+    .map((id) => mockUserTags.find((tag) => tag.id === id))
+    .filter((tag): tag is UserTag => Boolean(tag))
+    .slice(0, 3)
+    .map((tag) => ({ id: tag.id, displayName: tag.displayName, colorToken: tag.colorToken }));
+}
+
+function mockFileTimestamp(value: string) {
+  return Math.floor(Date.parse(value) / 1000) || 0;
 }
 
 function searchMockFiles(query: string, limit: number): FileRecord[] {

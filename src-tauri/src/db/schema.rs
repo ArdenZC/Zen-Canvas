@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 30;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 31;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -49,6 +49,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         ensure_watcher_reconciliation_schema(conn)?;
         ensure_dedupe_schema(conn)?;
         ensure_analysis_schema(conn)?;
+        ensure_file_library_schema(conn)?;
         backfill_scan_roots_from_settings(conn)?;
         return Ok(());
     }
@@ -699,6 +700,10 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         if version < 30 {
             ensure_analysis_schema(conn)?;
             set_schema_version(conn, 30)?;
+        }
+        if version < 31 {
+            ensure_file_library_schema(conn)?;
+            set_schema_version(conn, 31)?;
         }
         Ok(())
     })();
@@ -1646,6 +1651,74 @@ fn ensure_global_index_hardening(conn: &Connection) -> Result<(), DbError> {
             SELECT COUNT(*) FROM global_entries entry
             WHERE entry.volume_id = global_volumes.id AND entry.is_stale = 0
         );
+        "#,
+    )?;
+    Ok(())
+}
+
+/// Task 05 File Library metadata/query state.  This migration intentionally
+/// adds only small side tables; the `files` authority and its durable IDs are
+/// left untouched so existing scanner, watcher, operation and restore rows do
+/// not need a backfill or rebuild.
+fn ensure_file_library_schema(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        r#"
+        CREATE INDEX IF NOT EXISTS idx_library_files_modified
+            ON files(is_stale, mtime DESC, id);
+        CREATE INDEX IF NOT EXISTS idx_library_files_created
+            ON files(is_stale, ctime DESC, id);
+        CREATE INDEX IF NOT EXISTS idx_library_files_name
+            ON files(is_stale, name COLLATE NOCASE, id);
+        CREATE INDEX IF NOT EXISTS idx_library_files_size
+            ON files(is_stale, size DESC, id);
+        CREATE INDEX IF NOT EXISTS idx_library_files_confidence
+            ON files(is_stale, confidence DESC, id);
+
+        CREATE TABLE IF NOT EXISTS user_tags (
+            id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            normalized_name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+            color_token TEXT NOT NULL DEFAULT 'neutral',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_tags_name
+            ON user_tags(normalized_name COLLATE NOCASE, id);
+
+        CREATE TABLE IF NOT EXISTS file_user_tags (
+            file_id TEXT NOT NULL
+                REFERENCES files(id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE,
+            tag_id TEXT NOT NULL
+                REFERENCES user_tags(id)
+                ON DELETE CASCADE,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY(file_id, tag_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_file_user_tags_tag_file
+            ON file_user_tags(tag_id, file_id);
+
+        CREATE TABLE IF NOT EXISTS library_saved_views (
+            id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            normalized_name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+            query_spec_version INTEGER NOT NULL CHECK (query_spec_version = 2),
+            query_spec_json TEXT NOT NULL,
+            position INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_library_saved_views_position
+            ON library_saved_views(position, updated_at DESC, id);
+
+        CREATE TABLE IF NOT EXISTS library_query_state (
+            singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+            revision INTEGER NOT NULL CHECK (revision >= 1),
+            updated_at INTEGER NOT NULL
+        );
+        INSERT OR IGNORE INTO library_query_state(singleton_id, revision, updated_at)
+        VALUES (1, 1, strftime('%s', 'now'));
         "#,
     )?;
     Ok(())

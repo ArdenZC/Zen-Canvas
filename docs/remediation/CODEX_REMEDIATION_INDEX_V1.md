@@ -8,7 +8,7 @@
 - Task 03 已通过 PR #28 合并，数据库推进至 schema 30；
 - Task 04 已通过 PR #35 合并，squash merge 为 `14616d4344314afce0878dbc681988c04183a9bc`；
 - Task 04 人工接受的 4 项遗留已冻结为 Task 05 第一组生产改动，不得再次后移；
-- Task 05 是当前唯一可执行完整产品模块；
+- Task 05 已在 `remediation/05-file-library` 完成完整实现，Draft PR 待人工验收；
 - Task 06–08 继续禁止执行。
 
 | 阶段 | 任务书 | 产品模块/目标 | 状态 |
@@ -19,7 +19,7 @@
 | 02 | `TASK_02_IDENTITY_FINGERPRINT_AND_DUPE.md` | 模块 1：重复检测；Czkawka 对标 | 已合并，schema 29 |
 | 03 | `TASK_03_ANALYSIS_RUN_FINDING_AND_DETECTORS.md` | 模块 2：大型文件/空间分析；Spacedrive V1 对标 | 已合并，schema 30 |
 | 04 | `TASK_04_GLOBAL_SHORTCUT_SEARCH.md` | 模块 4：全局快捷搜索；Tolaria 设计级对标 | 已合并，schema 30 |
-| 05 | `TASK_05_FILE_LIBRARY_QUERY_TAGS_SAVED_VIEWS.md` | 模块 5：文件库；Query V2、cursor、selection、tags、Saved Views、Inspector | **当前唯一可执行；授权 schema 31** |
+| 05 | `TASK_05_FILE_LIBRARY_QUERY_TAGS_SAVED_VIEWS.md` | 模块 5：文件库；Query V2、cursor、selection、tags、Saved Views、Inspector | **已实施；schema 31；Draft PR 待人工验收** |
 | 06 | 待创建 | 模块 6：AI 整理预览；Organization Plan | 禁止执行 |
 | 07 | 待创建 | 模块 7：自然语言规则；Proposal → Rule AST | 禁止执行 |
 | 08 | 待创建 | 模块 8：本地内容理解；Content Artifact | 禁止执行 |
@@ -221,7 +221,7 @@ docs/remediation/TASK_05_FILE_LIBRARY_QUERY_TAGS_SAVED_VIEWS.md
 
 ## 8. 标准交付
 
-Task 05 完成时必须：
+Task 05 交付必须满足：
 
 1. 分支 `remediation/05-file-library`；
 2. 一个 Draft PR；
@@ -231,5 +231,5 @@ Task 05 完成时必须：
 6. 完整 frontend/Rust/remediation/security/performance/build；
 7. Windows/macOS 与 package 证据；
 8. `TASK_05_IMPLEMENTATION_CLOSEOUT.md`；
-9. 停止等待人工验收；
+9. 已停止并等待人工验收；
 10. 不自动合并、不开始 Task 06。

@@ -90,6 +90,138 @@ pub fn get_paged_files(
 }
 
 #[tauri::command]
+pub fn query_file_library_v2<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: FileQueryRequestV2,
+) -> Result<FileQueryResponseV2, String> {
+    require_main_window(&window)?;
+    db.query_file_library_v2(request).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn get_file_library_detail<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    file_id: String,
+) -> Result<FileLibraryDetailDto, String> {
+    require_main_window(&window)?;
+    db.get_file_library_detail(&file_id).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn get_file_library_selection_summary<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    selection: LibrarySelectionV1,
+) -> Result<FileLibrarySelectionSummaryDto, String> {
+    require_main_window(&window)?;
+    db.get_file_library_selection_summary(selection)
+        .map_err(command_error)
+}
+
+#[tauri::command]
+pub fn reveal_file_library_entry<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    file_id: String,
+) -> Result<(), String> {
+    require_main_window(&window)?;
+    let path = db
+        .resolve_file_library_path(&file_id)
+        .map_err(command_error)?;
+    crate::file_ops::reveal_in_folder(path)
+}
+
+#[tauri::command]
+pub fn list_user_tags<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+) -> Result<Vec<UserTagDto>, String> {
+    require_main_window(&window)?;
+    db.list_user_tags().map_err(command_error)
+}
+
+#[tauri::command]
+pub fn create_user_tag<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: CreateUserTagRequest,
+) -> Result<UserTagDto, String> {
+    require_main_window(&window)?;
+    db.create_user_tag(request).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn update_user_tag<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: UpdateUserTagRequest,
+) -> Result<UserTagDto, String> {
+    require_main_window(&window)?;
+    db.update_user_tag(request).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn delete_user_tag<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: DeleteUserTagRequest,
+) -> Result<bool, String> {
+    require_main_window(&window)?;
+    db.delete_user_tag(request).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn mutate_file_user_tags<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: MutateFileUserTagsRequest,
+) -> Result<MutateFileUserTagsResultDto, String> {
+    require_main_window(&window)?;
+    db.mutate_file_user_tags(request).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn list_library_saved_views<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+) -> Result<Vec<LibrarySavedViewDto>, String> {
+    require_main_window(&window)?;
+    db.list_library_saved_views().map_err(command_error)
+}
+
+#[tauri::command]
+pub fn create_library_saved_view<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: CreateLibrarySavedViewRequest,
+) -> Result<LibrarySavedViewDto, String> {
+    require_main_window(&window)?;
+    db.create_library_saved_view(request).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn update_library_saved_view<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: UpdateLibrarySavedViewRequest,
+) -> Result<LibrarySavedViewDto, String> {
+    require_main_window(&window)?;
+    db.update_library_saved_view(request).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn delete_library_saved_view<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: DeleteLibrarySavedViewRequest,
+) -> Result<bool, String> {
+    require_main_window(&window)?;
+    db.delete_library_saved_view(request).map_err(command_error)
+}
+
+#[tauri::command]
 pub fn get_operation_previews_for_scope(
     db: State<'_, Database>,
     scope: LibraryScope,

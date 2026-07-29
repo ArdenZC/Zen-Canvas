@@ -45,7 +45,7 @@ describe("ui empty and command states", () => {
     expect(vault).toContain("isEmptyCurrentScanScope");
     expect(vault).toContain('t("noCurrentScanTitle")');
     expect(vault).toContain('t("libraryGoToOverview")');
-    expect(vault).toContain('setScope({ kind: "all" })');
+    expect(vault).toContain('setLegacyScope({ kind: "all" })');
     expect(organize).toContain("isEmptyCurrentScanScope");
     expect(organize).toContain('t("noOrganizeScopeTitle")');
     expect(organize).toContain('t("viewAllIndexedFiles")');
@@ -75,7 +75,7 @@ describe("ui empty and command states", () => {
     expect(vault).toContain("search bar");
     expect(vault).toContain("result count");
     expect(vault).toContain("StateBlock");
-    expect(vault).toContain("remainingCount = Math.max(0, page.total - page.files.length)");
+    expect(vault).toContain("remainingCount = Math.max(0, totalCount - files.length)");
     expect(list).toContain("remainingDisplayCount = Math.min(LIBRARY_PAGE_SIZE, remainingCount)");
     expect(vault).toContain("FileLibraryFilterPopover");
     expect(vault).toContain("aria-expanded={isFilterOpen}");
@@ -85,7 +85,7 @@ describe("ui empty and command states", () => {
     expect(vault).not.toContain("emptyState");
     expect(vault).not.toContain("h-[calc(");
     expect(list).toContain("formatDisplayPath");
-    expect(list).toContain("compactPath(formatDisplayPath(file.directory)");
+    expect(list).toContain("compactPath(formatDisplayPath(file.displayDirectory)");
     expect(list).toContain('role="option"');
   });
 

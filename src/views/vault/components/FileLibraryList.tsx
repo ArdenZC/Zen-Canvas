@@ -1,7 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { FileRecord } from "../../../types/domain";
+import type { FileLibrarySummary, FileRecord } from "../../../types/domain";
 import type { Language } from "../../../i18n";
 import type { Translator } from "../../../types/ui";
 import { LIBRARY_PAGE_SIZE } from "../../../store/useFileLibraryStore";
@@ -28,7 +28,7 @@ export function FileLibraryList({
   onRowContextMenu,
   onLoadMore
 }: {
-  files: FileRecord[];
+  files: FileLibrarySummary[];
   selectedIds: string[];
   focusedId: string;
   hasMore: boolean;
@@ -127,7 +127,7 @@ function FileLibraryRow({
   onDoubleClick,
   onContextMenu
 }: {
-  file: FileRecord;
+  file: FileLibrarySummary;
   selected: boolean;
   focused: boolean;
   language: Language;
@@ -137,9 +137,9 @@ function FileLibraryRow({
   onDoubleClick: (event: React.MouseEvent<HTMLDivElement>) => void;
   onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => void;
 }) {
-  const Icon = fileIconForRecord(file);
-  const missing = file.is_deleted || file.is_stale;
-  const path = compactPath(formatDisplayPath(file.directory), 54);
+  const Icon = fileIconForRecord({ file_type: file.fileType as FileRecord["file_type"], extension: file.extension });
+  const missing = file.isStale;
+  const path = compactPath(formatDisplayPath(file.displayDirectory), 54);
   return (
     <div
       id={`library-row-${file.id}`}
@@ -165,11 +165,11 @@ function FileLibraryRow({
         </span>
         <div className="min-w-0">
           <p className={cn("truncate font-medium text-[var(--zc-text-primary)]", missing && "text-[var(--zc-text-secondary)]")} title={file.name}>{file.name}</p>
-          <p className={cn("truncate text-xs text-[var(--zc-text-secondary)]", missing && "text-[var(--zc-warning-text)]")} aria-label={missing ? t("libraryFileNotFound") : undefined}>{missing ? t("libraryFileNotFound") : `${typeLabel(file, t)} · ${purposeLabel(file, t)}`}</p>
+          <p className={cn("truncate text-xs text-[var(--zc-text-secondary)]", missing && "text-[var(--zc-warning-text)]")} aria-label={missing ? t("libraryFileNotFound") : undefined}>{missing ? t("libraryFileNotFound") : `${summaryTypeLabel(file, t)} · ${summaryPurposeLabel(file, t)}`}</p>
         </div>
       </div>
-      <span className="truncate text-xs text-[var(--zc-text-secondary)] max-[1100px]:hidden" title={formatDisplayPath(file.directory)}>{path}</span>
-      <time className="truncate text-xs text-[var(--zc-text-secondary)] max-[1100px]:hidden" dateTime={file.modified_at}>{formatDate(file.modified_at, language)}</time>
+      <span className="truncate text-xs text-[var(--zc-text-secondary)] max-[1100px]:hidden" title={formatDisplayPath(file.displayDirectory)}>{path}</span>
+      <time className="truncate text-xs text-[var(--zc-text-secondary)] max-[1100px]:hidden" dateTime={String(file.modifiedAt)}>{formatDate(String(file.modifiedAt), language)}</time>
       <span className="truncate text-right text-xs tabular-nums text-[var(--zc-text-primary)]">{formatBytes(file.size)}</span>
     </div>
   );
@@ -190,4 +190,13 @@ export function lifecycleLabel(file: FileRecord, t: Translator) {
 
 export function riskLabel(risk: FileRecord["risk_level"], t: Translator) {
   return t(`libraryRisk${risk}` as Parameters<Translator>[0]);
+}
+
+function summaryTypeLabel(file: FileLibrarySummary, t: Translator) {
+  const key = `libraryType${file.fileType === "ArchivePackage" ? "Archive" : file.fileType}` as Parameters<Translator>[0];
+  return t(key);
+}
+
+function summaryPurposeLabel(file: FileLibrarySummary, t: Translator) {
+  return t(`libraryPurpose${file.purpose}` as Parameters<Translator>[0]);
 }

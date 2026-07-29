@@ -1,36 +1,42 @@
 import { Info, TriangleAlert, X } from "lucide-react";
-import { useRef, type ReactNode } from "react";
-import type { FileRecord } from "../../../types/domain";
+import { useRef } from "react";
+import type { FileLibraryDetail, FileLibrarySelectionSummary, FileLibrarySummary, UserTag } from "../../../types/domain";
 import type { Language } from "../../../i18n";
 import type { Translator } from "../../../types/ui";
 import { formatBytes, formatDate } from "../../../utils/format";
 import { compactPath, formatDisplayPath } from "../../../utils/viewHelpers";
 import { buttonSecondary, cn, floatingSurface, glassButtonPrimary } from "../../../utils/tw";
-import { filePreviewKind, selectionSummary } from "../fileLibraryModel";
-import { purposeLabel, typeLabel } from "./FileLibraryList";
 import { ModalPortal } from "../../../components/modal/ModalPortal";
 import { FileTypeIcon } from "../../../components/FileTypeIcon";
 
 export function FileLibraryInspector({
   selectedIds,
   selectedFiles,
+  detail,
+  selectionSummary,
+  isLoading,
   language,
   t,
   onPreview,
   onReveal,
   onViewSuggestions,
   onClearSelection,
-  classificationDetails
+  availableTags = [],
+  onToggleTag
 }: {
   selectedIds: string[];
-  selectedFiles: FileRecord[];
+  selectedFiles: FileLibrarySummary[];
+  detail: FileLibraryDetail | null;
+  selectionSummary: FileLibrarySelectionSummary | null;
+  isLoading: boolean;
   language: Language;
   t: Translator;
-  onPreview: (file: FileRecord) => void;
-  onReveal: (path: string) => void;
+  onPreview: (file: FileLibraryDetail) => void;
+  onReveal: (fileId: string) => void;
   onViewSuggestions: () => void;
   onClearSelection: () => void;
-  classificationDetails?: ReactNode;
+  availableTags?: UserTag[];
+  onToggleTag?: (tagId: string, operation: "add" | "remove") => void;
 }) {
   return (
     <aside className="min-h-0 overflow-auto border-l border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] p-4" aria-labelledby="library-inspector-title">
@@ -38,15 +44,14 @@ export function FileLibraryInspector({
       <div className="mt-3">
         {selectedIds.length === 0 ? <EmptyInspector t={t} /> : null}
         {selectedIds.length > 1 ? (
-          <MultiInspector files={selectedFiles} t={t} onReveal={onReveal} onViewSuggestions={onViewSuggestions} onClearSelection={onClearSelection} />
+          <MultiInspector summary={selectionSummary} selectedCount={selectedIds.length} t={t} onViewSuggestions={onViewSuggestions} onClearSelection={onClearSelection} />
         ) : null}
         {selectedIds.length === 1 ? (
-          selectedFiles[0] ? (
-            <SingleInspector file={selectedFiles[0]} language={language} t={t} onPreview={onPreview} onReveal={onReveal} onViewSuggestions={onViewSuggestions} />
+          isLoading ? <LoadingInspector t={t} /> : detail ? (
+            <SingleInspector detail={detail} language={language} t={t} onPreview={onPreview} onReveal={onReveal} onViewSuggestions={onViewSuggestions} availableTags={availableTags} onToggleTag={onToggleTag} />
           ) : <MissingInspector t={t} />
         ) : null}
       </div>
-      {selectedIds.length === 1 && selectedFiles[0] ? classificationDetails : null}
     </aside>
   );
 }
@@ -64,11 +69,11 @@ export function FileLibraryPreviewDialog({
   onClose,
   onReveal
 }: {
-  file: FileRecord | null;
+  file: FileLibraryDetail | null;
   language: Language;
   t: Translator;
   onClose: () => void;
-  onReveal: (path: string) => void;
+  onReveal: (fileId: string) => void;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -76,73 +81,53 @@ export function FileLibraryPreviewDialog({
   if (!file) return null;
   return (
     <ModalPortal initialFocusRef={closeRef} onEscape={() => onCloseRef.current()}>
-    <div className="fixed inset-0 z-40 grid place-items-center bg-black/20 p-5" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
-      <section className={cn(floatingSurface, "grid w-full max-w-xl gap-4 p-5")} role="dialog" aria-modal="true" aria-labelledby="library-preview-title">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{previewTitle(file, t)}</p>
-            <h2 id="library-preview-title" className="mt-1 truncate text-lg font-semibold text-[var(--zc-text-primary)]" title={file.name}>{file.name}</h2>
+      <div className="fixed inset-0 z-40 grid place-items-center bg-black/20 p-5" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
+        <section className={cn(floatingSurface, "grid w-full max-w-xl gap-4 p-5")} role="dialog" aria-modal="true" aria-labelledby="library-preview-title">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{previewTitle(file, t)}</p>
+              <h2 id="library-preview-title" className="mt-1 truncate text-lg font-semibold text-[var(--zc-text-primary)]" title={file.name}>{file.name}</h2>
+            </div>
+            <button ref={closeRef} type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--zc-radius-control)] text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]" aria-label={t("libraryPreviewClose")} title={t("libraryPreviewClose")} onClick={onCloseRef.current}>
+              <X size={17} />
+            </button>
           </div>
-          <button ref={closeRef} type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--zc-radius-control)] text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]" aria-label={t("libraryPreviewClose")} title={t("libraryPreviewClose")} onClick={onCloseRef.current}>
-            <X size={17} />
-          </button>
-        </div>
-        <PreviewSurface file={file} t={t} />
-        <div className="flex flex-wrap justify-end gap-2">
-          <button className={buttonSecondary} onClick={() => onReveal(file.path)}>{libraryRevealLabel(t)}</button>
-          <button className={glassButtonPrimary} onClick={onClose}>{t("libraryPreviewClose")}</button>
-        </div>
-        <p className="text-xs text-[var(--zc-text-tertiary)]">{formatDate(file.modified_at, language)} · {formatBytes(file.size)}</p>
-      </section>
-    </div>
+          <PreviewSurface file={file} t={t} />
+          <div className="flex flex-wrap justify-end gap-2">
+            <button className={buttonSecondary} onClick={() => onReveal(file.id)}>{libraryRevealLabel(t)}</button>
+            <button className={glassButtonPrimary} onClick={onClose}>{t("libraryPreviewClose")}</button>
+          </div>
+          <p className="text-xs text-[var(--zc-text-tertiary)]">{formatDate(String(file.modifiedAt), language)} · {formatBytes(file.size)}</p>
+        </section>
+      </div>
     </ModalPortal>
   );
 }
 
 function EmptyInspector({ t }: { t: Translator }) {
-  return (
-    <div className="grid min-h-40 place-items-center gap-3 border-y border-[var(--zc-divider)] py-6 text-center">
-      <Info size={22} className="text-[var(--zc-info-text)]" aria-hidden="true" />
-      <p className="max-w-xs text-sm leading-6 text-[var(--zc-text-secondary)]">{t("libraryInspectorEmpty")}</p>
-    </div>
-  );
+  return <div className="grid min-h-40 place-items-center gap-3 border-y border-[var(--zc-divider)] py-6 text-center"><Info size={22} className="text-[var(--zc-info-text)]" aria-hidden="true" /><p className="max-w-xs text-sm leading-6 text-[var(--zc-text-secondary)]">{t("libraryInspectorEmpty")}</p></div>;
+}
+
+function LoadingInspector({ t }: { t: Translator }) {
+  return <div className="grid min-h-40 place-items-center gap-3 border-y border-[var(--zc-divider)] py-6 text-center"><Info size={22} className="text-[var(--zc-info-text)]" aria-hidden="true" /><p className="max-w-xs text-sm leading-6 text-[var(--zc-text-secondary)]">{t("libraryLoadingResults")}</p></div>;
 }
 
 function MissingInspector({ t }: { t: Translator }) {
-  return (
-    <div className="grid min-h-40 place-items-center gap-3 border-y border-[var(--zc-divider)] py-6 text-center">
-      <Info size={22} className="text-[var(--zc-warning-text)]" aria-hidden="true" />
-      <p className="max-w-xs text-sm leading-6 text-[var(--zc-text-secondary)]">{t("libraryFileNotFound")}</p>
-    </div>
-  );
+  return <div className="grid min-h-40 place-items-center gap-3 border-y border-[var(--zc-divider)] py-6 text-center"><Info size={22} className="text-[var(--zc-warning-text)]" aria-hidden="true" /><p className="max-w-xs text-sm leading-6 text-[var(--zc-text-secondary)]">{t("libraryFileNotFound")}</p></div>;
 }
 
-function MultiInspector({
-  files,
-  t,
-  onReveal,
-  onViewSuggestions,
-  onClearSelection
-}: {
-  files: FileRecord[];
-  t: Translator;
-  onReveal: (path: string) => void;
-  onViewSuggestions: () => void;
-  onClearSelection: () => void;
-}) {
-  const summary = selectionSummary(files);
+function MultiInspector({ summary, selectedCount, t, onViewSuggestions, onClearSelection }: { summary: FileLibrarySelectionSummary | null; selectedCount: number; t: Translator; onViewSuggestions: () => void; onClearSelection: () => void }) {
   return (
     <div className="grid gap-4">
       <div className="border-b border-[var(--zc-divider)] pb-3">
-        <p className="text-lg font-semibold text-[var(--zc-text-primary)]">{t("librarySelectedCount").replace("{count}", String(summary.count))}</p>
-        <p className="mt-1 text-sm text-[var(--zc-text-secondary)]">{t("librarySelectedTotalSize").replace("{size}", formatBytes(summary.totalSize))}</p>
+        <p className="text-lg font-semibold text-[var(--zc-text-primary)]">{t("librarySelectedCount").replace("{count}", String(summary?.count ?? selectedCount))}</p>
+        <p className="mt-1 text-sm text-[var(--zc-text-secondary)]">{t("librarySelectedTotalSize").replace("{size}", formatBytes(summary?.totalSize ?? 0))}</p>
       </div>
       <dl className="grid gap-3 text-sm">
-        <div><dt className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("librarySelectedTypes")}</dt><dd className="mt-1 text-[var(--zc-text-primary)]">{summary.typeCounts.map(([type, count]) => `${typeLabel({ file_type: type } as FileRecord, t)} ×${count}`).join(" · ")}</dd></div>
-        {summary.commonDirectory ? <div><dt className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("libraryCommonPath")}</dt><dd className="mt-1 truncate text-[var(--zc-text-primary)]" title={formatDisplayPath(summary.commonDirectory)}>{compactPath(summary.commonDirectory, 44)}</dd></div> : null}
+        {summary?.typeCounts.length ? <div><dt className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("librarySelectedTypes")}</dt><dd className="mt-1 text-[var(--zc-text-primary)]">{summary.typeCounts.map((item) => `${item.fileType} ×${item.count}`).join(" · ")}</dd></div> : null}
+        {summary?.excludedCount ? <div><dt className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("librarySelectedLoadedCount")}</dt><dd className="mt-1 text-[var(--zc-warning-text)]">{summary.excludedCount}</dd></div> : null}
       </dl>
       <div className="flex flex-wrap gap-2">
-        {summary.commonDirectory ? <button className={buttonSecondary} onClick={() => onReveal(summary.commonDirectory!)}>{libraryRevealLabel(t)}</button> : null}
         <button className={buttonSecondary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button>
         <button className="text-sm font-medium text-[var(--zc-text-secondary)] underline-offset-2 hover:underline" onClick={onClearSelection}>{t("libraryClearSelection")}</button>
       </div>
@@ -151,45 +136,25 @@ function MultiInspector({
   );
 }
 
-function SingleInspector({
-  file,
-  language,
-  t,
-  onPreview,
-  onReveal,
-  onViewSuggestions
-}: {
-  file: FileRecord;
-  language: Language;
-  t: Translator;
-  onPreview: (file: FileRecord) => void;
-  onReveal: (path: string) => void;
-  onViewSuggestions: () => void;
-}) {
-  const missing = file.is_deleted || file.is_stale;
+function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSuggestions, availableTags, onToggleTag }: { detail: FileLibraryDetail; language: Language; t: Translator; onPreview: (file: FileLibraryDetail) => void; onReveal: (fileId: string) => void; onViewSuggestions: () => void; availableTags: UserTag[]; onToggleTag?: (tagId: string, operation: "add" | "remove") => void }) {
+  const missing = detail.isStale;
+  const selectedTagIds = new Set(detail.tags.map((tag) => tag.id));
   return (
     <div className="grid gap-4">
-      <PreviewSurface file={file} t={t} />
-      <div className="min-w-0 border-b border-[var(--zc-divider)] pb-3">
-        <h3 className="break-words text-lg font-semibold text-[var(--zc-text-primary)]">{file.name}</h3>
-        <p className="mt-1 text-sm text-[var(--zc-text-secondary)]">{typeLabel(file, t)} · {purposeLabel(file, t)}</p>
-      </div>
+      <PreviewSurface file={detail} t={t} />
+      <div className="min-w-0 border-b border-[var(--zc-divider)] pb-3"><h3 className="break-words text-lg font-semibold text-[var(--zc-text-primary)]">{detail.name}</h3><p className="mt-1 text-sm text-[var(--zc-text-secondary)]">{detail.fileType} · {detail.purpose}</p></div>
       <dl className="grid gap-3 text-sm">
         <InspectorField label={t("libraryCurrentStatus")} value={missing ? t("libraryFileNotFound") : t("libraryReady")} tone={missing ? "warning" : "normal"} />
-        <InspectorField label={t("libraryClassification")} value={actionLabel(file, t)} />
-        <InspectorField label={t("lifecycle")} value={t(`libraryLifecycle${file.lifecycle}` as Parameters<Translator>[0])} />
-        <InspectorField label={t("risk")} value={t(`libraryRisk${file.risk_level}` as Parameters<Translator>[0])} />
-        {file.suggested_target_path ? <InspectorField label={t("librarySuggestedDestination")} value={compactPath(formatDisplayPath(file.suggested_target_path), 44)} /> : null}
-        <InspectorField label={t("libraryClassificationReason")} value={file.classification_reason || t("unknown")} />
-        <InspectorField label={t("confidence")} value={confidenceLabel(file.confidence, t)} />
-        <InspectorField label={t("fileModified")} value={formatDate(file.modified_at, language)} />
-        <InspectorField label={t("fileLocation")} value={compactPath(formatDisplayPath(file.path), 44)} title={formatDisplayPath(file.path)} />
+        <InspectorField label={t("libraryClassification")} value={detail.suggestedAction || t("unknown")} />
+        <InspectorField label={t("lifecycle")} value={detail.lifecycle} />
+        <InspectorField label={t("risk")} value={detail.risk} />
+        <InspectorField label={t("libraryClassificationReason")} value={detail.classificationReason || t("unknown")} />
+        <InspectorField label={t("confidence")} value={confidenceLabel(detail.confidence, t)} />
+        <InspectorField label={t("fileModified")} value={formatDate(String(detail.modifiedAt), language)} />
+        <InspectorField label={t("fileLocation")} value={compactPath(formatDisplayPath(detail.path), 44)} title={formatDisplayPath(detail.path)} />
       </dl>
-      <div className="flex flex-wrap gap-2">
-        {!missing ? <button className={buttonSecondary} onClick={() => onPreview(file)}>{t("libraryPreview")}</button> : null}
-        <button className={buttonSecondary} onClick={() => onReveal(file.path)}>{libraryRevealLabel(t)}</button>
-        <button className={glassButtonPrimary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button>
-      </div>
+      {availableTags.length ? <section className="grid gap-2 border-t border-[var(--zc-divider)] pt-3"><h3 className="text-xs font-semibold text-[var(--zc-text-tertiary)]">Tags</h3><div className="flex flex-wrap gap-1.5">{availableTags.map((tag) => { const active = selectedTagIds.has(tag.id); return <button key={tag.id} type="button" className={cn("rounded-full border px-2 py-1 text-xs", active ? "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "border-[var(--zc-divider)] text-[var(--zc-text-secondary)]")} onClick={() => onToggleTag?.(tag.id, active ? "remove" : "add")} aria-pressed={active}>{tag.displayName}</button>; })}</div></section> : null}
+      <div className="flex flex-wrap gap-2">{!missing ? <button className={buttonSecondary} onClick={() => onPreview(detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button><button className={glassButtonPrimary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button></div>
     </div>
   );
 }
@@ -198,27 +163,14 @@ function InspectorField({ label, value, title, tone = "normal" }: { label: strin
   return <div className="min-w-0"><dt className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{label}</dt><dd className={cn("mt-0.5 truncate text-sm", tone === "warning" ? "text-[var(--zc-warning-text)]" : "text-[var(--zc-text-primary)]")} title={title ?? value}>{value}</dd></div>;
 }
 
-function PreviewSurface({ file, t }: { file: FileRecord; t: Translator }) {
-  const missing = file.is_deleted || file.is_stale;
-  const kind = missing ? "unsupported" : filePreviewKind(file);
-  return (
-    <div className="grid min-h-36 place-items-center gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] px-4 py-5 text-center" data-library-preview-kind={kind}>
-      {missing ? <TriangleAlert size={30} className="text-[var(--zc-warning-text)]" aria-hidden="true" /> : <FileTypeIcon file={file} size={30} className="text-[var(--zc-info-text)]" />}
-      <strong className="text-sm text-[var(--zc-text-primary)]">{missing ? t("libraryFileUnavailableTitle") : previewTitle(file, t)}</strong>
-      <span className="max-w-xs text-xs leading-5 text-[var(--zc-text-secondary)]">{missing ? t("libraryFileUnavailableDesc") : t("libraryPreviewUnavailable")}</span>
-    </div>
-  );
+function PreviewSurface({ file, t }: { file: FileLibraryDetail; t: Translator }) {
+  const missing = file.isStale;
+  return <div className="grid min-h-36 place-items-center gap-2 border-y border-[var(--zc-divider)] bg-[var(--zc-surface)] px-4 py-5 text-center" data-library-preview-kind={file.extension.toLowerCase() === "pdf" ? "pdf" : "metadata"}>{missing ? <TriangleAlert size={30} className="text-[var(--zc-warning-text)]" aria-hidden="true" /> : <FileTypeIcon file={{ file_type: file.fileType as never, extension: file.extension }} size={30} className="text-[var(--zc-info-text)]" />}<strong className="text-sm text-[var(--zc-text-primary)]">{missing ? t("libraryFileUnavailableTitle") : previewTitle(file, t)}</strong><span className="max-w-xs text-xs leading-5 text-[var(--zc-text-secondary)]">{missing ? t("libraryFileUnavailableDesc") : t("libraryPreviewUnavailable")}</span></div>;
 }
 
-function previewTitle(file: FileRecord, t: Translator) {
-  if (filePreviewKind(file) === "pdf") return t("libraryPreviewPdfFile");
-  const key = `libraryPreview${filePreviewKind(file).replace(/^./, (value) => value.toUpperCase())}` as Parameters<Translator>[0];
-  return t(key);
-}
-
-function actionLabel(file: FileRecord, t: Translator) {
-  const key = `libraryAction${file.suggested_action}` as Parameters<Translator>[0];
-  return t(key);
+function previewTitle(file: FileLibraryDetail, t: Translator) {
+  if (file.extension.toLowerCase() === "pdf") return t("libraryPreviewPdfFile");
+  return t("libraryPreviewUnavailable");
 }
 
 function confidenceLabel(confidence: number, t: Translator) {
