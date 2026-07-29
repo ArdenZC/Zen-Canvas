@@ -72,7 +72,7 @@ The renderer carries the returned fingerprint but cannot declare it authoritativ
 
 Saved View writes deliberately do not bump the file-query revision. Failed transactions roll back both their data and any attempted revision bump.
 
-The response reads revision, scope health, exact count, and rows in one short SQLite read transaction. The exact count is carried in the backend-issued revision-bound cursor, so later keyset pages do not rescan the membership set; first-page counts may also reuse a bounded in-memory entry keyed by `revision + membership fingerprint`. This cache is an optimization only: it has no authority, is capped at 32 entries, and is never used across a revision change. Subsequent pages use an opaque hex/JSON cursor with contract version, fingerprint, revision, exact total count, sort kind/direction, complete tuple, and durable file ID. V2 never uses `OFFSET`, materializes a million-item snapshot, or holds a transaction across IPC. Tampering, query mismatch, invalid numeric tuple, and stale revision fail closed; stale cursors return `snapshot_expired` without mixing old and new pages.
+The response reads revision, scope health, exact count, and rows in one short SQLite read transaction. The exact count is carried in the backend-issued revision-bound cursor, so later keyset pages do not rescan the membership set; first-page counts may also reuse a bounded in-memory entry keyed by `revision + membership fingerprint`. This cache is an optimization only: it has no authority, is capped at 32 entries, and is never used across a revision change. Positive `tags_any_of` first-page counts use a duplicate-safe `EXISTS` probe through the `file_user_tags` primary-key index, so a file carrying more than one requested tag is still counted once; the page query remains sort-driven for keyset stop-at-page-size behavior. Subsequent pages use an opaque hex/JSON cursor with contract version, fingerprint, revision, exact total count, sort kind/direction, complete tuple, and durable file ID. V2 never uses `OFFSET`, materializes a million-item snapshot, or holds a transaction across IPC. Tampering, query mismatch, invalid numeric tuple, and stale revision fail closed; stale cursors return `snapshot_expired` without mixing old and new pages.
 
 ## 7. DTO separation
 
@@ -125,17 +125,25 @@ Focused Task 05 evidence:
 | Rust Query V2 | pass; 9 library tests including canonical membership reuse, cursor, relevance, scope, failed transaction, selection cap, tags, Saved Views, and cascade |
 | Remediation | pass; 13/13 |
 | Migration/rollback | pass; schema 30→31, rollback, future-schema, 100k and 1M fixtures |
-| 100k File Library | pass; common matrix p95 0.629ms (cold default page 12.965ms), complex p95 94.244ms, detail 0.158ms, selection summary 56.616ms, bulk tag 347.353ms |
-| 1M File Library | pass; common matrix p95 0.590ms (cold default page 112.532ms), complex exact p95 963.070ms (diagnostic), detail 0.124ms, deep keyset 20 pages / 8.088ms, selection summary 546.451ms, bulk tag 530.551ms |
-| Schema 30→31 migration | pass; 100k 450.896ms, 1M 5,115.643ms, WAL reader row counts preserved |
-| Query plans | pass; modified/created/name/size/confidence indexes, tag `(tag_id,file_id)`, materialized FTS plan |
+| 100k File Library | pass; common matrix p95 0.603ms (cold default page 13.607ms), complex p95 89.936ms, detail 0.115ms, selection summary 54.102ms, bulk tag 305.646ms |
+| 1M File Library | pass; common matrix p95 0.786ms (cold default page 106.473ms), complex exact p95 920.580ms (diagnostic), detail 0.119ms, deep keyset 20 pages / 8.338ms, selection summary 521.334ms, bulk tag 507.315ms |
+| Schema 30→31 migration | pass; 100k 469.740ms, 1M 4,809.093ms, WAL reader row counts preserved |
+| Query plans | pass; modified/created/name/size/confidence indexes, tag `(tag_id,file_id)` filter plan, file-user-tag primary-key count probe, materialized FTS plan |
 | Existing Task 02–04 performance | pass through `npm run test:performance` |
 
 The 1M 150ms target is applied to common pages as defined by the taskbook; complex exact counts remain exact and are reported separately rather than estimated or hidden.
 
 ## 15. Security, build, platform, and package evidence
 
-The required local `verify:frontend` and `verify:rust` gates pass on the final implementation worktree; `verify:security` is rerun before delivery. Local Windows release build produces the NSIS installer. GitHub Windows/macOS Rust quality and release-compile evidence is recorded after the Draft PR workflow completes; Draft-only package jobs are reported as skipped when the workflow condition requires a non-Draft PR. Unsigned DMG evidence is recorded when the macOS package job is available; otherwise the platform limitation is stated explicitly.
+Local delivery gates pass on the final implementation worktree:
+
+- `npm run verify:frontend`: typecheck, 74 Vitest files / 517 tests, remediation 13/13, performance suites, and Windows release build all pass.
+- `npm run verify:rust`: rustfmt, 510 Rust tests passed / 7 ignored, and clippy with `-D warnings` pass.
+- `npm run verify:security`: npm audit reports 0 vulnerabilities; cargo audit exits 0 with the repository's 15 existing allowed RustSec advisories.
+- `DOCS_DIFF_BASE=origin/master npm run test:docs`, `git diff --check`, and the scoped-change audit pass.
+- Local Windows packaging produces `src-tauri/target/release/bundle/nsis/Zen Canvas_0.1.40_x64-setup.exe`.
+
+The full GitHub Windows/macOS workflow for implementation HEAD `3578e2bf4b2a71a366970b1460cf768d37dd2eb4` passed in [run 30437340299](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30437340299): change-scope/documentation, frontend/format, Rust quality on Windows and macOS, release compile on Windows and macOS, dependency audit, performance profile, and platform quality checks all succeeded. Its recorded Task 05 performance evidence is 100k common p95 `0.961ms`, complex p95 `147.532ms`, and 1M common p95 `0.942ms`; the 1M complex exact count `1675.452ms` is diagnostic only, as required by the taskbook. The 100k and 1M schema-30-to-31 migration probes also passed (`8405.506ms` and `120260.426ms`) with WAL row counts preserved. Draft-only NSIS and unsigned-DMG jobs were skipped by workflow condition; the local NSIS artifact is the available package evidence.
 
 ## 16. Rollback and known risks
 
@@ -147,6 +155,7 @@ The required local `verify:frontend` and `verify:rust` gates pass on the final i
 
 ## 17. Delivery record
 
-- Commit list and final HEAD are filled after the implementation/doc commits are created.
+- Implementation commits: `f566920c380d43360b4e187d822b426a3227c203`, `e7a6cb149b8081f97abdd4e4f3c361a1b72882e9`, `ddd9c52e2a58634a18d847ec7c271723c6c41fd9`, and `3578e2bf4b2a71a366970b1460cf768d37dd2eb4`. The closeout documentation commit is the final delivery commit on `remediation/05-file-library`; its SHA is reported in the handoff after push.
+- Draft PR: [#38](https://github.com/ArdenZC/Zen-Canvas/pull/38), title `feat: rebuild file library query tags and saved views`, head `remediation/05-file-library`, remains open and Draft.
 - Draft PR remains Draft and is not auto-merged.
 - Human code-level acceptance is required before any merge or Task 06 work.
