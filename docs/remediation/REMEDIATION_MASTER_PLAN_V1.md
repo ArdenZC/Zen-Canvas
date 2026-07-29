@@ -2,15 +2,15 @@
 
 ## 1. 总目标
 
-Zen Canvas 的整改目标不是堆叠零散工具，而是把扫描、系统搜索、Managed AI、规则分类、重复检测、空间分析、整理建议、文件操作和恢复能力收敛为一套：
+Zen Canvas 的整改目标不是堆叠零散工具，而是把扫描、系统搜索、Managed AI、规则分类、重复检测、空间分析、整理建议、文件操作和恢复收敛为一套：
 
 - 本地优先；
--安全审核；
--持久事实；
--可恢复执行；
--跨平台一致；
--用户拥有最终控制权；
--可继续扩展但不泛化失控；
+- 安全审核；
+- 持久事实；
+- 可恢复执行；
+- 跨平台一致；
+- 用户拥有最终控制权；
+- 可继续扩展但不泛化失控；
 
 的智能文件治理工作台。
 
@@ -18,9 +18,9 @@ Zen Canvas 不改造成完整文件资源管理器、多设备文件系统、云
 
 ---
 
-## 2. 固定的 8 个产品功能模块
+## 2. 固定的 8 个产品模块
 
-| 原模块 | Zen Canvas 功能 | 主要参考项目 | 重点参考 | 借鉴边界 |
+| 模块 | Zen Canvas 功能 | 主要参考项目 | 重点参考 | 借鉴边界 |
 |---|---|---|---|---|
 | 1 | 重复检测 | Czkawka | size grouping、prehash、full hash、cache、hardlink、cancel | 按 LICENSE 登记；独立实现 |
 | 2 | 大型文件/空间分析 | Spacedrive V1 | 大文件/目录、后台分析、结果投影、虚拟列表 | 概念级；拒绝过度复杂架构 |
@@ -28,8 +28,8 @@ Zen Canvas 不改造成完整文件资源管理器、多设备文件系统、云
 | 4 | 全局快捷搜索 | Tolaria | keyboard-first、Command Palette、stable command metadata | AGPL 设计级，只读不移植 |
 | 5 | 文件库 | TagSpaces | Location、标签、筛选、Saved View、Inspector、批量交互 | AGPL 设计级，不复制实现 |
 | 6 | AI 整理预览 | ai-file-sorter | taxonomy、dry run、建议计划、审核、continue later | AGPL 概念级，独立实现 |
-| 7 | 自然语言规则 | Accomplish + OpenCode | proposal、permission、structured execution | 按许可证登记并翻译到安全模型 |
-| 8 | 本地内容理解 | Local-File-Organizer | 本地提取、轻量语义、摘要输入 | 轻量设计级 |
+| 7 | 自然语言规则 | Coworker（原 Accomplish）+ OpenCode | proposal、permission、structured approval | MIT；翻译为 typed Rule Proposal，不引入 Agent runtime |
+| 8 | 本地内容理解 | Local-File-Organizer | 本地提取、轻量语义、摘要输入 | 轻量设计级；隐私合同先行 |
 
 参考项目只提供设计证据；与 Zen Canvas 许可证、数据域或安全模型冲突的做法必须进入拒绝清单。
 
@@ -43,11 +43,11 @@ Zen Canvas 不改造成完整文件资源管理器、多设备文件系统、云
 | 01A + 01B | 模块 3：扫描与索引 | 已完成 |
 | 02 | 模块 1：重复检测 | 已完成，schema 29 |
 | 03 | 模块 2：大型文件/空间分析 | 已完成，schema 30 |
-| 04 | 模块 4：全局快捷搜索 | 已通过 PR #35 合并，schema 30 |
-| 05 | 模块 5：文件库 | 已通过 PR #38 合并，schema 31 |
-| 06 | 模块 6：AI 整理预览 | **实施完成，单一 Draft PR 人工验收中；未合并** |
-| 07 | 模块 7：自然语言规则 | 等待 Task 06 |
-| 08 | 模块 8：本地内容理解 | 等待 Task 07 |
+| 04 | 模块 4：全局快捷搜索 | 已合并，schema 30 |
+| 05 | 模块 5：文件库 | 已合并，schema 31 |
+| 06 | 模块 6：AI 整理预览 | 已通过 PR #40 合并，schema 32 |
+| 07 | 模块 7：自然语言规则 | **当前完整模块，授权 schema 33** |
+| 08 | 模块 8：本地内容理解 | 等待 Task 07，禁止执行 |
 
 每个 Task 是完整产品模块，不拆为 A/B/C，不创建独立收尾任务。上一阶段人工接受的遗留必须作为下一完整模块第一组完成，然后继续该模块全部目标。
 
@@ -63,7 +63,7 @@ Zen Canvas 不改造成完整文件资源管理器、多设备文件系统、云
 - disabled/stale/degraded source 不得被表示为完整；
 - Global Search 不 join managed `files`；
 - open/reveal 只接受 entry ID 并由 backend revalidate；
--不得为 Task 06 重建 native provider/service。
+- Task 07 不重建 native provider/service。
 
 ### 4.2 Managed File Library
 
@@ -73,229 +73,241 @@ Zen Canvas 不改造成完整文件资源管理器、多设备文件系统、云
 - watcher 不写 `scan_seen`，不推进 generation；
 - File Library 与 Global Index 数据域、scope、cursor 和 revision 独立；
 - `files.id` 不迁移；
-- FileQuerySpec V2、tags、Saved Views 和 Inspector 已进入 schema 31；
-- Task 06 plan source 必须使用 File Library V2 selection/query，不得退回 legacy path scope。
+- Task 07 impact preview 使用 File Library V2 durable scope；
+- root disabled/degraded/reconciliation 必须 fail closed。
 
-### 4.3 Managed AI
+### 4.3 Managed AI 与交互式 Proposal AI
 
--持久 AI queue、scope ownership、provider policy、fingerprint、cancel 和 correction gate 已存在；
-- Task 06 不修改 Managed AI schema/provider/worker ownership；
-- Organization Plan 只增加 plan-ID adapter；
--AI 完成后不得自动接受或执行计划；
-- user correction 和 human plan decision 优先。
+- 持久 Managed AI queue、scope ownership、provider policy、fingerprint、cancel 和 correction gate 已存在；
+- `ai_jobs` 继续只服务 managed file analysis，不泛化为通用 runtime；
+- Task 07 的规则提案是用户触发、短时、可取消的 provider request，不建立第二 durable queue；
+- 复用现有 provider client、credential store、preset、timeout 与 JSON 能力；
+- 只发送用户 prompt 和固定 Rule AST schema；
+- 不发送文件正文、文件列表、路径样本、operation logs 或 secrets；
+- 模型不直接写、启用或运行 rule。
 
 ### 4.4 文件 mutation 与恢复
 
--所有移动、重命名和清理必须先 preview；
+- 所有移动、重命名和清理必须先 preview；
 - operation/cleanup journal 是恢复事实；
 - Safe Trash 与 restore 不得弱化；
-- operation identity 与 dedupe identity 分离；
--renderer 不得提交任意 path 作为 mutation/reveal authority；
+- renderer 不得提交任意 path 作为 mutation authority；
 - Organization Plan 是审核和 provenance artifact，不是第二 journal；
-- Task 06 不允许 delete/move_to_trash。
+- Rule 只更新 classification/suggestion metadata；
+- Rule Proposal 和 Apply 不产生 filesystem mutation。
 
-### 4.5 Analysis、Dedupe 与 Finding
+### 4.5 Analysis、Dedupe、Finding 与 Plan
 
 - active duplicate group/member 是重复权威；
 - Analysis Run/Finding/Decision 是分析权威；
 - duplicate/finding 不直接授权 mutation；
-- plan 可读取 bounded summary，但不修改其 schema 或决策。
+- Plan 可读取 bounded summary，但不修改其 schema 或决策；
+- Task 07 第一组修复 Plan 的 live dry-run equivalence、scope health、review transition、recovery、retention 和 summary；
+- Plan 和 Rule Proposal 保持独立 ledger。
 
-### 4.6 平台与 CI
+### 4.6 Rule AST
+
+- 当前结构化 Rule AST V1 是唯一目标格式；
+- Task 07 不创建 Rule AST V2、脚本表达式、正则执行器、SQL、JavaScript 或 shell；
+- backend canonical validation 是 AST authority；
+- renderer 不再提交整套 Rule vector 作为执行事实；
+- 正式规则使用 per-rule revision 和 catalog revision CAS；
+- proposal Apply 后规则默认 disabled；
+- Enable 与 Run 为独立显式动作。
+
+### 4.7 平台与 CI
 
 - Windows/macOS Rust、前端、原生回归、性能、安全审计和打包验证持续生效；
--后续模块优先扩展现有能力，不旁路或重建。
+- package job 的 success/skipped 必须分别记录；
+- 本地 package 不冒充远端 artifact；
+- 后续模块优先扩展现有能力，不旁路或重建。
 
 ---
 
 ## 5. 已完成模块
 
-### 5.1 扫描与索引（Task 01A/01B）
+### 扫描与索引（Task 01A/01B）
 
 已完成 scan root lease、session/run/generation、scanner-owned `scan_seen`、stale safety、crash recovery、multi-root mapping、durable revision、Rust watcher owner 和 overflow/revision-gap reconciliation。
 
-持续边界：File Library Scan 与 Global Index 独立；不建立 raw watcher 通用日志；不泛化 `ai_jobs`。
-
-### 5.2 重复检测（Task 02）
+### 重复检测（Task 02）
 
 已完成 physical identity、fingerprint cache、prehash/full BLAKE3、bounded worker、durable dedupe run、hardlink-safe duplicate groups、global duplicate authority 和只读 Duplicate UI。
 
-持续边界：不迁移 `files.id`；active group/member 是 duplicate authority；不自动 keeper/delete。
-
-### 5.3 空间分析（Task 03）
+### 空间分析（Task 03）
 
 已完成 durable Analysis Run、fixed Detector registry、Finding/Evidence/Decision、large file/directory、cleanup heuristic、atomic publication、invalidation/retention 和 frontend hydration。
 
-持续边界：Finding 不是 execution authority；cleanup 继续走 Safe Trash/journal。
+### 全局快捷搜索（Task 04）
 
-### 5.4 全局快捷搜索（Task 04）
-
-PR #35 squash merge：
-
-```text
-14616d4344314afce0878dbc681988c04183a9bc
-```
+PR #35 squash merge：`14616d4344314afce0878dbc681988c04183a9bc`。
 
 已完成唯一 Global Index authority、versioned query、source health/revision snapshot、bounded ranking、ID-only actions、native Search window/hotkey owner、command catalog、IME/ARIA 和 100k/1M 门禁。
 
-### 5.5 文件库（Task 05）
+### 文件库（Task 05）
 
-PR #38 squash merge：
+PR #38 squash merge：`5468a17790165a149c462a17b64d011750b45410`。
 
-```text
-5468a17790165a149c462a17b64d011750b45410
-```
+已建立 Query V2、revision/keyset pagination、durable roots、summary/detail/selection、user tags、Saved Views、Inspector 和权限。Task 05 的 9 项接受遗留已由 Task 06 第一组实现。
 
-已建立 schema 31：
+### AI 整理预览（Task 06）
 
-- `user_tags`；
-- `file_user_tags`；
-- `library_saved_views`；
-- `library_query_state`。
+PR #40 squash merge：`29e85c099c5ee921ad7d4237c780dc47126e0fa3`。
 
-已实现 Query V2、canonical fingerprint、revision/keyset pagination、durable roots、summary/detail/selection、tags、Saved Views、Vault migration 和 permissions。
+已建立 schema 32：
 
-人工决定转入 Task 06 第一组的 9 项：
+- `organization_plans`；
+- `organization_plan_items`；
+- user tags/Saved Views 单调 revision。
 
-1. Vault query loop；
-2. cursor 可合法篡改；
-3. 100k explicit selection 非真正 chunk-safe；
-4. snapshot-expired UI 不真实；
-5. tags/Saved Views CRUD UI 不完整；
-6. Detail/selection summary 字段缺失；
-7. optimistic concurrency 不足；
-8. virtual ARIA 指向未挂载 row；
-9. 1M complex exact count 需要 bounded truthful alternative。
+已实现 durable plan、bounded source materialization、review decisions、Managed AI adapter、dry run、existing operation journal execution、restart projection、virtual UI 和 permissions。
+
+人工验收接受并转入 Task 07 第一组的遗留：
+
+1. dry run 审核 target 与 execution current target 可能不一致；
+2. refresh/dry run/execution 未完整重验 managed root health；
+3. `needs_review` 人工审核后执行路径不可达；
+4. journal 全完成后的 crash projection 可能停在 partial；
+5. terminal retention 错用 age AND count；
+6. Plan UI 全局计数从已加载 100 行推断；
+7. CI package success/skipped 证据混写。
 
 这些遗留不得再次后移。
 
 ---
 
-## 6. 当前模块：Task 06 Durable Organization Plan
+## 6. 当前模块：Task 07 Natural-Language Rule Proposal
 
-Implementation status: the complete module and the nine accepted Task 05 findings are implemented on `remediation/06-organization-plan`, with evidence in `TASK_06_IMPLEMENTATION_CLOSEOUT.md`. The implementation remains unmerged and does not unlock Task 07.
+权威任务书：
+
+```text
+docs/remediation/TASK_07_NATURAL_LANGUAGE_RULE_PROPOSAL_AND_APPROVAL.md
+```
 
 ### 6.1 参考边界
 
-参考：`hyperfield/ai-file-sorter`，冻结分析 SHA：
+Coworker（原 Accomplish）：
 
 ```text
-cd9a024219b9434fb0a1df6b272f7145d9c67b28
+accomplish-ai/coworker
+SHA 2cf74d08f22078b8b1fd3f97bff3ec4612262613
+MIT
 ```
 
-许可证为 GNU AGPL-3.0。只允许概念级借鉴：review-before-change、From/To dry run、per-item select/keep/edit、safe batch、continue later、冲突预览。
+OpenCode：
 
-禁止复制源码、Qt model/dialog/role/column 结构、DTO、数据库、undo implementation、plugin/model runtime、UI/CSS、content analyzer 或 path-authoritative move。
+```text
+anomalyco/opencode
+SHA 7565e03536d19e850f9996c407f9bf5e932b5f7a
+MIT
+```
 
-### 6.2 Schema 32
+只借鉴：可见 proposal/plan、用户控制范围、ask/allow/deny、一次批准、明确拒绝、纠正后重新生成、权限评估与动作分离。
 
-Task 06 授权 schema 31→32：
+拒绝：Agent runtime、daemon、OpenCode SDK、shell、MCP、skills、subagents、browser automation、generic tool permission registry、auto approve、session always-allow、UI/DTO/event bus 移植。
 
--新增 `organization_plans`；
--新增 `organization_plan_items`；
--为 `user_tags` 和 `library_saved_views` 增加单调 revision；
--不 ALTER `files`；
--不迁移 `files.id`；
--不修改 operation/cleanup journal、Managed AI、Analysis/Finding 或 Rule AST schema。
+### 6.2 Schema 33
 
-### 6.3 Plan artifact
+Task 07 授权 schema `32→33`：
 
-Organization Plan 是 durable review/approval/provenance artifact：
+- `rules.ast_version`；
+- `rules.revision`；
+- `rules.origin_proposal_id`；
+- `rule_catalog_state`；
+- `rule_proposals`。
 
-- source 使用 File Library V2 selection/query；
-- source item set 可物化，最多 10,000；
-- plan/item 有状态机和 revision CAS；
-- proposal 由 backend 当前 classification、preview、finding、duplicate 和 scope health 生成；
-- renderer 不提交 path、target directory 或 operation kind；
-- accepted/edited proposal 变化后必须重新审核；
--计划可关闭应用后继续。
+不 ALTER `files`，不迁移 `files.id`，不修改 operation/cleanup journal、Managed AI、Analysis/Finding、Plan 或 Global Index schema。
 
-### 6.4 Task 05 第一组修复
+### 6.3 Proposal artifact
 
-冻结方案：
+Rule Proposal 是 durable candidate/review/provenance artifact：
 
-- cursor 使用 live anchor membership + complete tuple revalidation；
-- explicit selection 使用 TEMP/request-local set；
-- tags/Saved Views 使用 mandatory monotonic revision；
--1M complex query 使用 deferred exact count，绝不估算；
--Vault、snapshot、DTO、CRUD 和 virtual ARIA 按任务书补齐。
+- 用户 prompt 最大 4,000 code points；
+- candidate 只允许 Rule AST V1；
+- model output 经过 strict JSON parse、literal grounding 和 backend canonical validation；
+- 不保存 raw response、reasoning、文件正文、文件列表、tool trace 或 secrets；
+- proposal revision 是 generate/edit/preview/apply/cancel CAS；
+- update proposal 绑定 target rule + base revision；
+- proposal 不自动 apply、enable 或 run。
 
-### 6.5 AI
+### 6.4 Permission classification
 
--只复用现有 Managed AI queue；
--plan adapter 每批最多 100；
-- managed scope/provider/correction gate 不变；
--AI 不改变 decision，不自动执行；
+- `deny`：delete/trash、shell/script/tool、content/OCR、unmanaged scope、任意 path mutation、unsupported AST、protected target、虚构 literal、自动 enable/run；
+- `ask`：Move/Rename/Archive、path/directory、Sensitive/System/Caution、duplicate、宽匹配、冲突、update existing rule；
+- `allow`：只表示可进入普通人工批准，绝不代表自动 Apply。
+
+### 6.5 Impact preview
+
 - metadata-only；
-- plan refresh 后才更新 proposal。
+- managed File Library V2 scope；
+- 同一 SQLite snapshot；
+- exact 或明确 deferred，不估算；
+- sample 最多 20，明确标为 sample；
+- preview fingerprint 绑定 proposal/rule/catalog/library/scope/policy；
+- Apply 必须获得 exact impact 并重新验证。
 
-### 6.6 Review 与 Dry Run
+### 6.6 Human Apply
 
-支持：
+Apply：
 
-- Accept；
-- Keep；
-- Edit filename；
-- safe batch；
-- Refresh stale；
-- authoritative dry run；
-- From/To、collision、parent creation、volume/risk/blocked summary。
+- 只接受 IDs、expected revisions、preview fingerprint 和 confirmed；
+- backend 重算 candidate、scope、impact 和 fingerprint；
+- 单 transaction 写 proposal + user rule；
+- 新规则由 backend 生成 ID/source/timestamps；
+- 新规则默认 disabled；
+- update 使用 rule + catalog CAS；
+- Apply 不执行规则、不修改 files、不创建 Plan、不调用 journal。
 
-Dry run 绑定 plan revision、item set 和 proposal fingerprint；任何变化使其失效。
+### 6.7 Rule Repository V2
 
-### 6.7 Execution 与恢复
+- Create/Update/Toggle/Delete 分离；
+- per-rule revision + catalog revision；
+- renderer 不再 whole-object overwrite；
+- system/learned rules 受保护；
+- 旧 write command 退出生产 capability；
+- 前端与 browser mock 迁移到 V2。
 
-- execute request 只接受 IDs、expected revision 和 dry-run fingerprint；
-- backend 重新读取 preview/identity；
--内部构造 existing `OperationSelection`；
--单次最多 1,000 operations；
-- operation journal 是 filesystem truth；
--plan 记录 execution/batch mapping 并投影结果；
--crash/restart 从 operation logs reconcile，不自动重放；
-- History/Restore 继续使用现有能力；
-- delete/trash 不进入 plan。
+### 6.8 Backend-authoritative execution
 
-### 6.8 UI/State
+- `execute_rules_for_scope_v2` 从 SQLite 加载 enabled rules；
+- renderer 不提交 Rule vector；
+- expected catalog revision fail closed；
+- scanner/watcher/manual adapters 使用同一 authority；
+- Rule 只更新分类/建议；
+- 任何 move/rename/delete 仍走 Organization Plan 与 journal。
 
-- plan list/create；
-- durable active plan/items/decisions；
-- review list + Inspector；
-- Analyze missing；
-- Dry Run/confirm/execute/progress/results；
-- stale/revision conflict；
-- virtual/keyset/accessibility；
--不再以 legacy 3,000 organize queue、12,000 OFFSET preview scan 或 localStorage decision 为 truth。
+### 6.9 UI/State
 
-### 6.9 性能
+Rules workspace 提供：
 
-- Task 05：100k explicit selection、1M deferred/exact count；
-- Plan：100/1k/10k create、hydrate、decision、refresh、dry run；
--单次 execution prepare 1,000；
--WAL reader、query plan、migration；
--Windows/macOS/package/security。
+- Describe a rule；
+- Manual rule builder；
+- proposal list/Continue Later；
+- clarification、candidate AST、validation；
+- impact exact/deferred、sample、conflicts；
+- Edit/Regenerate/Apply as Disabled；
+- Enable 独立；
+- Run 独立；
+- revision conflict、latest-wins、focus/ARIA、narrow/zoom/CJK/RTL。
 
 ### 6.10 明确不做
 
--自然语言规则 proposal；
 - Content Artifact/OCR/正文读取；
--自治 Agent；
--第二 AI queue；
--第二 operation/undo journal；
--自动删除或永久删除；
--renderer path authority；
--ai-file-sorter 源码/结构移植。
+- Agent/task/tool runtime；
+- shell/MCP/browser automation；
+- Rule AST V2/脚本规则语言；
+- 第二 AI queue；
+- 自动文件 mutation；
+- operation/cleanup journal schema 修改；
+- Task 08。
 
 ---
 
-## 7. Task 07–08 边界
+## 7. Task 08 边界
 
-### Task 07
+只有 Task 07 合并后才可设计 Content Artifact、格式 extractor、隐私 consent、size budget、retention、local/cloud provider gate 和 rebuild/delete semantics。
 
-只有 Task 06 合并后才可设计自然语言 proposal → validation → human approval → existing Rule AST。Task 06 不解析自然语言命令，不允许模型直接写 rule。
-
-### Task 08
-
-只有 Task 07 合并后才可设计 Content Artifact、格式 extractor、隐私 consent、size budget、retention 和 provider gate。Task 06 继续 metadata-only。
+Task 07 继续 metadata-only。任何自然语言条件涉及文件正文、OCR、语义摘要或内容搜索时必须 deny/clarify，不得提前实现。
 
 ---
 
@@ -303,12 +315,12 @@ Dry run 绑定 plan revision、item set 和 proposal fingerprint；任何变化�
 
 每个后续完整模块必须：
 
--人工任务书先进入 master；
--一个实施分支；
--一个 Draft PR；
--schema 只按任务书授权推进；
--完整 frontend/Rust/remediation/security/performance/build；
--Windows/macOS/release/package 证据；
--Closeout、Risk Register、Index 和 permission matrix 同步；
--停止等待人工代码级验收；
--不自动合并或提前开始下一模块。
+- 人工任务书先进入 master；
+- 一个实施分支；
+- 一个 Draft PR；
+- schema 只按任务书授权推进；
+- 完整 frontend/Rust/remediation/security/performance/build；
+- Windows/macOS/release/package 真实证据；
+- Closeout、Risk Register、Index、Capability Matrix 和 permission matrix 同步；
+- 停止等待人工代码级验收；
+- 不自动合并或提前开始下一模块。
