@@ -760,7 +760,15 @@ impl Database {
         if let Some(cursor) = cursor.as_ref() {
             validate_cursor_authority(&tx, &canonical, &scope, cursor, tag_invalid, total_count)?;
         }
-        let parts = build_query_parts(&tx, &canonical, &scope, cursor.as_ref(), tag_invalid, true)?;
+        let parts = build_query_parts(
+            &tx,
+            &canonical,
+            &scope,
+            cursor.as_ref(),
+            tag_invalid,
+            true,
+            !defer_count,
+        )?;
         let row_sql = format!(
             "{} SELECT f.id, f.name, f.path, f.extension, f.size, f.mtime, f.ctime, f.is_dir, f.file_type, f.purpose, f.lifecycle, f.risk_level, f.confidence, (EXISTS (SELECT 1 FROM active_duplicate_membership AS adm WHERE adm.file_id = f.id)) AS is_duplicate, f.requires_confirmation, f.is_stale, {}, (SELECT COALESCE(json_group_array(json_object('id', t.id, 'displayName', t.display_name, 'colorToken', t.color_token)), '[]') FROM (SELECT t.id, t.display_name, t.color_token FROM file_user_tags AS fut JOIN user_tags AS t ON t.id = fut.tag_id WHERE fut.file_id = f.id ORDER BY t.normalized_name COLLATE NOCASE, t.id LIMIT {}) AS t), (SELECT COUNT(*) FROM file_user_tags AS fut WHERE fut.file_id = f.id) FROM {} WHERE {} ORDER BY {} LIMIT ?",
             parts.ctes,
@@ -1483,6 +1491,7 @@ fn build_query_parts(
     cursor: Option<&LibraryCursor>,
     tag_invalid: bool,
     include_rank: bool,
+    materialize_fts: bool,
 ) -> Result<QueryParts, DbError> {
     let mut ctes = String::new();
     let mut params = Vec::new();
@@ -1497,8 +1506,13 @@ fn build_query_parts(
         } else {
             ""
         };
+        let materialization = if materialize_fts {
+            "MATERIALIZED"
+        } else {
+            "NOT MATERIALIZED"
+        };
         ctes = format!(
-            "WITH fts_matches AS NOT MATERIALIZED (SELECT files_fts.rowid{rank_projection} FROM files_fts WHERE files_fts MATCH ?)"
+            "WITH fts_matches AS {materialization} (SELECT files_fts.rowid{rank_projection} FROM files_fts WHERE files_fts MATCH ?)"
         );
         params.push(SqlValue::Text(fts_query));
         "files AS f JOIN fts_matches AS fm ON fm.rowid = f.rowid".to_string()
@@ -1547,7 +1561,7 @@ fn build_library_count_query(
             spec: count_spec,
             fingerprint: String::new(),
         };
-        let parts = build_query_parts(conn, &count_canonical, scope, None, false, false)?;
+        let parts = build_query_parts(conn, &count_canonical, scope, None, false, false, true)?;
         let any_placeholders = std::iter::repeat_n("?", any_tags.len())
             .collect::<Vec<_>>()
             .join(",");
@@ -1578,7 +1592,7 @@ fn build_library_count_query(
         return Ok((sql, params));
     }
 
-    let parts = build_query_parts(conn, canonical, scope, None, tag_invalid, false)?;
+    let parts = build_query_parts(conn, canonical, scope, None, tag_invalid, false, true)?;
     let sql = format!(
         "{} SELECT COUNT(*) FROM {} WHERE {}",
         parts.ctes, parts.from, parts.where_clause
@@ -1962,7 +1976,15 @@ fn validate_cursor_authority(
             "library_cursor_authority_mismatch".to_string(),
         ));
     }
-    let parts = build_query_parts(conn, canonical, scope, None, tag_invalid, true)?;
+    let parts = build_query_parts(
+        conn,
+        canonical,
+        scope,
+        None,
+        tag_invalid,
+        true,
+        cursor.total_count >= 0,
+    )?;
     let sql = format!(
         "{} SELECT f.mtime, f.ctime, f.name, f.size, f.confidence, {} \
          FROM {} WHERE {} AND f.id = ? LIMIT 1",

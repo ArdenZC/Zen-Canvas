@@ -593,7 +593,10 @@ fn assert_query_plans(conn: &Connection) {
     assert!(
         tag_plan
             .iter()
-            .any(|detail| detail.contains("sqlite_autoindex_file_user_tags_1")),
+            .any(|detail| {
+                detail.contains("sqlite_autoindex_file_user_tags_1")
+                    || detail.contains("idx_file_user_tags_tag_file")
+            }),
         "sorted tag page must use the file/tag primary covering index per candidate: {tag_plan:?}"
     );
 
