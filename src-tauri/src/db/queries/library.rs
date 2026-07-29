@@ -1498,7 +1498,7 @@ fn build_query_parts(
             ""
         };
         ctes = format!(
-            "WITH fts_matches AS MATERIALIZED (SELECT files_fts.rowid{rank_projection} FROM files_fts WHERE files_fts MATCH ?)"
+            "WITH fts_matches AS NOT MATERIALIZED (SELECT files_fts.rowid{rank_projection} FROM files_fts WHERE files_fts MATCH ?)"
         );
         params.push(SqlValue::Text(fts_query));
         "files AS f JOIN fts_matches AS fm ON fm.rowid = f.rowid".to_string()
@@ -1681,7 +1681,8 @@ fn append_tag_filter(
         "all" => {
             for id in ids {
                 conditions.push(
-                    "f.id IN (SELECT tf_all.file_id FROM file_user_tags AS tf_all WHERE tf_all.tag_id = ?)"
+                    "EXISTS (SELECT 1 FROM file_user_tags AS tf_all \
+                     WHERE tf_all.file_id = f.id AND tf_all.tag_id = ?)"
                         .to_string(),
                 );
                 params.push(SqlValue::Text(id.clone()));
@@ -1689,7 +1690,8 @@ fn append_tag_filter(
         }
         "any" => {
             conditions.push(format!(
-                "f.id IN (SELECT tf_any.file_id FROM file_user_tags AS tf_any WHERE tf_any.tag_id IN ({}))",
+                "EXISTS (SELECT 1 FROM file_user_tags AS tf_any \
+                 WHERE tf_any.file_id = f.id AND tf_any.tag_id IN ({}))",
                 std::iter::repeat_n("?", ids.len())
                     .collect::<Vec<_>>()
                     .join(",")
@@ -1698,7 +1700,8 @@ fn append_tag_filter(
         }
         "none" => {
             conditions.push(format!(
-                "f.id NOT IN (SELECT tf_none.file_id FROM file_user_tags AS tf_none WHERE tf_none.tag_id IN ({}))",
+                "NOT EXISTS (SELECT 1 FROM file_user_tags AS tf_none \
+                 WHERE tf_none.file_id = f.id AND tf_none.tag_id IN ({}))",
                 std::iter::repeat_n("?", ids.len())
                     .collect::<Vec<_>>()
                     .join(",")

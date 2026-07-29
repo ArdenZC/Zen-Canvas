@@ -2106,6 +2106,44 @@ mod tests {
                 .expect("benchmark first page");
             let first_ms = first_start.elapsed().as_secs_f64() * 1000.0;
             assert!(first_ms <= 100.0, "first page {first_ms:.3}ms");
+            if count == 100 {
+                let conn = db.conn().expect("organization query plan connection");
+                for (sql, expected_index) in [
+                    (
+                        "EXPLAIN QUERY PLAN SELECT id FROM organization_plans \
+                         WHERE status = 'completed' ORDER BY updated_at DESC, id LIMIT 20",
+                        "idx_organization_plans_status_updated",
+                    ),
+                    (
+                        "EXPLAIN QUERY PLAN SELECT id FROM organization_plan_items \
+                         WHERE plan_id = 'plan-bench' AND validity = 'ready' \
+                           AND decision = 'accepted' ORDER BY ordinal, id LIMIT 1000",
+                        "idx_organization_plan_items_plan_state",
+                    ),
+                    (
+                        "EXPLAIN QUERY PLAN SELECT id FROM organization_plan_items \
+                         WHERE file_id_snapshot = 'bench-file-00000'",
+                        "idx_organization_plan_items_file",
+                    ),
+                    (
+                        "EXPLAIN QUERY PLAN SELECT id FROM organization_plan_items \
+                         WHERE execution_id = 'execution-bench' AND validity = 'executing'",
+                        "idx_organization_plan_items_execution",
+                    ),
+                ] {
+                    let plan = conn
+                        .prepare(sql)
+                        .expect("prepare organization query plan")
+                        .query_map([], |row| row.get::<_, String>(3))
+                        .expect("read organization query plan")
+                        .collect::<Result<Vec<_>, _>>()
+                        .expect("collect organization query plan");
+                    assert!(
+                        plan.iter().any(|detail| detail.contains(expected_index)),
+                        "{expected_index} must serve its Task 06 read path: {plan:?}"
+                    );
+                }
+            }
 
             let deep_start = Instant::now();
             let mut cursor = first.next_cursor;
