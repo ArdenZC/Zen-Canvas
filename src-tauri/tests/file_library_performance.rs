@@ -176,7 +176,9 @@ fn run_query_matrix(row_count: usize, label: &str) {
     for (name, spec) in filter_specs {
         let (elapsed, response) = measure_query(&db, name, spec, None);
         assert!(response.result_state != "failed");
-        if row_count > 250_000 {
+        let expects_deferred =
+            row_count > 250_000 && !matches!(name, "review_only" | "duplicate_only");
+        if expects_deferred {
             assert_eq!(response.count_state, "deferred");
             assert!(response.total_count.is_none());
             let exact_start = Instant::now();
