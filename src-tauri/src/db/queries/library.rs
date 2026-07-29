@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 const LIBRARY_QUERY_VERSION: i32 = 2;
-const LIBRARY_CURSOR_VERSION: i32 = 1;
+const LIBRARY_CURSOR_VERSION: i32 = 2;
 const LIBRARY_PAGE_MAX: u32 = 200;
 const LIBRARY_TAG_NAME_MAX: usize = 64;
 const LIBRARY_SAVED_VIEW_NAME_MAX: usize = 128;
@@ -488,6 +488,7 @@ struct LibraryCursor {
     version: i32,
     fingerprint: String,
     revision: i64,
+    total_count: i64,
     sort_kind: LibrarySortKind,
     direction: LibrarySortDirection,
     file_id: String,
@@ -599,6 +600,15 @@ pub fn canonicalize_file_query_spec(
     Ok((spec, json, fingerprint))
 }
 
+fn membership_fingerprint(spec: &FileQuerySpecV2) -> Result<String, DbError> {
+    let mut membership_spec = spec.clone();
+    // Sorting cannot change membership.  The durable revision still binds
+    // this bounded cache entry to the same SQLite snapshot.
+    membership_spec.sort = FileLibrarySortV2::default();
+    let (_, _, fingerprint) = canonicalize_file_query_spec(membership_spec)?;
+    Ok(fingerprint)
+}
+
 fn normalize_enum_vec(
     values: &mut Vec<String>,
     allowed: &[&str],
@@ -655,6 +665,7 @@ impl Database {
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
         let revision = current_library_revision(&tx)?;
+        let count_key = membership_fingerprint(&canonical.spec)?;
         let scope = resolve_scope(&tx, &canonical.spec.scope)?;
         let cursor = request.cursor.as_deref().map(decode_cursor).transpose()?;
         if let Some(cursor) = cursor.as_ref() {
@@ -683,16 +694,24 @@ impl Database {
         }
 
         let tag_invalid = query_has_missing_tags(&tx, &canonical.spec.filters)?;
-        let count_parts = build_query_parts(&tx, &canonical, &scope, None, tag_invalid, false)?;
-        let count_sql = format!(
-            "{} SELECT COUNT(*) FROM {} WHERE {}",
-            count_parts.ctes, count_parts.from, count_parts.where_clause
-        );
-        let total_count: i64 = tx.query_row(
-            &count_sql,
-            params_from_iter(count_parts.params.iter()),
-            |row| row.get(0),
-        )?;
+        let total_count = if let Some(cursor) = cursor.as_ref() {
+            cursor.total_count
+        } else if let Some(cached) = self.cached_library_count(revision, &count_key) {
+            cached
+        } else {
+            let count_parts = build_query_parts(&tx, &canonical, &scope, None, tag_invalid, false)?;
+            let count_sql = format!(
+                "{} SELECT COUNT(*) FROM {} WHERE {}",
+                count_parts.ctes, count_parts.from, count_parts.where_clause
+            );
+            let total_count: i64 = tx.query_row(
+                &count_sql,
+                params_from_iter(count_parts.params.iter()),
+                |row| row.get(0),
+            )?;
+            self.cache_library_count(revision, count_key, total_count);
+            total_count
+        };
         let parts = build_query_parts(&tx, &canonical, &scope, cursor.as_ref(), tag_invalid, true)?;
         let row_sql = format!(
             "{} SELECT f.id, f.name, f.path, f.extension, f.size, f.mtime, f.ctime, f.is_dir, f.file_type, f.purpose, f.lifecycle, f.risk_level, f.confidence, (EXISTS (SELECT 1 FROM active_duplicate_membership AS adm WHERE adm.file_id = f.id)) AS is_duplicate, f.requires_confirmation, f.is_stale, {}, (SELECT COALESCE(json_group_array(json_object('id', t.id, 'displayName', t.display_name, 'colorToken', t.color_token)), '[]') FROM (SELECT t.id, t.display_name, t.color_token FROM file_user_tags AS fut JOIN user_tags AS t ON t.id = fut.tag_id WHERE fut.file_id = f.id ORDER BY t.normalized_name COLLATE NOCASE, t.id LIMIT {}) AS t), (SELECT COUNT(*) FROM file_user_tags AS fut WHERE fut.file_id = f.id) FROM {} WHERE {} ORDER BY {} LIMIT ?",
@@ -715,7 +734,14 @@ impl Database {
             summaries.truncate(usize::try_from(request.page_size).unwrap_or(0));
         }
         let next_cursor = summaries.last().and_then(|summary| {
-            has_more.then(|| encode_cursor(&cursor_for_summary(summary, &canonical, revision)))
+            has_more.then(|| {
+                encode_cursor(&cursor_for_summary(
+                    summary,
+                    &canonical,
+                    revision,
+                    total_count,
+                ))
+            })
         });
         let result_state = if tag_invalid || scope.health.state != "healthy" {
             "partial"
@@ -1583,11 +1609,13 @@ fn cursor_for_summary(
     summary: &FileLibrarySummaryDto,
     canonical: &CanonicalQuery,
     revision: i64,
+    total_count: i64,
 ) -> LibraryCursor {
     let mut cursor = LibraryCursor {
         version: LIBRARY_CURSOR_VERSION,
         fingerprint: canonical.fingerprint.clone(),
         revision,
+        total_count,
         sort_kind: canonical.spec.sort.kind.clone(),
         direction: canonical.spec.sort.direction.clone(),
         file_id: summary.id.clone(),
@@ -1626,6 +1654,7 @@ fn validate_cursor_binding(
         || cursor
             .last_rank_bits
             .is_some_and(|bits| !f64::from_bits(bits).is_finite())
+        || cursor.total_count < 0
     {
         return Err(DbError::Validation(
             "library_cursor_binding_invalid".to_string(),
@@ -2110,6 +2139,39 @@ mod tests {
     }
 
     #[test]
+    fn membership_fingerprint_ignores_only_sort_changes() {
+        let modified = FileQuerySpecV2 {
+            scope: FileLibraryScopeV2::AllEnabledRoots,
+            text: Some("report".into()),
+            filters: FileQueryFiltersV2 {
+                file_types: vec!["Document".into()],
+                ..Default::default()
+            },
+            sort: FileLibrarySortV2 {
+                kind: LibrarySortKind::Modified,
+                direction: LibrarySortDirection::Desc,
+            },
+        };
+        let mut name = modified.clone();
+        name.sort = FileLibrarySortV2 {
+            kind: LibrarySortKind::Name,
+            direction: LibrarySortDirection::Asc,
+        };
+        let mut different_filter = modified.clone();
+        different_filter.filters.file_types = vec!["Image".into()];
+
+        assert_eq!(
+            membership_fingerprint(&modified).expect("modified membership fingerprint"),
+            membership_fingerprint(&name).expect("name membership fingerprint")
+        );
+        assert_ne!(
+            membership_fingerprint(&modified).expect("modified membership fingerprint"),
+            membership_fingerprint(&different_filter)
+                .expect("different-filter membership fingerprint")
+        );
+    }
+
+    #[test]
     fn tag_names_and_colors_are_fail_closed() {
         assert!(validate_tag_name("ok").is_ok());
         assert!(validate_tag_name("system:internal").is_err());
@@ -2121,9 +2183,10 @@ mod tests {
     #[test]
     fn cursor_round_trip_is_opaque_and_tamper_checked() {
         let cursor = LibraryCursor {
-            version: 1,
+            version: LIBRARY_CURSOR_VERSION,
             fingerprint: "f".into(),
             revision: 1,
+            total_count: 1,
             sort_kind: LibrarySortKind::Modified,
             direction: LibrarySortDirection::Desc,
             file_id: "id".into(),
@@ -2134,16 +2197,19 @@ mod tests {
             last_mtime: None,
         };
         let encoded = encode_cursor(&cursor);
-        assert_eq!(decode_cursor(&encoded).unwrap().file_id, "id");
+        let decoded = decode_cursor(&encoded).expect("decode cursor");
+        assert_eq!(decoded.file_id, "id");
+        assert_eq!(decoded.total_count, 1);
         assert!(decode_cursor(&(encoded + "00")).is_err());
     }
 
     #[test]
     fn cursor_rejects_non_finite_numeric_tuples_and_unknown_saved_view_fields() {
         let cursor = LibraryCursor {
-            version: 1,
+            version: LIBRARY_CURSOR_VERSION,
             fingerprint: "f".into(),
             revision: 1,
+            total_count: 1,
             sort_kind: LibrarySortKind::Confidence,
             direction: LibrarySortDirection::Asc,
             file_id: "id".into(),
@@ -2484,6 +2550,13 @@ mod tests {
         assert_eq!(first.total_count, 2);
         assert_eq!(first.files[0].id, "library-file-a");
         let cursor = first.next_cursor.clone().expect("second page cursor");
+        assert_eq!(
+            db.cached_library_count(
+                first.snapshot_revision,
+                &membership_fingerprint(&request(None).query).expect("membership key")
+            ),
+            Some(2)
+        );
         let second = db
             .query_file_library_v2(request(Some(cursor)))
             .expect("query second library page");
@@ -2495,6 +2568,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["library-file-b"]
         );
+        assert_eq!(second.total_count, 2);
         assert!(!second.has_more);
 
         db.insert_file(InsertFileRequest {

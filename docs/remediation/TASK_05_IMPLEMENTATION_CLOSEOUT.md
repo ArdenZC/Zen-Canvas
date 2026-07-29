@@ -72,7 +72,7 @@ The renderer carries the returned fingerprint but cannot declare it authoritativ
 
 Saved View writes deliberately do not bump the file-query revision. Failed transactions roll back both their data and any attempted revision bump.
 
-The response reads revision, scope health, exact count, and rows in one short SQLite read transaction. Subsequent pages use a backend-issued opaque hex/JSON cursor with contract version, fingerprint, revision, sort kind/direction, complete tuple, and durable file ID. V2 never uses `OFFSET`, materializes a million-item snapshot, or holds a transaction across IPC. Tampering, query mismatch, invalid numeric tuple, and stale revision fail closed; stale cursors return `snapshot_expired` without mixing old and new pages.
+The response reads revision, scope health, exact count, and rows in one short SQLite read transaction. The exact count is carried in the backend-issued revision-bound cursor, so later keyset pages do not rescan the membership set; first-page counts may also reuse a bounded in-memory entry keyed by `revision + membership fingerprint`. This cache is an optimization only: it has no authority, is capped at 32 entries, and is never used across a revision change. Subsequent pages use an opaque hex/JSON cursor with contract version, fingerprint, revision, exact total count, sort kind/direction, complete tuple, and durable file ID. V2 never uses `OFFSET`, materializes a million-item snapshot, or holds a transaction across IPC. Tampering, query mismatch, invalid numeric tuple, and stale revision fail closed; stale cursors return `snapshot_expired` without mixing old and new pages.
 
 ## 7. DTO separation
 
@@ -122,12 +122,12 @@ Focused Task 05 evidence:
 |---|---|
 | Frontend/typecheck | pass; `npm run typecheck`; full suite 74 files / 517 tests |
 | Query V2/UI/browser mock | pass; `tests/fileLibraryV2.test.ts` plus adapted Vault/architecture/permission tests |
-| Rust Query V2 | pass; 8 library tests including cursor, relevance, scope, failed transaction, selection cap, tags, Saved Views, and cascade |
+| Rust Query V2 | pass; 9 library tests including canonical membership reuse, cursor, relevance, scope, failed transaction, selection cap, tags, Saved Views, and cascade |
 | Remediation | pass; 13/13 |
 | Migration/rollback | pass; schema 30→31, rollback, future-schema, 100k and 1M fixtures |
-| 100k File Library | pass; common p95 11.258ms, complex p95 92.275ms, detail 0.170ms, selection summary 52.617ms, bulk tag 334.190ms |
-| 1M File Library | pass; common p95 104.940ms, complex exact p95 922.504ms, detail 0.134ms, deep keyset 20 pages / 1.842s, selection summary 518.409ms, bulk tag 496.247ms |
-| Schema 30→31 migration | pass; 100k 458.586ms, 1M 4,954.826ms, WAL reader row counts preserved |
+| 100k File Library | pass; common matrix p95 0.629ms (cold default page 12.965ms), complex p95 94.244ms, detail 0.158ms, selection summary 56.616ms, bulk tag 347.353ms |
+| 1M File Library | pass; common matrix p95 0.590ms (cold default page 112.532ms), complex exact p95 963.070ms (diagnostic), detail 0.124ms, deep keyset 20 pages / 8.088ms, selection summary 546.451ms, bulk tag 530.551ms |
+| Schema 30→31 migration | pass; 100k 450.896ms, 1M 5,115.643ms, WAL reader row counts preserved |
 | Query plans | pass; modified/created/name/size/confidence indexes, tag `(tag_id,file_id)`, materialized FTS plan |
 | Existing Task 02–04 performance | pass through `npm run test:performance` |
 

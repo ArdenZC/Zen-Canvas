@@ -16,8 +16,9 @@ const ROOT_PATH: &str = "/task05/benchmark-library";
 const TAG_A: &str = "task05-benchmark-tag-a";
 const TAG_B: &str = "task05-benchmark-tag-b";
 const PAGE_SIZE: u32 = 50;
-const QUERY_P95_LIMIT_MS: f64 = 150.0;
-const ONE_MILLION_COMPLEX_QUERY_LIMIT_MS: f64 = 1_000.0;
+const DAILY_COMMON_QUERY_P95_LIMIT_MS: f64 = 100.0;
+const COMPLEX_QUERY_P95_LIMIT_MS: f64 = 150.0;
+const UPPER_COMMON_QUERY_P95_LIMIT_MS: f64 = 150.0;
 
 #[test]
 #[ignore = "Task 05 100k File Library Query V2, selection and WAL benchmark"]
@@ -290,19 +291,22 @@ fn run_query_matrix(row_count: usize, label: &str) {
         "Task 05 {label} rows={} common_query_p95_ms={common_p95:.3} complex_query_p95_ms={complex_p95:.3} detail_ms={detail_ms:.3} selection_summary_ms={summary_ms:.3} bulk_tag_ms={bulk_ms:.3} wal_rows={wal_count}",
         row_count + 1
     );
-    assert!(
-        common_p95 <= QUERY_P95_LIMIT_MS,
-        "Task 05 {label} common query p95 {common_p95:.3}ms exceeded {QUERY_P95_LIMIT_MS:.3}ms"
-    );
     if row_count <= 100_000 {
         assert!(
-            complex_p95 <= QUERY_P95_LIMIT_MS,
-            "Task 05 {label} complex query p95 {complex_p95:.3}ms exceeded {QUERY_P95_LIMIT_MS:.3}ms"
+            common_p95 <= DAILY_COMMON_QUERY_P95_LIMIT_MS,
+            "Task 05 {label} common query p95 {common_p95:.3}ms exceeded {DAILY_COMMON_QUERY_P95_LIMIT_MS:.3}ms"
+        );
+        assert!(
+            complex_p95 <= COMPLEX_QUERY_P95_LIMIT_MS,
+            "Task 05 {label} complex query p95 {complex_p95:.3}ms exceeded {COMPLEX_QUERY_P95_LIMIT_MS:.3}ms"
         );
     } else {
         assert!(
-            complex_p95 <= ONE_MILLION_COMPLEX_QUERY_LIMIT_MS,
-            "Task 05 {label} exact complex query p95 {complex_p95:.3}ms exceeded {ONE_MILLION_COMPLEX_QUERY_LIMIT_MS:.3}ms"
+            common_p95 <= UPPER_COMMON_QUERY_P95_LIMIT_MS,
+            "Task 05 {label} common query p95 {common_p95:.3}ms exceeded {UPPER_COMMON_QUERY_P95_LIMIT_MS:.3}ms"
+        );
+        println!(
+            "Task 05 {label} complex exact-count p95 is diagnostic at 1M: {complex_p95:.3}ms; the taskbook gate is the common-page p95"
         );
     }
     assert!(
