@@ -22,6 +22,8 @@ use crate::{
     window_auth::require_main_window,
 };
 use blake3::Hasher;
+use csv::ReaderBuilder;
+use quick_xml::{escape::unescape as unescape_xml, events::Event, Reader as XmlReader};
 use rusqlite::{
     params, params_from_iter, types::Value as SqlValue, Connection, OptionalExtension,
     TransactionBehavior,
@@ -172,6 +174,12 @@ pub struct ContentPreviewDto {
     pub exact_count: i64,
     pub deferred_count: Option<i64>,
     pub exact_state: String,
+    pub candidate_resolver: String,
+    pub candidate_fingerprint: String,
+    pub per_file_byte_budget: i64,
+    pub per_file_char_budget: i64,
+    pub total_byte_budget: i64,
+    pub total_char_budget: i64,
     pub byte_budget: i64,
     pub char_budget: i64,
     pub supported_count: i64,
@@ -200,6 +208,8 @@ pub struct ContentRunDto {
     pub provider_mode: String,
     pub status: String,
     pub expected_library_revision: i64,
+    pub candidate_fingerprint: String,
+    pub candidate_resolver: String,
     pub byte_budget: i64,
     pub char_budget: i64,
     pub requested_count: i64,
@@ -208,6 +218,9 @@ pub struct ContentRunDto {
     pub blocked_count: i64,
     pub skipped_count: i64,
     pub failed_count: i64,
+    pub provider_revision: i64,
+    pub provider_confirmed: bool,
+    pub cancel_requested: bool,
     pub revision: i64,
     pub last_error_code: Option<String>,
     pub last_error_detail: Option<String>,
@@ -232,6 +245,9 @@ pub struct ContentRunItemDto {
     pub extractor_family: Option<String>,
     pub extractor_version: Option<String>,
     pub artifact_id: Option<String>,
+    pub provider_status: String,
+    pub provider_revision: i64,
+    pub provider_completed_at: Option<i64>,
     pub error_code: Option<String>,
     pub error_detail: Option<String>,
     pub revision: i64,
@@ -301,6 +317,7 @@ pub struct ContentArtifactPageRequest {
     pub query: String,
     pub scope: FileLibraryScopeV2,
     pub expected_library_revision: i64,
+    pub expected_content_revision: i64,
     pub limit: u32,
     #[serde(default)]
     pub cursor: Option<String>,
@@ -313,6 +330,7 @@ pub struct ContentArtifactPageDto {
     pub next_cursor: Option<String>,
     pub has_more: bool,
     pub library_revision: i64,
+    pub content_revision: i64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -343,6 +361,10 @@ pub struct UnderstandContentArtifactsRequest {
     pub version: i32,
     pub artifact_ids: Vec<String>,
     pub expected_revisions: Vec<i64>,
+    #[serde(default)]
+    pub run_id: Option<String>,
+    #[serde(default)]
+    pub expected_run_revision: Option<i64>,
     pub confirmed: bool,
 }
 
@@ -390,6 +412,12 @@ struct Candidate {
     is_dir: bool,
     root_id: String,
     content_hash: String,
+}
+
+#[derive(Debug)]
+struct ContentSnapshot {
+    preview: ContentPreviewDto,
+    candidates: Vec<Candidate>,
 }
 
 #[derive(Debug, Clone)]
@@ -441,7 +469,7 @@ fn default_policy(root_id: &str, now: i64) -> ContentScopePolicyDto {
 impl Database {
     pub fn prune_content_artifacts(&self) -> Result<usize, DbError> {
         let mut conn = self.conn()?;
-        let tx = conn.transaction()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let now = crate::db::current_unix_seconds();
         let stale_cutoff = now.saturating_sub(30 * 24 * 60 * 60);
         let retained_cutoff = now.saturating_sub(7 * 24 * 60 * 60);
@@ -544,6 +572,15 @@ impl Database {
              AND run_id IN (SELECT id FROM content_runs WHERE status='failed')",
             params![now],
         )?;
+        conn.execute(
+            "UPDATE content_run_items SET provider_status='failed',
+                    error_code='content_run_interrupted',
+                    error_detail='The previous provider owner stopped.',
+                    provider_revision=provider_revision+1, revision=revision+1,
+                    updated_at=?1 WHERE provider_status='running'
+              AND run_id IN (SELECT id FROM content_runs WHERE status='failed')",
+            params![now],
+        )?;
         Ok(changed)
     }
 
@@ -553,6 +590,11 @@ impl Database {
     ) -> Result<ContentScopePolicyDto, DbError> {
         let conn = self.conn()?;
         load_policy(&conn, root_id)
+    }
+
+    pub fn get_content_catalog_revision(&self) -> Result<i64, DbError> {
+        let conn = self.conn()?;
+        current_content_revision(&conn)
     }
 
     pub fn set_content_scope_policy(
@@ -662,7 +704,7 @@ impl Database {
     ) -> Result<ContentPreviewDto, DbError> {
         validate_preview_request(&request)?;
         let conn = self.conn()?;
-        build_content_preview(&conn, request)
+        Ok(build_content_snapshot(&conn, request)?.preview)
     }
 
     pub fn start_content_run(
@@ -670,22 +712,27 @@ impl Database {
         request: StartContentRunRequest,
     ) -> Result<ContentRunDto, DbError> {
         validate_start_request(&request)?;
-        let preview = {
-            let conn = self.conn()?;
-            build_content_preview(
-                &conn,
-                ContentPreviewRequest {
-                    version: request.version,
-                    request_id: request.request_id.clone(),
-                    scope: request.scope.clone(),
-                    selection_file_ids: request.selection_file_ids.clone(),
-                    mode: request.mode.clone(),
-                    expected_library_revision: request.expected_library_revision,
-                    expected_policy_revisions: request.expected_policy_revisions.clone(),
-                    provider_mode: request.provider_mode.clone(),
-                },
-            )?
-        };
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let snapshot = build_content_snapshot(
+            &tx,
+            ContentPreviewRequest {
+                version: request.version,
+                request_id: request.request_id.clone(),
+                scope: request.scope.clone(),
+                selection_file_ids: request.selection_file_ids.clone(),
+                mode: request.mode.clone(),
+                expected_library_revision: request.expected_library_revision,
+                expected_policy_revisions: request.expected_policy_revisions.clone(),
+                provider_mode: request.provider_mode.clone(),
+            },
+        )?;
+        let selected_file_ids = snapshot
+            .candidates
+            .iter()
+            .map(|candidate| candidate.id.clone())
+            .collect::<Vec<_>>();
+        let preview = snapshot.preview;
         if !request.confirmed || preview.preview_fingerprint != request.preview_fingerprint {
             return Err(DbError::Validation(
                 "content_preview_confirmation_or_revision_required".into(),
@@ -711,9 +758,11 @@ impl Database {
                 ));
             }
         }
-        if preview.exact_count > MAX_ITEMS as i64 {
+        if preview.exact_count > MAX_ITEMS as i64
+            || snapshot.candidates.len() != preview.exact_count as usize
+        {
             return Err(DbError::Validation(
-                "content_run_item_limit_exceeded".into(),
+                "content_preview_snapshot_changed_or_item_limit_exceeded".into(),
             ));
         }
         if preview.scope_health.health.state != "healthy"
@@ -728,32 +777,15 @@ impl Database {
         }
         let run_id = format!("content-run-{}", uuid::Uuid::new_v4());
         let now = crate::db::current_unix_seconds();
-        let mut conn = self.conn()?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let scope_json = serde_json::to_string(&request.scope)?;
-        if current_library_revision(&tx)? != request.expected_library_revision {
-            return Err(DbError::Validation(
-                "content_library_revision_conflict".into(),
-            ));
-        }
-        for expected in &request.expected_policy_revisions {
-            let current = load_policy(&tx, &expected.root_id)?;
-            if current.root_revision != expected.root_revision
-                || current.policy_revision != expected.policy_revision
-            {
-                return Err(DbError::Validation(
-                    "content_root_or_policy_revision_conflict".into(),
-                ));
-            }
-        }
-        let candidates = select_candidates(&tx, &request.scope, &request.selection_file_ids)?;
         tx.execute(
             "INSERT INTO content_runs(
                 id, scope_json, scope_fingerprint, mode, provider_mode, status,
                 expected_library_revision, policy_fingerprint, confirmation,
+                candidate_fingerprint, candidate_resolver,
                 byte_budget, char_budget, requested_count, materialized_count,
-                created_at, updated_at
-             ) VALUES (?1,?2,?3,?4,?5,'building',?6,?7,1,?8,?9,?10,?11,?12,?12)",
+                provider_confirmed, created_at, updated_at
+             ) VALUES (?1,?2,?3,?4,?5,'building',?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?16)",
             params![
                 run_id,
                 scope_json,
@@ -762,22 +794,26 @@ impl Database {
                 request.provider_mode,
                 request.expected_library_revision,
                 preview.policy_fingerprint,
+                bool_i64(request.confirmed),
+                preview.candidate_fingerprint,
+                preview.candidate_resolver,
                 preview.byte_budget,
                 preview.char_budget,
                 preview.exact_count,
-                candidates.len() as i64,
+                snapshot.candidates.len() as i64,
+                bool_i64(provider_requested),
                 now,
             ],
         )?;
-        for (ordinal, candidate) in candidates.iter().enumerate() {
+        for (ordinal, candidate) in snapshot.candidates.iter().enumerate() {
             let policy = load_policy(&tx, &candidate.root_id)?;
             let extractor_family = classify_candidate(candidate, Some(&policy)).extractor_family;
             tx.execute(
                 "INSERT INTO content_run_items(
                     id, run_id, file_id, ordinal, status, root_id, source_is_dir,
-                    extractor_family, extractor_version, source_size, source_mtime,
+                    extractor_family, extractor_version, source_hash, source_size, source_mtime,
                     created_at, updated_at
-                 ) VALUES (?1,?2,?3,?4,'pending',?5,?6,?7,?8,?9,?10,?11,?11)",
+                 ) VALUES (?1,?2,?3,?4,'pending',?5,?6,?7,?8,?9,?10,?11,?12,?12)",
                 params![
                     format!("{run_id}-item-{ordinal}"),
                     run_id,
@@ -787,6 +823,7 @@ impl Database {
                     bool_i64(candidate.is_dir),
                     extractor_family,
                     EXTRACTOR_VERSION,
+                    candidate.content_hash,
                     candidate.size,
                     candidate.mtime,
                     now,
@@ -812,11 +849,7 @@ impl Database {
         // same durable item ledger, so an interrupted process leaves explicit
         // pending/failed rows for startup recovery rather than replaying a
         // hidden queue.
-        let selected_file_ids = candidates
-            .iter()
-            .map(|candidate| candidate.id.clone())
-            .collect::<Vec<_>>();
-        let run = self.process_content_run(&run_id, &request, candidates)?;
+        let run = self.process_content_run(&run_id, &request, snapshot.candidates)?;
         if provider_requested && matches!(run.status.as_str(), "completed" | "partially_completed")
         {
             let mut artifact_ids = Vec::new();
@@ -830,32 +863,17 @@ impl Database {
                 }
             }
             if !artifact_ids.is_empty() {
-                let understanding =
-                    self.understand_content_artifacts(UnderstandContentArtifactsRequest {
-                        version: CONTENT_VERSION,
-                        artifact_ids,
-                        expected_revisions,
-                        confirmed: request.confirmed,
-                    })?;
-                let provider_status = if understanding.blocked_count > 0 {
-                    "partially_completed"
-                } else {
-                    "completed"
-                };
-                let conn = self.conn()?;
-                conn.execute(
-                    "UPDATE content_runs SET status=?2, blocked_count=blocked_count+?3,
-                            revision=revision+1, updated_at=?4,
-                            completed_at=CASE WHEN ?2='completed' THEN ?4 ELSE completed_at END,
-                            last_error_code=?5 WHERE id=?1 AND status IN ('completed','partially_completed')",
-                    params![
-                        run_id,
-                        provider_status,
-                        understanding.blocked_count,
-                        crate::db::current_unix_seconds(),
-                        understanding.reason,
-                    ],
-                )?;
+                self.understand_content_artifacts(UnderstandContentArtifactsRequest {
+                    version: CONTENT_VERSION,
+                    artifact_ids,
+                    expected_revisions,
+                    run_id: Some(run_id.clone()),
+                    expected_run_revision: self
+                        .get_content_run(&run_id)
+                        .ok()
+                        .map(|run| run.revision),
+                    confirmed: request.confirmed,
+                })?;
             }
             return self.get_content_run(&run_id);
         }
@@ -875,9 +893,11 @@ impl Database {
         let conn = self.conn()?;
         let mut sql = String::from(
             "SELECT id, scope_json, mode, provider_mode, status,
-                    expected_library_revision, byte_budget, char_budget,
+                    expected_library_revision, candidate_fingerprint, candidate_resolver,
+                    byte_budget, char_budget,
                     requested_count, materialized_count, completed_count,
-                    blocked_count, skipped_count, failed_count, revision, last_error_code,
+                    blocked_count, skipped_count, failed_count, provider_revision,
+                    provider_confirmed, cancel_requested, revision, last_error_code,
                     last_error_detail, created_at, updated_at, completed_at
              FROM content_runs",
         );
@@ -908,7 +928,7 @@ impl Database {
         let conn = self.conn()?;
         let changed = conn.execute(
             "UPDATE content_runs SET status='cancelling', revision=revision+1,
-                    updated_at=?3
+                    cancel_requested=1, updated_at=?3
              WHERE id=?1 AND revision=?2 AND status IN ('building','ready','running')",
             params![
                 request.run_id,
@@ -931,8 +951,8 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, run_id, file_id, ordinal, status, root_id, source_is_dir,
                     source_size, source_mtime, source_hash, extractor_family,
-                    extractor_version, artifact_id, error_code, error_detail,
-                    revision, updated_at
+                    extractor_version, artifact_id, provider_status, provider_revision,
+                    provider_completed_at, error_code, error_detail, revision, updated_at
              FROM content_run_items
              WHERE run_id=?1 AND (?2 IS NULL OR ordinal > ?2)
              ORDER BY ordinal LIMIT ?3",
@@ -991,15 +1011,38 @@ impl Database {
         }
         let conn = self.conn()?;
         let library_revision = current_library_revision(&conn)?;
+        let content_revision = current_content_revision(&conn)?;
         if library_revision != request.expected_library_revision {
             return Err(DbError::Validation(
                 "content_library_revision_conflict".into(),
+            ));
+        }
+        if content_revision != request.expected_content_revision {
+            return Err(DbError::Validation(
+                "content_catalog_revision_conflict".into(),
             ));
         }
         let resolved = resolve_scope(&conn, &request.scope)?;
         if resolved.health.state != "healthy" {
             return Err(DbError::Validation("content_scope_unavailable".into()));
         }
+        let query_fingerprint = hash_bytes(serde_json::to_vec(&serde_json::json!({
+            "query": request.query.trim(),
+            "scope": &request.scope,
+        }))?);
+        let scope_fingerprint = hash_bytes(serde_json::to_vec(&request.scope)?);
+        let cursor = request
+            .cursor
+            .as_deref()
+            .map(|value| {
+                decode_content_cursor(
+                    value,
+                    &query_fingerprint,
+                    &scope_fingerprint,
+                    content_revision,
+                )
+            })
+            .transpose()?;
         let mut params = resolved.params.clone();
         let needle = request.query.trim().to_lowercase();
         let mut where_clause = format!("({}) AND ca.status = 'current'", resolved.clause);
@@ -1011,6 +1054,7 @@ impl Database {
                     next_cursor: None,
                     has_more: false,
                     library_revision,
+                    content_revision,
                 });
             }
             where_clause.push_str(" AND ca.id IN (SELECT artifact_id FROM content_artifact_fts WHERE content_artifact_fts MATCH ?)");
@@ -1027,12 +1071,11 @@ impl Database {
              FROM content_artifacts ca JOIN files f ON f.id=ca.file_id
              WHERE {where_clause}"
         );
-        if let Some(cursor) = request.cursor.as_deref() {
+        if let Some(cursor) = cursor {
             sql.push_str(" AND (ca.updated_at < ? OR (ca.updated_at = ? AND ca.id < ?))");
-            let decoded = decode_cursor(cursor)?;
-            params.push(SqlValue::Integer(decoded.0));
-            params.push(SqlValue::Integer(decoded.0));
-            params.push(SqlValue::Text(decoded.1));
+            params.push(SqlValue::Integer(cursor.updated_at));
+            params.push(SqlValue::Integer(cursor.updated_at));
+            params.push(SqlValue::Text(cursor.id));
         }
         sql.push_str(" ORDER BY ca.updated_at DESC, ca.id DESC LIMIT ?");
         params.push(SqlValue::Integer(i64::from(request.limit) + 1));
@@ -1045,9 +1088,15 @@ impl Database {
             artifacts.truncate(request.limit as usize);
         }
         let next_cursor = if has_more {
-            artifacts
-                .last()
-                .map(|artifact| encode_cursor(artifact.updated_at, &artifact.id))
+            artifacts.last().map(|artifact| {
+                encode_content_cursor(
+                    content_revision,
+                    &query_fingerprint,
+                    &scope_fingerprint,
+                    artifact.updated_at,
+                    &artifact.id,
+                )
+            })
         } else {
             None
         };
@@ -1056,6 +1105,7 @@ impl Database {
             next_cursor,
             has_more,
             library_revision,
+            content_revision,
         })
     }
 
@@ -1085,7 +1135,7 @@ impl Database {
         let library_revision = current_library_revision(&conn)?;
         let candidate = load_candidate_by_id(&conn, &request.file_id, &root_id)?
             .ok_or_else(|| DbError::Validation("library_file_unavailable".into()))?;
-        let preview = build_content_preview(
+        let preview = build_content_snapshot(
             &conn,
             ContentPreviewRequest {
                 version: CONTENT_VERSION,
@@ -1103,7 +1153,8 @@ impl Database {
                 }],
                 provider_mode: "none".into(),
             },
-        )?;
+        )?
+        .preview;
         let run_request = StartContentRunRequest {
             version: CONTENT_VERSION,
             request_id: format!("rebuild-{}", uuid::Uuid::new_v4()),
@@ -1141,22 +1192,57 @@ impl Database {
                 "content_delete_confirmation_required".into(),
             ));
         }
-        let conn = self.conn()?;
-        let changed = conn.execute(
-            "DELETE FROM content_artifacts WHERE file_id=?1 AND revision=?2",
-            params![request.file_id.trim(), request.expected_revision],
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let artifact_id = tx
+            .query_row(
+                "SELECT id FROM content_artifacts WHERE file_id=?1 AND revision=?2",
+                params![request.file_id.trim(), request.expected_revision],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(artifact_id) = artifact_id else {
+            return Err(DbError::Validation(
+                "content_artifact_revision_conflict".into(),
+            ));
+        };
+        let changed = tx.execute(
+            "DELETE FROM content_artifacts WHERE id=?1 AND revision=?2",
+            params![artifact_id, request.expected_revision],
         )?;
-        conn.execute("DELETE FROM content_artifact_fts WHERE artifact_id NOT IN (SELECT id FROM content_artifacts)", [])?;
-        conn.execute(
-            "UPDATE content_run_items SET artifact_id=NULL, revision=revision+1,
-                    updated_at=?1 WHERE artifact_id NOT IN (SELECT id FROM content_artifacts)",
-            params![crate::db::current_unix_seconds()],
+        let affected_run_ids = {
+            let mut stmt =
+                tx.prepare("SELECT DISTINCT run_id FROM content_run_items WHERE artifact_id=?1")?;
+            let rows =
+                stmt.query_map(params![artifact_id.as_str()], |row| row.get::<_, String>(0))?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        tx.execute(
+            "DELETE FROM content_artifact_fts WHERE artifact_id=?1",
+            params![artifact_id],
         )?;
+        tx.execute(
+            "UPDATE content_run_items SET artifact_id=NULL, provider_status='stale',
+                    error_code='content_artifact_deleted', error_detail='Content artifact deleted by user.',
+                    revision=revision+1, updated_at=?2
+             WHERE artifact_id=?1",
+            params![artifact_id, crate::db::current_unix_seconds()],
+        )?;
+        for run_id in affected_run_ids {
+            tx.execute(
+                "UPDATE content_runs SET status=CASE WHEN status IN ('completed','partially_completed') THEN 'stale' ELSE status END,
+                        last_error_code='content_artifact_deleted',
+                        last_error_detail='A referenced content artifact was deleted; the source file remains untouched.',
+                        revision=revision+1, updated_at=?2 WHERE id=?1",
+                params![run_id, crate::db::current_unix_seconds()],
+            )?;
+        }
         if changed != 1 {
             return Err(DbError::Validation(
                 "content_artifact_revision_conflict".into(),
             ));
         }
+        tx.commit()?;
         Ok(true)
     }
 
@@ -1220,10 +1306,28 @@ impl Database {
                 ));
             }
         }
-        let changed = tx.execute(
-            &format!("DELETE FROM content_artifacts WHERE file_id IN (SELECT f.id FROM files f WHERE {})", resolved.clause),
-            params_from_iter(resolved.params.iter()),
-        )? as i64;
+        let scoped_file_sql = format!("SELECT f.id FROM files f WHERE {}", resolved.clause);
+        let scoped_file_ids = {
+            let mut stmt = tx.prepare(&scoped_file_sql)?;
+            let rows = stmt.query_map(params_from_iter(resolved.params.iter()), |row| {
+                row.get::<_, String>(0)
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        if scoped_file_ids.is_empty() {
+            tx.commit()?;
+            return Ok(0);
+        }
+        let scoped_artifact_ids = {
+            let mut stmt = tx.prepare(&format!(
+                "SELECT ca.id FROM content_artifacts ca JOIN files f ON f.id=ca.file_id WHERE {}",
+                resolved.clause
+            ))?;
+            let rows = stmt.query_map(params_from_iter(resolved.params.iter()), |row| {
+                row.get::<_, String>(0)
+            })?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
         let run_ids = {
             let mut stmt = tx.prepare(&format!(
                 "SELECT DISTINCT cri.run_id FROM content_run_items cri
@@ -1235,14 +1339,45 @@ impl Database {
             })?;
             rows.collect::<Result<Vec<_>, _>>()?
         };
-        for run_id in run_ids {
+        let changed = tx.execute(
+            &format!(
+                "DELETE FROM content_artifacts WHERE file_id IN ({})",
+                scoped_file_sql
+            ),
+            params_from_iter(resolved.params.iter()),
+        )? as i64;
+        for artifact_id in scoped_artifact_ids {
             tx.execute(
-                "DELETE FROM content_run_items WHERE run_id=?1",
-                params![run_id],
+                "DELETE FROM content_artifact_fts WHERE artifact_id=?1",
+                params![artifact_id],
             )?;
-            tx.execute("DELETE FROM content_runs WHERE id=?1", params![run_id])?;
         }
-        tx.execute("DELETE FROM content_artifact_fts WHERE artifact_id NOT IN (SELECT id FROM content_artifacts)", [])?;
+        for run_id in run_ids {
+            let mut values = vec![SqlValue::Text(run_id.clone())];
+            values.extend(resolved.params.iter().cloned());
+            tx.execute(
+                &format!(
+                    "DELETE FROM content_run_items WHERE run_id=?1 AND file_id IN ({})",
+                    scoped_file_sql
+                ),
+                params_from_iter(values.iter()),
+            )?;
+            let remaining: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM content_run_items WHERE run_id=?1",
+                params![run_id],
+                |row| row.get(0),
+            )?;
+            if remaining == 0 {
+                tx.execute("DELETE FROM content_runs WHERE id=?1", params![run_id])?;
+            } else {
+                tx.execute(
+                    "UPDATE content_runs SET status='stale', last_error_code='content_scope_purged',
+                            last_error_detail='In-scope content was purged; out-of-scope items remain.',
+                            revision=revision+1, updated_at=?2 WHERE id=?1",
+                    params![run_id, crate::db::current_unix_seconds()],
+                )?;
+            }
+        }
         tx.commit()?;
         Ok(changed)
     }
@@ -1251,6 +1386,11 @@ impl Database {
         &self,
         request: UnderstandContentArtifactsRequest,
     ) -> Result<ContentUnderstandingResultDto, DbError> {
+        let run_id = request
+            .run_id
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| DbError::Validation("content_provider_run_required".into()))?;
         let unique_artifact_ids = request.artifact_ids.iter().collect::<HashSet<_>>();
         if request.version != CONTENT_VERSION
             || request.artifact_ids.is_empty()
@@ -1271,6 +1411,19 @@ impl Database {
                 "content_understand_confirmation_required".into(),
             ));
         }
+        let run = self.get_content_run(run_id)?;
+        if request.expected_run_revision != Some(run.revision)
+            || !run.provider_confirmed
+            || !matches!(
+                run.status.as_str(),
+                "running" | "completed" | "partially_completed"
+            )
+        {
+            return Err(DbError::Validation(
+                "content_provider_run_revision_or_consent_required".into(),
+            ));
+        }
+        self.claim_provider_phase(run_id, run.revision)?;
         let settings = normalize_ai_settings(get_ai_settings_for_db(self)?);
         if !content_provider_is_configured(&settings) {
             return Err(DbError::Validation(
@@ -1289,20 +1442,53 @@ impl Database {
             .iter()
             .zip(request.expected_revisions.iter())
         {
+            if self.provider_run_cancelled(run_id)? {
+                blocked += 1;
+                first_reason.get_or_insert_with(|| "content_run_cancelled".into());
+                let _ = self.mark_provider_item(
+                    run_id,
+                    artifact_id,
+                    "cancelled",
+                    Some("content_run_cancelled"),
+                );
+                continue;
+            }
+            if !self.claim_provider_item(run_id, artifact_id)? {
+                // A completed provider item is durable and must never replay.
+                continue;
+            }
             let artifact = self.load_understanding_artifact(artifact_id)?;
             let Some(artifact) = artifact else {
                 blocked += 1;
                 first_reason.get_or_insert_with(|| "content_artifact_not_found".into());
+                self.mark_provider_item(
+                    run_id,
+                    artifact_id,
+                    "blocked",
+                    Some("content_artifact_not_found"),
+                )?;
                 continue;
             };
             if artifact.revision != *expected_revision || artifact.status != "current" {
                 blocked += 1;
                 first_reason.get_or_insert_with(|| "content_artifact_revision_conflict".into());
+                self.mark_provider_item(
+                    run_id,
+                    artifact_id,
+                    "stale",
+                    Some("content_artifact_revision_conflict"),
+                )?;
                 continue;
             }
             let Some(root_id) = artifact.root_id.as_deref() else {
                 blocked += 1;
                 first_reason.get_or_insert_with(|| "content_root_missing".into());
+                self.mark_provider_item(
+                    run_id,
+                    artifact_id,
+                    "blocked",
+                    Some("content_root_missing"),
+                )?;
                 continue;
             };
             let policy = self.get_content_scope_policy(root_id)?;
@@ -1310,6 +1496,12 @@ impl Database {
             if provider_is_cloud && matches!(artifact.risk_level.as_str(), "Sensitive" | "System") {
                 blocked += 1;
                 first_reason.get_or_insert_with(|| "content_sensitive_cloud_denied".into());
+                self.mark_provider_item(
+                    run_id,
+                    artifact_id,
+                    "blocked",
+                    Some("content_sensitive_cloud_denied"),
+                )?;
                 continue;
             }
             let allowed = if provider_is_cloud {
@@ -1320,6 +1512,12 @@ impl Database {
             if !allowed {
                 blocked += 1;
                 first_reason.get_or_insert_with(|| "content_provider_consent_required".into());
+                self.mark_provider_item(
+                    run_id,
+                    artifact_id,
+                    "blocked",
+                    Some("content_provider_consent_required"),
+                )?;
                 continue;
             }
             let payload = match self.load_understanding_payload(&artifact, &policy) {
@@ -1327,12 +1525,35 @@ impl Database {
                 Err(error) => {
                     blocked += 1;
                     first_reason.get_or_insert_with(|| content_error_code(&error));
+                    self.mark_provider_item(
+                        run_id,
+                        artifact_id,
+                        "stale",
+                        Some(&content_error_code(&error)),
+                    )?;
                     continue;
                 }
             };
             if payload.trim().is_empty() {
                 blocked += 1;
                 first_reason.get_or_insert_with(|| "content_extraction_text_unavailable".into());
+                self.mark_provider_item(
+                    run_id,
+                    artifact_id,
+                    "blocked",
+                    Some("content_extraction_text_unavailable"),
+                )?;
+                continue;
+            }
+            if let Err(error) = self.revalidate_provider_send_boundary(&artifact, &policy) {
+                blocked += 1;
+                first_reason.get_or_insert_with(|| content_error_code(&error));
+                self.mark_provider_item(
+                    run_id,
+                    artifact_id,
+                    "stale",
+                    Some(&content_error_code(&error)),
+                )?;
                 continue;
             }
             let prompt = serde_json::json!({
@@ -1374,6 +1595,7 @@ impl Database {
                     first_reason.get_or_insert_with(|| {
                         redact_content_provider_error(error.to_string(), &settings.api_key)
                     });
+                    self.mark_provider_item(run_id, artifact_id, "failed", Some("content_provider_request_failed"))?;
                     continue;
                 }
             };
@@ -1382,22 +1604,199 @@ impl Database {
                 Err(_) => {
                     blocked += 1;
                     first_reason.get_or_insert_with(|| "content_model_json_invalid".into());
+                    self.mark_provider_item(
+                        run_id,
+                        artifact_id,
+                        "failed",
+                        Some("content_model_json_invalid"),
+                    )?;
                     continue;
                 }
             };
             if !validate_content_model_envelope(&envelope) {
                 blocked += 1;
                 first_reason.get_or_insert_with(|| "content_model_envelope_invalid".into());
+                self.mark_provider_item(
+                    run_id,
+                    artifact_id,
+                    "failed",
+                    Some("content_model_envelope_invalid"),
+                )?;
                 continue;
             }
             self.persist_understanding_result(&artifact, &envelope, &settings)?;
+            self.mark_provider_item(run_id, artifact_id, "completed", None)?;
             processed += 1;
         }
+        self.finish_provider_phase(run_id, blocked, first_reason.as_deref())?;
         Ok(ContentUnderstandingResultDto {
             processed_count: processed,
             blocked_count: blocked,
             reason: first_reason,
         })
+    }
+
+    fn claim_provider_phase(&self, run_id: &str, expected_revision: i64) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        let changed = conn.execute(
+            "UPDATE content_runs
+             SET status='running', provider_revision=provider_revision+1,
+                 revision=revision+1, updated_at=?3
+             WHERE id=?1 AND revision=?2 AND provider_confirmed=1
+               AND status IN ('running','completed','partially_completed')",
+            params![run_id, expected_revision, crate::db::current_unix_seconds()],
+        )?;
+        if changed != 1 {
+            return Err(DbError::Validation(
+                "content_provider_run_revision_conflict".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn provider_run_cancelled(&self, run_id: &str) -> Result<bool, DbError> {
+        let conn = self.conn()?;
+        conn.query_row(
+            "SELECT cancel_requested=1 OR status='cancelling' FROM content_runs WHERE id=?1",
+            params![run_id],
+            |row| row.get(0),
+        )
+        .map_err(DbError::from)
+    }
+
+    fn claim_provider_item(&self, run_id: &str, artifact_id: &str) -> Result<bool, DbError> {
+        let conn = self.conn()?;
+        let changed = conn.execute(
+            "UPDATE content_run_items
+             SET provider_status='running', provider_revision=provider_revision+1,
+                 revision=revision+1, updated_at=?3
+             WHERE run_id=?1 AND artifact_id=?2
+               AND provider_status IN ('pending','failed','stale')
+               AND status='completed'",
+            params![run_id, artifact_id, crate::db::current_unix_seconds()],
+        )?;
+        Ok(changed == 1)
+    }
+
+    fn mark_provider_item(
+        &self,
+        run_id: &str,
+        artifact_id: &str,
+        status: &str,
+        error_code: Option<&str>,
+    ) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        conn.execute(
+            "UPDATE content_run_items
+             SET provider_status=?3, error_code=?4,
+                 error_detail=?4, provider_completed_at=CASE
+                    WHEN ?3 IN ('completed','blocked','failed','cancelled','stale')
+                    THEN ?5 ELSE provider_completed_at END,
+                 revision=revision+1, updated_at=?5
+             WHERE run_id=?1 AND artifact_id=?2 AND provider_status='running'",
+            params![
+                run_id,
+                artifact_id,
+                status,
+                error_code,
+                crate::db::current_unix_seconds()
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn finish_provider_phase(
+        &self,
+        run_id: &str,
+        provider_blocked: i64,
+        reason: Option<&str>,
+    ) -> Result<(), DbError> {
+        let conn = self.conn()?;
+        let now = crate::db::current_unix_seconds();
+        let cancelled: bool = conn.query_row(
+            "SELECT cancel_requested=1 OR status='cancelling' FROM content_runs WHERE id=?1",
+            params![run_id],
+            |row| row.get(0),
+        )?;
+        let remaining: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM content_run_items
+             WHERE run_id=?1 AND provider_status IN ('pending','running')",
+            params![run_id],
+            |row| row.get(0),
+        )?;
+        let (existing_blocked, existing_failed): (i64, i64) = conn.query_row(
+            "SELECT blocked_count, failed_count FROM content_runs WHERE id=?1",
+            params![run_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let status = if cancelled {
+            "cancelled"
+        } else if provider_blocked > 0
+            || existing_blocked > 0
+            || existing_failed > 0
+            || remaining > 0
+        {
+            "partially_completed"
+        } else {
+            "completed"
+        };
+        conn.execute(
+            "UPDATE content_runs SET status=?2, blocked_count=blocked_count+?3,
+                    last_error_code=?4, revision=revision+1, updated_at=?5,
+                    completed_at=CASE WHEN ?2 IN ('completed','partially_completed','cancelled')
+                                      THEN ?5 ELSE completed_at END
+             WHERE id=?1",
+            params![run_id, status, provider_blocked, reason, now],
+        )?;
+        Ok(())
+    }
+
+    fn revalidate_provider_send_boundary(
+        &self,
+        artifact: &UnderstandingArtifact,
+        policy: &ContentScopePolicyDto,
+    ) -> Result<(), DbError> {
+        let root_id = artifact
+            .root_id
+            .as_deref()
+            .ok_or_else(|| DbError::Validation("content_root_missing".into()))?;
+        let conn = self.conn()?;
+        let candidate = load_candidate_by_id(&conn, &artifact.file_id, root_id)?
+            .ok_or_else(|| DbError::Validation("library_file_unavailable".into()))?;
+        let library_revision = current_library_revision(&conn)?;
+        revalidate_content_boundary(
+            &conn,
+            &candidate,
+            library_revision,
+            policy.root_revision,
+            policy.policy_revision,
+            policy,
+        )?;
+        let current = conn
+            .query_row(
+                "SELECT revision, status, source_hash FROM content_artifacts WHERE id=?1",
+                params![artifact.id.as_str()],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((revision, status, source_hash)) = current else {
+            return Err(DbError::Validation("content_artifact_not_found".into()));
+        };
+        if revision != artifact.revision
+            || status != "current"
+            || source_hash != artifact.source_hash
+        {
+            return Err(DbError::Validation(
+                "content_artifact_revision_conflict".into(),
+            ));
+        }
+        Ok(())
     }
 
     fn load_understanding_artifact(
@@ -1438,13 +1837,18 @@ impl Database {
             .as_deref()
             .ok_or_else(|| DbError::Validation("content_root_missing".into()))?;
         let conn = self.conn()?;
-        let root_path = conn.query_row(
-            "SELECT normalized_path FROM scan_roots WHERE id=?1 AND source_kind='file_library'",
-            params![root_id],
-            |row| row.get::<_, String>(0),
-        )?;
         let candidate = load_candidate_by_id(&conn, &artifact.file_id, root_id)?
             .ok_or_else(|| DbError::Validation("library_file_unavailable".into()))?;
+        let library_revision = current_library_revision(&conn)?;
+        let root_revision = policy.root_revision;
+        let root_path = revalidate_content_boundary(
+            &conn,
+            &candidate,
+            library_revision,
+            root_revision,
+            policy.policy_revision,
+            policy,
+        )?;
         let extraction = extract_candidate(&candidate, policy, &root_path)?;
         if extraction.status != "completed" {
             return Err(DbError::Validation(
@@ -1551,12 +1955,30 @@ impl Database {
             let policy = self.get_content_scope_policy(&candidate.root_id)?;
             let classification = classify_candidate(candidate, Some(&policy));
             let extraction = if classification.status == "supported" {
-                let root_path = self.conn()?.query_row(
-                    "SELECT normalized_path FROM scan_roots WHERE id=?1",
-                    params![candidate.root_id],
-                    |row| row.get::<_, String>(0),
-                )?;
-                extract_candidate(candidate, &policy, &root_path)
+                let expected = request
+                    .expected_policy_revisions
+                    .iter()
+                    .find(|item| item.root_id == candidate.root_id)
+                    .ok_or_else(|| {
+                        DbError::Validation("content_root_or_policy_revision_required".into())
+                    });
+                match expected {
+                    Ok(expected) => {
+                        let conn = self.conn()?;
+                        match revalidate_content_boundary(
+                            &conn,
+                            candidate,
+                            request.expected_library_revision,
+                            expected.root_revision,
+                            expected.policy_revision,
+                            &policy,
+                        ) {
+                            Ok(root_path) => extract_candidate(candidate, &policy, &root_path),
+                            Err(error) => Err(error),
+                        }
+                    }
+                    Err(error) => Err(error),
+                }
             } else {
                 Ok(Extraction {
                     family: classification
@@ -1580,7 +2002,11 @@ impl Database {
                     text: String::new(),
                     source_hash: String::new(),
                     truncated: false,
-                    status: "failed",
+                    status: if is_content_boundary_error(&error) {
+                        "blocked"
+                    } else {
+                        "failed"
+                    },
                     reason: Some(content_error_code(&error)),
                 },
             };
@@ -1957,7 +2383,6 @@ fn validate_policy(policy: &ContentScopePolicyDto, root_id: &str) -> Result<(), 
         || policy.raw_retention_chars > 262_144
         || !matches!(policy.raw_retention_mode.as_str(), "none" | "bounded")
         || (policy.raw_retention_mode == "bounded" && policy.raw_retention_chars == 0)
-        || (!policy.local_allowed && !policy.cloud_allowed)
     {
         return Err(DbError::Validation("content_policy_invalid".into()));
     }
@@ -2047,10 +2472,10 @@ fn validate_start_request(request: &StartContentRunRequest) -> Result<(), DbErro
     })
 }
 
-fn build_content_preview(
+fn build_content_snapshot(
     conn: &Connection,
     request: ContentPreviewRequest,
-) -> Result<ContentPreviewDto, DbError> {
+) -> Result<ContentSnapshot, DbError> {
     validate_preview_request(&request)?;
     let library_revision = current_library_revision(conn)?;
     if library_revision != request.expected_library_revision {
@@ -2069,8 +2494,6 @@ fn build_content_preview(
     let mut policy_revisions = Vec::new();
     let mut local_allowed = true;
     let mut cloud_allowed = false;
-    let mut byte_budget = 0_i64;
-    let mut char_budget = 0_i64;
     let expected_roots = request
         .expected_policy_revisions
         .iter()
@@ -2107,8 +2530,6 @@ fn build_content_preview(
         }
         local_allowed &= policy.local_allowed && policy.enabled;
         cloud_allowed |= policy.cloud_allowed;
-        byte_budget = byte_budget.saturating_add(policy.max_bytes);
-        char_budget = char_budget.saturating_add(policy.max_chars);
         policy_revisions.push(ContentPolicyRevisionRequest {
             root_id: root_id.clone(),
             root_revision: policy.root_revision,
@@ -2116,7 +2537,21 @@ fn build_content_preview(
         });
         policies.push(Policy { dto: policy });
     }
-    let candidates = select_candidates(conn, &request.scope, &request.selection_file_ids)?;
+    let candidate_count = candidate_count(conn, &request.scope, &request.selection_file_ids)?;
+    // A deferred (>10,000) preview is count/fingerprint-only.  Do not
+    // materialize a candidate vector that a start request could accidentally
+    // treat as executable work; start rejects the snapshot before any item
+    // rows are inserted.
+    let candidates = if candidate_count <= MAX_ITEMS as i64 {
+        select_candidates(
+            conn,
+            &request.scope,
+            &request.selection_file_ids,
+            Some(candidate_count as usize),
+        )?
+    } else {
+        Vec::new()
+    };
     let mut supported = 0_i64;
     let mut unsupported = 0_i64;
     let mut blocked = 0_i64;
@@ -2125,50 +2560,73 @@ fn build_content_preview(
     let mut unsupported_formats = HashSet::new();
     let mut blocked_reasons = HashSet::new();
     let mut sample = Vec::new();
-    for candidate in &candidates {
-        let policy = policies
-            .iter()
-            .find(|policy| policy.dto.root_id == candidate.root_id)
-            .map(|policy| &policy.dto);
-        let item = classify_candidate(candidate, policy);
-        match item.status.as_str() {
-            "supported" => {
-                supported += 1;
-                if let Some(family) = item.extractor_family.clone() {
-                    supported_formats.insert(family);
+    let mut total_byte_budget = 0_i64;
+    let mut total_char_budget = 0_i64;
+    let mut per_file_byte_budget = 0_i64;
+    let mut per_file_char_budget = 0_i64;
+    for_each_candidate(
+        conn,
+        &request.scope,
+        &request.selection_file_ids,
+        None,
+        |candidate| {
+            let policy = policies
+                .iter()
+                .find(|policy| policy.dto.root_id == candidate.root_id)
+                .map(|policy| &policy.dto);
+            let item = classify_candidate(&candidate, policy);
+            if let Some(policy) = policy {
+                per_file_byte_budget = per_file_byte_budget.max(policy.max_bytes);
+                per_file_char_budget = per_file_char_budget.max(policy.max_chars);
+                total_byte_budget =
+                    total_byte_budget.saturating_add(candidate.size.max(0).min(policy.max_bytes));
+                total_char_budget = total_char_budget.saturating_add(policy.max_chars);
+            }
+            match item.status.as_str() {
+                "supported" => {
+                    supported += 1;
+                    if let Some(family) = item.extractor_family.clone() {
+                        supported_formats.insert(family);
+                    }
                 }
-            }
-            "unsupported" => {
-                unsupported += 1;
-                unsupported_formats.insert(candidate.extension.clone());
-            }
-            "blocked" => {
-                blocked += 1;
-                if let Some(reason) = item.reason.clone() {
-                    blocked_reasons.insert(reason);
+                "unsupported" => {
+                    unsupported += 1;
+                    unsupported_formats.insert(candidate.extension.clone());
                 }
+                "blocked" => {
+                    blocked += 1;
+                    if let Some(reason) = item.reason.clone() {
+                        blocked_reasons.insert(reason);
+                    }
+                }
+                _ => failed += 1,
             }
-            _ => failed += 1,
-        }
-        if sample.len() < MAX_SAMPLE as usize {
-            sample.push(ContentSampleDto {
-                file_id: candidate.id.clone(),
-                name: candidate.name.clone(),
-                extension: candidate.extension.clone(),
-                size: candidate.size,
-                modified_at: candidate.mtime,
-                status: item.status,
-                extractor_family: item.extractor_family,
-                reason: item.reason,
-            });
-        }
-    }
-    let exact_count = candidates.len() as i64;
-    let exact_state = if exact_count > 10_000 {
+            if sample.len() < MAX_SAMPLE as usize {
+                sample.push(ContentSampleDto {
+                    file_id: candidate.id.clone(),
+                    name: candidate.name.clone(),
+                    extension: candidate.extension.clone(),
+                    size: candidate.size,
+                    modified_at: candidate.mtime,
+                    status: item.status,
+                    extractor_family: item.extractor_family,
+                    reason: item.reason,
+                });
+            }
+            Ok(())
+        },
+    )?;
+    let exact_count = candidate_count;
+    let exact_state = if exact_count > MAX_ITEMS as i64 {
         "deferred"
     } else {
         "exact"
     };
+    // Hash the complete ordered candidate stream even when materialization is
+    // deferred.  The preview never stores/returns all IDs, but its opaque
+    // resolver still commits to every identity and extractor classification.
+    let candidate_fingerprint =
+        candidate_stream_fingerprint(conn, &request.scope, &request.selection_file_ids, &policies)?;
     let policy_payload = serde_json::to_vec(&policy_revisions)?;
     let policy_fingerprint = hash_bytes(&policy_payload);
     let scope_health = ContentScopeHealthDto {
@@ -2177,25 +2635,50 @@ fn build_content_preview(
         root_ids,
         policy_revisions,
     };
+    let candidate_resolver = hash_bytes(
+        serde_json::to_string(&serde_json::json!({
+            "scope": &request.scope,
+            "selection": &request.selection_file_ids,
+            "libraryRevision": library_revision,
+            "policyFingerprint": policy_fingerprint,
+            "candidateFingerprint": candidate_fingerprint,
+            "count": exact_count,
+        }))?
+        .as_bytes(),
+    );
     let preview_payload = serde_json::json!({
         "version": CONTENT_VERSION,
         "scope": &scope_health,
         "libraryRevision": library_revision,
         "policyFingerprint": policy_fingerprint,
+        "candidateFingerprint": candidate_fingerprint,
+        "candidateResolver": candidate_resolver,
         "mode": request.mode,
         "providerMode": request.provider_mode,
         "count": exact_count,
+        "exactState": exact_state,
+        "totalByteBudget": total_byte_budget,
+        "totalCharBudget": total_char_budget,
+        "perFileByteBudget": per_file_byte_budget,
+        "perFileCharBudget": per_file_char_budget,
+        "selection": &request.selection_file_ids,
     });
     let preview_fingerprint = hash_bytes(serde_json::to_string(&preview_payload)?.as_bytes());
-    Ok(ContentPreviewDto {
+    Ok(ContentSnapshot { candidates, preview: ContentPreviewDto {
         version: CONTENT_VERSION,
         request_id: request.request_id,
         scope_health,
         exact_count,
         deferred_count: (exact_state == "deferred").then_some(exact_count),
         exact_state: exact_state.into(),
-        byte_budget,
-        char_budget,
+        candidate_resolver,
+        candidate_fingerprint,
+        per_file_byte_budget,
+        per_file_char_budget,
+        total_byte_budget,
+        total_char_budget,
+        byte_budget: total_byte_budget,
+        char_budget: total_char_budget,
         supported_count: supported,
         unsupported_count: unsupported,
         blocked_count: blocked,
@@ -2211,14 +2694,28 @@ fn build_content_preview(
         policy_fingerprint,
         preview_fingerprint,
         requires_confirmation: true,
-    })
+    }})
 }
 
 fn select_candidates(
     conn: &Connection,
     scope: &FileLibraryScopeV2,
     selection: &[String],
+    limit: Option<usize>,
 ) -> Result<Vec<Candidate>, DbError> {
+    let mut candidates = Vec::new();
+    for_each_candidate(conn, scope, selection, limit, |candidate| {
+        candidates.push(candidate);
+        Ok(())
+    })?;
+    Ok(candidates)
+}
+
+fn candidate_filter(
+    conn: &Connection,
+    scope: &FileLibraryScopeV2,
+    selection: &[String],
+) -> Result<(String, Vec<SqlValue>), DbError> {
     let resolved = resolve_scope(conn, scope)?;
     if resolved.health.state != "healthy" && resolved.health.state != "empty" {
         return Err(DbError::Validation("content_scope_unavailable".into()));
@@ -2230,9 +2727,11 @@ fn select_candidates(
             .iter()
             .map(|id| id.trim())
             .filter(|id| !id.is_empty())
-            .take(MAX_ITEMS)
             .collect::<Vec<_>>();
-        if ids.len() != selection.len() {
+        if ids.len() != selection.len()
+            || ids.len() > MAX_ITEMS
+            || ids.iter().collect::<HashSet<_>>().len() != ids.len()
+        {
             return Err(DbError::Validation("content_selection_invalid".into()));
         }
         clause.push_str(&format!(
@@ -2242,6 +2741,48 @@ fn select_candidates(
                 .join(",")
         ));
         params.extend(ids.into_iter().map(|id| SqlValue::Text(id.to_string())));
+        let selected_count: i64 = conn.query_row(
+            &format!("SELECT COUNT(*) FROM files f WHERE {clause}"),
+            params_from_iter(params.iter()),
+            |row| row.get(0),
+        )?;
+        if selected_count != selection.len() as i64 {
+            return Err(DbError::Validation(
+                "content_selection_scope_conflict".into(),
+            ));
+        }
+    }
+    Ok((clause, params))
+}
+
+fn candidate_count(
+    conn: &Connection,
+    scope: &FileLibraryScopeV2,
+    selection: &[String],
+) -> Result<i64, DbError> {
+    let (clause, params) = candidate_filter(conn, scope, selection)?;
+    conn.query_row(
+        &format!("SELECT COUNT(*) FROM files f WHERE {clause}"),
+        params_from_iter(params.iter()),
+        |row| row.get(0),
+    )
+    .map_err(DbError::from)
+}
+
+fn for_each_candidate<F>(
+    conn: &Connection,
+    scope: &FileLibraryScopeV2,
+    selection: &[String],
+    limit: Option<usize>,
+    mut callback: F,
+) -> Result<(), DbError>
+where
+    F: FnMut(Candidate) -> Result<(), DbError>,
+{
+    let (clause, mut params) = candidate_filter(conn, scope, selection)?;
+    let limit_sql = limit.map(|_| " LIMIT ?").unwrap_or("");
+    if let Some(limit) = limit {
+        params.push(SqlValue::Integer(limit as i64));
     }
     let sql = format!(
         "SELECT f.id, f.path, f.name, f.extension, f.size, f.mtime, f.is_dir,
@@ -2251,13 +2792,12 @@ fn select_candidates(
                       OR f.path LIKE sr.normalized_path || '/%'
                       OR f.path LIKE sr.normalized_path || '\\%')
                  ORDER BY length(sr.normalized_path) DESC LIMIT 1)
-         FROM files f WHERE {clause} ORDER BY f.id LIMIT {}",
-        MAX_ITEMS + 1
+         FROM files f WHERE {clause} ORDER BY f.id{limit_sql}"
     );
-    let mut candidates = Vec::new();
     let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params_from_iter(params.iter()), |row| {
-        Ok(Candidate {
+    let mut rows = stmt.query(params_from_iter(params.iter()))?;
+    while let Some(row) = rows.next()? {
+        let candidate = Candidate {
             id: row.get(0)?,
             path: row.get(1)?,
             name: row.get(2)?,
@@ -2267,16 +2807,45 @@ fn select_candidates(
             is_dir: row.get::<_, i64>(6)? != 0,
             content_hash: row.get(7)?,
             root_id: row.get::<_, Option<String>>(8)?.unwrap_or_default(),
-        })
-    })?;
-    for row in rows {
-        let candidate = row?;
-        if candidate.root_id.is_empty() {
-            continue;
+        };
+        if !candidate.root_id.is_empty() {
+            callback(candidate)?;
         }
-        candidates.push(candidate);
     }
-    Ok(candidates)
+    Ok(())
+}
+
+fn candidate_stream_fingerprint(
+    conn: &Connection,
+    scope: &FileLibraryScopeV2,
+    selection: &[String],
+    policies: &[Policy],
+) -> Result<String, DbError> {
+    let mut hasher = Hasher::new();
+    for_each_candidate(conn, scope, selection, None, |candidate| {
+        let policy = policies
+            .iter()
+            .find(|policy| policy.dto.root_id == candidate.root_id)
+            .map(|policy| &policy.dto);
+        let classified = classify_candidate(&candidate, policy);
+        let value = serde_json::to_vec(&serde_json::json!({
+            "id": candidate.id,
+            "rootId": candidate.root_id,
+            "path": candidate.path,
+            "size": candidate.size,
+            "mtime": candidate.mtime,
+            "isDir": candidate.is_dir,
+            "contentHash": candidate.content_hash,
+            "extension": candidate.extension,
+            "status": classified.status,
+            "extractorFamily": classified.extractor_family,
+            "reason": classified.reason,
+        }))?;
+        hasher.update(&(value.len() as u64).to_le_bytes());
+        hasher.update(&value);
+        Ok(())
+    })?;
+    Ok(hasher.finalize().to_hex().to_string())
 }
 
 fn load_candidate_by_id(
@@ -2400,6 +2969,118 @@ struct ClassifiedCandidate {
     status: String,
     extractor_family: Option<String>,
     reason: Option<String>,
+}
+
+/// Re-check every mutable authority immediately before opening a source file.
+/// The preview is only a user-facing snapshot; it is never an authorization to
+/// read a path later.  A changed library/root/policy/watcher/source identity
+/// therefore fails closed before `extract_candidate` is allowed to open bytes.
+fn revalidate_content_boundary(
+    conn: &Connection,
+    candidate: &Candidate,
+    expected_library_revision: i64,
+    expected_root_revision: i64,
+    expected_policy_revision: i64,
+    policy: &ContentScopePolicyDto,
+) -> Result<String, DbError> {
+    if current_library_revision(conn)? != expected_library_revision {
+        return Err(DbError::Validation(
+            "content_library_revision_conflict".into(),
+        ));
+    }
+    let root = conn
+        .query_row(
+            "SELECT normalized_path, enabled, health_status, revision,
+                    needs_reconciliation, watcher_revision,
+                    watcher_applied_revision, watcher_rule_recovery_required
+             FROM scan_roots
+             WHERE id=?1 AND source_kind='file_library'",
+            params![candidate.root_id.as_str()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((
+        root_path,
+        enabled,
+        health_status,
+        root_revision,
+        needs_reconciliation,
+        watcher_revision,
+        watcher_applied_revision,
+        watcher_rule_recovery_required,
+    )) = root
+    else {
+        return Err(DbError::Validation("content_root_missing".into()));
+    };
+    if enabled == 0
+        || health_status != "healthy"
+        || needs_reconciliation != 0
+        || watcher_rule_recovery_required != 0
+        || watcher_revision != watcher_applied_revision
+        || root_revision != expected_root_revision
+        || policy.root_revision != expected_root_revision
+        || policy.policy_revision != expected_policy_revision
+        || !policy.enabled
+        || !policy.local_allowed
+    {
+        return Err(DbError::Validation("content_scope_stale_or_blocked".into()));
+    }
+
+    let file_identity = conn
+        .query_row(
+            "SELECT path, size, mtime, is_dir, content_hash, is_stale
+             FROM files WHERE id=?1",
+            params![candidate.id.as_str()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some((path, size, mtime, is_dir, content_hash, is_stale)) = file_identity else {
+        return Err(DbError::Validation("library_file_unavailable".into()));
+    };
+    if is_stale != 0
+        || path != candidate.path
+        || size != candidate.size
+        || mtime != candidate.mtime
+        || is_dir != bool_i64(candidate.is_dir)
+        || (is_valid_content_hash(&content_hash)
+            && is_valid_content_hash(&candidate.content_hash)
+            && !content_hash.eq_ignore_ascii_case(&candidate.content_hash))
+    {
+        return Err(DbError::Validation(
+            "content_source_identity_changed".into(),
+        ));
+    }
+
+    let canonical = std::fs::canonicalize(&candidate.path)
+        .map_err(|_| DbError::Validation("content_source_unavailable".into()))?;
+    let canonical_root = std::fs::canonicalize(&root_path)
+        .map_err(|_| DbError::Validation("content_root_unavailable".into()))?;
+    if !canonical.starts_with(&canonical_root) || !canonical.is_file() {
+        return Err(DbError::Validation(
+            "content_symlink_traversal_blocked".into(),
+        ));
+    }
+    Ok(root_path)
 }
 
 fn extract_candidate(
@@ -2537,14 +3218,21 @@ fn text_extraction(
 }
 
 fn csv_extraction(bytes: Vec<u8>, policy: &ContentScopePolicyDto) -> Result<Extraction, DbError> {
-    let text = decode_bounded_text(&bytes, "content_csv_not_utf8")?;
-    let all_rows = text.lines().collect::<Vec<_>>();
-    let rows_truncated = all_rows.len() > policy.max_rows as usize;
-    let rows = all_rows
-        .into_iter()
-        .take(policy.max_rows as usize)
-        .collect::<Vec<_>>()
-        .join("\n");
+    let mut reader = ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(bytes.as_slice());
+    let mut rows = Vec::new();
+    let mut rows_truncated = false;
+    for (index, record) in reader.records().enumerate() {
+        let record = record.map_err(|_| DbError::Validation("content_csv_invalid".into()))?;
+        if index >= policy.max_rows as usize {
+            rows_truncated = true;
+            break;
+        }
+        rows.push(record.iter().map(str::trim).collect::<Vec<_>>().join("\t"));
+    }
+    let rows = rows.join("\n");
     let (text, truncated) = bound_text(rows, policy.max_chars as usize);
     Ok(Extraction {
         family: "csv".into(),
@@ -2581,15 +3269,51 @@ fn pdf_text_extraction(
     bytes: Vec<u8>,
     policy: &ContentScopePolicyDto,
 ) -> Result<Extraction, DbError> {
-    let raw = String::from_utf8_lossy(&bytes);
     let deadline = Instant::now() + Duration::from_secs(2);
-    let page_count = raw
-        .match_indices("/Type /Page")
-        .filter(|(index, _)| {
-            raw.get(index + "/Type /Page".len()..index + "/Type /Page".len() + 1) != Some("s")
-        })
-        .count() as i64;
-    if page_count > policy.max_pages {
+    let pages = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        pdf_extract::extract_text_from_mem_by_pages(&bytes)
+    })) {
+        Ok(Ok(pages)) => pages,
+        Ok(Err(error)) => {
+            let message = error.to_string().to_ascii_lowercase();
+            return Ok(Extraction {
+                family: "pdf_text".into(),
+                text: String::new(),
+                source_hash: String::new(),
+                truncated: false,
+                status: "blocked",
+                reason: Some(
+                    if message.contains("encrypt") || message.contains("password") {
+                        "content_encrypted_document"
+                    } else {
+                        "content_pdf_invalid"
+                    }
+                    .into(),
+                ),
+            });
+        }
+        Err(_) => {
+            return Ok(Extraction {
+                family: "pdf_text".into(),
+                text: String::new(),
+                source_hash: String::new(),
+                truncated: false,
+                status: "blocked",
+                reason: Some("content_pdf_invalid".into()),
+            });
+        }
+    };
+    if Instant::now() > deadline {
+        return Ok(Extraction {
+            family: "pdf_text".into(),
+            text: String::new(),
+            source_hash: String::new(),
+            truncated: false,
+            status: "failed",
+            reason: Some("content_extractor_timeout".into()),
+        });
+    }
+    if pages.len() as i64 > policy.max_pages {
         return Ok(Extraction {
             family: "pdf_text".into(),
             text: String::new(),
@@ -2599,34 +3323,7 @@ fn pdf_text_extraction(
             reason: Some("content_pdf_page_limit_exceeded".into()),
         });
     }
-    let mut text = String::new();
-    let mut in_text = false;
-    let mut current = String::new();
-    for character in raw.chars() {
-        if Instant::now() > deadline {
-            return Ok(Extraction {
-                family: "pdf_text".into(),
-                text: String::new(),
-                source_hash: String::new(),
-                truncated: false,
-                status: "failed",
-                reason: Some("content_extractor_timeout".into()),
-            });
-        }
-        if character == '(' && !in_text {
-            in_text = true;
-            current.clear();
-        } else if character == ')' && in_text {
-            in_text = false;
-            text.push_str(&current);
-            text.push('\n');
-        } else if in_text && !character.is_control() {
-            current.push(character);
-        }
-        if text.chars().count() > policy.max_chars as usize {
-            break;
-        }
-    }
+    let text = pages.join("\n");
     if text.trim().is_empty() {
         return Ok(Extraction {
             family: "pdf_text".into(),
@@ -2670,6 +3367,21 @@ fn office_xml_extraction(
         .iter()
         .map(|name| (*name).to_string())
         .collect::<Vec<_>>();
+    for index in 0..archive.len() {
+        let entry = archive
+            .by_index(index)
+            .map_err(|_| DbError::Validation("content_office_container_invalid".into()))?;
+        if entry.encrypted() {
+            return Ok(Extraction {
+                family: family.into(),
+                text: String::new(),
+                source_hash: String::new(),
+                truncated: false,
+                status: "blocked",
+                reason: Some("content_encrypted_document".into()),
+            });
+        }
+    }
     let mut document_unit_count = 0_usize;
     if family == "xlsx" || family == "pptx" {
         let mut discovered = Vec::new();
@@ -2703,9 +3415,49 @@ fn office_xml_extraction(
             reason: Some("content_page_limit_exceeded".into()),
         });
     }
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let shared_strings = if family == "xlsx" {
+        if let Ok(mut entry) = archive.by_name("xl/sharedStrings.xml") {
+            let xml = match read_zip_entry_bounded(&mut entry, policy.max_bytes as u64, deadline) {
+                Ok(xml) => xml,
+                Err(error) => {
+                    let code = content_error_code(&error);
+                    return Ok(Extraction {
+                        family: family.into(),
+                        text: String::new(),
+                        source_hash: String::new(),
+                        truncated: false,
+                        status: if code == "content_extractor_timeout" {
+                            "failed"
+                        } else {
+                            "blocked"
+                        },
+                        reason: Some(code),
+                    });
+                }
+            };
+            match parse_xlsx_shared_strings(&xml) {
+                Ok(values) => values,
+                Err(_) => {
+                    return Ok(Extraction {
+                        family: family.into(),
+                        text: String::new(),
+                        source_hash: String::new(),
+                        truncated: false,
+                        status: "blocked",
+                        reason: Some("content_office_xml_invalid".into()),
+                    });
+                }
+            }
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
     let mut text = String::new();
     let mut decompressed_bytes = 0_u64;
-    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut total_rows = 0_i64;
     for name in &target_names {
         if Instant::now() > deadline {
             return Ok(Extraction {
@@ -2717,7 +3469,7 @@ fn office_xml_extraction(
                 reason: Some("content_extractor_timeout".into()),
             });
         }
-        let Ok(entry) = archive.by_name(name) else {
+        let Ok(mut entry) = archive.by_name(name) else {
             continue;
         };
         if entry.encrypted() {
@@ -2743,10 +3495,24 @@ fn office_xml_extraction(
                 reason: Some("content_archive_entry_limit_exceeded".into()),
             });
         }
-        let mut xml = Vec::new();
-        entry
-            .take(policy.max_bytes as u64 + 1)
-            .read_to_end(&mut xml)?;
+        let xml = match read_zip_entry_bounded(&mut entry, policy.max_bytes as u64, deadline) {
+            Ok(xml) => xml,
+            Err(error) => {
+                let code = content_error_code(&error);
+                return Ok(Extraction {
+                    family: family.into(),
+                    text: String::new(),
+                    source_hash: String::new(),
+                    truncated: false,
+                    status: if code == "content_extractor_timeout" {
+                        "failed"
+                    } else {
+                        "blocked"
+                    },
+                    reason: Some(code),
+                });
+            }
+        };
         decompressed_bytes = decompressed_bytes.saturating_add(xml.len() as u64);
         if decompressed_bytes > policy.max_bytes as u64 {
             return Ok(Extraction {
@@ -2758,9 +3524,26 @@ fn office_xml_extraction(
                 reason: Some("content_decompressed_byte_limit_exceeded".into()),
             });
         }
-        if family == "xlsx"
-            && xml.windows(4).filter(|window| *window == b"<row").count() as i64 > policy.max_rows
-        {
+        let parsed = if family == "xlsx" && name.starts_with("xl/worksheets/") {
+            parse_xlsx_sheet_text(&xml, &shared_strings, policy.max_rows)
+        } else {
+            parse_xml_text(&xml).map(|text| (text, 0))
+        };
+        let (part_text, rows) = match parsed {
+            Ok(value) => value,
+            Err(_) => {
+                return Ok(Extraction {
+                    family: family.into(),
+                    text: String::new(),
+                    source_hash: String::new(),
+                    truncated: false,
+                    status: "blocked",
+                    reason: Some("content_office_xml_invalid".into()),
+                });
+            }
+        };
+        total_rows = total_rows.saturating_add(rows);
+        if total_rows > policy.max_rows {
             return Ok(Extraction {
                 family: family.into(),
                 text: String::new(),
@@ -2770,19 +3553,7 @@ fn office_xml_extraction(
                 reason: Some("content_row_limit_exceeded".into()),
             });
         }
-        let xml_text = String::from_utf8(xml)
-            .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
-        if !xml_is_well_formed(&xml_text) {
-            return Ok(Extraction {
-                family: family.into(),
-                text: String::new(),
-                source_hash: String::new(),
-                truncated: false,
-                status: "blocked",
-                reason: Some("content_office_xml_invalid".into()),
-            });
-        }
-        text.push_str(&strip_xml(&xml_text));
+        text.push_str(&part_text);
         text.push('\n');
         if text.chars().count() >= policy.max_chars as usize {
             break;
@@ -2809,67 +3580,281 @@ fn office_xml_extraction(
     })
 }
 
-fn strip_xml(value: &str) -> String {
-    let mut text = String::new();
-    let mut in_tag = false;
-    for character in value.chars() {
-        match character {
-            '<' => in_tag = true,
-            '>' => {
-                in_tag = false;
-                text.push(' ');
-            }
-            _ if !in_tag => text.push(character),
-            _ => {}
+fn read_zip_entry_bounded<R: Read>(
+    reader: &mut R,
+    max_bytes: u64,
+    deadline: Instant,
+) -> Result<Vec<u8>, DbError> {
+    let mut bytes = Vec::new();
+    let mut chunk = [0_u8; 32 * 1024];
+    loop {
+        if Instant::now() > deadline {
+            return Err(DbError::Validation("content_extractor_timeout".into()));
+        }
+        let read = reader
+            .read(&mut chunk)
+            .map_err(|_| DbError::Validation("content_archive_read_failed".into()))?;
+        if read == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&chunk[..read]);
+        if bytes.len() as u64 > max_bytes {
+            return Err(DbError::Validation(
+                "content_decompressed_byte_limit_exceeded".into(),
+            ));
         }
     }
-    text.replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
+    Ok(bytes)
 }
 
-fn xml_is_well_formed(value: &str) -> bool {
-    let mut stack = Vec::<String>::new();
-    let mut offset = 0_usize;
-    while let Some(relative_start) = value[offset..].find('<') {
-        let start = offset + relative_start;
-        let Some(relative_end) = value[start..].find('>') else {
-            return false;
-        };
-        let end = start + relative_end;
-        let token = value[start + 1..end].trim();
-        if token.is_empty() {
-            return false;
+fn parse_xml_text(xml: &[u8]) -> Result<String, DbError> {
+    let mut reader = XmlReader::from_reader(Cursor::new(xml));
+    reader.config_mut().trim_text(false);
+    let mut buffer = Vec::new();
+    let mut text = String::new();
+    let mut depth = 0_i32;
+    loop {
+        match reader.read_event_into(&mut buffer) {
+            Ok(Event::Start(_)) => depth += 1,
+            Ok(Event::End(_)) => {
+                if depth == 0 {
+                    return Err(DbError::Validation("content_office_xml_invalid".into()));
+                }
+                depth -= 1;
+            }
+            Ok(Event::Text(value)) => {
+                let value = value
+                    .xml10_content()
+                    .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
+                let value = unescape_xml(value.as_ref())
+                    .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
+                text.push_str(&value);
+                text.push(' ');
+            }
+            Ok(Event::CData(value)) => {
+                text.push_str(&String::from_utf8_lossy(&value));
+                text.push(' ');
+            }
+            Ok(Event::Comment(value)) => {
+                let value = String::from_utf8_lossy(&value);
+                if !value.trim().is_empty() {
+                    text.push_str(&value);
+                    text.push(' ');
+                }
+            }
+            Ok(Event::GeneralRef(value)) => {
+                let reference = format!(
+                    "&{};",
+                    value
+                        .decode()
+                        .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?
+                );
+                let value = unescape_xml(&reference)
+                    .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
+                text.push_str(&value);
+                text.push(' ');
+            }
+            Ok(Event::Eof) => {
+                if depth != 0 {
+                    return Err(DbError::Validation("content_office_xml_invalid".into()));
+                }
+                break;
+            }
+            Ok(_) => {}
+            Err(_) => return Err(DbError::Validation("content_office_xml_invalid".into())),
         }
-        if token.starts_with("!--") {
-            if !token.ends_with("--") {
-                return false;
-            }
-        } else if token.starts_with('?') || token.starts_with('!') {
-            // XML declaration, doctype and processing instructions are
-            // bounded metadata; they do not contribute to element nesting.
-        } else if let Some(name) = token.strip_prefix('/') {
-            let name = name.split_whitespace().next().unwrap_or_default();
-            if name.is_empty() || stack.pop().as_deref() != Some(name) {
-                return false;
-            }
-        } else {
-            let self_closing = token.ends_with('/');
-            let name = token
-                .trim_end_matches('/')
-                .split_whitespace()
-                .next()
-                .unwrap_or_default();
-            if name.is_empty() || name.contains('=') {
-                return false;
-            }
-            if !self_closing {
-                stack.push(name.to_string());
-            }
-        }
-        offset = end + 1;
+        buffer.clear();
     }
-    stack.is_empty()
+    Ok(text)
+}
+
+fn parse_xlsx_shared_strings(xml: &[u8]) -> Result<Vec<String>, DbError> {
+    let mut reader = XmlReader::from_reader(Cursor::new(xml));
+    reader.config_mut().trim_text(false);
+    let mut buffer = Vec::new();
+    let mut values = Vec::new();
+    let mut in_item = false;
+    let mut current = String::new();
+    let mut depth = 0_i32;
+    loop {
+        match reader.read_event_into(&mut buffer) {
+            Ok(Event::Start(event)) if event.local_name().as_ref() == b"si" => {
+                depth += 1;
+                in_item = true;
+                current.clear();
+            }
+            Ok(Event::End(event)) if event.local_name().as_ref() == b"si" => {
+                if depth == 0 {
+                    return Err(DbError::Validation("content_office_xml_invalid".into()));
+                }
+                depth -= 1;
+                if in_item {
+                    values.push(std::mem::take(&mut current));
+                }
+                in_item = false;
+            }
+            Ok(Event::Start(_)) => depth += 1,
+            Ok(Event::End(_)) => {
+                if depth == 0 {
+                    return Err(DbError::Validation("content_office_xml_invalid".into()));
+                }
+                depth -= 1;
+            }
+            Ok(Event::Text(value)) if in_item => {
+                let value = value
+                    .xml10_content()
+                    .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
+                let value = unescape_xml(value.as_ref())
+                    .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
+                current.push_str(&value);
+            }
+            Ok(Event::CData(value)) if in_item => {
+                current.push_str(&String::from_utf8_lossy(&value))
+            }
+            Ok(Event::GeneralRef(value)) if in_item => {
+                let reference = format!(
+                    "&{};",
+                    value
+                        .decode()
+                        .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?
+                );
+                current.push_str(
+                    &unescape_xml(&reference)
+                        .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?,
+                );
+            }
+            Ok(Event::Eof) => {
+                if depth != 0 {
+                    return Err(DbError::Validation("content_office_xml_invalid".into()));
+                }
+                break;
+            }
+            Ok(_) => {}
+            Err(_) => return Err(DbError::Validation("content_office_xml_invalid".into())),
+        }
+        buffer.clear();
+    }
+    Ok(values)
+}
+
+fn parse_xlsx_sheet_text(
+    xml: &[u8],
+    shared_strings: &[String],
+    max_rows: i64,
+) -> Result<(String, i64), DbError> {
+    let mut reader = XmlReader::from_reader(Cursor::new(xml));
+    reader.config_mut().trim_text(false);
+    let mut buffer = Vec::new();
+    let mut text = String::new();
+    let mut rows = 0_i64;
+    let mut in_cell = false;
+    let mut cell_type = String::new();
+    let mut cell_value = String::new();
+    let mut in_value = false;
+    let mut depth = 0_i32;
+    loop {
+        match reader.read_event_into(&mut buffer) {
+            Ok(Event::Start(event)) if event.local_name().as_ref() == b"row" => {
+                depth += 1;
+                rows += 1;
+                if rows > max_rows {
+                    return Ok((String::new(), rows));
+                }
+            }
+            Ok(Event::Start(event)) if event.local_name().as_ref() == b"c" => {
+                depth += 1;
+                in_cell = true;
+                cell_type.clear();
+                cell_value.clear();
+                for attribute in event.attributes().flatten() {
+                    if attribute.key.as_ref() == b"t" {
+                        cell_type = String::from_utf8_lossy(&attribute.value).into_owned();
+                    }
+                }
+            }
+            Ok(Event::Start(event)) if event.local_name().as_ref() == b"v" => {
+                depth += 1;
+                in_value = true;
+            }
+            Ok(Event::Start(event)) if event.local_name().as_ref() == b"t" && in_cell => {
+                depth += 1;
+                in_value = true;
+            }
+            Ok(Event::End(event))
+                if event.local_name().as_ref() == b"v" || event.local_name().as_ref() == b"t" =>
+            {
+                if depth == 0 {
+                    return Err(DbError::Validation("content_office_xml_invalid".into()));
+                }
+                depth -= 1;
+                in_value = false;
+            }
+            Ok(Event::End(event)) if event.local_name().as_ref() == b"c" => {
+                if depth == 0 {
+                    return Err(DbError::Validation("content_office_xml_invalid".into()));
+                }
+                depth -= 1;
+                if in_cell {
+                    let value = if cell_type == "s" {
+                        cell_value
+                            .trim()
+                            .parse::<usize>()
+                            .ok()
+                            .and_then(|index| shared_strings.get(index).cloned())
+                            .unwrap_or_default()
+                    } else {
+                        cell_value.clone()
+                    };
+                    if !value.is_empty() {
+                        text.push_str(value.trim());
+                        text.push('\t');
+                    }
+                }
+                in_cell = false;
+                in_value = false;
+            }
+            Ok(Event::Start(_)) => depth += 1,
+            Ok(Event::End(_)) => {
+                if depth == 0 {
+                    return Err(DbError::Validation("content_office_xml_invalid".into()));
+                }
+                depth -= 1;
+            }
+            Ok(Event::Text(value)) if in_cell => {
+                let value = value
+                    .xml10_content()
+                    .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
+                let value = unescape_xml(value.as_ref())
+                    .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?;
+                cell_value.push_str(&value);
+            }
+            Ok(Event::CData(value)) if in_cell && in_value => {
+                cell_value.push_str(&String::from_utf8_lossy(&value));
+            }
+            Ok(Event::GeneralRef(value)) if in_cell => {
+                let reference = format!(
+                    "&{};",
+                    value
+                        .decode()
+                        .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?
+                );
+                cell_value.push_str(
+                    &unescape_xml(&reference)
+                        .map_err(|_| DbError::Validation("content_office_xml_invalid".into()))?,
+                );
+            }
+            Ok(Event::Eof) => {
+                if depth != 0 {
+                    return Err(DbError::Validation("content_office_xml_invalid".into()));
+                }
+                break;
+            }
+            Ok(_) => {}
+            Err(_) => return Err(DbError::Validation("content_office_xml_invalid".into())),
+        }
+        buffer.clear();
+    }
+    Ok((text, rows))
 }
 
 fn bound_text(value: String, max_chars: usize) -> (String, bool) {
@@ -2926,6 +3911,15 @@ fn hash_bytes(value: impl AsRef<[u8]>) -> String {
     hasher.finalize().to_hex().to_string()
 }
 
+fn current_content_revision(conn: &Connection) -> Result<i64, DbError> {
+    conn.query_row(
+        "SELECT revision FROM content_catalog WHERE id=1",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(DbError::from)
+}
+
 fn sorted_strings(values: HashSet<String>) -> Vec<String> {
     let mut values = values.into_iter().collect::<Vec<_>>();
     values.sort();
@@ -2948,6 +3942,18 @@ fn content_error_code(error: &DbError) -> String {
     }
 }
 
+fn is_content_boundary_error(error: &DbError) -> bool {
+    let code = content_error_code(error);
+    matches!(
+        code.as_str(),
+        "content_library_revision_conflict"
+            | "content_root_missing"
+            | "content_scope_stale_or_blocked"
+            | "content_symlink_traversal_blocked"
+            | "library_file_unavailable"
+    )
+}
+
 fn fts_query(value: &str) -> String {
     value
         .split_whitespace()
@@ -2962,9 +3968,69 @@ fn fts_query(value: &str) -> String {
         .collect::<Vec<_>>()
         .join(" AND ")
 }
-fn encode_cursor(updated_at: i64, id: &str) -> String {
-    format!("{updated_at}:{id}")
+#[derive(Debug)]
+struct ContentCursor {
+    updated_at: i64,
+    id: String,
 }
+
+fn encode_content_cursor(
+    revision: i64,
+    query_fingerprint: &str,
+    scope_fingerprint: &str,
+    updated_at: i64,
+    id: &str,
+) -> String {
+    format!(
+        "v2:{revision}:{query_fingerprint}:{scope_fingerprint}:{updated_at}:{}",
+        hex_encode(id.as_bytes())
+    )
+}
+
+fn decode_content_cursor(
+    value: &str,
+    expected_query_fingerprint: &str,
+    expected_scope_fingerprint: &str,
+    expected_revision: i64,
+) -> Result<ContentCursor, DbError> {
+    let parts = value.split(':').collect::<Vec<_>>();
+    if parts.len() != 6 || parts[0] != "v2" {
+        return Err(DbError::Validation("content_cursor_invalid".into()));
+    }
+    let revision = parts[1]
+        .parse::<i64>()
+        .map_err(|_| DbError::Validation("content_cursor_invalid".into()))?;
+    if revision != expected_revision
+        || parts[2] != expected_query_fingerprint
+        || parts[3] != expected_scope_fingerprint
+    {
+        return Err(DbError::Validation("content_cursor_stale".into()));
+    }
+    let updated_at = parts[4]
+        .parse::<i64>()
+        .map_err(|_| DbError::Validation("content_cursor_invalid".into()))?;
+    let id = String::from_utf8(hex_decode(parts[5])?)
+        .map_err(|_| DbError::Validation("content_cursor_invalid".into()))?;
+    Ok(ContentCursor { updated_at, id })
+}
+
+fn hex_encode(value: &[u8]) -> String {
+    value.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn hex_decode(value: &str) -> Result<Vec<u8>, DbError> {
+    if !value.len().is_multiple_of(2) {
+        return Err(DbError::Validation("content_cursor_invalid".into()));
+    }
+    (0..value.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&value[index..index + 2], 16)
+                .map_err(|_| DbError::Validation("content_cursor_invalid".into()))
+        })
+        .collect()
+}
+
 fn decode_cursor(value: &str) -> Result<(i64, String), DbError> {
     let (timestamp, id) = value
         .split_once(':')
@@ -2980,8 +4046,10 @@ fn decode_cursor(value: &str) -> Result<(i64, String), DbError> {
 fn load_run(conn: &Connection, run_id: &str) -> Result<ContentRunDto, DbError> {
     conn.query_row(
         "SELECT id, scope_json, mode, provider_mode, status, expected_library_revision,
-                byte_budget, char_budget, requested_count, materialized_count,
-                completed_count, blocked_count, skipped_count, failed_count, revision,
+                candidate_fingerprint, candidate_resolver, byte_budget, char_budget,
+                requested_count, materialized_count, completed_count, blocked_count,
+                skipped_count, failed_count, provider_revision, provider_confirmed,
+                cancel_requested, revision,
                 last_error_code, last_error_detail, created_at, updated_at, completed_at
          FROM content_runs WHERE id=?1",
         params![run_id.trim()],
@@ -2999,20 +4067,25 @@ fn run_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ContentRunDto> {
         provider_mode: row.get(3)?,
         status: row.get(4)?,
         expected_library_revision: row.get(5)?,
-        byte_budget: row.get(6)?,
-        char_budget: row.get(7)?,
-        requested_count: row.get(8)?,
-        materialized_count: row.get(9)?,
-        completed_count: row.get(10)?,
-        blocked_count: row.get(11)?,
-        skipped_count: row.get(12)?,
-        failed_count: row.get(13)?,
-        revision: row.get(14)?,
-        last_error_code: row.get(15)?,
-        last_error_detail: row.get(16)?,
-        created_at: row.get(17)?,
-        updated_at: row.get(18)?,
-        completed_at: row.get(19)?,
+        candidate_fingerprint: row.get(6)?,
+        candidate_resolver: row.get(7)?,
+        byte_budget: row.get(8)?,
+        char_budget: row.get(9)?,
+        requested_count: row.get(10)?,
+        materialized_count: row.get(11)?,
+        completed_count: row.get(12)?,
+        blocked_count: row.get(13)?,
+        skipped_count: row.get(14)?,
+        failed_count: row.get(15)?,
+        provider_revision: row.get(16)?,
+        provider_confirmed: row.get::<_, i64>(17)? != 0,
+        cancel_requested: row.get::<_, i64>(18)? != 0,
+        revision: row.get(19)?,
+        last_error_code: row.get(20)?,
+        last_error_detail: row.get(21)?,
+        created_at: row.get(22)?,
+        updated_at: row.get(23)?,
+        completed_at: row.get(24)?,
     })
 }
 
@@ -3031,10 +4104,13 @@ fn item_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ContentRunItemDto>
         extractor_family: row.get(10)?,
         extractor_version: row.get(11)?,
         artifact_id: row.get(12)?,
-        error_code: row.get(13)?,
-        error_detail: row.get(14)?,
-        revision: row.get(15)?,
-        updated_at: row.get(16)?,
+        provider_status: row.get(13)?,
+        provider_revision: row.get(14)?,
+        provider_completed_at: row.get(15)?,
+        error_code: row.get(16)?,
+        error_detail: row.get(17)?,
+        revision: row.get(18)?,
+        updated_at: row.get(19)?,
     })
 }
 
@@ -3077,6 +4153,16 @@ pub fn get_content_scope_policy<R: Runtime>(
 ) -> Result<ContentScopePolicyDto, String> {
     require_main_window(&window)?;
     db.get_content_scope_policy(&root_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn get_content_catalog_revision<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+) -> Result<i64, String> {
+    require_main_window(&window)?;
+    db.get_content_catalog_revision()
         .map_err(|error| error.to_string())
 }
 
@@ -3282,7 +4368,7 @@ mod tests {
                 .unwrap()
                 .truncated
         );
-        let pdf = pdf_text_extraction(b"%PDF (Hello) /Type /Page".to_vec(), &policy).unwrap();
+        let pdf = pdf_text_extraction(valid_pdf_fixture(), &policy).unwrap();
         assert_eq!(pdf.status, "completed");
         assert!(pdf.text.contains("Hello"));
 
@@ -3336,11 +4422,131 @@ mod tests {
 
         let mut limited = policy.clone();
         limited.max_pages = 1;
-        let page_limited =
-            pdf_text_extraction(b"%PDF /Type /Page /Type /Page".to_vec(), &limited).unwrap();
+        let page_limited = pdf_text_extraction(valid_pdf_fixture_with_pages(2), &limited).unwrap();
         assert_eq!(
             page_limited.reason.as_deref(),
             Some("content_pdf_page_limit_exceeded")
+        );
+    }
+
+    fn valid_pdf_fixture() -> Vec<u8> {
+        valid_pdf_fixture_with_pages(1)
+    }
+
+    fn valid_pdf_fixture_with_pages(page_count: usize) -> Vec<u8> {
+        let page_count = page_count.max(1);
+        let font_id = 3 + page_count * 2;
+        let kids = (0..page_count)
+            .map(|index| format!("{} 0 R", 3 + index * 2))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut objects = vec![
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            format!("<< /Type /Pages /Kids [{kids}] /Count {page_count} >>"),
+        ];
+        for index in 0..page_count {
+            let page_id = 3 + index * 2;
+            let content_id = page_id + 1;
+            objects.push(format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {content_id} 0 R >>"
+            ));
+            let stream = format!("BT /F1 24 Tf 72 72 Td (Hello {index}) Tj ET\n");
+            objects.push(format!(
+                "<< /Length {} >>\nstream\n{}endstream",
+                stream.len(),
+                stream
+            ));
+        }
+        objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string());
+        let mut bytes = b"%PDF-1.4\n".to_vec();
+        let mut offsets = vec![0_u64];
+        for (index, object) in objects.iter().enumerate() {
+            offsets.push(bytes.len() as u64);
+            bytes
+                .extend_from_slice(format!("{} 0 obj\n{}\nendobj\n", index + 1, object).as_bytes());
+        }
+        let startxref = bytes.len();
+        bytes.extend_from_slice(format!("xref\n0 {}\n", offsets.len()).as_bytes());
+        bytes.extend_from_slice(b"0000000000 65535 f \n");
+        for offset in offsets.iter().skip(1) {
+            bytes.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        bytes.extend_from_slice(
+            format!(
+                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+                offsets.len(),
+                startxref
+            )
+            .as_bytes(),
+        );
+        bytes
+    }
+
+    #[test]
+    fn real_application_office_fixtures_decode_all_units_without_external_tools() {
+        let policy = default_policy("fixture-root", 0);
+        let docx = office_xml_extraction(
+            "docx",
+            include_bytes!("../tests/fixtures/task08-real/task08-multipage.docx").to_vec(),
+            &policy,
+            &["word/document.xml"],
+        )
+        .unwrap();
+        assert_eq!(docx.status, "completed");
+        assert!(docx.text.contains("page one"));
+        assert!(docx.text.contains("page two"));
+        assert!(docx.text.contains("entity"));
+
+        let xlsx = office_xml_extraction(
+            "xlsx",
+            include_bytes!("../tests/fixtures/task08-real/task08-multisheet.xlsx").to_vec(),
+            &policy,
+            &["xl/sharedStrings.xml"],
+        )
+        .unwrap();
+        assert_eq!(xlsx.status, "completed");
+        assert!(xlsx.text.contains("Shared"));
+        assert!(xlsx.text.contains("Inline"));
+        assert!(xlsx.text.contains("Entity"));
+
+        let pptx = office_xml_extraction(
+            "pptx",
+            include_bytes!("../tests/fixtures/task08-real/task08-multislide.pptx").to_vec(),
+            &policy,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(pptx.status, "completed");
+        assert!(pptx.text.contains("slide one"));
+        assert!(pptx.text.contains("slide two"));
+    }
+
+    #[test]
+    fn office_xml_entities_comments_and_malformed_input_fail_closed() {
+        let parsed = parse_xml_text(b"<root>A &amp; B<!-- bounded comment --></root>").unwrap();
+        assert!(parsed.contains('A') && parsed.contains('&') && parsed.contains('B'));
+        assert!(parsed.contains("bounded comment"));
+        assert!(parse_xml_text(b"<root><child>").is_err());
+    }
+
+    #[test]
+    fn office_zip_bomb_and_entry_limits_fail_closed() {
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .start_file("word/document.xml", SimpleFileOptions::default())
+            .unwrap();
+        writer
+            .write_all(format!("<root>{}</root>", "x".repeat(20_000)).as_bytes())
+            .unwrap();
+        let archive = writer.finish().unwrap().into_inner();
+        let mut policy = default_policy("fixture-root", 0);
+        policy.max_bytes = 1024;
+        let extraction =
+            office_xml_extraction("docx", archive, &policy, &["word/document.xml"]).unwrap();
+        assert_eq!(extraction.status, "blocked");
+        assert_eq!(
+            extraction.reason.as_deref(),
+            Some("content_archive_entry_limit_exceeded")
         );
     }
 

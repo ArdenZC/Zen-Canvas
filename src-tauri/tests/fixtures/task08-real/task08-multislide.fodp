@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.presentation">
+  <office:body><office:presentation>
+    <draw:page draw:name="page1"><draw:frame><draw:text-box><text:p>Task 08 slide one &amp; entity.</text:p></draw:text-box></draw:frame></draw:page>
+    <draw:page draw:name="page2"><draw:frame><draw:text-box><text:p>Task 08 slide two.</text:p></draw:text-box></draw:frame></draw:page>
+  </office:presentation></office:body>
+</office:document>

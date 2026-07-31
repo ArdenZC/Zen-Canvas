@@ -62,10 +62,6 @@ import type {
   RuleExecutionMode,
   RuleExecutionSummary,
   ContentArtifact,
-  ContentArtifactPage,
-  ContentPreview,
-  ContentRun,
-  ContentRunItem,
   ContentScopePolicy,
   MutateFileUserTagsRequest,
   MutateFileUserTagsResult,
@@ -400,37 +396,6 @@ const mockContentPolicy = (rootId: string, enabled = false): ContentScopePolicy 
   updatedAt: Math.floor(Date.now() / 1000)
 });
 
-const mockContentPreview = (request: Record<string, unknown> | undefined): ContentPreview => ({
-  version: 1,
-  requestId: String(request?.requestId ?? "browser-mock-content"),
-  scopeHealth: {
-    scope: (request?.scope ?? { kind: "all_enabled_roots" }) as ContentPreview["scopeHealth"]["scope"],
-    health: { state: "empty", roots: [], invalidReferences: [], message: null },
-    rootIds: [],
-    policyRevisions: []
-  },
-  exactCount: 0,
-  deferredCount: null,
-  exactState: "exact",
-  byteBudget: 0,
-  charBudget: 0,
-  supportedCount: 0,
-  unsupportedCount: 0,
-  blockedCount: 0,
-  failedCount: 0,
-  supportedFormats: [],
-  unsupportedFormats: [],
-  blockedReasons: [],
-  localAllowed: false,
-  cloudAllowed: false,
-  rawRetentionDisclosure: "Browser mock does not read files or call a provider.",
-  sample: [],
-  libraryRevision: 1,
-  policyFingerprint: "browser-mock-content-policy",
-  previewFingerprint: "browser-mock-content-preview",
-  requiresConfirmation: true
-});
-
 export async function mockInvokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   switch (command) {
     case "init_db":
@@ -741,68 +706,23 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       } as T;
     case "get_content_scope_policy":
       return mockContentPolicy(String(args?.rootId ?? "mock-root")) as T;
+    case "get_content_catalog_revision":
+      throw new Error("browser_mock_content_unavailable: native content catalog requires desktop runtime");
     case "set_content_scope_policy":
-      return mockContentPolicy(String((args?.request as { rootId?: string } | undefined)?.rootId ?? "mock-root"), true) as T;
+      throw new Error("browser_mock_content_unavailable: native content policy persistence requires desktop runtime");
     case "preview_content":
-      return mockContentPreview(args?.request as Record<string, unknown> | undefined) as T;
-    case "start_content_run": {
-      const request = args?.request as { scope?: unknown; mode?: string; providerMode?: string; expectedLibraryRevision?: number } | undefined;
-      const run: ContentRun = {
-        id: "browser-mock-content-run",
-        scope: (request?.scope ?? { kind: "all_enabled_roots" }) as ContentRun["scope"],
-        mode: String(request?.mode ?? "local"),
-        providerMode: String(request?.providerMode ?? "none"),
-        status: "completed",
-        expectedLibraryRevision: Number(request?.expectedLibraryRevision ?? 1),
-        byteBudget: 0,
-        charBudget: 0,
-        requestedCount: 0,
-        materializedCount: 0,
-        completedCount: 0,
-        blockedCount: 0,
-        skippedCount: 0,
-        failedCount: 0,
-        revision: 1,
-        lastErrorCode: null,
-        lastErrorDetail: null,
-        createdAt: Math.floor(Date.now() / 1000),
-        updatedAt: Math.floor(Date.now() / 1000),
-        completedAt: Math.floor(Date.now() / 1000)
-      };
-      return run as T;
-    }
-    case "get_content_run": {
-      const run: ContentRun = {
-        id: String(args?.runId ?? "browser-mock-content-run"),
-        scope: { kind: "all_enabled_roots" }, mode: "local", providerMode: "none", status: "completed",
-        expectedLibraryRevision: 1, byteBudget: 0, charBudget: 0, requestedCount: 0, materializedCount: 0, completedCount: 0, blockedCount: 0, skippedCount: 0, failedCount: 0,
-        revision: 1, lastErrorCode: null, lastErrorDetail: null, createdAt: 1, updatedAt: 1, completedAt: 1
-      };
-      return run as T;
-    }
+    case "start_content_run":
+    case "get_content_run":
     case "list_content_runs":
-      return [] as ContentRun[] as T;
     case "cancel_content_run":
-      return {
-        id: String((args?.request as { runId?: string } | undefined)?.runId ?? "browser-mock-content-run"),
-        scope: { kind: "all_enabled_roots" }, mode: "local", providerMode: "none", status: "cancelled",
-        expectedLibraryRevision: 1, byteBudget: 0, charBudget: 0, requestedCount: 0, materializedCount: 0, completedCount: 0, blockedCount: 0, skippedCount: 0, failedCount: 0,
-        revision: 2, lastErrorCode: null, lastErrorDetail: null, createdAt: 1, updatedAt: 1, completedAt: 1
-      } satisfies ContentRun as T;
     case "query_content_run_items":
-      return { runId: String((args?.request as { runId?: string } | undefined)?.runId ?? "browser-mock-content-run"), items: [] as ContentRunItem[], nextCursor: null, hasMore: false } as T;
     case "get_content_artifact":
-      return (null as ContentArtifact | null) as T;
     case "query_content_artifacts":
-      return { artifacts: [], nextCursor: null, hasMore: false, libraryRevision: 1 } satisfies ContentArtifactPage as T;
     case "rebuild_content_artifact":
-      throw new Error("browser_mock_content_rebuild_unavailable");
     case "delete_content_artifact":
-      return true as T;
     case "purge_content_scope":
-      return 0 as T;
     case "understand_content_artifacts":
-      return { processedCount: 0, blockedCount: 0, reason: "browser_mock_provider_unavailable" } as T;
+      throw new Error("browser_mock_content_unavailable: native content extraction/provider/persistence is unavailable in the browser mock");
     case "classify_files_with_ai":
       return mockAIClassifyFiles(args) as T;
     case "classify_selected_files_with_ai":

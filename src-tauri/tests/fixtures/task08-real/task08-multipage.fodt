@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.text">
+  <office:body><office:text>
+    <text:p>Task 08 page one &amp; entity.</text:p>
+    <text:p>First page content understanding fixture.</text:p>
+    <text:p><text:soft-page-break/></text:p>
+    <text:p>Task 08 page two.</text:p>
+    <text:p>Second page content and bounded comment fixture.</text:p>
+  </office:text></office:body>
+</office:document>

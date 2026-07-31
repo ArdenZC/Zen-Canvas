@@ -74,6 +74,7 @@
     "allow-correct-classification",
     "allow-execute-rules-for-scope-v2",
     "allow-get-content-scope-policy",
+    "allow-get-content-catalog-revision",
     "allow-set-content-scope-policy",
     "allow-preview-content",
     "allow-start-content-run",

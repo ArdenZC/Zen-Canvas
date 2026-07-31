@@ -63,6 +63,7 @@
 | `correct_classification` | `main_state_mutation` | main | Persist user correction | default | yes | command permission contract |
 | `execute_rules_for_scope_v2` | `main_state_mutation` | main | Load enabled rules from SQLite and update classification/suggestion metadata in a durable-ID scope | default | yes | backend-authoritative execution tests |
 | `get_content_scope_policy` | `read_only` | main | Read the consent policy for one durable File Library root | default | yes | content policy/CAS tests |
+| `get_content_catalog_revision` | `read_only` | main | Read the schema34 content catalog revision used by keyset search cursors | default | yes | content catalog/search tests |
 | `set_content_scope_policy` | `main_state_mutation` | main | Change one root's content consent and invalidate its artifacts under policy CAS | default | yes | content policy/CAS tests |
 | `preview_content` | `read_only` | main | Build a bounded, backend-authoritative content preview from durable scope/selection IDs | default | yes | content preview/privacy tests |
 | `start_content_run` | `main_state_mutation` | main | Confirm and materialize a bounded local extraction run; source files remain unchanged | default | yes | content run/identity tests |

@@ -190,6 +190,7 @@ fn main() {
             zen_canvas_tauri::db::correct_classification,
             zen_canvas_tauri::db::execute_rules_for_scope_v2,
             zen_canvas_tauri::content::get_content_scope_policy,
+            zen_canvas_tauri::content::get_content_catalog_revision,
             zen_canvas_tauri::content::set_content_scope_policy,
             zen_canvas_tauri::content::preview_content,
             zen_canvas_tauri::content::start_content_run,

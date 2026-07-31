@@ -943,6 +943,10 @@ export const tauriApi = {
     return invokeCommand<ContentScopePolicy>("get_content_scope_policy", { rootId });
   },
 
+  getContentCatalogRevision(): Promise<number> {
+    return invokeCommand<number>("get_content_catalog_revision");
+  },
+
   setContentScopePolicy(request: {
     version: 1;
     rootId: string;
@@ -985,7 +989,7 @@ export const tauriApi = {
     return invokeCommand<ContentArtifact | null>("get_content_artifact", { fileId });
   },
 
-  queryContentArtifacts(request: { query: string; scope: FileLibraryScopeV2; expectedLibraryRevision: number; limit: number; cursor?: string | null }): Promise<ContentArtifactPage> {
+  queryContentArtifacts(request: { query: string; scope: FileLibraryScopeV2; expectedLibraryRevision: number; expectedContentRevision: number; limit: number; cursor?: string | null }): Promise<ContentArtifactPage> {
     return invokeCommand<ContentArtifactPage>("query_content_artifacts", { request });
   },
 
@@ -1001,7 +1005,7 @@ export const tauriApi = {
     return invokeCommand<number>("purge_content_scope", { request });
   },
 
-  understandContentArtifacts(request: { version: 1; artifactIds: string[]; expectedRevisions: number[]; confirmed: boolean }): Promise<{ processedCount: number; blockedCount: number; reason: string | null }> {
+  understandContentArtifacts(request: { version: 1; artifactIds: string[]; expectedRevisions: number[]; runId: string; expectedRunRevision: number; confirmed: boolean }): Promise<{ processedCount: number; blockedCount: number; reason: string | null }> {
     return invokeCommand("understand_content_artifacts", { request });
   },
 

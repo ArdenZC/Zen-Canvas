@@ -53,6 +53,7 @@ jobs:
           EVENT_HEAD: ${{ github.sha }}
           DISPATCH_FULL: ${{ inputs.full_validation }}
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           python3 - <<'PY'
           import os
@@ -68,10 +69,12 @@ jobs:
               for label in os.environ.get("PR_LABELS", "").split(",")
               if label.strip()
           }
+          pr_number = os.environ.get("PR_NUMBER", "")
           full_validation = (
               event in {"push", "schedule"}
               or dispatch_full
               or (event == "pull_request" and "full-validation" in pr_labels)
+              or (event == "pull_request" and pr_number == "44")
           )
           forced_full = full_validation
           if not base or re.fullmatch(r"0+", base):

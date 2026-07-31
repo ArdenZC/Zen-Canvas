@@ -58,6 +58,7 @@ const COMMANDS: &[&str] = &[
     "correct_classification",
     "execute_rules_for_scope_v2",
     "get_content_scope_policy",
+    "get_content_catalog_revision",
     "set_content_scope_policy",
     "preview_content",
     "start_content_run",

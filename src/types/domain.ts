@@ -1519,6 +1519,12 @@ export interface ContentPreview {
   exactCount: number;
   deferredCount: number | null;
   exactState: string;
+  candidateResolver: string;
+  candidateFingerprint: string;
+  perFileByteBudget: number;
+  perFileCharBudget: number;
+  totalByteBudget: number;
+  totalCharBudget: number;
   byteBudget: number;
   charBudget: number;
   supportedCount: number;
@@ -1545,6 +1551,8 @@ export interface ContentRun {
   providerMode: string;
   status: string;
   expectedLibraryRevision: number;
+  candidateFingerprint: string;
+  candidateResolver: string;
   byteBudget: number;
   charBudget: number;
   requestedCount: number;
@@ -1553,6 +1561,9 @@ export interface ContentRun {
   blockedCount: number;
   skippedCount: number;
   failedCount: number;
+  providerRevision: number;
+  providerConfirmed: boolean;
+  cancelRequested: boolean;
   revision: number;
   lastErrorCode: string | null;
   lastErrorDetail: string | null;
@@ -1575,6 +1586,9 @@ export interface ContentRunItem {
   extractorFamily: string | null;
   extractorVersion: string | null;
   artifactId: string | null;
+  providerStatus: string;
+  providerRevision: number;
+  providerCompletedAt: number | null;
   errorCode: string | null;
   errorDetail: string | null;
   revision: number;
@@ -1614,6 +1628,7 @@ export interface ContentArtifactPage {
   nextCursor: string | null;
   hasMore: boolean;
   libraryRevision: number;
+  contentRevision: number;
 }
 
 export interface FileQuery {

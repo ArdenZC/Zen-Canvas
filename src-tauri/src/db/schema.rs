@@ -1991,6 +1991,14 @@ fn ensure_rule_proposal_schema(conn: &Connection) -> Result<(), DbError> {
 fn ensure_content_schema(conn: &Connection) -> Result<(), DbError> {
     conn.execute_batch(
         r#"
+        CREATE TABLE IF NOT EXISTS content_catalog (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+            updated_at INTEGER NOT NULL
+        );
+        INSERT OR IGNORE INTO content_catalog(id, revision, updated_at)
+            VALUES (1, 1, unixepoch());
+
         CREATE TABLE IF NOT EXISTS content_scope_policies (
             scan_root_id TEXT PRIMARY KEY REFERENCES scan_roots(id) ON DELETE CASCADE,
             enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
@@ -2019,6 +2027,8 @@ fn ensure_content_schema(conn: &Connection) -> Result<(), DbError> {
             status TEXT NOT NULL CHECK (status IN ('building','ready','running','completed','partially_completed','cancelling','cancelled','failed','stale')),
             expected_library_revision INTEGER NOT NULL,
             policy_fingerprint TEXT NOT NULL,
+            candidate_fingerprint TEXT NOT NULL DEFAULT '',
+            candidate_resolver TEXT NOT NULL DEFAULT '',
             confirmation INTEGER NOT NULL DEFAULT 0 CHECK (confirmation IN (0, 1)),
             byte_budget INTEGER NOT NULL DEFAULT 0,
             char_budget INTEGER NOT NULL DEFAULT 0,
@@ -2028,6 +2038,9 @@ fn ensure_content_schema(conn: &Connection) -> Result<(), DbError> {
             blocked_count INTEGER NOT NULL DEFAULT 0,
             skipped_count INTEGER NOT NULL DEFAULT 0,
             failed_count INTEGER NOT NULL DEFAULT 0,
+            provider_revision INTEGER NOT NULL DEFAULT 1 CHECK (provider_revision >= 1),
+            provider_confirmed INTEGER NOT NULL DEFAULT 0 CHECK (provider_confirmed IN (0, 1)),
+            cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK (cancel_requested IN (0, 1)),
             revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
             last_error_code TEXT,
             last_error_detail TEXT,
@@ -2049,6 +2062,10 @@ fn ensure_content_schema(conn: &Connection) -> Result<(), DbError> {
             extractor_family TEXT,
             extractor_version TEXT,
             artifact_id TEXT,
+            provider_status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (provider_status IN ('pending','running','completed','blocked','failed','cancelled','stale')),
+            provider_revision INTEGER NOT NULL DEFAULT 1 CHECK (provider_revision >= 1),
+            provider_completed_at INTEGER,
             error_code TEXT,
             error_detail TEXT,
             source_size INTEGER NOT NULL,
@@ -2088,6 +2105,7 @@ fn ensure_content_schema(conn: &Connection) -> Result<(), DbError> {
             text_retained INTEGER NOT NULL DEFAULT 0 CHECK (text_retained IN (0, 1)),
             raw_text TEXT,
             provenance_json TEXT NOT NULL DEFAULT '{}',
+            catalog_revision INTEGER NOT NULL DEFAULT 1 CHECK (catalog_revision >= 1),
             revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
@@ -2097,6 +2115,25 @@ fn ensure_content_schema(conn: &Connection) -> Result<(), DbError> {
             ON content_artifacts(status, updated_at DESC, file_id);
         CREATE INDEX IF NOT EXISTS idx_content_artifacts_root_status
             ON content_artifacts(scan_root_id, status, updated_at DESC);
+
+        DROP TRIGGER IF EXISTS content_catalog_artifact_insert;
+        CREATE TRIGGER content_catalog_artifact_insert
+        AFTER INSERT ON content_artifacts
+        BEGIN
+            UPDATE content_catalog SET revision=revision+1, updated_at=unixepoch() WHERE id=1;
+        END;
+        DROP TRIGGER IF EXISTS content_catalog_artifact_update;
+        CREATE TRIGGER content_catalog_artifact_update
+        AFTER UPDATE ON content_artifacts
+        BEGIN
+            UPDATE content_catalog SET revision=revision+1, updated_at=unixepoch() WHERE id=1;
+        END;
+        DROP TRIGGER IF EXISTS content_catalog_artifact_delete;
+        CREATE TRIGGER content_catalog_artifact_delete
+        AFTER DELETE ON content_artifacts
+        BEGIN
+            UPDATE content_catalog SET revision=revision+1, updated_at=unixepoch() WHERE id=1;
+        END;
 
         DROP TRIGGER IF EXISTS content_artifacts_file_changed;
         CREATE TRIGGER content_artifacts_file_changed
@@ -2125,11 +2162,20 @@ fn ensure_content_schema(conn: &Connection) -> Result<(), DbError> {
             "ALTER TABLE content_runs ADD COLUMN char_budget INTEGER NOT NULL DEFAULT 0;",
             "ALTER TABLE content_runs ADD COLUMN materialized_count INTEGER NOT NULL DEFAULT 0;",
             "ALTER TABLE content_runs ADD COLUMN skipped_count INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE content_runs ADD COLUMN candidate_fingerprint TEXT NOT NULL DEFAULT '';",
+            "ALTER TABLE content_runs ADD COLUMN candidate_resolver TEXT NOT NULL DEFAULT '';",
+            "ALTER TABLE content_runs ADD COLUMN provider_revision INTEGER NOT NULL DEFAULT 1;",
+            "ALTER TABLE content_runs ADD COLUMN provider_confirmed INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE content_runs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0;",
             "ALTER TABLE content_run_items ADD COLUMN root_id TEXT;",
             "ALTER TABLE content_run_items ADD COLUMN source_is_dir INTEGER NOT NULL DEFAULT 0;",
             "ALTER TABLE content_run_items ADD COLUMN extractor_family TEXT;",
             "ALTER TABLE content_run_items ADD COLUMN extractor_version TEXT;",
             "ALTER TABLE content_run_items ADD COLUMN artifact_id TEXT;",
+            "ALTER TABLE content_run_items ADD COLUMN provider_status TEXT NOT NULL DEFAULT 'pending';",
+            "ALTER TABLE content_run_items ADD COLUMN provider_revision INTEGER NOT NULL DEFAULT 1;",
+            "ALTER TABLE content_run_items ADD COLUMN provider_completed_at INTEGER;",
+            "ALTER TABLE content_artifacts ADD COLUMN catalog_revision INTEGER NOT NULL DEFAULT 1;",
         ],
     )?;
     require_exact_table_columns(
@@ -2152,6 +2198,7 @@ fn ensure_content_schema(conn: &Connection) -> Result<(), DbError> {
             "updated_at",
         ],
     )?;
+    require_exact_table_columns(conn, "content_catalog", &["id", "revision", "updated_at"])?;
     require_exact_table_columns(
         conn,
         "content_runs",
@@ -2164,6 +2211,8 @@ fn ensure_content_schema(conn: &Connection) -> Result<(), DbError> {
             "status",
             "expected_library_revision",
             "policy_fingerprint",
+            "candidate_fingerprint",
+            "candidate_resolver",
             "confirmation",
             "byte_budget",
             "char_budget",
@@ -2173,6 +2222,9 @@ fn ensure_content_schema(conn: &Connection) -> Result<(), DbError> {
             "blocked_count",
             "skipped_count",
             "failed_count",
+            "provider_revision",
+            "provider_confirmed",
+            "cancel_requested",
             "revision",
             "last_error_code",
             "last_error_detail",
@@ -2195,6 +2247,9 @@ fn ensure_content_schema(conn: &Connection) -> Result<(), DbError> {
             "extractor_family",
             "extractor_version",
             "artifact_id",
+            "provider_status",
+            "provider_revision",
+            "provider_completed_at",
             "error_code",
             "error_detail",
             "source_size",
@@ -2231,6 +2286,7 @@ fn ensure_content_schema(conn: &Connection) -> Result<(), DbError> {
             "text_retained",
             "raw_text",
             "provenance_json",
+            "catalog_revision",
             "revision",
             "created_at",
             "updated_at",
