@@ -2463,6 +2463,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "macOS file mutation source binding is intentionally fail-closed"
+    )]
     fn reviewed_edited_target_is_the_actual_executed_target() {
         let (db, path) = test_database();
         let fixture = std::env::temp_dir().join(format!(
