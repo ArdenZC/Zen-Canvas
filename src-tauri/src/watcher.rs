@@ -816,10 +816,7 @@ fn execute_rules_for_paths_with_retry(
 ) -> Result<crate::db::RuleExecutionSummary, DbError> {
     bounded_retry(
         WATCHER_RULE_MAX_ATTEMPTS,
-        || {
-            db.get_user_rules()
-                .and_then(|rules| db.execute_rules_for_paths(paths, rules))
-        },
+        || db.execute_authoritative_rules_for_paths(paths),
         |attempt| {
             let delay = WATCHER_RULE_RETRY_DELAYS[attempt.min(WATCHER_RULE_RETRY_DELAYS.len() - 1)];
             thread::sleep(delay);

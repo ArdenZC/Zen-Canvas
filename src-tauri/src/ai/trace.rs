@@ -39,6 +39,7 @@ pub enum AITraceOperation {
     FileClassification,
     CleanupAnalysis,
     ModelDiscovery,
+    RuleProposalGeneration,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

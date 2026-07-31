@@ -5,6 +5,7 @@ mod learning;
 mod queries;
 mod schema;
 mod types;
+pub use classification::engine::{ExecuteRulesForScopeV2Request, RuleExecutionResultV2};
 pub(crate) use classification::normalized_file_type;
 pub(crate) use classification::{build_target_path, OrganizeRootConfig};
 #[cfg(test)]
@@ -32,6 +33,8 @@ pub use queries::dedupe::{
 };
 pub use queries::library::*;
 pub use queries::organization::*;
+pub use queries::rule_proposals::*;
+pub use queries::rules_repo::*;
 pub use queries::scan;
 pub(crate) use queries::{
     bool_to_i64, current_unix_seconds, indexed_file_from_row, infer_file_type, normalize_path_text,

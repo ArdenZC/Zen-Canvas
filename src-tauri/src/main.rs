@@ -12,7 +12,8 @@ use zen_canvas_tauri::{
     global_index::{GlobalIndexCoordinator, ManagedAiWorker},
     open_database, settings,
     watcher::{reload_file_watcher_for_settings, FileWatcherManager},
-    AIClassificationCancellationToken, OperationCancellationToken, ScanJobManager,
+    AIClassificationCancellationToken, OperationCancellationToken, RuleProposalGenerationManager,
+    ScanJobManager,
 };
 
 fn main() {
@@ -43,6 +44,7 @@ fn main() {
             zen_canvas_tauri::file_ops::reconcile_pending_operation_journal(&db)
                 .map_err(io::Error::other)?;
             db.recover_organization_plans().map_err(io::Error::other)?;
+            db.recover_rule_proposals().map_err(io::Error::other)?;
             zen_canvas_tauri::storage_analyzer::reconcile_pending_cleanup_journal(&db)
                 .map_err(io::Error::other)?;
             app.manage(db.clone());
@@ -91,6 +93,10 @@ fn main() {
             if let Err(error) = db.prune_organization_plans() {
                 eprintln!("Organization plan retention prune skipped: {error}");
             }
+            if let Err(error) = db.prune_rule_proposals() {
+                eprintln!("Rule proposal retention prune skipped: {error}");
+            }
+            app.manage(RuleProposalGenerationManager::default());
             if let Err(error) = zen_canvas_tauri::app_control::setup_global_search_shortcut(
                 app,
                 &app_settings.search_hotkey,
@@ -170,14 +176,25 @@ fn main() {
             zen_canvas_tauri::db::get_operation_previews_for_scope,
             zen_canvas_tauri::db::get_stats_summary,
             zen_canvas_tauri::db::get_operation_logs,
-            zen_canvas_tauri::db::get_user_rules,
-            zen_canvas_tauri::db::save_user_rule,
-            zen_canvas_tauri::db::delete_user_rule,
+            zen_canvas_tauri::db::get_rule_catalog_state,
+            zen_canvas_tauri::db::list_user_rules_v2,
+            zen_canvas_tauri::db::create_user_rule_v2,
+            zen_canvas_tauri::db::update_user_rule_v2,
+            zen_canvas_tauri::db::set_user_rule_enabled_v2,
+            zen_canvas_tauri::db::delete_user_rule_v2,
             zen_canvas_tauri::db::confirm_classification,
             zen_canvas_tauri::db::correct_classification,
-            zen_canvas_tauri::db::execute_rules_on_inbox,
-            zen_canvas_tauri::db::execute_rules_for_paths,
-            zen_canvas_tauri::db::execute_rules_for_scope,
+            zen_canvas_tauri::db::execute_rules_for_scope_v2,
+            zen_canvas_tauri::rule_proposals::create_rule_proposal,
+            zen_canvas_tauri::rule_proposals::regenerate_rule_proposal,
+            zen_canvas_tauri::rule_proposals::get_rule_proposal,
+            zen_canvas_tauri::rule_proposals::list_rule_proposals,
+            zen_canvas_tauri::rule_proposals::cancel_rule_proposal,
+            zen_canvas_tauri::rule_proposals::delete_rule_proposal,
+            zen_canvas_tauri::rule_proposals::replace_rule_proposal_candidate,
+            zen_canvas_tauri::rule_proposals::preview_rule_proposal,
+            zen_canvas_tauri::rule_proposals::resolve_rule_proposal_exact_impact,
+            zen_canvas_tauri::rule_proposals::apply_rule_proposal,
             zen_canvas_tauri::settings::get_settings,
             zen_canvas_tauri::settings::save_settings,
             zen_canvas_tauri::ai::settings::get_ai_settings,

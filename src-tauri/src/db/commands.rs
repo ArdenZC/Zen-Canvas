@@ -348,10 +348,10 @@ pub async fn execute_organization_plan<R: Runtime>(
     let dispatch = database
         .begin_organization_plan_execution(&request)
         .map_err(command_error)?;
-    let move_request = crate::file_ops::ExecuteMovesByIdRequest {
+    let move_request = crate::file_ops::ExecuteMovesRequest {
         operations: dispatch.selections.clone(),
     };
-    let execution = crate::file_ops::execute_authoritative_selections(
+    let execution = crate::file_ops::execute_canonical_operations(
         app,
         database.clone(),
         cancel.inner().clone(),
@@ -431,6 +431,56 @@ pub fn delete_user_rule<R: Runtime>(
 }
 
 #[tauri::command]
+pub fn get_rule_catalog_state(db: State<'_, Database>) -> Result<RuleCatalogStateDto, String> {
+    db.get_rule_catalog_state().map_err(command_error)
+}
+
+#[tauri::command]
+pub fn list_user_rules_v2(db: State<'_, Database>) -> Result<Vec<UserRuleV2>, String> {
+    db.list_user_rules_v2().map_err(command_error)
+}
+
+#[tauri::command]
+pub fn create_user_rule_v2<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: CreateUserRuleV2Request,
+) -> Result<RuleMutationResultV2, String> {
+    require_main_window(&window)?;
+    db.create_user_rule_v2(request).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn update_user_rule_v2<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: UpdateUserRuleV2Request,
+) -> Result<RuleMutationResultV2, String> {
+    require_main_window(&window)?;
+    db.update_user_rule_v2(request).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn set_user_rule_enabled_v2<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: SetUserRuleEnabledV2Request,
+) -> Result<RuleMutationResultV2, String> {
+    require_main_window(&window)?;
+    db.set_user_rule_enabled_v2(request).map_err(command_error)
+}
+
+#[tauri::command]
+pub fn delete_user_rule_v2<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: DeleteUserRuleV2Request,
+) -> Result<RuleCatalogStateDto, String> {
+    require_main_window(&window)?;
+    db.delete_user_rule_v2(request).map_err(command_error)
+}
+
+#[tauri::command]
 pub async fn execute_rules_on_inbox<R: Runtime>(
     window: WebviewWindow<R>,
     db: State<'_, Database>,
@@ -476,6 +526,20 @@ pub async fn execute_rules_for_scope<R: Runtime>(
     .await
     .map_err(|error| error.to_string())?
     .map_err(command_error)
+}
+
+#[tauri::command]
+pub async fn execute_rules_for_scope_v2<R: Runtime>(
+    window: WebviewWindow<R>,
+    db: State<'_, Database>,
+    request: ExecuteRulesForScopeV2Request,
+) -> Result<RuleExecutionResultV2, String> {
+    require_main_window(&window)?;
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || db.execute_rules_for_scope_v2(request))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(command_error)
 }
 
 fn command_error(error: DbError) -> String {
