@@ -55,5 +55,6 @@ Artifact 绑定 file/root、size/mtime/is_dir/source hash、extractor、policy/p
 
 - Windows 本机证据如上；macOS Rust、release compile、unsigned DMG、macOS smoke 只接受 GitHub macOS runner 结果，不伪造本机证据。
 - PR #44 的第一次 full-validation run [30658768769](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30658768769) 在 HEAD `1a586905dfc6bbeb4553ad7e2f93476e31652545` 仅因 Task 07 deferred 1M probe 测得 `210.042 ms > 200 ms` 失败；其余 Windows/macOS Rust、release、NSIS、unsigned DMG、依赖与 frontend jobs 成功。修复为 bounded `threshold+1` probe，未降低阈值；新的 final HEAD full run 必须全部成功。
-- PR #44 的 full-validation run 必须在本文件最终提交对应的 final HEAD 上全部成功；最终 run URL、job 摘要与 head SHA 在修复推送后写回这里。
+- PR #44 的 final full-validation run [30660805560](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30660805560) 在 HEAD `0cbb74cdff8a9d7cca3c6c20a7655ca94292b3d` **全部成功**（Performance 24m59s；Windows/macOS Rust quality；Windows/macOS release compile；NSIS；unsigned DMG；Dependency audit；Frontend/format；Windows/macOS quality gates）。该 run 是 bounded `threshold+1` probe 修复后的完整矩阵。
+- 本 closeout 的下一次文档提交会改变 HEAD；推送后必须再执行 full-validation，并把新的 final run URL/head SHA 保留为最终证据。
 - 交付保持 Draft PR、不开启 auto-merge；full CI 成功后停止，等待第二轮人工代码审查。
