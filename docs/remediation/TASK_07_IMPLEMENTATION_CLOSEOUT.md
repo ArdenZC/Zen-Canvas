@@ -5,7 +5,7 @@
 - Baseline HEAD: `42dce2ea2dbdfdf9b0c5616364f090a9a5d89761`.
 - Task 06 merge ancestor: `29e85c099c5ee921ad7d4237c780dc47126e0fa3`.
 - Implementation branch: `remediation/07-rule-proposal`.
-- Final HEAD: recorded after the atomic commits and push in the Draft PR.
+- Final implementation HEAD before this evidence-only closeout update: `7b73419e4350592f0ce2f2e8691370c162704430`.
 - Draft PR title: `feat: add natural-language rule proposals and approval`.
 - Schema: `32 → 33`.
 - Task 08: not started.
@@ -82,13 +82,13 @@ Rules UI includes Describe/Manual entry, provider/model disclosure, the exact pr
 - Schema 32→33 success, rollback, idempotence and future guard passed.
 - Backend execution regression proves disabled separation, enable CAS, SQLite loading and stale catalog rejection.
 - Exact impact compiler behavior covers every AST field/operator family and metadata-only no-mutation Apply.
-- Release Task 07 Proposal benchmark passed: canonical p95 0.005ms; proposal create/finalize p95 0.387ms; 1k rule list p95 4.108ms; 1k proposal first page p95 1.115ms; 100k simple exact 47.809ms; Apply p95 50.653ms; CRUD p95 ≤0.066ms; 1M deferred 118.541ms; 1M exact 501.485ms. Query plan used `idx_library_files_modified`; WAL reader remained readable during a proposal writer.
-- Release schema migration benchmarks passed: 100k rows 16.759ms and 1M rows 18.021ms; both size delta 0 and WAL reader row counts preserved.
-- Full remediation/performance scripts, build, security audit, local package and CI Windows/macOS evidence are recorded in the final PR/CI section below.
+- Release Task 07 Proposal benchmark passed: canonical p95 0.003ms; proposal create/finalize p95 0.482ms; 1k rule list p95 4.001ms; 1k proposal first page p95 0.846ms; 100k simple exact 50.143ms; Apply p95 54.929ms; CRUD p95 ≤0.073ms; 1M deferred 110.074ms; 1M exact 500.199ms. Query plan used `idx_library_files_modified`; WAL reader remained readable during a proposal writer.
+- Release schema migration benchmarks passed: 100k rows 17.237ms and 1M rows 16.398ms; both size delta 0 and WAL reader row counts preserved.
+- Full remediation/performance scripts, build, security audit, local package and CI Windows/macOS evidence are recorded below.
 
 ## 11. Platform, package and dependency evidence
 
-Windows Rust and NSIS are run locally where available. macOS Rust and unsigned DMG are not represented by local Windows output; the final evidence must cite the remote GitHub job/run and artifact separately. `package.json`, `package-lock.json`, `src-tauri/Cargo.toml` and `src-tauri/Cargo.lock` remain unchanged. No dependency or lockfile was added or modified.
+Windows Rust and NSIS are run locally where available. Local NSIS: `F:\CargoTarget\release\bundle\nsis\Zen Canvas_0.1.40_x64-setup.exe`, 6,883,407 bytes, SHA-256 `B7F000CB19978796EF486DDD01563F0D20FD0FD04E7F82432B8DE70C6A4397F9`. macOS Rust and unsigned DMG are evidenced by the remote jobs below. `package.json`, `package-lock.json`, `src-tauri/Cargo.toml` and `src-tauri/Cargo.lock` remain unchanged. No dependency or lockfile was added or modified.
 
 ## 12. Known risks and stop condition
 
@@ -99,4 +99,9 @@ Windows Rust and NSIS are run locally where available. macOS Rust and unsigned D
 
 ## 13. Final delivery evidence
 
-Final HEAD, commit list, local package/checksums, remote Windows/macOS Rust/package job IDs, artifact names, final GitHub CI run, Draft PR URL and clean-worktree status are filled after push. The PR remains Draft and is not merged.
+- Implementation commits: `fa6a057` (durable backend), `c19da74` (workspace/store), `f87c58a` (docs/contracts), `7b73419` (explicit macOS mutation-test guard).
+- PR CI `30619399326` completed successfully for `7b73419`; its PR-conditioned Package NSIS and Package unsigned DMG jobs were skipped.
+- Full `workflow_dispatch` CI `30619441431` completed successfully for `7b73419` (`https://github.com/ArdenZC/Zen-Canvas/actions/runs/30619441431`). Windows Rust `91120237801`, macOS Rust `91120237819`, Windows NSIS `91120237760`, macOS unsigned DMG `91120237815`, performance `91120237785`, Windows quality gate `91124571623`, macOS quality gate `91120858638`, release compiles `91120237742`/`91120237735`, and dependency audit `91120237790` all succeeded.
+- The CI package jobs do not upload installer artifacts; they prove real runner packaging success. The local NSIS artifact and checksum are recorded in section 11.
+- Draft PR #42: `https://github.com/ArdenZC/Zen-Canvas/pull/42`; it remains open and Draft. No merge, tag or release was created.
+- The evidence-only closeout commit follows the implementation HEAD above; the final repository HEAD is reported in the delivery message. The worktree is clean after that commit.
