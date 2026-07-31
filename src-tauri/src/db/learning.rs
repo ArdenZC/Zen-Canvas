@@ -48,6 +48,7 @@ struct ClassificationSnapshot {
 
 impl Database {
     pub fn confirm_classification_for_file(&self, file_id: &str) -> Result<(), DbError> {
+        let _catalog_guard = crate::db::catalog_execution_guard();
         let row = indexed_file_by_id(self, file_id)?;
         let source = classification_source(&row.matched_rules);
         let keywords = extract_learning_keywords(&row.name, &row.path, &row.extension);
@@ -75,6 +76,7 @@ impl Database {
         file_id: &str,
         correction: ClassificationCorrectionRequest,
     ) -> Result<(), DbError> {
+        let _catalog_guard = crate::db::catalog_execution_guard();
         let row = indexed_file_by_id(self, file_id)?;
         let correction = sanitize_correction(correction)?;
         let app_settings = crate::settings::get_app_settings(self)?;
@@ -482,6 +484,10 @@ fn insert_learned_rule(conn: &rusqlite::Transaction<'_>, rule: &Rule) -> Result<
             rule.updated_at
         ],
     )?;
+    // Learned insert/update/enable is an effective rule-catalog mutation. Keep
+    // the catalog revision in the same transaction so an execution snapshot
+    // cannot validate one ruleset and run another.
+    crate::db::queries::rules_repo::bump_catalog_revision_unconditional(conn)?;
     Ok(())
 }
 

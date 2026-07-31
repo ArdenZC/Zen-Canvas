@@ -61,12 +61,12 @@
 
 | ID | 风险 | 等级 | Task 08 强制解决方案 | 状态 |
 |---|---|---|---|---|
-| R-143 | 同一 catalog revision 对应不同 effective ruleset | Critical | learned rule 与影响 ruleset 的 settings/policy 统一进入 catalog/classification authority | Task 08 第一组 |
-| R-144 | manual rule execution 在 catalog/rules/scope 间 TOCTOU | Critical | 单一 backend execution snapshot，绑定 catalog/settings/rules/scope/root/library | Task 08 第一组 |
-| R-145 | impact predicate match 被误当真实 engine 结果 | Critical | 复用 classification simulation；preview/execution differential tests | Task 08 第一组 |
-| R-146 | Proposal UI 缺 before/after/risk/scope/conflict completeness | High | 完整审核事实和 accessibility tests | Task 08 第一组 |
-| R-147 | manual edit 后 AI summary/provenance 冒充当前 candidate | High | candidate origin、summary invalidation、preview invalidation | Task 08 第一组 |
-| R-148 | dangerous prompt 依赖模型主动映射才 deny | Critical | backend-owned multilingual forbidden-intent gate | Task 08 第一组 |
+| R-143 | 同一 catalog revision 对应不同 effective ruleset | Critical | learned rule 与影响 ruleset 的 settings/policy 统一进入 catalog/classification authority | 已关闭，持续回归 |
+| R-144 | manual rule execution 在 catalog/rules/scope 间 TOCTOU | Critical | 单一 backend execution snapshot，绑定 catalog/settings/rules/scope/root/library | 已关闭，持续回归 |
+| R-145 | impact predicate match 被误当真实 engine 结果 | Critical | 复用 classification simulation；preview/execution differential tests | 已关闭，持续回归 |
+| R-146 | Proposal UI 缺 before/after/risk/scope/conflict completeness | High | 完整审核事实和 accessibility tests | 已关闭，持续回归 |
+| R-147 | manual edit 后 AI summary/provenance 冒充当前 candidate | High | candidate origin、summary invalidation、preview invalidation | 已关闭，持续回归 |
+| R-148 | dangerous prompt 依赖模型主动映射才 deny | Critical | backend-owned multilingual forbidden-intent gate | 已关闭，持续回归 |
 
 六项不得再次后移。关闭后继续完整 Task 08 Content Artifact 模块。
 
@@ -74,36 +74,36 @@
 
 | ID | 风险 | 等级 | 阻断/验收条件 | 状态 |
 |---|---|---|---|---|
-| R-149 | 未经同意读取正文 | Critical | policy 默认 disabled；preview + confirmed；negative read instrumentation | 当前门禁 |
-| R-150 | renderer arbitrary path/file list 成为内容读取 authority | Critical | durable managed scope/selection IDs only；backend materialization | 当前门禁 |
-| R-151 | unhealthy/disabled/reconciliation root 仍读取内容 | Critical | root/policy/library revisions + health revalidation | 当前门禁 |
-| R-152 | Content Artifact 未绑定 source identity 而冒充 current | Critical | file/root/size/mtime/hash/extractor/policy/provider fingerprint | 当前门禁 |
-| R-153 | 旧 artifact 在 source 变化后继续展示为 current | Critical | watcher/scanner invalidation、stale state、atomic rebuild | 当前门禁 |
-| R-154 | raw extracted text 默认持久化 | Critical | default `none`；显式 policy、容量/时间上限、purge tests | 当前门禁 |
-| R-155 | FTS 删除后仍保留正文 tokens | Critical | artifact/text/FTS child-first atomic delete/purge | 当前门禁 |
-| R-156 | cloud provider 静默收到正文 | Critical | 每次 run 单独确认、exact chars disclosure、payload inspection | 当前门禁 |
-| R-157 | cloud payload 泄露 path/filename/tags/secrets | Critical | fixed DTO 只含 bounded text；redaction/negative tests | 当前门禁 |
-| R-158 | Sensitive/System/blocked 文件发送 cloud | Critical | backend risk gate，fail closed | 当前门禁 |
-| R-159 | raw provider response/trace 被当 artifact | High | strict envelope；raw response 不持久化；trace bounded | 当前门禁 |
+| R-149 | 未经同意读取正文 | Critical | policy 默认 disabled；preview + confirmed；negative read instrumentation | 已关闭，持续回归 |
+| R-150 | renderer arbitrary path/file list 成为内容读取 authority | Critical | durable managed scope/selection IDs only；backend materialization | 已关闭，持续回归 |
+| R-151 | unhealthy/disabled/reconciliation root 仍读取内容 | Critical | root/policy/library revisions + health revalidation | 已关闭，持续回归 |
+| R-152 | Content Artifact 未绑定 source identity 而冒充 current | Critical | file/root/size/mtime/hash/extractor/policy/provider fingerprint | 已关闭，持续回归 |
+| R-153 | 旧 artifact 在 source 变化后继续展示为 current | Critical | watcher/scanner invalidation、stale state、atomic rebuild | 已关闭，持续回归 |
+| R-154 | raw extracted text 默认持久化 | Critical | default `none`；显式 policy、容量/时间上限、purge tests | 已关闭，持续回归 |
+| R-155 | FTS 删除后仍保留正文 tokens | Critical | artifact/text/FTS child-first atomic delete/purge | 已关闭，持续回归 |
+| R-156 | cloud provider 静默收到正文 | Critical | 每次 run 单独确认、exact chars disclosure、payload inspection | 已关闭，持续回归 |
+| R-157 | cloud payload 泄露 path/filename/tags/secrets | Critical | fixed DTO 只含 bounded text；redaction/negative tests | 已关闭，持续回归 |
+| R-158 | Sensitive/System/blocked 文件发送 cloud | Critical | backend risk gate，fail closed | 已关闭，持续回归 |
+| R-159 | raw provider response/trace 被当 artifact | High | strict envelope；raw response 不持久化；trace bounded | 已关闭，持续回归 |
 | R-160 | 新建第二 durable AI queue | High | provider understanding 使用现有交互 client + bounded owner | 持续阻断 |
 | R-161 | Content run 被泛化为通用 Job Runtime | High | typed extract/understand/rebuild/purge domain only | 持续阻断 |
-| R-162 | extractor zip/PDF bomb 导致 OOM/DoS | Critical | entry/ratio/decompressed/page/chars/time/memory budgets | 当前门禁 |
-| R-163 | extractor 跟随 symlink 或读取 scope 外文件 | Critical | regular managed file identity revalidation；no traversal | 当前门禁 |
-| R-164 | malformed/encoding 文件 panic 或 silent truncation | High | stable status/error/truncated semantics，real fixtures | 当前门禁 |
+| R-162 | extractor zip/PDF bomb 导致 OOM/DoS | Critical | entry/ratio/decompressed/page/chars/time/memory budgets | 已关闭，持续回归 |
+| R-163 | extractor 跟随 symlink 或读取 scope 外文件 | Critical | regular managed file identity revalidation；no traversal | 已关闭，持续回归 |
+| R-164 | malformed/encoding 文件 panic 或 silent truncation | High | stable status/error/truncated semantics，real fixtures | 已关闭，持续回归 |
 | R-165 | legacy Office/OCR/external runtime 偷渡 | High | fixed registry；unsupported；dependency/path review | 持续阻断 |
 | R-166 | 隐式下载模型或外部 executable | Critical | no Python/Conda/Tesseract/Nexa/sidecar；package tests | 持续阻断 |
 | R-167 | Content Search 扩散到 Global Search | High | managed content FTS only；separate revision/cursor | 持续阻断 |
-| R-168 | Content Search 使用 OFFSET 或 loaded-page totals | High | keyset + backend summary + revision snapshot | 当前门禁 |
+| R-168 | Content Search 使用 OFFSET 或 loaded-page totals | High | keyset + backend summary + revision snapshot | 已关闭，持续回归 |
 | R-169 | Content Artifact 成为 Rule/Plan/mutation authority | Critical | no Rule AST content field；no operation command path | 持续阻断 |
-| R-170 | 删除 artifact 误删源文件 | Critical | delete/purge SQL-only content facts；source identity assertions | 当前门禁 |
-| R-171 | run materialization 超上限部分提交 | High | 10k preflight + staged atomic publication | 当前门禁 |
-| R-172 | crash/restart 重复 provider 或 extractor work | High | run/item owner/revision/recovery；completed no replay | 当前门禁 |
-| R-173 | active run 被 retention 删除 | High | active states excluded；child-first bounded prune | 当前门禁 |
-| R-174 | retention 错用 age AND count | Medium | age UNION count overflow、dedup、每批 20 | 当前门禁 |
-| R-175 | main DB 被 extraction/FTS 长事务阻塞 | High | short publication transactions、WAL reader benchmark | 当前门禁 |
-| R-176 | 依赖许可证/漏洞/package size 失控 | High | fixed versions、license inventory、RustSec、size delta | 当前门禁 |
-| R-177 | browser mock 冒充真实读取/provider/持久化 | High | explicit mock labels、negative capability tests | 当前门禁 |
-| R-178 | Search window 获得内容命令 | Critical | main-window-only capability matrix | 当前门禁 |
+| R-170 | 删除 artifact 误删源文件 | Critical | delete/purge SQL-only content facts；source identity assertions | 已关闭，持续回归 |
+| R-171 | run materialization 超上限部分提交 | High | 10k preflight + staged atomic publication | 已关闭，持续回归 |
+| R-172 | crash/restart 重复 provider 或 extractor work | High | run/item owner/revision/recovery；completed no replay | 已关闭，持续回归 |
+| R-173 | active run 被 retention 删除 | High | active states excluded；child-first bounded prune | 已关闭，持续回归 |
+| R-174 | retention 错用 age AND count | Medium | age UNION count overflow、dedup、每批 20 | 已关闭，持续回归 |
+| R-175 | main DB 被 extraction/FTS 长事务阻塞 | High | short publication transactions、WAL reader benchmark | 已关闭，持续回归 |
+| R-176 | 依赖许可证/漏洞/package size 失控 | High | fixed versions、license inventory、RustSec、size delta | 已关闭，持续回归 |
+| R-177 | browser mock 冒充真实读取/provider/持久化 | High | explicit mock labels、negative capability tests | 已关闭，持续回归 |
+| R-178 | Search window 获得内容命令 | Critical | main-window-only capability matrix | 已关闭，持续回归 |
 | R-179 | Local-File-Organizer 源码/CLI/prompt 移植 | High | fixed SHA/MIT inventory；principle-only independent implementation | 许可证门禁 |
 | R-180 | 自行建设 Task 09/OCR/RAG/Agent | Critical | Task 08 non-goals、PR scope tests、人工授权 | 持续阻断 |
 

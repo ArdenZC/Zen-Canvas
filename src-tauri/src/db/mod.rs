@@ -32,8 +32,10 @@ pub use queries::dedupe::{
     StartDedupeRunRequest,
 };
 pub use queries::library::*;
+pub(crate) use queries::library::{current_library_revision, resolve_scope};
 pub use queries::organization::*;
 pub use queries::rule_proposals::*;
+pub(crate) use queries::rules_repo::bump_catalog_revision_unconditional;
 pub use queries::rules_repo::*;
 pub use queries::scan;
 pub(crate) use queries::{

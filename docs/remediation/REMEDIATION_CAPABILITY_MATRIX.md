@@ -23,26 +23,26 @@
 | File Library Query V2 | 完整存在 | `db/queries/library.rs`；Vault stores | scope/revision/keyset/selection/tags/Saved Views | content source materialization 复用 |
 | Cross-page authoritative selection | 完整存在 | explicit TEMP set、all_matching contract | 100k boundary | content preview/run 只接受 durable selection |
 | Deferred exact count | 完整存在 | File Library count token/resolver | exact 另行解析，不估算 | content preview 复用 truthfulness 原则 |
-| Content scope consent policy | Task 08 授权建设 | 当前不存在 | 默认关闭、root/policy revision、local/cloud/raw-text flags | schema34 `content_scope_policies` |
-| Durable Content Run | Task 08 授权建设 | 当前不存在 | typed extract/understand/rebuild/purge；不是通用 runtime | schema34 run/item ledger，上限10k |
-| Fixed content extractor registry | Task 08 授权建设 | 当前无正文读取器 | typed/versioned/bounded；无插件脚本或外部 executable | txt/md/csv、PDF text、docx/xlsx/pptx |
+| Content scope consent policy | 完整存在 | `content_scope_policies` | 默认关闭、root/policy revision、local/cloud/raw-text flags | schema34 `content_scope_policies` |
+| Durable Content Run | 完整存在 | `content_runs`/`content_run_items` | typed extract/understand/rebuild/purge；不是通用 runtime | schema34 run/item ledger，上限10k |
+| Fixed content extractor registry | 完整存在 | `content.rs` | typed/versioned/bounded；无插件脚本或外部 executable | txt/md/csv、PDF text、docx/xlsx/pptx |
 | OCR/Image VLM extractor | 不应建设 | 当前不存在 | 引入大 runtime、跨平台/package/privacy 风险 | Task 08 明确 unsupported |
-| Content Artifact | Task 08 授权建设 | 当前 schema 无 artifact ledger | identity-bound、current/stale、summary/keywords、default no raw text | schema34 `content_artifacts` |
-| Retained extracted text | 部分存在，可扩展（Task 08） | 当前不存在 | 默认 none；显式 policy、容量/时间上限、purge | 可选 nullable bounded text，不是默认 |
-| Managed Content FTS | Task 08 授权建设 | 当前不存在 | summary/keywords/optional retained text；不含 path | schema34，File Library only |
+| Content Artifact | 完整存在 | `content_artifacts` | identity-bound、current/stale、summary/keywords、default no raw text | schema34 `content_artifacts` |
+| Retained extracted text | 部分存在，可扩展（Task 08） | `content_artifacts.raw_text` | 默认 none；显式 policy、容量/时间上限、purge | 可选 nullable bounded text，不是默认 |
+| Managed Content FTS | 完整存在 | `content_artifact_fts` | summary/keywords/optional retained text；不含 path | schema34，File Library only |
 | Global content search | 与现有架构冲突 | Global Search 独立 authority | join Content Artifact 会污染 completeness/permission | 不建设 |
 | Vector database / embeddings store | 不应建设 | 当前不存在 | 过度架构、模型/隐私/迁移成本 | Task 08 禁止 |
 | RAG/chat over files | 不应建设 | 当前不存在 | 会扩大为通用知识库/Agent | Task 08 禁止 |
 | AI trace diagnostics | 完整存在 | `ai/trace.rs` | ring buffer、redaction/truncation；非业务事实 | content raw response 不持久化 |
 | Structured Rule AST V1 | 完整存在 | Rust Rule types、validator、classification engine、manual builder | metadata-only fixed DSL | Task 08 不加 content fields/AST V2 |
 | Rule repository revision CAS | 完整存在 | schema33 Rule Repository V2 | Create/Update/Toggle/Delete 分离 | Task 08 第一组修 effective catalog |
-| Rule catalog authority | 部分存在，可扩展 | `rule_catalog_state`；backend adapters | learned/settings 变化未完全进入 authority | Task 08 第一组强制修复 |
-| Backend-authoritative Rule execution | 部分存在，可扩展 | `execute_rules_for_scope_v2` | catalog/rules/scope snapshot 需消除 TOCTOU | Task 08 第一组强制修复 |
+| Rule catalog authority | 完整存在 | `rule_catalog_state`；backend adapters | learned/settings/user CRUD/toggle 共用 authority gate | Task 08 第一组已关闭 |
+| Backend-authoritative Rule execution | 完整存在 | `execute_rules_for_scope_v2` | catalog/rules/scope/root snapshot 与 process-local mutation gate | Task 08 第一组已关闭 |
 | Durable NL Rule Proposal | 完整存在 | schema33 `rule_proposals` | lifecycle/recovery/retention | Task 08 保持 |
-| Rule proposal canonical validator | 部分存在，可扩展 | strict envelope、grounding、permission codes | 原 prompt forbidden intent 需 backend gate | Task 08 第一组强制修复 |
-| Rule impact preview | 部分存在，可扩展 | predicate/compiler、scope token | 需与真实 classification engine differential equivalence | Task 08 第一组强制修复 |
+| Rule proposal canonical validator | 完整存在 | strict envelope、grounding、permission codes、original-prompt gate | backend-owned forbidden intent | Task 08 第一组已关闭 |
+| Rule impact preview | 完整存在 | predicate/compiler、scope token、classification simulation | before/after differential engine semantics | Task 08 第一组已关闭 |
 | Human proposal Apply | 完整存在 | proposal applying/applied + user rule/catalog CAS | default disabled、不修改 files | Task 08 保持 |
-| Proposal review UI | 部分存在，可扩展 | RuleProposalWorkspace | 缺完整 before/after/risk/scope/conflict completeness；manual provenance | Task 08 第一组强制修复 |
+| Proposal review UI | 完整存在 | RuleProposalWorkspace | before/after/risk/scope/conflict completeness；manual provenance | Task 08 第一组已关闭 |
 | Natural-language Agent runtime | 不应建设 | 无 tool/task/session runtime | 与产品边界、权限和安全模型冲突 | 永久禁止 |
 | Generic tool permission registry | 不应建设 | Tauri capability 已是命令边界 | shell/MCP/tool allow-list 会扩大产品为 Agent | 永久禁止 |
 | Script/SQL/shell Rule language | 不应建设 | typed Rule AST | 任意执行不可安全预览 | 永久禁止 |
@@ -50,10 +50,10 @@
 | Command Registry | 部分存在，可扩展 | Spotlight command metadata | 不是 Agent tool registry | 不扩展为 tools |
 | Durable reconciliation framework | 不存在 | 各域独立 recovery | 跨域万能框架会抹平领域语义 | 不建设 |
 | Python/Conda/Tesseract/Nexa runtime | 不应建设 | 当前应用无该 runtime | package、security、cross-platform、download 风险 | Task 08 禁止 |
-| Pure Rust fixed-format parsers | Task 08 授权建设 | 当前不存在 | 最小依赖、license/RustSec/package-size 证据 | 仅固定 extractor registry |
-| Content delete/purge | Task 08 授权建设 | 当前不存在 | 只删 artifact/run/FTS，不删源文件 | main-window、IDs、revision、confirmed |
-| Content watcher invalidation | Task 08 授权建设 | watcher 已有 managed owner | 只标 stale/触发已同意 local extraction；不发 cloud | 复用 watcher，不改 scan ownership |
-| Browser content mock | Task 08 授权建设 | 当前无 content mock | deterministic fixture，不读文件、不调 provider、不持久化 | 明确 mock 标签和权限否定测试 |
+| Pure Rust fixed-format parsers | 完整存在 | `content.rs` + zip | 最小依赖、license/RustSec/package-size 证据 | 仅固定 extractor registry |
+| Content delete/purge | 完整存在 | `content.rs` | 只删 artifact/run/FTS，不删源文件 | main-window、IDs、revision、confirmed |
+| Content watcher invalidation | 完整存在 | artifact stale trigger + managed owner | 只标 stale/触发已同意 local extraction；不发 cloud | 复用 watcher，不改 scan ownership |
+| Browser content mock | 完整存在 | `browserMockApi.ts` | deterministic fixture，不读文件、不调 provider、不持久化 | 明确 mock 标签和权限否定测试 |
 
 ## 结论
 

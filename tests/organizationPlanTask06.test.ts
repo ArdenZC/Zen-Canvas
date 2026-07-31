@@ -11,7 +11,7 @@ describe("Task 06 durable Organization Plan contracts", () => {
       schema.indexOf("fn ensure_organization_plan_schema"),
       schema.indexOf("fn ensure_journal_state_triggers")
     );
-    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 33");
+    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 34");
     expect(section).toContain("CREATE TABLE IF NOT EXISTS organization_plans");
     expect(section).toContain("CREATE TABLE IF NOT EXISTS organization_plan_items");
     expect(section).toContain("ALTER TABLE user_tags ADD COLUMN revision");

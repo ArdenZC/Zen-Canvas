@@ -8,7 +8,7 @@ fn schema_30_creates_analysis_ledger_without_fabricated_history() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("schema version");
-    assert_eq!(version, 33);
+    assert_eq!(version, 34);
     for table in [
         "dedupe_authority_state",
         "analysis_runs",
@@ -54,6 +54,160 @@ fn schema_30_creates_analysis_ledger_without_fabricated_history() {
     drop(conn);
     drop(db);
     Database::open(&path).expect("schema 30 reopen is idempotent");
+}
+
+#[test]
+fn schema_33_to_34_creates_content_ledger_without_rewriting_core_tables() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open current database");
+    db.insert_file(InsertFileRequest {
+        id: "schema-34-stable-file".into(),
+        path: "/tmp/schema-34-stable-file.txt".into(),
+        name: "schema-34-stable-file.txt".into(),
+        extension: "txt".into(),
+        size: 7,
+        mtime: 11,
+        ctime: 11,
+        is_dir: false,
+        state_code: 0,
+    })
+    .expect("seed stable file");
+    let conn = db.conn().expect("open database connection");
+    let files_sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE type='table' AND name='files'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("files schema");
+    let journal_sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE type='table' AND name='operation_logs'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("journal schema");
+    drop(conn);
+    drop(db);
+
+    let conn = Connection::open(&path).expect("open schema 33 fixture");
+    conn.execute_batch(
+        r#"
+        DROP TRIGGER IF EXISTS content_artifacts_file_changed;
+        DROP TABLE content_artifact_fts;
+        DROP TABLE content_artifacts;
+        DROP TABLE content_run_items;
+        DROP TABLE content_runs;
+        DROP TABLE content_scope_policies;
+        PRAGMA user_version = 33;
+        "#,
+    )
+    .expect("construct schema 33 fixture");
+    drop(conn);
+
+    let migrated = Database::open(&path).expect("migrate schema 33 to 34");
+    let conn = migrated.conn().expect("inspect schema 34");
+    assert_eq!(
+        conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .expect("schema version"),
+        34
+    );
+    for table in [
+        "content_scope_policies",
+        "content_runs",
+        "content_run_items",
+        "content_artifacts",
+        "content_artifact_fts",
+    ] {
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM sqlite_schema WHERE name=?1",
+                params![table],
+                |row| row.get::<_, i64>(0),
+            )
+            .expect("content table lookup"),
+            1,
+            "missing content table {table}"
+        );
+    }
+    assert_eq!(
+        conn.query_row(
+            "SELECT id FROM files WHERE id='schema-34-stable-file'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("stable file id"),
+        "schema-34-stable-file"
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT sql FROM sqlite_schema WHERE type='table' AND name='files'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("files schema after"),
+        files_sql
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT sql FROM sqlite_schema WHERE type='table' AND name='operation_logs'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("journal schema after"),
+        journal_sql
+    );
+    drop(conn);
+    drop(migrated);
+    Database::open(&path).expect("schema 34 reopen is idempotent");
+}
+
+#[test]
+fn schema_33_to_34_conflict_rolls_back_content_ledger_atomically() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open current database");
+    drop(db);
+    let conn = Connection::open(&path).expect("open schema 33 conflict fixture");
+    conn.execute_batch(
+        r#"
+        DROP TRIGGER IF EXISTS content_artifacts_file_changed;
+        DROP TABLE content_artifact_fts;
+        DROP TABLE content_artifacts;
+        DROP TABLE content_run_items;
+        DROP TABLE content_runs;
+        DROP TABLE content_scope_policies;
+        CREATE TABLE content_runs (id TEXT PRIMARY KEY, wrong TEXT);
+        PRAGMA user_version = 33;
+        "#,
+    )
+    .expect("construct conflicting schema 33 fixture");
+    drop(conn);
+
+    let error = match Database::open(&path) {
+        Ok(_) => panic!("schema 34 migration must reject the conflicting content table"),
+        Err(error) => error,
+    };
+    assert!(
+        error.to_string().contains("content_runs")
+            || error.to_string().contains("no such column")
+            || error.to_string().contains("schema_conflict"),
+        "unexpected migration error: {error}"
+    );
+    let conn = Connection::open(&path).expect("inspect rolled back content fixture");
+    assert_eq!(
+        conn.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .expect("rolled back schema version"),
+        33
+    );
+    assert_eq!(
+        conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name IN ('content_scope_policies','content_run_items','content_artifacts')",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .expect("no partial content tables"),
+        0
+    );
 }
 
 #[test]

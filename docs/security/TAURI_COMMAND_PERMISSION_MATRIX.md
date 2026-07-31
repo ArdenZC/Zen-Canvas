@@ -62,6 +62,20 @@
 | `confirm_classification` | `main_state_mutation` | main | Persist user confirmation | default | yes | command permission contract |
 | `correct_classification` | `main_state_mutation` | main | Persist user correction | default | yes | command permission contract |
 | `execute_rules_for_scope_v2` | `main_state_mutation` | main | Load enabled rules from SQLite and update classification/suggestion metadata in a durable-ID scope | default | yes | backend-authoritative execution tests |
+| `get_content_scope_policy` | `read_only` | main | Read the consent policy for one durable File Library root | default | yes | content policy/CAS tests |
+| `set_content_scope_policy` | `main_state_mutation` | main | Change one root's content consent and invalidate its artifacts under policy CAS | default | yes | content policy/CAS tests |
+| `preview_content` | `read_only` | main | Build a bounded, backend-authoritative content preview from durable scope/selection IDs | default | yes | content preview/privacy tests |
+| `start_content_run` | `main_state_mutation` | main | Confirm and materialize a bounded local extraction run; source files remain unchanged | default | yes | content run/identity tests |
+| `get_content_run` | `read_only` | main | Read one durable content run by opaque ID | default | yes | content lifecycle tests |
+| `list_content_runs` | `read_only` | main | List bounded content run projections | default | yes | content paging tests |
+| `cancel_content_run` | `main_state_mutation` | main | Request content run cancellation under run revision CAS | default | yes | content cancellation tests |
+| `query_content_run_items` | `read_only` | main | Read content run items with an ordinal keyset cursor | default | yes | content item cursor tests |
+| `get_content_artifact` | `read_only` | main | Read bounded content facts by durable file ID | default | yes | artifact identity/privacy tests |
+| `query_content_artifacts` | `read_only` | main | Search current managed Content Artifacts with scope IDs and keyset cursor | default | yes | managed content FTS tests |
+| `rebuild_content_artifact` | `main_state_mutation` | main | Confirm and rebuild one identity-bound artifact | default | yes | rebuild/stale tests |
+| `delete_content_artifact` | `main_state_mutation` | main | Confirmed SQL-only deletion of one artifact/FTS fact, never its source file | default | yes | delete safety tests |
+| `purge_content_scope` | `main_state_mutation` | main | Confirmed deletion of content facts/runs for a durable managed scope | default | yes | purge/source safety tests |
+| `understand_content_artifacts` | `main_state_mutation` | main | Confirmed, sequential provider understanding for at most 20 current artifacts; payload is bounded text only | default | yes | provider privacy/envelope tests |
 | `create_rule_proposal` | `main_state_mutation` | main | Persist a draft, claim one interactive generation owner and store only validated canonical output | default | yes | proposal lifecycle/AI boundary tests |
 | `regenerate_rule_proposal` | `main_state_mutation` | main | Regenerate an eligible proposal under revision/target CAS | default | yes | owner/cancel/latest-wins tests |
 | `get_rule_proposal` | `read_only` | main | Read one durable proposal by opaque ID | default | yes | lifecycle and Search denial tests |

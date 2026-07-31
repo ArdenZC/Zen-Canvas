@@ -60,6 +60,18 @@ const copy = {
     noCandidate: "The model needs clarification before it can produce a candidate.",
     samples: "Bounded metadata sample",
     conflicts: "Potential enabled-rule conflicts",
+    risk: "Risk",
+    confirmation: "Confirmation",
+    broadMatch: "Broad match",
+    scopeHealth: "Scope health",
+    permissionClass: "Permission",
+    conflictState: "Conflict analysis",
+    complete: "complete",
+    boundedSample: "bounded sample",
+    yes: "yes",
+    no: "no",
+    manualCandidate: "Manually edited candidate; the prior AI summary was cleared.",
+    beforeAfter: "Before → after classification",
     validation: "Backend validation",
     generating: "Generating with the configured provider…",
     mock: "Browser preview uses a deterministic mock and is not real AI or native persistence."
@@ -94,6 +106,18 @@ const copy = {
     noCandidate: "模型需要澄清，尚未形成候选规则。",
     samples: "有界元数据样本",
     conflicts: "潜在的已启用规则冲突",
+    risk: "风险",
+    confirmation: "需要确认",
+    broadMatch: "广泛匹配",
+    scopeHealth: "范围健康度",
+    permissionClass: "权限",
+    conflictState: "冲突分析",
+    complete: "完整",
+    boundedSample: "有界样本",
+    yes: "是",
+    no: "否",
+    manualCandidate: "候选规则已手动编辑；原 AI 摘要已清除。",
+    beforeAfter: "分类前 → 分类后",
     validation: "后端权威校验",
     generating: "正在使用已配置 provider 生成…",
     mock: "浏览器预览使用明确标记的确定性 mock，不代表真实 AI 或原生持久化。"
@@ -311,13 +335,14 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
                     <h3 className="font-semibold">{active.candidate?.name ?? active.prompt}</h3>
                   </div>
                   <p className={cn(mutedText, "mt-1 text-xs")}>
-                    {active.providerPreset ?? "manual"} · {active.model ?? "—"} · {active.validation.permissionClass}
+                    {active.providerPreset ?? "manual"} · {active.model ?? "—"} · {active.candidateOrigin === "manual" ? text.manualCandidate : active.candidateOrigin ?? "provider"} · {active.validation.permissionClass}
                   </p>
                 </div>
                 <span className="rounded-full border border-[var(--zc-divider)] px-2 py-1 text-xs">{active.status}</span>
               </div>
 
               {active.summary && <p className="whitespace-pre-wrap text-sm">{active.summary}</p>}
+              {active.candidateOrigin === "manual" && <p className="rounded-lg bg-[var(--zc-warning-soft)] p-3 text-sm text-[var(--zc-warning-text)]">{text.manualCandidate}</p>}
               {active.status === "applied" && (
                 <p className="rounded-lg bg-[var(--zc-success-soft)] p-3 text-sm text-[var(--zc-success-text)]">{text.applied}</p>
               )}
@@ -361,15 +386,24 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
                     </strong>
                     <span className="text-xs">{impact.impactState}</span>
                   </div>
+                  <dl className="grid gap-1 text-xs text-[var(--zc-text-secondary)] sm:grid-cols-2">
+                    <div><dt className="font-semibold">{text.scopeHealth}</dt><dd>{impact.scopeHealth.state}</dd></div>
+                    <div><dt className="font-semibold">{text.permissionClass}</dt><dd>{impact.permissionClass}</dd></div>
+                    <div><dt className="font-semibold">{text.risk}</dt><dd>{impact.riskSummary.length ? impact.riskSummary.join(" · ") : text.no}</dd></div>
+                    <div><dt className="font-semibold">{text.confirmation}</dt><dd>{impact.requiresConfirmation ? text.yes : text.no}</dd></div>
+                    <div><dt className="font-semibold">{text.broadMatch}</dt><dd>{impact.broadMatch ? text.yes : text.no}</dd></div>
+                    <div><dt className="font-semibold">{text.conflictState}</dt><dd>{impact.conflictAnalysisState === "complete_candidate_list" ? text.complete : text.boundedSample}</dd></div>
+                  </dl>
                   {impact.impactState === "deferred" && <p className={mutedText}>{text.deferred}</p>}
                   {impact.sampleRows.length > 0 && (
                     <div>
                       <p className="mb-1 text-xs font-semibold">{text.samples} (≤20)</p>
                       <ul className="grid max-h-40 gap-1 overflow-auto text-xs">
                         {impact.sampleRows.map((sample) => (
-                          <li key={sample.fileId} className="flex justify-between gap-3 rounded bg-[var(--zc-panel)] px-2 py-1">
-                            <span className="truncate">{sample.name}</span>
-                            <span className="shrink-0 tabular-nums">{sample.size.toLocaleString()} B</span>
+                          <li key={sample.fileId} className="grid gap-1 rounded bg-[var(--zc-panel)] px-2 py-1">
+                            <span className="flex justify-between gap-3"><span className="truncate">{sample.name}</span><span className="shrink-0 tabular-nums">{sample.size.toLocaleString()} B</span></span>
+                            <span className="break-words text-[var(--muted)]">{sample.beforeAction} → {sample.afterAction ?? "—"} · {sample.beforePurpose ?? "—"} → {sample.afterPurpose ?? "—"} · winner {sample.beforeWinnerRule ?? "—"} → {sample.afterWinnerRule ?? "—"} · runner {sample.beforeRunnerRule ?? "—"} → {sample.afterRunnerRule ?? "—"}</span>
+                            {sample.afterReason ? <span className="break-words text-[var(--muted)]">{sample.beforeReason ?? "—"} → {sample.afterReason}</span> : null}
                           </li>
                         ))}
                       </ul>

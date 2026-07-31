@@ -373,6 +373,15 @@ fn persist_ai_settings_without_secret(db: &Database, settings: &AISettings) -> R
         "#,
         params![AI_SETTINGS_KEY, settings_json],
     )?;
+    // Provider/model/prompt policy changes invalidate provider-derived content
+    // facts without deleting the deterministic local extraction. The next
+    // explicit, consented understanding run may publish a new current fact.
+    conn.execute(
+        "UPDATE content_artifacts
+         SET status='stale', revision=revision+1, updated_at=unixepoch()
+         WHERE status='current' AND provider_kind IS NOT NULL",
+        [],
+    )?;
     Ok(())
 }
 

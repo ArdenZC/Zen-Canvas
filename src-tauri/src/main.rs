@@ -34,6 +34,10 @@ fn main() {
             let db = open_database(app.handle()).map_err(io::Error::other)?;
             db.recover_dedupe_runs().map_err(io::Error::other)?;
             db.recover_analysis_runs().map_err(io::Error::other)?;
+            db.recover_content_runs().map_err(io::Error::other)?;
+            if let Err(error) = db.prune_content_artifacts() {
+                eprintln!("Content retention prune skipped: {error}");
+            }
             if let Err(error) = db.prune_analysis_artifacts() {
                 eprintln!("Analysis retention prune skipped: {error}");
             }
@@ -185,6 +189,20 @@ fn main() {
             zen_canvas_tauri::db::confirm_classification,
             zen_canvas_tauri::db::correct_classification,
             zen_canvas_tauri::db::execute_rules_for_scope_v2,
+            zen_canvas_tauri::content::get_content_scope_policy,
+            zen_canvas_tauri::content::set_content_scope_policy,
+            zen_canvas_tauri::content::preview_content,
+            zen_canvas_tauri::content::start_content_run,
+            zen_canvas_tauri::content::get_content_run,
+            zen_canvas_tauri::content::list_content_runs,
+            zen_canvas_tauri::content::cancel_content_run,
+            zen_canvas_tauri::content::query_content_run_items,
+            zen_canvas_tauri::content::get_content_artifact,
+            zen_canvas_tauri::content::query_content_artifacts,
+            zen_canvas_tauri::content::rebuild_content_artifact,
+            zen_canvas_tauri::content::delete_content_artifact,
+            zen_canvas_tauri::content::purge_content_scope,
+            zen_canvas_tauri::content::understand_content_artifacts,
             zen_canvas_tauri::rule_proposals::create_rule_proposal,
             zen_canvas_tauri::rule_proposals::regenerate_rule_proposal,
             zen_canvas_tauri::rule_proposals::get_rule_proposal,

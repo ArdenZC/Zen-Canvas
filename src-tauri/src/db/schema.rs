@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 33;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 34;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -52,6 +52,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         ensure_file_library_schema(conn)?;
         ensure_organization_plan_schema(conn)?;
         ensure_rule_proposal_schema(conn)?;
+        ensure_content_schema(conn)?;
         backfill_scan_roots_from_settings(conn)?;
         return Ok(());
     }
@@ -714,6 +715,10 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         if version < 33 {
             ensure_rule_proposal_schema(conn)?;
             set_schema_version(conn, 33)?;
+        }
+        if version < 34 {
+            ensure_content_schema(conn)?;
+            set_schema_version(conn, 34)?;
         }
         Ok(())
     })();
@@ -1975,6 +1980,263 @@ fn ensure_rule_proposal_schema(conn: &Connection) -> Result<(), DbError> {
             "rule_catalog_schema_conflict".to_string(),
         ));
     }
+    Ok(())
+}
+
+/// Task 08 consent-bound local content understanding. These are additive
+/// side tables: the existing `files`, operation journal, rule, plan, and
+/// analysis authorities remain untouched. Content rows bind every artifact to
+/// a durable file identity, source fingerprint, extractor/policy revision and
+/// bounded provenance.
+fn ensure_content_schema(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS content_scope_policies (
+            scan_root_id TEXT PRIMARY KEY REFERENCES scan_roots(id) ON DELETE CASCADE,
+            enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+            extractor_families_json TEXT NOT NULL DEFAULT '["txt","md","csv","pdf_text","docx","xlsx","pptx"]',
+            max_bytes INTEGER NOT NULL DEFAULT 8388608 CHECK (max_bytes BETWEEN 1024 AND 67108864),
+            max_chars INTEGER NOT NULL DEFAULT 32768 CHECK (max_chars BETWEEN 256 AND 262144),
+            max_pages INTEGER NOT NULL DEFAULT 100 CHECK (max_pages BETWEEN 1 AND 1000),
+            max_rows INTEGER NOT NULL DEFAULT 10000 CHECK (max_rows BETWEEN 1 AND 100000),
+            raw_retention_mode TEXT NOT NULL DEFAULT 'none' CHECK (raw_retention_mode IN ('none','bounded')),
+            raw_retention_chars INTEGER NOT NULL DEFAULT 0 CHECK (raw_retention_chars BETWEEN 0 AND 262144),
+            local_allowed INTEGER NOT NULL DEFAULT 0 CHECK (local_allowed IN (0, 1)),
+            cloud_allowed INTEGER NOT NULL DEFAULT 0 CHECK (cloud_allowed IN (0, 1)),
+            policy_revision INTEGER NOT NULL DEFAULT 1 CHECK (policy_revision >= 1),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_content_scope_policies_enabled
+            ON content_scope_policies(enabled, updated_at DESC, scan_root_id);
+
+        CREATE TABLE IF NOT EXISTS content_runs (
+            id TEXT PRIMARY KEY,
+            scope_json TEXT NOT NULL,
+            scope_fingerprint TEXT NOT NULL,
+            mode TEXT NOT NULL CHECK (mode IN ('local','understand','local_and_understand')),
+            provider_mode TEXT NOT NULL CHECK (provider_mode IN ('none','existing_interactive_provider')),
+            status TEXT NOT NULL CHECK (status IN ('building','ready','running','completed','partially_completed','cancelling','cancelled','failed','stale')),
+            expected_library_revision INTEGER NOT NULL,
+            policy_fingerprint TEXT NOT NULL,
+            confirmation INTEGER NOT NULL DEFAULT 0 CHECK (confirmation IN (0, 1)),
+            byte_budget INTEGER NOT NULL DEFAULT 0,
+            char_budget INTEGER NOT NULL DEFAULT 0,
+            requested_count INTEGER NOT NULL DEFAULT 0,
+            materialized_count INTEGER NOT NULL DEFAULT 0,
+            completed_count INTEGER NOT NULL DEFAULT 0,
+            blocked_count INTEGER NOT NULL DEFAULT 0,
+            skipped_count INTEGER NOT NULL DEFAULT 0,
+            failed_count INTEGER NOT NULL DEFAULT 0,
+            revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+            last_error_code TEXT,
+            last_error_detail TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            completed_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_content_runs_status_updated
+            ON content_runs(status, updated_at DESC, id);
+
+        CREATE TABLE IF NOT EXISTS content_run_items (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL REFERENCES content_runs(id) ON DELETE CASCADE,
+            file_id TEXT NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+            ordinal INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('pending','running','completed','blocked','failed','cancelled','stale')),
+            root_id TEXT,
+            source_is_dir INTEGER NOT NULL DEFAULT 0 CHECK (source_is_dir IN (0, 1)),
+            extractor_family TEXT,
+            extractor_version TEXT,
+            artifact_id TEXT,
+            error_code TEXT,
+            error_detail TEXT,
+            source_size INTEGER NOT NULL,
+            source_mtime INTEGER NOT NULL,
+            source_hash TEXT NOT NULL DEFAULT '',
+            revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            UNIQUE(run_id, file_id),
+            UNIQUE(run_id, ordinal)
+        );
+        CREATE INDEX IF NOT EXISTS idx_content_run_items_run_status
+            ON content_run_items(run_id, status, ordinal, id);
+        CREATE INDEX IF NOT EXISTS idx_content_run_items_file
+            ON content_run_items(file_id, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS content_artifacts (
+            id TEXT PRIMARY KEY,
+            file_id TEXT NOT NULL UNIQUE REFERENCES files(id) ON DELETE CASCADE,
+            scan_root_id TEXT REFERENCES scan_roots(id) ON DELETE SET NULL,
+            source_size INTEGER NOT NULL,
+            source_mtime INTEGER NOT NULL,
+            source_is_dir INTEGER NOT NULL CHECK (source_is_dir IN (0, 1)),
+            source_hash TEXT NOT NULL DEFAULT '',
+            extractor_family TEXT NOT NULL,
+            extractor_version TEXT NOT NULL,
+            policy_revision INTEGER NOT NULL,
+            provider_kind TEXT,
+            provider_model TEXT,
+            prompt_policy_version INTEGER,
+            content_fingerprint TEXT NOT NULL,
+            status TEXT NOT NULL CHECK (status IN ('current','stale','unsupported','blocked','failed')),
+            summary TEXT,
+            keywords_json TEXT NOT NULL DEFAULT '[]',
+            language TEXT,
+            truncated INTEGER NOT NULL DEFAULT 0 CHECK (truncated IN (0, 1)),
+            text_retained INTEGER NOT NULL DEFAULT 0 CHECK (text_retained IN (0, 1)),
+            raw_text TEXT,
+            provenance_json TEXT NOT NULL DEFAULT '{}',
+            revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            last_run_id TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_content_artifacts_status_updated
+            ON content_artifacts(status, updated_at DESC, file_id);
+        CREATE INDEX IF NOT EXISTS idx_content_artifacts_root_status
+            ON content_artifacts(scan_root_id, status, updated_at DESC);
+
+        DROP TRIGGER IF EXISTS content_artifacts_file_changed;
+        CREATE TRIGGER content_artifacts_file_changed
+        AFTER UPDATE OF path, size, mtime, is_dir, is_stale, content_hash ON files
+        WHEN EXISTS (SELECT 1 FROM content_artifacts WHERE file_id = NEW.id)
+        BEGIN
+            UPDATE content_artifacts
+            SET status = 'stale', revision = revision + 1, updated_at = unixepoch()
+            WHERE file_id = NEW.id;
+        END;
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS content_artifact_fts USING fts5(
+            artifact_id UNINDEXED,
+            summary,
+            keywords,
+            language,
+            raw_text,
+            tokenize='unicode61'
+        );
+        "#,
+    )?;
+    execute_column_migrations(
+        conn,
+        &[
+            "ALTER TABLE content_runs ADD COLUMN byte_budget INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE content_runs ADD COLUMN char_budget INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE content_runs ADD COLUMN materialized_count INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE content_runs ADD COLUMN skipped_count INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE content_run_items ADD COLUMN root_id TEXT;",
+            "ALTER TABLE content_run_items ADD COLUMN source_is_dir INTEGER NOT NULL DEFAULT 0;",
+            "ALTER TABLE content_run_items ADD COLUMN extractor_family TEXT;",
+            "ALTER TABLE content_run_items ADD COLUMN extractor_version TEXT;",
+            "ALTER TABLE content_run_items ADD COLUMN artifact_id TEXT;",
+        ],
+    )?;
+    require_exact_table_columns(
+        conn,
+        "content_scope_policies",
+        &[
+            "scan_root_id",
+            "enabled",
+            "extractor_families_json",
+            "max_bytes",
+            "max_chars",
+            "max_pages",
+            "max_rows",
+            "raw_retention_mode",
+            "raw_retention_chars",
+            "local_allowed",
+            "cloud_allowed",
+            "policy_revision",
+            "created_at",
+            "updated_at",
+        ],
+    )?;
+    require_exact_table_columns(
+        conn,
+        "content_runs",
+        &[
+            "id",
+            "scope_json",
+            "scope_fingerprint",
+            "mode",
+            "provider_mode",
+            "status",
+            "expected_library_revision",
+            "policy_fingerprint",
+            "confirmation",
+            "byte_budget",
+            "char_budget",
+            "requested_count",
+            "materialized_count",
+            "completed_count",
+            "blocked_count",
+            "skipped_count",
+            "failed_count",
+            "revision",
+            "last_error_code",
+            "last_error_detail",
+            "created_at",
+            "updated_at",
+            "completed_at",
+        ],
+    )?;
+    require_exact_table_columns(
+        conn,
+        "content_run_items",
+        &[
+            "id",
+            "run_id",
+            "file_id",
+            "ordinal",
+            "status",
+            "root_id",
+            "source_is_dir",
+            "extractor_family",
+            "extractor_version",
+            "artifact_id",
+            "error_code",
+            "error_detail",
+            "source_size",
+            "source_mtime",
+            "source_hash",
+            "revision",
+            "created_at",
+            "updated_at",
+        ],
+    )?;
+    require_exact_table_columns(
+        conn,
+        "content_artifacts",
+        &[
+            "id",
+            "file_id",
+            "scan_root_id",
+            "source_size",
+            "source_mtime",
+            "source_is_dir",
+            "source_hash",
+            "extractor_family",
+            "extractor_version",
+            "policy_revision",
+            "provider_kind",
+            "provider_model",
+            "prompt_policy_version",
+            "content_fingerprint",
+            "status",
+            "summary",
+            "keywords_json",
+            "language",
+            "truncated",
+            "text_retained",
+            "raw_text",
+            "provenance_json",
+            "revision",
+            "created_at",
+            "updated_at",
+            "last_run_id",
+        ],
+    )?;
     Ok(())
 }
 

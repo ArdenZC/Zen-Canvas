@@ -1,6 +1,7 @@
 import { Info, TriangleAlert, X } from "lucide-react";
-import { useRef } from "react";
-import type { FileLibraryDetail, FileLibrarySelectionSummary, FileLibrarySummary, UserTag } from "../../../types/domain";
+import { useEffect, useRef, useState } from "react";
+import { tauriApi } from "../../../api/tauriApi";
+import type { ContentScopePolicy, FileLibraryDetail, FileLibraryScopeV2, FileLibrarySelectionSummary, FileLibrarySummary, UserTag } from "../../../types/domain";
 import type { Language } from "../../../i18n";
 import type { Translator } from "../../../types/ui";
 import { formatBytes, formatDate } from "../../../utils/format";
@@ -138,7 +139,86 @@ function MultiInspector({ summary, selectedCount, t, onViewSuggestions, onClearS
 
 function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSuggestions, availableTags, onToggleTag }: { detail: FileLibraryDetail; language: Language; t: Translator; onPreview: (file: FileLibraryDetail) => void; onReveal: (fileId: string) => void; onViewSuggestions: () => void; availableTags: UserTag[]; onToggleTag?: (tagId: string, operation: "add" | "remove") => void }) {
   const missing = detail.isStale;
+  const [contentBusy, setContentBusy] = useState(false);
+  const [contentMessage, setContentMessage] = useState<string | null>(null);
+  const [contentPolicy, setContentPolicy] = useState<ContentScopePolicy | null>(null);
   const selectedTagIds = new Set(detail.tags.map((tag) => tag.id));
+  const contentLabel = language === "zh" ? "内容理解" : "Content understanding";
+  const contentStatus = detail.contentStatus ?? (language === "zh" ? "未分析" : "Not analyzed");
+  const contentScope: FileLibraryScopeV2 | null = detail.scanRootId ? { kind: "roots", scanRootIds: [detail.scanRootId] } : null;
+  useEffect(() => {
+    let active = true;
+    setContentPolicy(null);
+    if (detail.scanRootId) {
+      void tauriApi.getContentScopePolicy(detail.scanRootId)
+        .then((policy) => { if (active) setContentPolicy(policy); })
+        .catch(() => { if (active) setContentPolicy(null); });
+    }
+    return () => { active = false; };
+  }, [detail.scanRootId]);
+  async function contentRequest() {
+    if (!contentScope || !detail.scanRootId) return null;
+    const policy = contentPolicy ?? await tauriApi.getContentScopePolicy(detail.scanRootId);
+    return {
+      request: { version: 1 as const, requestId: crypto.randomUUID(), scope: contentScope, selectionFileIds: [detail.id], mode: "local" as const, expectedLibraryRevision: detail.revision, expectedPolicyRevisions: [{ rootId: detail.scanRootId, rootRevision: policy.rootRevision, policyRevision: policy.policyRevision }], providerMode: "none" as const },
+      policy
+    };
+  }
+  async function previewLocal() {
+    if (!contentScope || !detail.scanRootId) return;
+    setContentBusy(true); setContentMessage(null);
+    try {
+      const prepared = await contentRequest();
+      if (!prepared) return;
+      const preview = await tauriApi.previewContent(prepared.request);
+      setContentMessage(language === "zh"
+        ? `预览：可分析 ${preview.supportedCount} 个，不支持 ${preview.unsupportedCount} 个，阻断 ${preview.blockedCount} 个；预算 ${preview.byteBudget} 字节/${preview.charBudget} 字符。预览不会读取正文或启动任务。`
+        : `Preview: ${preview.supportedCount} supported, ${preview.unsupportedCount} unsupported, ${preview.blockedCount} blocked; budget ${preview.byteBudget} bytes/${preview.charBudget} chars. No extraction or run was started.`);
+    } catch (error) { setContentMessage(String(error)); }
+    finally { setContentBusy(false); }
+  }
+  async function analyzeLocal() {
+    if (!contentScope || !detail.scanRootId) return;
+    setContentBusy(true); setContentMessage(null);
+    try {
+      const prepared = await contentRequest();
+      if (!prepared) return;
+      const preview = await tauriApi.previewContent(prepared.request);
+      await tauriApi.startContentRun({ ...prepared.request, previewFingerprint: preview.previewFingerprint, confirmed: true });
+      setContentMessage(language === "zh" ? "已完成本地内容分析；重新选择文件以刷新详情。" : "Local analysis completed; reselect the file to refresh.");
+    } catch (error) { setContentMessage(String(error)); }
+    finally { setContentBusy(false); }
+  }
+  async function rebuildContent() {
+    if (!detail.contentRevision) return;
+    setContentBusy(true); setContentMessage(null);
+    try { await tauriApi.rebuildContentArtifact(detail.id, detail.contentRevision, true); setContentMessage(language === "zh" ? "内容产物已重建。" : "Content artifact rebuilt."); }
+    catch (error) { setContentMessage(String(error)); }
+    finally { setContentBusy(false); }
+  }
+  async function deleteContent() {
+    if (!detail.contentRevision) return;
+    setContentBusy(true); setContentMessage(null);
+    try { await tauriApi.deleteContentArtifact(detail.id, detail.contentRevision, true); setContentMessage(language === "zh" ? "内容数据已删除，源文件未变更。" : "Content data deleted; the source file was not changed."); }
+    catch (error) { setContentMessage(String(error)); }
+    finally { setContentBusy(false); }
+  }
+  async function understandWithProvider() {
+    if (!detail.contentRevision) return;
+    setContentBusy(true); setContentMessage(null);
+    try {
+      const result = await tauriApi.understandContentArtifacts({
+        version: 1,
+        artifactIds: [`content-artifact-${detail.id}`],
+        expectedRevisions: [detail.contentRevision],
+        confirmed: true
+      });
+      setContentMessage(language === "zh"
+        ? `Provider 理解完成：${result.processedCount} 个，阻断 ${result.blockedCount} 个。`
+        : `Provider understanding: ${result.processedCount} processed, ${result.blockedCount} blocked.`);
+    } catch (error) { setContentMessage(String(error)); }
+    finally { setContentBusy(false); }
+  }
   return (
     <div className="grid gap-4">
       <PreviewSurface file={detail} t={t} />
@@ -153,6 +233,27 @@ function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSugge
         <InspectorField label={t("fileModified")} value={formatDate(String(detail.modifiedAt), language)} />
         <InspectorField label={t("fileLocation")} value={compactPath(formatDisplayPath(detail.path), 44)} title={formatDisplayPath(detail.path)} />
       </dl>
+      <section className="grid gap-2 border-t border-[var(--zc-divider)] pt-3" aria-labelledby="content-understanding-title">
+        <h3 id="content-understanding-title" className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{contentLabel}</h3>
+        <InspectorField label={language === "zh" ? "状态" : "Status"} value={contentStatus} />
+        <InspectorField label={language === "zh" ? "策略" : "Policy"} value={detail.contentPolicy ?? (contentPolicy ? (contentPolicy.enabled ? (language === "zh" ? "已启用" : "Enabled") : (language === "zh" ? "已关闭" : "Disabled")) : (language === "zh" ? "按根目录配置" : "Per-root policy"))} />
+        {detail.contentSummary ? <InspectorField label={language === "zh" ? "摘要" : "Summary"} value={detail.contentSummary} /> : null}
+        {detail.contentKeywords?.length ? <InspectorField label={language === "zh" ? "关键词" : "Keywords"} value={detail.contentKeywords.join(", ")} /> : null}
+        {detail.contentLanguage ? <InspectorField label={language === "zh" ? "语言" : "Language"} value={detail.contentLanguage} /> : null}
+        {detail.contentProvenance ? <InspectorField label={language === "zh" ? "来源" : "Provenance"} value={detail.contentProvenance} /> : null}
+        {detail.contentRevision ? <InspectorField label={language === "zh" ? "截断/保留" : "Truncated / retained"} value={`${detail.contentTruncated ? "yes" : "no"} / ${detail.contentTextRetained ? "yes" : "no"}`} /> : null}
+        <p className="text-xs leading-5 text-[var(--zc-text-tertiary)]">
+          {language === "zh" ? "内容分析默认关闭；本地提取会读取所选正文。云端理解仅在每次确认后发送有界文本，不发送路径或文件名。保留正文仅按根目录策略有界保留（默认不保留，最多 7 天/4 MiB）。删除内容数据不会删除源文件。" : "Content analysis is off by default. Local extraction reads the selected file; cloud understanding sends bounded text only after confirmation and never sends paths or filenames. Retained text is per-root, bounded (none by default, at most 7 days/4 MiB). Deleting content data never deletes the source file."}
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {!missing && contentScope ? <button type="button" className={buttonSecondary} disabled={contentBusy} onClick={() => void previewLocal()}>{language === "zh" ? "预览内容分析" : "Preview content"}</button> : null}
+          {!missing && contentScope ? <button type="button" className={buttonSecondary} disabled={contentBusy} onClick={() => void analyzeLocal()}>{language === "zh" ? "本地分析" : "Analyze local"}</button> : null}
+          {detail.contentRevision ? <button type="button" className={buttonSecondary} disabled={contentBusy} onClick={() => void understandWithProvider()}>{language === "zh" ? "Provider 理解" : "Understand with provider"}</button> : null}
+          {detail.contentRevision ? <button type="button" className={buttonSecondary} disabled={contentBusy} onClick={() => void rebuildContent()}>{language === "zh" ? "重建内容" : "Rebuild"}</button> : null}
+          {detail.contentRevision ? <button type="button" className="text-xs text-[var(--zc-danger-text)] underline-offset-2 hover:underline" disabled={contentBusy} onClick={() => void deleteContent()}>{language === "zh" ? "删除内容数据" : "Delete content data"}</button> : null}
+        </div>
+        {contentMessage ? <p className="text-xs text-[var(--zc-text-secondary)]" aria-live="polite">{contentMessage}</p> : null}
+      </section>
       {availableTags.length ? <section className="grid gap-2 border-t border-[var(--zc-divider)] pt-3"><h3 className="text-xs font-semibold text-[var(--zc-text-tertiary)]">Tags</h3><div className="flex flex-wrap gap-1.5">{availableTags.map((tag) => { const active = selectedTagIds.has(tag.id); return <button key={tag.id} type="button" className={cn("rounded-full border px-2 py-1 text-xs", active ? "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "border-[var(--zc-divider)] text-[var(--zc-text-secondary)]")} onClick={() => onToggleTag?.(tag.id, active ? "remove" : "add")} aria-pressed={active}>{tag.displayName}</button>; })}</div></section> : null}
       <div className="flex flex-wrap gap-2">{!missing ? <button className={buttonSecondary} onClick={() => onPreview(detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button><button className={glassButtonPrimary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button></div>
     </div>
