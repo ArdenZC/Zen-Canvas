@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { tauriApi } from "../src/api/tauriApi";
-import type { LibraryScope } from "../src/types/domain";
+import type { FileLibraryScopeV2, LibraryScope } from "../src/types/domain";
 
 const apiMocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -51,11 +51,14 @@ describe("tauriApi", () => {
       .toEqual(Array(4).fill("Error: macos_file_mutation_source_binding_unsupported"));
     expect(apiMocks.invoke).not.toHaveBeenCalled();
 
-    await tauriApi.executeRulesForScope({ kind: "all" }, []);
-    expect(apiMocks.invoke).toHaveBeenCalledWith("execute_rules_for_scope", {
-      scope: { kind: "all" },
-      rules: [],
-      mode: "inbox_only"
+    await tauriApi.executeRulesForScopeV2({ kind: "all_enabled_roots" }, 7);
+    expect(apiMocks.invoke).toHaveBeenCalledWith("execute_rules_for_scope_v2", {
+      request: {
+        scope: { kind: "all_enabled_roots" },
+        expectedCatalogRevision: 7,
+        mode: "inbox_only",
+        confirmed: true
+      }
     });
     vi.unstubAllGlobals();
   });
@@ -144,14 +147,17 @@ describe("tauriApi", () => {
   });
 
   it("sends explicit rule execution mode for scoped rule runs", async () => {
-    const scope: LibraryScope = { kind: "roots", roots: ["F:/Downloads"] };
+    const scope: FileLibraryScopeV2 = { kind: "roots", scanRootIds: ["scan-root-downloads"] };
 
-    await tauriApi.executeRulesForScope(scope, [], "all_changed_or_rule_changed");
+    await tauriApi.executeRulesForScopeV2(scope, 9, "all_changed_or_rule_changed");
 
-    expect(apiMocks.invoke).toHaveBeenCalledWith("execute_rules_for_scope", {
-      scope,
-      rules: [],
-      mode: "all_changed_or_rule_changed"
+    expect(apiMocks.invoke).toHaveBeenCalledWith("execute_rules_for_scope_v2", {
+      request: {
+        scope,
+        expectedCatalogRevision: 9,
+        mode: "all_changed_or_rule_changed",
+        confirmed: true
+      }
     });
   });
 

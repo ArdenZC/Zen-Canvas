@@ -10,7 +10,7 @@
 - Task 05 已通过 PR #38 合并，squash merge `5468a17790165a149c462a17b64d011750b45410`，schema 31；
 - Task 06 已通过 PR #40 合并，squash merge `29e85c099c5ee921ad7d4237c780dc47126e0fa3`，schema 32；
 - Task 06 人工接受的 6 项实现问题与 1 项 CI 证据问题已冻结为 Task 07 第一组生产改动，不得再次后移；
-- **Task 07 是当前唯一可执行完整产品模块，授权 schema 33；**
+- **Task 07 已在 `remediation/07-rule-proposal` 完成实现，schema 33，Draft PR 等待人工代码级验收；**
 - Task 08 继续禁止执行。
 
 | Task | 任务书 | 产品模块/目标 | 状态 |
@@ -23,7 +23,7 @@
 | 04 | `TASK_04_GLOBAL_SHORTCUT_SEARCH.md` | 模块 4：全局快捷搜索；Tolaria 对标 | 已合并，schema 30 |
 | 05 | `TASK_05_FILE_LIBRARY_QUERY_TAGS_SAVED_VIEWS.md` | 模块 5：文件库；TagSpaces 对标 | 已合并，schema 31 |
 | 06 | `TASK_06_DURABLE_ORGANIZATION_PLAN_AND_DRY_RUN.md` | 模块 6：AI 整理预览；ai-file-sorter 对标 | 已合并，schema 32；7 项遗留转入 Task 07 |
-| 07 | `TASK_07_NATURAL_LANGUAGE_RULE_PROPOSAL_AND_APPROVAL.md` | 模块 7：自然语言规则；Coworker + OpenCode 对标 | **当前唯一可执行；授权 schema 33** |
+| 07 | `TASK_07_NATURAL_LANGUAGE_RULE_PROPOSAL_AND_APPROVAL.md` | 模块 7：自然语言规则；Coworker + OpenCode 对标 | **已实现，Draft PR 等待人工验收；schema 33** |
 | 08 | 待创建 | 模块 8：本地内容理解；Local-File-Organizer 对标 | 禁止执行 |
 
 不得创建 debt-cleanup、06.5、07A/07B/07C 或并行产品阶段。上一阶段接受遗留必须作为下一完整模块第一组关闭，然后连续完成该模块。
@@ -58,7 +58,7 @@
 
 ## 3. 唯一执行授权
 
-Task 07 生产实施必须同时满足：
+Task 07 生产实施已满足：
 
 ```text
 本索引指向 Task 07
@@ -69,6 +69,8 @@ docs/remediation/TASK_07_NATURAL_LANGUAGE_RULE_PROPOSAL_AND_APPROVAL.md 存在
 +
 master 包含 29e85c099c5ee921ad7d4237c780dc47126e0fa3
 ```
+
+实现分支为 `remediation/07-rule-proposal`；实现已停止在唯一 Draft PR，等待人工代码级验收，不自动合并。
 
 任务书进入 `master` 后即满足文档门禁。不得再使用 PR #40 的旧 Draft/Open 状态、Task 06 Closeout 旧文案或历史 review 指令制造额外阻断。
 

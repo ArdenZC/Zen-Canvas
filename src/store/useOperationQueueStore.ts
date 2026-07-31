@@ -17,6 +17,7 @@ import type {
 import { applyPreviewNameOverride, createOperationPreviews, localId, localizedStableError, readableError } from "../utils/viewHelpers";
 import { useAppStore } from "./useAppStore";
 import { useFileLibraryStore } from "./useFileLibraryStore";
+import { resolveLegacyLibraryScope } from "./useFileLibraryV2Store";
 import { useRulesStore } from "./useRulesStore";
 import { useOrganizeDecisionStore } from "./useOrganizeDecisionStore";
 import { organizeScopeKey, validateOrganizeFileName, validateOrganizeFileNameForOriginal } from "../views/organize/organizeModel";
@@ -626,10 +627,12 @@ export const useOperationQueueStore = create<OperationQueueStore>((set, get) => 
     }
     try {
       const scope = useFileLibraryStore.getState().scope;
-      const summary = await tauriApi.executeRulesForScope(
-        scope,
-        useRulesStore.getState().rules,
-        "inbox_only"
+      const durableScope = await resolveLegacyLibraryScope(scope);
+      const { summary } = await tauriApi.executeRulesForScopeV2(
+        durableScope,
+        useRulesStore.getState().catalogRevision,
+        "inbox_only",
+        true
       );
       await useFileLibraryStore.getState().refresh(useAppStore.getState().searchQuery);
       await get().refreshPreviewsForScope(scope);

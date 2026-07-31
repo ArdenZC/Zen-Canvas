@@ -414,14 +414,18 @@ pub async fn execute_moves<R: Runtime>(
     .map_err(|error| format!("operation task failed: {error}"))?
 }
 
-pub(crate) async fn execute_authoritative_selections<R: Runtime>(
+/// Executes an already canonicalized backend-owned operation set without
+/// resolving a second preview/target after the caller's approval fingerprint.
+pub(crate) async fn execute_canonical_operations<R: Runtime>(
     app: AppHandle<R>,
     db: Database,
     cancel: OperationCancellationToken,
-    request: ExecuteMovesByIdRequest,
+    request: ExecuteMovesRequest,
     batch_id: String,
 ) -> Result<ExecuteMovesResult, String> {
-    let request = resolve_execute_selections(&db, request)?;
+    if request.operations.is_empty() {
+        return Err("At least one canonical operation is required.".to_string());
+    }
     let app_data_dir = app.path().app_data_dir().ok();
     let guard = cancel.begin()?;
     let cancel_flag = Arc::clone(&cancel.cancel);

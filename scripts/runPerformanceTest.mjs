@@ -49,6 +49,7 @@ const dbFiles = [
   "src-tauri/src/db/queries/files.rs",
   "src-tauri/src/db/queries/library.rs",
   "src-tauri/src/db/queries/organization.rs",
+  "src-tauri/src/db/queries/rule_proposals.rs",
   "src-tauri/src/db/queries/mod.rs",
   "src-tauri/src/db/queries/operations.rs",
   "src-tauri/src/db/queries/rules_repo.rs"
@@ -57,6 +58,7 @@ const db = dbFiles.map(read).join("\n");
 const benchmarkSource = read("src-tauri/tests/fts_benchmark.rs");
 const fileLibraryBenchmarkSource = read("src-tauri/tests/file_library_performance.rs");
 const organizationBenchmarkSource = read("src-tauri/src/db/queries/organization.rs");
+const ruleProposalBenchmarkSource = read("src-tauri/src/db/queries/rule_proposals.rs");
 const requiredBenchmarkScenarios = [
   "english_search",
   "cjk_search",
@@ -81,6 +83,7 @@ assert(!runtimeUi.includes("demoData"), "Runtime UI must not depend on demo data
 assert(!runtimeUi.includes("window.fileManager"), "Runtime UI must not depend on Electron preload APIs.");
 assert(fileLibraryBenchmarkSource.includes("assert_query_plans") && fileLibraryBenchmarkSource.includes("performance_1m_file_library_query_matrix"), "Task 05 performance source must include query-plan and 1M gates.");
 assert(organizationBenchmarkSource.includes("performance_task06_plan_100_1k_10k_repository"), "Task 06 performance source must include the 100/1k/10k durable plan benchmark.");
+assert(ruleProposalBenchmarkSource.includes("performance_task07_rule_proposal_repository_and_impact"), "Task 07 performance source must include proposal repository and 1M impact gates.");
 for (const scenario of requiredBenchmarkScenarios) {
   assert(benchmarkSource.includes(scenario), `SQLite benchmark must cover ${scenario}.`);
 }
@@ -442,3 +445,35 @@ if (task06Performance.error || task06Performance.status !== 0) {
   process.exit(task06Performance.status ?? 1);
 }
 console.log("Task 06 durable plan 100/1k/10k benchmark passed.");
+
+const task07PerformanceTests = [
+  ["performance_100k_schema_32_to_33_rule_proposal_migration", "Task 07 schema 32->33 100k migration"],
+  ["performance_1m_schema_32_to_33_rule_proposal_migration", "Task 07 schema 32->33 1M migration"],
+  ["performance_task07_rule_proposal_repository_and_impact", "Task 07 Rule Proposal repository and 1M impact"],
+];
+
+for (const [testName, label] of task07PerformanceTests) {
+  console.log(`Running ${label} benchmark...`);
+  const task07Performance = spawnSync(
+    "cargo",
+    [
+      "test",
+      "--release",
+      "--manifest-path",
+      "src-tauri/Cargo.toml",
+      testName,
+      "--",
+      "--ignored",
+      "--nocapture",
+      "--test-threads=1",
+    ],
+    { cwd: root, stdio: "inherit" },
+  );
+  if (task07Performance.error || task07Performance.status !== 0) {
+    console.error(task07Performance.error
+      ? `${label} benchmark failed to start: ${task07Performance.error.message}`
+      : `${label} benchmark failed with exit code ${task07Performance.status}.`);
+    process.exit(task07Performance.status ?? 1);
+  }
+  console.log(`${label} benchmark passed.`);
+}

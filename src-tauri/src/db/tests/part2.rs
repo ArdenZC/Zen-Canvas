@@ -150,6 +150,119 @@
     }
 
     #[test]
+    fn execute_rules_for_scope_v2_loads_only_backend_enabled_catalog_rules() {
+        let db = Database::open(test_db_path()).expect("open test database");
+        insert_test_file_at_path(
+            &db,
+            "v2-authoritative-file",
+            "/tmp/v2-authoritative-root/report.pdf",
+            "report.pdf",
+            "pdf",
+            2_048,
+            1_900_000_000,
+        );
+        let conn = Connection::open(db.path()).expect("open migrated database");
+        conn.execute(
+            "INSERT INTO scan_roots (
+                id, normalized_path, display_name, source_kind, enabled,
+                health_status, needs_reconciliation,
+                watcher_rule_recovery_required, watcher_revision,
+                watcher_applied_revision, created_at, updated_at
+             ) VALUES (
+                'v2-authoritative-root', '/tmp/v2-authoritative-root',
+                'v2-authoritative-root', 'file_library', 1, 'healthy', 0,
+                0, 0, 0, 1, 1
+             )",
+            [],
+        )
+        .expect("insert managed root");
+        let created = db
+            .create_user_rule_v2(CreateUserRuleV2Request {
+                version: 2,
+                request_id: "v2-authoritative-create".to_string(),
+                expected_catalog_revision: 1,
+                draft: RuleDraftV2 {
+                    name: "PDF project rule".to_string(),
+                    priority: 200.0,
+                    weight: 90.0,
+                    root_operator: "AND".to_string(),
+                    groups: vec![RuleGroupDraftV2 {
+                        operator: "AND".to_string(),
+                        conditions: vec![RuleConditionDraftV2 {
+                            field: "extension".to_string(),
+                            operator: "equals".to_string(),
+                            value: Value::String("pdf".to_string()),
+                        }],
+                    }],
+                    action: RuleActionDraftV2 {
+                        purpose: Some("Project".to_string()),
+                        lifecycle: Some("Inbox".to_string()),
+                        ..Default::default()
+                    },
+                },
+            })
+            .expect("create disabled V2 rule");
+        assert!(!created.rule.rule.enabled);
+        let disabled = db
+            .execute_rules_for_scope_v2(ExecuteRulesForScopeV2Request {
+                scope: FileLibraryScopeV2::Roots {
+                    scan_root_ids: vec!["v2-authoritative-root".to_string()],
+                },
+                mode: RuleExecutionMode::AllChangedOrRuleChanged,
+                expected_catalog_revision: created.catalog_revision,
+                confirmed: true,
+            })
+            .expect("execute with disabled catalog rule");
+        assert_eq!(disabled.catalog_revision, 2);
+        assert_eq!(
+            file_classification(&db, "/tmp/v2-authoritative-root/report.pdf")
+                .expect("disabled classification")
+                .0,
+            "Unknown"
+        );
+
+        let enabled = db
+            .set_user_rule_enabled_v2(SetUserRuleEnabledV2Request {
+                rule_id: created.rule.rule.id.clone(),
+                expected_rule_revision: created.rule.revision,
+                expected_catalog_revision: created.catalog_revision,
+                enabled: true,
+            })
+            .expect("enable V2 rule");
+        let result = db
+            .execute_rules_for_scope_v2(ExecuteRulesForScopeV2Request {
+                scope: FileLibraryScopeV2::Roots {
+                    scan_root_ids: vec!["v2-authoritative-root".to_string()],
+                },
+                mode: RuleExecutionMode::AllChangedOrRuleChanged,
+                expected_catalog_revision: enabled.catalog_revision,
+                confirmed: true,
+            })
+            .expect("execute backend-loaded enabled rule");
+        assert_eq!(result.catalog_revision, 3);
+        assert!(!result.classification_version.is_empty());
+        assert_eq!(result.summary.updated, 1);
+        assert_eq!(
+            file_classification(&db, "/tmp/v2-authoritative-root/report.pdf")
+                .expect("enabled classification")
+                .0,
+            "Project"
+        );
+
+        let stale = db
+            .execute_rules_for_scope_v2(ExecuteRulesForScopeV2Request {
+                scope: FileLibraryScopeV2::Roots {
+                    scan_root_ids: vec!["v2-authoritative-root".to_string()],
+                },
+                mode: RuleExecutionMode::InboxOnly,
+                expected_catalog_revision: 2,
+                confirmed: true,
+            })
+            .expect_err("stale renderer catalog must fail closed");
+        assert!(stale.to_string().contains("rule_catalog_revision_conflict"));
+    }
+
+    #[test]
     fn execute_rules_for_scope_uses_global_duplicate_flags() {
         let db = Database::open(test_db_path()).expect("open test database");
         insert_test_file_at_path(

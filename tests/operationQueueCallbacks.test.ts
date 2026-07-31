@@ -7,7 +7,8 @@ import { useAppStore } from "../src/store/useAppStore";
 import { useOrganizeDecisionStore } from "../src/store/useOrganizeDecisionStore";
 
 const apiMocks = vi.hoisted(() => ({
-  executeRulesForScope: vi.fn(),
+  executeRulesForScopeV2: vi.fn(),
+  listScanRoots: vi.fn(),
   getOperationPreviewsForScope: vi.fn(),
   getOperationLogs: vi.fn(),
   onOperationProgress: vi.fn(),
@@ -18,7 +19,8 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock("../src/api/tauriApi", () => ({
   tauriApi: {
-    executeRulesForScope: apiMocks.executeRulesForScope,
+    executeRulesForScopeV2: apiMocks.executeRulesForScopeV2,
+    listScanRoots: apiMocks.listScanRoots,
     getOperationPreviewsForScope: apiMocks.getOperationPreviewsForScope,
     getOperationLogs: apiMocks.getOperationLogs,
     onOperationProgress: apiMocks.onOperationProgress,
@@ -50,12 +52,14 @@ function preview(id: string, selectedByDefault: boolean, fileId = `file-${id}`):
 
 describe("operation queue store callbacks", () => {
   beforeEach(() => {
-    apiMocks.executeRulesForScope.mockReset().mockResolvedValue({
-      scanned: 0,
-      updated: 0,
-      skipped: 0,
-      needsConfirmation: 0
+    apiMocks.executeRulesForScopeV2.mockReset().mockResolvedValue({
+      summary: { scanned: 0, updated: 0, skipped: 0, needsConfirmation: 0 },
+      catalogRevision: 1,
+      classificationVersion: "test"
     });
+    apiMocks.listScanRoots.mockReset().mockResolvedValue([
+      { id: "root-downloads", normalizedPath: "F:/Downloads", revision: 1 }
+    ]);
     apiMocks.getOperationPreviewsForScope.mockReset().mockResolvedValue({
       previews: [],
       total: 0,
@@ -107,11 +111,10 @@ describe("operation queue store callbacks", () => {
     const refresh = vi.fn(async () => {});
     const confirm = vi.fn(() => true);
     const previews = [preview("selected", true), preview("manual", false)];
-    apiMocks.executeRulesForScope.mockResolvedValue({
-      scanned: 60,
-      updated: 60,
-      skipped: 0,
-      needsConfirmation: 1
+    apiMocks.executeRulesForScopeV2.mockResolvedValue({
+      summary: { scanned: 60, updated: 60, skipped: 0, needsConfirmation: 1 },
+      catalogRevision: 1,
+      classificationVersion: "test"
     });
     apiMocks.getOperationPreviewsForScope.mockResolvedValue({
       previews,
@@ -131,7 +134,12 @@ describe("operation queue store callbacks", () => {
     await useOperationQueueStore.getState().runDispatch(true);
 
     expect(confirm).not.toHaveBeenCalled();
-    expect(apiMocks.executeRulesForScope).toHaveBeenCalledWith(scope, [], "inbox_only");
+    expect(apiMocks.executeRulesForScopeV2).toHaveBeenCalledWith(
+      { kind: "roots", scanRootIds: ["root-downloads"] },
+      1,
+      "inbox_only",
+      true
+    );
     expect(refresh).toHaveBeenCalledOnce();
     expect(apiMocks.getOperationPreviewsForScope).toHaveBeenCalledWith(scope);
     expect(useOperationQueueStore.getState().displayPreviews).toEqual(previews);
@@ -148,7 +156,7 @@ describe("operation queue store callbacks", () => {
 
     const result = await useOperationQueueStore.getState().runDispatch(false);
 
-    expect(apiMocks.executeRulesForScope).not.toHaveBeenCalled();
+    expect(apiMocks.executeRulesForScopeV2).not.toHaveBeenCalled();
     expect(apiMocks.getOperationPreviewsForScope).not.toHaveBeenCalled();
     expect(refresh).not.toHaveBeenCalled();
     expect(result.updated).toBe(0);

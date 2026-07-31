@@ -45,6 +45,18 @@ fn performance_1m_schema_30_to_31_file_library_migration() {
     run_schema_migration_benchmark(1_000_000, "migration-1m");
 }
 
+#[test]
+#[ignore = "Task 07 schema 32->33 100k-file no-rewrite migration/WAL/size benchmark"]
+fn performance_100k_schema_32_to_33_rule_proposal_migration() {
+    run_task07_schema_migration_benchmark(100_000, "task07-migration-100k");
+}
+
+#[test]
+#[ignore = "Task 07 schema 32->33 1M-file no-rewrite migration/WAL/size benchmark"]
+fn performance_1m_schema_32_to_33_rule_proposal_migration() {
+    run_task07_schema_migration_benchmark(1_000_000, "task07-migration-1m");
+}
+
 fn run_query_matrix(row_count: usize, label: &str) {
     let path = benchmark_path(label);
     let db = seed_library(&path, row_count);
@@ -387,13 +399,89 @@ fn run_schema_migration_benchmark(row_count: usize, label: &str) {
             |row| row.get(0),
         )
         .expect("read migrated file library indexes");
-    assert_eq!(version, 32);
+    assert_eq!(version, 33);
     assert_eq!(file_count, row_count as i64);
     assert_eq!(index_count, 5);
     println!(
         "Task 05/06 {label} rows={row_count} schema_30_to_32_ms={migration_ms:.3} wal_rows={file_count}"
     );
     drop(conn);
+    drop(migrated);
+    let _ = fs::remove_file(path);
+}
+
+fn run_task07_schema_migration_benchmark(row_count: usize, label: &str) {
+    let path = benchmark_path(label);
+    let db = seed_library(&path, row_count);
+    drop(db);
+    let conn = Connection::open(&path).expect("open schema 33 fixture");
+    conn.execute_batch(
+        r#"
+        DROP INDEX IF EXISTS idx_rule_proposals_status_updated;
+        DROP INDEX IF EXISTS idx_rule_proposals_target_updated;
+        DROP TABLE rule_proposals;
+        DROP TABLE rule_catalog_state;
+        ALTER TABLE rules DROP COLUMN origin_proposal_id;
+        ALTER TABLE rules DROP COLUMN revision;
+        ALTER TABLE rules DROP COLUMN ast_version;
+        PRAGMA user_version = 32;
+        PRAGMA wal_checkpoint(TRUNCATE);
+        "#,
+    )
+    .expect("create exact schema 32 fixture");
+    drop(conn);
+    let size_before = fs::metadata(&path).expect("schema32 size").len();
+    let wal_reader = Connection::open(&path).expect("open WAL reader");
+    wal_reader
+        .execute_batch("PRAGMA journal_mode = WAL;")
+        .expect("enable WAL");
+    let before_count: i64 = wal_reader
+        .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+        .expect("read schema32 files");
+
+    let started = Instant::now();
+    let migrated = Database::open(&path).expect("migrate exact schema 32 to 33");
+    let elapsed_ms = duration_ms(started.elapsed());
+    let after_count: i64 = wal_reader
+        .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+        .expect("WAL reader remains usable after migration");
+    let inspect = Connection::open(&path).expect("inspect schema33");
+    inspect
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .expect("checkpoint migrated database");
+    let version: i64 = inspect
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .expect("read schema version");
+    let proposal_count: i64 = inspect
+        .query_row("SELECT COUNT(*) FROM rule_proposals", [], |row| row.get(0))
+        .expect("read proposal table");
+    let catalog_revision: i64 = inspect
+        .query_row(
+            "SELECT revision FROM rule_catalog_state WHERE singleton_id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read catalog revision");
+    let size_after = fs::metadata(&path).expect("schema33 size").len();
+    let size_delta = size_after.saturating_sub(size_before);
+    assert_eq!(version, 33);
+    assert_eq!(before_count, row_count as i64);
+    assert_eq!(after_count, row_count as i64);
+    assert_eq!(proposal_count, 0);
+    assert_eq!(catalog_revision, 1);
+    assert!(
+        size_delta <= 4 * 1024 * 1024,
+        "Task 07 migration unexpectedly rewrote file data: delta={size_delta}"
+    );
+    assert!(
+        elapsed_ms <= 5_000.0,
+        "Task 07 schema-only migration exceeded 5s: {elapsed_ms:.3}ms"
+    );
+    println!(
+        "Task 07 {label} rows={row_count} schema_32_to_33_ms={elapsed_ms:.3} size_delta_bytes={size_delta} wal_rows={after_count}"
+    );
+    drop(inspect);
+    drop(wal_reader);
     drop(migrated);
     let _ = fs::remove_file(path);
 }

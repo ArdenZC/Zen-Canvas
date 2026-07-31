@@ -1,5 +1,11 @@
 import type { Rule } from "../types/domain";
 
+/**
+ * @deprecated Test-only compatibility helpers for pre-V2 snapshots. Production
+ * code uses the revision/CAS Rule Repository V2 commands and never persists
+ * whole Rule objects.
+ */
+
 export type SaveUserRule = (rule: Rule) => Promise<Rule>;
 export type UpsertRule = (rule: Rule) => void;
 export type DeleteUserRule = (id: string) => Promise<boolean>;

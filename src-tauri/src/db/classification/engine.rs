@@ -5,10 +5,110 @@ use super::{
 };
 use crate::settings::AppSettings;
 use rusqlite::{params, params_from_iter, Connection};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 impl Database {
+    pub fn execute_rules_for_scope_v2(
+        &self,
+        request: ExecuteRulesForScopeV2Request,
+    ) -> Result<RuleExecutionResultV2, DbError> {
+        if !request.confirmed {
+            return Err(DbError::Validation(
+                "rule_execution_confirmation_required".to_string(),
+            ));
+        }
+        let catalog = self.get_rule_catalog_state()?;
+        if catalog.revision != request.expected_catalog_revision {
+            return Err(DbError::Validation(
+                "rule_catalog_revision_conflict".to_string(),
+            ));
+        }
+        let scope = self.resolve_authoritative_rule_scope(&request.scope)?;
+        let settings = crate::settings::get_app_settings(self)?;
+        let active_rules = self.authoritative_rules_for_settings(&settings)?;
+        let classification_version = classification_version_for_rules(&active_rules, &settings)?;
+        let summary = self.execute_active_rules_for_scope_with_settings(
+            &scope,
+            &active_rules,
+            request.mode,
+            &settings,
+        )?;
+        Ok(RuleExecutionResultV2 {
+            summary,
+            catalog_revision: catalog.revision,
+            classification_version,
+        })
+    }
+
+    pub(crate) fn execute_authoritative_rules_for_scope(
+        &self,
+        scope: &LibraryScope,
+        mode: RuleExecutionMode,
+    ) -> Result<RuleExecutionSummary, DbError> {
+        let settings = crate::settings::get_app_settings(self)?;
+        let active_rules = self.authoritative_rules_for_settings(&settings)?;
+        self.execute_active_rules_for_scope_with_settings(scope, &active_rules, mode, &settings)
+    }
+
+    pub(crate) fn execute_authoritative_rules_for_paths(
+        &self,
+        paths: &[String],
+    ) -> Result<RuleExecutionSummary, DbError> {
+        let settings = crate::settings::get_app_settings(self)?;
+        let active_rules = self.authoritative_rules_for_settings(&settings)?;
+        self.execute_active_rules_for_paths_with_settings(paths, &active_rules, &settings)
+    }
+
+    fn authoritative_rules_for_settings(
+        &self,
+        settings: &AppSettings,
+    ) -> Result<Vec<Rule>, DbError> {
+        let persisted = self.load_enabled_persisted_rules()?;
+        let selected = persisted.into_iter().filter(|rule| match rule.source {
+            RuleSource::User => true,
+            RuleSource::Learned => settings.use_learned_rules_as_auto_rules,
+            RuleSource::System => settings.use_legacy_builtin_classification_rules,
+            _ => false,
+        });
+        let rules = if settings.use_legacy_builtin_classification_rules {
+            legacy_builtin_classification_rules()
+                .into_iter()
+                .chain(selected)
+                .collect::<Vec<_>>()
+        } else {
+            selected.collect::<Vec<_>>()
+        };
+        for rule in &rules {
+            super::super::queries::rules_repo::validate_user_rule(rule)?;
+        }
+        Ok(rules)
+    }
+
+    fn resolve_authoritative_rule_scope(
+        &self,
+        scope: &FileLibraryScopeV2,
+    ) -> Result<LibraryScope, DbError> {
+        let conn = self.conn()?;
+        let resolved = super::super::queries::library::resolve_scope(&conn, scope)?;
+        if !matches!(resolved.health.state.as_str(), "healthy" | "empty") {
+            return Err(DbError::Validation(
+                "rule_execution_scope_unavailable".to_string(),
+            ));
+        }
+        let mut roots = Vec::new();
+        for root in resolved.health.roots.iter().filter(|root| root.available) {
+            let path = conn.query_row(
+                "SELECT normalized_path FROM scan_roots WHERE id = ?1",
+                params![root.id],
+                |row| row.get::<_, String>(0),
+            )?;
+            roots.push(path);
+        }
+        Ok(LibraryScope::Roots { roots })
+    }
+
     pub fn execute_rules_on_inbox(
         &self,
         rules: Vec<Rule>,
@@ -43,7 +143,17 @@ impl Database {
         settings: &AppSettings,
     ) -> Result<RuleExecutionSummary, DbError> {
         let all_rules = active_rules_for_manual_rules(rules, settings);
-        let rule_version = classification_version_for_rules(&all_rules, settings)?;
+        self.execute_active_rules_for_scope_with_settings(scope, &all_rules, mode, settings)
+    }
+
+    fn execute_active_rules_for_scope_with_settings(
+        &self,
+        scope: &LibraryScope,
+        all_rules: &[Rule],
+        mode: RuleExecutionMode,
+        settings: &AppSettings,
+    ) -> Result<RuleExecutionSummary, DbError> {
+        let rule_version = classification_version_for_rules(all_rules, settings)?;
         let scoped = scoped_files_sql(Some(scope));
         let lifecycle_filter = match mode {
             RuleExecutionMode::InboxOnly => "WHERE f.lifecycle = 'Inbox'",
@@ -96,7 +206,7 @@ impl Database {
                 let batch_summary = execute_classification_batch(
                     &mut write_conn,
                     &batch,
-                    &all_rules,
+                    all_rules,
                     &rule_version,
                     settings,
                 )?;
@@ -110,7 +220,7 @@ impl Database {
             let batch_summary = execute_classification_batch(
                 &mut write_conn,
                 &batch,
-                &all_rules,
+                all_rules,
                 &rule_version,
                 settings,
             )?;
@@ -229,6 +339,16 @@ impl Database {
         rules: Vec<Rule>,
         settings: &AppSettings,
     ) -> Result<RuleExecutionSummary, DbError> {
+        let all_rules = active_rules_for_manual_rules(rules, settings);
+        self.execute_active_rules_for_paths_with_settings(paths, &all_rules, settings)
+    }
+
+    fn execute_active_rules_for_paths_with_settings(
+        &self,
+        paths: &[String],
+        all_rules: &[Rule],
+        settings: &AppSettings,
+    ) -> Result<RuleExecutionSummary, DbError> {
         let target_paths = classification_path_candidates(paths, 500);
         if target_paths.is_empty() {
             return Ok(RuleExecutionSummary {
@@ -241,9 +361,7 @@ impl Database {
                 warning: None,
             });
         }
-
-        let all_rules = active_rules_for_manual_rules(rules, settings);
-        let rule_version = classification_version_for_rules(&all_rules, settings)?;
+        let rule_version = classification_version_for_rules(all_rules, settings)?;
         let placeholders = std::iter::repeat_n("?", target_paths.len())
             .collect::<Vec<_>>()
             .join(", ");
@@ -294,7 +412,7 @@ impl Database {
                 let batch_summary = execute_classification_batch(
                     &mut write_conn,
                     &batch,
-                    &all_rules,
+                    all_rules,
                     &rule_version,
                     settings,
                 )?;
@@ -308,7 +426,7 @@ impl Database {
             let batch_summary = execute_classification_batch(
                 &mut write_conn,
                 &batch,
-                &all_rules,
+                all_rules,
                 &rule_version,
                 settings,
             )?;
@@ -326,6 +444,24 @@ impl Database {
             warning: None,
         })
     }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecuteRulesForScopeV2Request {
+    pub scope: FileLibraryScopeV2,
+    pub mode: RuleExecutionMode,
+    pub expected_catalog_revision: i64,
+    pub confirmed: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleExecutionResultV2 {
+    pub summary: RuleExecutionSummary,
+    pub catalog_revision: i64,
+    pub classification_version: String,
 }
 
 fn active_rules_for_manual_rules(rules: Vec<Rule>, settings: &AppSettings) -> Vec<Rule> {

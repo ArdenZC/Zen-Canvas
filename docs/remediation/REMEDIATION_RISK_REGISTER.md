@@ -79,33 +79,33 @@
 
 | ID | 风险 | 等级 | Task 07 强制解决方案 | 状态 |
 |---|---|---|---|---|
-| R-117 | 用户审核旧 target，执行采用新 target | Critical | dry run 与 execution 共享 live canonical proposal/selection；任何 target/risk/preview/collision 变化过期 | **Task 07 第一组，不得后移** |
-| R-118 | Plan 创建后 root disabled/degraded 仍执行 | Critical | refresh/dry run/execute 全链 managed scope/root health revalidation | **Task 07 第一组，不得后移** |
-| R-119 | `needs_review` 人工批准路径不可达 | High | backend reviewed transition + live revalidation；blocked 永不可升级 | **Task 07 第一组，不得后移** |
-| R-120 | 全部 journal 完成后重启仍停 partial | High | finalize/recovery 共用 terminal projection helper + fault injection | **Task 07 第一组，不得后移** |
-| R-121 | Plan retention 使用 age AND count | Medium | age UNION count overflow、去重、child-first、每批 20 | **Task 07 第一组，不得后移** |
-| R-122 | Plan 全局数量由首屏 100 行推断 | High | backend authoritative plan summary | **Task 07 第一组，不得后移** |
-| R-123 | skipped package job 被描述为 success | Medium | run/job/artifact 逐项证据，本地/远端分开 | **Task 07 第一组，不得后移** |
+| R-117 | 用户审核旧 target，执行采用新 target | Critical | dry run 与 execution 共享 live canonical proposal/selection；任何 target/risk/preview/collision 变化过期 | 已关闭，故障注入回归 |
+| R-118 | Plan 创建后 root disabled/degraded 仍执行 | Critical | refresh/dry run/execute 全链 managed scope/root health revalidation | 已关闭，fail-closed 回归 |
+| R-119 | `needs_review` 人工批准路径不可达 | High | backend reviewed transition + live revalidation；blocked 永不可升级 | 已关闭 |
+| R-120 | 全部 journal 完成后重启仍停 partial | High | finalize/recovery 共用 terminal projection helper + fault injection | 已关闭 |
+| R-121 | Plan retention 使用 age AND count | Medium | age UNION count overflow、去重、child-first、每批 20 | 已关闭 |
+| R-122 | Plan 全局数量由首屏 100 行推断 | High | backend authoritative plan summary | 已关闭 |
+| R-123 | skipped package job 被描述为 success | Medium | run/job/artifact 逐项证据，本地/远端分开 | 交付门禁；Draft PR 最终记录 |
 
 ## Task 07 Natural-Language Rule Proposal 风险
 
 | ID | 风险 | 等级 | 阻断/验收条件 | 状态 |
 |---|---|---|---|---|
-| R-124 | 模型输出直接写入正式 Rule | Critical | durable proposal → strict validation → preview → human Apply | 当前强制整改 |
-| R-125 | Proposal Apply 自动启用或运行 | Critical | 新规则默认 disabled；Enable/Run 独立 CAS | 当前强制整改 |
-| R-126 | renderer Rule vector 成为执行 authority | Critical | `execute_rules_for_scope_v2` backend 加载 enabled rules | 当前强制整改 |
-| R-127 | whole-object save 覆盖较新规则 | Critical | per-rule revision + catalog revision CAS；CRUD 分离 | 当前强制整改 |
-| R-128 | 模型虚构 literal/path/数字/target | Critical | literal grounding；非 prompt/规范化/enum → clarification/deny | 当前强制整改 |
+| R-124 | 模型输出直接写入正式 Rule | Critical | durable proposal → strict validation → preview → human Apply | 已关闭 |
+| R-125 | Proposal Apply 自动启用或运行 | Critical | 新规则默认 disabled；Enable/Run 独立 CAS | 已关闭 |
+| R-126 | renderer Rule vector 成为执行 authority | Critical | `execute_rules_for_scope_v2` backend 加载 enabled rules | 已关闭 |
+| R-127 | whole-object save 覆盖较新规则 | Critical | per-rule revision + catalog revision CAS；CRUD 分离 | 已关闭 |
+| R-128 | 模型虚构 literal/path/数字/target | Critical | literal grounding；非 prompt/规范化/enum → clarification/deny | 已关闭 |
 | R-129 | 自然语言变成脚本/Agent/tool runtime | Critical | AST V1 only；无 shell/MCP/tools/SDK/daemon | 持续阻断 |
 | R-130 | Proposal AI 泄露文件正文/列表/secrets | Critical | 只发送用户 prompt + fixed schema；privacy tests | 持续阻断 |
-| R-131 | 影响预览把 sample/estimate 当全库事实 | High | exact/deferred；sample 标记；Apply 需要 exact | 当前强制整改 |
-| R-132 | stale proposal/preview 应用于新 catalog/library | Critical | proposal/rule/catalog/library/scope/policy fingerprint + CAS | 当前强制整改 |
-| R-133 | update proposal 覆盖已更新 rule | Critical | target rule ID + base revision；stale reject | 当前强制整改 |
+| R-131 | 影响预览把 sample/estimate 当全库事实 | High | exact/deferred；sample 标记；Apply 需要 exact | 已关闭 |
+| R-132 | stale proposal/preview 应用于新 catalog/library | Critical | proposal/rule/catalog/library/scope/policy fingerprint + CAS | 已关闭 |
+| R-133 | update proposal 覆盖已更新 rule | Critical | target rule ID + base revision；stale reject | 已关闭 |
 | R-134 | delete/trash/content intent 被转换为可执行 Rule | Critical | deny classification；无 filesystem mutation/content field | 持续阻断 |
 | R-135 | 建立第二 durable AI queue | High | 交互式 bounded request；不写 `ai_jobs`；无 auto retry | 持续阻断 |
 | R-136 | Rule Proposal 与 Organization Plan ledger 混用 | High | 独立 artifact；Rule 只更新 metadata/suggestion | 持续阻断 |
-| R-137 | Rule AST TS/Rust 语义漂移 | High | Rust canonical validator authority + DTO parity tests | 当前强制整改 |
-| R-138 | 1M impact count 阻塞 UI/主库 | High | deferred exact impact、token、WAL/query-plan gates | 当前强制整改 |
+| R-137 | Rule AST TS/Rust 语义漂移 | High | Rust canonical validator authority + DTO parity tests | 已关闭，持续回归 |
+| R-138 | 1M impact count 阻塞 UI/主库 | High | deferred exact impact、token、WAL/query-plan gates | 已关闭，性能门禁 |
 | R-139 | terminal proposal retention 删除正式 Rule | Critical | proposal prune 不删除 rule/provenance execution facts | 持续阻断 |
 | R-140 | Search window 获得 proposal/rule write/run | Critical | main-only capabilities、negative tests | 持续阻断 |
 | R-141 | Coworker/OpenCode 代码或 runtime 移植 | High | fixed SHA/MIT inventory；principle-only；no runtime tests | 许可证/架构门禁 |

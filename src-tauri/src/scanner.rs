@@ -1135,14 +1135,11 @@ fn execute_rules_for_root_with_retry(db: &Database, root_path: &str) -> Result<(
     crate::watcher::bounded_retry(
         RULE_RECOVERY_MAX_ATTEMPTS,
         || {
-            db.get_user_rules().and_then(|rules| {
-                db.execute_rules_for_scope_with_mode(
-                    &scope,
-                    rules,
-                    RuleExecutionMode::AllChangedOrRuleChanged,
-                )
-                .map(|_| ())
-            })
+            db.execute_authoritative_rules_for_scope(
+                &scope,
+                RuleExecutionMode::AllChangedOrRuleChanged,
+            )
+            .map(|_| ())
         },
         |attempt| {
             let delay =

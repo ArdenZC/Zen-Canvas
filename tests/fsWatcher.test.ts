@@ -9,7 +9,6 @@ import {
   type FsWatchEvent
 } from "../src/hooks/fsWatcherQueue";
 import { useFsWatcher } from "../src/hooks/useFsWatcher";
-import type { Rule } from "../src/types/domain";
 
 type EffectEntry = {
   deps?: unknown[];
@@ -26,8 +25,7 @@ const reactMock = vi.hoisted(() => ({
 const apiMocks = vi.hoisted(() => ({
   listen: vi.fn(),
   markFilesStaleByPaths: vi.fn(),
-  upsertFilesByPaths: vi.fn(),
-  executeRulesForPaths: vi.fn()
+  upsertFilesByPaths: vi.fn()
 }));
 
 vi.mock("react", () => ({
@@ -57,7 +55,6 @@ vi.mock("../src/api/tauriApi", () => ({
   tauriApi: {
     markFilesStaleByPaths: apiMocks.markFilesStaleByPaths,
     upsertFilesByPaths: apiMocks.upsertFilesByPaths,
-    executeRulesForPaths: apiMocks.executeRulesForPaths,
     onFsEvent: (handler: (payload: FsWatchEvent) => void) => apiMocks.listen("fs-event", handler),
     onFsWatcherWarning: (handler: (payload: { message: string; path?: string; limit?: number }) => void) =>
       apiMocks.listen("fs-watcher-warning", handler)
@@ -187,12 +184,6 @@ describe("fs watcher hook registration", () => {
     apiMocks.listen.mockReset().mockResolvedValue(() => {});
     apiMocks.markFilesStaleByPaths.mockReset().mockResolvedValue(0);
     apiMocks.upsertFilesByPaths.mockReset().mockResolvedValue(1);
-    apiMocks.executeRulesForPaths.mockReset().mockResolvedValue({
-      scanned: 1,
-      updated: 1,
-      skipped: 0,
-      needsConfirmation: 0
-    });
   });
 
   afterEach(() => {
@@ -201,16 +192,14 @@ describe("fs watcher hook registration", () => {
   });
 
   it("keeps queued fs events when rules change during the debounce window", async () => {
-    const firstRules = [rule("first")];
-    const secondRules = [rule("second")];
     const onRefreshData = vi.fn(async () => {});
 
-    renderWatcher({ onRefreshData, rules: firstRules });
+    renderWatcher({ onRefreshData });
 
     const handler = apiMocks.listen.mock.calls[0][1] as (payload: FsWatchEvent) => void;
     handler({ eventType: "created", paths: ["F:/Projects/new.txt"] });
 
-    renderWatcher({ onRefreshData, rules: secondRules });
+    renderWatcher({ onRefreshData });
 
     expect(apiMocks.listen).toHaveBeenCalledTimes(2);
 
@@ -218,20 +207,22 @@ describe("fs watcher hook registration", () => {
     await flushPromises();
 
     expect(apiMocks.upsertFilesByPaths).toHaveBeenCalledWith(["F:/Projects/new.txt"]);
-    expect(apiMocks.executeRulesForPaths).toHaveBeenCalledWith(["F:/Projects/new.txt"], secondRules);
+    // Renderer legacy fallback only reconciles metadata; backend watcher
+    // projection owns rule execution and receives no path/vector from here.
+    expect(onRefreshData).toHaveBeenCalledOnce();
     expect(onRefreshData).toHaveBeenCalledOnce();
   });
 
   it("does not re-register the fs-event listener when rules change", async () => {
     const onRefreshData = vi.fn(async () => {});
 
-    renderWatcher({ onRefreshData, rules: [rule("first")] });
+    renderWatcher({ onRefreshData });
 
     expect(apiMocks.listen).toHaveBeenCalledTimes(2);
     expect(apiMocks.listen).toHaveBeenCalledWith("fs-event", expect.any(Function));
     expect(apiMocks.listen).toHaveBeenCalledWith("fs-watcher-warning", expect.any(Function));
 
-    renderWatcher({ onRefreshData, rules: [rule("second")] });
+    renderWatcher({ onRefreshData });
 
     expect(apiMocks.listen).toHaveBeenCalledTimes(2);
   });
@@ -239,7 +230,7 @@ describe("fs watcher hook registration", () => {
   it("removes a queued upsert when a stale event arrives for the same path", async () => {
     const onRefreshData = vi.fn(async () => {});
 
-    renderWatcher({ onRefreshData, rules: [] });
+    renderWatcher({ onRefreshData });
 
     const handler = apiMocks.listen.mock.calls[0][1] as (payload: FsWatchEvent) => void;
     handler({ eventType: "created", paths: ["F:/Projects/shared.txt"] });
@@ -250,14 +241,13 @@ describe("fs watcher hook registration", () => {
 
     expect(apiMocks.markFilesStaleByPaths).toHaveBeenCalledWith(["F:/Projects/shared.txt"]);
     expect(apiMocks.upsertFilesByPaths).not.toHaveBeenCalled();
-    expect(apiMocks.executeRulesForPaths).not.toHaveBeenCalled();
   });
 
   it("shows watcher partial-index warnings to the user", () => {
     const onRefreshData = vi.fn(async () => {});
     const onError = vi.fn();
 
-    renderWatcher({ onRefreshData, onError, rules: [] });
+    renderWatcher({ onRefreshData, onError });
 
     const warningHandler = apiMocks.listen.mock.calls.find(([eventName]) => eventName === "fs-watcher-warning")?.[1] as
       | ((payload: { message: string; path?: string; limit?: number }) => void)
@@ -280,7 +270,7 @@ describe("fs watcher hook registration", () => {
       .mockRejectedValueOnce(new Error("temporary upsert failure"))
       .mockResolvedValueOnce(1);
 
-    renderWatcher({ onRefreshData, rules: [] });
+    renderWatcher({ onRefreshData });
     const handler = apiMocks.listen.mock.calls[0][1] as (payload: FsWatchEvent) => void;
     handler({ eventType: "created", paths: ["F:/Projects/retry.txt"] });
 
@@ -294,31 +284,23 @@ describe("fs watcher hook registration", () => {
     expect(apiMocks.upsertFilesByPaths).toHaveBeenLastCalledWith(["F:/Projects/retry.txt"]);
   });
 
-  it("retries classification independently after a successful upsert", async () => {
+  it("leaves rule execution to the backend after a successful upsert", async () => {
     const onRefreshData = vi.fn(async () => {});
-    apiMocks.executeRulesForPaths
-      .mockRejectedValueOnce(new Error("temporary classification failure"))
-      .mockResolvedValueOnce({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 });
 
-    renderWatcher({ onRefreshData, rules: [] });
+    renderWatcher({ onRefreshData });
     const handler = apiMocks.listen.mock.calls[0][1] as (payload: FsWatchEvent) => void;
     handler({ eventType: "created", paths: ["F:/Projects/classify.txt"] });
 
     await vi.advanceTimersByTimeAsync(500);
     await flushPromises();
     expect(apiMocks.upsertFilesByPaths).toHaveBeenCalledTimes(1);
-    expect(apiMocks.executeRulesForPaths).toHaveBeenCalledTimes(1);
-
-    await vi.advanceTimersByTimeAsync(250);
-    await flushPromises();
-    expect(apiMocks.upsertFilesByPaths).toHaveBeenCalledTimes(1);
-    expect(apiMocks.executeRulesForPaths).toHaveBeenCalledTimes(2);
+    expect(onRefreshData).toHaveBeenCalledOnce();
   });
 
   it("cleans the legacy timer and queue before unmount so no mutation starts afterward", async () => {
     const onRefreshData = vi.fn(async () => {});
 
-    renderWatcher({ onRefreshData, rules: [] });
+    renderWatcher({ onRefreshData });
     const handler = apiMocks.listen.mock.calls[0][1] as (payload: FsWatchEvent) => void;
     handler({ eventType: "created", paths: ["F:/Projects/unmounted.txt"] });
 
@@ -328,40 +310,21 @@ describe("fs watcher hook registration", () => {
 
     expect(apiMocks.markFilesStaleByPaths).not.toHaveBeenCalled();
     expect(apiMocks.upsertFilesByPaths).not.toHaveBeenCalled();
-    expect(apiMocks.executeRulesForPaths).not.toHaveBeenCalled();
   });
 });
 
 function renderWatcher({
   enabled = true,
   onRefreshData,
-  onError,
-  rules
+  onError
 }: {
   enabled?: boolean;
   onRefreshData: () => Promise<void>;
   onError?: (message: string) => void;
-  rules: Rule[];
 }) {
   reactMock.refIndex = 0;
   reactMock.effectIndex = 0;
-  useFsWatcher({ enabled, onRefreshData, onError, rules });
-}
-
-function rule(id: string): Rule {
-  return {
-    id,
-    name: id,
-    source: "user",
-    enabled: true,
-    priority: 1,
-    weight: 1,
-    root_operator: "AND",
-    groups: [],
-    action: {},
-    created_at: "2026-07-01T00:00:00.000Z",
-    updated_at: "2026-07-01T00:00:00.000Z"
-  };
+  useFsWatcher({ enabled, onRefreshData, onError });
 }
 
 async function flushPromises() {

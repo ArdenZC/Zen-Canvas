@@ -510,10 +510,10 @@ struct CanonicalQuery {
 }
 
 #[derive(Debug, Clone)]
-struct ResolvedScope {
-    clause: String,
-    params: Vec<SqlValue>,
-    health: LibraryScopeHealthDto,
+pub(crate) struct ResolvedScope {
+    pub(crate) clause: String,
+    pub(crate) params: Vec<SqlValue>,
+    pub(crate) health: LibraryScopeHealthDto,
 }
 
 #[derive(Debug, Clone)]
@@ -1360,7 +1360,10 @@ pub(crate) fn current_library_revision(conn: &Connection) -> Result<i64, DbError
     .map_err(DbError::from)
 }
 
-fn resolve_scope(conn: &Connection, scope: &FileLibraryScopeV2) -> Result<ResolvedScope, DbError> {
+pub(crate) fn resolve_scope(
+    conn: &Connection,
+    scope: &FileLibraryScopeV2,
+) -> Result<ResolvedScope, DbError> {
     let mut roots = Vec::<LibraryScopeRootHealthDto>::new();
     let mut invalid_references = Vec::new();
     let root_ids = match scope {
@@ -1387,11 +1390,29 @@ fn resolve_scope(conn: &Connection, scope: &FileLibraryScopeV2) -> Result<Resolv
         }
     };
     let roots_sql = match root_ids.as_ref() {
-        None => "SELECT id, display_name, health_status, enabled, current_generation, needs_reconciliation FROM scan_roots WHERE source_kind = 'file_library' AND enabled = 1 ORDER BY id".to_string(),
-        Some(ids) if ids.is_empty() => "SELECT id, display_name, health_status, enabled, current_generation, needs_reconciliation FROM scan_roots WHERE 0".to_string(),
+        None => "SELECT id, display_name, health_status, enabled, current_generation,
+                        needs_reconciliation, watcher_rule_recovery_required,
+                        watcher_revision, watcher_applied_revision
+                 FROM scan_roots
+                 WHERE source_kind = 'file_library' AND enabled = 1
+                 ORDER BY id"
+            .to_string(),
+        Some(ids) if ids.is_empty() => "SELECT id, display_name, health_status, enabled,
+                        current_generation, needs_reconciliation,
+                        watcher_rule_recovery_required, watcher_revision,
+                        watcher_applied_revision
+                 FROM scan_roots WHERE 0"
+            .to_string(),
         Some(ids) => format!(
-            "SELECT id, display_name, health_status, enabled, current_generation, needs_reconciliation FROM scan_roots WHERE source_kind = 'file_library' AND id IN ({}) ORDER BY id",
-            std::iter::repeat_n("?", ids.len()).collect::<Vec<_>>().join(",")
+            "SELECT id, display_name, health_status, enabled, current_generation,
+                    needs_reconciliation, watcher_rule_recovery_required,
+                    watcher_revision, watcher_applied_revision
+             FROM scan_roots
+             WHERE source_kind = 'file_library' AND id IN ({})
+             ORDER BY id",
+            std::iter::repeat_n("?", ids.len())
+                .collect::<Vec<_>>()
+                .join(",")
         ),
     };
     let root_params = root_ids
@@ -1407,6 +1428,9 @@ fn resolve_scope(conn: &Connection, scope: &FileLibraryScopeV2) -> Result<Resolv
         let enabled = row.get::<_, i64>(3)? != 0;
         let generation = row.get(4)?;
         let needs_reconciliation = row.get::<_, i64>(5)? != 0;
+        let watcher_rule_recovery_required = row.get::<_, i64>(6)? != 0;
+        let watcher_revision = row.get::<_, i64>(7)?;
+        let watcher_applied_revision = row.get::<_, i64>(8)?;
         Ok((
             id,
             display_name,
@@ -1414,12 +1438,29 @@ fn resolve_scope(conn: &Connection, scope: &FileLibraryScopeV2) -> Result<Resolv
             enabled,
             generation,
             needs_reconciliation,
+            watcher_rule_recovery_required,
+            watcher_revision,
+            watcher_applied_revision,
         ))
     })?;
     for row in rows {
-        let (id, display_name, health_status, enabled, generation, needs_reconciliation) = row?;
+        let (
+            id,
+            display_name,
+            health_status,
+            enabled,
+            generation,
+            needs_reconciliation,
+            watcher_rule_recovery_required,
+            watcher_revision,
+            watcher_applied_revision,
+        ) = row?;
         seen.insert(id.clone());
-        let available = enabled && health_status == "healthy" && !needs_reconciliation;
+        let available = enabled
+            && health_status == "healthy"
+            && !needs_reconciliation
+            && !watcher_rule_recovery_required
+            && watcher_revision == watcher_applied_revision;
         roots.push(LibraryScopeRootHealthDto {
             id,
             display_name,
@@ -1482,6 +1523,53 @@ fn resolve_scope(conn: &Connection, scope: &FileLibraryScopeV2) -> Result<Resolv
             message: None,
         },
     })
+}
+
+/// Revalidates both current managed-root authority and current metadata
+/// membership. This intentionally uses a fresh canonical query rather than a
+/// historical materialized item list.
+pub(crate) fn file_matches_authoritative_query_scope(
+    conn: &Connection,
+    query: &FileQuerySpecV2,
+    file_id: &str,
+) -> Result<bool, DbError> {
+    let (spec, _, _) = canonicalize_file_query_spec(query.clone())?;
+    let scope = resolve_scope(conn, &spec.scope)?;
+    if scope.health.state == "invalid_reference" {
+        return Err(DbError::Validation(
+            "library_scope_invalid:reference".to_string(),
+        ));
+    }
+    if scope.health.state != "healthy" {
+        return Err(DbError::Validation("library_scope_unavailable".to_string()));
+    }
+    if query_has_missing_tags(conn, &spec.filters)? {
+        return Err(DbError::Validation(
+            "library_selection_invalid_tag_reference".to_string(),
+        ));
+    }
+    let mut conditions = vec!["f.id = ?".to_string(), "f.is_stale = 0".to_string()];
+    let mut query_params = vec![SqlValue::Text(file_id.to_string())];
+    if let Some(text) = spec.text.as_deref() {
+        let fts_query = build_fts_query(text)
+            .ok_or_else(|| DbError::Validation("library_query_text_invalid".to_string()))?;
+        conditions.push(
+            "f.rowid IN (SELECT files_fts.rowid FROM files_fts WHERE files_fts MATCH ?)"
+                .to_string(),
+        );
+        query_params.push(SqlValue::Text(fts_query));
+    }
+    conditions.push(format!("({})", scope.clause));
+    query_params.extend(scope.params);
+    append_filters(conn, &mut conditions, &mut query_params, &spec.filters)?;
+    let sql = format!(
+        "SELECT EXISTS(SELECT 1 FROM files AS f WHERE {})",
+        conditions.join(" AND ")
+    );
+    let matches = conn.query_row(&sql, params_from_iter(query_params.iter()), |row| {
+        row.get::<_, i64>(0)
+    })?;
+    Ok(matches != 0)
 }
 
 fn build_query_parts(
@@ -2548,7 +2636,18 @@ fn saved_view_invalid_references(
     match &spec.scope {
         FileLibraryScopeV2::Roots { scan_root_ids } => {
             for id in scan_root_ids {
-                let available: Option<i64> = conn.query_row("SELECT 1 FROM scan_roots WHERE source_kind = 'file_library' AND id = ?1 AND enabled = 1 AND health_status = 'healthy' AND needs_reconciliation = 0", params![id], |row| row.get(0)).optional()?;
+                let available: Option<i64> = conn
+                    .query_row(
+                        "SELECT 1 FROM scan_roots
+                     WHERE source_kind = 'file_library' AND id = ?1
+                       AND enabled = 1 AND health_status = 'healthy'
+                       AND needs_reconciliation = 0
+                       AND watcher_rule_recovery_required = 0
+                       AND watcher_revision = watcher_applied_revision",
+                        params![id],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
                 if available.is_none() {
                     invalid.push(format!("root:{id}"));
                 }

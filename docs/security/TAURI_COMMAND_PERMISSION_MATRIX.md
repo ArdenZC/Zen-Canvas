@@ -53,14 +53,25 @@
 | `get_operation_previews_for_scope` | `read_only` | main | Read preview data | default | no | capability allow-list |
 | `get_stats_summary` | `read_only` | main | Read statistics | default | no | capability allow-list |
 | `get_operation_logs` | `read_only` | main | Read operation history | default | no | command permission contract |
-| `get_user_rules` | `read_only` | main | Read rules | default | no | command permission contract |
-| `save_user_rule` | `main_state_mutation` | main | Write user rule | default | yes | command permission contract |
-| `delete_user_rule` | `main_state_mutation` | main | Delete user rule | default | yes | command permission contract |
+| `get_rule_catalog_state` | `read_only` | main | Read the monotonic Rule Catalog revision | default | no | Rule Repository V2 CAS tests |
+| `list_user_rules_v2` | `read_only` | main | Read canonical user rules with per-rule revision/provenance | default | no | Rule Repository V2 tests |
+| `create_user_rule_v2` | `main_state_mutation` | main | Canonicalize a renderer draft and create a backend-ID, default-disabled user rule | default | yes | Rule Repository V2 create/CAS tests |
+| `update_user_rule_v2` | `main_state_mutation` | main | Update canonical AST under rule/catalog revision CAS | default | yes | Rule Repository V2 update/CAS tests |
+| `set_user_rule_enabled_v2` | `main_state_mutation` | main | Independently enable/disable a user rule under rule/catalog CAS | default | yes | toggle separation tests |
+| `delete_user_rule_v2` | `main_state_mutation` | main | Confirmed source=user delete under rule/catalog CAS | default | yes | Rule Repository V2 delete tests |
 | `confirm_classification` | `main_state_mutation` | main | Persist user confirmation | default | yes | command permission contract |
 | `correct_classification` | `main_state_mutation` | main | Persist user correction | default | yes | command permission contract |
-| `execute_rules_on_inbox` | `main_state_mutation` | main | Apply rules to index | default | yes | command permission contract |
-| `execute_rules_for_paths` | `main_state_mutation` | main | Apply rules to paths | default | yes | command permission contract |
-| `execute_rules_for_scope` | `main_state_mutation` | main | Apply rules to scope | default | yes | command permission contract |
+| `execute_rules_for_scope_v2` | `main_state_mutation` | main | Load enabled rules from SQLite and update classification/suggestion metadata in a durable-ID scope | default | yes | backend-authoritative execution tests |
+| `create_rule_proposal` | `main_state_mutation` | main | Persist a draft, claim one interactive generation owner and store only validated canonical output | default | yes | proposal lifecycle/AI boundary tests |
+| `regenerate_rule_proposal` | `main_state_mutation` | main | Regenerate an eligible proposal under revision/target CAS | default | yes | owner/cancel/latest-wins tests |
+| `get_rule_proposal` | `read_only` | main | Read one durable proposal by opaque ID | default | yes | lifecycle and Search denial tests |
+| `list_rule_proposals` | `read_only` | main | Read a bounded keyset proposal page | default | yes | proposal paging/retention tests |
+| `cancel_rule_proposal` | `main_state_mutation` | main | Cancel an eligible proposal and signal its process-local request owner | default | yes | cancel/late-response tests |
+| `delete_rule_proposal` | `main_state_mutation` | main | Delete only a confirmed terminal proposal under revision CAS | default | yes | terminal retention tests |
+| `replace_rule_proposal_candidate` | `main_state_mutation` | main | Recanonicalize, revalidate and refingerprint a manually edited candidate | default | yes | correction/stale-preview tests |
+| `preview_rule_proposal` | `read_only` | main | Compute bounded metadata-only exact/deferred impact in a managed scope | default | yes | impact truthfulness tests |
+| `resolve_rule_proposal_exact_impact` | `read_only` | main | Resolve an opaque bound impact token to an exact count | default | yes | token/stale tests |
+| `apply_rule_proposal` | `main_state_mutation` | main | Atomically apply an exact, confirmed proposal as a disabled user rule | default | yes | Apply CAS/atomicity/no-file-mutation tests |
 | `get_settings` | `read_only` | main/search | Read app settings | default/search-window | no | capability allow-list |
 | `save_settings` | `main_state_mutation` | main | Write settings and watcher state | default | yes | command permission contract |
 | `get_ai_settings` | `read_only` | main | Read AI metadata | default | no | command permission contract |

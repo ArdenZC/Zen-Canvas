@@ -1,9 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { tauriApi, type WatcherReconciliationStatus } from "../api/tauriApi";
 import { makeTranslator } from "../i18n";
 import { useAppStore } from "../store/useAppStore";
 import { useWatcherStatusStore } from "../store/useWatcherStatusStore";
-import type { Rule } from "../types/domain";
 import { readableError } from "../utils/viewHelpers";
 import {
   WatcherRetryQueue,
@@ -15,7 +14,7 @@ import {
 interface FsWatcherOptions {
   onRefreshData: () => Promise<void>;
   onError?: (message: string) => void;
-  rules?: Rule[];
+  rules?: import("../types/domain").Rule[];
   enabled?: boolean;
 }
 
@@ -26,21 +25,11 @@ interface FsWatcherWarningEvent {
 }
 
 const WATCHER_FLUSH_DELAY_MS = 500;
-const WATCHER_CLASSIFY_LIMIT = 500;
-const EMPTY_RULES: Rule[] = [];
-
 export function useFsWatcher({
   onRefreshData,
   onError,
-  rules = EMPTY_RULES,
   enabled = true
 }: FsWatcherOptions) {
-  const rulesRef = useRef(rules);
-
-  useEffect(() => {
-    rulesRef.current = rules;
-  }, [rules]);
-
   useEffect(() => {
     if (!enabled) return;
 
@@ -128,17 +117,10 @@ export function useFsWatcher({
               }
             }
             if (classify.length > 0 && !isDisposed()) {
-              try {
-                if (isDisposed()) return;
-                const summary = await tauriApi.executeRulesForPaths(
-                  classify.slice(0, WATCHER_CLASSIFY_LIMIT).map((item) => item.path),
-                  rulesRef.current
-                );
-                changed = summary.updated > 0 || changed;
-                if (!isDisposed()) classify.forEach((item) => retryQueue.markSuccess(item));
-              } catch (error) {
-                reportFailure(classify, error);
-              }
+              // Native watcher reconciliation performs authoritative rule
+              // classification after the metadata upsert. The renderer never
+              // submits paths or a Rule vector as execution authority.
+              if (!isDisposed()) classify.forEach((item) => retryQueue.markSuccess(item));
             }
             if (changed && !isDisposed()) await onRefreshData();
           })

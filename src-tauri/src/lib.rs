@@ -11,6 +11,7 @@ pub mod ids;
 pub mod path_filter;
 pub mod path_identity;
 pub(crate) mod recovery;
+pub mod rule_proposals;
 pub mod runtime_capabilities;
 pub mod scanner;
 pub mod settings;
@@ -50,12 +51,12 @@ pub use app_control::{
     SearchWindowResizeRequest, SearchWindowSnapshot,
 };
 pub use db::{
-    confirm_classification, correct_classification, delete_user_rule, execute_rules_for_paths,
-    execute_rules_for_scope, execute_rules_on_inbox, get_operation_logs,
-    get_operation_previews_for_scope, get_paged_files, get_stats_summary, get_user_rules, init_db,
-    insert_file, save_user_rule, search_files, upsert_files_by_paths,
-    ClassificationCorrectionRequest, FileLibraryFilter, FileRecordDto, FileSearchResult,
-    InsertFileRequest, LibraryFilter, LibraryScope, OperationPreviewDto,
+    confirm_classification, correct_classification, create_user_rule_v2, delete_user_rule_v2,
+    execute_rules_for_scope_v2, get_operation_logs, get_operation_previews_for_scope,
+    get_paged_files, get_rule_catalog_state, get_stats_summary, init_db, insert_file,
+    list_user_rules_v2, search_files, set_user_rule_enabled_v2, update_user_rule_v2,
+    upsert_files_by_paths, ClassificationCorrectionRequest, FileLibraryFilter, FileRecordDto,
+    FileSearchResult, InsertFileRequest, LibraryFilter, LibraryScope, OperationPreviewDto,
     OperationPreviewScopeResult, PagedFilesResult, Rule, RuleExecutionMode, RuleExecutionSummary,
     StatsSummary,
 };
@@ -74,6 +75,12 @@ pub use file_ops::{
     FileOperationResult, OperationCancellationToken, OperationLogDto, OperationPreviewRequest,
     OperationProgressPayload, OperationSelection, RestoreMovesByIdRequest, RestoreMovesRequest,
     RestoreMovesResult,
+};
+pub use rule_proposals::{
+    apply_rule_proposal, cancel_rule_proposal, create_rule_proposal, delete_rule_proposal,
+    get_rule_proposal, list_rule_proposals, preview_rule_proposal, regenerate_rule_proposal,
+    replace_rule_proposal_candidate, resolve_rule_proposal_exact_impact,
+    RuleProposalGenerationManager,
 };
 pub use runtime_capabilities::{get_runtime_capabilities, RuntimeCapabilities};
 pub use scanner::{

@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::sync::OnceLock;
 
 /// 当前期望的 schema 版本号，每次需要改动 schema 时 +1
-pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 32;
+pub(crate) const CURRENT_SCHEMA_VERSION: i32 = 33;
 static FTS5_CHECKED: OnceLock<()> = OnceLock::new();
 
 fn assert_fts5_available(conn: &Connection) -> Result<(), DbError> {
@@ -51,6 +51,7 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         ensure_analysis_schema(conn)?;
         ensure_file_library_schema(conn)?;
         ensure_organization_plan_schema(conn)?;
+        ensure_rule_proposal_schema(conn)?;
         backfill_scan_roots_from_settings(conn)?;
         return Ok(());
     }
@@ -709,6 +710,10 @@ pub(crate) fn migrate(conn: &Connection) -> Result<(), DbError> {
         if version < 32 {
             ensure_organization_plan_schema(conn)?;
             set_schema_version(conn, 32)?;
+        }
+        if version < 33 {
+            ensure_rule_proposal_schema(conn)?;
+            set_schema_version(conn, 33)?;
         }
         Ok(())
     })();
@@ -1815,6 +1820,180 @@ fn ensure_organization_plan_schema(conn: &Connection) -> Result<(), DbError> {
             ON organization_plan_items(execution_id, validity, id);
         "#,
     )?;
+    Ok(())
+}
+
+/// Task 07 Rule Repository V2 catalog state and durable proposal review
+/// ledger. The large files authority and every operation/cleanup journal are
+/// intentionally untouched.
+fn ensure_rule_proposal_schema(conn: &Connection) -> Result<(), DbError> {
+    // Some historical development fixtures at schema 9 omitted the v7 rules
+    // table even though production migrations create it. Re-establish that
+    // precondition idempotently before the additive schema-33 columns.
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS rules (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'user',
+            enabled INTEGER NOT NULL DEFAULT 1,
+            priority REAL NOT NULL DEFAULT 0,
+            weight REAL NOT NULL DEFAULT 0,
+            root_operator TEXT NOT NULL DEFAULT 'AND',
+            groups_json TEXT NOT NULL DEFAULT '[]',
+            action_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT ''
+        );
+        "#,
+    )?;
+    // A few historical test fixtures created only the original id/name pair
+    // before the schema-7 rules catalog was introduced. Reconcile every
+    // additive catalog column before recreating its indexes.
+    execute_column_migrations(
+        conn,
+        &[
+            "ALTER TABLE rules ADD COLUMN source TEXT NOT NULL DEFAULT 'user';",
+            "ALTER TABLE rules ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;",
+            "ALTER TABLE rules ADD COLUMN priority REAL NOT NULL DEFAULT 0;",
+            "ALTER TABLE rules ADD COLUMN weight REAL NOT NULL DEFAULT 0;",
+            "ALTER TABLE rules ADD COLUMN root_operator TEXT NOT NULL DEFAULT 'AND';",
+            "ALTER TABLE rules ADD COLUMN groups_json TEXT NOT NULL DEFAULT '[]';",
+            "ALTER TABLE rules ADD COLUMN action_json TEXT NOT NULL DEFAULT '{}';",
+            "ALTER TABLE rules ADD COLUMN created_at TEXT NOT NULL DEFAULT '';",
+            "ALTER TABLE rules ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';",
+        ],
+    )?;
+    conn.execute_batch(
+        r#"
+        CREATE INDEX IF NOT EXISTS idx_rules_source ON rules(source);
+        CREATE INDEX IF NOT EXISTS idx_rules_enabled ON rules(enabled);
+        CREATE INDEX IF NOT EXISTS idx_rules_priority ON rules(priority DESC);
+        "#,
+    )?;
+    execute_column_migrations(
+        conn,
+        &[
+            "ALTER TABLE rules ADD COLUMN ast_version INTEGER NOT NULL DEFAULT 1;",
+            "ALTER TABLE rules ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;",
+            "ALTER TABLE rules ADD COLUMN origin_proposal_id TEXT;",
+        ],
+    )?;
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS rule_catalog_state (
+            singleton_id INTEGER PRIMARY KEY CHECK (singleton_id = 1),
+            revision INTEGER NOT NULL CHECK (revision >= 1),
+            updated_at INTEGER NOT NULL
+        );
+        "#,
+    )?;
+    require_exact_table_columns(
+        conn,
+        "rule_catalog_state",
+        &["singleton_id", "revision", "updated_at"],
+    )?;
+    conn.execute_batch(
+        r#"
+        INSERT OR IGNORE INTO rule_catalog_state(singleton_id, revision, updated_at)
+        VALUES (1, 1, strftime('%s', 'now'));
+
+        CREATE TABLE IF NOT EXISTS rule_proposals (
+            id TEXT PRIMARY KEY,
+            status TEXT NOT NULL CHECK (status IN (
+                'draft', 'generating', 'ready', 'needs_clarification',
+                'invalid', 'stale', 'applying', 'applied',
+                'cancelled', 'failed'
+            )),
+            intent_kind TEXT NOT NULL CHECK (intent_kind IN ('create', 'update')),
+            target_rule_id TEXT,
+            base_rule_revision INTEGER,
+            prompt TEXT NOT NULL,
+            prompt_fingerprint TEXT NOT NULL,
+            provider_kind TEXT,
+            provider_preset TEXT,
+            model TEXT,
+            ast_version INTEGER NOT NULL,
+            candidate_rule_json TEXT,
+            candidate_fingerprint TEXT,
+            summary TEXT,
+            clarification_json TEXT NOT NULL DEFAULT '[]',
+            validation_json TEXT NOT NULL DEFAULT '{}',
+            applied_rule_id TEXT,
+            revision INTEGER NOT NULL CHECK (revision >= 1),
+            last_error_code TEXT,
+            last_error_detail TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            generated_at INTEGER,
+            applied_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_rule_proposals_status_updated
+            ON rule_proposals(status, updated_at DESC, id);
+        CREATE INDEX IF NOT EXISTS idx_rule_proposals_target
+            ON rule_proposals(target_rule_id, status, updated_at DESC);
+        "#,
+    )?;
+    require_exact_table_columns(
+        conn,
+        "rule_proposals",
+        &[
+            "id",
+            "status",
+            "intent_kind",
+            "target_rule_id",
+            "base_rule_revision",
+            "prompt",
+            "prompt_fingerprint",
+            "provider_kind",
+            "provider_preset",
+            "model",
+            "ast_version",
+            "candidate_rule_json",
+            "candidate_fingerprint",
+            "summary",
+            "clarification_json",
+            "validation_json",
+            "applied_rule_id",
+            "revision",
+            "last_error_code",
+            "last_error_detail",
+            "created_at",
+            "updated_at",
+            "generated_at",
+            "applied_at",
+        ],
+    )?;
+    let catalog_rows: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM rule_catalog_state
+         WHERE singleton_id = 1 AND revision >= 1",
+        [],
+        |row| row.get(0),
+    )?;
+    if catalog_rows != 1 {
+        return Err(DbError::Validation(
+            "rule_catalog_schema_conflict".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn require_exact_table_columns(
+    conn: &Connection,
+    table: &str,
+    expected: &[&str],
+) -> Result<(), DbError> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info('{table}')"))?;
+    let actual = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if actual.len() != expected.len()
+        || expected
+            .iter()
+            .any(|column| !actual.iter().any(|actual| actual == column))
+    {
+        return Err(DbError::Validation(format!("{table}_schema_conflict")));
+    }
     Ok(())
 }
 

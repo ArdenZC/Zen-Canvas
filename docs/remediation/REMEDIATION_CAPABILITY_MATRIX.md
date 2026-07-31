@@ -16,7 +16,7 @@
 | Cross-domain stable file identity | 部分存在，可扩展 | global native ID、library path ID、operation identity | 不同数据域语义不同 | 不迁移 `files.id` |
 | Durable Dedupe | 完整存在 | dedupe run、group/member、fingerprint cache | hardlink-safe、bounded workers | Rule 只可读取 duplicate 条件 |
 | Durable Analysis Finding | 完整存在 | analysis run/finding/evidence/decision | finding 不是 mutation authority | Rule/Plan 只读 bounded summary |
-| Organization Plan | 完整存在，需加固 | schema32 `organization_plans/items` | live dry-run/target、root health、review transition、recovery、retention、summary 存在接受遗留 | Task 07 第一组关闭 |
+| Organization Plan | 完整存在 | schema32 `organization_plans/items`；Task 07 live dry-run/recovery regressions | live target、root health、review transition、terminal recovery、retention、summary 已闭环 | Task 07 第一组已关闭 |
 | Server-authoritative operation preview | 完整存在 | `get_operation_previews_by_file_ids`、identity verify | execute 重新解析 current preview | 必须与 dry run 绑定同一 live proposal |
 | Durable operation journal | 完整存在 | operations query、pending journal、startup reconcile | filesystem truth | 不另建 journal、不改 schema |
 | Safe Trash / cleanup journal | 完整存在 | storage analyzer/cleanup ledger | 非永久删除、restore identity | Rule Proposal 不获得 cleanup 权限 |
@@ -27,16 +27,16 @@
 | Content Artifact | 不存在 | schema 无 artifact ledger | AI trace 不是业务内容 artifact | Task 08 前禁止 |
 | AI trace diagnostics | 完整存在 | `ai/trace.rs` | ring buffer、redaction/truncation；非业务事实 | Proposal raw response 不持久化 |
 | Structured Rule AST V1 | 完整存在 | Rust Rule types、validator、classification engine、manual builder | 允许字段/operator/action 已固定 | Task 07 唯一 candidate target |
-| Rule repository revision CAS | 不存在 | 当前 `save_user_rule` whole-object upsert | 无 per-rule/catalog revision，renderer 可提交 ID/source/timestamps | Task 07 schema33 + Repository V2 |
-| Rule catalog authority | 部分存在，可扩展 | SQLite rules + classification version | execution仍接受 renderer `Vec<Rule>` | Task 07 改为 backend 加载 enabled rules |
-| Durable NL Rule Proposal | 不存在 | 无 proposal/diff/approval/version table | 模型不可直接写 rule | Task 07 建设 schema33 ledger |
-| Rule proposal canonical validator | 部分存在，可扩展 | `validate_user_rule` 与 TS builder validation | 模型 strict parse、literal grounding、deterministic fingerprint 缺失 | Task 07 收敛到 Rust authority |
-| Rule impact preview | 不存在 | 无 proposal count/sample/conflict/fingerprint | 不能证明自然语言规则影响范围 | Task 07 建 exact/deferred metadata preview |
-| Human proposal Apply | 不存在 | 无 proposal→rule atomic transaction | 无 stale/correction/default-disabled contract | Task 07 建设 |
+| Rule repository revision CAS | 完整存在 | schema33 `rules.revision/ast_version/origin_proposal_id`；`rules_repo.rs` V2 CRUD | Create/Update/Toggle/Delete 分离；旧 whole-object write 已退出 capability | Task 07 完成 |
+| Rule catalog authority | 完整存在 | `rule_catalog_state`；backend classification adapters | catalog CAS、classification version、scanner/watcher/manual 统一加载 enabled rules | Task 07 完成 |
+| Durable NL Rule Proposal | 完整存在 | schema33 `rule_proposals`；`rule_proposals.rs` lifecycle/recovery/retention | 交互生成 owner 非 durable queue；可重启继续人工审查 | Task 07 完成 |
+| Rule proposal canonical validator | 完整存在 | strict envelope、AST V1 canonicalization、literal grounding、permission codes | Rust 是 authority；TS 只做表单提示 | Task 07 完成 |
+| Rule impact preview | 完整存在 | metadata SQL compiler、managed scope health、exact/deferred token/fingerprint | sample≤20；Apply 只接受 exact | Task 07 完成 |
+| Human proposal Apply | 完整存在 | 单 transaction proposal applying/applied + user rule/catalog CAS | create/update 后均 disabled；不修改 files、不运行规则 | Task 07 完成 |
 | Natural-language Agent runtime | 不应建设 | 无 tool/task/session runtime | 与产品边界、权限和安全模型冲突 | 明确禁止 Coworker/OpenCode runtime |
 | Generic tool permission registry | 不应建设 | Tauri capability 已是应用命令边界 | shell/MCP/tool allow-list 会扩大产品为 Agent | 仅把 ask/allow/deny 翻译为 proposal validation 类别 |
 | Script/SQL/shell Rule language | 不应建设 | Rule AST 是 typed metadata DSL | 任意执行不可安全预览 | 永久禁止 |
-| Backend-authoritative Rule execution | 部分存在，可扩展 | Rust classification engine 存在 | command 接受 renderer Rule vector | Task 07 建 V2 ID/revision-only入口 |
+| Backend-authoritative Rule execution | 完整存在 | `execute_rules_for_scope_v2`；scanner/watcher authoritative adapters | renderer 只提交 durable scope/mode/catalog revision/confirmed | Task 07 完成 |
 | Global Search | 完整存在 | global search repository/commands/window | 与 File Library 独立 | Search window denied Rule writes |
 | Command Registry | 部分存在，可扩展 | Spotlight command metadata | 不是 Agent tool registry | Task 07 不扩展为 tools |
 | Durable reconciliation framework | 不存在 | 各域独立 recovery | 跨域通用框架会抹平领域语义 | 不建设万能 runtime |

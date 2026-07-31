@@ -909,6 +909,24 @@ export interface OrganizationPlan {
   updatedAt: number;
   readyAt: number | null;
   completedAt: number | null;
+  summary: OrganizationPlanSummary;
+}
+
+export interface OrganizationPlanSummary {
+  undecided: number;
+  accepted: number;
+  kept: number;
+  edited: number;
+  needsAnalysis: number;
+  needsReview: number;
+  ready: number;
+  blocked: number;
+  stale: number;
+  executing: number;
+  executed: number;
+  failed: number;
+  skipped: number;
+  remainingExecutable: number;
 }
 
 export interface OrganizationPlanItem {
@@ -929,6 +947,7 @@ export interface OrganizationPlanItem {
   decision: "undecided" | "accepted" | "kept" | "edited";
   editedName: string | null;
   validity: "ready" | "needs_analysis" | "needs_review" | "blocked" | "stale" | "executing" | "executed" | "failed" | "skipped";
+  reviewState: "ready" | "needs_review" | "reviewed" | "blocked" | "needs_analysis" | "stale" | "executing" | "executed" | "failed" | "skipped";
   confidence: number;
   riskLevel: string;
   requiresConfirmation: boolean;
@@ -1271,6 +1290,159 @@ export interface Rule {
   action: RuleAction;
   created_at: string;
   updated_at: string;
+  astVersion?: number;
+  revision?: number;
+  originProposalId?: string | null;
+}
+
+export interface RuleDraftV2 {
+  name: string;
+  priority: number;
+  weight: number;
+  rootOperator: "AND" | "OR";
+  groups: Array<{
+    operator: "AND" | "OR";
+    conditions: Array<{
+      field: Exclude<ConditionField, "unknown">;
+      operator: Exclude<ConditionOperator, "unknown">;
+      value: string | number | boolean;
+    }>;
+  }>;
+  action: {
+    purpose?: Purpose;
+    lifecycle?: Lifecycle;
+    context?: string;
+    riskLevel?: RiskLevel;
+    suggestedAction?: SuggestedAction;
+    targetTemplate?: string;
+    renameTemplate?: string;
+  };
+}
+
+export interface RuleCatalogState {
+  revision: number;
+  updatedAt: number;
+}
+
+export interface RuleMutationResultV2 {
+  rule: Rule;
+  catalogRevision: number;
+}
+
+export interface RuleExecutionResultV2 {
+  summary: RuleExecutionSummary;
+  catalogRevision: number;
+  classificationVersion: string;
+}
+
+export type RuleProposalStatus =
+  | "draft"
+  | "generating"
+  | "ready"
+  | "needs_clarification"
+  | "invalid"
+  | "failed"
+  | "stale"
+  | "applying"
+  | "applied"
+  | "cancelled";
+
+export interface RuleProposalValidation {
+  valid: boolean;
+  permissionClass: "allow" | "ask" | "deny";
+  requiresConfirmation: boolean;
+  broadMatch: boolean;
+  codes: string[];
+  warnings: string[];
+}
+
+export interface CanonicalRuleAstV1 {
+  astVersion: 1;
+  name: string;
+  priority: number;
+  weight: number;
+  rootOperator: "AND" | "OR";
+  groups: RuleConditionGroup[];
+  action: RuleAction;
+}
+
+export interface RuleProposal {
+  id: string;
+  status: RuleProposalStatus;
+  intentKind: "create" | "update";
+  targetRuleId: string | null;
+  baseRuleRevision: number | null;
+  prompt: string;
+  promptFingerprint: string;
+  providerKind: AIProviderKind | null;
+  providerPreset: AIProviderPresetId | null;
+  model: string | null;
+  astVersion: number;
+  candidate: CanonicalRuleAstV1 | null;
+  candidateFingerprint: string | null;
+  summary: string | null;
+  clarifications: string[];
+  validation: RuleProposalValidation;
+  appliedRuleId: string | null;
+  revision: number;
+  lastErrorCode: string | null;
+  lastErrorDetail: string | null;
+  createdAt: number;
+  updatedAt: number;
+  generatedAt: number | null;
+  appliedAt: number | null;
+}
+
+export interface RuleProposalPage {
+  proposals: RuleProposal[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface RuleImpactSampleRow {
+  fileId: string;
+  name: string;
+  extension: string;
+  size: number;
+  modifiedAt: number;
+  fileType: string;
+  riskLevel: string;
+  beforeAction: string;
+  afterAction: string | null;
+}
+
+export interface RuleConflictPreview {
+  ruleId: string;
+  name: string;
+  kind: string;
+}
+
+export interface RuleProposalImpact {
+  proposalId: string;
+  proposalRevision: number;
+  candidateFingerprint: string;
+  catalogRevision: number;
+  libraryRevision: number;
+  scopeHealth: LibraryScopeHealth;
+  permissionClass: "allow" | "ask" | "deny";
+  impactState: "exact" | "deferred";
+  matchedCount: number | null;
+  impactToken: string | null;
+  sampleRows: RuleImpactSampleRow[];
+  sampleIsBounded: boolean;
+  actionSummary: RuleAction;
+  riskSummary: string[];
+  requiresConfirmation: boolean;
+  broadMatch: boolean;
+  conflictAnalysisState: string;
+  conflicts: RuleConflictPreview[];
+  previewFingerprint: string;
+}
+
+export interface ApplyRuleProposalResult {
+  proposal: RuleProposal;
+  rule: Rule;
+  catalogRevision: number;
 }
 
 export interface FileQuery {

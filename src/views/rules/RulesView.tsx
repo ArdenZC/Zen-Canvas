@@ -6,7 +6,9 @@ import { useChromeContext, useRulesContext } from "../../contexts/AppContexts";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useAppStore } from "../../store/useAppStore";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
-import type { Rule } from "../../types/domain";
+import { resolveLegacyLibraryScope } from "../../store/useFileLibraryV2Store";
+import { useRulesStore } from "../../store/useRulesStore";
+import type { Rule, RuleDraftV2, RuleProposal } from "../../types/domain";
 import { buttonSecondary, cn, contentPanel, emptyState, glassButtonPrimary } from "../../utils/tw";
 import { AutomationRuleDialog } from "../automation/AutomationRuleDialog";
 import {
@@ -23,6 +25,8 @@ import { ConfirmDialog, mutedText, pageSurface, panelSurface } from "../shared/u
 import { AutomationRuleInspector, CurrentEnvironment } from "./AutomationRuleInspector";
 import { AutomationRuleList, focusRuleContent } from "./AutomationRuleList";
 import { AutomationRunFeedback } from "./AutomationRunFeedback";
+import { RuleProposalWorkspace } from "./RuleProposalWorkspace";
+import { useRuleProposalStore } from "../../store/useRuleProposalStore";
 
 type Confirmation = { kind: "delete"; rule: Rule } | { kind: "run" } | null;
 
@@ -30,6 +34,7 @@ export function RulesView() {
   const { t, setView } = useChromeContext();
   const { rules, saveRule, toggleRuleEnabled, deleteRule } = useRulesContext();
   const scope = useFileLibraryStore((state) => state.scope);
+  const catalogRevision = useRulesStore((state) => state.catalogRevision);
   const needsReview = useFileLibraryStore((state) => state.stats.needsConfirmation);
   const isLoadingReview = false;
   const userRules = useMemo(() => rules.filter((rule) => rule.source === "user"), [rules]);
@@ -40,6 +45,7 @@ export function RulesView() {
   const ruleMutationSignature = useMemo(() => JSON.stringify(userRules), [userRules]);
   const [activeId, setActiveId] = useState("");
   const [editorRule, setEditorRule] = useState<Rule | "new" | null>(null);
+  const [proposalEditor, setProposalEditor] = useState<RuleProposal | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
   const [deleteError, setDeleteError] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -111,8 +117,16 @@ export function RulesView() {
   }
 
   function openRuleEditor(next: Rule | "new", trigger?: HTMLElement | null) {
+    setProposalEditor(null);
     dialogTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setEditorRule(next);
+  }
+
+  function openProposalEditor(proposal: RuleProposal, trigger?: HTMLElement | null) {
+    if (!proposal.candidate) return;
+    dialogTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setProposalEditor(proposal);
+    setEditorRule(candidateAsRule(proposal));
   }
 
   function restoreAutomationFocus() {
@@ -146,6 +160,14 @@ export function RulesView() {
   }
 
   async function save(next: Rule) {
+    if (proposalEditor) {
+      await useRuleProposalStore.getState().replaceCandidate(
+        proposalEditor,
+        ruleDraftV2(next)
+      );
+      setProposalEditor(null);
+      return;
+    }
     await saveRule(next);
     setActiveId(next.id);
   }
@@ -203,7 +225,13 @@ export function RulesView() {
     runContextRef.current = context;
     setRunState({ kind: "running", context });
     try {
-      const summary = await tauriApi.executeRulesForScope(scope, enabledUserRules, "all_changed_or_rule_changed");
+      const durableScope = await resolveLegacyLibraryScope(scope);
+      const { summary } = await tauriApi.executeRulesForScopeV2(
+        durableScope,
+        catalogRevision,
+        "all_changed_or_rule_changed",
+        true
+      );
       if (!runResultIsCurrent(context)) {
         markStaleIfCurrent(context);
         return;
@@ -238,6 +266,12 @@ export function RulesView() {
           <button ref={createRef} type="button" className={userRules.length ? glassButtonPrimary : buttonSecondary} onClick={(event) => openRuleEditor("new", event.currentTarget)}><Plus size={16} />{t("automationCreateRule")}</button>
         </header>
 
+        <RuleProposalWorkspace
+          rules={userRules}
+          onOpenManualBuilder={(trigger) => openRuleEditor("new", trigger)}
+          onEditCandidate={(proposal, trigger) => openProposalEditor(proposal, trigger)}
+        />
+
         <div className="grid grid-cols-2 gap-2 min-[1180px]:grid-cols-4">
           {[
             [t("automationTotal"), overview.total],
@@ -271,7 +305,51 @@ export function RulesView() {
       </div>
     </div>
 
-    <AutomationRuleDialog open={editorRule !== null} rule={editorRule && editorRule !== "new" ? editorRule : undefined} t={t} restoreFocus={restoreAutomationFocus} onClose={() => setEditorRule(null)} onSave={save} />
+    <AutomationRuleDialog open={editorRule !== null} rule={editorRule && editorRule !== "new" ? editorRule : undefined} t={t} restoreFocus={restoreAutomationFocus} onClose={() => { setEditorRule(null); setProposalEditor(null); }} onSave={save} />
     <ConfirmDialog open={Boolean(confirmation)} tone={confirmation?.kind === "delete" ? "danger" : "warning"} title={confirmation?.kind === "delete" ? t("confirmDeleteRuleTitle") : t("confirmReapplyRulesTitle")} description={confirmation?.kind === "delete" ? t("automationDeleteDesc") : t("automationRunConfirmDesc").replace("{count}", String(enabledUserRules.length))} emphasis={confirmation?.kind === "delete" ? t("automationDeleteHistorySafe") : t("automationSafetyBoundary")} errorMessage={confirmation?.kind === "delete" ? deleteError : undefined} confirmLabel={confirmation?.kind === "delete" ? t("deleteRule") : (runState.kind === "stale" ? t("automationRegenerateSuggestions") : t("automationRunNow"))} cancelLabel={t("cancel")} isProcessing={confirmation?.kind === "delete" ? deleteBusy : runState.kind === "running"} onCancel={() => { if (!deleteBusy) { setDeleteError(""); setConfirmation(null); } }} onConfirm={() => void confirmAction()} />
   </>;
+}
+
+function candidateAsRule(proposal: RuleProposal): Rule {
+  const candidate = proposal.candidate;
+  if (!candidate) throw new Error("rule_proposal_candidate_missing");
+  return {
+    id: `proposal-candidate-${proposal.id}`,
+    name: candidate.name,
+    source: "user",
+    enabled: false,
+    priority: candidate.priority,
+    weight: candidate.weight,
+    root_operator: candidate.rootOperator,
+    groups: candidate.groups,
+    action: candidate.action,
+    created_at: "",
+    updated_at: ""
+  };
+}
+
+function ruleDraftV2(rule: Rule): RuleDraftV2 {
+  return {
+    name: rule.name,
+    priority: rule.priority,
+    weight: rule.weight,
+    rootOperator: rule.root_operator === "OR" ? "OR" : "AND",
+    groups: rule.groups.map((group) => ({
+      operator: group.operator === "OR" ? "OR" : "AND",
+      conditions: group.conditions.map((condition) => ({
+        field: condition.field as Exclude<typeof condition.field, "unknown">,
+        operator: condition.operator as Exclude<typeof condition.operator, "unknown">,
+        value: condition.value
+      }))
+    })),
+    action: {
+      purpose: rule.action.purpose,
+      lifecycle: rule.action.lifecycle,
+      context: rule.action.context,
+      riskLevel: rule.action.risk_level,
+      suggestedAction: rule.action.suggested_action,
+      targetTemplate: rule.action.target_template,
+      renameTemplate: rule.action.rename_template
+    }
+  };
 }
