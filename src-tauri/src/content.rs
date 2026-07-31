@@ -4548,6 +4548,11 @@ mod tests {
             extraction.reason.as_deref(),
             Some("content_archive_entry_limit_exceeded")
         );
+        let mut reader = Cursor::new(vec![0_u8; 4]);
+        let timeout =
+            read_zip_entry_bounded(&mut reader, 64, Instant::now() - Duration::from_secs(1))
+                .expect_err("expired extraction deadline must fail closed");
+        assert_eq!(content_error_code(&timeout), "content_extractor_timeout");
     }
 
     #[test]
@@ -4566,6 +4571,38 @@ mod tests {
             language: None,
             warnings: Vec::new(),
         }));
+    }
+
+    #[test]
+    fn durable_run_cancellation_sets_owner_signal_and_revision() {
+        let db_path = std::env::temp_dir().join(format!(
+            "zen-content-cancel-{}.sqlite3",
+            uuid::Uuid::new_v4()
+        ));
+        let db = Database::open(&db_path).unwrap();
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO content_runs(
+                    id, scope_json, scope_fingerprint, mode, provider_mode, status,
+                    expected_library_revision, policy_fingerprint, confirmation,
+                    created_at, updated_at
+                 ) VALUES ('cancel-run','{\"kind\":\"all_enabled_roots\"}','scope','local','none','running',1,'policy',1,1,1)",
+                [],
+            )
+            .unwrap();
+        let run = db
+            .cancel_content_run(ContentRunIdRequest {
+                run_id: "cancel-run".into(),
+                expected_revision: 1,
+                confirmed: true,
+            })
+            .unwrap();
+        assert_eq!(run.status, "cancelling");
+        assert!(run.cancel_requested);
+        assert_eq!(run.revision, 2);
+        drop(db);
+        let _ = std::fs::remove_file(db_path);
     }
 
     #[test]
