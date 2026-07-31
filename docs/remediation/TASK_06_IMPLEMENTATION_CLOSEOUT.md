@@ -7,7 +7,7 @@
 - Code and test evidence HEAD before this closeout: `467118a0e63097f3da4077def34a1cba3e18482f`.
 - Final delivery HEAD: the head of the single Draft PR; it is reported in the PR and final delivery because a commit cannot truthfully contain its own hash.
 - Schema: `31 → 32`.
-- Task 06 remains unmerged and stops at human code review. Task 07 and Task 08 have not started.
+- This document records the historical Task 06 closeout before PR #40 was merged. PR #40 later merged Task 06 at `29e85c099c5ee921ad7d4237c780dc47126e0fa3`; the accepted seven-item handoff is closed by Task 07 on `remediation/07-rule-proposal`.
 
 No dependency, `package-lock.json`, `Cargo.lock`, release/version/tag, `files` table, `files.id`, operation/cleanup journal schema, Managed AI schema/provider/worker, Rule AST, or content-extraction change was made.
 
@@ -141,4 +141,20 @@ The final gate record is completed in the Draft PR after `verify:frontend`, `ver
 - Managed AI completion does not silently refresh or preserve approval; the user must refresh and review again.
 - Existing allowed Rust dependency advisories remain separately inventoried; Task 06 adds no dependencies.
 
-Task 06 stops at one Draft PR for human code-level review. It is not merged. Task 07 and Task 08 have not started.
+At the time of this historical closeout Task 06 stopped at one Draft PR for human code-level review. The current state is recorded below; Task 08 remains unstarted.
+
+## 14. Task 07 handoff closure
+
+The complete Task 07 implementation closes every accepted Task 06 handoff item on the single branch `remediation/07-rule-proposal`:
+
+| Accepted handoff | Task 07 evidence |
+|---|---|
+| Dry-run/execution equivalence | Organization refresh, dry-run and execution rebuild the same live authoritative facts and dispatch the exact canonical preview. |
+| Managed root health | Scope/root health, watcher recovery and watcher revision are revalidated at refresh, dry-run and execution; stale states fail closed. |
+| `needs_review` approval | Backend review-state projection maps `needs_review` to an explicit reviewed path while blocked/unsupported states remain non-executable. |
+| Crash projection | Finalization and restart recovery share terminal projection; all journal-success rows project to `completed`, with fault-injection regression coverage. |
+| Retention union | Age UNION count overflow, child-first ordering, deduplication and per-pass caps are tested. |
+| Plan summary | Summary counts are authoritative backend aggregates, independent of the first page size. |
+| Package evidence | Local package and remote CI package jobs are recorded separately; skipped jobs are never described as success, with real Windows NSIS and macOS unsigned-DMG evidence required in the Task 07 Draft PR. |
+
+Task 07 does not alter the operation/cleanup journals, weaken Safe Trash/Restore, or begin Task 08.

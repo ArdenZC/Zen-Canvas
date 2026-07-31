@@ -30,5 +30,8 @@ describe("performance benchmark script", () => {
 
     expect(source).toContain("performance_1m_file_library_query_matrix");
     expect(source).toContain("performance_task06_plan_100_1k_10k_repository");
+    expect(source).toContain("performance_100k_schema_32_to_33_rule_proposal_migration");
+    expect(source).toContain("performance_1m_schema_32_to_33_rule_proposal_migration");
+    expect(source).toContain("performance_task07_rule_proposal_repository_and_impact");
   });
 });

@@ -17,8 +17,8 @@
 - Task 03 / PR #28 merge：`70427ff648dd5b9fab66e247fbf0a5ddf8912f45`；
 - Task 04 / PR #35 squash merge：`14616d4344314afce0878dbc681988c04183a9bc`；
 - Task 05 / PR #38 squash merge：`5468a17790165a149c462a17b64d011750b45410`；
-- 当前数据库基线：schema 31；
-- Task 06 授权目标：schema 32；
+- 当前数据库基线：schema 33（Task 07 实施分支）；
+- Task 06 已合并，schema 32；Task 07 授权并实现 `32→33`；
 - 当前版本线：`0.1.40`。
 
 每个任务开始时必须记录实际 `HEAD` 并确认包含对应前置合并提交，不得 reset 到文档中的旧 SHA。
@@ -43,8 +43,9 @@
 - Task 03：大型文件/空间分析，已完成；
 - Task 04：全局快捷搜索，已通过 PR #35 合并；
 - Task 05：文件库，已通过 PR #38 合并，schema 31；
-- Task 06：Durable Organization Plan、审核式 dry run 与安全执行，当前唯一可执行完整模块；
-- Task 07–08：禁止执行。
+- Task 06：Durable Organization Plan、审核式 dry run 与安全执行，已合并；
+- Task 07：自然语言 Rule Proposal，当前分支已完成实现，Draft PR 等待人工代码级验收；
+- Task 08：继续禁止执行。
 
 禁止创建独立 debt-cleanup、05.5、06A/06B/06C 或其他产品模块。上一阶段人工接受的遗留进入下一完整模块第一组，然后继续完成该模块，不单独停点。
 
@@ -73,10 +74,10 @@ Codex 开始阶段前依次阅读：
 任务书已位于当前 master
 ```
 
-Task 06 权威入口：
+Task 07 当前权威入口：
 
 ```text
-docs/remediation/TASK_06_DURABLE_ORGANIZATION_PLAN_AND_DRY_RUN.md
+docs/remediation/TASK_07_NATURAL_LANGUAGE_RULE_PROPOSAL_AND_APPROVAL.md
 ```
 
 任务书进入 master 即满足文档门禁，不得再使用旧 PR 的 Draft/Open 文案制造额外阻断。
@@ -180,7 +181,7 @@ docs/remediation/
 └── TASK_06_DURABLE_ORGANIZATION_PLAN_AND_DRY_RUN.md
 ```
 
-Task 07–08 的任务书只能在前一完整模块人工验收合并后创建。
+Task 07 任务书已进入 master；当前实现停止在 Draft PR 等待人工代码级验收。Task 08 任务书和实现继续禁止。
 
 ---
 

@@ -46,7 +46,7 @@ Zen Canvas 不改造成完整文件资源管理器、多设备文件系统、云
 | 04 | 模块 4：全局快捷搜索 | 已合并，schema 30 |
 | 05 | 模块 5：文件库 | 已合并，schema 31 |
 | 06 | 模块 6：AI 整理预览 | 已通过 PR #40 合并，schema 32 |
-| 07 | 模块 7：自然语言规则 | **当前完整模块，授权 schema 33** |
+| 07 | 模块 7：自然语言规则 | **已实现，schema 33，Draft PR 等待人工代码级验收** |
 | 08 | 模块 8：本地内容理解 | 等待 Task 07，禁止执行 |
 
 每个 Task 是完整产品模块，不拆为 A/B/C，不创建独立收尾任务。上一阶段人工接受的遗留必须作为下一完整模块第一组完成，然后继续该模块全部目标。
@@ -300,6 +300,10 @@ Rules workspace 提供：
 - 自动文件 mutation；
 - operation/cleanup journal schema 修改；
 - Task 08。
+
+### 6.11 Task 07 delivery state
+
+Task 07 的完整实现位于 `remediation/07-rule-proposal`，包含 Task 06 七项接受遗留的真实行为修复、schema 33、durable Rule Proposal、Rule AST V1 canonical validation、truthful impact preview、Human Apply、Rule Repository V2 和 backend-authoritative execution。实现已停止在唯一 Draft PR，等待人工代码级验收；PR 不自动合并。Task 08 仍未开始。
 
 ---
 

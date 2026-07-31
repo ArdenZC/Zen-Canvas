@@ -5,13 +5,13 @@ import { describe, expect, it } from "vitest";
 const read = (path: string) => readFileSync(resolve(path), "utf8");
 
 describe("Task 06 durable Organization Plan contracts", () => {
-  it("adds only the schema 32 plan ledger and small-table revisions", () => {
+  it("retains the schema 32 plan ledger and small-table revisions after later migrations", () => {
     const schema = read("src-tauri/src/db/schema.rs");
     const section = schema.slice(
       schema.indexOf("fn ensure_organization_plan_schema"),
       schema.indexOf("fn ensure_journal_state_triggers")
     );
-    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 32");
+    expect(schema).toContain("CURRENT_SCHEMA_VERSION: i32 = 33");
     expect(section).toContain("CREATE TABLE IF NOT EXISTS organization_plans");
     expect(section).toContain("CREATE TABLE IF NOT EXISTS organization_plan_items");
     expect(section).toContain("ALTER TABLE user_tags ADD COLUMN revision");
@@ -29,7 +29,7 @@ describe("Task 06 durable Organization Plan contracts", () => {
     expect(organization).toContain("authoritative_preview_id");
     expect(organization).toContain("active_operation_batch_id");
     expect(organization).toContain("operation_logs");
-    expect(fileOps).toContain("execute_authoritative_selections");
+    expect(fileOps).toContain("execute_canonical_operations");
     expect(organization).not.toContain("move_to_trash");
     expect(organization).not.toContain("std::fs::read");
     expect(organization).not.toContain("read_to_string");
