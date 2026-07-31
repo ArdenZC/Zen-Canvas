@@ -56,6 +56,9 @@ import type {
   OrganizationPlanItem,
   RestoreMovesResult,
   Rule,
+  RuleDraftV2,
+  RuleProposal,
+  RuleProposalImpact,
   RuleExecutionMode,
   RuleExecutionSummary,
   MutateFileUserTagsRequest,
@@ -344,21 +347,35 @@ const mockDuplicateMembers: DedupeGroupMember[] = [
   }
 ];
 
-const mockRules: Rule[] = [
+let mockCatalogRevision = 1;
+let mockRules: Rule[] = [
   {
-    id: "mock-rule-sensitive",
-    name: "Sensitive files require review",
-    source: "system",
-    enabled: true,
+    id: "mock-user-rule-sensitive",
+    name: "Mock sensitive review rule",
+    source: "user",
+    enabled: false,
     priority: 10,
     weight: 0.9,
     root_operator: "AND",
-    groups: [],
+    groups: [{
+      id: "mock-group-sensitive",
+      operator: "AND",
+      conditions: [{
+        id: "mock-condition-sensitive",
+        field: "risk_level",
+        operator: "is",
+        value: "Sensitive"
+      }]
+    }],
     action: { risk_level: "Sensitive", suggested_action: "Review" },
     created_at: now,
-    updated_at: now
+    updated_at: now,
+    astVersion: 1,
+    revision: 1,
+    originProposalId: null
   }
 ];
+let mockRuleProposals: RuleProposal[] = [];
 
 export async function mockInvokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   switch (command) {
@@ -657,15 +674,17 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return mockCleanupPreviewCandidates(args) as T;
     case "preview_cleanup_operations":
       return mockCleanupPreviewOperations(args) as T;
-    case "execute_rules_on_inbox":
-    case "execute_rules_for_paths":
-    case "execute_rules_for_scope":
+    case "execute_rules_for_scope_v2":
       return {
-        scanned: mockFiles.length,
-        updated: mockFiles.filter((item) => item.classification_status === "unclassified").length,
-        skipped: 0,
-        needsConfirmation: mockFiles.filter((item) => item.requires_confirmation).length
-      } satisfies RuleExecutionSummary as T;
+        summary: {
+          scanned: mockFiles.length,
+          updated: mockFiles.filter((item) => item.classification_status === "unclassified").length,
+          skipped: 0,
+          needsConfirmation: mockFiles.filter((item) => item.requires_confirmation).length
+        },
+        catalogRevision: mockCatalogRevision,
+        classificationVersion: "browser-mock-not-native"
+      } as T;
     case "classify_files_with_ai":
       return mockAIClassifyFiles(args) as T;
     case "classify_selected_files_with_ai":
@@ -674,12 +693,57 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
       return undefined as T;
     case "correct_classification":
       return mockCorrectClassification(args) as T;
-    case "get_user_rules":
+    case "list_user_rules_v2":
       return mockRules as T;
-    case "save_user_rule":
-      return args?.rule as T;
-    case "delete_user_rule":
-      return true as T;
+    case "get_rule_catalog_state":
+      return { revision: mockCatalogRevision, updatedAt: Math.floor(Date.now() / 1000) } as T;
+    case "create_user_rule_v2":
+      return createMockUserRule(args?.request as { draft?: RuleDraftV2 } | undefined) as T;
+    case "update_user_rule_v2":
+      return updateMockUserRule(args?.request as {
+        ruleId?: string;
+        expectedRuleRevision?: number;
+        expectedCatalogRevision?: number;
+        draft?: RuleDraftV2;
+      } | undefined) as T;
+    case "set_user_rule_enabled_v2":
+      return toggleMockUserRule(args?.request as {
+        ruleId?: string;
+        expectedRuleRevision?: number;
+        expectedCatalogRevision?: number;
+        enabled?: boolean;
+      } | undefined) as T;
+    case "delete_user_rule_v2":
+      return deleteMockUserRule(args?.request as {
+        ruleId?: string;
+        expectedRuleRevision?: number;
+        expectedCatalogRevision?: number;
+        confirmed?: boolean;
+      } | undefined) as T;
+    case "create_rule_proposal":
+      return createMockRuleProposal(args?.request as Record<string, unknown> | undefined) as T;
+    case "regenerate_rule_proposal":
+      return regenerateMockRuleProposal(args?.request as Record<string, unknown> | undefined) as T;
+    case "get_rule_proposal":
+      return requireMockProposal(String(args?.proposalId ?? "")) as T;
+    case "list_rule_proposals":
+      return {
+        proposals: [...mockRuleProposals].sort((left, right) => right.updatedAt - left.updatedAt),
+        nextCursor: null,
+        hasMore: false
+      } as T;
+    case "cancel_rule_proposal":
+      return cancelMockRuleProposal(args?.request as Record<string, unknown> | undefined) as T;
+    case "delete_rule_proposal":
+      return deleteMockRuleProposal(args?.request as Record<string, unknown> | undefined) as T;
+    case "replace_rule_proposal_candidate":
+      return replaceMockRuleProposalCandidate(args?.request as Record<string, unknown> | undefined) as T;
+    case "preview_rule_proposal":
+      return previewMockRuleProposal(args?.request as Record<string, unknown> | undefined) as T;
+    case "resolve_rule_proposal_exact_impact":
+      return previewMockRuleProposal(args?.request as Record<string, unknown> | undefined) as T;
+    case "apply_rule_proposal":
+      return applyMockRuleProposal(args?.request as Record<string, unknown> | undefined) as T;
     case "get_settings":
       return getMockVersionedSettings() as T;
     case "save_settings":
@@ -727,6 +791,372 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     default:
       throw new Error(`Unsupported mock command: ${command}`);
   }
+}
+
+function mockRuleFromDraft(
+  draft: RuleDraftV2,
+  id: string,
+  revision: number,
+  originProposalId: string | null
+): Rule {
+  return {
+    id,
+    name: draft.name.trim(),
+    source: "user",
+    enabled: false,
+    priority: draft.priority,
+    weight: draft.weight,
+    root_operator: draft.rootOperator,
+    groups: draft.groups.map((group, groupIndex) => ({
+      id: `mock-group-${groupIndex + 1}`,
+      operator: group.operator,
+      conditions: group.conditions.map((condition, conditionIndex) => ({
+        id: `mock-condition-${groupIndex + 1}-${conditionIndex + 1}`,
+        field: condition.field,
+        operator: condition.operator,
+        value: condition.value
+      }))
+    })),
+    action: {
+      purpose: draft.action.purpose,
+      lifecycle: draft.action.lifecycle,
+      context: draft.action.context,
+      risk_level: draft.action.riskLevel,
+      suggested_action: draft.action.suggestedAction,
+      target_template: draft.action.targetTemplate,
+      rename_template: draft.action.renameTemplate
+    },
+    created_at: now,
+    updated_at: new Date().toISOString(),
+    astVersion: 1,
+    revision,
+    originProposalId
+  };
+}
+
+function requireMockCatalog(expected: unknown) {
+  if (Number(expected) !== mockCatalogRevision) throw new Error("rule_catalog_revision_conflict");
+}
+
+function requireMockRule(id: string, expectedRevision?: unknown) {
+  const rule = mockRules.find((candidate) => candidate.id === id);
+  if (!rule) throw new Error("rule_not_found");
+  if (expectedRevision !== undefined && rule.revision !== Number(expectedRevision)) {
+    throw new Error("rule_revision_conflict");
+  }
+  return rule;
+}
+
+function createMockUserRule(request?: { draft?: RuleDraftV2 }) {
+  if (!request?.draft) throw new Error("rule_create_request_invalid");
+  const rule = mockRuleFromDraft(
+    request.draft,
+    `mock-user-rule-${globalThis.crypto.randomUUID()}`,
+    1,
+    null
+  );
+  mockRules = [...mockRules, rule];
+  mockCatalogRevision += 1;
+  return { rule, catalogRevision: mockCatalogRevision };
+}
+
+function updateMockUserRule(request?: {
+  ruleId?: string;
+  expectedRuleRevision?: number;
+  expectedCatalogRevision?: number;
+  draft?: RuleDraftV2;
+}) {
+  if (!request?.draft || !request.ruleId) throw new Error("rule_update_request_invalid");
+  requireMockCatalog(request.expectedCatalogRevision);
+  const current = requireMockRule(request.ruleId, request.expectedRuleRevision);
+  const rule = {
+    ...mockRuleFromDraft(request.draft, current.id, (current.revision ?? 0) + 1, current.originProposalId ?? null),
+    enabled: current.enabled,
+    created_at: current.created_at
+  };
+  mockRules = mockRules.map((candidate) => candidate.id === rule.id ? rule : candidate);
+  mockCatalogRevision += 1;
+  return { rule, catalogRevision: mockCatalogRevision };
+}
+
+function toggleMockUserRule(request?: {
+  ruleId?: string;
+  expectedRuleRevision?: number;
+  expectedCatalogRevision?: number;
+  enabled?: boolean;
+}) {
+  if (!request?.ruleId || typeof request.enabled !== "boolean") throw new Error("rule_toggle_request_invalid");
+  requireMockCatalog(request.expectedCatalogRevision);
+  const current = requireMockRule(request.ruleId, request.expectedRuleRevision);
+  const rule = {
+    ...current,
+    enabled: request.enabled,
+    revision: (current.revision ?? 0) + 1,
+    updated_at: new Date().toISOString()
+  };
+  mockRules = mockRules.map((candidate) => candidate.id === rule.id ? rule : candidate);
+  mockCatalogRevision += 1;
+  return { rule, catalogRevision: mockCatalogRevision };
+}
+
+function deleteMockUserRule(request?: {
+  ruleId?: string;
+  expectedRuleRevision?: number;
+  expectedCatalogRevision?: number;
+  confirmed?: boolean;
+}) {
+  if (!request?.confirmed || !request.ruleId) throw new Error("rule_delete_confirmation_required");
+  requireMockCatalog(request.expectedCatalogRevision);
+  requireMockRule(request.ruleId, request.expectedRuleRevision);
+  mockRules = mockRules.filter((rule) => rule.id !== request.ruleId);
+  mockCatalogRevision += 1;
+  return { revision: mockCatalogRevision, updatedAt: Math.floor(Date.now() / 1000) };
+}
+
+function mockDraftForPrompt(prompt: string): RuleDraftV2 {
+  const extension = prompt.match(/\b(pdf|png|jpg|jpeg|zip|docx|xlsx)\b/i)?.[1]?.toLowerCase();
+  const firstLiteral = prompt.trim().split(/\s+/)[0] || "file";
+  return {
+    name: `MOCK proposal: ${prompt.trim().slice(0, 64)}`,
+    priority: 75,
+    weight: 75,
+    rootOperator: "AND",
+    groups: [{
+      operator: "AND",
+      conditions: [{
+        field: extension ? "extension" : "name",
+        operator: extension ? "equals" : "contains",
+        value: extension ?? firstLiteral
+      }]
+    }],
+    action: {
+      purpose: "Work",
+      lifecycle: "Inbox",
+      suggestedAction: "Review"
+    }
+  };
+}
+
+function proposalCandidateFromDraft(draft: RuleDraftV2): NonNullable<RuleProposal["candidate"]> {
+  const rule = mockRuleFromDraft(draft, "mock-candidate", 1, null);
+  return {
+    astVersion: 1,
+    name: rule.name,
+    priority: rule.priority,
+    weight: rule.weight,
+    rootOperator: rule.root_operator === "OR" ? "OR" : "AND",
+    groups: rule.groups,
+    action: rule.action
+  };
+}
+
+function createMockRuleProposal(request?: Record<string, unknown>): RuleProposal {
+  const prompt = String(request?.prompt ?? "").trim();
+  if (!prompt) throw new Error("rule_proposal_prompt_invalid");
+  const id = String(request?.proposalId ?? `rule-proposal-${globalThis.crypto.randomUUID()}`);
+  const draft = mockDraftForPrompt(prompt);
+  const timestamp = Math.floor(Date.now() / 1000);
+  const proposal: RuleProposal = {
+    id,
+    status: "ready",
+    intentKind: request?.intentKind === "update" ? "update" : "create",
+    targetRuleId: typeof request?.targetRuleId === "string" ? request.targetRuleId : null,
+    baseRuleRevision: typeof request?.expectedTargetRuleRevision === "number"
+      ? request.expectedTargetRuleRevision
+      : null,
+    prompt,
+    promptFingerprint: `mock-prompt-${prompt.length}`,
+    providerKind: "openai_compatible",
+    providerPreset: "deepseek",
+    model: "browser-mock-deterministic",
+    astVersion: 1,
+    candidate: proposalCandidateFromDraft(draft),
+    candidateFingerprint: `mock-candidate-${prompt.length}`,
+    summary: "MOCK deterministic proposal; no real AI request or native persistence occurred.",
+    clarifications: [],
+    validation: {
+      valid: true,
+      permissionClass: "allow",
+      requiresConfirmation: false,
+      broadMatch: false,
+      codes: ["browser_mock_only"],
+      warnings: ["browser_mock_not_native_persistence"]
+    },
+    appliedRuleId: null,
+    revision: 3,
+    lastErrorCode: null,
+    lastErrorDetail: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    generatedAt: timestamp,
+    appliedAt: null
+  };
+  mockRuleProposals = [proposal, ...mockRuleProposals.filter((item) => item.id !== id)];
+  return proposal;
+}
+
+function requireMockProposal(id: string, expectedRevision?: unknown) {
+  const proposal = mockRuleProposals.find((candidate) => candidate.id === id);
+  if (!proposal) throw new Error("rule_proposal_not_found");
+  if (expectedRevision !== undefined && proposal.revision !== Number(expectedRevision)) {
+    throw new Error("rule_proposal_revision_conflict");
+  }
+  return proposal;
+}
+
+function regenerateMockRuleProposal(request?: Record<string, unknown>) {
+  const id = String(request?.proposalId ?? "");
+  const current = requireMockProposal(id, request?.expectedProposalRevision);
+  const generated = createMockRuleProposal({ ...request, proposalId: id });
+  const proposal = {
+    ...generated,
+    createdAt: current.createdAt,
+    revision: current.revision + 2
+  };
+  mockRuleProposals = [proposal, ...mockRuleProposals.filter((item) => item.id !== id)];
+  return proposal;
+}
+
+function cancelMockRuleProposal(request?: Record<string, unknown>) {
+  const id = String(request?.proposalId ?? "");
+  const current = requireMockProposal(id);
+  const proposal: RuleProposal = {
+    ...current,
+    status: "cancelled",
+    revision: current.revision + 1,
+    updatedAt: Math.floor(Date.now() / 1000)
+  };
+  mockRuleProposals = [proposal, ...mockRuleProposals.filter((item) => item.id !== id)];
+  return proposal;
+}
+
+function deleteMockRuleProposal(request?: Record<string, unknown>) {
+  const id = String(request?.proposalId ?? "");
+  const current = requireMockProposal(id, request?.expectedProposalRevision);
+  if (!request?.confirmed || !["applied", "cancelled", "invalid", "failed"].includes(current.status)) {
+    throw new Error("rule_proposal_delete_blocked");
+  }
+  mockRuleProposals = mockRuleProposals.filter((proposal) => proposal.id !== id);
+  return true;
+}
+
+function replaceMockRuleProposalCandidate(request?: Record<string, unknown>) {
+  const id = String(request?.proposalId ?? "");
+  const current = requireMockProposal(id, request?.expectedProposalRevision);
+  const draft = request?.candidate as RuleDraftV2 | undefined;
+  if (!draft) throw new Error("rule_proposal_candidate_invalid");
+  const proposal: RuleProposal = {
+    ...current,
+    status: "ready",
+    candidate: proposalCandidateFromDraft(draft),
+    candidateFingerprint: `mock-edited-${current.revision + 1}`,
+    revision: current.revision + 1,
+    updatedAt: Math.floor(Date.now() / 1000)
+  };
+  mockRuleProposals = [proposal, ...mockRuleProposals.filter((item) => item.id !== id)];
+  return proposal;
+}
+
+function previewMockRuleProposal(request?: Record<string, unknown>): RuleProposalImpact {
+  const proposal = requireMockProposal(
+    String(request?.proposalId ?? ""),
+    request?.expectedProposalRevision
+  );
+  const extension = proposal.candidate?.groups[0]?.conditions[0]?.field === "extension"
+    ? String(proposal.candidate.groups[0].conditions[0].value)
+    : null;
+  const matched = extension
+    ? mockFiles.filter((file) => file.extension.toLowerCase() === extension.toLowerCase())
+    : mockFiles;
+  return {
+    proposalId: proposal.id,
+    proposalRevision: proposal.revision,
+    candidateFingerprint: proposal.candidateFingerprint ?? "mock-candidate",
+    catalogRevision: mockCatalogRevision,
+    libraryRevision: 1,
+    scopeHealth: { state: "healthy", roots: [], invalidReferences: [], message: null },
+    permissionClass: proposal.validation.permissionClass,
+    impactState: "exact",
+    matchedCount: matched.length,
+    impactToken: null,
+    sampleRows: matched.slice(0, 20).map((file) => ({
+      fileId: file.id,
+      name: file.name,
+      extension: file.extension,
+      size: file.size,
+      modifiedAt: 0,
+      fileType: file.file_type,
+      riskLevel: file.risk_level,
+      beforeAction: file.suggested_action,
+      afterAction: proposal.candidate?.action.suggested_action ?? null
+    })),
+    sampleIsBounded: true,
+    actionSummary: proposal.candidate?.action ?? {},
+    riskSummary: ["browser_mock_only"],
+    requiresConfirmation: true,
+    broadMatch: false,
+    conflictAnalysisState: "browser_mock_bounded",
+    conflicts: [],
+    previewFingerprint: `mock-preview-${proposal.id}-${proposal.revision}-${mockCatalogRevision}`
+  };
+}
+
+function applyMockRuleProposal(request?: Record<string, unknown>) {
+  const proposal = requireMockProposal(
+    String(request?.proposalId ?? ""),
+    request?.expectedProposalRevision
+  );
+  requireMockCatalog(request?.expectedCatalogRevision);
+  if (!request?.confirmed || proposal.status !== "ready" || !proposal.candidate) {
+    throw new Error("rule_proposal_apply_blocked");
+  }
+  const draft: RuleDraftV2 = {
+    name: proposal.candidate.name,
+    priority: proposal.candidate.priority,
+    weight: proposal.candidate.weight,
+    rootOperator: proposal.candidate.rootOperator,
+    groups: proposal.candidate.groups.map((group) => ({
+      operator: group.operator === "OR" ? "OR" : "AND",
+      conditions: group.conditions.map((condition) => ({
+        field: condition.field as Exclude<typeof condition.field, "unknown">,
+        operator: condition.operator as Exclude<typeof condition.operator, "unknown">,
+        value: condition.value
+      }))
+    })),
+    action: {
+      purpose: proposal.candidate.action.purpose,
+      lifecycle: proposal.candidate.action.lifecycle,
+      context: proposal.candidate.action.context,
+      riskLevel: proposal.candidate.action.risk_level,
+      suggestedAction: proposal.candidate.action.suggested_action,
+      targetTemplate: proposal.candidate.action.target_template,
+      renameTemplate: proposal.candidate.action.rename_template
+    }
+  };
+  let rule: Rule;
+  if (proposal.intentKind === "update" && proposal.targetRuleId) {
+    const current = requireMockRule(proposal.targetRuleId, request?.expectedTargetRuleRevision);
+    rule = {
+      ...mockRuleFromDraft(draft, current.id, (current.revision ?? 0) + 1, proposal.id),
+      enabled: current.enabled,
+      created_at: current.created_at
+    };
+    mockRules = mockRules.map((candidate) => candidate.id === rule.id ? rule : candidate);
+  } else {
+    rule = mockRuleFromDraft(draft, `mock-user-rule-${globalThis.crypto.randomUUID()}`, 1, proposal.id);
+    mockRules = [...mockRules, rule];
+  }
+  mockCatalogRevision += 1;
+  const applied: RuleProposal = {
+    ...proposal,
+    status: "applied",
+    appliedRuleId: rule.id,
+    revision: proposal.revision + 1,
+    appliedAt: Math.floor(Date.now() / 1000),
+    updatedAt: Math.floor(Date.now() / 1000)
+  };
+  mockRuleProposals = [applied, ...mockRuleProposals.filter((item) => item.id !== applied.id)];
+  return { proposal: applied, rule, catalogRevision: mockCatalogRevision };
 }
 
 function startMockDedupeRun(request?: { parentScanSessionId?: string | null }): DedupeRun {
@@ -1442,7 +1872,8 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Library
     createdAt: timestamp,
     updatedAt: timestamp,
     readyAt: timestamp,
-    completedAt: null
+    completedAt: null,
+    summary: emptyMockOrganizationSummary()
   };
   const sourceFiles = source.kind === "explicit"
     ? mockFiles.filter((file) => source.fileIds.includes(file.id) && !file.is_stale)
@@ -1471,6 +1902,7 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Library
       decision: "undecided",
       editedName: null,
       validity: blocked ? "blocked" : actionable ? (file.requires_confirmation || file.confidence < 0.8 ? "needs_review" : "ready") : "needs_analysis",
+      reviewState: blocked ? "blocked" : actionable ? (file.requires_confirmation || file.confidence < 0.8 ? "needs_review" : "ready") : "needs_analysis",
       confidence: file.confidence,
       riskLevel: file.risk_level,
       requiresConfirmation: file.requires_confirmation,
@@ -1484,6 +1916,7 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Library
       updatedAt: timestamp
     } satisfies OrganizationPlanItem;
   }));
+  plan.summary = mockOrganizationSummary(mockOrganizationItems.get(id) ?? []);
   mockOrganizationPlans = [plan, ...mockOrganizationPlans];
   return plan;
 }
@@ -1525,9 +1958,17 @@ function updateMockOrganizationDecisions(request?: MockOrganizationDecisionReque
     }
     item.decision = mutation.decision;
     item.editedName = mutation.decision === "edited" ? mutation.editedFilename ?? null : null;
+    item.reviewState = item.validity === "needs_review" && ["accepted", "edited"].includes(item.decision)
+      ? "reviewed"
+      : item.validity;
     item.revision += 1;
   }
-  const updated = { ...plan, revision: plan.revision + 1, updatedAt: Math.floor(Date.now() / 1000) };
+  const updated = {
+    ...plan,
+    revision: plan.revision + 1,
+    updatedAt: Math.floor(Date.now() / 1000),
+    summary: mockOrganizationSummary(items)
+  };
   mockOrganizationPlans = mockOrganizationPlans.map((item) => item.id === plan.id ? updated : item);
   return updated;
 }
@@ -1578,7 +2019,7 @@ function getMockOrganizationDryRun(request?: { planId?: string; expectedPlanRevi
     requiresConfirmation: item.requiresConfirmation,
     sourceHealth: "healthy",
     authoritativePreviewId: item.authoritativePreviewId,
-    executable: item.validity === "ready" && item.authoritativePreviewId !== null,
+    executable: ["ready", "reviewed"].includes(item.reviewState) && item.authoritativePreviewId !== null,
     blockingCode: item.blockingCode
   }));
   const executable = items.filter((item) => item.executable);
@@ -1595,6 +2036,48 @@ function getMockOrganizationDryRun(request?: { planId?: string; expectedPlanRevi
     executionBatchLimit: 1000,
     dryRunFingerprint: mockLibraryFingerprint(defaultFileLibraryQueryForMock(`${plan.id}:${plan.revision}:${items.map((item) => item.itemId).join(",")}`))
   };
+}
+
+function emptyMockOrganizationSummary(): OrganizationPlan["summary"] {
+  return {
+    undecided: 0,
+    accepted: 0,
+    kept: 0,
+    edited: 0,
+    needsAnalysis: 0,
+    needsReview: 0,
+    ready: 0,
+    blocked: 0,
+    stale: 0,
+    executing: 0,
+    executed: 0,
+    failed: 0,
+    skipped: 0,
+    remainingExecutable: 0
+  };
+}
+
+function mockOrganizationSummary(items: OrganizationPlanItem[]): OrganizationPlan["summary"] {
+  const summary = emptyMockOrganizationSummary();
+  for (const item of items) {
+    if (item.decision === "undecided") summary.undecided += 1;
+    if (item.decision === "accepted") summary.accepted += 1;
+    if (item.decision === "kept") summary.kept += 1;
+    if (item.decision === "edited") summary.edited += 1;
+    if (item.validity === "needs_analysis") summary.needsAnalysis += 1;
+    if (item.validity === "needs_review") summary.needsReview += 1;
+    if (item.validity === "ready") summary.ready += 1;
+    if (item.validity === "blocked") summary.blocked += 1;
+    if (item.validity === "stale") summary.stale += 1;
+    if (item.validity === "executing") summary.executing += 1;
+    if (item.validity === "executed") summary.executed += 1;
+    if (item.validity === "failed") summary.failed += 1;
+    if (item.validity === "skipped") summary.skipped += 1;
+    if (["accepted", "edited"].includes(item.decision) && ["ready", "needs_review"].includes(item.validity)) {
+      summary.remainingExecutable += 1;
+    }
+  }
+  return summary;
 }
 
 function defaultFileLibraryQueryForMock(marker: string): FileQueryRequestV2["query"] {

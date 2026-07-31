@@ -86,7 +86,9 @@ export function AppShell() {
   } = useChromeContext();
   const stats = useFileLibraryStore((state) => state.stats);
   const scope = useFileLibraryStore((state) => state.scope);
-  const previewActionCount = useOrganizationPlanStore((state) => state.items.filter((item) => item.decision === "undecided" || item.validity === "needs_review").length);
+  const previewActionCount = useOrganizationPlanStore((state) => state.activePlan
+    ? state.activePlan.summary.undecided + state.activePlan.summary.needsReview
+    : 0);
   const executionIntent = useOperationQueueStore((state) => state.executionIntent);
   const spotlightTriggerRef = useRef<HTMLButtonElement | null>(null);
 
@@ -217,7 +219,9 @@ function WindowsControls() {
 function Sidebar({ groups }: { groups: NavGroup[] }) {
   const { view, setView, t } = useChromeContext();
   const scope = useFileLibraryStore((state) => state.scope);
-  const previewActionCount = useOrganizationPlanStore((state) => state.items.filter((item) => item.decision === "undecided" || item.validity === "needs_review").length);
+  const previewActionCount = useOrganizationPlanStore((state) => state.activePlan
+    ? state.activePlan.summary.undecided + state.activePlan.summary.needsReview
+    : 0);
   const aiModeStatus = useAIProcessingModeStore((state) => state.status);
   const aiModeSettings = useAIProcessingModeStore((state) => state.settings);
   const aiModeError = useAIProcessingModeStore((state) => state.error);

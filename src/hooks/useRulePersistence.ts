@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { tauriApi } from "../api/tauriApi";
-import { migrateLocalUserRulesToSQLite, userRulesFrom } from "../store/rulePersistence";
 import type { Rule } from "../types/domain";
 
 interface UseRulePersistenceOptions {
@@ -8,6 +7,7 @@ interface UseRulePersistenceOptions {
   isDatabaseReady: boolean;
   rules: Rule[];
   hydrateUserRulesFromSQLite: (sqliteRules: Rule[], replaceUserRuleIds?: string[]) => void;
+  onCatalogRevision?: (revision: number) => void;
   onError: (message: string) => void;
   formatSyncError: () => string;
 }
@@ -15,8 +15,8 @@ interface UseRulePersistenceOptions {
 export function useRulePersistence({
   enabled = true,
   isDatabaseReady,
-  rules,
   hydrateUserRulesFromSQLite,
+  onCatalogRevision,
   onError,
   formatSyncError
 }: UseRulePersistenceOptions) {
@@ -25,33 +25,18 @@ export function useRulePersistence({
 
   useEffect(() => {
     if (!enabled || !isDatabaseReady || hasHydrated.current) return;
-
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    const localUserRules = userRulesFrom(rules);
-    const replaceUserRuleIds = localUserRules.map((rule) => rule.id);
 
     async function hydrateRules() {
       try {
-        const sqliteRules = await tauriApi.getUserRules();
+        const [sqliteRules, catalog] = await Promise.all([
+          tauriApi.listUserRulesV2(),
+          tauriApi.getRuleCatalogState()
+        ]);
         if (cancelled) return;
-
-        if (sqliteRules.length > 0) {
-          hydrateUserRulesFromSQLite(sqliteRules, replaceUserRuleIds);
-          hasHydrated.current = true;
-          return;
-        }
-
-        if (localUserRules.length === 0) {
-          hasHydrated.current = true;
-          return;
-        }
-
-        const savedRules = await migrateLocalUserRulesToSQLite(localUserRules, (rule) =>
-          tauriApi.saveUserRule(rule)
-        );
-        if (cancelled) return;
-        hydrateUserRulesFromSQLite(savedRules, replaceUserRuleIds);
+        hydrateUserRulesFromSQLite(sqliteRules);
+        onCatalogRevision?.(catalog.revision);
         hasHydrated.current = true;
       } catch {
         if (!cancelled) {
@@ -63,10 +48,17 @@ export function useRulePersistence({
     }
 
     void hydrateRules();
-
     return () => {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [enabled, formatSyncError, hydrateUserRulesFromSQLite, isDatabaseReady, onError, retryAttempt, rules]);
+  }, [
+    enabled,
+    formatSyncError,
+    hydrateUserRulesFromSQLite,
+    isDatabaseReady,
+    onCatalogRevision,
+    onError,
+    retryAttempt
+  ]);
 }

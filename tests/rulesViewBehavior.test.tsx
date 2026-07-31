@@ -8,7 +8,9 @@ import { ChromeProvider, RulesProvider, type ChromeContextValue, type RulesConte
 import { makeTranslator } from "../src/i18n";
 import { resetModalInfrastructureForTests } from "../src/components/modal/ModalPortal";
 import { useFileLibraryStore } from "../src/store/useFileLibraryStore";
-import type { Rule } from "../src/types/domain";
+import { useRuleProposalStore } from "../src/store/useRuleProposalStore";
+import { useRulesStore } from "../src/store/useRulesStore";
+import type { AISettings, Rule } from "../src/types/domain";
 import { RulesView } from "../src/views/rules/RulesView";
 
 const t = makeTranslator("en");
@@ -81,6 +83,23 @@ describe("automation rule workspace behavior", () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     document.body.innerHTML = '<div id="app-shell-content"></div><div id="test-root"></div>';
     useFileLibraryStore.setState({ scope: { kind: "all" }, organizeQueueTotal: 4, isLoadingOrganizeQueue: false });
+    useRulesStore.setState({ catalogRevision: 1 });
+    useRuleProposalStore.setState({
+      proposals: [],
+      activeId: "",
+      impact: null,
+      generationOwner: null,
+      busy: false,
+      error: ""
+    });
+    vi.spyOn(tauriApi, "listRuleProposals").mockResolvedValue({ proposals: [], nextCursor: null, hasMore: false });
+    vi.spyOn(tauriApi, "getAISettings").mockResolvedValue({
+      enabled: false,
+      provider: "openai_compatible",
+      preset: "deepseek",
+      model: ""
+    } as AISettings);
+    vi.spyOn(tauriApi, "listScanRoots").mockResolvedValue([]);
     Object.defineProperty(window, "innerWidth", { value: 1440, writable: true, configurable: true });
     Object.defineProperty(window, "matchMedia", { configurable: true, value: (query: string) => ({
       matches: query.includes("max-width") ? window.innerWidth <= Number(query.match(/(\d+)px/)?.[1] ?? 0) : true,
@@ -107,7 +126,7 @@ describe("automation rule workspace behavior", () => {
   }
 
   async function completeRun(props: HarnessProps = {}) {
-    vi.spyOn(tauriApi, "executeRulesForScope").mockResolvedValue({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 });
+    vi.spyOn(tauriApi, "executeRulesForScopeV2").mockResolvedValue(executionResult({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 }));
     vi.spyOn(useFileLibraryStore.getState(), "loadOrganizeQueue").mockResolvedValue();
     vi.spyOn(useFileLibraryStore.getState(), "refresh").mockResolvedValue();
     await renderRules(props);
@@ -187,9 +206,9 @@ describe("automation rule workspace behavior", () => {
   });
 
   it("rejects a stale scope result and does not let it overwrite a newer run", async () => {
-    const firstRun = deferred({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 });
-    const secondRun = deferred({ scanned: 2, updated: 2, skipped: 0, needsConfirmation: 0 });
-    vi.spyOn(tauriApi, "executeRulesForScope")
+    const firstRun = deferred(executionResult({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 }));
+    const secondRun = deferred(executionResult({ scanned: 2, updated: 2, skipped: 0, needsConfirmation: 0 }));
+    vi.spyOn(tauriApi, "executeRulesForScopeV2")
       .mockReturnValueOnce(firstRun.promise)
       .mockReturnValueOnce(secondRun.promise);
     vi.spyOn(useFileLibraryStore.getState(), "loadOrganizeQueue").mockResolvedValue();
@@ -216,8 +235,8 @@ describe("automation rule workspace behavior", () => {
   });
 
   it("invalidates a pending run when a rule is toggled", async () => {
-    const pendingRun = deferred({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 });
-    vi.spyOn(tauriApi, "executeRulesForScope").mockReturnValue(pendingRun.promise);
+    const pendingRun = deferred(executionResult({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 }));
+    vi.spyOn(tauriApi, "executeRulesForScopeV2").mockReturnValue(pendingRun.promise);
     vi.spyOn(useFileLibraryStore.getState(), "loadOrganizeQueue").mockResolvedValue();
     vi.spyOn(useFileLibraryStore.getState(), "refresh").mockResolvedValue();
     let resolveToggle!: () => void;
@@ -271,8 +290,8 @@ describe("automation rule workspace behavior", () => {
   });
 
   it("keeps a stale state after the old response resolves", async () => {
-    const pending = deferred({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 });
-    vi.spyOn(tauriApi, "executeRulesForScope").mockReturnValue(pending.promise);
+    const pending = deferred(executionResult({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 }));
+    vi.spyOn(tauriApi, "executeRulesForScopeV2").mockReturnValue(pending.promise);
     vi.spyOn(useFileLibraryStore.getState(), "loadOrganizeQueue").mockResolvedValue();
     vi.spyOn(useFileLibraryStore.getState(), "refresh").mockResolvedValue();
     await renderRules();
@@ -427,9 +446,9 @@ describe("automation rule workspace behavior", () => {
     expect(switches()[0].getAttribute("aria-checked")).toBe("true");
   });
 
-  it("passes only enabled user rules to the manual execution API", async () => {
+  it("passes only durable scope and catalog authority to the manual execution API", async () => {
     const systemRule = { ...rule("system-a", "System rule", true), source: "system" as const };
-    const execute = vi.spyOn(tauriApi, "executeRulesForScope").mockResolvedValue({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 });
+    const execute = vi.spyOn(tauriApi, "executeRulesForScopeV2").mockResolvedValue(executionResult({ scanned: 1, updated: 1, skipped: 0, needsConfirmation: 0 }));
     vi.spyOn(useFileLibraryStore.getState(), "loadOrganizeQueue").mockResolvedValue();
     vi.spyOn(useFileLibraryStore.getState(), "refresh").mockResolvedValue();
     await renderRules({ initialRules: [rule("rule-a", "First rule", true), systemRule] });
@@ -439,10 +458,28 @@ describe("automation rule workspace behavior", () => {
     const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("[role=alertdialog] button")).find((button) => button.textContent?.includes("suggestions"))!;
     await act(async () => confirm.click());
     await act(async () => Promise.resolve());
-    expect(execute).toHaveBeenCalledWith(expect.anything(), [expect.objectContaining({ id: "rule-a", source: "user" })], "all_changed_or_rule_changed");
-    expect(execute.mock.calls[0][1]).not.toEqual(expect.arrayContaining([expect.objectContaining({ source: "system" })]));
+    expect(execute).toHaveBeenCalledWith(
+      { kind: "all_enabled_roots" },
+      1,
+      "all_changed_or_rule_changed",
+      true
+    );
+    expect(execute.mock.calls[0]).toHaveLength(4);
   });
 });
+
+function executionResult(summary: {
+  scanned: number;
+  updated: number;
+  skipped: number;
+  needsConfirmation: number;
+}) {
+  return {
+    summary,
+    catalogRevision: 1,
+    classificationVersion: "test-classification-version"
+  };
+}
 
 function deferred<T>(initial: T) {
   let resolve!: (value: T) => void;

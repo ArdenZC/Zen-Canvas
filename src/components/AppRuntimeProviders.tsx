@@ -11,7 +11,6 @@ import { useAppStore } from "../store/useAppStore";
 import { useBackgroundIndexerStore } from "../store/useBackgroundIndexerStore";
 import { useFileLibraryStore } from "../store/useFileLibraryStore";
 import { useOperationQueueStore } from "../store/useOperationQueueStore";
-import { persistRuleEnabledToggle, persistUserRuleDelete } from "../store/rulePersistence";
 import { useRulesStore } from "../store/useRulesStore";
 import { useScanManagerStore } from "../store/useScanManagerStore";
 import { requestSettingsSection } from "./spotlight/commandRegistry";
@@ -23,7 +22,8 @@ import type {
   ScanRootSetting,
   SearchRootSetting,
   SearchScopeMode,
-  Rule
+  Rule,
+  RuleDraftV2
 } from "../types/domain";
 import type { View } from "../types/ui";
 import { applySearchNavigation, shouldApplySearchNavigation } from "../utils/searchNavigation";
@@ -42,6 +42,8 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   const upsertRule = useRulesStore((state) => state.upsertRule);
   const removeUserRule = useRulesStore((state) => state.removeUserRule);
   const hydrateUserRulesFromSQLite = useRulesStore((state) => state.hydrateUserRulesFromSQLite);
+  const catalogRevision = useRulesStore((state) => state.catalogRevision);
+  const setCatalogRevision = useRulesStore((state) => state.setCatalogRevision);
   const t = useMemo(() => makeTranslator(language), [language]);
   const pendingSearchNavigationRef = useRef<{
     nonce: number;
@@ -96,6 +98,7 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
     isDatabaseReady: true,
     rules,
     hydrateUserRulesFromSQLite,
+    onCatalogRevision: setCatalogRevision,
     onError: showError,
     formatSyncError: formatRuleSyncError
   });
@@ -349,28 +352,40 @@ export function AppRuntimeProviders({ children }: { children: ReactNode }) {
   } = windowBehavior;
 
   const saveRule = useCallback(async (rule: Rule) => {
-    const savedRule = await tauriApi.saveUserRule(rule);
-    upsertRule(savedRule);
-  }, [upsertRule]);
+    const existing = rules.find((current) => current.id === rule.id);
+    const draft = ruleDraftV2(rule);
+    const result = existing
+      ? await tauriApi.updateUserRuleV2(
+        existing.id,
+        requireRuleRevision(existing),
+        catalogRevision,
+        draft
+      )
+      : await tauriApi.createUserRuleV2(draft, catalogRevision);
+    upsertRule(result.rule, result.catalogRevision);
+  }, [catalogRevision, rules, upsertRule]);
   const toggleRuleEnabled = useCallback(async (rule: Rule, enabled: boolean) => {
-    await persistRuleEnabledToggle({
-      rule,
-      enabled,
-      saveUserRule: tauriApi.saveUserRule,
-      upsertRule
-    });
-  }, [upsertRule]);
+    const result = await tauriApi.setUserRuleEnabledV2(
+      rule.id,
+      requireRuleRevision(rule),
+      catalogRevision,
+      enabled
+    );
+    upsertRule(result.rule, result.catalogRevision);
+  }, [catalogRevision, upsertRule]);
   const deleteRule = useCallback(async (rule: Rule) => {
     if (rule.source !== "user") {
       return false;
     }
-
-    return persistUserRuleDelete({
-      rule,
-      deleteUserRule: tauriApi.deleteUserRule,
-      removeRule: removeUserRule
-    });
-  }, [removeUserRule]);
+    const state = await tauriApi.deleteUserRuleV2(
+      rule.id,
+      requireRuleRevision(rule),
+      catalogRevision,
+      true
+    );
+    removeUserRule(rule.id, state.revision);
+    return true;
+  }, [catalogRevision, removeUserRule]);
 
   const settingsContextValue = useMemo(() => ({
     settings: appSettings,
@@ -493,4 +508,37 @@ function backgroundIndexRootKey(path: string) {
 function normalizeOptionalPath(path?: string | null) {
   const normalized = path?.trim().replace(/\\+/g, "/").replace(/\/+$/g, "");
   return normalized || undefined;
+}
+
+function requireRuleRevision(rule: Rule) {
+  if (!Number.isInteger(rule.revision) || (rule.revision ?? 0) < 1) {
+    throw new Error("rule_revision_missing");
+  }
+  return rule.revision as number;
+}
+
+function ruleDraftV2(rule: Rule): RuleDraftV2 {
+  return {
+    name: rule.name,
+    priority: rule.priority,
+    weight: rule.weight,
+    rootOperator: rule.root_operator === "OR" ? "OR" : "AND",
+    groups: rule.groups.map((group) => ({
+      operator: group.operator === "OR" ? "OR" : "AND",
+      conditions: group.conditions.map((condition) => ({
+        field: condition.field as Exclude<typeof condition.field, "unknown">,
+        operator: condition.operator as Exclude<typeof condition.operator, "unknown">,
+        value: condition.value
+      }))
+    })),
+    action: {
+      purpose: rule.action.purpose,
+      lifecycle: rule.action.lifecycle,
+      context: rule.action.context,
+      riskLevel: rule.action.risk_level,
+      suggestedAction: rule.action.suggested_action,
+      targetTemplate: rule.action.target_template,
+      renameTemplate: rule.action.rename_template
+    }
+  };
 }

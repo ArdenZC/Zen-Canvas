@@ -77,6 +77,7 @@ describe("Tauri command permission contract", () => {
       "src-tauri/src/ai/debug.rs",
       "src-tauri/src/db/commands.rs",
       "src-tauri/src/db/learning.rs",
+      "src-tauri/src/rule_proposals.rs",
       "src-tauri/src/scanner.rs",
       "src-tauri/src/dedupe.rs",
       "src-tauri/src/storage_analyzer.rs",

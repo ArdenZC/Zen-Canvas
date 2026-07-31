@@ -77,10 +77,12 @@ export function OrganizeSuggestionsView() {
     : undefined;
   const selectedItems = items.filter((item) => batchIds.has(item.id));
   const safeItems = selectedItems.filter(isSafeBatchItem);
-  const needsAnalysisCount = items.filter((item) => item.validity === "needs_analysis").length;
-  const acceptedCount = items.filter((item) => item.decision === "accepted" || item.decision === "edited").length;
+  const needsAnalysisCount = plan?.summary.needsAnalysis ?? 0;
+  const acceptedCount = (plan?.summary.accepted ?? 0) + (plan?.summary.edited ?? 0);
   const canReview = plan && ["ready", "stale", "partially_completed"].includes(plan.status);
-  const canDryRun = plan && ["ready", "partially_completed"].includes(plan.status) && acceptedCount > 0;
+  const canDryRun = plan
+    && ["ready", "partially_completed"].includes(plan.status)
+    && plan.summary.remainingExecutable > 0;
 
   useEffect(() => {
     const last = virtualRows.at(-1);
@@ -214,7 +216,9 @@ export function OrganizeSuggestionsView() {
           <section className={cn(raisedSurface, "flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-3")} aria-live="polite">
             <div className="min-w-0">
               <strong className="block truncate text-sm">{plan.title}</strong>
-              <span className="text-xs text-[var(--zc-text-tertiary)]">{plan.status} · revision {plan.revision} · {plan.materializedCount.toLocaleString()} materialized · {acceptedCount.toLocaleString()} accepted</span>
+              <span className="text-xs text-[var(--zc-text-tertiary)]">
+                {plan.status} · revision {plan.revision} · {plan.materializedCount.toLocaleString()} materialized · {acceptedCount.toLocaleString()} accepted · {plan.summary.remainingExecutable.toLocaleString()} remaining · {plan.summary.executed.toLocaleString()} executed
+              </span>
             </div>
             <div className="flex flex-wrap gap-2">
               <button className={buttonSubtle} disabled={isMutating || !needsAnalysisCount} onClick={() => void analyzeMissing()}><Sparkles size={14} />Analyze Missing ({needsAnalysisCount})</button>
@@ -259,7 +263,7 @@ export function OrganizeSuggestionsView() {
                         <input type="checkbox" checked={batchIds.has(item.id)} onChange={() => toggleBatch(item.id)} onClick={(event) => event.stopPropagation()} aria-label={`Select ${item.sourceNameSnapshot} for batch decision`} />
                         <span className="min-w-0">
                           <strong className="block truncate text-sm">{item.sourceNameSnapshot}</strong>
-                          <span className="block truncate text-xs text-[var(--zc-text-tertiary)]">{item.proposalKind} · {item.validity} · {item.decision}</span>
+                          <span className="block truncate text-xs text-[var(--zc-text-tertiary)]">{item.proposalKind} · {item.reviewState} · {item.decision}</span>
                         </span>
                         <span className="text-xs tabular-nums text-[var(--zc-text-secondary)]">{Math.round(item.confidence * 100)}%</span>
                       </button>
@@ -274,10 +278,10 @@ export function OrganizeSuggestionsView() {
                 <div className="grid gap-4">
                   <div><span className="text-xs text-[var(--zc-text-tertiary)]">From</span><p className="break-all text-sm">{activeItem.sourcePathSnapshot}</p></div>
                   <div><span className="text-xs text-[var(--zc-text-tertiary)]">To</span><p className="break-all text-sm">{activeItem.editedName ? `${activeItem.proposedTargetDirectory}/${activeItem.editedName}` : activeItem.proposedTargetPath}</p></div>
-                  <div className="grid grid-cols-2 gap-2 text-xs"><span>Risk: {activeItem.riskLevel}</span><span>Validity: {activeItem.validity}</span><span>Decision: {activeItem.decision}</span><span>Revision: {activeItem.revision}</span></div>
+                  <div className="grid grid-cols-2 gap-2 text-xs"><span>Risk: {activeItem.riskLevel}</span><span>Review: {activeItem.reviewState}</span><span>Decision: {activeItem.decision}</span><span>Revision: {activeItem.revision}</span></div>
                   {activeItem.blockingDetail ? <p className="rounded-md bg-[var(--zc-warning-surface)] p-3 text-xs text-[var(--zc-warning-text)]">{activeItem.blockingDetail}</p> : null}
                   <div className="flex flex-wrap gap-2">
-                    <button className={buttonSecondary} disabled={!canReview || activeItem.validity !== "ready" || isMutating} onClick={() => void mutate(activeItem, "accepted")}><Check size={14} />Accept</button>
+                    <button className={buttonSecondary} disabled={!canReview || !["ready", "needs_review"].includes(activeItem.validity) || isMutating} onClick={() => void mutate(activeItem, "accepted")}><Check size={14} />Accept</button>
                     <button className={buttonSubtle} disabled={!canReview || isMutating} onClick={() => void mutate(activeItem, "kept")}><CircleMinus size={14} />Keep</button>
                     <button className={buttonSubtle} disabled={!canReview || !activeItem.authoritativePreviewId || isMutating} onClick={() => { setEditedName(activeItem.editedName ?? activeItem.proposedName); setEditingId(activeItem.id); }}><Edit3 size={14} />Edit filename</button>
                     <button className={buttonGhost} disabled={!canReview || isMutating} onClick={() => void mutate(activeItem, "undecided")}><ListRestart size={14} />Clear</button>
