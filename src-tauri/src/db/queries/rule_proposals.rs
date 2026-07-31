@@ -975,16 +975,29 @@ fn build_rule_proposal_impact(
         "f.is_stale = 0 AND ({}) AND ({})",
         resolved_scope.clause, predicate.sql
     );
-    let active_scope_count: i64 = conn.query_row(
-        &format!(
-            "SELECT COUNT(*) FROM files AS f WHERE f.is_stale = 0 AND ({})",
-            resolved_scope.clause
-        ),
-        params_from_iter(resolved_scope.params.iter()),
-        |row| row.get(0),
-    )?;
     let expensive = candidate_is_expensive(&candidate.candidate);
-    let deferred = !force_exact && active_scope_count > RULE_PROPOSAL_DEFER_THRESHOLD && expensive;
+    // Deferred previews only need to know whether the active scope crosses the
+    // threshold.  Counting every row makes a large, expensive preview pay an
+    // unnecessary O(N) scan before it can return its bounded sample.  Probe
+    // at most threshold + 1 rows instead; exact counts are still computed for
+    // non-deferred previews and exact resolution.
+    let active_scope_over_threshold = if !force_exact && expensive {
+        let mut threshold_params = resolved_scope.params.clone();
+        threshold_params.push(SqlValue::Integer(RULE_PROPOSAL_DEFER_THRESHOLD + 1));
+        let sampled_count: i64 = conn.query_row(
+            &format!(
+                "SELECT COUNT(*) FROM (SELECT 1 FROM files AS f
+                 WHERE f.is_stale = 0 AND ({}) LIMIT ?)",
+                resolved_scope.clause
+            ),
+            params_from_iter(threshold_params.iter()),
+            |row| row.get(0),
+        )?;
+        sampled_count > RULE_PROPOSAL_DEFER_THRESHOLD
+    } else {
+        false
+    };
+    let deferred = !force_exact && expensive && active_scope_over_threshold;
     let matched_count = if deferred {
         None
     } else {

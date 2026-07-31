@@ -7,7 +7,7 @@
 - 任务：`TASK_08_LOCAL_CONTENT_ARTIFACTS_AND_UNDERSTANDING.md`。
 - 审查：GitHub PR #44 的顶层 review `4831031814`；该 review 没有可单独读取的 GraphQL inline thread，以下按 review 中的 10 个 finding 逐项关闭。
 - 分支：`remediation/08-local-content-understanding`；交付仍是 Draft PR #44，标题 `feat: add consent-bound local content understanding`。
-- 本轮提交：`4b9c406`（实现 review gap）、`9317f2b`（生命周期/边界回归）；本 closeout 提交后以新的 branch tip 为准，不 amend/rebase/force-push。
+- 本轮提交：`4b9c406`（实现 review gap）、`9317f2b`（生命周期/边界回归）、`1a58690`（本机证据）；本 closeout 提交后以新的 branch tip 为准，不 amend/rebase/force-push。
 
 ## 10 个 finding 的关闭映射
 
@@ -40,7 +40,7 @@ Artifact 绑定 file/root、size/mtime/is_dir/source hash、extractor、policy/p
 - Task 08 定向 Rust content：**9 passed**；DB schema/query 定向回归：**128 passed, 2 ignored**。
 - `cargo check --manifest-path src-tauri/Cargo.toml --lib --features desktop-runtime`、`cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets --jobs 1 -- -D warnings`、`cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`：通过。
 - `npm.cmd run typecheck`：通过；`npm.cmd test -- --run`：**79 files / 536 tests**；`npm.cmd run test:remediation`：**13 passed**。
-- `npm.cmd run test:performance`：exit 0，架构 guard、FTS 100K、global-search/scan 100K、schema/WAL、Task 02/03/05/06、Task 07 impact 与 **1M File Library query/migration** 全部通过；FTS post-optimize search p95 为 2.969 ms（阈值 1,000 ms）。
+- `npm.cmd run test:performance`（`1a58690`）：exit 0，架构 guard、FTS 100K、global-search/scan 100K、schema/WAL、Task 02/03/05/06、Task 07 impact 与 **1M File Library query/migration** 全部通过；FTS post-optimize search p95 为 2.969 ms（阈值 1,000 ms）。随后针对 CI 暴露的 Task 07 deferred 1M probe 做了 bounded `threshold+1` 优化；本机 release benchmark 为 `deferred_1m_ms=48.527`、`exact_1m_ms=478.687`，原 200 ms 门槛保持不变。
 - `npm.cmd run security:audit`：0 vulnerabilities；`npm.cmd run security:audit:rust`：exit 0，16 个既有 allowed unmaintained/unsound warnings，无阻断漏洞。
 - `npm.cmd run build`：Windows release + NSIS 成功。当前包 `F:\CargoTarget\release\bundle\nsis\Zen Canvas_0.1.40_x64-setup.exe`：**7,565,223 bytes**，SHA-256 `61B9B5EF57416D13F336B5920A85CAB79EE6ED04419D0B0D564ECF4323336EB4`。Task 08 前历史基线为 **7,039,064 bytes** / `BA0335A79DCC2EAEAD3C4DE3B6038A80DCA28B6E04413E80CD0AF1C74AB1943F`，delta **+526,159 bytes (+7.47%)**。
 - `git diff --check`：通过；本机工作区在 closeout 编辑前干净，提交后再次检查。
@@ -54,5 +54,6 @@ Artifact 绑定 file/root、size/mtime/is_dir/source hash、extractor、policy/p
 ## CI、平台与交付状态
 
 - Windows 本机证据如上；macOS Rust、release compile、unsigned DMG、macOS smoke 只接受 GitHub macOS runner 结果，不伪造本机证据。
-- PR #44 的 full-validation run 必须在本文件最终提交对应的 final HEAD 上全部成功；run URL、job 摘要与 head SHA 在最终 CI 完成后写回这里。
+- PR #44 的第一次 full-validation run [30658768769](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30658768769) 在 HEAD `1a586905dfc6bbeb4553ad7e2f93476e31652545` 仅因 Task 07 deferred 1M probe 测得 `210.042 ms > 200 ms` 失败；其余 Windows/macOS Rust、release、NSIS、unsigned DMG、依赖与 frontend jobs 成功。修复为 bounded `threshold+1` probe，未降低阈值；新的 final HEAD full run 必须全部成功。
+- PR #44 的 full-validation run 必须在本文件最终提交对应的 final HEAD 上全部成功；最终 run URL、job 摘要与 head SHA 在修复推送后写回这里。
 - 交付保持 Draft PR、不开启 auto-merge；full CI 成功后停止，等待第二轮人工代码审查。
