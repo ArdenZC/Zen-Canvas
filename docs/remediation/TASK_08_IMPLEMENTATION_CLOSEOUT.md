@@ -79,5 +79,5 @@ Provider understanding 复用已有 interactive provider，最多 20 个 current
 
 - implementation commit：`8ab143e25d07ae93d18627e7d9eb0e0fdaef98b2`（不 amend/rebase）；
 - Draft PR：[#44](https://github.com/ArdenZC/Zen-Canvas/pull/44)，标题 `feat: add consent-bound local content understanding`；
-- CI workflow/checks：PR #44 已触发，Windows/macOS Rust、frontend/format、dependency audit、performance、NSIS/DMG 与文档范围检查均等待 GitHub runner 结果；
-- final branch HEAD：closeout/index metadata commit 将在 CI 状态记录完成后追加。
+- CI workflow/checks：PR #44 的 [CI run 30642490279](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30642490279) 已全部通过（文档范围、frontend/format、Windows/macOS Rust、performance、dependency audit、release compile、NSIS、unsigned DMG、Windows/macOS gate quality）；runner 仅报告 Node.js 20 action deprecation 非阻断提示；
+- final branch HEAD：本 closeout metadata commit 推送后记录，并保持 Draft PR 等待人工代码级验收。
