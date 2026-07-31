@@ -88,5 +88,5 @@ PR 的快速路径只改变调度范围，不把跳过的 full job 当作通过�
 
 - implementation commit：`8ab143e25d07ae93d18627e7d9eb0e0fdaef98b2`（不 amend/rebase）；
 - Draft PR：[#44](https://github.com/ArdenZC/Zen-Canvas/pull/44)，标题 `feat: add consent-bound local content understanding`；
-- CI workflow/checks：完整矩阵 [CI run 30642490279](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30642490279) 已全部通过；本次 workflow 优化后的 PR 快速路径以最新 CI run 为准，并在此记录其结果；
-- final branch HEAD：本 closeout metadata commit 推送后记录，并保持 Draft PR 等待人工代码级验收。
+- CI workflow/checks：完整矩阵 [CI run 30642490279](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30642490279) 已全部通过；优化后的 PR 快速路径 [CI run 30651577214](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30651577214) 也已通过，墙钟约 6 分 22 秒（Windows Rust 4 分 42 秒、PR performance 5 分 56 秒），macOS Rust/release compile/NSIS/DMG full-only jobs 均明确 skipped；
+- final branch HEAD：`854398ef565695e2683e1963a80d1d21248d882c`，保持 Draft PR 等待人工代码级验收。
