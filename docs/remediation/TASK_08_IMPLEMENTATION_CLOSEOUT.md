@@ -64,6 +64,15 @@ Provider understanding 复用已有 interactive provider，最多 20 个 current
 
 - Windows evidence 已在上方记录；macOS unsigned DMG/平台 smoke 由 CI 或人工平台 runner 补充，不伪造本机证据。
 
+## CI 验证路径（2026-07-31）
+
+为避免每次 PR 把完整性能与打包矩阵重复跑数小时，`.github/workflows/ci.yml` 现在分为两条明确路径：
+
+- 普通 PR：保留 frontend/typecheck/tests/remediation、Windows Rust quality、Dependency audit，以及 `test:performance:pr` 的 100k complexity sentinel；不运行 1M/full performance、macOS Rust、release compile 或 NSIS/DMG 打包。
+- Full validation：保留原有全部断言与阈值，不修改性能门槛；由 `master` push、nightly schedule、PR 加 `full-validation` label，或手工 `workflow_dispatch` 勾选 `full_validation=true` 触发。
+
+PR 的快速路径只改变调度范围，不把跳过的 full job 当作通过；Windows/macOS gate 会明确校验 full job 在快速路径为 skipped、在 full 路径为 success。此前完整矩阵 [CI run 30642490279](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30642490279) 已全部通过；后续 full profile 若出现既有基准的资源争用超时，仍须保留原始输出并单独修复，不能放宽阈值。
+
 ## 依赖与许可证
 
 新增直接依赖：`zip = 2.4.2`（`deflate`、default features disabled；MIT，锁文件同时记录 `zopfli = 0.8.3` 传递项，Apache-2.0）。`quick-xml` 未作为本模块直接依赖，现有传递依赖仍由既有 plist 链路提供。`cargo tree`/metadata 与 RustSec audit 已执行：npm 0 vulnerabilities，RustSec exit 0 且仅保留既有 15 个 allowed warnings。当前 Windows NSIS 包为 7,039,064 bytes；本机没有可复原的 Task07 安装包副本，因此不伪造 size delta。未捆绑 Python/Conda/Tesseract/Nexa/模型或外部 executable。
@@ -79,5 +88,5 @@ Provider understanding 复用已有 interactive provider，最多 20 个 current
 
 - implementation commit：`8ab143e25d07ae93d18627e7d9eb0e0fdaef98b2`（不 amend/rebase）；
 - Draft PR：[#44](https://github.com/ArdenZC/Zen-Canvas/pull/44)，标题 `feat: add consent-bound local content understanding`；
-- CI workflow/checks：PR #44 的 [CI run 30642490279](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30642490279) 已全部通过（文档范围、frontend/format、Windows/macOS Rust、performance、dependency audit、release compile、NSIS、unsigned DMG、Windows/macOS gate quality）；runner 仅报告 Node.js 20 action deprecation 非阻断提示；
+- CI workflow/checks：完整矩阵 [CI run 30642490279](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30642490279) 已全部通过；本次 workflow 优化后的 PR 快速路径以最新 CI run 为准，并在此记录其结果；
 - final branch HEAD：本 closeout metadata commit 推送后记录，并保持 Draft PR 等待人工代码级验收。
