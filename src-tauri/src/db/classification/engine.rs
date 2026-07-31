@@ -779,26 +779,26 @@ pub(crate) fn classify_indexed_file(
     } else {
         fallback_classification(row)
     };
+    // Keep references to the frozen rule snapshot while ranking. Cloning the
+    // full rule AST for every match makes bounded impact previews scale with
+    // the persisted rule count; only the winning rule's action is cloned below.
     let mut candidates = all_rules
         .iter()
         .filter_map(|rule| {
-            let matches = evaluate_rule(rule, row, &file_type);
-            matches.then(|| RuleCandidate {
-                score: rule.weight + rule.priority * 0.1,
-                rule: rule.clone(),
-            })
+            evaluate_rule(rule, row, &file_type)
+                .then_some((rule.weight + rule.priority * 0.1, rule))
         })
         .collect::<Vec<_>>();
     candidates.sort_by(|left, right| {
         right
-            .score
-            .partial_cmp(&left.score)
+            .0
+            .partial_cmp(&left.0)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| {
                 right
-                    .rule
+                    .1
                     .priority
-                    .partial_cmp(&left.rule.priority)
+                    .partial_cmp(&left.1.priority)
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
     });
@@ -807,17 +807,17 @@ pub(crate) fn classify_indexed_file(
     let runner_up = candidates.get(1);
     let has_conflict = top
         .zip(runner_up)
-        .map(|(top, runner_up)| top.score - runner_up.score <= 10.0)
+        .map(|(top, runner_up)| top.0 - runner_up.0 <= 10.0)
         .unwrap_or(false);
     let action = top
-        .map(|candidate| merge_action(&builtin.action, &candidate.rule.action))
+        .map(|candidate| merge_action(&builtin.action, &candidate.1.action))
         .unwrap_or_else(|| builtin.action.clone());
     let mut matched_rule_names = candidates
         .iter()
-        .map(|candidate| matched_rule_marker(&candidate.rule))
+        .map(|candidate| matched_rule_marker(candidate.1))
         .collect::<Vec<_>>();
     let confidence = top
-        .map(|candidate| (candidate.score / 100.0).clamp(0.35, 0.98))
+        .map(|candidate| (candidate.0 / 100.0).clamp(0.35, 0.98))
         .unwrap_or(builtin.confidence);
     let mut risk_level = action
         .risk_level

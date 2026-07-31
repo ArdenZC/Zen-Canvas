@@ -325,12 +325,6 @@ pub(crate) struct RuleSqlRow {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct RuleCandidate {
-    pub(crate) rule: Rule,
-    pub(crate) score: f64,
-}
-
-#[derive(Debug, Clone)]
 pub(crate) struct BuiltinClassification {
     pub(crate) action: RuleAction,
     pub(crate) confidence: f64,
