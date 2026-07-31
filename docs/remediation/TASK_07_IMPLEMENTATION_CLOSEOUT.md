@@ -1,107 +1,170 @@
 # Task 07 Implementation Closeout — Natural-Language Rule Proposal and Approval
 
-## 1. Delivery state
+## 1. Final delivery state
 
-- Baseline HEAD: `42dce2ea2dbdfdf9b0c5616364f090a9a5d89761`.
-- Task 06 merge ancestor: `29e85c099c5ee921ad7d4237c780dc47126e0fa3`.
-- Implementation branch: `remediation/07-rule-proposal`.
-- Final implementation HEAD before this evidence-only closeout update: `7b73419e4350592f0ce2f2e8691370c162704430`.
-- Draft PR title: `feat: add natural-language rule proposals and approval`.
-- Schema: `32 → 33`.
-- Task 08: not started.
-- Delivery stops at human code-level review; no merge is authorized.
+- Baseline HEAD：`42dce2ea2dbdfdf9b0c5616364f090a9a5d89761`；
+- Task 06 merge ancestor：`29e85c099c5ee921ad7d4237c780dc47126e0fa3`；
+- Implementation branch：`remediation/07-rule-proposal`；
+- Final branch HEAD：`bb6ab156690829b141fc72961afbcfe0e854805b`；
+- PR：#42 `feat: add natural-language rule proposals and approval`；
+- Schema：`32 → 33`；
+- Human disposition：接受合并，六项代码审查问题转入 Task 08 第一组；
+- Squash merge：`4e07de9c02198eb3352d9b2b1f289d61a3df128c`。
+
+Task 07 已完成并合并。Task 08 只有在其人工任务书和治理文档进入 `master` 后才获得生产实施授权。
+
+---
 
 ## 2. Task 06 accepted handoff closure
 
-| Accepted item | Implementation and evidence |
-|---|---|
-| Dry-run/execution equivalence | Organization refresh, dry-run and execution rebuild the same live authoritative target facts and dispatch the exact canonical preview. |
-| Managed root health | Scope/root health, watcher recovery and watcher revision are checked at refresh, dry-run and execution; stale or unhealthy state fails closed. |
-| `needs_review` approval | Backend review-state projection exposes an explicit reviewed path; blocked, unsupported and deleted states cannot be upgraded. |
-| Crash projection | Finalization and restart recovery share terminal projection; journal-success rows become `completed`, with fault-injection tests. |
-| Retention union | Age UNION count overflow, child-first ordering, deduplication and maximum 20 deletions per pass are tested. |
-| Plan summary | Summary totals are backend authoritative aggregates, not a first-page inference. |
-| Package evidence | Local package, remote workflow jobs and skipped jobs are recorded separately; skipped is never called success. Real Windows NSIS and macOS unsigned-DMG success evidence is required from CI. |
+Task 07 第一组关闭了 Task 06 的七项接受遗留：
 
-## 3. Frozen references and license boundary
+1. dry run 与 execution 统一 live authoritative proposal/target；
+2. refresh/dry run/execution 全链重验 managed root health；
+3. `needs_review` 建立显式 reviewed 路径；
+4. crash finalize/recovery 共用 terminal projection；
+5. retention 使用 age UNION count overflow、dedup、child-first、每批最多 20；
+6. Plan summary 由后端全 ledger 聚合；
+7. 本地 package、远端 success 与 skipped job 分开记录。
 
-Coworker / `accomplish-ai/coworker`:
+对应回归测试和 CI 证据均随 PR #42 合并。
 
-- SHA `2cf74d08f22078b8b1fd3f97bff3ec4612262613`.
-- License: MIT (`LICENSE`).
-- Read at the frozen SHA: `LICENSE`, `README.md`, `packages/agent-core/src/opencode/config-generator.ts`, `packages/agent-core/src/opencode/system-prompt-behaviors.ts`, and `docs/qa-suites/permissions-filesystem-tests.md`.
+---
 
-OpenCode / `anomalyco/opencode`:
+## 3. Delivered Task 07 product module
 
-- SHA `7565e03536d19e850f9996c407f9bf5e932b5f7a`.
-- License: MIT (`LICENSE`).
-- Read at the frozen SHA: `LICENSE`, `packages/opencode/src/permission/index.ts`, `packages/web/src/content/docs/permissions.mdx`, `packages/schema/src/permission.ts`, and `packages/opencode/src/tool/task.ts`.
+### Schema 33 / durable ledger
 
-Borrowed only as principles: visible proposal/review before action, explicit user scope, allow/ask/deny classification, one-time approval, refusal stopping the action, correction followed by a new proposal, and permission evaluation separated from execution. Explicitly rejected: source/DTO/UI/event-bus copying, Coworker daemon, OpenCode SDK/runtime/serve, shell/MCP/tools/skills/subagents/browser automation, wildcard execution permissions, auto-approve, generic Agent task runtime and generic permission database.
+- `rules.ast_version`；
+- `rules.revision`；
+- `rules.origin_proposal_id`；
+- singleton `rule_catalog_state`；
+- durable `rule_proposals` 与索引；
+- additive migration、rollback、idempotence、future-schema guard；
+- 未 ALTER `files`，未迁移 `files.id`，未修改 operation/cleanup journal schema。
 
-## 4. Schema 33 and rollback
+### Rule Proposal lifecycle
 
-Migration is additive and runs inside the existing `BEGIN IMMEDIATE` migration transaction. It adds `rules.ast_version`, `rules.revision`, `rules.origin_proposal_id`, singleton `rule_catalog_state`, and `rule_proposals` with its two required indexes. `user_version` is written last; conflict and future-schema tests prove rollback and rejection. Existing rules backfill AST/revision defaults. No `files` ALTER, `files.id` migration, operation/cleanup journal change, Managed AI schema change, Analysis/Finding change, Plan change or Global Index rewrite was made.
+实现：
 
-Real schema-32 fixtures, idempotence, conflict rollback, future guard, WAL reader and 100k/1M no-rewrite fixtures are covered.
+```text
+draft → generating → ready → applying → applied
+```
 
-## 5. Rule Proposal ledger and lifecycle
+并支持 clarification、invalid、failed、stale、cancelled、startup recovery、revision-owned generation、bounded cancellation 和 terminal retention。
 
-`rule_proposals` is a durable review/provenance ledger with bounded prompt, candidate, clarification, warning, provider/model provenance, validation, target/base revision, proposal revision and terminal timestamps. The state machine is `draft → generating → ready`, with clarification/invalid/failed outcomes, revision-owned regeneration, `ready → applying → applied`, and explicit cancellation. Applied/cancelled proposals cannot regress. Startup recovery marks an interrupted owner as failed with a stable code; pruning retains active states, unions age/count terminal candidates, deduplicates and deletes at most 20.
+### AI boundary
 
-Generation is an existing-provider adapter, in-memory bounded to two requests with one owner per proposal and an atomic cancellation flag. There is no second durable queue and no raw provider response persistence. Late owners are rejected by durable revision/CAS.
+- 复用现有 provider client、credential、preset、timeout 与 JSON mode；
+- 全局并发最多 2；
+- 不写 `ai_jobs`，不建设第二 durable AI queue；
+- 只发送用户 prompt、固定 schema 和 update target canonical AST；
+- 不发送文件正文、文件列表、路径样本、operation logs、credentials、secrets、SQL、shell 或 tool definitions；
+- raw provider response 不持久化。
 
-## 6. AST V1, grounding and permissions
+### AST / validation / permission
 
-The only candidate target is existing Rule AST V1. Strict model JSON allows only the frozen envelope and candidate fields. Rust canonicalization normalizes enum/operator/extension/numeric/date/action values, creates deterministic IDs and fingerprint, enforces capacity limits and rejects unknown fields. Every free-text/path/extension/template/number/day literal must be in the prompt or a deterministic normalization; ungrounded values require clarification. Delete/trash, shell/script/tool/command, content/OCR, protected-system-target, arbitrary mutation, auto-enable and auto-run intents are denied. Ordinary metadata-only candidates are `allow`; path/risk/conflict/update and other human-confirmation cases are `ask`. `allow` never means automatic Apply.
+- Rule AST V1 是唯一 candidate target；
+- strict JSON envelope 与 unknown-field rejection；
+- Rust canonicalization、deterministic IDs/fingerprint、capacity limits；
+- literal grounding；
+- allow/ask/deny 仅作为 proposal validation；
+- Apply、Enable、Run 分离；
+- 新建或更新正式规则默认 `enabled=false`。
 
-Provider input is fixed system policy plus the user-entered prompt and, for update only, the selected canonical target AST. No file content, file list, path sample, credentials, secrets, SQL, script, shell or tool context is sent. Diagnostics are bounded and redacted.
+### Impact / Apply / repository
 
-## 7. Impact preview and Human Apply
+- managed File Library metadata-only impact；
+- exact/deferred count、bounded sample、opaque resolver token；
+- preview fingerprint 绑定 proposal/rule/catalog/library/scope/policy；
+- Apply 只接受 durable IDs、expected revisions、exact fingerprint 与 `confirmed=true`；
+- proposal + user rule 单事务 CAS；
+- Rule Repository V2 Create/Update/Toggle/Delete 分离；
+- system/learned rules 受保护；
+- legacy whole-object write 退出 production capability。
 
-Impact compilation reads only File Library metadata in a durable managed scope and a single SQLite read snapshot. Scope health, watcher recovery/revision, library revision, candidate fingerprint, target revision, catalog revision and policy version are bound. Exact results return truthful counts; large expensive predicates return a real bounded sample (maximum 20), `matchedCount = null` and an opaque resolver token. The resolver recomputes exact impact; no estimate or durable count job exists. The preview fingerprint includes the full proposal/rule/catalog/library/scope/permission/policy binding.
+### Backend execution authority
 
-Apply accepts only IDs, expected revisions, exact preview fingerprint and `confirmed=true`. It re-canonicalizes, revalidates target/scope/library/catalog state, recomputes exact impact and then atomically writes proposal + user rule under CAS. Backend generates ID/source/timestamps; created or updated user rules are `enabled=false`; `origin_proposal_id` is preserved. Apply does not run rules, change `files`, create an Organization Plan, call a journal, or move/rename/delete/trash any file. Enable and Run remain separate controls.
+- `execute_rules_for_scope_v2` 不接受 renderer Rule vector；
+- scanner、watcher 和 Rules UI 迁移到后端加载 persisted rules；
+- Rule execution 只更新 classification/suggestion metadata；
+- 不移动、重命名、删除文件，不调用 operation/cleanup journal。
 
-## 8. Rule Repository V2 and execution authority
+### UI / permissions / mock
 
-`list_user_rules_v2`, `create_user_rule_v2`, `update_user_rule_v2`, `set_user_rule_enabled_v2`, `delete_user_rule_v2` and `get_rule_catalog_state` use per-rule plus catalog revision CAS. System/learned rules are protected. Legacy whole-object write commands remain internal/test compatibility only and are not capability write authority.
+- Describe / Manual 双入口；
+- proposal history、clarification、AST、impact、conflict、Edit、Regenerate、Apply as Disabled；
+- backend hydration、remount reload、latest-request-wins；
+- no localStorage truth；
+- 新命令 main-window-only，Search denied；
+- browser mock 明确不代表真实 AI、native persistence、Rule execution 或 filesystem mutation。
 
-`execute_rules_for_scope_v2` accepts only durable scope IDs, mode, expected catalog revision and confirmation. The backend loads enabled persisted user/allowed learned/system rules from SQLite, validates them, computes the classification version and invokes the existing metadata classification engine. Manual Rules UI, scanner and watcher adapters use this authority; no renderer Rule vector is accepted. Rule execution changes classification/suggestion metadata only.
+---
 
-## 9. UI, store, API, permissions and mock
+## 4. Validation and package evidence
 
-Rules UI includes Describe/Manual entry, provider/model disclosure, the exact privacy statement “只发送你输入的文字，不发送文件内容。”, examples, generation/cancel, proposal history/Continue Later, clarification and validation display, AST inspector, exact/deferred impact, bounded samples/conflicts, Edit Candidate, Regenerate, Apply as Disabled Rule, and separate Enable/Run actions. Apply confirmation states “Rule saved, currently disabled.” Accessibility uses keyboard-first controls, stable labels, focus-safe dialogs and live generation/validation/impact messaging; narrow/CJK/RTL/reduced-motion/high-contrast styles inherit existing system primitives.
+### Frontend / Rust / security
 
-`useRuleProposalStore` and the Rule catalog are backend-hydrated, keep proposal/rule/catalog revisions separate, preserve stale views, enforce latest-request-wins and do not use localStorage as truth. Remounting reloads persisted proposals. `tauriApi`, `build.rs`, `main.rs`, `lib.rs`, default capability and the security matrix are synchronized; every new command is main-window-only and denied to Search. Browser mock behavior is deterministic and explicitly marked mock; it never claims real AI, native persistence, Rule execution or filesystem mutation.
+- Frontend：78 files、535 tests passed；
+- remediation：13 tests passed；
+- TypeScript、Rust full tests、`cargo fmt --check`、Clippy `-D warnings` passed；
+- `npm audit`：0 vulnerabilities；
+- RustSec：exit 0，15 条既有允许警告；
+- dependencies 和 lockfiles 未变化。
 
-## 10. Tests and performance
+### Migration / performance
 
-- Frontend typecheck and focused Rules/API/store/permission tests passed; new Task 07 contract and remount/latest-wins tests cover the UI state boundary.
-- Rust focused proposal/repository/lifecycle/retention/grounding/compiler tests passed.
-- Schema 32→33 success, rollback, idempotence and future guard passed.
-- Backend execution regression proves disabled separation, enable CAS, SQLite loading and stale catalog rejection.
-- Exact impact compiler behavior covers every AST field/operator family and metadata-only no-mutation Apply.
-- Release Task 07 Proposal benchmark passed: canonical p95 0.003ms; proposal create/finalize p95 0.482ms; 1k rule list p95 4.001ms; 1k proposal first page p95 0.846ms; 100k simple exact 50.143ms; Apply p95 54.929ms; CRUD p95 ≤0.073ms; 1M deferred 110.074ms; 1M exact 500.199ms. Query plan used `idx_library_files_modified`; WAL reader remained readable during a proposal writer.
-- Release schema migration benchmarks passed: 100k rows 17.237ms and 1M rows 16.398ms; both size delta 0 and WAL reader row counts preserved.
-- Full remediation/performance scripts, build, security audit, local package and CI Windows/macOS evidence are recorded below.
+- schema migration：100k 17.237 ms；1M 16.398 ms；size delta 0；
+- impact：100k exact 50.143 ms；1M deferred 110.074 ms；1M exact 500.199 ms；
+- query plan 使用 `idx_library_files_modified`；
+- WAL reader 在 proposal writer 期间保持可读；
+- disabled separation、enable CAS、SQLite loading、stale catalog rejection 回归通过。
 
-## 11. Platform, package and dependency evidence
+### CI / package
 
-Windows Rust and NSIS are run locally where available. Local NSIS: `F:\CargoTarget\release\bundle\nsis\Zen Canvas_0.1.40_x64-setup.exe`, 6,883,407 bytes, SHA-256 `B7F000CB19978796EF486DDD01563F0D20FD0FD04E7F82432B8DE70C6A4397F9`. macOS Rust and unsigned DMG are evidenced by the remote jobs below. `package.json`, `package-lock.json`, `src-tauri/Cargo.toml` and `src-tauri/Cargo.lock` remain unchanged. No dependency or lockfile was added or modified.
+- Final PR CI：`30621028065`，quality/compile/performance/audit success；该 PR run 的 package jobs 为 skipped；
+- Full workflow dispatch：`30619441431`；Windows NSIS 与 macOS unsigned DMG jobs success；
+- Local NSIS：`Zen Canvas_0.1.40_x64-setup.exe`，6,883,407 bytes；
+- SHA-256：`B7F000CB19978796EF486DDD01563F0D20FD0FD04E7F82432B8DE70C6A4397F9`；
+- CI package jobs 不上传 installer artifact，本地 package 与远端 runner 证据分开记录。
 
-## 12. Known risks and stop condition
+---
 
-- Provider availability and model quality remain user-configured; invalid, ungrounded or unavailable generation fails closed.
-- Filesystem races remain outside Rule execution because rules only update metadata; any later mutation remains behind Organization Plan, authoritative preview, identity, journal, Safe Trash and Restore.
-- Large expensive impact requires explicit exact resolution before Apply.
-- This branch deliberately does not include Content Artifact, OCR, body extraction, Agent runtime, shell/MCP/tools, second AI queue or Task 08.
+## 5. Human-accepted Task 07 → Task 08 handoff
 
-## 13. Final delivery evidence
+人工代码审查发现并接受以下六项进入 Task 08 第一组：
 
-- Implementation commits: `fa6a057` (durable backend), `c19da74` (workspace/store), `f87c58a` (docs/contracts), `7b73419` (explicit macOS mutation-test guard).
-- PR CI `30619399326` completed successfully for `7b73419`; its PR-conditioned Package NSIS and Package unsigned DMG jobs were skipped.
-- Full `workflow_dispatch` CI `30619441431` completed successfully for `7b73419` (`https://github.com/ArdenZC/Zen-Canvas/actions/runs/30619441431`). Windows Rust `91120237801`, macOS Rust `91120237819`, Windows NSIS `91120237760`, macOS unsigned DMG `91120237815`, performance `91120237785`, Windows quality gate `91124571623`, macOS quality gate `91120858638`, release compiles `91120237742`/`91120237735`, and dependency audit `91120237790` all succeeded.
-- The CI package jobs do not upload installer artifacts; they prove real runner packaging success. The local NSIS artifact and checksum are recorded in section 11.
-- Draft PR #42: `https://github.com/ArdenZC/Zen-Canvas/pull/42`; it remains open and Draft. No merge, tag or release was created.
-- The evidence-only closeout commit follows the implementation HEAD above; the final repository HEAD is reported in the delivery message. The worktree is clean after that commit.
+1. **Effective catalog authority**：learned rule 与影响实际 ruleset 的 settings/policy 尚未完全进入 catalog revision；
+2. **Execution TOCTOU**：manual execution 需冻结 catalog/settings/rules/scope/root/library 单一权威快照；
+3. **Impact equivalence**：preview 需完整复用真实 classification engine 语义并建立 differential tests；
+4. **Review UI completeness**：展示 before/after、risk、confirmation、scope health、permission、broad match 与 conflict completeness；
+5. **Manual edit provenance**：手工编辑后旧 AI summary/provenance 必须失效或明确区分；
+6. **Forbidden prompt gate**：后端确定性拒绝 delete/trash/tool/auto-run 等原始 prompt 意图，不依赖模型主动映射。
+
+这些问题的 failure mode、强制方案和测试门禁已冻结在：
+
+```text
+docs/remediation/TASK_08_LOCAL_CONTENT_ARTIFACTS_AND_UNDERSTANDING.md
+```
+
+不得再次后移，也不得拆成独立 debt task。
+
+---
+
+## 6. Final explicit declarations
+
+Task 07：
+
+- 没有拆分；
+- 没有创建 Agent/OpenCode/Coworker runtime；
+- 没有创建 shell/tool/MCP permission system；
+- 没有创建第二 AI queue；
+- 没有读取或上传文件正文；
+- 没有让模型直接写、启用或执行 Rule；
+- 没有让 renderer Rule list 成为 execution authority；
+- 没有自动移动、重命名或删除文件；
+- 没有修改 operation/cleanup journal schema；
+- 没有迁移 `files.id`；
+- 没有新增依赖或修改 lockfile。
+
+PR #42 已按人工决定 squash 合并。Task 08 生产代码尚未在本 Closeout 中开始。

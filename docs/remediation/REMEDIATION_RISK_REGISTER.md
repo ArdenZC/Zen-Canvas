@@ -14,7 +14,7 @@
 | ID | 风险 | 等级 | 阻断/缓解与验收条件 | 状态 |
 |---|---|---|---|---|
 | R-001 | 重建第二套 Global Index | Critical | global discovery/search 只复用 `global_*` | 持续阻断 |
-| R-002 | 把 `ai_jobs` 泛化为通用 Job Runtime | High | AI 表和 worker 保持领域专用 | 禁止泛化 |
+| R-002 | 把 `ai_jobs` 泛化为通用 Job Runtime | High | AI 表和 worker 保持 typed domain owner | 禁止泛化 |
 | R-003 | 无边界跨域 durable queue | Critical | 每个 domain 固定 owner/claim/cancel/recovery | 持续阻断 |
 | R-004 | Scan 崩溃后误判完成 | High | run/generation/scan_seen/recovery | 已处理，持续回归 |
 | R-005 | Watcher overflow 丢失最终一致性 | High | Rust owner、revision gap、managed reconciliation | 已处理，持续回归 |
@@ -24,24 +24,24 @@
 | R-009 | Dedupe 用户语义错误 | High | physical identity、exact/potential、不得自动删除 | 持续回归 |
 | R-010 | Dedupe/Finding 重启丢失 | High | durable dedupe 与 Analysis Run/Finding | 已处理 |
 | R-011 | Global cursor 被当通用 generation/cursor | High | 各域 revision/cursor 独立 | 持续阻断 |
-| R-012 | Managed Scope/Cloud AI 越权 | Critical | scope/provider/correction gate | 持续阻断 |
+| R-012 | Managed Scope/Cloud AI 越权 | Critical | scope/provider/correction/consent gate | 持续阻断 |
 | R-013 | AI 覆盖用户 correction/decision | Critical | correction/decision 最高优先 | 持续阻断 |
-| R-014 | Content Artifact 泄露隐私 | Critical | Task 08 consent/预算/脱敏/retention | 阻断提前建设 |
-| R-015 | AI trace 被当内容库 | High | trace 仅诊断 | 持续阻断 |
-| R-016 | 过期 Organization Plan 仍执行 | Critical | live preview/identity/root health/fingerprint | **Task 07 第一组继续加固** |
+| R-014 | Content Artifact 泄露隐私 | Critical | Task 08 consent/预算/脱敏/retention/purge | 当前核心门禁 |
+| R-015 | AI trace 被当内容库 | High | trace 仅诊断，raw response 不持久化 | 持续阻断 |
+| R-016 | 过期 Organization Plan 仍执行 | Critical | live preview/identity/root health/fingerprint | 已加固，持续回归 |
 | R-017 | 业务绕过 preview/journal/restore | Critical | 所有 filesystem mutation 经过既有安全链 | 持续阻断 |
 | R-018 | OFFSET 在实时 File Library 跳页/重复 | High | revision snapshot + keyset cursor | 已关闭，持续回归 |
 | R-019 | 跨页选择表达不真实 | High | explicit/all_matching authoritative selection | 已关闭，持续回归 |
-| R-020 | 大表 count/sort 成本失控 | Medium | deferred exact count、query plan、cold/warm | 持续性能门禁 |
+| R-020 | 大表 count/sort/FTS 成本失控 | Medium | deferred exact、query plan、cold/warm | 持续性能门禁 |
 | R-021 | Native helper/service 协议漂移 | High | versioned protocol、native smoke | 持续监控 |
-| R-022 | partial/degraded 被当 complete | High | health/completeness 同 snapshot | 持续回归 |
+| R-022 | partial/degraded/stale 被当 complete/current | High | health/completeness 同 snapshot | 持续回归 |
 | R-023 | 迁移破坏 operation/cleanup 账本 | Critical | fixture、rollback、reconcile tests | 持续阻断 |
 | R-024 | 主库跨域锁竞争 | High | 短事务、WAL reader benchmark | 持续监控 |
 | R-025 | 文档与实现漂移 | Medium | 当前代码/测试为事实，Closeout 同步 | 持续监控 |
 | R-026 | 阶段循环依赖 | High | 完整模块 prerequisite/non-goal | 已重排 |
 | R-027 | 性能被 warm/optimize 掩盖 | Medium | cold/warm/query plan/阶段 IO | 持续监控 |
 | R-028 | Audit warning 被误当修复 | Medium | 记录 owner/inventory | 持续监控 |
-| R-029 | 过早扩大 scope | Critical | global/library/cleanup/AI/plan/rule scope 分离 | 持续阻断 |
+| R-029 | 过早扩大 scope | Critical | global/library/content/AI/plan/rule scope 分离 | 持续阻断 |
 | R-030 | 分支混入无关文件 | High | allowed paths、Draft PR scope review | 持续门禁 |
 
 ## 已处理模块风险摘要
@@ -53,64 +53,60 @@
 | Analysis/Finding | R-051–R-060 | staged publication、finding identity、decision、retention、hydrate | 已处理，持续测试 |
 | Global Search | R-061–R-073 | single authority、source health、ID-only actions、window lifecycle、IME/ARIA | 已处理，持续测试 |
 | File Library | R-074–R-092 | Query V2、cursor authority、selection、tags、Saved Views、scope、permissions | 已处理，持续测试 |
-| Task 05 handoff | R-093–R-101 | query loop、cursor tamper、100k TEMP set、snapshot UI、CRUD/CAS/DTO/ARIA/deferred count | 已由 Task 06 实现，持续回归 |
+| Task 05 handoff | R-093–R-101 | query loop、cursor tamper、100k TEMP set、snapshot UI、CRUD/CAS/DTO/ARIA/deferred count | 已由 Task 06 实现 |
+| Organization Plan | R-102–R-123 | durable review、live dry-run、scope health、recovery、retention、summary、package evidence | 已由 Task 06/07 实现，持续回归 |
+| Rule Proposal | R-124–R-142 | proposal、AST validation、impact、Apply、repository CAS、backend execution | 已由 Task 07 实现，六项接受遗留见下表 |
 
-## Task 06 Organization Plan 基线风险
+## Task 07 → Task 08 接受遗留
+
+| ID | 风险 | 等级 | Task 08 强制解决方案 | 状态 |
+|---|---|---|---|---|
+| R-143 | 同一 catalog revision 对应不同 effective ruleset | Critical | learned rule 与影响 ruleset 的 settings/policy 统一进入 catalog/classification authority | Task 08 第一组 |
+| R-144 | manual rule execution 在 catalog/rules/scope 间 TOCTOU | Critical | 单一 backend execution snapshot，绑定 catalog/settings/rules/scope/root/library | Task 08 第一组 |
+| R-145 | impact predicate match 被误当真实 engine 结果 | Critical | 复用 classification simulation；preview/execution differential tests | Task 08 第一组 |
+| R-146 | Proposal UI 缺 before/after/risk/scope/conflict completeness | High | 完整审核事实和 accessibility tests | Task 08 第一组 |
+| R-147 | manual edit 后 AI summary/provenance 冒充当前 candidate | High | candidate origin、summary invalidation、preview invalidation | Task 08 第一组 |
+| R-148 | dangerous prompt 依赖模型主动映射才 deny | Critical | backend-owned multilingual forbidden-intent gate | Task 08 第一组 |
+
+六项不得再次后移。关闭后继续完整 Task 08 Content Artifact 模块。
+
+## Task 08 Local Content Artifacts and Understanding 风险
 
 | ID | 风险 | 等级 | 阻断/验收条件 | 状态 |
 |---|---|---|---|---|
-| R-102 | 内存 organize decision 被当 durable truth | Critical | schema32 plan/item ledger、restart hydrate | 已关闭，持续回归 |
-| R-103 | Plan snapshot 被当实时 file identity | Critical | snapshot 仅历史；execution live preview/identity | 已实现但需 R-117 加固 |
-| R-104 | renderer 修改 target path/operation kind | Critical | request 只允许 IDs/decision/filename | 已阻断 |
-| R-105 | stale proposal 继承 accepted decision | Critical | proposal fingerprint change → review | 已实现但需 R-119 加固 |
-| R-106 | Plan 建第二套 operation/undo journal | Critical | operation journal 唯一 truth | 已阻断 |
-| R-107 | AI 自动接受或执行 | Critical | AI 只分析；explicit refresh/review/confirm | 已阻断 |
-| R-108 | Plan 绕过 managed scope/provider policy | Critical | source V2 selection、managed scope negative tests | 需 R-118 加固 |
-| R-109 | Plan 创建半成品/超过上限部分提交 | High | staged atomic publication、10k preflight | 已关闭 |
-| R-110 | Dry run 过期仍执行 | Critical | fingerprint 绑定 live facts | 需 R-117 加固 |
-| R-111 | 执行崩溃后重复 mutation | Critical | caller batch ID、journal reconciliation、no replay | 已阻断，R-120 补 terminal projection |
-| R-112 | 10k plan/1k execution 阻塞主库或 UI | High | keyset/virtual/short transaction/WAL | 持续性能门禁 |
-| R-113 | cleanup/delete 混入 Plan | Critical | blocked；无 trash/delete API | 已阻断 |
-| R-114 | ai-file-sorter AGPL 移植 | Critical | fixed SHA/license、concept-only | 已通过许可证门禁 |
-| R-115 | terminal plan retention 删除 journal | Critical | plan prune 不删除 logs | 已阻断，R-121 修正候选逻辑 |
-| R-116 | Search window 调用 plan/AI/execution | Critical | main-only capabilities | 已关闭，持续权限门禁 |
-
-## Task 06 → Task 07 接受遗留
-
-| ID | 风险 | 等级 | Task 07 强制解决方案 | 状态 |
-|---|---|---|---|---|
-| R-117 | 用户审核旧 target，执行采用新 target | Critical | dry run 与 execution 共享 live canonical proposal/selection；任何 target/risk/preview/collision 变化过期 | 已关闭，故障注入回归 |
-| R-118 | Plan 创建后 root disabled/degraded 仍执行 | Critical | refresh/dry run/execute 全链 managed scope/root health revalidation | 已关闭，fail-closed 回归 |
-| R-119 | `needs_review` 人工批准路径不可达 | High | backend reviewed transition + live revalidation；blocked 永不可升级 | 已关闭 |
-| R-120 | 全部 journal 完成后重启仍停 partial | High | finalize/recovery 共用 terminal projection helper + fault injection | 已关闭 |
-| R-121 | Plan retention 使用 age AND count | Medium | age UNION count overflow、去重、child-first、每批 20 | 已关闭 |
-| R-122 | Plan 全局数量由首屏 100 行推断 | High | backend authoritative plan summary | 已关闭 |
-| R-123 | skipped package job 被描述为 success | Medium | run/job/artifact 逐项证据，本地/远端分开 | 交付门禁；Draft PR 最终记录 |
-
-## Task 07 Natural-Language Rule Proposal 风险
-
-| ID | 风险 | 等级 | 阻断/验收条件 | 状态 |
-|---|---|---|---|---|
-| R-124 | 模型输出直接写入正式 Rule | Critical | durable proposal → strict validation → preview → human Apply | 已关闭 |
-| R-125 | Proposal Apply 自动启用或运行 | Critical | 新规则默认 disabled；Enable/Run 独立 CAS | 已关闭 |
-| R-126 | renderer Rule vector 成为执行 authority | Critical | `execute_rules_for_scope_v2` backend 加载 enabled rules | 已关闭 |
-| R-127 | whole-object save 覆盖较新规则 | Critical | per-rule revision + catalog revision CAS；CRUD 分离 | 已关闭 |
-| R-128 | 模型虚构 literal/path/数字/target | Critical | literal grounding；非 prompt/规范化/enum → clarification/deny | 已关闭 |
-| R-129 | 自然语言变成脚本/Agent/tool runtime | Critical | AST V1 only；无 shell/MCP/tools/SDK/daemon | 持续阻断 |
-| R-130 | Proposal AI 泄露文件正文/列表/secrets | Critical | 只发送用户 prompt + fixed schema；privacy tests | 持续阻断 |
-| R-131 | 影响预览把 sample/estimate 当全库事实 | High | exact/deferred；sample 标记；Apply 需要 exact | 已关闭 |
-| R-132 | stale proposal/preview 应用于新 catalog/library | Critical | proposal/rule/catalog/library/scope/policy fingerprint + CAS | 已关闭 |
-| R-133 | update proposal 覆盖已更新 rule | Critical | target rule ID + base revision；stale reject | 已关闭 |
-| R-134 | delete/trash/content intent 被转换为可执行 Rule | Critical | deny classification；无 filesystem mutation/content field | 持续阻断 |
-| R-135 | 建立第二 durable AI queue | High | 交互式 bounded request；不写 `ai_jobs`；无 auto retry | 持续阻断 |
-| R-136 | Rule Proposal 与 Organization Plan ledger 混用 | High | 独立 artifact；Rule 只更新 metadata/suggestion | 持续阻断 |
-| R-137 | Rule AST TS/Rust 语义漂移 | High | Rust canonical validator authority + DTO parity tests | 已关闭，持续回归 |
-| R-138 | 1M impact count 阻塞 UI/主库 | High | deferred exact impact、token、WAL/query-plan gates | 已关闭，性能门禁 |
-| R-139 | terminal proposal retention 删除正式 Rule | Critical | proposal prune 不删除 rule/provenance execution facts | 持续阻断 |
-| R-140 | Search window 获得 proposal/rule write/run | Critical | main-only capabilities、negative tests | 持续阻断 |
-| R-141 | Coworker/OpenCode 代码或 runtime 移植 | High | fixed SHA/MIT inventory；principle-only；no runtime tests | 许可证/架构门禁 |
-| R-142 | 提前建设 Task 08 Content Artifact | Critical | metadata-only；content intent deny/clarify | 持续阻断 |
+| R-149 | 未经同意读取正文 | Critical | policy 默认 disabled；preview + confirmed；negative read instrumentation | 当前门禁 |
+| R-150 | renderer arbitrary path/file list 成为内容读取 authority | Critical | durable managed scope/selection IDs only；backend materialization | 当前门禁 |
+| R-151 | unhealthy/disabled/reconciliation root 仍读取内容 | Critical | root/policy/library revisions + health revalidation | 当前门禁 |
+| R-152 | Content Artifact 未绑定 source identity 而冒充 current | Critical | file/root/size/mtime/hash/extractor/policy/provider fingerprint | 当前门禁 |
+| R-153 | 旧 artifact 在 source 变化后继续展示为 current | Critical | watcher/scanner invalidation、stale state、atomic rebuild | 当前门禁 |
+| R-154 | raw extracted text 默认持久化 | Critical | default `none`；显式 policy、容量/时间上限、purge tests | 当前门禁 |
+| R-155 | FTS 删除后仍保留正文 tokens | Critical | artifact/text/FTS child-first atomic delete/purge | 当前门禁 |
+| R-156 | cloud provider 静默收到正文 | Critical | 每次 run 单独确认、exact chars disclosure、payload inspection | 当前门禁 |
+| R-157 | cloud payload 泄露 path/filename/tags/secrets | Critical | fixed DTO 只含 bounded text；redaction/negative tests | 当前门禁 |
+| R-158 | Sensitive/System/blocked 文件发送 cloud | Critical | backend risk gate，fail closed | 当前门禁 |
+| R-159 | raw provider response/trace 被当 artifact | High | strict envelope；raw response 不持久化；trace bounded | 当前门禁 |
+| R-160 | 新建第二 durable AI queue | High | provider understanding 使用现有交互 client + bounded owner | 持续阻断 |
+| R-161 | Content run 被泛化为通用 Job Runtime | High | typed extract/understand/rebuild/purge domain only | 持续阻断 |
+| R-162 | extractor zip/PDF bomb 导致 OOM/DoS | Critical | entry/ratio/decompressed/page/chars/time/memory budgets | 当前门禁 |
+| R-163 | extractor 跟随 symlink 或读取 scope 外文件 | Critical | regular managed file identity revalidation；no traversal | 当前门禁 |
+| R-164 | malformed/encoding 文件 panic 或 silent truncation | High | stable status/error/truncated semantics，real fixtures | 当前门禁 |
+| R-165 | legacy Office/OCR/external runtime 偷渡 | High | fixed registry；unsupported；dependency/path review | 持续阻断 |
+| R-166 | 隐式下载模型或外部 executable | Critical | no Python/Conda/Tesseract/Nexa/sidecar；package tests | 持续阻断 |
+| R-167 | Content Search 扩散到 Global Search | High | managed content FTS only；separate revision/cursor | 持续阻断 |
+| R-168 | Content Search 使用 OFFSET 或 loaded-page totals | High | keyset + backend summary + revision snapshot | 当前门禁 |
+| R-169 | Content Artifact 成为 Rule/Plan/mutation authority | Critical | no Rule AST content field；no operation command path | 持续阻断 |
+| R-170 | 删除 artifact 误删源文件 | Critical | delete/purge SQL-only content facts；source identity assertions | 当前门禁 |
+| R-171 | run materialization 超上限部分提交 | High | 10k preflight + staged atomic publication | 当前门禁 |
+| R-172 | crash/restart 重复 provider 或 extractor work | High | run/item owner/revision/recovery；completed no replay | 当前门禁 |
+| R-173 | active run 被 retention 删除 | High | active states excluded；child-first bounded prune | 当前门禁 |
+| R-174 | retention 错用 age AND count | Medium | age UNION count overflow、dedup、每批 20 | 当前门禁 |
+| R-175 | main DB 被 extraction/FTS 长事务阻塞 | High | short publication transactions、WAL reader benchmark | 当前门禁 |
+| R-176 | 依赖许可证/漏洞/package size 失控 | High | fixed versions、license inventory、RustSec、size delta | 当前门禁 |
+| R-177 | browser mock 冒充真实读取/provider/持久化 | High | explicit mock labels、negative capability tests | 当前门禁 |
+| R-178 | Search window 获得内容命令 | Critical | main-window-only capability matrix | 当前门禁 |
+| R-179 | Local-File-Organizer 源码/CLI/prompt 移植 | High | fixed SHA/MIT inventory；principle-only independent implementation | 许可证门禁 |
+| R-180 | 自行建设 Task 09/OCR/RAG/Agent | Critical | Task 08 non-goals、PR scope tests、人工授权 | 持续阻断 |
 
 ## 风险结论
 
-Task 06 已通过 PR #40 squash 合并，merge commit 为 `29e85c099c5ee921ad7d4237c780dc47126e0fa3`。R-117–R-123 已接受进入 Task 07 第一组，不得再次后移。Task 07 的核心风险是把自然语言或模型输出误当正式规则/执行授权；最终合同固定为 durable proposal、Rule AST V1、backend validation、truthful impact preview、human Apply、default disabled、revision CAS 和 backend-authoritative execution。Task 08 继续禁止。
+Task 07 已通过 PR #42 squash 合并，merge commit 为 `4e07de9c02198eb3352d9b2b1f289d61a3df128c`。R-143–R-148 经人工接受进入 Task 08 第一组，不得再次后移。Task 08 的核心风险不只是 parser 正确性，而是未经同意读取正文、把 retained text/FTS/trace 变成隐私泄露面、把 cloud provider 或 Content Artifact 误当执行权威。最终合同固定为 consent-bound preview、managed scope、typed bounded extractor、identity-bound artifact、default no raw text、per-run cloud confirmation、purge/rebuild/retention、managed-only Content Search，以及对 filesystem mutation 的完全隔离。

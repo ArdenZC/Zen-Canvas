@@ -9,9 +9,9 @@
 - Task 04 已通过 PR #35 合并，squash merge `14616d4344314afce0878dbc681988c04183a9bc`；
 - Task 05 已通过 PR #38 合并，squash merge `5468a17790165a149c462a17b64d011750b45410`，schema 31；
 - Task 06 已通过 PR #40 合并，squash merge `29e85c099c5ee921ad7d4237c780dc47126e0fa3`，schema 32；
-- Task 06 人工接受的 6 项实现问题与 1 项 CI 证据问题已冻结为 Task 07 第一组生产改动，不得再次后移；
-- **Task 07 已在 `remediation/07-rule-proposal` 完成实现，schema 33，Draft PR 等待人工代码级验收；**
-- Task 08 继续禁止执行。
+- Task 07 已通过 PR #42 合并，squash merge `4e07de9c02198eb3352d9b2b1f289d61a3df128c`，schema 33；
+- Task 07 人工接受的六项代码审查问题已冻结为 Task 08 第一组生产改动，不得再次后移；
+- **Task 08 是当前唯一可执行完整产品模块，授权 schema 34。**
 
 | Task | 任务书 | 产品模块/目标 | 状态 |
 |---|---|---|---|
@@ -22,17 +22,17 @@
 | 03 | `TASK_03_ANALYSIS_RUN_FINDING_AND_DETECTORS.md` | 模块 2：空间分析；Spacedrive V1 对标 | 已合并，schema 30 |
 | 04 | `TASK_04_GLOBAL_SHORTCUT_SEARCH.md` | 模块 4：全局快捷搜索；Tolaria 对标 | 已合并，schema 30 |
 | 05 | `TASK_05_FILE_LIBRARY_QUERY_TAGS_SAVED_VIEWS.md` | 模块 5：文件库；TagSpaces 对标 | 已合并，schema 31 |
-| 06 | `TASK_06_DURABLE_ORGANIZATION_PLAN_AND_DRY_RUN.md` | 模块 6：AI 整理预览；ai-file-sorter 对标 | 已合并，schema 32；7 项遗留转入 Task 07 |
-| 07 | `TASK_07_NATURAL_LANGUAGE_RULE_PROPOSAL_AND_APPROVAL.md` | 模块 7：自然语言规则；Coworker + OpenCode 对标 | **已实现，Draft PR 等待人工验收；schema 33** |
-| 08 | 待创建 | 模块 8：本地内容理解；Local-File-Organizer 对标 | 禁止执行 |
+| 06 | `TASK_06_DURABLE_ORGANIZATION_PLAN_AND_DRY_RUN.md` | 模块 6：AI 整理预览；ai-file-sorter 对标 | 已合并，schema 32 |
+| 07 | `TASK_07_NATURAL_LANGUAGE_RULE_PROPOSAL_AND_APPROVAL.md` | 模块 7：自然语言规则；Coworker + OpenCode 对标 | 已合并，schema 33；六项遗留转入 Task 08 |
+| 08 | `TASK_08_LOCAL_CONTENT_ARTIFACTS_AND_UNDERSTANDING.md` | 模块 8：本地内容理解；Local-File-Organizer 对标 | **当前唯一可执行；授权 schema 34** |
 
-不得创建 debt-cleanup、06.5、07A/07B/07C 或并行产品阶段。上一阶段接受遗留必须作为下一完整模块第一组关闭，然后连续完成该模块。
+不得创建 debt-cleanup、07.5、08A/08B/08C、OCR-only 或并行产品阶段。上一阶段接受遗留必须作为下一完整模块第一组关闭，然后连续完成该模块。
 
 ---
 
 ## 2. 固定的 8 模块主线
 
-| 原模块 | Zen Canvas 功能 | 参考项目 | 借鉴边界 | 承载阶段 |
+| 模块 | Zen Canvas 功能 | 参考项目 | 借鉴边界 | 承载阶段 |
 |---|---|---|---|---|
 | 1 | 重复检测 | Czkawka | 按许可证登记，独立实现 | Task 02，已完成 |
 | 2 | 大型文件/空间分析 | Spacedrive V1 | 概念级，拒绝过度复杂架构 | Task 03，已完成 |
@@ -40,8 +40,8 @@
 | 4 | 全局快捷搜索 | Tolaria | AGPL 设计级，只读分析不移植 | Task 04，已完成 |
 | 5 | 文件库 | TagSpaces | AGPL 设计级，不复制实现或结构 | Task 05，已完成 |
 | 6 | AI 整理预览 | ai-file-sorter | AGPL 概念级，独立实现 | Task 06，已完成 |
-| 7 | 自然语言规则 | Coworker（原 Accomplish）+ OpenCode | MIT，原则级翻译到 typed Rule Proposal | Task 07，当前 |
-| 8 | 本地内容理解 | Local-File-Organizer | 轻量设计级 | Task 08，禁止 |
+| 7 | 自然语言规则 | Coworker + OpenCode | MIT，原则级翻译为 typed Rule Proposal | Task 07，已完成 |
+| 8 | 本地内容理解 | Local-File-Organizer | MIT，轻量设计级，独立 Rust/Tauri 实现 | Task 08，当前 |
 
 标准流程：
 
@@ -51,28 +51,32 @@
 → 一个实施分支
 → 一个 Draft PR
 → 完整代码级验收
-→ 有限遗留登记到下一完整模块
+→ 人工决定合并或登记有限遗留
 ```
+
+Task 08 是固定八模块主线最后一项。不得自行创建 Task 09。
 
 ---
 
 ## 3. 唯一执行授权
 
-Task 07 生产实施已满足：
+Task 08 生产实施必须同时满足：
 
 ```text
-本索引指向 Task 07
+本索引指向 Task 08
 +
-docs/remediation/TASK_07_NATURAL_LANGUAGE_RULE_PROPOSAL_AND_APPROVAL.md 存在
+docs/remediation/TASK_08_LOCAL_CONTENT_ARTIFACTS_AND_UNDERSTANDING.md 存在
 +
-任务书已位于当前 master
+任务书位于当前 master
 +
-master 包含 29e85c099c5ee921ad7d4237c780dc47126e0fa3
+master 包含 4e07de9c02198eb3352d9b2b1f289d61a3df128c
 ```
 
-实现分支为 `remediation/07-rule-proposal`；实现已停止在唯一 Draft PR，等待人工代码级验收，不自动合并。
+实施分支固定为：
 
-任务书进入 `master` 后即满足文档门禁。不得再使用 PR #40 的旧 Draft/Open 状态、Task 06 Closeout 旧文案或历史 review 指令制造额外阻断。
+```text
+remediation/08-local-content-understanding
+```
 
 每阶段开始前依次阅读：
 
@@ -80,16 +84,108 @@ master 包含 29e85c099c5ee921ad7d4237c780dc47126e0fa3
 2. `docs/remediation/README.md`；
 3. `REMEDIATION_MASTER_PLAN_V1.md`；
 4. 本索引；
-5. 当前人工任务书；
-6. 前置任务书、Closeout、测试与实际源码；
+5. `TASK_08_LOCAL_CONTENT_ARTIFACTS_AND_UNDERSTANDING.md`；
+6. Task 07 任务书、Closeout、PR #42 review 和实际源码/测试；
 7. 涉及 UI 时读取 `docs/design/`；
-8. 任务书指定的参考项目、固定 SHA 与 LICENSE。
+8. `QiuYannnn/Local-File-Organizer` 固定 SHA、LICENSE 与任务书列出的文件。
 
-Codex 只负责实施、migration、测试、原子提交、唯一 Draft PR 和 Closeout；不得重写任务书、拆分阶段或提前建设 Task 08。
+Codex 只负责生产代码、migration、测试、原子提交、唯一 Draft PR 和 Closeout；不得重写任务书、拆分阶段、自动合并或自行设计 Task 09。
 
 ---
 
-## 4. 统一门禁
+## 4. Task 08 第一组强制遗留
+
+Task 08 开始后必须先关闭：
+
+1. effective Rule catalog 覆盖 learned rule 与影响 ruleset 的 settings/policy；
+2. `execute_rules_for_scope_v2` 消除 catalog/rules/scope TOCTOU，冻结单一权威执行快照；
+3. Rule impact 与真实 classification engine 做 differential equivalence；
+4. Proposal Workspace 展示 before/after、risk、confirmation、scope、permission、broad match 和 conflict completeness；
+5. manual candidate edit 清理旧 AI summary/provenance 并标记 manually edited；
+6. backend 对 delete/trash/tool/auto-run 等原始 prompt 意图确定性 deny。
+
+这六项必须有真实行为、并发或 differential tests；不得仅添加字符串断言。完成后连续实施完整 Task 08，不得停点。
+
+---
+
+## 5. Task 08 冻结决定
+
+1. schema `33→34`；
+2. 新增 consent-bound content policy、run/item ledger、Content Artifact 和 managed content FTS；
+3. 不 ALTER `files`，不迁移 `files.id`；
+4. 内容分析默认关闭；
+5. 只接受 durable managed scope/selection IDs；
+6. root disabled/degraded/reconciliation 必须 fail closed；
+7. 先 backend preview，再 `confirmed=true` 开始；
+8. local deterministic extraction 与 optional provider understanding 分离；
+9. 默认不持久化 extracted/raw text；
+10. cloud 每次单独确认，不发送 path/filename/secrets；
+11. Sensitive/System/blocked 不发送 cloud；
+12. fixed typed extractor registry；
+13. mandatory：txt/md/csv、text-layer PDF、docx/xlsx/pptx；
+14. unsupported：legacy Office、OCR-only PDF、image OCR/VLM、audio/video/ebook/archive；
+15. 不捆绑 Python/Conda/Tesseract/Nexa/外部 executable；
+16. 不建设第二 durable AI queue；
+17. Content Search 只属于 managed File Library，不进入 Global Search；
+18. Content Artifact 不直接授权 Rule/Plan/filesystem mutation；
+19. Delete/Purge 只删除 artifact/run/FTS facts，不删除源文件；
+20. Task 08 完成后停止等待人工验收，不自动合并或发布。
+
+权威任务书：
+
+```text
+docs/remediation/TASK_08_LOCAL_CONTENT_ARTIFACTS_AND_UNDERSTANDING.md
+```
+
+---
+
+## 6. 已冻结的不可回退边界
+
+### Scan / Watcher
+
+- File Library Managed Scan 与 Global Index 独立；
+- scanner 是 `scan_seen` 和 generation 唯一 owner；
+- Rust/Tauri 是 watcher mutation/reconciliation owner；
+- watcher 不写 `scan_seen`、不推进 generation；
+- Task 08 只允许 watcher 标记 Content Artifact stale 或触发已同意的 local extraction；
+- watcher 永不自动发送 cloud provider。
+
+### Identity / Dedupe / Analysis
+
+- 不迁移 `files.id`；
+- operation identity 与 physical/content identity 分离；
+- active duplicate group/member 是重复权威；
+- Analysis Finding 不是 mutation authority；
+- Content Artifact 不是 file identity、operation identity 或 duplicate authority。
+
+### Global Search / File Library
+
+- Global Search 与 managed File Library/Content Search 数据域独立；
+- Global Search 不 join Content Artifact；
+- managed `files` 是 File Library authority；
+- Content Search 绑定 file/content/library revisions 与 keyset cursor；
+- Search window denied content read/run/delete/provider commands。
+
+### AI / Privacy
+
+- AI trace 只作 bounded diagnostics；
+- Content Artifact 是独立业务事实；
+- provider payload 只含 bounded extracted text 与固定 schema；
+- 不发送路径、文件名、文件列表、operation logs、tags、credentials 或 secrets；
+- raw provider response 不持久化；
+- 不把 `ai_jobs` 泛化为通用 runtime，不创建第二 AI queue。
+
+### Rule / Plan / Mutation
+
+- Rule AST V1 继续 metadata-only；
+- Task 08 不创建 content condition 或 AST V2；
+- Rule/Content Artifact 只产生分类、摘要、关键词或建议事实；
+- 任何 move/rename/delete 继续经过 Organization Plan、authoritative preview、identity、journal、Safe Trash 和 restore；
+- content delete/purge 不调用 operation/cleanup journal。
+
+---
+
+## 7. 统一门禁
 
 ### 开始前
 
@@ -112,13 +208,13 @@ npm run security:audit:rust
 
 ### 实施中
 
-- 只修改任务书允许范围；
+- 只修改 Task 08 允许范围；
 - 测试与生产代码同步；
-- renderer 不重复或替代 Rust canonical validation；
-- 不绕过 Managed Scope、AI provider policy、Rule AST、Organization Plan、preview、journal、Safe Trash 或 restore；
+- Rust 是 extractor、consent、identity、provider payload 和 retention authority；
+- renderer 不提交 arbitrary path、raw content、file list、bytes/count 或 provider secret；
 - 一个实施分支、一个 Draft PR；
 - 内部原子提交不是独立任务；
-- 先关闭 Task 06 七项遗留，再连续完成整个 Task 07。
+- 先关闭六项遗留，再连续完成 Content Artifact 产品模块。
 
 ### 完成后
 
@@ -133,126 +229,28 @@ git diff --check
 git status --short
 ```
 
-还必须满足 Task 07 的 schema 33、proposal lifecycle、AST validation、impact exact/deferred、Rule Repository V2、backend-authoritative execution、Windows/macOS 和真实 package 门禁。
+还必须满足 schema 34、extractor fixtures、consent/provider privacy、recovery/retention、100k/1M Content Search、Windows/macOS、NSIS/unsigned DMG 和 package-size 门禁。
 
 ---
 
-## 5. 已冻结的不可回退边界
+## 8. 标准交付
 
-### Scan / Watcher
+Task 08 完成时必须：
 
-- File Library Managed Scan 与 Global Index 独立；
-- scanner 是 `scan_seen` 和 generation 唯一 owner；
-- Rust/Tauri 是 watcher mutation/reconciliation owner；
-- watcher 不写 `scan_seen`、不推进 generation；
-- Task 07 不重写 scanner/watcher ownership。
-
-### Identity / Dedupe / Analysis
-
-- 不迁移 `files.id`；
-- operation identity 与 dedupe physical identity 分离；
-- active duplicate group/member 是重复权威；
-- Analysis Finding 和 duplicate 不直接授权 mutation；
-- Rule Proposal 只能读取 bounded metadata，不修改这些 schema。
-
-### Global Search / File Library
-
-- Global Search 与 File Library Query V2 数据域独立；
-- managed `files` 是 File Library authority；
-- Rule impact scope 使用 durable File Library scope IDs；
-- disabled/stale/degraded root fail closed；
-- Search window 不获得 Rule Proposal/Rule write/run 权限。
-
-### Managed AI
-
-- 现有 durable Managed AI queue 保持文件分类领域专用；
-- Task 07 不建立第二 durable AI queue，也不泛化 `ai_jobs`；
-- Rule proposal 仅复用现有 provider client/credential/configuration；
-- 不发送文件正文、文件列表或 secrets；
-- 模型不直接写、启用或执行 rule。
-
-### Organization Plan / Mutation
-
-- Task 06 Organization Plan 是 durable approval/provenance artifact；
-- Task 07 第一组必须修复 live dry-run/execute equivalence 和 root-health fail-closed；
-- Rule 只修改 classification/suggestion metadata；
-- Rule 不移动、重命名、删除文件；
-- filesystem mutation 继续经过 Organization Plan、authoritative preview、identity、operation journal 和 restore；
-- 不修改 operation/cleanup journal schema。
-
-### Rule AST / Proposal
-
-- 现有 Rule AST V1 是唯一目标格式；
-- 自然语言只生成 durable candidate proposal；
-- backend canonical validation 是 authority；
-- proposal impact preview 不是执行；
-- human Apply 后 rule 默认 disabled；
-- Enable 和 Run 是独立显式动作；
-- renderer Rule list 不再成为 rule execution authority；
-- 不建设 Agent、shell、MCP、tools、script rule language 或 Content Artifact。
-
----
-
-## 6. Task 06 → Task 07 强制遗留
-
-Task 07 第一组必须关闭，且不得再次后移：
-
-1. Organization dry run 与 execution 必须绑定同一 live authoritative proposal/target；
-2. refresh/dry run/execution 全链重新验证 managed root/scope health；
-3. `needs_review` 建立可达的人工作审转换，blocked/delete/unsupported 永不可升级；
-4. crash recovery 在 journal 全完成且无 remaining 时正确投影 `completed`；
-5. terminal plan retention 使用 age **UNION** count overflow；
-6. plan summary 使用 backend 全计划聚合，不从当前 100 行推断；
-7. CI/Closeout 分开记录本地 package、远端 success 与 skipped job，提供真实 NSIS/unsigned DMG 证据。
-
-完成第一组后继续 schema 33、Rule Proposal、impact preview、human Apply、Rule Repository V2 和 backend execution authority，不得停止。
-
----
-
-## 7. Task 07 冻结决定
-
-1. Coworker 固定 SHA `2cf74d08f22078b8b1fd3f97bff3ec4612262613`，MIT；
-2. OpenCode 固定 SHA `7565e03536d19e850f9996c407f9bf5e932b5f7a`，MIT；
-3. 只借鉴可见 plan、用户控制范围、ask/allow/deny、一次批准、拒绝/纠正后停止等原则；
-4. 不引入 Coworker/OpenCode runtime、daemon、SDK、shell、MCP、skills、tools 或 Agent；
-5. schema `32→33`；
-6. `rules` 增加 `ast_version/revision/origin_proposal_id`；
-7. 新增 `rule_catalog_state` 与 `rule_proposals`；
-8. Rule AST V1 是唯一候选目标；
-9. 模型输出先经过 strict parse、literal grounding、canonical validation；
-10. impact preview 使用 managed File Library scope，exact 或明确 deferred，绝不估算；
-11. Apply 需要 proposal/catalog/rule/library/scope/fingerprint 全链重验；
-12. Apply 原子写 proposal + user rule，规则默认 disabled；
-13. Enable 和 Run 独立；
-14. Rule Repository V2 使用 per-rule + catalog revision CAS；
-15. rule execution 从 SQLite 加载 enabled rules，不接受 renderer Rule vector；
-16. Rule 只更新 classification/suggestion metadata；
-17. 不读取文件正文，不开始 Task 08；
-18. 默认不新增依赖或修改 lockfile。
-
-权威任务书：
-
-```text
-docs/remediation/TASK_07_NATURAL_LANGUAGE_RULE_PROPOSAL_AND_APPROVAL.md
-```
-
----
-
-## 8. Task 07 标准交付
-
-Task 07 完成时必须：
-
-1. 分支 `remediation/07-rule-proposal`；
+1. 分支 `remediation/08-local-content-understanding`；
 2. 一个 Draft PR；
 3. 可审查原子提交；
-4. Task 06 七项遗留全部关闭；
-5. schema 33 migration/rollback/future guard；
-6. durable Rule Proposal、provider adapter、AST validation、literal grounding；
-7. truthful impact preview 与 exact resolver；
-8. human Apply、default disabled、enable/run separation；
-9. Rule Repository V2 和 backend-authoritative execution；
-10. 完整 frontend/Rust/remediation/security/performance/build；
-11. Windows/macOS、NSIS、unsigned DMG 和 dependency audit 真实证据；
-12. `TASK_07_IMPLEMENTATION_CLOSEOUT.md`；
-13. 停止等待人工代码级验收；
-14. 不自动合并、不开始 Task 08。
+4. Task 07 六项遗留全部关闭；
+5. schema 34 migration/rollback/future guard；
+6. content policies、runs/items、artifacts、FTS；
+7. fixed extractor registry 与 bomb/malformed tests；
+8. authoritative preview/confirmation；
+9. local/cloud privacy gate；
+10. current/stale/rebuild/delete/purge semantics；
+11. File Library Content Search/Inspector UI；
+12. 完整 frontend/Rust/remediation/security/performance/build；
+13. Windows/macOS、NSIS、unsigned DMG、dependency audit 与 package size 真实证据；
+14. `TASK_08_IMPLEMENTATION_CLOSEOUT.md`；
+15. 明确依赖/lockfile变化；
+16. 停止等待人工代码级验收；
+17. 不自动合并、不发布、不创建 Task 09。
