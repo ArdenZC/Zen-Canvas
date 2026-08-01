@@ -1,52 +1,46 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { desktopDir, documentDir, downloadDir, tempDir } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useShallow } from "zustand/react/shallow";
 import {
-  AlertTriangle,
-  CheckCircle2,
+  Check,
+  FileSearch,
   FolderOpen,
-  HelpCircle,
-  Loader2,
+  History,
+  LoaderCircle,
+  RefreshCw,
   Search,
-  ShieldAlert,
   Sparkles,
   Trash2,
   XCircle
 } from "lucide-react";
 import { tauriApi, type TauriApi } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
-import { useAppStore } from "../../store/useAppStore";
-import {
-  canManuallySelectForCleanup,
-  cleanupSelectionDisabledReason,
-  defaultSelectedCleanupIds,
-  storageCleanupErrorMessage,
-  useStorageCleanupStore
-} from "../../store/useStorageCleanupStore";
 import type {
   AnalysisDetector,
+  AnalysisDetectorDescriptor,
   AnalysisFinding,
   AnalysisFindingEvidence,
   AnalysisRun,
   CleanupExecutionResult,
   CleanupFindingSelection,
-  CleanupTier,
-  StorageAnalysis,
-  StorageCandidate
+  OperationPreviewResult,
+  StartAnalysisRunRequest
 } from "../../types/domain";
-import type { Translator } from "../../types/ui";
+import type { Translator, View } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
-import { compactPath, localizedStableError, readableError } from "../../utils/viewHelpers";
 import { localFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
-import { buttonSecondary, cn, glassButtonPrimary } from "../../utils/tw";
+import { localizedStableError, readableError, compactPath } from "../../utils/viewHelpers";
+import { cn } from "../../utils/tw";
 import {
+  Button,
   ConfirmDialog,
-  IconButton,
-  MetricCard,
+  DurableTaskStatus,
+  MetricStrip,
   NoticeBanner,
+  SegmentedControl,
+  SideSheet,
   StateBlock,
   ToneBadge,
   contentPanel,
@@ -54,1532 +48,872 @@ import {
   pageSurface,
   quietText,
   sectionDescription,
-  sectionHeading,
-  softPanel
+  sectionHeading
 } from "../shared/ui";
 
-type StorageCleanupApi = Pick<
+type CleanupApi = Partial<Pick<
   TauriApi,
-  | "startStorageCleanupScan"
-  | "cancelStorageCleanupScan"
-  | "getStorageCleanupScanStatus"
-  | "revealStorageCandidate"
+  | "listAnalysisDetectors"
+  | "startAnalysisRun"
+  | "cancelAnalysisRun"
+  | "retryAnalysisRun"
+  | "getAnalysisRun"
+  | "getActiveAnalysisRun"
+  | "listAnalysisRuns"
+  | "listAnalysisRunDetectors"
+  | "listAnalysisFindings"
+  | "getAnalysisFinding"
+  | "listAnalysisFindingEvidence"
+  | "setAnalysisFindingDecision"
+  | "revalidateAnalysisFinding"
+  | "previewCleanupOperations"
   | "moveCleanupCandidatesToSafeTrash"
-> &
-  Partial<
-    Pick<
-      TauriApi,
-      | "getAISettings"
-      | "getStorageCleanupCandidatePage"
-      | "analyzeCleanupCandidatesWithAI"
-      | "onStorageCleanupProgress"
-      | "onStorageCleanupCompleted"
-      | "onStorageCleanupFailed"
-      | "onStorageCleanupCancelled"
-      | "getActiveAnalysisRun"
-      | "listAnalysisRuns"
-      | "getAnalysisRun"
-      | "listAnalysisRunDetectors"
-       | "listAnalysisFindings"
-       | "getAnalysisFinding"
-       | "listAnalysisFindingEvidence"
-      | "setAnalysisFindingDecision"
-      | "revalidateAnalysisFinding"
-      | "retryAnalysisRun"
-      | "cancelAnalysisRun"
-      | "onAnalysisRunUpdated"
-      | "onAnalysisFindingsPublished"
-      | "onAnalysisDetectorUpdated"
-    >
-  >;
+  | "revealInFolder"
+  | "getAISettings"
+  | "analyzeCleanupCandidatesWithAI"
+  | "onAnalysisRunUpdated"
+  | "onAnalysisFindingsPublished"
+  | "onAnalysisDetectorUpdated"
+>>;
 
 type Props = {
-  initialAnalysis?: StorageAnalysis;
   initialRoots?: string[];
-  api?: StorageCleanupApi;
+  api?: CleanupApi;
   t?: Translator;
+  onError?: (message: string) => void;
+  onNavigate?: (view: View) => void;
 };
 
-const FILTERS: Array<CleanupTier | "All"> = ["All", "Safe", "Review", "Caution"];
+type CleanupTier = "safe" | "review" | "caution";
+
+const FINDING_PAGE_SIZE = 100;
+const FINDING_ROW_HEIGHT = 238;
 
 export function StorageCleanupView(props: Props = {}) {
   if (props.t) return <StorageCleanupPanel {...props} t={props.t} />;
   return <StorageCleanupViewWithContext {...props} />;
 }
 
-function StorageCleanupViewWithContext(props: Omit<Props, "t">) {
-  const { t, onError } = useChromeContext();
-  return <StorageCleanupPanel {...props} t={t} onError={onError} />;
+function StorageCleanupViewWithContext(props: Omit<Props, "t" | "onError" | "onNavigate">) {
+  const { t, onError, setView } = useChromeContext();
+  return <StorageCleanupPanel {...props} t={t} onError={onError} onNavigate={setView} />;
 }
 
 function StorageCleanupPanel({
-  initialAnalysis,
   initialRoots,
   api = tauriApi,
   t,
-  onError
-}: Props & { t: Translator; onError?: (message: string) => void }) {
-  // Keep this large virtualized view subscribed to the state it renders.  A
-  // whole-store subscription caused every progress tick and AI set update to
-  // re-render the complete cleanup surface.
-  const analysisState = useStorageCleanupStore((state) => state.analysis);
-  const displayedJobIdState = useStorageCleanupStore((state) => state.displayedJobId);
-  const activeJobIdState = useStorageCleanupStore((state) => state.activeJobId);
-  const selectedRootsState = useStorageCleanupStore((state) => state.selectedRoots);
-  const selectedCleanupIdsState = useStorageCleanupStore((state) => state.selectedCleanupIds);
-  const activeTierFilterState = useStorageCleanupStore((state) => state.activeTierFilter);
-  const isScanningState = useStorageCleanupStore((state) => state.isScanning);
-  const scanProgressState = useStorageCleanupStore((state) => state.scanProgress);
-  const executionResultState = useStorageCleanupStore((state) => state.executionResult);
-  const scanErrorState = useStorageCleanupStore((state) => state.scanError);
-  const aiCleanupStatusState = useStorageCleanupStore((state) => state.aiCleanupStatus);
-  const isAnalyzingWithAIState = useStorageCleanupStore((state) => state.isAnalyzingWithAI);
-  const aiAnalyzedCandidateIdsState = useStorageCleanupStore((state) => state.aiAnalyzedCandidateIds);
-  const aiDowngradedCandidateIdsState = useStorageCleanupStore((state) => state.aiDowngradedCandidateIds);
-  const scanStatusState = useStorageCleanupStore((state) => state.scanStatus);
-  const { loadMoreCandidates } = useStorageCleanupStore(
-    useShallow((state) => ({ loadMoreCandidates: state.loadMoreCandidates }))
-  );
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [reviewConfirmCandidate, setReviewConfirmCandidate] = useState<StorageCandidate | null>(null);
-  const [isExecuting, setIsExecuting] = useState(false);
+  onError,
+  onNavigate
+}: Props & { t: Translator }) {
+  const [selectedRoots, setSelectedRoots] = useState<string[]>(() => initialRoots?.filter(Boolean) ?? []);
+  const [detectors, setDetectors] = useState<AnalysisDetectorDescriptor[]>([]);
+  const [, setRuns] = useState<AnalysisRun[]>([]);
+  const [run, setRun] = useState<AnalysisRun | null>(null);
+  const [runDetectors, setRunDetectors] = useState<AnalysisDetector[]>([]);
+  const [findings, setFindings] = useState<AnalysisFinding[]>([]);
+  const [findingCache, setFindingCache] = useState<Record<string, AnalysisFinding>>({});
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [activeTier, setActiveTier] = useState<CleanupTier>("safe");
+  const [selectedFindingIds, setSelectedFindingIds] = useState<Set<string>>(() => new Set());
+  const [evidenceByFinding, setEvidenceByFinding] = useState<Record<string, AnalysisFindingEvidence[]>>({});
+  const [expandedEvidence, setExpandedEvidence] = useState<Set<string>>(() => new Set());
+  const [reviewFinding, setReviewFinding] = useState<AnalysisFinding | null>(null);
+  const [preview, setPreview] = useState<OperationPreviewResult | null>(null);
+  const [confirmPreviewOpen, setConfirmPreviewOpen] = useState(false);
+  const [executionResult, setExecutionResult] = useState<CleanupExecutionResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingFindings, setLoadingFindings] = useState(false);
+  const [isMutating, setIsMutating] = useState(false);
+  const [isAiWorking, setIsAiWorking] = useState(false);
+  const [aiStatus, setAiStatus] = useState("");
+  const [error, setError] = useState("");
+  const [unsupported, setUnsupported] = useState(false);
+  const findingListRef = useRef<HTMLDivElement | null>(null);
+  const findingsEpoch = useRef(0);
+  const requestKeyRef = useRef<string | null>(null);
+  const scopeHydrated = useRef(Boolean(initialRoots?.length));
+  const defaultSelectionRuns = useRef(new Set<string>());
   const mutationUnavailable = localFileMutationUnavailableCode();
-  const analysis = initialAnalysis ?? analysisState;
-  const displayedJobId = initialAnalysis ? null : displayedJobIdState;
-  const selectedRoots = initialRoots ?? selectedRootsState;
-  const selectedCleanupIds = initialAnalysis
-    ? new Set(defaultSelectedCleanupIds(initialAnalysis))
-    : selectedCleanupIdsState;
-  const activeTierFilter = initialAnalysis ? "All" : activeTierFilterState;
-  const isScanning = !initialAnalysis && isScanningState;
-  const scanProgress = !initialAnalysis ? scanProgressState : null;
-  const executionResult = !initialAnalysis ? executionResultState : null;
-  const scanError = !initialAnalysis ? scanErrorState : "";
-  const aiCleanupStatus = !initialAnalysis ? aiCleanupStatusState : "";
-  const isAnalyzingWithAI = !initialAnalysis && isAnalyzingWithAIState;
-  const aiAnalyzedCandidateIds = !initialAnalysis ? aiAnalyzedCandidateIdsState : new Set<string>();
-  const aiDowngradedCandidateIds = !initialAnalysis ? aiDowngradedCandidateIdsState : new Set<string>();
-  const [localError, setLocalError] = useState("");
-  const [cleanupAIReadiness, setCleanupAIReadiness] = useState("");
-  const error = localError || (scanError ? storageCleanupErrorMessage(scanError, t) : "");
+
+  const reportError = useCallback((value: unknown) => {
+    const raw = readableError(value);
+    const message = localizedStableError(raw, t);
+    setError(message);
+    onError?.(message);
+  }, [onError, t]);
+
+  const replaceCopy = useCallback((key: Parameters<Translator>[0], replacements: Record<string, string | number> = {}) => {
+    return Object.entries(replacements).reduce(
+      (text, [name, value]) => text.replaceAll(`{${name}}`, String(value)),
+      t(key)
+    );
+  }, [t]);
+
+  const loadFindings = useCallback(async (runId: string, tier: CleanupTier, cursor: string | null = null, append = false) => {
+    if (!api.listAnalysisFindings) return;
+    const epoch = ++findingsEpoch.current;
+    setLoadingFindings(true);
+    try {
+      const page = await api.listAnalysisFindings({
+        runId,
+        tier,
+        status: "active",
+        cursor,
+        limit: FINDING_PAGE_SIZE
+      });
+      if (epoch !== findingsEpoch.current) return;
+      setFindings((current) => append ? [...current, ...page.findings] : page.findings);
+      setNextCursor(page.nextCursor);
+      setFindingCache((current) => {
+        const next = { ...current };
+        for (const finding of page.findings) next[finding.id] = finding;
+        return next;
+      });
+      if (!append && tier === "safe" && !defaultSelectionRuns.current.has(runId)) {
+        defaultSelectionRuns.current.add(runId);
+        setSelectedFindingIds((current) => {
+          const next = new Set(current);
+          for (const finding of page.findings) {
+            if (isBackendDefaultSafeFinding(finding)) next.add(finding.id);
+          }
+          return next;
+        });
+      }
+    } catch (loadError) {
+      if (epoch === findingsEpoch.current) reportError(loadError);
+    } finally {
+      if (epoch === findingsEpoch.current) setLoadingFindings(false);
+    }
+  }, [api, reportError]);
+
+  const loadRunDetails = useCallback(async (runId: string, clearFindings = true) => {
+    if (!api.getAnalysisRun || !api.listAnalysisRunDetectors) return;
+    try {
+      const [nextRun, nextDetectors] = await Promise.all([
+        api.getAnalysisRun(runId),
+        api.listAnalysisRunDetectors(runId)
+      ]);
+      if (clearFindings) {
+        findingsEpoch.current += 1;
+        setFindings([]);
+        setNextCursor(null);
+      }
+      setRun((current) => current && current.id === nextRun.id && nextRun.revision < current.revision ? current : nextRun);
+      setRunDetectors(nextDetectors);
+      setRuns((current) => {
+        const withoutCurrent = current.filter((item) => item.id !== nextRun.id);
+        return [nextRun, ...withoutCurrent].slice(0, 20);
+      });
+      if (!scopeHydrated.current) {
+        const paths = scopePaths(nextRun);
+        if (paths.length) {
+          scopeHydrated.current = true;
+          setSelectedRoots(paths);
+        }
+      }
+    } catch (loadError) {
+      reportError(loadError);
+    }
+  }, [api, reportError]);
 
   useEffect(() => {
-    if (initialAnalysis) return undefined;
+    let disposed = false;
+    async function hydrate() {
+      if (!api.listAnalysisDetectors || !api.listAnalysisRuns) {
+        setUnsupported(true);
+        setLoading(false);
+        return;
+      }
+      try {
+        const activePromise = api.getActiveAnalysisRun ? api.getActiveAnalysisRun() : Promise.resolve(null);
+        const [availableDetectors, listedRuns, activeRun] = await Promise.all([
+          api.listAnalysisDetectors(),
+          api.listAnalysisRuns(20),
+          activePromise
+        ]);
+        if (disposed) return;
+        setDetectors(availableDetectors);
+        setRuns(listedRuns.filter(isCleanupRun));
+        const candidate = activeRun && isCleanupRun(activeRun)
+          ? activeRun
+          : listedRuns.find(isCleanupRun) ?? null;
+        if (candidate) await loadRunDetails(candidate.id);
+      } catch (loadError) {
+        if (!disposed) reportError(loadError);
+      } finally {
+        if (!disposed) setLoading(false);
+      }
+    }
+    void hydrate();
+    return () => {
+      disposed = true;
+    };
+  }, [api, loadRunDetails, reportError]);
+
+  useEffect(() => {
+    if (!run || !api.listAnalysisFindings || isRunInProgress(run)) return;
+    void loadFindings(run.id, activeTier);
+  }, [activeTier, api.listAnalysisFindings, loadFindings, run?.id, run?.revision, run]);
+
+  useEffect(() => {
     const disposers: UnlistenFn[] = [];
     let disposed = false;
-    async function wireEvents() {
-      const progressOff = await api.onStorageCleanupProgress?.((payload) => {
-        useStorageCleanupStore.getState().applyScanProgress(payload);
+    async function subscribe() {
+      const offRun = await api.onAnalysisRunUpdated?.((updated) => {
+        if (!isCleanupRun(updated) || (run && updated.id !== run.id)) return;
+        if (!run || updated.revision >= run.revision) void loadRunDetails(updated.id);
       });
-      const completedOff = await api.onStorageCleanupCompleted?.((payload) => {
-        useStorageCleanupStore.getState().completeScan(payload.jobId, payload.analysis);
+      const offFindings = await api.onAnalysisFindingsPublished?.((updated) => {
+        if (run && updated.id === run.id) void loadRunDetails(updated.id);
       });
-      const failedOff = await api.onStorageCleanupFailed?.((payload) => {
-        useStorageCleanupStore.getState().failScan(payload.jobId, payload.message);
+      const offDetector = await api.onAnalysisDetectorUpdated?.((updated) => {
+        if (run && updated.runId === run.id) void loadRunDetails(updated.runId, false);
       });
-      const cancelledOff = await api.onStorageCleanupCancelled?.((payload) => {
-        useStorageCleanupStore.getState().confirmCancelled(payload.jobId, "cleanup_cancelled");
-      });
-      for (const disposer of [progressOff, completedOff, failedOff, cancelledOff]) {
+      for (const disposer of [offRun, offFindings, offDetector]) {
         if (disposer) disposers.push(disposer);
       }
-      if (disposed) {
-        while (disposers.length) disposers.pop()?.();
-      }
+      if (disposed) while (disposers.length) disposers.pop()?.();
     }
-    void wireEvents();
+    void subscribe();
     return () => {
       disposed = true;
       while (disposers.length) disposers.pop()?.();
     };
-  }, [api, initialAnalysis, t]);
+  }, [api, loadRunDetails, run]);
 
-  useEffect(() => {
-    if (initialAnalysis || !api.getActiveAnalysisRun || !api.listAnalysisRuns || !api.onAnalysisRunUpdated) {
-      return undefined;
-    }
-    let disposed = false;
-    const disposers: UnlistenFn[] = [];
-    void useStorageCleanupStore.getState().hydrateDurable(api);
-    async function wireDurableRunEvents() {
-      const off = await api.onAnalysisRunUpdated?.((run) => {
-        if (!disposed && run.scope.kind === "approved_cleanup_paths") {
-          void useStorageCleanupStore.getState().hydrateDurable(api, run.id);
-        }
-      });
-      if (off) disposers.push(off);
-      if (disposed) {
-        while (disposers.length) disposers.pop()?.();
-      }
-    }
-    void wireDurableRunEvents();
-    return () => {
-      disposed = true;
-      while (disposers.length) disposers.pop()?.();
-    };
-  }, [api, initialAnalysis]);
-
-  useEffect(() => {
-    if (initialAnalysis || !api.getAISettings) {
-      setCleanupAIReadiness("");
-      return;
-    }
-    let disposed = false;
-    void api.getAISettings()
-      .then((settings) => {
-        if (disposed) return;
-        if (!settings.enabled) {
-          setCleanupAIReadiness(t("storageCleanupAIEnableAI"));
-        } else if (!settings.cleanupAiEnabled) {
-          setCleanupAIReadiness(t("storageCleanupAIEnableCleanup"));
-        } else {
-          setCleanupAIReadiness("");
-        }
-      })
-      .catch(() => {
-        if (!disposed) setCleanupAIReadiness("");
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [api, initialAnalysis, t]);
-
-  const sortedCandidates = useMemo(() => sortCandidatesBySize(analysis?.candidates ?? []), [analysis]);
-  const filteredCandidates = useMemo(
-    () => sortedCandidates.filter((candidate) => activeTierFilter === "All" || candidate.tier === activeTierFilter),
-    [activeTierFilter, sortedCandidates]
-  );
-  const tierCounts = useMemo(() => countTiers(sortedCandidates), [sortedCandidates]);
-  const selectedCleanupIdsText = [...selectedCleanupIds].join(",");
-  const selectedCandidates = sortedCandidates.filter((candidate) => selectedCleanupIds.has(candidate.id));
-  const selectedTierCounts = countTiers(selectedCandidates);
-  const selectedReclaimable = selectedCandidates
-    .reduce((sum, candidate) => sum + candidate.size, 0);
-  const deniedCount = analysis?.denied_paths.length ?? 0;
-  const warnings = analysis?.warnings ?? [];
-
-  async function chooseScope() {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: t("storageCleanupChooseScope")
-    });
-    if (typeof selected === "string" && selected.trim()) {
-      useStorageCleanupStore.getState().setSelectedRoots([selected]);
-      setLocalError("");
-    }
-  }
-
-  async function useQuickScope(kind: "downloads" | "desktop" | "documents" | "temp") {
+  const chooseScope = useCallback(async () => {
     try {
-      const path =
-        kind === "downloads"
-          ? await downloadDir()
-          : kind === "desktop"
-            ? await desktopDir()
-            : kind === "documents"
-              ? await documentDir()
-              : await tempDir();
-      useStorageCleanupStore.getState().setSelectedRoots([path]);
-      setLocalError("");
+      const selected = await open({ directory: true, multiple: false, title: t("storageCleanupChooseScope") });
+      if (typeof selected === "string" && selected.trim()) {
+        scopeHydrated.current = true;
+        setSelectedRoots([selected.trim()]);
+        setError("");
+      }
     } catch (scopeError) {
       reportError(scopeError);
     }
-  }
+  }, [reportError, t]);
 
-  async function scan() {
+  const chooseQuickScope = useCallback(async (kind: "downloads" | "desktop" | "documents" | "temp") => {
+    try {
+      const path = kind === "downloads"
+        ? await downloadDir()
+        : kind === "desktop"
+          ? await desktopDir()
+          : kind === "documents"
+            ? await documentDir()
+            : await tempDir();
+      scopeHydrated.current = true;
+      setSelectedRoots([path]);
+      setError("");
+    } catch (scopeError) {
+      reportError(scopeError);
+    }
+  }, [reportError]);
+
+  const startScan = useCallback(async () => {
     if (!selectedRoots.length) {
-      setLocalError(t("storageCleanupScopeRequired"));
+      setError(t("storageCleanupScopeRequired"));
       return;
     }
-    setLocalError("");
-    await useStorageCleanupStore.getState().startScan(api);
-  }
-
-  async function cancelScan() {
-    await useStorageCleanupStore.getState().cancelScan(api);
-  }
-
-  async function reveal(path: string) {
+    if (!api.startAnalysisRun) {
+      setUnsupported(true);
+      return;
+    }
+    setError("");
+    setExecutionResult(null);
+    setPreview(null);
+    setConfirmPreviewOpen(false);
+    setSelectedFindingIds(new Set());
+    setFindingCache({});
+    defaultSelectionRuns.current.clear();
+    if (!requestKeyRef.current) requestKeyRef.current = `cleanup-${Date.now()}`;
+    const request: StartAnalysisRunRequest = {
+      scope: { kind: "approvedCleanupPaths", paths: selectedRoots },
+      detectorIds: detectors.filter((detector) => detector.supportsApprovedPaths).map((detector) => detector.detectorId),
+      requestKey: requestKeyRef.current
+    };
+    setIsMutating(true);
     try {
-      await api.revealStorageCandidate(path);
+      const started = await api.startAnalysisRun(request);
+      setRun(started);
+      await loadRunDetails(started.id);
+    } catch (startError) {
+      reportError(startError);
+    } finally {
+      setIsMutating(false);
+    }
+  }, [api, detectors, loadRunDetails, reportError, selectedRoots, t]);
+
+  const cancelRun = useCallback(async () => {
+    if (!run || !api.cancelAnalysisRun) return;
+    setIsMutating(true);
+    try {
+      await api.cancelAnalysisRun(run.id);
+      await loadRunDetails(run.id, false);
+    } catch (cancelError) {
+      reportError(cancelError);
+    } finally {
+      setIsMutating(false);
+    }
+  }, [api, loadRunDetails, reportError, run]);
+
+  const retryRun = useCallback(async () => {
+    if (!run || !api.retryAnalysisRun) return;
+    setIsMutating(true);
+    setError("");
+    setSelectedFindingIds(new Set());
+    setPreview(null);
+    setConfirmPreviewOpen(false);
+    defaultSelectionRuns.current.delete(run.id);
+    try {
+      const retried = await api.retryAnalysisRun(run.id);
+      setRun(retried);
+      await loadRunDetails(retried.id);
+    } catch (retryError) {
+      reportError(retryError);
+    } finally {
+      setIsMutating(false);
+    }
+  }, [api, loadRunDetails, reportError, run]);
+
+  const revealFinding = useCallback(async (finding: AnalysisFinding) => {
+    if (!finding.pathSnapshot || !api.revealInFolder) return;
+    try {
+      await api.revealInFolder(finding.pathSnapshot);
     } catch (revealError) {
       reportError(revealError);
     }
-  }
+  }, [api, reportError]);
 
-  async function moveSelectedToSafeTrash() {
-    if (!selectedCleanupIds.size || isExecuting) return;
-    if (!displayedJobId) {
-      reportError(t("storageCleanupResultExpired"));
+  const toggleEvidence = useCallback(async (finding: AnalysisFinding) => {
+    const next = new Set(expandedEvidence);
+    if (next.has(finding.id)) {
+      next.delete(finding.id);
+      setExpandedEvidence(next);
       return;
     }
-    setIsExecuting(true);
-    setLocalError("");
-    try {
-      const selections = await buildCleanupFindingSelections(api, [...selectedCleanupIds]);
-      const result: CleanupExecutionResult = await api.moveCleanupCandidatesToSafeTrash(displayedJobId, selections);
-      if (useStorageCleanupStore.getState().displayedJobId !== displayedJobId) return;
-      useStorageCleanupStore.getState().setExecutionResult(result);
-      setConfirmOpen(false);
-      if (!initialAnalysis && selectedRoots.length) {
-        await useStorageCleanupStore.getState().startScan(api);
-        useStorageCleanupStore.getState().setExecutionResult(result);
+    if (!evidenceByFinding[finding.id] && api.listAnalysisFindingEvidence) {
+      try {
+        const evidence = await api.listAnalysisFindingEvidence(finding.id);
+        setEvidenceByFinding((current) => ({ ...current, [finding.id]: evidence }));
+      } catch (evidenceError) {
+        reportError(evidenceError);
+        return;
       }
-    } catch (moveError) {
-      reportError(moveError);
-    } finally {
-      setIsExecuting(false);
     }
-  }
+    next.add(finding.id);
+    setExpandedEvidence(next);
+  }, [api, evidenceByFinding, expandedEvidence, reportError]);
 
-  async function analyzeCandidatesWithAI(mode: "all" | "risk" | "selected") {
-    if (initialAnalysis || isAnalyzingWithAI || !analysis) return;
-    if (!displayedJobId) {
-      reportError(t("storageCleanupResultExpired"));
+  const acknowledgeReviewFinding = useCallback(async () => {
+    if (!reviewFinding || !api.getAnalysisFinding || !api.setAnalysisFindingDecision) return;
+    setIsMutating(true);
+    try {
+      const current = await api.getAnalysisFinding(reviewFinding.id);
+      if (!current || current.tier !== "review" || current.status !== "active") throw new Error("cleanup_finding_changed");
+      const decision = await api.setAnalysisFindingDecision({
+        findingKey: current.findingKey,
+        decision: "acknowledged",
+        expectedRevision: current.decisionRevision ?? 0
+      });
+      if (decision.decision !== "acknowledged") throw new Error("cleanup_review_not_acknowledged");
+      const refreshed = await api.getAnalysisFinding(current.id);
+      if (!refreshed || !isFindingSelectable(refreshed)) throw new Error("cleanup_review_not_executable");
+      setFindingCache((cache) => ({ ...cache, [refreshed.id]: refreshed }));
+      setSelectedFindingIds((selected) => new Set(selected).add(refreshed.id));
+      setReviewFinding(null);
+      if (run) await loadFindings(run.id, activeTier);
+    } catch (reviewError) {
+      reportError(reviewError);
+    } finally {
+      setIsMutating(false);
+    }
+  }, [activeTier, api, loadFindings, reportError, reviewFinding, run]);
+
+  const revalidateFinding = useCallback(async (finding: AnalysisFinding) => {
+    if (!api.revalidateAnalysisFinding) return;
+    setIsMutating(true);
+    try {
+      const refreshed = await api.revalidateAnalysisFinding(finding.id);
+      setFindingCache((cache) => ({ ...cache, [refreshed.id]: refreshed }));
+      setSelectedFindingIds((selected) => {
+        const next = new Set(selected);
+        if (!isFindingSelectable(refreshed)) next.delete(refreshed.id);
+        return next;
+      });
+      if (run) await loadFindings(run.id, activeTier);
+    } catch (revalidateError) {
+      reportError(revalidateError);
+    } finally {
+      setIsMutating(false);
+    }
+  }, [activeTier, api, loadFindings, reportError, run]);
+
+  const toggleFinding = useCallback((finding: AnalysisFinding) => {
+    if (finding.tier === "caution" || finding.status !== "active") return;
+    if (!isFindingSelectable(finding)) {
+      if (finding.tier === "review" && finding.decision !== "acknowledged") setReviewFinding(finding);
       return;
     }
-    const ids = cleanupAIIdsForMode(mode, sortedCandidates, selectedCleanupIds);
-    if (!ids.length) {
-      reportError(t("storageCleanupAINoTargets"));
+    setSelectedFindingIds((current) => {
+      const next = new Set(current);
+      if (next.has(finding.id)) next.delete(finding.id);
+      else next.add(finding.id);
+      return next;
+    });
+  }, []);
+
+  const selectedFindings = useMemo(
+    () => [...selectedFindingIds].map((id) => findingCache[id]).filter((finding): finding is AnalysisFinding => Boolean(finding)),
+    [findingCache, selectedFindingIds]
+  );
+  const selectedBytes = useMemo(
+    () => selectedFindings.reduce((sum, finding) => sum + (finding.exactReclaimableBytes ?? finding.potentialReclaimableBytes ?? finding.sizeBytes), 0),
+    [selectedFindings]
+  );
+
+  const buildSelections = useCallback((): CleanupFindingSelection[] => {
+    if (!selectedFindings.length) return [];
+    return selectedFindings.map((finding) => {
+      if (!isFindingSelectable(finding)) throw new Error("cleanup_selection_not_executable");
+      const selection: CleanupFindingSelection = { findingId: finding.id, expectedRevision: finding.revision };
+      if (finding.tier === "review") {
+        if (finding.decision !== "acknowledged" || finding.decisionRevision == null) throw new Error("cleanup_review_confirmation_required");
+        selection.reviewConfirmation = { decisionRevision: finding.decisionRevision };
+      }
+      return selection;
+    });
+  }, [selectedFindings]);
+
+  const previewSelected = useCallback(async () => {
+    if (!run || !api.previewCleanupOperations || !selectedFindings.length) return;
+    if (mutationUnavailable) {
+      reportError(t("storageCleanupMutationUnavailable"));
       return;
     }
-    if (!api.getAISettings || !api.analyzeCleanupCandidatesWithAI) {
+    setIsMutating(true);
+    setError("");
+    try {
+      const result = await api.previewCleanupOperations(run.id, buildSelections());
+      setPreview(result);
+    } catch (previewError) {
+      reportError(previewError);
+    } finally {
+      setIsMutating(false);
+    }
+  }, [api, buildSelections, mutationUnavailable, reportError, run, selectedFindings.length, t]);
+
+  const moveSelectedToSafeTrash = useCallback(async () => {
+    if (!run || !api.moveCleanupCandidatesToSafeTrash || !preview || !selectedFindings.length) return;
+    setIsMutating(true);
+    setError("");
+    try {
+      const result = await api.moveCleanupCandidatesToSafeTrash(run.id, buildSelections());
+      setExecutionResult(result);
+      setSelectedFindingIds(new Set());
+      setPreview(null);
+      setConfirmPreviewOpen(false);
+      await loadRunDetails(run.id);
+    } catch (executionError) {
+      reportError(executionError);
+    } finally {
+      setIsMutating(false);
+    }
+  }, [api, buildSelections, loadRunDetails, preview, reportError, run, selectedFindings.length]);
+
+  const recheckReviewFindings = useCallback(async () => {
+    if (!run || !api.analyzeCleanupCandidatesWithAI || !api.getAISettings) {
       reportError(t("storageCleanupAIUnsupported"));
       return;
     }
-    useStorageCleanupStore.getState().setAIAnalyzing(true);
-    useStorageCleanupStore.getState().setAICleanupStatus("");
-    setLocalError("");
-    try {
-      const settings = await api.getAISettings();
-      ensureCleanupAIReady(settings.enabled, settings.cleanupAiEnabled, settings.provider, settings.apiKey, settings.apiKeyConfigured);
-      const candidates = await api.analyzeCleanupCandidatesWithAI(displayedJobId, ids);
-      if (useStorageCleanupStore.getState().displayedJobId !== displayedJobId) return;
-      useStorageCleanupStore.getState().applyAIAnalyzedCandidates(displayedJobId, candidates);
-      const analyzedCounts = countTiers(candidates);
-      const message = `${t("storageCleanupAISuccessSummary")
-        .replace("{count}", candidates.length.toLocaleString())
-        .replace("{safe}", analyzedCounts.Safe.toLocaleString())
-        .replace("{review}", analyzedCounts.Review.toLocaleString())
-        .replace("{caution}", analyzedCounts.Caution.toLocaleString())}${analyzedCounts.Safe === 0 ? ` ${t("storageCleanupAISuccessNoSafe")}` : ""}`;
-      useStorageCleanupStore.getState().setAICleanupStatus(message);
-      useAppStore.getState().showSuccess(message);
-    } catch (aiError) {
-      if (useStorageCleanupStore.getState().displayedJobId !== displayedJobId) return;
-      const message = readableCleanupAIError(aiError, t);
-      useStorageCleanupStore.getState().setAICleanupStatus(message);
-      reportError(message);
-    } finally {
-      if (useStorageCleanupStore.getState().displayedJobId === displayedJobId) {
-        useStorageCleanupStore.getState().setAIAnalyzing(false);
-      }
-    }
-  }
-
-  function toggleSafeCandidate(candidate: StorageCandidate) {
-    if (initialAnalysis || !displayedJobId) return;
-    if (!selectedCleanupIds.has(candidate.id) && candidate.tier === "Review") {
-      setReviewConfirmCandidate(candidate);
+    const ids = findings.filter((finding) => finding.tier === "review" && finding.status === "active").map((finding) => finding.id);
+    if (!ids.length) {
+      setAiStatus(t("storageCleanupAINoTargets"));
       return;
     }
-    useStorageCleanupStore.getState().toggleCleanupCandidate(candidate);
-  }
-
-  async function confirmReviewCandidate() {
-    if (!reviewConfirmCandidate || !api.getAnalysisFinding || !api.setAnalysisFindingDecision) return;
+    setIsAiWorking(true);
+    setAiStatus("");
     try {
-      const finding = await api.getAnalysisFinding(reviewConfirmCandidate.id);
-      if (!finding || finding.tier !== "review") throw new Error("review_finding_changed");
-      const decision = await api.setAnalysisFindingDecision({
-        findingKey: finding.findingKey,
-        decision: "acknowledged",
-        expectedRevision: finding.decisionRevision ?? 0
-      });
-      if (decision.decision !== "acknowledged") throw new Error("review_confirmation_not_persisted");
-      useStorageCleanupStore.getState().toggleCleanupCandidate(reviewConfirmCandidate);
-      setReviewConfirmCandidate(null);
-    } catch (confirmationError) {
-      reportError(confirmationError);
+      const settings = await api.getAISettings();
+      if (!settings.enabled) throw new Error("cleanup_ai_disabled");
+      if (!settings.cleanupAiEnabled) throw new Error("cleanup_ai_feature_disabled");
+      await api.analyzeCleanupCandidatesWithAI(run.id, ids);
+      setAiStatus(replaceCopy("storageCleanupAIRecheckDone", { count: ids.length }));
+      await loadRunDetails(run.id);
+    } catch (aiError) {
+      reportError(aiError);
+    } finally {
+      setIsAiWorking(false);
     }
-  }
+  }, [api, findings, loadRunDetails, reportError, replaceCopy, run, t]);
 
-  function reportError(errorValue: unknown) {
-    const rawMessage = readableError(errorValue);
-    const cleanupMessage = storageCleanupErrorMessage(rawMessage, t);
-    const message = cleanupMessage === rawMessage ? localizedStableError(rawMessage, t) : cleanupMessage;
-    setLocalError(message);
-    onError?.(message);
-  }
+  const virtualizer = useVirtualizer({
+    count: findings.length,
+    getScrollElement: () => findingListRef.current,
+    estimateSize: () => FINDING_ROW_HEIGHT,
+    overscan: 5
+  });
+  const virtualItems = virtualizer.getVirtualItems();
+  const renderedVirtualItems = virtualItems.length
+    ? virtualItems
+    : findings.slice(0, 20).map((_, index) => ({ index, start: index * FINDING_ROW_HEIGHT, size: FINDING_ROW_HEIGHT, key: findings[index]?.id ?? index }));
+
+  const onFindingListKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+    if ((event.key === "Enter" || event.key === " ") && event.target === event.currentTarget) {
+      event.preventDefault();
+    }
+  }, []);
+
+  const runState = run ? durableRunState(run) : "idle";
+  const runIsPartial = Boolean(run && isPartialRun(run));
+  const runScope = run ? scopePaths(run) : selectedRoots;
+  const canReviewFindings = Boolean(run && !isRunInProgress(run) && run.findingsPublished > 0);
 
   return (
     <>
-      <div className={cn(pageSurface, "grid content-start gap-4")} data-selected-cleanup-ids={selectedCleanupIdsText}>
-        <NoticeBanner tone="info" title={t("storageCleanupChooseScope")}>
-          {t("storageCleanupScopeSafetyDesc")}
+      <div className={cn(pageSurface, "grid content-start gap-4")} data-cleanup-authority="analysis-run-finding">
+        <NoticeBanner tone="info" title={t("storageCleanupSafetyTitle")}>
+          {t("storageCleanupSafetyDesc")}
         </NoticeBanner>
 
-        <section className={cn(contentPanel, "grid gap-3 p-4")}>
+        <section className={cn(contentPanel, "grid gap-3 p-4")} data-cleanup-scope>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <h2 className={sectionHeading}>{t("storageCleanupCurrentScope")}</h2>
               <p className={sectionDescription}>
                 {selectedRoots.length
-                  ? selectedRoots.map((root) => t("storageCleanupScopeValue").replace("{path}", root)).join(" / ")
+                  ? selectedRoots.map((root) => replaceCopy("storageCleanupScopeValue", { path: root })).join(" / ")
                   : t("storageCleanupNoScopeSelected")}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button className={buttonSecondary} onClick={chooseScope}>
-                <FolderOpen size={16} />
-                <span>{t("storageCleanupChooseFolder")}</span>
-              </button>
-              <button className={glassButtonPrimary} onClick={scan} disabled={!selectedRoots.length || isScanning}>
-                {isScanning ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
-                <span>{t("storageCleanupScanScope")}</span>
-              </button>
-              {isScanning && (
-                <button
-                  className={buttonSecondary}
-                  onClick={cancelScan}
-                  disabled={scanStatusState === "cancel_requested"}
-                >
-                  <XCircle size={16} />
-                  <span>{t("storageCleanupCancelScan")}</span>
-                </button>
-              )}
+              <Button variant="secondary" size="compact" onClick={() => void chooseScope()}>
+                <FolderOpen size={15} aria-hidden="true" />{t("storageCleanupChooseFolder")}
+              </Button>
+              <Button variant="primary" size="compact" disabled={!selectedRoots.length || isMutating || isRunInProgress(run)} onClick={() => void startScan()}>
+                {isMutating && !run ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Search size={15} aria-hidden="true" />}
+                {run ? t("storageCleanupRescan") : t("storageCleanupScanScope")}
+              </Button>
+              {run && isRunInProgress(run) ? (
+                <Button variant="secondary" size="compact" disabled={isMutating || run.cancelRequested} onClick={() => void cancelRun()}>
+                  <XCircle size={15} aria-hidden="true" />{run.cancelRequested ? t("storageCleanupRunCanceling") : t("storageCleanupCancelScan")}
+                </Button>
+              ) : null}
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {(["downloads", "desktop", "documents", "temp"] as const).map((kind) => (
-              <button key={kind} className={buttonSecondary} onClick={() => void useQuickScope(kind)}>
-                {quickScopeLabel(kind, t)}
-              </button>
-            ))}
+          <div className="flex flex-wrap gap-2" aria-label={t("storageCleanupQuickScopesLabel")}>
+            <Button variant="ghost" size="compact" onClick={() => void chooseQuickScope("downloads")}>{t("storageCleanupQuickDownloads")}</Button>
+            <Button variant="ghost" size="compact" onClick={() => void chooseQuickScope("desktop")}>{t("storageCleanupQuickDesktop")}</Button>
+            <Button variant="ghost" size="compact" onClick={() => void chooseQuickScope("documents")}>{t("storageCleanupQuickDocuments")}</Button>
+            <Button variant="ghost" size="compact" onClick={() => void chooseQuickScope("temp")}>{t("storageCleanupQuickTemp")}</Button>
           </div>
         </section>
 
-        {!initialAnalysis && (
-          <DurableAnalysisPanel
-            api={api}
-            currentRunId={displayedJobIdState ?? activeJobIdState}
-          />
-        )}
+        {unsupported ? (
+          <StateBlock tone="warning" title={t("storageCleanupDurableUnavailableTitle")} description={t("storageCleanupDurableUnavailableDesc")} />
+        ) : null}
+        {error ? <NoticeBanner tone="error" title={t("storageCleanupLoadFailed")} action={<Button variant="ghost" size="compact" onClick={() => setError("")}>{t("close")}</Button>}>{error}</NoticeBanner> : null}
 
-        {isScanning && (
-          <NoticeBanner tone="info" title={t("storageCleanupLoading")}>
-            <div className="grid gap-1">
-              <span>{t("storageCleanupScanningDesc")}</span>
-              <span className={metadataText}>
-                {t("storageCleanupProgressLine")
-                  .replace("{count}", (scanProgress?.scannedEntries ?? 0).toLocaleString())
-                  .replace("{size}", formatBytes(scanProgress?.totalSize ?? 0))}
-              </span>
-              {scanProgress?.currentPath && (
-                <span className={quietText} title={scanProgress.currentPath}>
-                  {compactPath(scanProgress.currentPath, 110)}
-                </span>
-              )}
-            </div>
-          </NoticeBanner>
-        )}
+        {loading ? <DurableTaskStatus state="running" title={t("storageCleanupDurableLoading")} description={t("storageCleanupDurableLoadingDesc")} density="compact" /> : null}
 
-        {error && (
-          <NoticeBanner tone="danger" title={t("storageCleanupLoadFailed")}>
-            {error}
-          </NoticeBanner>
-        )}
-
-        {!analysis ? (
-          <>
-            <section className={cn(contentPanel, "grid gap-3 p-4")}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className={sectionHeading}>{t("storageCleanupAIPanelTitle")}</h2>
-                    <ToneBadge tone="info">{t("storageCleanupAIAnalyzedBadge")}</ToneBadge>
-                  </div>
-                  <p className={sectionDescription}>{t("storageCleanupAIPanelDesc")}</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button className={buttonSecondary} disabled>
-                    <Sparkles size={16} />
-                    <span>{t("storageCleanupAIAnalyzeAllShort")}</span>
-                  </button>
-                  <button className={buttonSecondary} disabled>
-                    <Sparkles size={16} />
-                    <span>{t("storageCleanupAIAnalyzeRisk")}</span>
-                  </button>
-                  <button className={buttonSecondary} disabled>
-                    <Sparkles size={16} />
-                    <span>{t("storageCleanupAIAnalyzeSelected")}</span>
-                  </button>
-                </div>
-              </div>
-              <NoticeBanner tone="info">{t("storageCleanupAIScanFirst")}</NoticeBanner>
-            </section>
-            <StateBlock
-              tone="info"
-              title={t("storageCleanupChooseScopeEmptyTitle")}
-              description={t("storageCleanupChooseScopeEmptyDesc")}
-              primaryAction={
-                <button className={glassButtonPrimary} onClick={chooseScope}>
-                  <FolderOpen size={16} />
-                  <span>{t("storageCleanupChooseFolder")}</span>
-                </button>
-              }
+        {run ? (
+          <section className="grid gap-3" data-analysis-run-id={run.id}>
+            <MetricStrip
+              ariaLabel={t("storageCleanupRunMetricsLabel")}
+              density="compact"
+              items={[
+                { label: t("storageCleanupSafeTier"), value: run.safeCount.toLocaleString(), tone: "green" },
+                { label: t("storageCleanupReviewTier"), value: run.reviewCount.toLocaleString(), tone: "amber" },
+                { label: t("storageCleanupCautionTier"), value: run.cautionCount.toLocaleString(), tone: "red" },
+                { label: t("storageCleanupReclaimable"), value: formatBytes(run.exactReclaimableBytes || run.potentialReclaimableBytes), hint: t("storageCleanupEstimateHint") }
+              ]}
             />
-          </>
-        ) : (
-          <>
-            <section className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
-              <MetricCard
-                label={t("storageCleanupReclaimable")}
-                value={formatBytes(analysis.reclaimable_estimate)}
-                hint={t("storageCleanupEstimateHint")}
-                tone="green"
+            {isRunInProgress(run) ? (
+              <DurableTaskStatus
+                state="running"
+                title={run.cancelRequested ? t("storageCleanupRunCanceling") : t("storageCleanupRunRunning")}
+                description={replaceCopy("storageCleanupRunScope", { scope: runScope.map((path) => compactPath(path, 80)).join(" / ") || t("storageCleanupNoScopeSelected") })}
+                progress={{
+                  label: replaceCopy("storageCleanupDetectorProgress", { completed: run.detectorsCompleted, total: Math.max(run.detectorsTotal, 1) }),
+                  value: run.detectorsCompleted,
+                  max: Math.max(run.detectorsTotal, 1),
+                  indeterminate: run.detectorsTotal === 0
+                }}
+                action={<Button variant="secondary" size="compact" disabled={isMutating || run.cancelRequested} onClick={() => void cancelRun()}>{t("storageCleanupCancelScan")}</Button>}
+                density="compact"
               />
-              <MetricCard
-                label={t("storageCleanupReviewEstimate")}
-                value={formatBytes(analysis.review_estimate)}
-                hint={t("storageCleanupManualReviewHint")}
-                tone="amber"
-              />
-              <MetricCard
-                label={t("storageCleanupCautionCount")}
-                value={tierCounts.Caution.toLocaleString()}
-                hint={t("storageCleanupCautionHint")}
-                tone="red"
-              />
-              <MetricCard
-                label={t("storageCleanupDeniedCount")}
-                value={deniedCount.toLocaleString()}
-                hint={deniedCount > 0 ? t("storageCleanupDeniedLowEstimate") : t("storageCleanupDeniedNone")}
-                tone="slate"
-              />
-            </section>
-
-            {warnings.length > 0 && (
-              <NoticeBanner tone="warning" title={t("storageCleanupScopeWarningTitle")}>
-                {warnings.join(" ")}
-              </NoticeBanner>
-            )}
-
-            {deniedCount > 0 && (
-              <NoticeBanner tone="warning" title={t("storageCleanupDeniedTitle")}>
-                {t("storageCleanupDeniedDesc").replace("{count}", deniedCount.toLocaleString())}
-              </NoticeBanner>
-            )}
-
-            {executionResult && (
-              <NoticeBanner tone={executionResult.failed > 0 ? "warning" : "success"} title={t("storageCleanupExecutionDone")}>
-                <div className="grid gap-1">
-                  <span>
-                    {t("storageCleanupExecutionSummary")
-                      .replace("{moved}", executionResult.moved.toLocaleString())
-                      .replace("{skipped}", executionResult.skipped.toLocaleString())
-                      .replace("{failed}", executionResult.failed.toLocaleString())}
-                  </span>
-                  <span className={metadataText}>{t("storageCleanupRestoreFromTrash")}</span>
-                </div>
-              </NoticeBanner>
-            )}
-
-            <section className={cn(contentPanel, "grid gap-3 p-4")}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className={sectionHeading}>{t("storageCleanupAIPanelTitle")}</h2>
-                    <ToneBadge tone="info">{t("storageCleanupAIAnalyzedBadge")}</ToneBadge>
-                  </div>
-                  <p className={sectionDescription}>{t("storageCleanupAIPanelDesc")}</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    className={buttonSecondary}
-                    onClick={() => void analyzeCandidatesWithAI("all")}
-                    disabled={!displayedJobId || isAnalyzingWithAI || !sortedCandidates.length}
-                  >
-                    {isAnalyzingWithAI ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                    <span>{t("storageCleanupAIAnalyzeAllShort")}</span>
-                  </button>
-                  <button
-                    className={buttonSecondary}
-                    onClick={() => void analyzeCandidatesWithAI("risk")}
-                    disabled={!displayedJobId || isAnalyzingWithAI || !tierCounts.Review && !tierCounts.Caution}
-                  >
-                    <Sparkles size={16} />
-                    <span>{t("storageCleanupAIAnalyzeRisk")}</span>
-                  </button>
-                  <button
-                    className={buttonSecondary}
-                    onClick={() => void analyzeCandidatesWithAI("selected")}
-                    disabled={!displayedJobId || isAnalyzingWithAI || !selectedCleanupIds.size}
-                  >
-                    <Sparkles size={16} />
-                    <span>{t("storageCleanupAIAnalyzeSelected")}</span>
-                  </button>
-                </div>
-              </div>
-              {!analysis || !sortedCandidates.length ? (
-                <NoticeBanner tone="info">{t("storageCleanupAIScanFirst")}</NoticeBanner>
-              ) : cleanupAIReadiness ? (
-                <NoticeBanner tone="warning">{cleanupAIReadiness}</NoticeBanner>
-              ) : isAnalyzingWithAI ? (
-                <NoticeBanner tone="info">{t("storageCleanupAIAnalyzing")}</NoticeBanner>
-              ) : aiCleanupStatus ? (
-                <NoticeBanner tone={aiCleanupStatus.includes("失败") || aiCleanupStatus.includes("failed") ? "warning" : "success"}>
-                  {aiCleanupStatus}
-                </NoticeBanner>
-              ) : (
-                <NoticeBanner tone="info">{t("storageCleanupAIReadyHint")}</NoticeBanner>
-              )}
-            </section>
-
-            <section className={cn(contentPanel, "grid min-h-0 gap-3 p-4")}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className={sectionHeading}>{t("storageCleanupTopRanking")}</h2>
-                  <p className={sectionDescription}>{t("storageCleanupTopRankingDesc")}</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    className={buttonSecondary}
-                    onClick={() => void analyzeCandidatesWithAI("all")}
-                    disabled={!displayedJobId || isAnalyzingWithAI || !sortedCandidates.length}
-                  >
-                    {isAnalyzingWithAI ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                    <span>{t("storageCleanupAIAnalyzeAll")}</span>
-                  </button>
-                  <button
-                    className={buttonSecondary}
-                    onClick={() => void analyzeCandidatesWithAI("risk")}
-                    disabled={!displayedJobId || isAnalyzingWithAI || !tierCounts.Review && !tierCounts.Caution}
-                  >
-                    <Sparkles size={16} />
-                    <span>{t("storageCleanupAIAnalyzeRisk")}</span>
-                  </button>
-                  <button
-                    className={buttonSecondary}
-                    onClick={() => void analyzeCandidatesWithAI("selected")}
-                    disabled={!displayedJobId || isAnalyzingWithAI || !selectedCleanupIds.size}
-                  >
-                    <Sparkles size={16} />
-                    <span>{t("storageCleanupAIAnalyzeSelected")}</span>
-                  </button>
-                  {FILTERS.map((filter) => (
-                    <button
-                      key={filter}
-                      className={filter === activeTierFilter ? glassButtonPrimary : buttonSecondary}
-                      onClick={() => {
-                        if (!initialAnalysis) useStorageCleanupStore.getState().setActiveTierFilter(filter);
-                      }}
-                    >
-                      <span>{filterTitle(filter, t)}</span>
-                      <span>{filter === "All" ? sortedCandidates.length : tierCounts[filter]}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                {filteredCandidates.length === 0 ? (
-                  <StateBlock
-                    density="compact"
-                    title={t("storageCleanupNoCandidates")}
-                    description={t("storageCleanupNoCandidatesDesc")}
-                  />
-                ) : (
-                  <VirtualCandidateList
-                    candidates={filteredCandidates}
-                    selectedIds={selectedCleanupIds}
-                    aiAnalyzedIds={aiAnalyzedCandidateIds}
-                    aiDowngradedIds={aiDowngradedCandidateIds}
-                    t={t}
-                    onToggleSafeCandidate={toggleSafeCandidate}
-                    onReveal={reveal}
-                  />
-                )}
-                {!initialAnalysis && analysis?.has_more && (
-                  <button className={buttonSecondary} onClick={() => void loadMoreCandidates(api)}>
-                    {t("loadMoreFiles").replace(
-                      "{count}",
-                      Math.max(0, (analysis.candidate_total ?? 0) - analysis.candidates.length).toLocaleString()
-                    )}
-                  </button>
-                )}
-              </div>
-            </section>
-
-            <footer className={cn(softPanel, "sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 p-3")}>
-              <div className="min-w-0">
-                <strong className="block text-sm text-[var(--ink)]">
-                  已选择 {selectedCleanupIds.size.toLocaleString()} 个清理项
-                </strong>
-                <span className={quietText}>
-                  其中 Safe {selectedTierCounts.Safe.toLocaleString()} 个，Review {selectedTierCounts.Review.toLocaleString()} 个。{" "}
-                  {t("storageCleanupSelectedEstimate").replace("{size}", formatBytes(selectedReclaimable))}
-                </span>
-                {selectedCleanupIds.size === 0 && tierCounts.Review > 0 ? (
-                  <span className={cn(quietText, "block")}>当前没有默认可清理的绿色项。Review 项需要你逐个确认后才能加入 Safe Trash。</span>
-                ) : selectedCleanupIds.size === 0 && tierCounts.Caution > 0 ? (
-                  <span className={cn(quietText, "block")}>谨慎处理项不能直接加入 Safe Trash，请先打开位置人工检查。</span>
-                ) : null}
-              </div>
-              <button
-                className={glassButtonPrimary}
-                onClick={() => setConfirmOpen(true)}
-                disabled={!selectedCleanupIds.size || isExecuting || !displayedJobId || Boolean(mutationUnavailable)}
-                title={mutationUnavailable ? t("errorMacosFileMutationSourceBindingUnsupported") : undefined}
+            ) : null}
+            {runIsPartial ? (
+              <NoticeBanner
+                tone="warning"
+                title={t("storageCleanupRunPartialTitle")}
+                action={api.retryAnalysisRun ? <Button variant="secondary" size="compact" disabled={isMutating} onClick={() => void retryRun()}><RefreshCw size={14} aria-hidden="true" />{t("storageCleanupRunRetry")}</Button> : undefined}
               >
-                <Trash2 size={17} />
-                <span>{t("storageCleanupMoveToSafeTrash")}</span>
-              </button>
-            </footer>
+                {replaceCopy("storageCleanupRunPartialDesc", { warnings: run.warningCount, errors: run.errorCount, failed: run.detectorsFailed })}
+              </NoticeBanner>
+            ) : null}
+            {!isRunInProgress(run) && !runIsPartial && runState === "completed" ? (
+              <NoticeBanner tone="success" title={t("storageCleanupRunCompleted")}>
+                {replaceCopy("storageCleanupRunCompletedDesc", { detectors: run.detectorsCompleted, findings: run.findingsPublished })}
+              </NoticeBanner>
+            ) : null}
+            {runState === "failed" ? (
+              <NoticeBanner tone="error" title={t("storageCleanupRunFailed")} action={api.retryAnalysisRun ? <Button variant="secondary" size="compact" disabled={isMutating} onClick={() => void retryRun()}>{t("storageCleanupRunRetry")}</Button> : undefined}>
+                {run.errorMessage ? localizedStableError(run.errorMessage, t) : t("storageCleanupRunFailedDesc")}
+              </NoticeBanner>
+            ) : null}
+            {runState === "canceled" ? <NoticeBanner tone="info" title={t("storageCleanupRunCanceled")} action={<Button variant="secondary" size="compact" onClick={() => void startScan()}>{t("storageCleanupRescan")}</Button>}>{t("storageCleanupRunCanceledDesc")}</NoticeBanner> : null}
+            {runDetectors.some((detector) => detector.status === "failed") ? <span className={quietText}>{t("storageCleanupDetectorFailureHint")}</span> : null}
+          </section>
+        ) : null}
+
+        {!loading && !run ? (
+          <StateBlock
+            tone="neutral"
+            title={t("storageCleanupChooseScopeEmptyTitle")}
+            description={t("storageCleanupChooseScopeEmptyDesc")}
+            primaryAction={<Button variant="primary" disabled={!selectedRoots.length || isMutating} onClick={() => void startScan()}><Search size={15} aria-hidden="true" />{t("storageCleanupScanScope")}</Button>}
+          />
+        ) : null}
+
+        {run && canReviewFindings ? (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className={sectionHeading}>{t("storageCleanupFindingsTitle")}</h2>
+                <p className={sectionDescription}>{t("storageCleanupFindingsDescription")}</p>
+              </div>
+              {activeTier === "review" && api.analyzeCleanupCandidatesWithAI ? (
+                <Button variant="secondary" size="compact" disabled={isAiWorking || !findings.some((finding) => finding.tier === "review")} onClick={() => void recheckReviewFindings()}>
+                  {isAiWorking ? <LoaderCircle size={14} className="animate-spin" aria-hidden="true" /> : <Sparkles size={14} aria-hidden="true" />}
+                  {isAiWorking ? t("storageCleanupAIRecheckWorking") : t("storageCleanupAIRecheck")}
+                </Button>
+              ) : null}
+            </div>
+            {aiStatus ? <NoticeBanner tone="info" title={t("storageCleanupAIRecheck")}>{aiStatus}</NoticeBanner> : null}
+            <SegmentedControl
+              value={activeTier}
+              ariaLabel={t("storageCleanupFindingTabsLabel")}
+              onChange={setActiveTier}
+              options={[
+                { value: "safe", label: replaceCopy("storageCleanupTierTab", { label: t("storageCleanupSafeTier"), count: run.safeCount }) },
+                { value: "review", label: replaceCopy("storageCleanupTierTab", { label: t("storageCleanupReviewTier"), count: run.reviewCount }) },
+                { value: "caution", label: replaceCopy("storageCleanupTierTab", { label: t("storageCleanupCautionTier"), count: run.cautionCount }) }
+              ]}
+            />
+            <section className="min-h-0 overflow-hidden rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)]" data-cleanup-findings>
+              {loadingFindings && !findings.length ? <DurableTaskStatus state="running" title={t("storageCleanupFindingsLoading")} description={t("storageCleanupFindingsLoadingDesc")} density="compact" /> : null}
+              {!loadingFindings && !findings.length ? <StateBlock tone={activeTier === "caution" ? "info" : "neutral"} title={t("storageCleanupNoFindingsTitle")} description={t("storageCleanupNoFindingsDesc")} density="compact" /> : null}
+              {findings.length ? (
+                <div ref={findingListRef} className="max-h-[min(62vh,720px)] overflow-auto outline-none" role="list" aria-label={t("storageCleanupFindingsListLabel")} tabIndex={0} onKeyDown={onFindingListKeyDown}>
+                  <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
+                    {renderedVirtualItems.map((virtualItem) => {
+                      const finding = findings[virtualItem.index];
+                      return (
+                        <FindingRow
+                          key={finding.id}
+                          finding={finding}
+                          selected={selectedFindingIds.has(finding.id)}
+                          evidence={evidenceByFinding[finding.id]}
+                          evidenceExpanded={expandedEvidence.has(finding.id)}
+                          t={t}
+                          style={{ transform: `translateY(${virtualItem.start}px)` }}
+                          onToggle={toggleFinding}
+                          onReveal={revealFinding}
+                          onToggleEvidence={toggleEvidence}
+                          onRevalidate={revalidateFinding}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+              {nextCursor ? <div className="flex justify-center border-t border-[var(--zc-divider)] p-3"><Button variant="secondary" size="compact" disabled={loadingFindings} onClick={() => void loadFindings(run.id, activeTier, nextCursor, true)}>{t("storageCleanupLoadMore")}</Button></div> : null}
+            </section>
           </>
-        )}
+        ) : null}
+
+        {run && !isRunInProgress(run) && !run.findingsPublished ? <StateBlock tone="info" title={t("storageCleanupNoFindingsTitle")} description={t("storageCleanupNoFindingsDesc")} density="compact" /> : null}
+
+        {run && selectedFindingIds.size ? (
+          <footer className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3 shadow-[var(--zc-shadow-raised)]" data-cleanup-selection-summary>
+            <div className="min-w-0">
+              <strong className="block text-sm text-[var(--zc-text-primary)]">{replaceCopy("storageCleanupSelectionSummary", { count: selectedFindingIds.size, size: formatBytes(selectedBytes) })}</strong>
+              <span className={metadataText}>{t("storageCleanupSelectionSafety")}</span>
+            </div>
+            <Button variant="primary" disabled={isMutating || Boolean(mutationUnavailable) || !api.previewCleanupOperations} onClick={() => void previewSelected()}><Trash2 size={15} aria-hidden="true" />{t("storageCleanupMoveToSafeTrash")}</Button>
+          </footer>
+        ) : null}
+
+        {executionResult ? (
+          <NoticeBanner tone={executionResult.failed > 0 ? "warning" : "success"} title={t("storageCleanupExecutionDone")} action={<Button variant="secondary" size="compact" onClick={() => onNavigate?.("restore")}><History size={14} aria-hidden="true" />{t("storageCleanupExecutionHistory")}</Button>}>
+            {replaceCopy("storageCleanupExecutionSummary", { moved: executionResult.moved, skipped: executionResult.skipped, failed: executionResult.failed })}
+          </NoticeBanner>
+        ) : null}
       </div>
+
+      <SideSheet
+        open={Boolean(preview)}
+        title={t("storageCleanupPreviewReadyTitle")}
+        description={t("storageCleanupPreviewReadyDesc")}
+        closeLabel={t("close")}
+        onClose={() => setPreview(null)}
+        footer={preview ? <div className="flex flex-wrap justify-end gap-2"><Button variant="primary" disabled={isMutating || Boolean(mutationUnavailable)} onClick={() => setConfirmPreviewOpen(true)}>{t("storageCleanupPreviewConfirm")}</Button></div> : undefined}
+      >
+        {preview ? (
+          <div className="grid gap-4">
+            <MetricStrip ariaLabel={t("storageCleanupPreviewMetricsLabel")} density="compact" items={[{ label: t("storageCleanupPreviewItems"), value: preview.total.toLocaleString() }, { label: t("storageCleanupPreviewExecutable"), value: preview.previews.filter((item) => item.is_executable !== false).length.toLocaleString(), tone: "green" }, { label: t("storageCleanupPreviewBlocked"), value: preview.previews.filter((item) => item.is_executable === false).length.toLocaleString(), tone: "amber" }]} />
+            {preview.previews.slice(0, 24).map((item) => <div key={item.id} className="grid gap-1 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3"><strong className="truncate text-sm text-[var(--zc-text-primary)]">{item.old_name}</strong><span className={quietText}>{compactPath(item.source_path, 90)}</span><span className={metadataText}>{item.is_executable === false ? t("storageCleanupPreviewBlocked") : t("storageCleanupPreviewExecutable")}</span></div>)}
+            {preview.truncated || preview.hasMore ? <NoticeBanner tone="info">{replaceCopy("storageCleanupPreviewTruncated", { shown: Math.min(preview.previews.length, 24), total: preview.total })}</NoticeBanner> : null}
+          </div>
+        ) : null}
+      </SideSheet>
+
       <ConfirmDialog
-        open={confirmOpen}
-        tone="danger"
-        title={t("storageCleanupConfirmSafeTrashTitle")}
-        description={t("storageCleanupConfirmSafeTrashDesc")
-          .replace("{count}", selectedCleanupIds.size.toLocaleString())
-          .replace("{size}", formatBytes(selectedReclaimable))}
-        confirmLabel={t("storageCleanupMoveToSafeTrash")}
-        cancelLabel={t("cancel")}
-        isProcessing={isExecuting}
-        disabled={Boolean(mutationUnavailable)}
-        onConfirm={moveSelectedToSafeTrash}
-        onCancel={() => setConfirmOpen(false)}
-      />
-      <ConfirmDialog
-        open={Boolean(reviewConfirmCandidate)}
+        open={Boolean(reviewFinding)}
         tone="warning"
         title={t("storageCleanupReviewConfirmTitle")}
-        description={reviewConfirmCandidate ? `${reviewConfirmCandidate.name}\n${reviewConfirmCandidate.reason}${reviewConfirmCandidate.risk_note ? `\n${reviewConfirmCandidate.risk_note}` : ""}` : undefined}
+        description={reviewFinding ? replaceCopy("storageCleanupReviewConfirmDesc", { name: reviewFinding.title }) : undefined}
         emphasis={t("storageCleanupReviewConfirmEmphasis")}
-        confirmLabel={t("storageCleanupSelectForTrash")}
+        confirmLabel={t("storageCleanupReviewConfirmAction")}
         cancelLabel={t("cancel")}
-        onConfirm={confirmReviewCandidate}
-        onCancel={() => setReviewConfirmCandidate(null)}
+        isProcessing={isMutating}
+        onConfirm={() => void acknowledgeReviewFinding()}
+        onCancel={() => setReviewFinding(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmPreviewOpen && Boolean(preview)}
+        tone="warning"
+        title={t("storageCleanupConfirmSafeTrashTitle")}
+        description={replaceCopy("storageCleanupConfirmSafeTrashDesc", { count: selectedFindingIds.size, size: formatBytes(selectedBytes) })}
+        emphasis={t("storageCleanupConfirmSafeTrashEmphasis")}
+        confirmLabel={t("storageCleanupMoveToSafeTrash")}
+        cancelLabel={t("cancel")}
+        isProcessing={isMutating}
+        onConfirm={() => void moveSelectedToSafeTrash()}
+        onCancel={() => setConfirmPreviewOpen(false)}
       />
     </>
   );
 }
 
-function DurableAnalysisPanel({
-  api,
-  currentRunId
-}: {
-  api: StorageCleanupApi;
-  currentRunId: string | null;
-}) {
-  const [runs, setRuns] = useState<AnalysisRun[]>([]);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(currentRunId);
-  const [run, setRun] = useState<AnalysisRun | null>(null);
-  const [detectors, setDetectors] = useState<AnalysisDetector[]>([]);
-  const [findings, setFindings] = useState<AnalysisFinding[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [tierFilter, setTierFilter] = useState("all");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [decisionFilter, setDecisionFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("active");
-  const [expandedFindingId, setExpandedFindingId] = useState<string | null>(null);
-  const [evidenceByFinding, setEvidenceByFinding] = useState<Record<string, AnalysisFindingEvidence[]>>({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const requestSequence = useRef(0);
-  const knownRunRevision = useRef(0);
-  const knownDetectorRevisions = useRef(new Map<string, number>());
-
-  const supported = Boolean(api.listAnalysisRuns && api.listAnalysisFindings);
-
-  const loadRuns = useCallback(async () => {
-    if (!api.listAnalysisRuns) return;
-    try {
-      const listed = await api.listAnalysisRuns(20);
-      const cleanupRuns = listed.filter((item) => item.scope.kind === "approved_cleanup_paths");
-      setRuns(cleanupRuns);
-      setSelectedRunId((previous) => {
-        if (currentRunId && cleanupRuns.some((item) => item.id === currentRunId)) return currentRunId;
-        if (previous && cleanupRuns.some((item) => item.id === previous)) return previous;
-        return cleanupRuns[0]?.id ?? null;
-      });
-    } catch (loadError) {
-      setError(readableError(loadError));
-    }
-  }, [api, currentRunId]);
-
-  const loadFindings = useCallback(async (runId: string, cursor: string | null = null, append = false) => {
-    if (!api.listAnalysisFindings) return;
-    const requestId = ++requestSequence.current;
-    setLoading(true);
-    try {
-      const page = await api.listAnalysisFindings({
-        runId,
-        tier: tierFilter === "all" ? undefined : tierFilter,
-        category: categoryFilter === "all" ? undefined : categoryFilter,
-        decision: decisionFilter === "all" ? undefined : decisionFilter,
-        status: statusFilter === "all" ? undefined : statusFilter,
-        cursor,
-        limit: 30
-      });
-      if (requestId !== requestSequence.current) return;
-      setFindings((previous) => {
-        if (!append) return page.findings;
-        const existing = new Set(previous.map((finding) => finding.id));
-        return [...previous, ...page.findings.filter((finding) => !existing.has(finding.id))];
-      });
-      setNextCursor(page.nextCursor);
-      setError("");
-    } catch (loadError) {
-      if (requestId === requestSequence.current) setError(readableError(loadError));
-    } finally {
-      if (requestId === requestSequence.current) setLoading(false);
-    }
-  }, [api, categoryFilter, decisionFilter, statusFilter, tierFilter]);
-
-  const loadRunDetails = useCallback(async (runId: string) => {
-    try {
-      const [runResult, detectorResult] = await Promise.all([
-        api.getAnalysisRun?.(runId),
-        api.listAnalysisRunDetectors?.(runId)
-      ]);
-      if (runResult && runResult.revision >= knownRunRevision.current) {
-        knownRunRevision.current = runResult.revision;
-        setRun(runResult);
-      }
-      if (detectorResult) {
-        const durableDetectors = detectorResult.filter((detector) => {
-          const known = knownDetectorRevisions.current.get(detector.detectorId) ?? 0;
-          if (detector.revision < known) return false;
-          knownDetectorRevisions.current.set(detector.detectorId, detector.revision);
-          return true;
-        });
-        setDetectors(durableDetectors);
-      }
-      setError("");
-    } catch (loadError) {
-      setError(readableError(loadError));
-    }
-  }, [api]);
-
-  useEffect(() => {
-    if (!supported) return;
-    void loadRuns();
-  }, [loadRuns, supported]);
-
-  useEffect(() => {
-    if (!selectedRunId) {
-      setRun(null);
-      setDetectors([]);
-      setFindings([]);
-      setNextCursor(null);
-      return;
-    }
-    void loadRunDetails(selectedRunId);
-    void loadFindings(selectedRunId);
-  }, [loadFindings, loadRunDetails, selectedRunId]);
-
-  useEffect(() => {
-    if (!api.onAnalysisRunUpdated) return undefined;
-    let disposed = false;
-    let disposer: (() => void) | undefined;
-    const handleRunEvent = (updatedRun: AnalysisRun) => {
-      if (disposed || updatedRun.scope.kind !== "approved_cleanup_paths") return;
-      void loadRuns();
-      if (!selectedRunId || updatedRun.id !== selectedRunId) return;
-      const known = knownRunRevision.current;
-      if (updatedRun.revision <= known) return;
-      if (known > 0 && updatedRun.revision > known + 1) {
-        void loadRunDetails(updatedRun.id);
-        void loadFindings(updatedRun.id);
-        void useStorageCleanupStore.getState().hydrateDurable(api, updatedRun.id);
-        return;
-      }
-      knownRunRevision.current = updatedRun.revision;
-      setRun(updatedRun);
-      setRuns((previous) => previous.map((item) => item.id === updatedRun.id ? updatedRun : item));
-      void loadFindings(updatedRun.id);
-    };
-    async function subscribe() {
-      const off = await api.onAnalysisRunUpdated?.(handleRunEvent);
-      disposer = off;
-      if (disposed) disposer?.();
-    }
-    void subscribe();
-    return () => {
-      disposed = true;
-      disposer?.();
-    };
-  }, [api, loadFindings, loadRunDetails, loadRuns, selectedRunId]);
-
-  useEffect(() => {
-    knownRunRevision.current = 0;
-    knownDetectorRevisions.current.clear();
-  }, [selectedRunId]);
-
-  useEffect(() => {
-    if (!selectedRunId || !api.onAnalysisFindingsPublished) return undefined;
-    let disposed = false;
-    let disposer: (() => void) | undefined;
-    const handlePublishedEvent = (updatedRun: AnalysisRun) => {
-      if (disposed || updatedRun.id !== selectedRunId) return;
-      const known = knownRunRevision.current;
-      if (updatedRun.revision <= known) return;
-      if (known > 0 && updatedRun.revision > known + 1) {
-        void loadRunDetails(updatedRun.id);
-        void loadFindings(updatedRun.id);
-        void useStorageCleanupStore.getState().hydrateDurable(api, updatedRun.id);
-        return;
-      }
-      knownRunRevision.current = updatedRun.revision;
-      setRun(updatedRun);
-      setRuns((previous) => previous.map((item) => item.id === updatedRun.id ? updatedRun : item));
-      void loadFindings(updatedRun.id);
-    };
-    void api.onAnalysisFindingsPublished(handlePublishedEvent).then((off) => {
-      disposer = off;
-      if (disposed) disposer();
-    });
-    return () => {
-      disposed = true;
-      disposer?.();
-    };
-  }, [api, loadFindings, selectedRunId]);
-
-  useEffect(() => {
-    if (!selectedRunId || !api.onAnalysisDetectorUpdated) return undefined;
-    let disposed = false;
-    let disposer: (() => void) | undefined;
-    void api.onAnalysisDetectorUpdated((detector) => {
-      if (disposed || detector.runId !== selectedRunId) return;
-      const known = knownDetectorRevisions.current.get(detector.detectorId) ?? 0;
-      if (detector.revision <= known) return;
-      if (known > 0 && detector.revision > known + 1) {
-        void loadRunDetails(selectedRunId);
-        return;
-      }
-      knownDetectorRevisions.current.set(detector.detectorId, detector.revision);
-      setDetectors((previous) => {
-        const found = previous.some((item) => item.detectorId === detector.detectorId);
-        return found
-          ? previous.map((item) => item.detectorId === detector.detectorId ? detector : item)
-          : [...previous, detector];
-      });
-    }).then((off) => {
-      disposer = off;
-      if (disposed) disposer();
-    });
-    return () => {
-      disposed = true;
-      disposer?.();
-    };
-  }, [api, loadRunDetails, selectedRunId]);
-
-  if (!supported) return null;
-
-  async function chooseRun(runId: string) {
-    setSelectedRunId(runId);
-    await useStorageCleanupStore.getState().hydrateDurable(api, runId);
-  }
-
-  async function changeRun(action: "cancel" | "retry") {
-    if (!selectedRunId) return;
-    const method = action === "cancel" ? api.cancelAnalysisRun : api.retryAnalysisRun;
-    if (!method) return;
-    try {
-      const next = await method(selectedRunId);
-      knownRunRevision.current = next.revision;
-      setRun(next);
-      setRuns((previous) => [next, ...previous.filter((item) => item.id !== next.id)].slice(0, 20));
-      if (action === "retry") await chooseRun(next.id);
-    } catch (runError) {
-      setError(readableError(runError));
-    }
-  }
-
-  async function toggleEvidence(finding: AnalysisFinding) {
-    if (expandedFindingId === finding.id) {
-      setExpandedFindingId(null);
-      return;
-    }
-    setExpandedFindingId(finding.id);
-    if (!api.listAnalysisFindingEvidence || evidenceByFinding[finding.id]) return;
-    try {
-      const evidence = await api.listAnalysisFindingEvidence(finding.id);
-      setEvidenceByFinding((previous) => ({ ...previous, [finding.id]: evidence }));
-    } catch (evidenceError) {
-      setError(readableError(evidenceError));
-    }
-  }
-
-  async function updateDecision(
-    finding: AnalysisFinding,
-    decision: "open" | "acknowledged" | "dismissed" | "snoozed"
-  ) {
-    if (!api.setAnalysisFindingDecision || !selectedRunId) return;
-    try {
-      await api.setAnalysisFindingDecision({
-        findingKey: finding.findingKey,
-        decision,
-        snoozedUntil: decision === "snoozed" ? Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60 : null,
-        expectedRevision: finding.decisionRevision ?? 0
-      });
-      await loadFindings(selectedRunId);
-    } catch (decisionError) {
-      setError(readableError(decisionError));
-    }
-  }
-
-  async function revalidate(finding: AnalysisFinding) {
-    if (!api.revalidateAnalysisFinding || !selectedRunId) return;
-    try {
-      await api.revalidateAnalysisFinding(finding.id);
-      await loadFindings(selectedRunId);
-    } catch (revalidateError) {
-      setError(readableError(revalidateError));
-    }
-  }
-
-  return (
-    <section className={cn(contentPanel, "grid gap-3 p-4")} data-analysis-ledger>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className={sectionHeading}>Durable Analysis / Findings</h2>
-            {run && <ToneBadge tone={analysisRunTone(run.status)}>{run.status}</ToneBadge>}
-          </div>
-          <p className={sectionDescription}>
-            SQLite durable runs, detector progress, evidence and review decisions; findings never authorize a mutation by themselves.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {run && ["queued", "running", "cancelling"].includes(run.status) && api.cancelAnalysisRun && (
-            <button className={buttonSecondary} onClick={() => void changeRun("cancel")}>Cancel run</button>
-          )}
-          {run && ["completed_with_warnings", "failed", "interrupted", "cancelled"].includes(run.status) && api.retryAnalysisRun && (
-            <button className={buttonSecondary} onClick={() => void changeRun("retry")}>Retry run</button>
-          )}
-        </div>
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-[minmax(190px,0.35fr)_minmax(0,1fr)]">
-        <div className="grid content-start gap-2">
-          <span className={metadataText}>Recent cleanup runs</span>
-          {runs.length === 0 ? (
-            <span className={quietText}>No durable cleanup run has been recorded.</span>
-          ) : runs.slice(0, 8).map((item) => (
-            <button
-              key={item.id}
-              className={cn(
-                buttonSecondary,
-                "justify-between text-left",
-                item.id === selectedRunId && "border-[var(--accent)] bg-[var(--accent-soft)]"
-              )}
-              onClick={() => void chooseRun(item.id)}
-            >
-              <span className="min-w-0 truncate">{item.id}</span>
-              <ToneBadge tone={analysisRunTone(item.status)}>{item.status}</ToneBadge>
-            </button>
-          ))}
-        </div>
-
-        <div className="grid gap-3">
-          {run && (
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-2">
-              <MetricCard label="Phase" value={run.phase} hint={`revision ${run.revision}`} tone="blue" />
-              <MetricCard label="Safe" value={run.safeCount} hint={formatBytes(run.exactReclaimableBytes)} tone="green" />
-              <MetricCard label="Review" value={run.reviewCount} hint={formatBytes(run.potentialReclaimableBytes)} tone="amber" />
-              <MetricCard label="Caution" value={run.cautionCount} hint="never executable" tone="red" />
-            </div>
-          )}
-          {detectors.length > 0 && (
-            <div className="grid gap-2">
-              <span className={metadataText}>Detector progress</span>
-              {detectors.map((detector) => (
-                <div key={detector.detectorId} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--line)] px-3 py-2 text-sm">
-                  <span>{detector.detectorId}</span>
-                  <span className={quietText}>{detector.status} · {detector.findingsPublished.toLocaleString()} published</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {selectedRunId && (
-        <>
-          <div className="flex flex-wrap items-center gap-2 border-t border-[var(--line)] pt-3">
-            <span className={metadataText}>Finding filters</span>
-            <select className={buttonSecondary} value={tierFilter} onChange={(event) => setTierFilter(event.target.value)}>
-              <option value="all">All tiers</option>
-              <option value="safe">Safe</option>
-              <option value="review">Review</option>
-              <option value="caution">Caution</option>
-            </select>
-            <select className={buttonSecondary} value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
-              <option value="all">All categories</option>
-              <option value="duplicate_group">Duplicate group</option>
-              <option value="large_file">Large file</option>
-              <option value="large_directory">Large directory</option>
-              <option value="temp_cache">Cleanup heuristic</option>
-            </select>
-            <select className={buttonSecondary} value={decisionFilter} onChange={(event) => setDecisionFilter(event.target.value)}>
-              <option value="all">All decisions</option>
-              <option value="open">Open</option>
-              <option value="acknowledged">Acknowledged</option>
-              <option value="dismissed">Dismissed</option>
-              <option value="snoozed">Snoozed</option>
-            </select>
-            <select className={buttonSecondary} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-              <option value="active">Active</option>
-              <option value="stale">Stale</option>
-              <option value="all">All statuses</option>
-            </select>
-          </div>
-
-          {error && <NoticeBanner tone="warning">{error}</NoticeBanner>}
-          {loading && <NoticeBanner tone="info">Loading durable findings…</NoticeBanner>}
-          {!loading && findings.length === 0 ? (
-            <StateBlock density="compact" tone="info" title="No findings for this run" description="Change the filters or run the approved cleanup analysis again." />
-          ) : (
-            <div className="grid gap-2">
-              {findings.map((finding) => {
-                const evidence = evidenceByFinding[finding.id] ?? [];
-                const expanded = expandedFindingId === finding.id;
-                return (
-                  <article key={finding.id} className="grid gap-2 rounded-xl border border-[var(--line)] p-3">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <strong className="text-sm text-[var(--ink)]">{finding.title}</strong>
-                          <ToneBadge tone={analysisFindingTone(finding.tier)}>{finding.tier}</ToneBadge>
-                          {finding.status !== "active" && <ToneBadge tone="warning">{finding.status}</ToneBadge>}
-                          {finding.decision && <ToneBadge tone="slate">{finding.decision}</ToneBadge>}
-                        </div>
-                        <p className={cn(quietText, "mt-1")}>{finding.reason}</p>
-                        {finding.pathSnapshot && <p className={cn(quietText, "truncate")} title={finding.pathSnapshot}>{compactPath(finding.pathSnapshot, 120)}</p>}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {finding.pathSnapshot && api.revealStorageCandidate && (
-                          <button className={buttonSecondary} onClick={() => void api.revealStorageCandidate?.(finding.pathSnapshot!)}>Reveal</button>
-                        )}
-                        <button className={buttonSecondary} onClick={() => void toggleEvidence(finding)}>{expanded ? "Hide evidence" : "Evidence"}</button>
-                        {finding.status === "stale" && api.revalidateAnalysisFinding && (
-                          <button className={buttonSecondary} onClick={() => void revalidate(finding)}>Revalidate</button>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-[var(--ink-muted)]">
-                      <span>Detector: {finding.detectorId}</span>
-                      <span>Action: {finding.actionKind}</span>
-                      <span>Exact: {formatBytes(finding.exactReclaimableBytes ?? 0)}</span>
-                      <span>Potential: {formatBytes(finding.potentialReclaimableBytes)}</span>
-                      {finding.category === "duplicate_group" && <span>Read-only duplicate group</span>}
-                    </div>
-                    {api.setAnalysisFindingDecision && (
-                      <div className="flex flex-wrap gap-2">
-                        <button className={buttonSecondary} onClick={() => void updateDecision(finding, "acknowledged")}>Acknowledge</button>
-                        <button className={buttonSecondary} onClick={() => void updateDecision(finding, "dismissed")}>Dismiss</button>
-                        <button className={buttonSecondary} onClick={() => void updateDecision(finding, "snoozed")}>Snooze 7d</button>
-                        {finding.decision && <button className={buttonSecondary} onClick={() => void updateDecision(finding, "open")}>Reopen</button>}
-                      </div>
-                    )}
-                    {expanded && (
-                      <div className="grid gap-1 rounded-lg bg-[var(--surface-muted)] p-3 text-xs">
-                        <span>Identity: {finding.identitySnapshot ? JSON.stringify(finding.identitySnapshot) : "unknown"}</span>
-                        <span>Source revision: {finding.revision}</span>
-                        {evidence.map((item) => (
-                          <span key={item.id}>{item.evidenceKind === "ai_assessment" ? "AI assessment" : item.evidenceKind}: {JSON.stringify(item.value)}</span>
-                        ))}
-                      </div>
-                    )}
-                  </article>
-                );
-              })}
-              {nextCursor && (
-                <button className={buttonSecondary} onClick={() => void loadFindings(selectedRunId, nextCursor, true)} disabled={loading}>
-                  Load more findings
-                </button>
-              )}
-            </div>
-          )}
-        </>
-      )}
-    </section>
-  );
-}
-
-function VirtualCandidateList({
-  candidates,
-  selectedIds,
-  aiAnalyzedIds,
-  aiDowngradedIds,
-  t,
-  onToggleSafeCandidate,
-  onReveal
-}: {
-  candidates: StorageCandidate[];
-  selectedIds: Set<string>;
-  aiAnalyzedIds: Set<string>;
-  aiDowngradedIds: Set<string>;
-  t: Translator;
-  onToggleSafeCandidate: (candidate: StorageCandidate) => void;
-  onReveal: (path: string) => void;
-}) {
-  if (candidates.length <= 20) {
-    return (
-      <div className="grid gap-3">
-        {candidates.map((candidate) => (
-          <CandidateCard
-            key={candidate.id}
-            candidate={candidate}
-            selected={selectedIds.has(candidate.id)}
-            aiAnalyzed={aiAnalyzedIds.has(candidate.id)}
-            aiDowngraded={aiDowngradedIds.has(candidate.id)}
-            t={t}
-            onToggleSafeCandidate={onToggleSafeCandidate}
-            onReveal={onReveal}
-          />
-        ))}
-      </div>
-    );
-  }
-  return <VirtualizedCandidateRows {...{ candidates, selectedIds, aiAnalyzedIds, aiDowngradedIds, t, onToggleSafeCandidate, onReveal }} />;
-}
-
-function VirtualizedCandidateRows({
-  candidates,
-  selectedIds,
-  aiAnalyzedIds,
-  aiDowngradedIds,
-  t,
-  onToggleSafeCandidate,
-  onReveal
-}: {
-  candidates: StorageCandidate[];
-  selectedIds: Set<string>;
-  aiAnalyzedIds: Set<string>;
-  aiDowngradedIds: Set<string>;
-  t: Translator;
-  onToggleSafeCandidate: (candidate: StorageCandidate) => void;
-  onReveal: (path: string) => void;
-}) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const virtualizer = useVirtualizer({
-    count: candidates.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => 230,
-    overscan: 5
-  });
-  return (
-    <div ref={scrollRef} className="max-h-[min(56vh,540px)] overflow-auto pr-1" role="list">
-      <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
-        {virtualizer.getVirtualItems().map((virtualRow) => {
-          const candidate = candidates[virtualRow.index];
-          return (
-            <div
-              key={candidate.id}
-              ref={virtualizer.measureElement}
-              data-index={virtualRow.index}
-              className="absolute left-0 top-0 w-full pb-3"
-              style={{ transform: `translateY(${virtualRow.start}px)` }}
-              role="listitem"
-            >
-              <CandidateCard
-                candidate={candidate}
-                selected={selectedIds.has(candidate.id)}
-                aiAnalyzed={aiAnalyzedIds.has(candidate.id)}
-                aiDowngraded={aiDowngradedIds.has(candidate.id)}
-                t={t}
-                onToggleSafeCandidate={onToggleSafeCandidate}
-                onReveal={onReveal}
-              />
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function CandidateCard({
-  candidate,
+function FindingRow({
+  finding,
   selected,
-  aiAnalyzed,
-  aiDowngraded,
+  evidence,
+  evidenceExpanded,
   t,
-  onToggleSafeCandidate,
-  onReveal
+  style,
+  onToggle,
+  onReveal,
+  onToggleEvidence,
+  onRevalidate
 }: {
-  candidate: StorageCandidate;
+  finding: AnalysisFinding;
   selected: boolean;
-  aiAnalyzed: boolean;
-  aiDowngraded: boolean;
+  evidence?: AnalysisFindingEvidence[];
+  evidenceExpanded: boolean;
   t: Translator;
-  onToggleSafeCandidate: (candidate: StorageCandidate) => void;
-  onReveal: (path: string) => void;
+  style: { transform: string };
+  onToggle: (finding: AnalysisFinding) => void;
+  onReveal: (finding: AnalysisFinding) => void;
+  onToggleEvidence: (finding: AnalysisFinding) => void;
+  onRevalidate: (finding: AnalysisFinding) => void;
 }) {
-  const selectable = canManuallySelectForCleanup(candidate);
-  const disabledReason = cleanupSelectionDisabledReason(candidate);
+  const isCaution = finding.tier === "caution";
+  const selectable = isFindingSelectable(finding);
+  const confidence = finding.confidence === "exact" ? t("storageCleanupConfidenceExact") : finding.confidence === "estimated" ? t("storageCleanupConfidenceEstimated") : t("storageCleanupConfidenceUnknown");
   return (
-    <article className={cn(softPanel, "grid gap-3 p-3")} data-candidate-id={candidate.id}>
+    <article
+      className={cn("absolute left-0 top-0 grid w-full gap-2 border-b border-[var(--zc-divider)] px-4 py-3", selected && "bg-[var(--zc-surface-selected)]")}
+      style={{ ...style, minHeight: FINDING_ROW_HEIGHT }}
+      data-analysis-finding-id={finding.id}
+      data-tier={finding.tier}
+    >
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
-          <strong className="block truncate text-sm text-[var(--ink)]">{candidate.name}</strong>
-          <span className={quietText} title={candidate.path}>{compactPath(candidate.path, 108)}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <strong className="truncate text-sm text-[var(--zc-text-primary)]">{finding.title || finding.category}</strong>
+            <ToneBadge tone={finding.tier === "safe" ? "success" : finding.tier === "review" ? "warning" : "danger"}>{tierLabel(finding.tier, t)}</ToneBadge>
+            {selected ? <ToneBadge tone="info">{t("storageCleanupSelected")}</ToneBadge> : null}
+          </div>
+          <p className="mt-1 truncate text-xs text-[var(--zc-text-secondary)]" title={finding.pathSnapshot ?? undefined}>{finding.pathSnapshot ? compactPath(finding.pathSnapshot, 120) : t("storageCleanupPathUnavailable")}</p>
         </div>
-        <ToneBadge tone={tierTone(candidate.tier)}>{formatBytes(candidate.size)}</ToneBadge>
+        <span className="shrink-0 text-sm font-semibold tabular-nums text-[var(--zc-text-primary)]">{formatBytes(finding.sizeBytes)}</span>
       </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        <ToneBadge tone="slate">{candidate.category}</ToneBadge>
-        <TierBadge tier={candidate.tier} t={t} />
-        {aiAnalyzed && <ToneBadge tone="blue">{t("storageCleanupAIAnalyzedBadge")}</ToneBadge>}
-        {selectable && <ToneBadge tone="green">{t("storageCleanupCanMoveToTrash")}</ToneBadge>}
-        <ToneBadge tone={candidate.trash_allowed ? "green" : "slate"}>
-          {candidate.trash_allowed ? t("storageCleanupTrashAllowed") : t("storageCleanupTrashBlocked")}
-        </ToneBadge>
-        <ToneBadge tone={candidate.selected_by_default ? "green" : "slate"}>
-          {candidate.selected_by_default ? t("storageCleanupSelectedByDefault") : t("storageCleanupNotSelectedByDefault")}
-        </ToneBadge>
+      <div className="grid gap-1 text-sm leading-6 text-[var(--zc-text-secondary)]">
+        <span><strong className="font-medium text-[var(--zc-text-primary)]">{t("storageCleanupFindingWhy")}:</strong> {finding.reason}</span>
+        {finding.riskNote ? <span className="text-[var(--zc-warning-text)]"><strong className="font-medium">{t("storageCleanupFindingRisk")}:</strong> {finding.riskNote}</span> : null}
       </div>
-      <div className="grid gap-1">
-        <p className={metadataText}>
-          {aiAnalyzed ? `${t("storageCleanupAIReasonLabel")}：` : ""}
-          {candidate.reason}
-        </p>
-        {candidate.risk_note && (
-          <p className={quietText}>
-            {aiAnalyzed ? `${t("storageCleanupAIRiskNoteLabel")}：` : ""}
-            {candidate.risk_note}
-          </p>
-        )}
-        {aiDowngraded && (
-          <p className="text-xs font-medium text-[var(--warning)]">{t("storageCleanupAIDowngraded")}</p>
-        )}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--zc-text-secondary)]">
+        <span>{t("storageCleanupFindingConfidence")}: {confidence}</span>
+        <span>{finding.executable ? t("storageCleanupFindingExecutable") : t("storageCleanupFindingBlocked")}</span>
+        <span>{finding.category}</span>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        {selectable && (
-          <button
-            className={selected ? glassButtonPrimary : buttonSecondary}
-            onClick={() => onToggleSafeCandidate(candidate)}
-            aria-pressed={selected}
-          >
-            <CheckCircle2 size={16} />
-            <span>{selected ? t("storageCleanupSelected") : t("storageCleanupSelectForTrash")}</span>
-          </button>
-        )}
-        <IconButton
-          aria-label={t("storageCleanupReveal")}
-          title={t("storageCleanupReveal")}
-          onClick={() => onReveal(candidate.path)}
-        >
-          <FolderOpen size={16} />
-        </IconButton>
-        {candidate.tier === "Caution" && (
-          <button className={buttonSecondary} onClick={() => onReveal(candidate.path)}>
-            <HelpCircle size={16} />
-            <span>{t("storageCleanupViewAdvice")}</span>
-          </button>
-        )}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2">
+          {finding.pathSnapshot ? <Button variant="ghost" size="compact" onClick={() => onReveal(finding)}><FolderOpen size={14} aria-hidden="true" />{t("storageCleanupReveal")}</Button> : null}
+          <Button variant="ghost" size="compact" onClick={() => onToggleEvidence(finding)}><FileSearch size={14} aria-hidden="true" />{evidenceExpanded ? t("storageCleanupFindingHideEvidence") : t("storageCleanupFindingEvidence")}</Button>
+          {finding.status === "stale" ? <Button variant="secondary" size="compact" onClick={() => onRevalidate(finding)}><RefreshCw size={14} aria-hidden="true" />{t("storageCleanupFindingRecheck")}</Button> : null}
+        </div>
+        {isCaution ? <span className="text-xs font-medium text-[var(--zc-warning-text)]">{t("storageCleanupCautionHint")}</span> : <Button variant={selected ? "secondary" : "primary"} size="compact" disabled={!selectable && !(finding.tier === "review" && finding.status === "active" && finding.decision !== "acknowledged")} aria-pressed={selected} onClick={() => onToggle(finding)}>{selected ? <Check size={14} aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />}{selected ? t("storageCleanupSelected") : finding.tier === "review" && finding.decision !== "acknowledged" ? t("storageCleanupFindingAcknowledge") : t("storageCleanupSelectForTrash")}</Button>}
       </div>
-      {!selectable && disabledReason ? (
-        <p className={quietText}>{disabledReason}</p>
-      ) : candidate.tier === "Review" ? (
-        <p className={quietText}>需要人工确认后才能加入 Safe Trash。</p>
-      ) : null}
+      {evidenceExpanded ? <div className="grid gap-2 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3" data-finding-evidence><strong className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--zc-text-tertiary)]">{t("storageCleanupFindingEvidence")}</strong>{evidence?.length ? evidence.map((item) => <div key={item.id} className="text-xs leading-5 text-[var(--zc-text-secondary)]">{item.evidenceKind}{item.pathSnapshot ? ` · ${compactPath(item.pathSnapshot, 100)}` : ""}</div>) : <span className={quietText}>{t("storageCleanupFindingEvidenceEmpty")}</span>}</div> : null}
     </article>
   );
 }
 
-function TierBadge({ tier, t }: { tier: CleanupTier; t: Translator }) {
-  const Icon = tier === "Safe" ? CheckCircle2 : tier === "Review" ? AlertTriangle : ShieldAlert;
-  return (
-    <ToneBadge tone={tierTone(tier)}>
-      <span className="inline-flex items-center gap-1">
-        <Icon size={13} />
-        <span>{filterTitle(tier, t)}</span>
-      </span>
-    </ToneBadge>
-  );
+function isCleanupRun(run: AnalysisRun): boolean {
+  const kind = typeof run.scope?.kind === "string" ? run.scope.kind : "";
+  return kind === "approvedCleanupPaths" || kind === "approved_cleanup_paths";
 }
 
-function cleanupAIIdsForMode(
-  mode: "all" | "risk" | "selected",
-  candidates: StorageCandidate[],
-  selectedCleanupIds: Set<string>
-) {
-  if (mode === "selected") return [...selectedCleanupIds];
-  return candidates
-    .filter((candidate) => mode === "all" || candidate.tier === "Review" || candidate.tier === "Caution")
-    .map((candidate) => candidate.id);
+function scopePaths(run: AnalysisRun): string[] {
+  const paths = run.scope?.paths;
+  return Array.isArray(paths) ? paths.filter((value): value is string => typeof value === "string" && Boolean(value.trim())) : [];
 }
 
-async function buildCleanupFindingSelections(
-  api: StorageCleanupApi,
-  ids: string[]
-): Promise<CleanupFindingSelection[]> {
-  if (!api.getAnalysisFinding) throw new Error("analysis_finding_selection_unsupported");
-  const findings = await Promise.all(ids.map((id) => api.getAnalysisFinding!(id)));
-  return findings.map((finding, index) => {
-    if (!finding) throw new Error(`analysis_finding_not_found:${ids[index]}`);
-    const selection: CleanupFindingSelection = {
-      findingId: finding.id,
-      expectedRevision: finding.revision
-    };
-    if (finding.tier === "review") {
-      if (finding.decision !== "acknowledged" || finding.decisionRevision == null) {
-        throw new Error(`review_confirmation_required:${finding.id}`);
-      }
-      selection.reviewConfirmation = {
-        decisionRevision: finding.decisionRevision
-      };
-    }
-    return selection;
-  });
+function isRunInProgress(run: AnalysisRun | null): boolean {
+  if (!run) return false;
+  return ["queued", "running", "cancelling", "cancel_requested"].includes(run.status) || ["preparing", "running_detectors", "finalizing"].includes(run.phase);
 }
 
-function ensureCleanupAIReady(
-  enabled: boolean,
-  cleanupAiEnabled: boolean,
-  provider: string,
-  apiKey: string,
-  apiKeyConfigured?: boolean
-) {
-  if (!enabled) {
-    throw new Error("ai_disabled");
-  }
-  if (!cleanupAiEnabled) {
-    throw new Error("ai_cleanup_disabled");
-  }
-  if (provider !== "ollama" && !apiKey.trim() && !apiKeyConfigured) {
-    throw new Error("ai_api_key_missing");
-  }
+function isPartialRun(run: AnalysisRun): boolean {
+  return ["partial", "completed_with_warnings", "completed_partial"].includes(run.status)
+    || run.warningCount > 0
+    || run.errorCount > 0
+    || run.detectorsFailed > 0;
 }
 
-function readableCleanupAIError(error: unknown, t: Translator) {
-  const message = readableError(error);
-  const normalized = message.toLowerCase();
-  if (message === "ai_disabled" || message.includes("AI 未启用") || message.includes("启用 AI")) {
-    return t("storageCleanupAIEnableAI");
-  }
-  if (message === "ai_cleanup_disabled" || message.includes("AI 空间清理分析") || message.includes("AI 清理分析")) {
-    return t("storageCleanupAIEnableCleanup");
-  }
-  if (message === "ai_api_key_missing" || message.includes("API Key 缺失") || message.includes("当前模型服务需要 API Key")) {
-    return t("storageCleanupAIErrorMissingKey");
-  }
-  if (message.includes("模型返回") || message.includes("Zen Canvas 需要的 JSON")) {
-    return withCleanupProviderDetail(t("storageCleanupAIErrorInvalidResponse"), message);
-  }
-  if (isCleanupRateLimitError(normalized)) {
-    return withCleanupProviderDetail(t("storageCleanupAIErrorRateLimit"), message);
-  }
-  if (isCleanupTimeoutError(normalized)) {
-    return withCleanupProviderDetail(t("storageCleanupAIErrorTimeout"), message);
-  }
-  if (isCleanupHttpStatus(normalized, 400)) {
-    return withCleanupProviderDetail(t("storageCleanupAIErrorBadRequest"), message);
-  }
-  if (isCleanupHttpStatus(normalized, 401) || isCleanupHttpStatus(normalized, 403)) {
-    return withCleanupProviderDetail(t("storageCleanupAIErrorAuth"), message);
-  }
-  if (hasCleanupProviderDetail(normalized)) return message;
-  if (normalized.includes("request failed") || normalized.includes("ollama") || normalized.includes("network")) {
-    return withCleanupProviderDetail(t("storageCleanupAIErrorNetwork"), message);
-  }
-  if (normalized.includes("invalid json") || normalized.includes("not valid json") || normalized.includes("json")) {
-    return withCleanupProviderDetail(t("storageCleanupAIErrorInvalidResponse"), message);
-  }
-  if (
-    normalized.includes("unsupported value") ||
-    normalized.includes("safety") ||
-    message.includes("安全") ||
-    message.includes("校验")
-  ) {
-    return withCleanupProviderDetail(t("storageCleanupAIErrorUnsafeResult"), message);
-  }
-  return message;
+function durableRunState(run: AnalysisRun): "running" | "partial" | "completed" | "failed" | "canceled" {
+  if (isRunInProgress(run)) return "running";
+  if (["cancelled", "canceled"].includes(run.status)) return "canceled";
+  if (["failed", "error"].includes(run.status) && !run.findingsPublished) return "failed";
+  if (isPartialRun(run)) return "partial";
+  return "completed";
 }
 
-function isCleanupHttpStatus(normalized: string, status: number) {
-  const text = String(status);
-  return normalized.includes(`http ${text}`)
-    || normalized.includes(`http status ${text}`)
-    || normalized.includes(`status ${text}`)
-    || normalized.includes(`status=${text}`);
+function isBackendDefaultSafeFinding(finding: AnalysisFinding): boolean {
+  return finding.tier === "safe" && finding.status === "active" && finding.executable && !finding.requiresConfirmation && isTrashAction(finding.actionKind);
 }
 
-function isCleanupRateLimitError(normalized: string) {
-  return isCleanupHttpStatus(normalized, 429)
-    || normalized.includes("rate limit")
-    || normalized.includes("too many request");
+function isFindingSelectable(finding: AnalysisFinding): boolean {
+  return (finding.tier === "safe" || finding.tier === "review")
+    && finding.status === "active"
+    && finding.executable
+    && isTrashAction(finding.actionKind)
+    && (finding.tier !== "review" || finding.decision === "acknowledged");
 }
 
-function isCleanupTimeoutError(normalized: string) {
-  return normalized.includes("timeout") || normalized.includes("timed out");
+function isTrashAction(actionKind: string): boolean {
+  return /trash|move/i.test(actionKind);
 }
 
-function hasCleanupProviderDetail(normalized: string) {
-  return normalized.includes("http ")
-    || normalized.includes("http status")
-    || normalized.includes("status ")
-    || normalized.includes("batch ")
-    || normalized.includes("provider response summary")
-    || normalized.includes("provider error:")
-    || normalized.includes("rate limit");
-}
-
-function withCleanupProviderDetail(summary: string, detail: string) {
-  return detail.includes(summary) ? detail : `${summary}\n${detail}`;
-}
-
-function sortCandidatesBySize(candidates: StorageCandidate[]) {
-  return [...candidates].sort((left, right) => right.size - left.size || left.path.localeCompare(right.path));
-}
-
-function countTiers(candidates: StorageCandidate[]) {
-  return candidates.reduce<Record<CleanupTier, number>>(
-    (counts, candidate) => {
-      counts[candidate.tier] += 1;
-      return counts;
-    },
-    { Safe: 0, Review: 0, Caution: 0 }
-  );
-}
-
-function quickScopeLabel(kind: "downloads" | "desktop" | "documents" | "temp", t: Translator) {
-  if (kind === "downloads") return t("storageCleanupQuickDownloads");
-  if (kind === "desktop") return t("storageCleanupQuickDesktop");
-  if (kind === "documents") return t("storageCleanupQuickDocuments");
-  return t("storageCleanupQuickTemp");
-}
-
-function tierTone(tier: CleanupTier): "green" | "amber" | "red" {
-  if (tier === "Safe") return "green";
-  if (tier === "Review") return "amber";
-  return "red";
-}
-
-function filterTitle(filter: CleanupTier | "All", t: Translator) {
-  if (filter === "All") return t("storageCleanupAllFilter");
-  if (filter === "Safe") return t("storageCleanupSafeTier");
-  if (filter === "Review") return t("storageCleanupReviewTier");
+function tierLabel(tier: string, t: Translator): string {
+  if (tier === "safe") return t("storageCleanupSafeTier");
+  if (tier === "review") return t("storageCleanupReviewTier");
   return t("storageCleanupCautionTier");
-}
-
-function analysisRunTone(status: string): "green" | "amber" | "red" | "slate" | "blue" {
-  if (status === "completed") return "green";
-  if (status === "completed_with_warnings" || status === "cancelling") return "amber";
-  if (status === "failed" || status === "interrupted") return "red";
-  if (status === "cancelled") return "slate";
-  return "blue";
-}
-
-function analysisFindingTone(tier: string): "green" | "amber" | "red" | "slate" {
-  if (tier === "safe") return "green";
-  if (tier === "review") return "amber";
-  if (tier === "caution") return "red";
-  return "slate";
 }

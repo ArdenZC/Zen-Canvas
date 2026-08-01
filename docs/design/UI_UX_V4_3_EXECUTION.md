@@ -1413,6 +1413,74 @@ PR6 must migrate Overview to truthful Plan/cleanup/watch health task language an
 
 The renderer still carries a compatibility item-page adapter in the Organization Plan store, even though the V4.3 Organize surface uses group and group-item queries. Reviewers should confirm that no later caller reintroduces item-page grouping or treats the adapter as a second UI authority. The browser-mock group action path was covered by static contract tests but not by a completed rendered interaction because the temporary preview tab closed during row selection; validate that path against a seeded plan before release.
 
+## 5G. PR6 closeout — durable Storage Cleanup UX
+
+### Current baseline
+
+PR6 starts from committed PR5 `d62de7d` on `codex/ui-v4-3-product-integration`. The implementation preserves Schema 34, Analysis Run/Finding/Evidence/Decision contracts, server-authoritative Operation Preview, Safe Trash, cleanup journals, and History/Restore recovery.
+
+### Authority migrated
+
+The Storage Cleanup workspace now renders the durable Analysis Run and Finding authorities. Scope, run status, detector progress, partial/retry state, backend aggregate counts, cursor-based finding pages, evidence, review decisions, Preview, Safe Trash, and History navigation are all connected to that durable flow. The renderer keeps only transient selection, disclosure, preview, and confirmation state; it does not derive authoritative totals from loaded findings.
+
+### Legacy path retired
+
+- The visible Cleanup page no longer imports or renders `useStorageCleanupStore`, `StorageAnalysis`, `StorageCandidate`, legacy scan/candidate commands, or multiple legacy AI analysis controls.
+- Caution findings are never selectable; Safe findings follow the backend-safe default policy; Review findings require an acknowledgement with the current decision revision before selection.
+- The compatibility cleanup store and legacy scanner APIs remain only for existing non-migrated callers and browser/mock compatibility; they are not a second Cleanup rendering authority.
+- Cleanup execution remains Safe Trash only. No permanent-delete path, direct filesystem mutation, or second queue was introduced.
+
+### Product changes
+
+- Added a required scope-first flow with quick scope choices, a single primary Scan action, durable run progress, partial/error recovery, and backend-derived metrics.
+- Added Safe / Review / Caution finding tabs, virtualized rows, reason/risk/confidence copy, evidence disclosure, reveal, stale recheck, and review acknowledgement.
+- Kept one contextual AI action for Review recheck. It is advisory and refreshes durable findings; it does not move files or create a second analysis queue.
+- Added server Preview, explicit Safe Trash confirmation, execution result, and History/Restore recovery entry points.
+- Added all new Chinese and English task-language copy to shared i18n; no component-local copy dictionary was introduced.
+
+### Files changed
+
+- `src/views/cleanup/StorageCleanupView.tsx`
+- `src/i18n.ts`
+- `tests/storageCleanupView.test.tsx`
+- `tests/cleanupReviewConfirm.test.tsx`
+- `tests/dedupeContract.test.ts`
+- `docs/design/UI_UX_V4_3_EXECUTION.md`
+
+### Focused tests
+
+- `npm run typecheck` — passed.
+- `npm test -- tests/storageCleanupView.test.tsx tests/cleanupReviewConfirm.test.tsx tests/dedupeContract.test.ts tests/phase8ReleaseAudit.test.ts` — 4 files passed, 16 tests passed.
+- `git diff --check` — passed.
+
+### Full gates
+
+Not run for PR6. Full frontend, Rust quality, remediation, security, performance, packaging, and Windows/macOS release checks remain required for PR11.
+
+### Visual verification
+
+The local Vite/browser-mock preview rendered the Storage Cleanup empty state in Chinese with the Zen Canvas shell at the default 1280×720 viewport and again at 980×680. The narrow run reported `innerWidth=980`, `innerHeight=680`, `scrollWidth=980`, `clientWidth=980`, and no console warning/error entries. The empty state correctly required a scope and did not expose findings, metrics, AI controls, or execution actions before a run.
+
+The browser-mock quick-scope action cannot start a run in this non-Tauri preview because the external Tauri path helper has no browser bridge (`Cannot read properties of undefined (reading 'invoke')`). The mounted durable review/Preview/Safe Trash interaction test covers the populated finding flow, but a normal populated browser screenshot, dark theme, English copy, 1440/1280/1180/1024 viewports, high contrast, screen-reader announcements, Windows DPI, macOS Retina, and native Tauri behavior remain unverified.
+
+### Acceptance criteria
+
+- Storage Cleanup has one visible durable Analysis Run/Finding authority and no legacy store rendering path.
+- Totals and tabs use backend run aggregates and cursor-based finding queries; no complete result is inferred from the current page.
+- Partial, failed, canceled, stale, Safe, Review, and Caution states have distinct user outcomes and next actions.
+- Review decisions are revision-bound; Caution is never preselected; Safe Trash is the only cleanup execution path.
+- Preview and explicit confirmation remain mandatory before Safe Trash; execution reports recovery through History/Restore.
+- AI remains advisory and contextual; no second queue or mutation authority was introduced.
+- New user-facing copy uses shared Chinese/English i18n keys.
+
+### Deferred or unverified
+
+PR7 must align Preview, History, and Restore surfaces with the durable execution/recovery contracts. PR10 must migrate Overview from legacy cleanup projections. PR11 must complete the full visual matrix, native/platform checks, screen-reader and high-contrast verification, full CI evidence, and release gates. Seeded browser data is still needed for rendered populated finding and preview acceptance.
+
+### Risks requiring human review
+
+The cleanup page's native quick-scope and folder-picker controls depend on Tauri path/dialog APIs and were not exercised in the browser-mock preview. Reviewers should validate those controls in the native desktop shell and verify that the compatibility cleanup store is not reintroduced as a visible authority while later Overview and recovery migrations land.
+
 ---
 
 ## 6. Codex continuous-execution rule
