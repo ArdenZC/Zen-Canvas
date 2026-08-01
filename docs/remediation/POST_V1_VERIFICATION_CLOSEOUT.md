@@ -39,6 +39,7 @@
 - `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`、Rust full tests（573 passed、9 ignored）、`cargo clippy --features desktop-runtime --all-targets -- -D warnings`、release check、`npm run test:remediation` 全部成功；
 - `npm run security:audit` 与 `cargo audit --file src-tauri/Cargo.lock` 成功；RustSec 仅报告现有已允许的 unmaintained/unsound warning，没有新增阻断 advisory；
 - full `npm run test:performance` 成功（exit 0，约 497.7 s）；Global Search 100k p95 `70.210 ms`（<100 ms），1M 重复运行 p95 `0.929 ms`、`1.591 ms`，没有降低产品阈值；
+- 本 PR 第二次 CI run [`30696940903`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30696940903) 暴露了真实的 benchmark cold-page-cache 波动：100k global-search 的一次 `txt` 样本使 p95 达到 `125.987 ms`，超过原有 `100 ms` 产品门槛；其余 job 均成功。未降低门槛，改为在同一 bounded 查询上增加两次不计时 warm-up，并在本地连续两次得到 `56.138 ms`、`58.810 ms` p95 后重跑 CI；
 - `npm run test:docs` 成功，文档变更 1 个 Markdown 文件通过 contract。
 
 PR #46 的完整 GitHub Actions run [`30695926891`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30695926891) 已成功：change-scope、frontend/format、Windows/macOS Rust quality、Windows/macOS release compile、NSIS、unsigned DMG、dependency audit、Performance profile 和两端 aggregate quality 均为 success。该 run 验证的实现 HEAD 为 `481877c40fd57aa5c680c6e0e5533eb27bc5e564`；closeout 证据提交后的最终 PR tip 与最后一轮 checks 以 PR 页面为准，并在最终报告中列出。
