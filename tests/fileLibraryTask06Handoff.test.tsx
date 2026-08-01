@@ -5,7 +5,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChromeProvider, type ChromeContextValue } from "../src/contexts/AppContexts";
 import { makeTranslator } from "../src/i18n";
-import { useAppStore } from "../src/store/useAppStore";
 import { emptyStats, useFileLibraryStore } from "../src/store/useFileLibraryStore";
 import {
   cloneFileQuerySpec,
@@ -110,7 +109,6 @@ beforeEach(() => {
   api.listTags.mockReset().mockResolvedValue([]);
   api.listViews.mockReset().mockResolvedValue([]);
   api.listRoots.mockReset().mockResolvedValue([{ id: "root-one", normalizedPath: "C:/Data" }]);
-  useAppStore.setState({ searchQuery: "" });
   useFileLibraryStore.setState({
     scope: { kind: "all" },
     stats: { ...emptyStats, lastScannedAt: "2026-07-29T00:00:00Z" },
@@ -176,7 +174,11 @@ describe("Task 06 File Library handoff interactions", () => {
     });
     await vi.waitFor(() => expect(api.query).toHaveBeenCalledTimes(4));
 
-    await act(async () => useAppStore.getState().setSearchQuery("report"));
+    const searchInput = container.querySelector<HTMLInputElement>('input[aria-label="Search the File Library"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(searchInput, "report");
+      searchInput.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "report" }));
+    });
     await new Promise((resolve) => setTimeout(resolve, 340));
     await vi.waitFor(() => expect(api.query).toHaveBeenCalledTimes(5));
     expect(api.query).toHaveBeenCalledTimes(5);

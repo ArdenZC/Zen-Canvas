@@ -1205,6 +1205,69 @@ App Shell still has workspace-specific title duplication that later page migrati
 
 The command catalog retains the internal `suggestions` identifier for compatibility. Later stages must not expose that identifier in normal copy or create a second navigation route for Organize Files.
 
+## 5D. PR3 closeout — managed File Library V3 workspace
+
+### Current baseline
+
+PR3 starts from committed PR2 `40a6a54` on `codex/ui-v4-3-product-integration`. The implementation keeps Schema 34 and the accepted File Library Query V2 backend/public contracts.
+
+### Authority migrated
+
+Visible File Library query text, filters, sort, exact/deferred count, loaded rows, cross-page selection, saved views, tags, and Inspector layout now use the Query V2 store family and `LibrarySelectionV1`. The legacy library store remains only for scope/statistics compatibility and is not used as the rendered query list or count authority.
+
+### Legacy path retired
+
+- File Library no longer reads the shared App Store search field; its Search Field owns a local draft and commits into Query V2.
+- The old manual search markup and page-derived result-count text were replaced by shared Search Field and Metric Strip primitives.
+- Folder/file-specific Spotlight grouping is not reused in File Library; the page never calls Global Search APIs.
+- `loadStats` is no longer part of the Query V2 request cycle; legacy statistics remain a compatibility signal for the initial no-index state until Overview is migrated.
+
+### Product changes
+
+- Added a concise Query V2 toolbar with local File Library Search, filters, sort, saved views, tags, and truthful loaded/exact/deferred count language.
+- Added backend scope-health task language without exposing raw health enum values.
+- Reused shared `InspectorLayout`, keeping the narrow layout transition available without compressing the Inspector into the list.
+- Preserved keyboard list navigation, range/additive selection, explicit all-matching selection, snapshot expiry behavior, Inspector detail/selection summary hydration, and content workflow entry points.
+- Moved newly touched File Library copy into shared i18n for Chinese and English.
+
+### Files changed
+
+- `src/views/vault/VaultView.tsx`
+- `src/i18n.ts`
+- `tests/fileLibraryV4.test.tsx`
+- `tests/fileLibraryTask06Handoff.test.tsx`
+- `docs/design/UI_UX_V4_3_EXECUTION.md`
+
+### Focused tests
+
+- `npm run typecheck`
+- `npm test -- tests/fileLibraryV2.test.ts tests/fileLibraryTask06Handoff.test.tsx tests/fileLibraryV4.test.tsx tests/uiPrimitives.test.tsx`
+- Result: 4 files passed, 22 tests passed.
+
+### Full gates
+
+Not run for PR3. Query V2 store and accepted Task 05/06 backend contract tests remain required in the later full frontend and CI matrix.
+
+### Visual verification
+
+Static architecture and mounted Query V2 handoff tests passed. Actual rendered File Library states in light/dark Chinese/English, deferred count, scope-health, Inspector narrow pane, 980x680, high contrast, and screen-reader announcements remain unverified until workspace visual QA.
+
+### Acceptance criteria
+
+- File Library Search is visibly and semantically distinct from Global Search.
+- Query V2 is the visible query/count/selection authority; no result total is derived from the loaded page.
+- Cross-page selection remains backend-resolvable through `LibrarySelectionV1`.
+- Saved Views, tags, Inspector and snapshot-expiry recovery remain available.
+- No mutation, schema, or filesystem safety boundary changed.
+
+### Deferred or unverified
+
+The Inspector still contains the full Content Understanding workflow; PR9 must extract that workflow into a dedicated surface. Legacy scope/statistics adapters remain until Overview/Settings integration proves their replacement.
+
+### Risks requiring human review
+
+The current no-index gate still reads the legacy `lastScannedAt` compatibility statistic. It is not used for Query V2 results or totals, but PR10 must replace the dashboard-level interpretation with actual index/root health before final release.
+
 ---
 
 ## 6. Codex continuous-execution rule

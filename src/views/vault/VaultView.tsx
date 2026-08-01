@@ -1,9 +1,8 @@
-import { Bookmark, ChevronDown, FolderSearch, Layers, Search, SlidersHorizontal, Tag } from "lucide-react";
+import { Bookmark, ChevronDown, FolderSearch, Layers, SlidersHorizontal, Tag } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { tauriApi } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useDebounce } from "../../hooks/useDebounce";
-import { useAppStore } from "../../store/useAppStore";
 import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import {
   cloneFileQuerySpec,
@@ -20,8 +19,8 @@ import {
 import { useScanManagerStore } from "../../store/useScanManagerStore";
 import type { FileLibraryDetail, FileLibrarySummary, FileQueryFiltersV2, LibrarySavedView } from "../../types/domain";
 import { libraryScopeLabel, readableError } from "../../utils/viewHelpers";
-import { buttonGhost, buttonSecondary, buttonSubtle, cn, glassButtonPrimary, inputSurface, raisedSurface } from "../../utils/tw";
-import { NoticeBanner, StateBlock, pageFrame } from "../shared/ui";
+import { buttonGhost, buttonSecondary, buttonSubtle, cn, glassButtonPrimary, raisedSurface } from "../../utils/tw";
+import { InspectorLayout, MetricStrip, NoticeBanner, SearchField, StateBlock, pageFrame } from "../shared/ui";
 import { FileLibraryFilterPopover } from "./components/FileLibraryFilterPopover";
 import { FileLibraryInspector, FileLibraryPreviewDialog, libraryRevealLabel } from "./components/FileLibraryInspector";
 import { FileLibraryList } from "./components/FileLibraryList";
@@ -32,15 +31,13 @@ type ContextMenuState = { file: FileLibrarySummary; x: number; y: number };
 
 export function VaultView() {
   const { onError, setView, t, language } = useChromeContext();
-  const searchQuery = useAppStore((state) => state.searchQuery);
-  const setSearchQuery = useAppStore((state) => state.setSearchQuery);
-  const debouncedSearchQuery = useDebounce(searchQuery, 300);
   const legacyScope = useFileLibraryStore((state) => state.scope);
   const stats = useFileLibraryStore((state) => state.stats);
-  const loadStats = useFileLibraryStore((state) => state.loadStats);
   const setLegacyScope = useFileLibraryStore((state) => state.setScope);
   const handleChooseFolders = useScanManagerStore((state) => state.handleChooseFolders);
   const querySpec = useFileLibraryQueryStore((state) => state.spec);
+  const [librarySearch, setLibrarySearch] = useState(() => querySpec.text ?? "");
+  const debouncedSearchQuery = useDebounce(librarySearch, 300);
   const setQuerySpec = useFileLibraryQueryStore((state) => state.setSpec);
   const scopeHealth = useFileLibraryQueryStore((state) => state.scopeHealth);
   const files = useFileLibraryResultStore((state) => state.files);
@@ -93,11 +90,11 @@ export function VaultView() {
   const showLibraryControls = !isNoIndexState;
   const sortOptions = useMemo(() => [
     { key: "modified" as const, label: t("librarySortModified") },
-    { key: "created" as const, label: "Created" },
+    { key: "created" as const, label: t("librarySortCreated") },
     { key: "name" as const, label: t("librarySortName") },
     { key: "size" as const, label: t("librarySortSize") },
     { key: "confidence" as const, label: t("librarySortConfidence") },
-    { key: "relevance" as const, label: "Relevance" }
+    { key: "relevance" as const, label: t("librarySortRelevance") }
   ], [t]);
   const currentSortLabel = sortOptions.find((option) => option.key === querySpec.sort.kind)?.label ?? t("librarySortModified");
 
@@ -141,12 +138,8 @@ export function VaultView() {
       setQuerySpec(spec);
       return;
     }
-    let cancelled = false;
-    void loadFirstPage().then(() => {
-      if (!cancelled) void loadStats(legacyScope);
-    });
-    return () => { cancelled = true; };
-  }, [debouncedSearchQuery, isEmptyCurrentScanScope, legacyScope, loadFirstPage, loadStats, querySpecSignature, scopeReady, setQuerySpec]);
+    void loadFirstPage();
+  }, [debouncedSearchQuery, isEmptyCurrentScanScope, loadFirstPage, querySpecSignature, scopeReady, setQuerySpec]);
 
   useEffect(() => {
     clearSelection();
@@ -304,7 +297,7 @@ export function VaultView() {
     setActiveViewId(view?.id ?? null);
     if (!view) return;
     setQuerySpec(cloneFileQuerySpec(view.query));
-    setSearchQuery(view.query.text ?? "");
+    setLibrarySearch(view.query.text ?? "");
   }
 
   function libraryState() {
@@ -314,45 +307,53 @@ export function VaultView() {
     if (isNoIndexState) return { tone: "info" as const, title: t("libraryNoScanTitle"), description: t("libraryNoScanDesc"), primaryAction: <button className={glassButtonPrimary} onClick={() => setView("scanner")}><Layers size={16} />{t("libraryGoToOverview")}</button> };
     if (isEmptyCurrentScanScope) return { tone: "info" as const, title: t("noCurrentScanTitle"), description: t("noCurrentScanDesc"), primaryAction: <button className={glassButtonPrimary} onClick={() => setView("scanner")}><Layers size={16} />{t("libraryGoToOverview")}</button>, secondaryAction: <button className={buttonSecondary} onClick={() => setLegacyScope({ kind: "all" })}>{t("viewAllIndexedFiles")}</button> };
     if (totalCount !== null && totalCount > 0) return null;
-    if (searchQuery.trim()) return { tone: "neutral" as const, title: t("libraryNoSearchTitle"), description: t("libraryNoSearchDesc") };
+    if (librarySearch.trim()) return { tone: "neutral" as const, title: t("libraryNoSearchTitle"), description: t("libraryNoSearchDesc") };
     if (activeFilterCount) return { tone: "neutral" as const, title: t("libraryNoFilterTitle"), description: t("libraryNoFilterDesc") };
     return { tone: "neutral" as const, title: t("libraryNoScopeFilesTitle"), description: t("libraryNoScopeFilesDesc"), secondaryAction: <button className={buttonSecondary} onClick={() => setLegacyScope({ kind: "all" })}>{t("viewAllIndexedFiles")}</button> };
   }
 
   const state = libraryState();
   const selectionLabel = selection?.kind === "all_matching"
-    ? `Selected all ${totalCount === null ? "count pending" : totalCount.toLocaleString()} · excluded ${selection.excludedFileIds.length}`
-    : selectedIds.length ? `Selected loaded ${selectedIds.length.toLocaleString()}` : t("libraryScopeHint");
+    ? replaceCopy(t("librarySelectionAll"), { count: totalCount === null ? t("libraryCountPending") : totalCount.toLocaleString(), excluded: selection.excludedFileIds.length.toLocaleString() })
+    : selectedIds.length ? replaceCopy(t("librarySelectionLoaded"), { count: selectedIds.length.toLocaleString() }) : t("librarySelectionNone");
+  const resultCountLabel = isLoading
+    ? t("loading")
+    : isCountLoading || totalCount === null
+      ? replaceCopy(t("libraryResultCountDeferred"), { loaded: files.length.toLocaleString() })
+      : replaceCopy(t("libraryResultCountExact"), { loaded: files.length.toLocaleString(), total: totalCount.toLocaleString() });
 
   return (
     <div className={cn(pageFrame, "gap-3 overflow-x-hidden")}>
       <section className={cn(raisedSurface, "relative z-20 grid shrink-0 gap-2 px-3 py-2")}>
-        <div data-section="scope bar" className="flex min-w-0 flex-wrap items-center justify-between gap-2" aria-label={scopeText}><span className="truncate text-xs text-[var(--zc-text-secondary)]">{scopeText}{scopeHealth && scopeHealth.state !== "healthy" ? ` · ${scopeHealth.state}` : ""}</span><div className="flex flex-wrap items-center gap-2">{legacyScope.kind !== "all" && !isEmptyCurrentScanScope ? <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => setLegacyScope({ kind: "all" })}><Layers size={15} />{t("viewAllIndexedFiles")}</button> : null}<button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => void handleChooseFolders()}><FolderSearch size={15} />{t("switchScanDirectory")}</button></div></div>
+        <div data-section="scope bar" className="flex min-w-0 flex-wrap items-center justify-between gap-2" aria-label={scopeText}><span className="truncate text-xs text-[var(--zc-text-secondary)]">{scopeText}{scopeHealth && scopeHealth.state !== "healthy" ? ` · ${scopeHealthLabel(scopeHealth.state, t)}` : ""}</span><div className="flex flex-wrap items-center gap-2">{legacyScope.kind !== "all" && !isEmptyCurrentScanScope ? <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => setLegacyScope({ kind: "all" })}><Layers size={15} />{t("viewAllIndexedFiles")}</button> : null}<button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => void handleChooseFolders()}><FolderSearch size={15} />{t("switchScanDirectory")}</button></div></div>
         {showLibraryControls ? <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <label data-section="search bar" className={cn(inputSurface, "flex min-h-9 min-w-[min(100%,320px)] flex-1 items-center gap-2 px-3")}><Search size={15} className="shrink-0 text-[var(--zc-text-tertiary)]" aria-hidden="true" /><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={legacyScope.kind === "all" ? t("librarySearchPlaceholder") : t("librarySearchPlaceholderScoped")} className="min-w-0 flex-1 bg-transparent outline-none" aria-label={t("search")} /></label>
+          <div data-section="search bar" className="min-w-[min(100%,320px)] flex-1"><SearchField value={librarySearch} onChange={(event) => setLibrarySearch(event.currentTarget.value)} onClear={() => setLibrarySearch("")} label={t("librarySearchLabel")} clearLabel={t("librarySearchClear")} placeholder={legacyScope.kind === "all" ? t("librarySearchPlaceholder") : t("librarySearchPlaceholderScoped")} className="min-w-0" /></div>
           <div className="relative" data-section="filter toolbar"><button ref={filterButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isFilterOpen} aria-controls="library-filter-popover" aria-haspopup="dialog" onClick={() => { setIsFilterOpen((value) => !value); setIsSortOpen(false); }}><SlidersHorizontal size={15} />{t("libraryFilterButton")}{activeFilterCount ? <span className="tabular-nums text-[var(--zc-primary)]">{activeFilterCount}</span> : null}</button>{isFilterOpen ? <div id="library-filter-popover"><FileLibraryFilterPopover filters={querySpec.filters} tags={tags} t={t} onFiltersChange={updateFilters} onClear={clearFilters} onClose={closeFilterPopover} /></div> : null}</div>
-          <div className="relative"><button ref={sortButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isSortOpen} aria-haspopup="menu" onClick={() => { setIsSortOpen((value) => !value); setIsFilterOpen(false); }}><span>{currentSortLabel}</span><ChevronDown size={14} /></button>{isSortOpen ? <div className="absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" role="menu" aria-label="Library sort"><div className="grid gap-1">{sortOptions.map((option) => <button key={option.key} role="menuitemradio" aria-checked={querySpec.sort.kind === option.key} className={cn("flex min-h-9 items-center justify-between rounded-[var(--zc-radius-control)] px-3 text-left text-sm", querySpec.sort.kind === option.key ? "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]")} onClick={() => setSort(option.key)}>{option.label}<span className="text-xs">{querySpec.sort.kind === option.key ? querySpec.sort.direction === "desc" ? "↓" : "↑" : ""}</span></button>)}</div></div> : null}</div>
-          <select className={cn(buttonSubtle, "min-h-9 max-w-48 px-2 text-xs")} value={activeViewId ?? ""} onChange={(event) => applySavedView(savedViews.find((view) => view.id === event.target.value) ?? null)} aria-label="Saved Views"><option value="">Saved Views</option>{savedViews.map((view) => <option key={view.id} value={view.id}>{view.displayName}{view.invalidReferences.length ? " · invalid" : ""}</option>)}</select>
+          <div className="relative"><button ref={sortButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isSortOpen} aria-haspopup="menu" onClick={() => { setIsSortOpen((value) => !value); setIsFilterOpen(false); }}><span>{currentSortLabel}</span><ChevronDown size={14} /></button>{isSortOpen ? <div className="absolute right-0 top-[calc(100%+8px)] z-30 grid min-w-48 rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" role="menu" aria-label={t("librarySortMenuLabel")}><div className="grid gap-1">{sortOptions.map((option) => <button key={option.key} role="menuitemradio" aria-checked={querySpec.sort.kind === option.key} className={cn("flex min-h-9 items-center justify-between rounded-[var(--zc-radius-control)] px-3 text-left text-sm", querySpec.sort.kind === option.key ? "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)]")} onClick={() => setSort(option.key)}>{option.label}<span className="text-xs">{querySpec.sort.kind === option.key ? querySpec.sort.direction === "desc" ? "↓" : "↑" : ""}</span></button>)}</div></div> : null}</div>
+          <select className={cn(buttonSubtle, "min-h-9 max-w-48 px-2 text-xs")} value={activeViewId ?? ""} onChange={(event) => applySavedView(savedViews.find((view) => view.id === event.target.value) ?? null)} aria-label={t("librarySavedViewsLabel")}><option value="">{t("librarySavedViewsPlaceholder")}</option>{savedViews.map((view) => <option key={view.id} value={view.id}>{view.displayName}{view.invalidReferences.length ? ` · ${t("librarySavedViewInvalid")}` : ""}</option>)}</select>
         </div> : null}
-        {showLibraryControls ? <div className="flex flex-wrap items-center gap-2" data-section="saved views and tags"><button data-library-manager="saved_views" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("saved_views")}><Bookmark size={14} />Manage Saved Views</button><button data-library-manager="tags" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("tags")}><Tag size={14} />Manage tags{tags.length ? ` · ${tags.length}` : ""}</button></div> : null}
-        {showLibraryControls ? <div data-section="applied filters" className="flex min-h-0 flex-wrap items-center gap-1.5" aria-label={t("libraryAppliedFilters")}><span className="text-xs text-[var(--zc-text-tertiary)]">{activeFilterCount ? `${activeFilterCount} filters applied` : t("libraryFilterAllOptions")}</span>{activeFilterCount ? <button className="text-xs text-[var(--zc-primary)] underline" onClick={clearFilters}>{t("libraryFilterClear")}</button> : null}</div> : null}
-        {showLibraryControls ? <div data-section="result count" className="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--zc-text-tertiary)]" aria-live="polite"><span>{isLoading ? "Loading…" : isCountLoading || totalCount === null ? `${files.length.toLocaleString()} loaded · exact count calculating…` : `${files.length.toLocaleString()} / ${totalCount.toLocaleString()}`}</span><span>{selectionLabel}</span>{selection?.kind === "explicit" && selectedIds.length === files.length && totalCount !== null && totalCount > files.length ? <button className="text-[var(--zc-primary)] underline" onClick={selectAllMatching}>Select all matching results</button> : null}</div> : null}
+        {showLibraryControls ? <div className="flex flex-wrap items-center gap-2" data-section="saved views and tags"><button data-library-manager="saved_views" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("saved_views")}><Bookmark size={14} />{t("libraryManageSavedViews")}</button><button data-library-manager="tags" className={cn(buttonSubtle, "min-h-8 px-2 text-xs")} onClick={() => setMetadataManager("tags")}><Tag size={14} />{t("libraryManageTags")}{tags.length ? ` · ${tags.length}` : ""}</button></div> : null}
+        {showLibraryControls ? <div data-section="applied filters" className="flex min-h-0 flex-wrap items-center gap-1.5" aria-label={t("libraryAppliedFilters")}><span className="text-xs text-[var(--zc-text-tertiary)]">{activeFilterCount ? replaceCopy(t("libraryFiltersAppliedCount"), { count: activeFilterCount }) : t("libraryFilterAllOptions")}</span>{activeFilterCount ? <button className="text-xs text-[var(--zc-primary)] underline" onClick={clearFilters}>{t("libraryFilterClear")}</button> : null}</div> : null}
+        {showLibraryControls ? <MetricStrip ariaLabel={t("libraryMetricsLabel")} density="compact" items={[{ label: t("libraryResultCountLabel"), value: resultCountLabel }, { label: t("librarySelectionLabel"), value: selectionLabel }]} /> : null}
+        {showLibraryControls && selection?.kind === "explicit" && selectedIds.length === files.length && totalCount !== null && totalCount > files.length ? <button className="justify-self-start text-xs text-[var(--zc-primary)] underline" onClick={selectAllMatching}>{t("librarySelectAllMatching")}</button> : null}
       </section>
 
       <DuplicateGroupsPanel />
       {resultState === "snapshot_expired" || resultError === "library_snapshot_expired" ? (
         <NoticeBanner
           tone="warning"
-          title="Snapshot expired"
-          action={<button className={buttonSecondary} onClick={() => void refreshResults()}>Refresh</button>}
+          title={t("librarySnapshotExpiredTitle")}
+          action={<button className={buttonSecondary} onClick={() => void refreshResults()}>{t("librarySnapshotRefresh")}</button>}
         >
-          The library changed while these results were open. Loaded rows remain visible; refresh to start a new snapshot.
+          {t("librarySnapshotExpiredDesc")}
         </NoticeBanner>
       ) : null}
-      <div className={cn("grid min-h-0 flex-1 gap-4 overflow-hidden max-[1100px]:grid-cols-1 max-[1100px]:overflow-auto", showInspectorLayout(isNoIndexState))}>
-        <section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage()} />}</section>
-        {!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} language={language} t={t} onPreview={(file) => setPreviewFile(file)} onReveal={(fileId) => void revealFile(fileId)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation)} /> : null}
-      </div>
+      <InspectorLayout
+        className={showInspectorLayout(isNoIndexState)}
+        main={<section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage()} />}</section>}
+        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} language={language} t={t} onPreview={(file) => setPreviewFile(file)} onReveal={(fileId) => void revealFile(fileId)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation)} /> : undefined}
+        inspectorLabel={t("libraryInspector")}
+      />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{selectionLabel}</p>
       {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={() => setContextMenu(null)} onPreview={() => void openPreview(contextMenu.file)} onReveal={() => void revealFile(contextMenu.file.id)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
       <FileLibraryPreviewDialog file={previewFile} language={language} t={t} onClose={() => { setPreviewFile(null); focusList(); }} onReveal={(fileId) => void revealFile(fileId)} />
@@ -379,7 +380,19 @@ function countActiveFilters(filters: FileQueryFiltersV2) {
 }
 
 function showInspectorLayout(noIndex: boolean) {
-  return noIndex ? "grid-cols-1" : "grid-cols-[minmax(0,1fr)_360px]";
+  return noIndex ? "max-[1100px]:grid-cols-1" : "";
+}
+
+function replaceCopy(template: string, values: Record<string, string | number>) {
+  return Object.entries(values).reduce((copy, [key, value]) => copy.replaceAll(`{${key}}`, String(value)), template);
+}
+
+function scopeHealthLabel(state: string, t: ReturnType<typeof import("../../i18n").makeTranslator>) {
+  if (state === "permission_required") return t("libraryScopeHealthPermission");
+  if (state === "reconciliation_required") return t("libraryScopeHealthReconciliation");
+  if (state === "partial" || state === "degraded") return t("libraryScopeHealthPartial");
+  if (state === "retry_exhausted") return t("libraryScopeHealthRetry");
+  return t("libraryScopeHealthUnavailable");
 }
 
 function LibraryContextMenu({ context, t, onClose, onPreview, onReveal, onViewSuggestions, onClearSelection }: { context: ContextMenuState; t: ReturnType<typeof import("../../i18n").makeTranslator>; onClose: () => void; onPreview: () => void; onReveal: () => void; onViewSuggestions: () => void; onClearSelection: () => void }) {
