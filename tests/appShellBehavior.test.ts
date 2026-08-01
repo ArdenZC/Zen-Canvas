@@ -125,6 +125,7 @@ describe("App Shell v4.1 behavior", () => {
       "theme-settings",
       "ai-settings"
     ]));
+    expect(registry.find((command: any) => command.id === "suggestions")?.label).toBe("整理文件");
     expect(module.queryCommandRegistry("AI", registry).map((command: any) => command.id)).toContain("ai-settings");
     expect(module.queryCommandRegistry("搜索范围", registry).map((command: any) => command.id)).toContain("search-scope-settings");
   });
@@ -143,7 +144,22 @@ describe("App Shell v4.1 behavior", () => {
     expect(merged.some((item: any) => item.kind === "global")).toBe(true);
     expect(merged.some((item: any) => item.kind === "command")).toBe(true);
     const groups = model.groupSpotlightResults(merged);
-    expect(groups.map((group: any) => group.type)).toEqual(["folders", "files", "settings"]);
+    expect(groups.map((group: any) => group.type)).toEqual(["files", "settings"]);
+    expect(groups.find((group: any) => group.type === "files")?.items.map((item: any) => item.entry.id)).toEqual(["file-1", "folder-1"]);
+  });
+
+  it("keeps backend Global Search order when files and folders share one display group", async () => {
+    const model = await modelModule();
+    const entries: GlobalSearchResult[] = [
+      { id: "folder-first", name: "A", path: "C:/A", extension: "", isDirectory: true, volumeId: "v", platformFileId: "p1", size: 0, createdAtFs: null, modifiedAtFs: null, fileAttributes: 0, isHidden: false, isSystem: false, sourceProvider: "test", managed: false, rank: 1 },
+      { id: "file-second", name: "B", path: "C:/B", extension: "txt", isDirectory: false, volumeId: "v", platformFileId: "p2", size: 2, createdAtFs: null, modifiedAtFs: null, fileAttributes: 0, isHidden: false, isSystem: false, sourceProvider: "test", managed: false, rank: 2 },
+      { id: "folder-third", name: "C", path: "C:/C", extension: "", isDirectory: true, volumeId: "v", platformFileId: "p3", size: 0, createdAtFs: null, modifiedAtFs: null, fileAttributes: 0, isHidden: false, isSystem: false, sourceProvider: "test", managed: false, rank: 3 }
+    ];
+
+    const groups = model.groupSpotlightResults(model.mergeSpotlightResults(entries, []));
+    expect(groups).toHaveLength(1);
+    expect(groups[0].type).toBe("files");
+    expect(groups[0].items.map((item: any) => item.entry.id)).toEqual(["folder-first", "file-second", "folder-third"]);
   });
 
   it("does not synthesize recent activity from the current File Library page", async () => {

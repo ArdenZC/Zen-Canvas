@@ -1138,6 +1138,73 @@ The new primitives are not yet adopted across every workspace. Visual verificati
 
 The compact density preference is available but not yet exposed in Settings. Later stages must ensure it does not shrink critical hit targets or create a second page-local density setting.
 
+## 5C. PR2 closeout — shell navigation and search semantics
+
+### Current baseline
+
+PR2 starts from committed PR1 `9aba8c6` on `codex/ui-v4-3-product-integration`. No backend, persistence, Tauri capability, or Search Window permission contract changed.
+
+### Authority migrated
+
+The shell now presents the accepted V4.3 primary navigation: Overview, File Library, Organize Files, Storage Cleanup, and History. Global Search continues to consume the Global Index response and command registry; backend file order remains the renderer display order.
+
+### Legacy path retired
+
+- The user-facing `organizeSuggestions` label is no longer used by the shell or idle Spotlight entry; the old translation key remains only as compatibility copy for older surfaces.
+- Folder/file regrouping was removed from Spotlight display grouping so the renderer cannot reorder backend file results.
+- During IME composition, live command matching and result activation are suppressed; the committed query remains the only query authority.
+
+### Product changes
+
+- Added Storage Cleanup to the main sidebar in the product-flow order.
+- Added shared i18n keys for “Organize Files”, its command description, and window-control labels.
+- Preserved literal punctuation by keeping command matching to case-folding and whitespace trimming only.
+- Preserved `no_source` versus ordinary empty state copy, ID-only Search Window activation, and the existing permission boundary.
+- Kept commands separate from the single ordered Files result group.
+
+### Files changed
+
+- `src/components/AppShell.tsx`
+- `src/components/CommandModal.tsx`
+- `src/components/spotlight/commandRegistry.ts`
+- `src/components/spotlight/spotlightModel.ts`
+- `src/i18n.ts`
+- `tests/appArchitecture.test.ts`
+- `tests/appShellV4.test.ts`
+- `tests/appShellBehavior.test.ts`
+- `tests/searchSpotlight.test.ts`
+- `docs/design/UI_UX_V4_3_EXECUTION.md`
+
+### Focused tests
+
+- `npm run typecheck`
+- `npm test -- tests/appArchitecture.test.ts tests/appShellV4.test.ts tests/appShellBehavior.test.ts tests/searchSpotlight.test.ts tests/commandModalIme.test.tsx tests/designSystemV4.test.ts`
+- Result: 6 files passed, 69 tests passed.
+
+### Full gates
+
+Not run for PR2. The existing `tests/tauriCommandPermissions.test.ts` and remediation contracts remain unchanged and are included in the later full frontend/CI gates.
+
+### Visual verification
+
+The mounted IME test and static shell/search contracts passed. Light/dark Chinese/English rendered navigation, the native Search Window, narrow 980x680 layout, and platform DPI/Retina behavior remain unverified until visual QA.
+
+### Acceptance criteria
+
+- Storage Cleanup is reachable from the main sidebar and existing Overview/Search command paths.
+- Organize is user-facing “Organize Files”.
+- Commands and Files are visibly distinct while Global Search file order is preserved.
+- Punctuation, IME, `no_source`, ID-only activation, and Search Window permissions remain protected.
+- No rule mutation authority or backend contract was added.
+
+### Deferred or unverified
+
+App Shell still has workspace-specific title duplication that later page migrations must remove. Native focus restoration, platform window lifecycle, visual language/theme matrix, and screen-reader announcements remain open.
+
+### Risks requiring human review
+
+The command catalog retains the internal `suggestions` identifier for compatibility. Later stages must not expose that identifier in normal copy or create a second navigation route for Organize Files.
+
 ---
 
 ## 6. Codex continuous-execution rule

@@ -3,6 +3,7 @@ import {
   Clock3,
   Cloud,
   Cpu,
+  HardDrive,
   LayoutGrid,
   LoaderCircle,
   LockKeyhole,
@@ -185,7 +186,7 @@ function MacWindowControls() {
   const { handleWindowAction, t } = useChromeContext();
 
   return (
-    <div className={cn("flex items-center gap-1", noDrag)} aria-label="Window controls">
+    <div className={cn("flex items-center gap-1", noDrag)} aria-label={t("windowControls")}>
       <button className={macControlButton} onClick={() => handleWindowAction("close")} aria-label={t("close")}>
         <span className="h-3 w-3 rounded-full bg-[var(--zc-window-mac-close)] shadow-sm" />
       </button>
@@ -203,7 +204,7 @@ function WindowsControls() {
   const { handleWindowAction, t } = useChromeContext();
 
   return (
-    <div className={cn("flex h-12 items-center", noDrag)} aria-label="Window controls">
+    <div className={cn("flex h-12 items-center", noDrag)} aria-label={t("windowControls")}>
       <button className={windowsControlButton} onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")}>
         <Minus size={15} strokeWidth={1.6} />
       </button>
@@ -436,7 +437,8 @@ function navGroups(t: Translator): NavGroup[] {
       items: [
         { id: "scanner", label: t("overview"), icon: Radar },
         { id: "library", label: t("fileLibrary"), icon: Archive },
-        { id: "organize", label: t("organizeSuggestions"), icon: LayoutGrid },
+        { id: "organize", label: t("organizeFiles"), icon: LayoutGrid },
+        { id: "cleanup", label: t("storageCleanup"), icon: HardDrive },
         { id: "restore", label: t("history"), icon: Clock3 }
       ]
     },
@@ -465,6 +467,7 @@ export function fileLibraryHeadingDescription(
 
 function viewLabel(view: View, t: Translator) {
   if (view === "cleanup") return t("storageCleanup");
+  if (view === "organize") return t("organizeFiles");
   if (view === "preview") return t("previewExecute");
   return t("overview");
 }

@@ -174,21 +174,22 @@ export function CommandModal({
   const pendingBackgroundRoots = useBackgroundIndexerStore((state) => state.pendingRoots.length);
   const prefersReducedMotion = useReducedMotion();
   const trimmedSearch = search.trim();
+  const searchableQuery = isComposing ? "" : trimmedSearch;
   const currentGlobalResults = filesForCurrentQuery(trimmedSearch, globalResultState.query, globalResultState.results);
   const commandRegistry = useMemo(
     () => createCommandRegistry(t, platform === "browser" ? "browser" : standalone ? "standalone" : "main"),
     [platform, standalone, t]
   );
   const commandResults = useMemo(
-    () => queryCommandRegistry(trimmedSearch, commandRegistry),
-    [commandRegistry, trimmedSearch]
+    () => queryCommandRegistry(searchableQuery, commandRegistry),
+    [commandRegistry, searchableQuery]
   );
   const visibleResults = useMemo(
     () => mergeSpotlightResults(currentGlobalResults, commandResults),
     [commandResults, currentGlobalResults]
   );
   const resultGroups = useMemo(() => groupSpotlightResults(visibleResults, t), [t, visibleResults]);
-  const showResults = trimmedSearch.length > 0 && visibleResults.length > 0;
+  const showResults = !isComposing && trimmedSearch.length > 0 && visibleResults.length > 0;
   const activeResultId = showResults ? `command-result-${activeIndex}` : undefined;
   const statusTitle =
     queryState === "pending"
@@ -817,7 +818,7 @@ function CommandIdleGroups({
       <div className={commandIdleGroups} aria-label={t("commandIdleTitle")}>
         <IdleGroup title={t("spotlightCommonTasks")}>
           <IdleAction icon={<Radar size={17} className="text-[var(--zc-primary)]" aria-hidden="true" />} label={t("overview")} onClick={() => onOpen("scanner")} />
-          <IdleAction icon={<LayoutGrid size={17} className="text-[var(--zc-primary)]" aria-hidden="true" />} label={t("organizeSuggestions")} onClick={() => onOpen("organize")} />
+          <IdleAction icon={<LayoutGrid size={17} className="text-[var(--zc-primary)]" aria-hidden="true" />} label={t("organizeFiles")} onClick={() => onOpen("organize")} />
         </IdleGroup>
       </div>
       <div className={commandBackgroundStatus} role="status" aria-label={t("spotlightBackgroundTasks")}>

@@ -182,7 +182,7 @@ describe("spotlight search navigation", () => {
     expect(commandModal).toContain("mergeSpotlightResults(currentGlobalResults, commandResults)");
     expect(commandModal).toContain("filesForCurrentQuery(trimmedSearch, globalResultState.query, globalResultState.results)");
     expect(commandModal).toContain('setGlobalResultState({ query: committedTrimmedSearch, results: [] })');
-    expect(commandModal).toContain("queryCommandRegistry(trimmedSearch, commandRegistry)");
+    expect(commandModal).toContain("queryCommandRegistry(searchableQuery, commandRegistry)");
     expect(commandModal).toContain("groupSpotlightResults(visibleResults, t)");
     expect(commandModal).not.toContain("results.slice(0, 12)");
     expect(commandModal).toContain("scrollIntoView({ block: \"nearest\" })");
