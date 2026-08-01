@@ -47,9 +47,9 @@ Zen Canvas 不改造成完整文件资源管理器、多设备文件系统、云
 | 05 | 模块 5：文件库 | 已合并，schema 31 |
 | 06 | 模块 6：AI 整理预览 | 已合并，schema 32 |
 | 07 | 模块 7：自然语言规则 | PR #42 已合并，schema 33 |
-| 08 | 模块 8：本地内容理解 | **当前唯一可执行，授权 schema 34** |
+| 08 | 模块 8：本地内容理解 | **已实施、已通过第五轮阶段验收并合并，schema 34** |
 
-每个 Task 是完整产品模块，不拆为 A/B/C，不创建独立收尾任务。上一阶段人工接受的遗留必须作为下一完整模块第一组完成，然后继续该模块全部目标。Task 08 是固定主线最后一项，不自动创建 Task 09。
+每个 Task 是完整产品模块，不拆为 A/B/C，不创建独立收尾任务。Task 08 是固定八模块主线最后一项，已完成并合并；不存在自动授权的 Task 09。后续任何产品阶段必须由人工另行设计、审查并批准，Codex 不得自行创建 Task 09、OCR、RAG、Agent 或其他扩展阶段。
 
 ---
 
@@ -193,9 +193,13 @@ PR #42 squash merge：`4e07de9c02198eb3352d9b2b1f289d61a3df128c`。
 
 这些遗留不得再次后移。
 
+### 本地内容理解（Task 08）
+
+PR #44 `feat: add consent-bound local content understanding` 已通过第五轮最终人工代码级验收（Review ID `4834313114`）并 squash 合并，merge commit 为 `30bc534db156cd1a287d8f727ba44efc224a6c4e`。生产代码 HEAD `80bfabd7ce1d11d7dfbadb4ef8df9d875935e437` 的 code-head CI `30690147656` 与最终 PR tip `e6d81d369ece369c4b4092a2b4153165d7ec4532` 的 final-tip CI `30690929857` 均为完整矩阵成功。schema 最终为 34，R-162/R-172 已关闭并进入持续回归。
+
 ---
 
-## 6. 当前模块：Task 08 Local Content Artifacts and Understanding
+## 6. 已完成模块：Task 08 Local Content Artifacts and Understanding
 
 权威任务书：
 
@@ -333,3 +337,11 @@ Task 08 必须：
 - Closeout、Risk Register、Index、Capability Matrix 和 permission matrix 同步；
 - 停止等待人工代码级验收；
 - 不自动合并、发布或创建 Task 09。
+
+## 8. Architecture Remediation V1 最终治理状态
+
+- 固定八模块主线全部已实施、通过阶段验收并合并：重复检测、大型文件与空间分析、扫描与索引、全局快捷搜索、文件库、AI 整理预览、自然语言规则、本地内容理解。
+- Architecture Remediation V1：**完成**。
+- schema 最终为 34；没有 schema 35、Task 08A/08B 或 Task 09。
+- 保留 no OCR/image VLM、no vector database/RAG、no Agent/shell/MCP/tool runtime、no second durable AI queue、no Rule AST V2 content conditions、no arbitrary renderer paths、no operation/cleanup journal schema changes、no `files.id` migration 等边界。
+- 没有新的产品整改任务被授权；后续产品阶段必须由人工另行设计、审查并批准。

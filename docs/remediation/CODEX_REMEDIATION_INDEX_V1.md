@@ -11,7 +11,7 @@
 - Task 06 已通过 PR #40 合并，squash merge `29e85c099c5ee921ad7d4237c780dc47126e0fa3`，schema 32；
 - Task 07 已通过 PR #42 合并，squash merge `4e07de9c02198eb3352d9b2b1f289d61a3df128c`，schema 33；
 - Task 07 人工接受的六项代码审查问题已冻结为 Task 08 第一组生产改动，不得再次后移；
-- **Task 08 是当前唯一可执行完整产品模块，授权 schema 34。**
+- **Task 08 已完成、已验收、已合并，schema 34；Architecture Remediation V1 固定八模块主线全部完成。没有新的产品整改任务被授权。**
 
 | Task | 任务书 | 产品模块/目标 | 状态 |
 |---|---|---|---|
@@ -24,9 +24,9 @@
 | 05 | `TASK_05_FILE_LIBRARY_QUERY_TAGS_SAVED_VIEWS.md` | 模块 5：文件库；TagSpaces 对标 | 已合并，schema 31 |
 | 06 | `TASK_06_DURABLE_ORGANIZATION_PLAN_AND_DRY_RUN.md` | 模块 6：AI 整理预览；ai-file-sorter 对标 | 已合并，schema 32 |
 | 07 | `TASK_07_NATURAL_LANGUAGE_RULE_PROPOSAL_AND_APPROVAL.md` | 模块 7：自然语言规则；Coworker + OpenCode 对标 | 已合并，schema 33；六项遗留转入 Task 08 |
-| 08 | `TASK_08_LOCAL_CONTENT_ARTIFACTS_AND_UNDERSTANDING.md` | 模块 8：本地内容理解；Local-File-Organizer 对标 | **Draft PR #44；第四轮 Provider pre-claim/PDF timeout-through-run gap 已修订，code head `80bfabd7ce1d11d7dfbadb4ef8df9d875935e437` 的 code-head CI `30690147656` 已通过；停止等待第五轮人工验收，schema 34** |
+| 08 | `TASK_08_LOCAL_CONTENT_ARTIFACTS_AND_UNDERSTANDING.md` | 模块 8：本地内容理解；Local-File-Organizer 对标 | **已完成、已验收、已合并；PR #44 squash merge `30bc534db156cd1a287d8f727ba44efc224a6c4e`；schema 34** |
 
-不得创建 debt-cleanup、07.5、08A/08B/08C、OCR-only 或并行产品阶段。上一阶段接受遗留必须作为下一完整模块第一组关闭，然后连续完成该模块。
+不得创建 debt-cleanup、07.5、08A/08B/08C、OCR-only 或并行产品阶段。Task 08 是固定八模块主线最后一项；不存在自动授权的 Task 09。后续任何产品阶段必须由人工另行设计、审查并批准，Codex 不得自行创建 Task 09、OCR、RAG、Agent 或其他扩展阶段。
 
 ---
 
@@ -255,9 +255,11 @@ Task 08 完成时必须：
 16. 停止等待人工代码级验收；
 17. 不自动合并、不发布、不创建 Task 09。
 
-## 9. Task 08 第四轮 review 收尾记录
+## 9. Task 08 最终 review 与治理收尾记录
 
 - PDF extractor 已切换为纯 Rust cooperative bounded parser：object/decompressed/page/output/time/cancel、CMap entry/decoded-byte 和 literal/hex temporary-buffer 限制在解析过程中执行；O(1) 输出计数器和分块 deadline/cancel 检查覆盖长扫描，恶意压缩/decompression bomb、mid-flight timeout/cancel 和真实 text-layer PDF fixture 均有行为回归；不引入 Python、LibreOffice runtime、Tesseract、sidecar 或外部 executable，且 timeout/cancel 不发布 artifact/FTS。
 - Provider settings 读取、enabled/configuration/validation 和 provider construction 现在全部发生在 `claim_provider_phase` 之前；配置错误、禁用、settings read/validation failure 不产生 owner 或 revision。claim 后的直接错误路径使用 run id/expected revision/provider owner/expected status CAS abort，失败不会留下 running owner。既有 interactive provider 的 run/item owner、revision 与 `BEGIN IMMEDIATE` publication transaction 仍保持；claim 拒绝已有 owner，artifact、FTS、item completion 同事务，所有 CAS 验证 changed=1，artifact CAS 冲突终止 item，completed item no-replay。双连接 contention 和故障注入证明失败 claimant/崩溃恢复不留下 running owner，也不产生第二通用 AI queue。
 - provider send 绑定 run 的 library/root/policy/source revision，并在完整 orchestration 最后边界复核真实文件 size/mtime/hash；injectable fake provider 的 mutation-after-extraction 测试证明 provider request count 为零。
 - PDF parser-only timeout/cancel 测试不再断言未参与执行的空数据库；新增真实 `process_content_run → candidate extraction → PDF parser → mid-flight deadline → failed item → terminal run` timeout-through-run 行为测试，断言 work started、有界耗时、`content_extractor_timeout`、无 running/cancelling、无 artifact/FTS。Content Search stale cursor、multi-root purge、delete/purge rollback、provider crash windows 和 UI Remount refresh 均由行为测试覆盖。本轮代码 head 为 `80bfabd7ce1d11d7dfbadb4ef8df9d875935e437`，code-head CI `30690147656` 成功；最终 docs-only branch tip/final-tip CI 由 PR #44 body 记录，停止等待第五轮人工验收，不得用旧 HEAD 或旧 benchmark 代替。
+- 第五轮最终人工代码级验收 Review ID `4834313114` 已通过，无需第六轮代码验收。生产代码 HEAD `80bfabd7ce1d11d7dfbadb4ef8df9d875935e437`、最终 PR tip `e6d81d369ece369c4b4092a2b4153165d7ec4532`、code-head CI `30690147656` 和 final-tip CI `30690929857` 均已记录并成功。
+- PR #44 已 squash 合并，merge commit `30bc534db156cd1a287d8f727ba44efc224a6c4e`。R-162/R-172 已关闭并进入持续回归；schema 最终为 34。没有新的产品整改任务被授权。
