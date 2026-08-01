@@ -108,6 +108,10 @@ pub struct RuleProposalDto {
     pub provider_kind: Option<String>,
     pub provider_preset: Option<String>,
     pub model: Option<String>,
+    /// `provider` for the last model-produced candidate, `manual` after a
+    /// user edit. Provider/model provenance is intentionally retained while
+    /// the old AI summary is cleared on manual edits.
+    pub candidate_origin: String,
     pub ast_version: i64,
     pub candidate: Option<CanonicalRuleAstV1>,
     pub candidate_fingerprint: Option<String>,
@@ -227,6 +231,18 @@ pub struct RuleImpactSampleRowDto {
     pub risk_level: String,
     pub before_action: String,
     pub after_action: Option<String>,
+    pub before_purpose: String,
+    pub after_purpose: Option<String>,
+    pub before_target_path: String,
+    pub after_target_path: Option<String>,
+    pub before_reason: String,
+    pub after_reason: Option<String>,
+    pub before_requires_confirmation: bool,
+    pub after_requires_confirmation: Option<bool>,
+    pub before_winner_rule: Option<String>,
+    pub before_runner_rule: Option<String>,
+    pub after_winner_rule: Option<String>,
+    pub after_runner_rule: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -477,7 +493,7 @@ impl Database {
                 candidate_fingerprint,
                 outcome.summary.map(|value| bounded_text(value, 2000)),
                 serde_json::to_string(&bounded_strings(outcome.clarifications, 8, 1000))?,
-                serde_json::to_string(&outcome.validation)?,
+                validation_json_with_origin(&outcome.validation, "provider")?,
                 outcome.error_code,
                 outcome.error_detail.map(|value| bounded_text(value, 1000)),
                 now
@@ -574,7 +590,8 @@ impl Database {
         let updated = conn.execute(
             "UPDATE rule_proposals SET status = ?3, candidate_rule_json = ?4,
                     candidate_fingerprint = ?5, validation_json = ?6,
-                    clarification_json = '[]', last_error_code = NULL,
+                    clarification_json = '[]', summary = NULL,
+                    last_error_code = NULL,
                     last_error_detail = NULL, revision = revision + 1,
                     updated_at = ?7, generated_at = ?7
              WHERE id = ?1 AND revision = ?2
@@ -585,7 +602,7 @@ impl Database {
                 status,
                 serde_json::to_string(&canonical.candidate)?,
                 canonical.fingerprint,
-                serde_json::to_string(&validation)?,
+                validation_json_with_origin(&validation, "manual")?,
                 now
             ],
         )?;
@@ -693,6 +710,7 @@ impl Database {
         }
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
+        let settings = crate::settings::get_app_settings(self)?;
         let impact = build_rule_proposal_impact(
             &tx,
             &request.proposal_id,
@@ -700,6 +718,7 @@ impl Database {
             &request.scope,
             request.page_size,
             false,
+            &settings,
         )?;
         tx.commit()?;
         Ok(impact)
@@ -721,6 +740,7 @@ impl Database {
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
         validate_impact_binding_state(&tx, &binding)?;
+        let settings = crate::settings::get_app_settings(self)?;
         let impact = build_rule_proposal_impact(
             &tx,
             &binding.proposal_id,
@@ -728,6 +748,7 @@ impl Database {
             &binding.scope,
             RULE_PROPOSAL_SAMPLE_MAX,
             true,
+            &settings,
         )?;
         tx.commit()?;
         Ok(impact)
@@ -737,6 +758,7 @@ impl Database {
         &self,
         request: ApplyRuleProposalRequest,
     ) -> Result<ApplyRuleProposalResultDto, DbError> {
+        let _catalog_guard = super::rules_repo::catalog_execution_guard();
         if !request.confirmed {
             return Err(DbError::Validation(
                 "rule_proposal_apply_confirmation_required".to_string(),
@@ -759,6 +781,7 @@ impl Database {
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
         validate_impact_binding_state(&tx, &binding)?;
+        let settings = crate::settings::get_app_settings(self)?;
         let exact = build_rule_proposal_impact(
             &tx,
             &proposal_id,
@@ -766,6 +789,7 @@ impl Database {
             &binding.scope,
             RULE_PROPOSAL_SAMPLE_MAX,
             true,
+            &settings,
         )?;
         if exact.preview_fingerprint != request.preview_fingerprint {
             return Err(DbError::Validation(
@@ -890,6 +914,7 @@ fn build_rule_proposal_impact(
     scope: &FileLibraryScopeV2,
     page_size: u32,
     force_exact: bool,
+    settings: &crate::settings::AppSettings,
 ) -> Result<RuleProposalImpactDto, DbError> {
     let proposal_id = validate_proposal_id(proposal_id)?;
     let proposal = load_rule_proposal(conn, &proposal_id)?;
@@ -950,16 +975,29 @@ fn build_rule_proposal_impact(
         "f.is_stale = 0 AND ({}) AND ({})",
         resolved_scope.clause, predicate.sql
     );
-    let active_scope_count: i64 = conn.query_row(
-        &format!(
-            "SELECT COUNT(*) FROM files AS f WHERE f.is_stale = 0 AND ({})",
-            resolved_scope.clause
-        ),
-        params_from_iter(resolved_scope.params.iter()),
-        |row| row.get(0),
-    )?;
     let expensive = candidate_is_expensive(&candidate.candidate);
-    let deferred = !force_exact && active_scope_count > RULE_PROPOSAL_DEFER_THRESHOLD && expensive;
+    // Deferred previews only need to know whether the active scope crosses the
+    // threshold.  Counting every row makes a large, expensive preview pay an
+    // unnecessary O(N) scan before it can return its bounded sample.  Probe
+    // at most threshold + 1 rows instead; exact counts are still computed for
+    // non-deferred previews and exact resolution.
+    let active_scope_over_threshold = if !force_exact && expensive {
+        let mut threshold_params = resolved_scope.params.clone();
+        threshold_params.push(SqlValue::Integer(RULE_PROPOSAL_DEFER_THRESHOLD + 1));
+        let sampled_count: i64 = conn.query_row(
+            &format!(
+                "SELECT COUNT(*) FROM (SELECT 1 FROM files AS f
+                 WHERE f.is_stale = 0 AND ({}) LIMIT ?)",
+                resolved_scope.clause
+            ),
+            params_from_iter(threshold_params.iter()),
+            |row| row.get(0),
+        )?;
+        sampled_count > RULE_PROPOSAL_DEFER_THRESHOLD
+    } else {
+        false
+    };
+    let deferred = !force_exact && expensive && active_scope_over_threshold;
     let matched_count = if deferred {
         None
     } else {
@@ -969,10 +1007,44 @@ fn build_rule_proposal_impact(
             |row| row.get(0),
         )?)
     };
+    let persisted_rules = crate::db::Database::load_enabled_persisted_rules_from_connection(conn)?;
+    let active_rules_before =
+        crate::db::Database::active_rules_for_preview(&persisted_rules, settings);
+    let candidate_rule = Rule {
+        id: format!("proposal-candidate-{}", &candidate.fingerprint[..16]),
+        name: candidate.candidate.name.clone(),
+        source: RuleSource::User,
+        enabled: true,
+        priority: candidate.candidate.priority,
+        weight: candidate.candidate.weight,
+        root_operator: candidate.candidate.root_operator.clone(),
+        groups: candidate.candidate.groups.clone(),
+        action: candidate.candidate.action.clone(),
+        created_at: String::new(),
+        updated_at: String::new(),
+    };
+    let mut active_rules_after = active_rules_before.clone();
+    if proposal.intent_kind == "update" {
+        if let Some(target_id) = proposal.target_rule_id.as_deref() {
+            active_rules_after.retain(|rule| rule.id != target_id);
+            let mut replacement = candidate_rule.clone();
+            replacement.id = target_id.to_string();
+            active_rules_after.push(replacement);
+        }
+    } else {
+        active_rules_after.push(candidate_rule);
+    }
     let sample_rows = {
         let sql = format!(
-            "SELECT f.id, f.name, f.extension, f.size, f.mtime, f.file_type,
-                    f.risk_level, f.suggested_action
+            "SELECT f.id, f.path, f.name, f.extension, f.size, f.mtime, f.ctime,
+                    f.is_dir, f.state_code, f.file_type, f.purpose, f.lifecycle,
+                    f.context, f.risk_level, f.suggested_action,
+                    f.suggested_target_path, f.suggested_name, f.confidence,
+                    f.classification_reason, f.classification_status, f.matched_rules,
+                    f.requires_confirmation, f.content_hash,
+                    EXISTS (SELECT 1 FROM active_duplicate_membership dm WHERE dm.file_id = f.id),
+                    f.is_stale, f.last_seen_at, f.last_classified_at,
+                    f.classified_rule_version, f.last_classified_mtime, f.last_classified_size
              FROM files AS f WHERE {base_where}
              ORDER BY f.mtime DESC, f.id LIMIT ?"
         );
@@ -983,21 +1055,45 @@ fn build_rule_proposal_impact(
         let mut stmt = conn.prepare(&sql)?;
         let rows = stmt
             .query_map(params_from_iter(sample_params.iter()), |row| {
+                let indexed = crate::db::indexed_file_from_row(row)?;
+                let before = super::super::classification::engine::classify_indexed_file(
+                    &indexed,
+                    &active_rules_before,
+                    settings,
+                )
+                .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+                let after = super::super::classification::engine::classify_indexed_file(
+                    &indexed,
+                    &active_rules_after,
+                    settings,
+                )
+                .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+                let before_rules =
+                    serde_json::from_str::<Vec<String>>(&before.matched_rules).unwrap_or_default();
+                let after_rules =
+                    serde_json::from_str::<Vec<String>>(&after.matched_rules).unwrap_or_default();
                 Ok(RuleImpactSampleRowDto {
-                    file_id: row.get(0)?,
-                    name: row.get(1)?,
-                    extension: row.get(2)?,
-                    size: row.get(3)?,
-                    modified_at: row.get(4)?,
-                    file_type: row.get(5)?,
-                    risk_level: row.get(6)?,
-                    before_action: row.get(7)?,
-                    after_action: candidate
-                        .candidate
-                        .action
-                        .suggested_action
-                        .as_ref()
-                        .map(ToString::to_string),
+                    file_id: indexed.id,
+                    name: indexed.name,
+                    extension: indexed.extension,
+                    size: indexed.size,
+                    modified_at: indexed.mtime,
+                    file_type: before.file_type.clone(),
+                    risk_level: before.risk_level.clone(),
+                    before_action: before.suggested_action.clone(),
+                    after_action: Some(after.suggested_action.clone()),
+                    before_purpose: before.purpose.clone(),
+                    after_purpose: Some(after.purpose.clone()),
+                    before_target_path: before.suggested_target_path.clone(),
+                    after_target_path: Some(after.suggested_target_path.clone()),
+                    before_reason: before.classification_reason.clone(),
+                    after_reason: Some(after.classification_reason.clone()),
+                    before_requires_confirmation: before.requires_confirmation,
+                    after_requires_confirmation: Some(after.requires_confirmation),
+                    before_winner_rule: before_rules.first().cloned(),
+                    before_runner_rule: before_rules.get(1).cloned(),
+                    after_winner_rule: after_rules.first().cloned(),
+                    after_runner_rule: after_rules.get(1).cloned(),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -1386,6 +1482,17 @@ pub fn classify_rule_proposal(
             })
         });
 
+    // The original user prompt is untrusted intent data. A benign model
+    // response must not launder a prohibited request into a valid AST, so the
+    // deterministic gate runs before candidate/action inspection and also for
+    // manually edited candidates. Normalization covers case, whitespace,
+    // punctuation, hyphen/underscore variants and the supported Chinese
+    // wording without sending the prompt to any provider.
+    if let Some(code) = forbidden_prompt_intent(prompt) {
+        permission = "deny";
+        codes.push(code.to_string());
+    }
+
     if candidate.action.suggested_action.as_deref() == Some("DeleteCandidate") {
         permission = "deny";
         codes.push("rule_proposal_delete_or_trash_denied".to_string());
@@ -1496,6 +1603,99 @@ pub fn classify_rule_proposal(
         codes,
         warnings,
     }
+}
+
+fn forbidden_prompt_intent(prompt: &str) -> Option<&'static str> {
+    let normalized = prompt
+        .chars()
+        .flat_map(|character| {
+            let lower = character.to_lowercase().collect::<String>();
+            if lower.chars().all(|item| item.is_alphanumeric()) {
+                lower.chars().collect::<Vec<_>>()
+            } else {
+                vec![' ']
+            }
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<String>();
+    let raw = prompt.to_lowercase();
+    let has_any = |terms: &[&str]| {
+        terms.iter().any(|term| {
+            normalized.contains(&term.replace([' ', '-', '_'], ""))
+                || raw.contains(&term.to_lowercase())
+        })
+    };
+    if has_any(&[
+        "delete",
+        "trash",
+        "empty",
+        "permanent",
+        "permanentlyremove",
+        "permanentremoval",
+        "permanentdelete",
+        "permanentlydelete",
+        "删除",
+        "回收站",
+        "清空",
+        "永久删除",
+        "永久移除",
+        "彻底删除",
+    ]) {
+        return Some("rule_proposal_forbidden_prompt_delete");
+    }
+    if has_any(&[
+        "shell",
+        "powershell",
+        "cmd",
+        "script",
+        "command",
+        "tool",
+        "toolcall",
+        "mcp",
+        "脚本",
+        "命令",
+        "工具",
+        "调用mcp",
+    ]) {
+        return Some("rule_proposal_forbidden_prompt_tooling");
+    }
+    if has_any(&[
+        "autoenable",
+        "autorun",
+        "execute now",
+        "executenow",
+        "run now",
+        "runnow",
+        "自动启用",
+        "自动运行",
+        "立即执行",
+    ]) {
+        return Some("rule_proposal_forbidden_prompt_automatic_execution");
+    }
+    if has_any(&[
+        "bypasspreview",
+        "bypassjournal",
+        "bypassrestore",
+        "skippreview",
+        "绕过预览",
+        "绕过日志",
+        "绕过恢复",
+    ]) {
+        return Some("rule_proposal_forbidden_prompt_bypass");
+    }
+    if has_any(&[
+        "readcontent",
+        "filecontent",
+        "ocr",
+        "vlm",
+        "文件内容",
+        "读取内容",
+        "光学识别",
+    ]) {
+        return Some("rule_proposal_forbidden_prompt_content_understanding");
+    }
+    None
 }
 
 pub(crate) fn validate_model_envelope(
@@ -1752,6 +1952,38 @@ fn bounded_text(value: String, max: usize) -> String {
     value.chars().take(max).collect()
 }
 
+fn validation_json_with_origin(
+    validation: &RuleProposalValidationV1,
+    origin: &str,
+) -> Result<String, DbError> {
+    let mut value = serde_json::to_value(validation)?;
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| DbError::Validation("rule_proposal_validation_not_object".to_string()))?;
+    object.insert(
+        "candidateOrigin".to_string(),
+        Value::String(if origin == "manual" {
+            "manual".to_string()
+        } else {
+            "provider".to_string()
+        }),
+    );
+    Ok(serde_json::to_string(&value)?)
+}
+
+fn candidate_origin_from_validation_json(value: &str) -> String {
+    serde_json::from_str::<Value>(value)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("candidateOrigin")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .filter(|origin| origin == "manual")
+        .unwrap_or_else(|| "provider".to_string())
+}
+
 fn bounded_strings(values: Vec<String>, max_items: usize, max_chars: usize) -> Vec<String> {
     values
         .into_iter()
@@ -1854,7 +2086,17 @@ fn proposal_from_sql_row(row: RuleProposalSqlRow) -> rusqlite::Result<RulePropos
     let validation = if row.validation_json == "{}" {
         RuleProposalValidationV1::default()
     } else {
-        serde_json::from_str(&row.validation_json).map_err(|error| {
+        let mut value = serde_json::from_str::<Value>(&row.validation_json).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                15,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?;
+        if let Some(object) = value.as_object_mut() {
+            object.remove("candidateOrigin");
+        }
+        serde_json::from_value(value).map_err(|error| {
             rusqlite::Error::FromSqlConversionFailure(
                 15,
                 rusqlite::types::Type::Text,
@@ -1873,6 +2115,7 @@ fn proposal_from_sql_row(row: RuleProposalSqlRow) -> rusqlite::Result<RulePropos
         provider_kind: row.provider_kind,
         provider_preset: row.provider_preset,
         model: row.model,
+        candidate_origin: candidate_origin_from_validation_json(&row.validation_json),
         ast_version: row.ast_version,
         candidate,
         candidate_fingerprint: row.candidate_fingerprint,
@@ -2147,6 +2390,30 @@ mod tests {
     }
 
     #[test]
+    fn forbidden_prompt_gate_covers_language_spacing_and_benign_model_output() {
+        let candidate = canonicalize_rule_draft_v2(extension_draft(None))
+            .expect("canonical candidate")
+            .candidate;
+        for prompt in [
+            "DELETE PDF files",
+            "move to trash",
+            "permanent removal of files",
+            "永久移除文件",
+            "自动-启用并立即运行",
+            "run a shell command",
+            "绕过 预览 和恢复日志",
+            "读取文件 内容并 OCR",
+            "调用 MCP 工具",
+        ] {
+            let validation = classify_rule_proposal(&candidate, "create", prompt, true);
+            assert_eq!(validation.permission_class, "deny", "prompt: {prompt}");
+        }
+        let allowed =
+            classify_rule_proposal(&candidate, "create", "PDF files older than 30 days", true);
+        assert_ne!(allowed.permission_class, "deny");
+    }
+
+    #[test]
     fn deterministic_unit_grounding_accepts_mb_and_days_normalization() {
         let mut draft = extension_draft(None);
         draft.groups[0].conditions.extend([
@@ -2226,6 +2493,37 @@ mod tests {
             .expect("after metadata")
         };
         assert_eq!(before, after);
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn manual_candidate_edit_keeps_provider_provenance_but_marks_origin_without_schema_change() {
+        let (db, path) = test_database();
+        let proposal =
+            create_and_finalize(&db, "Organize PDF files as Work", extension_draft(None));
+        assert_eq!(proposal.candidate_origin, "provider");
+        let edited = db
+            .replace_rule_proposal_candidate(ReplaceRuleProposalCandidateRequest {
+                proposal_id: proposal.id.clone(),
+                expected_proposal_revision: proposal.revision,
+                candidate: extension_draft(None),
+            })
+            .expect("manual candidate edit");
+        assert_eq!(edited.candidate_origin, "manual");
+        assert!(edited.summary.is_none());
+        assert_eq!(edited.provider_kind, proposal.provider_kind);
+        assert_eq!(edited.model, proposal.model);
+        let conn = db.conn().expect("proposal schema connection");
+        let columns = conn
+            .prepare("PRAGMA table_info(rule_proposals)")
+            .expect("proposal schema")
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("proposal columns")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("proposal column list");
+        assert!(!columns.iter().any(|column| column == "candidate_origin"));
+        drop(conn);
         drop(db);
         let _ = std::fs::remove_file(path);
     }

@@ -447,8 +447,8 @@ if (task06Performance.error || task06Performance.status !== 0) {
 console.log("Task 06 durable plan 100/1k/10k benchmark passed.");
 
 const task07PerformanceTests = [
-  ["performance_100k_schema_32_to_33_rule_proposal_migration", "Task 07 schema 32->33 100k migration"],
-  ["performance_1m_schema_32_to_33_rule_proposal_migration", "Task 07 schema 32->33 1M migration"],
+  ["performance_100k_schema_32_to_33_rule_proposal_migration", "Task 08 schema 32->34 100k content migration"],
+  ["performance_1m_schema_32_to_33_rule_proposal_migration", "Task 08 schema 32->34 1M content migration"],
   ["performance_task07_rule_proposal_repository_and_impact", "Task 07 Rule Proposal repository and 1M impact"],
 ];
 

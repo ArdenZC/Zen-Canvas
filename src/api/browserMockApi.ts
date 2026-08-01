@@ -61,6 +61,8 @@ import type {
   RuleProposalImpact,
   RuleExecutionMode,
   RuleExecutionSummary,
+  ContentArtifact,
+  ContentScopePolicy,
   MutateFileUserTagsRequest,
   MutateFileUserTagsResult,
   SaveSettingsRequest,
@@ -377,6 +379,23 @@ let mockRules: Rule[] = [
 ];
 let mockRuleProposals: RuleProposal[] = [];
 
+const mockContentPolicy = (rootId: string, enabled = false): ContentScopePolicy => ({
+  rootId,
+  rootRevision: 1,
+  enabled,
+  extractorFamilies: ["txt", "md", "csv", "pdf_text", "docx", "xlsx", "pptx"],
+  maxBytes: 8 * 1024 * 1024,
+  maxChars: 32768,
+  maxPages: 100,
+  maxRows: 10000,
+  rawRetentionMode: "none",
+  rawRetentionChars: 0,
+  localAllowed: true,
+  cloudAllowed: false,
+  policyRevision: enabled ? 1 : 0,
+  updatedAt: Math.floor(Date.now() / 1000)
+});
+
 export async function mockInvokeCommand<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   switch (command) {
     case "init_db":
@@ -685,6 +704,25 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
         catalogRevision: mockCatalogRevision,
         classificationVersion: "browser-mock-not-native"
       } as T;
+    case "get_content_scope_policy":
+      return mockContentPolicy(String(args?.rootId ?? "mock-root")) as T;
+    case "get_content_catalog_revision":
+      throw new Error("browser_mock_content_unavailable: native content catalog requires desktop runtime");
+    case "set_content_scope_policy":
+      throw new Error("browser_mock_content_unavailable: native content policy persistence requires desktop runtime");
+    case "preview_content":
+    case "start_content_run":
+    case "get_content_run":
+    case "list_content_runs":
+    case "cancel_content_run":
+    case "query_content_run_items":
+    case "get_content_artifact":
+    case "query_content_artifacts":
+    case "rebuild_content_artifact":
+    case "delete_content_artifact":
+    case "purge_content_scope":
+    case "understand_content_artifacts":
+      throw new Error("browser_mock_content_unavailable: native content extraction/provider/persistence is unavailable in the browser mock");
     case "classify_files_with_ai":
       return mockAIClassifyFiles(args) as T;
     case "classify_selected_files_with_ai":
@@ -969,6 +1007,7 @@ function createMockRuleProposal(request?: Record<string, unknown>): RuleProposal
     providerKind: "openai_compatible",
     providerPreset: "deepseek",
     model: "browser-mock-deterministic",
+    candidateOrigin: "provider",
     astVersion: 1,
     candidate: proposalCandidateFromDraft(draft),
     candidateFingerprint: `mock-candidate-${prompt.length}`,

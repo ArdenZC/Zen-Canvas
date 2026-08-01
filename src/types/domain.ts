@@ -772,6 +772,15 @@ export interface FileLibraryDetail {
   activeFindings: FileLibraryFindingSummary[];
   safeActions: string[];
   revision: number;
+  contentStatus?: string;
+  contentPolicy?: string;
+  contentSummary?: string | null;
+  contentKeywords?: string[];
+  contentLanguage?: string | null;
+  contentProvenance?: string | null;
+  contentTruncated?: boolean | null;
+  contentTextRetained?: boolean | null;
+  contentRevision?: number | null;
 }
 
 export interface LibraryTypeCount {
@@ -1377,6 +1386,7 @@ export interface RuleProposal {
   providerKind: AIProviderKind | null;
   providerPreset: AIProviderPresetId | null;
   model: string | null;
+  candidateOrigin?: "provider" | "manual" | string;
   astVersion: number;
   candidate: CanonicalRuleAstV1 | null;
   candidateFingerprint: string | null;
@@ -1409,6 +1419,18 @@ export interface RuleImpactSampleRow {
   riskLevel: string;
   beforeAction: string;
   afterAction: string | null;
+  beforePurpose?: string;
+  afterPurpose?: string | null;
+  beforeTargetPath?: string;
+  afterTargetPath?: string | null;
+  beforeReason?: string;
+  afterReason?: string | null;
+  beforeRequiresConfirmation?: boolean;
+  afterRequiresConfirmation?: boolean | null;
+  beforeWinnerRule?: string | null;
+  beforeRunnerRule?: string | null;
+  afterWinnerRule?: string | null;
+  afterRunnerRule?: string | null;
 }
 
 export interface RuleConflictPreview {
@@ -1443,6 +1465,170 @@ export interface ApplyRuleProposalResult {
   proposal: RuleProposal;
   rule: Rule;
   catalogRevision: number;
+}
+
+export interface ContentScopePolicy {
+  rootId: string;
+  rootRevision: number;
+  enabled: boolean;
+  extractorFamilies: string[];
+  maxBytes: number;
+  maxChars: number;
+  maxPages: number;
+  maxRows: number;
+  rawRetentionMode: string;
+  rawRetentionChars: number;
+  localAllowed: boolean;
+  cloudAllowed: boolean;
+  policyRevision: number;
+  updatedAt: number;
+}
+
+export interface ContentPolicyRevisionRequest {
+  rootId: string;
+  rootRevision: number;
+  policyRevision: number;
+}
+
+export interface ContentPreviewRequest {
+  version: 1;
+  requestId: string;
+  scope: FileLibraryScopeV2;
+  selectionFileIds: string[];
+  mode: "local" | "understand" | "local_and_understand";
+  expectedLibraryRevision: number;
+  expectedPolicyRevisions: ContentPolicyRevisionRequest[];
+  providerMode: "none" | "existing_interactive_provider";
+}
+
+export interface ContentSample {
+  fileId: string;
+  name: string;
+  extension: string;
+  size: number;
+  modifiedAt: number;
+  status: string;
+  extractorFamily: string | null;
+  reason: string | null;
+}
+
+export interface ContentPreview {
+  version: number;
+  requestId: string;
+  scopeHealth: { scope: FileLibraryScopeV2; health: LibraryScopeHealth; rootIds: string[]; policyRevisions: ContentPolicyRevisionRequest[] };
+  exactCount: number;
+  deferredCount: number | null;
+  exactState: string;
+  candidateResolver: string;
+  candidateFingerprint: string;
+  perFileByteBudget: number;
+  perFileCharBudget: number;
+  totalByteBudget: number;
+  totalCharBudget: number;
+  byteBudget: number;
+  charBudget: number;
+  supportedCount: number;
+  unsupportedCount: number;
+  blockedCount: number;
+  failedCount: number;
+  supportedFormats: string[];
+  unsupportedFormats: string[];
+  blockedReasons: string[];
+  localAllowed: boolean;
+  cloudAllowed: boolean;
+  rawRetentionDisclosure: string;
+  sample: ContentSample[];
+  libraryRevision: number;
+  policyFingerprint: string;
+  previewFingerprint: string;
+  requiresConfirmation: boolean;
+}
+
+export interface ContentRun {
+  id: string;
+  scope: FileLibraryScopeV2;
+  mode: string;
+  providerMode: string;
+  status: string;
+  expectedLibraryRevision: number;
+  candidateFingerprint: string;
+  candidateResolver: string;
+  byteBudget: number;
+  charBudget: number;
+  requestedCount: number;
+  materializedCount: number;
+  completedCount: number;
+  blockedCount: number;
+  skippedCount: number;
+  failedCount: number;
+  providerRevision: number;
+  providerConfirmed: boolean;
+  cancelRequested: boolean;
+  revision: number;
+  lastErrorCode: string | null;
+  lastErrorDetail: string | null;
+  createdAt: number;
+  updatedAt: number;
+  completedAt: number | null;
+}
+
+export interface ContentRunItem {
+  id: string;
+  runId: string;
+  fileId: string;
+  ordinal: number;
+  status: string;
+  rootId: string | null;
+  sourceIsDir: boolean;
+  sourceSize: number;
+  sourceMtime: number;
+  sourceHash: string;
+  extractorFamily: string | null;
+  extractorVersion: string | null;
+  artifactId: string | null;
+  providerStatus: string;
+  providerRevision: number;
+  providerCompletedAt: number | null;
+  errorCode: string | null;
+  errorDetail: string | null;
+  revision: number;
+  updatedAt: number;
+}
+
+export interface ContentArtifact {
+  id: string;
+  fileId: string;
+  scanRootId: string | null;
+  sourceSize: number;
+  sourceMtime: number;
+  sourceIsDir: boolean;
+  sourceHash: string;
+  extractorFamily: string;
+  extractorVersion: string;
+  policyRevision: number;
+  providerKind: string | null;
+  providerModel: string | null;
+  promptPolicyVersion: number | null;
+  contentFingerprint: string;
+  status: string;
+  summary: string | null;
+  keywords: string[];
+  language: string | null;
+  truncated: boolean;
+  textRetained: boolean;
+  provenance: unknown;
+  revision: number;
+  createdAt: number;
+  updatedAt: number;
+  lastRunId: string | null;
+}
+
+export interface ContentArtifactPage {
+  artifacts: ContentArtifact[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  libraryRevision: number;
+  contentRevision: number;
 }
 
 export interface FileQuery {

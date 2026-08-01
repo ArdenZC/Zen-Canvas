@@ -315,6 +315,15 @@ pub struct FileLibraryDetailDto {
     pub active_findings: Vec<FileLibraryFindingSummaryDto>,
     pub safe_actions: Vec<String>,
     pub revision: i64,
+    pub content_status: Option<String>,
+    pub content_policy: Option<String>,
+    pub content_summary: Option<String>,
+    pub content_keywords: Vec<String>,
+    pub content_language: Option<String>,
+    pub content_provenance: Option<String>,
+    pub content_truncated: Option<bool>,
+    pub content_text_retained: Option<bool>,
+    pub content_revision: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -927,6 +936,45 @@ impl Database {
         detail.scan_root_id = root.as_ref().map(|(id, _, _)| id.clone());
         detail.scan_root_name = root.as_ref().map(|(_, name, _)| name.clone());
         detail.scope_health = root.as_ref().map(|(_, _, health)| health.clone());
+        if let Some(content) = tx
+            .query_row(
+                "SELECT ca.status, csp.enabled, ca.summary, ca.keywords_json,
+                        ca.language, ca.provenance_json, ca.truncated,
+                        ca.text_retained, ca.revision
+                 FROM content_artifacts ca
+                 LEFT JOIN content_scope_policies csp ON csp.scan_root_id = ca.scan_root_id
+                 WHERE ca.file_id = ?1",
+                params![file_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<i64>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, i64>(6)?,
+                        row.get::<_, i64>(7)?,
+                        row.get::<_, i64>(8)?,
+                    ))
+                },
+            )
+            .optional()?
+        {
+            detail.content_status = Some(content.0);
+            detail.content_policy = Some(if content.1.unwrap_or(0) != 0 {
+                "enabled".to_string()
+            } else {
+                "disabled".to_string()
+            });
+            detail.content_summary = content.2;
+            detail.content_keywords = serde_json::from_str(&content.3).unwrap_or_default();
+            detail.content_language = content.4;
+            detail.content_provenance = Some(content.5);
+            detail.content_truncated = Some(content.6 != 0);
+            detail.content_text_retained = Some(content.7 != 0);
+            detail.content_revision = Some(content.8);
+        }
         let duplicate = tx
             .query_row(
                 "SELECT ag.group_id, (SELECT COUNT(*) FROM duplicate_group_members AS agm WHERE agm.group_id = ag.group_id) FROM active_duplicate_membership AS ag JOIN duplicate_group_members AS agm ON agm.group_id = ag.group_id WHERE agm.file_id = ?1 LIMIT 1",
@@ -1664,7 +1712,7 @@ fn build_library_count_query(
         }
         if !none_tags.is_empty() {
             tag_conditions.push(format!(
-                "NOT EXISTS (SELECT 1 FROM file_user_tags AS tf_none_count WHERE tf_none_count.file_id = f.id AND tf_none_count.tag_id IN ({none_placeholders}))"
+                "f.id NOT IN (SELECT tf_none_count.file_id FROM file_user_tags AS tf_none_count INDEXED BY idx_file_user_tags_tag_file WHERE tf_none_count.tag_id IN ({none_placeholders}))"
             ));
         }
         let sql = format!(
@@ -1802,7 +1850,7 @@ fn append_tag_filter(
         }
         "none" => {
             conditions.push(format!(
-                "NOT EXISTS (SELECT 1 FROM file_user_tags AS tf_none \
+                "NOT EXISTS (SELECT 1 FROM file_user_tags AS tf_none INDEXED BY idx_file_user_tags_tag_file \
                  WHERE tf_none.file_id = f.id AND tf_none.tag_id IN ({}))",
                 std::iter::repeat_n("?", ids.len())
                     .collect::<Vec<_>>()
@@ -2253,6 +2301,15 @@ fn detail_from_row(row: &Row<'_>) -> rusqlite::Result<FileLibraryDetailDto> {
             Vec::new()
         },
         revision: 0,
+        content_status: None,
+        content_policy: None,
+        content_summary: None,
+        content_keywords: Vec::new(),
+        content_language: None,
+        content_provenance: None,
+        content_truncated: None,
+        content_text_retained: None,
+        content_revision: None,
     })
 }
 

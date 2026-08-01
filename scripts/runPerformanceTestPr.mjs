@@ -34,7 +34,8 @@ run(
 );
 
 // Keep one 100k complexity sentinel in every code PR. The remaining large
-// migration, scan, dedupe, and analysis suites run for sensitive paths and master.
+// migration, scan, dedupe, and analysis suites run only in the explicit full
+// validation workflow, scheduled validation, or the master push gate.
 run(
   "100k SQLite/FTS complexity sentinel",
   "cargo",

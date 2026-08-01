@@ -2,10 +2,25 @@ use super::super::*;
 use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
 use serde::{Deserialize, Serialize};
 use serde_json::{Number, Value};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
 pub const RULE_AST_VERSION: i64 = 1;
+
+// Rule execution and every catalog mutation share this process-local gate. It
+// prevents a long-running execution from observing catalog revision N while a
+// concurrent mutation publishes N+1 halfway through the run. The durable CAS
+// revision remains the authority across processes; this gate closes the
+// in-process TOCTOU window used by the desktop runtime and tests.
+static RULE_CATALOG_EXECUTION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+pub(crate) fn catalog_execution_guard() -> MutexGuard<'static, ()> {
+    RULE_CATALOG_EXECUTION_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -175,6 +190,7 @@ impl Database {
     }
 
     pub fn save_user_rule(&self, rule: Rule) -> Result<Rule, DbError> {
+        let _catalog_guard = catalog_execution_guard();
         let mut rule = rule;
         rule.source = RuleSource::User;
         validate_user_rule(&rule)?;
@@ -189,8 +205,9 @@ impl Database {
         let groups_json = serde_json::to_string(&rule.groups)?;
         let action_json = serde_json::to_string(&rule.action)?;
         let rule_id = rule.id.clone();
-        let conn = self.conn()?;
-        conn.execute(
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        tx.execute(
             r#"
             INSERT INTO rules (
                 id,
@@ -230,21 +247,29 @@ impl Database {
                 rule.updated_at
             ],
         )?;
+        bump_catalog_revision_unconditional(&tx)?;
+        tx.commit()?;
 
         get_user_rule_by_id(self, &rule_id)
     }
 
     pub fn delete_user_rule(&self, id: &str) -> Result<bool, DbError> {
+        let _catalog_guard = catalog_execution_guard();
         let id = id.trim();
         if id.is_empty() {
             return Ok(false);
         }
 
-        let conn = self.conn()?;
-        let deleted = conn.execute(
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        let deleted = tx.execute(
             "DELETE FROM rules WHERE id = ?1 AND source = 'user'",
             params![id],
         )?;
+        if deleted > 0 {
+            bump_catalog_revision_unconditional(&tx)?;
+        }
+        tx.commit()?;
         Ok(deleted > 0)
     }
 
@@ -272,6 +297,12 @@ impl Database {
 
     pub(crate) fn load_enabled_persisted_rules(&self) -> Result<Vec<Rule>, DbError> {
         let conn = self.conn()?;
+        Self::load_enabled_persisted_rules_from_connection(&conn)
+    }
+
+    pub(crate) fn load_enabled_persisted_rules_from_connection(
+        conn: &Connection,
+    ) -> Result<Vec<Rule>, DbError> {
         let mut stmt = conn.prepare(
             "SELECT id, name, source, enabled, priority, weight, root_operator,
                     groups_json, action_json, created_at, updated_at
@@ -293,6 +324,7 @@ impl Database {
         &self,
         request: CreateUserRuleV2Request,
     ) -> Result<RuleMutationResultV2, DbError> {
+        let _catalog_guard = catalog_execution_guard();
         if request.version != 2 || request.request_id.trim().is_empty() {
             return Err(DbError::Validation(
                 "rule_create_request_invalid".to_string(),
@@ -329,6 +361,7 @@ impl Database {
         &self,
         request: UpdateUserRuleV2Request,
     ) -> Result<RuleMutationResultV2, DbError> {
+        let _catalog_guard = catalog_execution_guard();
         let rule_id = validate_rule_record_id(&request.rule_id)?;
         let canonical = canonicalize_rule_draft_v2(request.draft)?;
         let mut conn = self.conn()?;
@@ -373,6 +406,7 @@ impl Database {
         &self,
         request: SetUserRuleEnabledV2Request,
     ) -> Result<RuleMutationResultV2, DbError> {
+        let _catalog_guard = catalog_execution_guard();
         let rule_id = validate_rule_record_id(&request.rule_id)?;
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
@@ -403,6 +437,7 @@ impl Database {
         &self,
         request: DeleteUserRuleV2Request,
     ) -> Result<RuleCatalogStateDto, DbError> {
+        let _catalog_guard = catalog_execution_guard();
         if !request.confirmed {
             return Err(DbError::Validation(
                 "rule_delete_confirmation_required".to_string(),
@@ -886,6 +921,15 @@ pub(crate) fn bump_catalog_revision(conn: &Connection, expected: i64) -> Result<
         ));
     }
     Ok(expected + 1)
+}
+
+pub(crate) fn bump_catalog_revision_unconditional(conn: &Connection) -> Result<i64, DbError> {
+    conn.execute(
+        "UPDATE rule_catalog_state SET revision = revision + 1, updated_at = ?1
+         WHERE singleton_id = 1",
+        params![current_unix_seconds()],
+    )?;
+    load_catalog_state(conn).map(|state| state.revision)
 }
 
 fn load_catalog_state(conn: &Connection) -> Result<RuleCatalogStateDto, DbError> {

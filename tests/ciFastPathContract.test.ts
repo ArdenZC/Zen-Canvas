@@ -22,11 +22,12 @@ describe("code pull-request CI fast path", () => {
     expect(workflow).toContain("name: Release compile (macos-latest)");
   });
 
-  it("uses fast PR profiles while retaining sensitive and post-merge gates", () => {
+  it("uses fast PR profiles while retaining explicit full-validation gates", () => {
     expect(workflow).toContain("npm run test:performance:pr");
     expect(workflow).toContain("npm run test:performance:full");
-    expect(workflow).toContain("needs.change-scope.outputs.performance_sensitive");
-    expect(workflow).toContain("needs.change-scope.outputs.package_sensitive");
+    expect(workflow).toContain("full_validation: ${{ steps.classify.outputs.full_validation }}");
+    expect(workflow).toContain('"full-validation" in pr_labels');
+    expect(workflow).toContain("inputs.full_validation");
     expect(workflow).toContain("npm run build:check");
     expect(workflow).toContain("npm run build -- --no-sign");
   });
@@ -39,10 +40,12 @@ describe("code pull-request CI fast path", () => {
     expect(buildCheck).not.toContain("tauri build");
   });
 
-  it("only packages pull requests when package-sensitive paths changed", () => {
-    const packageCondition =
-      "github.event_name != 'pull_request' || needs.change-scope.outputs.package_sensitive == 'true'";
-    expect(workflow.match(new RegExp(packageCondition.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"))).toHaveLength(2);
+  it("only packages on the explicit full-validation path", () => {
+    const packageJobs = workflow.match(/package-(?:windows|macos):[\s\S]*?\n\s+if:([^\n]+)/g) ?? [];
+    expect(packageJobs).toHaveLength(2);
+    for (const packageJob of packageJobs) {
+      expect(packageJob).toContain("needs.change-scope.outputs.full_validation == 'true'");
+    }
   });
 
   it("preserves stable required check names", () => {

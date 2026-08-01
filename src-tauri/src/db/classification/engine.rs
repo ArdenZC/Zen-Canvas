@@ -19,22 +19,68 @@ impl Database {
                 "rule_execution_confirmation_required".to_string(),
             ));
         }
+        // Freeze the complete backend authority for this execution. Catalog
+        // mutations take the same gate, so a concurrent learned/user/settings
+        // change cannot land between validation and a classification batch.
+        let _catalog_guard = super::super::queries::rules_repo::catalog_execution_guard();
         let catalog = self.get_rule_catalog_state()?;
         if catalog.revision != request.expected_catalog_revision {
             return Err(DbError::Validation(
                 "rule_catalog_revision_conflict".to_string(),
             ));
         }
-        let scope = self.resolve_authoritative_rule_scope(&request.scope)?;
         let settings = crate::settings::get_app_settings(self)?;
         let active_rules = self.authoritative_rules_for_settings(&settings)?;
         let classification_version = classification_version_for_rules(&active_rules, &settings)?;
+        let snapshot = self.capture_rule_execution_snapshot(
+            &request.scope,
+            catalog.revision,
+            &settings,
+            &active_rules,
+            &classification_version,
+        )?;
+        let scope = self.resolve_authoritative_rule_scope(&request.scope)?;
         let summary = self.execute_active_rules_for_scope_with_settings(
             &scope,
             &active_rules,
             request.mode,
             &settings,
         )?;
+        // Revalidate catalog/settings/rule/scope authority after the write
+        // batches. The library revision is intentionally allowed to advance
+        // here because these batches publish classification metadata; root and
+        // catalog revisions must remain identical to the frozen snapshot.
+        let after_settings = crate::settings::get_app_settings(self)?;
+        let after_rules = self.authoritative_rules_for_settings(&after_settings)?;
+        let after_version = classification_version_for_rules(&after_rules, &after_settings)?;
+        let after_catalog = self.get_rule_catalog_state()?;
+        let after = self.capture_rule_execution_snapshot(
+            &request.scope,
+            after_catalog.revision,
+            &after_settings,
+            &after_rules,
+            &after_version,
+        )?;
+        // Each non-empty classification batch advances the File Library
+        // revision once.  Account for those owned writes explicitly so a
+        // concurrent scan/library mutation cannot be hidden by the normal
+        // classification publication revision bump.
+        let owned_library_revision_delta = if summary.updated == 0 {
+            0
+        } else {
+            (summary.updated + CLASSIFY_BATCH_SIZE as i64 - 1) / CLASSIFY_BATCH_SIZE as i64
+        };
+        if after_catalog.revision != catalog.revision
+            || after.library_revision
+                != snapshot
+                    .library_revision
+                    .saturating_add(owned_library_revision_delta)
+            || snapshot.authority_fingerprint != after.authority_fingerprint
+        {
+            return Err(DbError::Validation(
+                "rule_execution_snapshot_stale".to_string(),
+            ));
+        }
         Ok(RuleExecutionResultV2 {
             summary,
             catalog_revision: catalog.revision,
@@ -66,24 +112,89 @@ impl Database {
         settings: &AppSettings,
     ) -> Result<Vec<Rule>, DbError> {
         let persisted = self.load_enabled_persisted_rules()?;
-        let selected = persisted.into_iter().filter(|rule| match rule.source {
-            RuleSource::User => true,
-            RuleSource::Learned => settings.use_learned_rules_as_auto_rules,
-            RuleSource::System => settings.use_legacy_builtin_classification_rules,
-            _ => false,
-        });
-        let rules = if settings.use_legacy_builtin_classification_rules {
+        let rules = Self::active_rules_for_preview(&persisted, settings);
+        for rule in &rules {
+            super::super::queries::rules_repo::validate_user_rule(rule)?;
+        }
+        Ok(rules)
+    }
+
+    pub(crate) fn active_rules_for_preview(
+        persisted: &[Rule],
+        settings: &AppSettings,
+    ) -> Vec<Rule> {
+        let selected = persisted
+            .iter()
+            .filter(|rule| match rule.source {
+                RuleSource::User => true,
+                RuleSource::Learned => settings.use_learned_rules_as_auto_rules,
+                RuleSource::System => settings.use_legacy_builtin_classification_rules,
+                _ => false,
+            })
+            .cloned();
+        if settings.use_legacy_builtin_classification_rules {
             legacy_builtin_classification_rules()
                 .into_iter()
                 .chain(selected)
                 .collect::<Vec<_>>()
         } else {
             selected.collect::<Vec<_>>()
-        };
-        for rule in &rules {
-            super::super::queries::rules_repo::validate_user_rule(rule)?;
         }
-        Ok(rules)
+    }
+
+    fn capture_rule_execution_snapshot(
+        &self,
+        scope: &FileLibraryScopeV2,
+        catalog_revision: i64,
+        settings: &AppSettings,
+        rules: &[Rule],
+        classification_version: &str,
+    ) -> Result<RuleExecutionSnapshot, DbError> {
+        let conn = self.conn()?;
+        let resolved = super::super::queries::library::resolve_scope(&conn, scope)?;
+        if !matches!(resolved.health.state.as_str(), "healthy" | "empty") {
+            return Err(DbError::Validation(
+                "rule_execution_scope_unavailable".to_string(),
+            ));
+        }
+        let mut root_state = Vec::new();
+        for root in &resolved.health.roots {
+            let state = conn.query_row(
+                "SELECT id, revision, current_generation, needs_reconciliation,
+                        watcher_rule_recovery_required, watcher_revision,
+                        watcher_applied_revision
+                 FROM scan_roots WHERE id = ?1",
+                params![root.id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, i64>(6)?,
+                    ))
+                },
+            )?;
+            root_state.push(state);
+        }
+        let library_revision = super::super::queries::library::current_library_revision(&conn)?;
+        let rules_fingerprint = rule_version_for_rules(rules)?;
+        let settings_fingerprint = Sha256::digest(serde_json::to_vec(settings)?);
+        let scope_fingerprint =
+            Sha256::digest(serde_json::to_vec(&(scope, &resolved.health, &root_state))?);
+        let authority_fingerprint = format!(
+            "{catalog_revision}:{}:{}:{}:{}",
+            hex_digest(&settings_fingerprint),
+            rules_fingerprint,
+            classification_version,
+            hex_digest(&scope_fingerprint)
+        );
+        Ok(RuleExecutionSnapshot {
+            authority_fingerprint,
+            library_revision,
+        })
     }
 
     fn resolve_authoritative_rule_scope(
@@ -520,6 +631,17 @@ fn classification_version_for_rules(
         .collect::<String>())
 }
 
+fn hex_digest(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[derive(Debug, Clone)]
+struct RuleExecutionSnapshot {
+    authority_fingerprint: String,
+    #[allow(dead_code)]
+    library_revision: i64,
+}
+
 fn should_classify_file(row: &IndexedFileRow, rule_version: &str) -> bool {
     if row_has_protected_classification(row) {
         return false;
@@ -645,7 +767,7 @@ fn execute_classification_batch(
     })
 }
 
-fn classify_indexed_file(
+pub(crate) fn classify_indexed_file(
     row: &IndexedFileRow,
     all_rules: &[Rule],
     settings: &AppSettings,
@@ -657,26 +779,26 @@ fn classify_indexed_file(
     } else {
         fallback_classification(row)
     };
+    // Keep references to the frozen rule snapshot while ranking. Cloning the
+    // full rule AST for every match makes bounded impact previews scale with
+    // the persisted rule count; only the winning rule's action is cloned below.
     let mut candidates = all_rules
         .iter()
         .filter_map(|rule| {
-            let matches = evaluate_rule(rule, row, &file_type);
-            matches.then(|| RuleCandidate {
-                score: rule.weight + rule.priority * 0.1,
-                rule: rule.clone(),
-            })
+            evaluate_rule(rule, row, &file_type)
+                .then_some((rule.weight + rule.priority * 0.1, rule))
         })
         .collect::<Vec<_>>();
     candidates.sort_by(|left, right| {
         right
-            .score
-            .partial_cmp(&left.score)
+            .0
+            .partial_cmp(&left.0)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| {
                 right
-                    .rule
+                    .1
                     .priority
-                    .partial_cmp(&left.rule.priority)
+                    .partial_cmp(&left.1.priority)
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
     });
@@ -685,17 +807,17 @@ fn classify_indexed_file(
     let runner_up = candidates.get(1);
     let has_conflict = top
         .zip(runner_up)
-        .map(|(top, runner_up)| top.score - runner_up.score <= 10.0)
+        .map(|(top, runner_up)| top.0 - runner_up.0 <= 10.0)
         .unwrap_or(false);
     let action = top
-        .map(|candidate| merge_action(&builtin.action, &candidate.rule.action))
+        .map(|candidate| merge_action(&builtin.action, &candidate.1.action))
         .unwrap_or_else(|| builtin.action.clone());
     let mut matched_rule_names = candidates
         .iter()
-        .map(|candidate| matched_rule_marker(&candidate.rule))
+        .map(|candidate| matched_rule_marker(candidate.1))
         .collect::<Vec<_>>();
     let confidence = top
-        .map(|candidate| (candidate.score / 100.0).clamp(0.35, 0.98))
+        .map(|candidate| (candidate.0 / 100.0).clamp(0.35, 0.98))
         .unwrap_or(builtin.confidence);
     let mut risk_level = action
         .risk_level

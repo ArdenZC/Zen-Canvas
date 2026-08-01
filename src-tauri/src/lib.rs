@@ -1,6 +1,7 @@
 pub mod ai;
 pub mod analysis;
 pub mod app_control;
+pub mod content;
 pub mod db;
 pub mod dedupe;
 pub(crate) mod file_naming;
@@ -50,6 +51,7 @@ pub use app_control::{
     SearchWindowLifecycleState, SearchWindowMutationRequest, SearchWindowPhase,
     SearchWindowResizeRequest, SearchWindowSnapshot,
 };
+pub use content::*;
 pub use db::{
     confirm_classification, correct_classification, create_user_rule_v2, delete_user_rule_v2,
     execute_rules_for_scope_v2, get_operation_logs, get_operation_previews_for_scope,

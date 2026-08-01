@@ -638,6 +638,7 @@ mod tests {
                 provider_kind: None,
                 provider_preset: None,
                 model: None,
+                candidate_origin: "provider".to_string(),
                 ast_version: 1,
                 candidate: None,
                 candidate_fingerprint: None,

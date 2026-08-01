@@ -151,9 +151,20 @@ pub fn get_versioned_app_settings(db: &Database) -> Result<VersionedAppSettings,
 }
 
 pub fn save_app_settings(db: &Database, settings: &AppSettings) -> Result<(), DbError> {
-    let conn = db.conn()?;
-    let settings_json = serde_json::to_string(&normalized_app_settings(settings))?;
-    conn.execute(
+    let _catalog_guard = crate::db::catalog_execution_guard();
+    let mut conn = db.conn()?;
+    let tx = conn.transaction()?;
+    let normalized = normalized_app_settings(settings);
+    let previous = tx
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = ?1",
+            params![APP_SETTINGS_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+        .and_then(|value| serde_json::from_str::<AppSettings>(&value).ok());
+    let settings_json = serde_json::to_string(&normalized)?;
+    tx.execute(
         r#"
         INSERT INTO app_settings (key, value)
         VALUES (?1, ?2)
@@ -163,6 +174,13 @@ pub fn save_app_settings(db: &Database, settings: &AppSettings) -> Result<(), Db
         "#,
         params![APP_SETTINGS_KEY, settings_json],
     )?;
+    if previous
+        .as_ref()
+        .is_none_or(|previous| settings_affects_rule_catalog(previous, &normalized))
+    {
+        crate::db::bump_catalog_revision_unconditional(&tx)?;
+    }
+    tx.commit()?;
     Ok(())
 }
 
@@ -171,10 +189,27 @@ pub fn save_app_settings_cas(
     settings: &AppSettings,
     expected_revision: i64,
 ) -> Result<VersionedAppSettings, SettingsError> {
-    let conn = db.conn()?;
+    let _catalog_guard = crate::db::catalog_execution_guard();
+    let mut conn = db.conn().map_err(SettingsError::Db)?;
+    let tx = conn
+        .transaction()
+        .map_err(DbError::from)
+        .map_err(SettingsError::Db)?;
     let normalized = normalized_app_settings(settings);
     let settings_json = serde_json::to_string(&normalized).map_err(DbError::from)?;
-    let changed = conn.execute(
+    let previous_json = tx
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = ?1",
+            params![APP_SETTINGS_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(DbError::from)
+        .map_err(SettingsError::Db)?;
+    let previous = previous_json
+        .as_deref()
+        .and_then(|value| serde_json::from_str::<AppSettings>(value).ok());
+    let changed = tx.execute(
         "UPDATE app_settings SET value = ?1, revision = revision + 1 WHERE key = ?2 AND revision = ?3",
         params![settings_json, APP_SETTINGS_KEY, expected_revision],
     )
@@ -182,10 +217,28 @@ pub fn save_app_settings_cas(
     if changed == 0 {
         return Err(SettingsError::RevisionConflict);
     }
+    if previous
+        .as_ref()
+        .is_none_or(|previous| settings_affects_rule_catalog(previous, &normalized))
+    {
+        crate::db::bump_catalog_revision_unconditional(&tx).map_err(SettingsError::Db)?;
+    }
+    tx.commit()
+        .map_err(DbError::from)
+        .map_err(SettingsError::Db)?;
     Ok(VersionedAppSettings {
         settings: normalized,
         revision: expected_revision + 1,
     })
+}
+
+fn settings_affects_rule_catalog(previous: &AppSettings, next: &AppSettings) -> bool {
+    previous.folder_naming_language != next.folder_naming_language
+        || previous.organize_root_mode != next.organize_root_mode
+        || previous.organize_root_path != next.organize_root_path
+        || previous.use_legacy_builtin_classification_rules
+            != next.use_legacy_builtin_classification_rules
+        || previous.use_learned_rules_as_auto_rules != next.use_learned_rules_as_auto_rules
 }
 
 fn deserialize_scan_roots<'de, D>(deserializer: D) -> Result<Vec<ScanRootSetting>, D::Error>
