@@ -1826,6 +1826,91 @@ Reviewers should run the full-validation GitHub workflow on the branch or PR, co
 
 ---
 
+---
+
+## Independent Review Remediation
+
+### Current baseline
+
+The remediation starts from the committed PR11 branch `codex/ui-v4-3-product-integration` and preserves the accepted V4.3 baseline and all prior stage commits. The work is limited to the six findings recorded in the independent review: Organize review safety, Cleanup intent/pagination, Content Understanding stale detail, Saved View active state, backend Review Reason projection, and mounted behavior evidence.
+
+### Authority migrated
+
+No new authority was introduced. Organization Plan remains the source of review groups/items and decision CAS; Analysis Run/Finding remains the source of Cleanup findings; Content Scope/Run/Artifact and fresh File Library detail remain the source of Content Understanding state; Query V2 and the Saved View repository remain the source of File Library query/view state. Browser mocks mirror these contracts only for local rendering and tests.
+
+### Legacy path retired
+
+- Organize no longer offers a group-level include action for `requires-decision` groups and no longer gates item acceptance on renderer-only validity text; it uses backend `reviewReasons` and `availableActions`.
+- Cleanup no longer treats the currently rendered findings page as the complete AI recheck target set.
+- Content Understanding no longer leaves the open sheet on the pre-mutation detail revision after a successful or conflict-refreshing operation.
+- Saved View active state no longer clears during its own debounce/query snapshot transition and no longer survives direct query divergence or deletion.
+
+### Product changes
+
+- Added stable backend review reason/action projection to Organization Plan item and group DTOs without schema 35.
+- Kept `requires-decision` acceptance on ordinary item-level mutations with explicit confirmation; Safe Batch remains restricted to backend-safe items.
+- Issued a fresh Cleanup scan request key for every scan intent and guarded duplicate scan starts.
+- Enumerated all active Review findings through durable pages, processed AI suggestions in 50-item batches, and exposed cancellation and outcome counts while preserving advisory-only AI behavior.
+- Revalidated and refreshed Content Understanding detail after policy/artifact operations, including Revision/CAS conflict handling.
+- Kept Saved View active state through expected transitions and cleared it on real user divergence or deletion.
+- Localized the touched File Library manager/filter copy through the shared i18n contract.
+
+### Files changed
+
+- `src-tauri/src/db/queries/organization.rs`
+- `src/api/browserMockApi.ts`
+- `src/i18n.ts`
+- `src/types/domain.ts`
+- `src/views/cleanup/StorageCleanupView.tsx`
+- `src/views/organize/OrganizeSuggestionsView.tsx`
+- `src/views/settings/SettingsView.tsx`
+- `src/views/shared/ui.ts`
+- `src/views/vault/VaultView.tsx`
+- `src/views/vault/components/ContentUnderstandingSheet.tsx`
+- `src/views/vault/components/FileLibraryFilterPopover.tsx`
+- `src/views/vault/components/LibraryMetadataManagerDialog.tsx`
+- `tests/cleanupIndependentReview.test.tsx`
+- `tests/contentIndependentReview.test.tsx`
+- `tests/organizeIndependentReview.test.tsx`
+- `tests/organizeV42.test.ts`
+- `tests/savedViewIndependentReview.test.tsx`
+- `docs/qa/UI_UX_V4_3_FINAL_QA.md`
+- `docs/design/UI_UX_V4_3_EXECUTION.md`
+
+### Focused tests
+
+- `npm.cmd run typecheck` — passed.
+- `npm.cmd test -- tests/organizeIndependentReview.test.tsx tests/cleanupIndependentReview.test.tsx tests/contentIndependentReview.test.tsx tests/savedViewIndependentReview.test.tsx` — 4 files, 9 tests passed before the final terminal-run/cancellation additions.
+- `npm.cmd test -- tests/contentIndependentReview.test.tsx tests/savedViewIndependentReview.test.tsx` — 2 files, 4 tests passed during the conflict/deletion follow-up.
+- `npm.cmd test -- tests/cleanupIndependentReview.test.tsx` — 4 mounted tests passed, including in-flight AI cancellation.
+- `npm.cmd test -- tests/contentIndependentReview.test.tsx` — 3 mounted tests passed, including terminal-run refresh-once behavior.
+- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` — passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib db::queries::organization::tests::review_metadata_is_projected_and_requires_decision_uses_ordinary_mutation -- --exact --test-threads=1` — passed.
+
+### Full gates
+
+The final QA record is updated only with commands run from the final remediation HEAD. The full repository test, remediation, performance, build, Rust, security, diff, and documentation results are recorded in `docs/qa/UI_UX_V4_3_FINAL_QA.md`.
+
+### Visual verification
+
+The local browser preview was used for real rendered inspection of Overview, File Library, the localized Saved View manager, Organize Files, and Storage Cleanup in the available light Chinese flow. The new mounted tests cover interaction state transitions; native Tauri, platform DPI, assistive technology, and unavailable seeded Content/AI states remain unverified.
+
+### Acceptance criteria
+
+- Every `requires-decision` review acceptance path remains an ordinary Organization Plan item mutation with explicit confirmation.
+- Cleanup scan intents are unique and guarded; AI recheck covers the full durable Review range with bounded batches and cancellation.
+- Content detail is refreshed after mutation and conflict handling; Saved View active state follows canonical query identity and deletion.
+- Review reasons/actions are backend-projected, stable, localized, and covered by Rust plus mounted tests.
+- No schema 35, second authority, second queue, unsafe mutation bypass, or automatic deletion path was added.
+
+### Deferred or unverified
+
+macOS compile/package, remote CI, signed release artifacts, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, native Tauri lifecycle, native Search Window, and native focus restoration require the relevant platform or CI environment.
+
+### Risks requiring human review
+
+Reviewers should inspect the backend projection cost for large Organization Plans, exercise native watcher/reconciliation and Content/AI task lifecycles, run the full-validation GitHub workflow, and verify the platform/accessibility matrix before declaring the release gate fully closed.
+
 ## 6. Codex continuous-execution rule
 
 Codex may continue automatically from one V4.3 stage to the next only when:
