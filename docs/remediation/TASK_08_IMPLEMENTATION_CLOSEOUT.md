@@ -1,12 +1,12 @@
 # Task 08 Implementation Closeout
 
-状态：第二轮人工 review `4832353459` 的剩余阻断项已在原分支修订；Draft PR #44 保持不合并，等待最终 full-validation CI 和第三轮人工验收。本文件不授权自动合并、tag、release、schema 35、Task 08A/08B 或 Task 09。
+状态：第二轮人工 review `4832353459` 的剩余阻断项已在原分支修订；final-head full-validation 已全部通过，Draft PR #44 保持不合并，等待第三轮人工验收。本文件不授权自动合并、tag、release、schema 35、Task 08A/08B 或 Task 09。
 
 ## 范围、分支与审查基线
 
 - 任务：`TASK_08_LOCAL_CONTENT_ARTIFACTS_AND_UNDERSTANDING.md`。
 - 分支：`remediation/08-local-content-understanding`；唯一交付仍为 Draft PR #44。
-- 本轮代码提交：本地等价提交 `37e5f53`；通过 GitHub API 推送的代码提交为 `5f81ce724ba74f2d775c8cde8399d55d57466595`。最终文档提交后的 branch tip 以 GitHub 为准。
+- 本轮代码提交：本地等价提交 `37e5f53`；通过 GitHub API 推送的代码提交为 `5f81ce724ba74f2d775c8cde8399d55d57466595`。本轮 final validation code head 为文档提交前的 `c967a77c445feefe01be201708da72af2de01e0a`；后续文档-only tip 不改变生产代码。
 - 不创建新分支、新 PR、Task 08A/08B、schema 35 或 Task 09。
 
 ## 本轮剩余 finding 关闭映射
@@ -35,8 +35,8 @@ Schema 仍为 `33 → 34` additive migration，没有 schema 35。Artifact 绑�
 ## CI 证据与旧失败的准确解释
 
 - 同一旧 HEAD `9d867f2aca7f860813201f16749255ec3c4b61cb` 的 PR workflow run [30662443445](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30662443445) 的 Performance job 失败原因是 **complex-query p95 `161.113 ms > 150 ms`**；不是 deferred probe，也不是可忽略的“deferred probe”失败。随后同 SHA 的 full run [30662447474](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30662447474) 成功，但本轮仍以稳定 benchmark 和新 final-head full matrix 为准。
-- 本轮代码 final-head full-validation CI：**待推送后记录**（应包含 Windows/macOS Rust、1M/full performance、Windows/macOS release compile、NSIS、unsigned DMG、dependency/RustSec、frontend 和 quality gates）。
-- 文档最终提交后的 branch tip 和对应 CI run 会在本节补齐；不得把旧 HEAD run 当作本轮 final HEAD 证据。
+- 本轮代码 final-head full-validation CI [30681762428](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30681762428)：head `c967a77c445feefe01be201708da72af2de01e0a`，**全部成功**。包含 Windows/macOS Rust、Performance（20m46s）、Windows/macOS release compile、NSIS、unsigned DMG、dependency/RustSec、frontend/format 和两个 quality gates。
+- GitHub 当前 branch tip 可能是随后产生的文档-only follow-up commit；该 tip 不改变上述已验证的生产代码，且不把旧 HEAD run 当作本轮 final code evidence。
 
 ## 交付状态
 

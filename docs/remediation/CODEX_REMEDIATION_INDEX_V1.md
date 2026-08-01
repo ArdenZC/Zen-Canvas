@@ -24,7 +24,7 @@
 | 05 | `TASK_05_FILE_LIBRARY_QUERY_TAGS_SAVED_VIEWS.md` | 模块 5：文件库；TagSpaces 对标 | 已合并，schema 31 |
 | 06 | `TASK_06_DURABLE_ORGANIZATION_PLAN_AND_DRY_RUN.md` | 模块 6：AI 整理预览；ai-file-sorter 对标 | 已合并，schema 32 |
 | 07 | `TASK_07_NATURAL_LANGUAGE_RULE_PROPOSAL_AND_APPROVAL.md` | 模块 7：自然语言规则；Coworker + OpenCode 对标 | 已合并，schema 33；六项遗留转入 Task 08 |
-| 08 | `TASK_08_LOCAL_CONTENT_ARTIFACTS_AND_UNDERSTANDING.md` | 模块 8：本地内容理解；Local-File-Organizer 对标 | **Draft PR #44；剩余 PDF/provider review gap 已修订（代码提交 `5f81ce7`）；等待 final-head CI 与第三轮人工验收，schema 34** |
+| 08 | `TASK_08_LOCAL_CONTENT_ARTIFACTS_AND_UNDERSTANDING.md` | 模块 8：本地内容理解；Local-File-Organizer 对标 | **Draft PR #44；剩余 PDF/provider review gap 已修订，final-head CI `30681762428` 已通过；等待第三轮人工验收，schema 34** |
 
 不得创建 debt-cleanup、07.5、08A/08B/08C、OCR-only 或并行产品阶段。上一阶段接受遗留必须作为下一完整模块第一组关闭，然后连续完成该模块。
 
