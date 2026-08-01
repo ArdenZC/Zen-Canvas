@@ -1757,6 +1757,75 @@ Reviewers should validate policy revision conflicts, preview fingerprint invalid
 
 ---
 
+## 5L. PR11 closeout — global QA and release gate
+
+### Current baseline
+
+PR11 starts from committed PR10 `292cae2` on `codex/ui-v4-3-product-integration`. The worktree was clean at the start of the final QA pass. PR11 adds only QA documentation, stale test-contract repairs exposed by the full suite, and a test-only Clippy allowance; it adds no schema, persistence, queue, capability, or filesystem authority.
+
+### Authority migrated
+
+No authority migration was needed in PR11. The final QA confirms the PR0–PR10 authority map: Global Index owns system-wide search, Query V2 owns File Library browsing, Organization Plan owns Organize review, Analysis Run/Finding owns Cleanup, Operation Preview/journals own execution and restore, Rule Repository V2 owns Automation mutations, Content Scope/Run/Artifact owns Content Understanding, and Settings/Overview remain renderer projections over those existing authorities.
+
+### Legacy path retired
+
+- Updated static accessibility/background-index tests to inspect the focused Settings section components after PR10 extraction rather than assuming all markup remains in `SettingsView.tsx`.
+- Updated the Preview interaction contract to use the current shared `previewSummaryExecutable` label instead of the retired “actually executable” summary label.
+- Added a narrow `clippy::too_many_arguments` allowance only to the test fixture `seed_group_item`; no runtime legacy or safety path was restored.
+
+### Product changes
+
+- Completed the local repository-wide V4.3 QA pass and captured the available language/theme/responsive render matrix.
+- Confirmed one App Shell page heading and no horizontal overflow at 1440×900, 1280×800, 1180×720, 1024×700, and 980×680 in the browser preview.
+- Confirmed Light Chinese, Dark Chinese, Light English, and Dark English Overview states; captured dark-English narrow renders for File Library, Organize Files, Storage Cleanup, History, and Automation.
+- Recorded native Tauri, assistive-technology, macOS, remote CI, and publish limitations explicitly in `docs/qa/UI_UX_V4_3_FINAL_QA.md`.
+
+### Files changed
+
+- `src-tauri/src/db/queries/organization.rs`
+- `tests/backgroundIndexer.test.ts`
+- `tests/organizeV421Interaction.test.tsx`
+- `tests/phase10AccessibilityMotion.test.ts`
+- `docs/qa/UI_UX_V4_3_FINAL_QA.md`
+- `docs/design/UI_UX_V4_3_EXECUTION.md`
+
+### Focused tests
+
+- `npm.cmd test -- tests/phase10AccessibilityMotion.test.ts tests/backgroundIndexer.test.ts tests/organizeV421Interaction.test.tsx --reporter=dot` — 3 files, 25 tests passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime content::tests::pdf_resource_limits_are_enforced_during_scan_and_decode -- --exact --test-threads=1 --nocapture` — passed.
+
+### Full gates
+
+- `npm.cmd run typecheck` — passed.
+- `npm.cmd test` — 85 files, 551 tests passed.
+- `npm.cmd run test:remediation` — 13 tests passed.
+- `npm.cmd run test:performance` — passed, including configured 100k/1M profiles.
+- `npm.cmd run build` — passed with Windows release compile and NSIS bundle.
+- `npm.cmd run verify:rust` — passed with format, 584 Rust tests/doc tests, and Clippy.
+- `npm.cmd run verify:security` — passed; npm audit clean and RustSec warnings are existing allowed advisories.
+- `git diff --check` and `npm.cmd run test:docs` — passed.
+
+### Visual verification
+
+See `docs/qa/UI_UX_V4_3_FINAL_QA.md`. The local browser preview rendered all four theme/language combinations and the required responsive widths without horizontal overflow. Per-stage rendered references in this execution document cover the earlier Global Search, File Library, Organize, Cleanup, Preview/History/Restore, Automation, and Content Understanding surfaces.
+
+### Acceptance criteria
+
+- Local frontend, Rust, performance, security, build, NSIS, documentation, and responsive browser gates pass.
+- V4.3.1 regression contracts remain green in the full suite.
+- Full CI classification remains governed by `.github/workflows/ci.yml`; the cumulative production diff selects the full path because high-risk database code is touched.
+- Native and external evidence is not fabricated: macOS packaging, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, native Search Window, remote CI, checksum/tag/release, and authorized PR publication remain explicitly pending.
+
+### Deferred or unverified
+
+The local Windows release gate passes. The cross-platform release gate remains pending macOS CI/package evidence and an authorized remote workflow. Compact-density persistence, native focus/window behavior, screen-reader execution, native Tauri lifecycle, and seeded first-run/provider flows remain unverified.
+
+### Risks requiring human review
+
+Reviewers should run the full-validation GitHub workflow on the branch or PR, confirm macOS release compile and unsigned DMG packaging, inspect Windows DPI/High Contrast and macOS Retina/VoiceOver behavior, and validate native Search Window, watcher/index lifecycle, Preview/Journal, restore identity, and focus restoration before calling V4.3 fully released.
+
+---
+
 ## 6. Codex continuous-execution rule
 
 Codex may continue automatically from one V4.3 stage to the next only when:

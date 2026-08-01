@@ -231,7 +231,7 @@ describe("organize v4.2.1 component interactions", () => {
     expect(container.querySelector('[data-preview-execution-state="invalid-name"]')?.textContent).toContain("文件名无效");
     expect(inputs[1].getAttribute("aria-invalid")).toBe("true");
     expect(buttonWithText("执行已选操作 · 1")).toBeTruthy();
-    const actualCount = [...container.querySelectorAll("dt")].find((item) => item.textContent === "实际可执行")?.parentElement?.querySelector("dd");
+    const actualCount = [...container.querySelectorAll("dt")].find((item) => item.textContent === t("previewSummaryExecutable"))?.parentElement?.querySelector("dd");
     expect(actualCount?.textContent).toBe("1");
 
     await act(async () => buttonWithText("执行已选操作 · 1").click());

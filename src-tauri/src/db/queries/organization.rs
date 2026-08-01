@@ -2842,6 +2842,7 @@ mod tests {
         .expect("seed plan item");
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn seed_group_item(
         db: &Database,
         id: &str,
