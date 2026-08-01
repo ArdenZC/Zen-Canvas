@@ -1551,6 +1551,76 @@ PR8 must simplify Automation and Rule Proposal flows. PR9 must extract the Conte
 
 The browser preview confirms projection and interaction structure but cannot prove native Operation Preview/Journal or restore identity behavior. Reviewers should validate the native execution and recovery paths with representative conflict, missing-source, partial, canceled, and Safe Trash cases before release.
 
+## 5I. PR8 closeout — Automation and Rule Proposal clarity
+
+### Current baseline
+
+PR8 starts from committed PR7 `8e09b4f` on `codex/ui-v4-3-product-integration`. The implementation preserves Rule Repository V2 as the only Rule mutation authority, durable Rule Proposal persistence, the existing managed provider policy, advisory-only classification, and the separate Enable/Run actions.
+
+### Authority migrated
+
+Automation now projects the Rule Repository V2 catalog into a default Rule Library with a compact backend-backed status summary. Natural-language creation remains a Rule Proposal review flow; Apply calls the existing proposal authority and returns to the Rule Library only after the proposal has been applied as a disabled rule. No renderer-owned Rule vector, legacy mutation command, second queue, or filesystem execution path was added.
+
+### Legacy path retired
+
+- The permanent Rule Proposal panel was removed from the default Automation workspace. It mounts only inside the dedicated Create Rule proposal side sheet.
+- The four-card Automation dashboard and always-visible needs-review hint were replaced by the shared compact `MetricStrip` for total, enabled, and paused rules.
+- Idle run feedback no longer occupies the workspace; last-run feedback appears only for running, stale, failed, or completed states.
+- The component-local Rule Proposal copy dictionary was removed. New proposal and creation-choice copy lives in shared Chinese/English i18n.
+
+### Product changes
+
+- Automation opens on Rule Library with one primary Create Rule action.
+- Create Rule presents two review-safe choices: Describe with natural language or Build manually.
+- Describe with natural language opens a dedicated side sheet containing prompt, bounded generation, validation, metadata-impact preview, exact-count resolution, and Apply review.
+- Apply remains disabled-only and closes the proposal surface through an explicit completion callback; enabling, running, and file changes remain separate human actions.
+- The manual builder remains an existing repository-backed dialog, and focus restoration preserves the originating Create Rule trigger through the intermediate choice sheet.
+
+### Files changed
+
+- `src/views/rules/RulesView.tsx`
+- `src/views/rules/RuleProposalWorkspace.tsx`
+- `src/views/rules/AutomationRunFeedback.tsx`
+- `src/i18n.ts`
+- `tests/rulesViewBehavior.test.tsx`
+- `tests/rulesViewUi.test.ts`
+- `tests/ruleProposalTask07.test.ts`
+- `docs/design/UI_UX_V4_3_EXECUTION.md`
+
+### Focused tests
+
+- `npm.cmd run typecheck` — passed.
+- `npm.cmd test -- tests/ruleProposalTask07.test.ts tests/rulesViewUi.test.ts tests/rulesViewBehavior.test.tsx` — 3 files passed, 28 tests passed.
+- `git diff --check` — passed before staging.
+
+### Full gates
+
+Not run for PR8. Full frontend, Rust quality, remediation, security, performance, packaging, Windows/macOS release, CI path, and release-gate checks remain required for PR11.
+
+### Visual verification
+
+The local Vite/browser-mock preview rendered the Chinese Automation Rule Library at 1280×720 with a seeded paused rule, compact three-value summary, no permanent Rule Proposal surface, and no four-card dashboard. The Create Rule side sheet showed both creation choices; the natural-language choice opened the dedicated Rule Proposal side sheet; the manual choice opened the existing manual Rule Builder dialog. At 980×680, the proposal side sheet reported `innerWidth=980`, `innerHeight=680`, `scrollWidth=980`, `clientWidth=980`, `scrollHeight=680`, and no horizontal overflow. Browser logs contained no warning/error entries; only the standard React DevTools informational message was present.
+
+The browser mock does not exercise real AI generation, native Tauri persistence, native focus/window behavior, or a populated Apply completion with a native Rule Repository. Dark theme, English copy, 1440/1180/1024 viewports, high contrast, screen-reader announcements, Windows DPI, macOS Retina, and native Tauri behavior remain unverified.
+
+### Acceptance criteria
+
+- Automation defaults to a Rule Library; the Rule Proposal flow does not permanently dominate the workspace.
+- Create Rule presents natural-language and manual creation choices through a keyboard-dismissible shared SideSheet.
+- Natural-language generation, validation, metadata preview, exact-count resolution, and disabled-only Apply remain available in one dedicated review flow.
+- Apply returns to Rule Library after the authoritative proposal mutation; Enable and Run remain separate actions.
+- Automation shows a compact enabled/paused summary and only relevant last-run feedback.
+- All new user-facing creation and proposal copy uses shared Chinese/English i18n; no local copy dictionary remains.
+- Browser-mock narrow verification has no horizontal overflow and no browser warning/error entries.
+
+### Deferred or unverified
+
+PR9 must extract the Content Understanding workspace. PR10 must integrate Settings and Overview system health. PR11 must complete the full visual matrix, native/platform checks, screen-reader and high-contrast verification, full CI evidence, and release gates.
+
+### Risks requiring human review
+
+Reviewers should validate the native Rule Proposal Apply path with a real provider-disabled and provider-enabled configuration, confirm that the resulting rule is persisted disabled in Rule Repository V2, and verify that the proposal surface closes only after a successful authoritative mutation. They should also confirm that the intermediate choice-sheet focus restoration remains correct in the native Tauri shell.
+
 ---
 
 ## 6. Codex continuous-execution rule

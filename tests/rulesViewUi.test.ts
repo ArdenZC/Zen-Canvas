@@ -12,9 +12,11 @@ describe("automation workspace source contract", () => {
     const view = read("src/views/rules/RulesView.tsx");
     const list = read("src/views/rules/AutomationRuleList.tsx");
     const inspector = read("src/views/rules/AutomationRuleInspector.tsx");
+    const feedback = read("src/views/rules/AutomationRunFeedback.tsx");
     const t = makeTranslator("zh");
 
     expect(t("automationWorkspaceTitle")).toBe("自动化工作区");
+    expect(t("automationRuleLibrary")).toBe("规则库");
     expect(view).toContain('useMediaQuery("(max-width: 1179px)")');
     expect(view).toContain("min-[1180px]:grid-cols-[minmax(300px,0.82fr)_minmax(0,1.18fr)]");
     expect(list).toContain('role="list"');
@@ -27,10 +29,18 @@ describe("automation workspace source contract", () => {
     expect(view).toContain('setNarrowPane("list")');
     expect(view).toContain("emptyCreateRef.current");
     expect(view).toContain("enabledUserRules");
+    expect(view).toContain("MetricStrip");
+    expect(view).toContain("createRuleMode");
+    expect(view).toContain('t("automationCreateRuleChoiceDesc")');
+    expect(view).toContain("SideSheet");
+    expect(view).toContain("RuleProposalWorkspace");
+    expect(view).toContain("embedded");
+    expect(view).not.toContain("min-[1180px]:grid-cols-4");
     expect(view).toContain("automationManualRuleSet");
     expect(inspector).toContain('t("automationCapabilities")');
     expect(inspector).not.toContain('available={false}');
     expect(inspector).toContain('t("automationCurrentFileLibraryScope")');
+    expect(feedback).toContain('if (state.kind === "idle") return null;');
   });
 
   it("runs only classification suggestions and routes review to Organize", () => {
@@ -49,6 +59,8 @@ describe("automation workspace source contract", () => {
     const dialog = read("src/views/automation/AutomationRuleDialog.tsx");
     expect(view).toContain("AutomationRuleDialog");
     expect(view).toContain("ConfirmDialog");
+    expect(view).toContain('t("automationCreateRuleNaturalLanguage")');
+    expect(view).toContain('t("automationCreateRuleManual")');
     expect(view).toContain("errorMessage");
     expect(dialog).toContain("ModalPortal");
     expect(dialog).toContain("discardOpen");
