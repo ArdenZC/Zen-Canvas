@@ -88,7 +88,7 @@ fn global_search_result_state(
     coordinator_conflict: bool,
 ) -> &'static str {
     if results_empty && !has_enabled_sources {
-        return "empty";
+        return "no_source";
     }
     if coordinator_conflict {
         return if results_empty { "pending" } else { "partial" };
@@ -483,7 +483,7 @@ mod tests {
         );
         assert_eq!(
             global_search_result_state(true, false, false, &ready, false),
-            "empty"
+            "no_source"
         );
         assert_eq!(
             global_search_result_state(

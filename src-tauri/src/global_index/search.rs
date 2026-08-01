@@ -92,7 +92,6 @@ pub(crate) fn search_global_entries_on_connection(
     }
 
     if results.len() < target as usize && query.chars().count() >= 3 {
-        let prefix_hint = punctuation_prefix(query);
         if query
             .chars()
             .all(|character| character.is_alphanumeric() || character.is_whitespace())
@@ -104,12 +103,12 @@ pub(crate) fn search_global_entries_on_connection(
                 search_fts(conn, query, tier_limit)?,
                 target,
             );
-        } else if !prefix_hint.is_empty() {
+        } else if !query.is_empty() {
             let tier_limit = layer_limit(target, seen.len());
             append_unique(
                 &mut results,
                 &mut seen,
-                search_punctuation_prefix(conn, &prefix_hint, tier_limit)?,
+                search_punctuation_prefix(conn, query, tier_limit)?,
                 target,
             );
         }
@@ -219,11 +218,7 @@ fn search_exact_extension(
     let sql = candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_extension JOIN global_volumes gv ON gv.id = ge.volume_id",
         "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension = lower(?1)",
-        // rowid is the implicit stable tie key of the extension index. The
-        // outer stream still exposes the durable entry id and remains
-        // deterministic across repeated reads without sorting every matching
-        // extension in memory.
-        "ge.modified_at_fs DESC, ge.rowid ASC",
+        "ge.modified_at_fs DESC, ge.id ASC",
         "0.0",
         "?2",
     );
@@ -239,7 +234,7 @@ fn search_extension_prefix(
     let sql = candidate_sql(
         "global_entries ge INDEXED BY idx_global_entries_active_extension JOIN global_volumes gv ON gv.id = ge.volume_id",
         "gv.enabled = 1 AND ge.is_stale = 0 AND ge.extension GLOB ?2 AND ge.extension <> lower(?1)",
-        "ge.modified_at_fs DESC, ge.rowid ASC",
+        "ge.modified_at_fs DESC, ge.id ASC",
         "1.0",
         "?3",
     );
@@ -284,13 +279,6 @@ fn search_punctuation_prefix(
         &mut statement,
         params![format!("{}*", escape_glob(prefix)), limit],
     )
-}
-
-fn punctuation_prefix(value: &str) -> String {
-    value
-        .trim_start_matches(|character: char| !character.is_alphanumeric())
-        .trim_end_matches(|character: char| !character.is_alphanumeric())
-        .to_string()
 }
 
 fn escape_glob(value: &str) -> String {

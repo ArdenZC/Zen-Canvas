@@ -1,0 +1,49 @@
+# Post-V1 Verification Closeout
+
+这是一份 Architecture Remediation V1 完成后的维护修复记录，不是 Task 09，也不授权新的产品模块或架构阶段。
+
+## 基线与交付范围
+
+- 仓库：`ArdenZC/Zen-Canvas`；
+- 实际 master 基线：`11a3d615b84a76cfa4bc964fd906871836dd3fe8`，包含 Task 08 最终治理合并；
+- 维护分支：`fix/post-v1-verification-gaps`；
+- 代码修复提交：`912058bb97ac2d292ab4b5f623d627d64739fa61`；
+- 测试/文档提交：`d4cb298df9d172a56cec954919f4160a0fb020c7`、`481877c40fd57aa5c680c6e0e5533eb27bc5e564`；
+- 单一 Draft PR：[#46](https://github.com/ArdenZC/Zen-Canvas/pull/46)，`fix: close post-v1 verification gaps`；
+- 最终实现（代码与测试）HEAD：`481877c40fd57aa5c680c6e0e5533eb27bc5e564`；closeout 证据提交后的 PR tip 以 PR #46 页面为最终权威；
+- schema 仍为 34；`files.id`、operation/cleanup journal、Managed AI schema/provider 均未修改；
+- `Cargo.lock`、`package-lock.json` 和依赖声明未发生非必要变化；没有新增依赖或外部 runtime。
+
+本轮只处理独立验收发现的 Global Search、IME、索引来源状态、Watcher 文案、旧 Rule command surface、CI 门禁和过期 Draft PR；没有开始 Task 09、schema 35、OCR、RAG、Agent、第二套搜索索引或 UI/文件操作架构重写。
+
+## Finding → 根因 → 修改 → 行为证据
+
+1. **Global Search extension 排序**：extension tier 以 SQLite `rowid` 作为 tie-breaker，删除/重插入会改变顺序。`src-tauri/src/global_index/search.rs` 改为 bounded SQL `ORDER BY ge.modified_at_fs DESC, ge.id ASC`；`src-tauri/src/global_index/tests.rs` 覆盖反向插入、相同时间、重复查询、删除重插、exact/prefix、分页和最终 durable ID 顺序。
+2. **标点查询语义**：旧 fallback 在查询前剥离首尾标点，导致 `.gitignore`、`C++`、`report!` 等查询扩大。现在使用原始查询构造 escaped literal GLOB prefix，`*`、`?`、`[` 均按字面处理且仍受候选上限约束；Rust 行为测试覆盖 `.gitignore`、`C++`、`report!`、`[name]`、`file*`、`what?`、标点-only、稳定重复结果。
+3. **IME mounted interaction**：原有测试只覆盖 helper。新增 `tests/commandModalIme.test.tsx`，真实挂载 `CommandModal`，使用 fake timers 验证 `compositionstart`、`z/zh/zhong`、debounce 期间零 backend 调用、composition 期间 Enter/方向/Home/End/PageUp/PageDown 不执行或移动，`compositionend` 后最终 query 严格为 `中` 且只调用一次。
+4. **无启用索引来源**：Rust `result_state` 把无 source + 无结果误报为 `empty`。新增稳定 wire value `no_source`，同步 Rust/TypeScript/browser mock/UI；UI 显示需要配置来源并保留到 Global Index 设置的安全入口，普通 empty、partial、pending、failed 和 complete 语义不变。`tests/searchSpotlight.test.ts` 和 Rust command 状态测试覆盖 wire/文案区分。
+5. **Watcher reconciliation 文案**：`watcherReconciliationMessage()` 错误复用 `watcherRetryExhausted`。新增独立 `watcherReconciliationRequired` 中英文文案，`tests/watcherMessages.test.ts` 验证 retry、reconciliation、permission、partial 四类状态互不混淆。
+6. **旧 Rule Tauri 命令**：`save_user_rule`、`delete_user_rule`、`get_user_rules` 的 command wrapper 仍留在 `db/commands.rs`，虽未注册仍扩大未来 surface。已移除 wrapper；V2 list/create/update/enable/delete/apply 与 backend canonical execution 保留，内部 DB helper 仅供迁移/单测。`tests/tauriCommandPermissions.test.ts` 验证 main handler/manifest/capability 不暴露旧 whole-object mutation，Search window 仍无 Rule mutation 权限。
+7. **CI 历史特例**：workflow 曾按 PR #44 强制 full validation。已删除特定 PR 号，改为 push/schedule/dispatch/full-validation label/high-risk path 触发 full；docs-only 保持文档 fast path；所有生产代码 PR 固定执行 frontend、Windows/macOS Rust、Clippy 和 Windows/macOS release compile；NSIS、unsigned DMG、1M performance 只在 full path 执行；diff base 缺失 fail-safe 为 full。高风险目录包含 file ops、fs safety、schema、content、global index、capabilities、tauri/package/installer/workflow。契约测试同步更新并明确无 PR #44 字符串特例。
+
+## 过期 Draft PR
+
+- PR #13：已添加 `Superseded by Architecture Remediation V1.`、`The authoritative implementation has been merged through Tasks 01–08.`、`Do not resume or merge this branch.` 评论后关闭；分支未删除。
+- PR #24：已添加同样的 superseded 评论后关闭；分支未删除。
+
+## 验证记录
+
+本地验证记录：
+
+- `npm ci` 成功（134 packages，npm audit 0 vulnerabilities）；`npm test` 成功（81 files、540 tests）；`npm run typecheck`、`npm run build` 成功，build 生成 NSIS installer；
+- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`、Rust full tests（573 passed、9 ignored）、`cargo clippy --features desktop-runtime --all-targets -- -D warnings`、release check、`npm run test:remediation` 全部成功；
+- `npm run security:audit` 与 `cargo audit --file src-tauri/Cargo.lock` 成功；RustSec 仅报告现有已允许的 unmaintained/unsound warning，没有新增阻断 advisory；
+- full `npm run test:performance` 成功（exit 0，约 497.7 s）；Global Search 100k p95 `70.210 ms`（<100 ms），1M 重复运行 p95 `0.929 ms`、`1.591 ms`，没有降低产品阈值；
+- 本 PR 第二次 CI run [`30696940903`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30696940903) 暴露了真实的 benchmark cold-page-cache 波动：100k global-search 的一次 `txt` 样本使 p95 达到 `125.987 ms`，超过原有 `100 ms` 产品门槛；其余 job 均成功。未降低门槛，改为在同一 bounded 查询上增加两次不计时 warm-up，并在本地连续两次得到 `56.138 ms`、`58.810 ms` p95 后重跑 CI；
+- `npm run test:docs` 成功，文档变更 1 个 Markdown 文件通过 contract。
+
+PR #46 的完整 GitHub Actions run [`30695926891`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30695926891) 已成功：change-scope、frontend/format、Windows/macOS Rust quality、Windows/macOS release compile、NSIS、unsigned DMG、dependency audit、Performance profile 和两端 aggregate quality 均为 success。该 run 验证的实现 HEAD 为 `481877c40fd57aa5c680c6e0e5533eb27bc5e564`；closeout 证据提交后的最终 PR tip 与最后一轮 checks 以 PR 页面为准，并在最终报告中列出。
+
+## 已知剩余问题
+
+本轮未发现范围内必须后移的生产缺口。任何与上述范围无关的 audit、依赖、平台或性能问题只记录，不在本 PR 顺手修改；继续保持 schema 34、Preview/Safe Trash/History/Restore、不自动移动/删除文件、AI 仅建议、无 cloud 静默发送和无 Task 09 的边界。

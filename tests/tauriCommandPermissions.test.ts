@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const mainSource = readFileSync(resolve("src-tauri/src/main.rs"), "utf8");
+const dbCommandsSource = readFileSync(resolve("src-tauri/src/db/commands.rs"), "utf8");
 const buildSource = readFileSync(resolve("src-tauri/build.rs"), "utf8");
 const matrix = readFileSync(resolve("docs/security/TAURI_COMMAND_PERMISSION_MATRIX.md"), "utf8");
 const databaseBootstrapperSource = readFileSync(resolve("src/components/DatabaseBootstrapper.tsx"), "utf8");
@@ -47,6 +48,19 @@ describe("Tauri command permission contract", () => {
     expect(searchCapability.permissions).not.toContain("allow-init-db");
     expect(databaseBootstrapperSource).toContain("isSearchWindowMode");
     expect(databaseBootstrapperSource).toContain("if (isSearchWindowMode)");
+  });
+
+  it("does not expose legacy whole-object Rule mutations", () => {
+    expect(dbCommandsSource).not.toContain("pub fn save_user_rule<");
+    expect(dbCommandsSource).not.toContain("pub fn delete_user_rule<");
+    expect(dbCommandsSource).not.toContain("pub fn get_user_rules(");
+    expect(manifestCommands()).not.toEqual(expect.arrayContaining([
+      "save_user_rule",
+      "delete_user_rule",
+      "get_user_rules"
+    ]));
+    expect(mainCapability.permissions).not.toContain("allow-save-user-rule");
+    expect(mainCapability.permissions).not.toContain("allow-delete-user-rule");
   });
 
   it("keeps the search window on the bounded global-search and lifecycle allowlist", () => {

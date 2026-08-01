@@ -406,31 +406,6 @@ pub fn get_operation_logs(
 }
 
 #[tauri::command]
-pub fn get_user_rules(db: State<'_, Database>) -> Result<Vec<Rule>, String> {
-    db.get_user_rules().map_err(command_error)
-}
-
-#[tauri::command]
-pub fn save_user_rule<R: Runtime>(
-    window: WebviewWindow<R>,
-    db: State<'_, Database>,
-    rule: Rule,
-) -> Result<Rule, String> {
-    require_main_window(&window)?;
-    db.save_user_rule(rule).map_err(command_error)
-}
-
-#[tauri::command]
-pub fn delete_user_rule<R: Runtime>(
-    window: WebviewWindow<R>,
-    db: State<'_, Database>,
-    id: String,
-) -> Result<bool, String> {
-    require_main_window(&window)?;
-    db.delete_user_rule(&id).map_err(command_error)
-}
-
-#[tauri::command]
 pub fn get_rule_catalog_state(db: State<'_, Database>) -> Result<RuleCatalogStateDto, String> {
     db.get_rule_catalog_state().map_err(command_error)
 }

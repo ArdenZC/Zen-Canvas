@@ -157,7 +157,7 @@ export function CommandModal({
   const [search, setSearch] = useState("");
   const [committedSearch, setCommittedSearch] = useState("");
   const [globalResultState, setGlobalResultState] = useState<{ query: string; results: GlobalSearchResult[] }>({ query: "", results: [] });
-  const [queryState, setQueryState] = useState<"idle" | "pending" | "complete" | "partial" | "empty" | "failed">("idle");
+  const [queryState, setQueryState] = useState<"idle" | "pending" | "complete" | "partial" | "empty" | "failed" | "no_source">("idle");
   const [commandError, setCommandError] = useState("");
   const [globalIndexStatus, setGlobalIndexStatus] = useState<GlobalIndexStatus | null>(null);
   const [searchWindowSnapshot, setSearchWindowSnapshot] = useState<SearchWindowSnapshot | null>(null);
@@ -193,6 +193,8 @@ export function CommandModal({
   const statusTitle =
     queryState === "pending"
       ? t("commandTypingTitle")
+      : queryState === "no_source"
+        ? t("globalSearchNoSourcesTitle")
       : queryState === "partial"
         ? t("globalIndexStatusPartial")
       : queryState === "failed"
@@ -203,6 +205,8 @@ export function CommandModal({
   const statusDescription =
     queryState === "pending"
       ? t("commandSearching")
+      : queryState === "no_source"
+        ? t("globalSearchNoSourcesDesc")
       : queryState === "partial"
         ? t("globalSearchIndexMeta")
       : queryState === "failed"
@@ -680,7 +684,7 @@ export function CommandModal({
         {shouldShowStateBlock && (
           <div className="px-4 py-4" aria-live={queryState === "failed" ? "assertive" : "polite"} role={queryState === "failed" ? "alert" : "status"}>
             <StateBlock
-              tone={queryState === "failed" ? "error" : queryState === "pending" || queryState === "partial" ? "info" : "neutral"}
+              tone={queryState === "failed" ? "error" : queryState === "pending" || queryState === "partial" || queryState === "no_source" ? "info" : "neutral"}
               title={statusTitle}
               description={statusDescription}
               density="compact"

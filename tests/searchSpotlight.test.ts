@@ -5,7 +5,7 @@ import { activateCommandNavigation, isSortingPreviewShortcut } from "../src/comp
 import { makeTranslator } from "../src/i18n";
 import { applySearchNavigation, shouldApplySearchNavigation } from "../src/utils/searchNavigation";
 import { committedSpotlightInput, completedSpotlightComposition } from "../src/components/spotlight/spotlightComposition";
-import { mockInvokeCommand } from "../src/api/browserMockApi";
+import { mockGlobalSearchResponseForTests, mockInvokeCommand } from "../src/api/browserMockApi";
 import { DEFAULT_SEARCH_HOTKEY, formatHotkeyLabel } from "../src/utils/hotkeys";
 
 describe("spotlight search navigation", () => {
@@ -70,6 +70,26 @@ describe("spotlight search navigation", () => {
     committed = completedSpotlightComposition("中");
     expect(committed).toBe("中");
     expect(committedSpotlightInput(committed, false, false, 0)).toBe("中");
+  });
+
+  it("keeps no-source global search distinct from an indexed empty result", () => {
+    const request = {
+      version: 2 as const,
+      requestId: "no-source-test",
+      query: "missing",
+      limit: 20,
+      offset: 0
+    };
+    const noSource = mockGlobalSearchResponseForTests(request, []);
+    const indexedEmpty = mockGlobalSearchResponseForTests(request);
+
+    expect(noSource.results).toEqual([]);
+    expect(noSource.resultState).toBe("no_source");
+    expect(noSource.sourceHealth).toEqual([]);
+    expect(indexedEmpty.results).toEqual([]);
+    expect(indexedEmpty.resultState).toBe("empty");
+    expect(makeTranslator("zh")("globalSearchNoSourcesDesc")).toContain("启用或配置");
+    expect(makeTranslator("en")("globalSearchNoSourcesDesc")).toContain("Enable or configure");
   });
 
   it("keeps in-window command navigation local", async () => {

@@ -53,7 +53,6 @@ jobs:
           EVENT_HEAD: ${{ github.sha }}
           DISPATCH_FULL: ${{ inputs.full_validation }}
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           python3 - <<'PY'
           import os
@@ -69,21 +68,19 @@ jobs:
               for label in os.environ.get("PR_LABELS", "").split(",")
               if label.strip()
           }
-          pr_number = os.environ.get("PR_NUMBER", "")
-          full_validation = (
+          requested_full = (
               event in {"push", "schedule"}
               or dispatch_full
               or (event == "pull_request" and "full-validation" in pr_labels)
-              or (event == "pull_request" and pr_number == "44")
           )
-          forced_full = full_validation
-          if not base or re.fullmatch(r"0+", base):
+          base_missing = not base or re.fullmatch(r"0+", base) is not None
+          if base_missing:
               base = subprocess.check_output(
                   ["git", "rev-list", "--max-parents=0", head], text=True
               ).splitlines()[0]
 
           changed = []
-          if not forced_full:
+          if not requested_full:
               diff = subprocess.check_output(
                   ["git", "diff", "--name-status", "-M", base, head], text=True
               )
@@ -129,11 +126,27 @@ jobs:
               ".github/workflows/",
           )
 
-          docs_only = bool(changed) and all(is_doc(path) for path in changed)
-          performance_sensitive = forced_full or any(
+          high_risk_prefixes = (
+              "src-tauri/src/file_ops.rs",
+              "src-tauri/src/fs_safety/",
+              "src-tauri/src/db/schema.rs",
+              "src-tauri/src/content.rs",
+              "src-tauri/src/global_index/",
+              "src-tauri/capabilities/",
+              "src-tauri/tauri.conf.json",
+              "package/",
+              "installer/",
+              ".github/workflows/",
+          )
+
+          high_risk = any(path.lower().startswith(high_risk_prefixes) for path in changed)
+          full_validation = requested_full or base_missing or high_risk
+
+          docs_only = bool(changed) and not full_validation and all(is_doc(path) for path in changed)
+          performance_sensitive = full_validation or any(
               path.lower().startswith(performance_prefixes) for path in changed
           )
-          package_sensitive = forced_full or any(
+          package_sensitive = full_validation or any(
               path.lower().startswith(package_prefixes) for path in changed
           )
 
@@ -142,6 +155,8 @@ jobs:
               "performance_sensitive": str(performance_sensitive).lower(),
               "package_sensitive": str(package_sensitive).lower(),
               "full_validation": str(full_validation).lower(),
+              "base_missing": str(bool(base_missing)).lower(),
+              "high_risk": str(bool(high_risk)).lower(),
               "diff_base": base,
               "diff_head": head,
           }
@@ -219,7 +234,7 @@ jobs:
   rust-macos:
     name: Rust quality (macos-latest)
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.docs_only != 'true' && needs.change-scope.outputs.full_validation == 'true' }}
+    if: ${{ needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -272,7 +287,7 @@ jobs:
   build-windows:
     name: Release compile (windows-latest)
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.docs_only != 'true' && needs.change-scope.outputs.full_validation == 'true' }}
+    if: ${{ needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -296,7 +311,7 @@ jobs:
   build-macos:
     name: Release compile (macos-latest)
     needs: change-scope
-    if: ${{ needs.change-scope.outputs.docs_only != 'true' && needs.change-scope.outputs.full_validation == 'true' }}
+    if: ${{ needs.change-scope.outputs.docs_only != 'true' }}
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -402,11 +417,10 @@ jobs:
           test "$FRONTEND" = success
           test "$RUST" = success
           test "$PERFORMANCE" = success
+          test "$BUILD" = success
           if [ "$FULL_VALIDATION" = true ]; then
-            test "$BUILD" = success
             test "$PACKAGE" = success
           else
-            test "$BUILD" = skipped
             test "$PACKAGE" = skipped
           fi
 
@@ -425,12 +439,10 @@ jobs:
           FULL_VALIDATION: ${{ needs.change-scope.outputs.full_validation }}
         run: |
           test "$FRONTEND" = success
+          test "$RUST" = success
+          test "$BUILD" = success
           if [ "$FULL_VALIDATION" = true ]; then
-            test "$RUST" = success
-            test "$BUILD" = success
             test "$PACKAGE" = success
           else
-            test "$RUST" = skipped
-            test "$BUILD" = skipped
             test "$PACKAGE" = skipped
           fi
