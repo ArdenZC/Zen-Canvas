@@ -1,13 +1,14 @@
 # Task 08 Implementation Closeout
 
-状态：第四轮人工验收遗留项已在原分支修订；生产代码 HEAD `80bfabd7ce1d11d7dfbadb4ef8df9d875935e437` 的 code-head full-validation run `30690147656` 已通过，Draft PR #44 保持不合并，停止并等待第五轮人工验收。本文件不授权自动合并、tag、release、schema 35、Task 08A/08B 或 Task 09。
+状态：第五轮最终人工代码级验收（Review ID `4834313114`）已通过，PR #44 已 squash 合并。生产代码 HEAD `80bfabd7ce1d11d7dfbadb4ef8df9d875935e437` 的 code-head full-validation run `30690147656` 与最终 PR tip `e6d81d369ece369c4b4092a2b4153165d7ec4532` 的 final-tip full-validation run `30690929857` 均成功。Task 08 已完成，schema 最终为 34；本文件不授权 schema 35、Task 08A/08B、Task 09 或任何自动扩展阶段。
 
 ## 范围、分支与审查基线
 
 - 任务：`TASK_08_LOCAL_CONTENT_ARTIFACTS_AND_UNDERSTANDING.md`。
-- 分支：`remediation/08-local-content-understanding`；唯一交付仍为 Draft PR #44。
-- 本轮代码提交：本地提交 `ef5d5a2`；通过 GitHub API 推送的生产代码提交为 `80bfabd7ce1d11d7dfbadb4ef8df9d875935e437`。本轮 code-head 即为 `80bfabd7ce1d11d7dfbadb4ef8df9d875935e437`；后续文档-only tip 不改变生产代码。最终 branch tip 与 final-tip CI 在 PR body 中记录。
-- 不创建新分支、新 PR、Task 08A/08B、schema 35 或 Task 09。
+- 分支：`remediation/08-local-content-understanding`；PR #44 已于 `2026-08-01T08:47:49Z` squash 合并，merge commit 为 `30bc534db156cd1a287d8f727ba44efc224a6c4e`。
+- 生产代码 HEAD：`80bfabd7ce1d11d7dfbadb4ef8df9d875935e437`；最终 PR tip：`e6d81d369ece369c4b4092a2b4153165d7ec4532`。对应 code-head CI `30690147656`、final-tip CI `30690929857` 均为完整矩阵成功。
+- 本轮第五轮验收记录：Review ID `4834313114`，结论为通过，可合并，无需第六轮代码验收。
+- 不创建 schema 35、Task 08A/08B、Task 09、OCR、RAG、Agent 或其他自动扩展阶段。
 
 ## 本轮剩余 finding 关闭映射
 
@@ -36,8 +37,15 @@ Schema 仍为 `33 → 34` additive migration，没有 schema 35。Artifact 绑�
 
 - 同一旧 HEAD `9d867f2aca7f860813201f16749255ec3c4b61cb` 的 PR workflow run [30662443445](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30662443445) 的 Performance job 失败原因是 **complex-query p95 `161.113 ms > 150 ms`**；不是 deferred probe，也不是可忽略的“deferred probe”失败。随后同 SHA 的 full run [30662447474](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30662447474) 成功，但本轮仍以稳定 benchmark 和新 final-head full matrix 为准。
 - 本轮 code-head full-validation CI [30690147656](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30690147656)：head `80bfabd7ce1d11d7dfbadb4ef8df9d875935e437`，**全部成功**。包含 Windows/macOS Rust、完整 Performance、Windows/macOS release compile、NSIS、unsigned DMG、dependency/RustSec、frontend/format 和两个 quality gates。
-- 最终 branch tip 是本轮文档-only follow-up 的真实提交；其 final-tip full-validation CI run 及 SHA 在 PR body 中同步记录，且不改变上述已验证的生产代码。
+- 最终 branch tip `e6d81d369ece369c4b4092a2b4153165d7ec4532` 的 final-tip full-validation CI [30690929857](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30690929857) **全部成功**；该 tip 为文档-only follow-up，不改变已验证的生产代码。
 
 ## 交付状态
 
-PR #44 保持 Open/Draft、不开启 auto-merge、不发布；推送生产代码并记录 code-head CI，再推送文档-only follow-up 并记录 final-tip CI 后停止，等待第五轮人工验收。
+PR #44 已 Open → Ready → squash merged；merge commit 为 `30bc534db156cd1a287d8f727ba44efc224a6c4e`。Task 08 已完成并进入持续回归；不发布、不创建 tag/release，不创建 schema 35、Task 09 或其他产品阶段。
+
+## 最终治理收口
+
+- Architecture Remediation V1 固定八模块主线全部完成、通过阶段验收并合并；Task 08 是固定主线最后一项。
+- R-162、R-172 已更新为“已关闭，持续回归”。
+- 保留 no OCR/image VLM、no vector database/RAG、no Agent/shell/MCP/tool runtime、no second durable AI queue、no Rule AST V2 content conditions、no arbitrary renderer paths、no operation/cleanup journal schema changes、no `files.id` migration、no schema 35、no Task 09 等边界。
+- 没有修改生产代码、依赖或 lockfile；后续任何产品阶段必须由人工另行设计、审查并批准，Codex 不得自行授权或创建。

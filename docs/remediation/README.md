@@ -18,8 +18,9 @@
 - Task 05 / PR #38 squash merge：`5468a17790165a149c462a17b64d011750b45410`；
 - Task 06 / PR #40 squash merge：`29e85c099c5ee921ad7d4237c780dc47126e0fa3`；
 - Task 07 / PR #42 squash merge：`4e07de9c02198eb3352d9b2b1f289d61a3df128c`；
-- 当前数据库基线：schema 33；
-- Task 08 授权 schema：`33→34`；
+- Task 08 / PR #44 squash merge：`30bc534db156cd1a287d8f727ba44efc224a6c4e`；
+- 当前数据库基线：schema 34；
+- Task 08 已完成，schema `33→34` 已合并；
 - 当前版本线：`0.1.40`。
 
 每个任务开始时必须记录实际 `HEAD` 并确认包含对应前置合并提交，不得 reset 到文档中的旧 SHA。
@@ -46,9 +47,9 @@
 - Task 05：已通过 PR #38 合并，schema 31；
 - Task 06：已通过 PR #40 合并，schema 32；
 - Task 07：已通过 PR #42 合并，schema 33；
-- Task 08：**当前唯一可执行完整模块，授权 schema 34**。
+- Task 08：**已完成、已验收、已合并，schema 34**。
 
-禁止创建独立 debt-cleanup、07.5、08A/08B/08C、OCR-only 或其他产品模块。上一阶段人工接受的遗留进入下一完整模块第一组，然后继续完成该模块，不单独停点。Task 08 完成后不得自行创建 Task 09。
+Task 08 是固定八模块主线最后一项。没有新的产品整改任务被授权；后续任何产品阶段必须由人工另行设计、审查并批准。禁止创建独立 debt-cleanup、07.5、08A/08B/08C、OCR-only 或其他产品模块，不得自行创建 Task 09、OCR、RAG、Agent 或其他扩展阶段。
 
 ---
 
@@ -65,7 +66,7 @@ Codex 开始阶段前依次阅读：
 7. 涉及 UI 时读取 `docs/design/`；
 8. 任务书指定的参考项目、固定 SHA 和 LICENSE。
 
-生产实施必须满足：
+历史生产实施必须满足：
 
 ```text
 主索引指向当前完整模块
@@ -75,17 +76,19 @@ Codex 开始阶段前依次阅读：
 任务书已位于当前 master
 ```
 
-Task 08 当前权威入口：
+Task 08 最终权威记录：
 
 ```text
 docs/remediation/TASK_08_LOCAL_CONTENT_ARTIFACTS_AND_UNDERSTANDING.md
 ```
 
-实施分支：
+历史实施分支：
 
 ```text
 remediation/08-local-content-understanding
 ```
+
+Task 08 已通过第五轮最终人工代码级验收（Review ID `4834313114`）并合并。当前没有新的执行入口或产品整改授权。
 
 `BRIEF.md`、旧模块分析、历史 PR Draft/Open 文案、临时 review 备忘和聊天指令仅供研究，不覆盖当前 Task 08 任务书。事实与冲突优先级：数据/恢复/隐私/许可证安全 → 当前源码与测试 → 当前 Task → Index → Master Plan → 旧研究。
 
@@ -198,4 +201,11 @@ docs/remediation/
 
 ## 8. 完成汇报最低内容
 
-Task 08 必须汇报 baseline/final HEAD、Task 07 六项遗留关闭证据、修改文件、owner/data flow、参考项目 SHA/许可证/借鉴与拒绝、schema/dependency/lockfile/package size、extractor/consent/provider/privacy、兼容与安全、recovery/retention/rebuild/delete、测试、性能、Windows/macOS/package、已知风险、提交列表、唯一 Draft PR，并明确停止且未创建 Task 09。
+Task 08 已完成并已汇报 baseline/final HEAD、Task 07 六项遗留关闭证据、修改文件、owner/data flow、参考项目 SHA/许可证/借鉴与拒绝、schema/dependency/lockfile/package size、extractor/consent/provider/privacy、兼容与安全、recovery/retention/rebuild/delete、测试、性能、Windows/macOS/package、已知风险、提交列表、PR #44 merge 事实。后续没有新的产品整改执行入口，且不得创建 Task 09。
+
+## 9. Architecture Remediation V1 最终治理状态
+
+- 固定八模块主线全部已实施、通过阶段验收并合并；Architecture Remediation V1：**完成**。
+- R-162、R-172：**已关闭，持续回归**。
+- schema 最终为 34；没有 schema 35、Task 08A/08B 或 Task 09。
+- 没有修改依赖或 lockfile，没有创建 release/tag；保留 no OCR/image VLM、no vector database/RAG、no Agent/shell/MCP/tool runtime、no second durable AI queue 和 no arbitrary renderer paths 等边界。

@@ -87,7 +87,7 @@
 | R-159 | raw provider response/trace 被当 artifact | High | strict envelope；raw response 不持久化；trace bounded | 已关闭，持续回归 |
 | R-160 | 新建第二 durable AI queue | High | provider understanding 使用现有交互 client + bounded owner | 持续阻断 |
 | R-161 | Content run 被泛化为通用 Job Runtime | High | typed extract/understand/rebuild/purge domain only | 持续阻断 |
-| R-162 | extractor zip/PDF bomb 导致 OOM/DoS | Critical | entry/ratio/decompressed/object/page/output/chars/time/cancel budgets；CMap/temporary buffers；hostile PDF/ZIP 与真实 text-layer fixture | 已修复，CI 通过，待第五轮验收 |
+| R-162 | extractor zip/PDF bomb 导致 OOM/DoS | Critical | entry/ratio/decompressed/object/page/output/chars/time/cancel budgets；CMap/temporary buffers；hostile PDF/ZIP 与真实 text-layer fixture | 已关闭，持续回归 |
 | R-163 | extractor 跟随 symlink 或读取 scope 外文件 | Critical | regular managed file identity revalidation；no traversal | 已关闭，持续回归 |
 | R-164 | malformed/encoding 文件 panic 或 silent truncation | High | stable status/error/truncated semantics，real fixtures | 已关闭，持续回归 |
 | R-165 | legacy Office/OCR/external runtime 偷渡 | High | fixed registry；unsupported；dependency/path review | 持续阻断 |
@@ -97,7 +97,7 @@
 | R-169 | Content Artifact 成为 Rule/Plan/mutation authority | Critical | no Rule AST content field；no operation command path | 持续阻断 |
 | R-170 | 删除 artifact 误删源文件 | Critical | delete/purge SQL-only content facts；source identity assertions | 已关闭，持续回归 |
 | R-171 | run materialization 超上限部分提交 | High | 10k preflight + staged atomic publication | 已关闭，持续回归 |
-| R-172 | crash/restart 重复 provider 或 extractor work | High | run/item owner/revision/recovery；atomic artifact+FTS+item publication；completed no replay；fault injection；active-owner contention | 已修复，CI 通过，待第五轮验收 |
+| R-172 | crash/restart 重复 provider 或 extractor work | High | run/item owner/revision/recovery；atomic artifact+FTS+item publication；completed no replay；fault injection；active-owner contention | 已关闭，持续回归 |
 | R-173 | active run 被 retention 删除 | High | active states excluded；child-first bounded prune | 已关闭，持续回归 |
 | R-174 | retention 错用 age AND count | Medium | age UNION count overflow、dedup、每批 20 | 已关闭，持续回归 |
 | R-175 | main DB 被 extraction/FTS 长事务阻塞 | High | short publication transactions、WAL reader benchmark | 已关闭，持续回归 |
@@ -109,4 +109,4 @@
 
 ## 风险结论
 
-Task 07 已通过 PR #42 squash 合并，merge commit 为 `4e07de9c02198eb3352d9b2b1f289d61a3df128c`。R-143–R-148 经人工接受进入 Task 08 第一组，不得再次后移。第四轮 review 指出的 R-162/R-172 已补齐 PDF parser 真实 mid-flight timeout-through-run publication 证据、object/decompressed/page/output/time/cancel/CMap/temporary-buffer 限制、Provider pre-claim settings validation、owner-aware abort、provider 原子 publication、active-owner contention、owner/revision CAS、恢复/cancel/no-replay 和故障注入证据；code head `80bfabd7ce1d11d7dfbadb4ef8df9d875935e437` 的 code-head CI `30690147656` 已通过，状态保持“已修复，CI 通过，待第五轮验收”，不提前宣称永久关闭。Task 08 的核心风险不只是 parser 正确性，而是未经同意读取正文、把 retained text/FTS/trace 变成隐私泄露面、把 cloud provider 或 Content Artifact 误当执行权威。最终合同固定为 consent-bound preview、managed scope、typed bounded extractor、identity-bound artifact、default no raw text、per-run cloud confirmation、purge/rebuild/retention、managed-only Content Search，以及对 filesystem mutation 的完全隔离。
+Task 07 已通过 PR #42 squash 合并，merge commit 为 `4e07de9c02198eb3352d9b2b1f289d61a3df128c`。R-143–R-148 经人工接受进入 Task 08 第一组，不得再次后移。第五轮 Review ID `4834313114` 已通过；R-162/R-172 所需的 PDF/provider 边界、故障注入、并发、no-replay、真实 final-head CI 证据均已完成，生产代码 HEAD `80bfabd7ce1d11d7dfbadb4ef8df9d875935e437` 的 code-head CI `30690147656` 与最终 tip `e6d81d369ece369c4b4092a2b4153165d7ec4532` 的 final-tip CI `30690929857` 均成功，状态更新为“已关闭，持续回归”。Task 08 已由 PR #44 squash merge `30bc534db156cd1a287d8f727ba44efc224a6c4e` 合并完成。核心安全合同仍固定为 consent-bound preview、managed scope、typed bounded extractor、identity-bound artifact、default no raw text、per-run cloud confirmation、purge/rebuild/retention、managed-only Content Search，以及对 filesystem mutation 的完全隔离。
