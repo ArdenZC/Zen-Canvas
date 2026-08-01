@@ -4,7 +4,42 @@ import type { Translator } from "../../types/ui";
 import { formatDate } from "../../utils/format";
 import { buttonGhost, cn } from "../../utils/tw";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
+import { MetricStrip } from "../shared/ui";
 import type { OverviewActivity, OverviewBackgroundTask } from "./overviewModel";
+
+export interface OverviewSystemCoverageModel {
+  search: "ready" | "partial" | "attention" | "unknown";
+  managedCount: number;
+  managedTotal: number;
+  managedAttention: number;
+  contentEnabled: number;
+  contentTotal: number;
+}
+
+export function OverviewSystemCoverage({ coverage, t }: { coverage: OverviewSystemCoverageModel; t: Translator }) {
+  const searchLabel = coverage.search === "ready"
+    ? t("overviewSystemSearchReady")
+    : coverage.search === "partial"
+      ? t("overviewSystemSearchPartial")
+      : coverage.search === "attention"
+        ? t("overviewSystemSearchAttention")
+        : t("overviewSystemUnknown");
+  return (
+    <section className="grid gap-2" aria-labelledby="overview-system-coverage-title">
+      <h2 id="overview-system-coverage-title" className="text-base font-semibold text-[var(--zc-text-primary)]">{t("overviewSystemCoverage")}</h2>
+      <MetricStrip
+        ariaLabel={t("overviewSystemCoverage")}
+        density="compact"
+        items={[
+          { label: t("overviewSystemSearch"), value: searchLabel },
+          { label: t("overviewSystemManaged"), value: `${coverage.managedCount} / ${coverage.managedTotal}`, hint: t("overviewSystemManagedHint").replace("{count}", coverage.managedCount.toLocaleString()) },
+          { label: t("overviewSystemContent"), value: `${coverage.contentEnabled} / ${coverage.contentTotal}`, hint: t("overviewSystemContentHint").replace("{enabled}", coverage.contentEnabled.toLocaleString()).replace("{total}", coverage.contentTotal.toLocaleString()) }
+        ]}
+      />
+      {coverage.managedAttention > 0 ? <p className="text-xs leading-5 text-[var(--zc-warning-text)]">{t("overviewTaskManagedRootDesc").replace("{count}", coverage.managedAttention.toLocaleString())}</p> : null}
+    </section>
+  );
+}
 
 export function OverviewSpaceSummary({ summary, t }: { summary: string; t: Translator }) {
   return (

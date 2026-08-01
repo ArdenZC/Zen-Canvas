@@ -61,6 +61,36 @@ export function OverviewPriorityTask({
 }
 
 function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
+  if (task.kind === "search-permission") return {
+    icon: AlertTriangle,
+    iconClass: "bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]",
+    title: task.reason === "no_source" ? t("overviewTaskSearchNoSource") : t("overviewTaskSearchPermission"),
+    description: task.reason === "no_source"
+      ? t("overviewTaskSearchNoSourceDesc")
+      : task.error || t("overviewTaskSearchPermissionDesc"),
+    primaryLabel: t("overviewReviewSearchSources")
+  };
+  if (task.kind === "operation") return {
+    icon: task.reason === "failed" ? AlertTriangle : LoaderCircle,
+    iconClass: task.reason === "failed" ? "bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]" : "bg-[var(--zc-info-soft)] text-[var(--zc-info-text)]",
+    title: task.reason === "failed" ? t("overviewTaskOperationAttention") : t("overviewTaskOperationRunning"),
+    description: task.reason === "failed" ? t("overviewTaskOperationAttentionDesc") : t("overviewTaskOperationRunningDesc"),
+    primaryLabel: t("overviewReviewHistory")
+  };
+  if (task.kind === "content-failure") return {
+    icon: AlertTriangle,
+    iconClass: "bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)]",
+    title: t("overviewTaskContentFailure"),
+    description: task.error || t("overviewTaskContentFailureDesc"),
+    primaryLabel: t("overviewReviewContent")
+  };
+  if (task.kind === "managed-root-stale") return {
+    icon: RefreshCw,
+    iconClass: "bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)]",
+    title: t("overviewTaskManagedRoot"),
+    description: t("overviewTaskManagedRootDesc").replace("{count}", (task.count ?? 0).toLocaleString()),
+    primaryLabel: t("overviewChooseFolder")
+  };
   if (task.kind === "scan-permission") return {
     icon: AlertTriangle,
     iconClass: "bg-[var(--zc-danger-soft)] text-[var(--zc-danger-text)]",

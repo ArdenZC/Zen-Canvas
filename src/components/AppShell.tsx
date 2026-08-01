@@ -289,8 +289,6 @@ export function ShellViewHeading({
   headingDescription: string;
   actions?: React.ReactNode;
 }) {
-  if (view === "scanner") return null;
-
   return <PageHeader title={activeLabel} description={headingDescription} actions={actions} />;
 }
 

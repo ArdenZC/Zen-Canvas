@@ -844,6 +844,73 @@ Implement deterministic priority selection and tests.
 - Settings is maintainable and progressive;
 - Overview reflects real product state.
 
+## 5K. PR10 closeout — Settings and Overview integration
+
+### Current baseline
+
+PR10 starts from committed PR9 `58447a8` on `codex/ui-v4-3-product-integration`. No schema, persistence, Tauri capability, or backend authority contract changed.
+
+### Authority migrated
+
+- Settings remains an orchestration surface over the existing settings context, Global Index, watcher status, managed-scope, AI provider, and diagnostics APIs. Focused section components own presentation and callbacks; they do not create a second settings or diagnostics store.
+- Overview now projects live Global Index status, enabled scan-root/watcher health, Organization Plan summary, active Analysis Run, latest Content Run, and operation/restore attention into its priority task and System Coverage strip.
+- Existing durable ledgers remain authoritative for plan, cleanup, content, operation, and restore facts. The renderer only selects a bounded presentation state.
+
+### Legacy path retired
+
+- Settings’ large inline General, Appearance, file-source, Global Search, Global Index, managed-library, Automation, Privacy, About, and diagnostics blocks were moved behind focused section components. AI orchestration stays in `SettingsView` so existing dirty/save and provider lifecycle behavior remains unchanged; the diagnostic controls now live in `DeveloperDiagnosticsSection`.
+- Overview no longer relies on the hardcoded `indexNeedsUpdate: false` path alone. It polls the existing APIs and derives coverage/priority from returned facts; failures to load a source remain an unknown state rather than fabricated health.
+- The Overview content no longer renders a duplicate page title. `AppShell` owns the workspace heading and `ScannerView` owns only the Overview body.
+
+### Product decisions
+
+- Search source permission, no-source, and provider-error states remain distinct; `no_source` is not treated as ordinary empty search.
+- Enabled watcher roots expose separate permission-required, reconciliation-required, partial/degraded, and retry-exhausted language. Disabled roots do not create Overview health warnings.
+- Priority selection is deterministic: search source health, filesystem operation attention, foreground scan state, Organization Plan decisions, durable cleanup findings, failed/stale Content Run, stale watcher coverage, then the calm no-action state.
+- System Coverage shows computer-wide search, managed library coverage, and content-understanding coverage without exposing raw enum values or run identifiers.
+- The AI Save bar remains sticky and Advanced/Developer details remain disclosure-bound; AI remains advisory and diagnostics remain bounded/redacted.
+
+### Files changed
+
+- `src/components/AppShell.tsx`
+- `src/i18n.ts`
+- `src/views/overview/OverviewPriorityTask.tsx`
+- `src/views/overview/OverviewSections.tsx`
+- `src/views/overview/overviewModel.ts`
+- `src/views/scanner/ScannerView.tsx`
+- `src/views/settings/SettingsView.tsx`
+- `src/views/settings/sections/`
+- `tests/appArchitecture.test.ts`
+- `tests/appShellBehavior.test.ts`
+- `tests/settingsViewUi.test.ts`
+- `tests/overviewSettingsPr10.test.ts`
+- `docs/design/UI_UX_V4_3_EXECUTION.md`
+
+### Focused validation
+
+- `npm.cmd run typecheck` — passed.
+- `npm.cmd test -- tests/overviewSettingsPr10.test.ts tests/overviewV4.test.tsx tests/appShellBehavior.test.ts tests/appArchitecture.test.ts tests/settingsViewUi.test.ts tests/settingsViewBehavior.test.tsx tests/settingsComponentSystem.test.tsx --reporter=dot` — 7 files and 79 tests passed.
+- `npm.cmd run build` — passed, including the Windows release compile and NSIS bundle generation.
+- `git diff --check` — passed.
+
+### Visual verification
+
+Rendered browser verification and the full light/dark Chinese/English, density, narrow-window, DPI/Retina, screen-reader, and native Tauri matrix remain open for PR11. The browser preview is suitable for confirming the integrated Overview and Settings surfaces, but native watcher/index lifecycle and platform-specific window behavior are not represented there.
+
+### Acceptance record
+
+- Settings is sectioned with shared primitives, sticky AI Save, and progressive diagnostic disclosures.
+- Overview reads actual product APIs and keeps source, watcher, plan, cleanup, content, and operation facts separate.
+- No new authority, queue, schema, arbitrary execution path, or filesystem mutation path was introduced.
+
+### Deferred or unverified
+
+Full repository gates, CI contract evidence, rendered visual matrix, platform DPI/Retina behavior, and release/publish evidence remain PR11 work.
+
+### Risks requiring human review
+
+The Overview health refresh is intentionally best-effort and bounded to current API projections; reviewers should confirm that the priority ordering feels right when foreground scanning overlaps with an active filesystem operation and that the native status payloads remain stable across Windows and macOS.
+
 ---
 
 # PR 11 — Global QA and Release Gate

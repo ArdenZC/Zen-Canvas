@@ -7,9 +7,25 @@ function read(relativePath: string) {
   return readFileSync(resolve(relativePath), "utf8");
 }
 
+const settingsSectionPaths = [
+  "src/views/settings/sections/GeneralSettingsSection.tsx",
+  "src/views/settings/sections/AppearanceSettingsSection.tsx",
+  "src/views/settings/sections/FileSourcesSettingsSection.tsx",
+  "src/views/settings/sections/GlobalSearchSettingsSection.tsx",
+  "src/views/settings/sections/GlobalIndexSettingsSection.tsx",
+  "src/views/settings/sections/ManagedLibrarySettingsSection.tsx",
+  "src/views/settings/sections/AutomationSettingsSection.tsx",
+  "src/views/settings/sections/AISettingsSection.tsx",
+  "src/views/settings/sections/PrivacyContentSettingsSection.tsx",
+  "src/views/settings/sections/AboutSettingsSection.tsx",
+  "src/views/settings/sections/DeveloperDiagnosticsSection.tsx"
+] as const;
+
 describe("settings view UI", () => {
   it("uses system-preferences sections and shared settings primitives", () => {
     const settingsView = read("src/views/settings/SettingsView.tsx");
+    const settingsSections = settingsSectionPaths.map(read).join("\n");
+    const settingsSurface = `${settingsView}\n${settingsSections}`;
     const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");
     const sharedUi = read("src/views/shared/ui.ts");
     const appShell = read("src/components/AppShell.tsx");
@@ -53,48 +69,65 @@ describe("settings view UI", () => {
     expect(settingsPrimitives).toContain("min-[1180px]:grid-cols-[minmax(0,1fr)_minmax(0,360px)]");
     expect(settingsPrimitives).toContain("min-[1180px]:grid-cols-[minmax(220px,1fr)_minmax(0,480px)]");
     expect(settingsPrimitives).not.toContain("min-[720px]:grid-cols");
-    expect(settingsView).toContain('t("settingsAppearance")');
-    expect(settingsView).toContain('t("settingsScanRoots")');
-    expect(settingsView).toContain('t("settingsSearch")');
-    expect(settingsView).toContain('t("settingsOrganizeRoot")');
-    expect(settingsView).toContain("organizeRootMode");
-    expect(settingsView).toContain("setOrganizeRootMode");
-    expect(settingsView).toContain("setOrganizeRootPath");
-    expect(settingsView).toContain('t("organizePreviewStillRequired")');
-    expect(settingsView).toContain('t("settingsPrivacy")');
-    expect(settingsView).toContain('t("settingsWindowBehavior")');
-    expect(settingsView).toContain('t("settingsStartup")');
-    expect(settingsView).toContain('t("developerMode")');
+    expect(settingsSurface).toContain('t("settingsAppearance")');
+    expect(settingsSurface).toContain('t("settingsScanRoots")');
+    expect(settingsSurface).toContain('t("settingsSearch")');
+    expect(settingsSurface).toContain('t("settingsOrganizeRoot")');
+    expect(settingsSurface).toContain("organizeRootMode");
+    expect(settingsSurface).toContain("setOrganizeRootMode");
+    expect(settingsSurface).toContain("setOrganizeRootPath");
+    expect(settingsSurface).toContain('t("organizePreviewStillRequired")');
+    expect(settingsSurface).toContain('t("settingsPrivacy")');
+    expect(settingsSurface).toContain('t("settingsWindowBehavior")');
+    expect(settingsSurface).toContain('t("settingsStartup")');
+    expect(settingsSurface).toContain('t("developerMode")');
     expect(settingsView).toContain("settingsSectionsLabel");
-    expect(settingsView).toContain("href={packageInfo.homepage}");
-    expect(settingsView).toContain('t("aboutOpenProject")');
+    expect(settingsSurface).toContain("href={packageInfo.homepage}");
+    expect(settingsSurface).toContain('t("aboutOpenProject")');
     expect(settingsView).not.toContain("<h1");
     expect(appShell).toContain("ShellViewHeading");
-    const sectionOrder = [
+    const sectionIds = [
       "settings-general",
       "settings-appearance",
       "settings-files-scan",
       "settings-search",
+      "settings-global-index",
+      "settings-managed-scopes",
       "settings-automation",
       "settings-ai",
       "settings-privacy",
       "settings-about"
-    ].map((id) => settingsView.indexOf(`id=\"${id}\"`));
-    expect(sectionOrder.every((index) => index >= 0)).toBe(true);
-    expect(sectionOrder).toEqual([...sectionOrder].sort((left, right) => left - right));
+    ];
+    for (const id of sectionIds) expect(settingsSurface).toContain(`id=\"${id}\"`);
+    const sectionImports = [
+      "AboutSettingsSection",
+      "AISettingsSection",
+      "AppearanceSettingsSection",
+      "AutomationSettingsSection",
+      "FileSourcesSettingsSection",
+      "GeneralSettingsSection",
+      "GlobalIndexSettingsSection",
+      "GlobalSearchSettingsSection",
+      "ManagedLibrarySettingsSection",
+      "PrivacyContentSettingsSection",
+      "DeveloperDiagnosticsSection",
+    ].map((name) => settingsView.indexOf(`import { ${name} }`));
+    expect(sectionImports.every((index) => index >= 0)).toBe(true);
+    expect(sectionImports).toEqual([...sectionImports].sort((left, right) => left - right));
     expect(settingsView).toContain('useState("settings-general")');
-    expect(settingsView).toContain('id="settings-general"');
-    expect(settingsView).toContain('id="settings-appearance"');
-    expect(settingsView).toContain('id="settings-files-scan"');
-    expect(settingsView).toContain('id="settings-automation"');
-    expect(settingsView).toContain('id="settings-ai"');
-    expect(settingsView).toContain('id="settings-privacy"');
-    expect(settingsView).toContain('id="settings-about"');
+    expect(settingsSurface).toContain('id="settings-general"');
+    expect(settingsSurface).toContain('id="settings-appearance"');
+    expect(settingsSurface).toContain('id="settings-files-scan"');
+    expect(settingsSurface).toContain('id="settings-automation"');
+    expect(settingsSurface).toContain('id="settings-ai"');
+    expect(settingsSurface).toContain('id="settings-privacy"');
+    expect(settingsSurface).toContain('id="settings-about"');
     expect(settingsView).not.toContain("statusToast");
   });
 
   it("polishes hotkey capture, directory rows, and developer release affordance", () => {
     const settingsView = read("src/views/settings/SettingsView.tsx");
+    const settingsSurface = `${settingsView}\n${settingsSectionPaths.map(read).join("\n")}`;
     const t = makeTranslator("zh");
 
     expect(t("hotkeyCaptureTitle")).toBe("正在录制快捷键");
@@ -107,19 +140,19 @@ describe("settings view UI", () => {
     expect(settingsView).toContain("recordingHotkeyPreview");
     expect(settingsView).not.toContain("statusLabel={root.enabled ? t(\"enabled\") : t(\"disabled\")}");
     expect(settingsView).not.toContain("className={toggleSwitch(root.enabled)}");
-    expect(settingsView).toContain("SettingsInlineMessage");
-    expect(settingsView).toContain("SettingsEmptyState");
-    expect(settingsView).toContain("compactPath(root.path");
-    expect(settingsView).toContain('aria-label={t("deleteScanFolder")}');
-    expect(settingsView).toContain('title={t("deleteScanFolder")}');
-    expect(settingsView).toContain('aria-label={t("deleteSearchFolder")}');
-    expect(settingsView).toContain('title={t("deleteSearchFolder")}');
+    expect(settingsSurface).toContain("SettingsInlineMessage");
+    expect(settingsSurface).toContain("SettingsEmptyState");
+    expect(settingsSurface).toContain("compactPath(root.path");
+    expect(settingsSurface).toContain('aria-label={t("deleteScanFolder")}');
+    expect(settingsSurface).toContain('title={t("deleteScanFolder")}');
+    expect(settingsSurface).toContain('aria-label={t("deleteSearchFolder")}');
+    expect(settingsSurface).toContain('title={t("deleteSearchFolder")}');
     expect(settingsView).toContain("ConfirmDialog");
     expect(settingsView).toContain("folderDeleteConfirm");
     expect(settingsView).toContain("if (saved) setFolderDeleteConfirm(null)");
     expect(settingsView).toContain("async function pickFolder(title: string)");
     expect(settingsView).toContain('t("folderPickerFailed")');
-    expect(settingsView).toContain("aria-pressed={searchHotkey === accelerator}");
+    expect(settingsSurface).toContain("aria-pressed={searchHotkey === accelerator}");
     expect(settingsView).toContain('t("confirmDeleteScanFolderDesc")');
     expect(settingsView).toContain('t("confirmDeleteSearchFolderDesc")');
     expect(settingsView).toContain("SettingsDisclosure");

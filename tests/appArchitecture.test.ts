@@ -194,7 +194,8 @@ describe("app render architecture", () => {
     expect(appShell).toContain("viewStage");
     expect(appShell).not.toContain("h-[calc(");
     expect(appShell).not.toContain("cn(pageBody");
-    expect(scanner).toContain("PageHeader");
+    // Overview owns content layout; the App Shell owns the workspace heading.
+    expect(scanner).not.toContain("PageHeader");
     expect(scanner).toContain("OverviewPriorityTask");
     expect(scanner).toContain("OverviewSpaceSummary");
     expect(scanner).toContain("OverviewRecentActivityList");

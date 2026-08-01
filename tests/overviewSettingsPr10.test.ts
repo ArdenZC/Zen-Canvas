@@ -1,0 +1,170 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+import { makeTranslator } from "../src/i18n";
+import {
+  selectOverviewPriorityTask,
+  type OverviewHealthSnapshot,
+  type OverviewScanSnapshot
+} from "../src/views/overview/overviewModel";
+import type { DashboardStats } from "../src/types/domain";
+
+function read(relativePath: string) {
+  return readFileSync(resolve(relativePath), "utf8");
+}
+
+const scan: OverviewScanSnapshot = {
+  status: "idle",
+  isScanning: false,
+  isCanceling: false,
+  progress: null,
+  error: null
+};
+
+const stats: DashboardStats = {
+  totalFiles: 12,
+  totalSize: 4096,
+  diskTotalSize: 10000,
+  diskFreeSize: 5000,
+  diskUsageRatio: 0.5,
+  duplicateFiles: 0,
+  largeFiles: 0,
+  sensitiveFiles: 0,
+  needsConfirmation: 0,
+  byType: {},
+  byLifecycle: {},
+  lastScannedAt: "2026-08-02T00:00:00.000Z"
+};
+
+const baseHealth = (): OverviewHealthSnapshot => ({
+  globalIndex: null,
+  watcher: {
+    permissionRequired: 0,
+    reconciliationRequired: 0,
+    partialCoverage: 0,
+    retryExhausted: 0,
+    stale: 0
+  },
+  plan: null,
+  cleanupRun: null,
+  contentRun: null,
+  operation: { active: false, attentionCount: 0 }
+});
+
+function select(health: OverviewHealthSnapshot) {
+  return selectOverviewPriorityTask({
+    scan,
+    stats,
+    cleanupCandidateCount: 0,
+    reclaimableBytes: 0,
+    indexNeedsUpdate: false,
+    health
+  });
+}
+
+describe("V4.3 PR10 overview health projections", () => {
+  it("keeps no-source, permission, and provider error search states distinct", () => {
+    const noSource = baseHealth();
+    noSource.globalIndex = { status: "unavailable", enabled: true, collectionComplete: false, lastError: null, noSource: true };
+    expect(select(noSource)).toMatchObject({ kind: "search-permission", reason: "no_source" });
+
+    const permission = baseHealth();
+    permission.globalIndex = { status: "permission_required", enabled: true, collectionComplete: false, lastError: null };
+    expect(select(permission)).toMatchObject({ kind: "search-permission", reason: "permission" });
+
+    const providerError = baseHealth();
+    providerError.globalIndex = { status: "error", enabled: true, collectionComplete: false, lastError: "source unavailable" };
+    expect(select(providerError)).toMatchObject({ kind: "search-permission", reason: "error", error: "source unavailable" });
+  });
+
+  it("uses the deterministic product priority for operations, plans, cleanup, content, and watcher health", () => {
+    const operation = baseHealth();
+    operation.operation = { active: true, attentionCount: 0 };
+    expect(select(operation)).toMatchObject({ kind: "operation", reason: "failed" });
+
+    const plan = baseHealth();
+    plan.plan = { summary: { undecided: 2, needsReview: 1 } } as OverviewHealthSnapshot["plan"];
+    expect(select(plan)).toMatchObject({ kind: "review", count: 3 });
+
+    const cleanup = baseHealth();
+    cleanup.cleanupRun = { reviewCount: 3, cautionCount: 1, exactReclaimableBytes: 8192 } as OverviewHealthSnapshot["cleanupRun"];
+    expect(select(cleanup)).toMatchObject({ kind: "cleanup", count: 4, bytes: 8192 });
+
+    const content = baseHealth();
+    content.contentRun = { status: "failed", lastErrorDetail: "provider failed" } as OverviewHealthSnapshot["contentRun"];
+    expect(select(content)).toMatchObject({ kind: "content-failure", reason: "failed", error: "provider failed" });
+
+    const watcher = baseHealth();
+    watcher.watcher = { permissionRequired: 0, reconciliationRequired: 1, partialCoverage: 0, retryExhausted: 0, stale: 1 };
+    expect(select(watcher)).toMatchObject({ kind: "managed-root-stale", count: 1, reason: "reconciliation" });
+  });
+
+  it("returns the calm no-action state when durable health has no work", () => {
+    expect(select(baseHealth())).toEqual({ kind: "orderly", fileCount: 12 });
+
+    const empty = { ...stats, totalFiles: 0, totalSize: 0 };
+    expect(selectOverviewPriorityTask({
+      scan,
+      stats: empty,
+      cleanupCandidateCount: 0,
+      reclaimableBytes: 0,
+      indexNeedsUpdate: false,
+      health: baseHealth()
+    })).toEqual({ kind: "unindexed" });
+  });
+});
+
+describe("V4.3 PR10 status language and section contracts", () => {
+  it("keeps watcher health outcomes separately translatable in both languages", () => {
+    const zh = makeTranslator("zh");
+    const en = makeTranslator("en");
+    const keys = [
+      "watcherStatusPermission",
+      "watcherStatusReconciling",
+      "watcherStatusPartial",
+      "watcherStatusRetryExhausted"
+    ] as const;
+
+    for (const key of keys) {
+      expect(zh(key)).not.toBe(key);
+      expect(en(key)).not.toBe(key);
+    }
+
+    const fileSources = read("src/views/settings/sections/FileSourcesSettingsSection.tsx");
+    expect(fileSources).toContain('t("watcherStatusPermission")');
+    expect(fileSources).toContain('t("watcherStatusReconciling")');
+    expect(fileSources).toContain('t("watcherStatusPartial")');
+    expect(fileSources).toContain('t("watcherStatusRetryExhausted")');
+  });
+
+  it("projects real coverage into Overview and keeps Settings orchestration sectioned", () => {
+    const overviewSections = read("src/views/overview/OverviewSections.tsx");
+    const scanner = read("src/views/scanner/ScannerView.tsx");
+    const settings = read("src/views/settings/SettingsView.tsx");
+
+    expect(overviewSections).toContain("OverviewSystemCoverage");
+    expect(overviewSections).toContain("MetricStrip");
+    expect(scanner).toContain("getGlobalIndexStatus");
+    expect(scanner).toContain("listManagedScopes");
+    expect(scanner).toContain("getActiveAnalysisRun");
+    expect(scanner).toContain("listAnalysisRuns");
+    expect(scanner).toContain("listContentRuns");
+    for (const section of [
+      "GeneralSettingsSection",
+      "AppearanceSettingsSection",
+      "FileSourcesSettingsSection",
+      "GlobalSearchSettingsSection",
+      "GlobalIndexSettingsSection",
+      "ManagedLibrarySettingsSection",
+      "AutomationSettingsSection",
+      "AISettingsSection",
+      "PrivacyContentSettingsSection",
+      "AboutSettingsSection",
+      "DeveloperDiagnosticsSection"
+    ]) {
+      expect(settings).toContain(`import { ${section} }`);
+    }
+    expect(settings).toContain("data-ai-save-bar");
+    expect(settings).toContain("SettingsDisclosure");
+  });
+});

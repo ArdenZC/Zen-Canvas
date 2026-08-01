@@ -218,7 +218,7 @@ describe("App Shell v4.1 behavior", () => {
     expect(t("commandCloseHint")).toBe("关闭");
   });
 
-  it("does not inject scanner actions into non-overview page headings", () => {
+  it("keeps the workspace heading in the shell without injecting scanner actions", () => {
     const html = renderToStaticMarkup(createElement(ShellViewHeading, {
       view: "settings",
       activeLabel: "偏好设置",
@@ -228,10 +228,13 @@ describe("App Shell v4.1 behavior", () => {
     expect(html).toContain("偏好设置");
     expect(html).not.toContain("选择文件夹");
     expect(html).not.toContain("扫描用户空间");
-    expect(renderToStaticMarkup(createElement(ShellViewHeading, {
+    const overviewHeading = renderToStaticMarkup(createElement(ShellViewHeading, {
       view: "scanner",
       activeLabel: "概览",
       headingDescription: ""
-    }))).toBe("");
+    }));
+    expect(overviewHeading).toContain("概览");
+    expect(overviewHeading).not.toContain("选择文件夹");
+    expect(overviewHeading).not.toContain("扫描用户空间");
   });
 });
