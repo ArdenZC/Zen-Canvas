@@ -1341,6 +1341,78 @@ PR5 must replace the current raw per-file Organize UI with the group-first, exce
 
 Projection assembly currently reads the complete Plan item ledger into a bounded in-memory query projection (maximum 10,000 items) rather than persisting group state. The ignored 10k benchmark should be run on representative release hardware before accepting final performance evidence. Group labels still expose backend proposal-kind tokens for PR5 to translate through shared i18n.
 
+## 5F. PR5 closeout — group-first, exception-first Organize Files workspace
+
+### Current baseline
+
+PR5 starts from committed PR4 `271e7ab` on `codex/ui-v4-3-product-integration`. The implementation keeps Schema 34, the durable Organization Plan, group projection cursors, Plan revision checks, item-level decisions, Operation Preview, Dry Run, execution journal, and History/Restore contracts.
+
+### Authority migrated
+
+The default Organize Files surface now renders the backend-derived `OrganizationPlanGroupSummary` projection through the Organization Plan store. Plan, Needs My Decision, and Cannot Be Processed Yet are projections of backend readiness classes; group totals and pagination are not reconstructed from the loaded item page. Group inspection loads members through the plan-bound group-item query, and item exceptions continue through the existing revision-bound Plan mutation authority.
+
+### Legacy path retired
+
+- The default raw per-file virtual list, batch checkbox workflow, renderer-side grouping, and permanent engineering controls were removed from `OrganizeSuggestionsView`.
+- The UI no longer imports the legacy Organize decision store or operation queue/preview store.
+- The Organization Plan store still retains its bounded item-page compatibility adapter for existing item-level mutation plumbing; the migrated UI does not render it or use it as group/query authority.
+- Empty tabs do not claim that a tab is empty while backend group pages remain; the view continues loading group pages before showing the final empty state.
+
+### Product changes
+
+- Added a compact plan selector/status area, truthful plan metrics, and a Plan / Needs My Decision / Cannot Be Processed Yet segmented review model.
+- Added virtualized group rows with destination, operation kind, readiness, confidence, risk, item count, bytes, accepted/excluded counts, issue counts, reason copy, and Include/Keep/Review actions.
+- Added a contextual Side Sheet for group members, source/target facts, item-level Accept/Keep/Clear actions, and an extension-protected filename exception editor.
+- Preserved Continue Later through plan selection, History navigation, server-authoritative Dry Run, Preview/final confirmation, and execution-result recovery entry points.
+- Destination editing is intentionally not exposed because the current backend has no destination-mutation authority. Filename exceptions remain validated by `validateOrganizeFileNameForOriginal`; group decisions never move files directly.
+- Added all new Chinese and English task-language copy to shared i18n; no component-local copy dictionary was introduced.
+
+### Files changed
+
+- `src/views/organize/OrganizeSuggestionsView.tsx`
+- `src/i18n.ts`
+- `tests/organizeV43.test.ts`
+- `tests/fileLibraryV2.test.ts`
+- `tests/organizeV41.test.ts`
+- `tests/organizeV42.test.ts`
+- `tests/organizeV421Interaction.test.tsx`
+- `tests/uiEmptyStates.test.ts`
+- `docs/design/UI_UX_V4_3_EXECUTION.md`
+
+### Focused tests
+
+- `npm run typecheck` — passed.
+- `npm test -- tests/organizeV43.test.ts tests/fileLibraryV2.test.ts tests/organizeV41.test.ts tests/organizeV42.test.ts tests/organizeV421Interaction.test.tsx tests/organizationPlanTask06.test.ts tests/appArchitecture.test.ts tests/hubBuckets.test.ts tests/uiEmptyStates.test.ts` — 9 files passed, 82 tests passed.
+- `git diff --check` — passed.
+
+### Full gates
+
+Not run for PR5. Full frontend, Rust quality, remediation, security, performance, packaging, and Windows/macOS release checks remain required for PR11.
+
+### Visual verification
+
+The local Vite/browser-mock preview rendered the Organize Files empty-plan state in Chinese at the default browser viewport and at 980×680. Page identity was `Zen Canvas`, the DOM contained the shell and Organize Files content, no framework overlay or console warning/error was observed, the no-plan File Library recovery action navigated successfully, and the 980×680 check reported no horizontal overflow. The default and narrow screenshots were inspected during the run.
+
+The browser-mock dataset starts with no Organization Plan, so the normal group list, Needs My Decision, Cannot Be Processed Yet, group Side Sheet, item exception editor, Dry Run, dark theme, English copy, 1440/1280/1180/1024 viewports, high contrast, screen reader announcements, Windows DPI, macOS Retina, and native Tauri behavior remain unverified. A File Library row-click attempt closed the temporary browser tab after a CDP timeout; no code or user data was changed by that attempt.
+
+### Acceptance criteria
+
+- Organize defaults to durable Plan group summaries, not a raw per-file review list.
+- Needs My Decision is readiness-based and excludes blocked-only groups; Cannot Be Processed Yet remains recovery-oriented.
+- Group Include/Keep actions resolve server-side under Plan revision and do not execute filesystem operations.
+- Item exceptions remain available in the contextual inspector, including extension-preserving filename validation.
+- Review Execution remains the single primary execution path through Dry Run, Preview, explicit confirmation, journals, and History/Restore.
+- No second Organize ledger, target-directory authority, schema migration, delete/trash path, or legacy Rule mutation capability was introduced.
+- New user-facing copy uses shared Chinese/English i18n keys.
+
+### Deferred or unverified
+
+PR6 must migrate Overview to truthful Plan/cleanup/watch health task language and verify entry-point parity. PR11 must complete the full visual matrix, native/platform checks, screen-reader and high-contrast verification, full CI evidence, and release gates. The browser-mock normal-plan render needs seeded durable-plan data or a stable test fixture before group-level visual acceptance can be claimed.
+
+### Risks requiring human review
+
+The renderer still carries a compatibility item-page adapter in the Organization Plan store, even though the V4.3 Organize surface uses group and group-item queries. Reviewers should confirm that no later caller reintroduces item-page grouping or treats the adapter as a second UI authority. The browser-mock group action path was covered by static contract tests but not by a completed rendered interaction because the temporary preview tab closed during row selection; validate that path against a seeded plan before release.
+
 ---
 
 ## 6. Codex continuous-execution rule

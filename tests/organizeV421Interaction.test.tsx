@@ -352,7 +352,8 @@ describe("organize v4.2.1 component interactions", () => {
     const source = readFileSync(resolve("src/views/organize/OrganizeSuggestionsView.tsx"), "utf8");
     expect(source).toContain("useOrganizationPlanStore");
     expect(source).toContain("aria-activedescendant={mountedActiveId}");
-    expect(source).toContain("max-[900px]:grid-cols-1");
+    expect(source).toContain("max-[1100px]:min-h-[320px]");
+    expect(source).toContain("SideSheet");
     expect(source).not.toContain("useOrganizeDecisionStore");
     expect(source).not.toContain("useOperationQueueStore");
     expect(source).not.toContain("loadOrganizeQueue");

@@ -46,7 +46,7 @@ describe("ui empty and command states", () => {
     expect(vault).toContain('t("noCurrentScanTitle")');
     expect(vault).toContain('t("libraryGoToOverview")');
     expect(vault).toContain('setLegacyScope({ kind: "all" })');
-    expect(organize).toContain("Create a durable review plan");
+    expect(organize).toContain('t("organizeNoPlanTitle")');
     expect(organize).toContain('setView("library")');
   });
 
@@ -72,7 +72,7 @@ describe("ui empty and command states", () => {
     expect(vault).toContain("scope bar");
     expect(vault).toContain("filter toolbar");
     expect(vault).toContain("search bar");
-    expect(vault).toContain("result count");
+    expect(vault).toContain("resultCountLabel");
     expect(vault).toContain("StateBlock");
     expect(vault).toContain("totalCount === null ? 0 : Math.max(0, totalCount - files.length)");
     expect(list).toContain("remainingDisplayCount = Math.min(LIBRARY_PAGE_SIZE, remainingCount)");
@@ -80,7 +80,7 @@ describe("ui empty and command states", () => {
     expect(vault).toContain("aria-expanded={isFilterOpen}");
     expect(vault).not.toContain("AssetCard");
     expect(vault).toContain("NoticeBanner");
-    expect(vault).toContain("Snapshot expired");
+    expect(vault).toContain('t("librarySnapshotExpiredTitle")');
     expect(vault).not.toContain("ToneBadge");
     expect(vault).not.toContain("emptyState");
     expect(vault).not.toContain("h-[calc(");
