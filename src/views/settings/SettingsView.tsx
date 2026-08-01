@@ -823,7 +823,7 @@ export function SettingsView() {
     const id = `custom-${Date.now().toString(36)}`;
     const profile: AICustomProviderProfile = {
       id,
-      name: `Custom profile ${((aiSettings.customProfiles?.length ?? 0) + 1).toString()}`,
+      name: t("aiCustomProfileDefaultName").replace("{number}", String((aiSettings.customProfiles?.length ?? 0) + 1)),
       baseUrl: aiSettings.baseUrl,
       chatPath: aiSettings.chatPath || "/chat/completions",
       modelsPath: aiSettings.modelsPath ?? "/models",

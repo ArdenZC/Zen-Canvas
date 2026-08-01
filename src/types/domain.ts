@@ -963,6 +963,8 @@ export interface OrganizationPlanItem {
   blockingCode: string | null;
   blockingDetail: string | null;
   authoritativePreviewId: string | null;
+  reviewReasons: string[];
+  availableActions: string[];
   operationLogId: string | null;
   executionId: string | null;
   revision: number;
@@ -979,6 +981,11 @@ export interface OrganizationPlanItemPage {
 }
 
 export type OrganizationPlanGroupReadiness = "ready" | "requires-decision" | "blocked";
+
+export interface OrganizationReviewReasonCount {
+  reason: string;
+  count: number;
+}
 
 export interface OrganizationPlanGroupSample {
   itemId: string;
@@ -1004,6 +1011,8 @@ export interface OrganizationPlanGroupSummary {
   staleCount: number;
   conflictCount: number;
   confidenceBand: string;
+  reviewReasonCounts: OrganizationReviewReasonCount[];
+  availableActions: string[];
   sampleItems: OrganizationPlanGroupSample[];
   revision: number;
 }

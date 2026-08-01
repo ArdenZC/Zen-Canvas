@@ -1958,6 +1958,21 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Library
       blockingCode: blocked ? "cleanup_review_required" : null,
       blockingDetail: blocked ? "Use the Cleanup review flow for delete or review candidates." : null,
       authoritativePreviewId: actionable ? `mock-preview-${file.id}` : null,
+      reviewReasons: mockOrganizationReviewReasons({
+        validity: blocked ? "blocked" : actionable ? (file.requires_confirmation || file.confidence < 0.8 ? "needs_review" : "ready") : "needs_analysis",
+        confidence: file.confidence,
+        riskLevel: file.risk_level,
+        requiresConfirmation: file.requires_confirmation,
+        authoritativePreviewId: actionable ? `mock-preview-${file.id}` : null,
+        blockingCode: blocked ? "cleanup_review_required" : null,
+        isDuplicate: file.is_duplicate
+      }),
+      availableActions: mockOrganizationAvailableActions({
+        validity: blocked ? "blocked" : actionable ? (file.requires_confirmation || file.confidence < 0.8 ? "needs_review" : "ready") : "needs_analysis",
+        decision: "undecided",
+        proposalKind: blocked ? "blocked" : actionable ? (file.suggested_action === "Rename" ? "rename" : "move") : "keep",
+        authoritativePreviewId: actionable ? `mock-preview-${file.id}` : null
+      }),
       operationLogId: null,
       executionId: null,
       revision: 1,
@@ -1991,6 +2006,43 @@ function mockOrganizationGroupReadiness(item: OrganizationPlanItem): Organizatio
   if (item.validity === "ready") return "ready";
   if (item.validity === "needs_review") return "requires-decision";
   return "blocked";
+}
+
+function mockOrganizationReviewReasons(input: {
+  validity: OrganizationPlanItem["validity"];
+  confidence: number;
+  riskLevel: string;
+  requiresConfirmation: boolean;
+  authoritativePreviewId: string | null;
+  blockingCode: string | null;
+  isDuplicate: boolean;
+}): string[] {
+  const reasons: string[] = [];
+  if (input.validity !== "ready" && input.confidence < 0.8) reasons.push("low_confidence");
+  if (input.riskLevel === "Sensitive") reasons.push("sensitive_file");
+  if (input.riskLevel !== "Normal" && input.riskLevel) reasons.push("non_normal_risk");
+  if (input.requiresConfirmation) reasons.push("requires_confirmation");
+  if (input.isDuplicate) reasons.push("possible_duplicate");
+  if (input.blockingCode === "cleanup_review_required") reasons.push("unsupported_operation");
+  if (!input.authoritativePreviewId && input.validity !== "needs_analysis") reasons.push("missing_preview");
+  return reasons.length ? reasons : input.validity === "needs_review" ? ["requires_confirmation"] : [];
+}
+
+function mockOrganizationAvailableActions(input: {
+  validity: OrganizationPlanItem["validity"];
+  decision: OrganizationPlanItem["decision"];
+  proposalKind: OrganizationPlanItem["proposalKind"];
+  authoritativePreviewId: string | null;
+}): string[] {
+  const actions: string[] = [];
+  const supported = ["move", "rename", "move_rename"].includes(input.proposalKind);
+  const active = !["blocked", "stale", "executing", "executed", "failed", "skipped"].includes(input.validity);
+  if (active && supported && input.authoritativePreviewId && input.decision === "undecided") actions.push("accept_suggestion");
+  if (active && supported && input.authoritativePreviewId) actions.push("edit_name", "view_preview");
+  if (active) actions.push("keep");
+  if (active && input.decision !== "undecided") actions.push("clear_decision");
+  if (active && input.validity === "needs_review" && input.decision === "undecided") actions.push("defer");
+  return actions;
 }
 
 function mockOrganizationGroupId(planId: string, item: OrganizationPlanItem) {
@@ -2034,6 +2086,11 @@ function mockOrganizationGroupSummaries(plan: OrganizationPlan): OrganizationPla
       staleCount: members.filter((item) => item.validity === "stale").length,
       conflictCount: members.filter((item) => item.blockingCode?.includes("collision") || item.blockingCode?.includes("conflict")).length,
       confidenceBand: allHigh ? "high" : allMedium ? "medium" : allLow ? "low" : "mixed",
+      reviewReasonCounts: [...members.reduce((counts, item) => {
+        for (const reason of item.reviewReasons) counts.set(reason, (counts.get(reason) ?? 0) + 1);
+        return counts;
+      }, new Map<string, number>())].map(([reason, count]) => ({ reason, count })).sort((left, right) => left.reason.localeCompare(right.reason)),
+      availableActions: [...new Set(members.flatMap((item) => item.availableActions))],
       sampleItems: members.slice(0, 3).map((item) => ({
         itemId: item.id,
         sourceName: item.sourceNameSnapshot,
@@ -2132,6 +2189,12 @@ function updateMockOrganizationDecisions(request?: MockOrganizationDecisionReque
     }
     item.decision = mutation.decision;
     item.editedName = mutation.decision === "edited" ? mutation.editedFilename ?? null : null;
+    item.availableActions = mockOrganizationAvailableActions({
+      validity: item.validity,
+      decision: item.decision,
+      proposalKind: item.proposalKind,
+      authoritativePreviewId: item.authoritativePreviewId
+    });
     item.reviewState = item.validity === "needs_review" && ["accepted", "edited"].includes(item.decision)
       ? "reviewed"
       : item.validity;

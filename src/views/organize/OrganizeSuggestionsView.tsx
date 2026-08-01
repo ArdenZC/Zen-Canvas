@@ -68,6 +68,7 @@ export function OrganizeSuggestionsView() {
   const [editError, setEditError] = useState<string | null>(null);
   const [planTitle, setPlanTitle] = useState("");
   const [confirmExecution, setConfirmExecution] = useState(false);
+  const [confirmItemAcceptance, setConfirmItemAcceptance] = useState<OrganizationPlanItem | null>(null);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
   const groupListRef = useRef<HTMLDivElement | null>(null);
   const groupRequestEpoch = useRef(0);
@@ -217,6 +218,7 @@ export function OrganizeSuggestionsView() {
 
   async function handleGroupDecision(group: OrganizationPlanGroupSummary, decision: "accepted" | "kept" | "undecided") {
     if (!canReview) return;
+    if (decision === "accepted" && group.readiness !== "ready") return;
     setReviewActionError(null);
     try {
       await updateGroupDecision(group, decision);
@@ -236,6 +238,16 @@ export function OrganizeSuggestionsView() {
       setEditError(t("organizeGroupActionFailed"));
       return false;
     }
+  }
+
+  function requestItemAcceptance(item: OrganizationPlanItem) {
+    if (!canReview || !item.availableActions.includes("accept_suggestion")) return;
+    setEditError(null);
+    if (item.validity === "needs_review") {
+      setConfirmItemAcceptance(item);
+      return;
+    }
+    void handleItemDecision(item, "accepted");
   }
 
   async function saveEditedName() {
@@ -375,7 +387,7 @@ export function OrganizeSuggestionsView() {
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="min-w-0 truncate text-xs text-[var(--zc-text-tertiary)]">{groupReason(group, t)}</span>
                           <div className="flex shrink-0 flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
-                            {group.readiness !== "blocked" ? <Button variant="secondary" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "accepted")}><Check size={13} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
+                            {group.readiness === "ready" ? <Button variant="secondary" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "accepted")}><Check size={13} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
                             {group.readiness !== "blocked" ? <Button variant="ghost" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "kept")}><CircleMinus size={13} aria-hidden="true" />{t("organizeGroupKeep")}</Button> : null}
                             <Button variant="ghost" size="compact" onClick={() => openGroup(group)}>{t("organizeGroupReview")}</Button>
                           </div>
@@ -416,7 +428,7 @@ export function OrganizeSuggestionsView() {
         onClose={() => setActiveGroupId(null)}
         footer={activeGroup ? (
           <div className="flex flex-wrap justify-end gap-2">
-            {activeGroup.readiness !== "blocked" ? <Button variant="secondary" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(activeGroup, "accepted")}><Check size={14} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
+            {activeGroup.readiness === "ready" ? <Button variant="secondary" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(activeGroup, "accepted")}><Check size={14} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
             {activeGroup.readiness !== "blocked" ? <Button variant="ghost" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(activeGroup, "kept")}><CircleMinus size={14} aria-hidden="true" />{t("organizeGroupKeep")}</Button> : null}
           </div>
         ) : undefined}
@@ -427,6 +439,7 @@ export function OrganizeSuggestionsView() {
               <span className="text-xs font-semibold uppercase tracking-[0.1em] text-[var(--zc-text-tertiary)]">{t("organizeGroupDestination")}</span>
               <span className="break-all text-sm text-[var(--zc-text-primary)]">{activeGroup.targetDirectory ?? t("organizeGroupNoDestination")}</span>
               <span className="text-xs text-[var(--zc-text-secondary)]">{groupReason(activeGroup, t)}</span>
+              {activeGroup.readiness === "requires-decision" ? <p className="text-xs leading-5 text-[var(--zc-warning-text)]">{t("organizeGroupDecisionHint")}</p> : null}
               <div className="flex flex-wrap gap-2 text-xs text-[var(--zc-text-secondary)]"><span>{riskLabel(activeGroup.riskLevel, t)}</span><span>{confidenceLabel(activeGroup.confidenceBand, t)}</span><span>{readinessLabel(activeGroup.readiness, t)}</span></div>
             </div>
             {groupItemsError ? <NoticeBanner tone="error" title={t("organizeLoadFailedTitle")}>{groupItemsError}</NoticeBanner> : null}
@@ -457,17 +470,43 @@ export function OrganizeSuggestionsView() {
               <section className="grid gap-3 border-t border-[var(--zc-divider)] pt-4" aria-label={t("organizeGroupDetails")}>
                 <div className="grid gap-2 text-sm"><div><span className="text-xs text-[var(--zc-text-tertiary)]">{t("organizeGroupItemFrom")}</span><p className="mt-1 break-all text-[var(--zc-text-secondary)]">{activeItem.sourcePathSnapshot}</p></div><div><span className="text-xs text-[var(--zc-text-tertiary)]">{t("organizeGroupItemTo")}</span><p className="mt-1 break-all text-[var(--zc-text-secondary)]">{activeItem.proposedTargetPath}</p></div></div>
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="secondary" size="compact" disabled={!canReview || activeItem.validity !== "ready" || isMutating} onClick={() => void handleItemDecision(activeItem, "accepted")}><Check size={14} aria-hidden="true" />{t("organizeGroupItemAccept")}</Button>
-                  <Button variant="ghost" size="compact" disabled={!canReview || isMutating} onClick={() => void handleItemDecision(activeItem, "kept")}><CircleMinus size={14} aria-hidden="true" />{t("organizeGroupItemKeep")}</Button>
-                  <Button variant="ghost" size="compact" disabled={!canReview || !activeItem.authoritativePreviewId || isMutating} onClick={() => { setEditedName(activeItem.editedName ?? activeItem.proposedName); setEditingItemId(activeItem.id); setEditError(null); }}><Edit3 size={14} aria-hidden="true" />{t("organizeGroupItemEdit")}</Button>
-                  <Button variant="ghost" size="compact" disabled={!canReview || isMutating} onClick={() => void handleItemDecision(activeItem, "undecided")}><ListRestart size={14} aria-hidden="true" />{t("organizeGroupItemClear")}</Button>
+                  <Button
+                    variant="secondary"
+                    size="compact"
+                    disabled={!canReview || !activeItem.availableActions.includes("accept_suggestion") || isMutating}
+                    title={itemAcceptUnavailableReason(activeItem, t)}
+                    onClick={() => requestItemAcceptance(activeItem)}
+                  ><Check size={14} aria-hidden="true" />{activeItem.availableActions.includes("accept_suggestion") ? t("organizeGroupItemAccept") : t("organizeGroupItemAcceptUnavailable")}</Button>
+                  <Button variant="ghost" size="compact" disabled={!canReview || !activeItem.availableActions.includes("keep") || isMutating} onClick={() => void handleItemDecision(activeItem, "kept")}><CircleMinus size={14} aria-hidden="true" />{t("organizeGroupItemKeep")}</Button>
+                  <Button variant="ghost" size="compact" disabled={!canReview || !activeItem.availableActions.includes("edit_name") || isMutating} onClick={() => { setEditedName(activeItem.editedName ?? activeItem.proposedName); setEditingItemId(activeItem.id); setEditError(null); }}><Edit3 size={14} aria-hidden="true" />{t("organizeGroupItemEdit")}</Button>
+                  <Button variant="ghost" size="compact" disabled={!canReview || !activeItem.availableActions.includes("clear_decision") || isMutating} onClick={() => void handleItemDecision(activeItem, "undecided")}><ListRestart size={14} aria-hidden="true" />{t("organizeGroupItemClear")}</Button>
                 </div>
+                {activeItem.reviewReasons.length ? <p className="text-xs leading-5 text-[var(--zc-warning-text)]">{t("organizeItemReviewReasonLabel")}: {activeItem.reviewReasons.map((reason) => reviewReasonLabel(reason, t)).join(" · ")}</p> : null}
                 {editingItemId === activeItem.id ? <div className="grid gap-2 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] p-3"><label className="text-xs font-medium text-[var(--zc-text-secondary)]" htmlFor="organization-group-edited-name">{t("organizeEditTargetName")}</label><input id="organization-group-edited-name" className={cn(inputSurface, "min-h-[var(--zc-control-height-default)] px-2")} value={editedName} onChange={(event) => setEditedName(event.target.value)} autoFocus /><div className="flex flex-wrap gap-2"><Button variant="secondary" size="compact" onClick={() => void saveEditedName()}>{t("save")}</Button><Button variant="ghost" size="compact" onClick={() => setEditingItemId(null)}>{t("cancel")}</Button></div></div> : null}
               </section>
             ) : null}
           </div>
         ) : null}
       </SideSheet>
+
+      <ConfirmDialog
+        open={Boolean(confirmItemAcceptance)}
+        tone="warning"
+        title={t("organizeItemAcceptReviewTitle")}
+        description={confirmItemAcceptance ? replaceCopy(t("organizeItemAcceptReviewDesc"), {
+          reason: confirmItemAcceptance.reviewReasons.map((reason) => reviewReasonLabel(reason, t)).join(" · ") || t("organizeReasonFromAnalysis"),
+          target: confirmItemAcceptance.proposedTargetPath
+        }) : ""}
+        confirmLabel={t("organizeItemAcceptReviewConfirm")}
+        cancelLabel={t("cancel")}
+        isProcessing={isMutating}
+        onCancel={() => setConfirmItemAcceptance(null)}
+        onConfirm={() => {
+          const item = confirmItemAcceptance;
+          setConfirmItemAcceptance(null);
+          if (item) void handleItemDecision(item, "accepted");
+        }}
+      />
 
       <ConfirmDialog
         open={confirmExecution}
@@ -535,13 +574,43 @@ function decisionLabel(decision: OrganizationPlanItem["decision"], t: Translator
 }
 
 function groupReason(group: OrganizationPlanGroupSummary, t: Translator): string {
-  if (group.conflictCount > 0) return t("organizeGroupReasonConflict");
-  if (group.staleCount > 0) return t("organizeGroupReasonChanged");
-  if (group.riskLevel === "Sensitive") return t("organizeGroupReasonSensitive");
-  if (["low", "mixed"].includes(group.confidenceBand)) return t("organizeGroupReasonLowConfidence");
+  if (group.reviewReasonCounts.length) {
+    return group.reviewReasonCounts
+      .slice(0, 3)
+      .map(({ reason, count }) => `${reviewReasonLabel(reason, t)} (${count})`)
+      .join(" · ");
+  }
   if (group.readiness === "blocked" && group.proposalKind === "keep") return t("organizeGroupReasonAnalysis");
   if (group.readiness === "blocked") return t("organizeGroupReasonBlocked");
   return t("organizeReasonFromAnalysis");
+}
+
+function reviewReasonLabel(reason: string, t: Translator): string {
+  const labels: Record<string, Parameters<Translator>[0]> = {
+    low_confidence: "organizeReviewReasonLowConfidence",
+    sensitive_file: "organizeReviewReasonSensitiveFile",
+    non_normal_risk: "organizeReviewReasonNonNormalRisk",
+    possible_duplicate: "organizeReviewReasonPossibleDuplicate",
+    requires_confirmation: "organizeReviewReasonRequiresConfirmation",
+    target_directory_creation: "organizeReviewReasonTargetDirectoryCreation",
+    target_collision: "organizeReviewReasonTargetCollision",
+    source_changed: "organizeReviewReasonSourceChanged",
+    proposal_changed: "organizeReviewReasonProposalChanged",
+    managed_scope_changed: "organizeReviewReasonManagedScopeChanged",
+    missing_preview: "organizeReviewReasonMissingPreview",
+    unsupported_operation: "organizeReviewReasonUnsupportedOperation",
+    unsafe_filename: "organizeReviewReasonUnsafeFilename",
+    extension_change_blocked: "organizeReviewReasonExtensionBlocked"
+  };
+  return t(labels[reason] ?? "organizeReviewReasonUnknown");
+}
+
+function itemAcceptUnavailableReason(item: OrganizationPlanItem, t: Translator): string {
+  if (item.validity === "stale") return t("organizeItemAcceptUnavailableChanged");
+  if (item.validity === "blocked") return t("organizeItemAcceptUnavailableBlocked");
+  if (!item.authoritativePreviewId || !item.availableActions.includes("view_preview")) return t("organizeItemAcceptUnavailablePreview");
+  if (item.availableActions.includes("accept_suggestion")) return t("organizeItemAcceptReviewHint");
+  return t("organizeItemAcceptUnavailableState");
 }
 
 function emptyTabTitle(tab: ReviewTab, t: Translator): string {
@@ -561,4 +630,8 @@ function nameErrorCopy(error: "empty" | "reserved" | "unsafe" | "extension", t: 
   if (error === "reserved") return t("organizeNameErrorReserved");
   if (error === "extension") return t("organizeNameErrorExtension");
   return t("organizeNameErrorUnsafe");
+}
+
+function replaceCopy(template: string, values: Record<string, string | number>): string {
+  return Object.entries(values).reduce((copy, [key, value]) => copy.replaceAll(`{${key}}`, String(value)), template);
 }

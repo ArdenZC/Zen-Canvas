@@ -286,11 +286,9 @@ export function MetricCard({
   hint?: string;
   tone?: "blue" | "green" | "amber" | "red" | "slate" | "purple";
 }) {
-  void tone;
-
   return createElement(
     "div",
-    { className: cn(contentPanel, "relative overflow-hidden p-4") },
+    { className: cn(contentPanel, "relative overflow-hidden p-4", badgeTone(tone)) },
     createElement(
       "div",
       { className: "flex items-center gap-2" },

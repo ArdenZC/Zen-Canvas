@@ -21,6 +21,7 @@ import type {
   AnalysisDetector,
   AnalysisDetectorDescriptor,
   AnalysisFinding,
+  AnalysisFindingPage,
   AnalysisFindingEvidence,
   AnalysisRun,
   CleanupExecutionResult,
@@ -87,6 +88,7 @@ type Props = {
 type CleanupTier = "safe" | "review" | "caution";
 
 const FINDING_PAGE_SIZE = 100;
+const AI_RECHECK_BATCH_SIZE = 50;
 const FINDING_ROW_HEIGHT = 238;
 
 export function StorageCleanupView(props: Props = {}) {
@@ -132,9 +134,15 @@ function StorageCleanupPanel({
   const findingListRef = useRef<HTMLDivElement | null>(null);
   const findingsEpoch = useRef(0);
   const requestKeyRef = useRef<string | null>(null);
+  const scanIntentInFlight = useRef(false);
+  const aiCancelRequested = useRef(false);
   const scopeHydrated = useRef(Boolean(initialRoots?.length));
   const defaultSelectionRuns = useRef(new Set<string>());
   const mutationUnavailable = localFileMutationUnavailableCode();
+
+  useEffect(() => () => {
+    aiCancelRequested.current = true;
+  }, []);
 
   const reportError = useCallback((value: unknown) => {
     const raw = readableError(value);
@@ -313,6 +321,7 @@ function StorageCleanupPanel({
   }, [reportError]);
 
   const startScan = useCallback(async () => {
+    if (scanIntentInFlight.current || isAiWorking) return;
     if (!selectedRoots.length) {
       setError(t("storageCleanupScopeRequired"));
       return;
@@ -328,7 +337,8 @@ function StorageCleanupPanel({
     setSelectedFindingIds(new Set());
     setFindingCache({});
     defaultSelectionRuns.current.clear();
-    if (!requestKeyRef.current) requestKeyRef.current = `cleanup-${Date.now()}`;
+    scanIntentInFlight.current = true;
+    requestKeyRef.current = `cleanup-${crypto.randomUUID()}`;
     const request: StartAnalysisRunRequest = {
       scope: { kind: "approvedCleanupPaths", paths: selectedRoots },
       detectorIds: detectors.filter((detector) => detector.supportsApprovedPaths).map((detector) => detector.detectorId),
@@ -342,9 +352,11 @@ function StorageCleanupPanel({
     } catch (startError) {
       reportError(startError);
     } finally {
+      requestKeyRef.current = null;
+      scanIntentInFlight.current = false;
       setIsMutating(false);
     }
-  }, [api, detectors, loadRunDetails, reportError, selectedRoots, t]);
+  }, [api, detectors, isAiWorking, loadRunDetails, reportError, selectedRoots, t]);
 
   const cancelRun = useCallback(async () => {
     if (!run || !api.cancelAnalysisRun) return;
@@ -528,26 +540,69 @@ function StorageCleanupPanel({
       reportError(t("storageCleanupAIUnsupported"));
       return;
     }
-    const ids = findings.filter((finding) => finding.tier === "review" && finding.status === "active").map((finding) => finding.id);
-    if (!ids.length) {
-      setAiStatus(t("storageCleanupAINoTargets"));
-      return;
-    }
+    if (isAiWorking) return;
+    aiCancelRequested.current = false;
     setIsAiWorking(true);
     setAiStatus("");
     try {
       const settings = await api.getAISettings();
       if (!settings.enabled) throw new Error("cleanup_ai_disabled");
       if (!settings.cleanupAiEnabled) throw new Error("cleanup_ai_feature_disabled");
-      await api.analyzeCleanupCandidatesWithAI(run.id, ids);
-      setAiStatus(replaceCopy("storageCleanupAIRecheckDone", { count: ids.length }));
+      const ids: string[] = [];
+      let cursor: string | null = null;
+      do {
+        if (aiCancelRequested.current) {
+          setAiStatus(t("storageCleanupAIRecheckCanceled"));
+          return;
+        }
+        setAiStatus(replaceCopy("storageCleanupAIRecheckCollecting", { count: ids.length }));
+        const page: AnalysisFindingPage | undefined = await api.listAnalysisFindings?.({
+          runId: run.id,
+          tier: "review",
+          status: "active",
+          cursor,
+          limit: FINDING_PAGE_SIZE
+        });
+        if (!page) throw new Error("cleanup_findings_unavailable");
+        ids.push(...page.findings.filter((finding) => finding.tier === "review" && finding.status === "active").map((finding) => finding.id));
+        cursor = page.nextCursor;
+      } while (cursor);
+      if (!ids.length) {
+        setAiStatus(t("storageCleanupAINoTargets"));
+        return;
+      }
+      let processed = 0;
+      let skipped = 0;
+      let failed = 0;
+      for (let offset = 0; offset < ids.length; offset += AI_RECHECK_BATCH_SIZE) {
+        if (aiCancelRequested.current) {
+          setAiStatus(replaceCopy("storageCleanupAIRecheckCanceledSummary", { processed, total: ids.length, skipped, failed }));
+          return;
+        }
+        const batch = ids.slice(offset, offset + AI_RECHECK_BATCH_SIZE);
+        setAiStatus(replaceCopy("storageCleanupAIRecheckWorkingProgress", { processed, total: ids.length }));
+        try {
+          const updated = await api.analyzeCleanupCandidatesWithAI(run.id, batch);
+          processed += updated.length;
+          skipped += Math.max(0, batch.length - updated.length);
+        } catch {
+          failed += batch.length;
+        }
+      }
+      setAiStatus(replaceCopy("storageCleanupAIRecheckDoneSummary", { total: ids.length, processed, skipped, failed }));
       await loadRunDetails(run.id);
+      await loadFindings(run.id, activeTier);
     } catch (aiError) {
       reportError(aiError);
     } finally {
       setIsAiWorking(false);
     }
-  }, [api, findings, loadRunDetails, reportError, replaceCopy, run, t]);
+  }, [activeTier, api, isAiWorking, loadFindings, loadRunDetails, reportError, replaceCopy, run, t]);
+
+  const cancelAiRecheck = useCallback(() => {
+    aiCancelRequested.current = true;
+    setAiStatus(t("storageCleanupAIRecheckCanceling"));
+  }, [t]);
 
   const virtualizer = useVirtualizer({
     count: findings.length,
@@ -592,7 +647,7 @@ function StorageCleanupPanel({
               <Button variant="secondary" size="compact" onClick={() => void chooseScope()}>
                 <FolderOpen size={15} aria-hidden="true" />{t("storageCleanupChooseFolder")}
               </Button>
-              <Button variant="primary" size="compact" disabled={!selectedRoots.length || isMutating || isRunInProgress(run)} onClick={() => void startScan()}>
+              <Button variant="primary" size="compact" disabled={!selectedRoots.length || isMutating || isAiWorking || isRunInProgress(run)} onClick={() => void startScan()}>
                 {isMutating && !run ? <LoaderCircle size={15} className="animate-spin" aria-hidden="true" /> : <Search size={15} aria-hidden="true" />}
                 {run ? t("storageCleanupRescan") : t("storageCleanupScanScope")}
               </Button>
@@ -664,7 +719,7 @@ function StorageCleanupPanel({
                 {run.errorMessage ? localizedStableError(run.errorMessage, t) : t("storageCleanupRunFailedDesc")}
               </NoticeBanner>
             ) : null}
-            {runState === "canceled" ? <NoticeBanner tone="info" title={t("storageCleanupRunCanceled")} action={<Button variant="secondary" size="compact" onClick={() => void startScan()}>{t("storageCleanupRescan")}</Button>}>{t("storageCleanupRunCanceledDesc")}</NoticeBanner> : null}
+            {runState === "canceled" ? <NoticeBanner tone="info" title={t("storageCleanupRunCanceled")} action={<Button variant="secondary" size="compact" disabled={isMutating || isAiWorking} onClick={() => void startScan()}>{t("storageCleanupRescan")}</Button>}>{t("storageCleanupRunCanceledDesc")}</NoticeBanner> : null}
             {runDetectors.some((detector) => detector.status === "failed") ? <span className={quietText}>{t("storageCleanupDetectorFailureHint")}</span> : null}
           </section>
         ) : null}
@@ -674,7 +729,7 @@ function StorageCleanupPanel({
             tone="neutral"
             title={t("storageCleanupChooseScopeEmptyTitle")}
             description={t("storageCleanupChooseScopeEmptyDesc")}
-            primaryAction={<Button variant="primary" disabled={!selectedRoots.length || isMutating} onClick={() => void startScan()}><Search size={15} aria-hidden="true" />{t("storageCleanupScanScope")}</Button>}
+            primaryAction={<Button variant="primary" disabled={!selectedRoots.length || isMutating || isAiWorking} onClick={() => void startScan()}><Search size={15} aria-hidden="true" />{t("storageCleanupScanScope")}</Button>}
           />
         ) : null}
 
@@ -686,9 +741,9 @@ function StorageCleanupPanel({
                 <p className={sectionDescription}>{t("storageCleanupFindingsDescription")}</p>
               </div>
               {activeTier === "review" && api.analyzeCleanupCandidatesWithAI ? (
-                <Button variant="secondary" size="compact" disabled={isAiWorking || !findings.some((finding) => finding.tier === "review")} onClick={() => void recheckReviewFindings()}>
+                <Button variant="secondary" size="compact" disabled={!isAiWorking && !run.reviewCount} onClick={() => isAiWorking ? cancelAiRecheck() : void recheckReviewFindings()}>
                   {isAiWorking ? <LoaderCircle size={14} className="animate-spin" aria-hidden="true" /> : <Sparkles size={14} aria-hidden="true" />}
-                  {isAiWorking ? t("storageCleanupAIRecheckWorking") : t("storageCleanupAIRecheck")}
+                  {isAiWorking ? t("storageCleanupAIRecheckCancel") : t("storageCleanupAIRecheck")}
                 </Button>
               ) : null}
             </div>

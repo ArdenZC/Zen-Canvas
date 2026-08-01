@@ -23,7 +23,7 @@ interface Props {
   t: Translator;
   onClose: () => void;
   restoreFocus?: () => HTMLElement | null;
-  onRefreshDetail?: () => void;
+  onRefreshDetail?: () => Promise<void>;
 }
 
 type Confirmation = { description: string; action: () => Promise<void> } | null;
@@ -40,6 +40,7 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
   const [contentRunRefreshKey, setContentRunRefreshKey] = useState(0);
   const [recentContentRuns, setRecentContentRuns] = useState<ContentRun[]>([]);
   const [contentConfirmation, setContentConfirmation] = useState<Confirmation>(null);
+  const refreshedContentRuns = useRef(new Set<string>());
   const contentScope: FileLibraryScopeV2 | null = detail?.scanRootId ? { kind: "roots", scanRootIds: [detail.scanRootId] } : null;
 
   useEffect(() => {
@@ -50,9 +51,10 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
      setPendingContentRequest(null);
      setContentRun(null);
      setContentRunItems([]);
-     setContentRunRefreshKey(0);
+    setContentRunRefreshKey(0);
     setContentMessage(null);
     setContentConfirmation(null);
+    refreshedContentRuns.current.clear();
     if (!detail.scanRootId) {
       setRecentContentRuns([]);
       return;
@@ -86,6 +88,11 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
         if (!active) return;
         setContentRun(run);
         setContentRunItems(page.items);
+        const terminal = ["completed", "failed", "canceled", "cancelled"].includes(run.status.toLowerCase());
+        if (terminal && !refreshedContentRuns.current.has(run.id)) {
+          await onRefreshDetail?.();
+          refreshedContentRuns.current.add(run.id);
+        }
       } catch (error) {
         if (active) setContentMessage(contentError(error, t));
       }
@@ -93,7 +100,7 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     void refresh();
     const timer = window.setInterval(() => void refresh(), 2000);
     return () => { active = false; window.clearInterval(timer); };
-   }, [contentRun?.id, contentRunRefreshKey, open, t]);
+   }, [contentRun?.id, contentRunRefreshKey, onRefreshDetail, open, t]);
 
   if (!open) return null;
 
@@ -185,9 +192,11 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
       setContentPolicy(saved);
       setPolicyDirty(false);
       setContentMessage(t("contentPolicySaved"));
-      onRefreshDetail?.();
+      await onRefreshDetail?.();
     } catch (error) {
-      setContentMessage(String(error).includes("revision") ? t("contentRevisionChanged") : t("contentSavePolicyFailed"));
+      if (isContentRevisionConflict(error)) {
+        setContentMessage((await refreshCurrentDetail()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
+      } else setContentMessage(t("contentSavePolicyFailed"));
     } finally {
       setContentBusy(false);
     }
@@ -213,9 +222,11 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     try {
       await tauriApi.rebuildContentArtifact(detail.id, detail.contentRevision, true);
       setContentMessage(t("contentArtifactRebuilt"));
-      onRefreshDetail?.();
+      await onRefreshDetail?.();
     } catch (error) {
-      setContentMessage(contentError(error, t));
+      if (isContentRevisionConflict(error)) {
+        setContentMessage((await refreshCurrentDetail()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
+      } else setContentMessage(contentError(error, t));
     } finally {
       setContentBusy(false);
     }
@@ -228,9 +239,11 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     try {
       await tauriApi.deleteContentArtifact(detail.id, detail.contentRevision, true);
       setContentMessage(t("contentDataDeleted"));
-      onRefreshDetail?.();
+      await onRefreshDetail?.();
     } catch (error) {
-      setContentMessage(contentError(error, t));
+      if (isContentRevisionConflict(error)) {
+        setContentMessage((await refreshCurrentDetail()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
+      } else setContentMessage(contentError(error, t));
     } finally {
       setContentBusy(false);
     }
@@ -249,9 +262,11 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
         confirmed: true
       });
       setContentMessage(replaceCopy(t("contentPurged"), { count: deleted }));
-      onRefreshDetail?.();
+      await onRefreshDetail?.();
     } catch (error) {
-      setContentMessage(contentError(error, t));
+      if (isContentRevisionConflict(error)) {
+        setContentMessage((await refreshCurrentDetail()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
+      } else setContentMessage(contentError(error, t));
     } finally {
       setContentBusy(false);
     }
@@ -259,6 +274,15 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
 
   function requestConfirmation(description: string, action: () => Promise<void>) {
     setContentConfirmation({ description, action });
+  }
+
+  async function refreshCurrentDetail(): Promise<boolean> {
+    try {
+      await onRefreshDetail?.();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   return (
@@ -458,6 +482,11 @@ function contentError(error: unknown, t: Translator) {
   if (message.includes("browser_mock_content_unavailable")) return t("contentSearchUnavailable");
   if (message.includes("stale") || message.includes("revision")) return t("contentRevisionChanged");
   return t("contentOperationFailed");
+}
+
+function isContentRevisionConflict(error: unknown): boolean {
+  const message = readableError(error).toLowerCase();
+  return message.includes("revision") || message.includes("stale") || message.includes("cas");
 }
 
 function contentBlockedReasonLabel(reason: string, t: Translator) {
