@@ -1461,16 +1461,20 @@ impl Database {
                 "content_provider_run_revision_or_consent_required".into(),
             ));
         }
-        let run_claim = self.claim_provider_phase(run_id, run.revision)?;
-        let settings = normalize_ai_settings(get_ai_settings_for_db(self)?);
+        // Resolve and validate every provider dependency before claiming the
+        // durable run owner. A malformed/disabled provider must be retryable
+        // without leaving a committed owner or advancing the run revision.
+        let settings =
+            normalize_ai_settings(get_ai_settings_for_db(self).map_err(|_| {
+                DbError::Validation("content_provider_configuration_invalid".into())
+            })?);
         if !content_provider_is_configured(&settings) {
             return Err(DbError::Validation(
                 "content_provider_not_configured_for_this_run".into(),
             ));
         }
-        validate_ai_settings(&settings, !cfg!(debug_assertions)).map_err(|error| {
-            DbError::Validation(redact_content_provider_error(error, &settings.api_key))
-        })?;
+        validate_ai_settings(&settings, !cfg!(debug_assertions))
+            .map_err(|_| DbError::Validation("content_provider_configuration_invalid".into()))?;
         let owned_provider = provider_override
             .is_none()
             .then(|| provider_for_settings(&settings));
@@ -1479,123 +1483,162 @@ impl Database {
                 .as_deref()
                 .expect("provider is owned when no test override is supplied")
         });
-        let mut processed = 0_i64;
-        let mut blocked = 0_i64;
-        let mut first_reason = None;
-        for (artifact_id, expected_revision) in request
-            .artifact_ids
-            .iter()
-            .zip(request.expected_revisions.iter())
-        {
-            if self.provider_run_cancelled(run_id)? {
-                blocked += 1;
-                first_reason.get_or_insert_with(|| "content_run_cancelled".into());
-                continue;
-            }
-            let Some(item_claim) = self.claim_provider_item(run_id, artifact_id, &run_claim)?
-            else {
-                // A completed provider item is durable and must never replay.
-                continue;
-            };
-            let artifact = self.load_understanding_artifact(artifact_id)?;
-            let Some(artifact) = artifact else {
-                blocked += 1;
-                first_reason.get_or_insert_with(|| "content_artifact_not_found".into());
-                self.mark_provider_item(
-                    run_id,
-                    artifact_id,
+        let run_claim = self.claim_provider_phase(run_id, run.revision)?;
+        let provider_result = (|| -> Result<ContentUnderstandingResultDto, DbError> {
+            let mut processed = 0_i64;
+            let mut blocked = 0_i64;
+            let mut first_reason = None;
+            for (artifact_id, expected_revision) in request
+                .artifact_ids
+                .iter()
+                .zip(request.expected_revisions.iter())
+            {
+                if self.provider_run_cancelled(run_id)? {
+                    blocked += 1;
+                    first_reason.get_or_insert_with(|| "content_run_cancelled".into());
+                    continue;
+                }
+                let Some(item_claim) = self.claim_provider_item(run_id, artifact_id, &run_claim)?
+                else {
+                    // A completed provider item is durable and must never replay.
+                    continue;
+                };
+                let artifact = self.load_understanding_artifact(artifact_id)?;
+                let Some(artifact) = artifact else {
+                    blocked += 1;
+                    first_reason.get_or_insert_with(|| "content_artifact_not_found".into());
+                    self.mark_provider_item(
+                        run_id,
+                        artifact_id,
+                        &item_claim,
+                        "blocked",
+                        Some("content_artifact_not_found"),
+                    )?;
+                    continue;
+                };
+                if artifact.revision != *expected_revision || artifact.status != "current" {
+                    blocked += 1;
+                    first_reason.get_or_insert_with(|| "content_artifact_revision_conflict".into());
+                    self.mark_provider_item(
+                        run_id,
+                        artifact_id,
+                        &item_claim,
+                        "stale",
+                        Some("content_artifact_revision_conflict"),
+                    )?;
+                    continue;
+                }
+                let Some(root_id) = artifact.root_id.as_deref() else {
+                    blocked += 1;
+                    first_reason.get_or_insert_with(|| "content_root_missing".into());
+                    self.mark_provider_item(
+                        run_id,
+                        artifact_id,
+                        &item_claim,
+                        "blocked",
+                        Some("content_root_missing"),
+                    )?;
+                    continue;
+                };
+                if root_id != item_claim.root_id {
+                    blocked += 1;
+                    first_reason.get_or_insert_with(|| "content_provider_scope_conflict".into());
+                    self.mark_provider_item(
+                        run_id,
+                        artifact_id,
+                        &item_claim,
+                        "stale",
+                        Some("content_provider_scope_conflict"),
+                    )?;
+                    continue;
+                }
+                let policy = self.get_content_scope_policy(root_id)?;
+                if policy.policy_revision != item_claim.policy_revision {
+                    blocked += 1;
+                    first_reason.get_or_insert_with(|| "content_policy_revision_conflict".into());
+                    self.mark_provider_item(
+                        run_id,
+                        artifact_id,
+                        &item_claim,
+                        "stale",
+                        Some("content_policy_revision_conflict"),
+                    )?;
+                    continue;
+                }
+                let provider_is_cloud =
+                    matches!(settings.provider, AIProviderKind::OpenAICompatible);
+                if provider_is_cloud
+                    && matches!(artifact.risk_level.as_str(), "Sensitive" | "System")
+                {
+                    blocked += 1;
+                    first_reason.get_or_insert_with(|| "content_sensitive_cloud_denied".into());
+                    self.mark_provider_item(
+                        run_id,
+                        artifact_id,
+                        &item_claim,
+                        "blocked",
+                        Some("content_sensitive_cloud_denied"),
+                    )?;
+                    continue;
+                }
+                let allowed = if provider_is_cloud {
+                    policy.enabled && policy.cloud_allowed
+                } else {
+                    policy.enabled && policy.local_allowed
+                };
+                if !allowed {
+                    blocked += 1;
+                    first_reason.get_or_insert_with(|| "content_provider_consent_required".into());
+                    self.mark_provider_item(
+                        run_id,
+                        artifact_id,
+                        &item_claim,
+                        "blocked",
+                        Some("content_provider_consent_required"),
+                    )?;
+                    continue;
+                }
+                let payload = match self.load_understanding_payload(
+                    &artifact,
+                    &policy,
+                    run_claim.expected_library_revision,
+                ) {
+                    Ok(payload) => payload,
+                    Err(error) => {
+                        blocked += 1;
+                        first_reason.get_or_insert_with(|| content_error_code(&error));
+                        self.mark_provider_item(
+                            run_id,
+                            artifact_id,
+                            &item_claim,
+                            "stale",
+                            Some(&content_error_code(&error)),
+                        )?;
+                        continue;
+                    }
+                };
+                if payload.trim().is_empty() {
+                    blocked += 1;
+                    first_reason
+                        .get_or_insert_with(|| "content_extraction_text_unavailable".into());
+                    self.mark_provider_item(
+                        run_id,
+                        artifact_id,
+                        &item_claim,
+                        "blocked",
+                        Some("content_extraction_text_unavailable"),
+                    )?;
+                    continue;
+                }
+                if let Some(hook) = before_provider_send {
+                    hook();
+                }
+                if let Err(error) = self.revalidate_provider_send_boundary(
+                    &artifact,
+                    &policy,
+                    &run_claim,
                     &item_claim,
-                    "blocked",
-                    Some("content_artifact_not_found"),
-                )?;
-                continue;
-            };
-            if artifact.revision != *expected_revision || artifact.status != "current" {
-                blocked += 1;
-                first_reason.get_or_insert_with(|| "content_artifact_revision_conflict".into());
-                self.mark_provider_item(
-                    run_id,
-                    artifact_id,
-                    &item_claim,
-                    "stale",
-                    Some("content_artifact_revision_conflict"),
-                )?;
-                continue;
-            }
-            let Some(root_id) = artifact.root_id.as_deref() else {
-                blocked += 1;
-                first_reason.get_or_insert_with(|| "content_root_missing".into());
-                self.mark_provider_item(
-                    run_id,
-                    artifact_id,
-                    &item_claim,
-                    "blocked",
-                    Some("content_root_missing"),
-                )?;
-                continue;
-            };
-            if root_id != item_claim.root_id {
-                blocked += 1;
-                first_reason.get_or_insert_with(|| "content_provider_scope_conflict".into());
-                self.mark_provider_item(
-                    run_id,
-                    artifact_id,
-                    &item_claim,
-                    "stale",
-                    Some("content_provider_scope_conflict"),
-                )?;
-                continue;
-            }
-            let policy = self.get_content_scope_policy(root_id)?;
-            if policy.policy_revision != item_claim.policy_revision {
-                blocked += 1;
-                first_reason.get_or_insert_with(|| "content_policy_revision_conflict".into());
-                self.mark_provider_item(
-                    run_id,
-                    artifact_id,
-                    &item_claim,
-                    "stale",
-                    Some("content_policy_revision_conflict"),
-                )?;
-                continue;
-            }
-            let provider_is_cloud = matches!(settings.provider, AIProviderKind::OpenAICompatible);
-            if provider_is_cloud && matches!(artifact.risk_level.as_str(), "Sensitive" | "System") {
-                blocked += 1;
-                first_reason.get_or_insert_with(|| "content_sensitive_cloud_denied".into());
-                self.mark_provider_item(
-                    run_id,
-                    artifact_id,
-                    &item_claim,
-                    "blocked",
-                    Some("content_sensitive_cloud_denied"),
-                )?;
-                continue;
-            }
-            let allowed = if provider_is_cloud {
-                policy.enabled && policy.cloud_allowed
-            } else {
-                policy.enabled && policy.local_allowed
-            };
-            if !allowed {
-                blocked += 1;
-                first_reason.get_or_insert_with(|| "content_provider_consent_required".into());
-                self.mark_provider_item(
-                    run_id,
-                    artifact_id,
-                    &item_claim,
-                    "blocked",
-                    Some("content_provider_consent_required"),
-                )?;
-                continue;
-            }
-            let payload = match self.load_understanding_payload(
-                &artifact,
-                &policy,
-                run_claim.expected_library_revision,
-            ) {
-                Ok(payload) => payload,
-                Err(error) => {
+                ) {
                     blocked += 1;
                     first_reason.get_or_insert_with(|| content_error_code(&error));
                     self.mark_provider_item(
@@ -1607,41 +1650,11 @@ impl Database {
                     )?;
                     continue;
                 }
-            };
-            if payload.trim().is_empty() {
-                blocked += 1;
-                first_reason.get_or_insert_with(|| "content_extraction_text_unavailable".into());
-                self.mark_provider_item(
-                    run_id,
-                    artifact_id,
-                    &item_claim,
-                    "blocked",
-                    Some("content_extraction_text_unavailable"),
-                )?;
-                continue;
-            }
-            if let Some(hook) = before_provider_send {
-                hook();
-            }
-            if let Err(error) =
-                self.revalidate_provider_send_boundary(&artifact, &policy, &run_claim, &item_claim)
-            {
-                blocked += 1;
-                first_reason.get_or_insert_with(|| content_error_code(&error));
-                self.mark_provider_item(
-                    run_id,
-                    artifact_id,
-                    &item_claim,
-                    "stale",
-                    Some(&content_error_code(&error)),
-                )?;
-                continue;
-            }
-            let prompt = serde_json::json!({
-                "schemaVersion": "content_understanding_v1",
-                "text": payload,
-            });
-            let raw = match provider.chat_json(AIChatRequest {
+                let prompt = serde_json::json!({
+                    "schemaVersion": "content_understanding_v1",
+                    "text": payload,
+                });
+                let raw = match provider.chat_json(AIChatRequest {
                 messages: vec![
                     AIChatMessage {
                         role: "system".into(),
@@ -1680,53 +1693,61 @@ impl Database {
                     continue;
                 }
             };
-            let envelope: ContentModelEnvelopeV1 = match serde_json::from_str(&raw) {
-                Ok(value) => value,
-                Err(_) => {
+                let envelope: ContentModelEnvelopeV1 = match serde_json::from_str(&raw) {
+                    Ok(value) => value,
+                    Err(_) => {
+                        blocked += 1;
+                        first_reason.get_or_insert_with(|| "content_model_json_invalid".into());
+                        self.mark_provider_item(
+                            run_id,
+                            artifact_id,
+                            &item_claim,
+                            "failed",
+                            Some("content_model_json_invalid"),
+                        )?;
+                        continue;
+                    }
+                };
+                if !validate_content_model_envelope(&envelope) {
                     blocked += 1;
-                    first_reason.get_or_insert_with(|| "content_model_json_invalid".into());
+                    first_reason.get_or_insert_with(|| "content_model_envelope_invalid".into());
                     self.mark_provider_item(
                         run_id,
                         artifact_id,
                         &item_claim,
                         "failed",
-                        Some("content_model_json_invalid"),
+                        Some("content_model_envelope_invalid"),
                     )?;
                     continue;
                 }
-            };
-            if !validate_content_model_envelope(&envelope) {
-                blocked += 1;
-                first_reason.get_or_insert_with(|| "content_model_envelope_invalid".into());
-                self.mark_provider_item(
+                if let Err(error) = self.publish_provider_result(
                     run_id,
-                    artifact_id,
+                    &run_claim,
                     &item_claim,
-                    "failed",
-                    Some("content_model_envelope_invalid"),
-                )?;
-                continue;
+                    &artifact,
+                    &envelope,
+                    &settings,
+                ) {
+                    blocked += 1;
+                    first_reason.get_or_insert_with(|| content_error_code(&error));
+                    continue;
+                }
+                processed += 1;
             }
-            if let Err(error) = self.publish_provider_result(
-                run_id,
-                &run_claim,
-                &item_claim,
-                &artifact,
-                &envelope,
-                &settings,
-            ) {
-                blocked += 1;
-                first_reason.get_or_insert_with(|| content_error_code(&error));
-                continue;
+            self.finish_provider_phase(run_id, &run_claim, blocked, first_reason.as_deref())?;
+            Ok(ContentUnderstandingResultDto {
+                processed_count: processed,
+                blocked_count: blocked,
+                reason: first_reason,
+            })
+        })();
+        match provider_result {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                self.abort_provider_phase(run_id, &run_claim, "content_provider_phase_aborted")?;
+                Err(error)
             }
-            processed += 1;
         }
-        self.finish_provider_phase(run_id, &run_claim, blocked, first_reason.as_deref())?;
-        Ok(ContentUnderstandingResultDto {
-            processed_count: processed,
-            blocked_count: blocked,
-            reason: first_reason,
-        })
     }
 
     fn claim_provider_phase(
@@ -1931,8 +1952,7 @@ impl Database {
                     last_error_code=?4, provider_owner=NULL, revision=revision+1, updated_at=?5,
                     completed_at=CASE WHEN ?2 IN ('completed','partially_completed','cancelled')
                                       THEN ?5 ELSE completed_at END
-             WHERE id=?1 AND revision=?6 AND status=?7
-               AND (provider_owner=?8 OR status='cancelling')",
+             WHERE id=?1 AND revision=?6 AND status=?7 AND provider_owner=?8",
             params![
                 run_id,
                 status,
@@ -1941,6 +1961,51 @@ impl Database {
                 now,
                 expected_revision,
                 expected_status,
+                claim.owner
+            ],
+        )?;
+        if changed != 1 {
+            return Err(DbError::Validation(
+                "content_provider_run_owner_conflict".into(),
+            ));
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn abort_provider_phase(
+        &self,
+        run_id: &str,
+        claim: &ProviderRunClaim,
+        error_code: &str,
+    ) -> Result<(), DbError> {
+        let mut conn = self.conn()?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let now = crate::db::current_unix_seconds();
+        let failed_items = tx.execute(
+            "UPDATE content_run_items
+             SET provider_status='failed', error_code=?2, error_detail=?2,
+                 provider_owner=NULL, provider_completed_at=?3,
+                 revision=revision+1, updated_at=?3
+             WHERE run_id=?1 AND provider_status='running'
+               AND EXISTS (
+                   SELECT 1 FROM content_runs
+                   WHERE id=?1 AND revision=?4 AND status='running' AND provider_owner=?5
+               )",
+            params![run_id, error_code, now, claim.revision, claim.owner],
+        )? as i64;
+        let changed = tx.execute(
+            "UPDATE content_runs
+             SET status='partially_completed', failed_count=failed_count+?2,
+                 last_error_code=?3, provider_owner=NULL, revision=revision+1,
+                 completed_at=?4, updated_at=?4
+             WHERE id=?1 AND revision=?5 AND status='running' AND provider_owner=?6",
+            params![
+                run_id,
+                failed_items,
+                error_code,
+                now,
+                claim.revision,
                 claim.owner
             ],
         )?;
@@ -2292,6 +2357,44 @@ impl Database {
         pdf_work_hook: Option<&dyn Fn()>,
         pdf_cancel: Option<&AtomicBool>,
     ) -> Result<ContentRunDto, DbError> {
+        self.process_content_run_with_pdf_controls(
+            run_id,
+            request,
+            candidates,
+            pdf_work_hook,
+            pdf_cancel,
+            None,
+        )
+    }
+
+    #[cfg(test)]
+    fn process_content_run_with_pdf_deadline_for_test(
+        &self,
+        run_id: &str,
+        request: &StartContentRunRequest,
+        candidates: Vec<Candidate>,
+        pdf_work_hook: Option<&dyn Fn()>,
+        deadline_after: Duration,
+    ) -> Result<ContentRunDto, DbError> {
+        self.process_content_run_with_pdf_controls(
+            run_id,
+            request,
+            candidates,
+            pdf_work_hook,
+            None,
+            Some(deadline_after),
+        )
+    }
+
+    fn process_content_run_with_pdf_controls(
+        &self,
+        run_id: &str,
+        request: &StartContentRunRequest,
+        candidates: Vec<Candidate>,
+        pdf_work_hook: Option<&dyn Fn()>,
+        pdf_cancel: Option<&AtomicBool>,
+        pdf_deadline_after: Option<Duration>,
+    ) -> Result<ContentRunDto, DbError> {
         let mut completed = 0_i64;
         let mut blocked = 0_i64;
         let mut failed = 0_i64;
@@ -2332,6 +2435,7 @@ impl Database {
                                 &root_path,
                                 pdf_work_hook,
                                 pdf_cancel,
+                                pdf_deadline_after,
                             ),
                             Err(error) => Err(error),
                         }
@@ -3452,7 +3556,7 @@ fn extract_candidate(
     policy: &ContentScopePolicyDto,
     root_path: &str,
 ) -> Result<Extraction, DbError> {
-    extract_candidate_with_pdf_hook(candidate, policy, root_path, None, None)
+    extract_candidate_with_pdf_hook(candidate, policy, root_path, None, None, None)
 }
 
 fn extract_candidate_with_pdf_hook(
@@ -3461,6 +3565,7 @@ fn extract_candidate_with_pdf_hook(
     root_path: &str,
     pdf_work_hook: Option<&dyn Fn()>,
     pdf_cancel: Option<&AtomicBool>,
+    pdf_deadline_after: Option<Duration>,
 ) -> Result<Extraction, DbError> {
     let path = Path::new(&candidate.path);
     let canonical = std::fs::canonicalize(path)
@@ -3516,7 +3621,7 @@ fn extract_candidate_with_pdf_hook(
             Some(hook) => pdf_text_extraction_with_limits_and_hook(
                 &source_bytes,
                 policy,
-                Instant::now() + Duration::from_secs(2),
+                Instant::now() + pdf_deadline_after.unwrap_or_else(|| Duration::from_secs(2)),
                 pdf_cancel,
                 Some(hook),
             ),
@@ -5756,31 +5861,6 @@ mod tests {
             Some("content_extractor_cancelled")
         );
         assert!(cancel_elapsed < Duration::from_millis(500));
-
-        let db_path = std::env::temp_dir().join(format!(
-            "zen-content-pdf-midflight-{}.sqlite3",
-            uuid::Uuid::new_v4()
-        ));
-        let db = Database::open(&db_path).unwrap();
-        let conn = db.conn().unwrap();
-        let artifacts: i64 = conn
-            .query_row("SELECT COUNT(*) FROM content_artifacts", [], |row| {
-                row.get(0)
-            })
-            .unwrap();
-        let fts: i64 = conn
-            .query_row("SELECT COUNT(*) FROM content_artifact_fts", [], |row| {
-                row.get(0)
-            })
-            .unwrap();
-        assert_eq!(
-            artifacts, 0,
-            "mid-flight parser failure publishes no artifact"
-        );
-        assert_eq!(fts, 0, "mid-flight parser failure publishes no FTS row");
-        drop(conn);
-        drop(db);
-        let _ = std::fs::remove_file(db_path);
     }
 
     #[test]
@@ -5934,6 +6014,178 @@ mod tests {
             .unwrap();
         assert_eq!(item_status, "failed");
         assert_eq!(error_code.as_deref(), Some("content_extractor_cancelled"));
+        assert_eq!(artifacts, 0);
+        assert_eq!(fts, 0);
+        drop(conn);
+        drop(db);
+        let _ = std::fs::remove_file(db_path);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn pdf_midflight_timeout_through_run_publishes_no_artifact_or_fts() {
+        let suffix = uuid::Uuid::new_v4().to_string();
+        let root = std::env::temp_dir().join(format!("zen-content-pdf-run-timeout-{suffix}"));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("hostile.pdf");
+        let bytes = compressed_pdf_fixture(&vec![b'x'; 2 * 1024 * 1024]);
+        std::fs::write(&path, &bytes).unwrap();
+        let metadata = std::fs::metadata(&path).unwrap();
+        let size = metadata.len() as i64;
+        let mtime = modified_unix_seconds(&metadata);
+        let db_path =
+            std::env::temp_dir().join(format!("zen-content-pdf-run-timeout-{suffix}.sqlite3"));
+        let db = Database::open(&db_path).unwrap();
+        let root_id = format!("pdf-run-timeout-root-{suffix}");
+        let file_id = format!("pdf-run-timeout-file-{suffix}");
+        let run_id = format!("pdf-run-timeout-run-{suffix}");
+        let item_id = format!("pdf-run-timeout-item-{suffix}");
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO scan_roots(
+                    id, normalized_path, display_name, source_kind, enabled,
+                    health_status, current_generation, revision, needs_reconciliation,
+                    created_at, updated_at
+                 ) VALUES (?1,?2,?1,'file_library',1,'healthy',1,1,0,1,1)",
+                params![root_id, root.to_string_lossy().replace('\\', "/")],
+            )
+            .unwrap();
+        db.insert_file(crate::db::InsertFileRequest {
+            id: file_id.clone(),
+            path: path.to_string_lossy().replace('\\', "/"),
+            name: "hostile.pdf".into(),
+            extension: "pdf".into(),
+            size,
+            mtime,
+            ctime: mtime,
+            is_dir: false,
+            state_code: 0,
+        })
+        .unwrap();
+        db.set_content_scope_policy(SetContentScopePolicyRequest {
+            version: CONTENT_VERSION,
+            root_id: root_id.clone(),
+            expected_root_revision: 1,
+            expected_policy_revision: 0,
+            confirmed: true,
+            policy: ContentScopePolicyDto {
+                root_revision: 1,
+                enabled: true,
+                local_allowed: true,
+                ..default_policy(&root_id, 1)
+            },
+        })
+        .unwrap();
+        let library_revision = current_library_revision(&db.conn().unwrap()).unwrap();
+        let source_hash = hash_bytes(&bytes);
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO content_runs(
+                    id, scope_json, scope_fingerprint, mode, provider_mode, status,
+                    expected_library_revision, policy_fingerprint, confirmation,
+                    provider_confirmed, revision, created_at, updated_at
+                 ) VALUES (?1,'{}','scope','local','none','running',?2,'policy',1,0,1,1,1)",
+                params![run_id, library_revision],
+            )
+            .unwrap();
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO content_run_items(
+                    id, run_id, file_id, ordinal, status, root_id, source_is_dir,
+                    source_size, source_mtime, source_hash, provider_status,
+                    policy_revision, created_at, updated_at
+                 ) VALUES (?1,?2,?3,0,'pending',?4,0,?5,?6,?7,'pending',1,1,1)",
+                params![item_id, run_id, file_id, root_id, size, mtime, source_hash],
+            )
+            .unwrap();
+        let candidate = Candidate {
+            id: file_id.clone(),
+            path: path.to_string_lossy().replace('\\', "/"),
+            name: "hostile.pdf".into(),
+            extension: "pdf".into(),
+            size,
+            mtime,
+            is_dir: false,
+            root_id: root_id.clone(),
+            content_hash: String::new(),
+        };
+        let request = StartContentRunRequest {
+            version: CONTENT_VERSION,
+            request_id: format!("pdf-run-timeout-request-{suffix}"),
+            scope: FileLibraryScopeV2::Roots {
+                scan_root_ids: vec![root_id],
+            },
+            selection_file_ids: vec![candidate.id.clone()],
+            mode: "local".into(),
+            expected_library_revision: library_revision,
+            expected_policy_revisions: vec![ContentPolicyRevisionRequest {
+                root_id: candidate.root_id.clone(),
+                root_revision: 1,
+                policy_revision: 1,
+            }],
+            provider_mode: "none".into(),
+            preview_fingerprint: "test".into(),
+            confirmed: true,
+        };
+        let started = AtomicBool::new(false);
+        let timeout_hook = || {
+            started.store(true, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        let elapsed_start = Instant::now();
+        let run = db
+            .process_content_run_with_pdf_deadline_for_test(
+                &run_id,
+                &request,
+                vec![candidate],
+                Some(&timeout_hook),
+                Duration::from_millis(5),
+            )
+            .unwrap();
+        assert!(started.load(Ordering::SeqCst));
+        assert!(elapsed_start.elapsed() < Duration::from_millis(500));
+        assert_eq!(run.status, "partially_completed");
+        let conn = db.conn().unwrap();
+        let (item_status, error_code): (String, Option<String>) = conn
+            .query_row(
+                "SELECT status, error_code FROM content_run_items WHERE id=?1",
+                params![item_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let running_items: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM content_run_items
+                 WHERE run_id=?1 AND status='running'",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let run_in_progress: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM content_runs
+                 WHERE id=?1 AND status IN ('running','cancelling')",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let artifacts: i64 = conn
+            .query_row("SELECT COUNT(*) FROM content_artifacts", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let fts: i64 = conn
+            .query_row("SELECT COUNT(*) FROM content_artifact_fts", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(item_status, "failed");
+        assert_eq!(error_code.as_deref(), Some("content_extractor_timeout"));
+        assert_eq!(running_items, 0);
+        assert_eq!(run_in_progress, 0);
         assert_eq!(artifacts, 0);
         assert_eq!(fts, 0);
         drop(conn);
@@ -6648,6 +6900,382 @@ mod tests {
                 elapsed_ms: 0,
             })
         }
+    }
+
+    fn provider_settings_fixture(
+        label: &str,
+    ) -> (
+        Database,
+        std::path::PathBuf,
+        std::path::PathBuf,
+        String,
+        String,
+        String,
+        String,
+    ) {
+        let suffix = format!("{}-{}", label, uuid::Uuid::new_v4());
+        let root = std::env::temp_dir().join(format!("zen-content-provider-settings-{suffix}"));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("source.txt");
+        std::fs::write(&path, b"provider settings fixture").unwrap();
+        let metadata = std::fs::metadata(&path).unwrap();
+        let size = metadata.len() as i64;
+        let mtime = modified_unix_seconds(&metadata);
+        let source_hash = hash_bytes(std::fs::read(&path).unwrap());
+
+        let db_path =
+            std::env::temp_dir().join(format!("zen-content-provider-settings-{suffix}.sqlite3"));
+        let db = Database::open(&db_path).unwrap();
+        let root_id = format!("provider-settings-root-{suffix}");
+        let file_id = format!("provider-settings-file-{suffix}");
+        let run_id = format!("provider-settings-run-{suffix}");
+        let artifact_id = format!("provider-settings-artifact-{suffix}");
+        let item_id = format!("provider-settings-item-{suffix}");
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO scan_roots(
+                    id, normalized_path, display_name, source_kind, enabled,
+                    health_status, current_generation, revision, needs_reconciliation,
+                    created_at, updated_at
+                 ) VALUES (?1,?2,?1,'file_library',1,'healthy',1,1,0,1,1)",
+                params![root_id, root.to_string_lossy().replace('\\', "/")],
+            )
+            .unwrap();
+        db.insert_file(crate::db::InsertFileRequest {
+            id: file_id.clone(),
+            path: path.to_string_lossy().replace('\\', "/"),
+            name: "source.txt".into(),
+            extension: "txt".into(),
+            size,
+            mtime,
+            ctime: mtime,
+            is_dir: false,
+            state_code: 0,
+        })
+        .unwrap();
+        db.conn()
+            .unwrap()
+            .execute(
+                "UPDATE files SET content_hash=?2 WHERE id=?1",
+                params![file_id, source_hash],
+            )
+            .unwrap();
+        db.set_content_scope_policy(SetContentScopePolicyRequest {
+            version: CONTENT_VERSION,
+            root_id: root_id.clone(),
+            expected_root_revision: 1,
+            expected_policy_revision: 0,
+            confirmed: true,
+            policy: ContentScopePolicyDto {
+                root_revision: 1,
+                enabled: true,
+                local_allowed: true,
+                ..default_policy(&root_id, 1)
+            },
+        })
+        .unwrap();
+        let library_revision = current_library_revision(&db.conn().unwrap()).unwrap();
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO content_artifacts(
+                    id, file_id, scan_root_id, source_size, source_mtime, source_is_dir,
+                    source_hash, extractor_family, extractor_version, policy_revision,
+                    content_fingerprint, status, summary, keywords_json, provenance_json,
+                    revision, created_at, updated_at
+                 ) VALUES (?1,?2,?3,?4,?5,0,?6,'txt','content-extractor-v1',1,
+                           'provider-settings-fingerprint','current','fixture','[]','{}',1,1,1)",
+                params![artifact_id, file_id, root_id, size, mtime, source_hash],
+            )
+            .unwrap();
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO content_runs(
+                    id, scope_json, scope_fingerprint, mode, provider_mode, status,
+                    expected_library_revision, policy_fingerprint, confirmation,
+                    provider_confirmed, revision, created_at, updated_at
+                 ) VALUES (?1,'{}','scope','understand','existing_interactive_provider',
+                           'completed',?2,'policy',1,1,1,1,1)",
+                params![run_id, library_revision],
+            )
+            .unwrap();
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO content_run_items(
+                    id, run_id, file_id, ordinal, status, root_id, source_is_dir,
+                    source_size, source_mtime, source_hash, extractor_family,
+                    extractor_version, artifact_id, provider_status, policy_revision,
+                    created_at, updated_at
+                 ) VALUES (?1,?2,?3,0,'completed',?4,0,?5,?6,?7,'txt',
+                           'content-extractor-v1',?8,'pending',1,1,1)",
+                params![
+                    item_id,
+                    run_id,
+                    file_id,
+                    root_id,
+                    size,
+                    mtime,
+                    source_hash,
+                    artifact_id
+                ],
+            )
+            .unwrap();
+        let settings = crate::ai::settings::AISettings {
+            enabled: true,
+            provider: AIProviderKind::Ollama,
+            preset: crate::ai::schema::AIProviderPresetId::Ollama,
+            base_url: "http://127.0.0.1:11434".into(),
+            model: "test-model".into(),
+            ..Default::default()
+        };
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT OR REPLACE INTO app_settings(key, value) VALUES (?1, ?2)",
+                params![
+                    crate::ai::settings::AI_SETTINGS_KEY,
+                    serde_json::to_string(&settings).unwrap()
+                ],
+            )
+            .unwrap();
+        (db, db_path, root, run_id, artifact_id, item_id, file_id)
+    }
+
+    fn provider_settings_request(
+        run_id: &str,
+        artifact_id: &str,
+    ) -> UnderstandContentArtifactsRequest {
+        UnderstandContentArtifactsRequest {
+            version: CONTENT_VERSION,
+            artifact_ids: vec![artifact_id.into()],
+            expected_revisions: vec![1],
+            run_id: Some(run_id.into()),
+            expected_run_revision: Some(1),
+            confirmed: true,
+        }
+    }
+
+    fn cleanup_provider_settings_fixture(
+        db: Database,
+        db_path: std::path::PathBuf,
+        root: std::path::PathBuf,
+    ) {
+        drop(db);
+        let _ = std::fs::remove_file(db_path);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    fn overwrite_ai_settings_for_test(db: &Database, settings: &crate::ai::settings::AISettings) {
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT OR REPLACE INTO app_settings(key, value) VALUES (?1, ?2)",
+                params![
+                    crate::ai::settings::AI_SETTINGS_KEY,
+                    serde_json::to_string(settings).unwrap()
+                ],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn provider_settings_invalid_before_claim_leaves_no_owner() {
+        let (db, db_path, root, run_id, artifact_id, item_id, _) =
+            provider_settings_fixture("invalid-before-claim");
+        let mut invalid = get_ai_settings_for_db(&db).unwrap();
+        invalid.base_url = "not a provider URL".into();
+        overwrite_ai_settings_for_test(&db, &invalid);
+        let invocations = Arc::new(AtomicUsize::new(0));
+        let provider = CountingProvider {
+            invocations: invocations.clone(),
+        };
+        let error = db
+            .understand_content_artifacts_with_seams(
+                provider_settings_request(&run_id, &artifact_id),
+                Some(&provider),
+                None,
+            )
+            .expect_err("invalid provider settings must fail before claiming the run");
+        assert_eq!(error.to_string(), "content_provider_configuration_invalid");
+        let conn = db.conn().unwrap();
+        let (run_status, run_revision, provider_revision, run_owner): (
+            String,
+            i64,
+            i64,
+            Option<String>,
+        ) = conn
+            .query_row(
+                "SELECT status, revision, provider_revision, provider_owner
+                 FROM content_runs WHERE id=?1",
+                params![run_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+        let (item_status, item_owner): (String, Option<String>) = conn
+            .query_row(
+                "SELECT provider_status, provider_owner
+                 FROM content_run_items WHERE id=?1",
+                params![item_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(run_status, "completed");
+        assert_eq!(run_revision, 1);
+        assert_eq!(provider_revision, 1);
+        assert!(run_owner.is_none());
+        assert_eq!(item_status, "pending");
+        assert!(item_owner.is_none());
+        assert_eq!(invocations.load(Ordering::SeqCst), 0);
+        drop(conn);
+        cleanup_provider_settings_fixture(db, db_path, root);
+    }
+
+    #[test]
+    fn provider_disabled_before_claim_leaves_no_owner() {
+        let (db, db_path, root, run_id, artifact_id, item_id, _) =
+            provider_settings_fixture("disabled-before-claim");
+        let mut disabled = get_ai_settings_for_db(&db).unwrap();
+        disabled.enabled = false;
+        overwrite_ai_settings_for_test(&db, &disabled);
+        let invocations = Arc::new(AtomicUsize::new(0));
+        let provider = CountingProvider {
+            invocations: invocations.clone(),
+        };
+        let error = db
+            .understand_content_artifacts_with_seams(
+                provider_settings_request(&run_id, &artifact_id),
+                Some(&provider),
+                None,
+            )
+            .expect_err("disabled provider must fail before claiming the run");
+        assert_eq!(
+            error.to_string(),
+            "content_provider_not_configured_for_this_run"
+        );
+        let conn = db.conn().unwrap();
+        let (run_revision, provider_owner): (i64, Option<String>) = conn
+            .query_row(
+                "SELECT revision, provider_owner FROM content_runs WHERE id=?1",
+                params![run_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let (item_status, item_owner): (String, Option<String>) = conn
+            .query_row(
+                "SELECT provider_status, provider_owner
+                 FROM content_run_items WHERE id=?1",
+                params![item_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(run_revision, 1);
+        assert!(provider_owner.is_none());
+        assert_eq!(item_status, "pending");
+        assert!(item_owner.is_none());
+        assert_eq!(invocations.load(Ordering::SeqCst), 0);
+        drop(conn);
+        cleanup_provider_settings_fixture(db, db_path, root);
+    }
+
+    #[test]
+    fn provider_settings_repaired_can_retry_without_restart() {
+        let (db, db_path, root, run_id, artifact_id, item_id, _) =
+            provider_settings_fixture("repair-without-restart");
+        let valid = get_ai_settings_for_db(&db).unwrap();
+        let mut invalid = valid.clone();
+        invalid.base_url = "not a provider URL".into();
+        overwrite_ai_settings_for_test(&db, &invalid);
+        let first_error = db
+            .understand_content_artifacts_with_seams(
+                provider_settings_request(&run_id, &artifact_id),
+                None,
+                None,
+            )
+            .expect_err("invalid settings must not claim the run");
+        assert_eq!(
+            first_error.to_string(),
+            "content_provider_configuration_invalid"
+        );
+        overwrite_ai_settings_for_test(&db, &valid);
+        let invocations = Arc::new(AtomicUsize::new(0));
+        let provider = CountingProvider {
+            invocations: invocations.clone(),
+        };
+        let result = db
+            .understand_content_artifacts_with_seams(
+                provider_settings_request(&run_id, &artifact_id),
+                Some(&provider),
+                None,
+            )
+            .expect("the repaired provider must retry without recovery or restart");
+        assert_eq!(result.processed_count, 1);
+        assert_eq!(result.blocked_count, 0);
+        assert_eq!(invocations.load(Ordering::SeqCst), 1);
+        let conn = db.conn().unwrap();
+        let (run_status, run_owner): (String, Option<String>) = conn
+            .query_row(
+                "SELECT status, provider_owner FROM content_runs WHERE id=?1",
+                params![run_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let (item_status, item_owner): (String, Option<String>) = conn
+            .query_row(
+                "SELECT provider_status, provider_owner
+                 FROM content_run_items WHERE id=?1",
+                params![item_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(run_status, "completed");
+        assert!(run_owner.is_none());
+        assert_eq!(item_status, "completed");
+        assert!(item_owner.is_none());
+        drop(conn);
+        cleanup_provider_settings_fixture(db, db_path, root);
+    }
+
+    #[test]
+    fn provider_validation_failure_does_not_advance_run_claim_revision() {
+        let (db, db_path, root, run_id, artifact_id, item_id, _) =
+            provider_settings_fixture("validation-revision");
+        let mut invalid = get_ai_settings_for_db(&db).unwrap();
+        invalid.base_url = "https://user:secret@example.invalid".into();
+        overwrite_ai_settings_for_test(&db, &invalid);
+        let error = db
+            .understand_content_artifacts_with_seams(
+                provider_settings_request(&run_id, &artifact_id),
+                None,
+                None,
+            )
+            .expect_err("validation failure must occur before claim");
+        assert_eq!(error.to_string(), "content_provider_configuration_invalid");
+        let conn = db.conn().unwrap();
+        let (revision, provider_revision, owner): (i64, i64, Option<String>) = conn
+            .query_row(
+                "SELECT revision, provider_revision, provider_owner
+                 FROM content_runs WHERE id=?1",
+                params![run_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        let running_items: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM content_run_items
+                 WHERE id=?1 AND provider_status='running'",
+                params![item_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(revision, 1);
+        assert_eq!(provider_revision, 1);
+        assert!(owner.is_none());
+        assert_eq!(running_items, 0);
+        drop(conn);
+        cleanup_provider_settings_fixture(db, db_path, root);
     }
 
     #[test]
