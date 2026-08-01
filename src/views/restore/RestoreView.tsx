@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { History, RotateCcw, ShieldCheck, Trash2 } from "lucide-react";
+import { History, RotateCcw, ShieldCheck, SlidersHorizontal, Trash2 } from "lucide-react";
 import { tauriApi } from "../../api/tauriApi";
 import { useChromeContext } from "../../contexts/AppContexts";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
@@ -86,6 +86,7 @@ export function RestoreView() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ViewFilter>("all");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false);
   const [isPreparing, setIsPreparing] = useState(false);
   const [narrowPane, setNarrowPane] = useState<"list" | "details">("list");
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
@@ -94,6 +95,8 @@ export function RestoreView() {
   const pageScrollRef = useRef<HTMLDivElement | null>(null);
   const historyListRef = useRef<HTMLDivElement | null>(null);
   const cleanupListRef = useRef<HTMLDivElement | null>(null);
+  const moreFiltersTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const moreFiltersRef = useRef<HTMLDivElement | null>(null);
   const cleanupRefreshGeneration = useRef(0);
   const isNarrow = useMediaQuery("(max-width: 1023px)");
 
@@ -242,6 +245,20 @@ export function RestoreView() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [confirmOpen, isNarrow, narrowPane, showCleanup]);
 
+  useEffect(() => {
+    if (!moreFiltersOpen) return;
+    const firstFilter = moreFiltersRef.current?.querySelector<HTMLElement>("button");
+    requestAnimationFrame(() => firstFilter?.focus());
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setMoreFiltersOpen(false);
+      requestAnimationFrame(() => moreFiltersTriggerRef.current?.focus());
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [moreFiltersOpen]);
+
   function returnToList() {
     setNarrowPane("list");
     requestAnimationFrame(() => (showCleanup ? cleanupListRef.current : historyListRef.current)?.focus());
@@ -278,6 +295,7 @@ export function RestoreView() {
 
   function changeFilter(next: ViewFilter) {
     setFilter(next);
+    setMoreFiltersOpen(false);
     setSelectedOperationIds(new Set());
     setSelectedCleanupIds(new Set());
     invalidateRestoreIntent();
@@ -318,9 +336,12 @@ export function RestoreView() {
     invalidateRestoreIntent();
   }
 
-  const filterButtons: Array<{ value: ViewFilter; key: Parameters<typeof t>[0] }> = [
+  const primaryFilterButtons: Array<{ value: ViewFilter; key: Parameters<typeof t>[0] }> = [
     { value: "all", key: "historyFilterAll" },
     { value: "restorable", key: "historyFilterRestorable" },
+    { value: "needsReview", key: "historyFilterNeedsAttention" }
+  ];
+  const moreFilterButtons: Array<{ value: ViewFilter; key: Parameters<typeof t>[0] }> = [
     { value: "restored", key: "historyFilterRestored" },
     { value: "success", key: "historyFilterSuccess" },
     { value: "failed", key: "historyFilterFailed" },
@@ -365,8 +386,16 @@ export function RestoreView() {
               <span className="text-xs text-[var(--muted)] tabular-nums">{showCleanup ? cleanup.length : operationBatches.length}</span>
             </div>
             <HistorySearchField mode={showCleanup ? "cleanup" : "operation"} value={query} onChange={(event) => setQuery(event.currentTarget.value)} placeholder={t("historySearchPlaceholder")} />
-            <div className="flex max-w-full flex-wrap gap-1" role="group" aria-label={t("historyBatches")}>
-              {filterButtons.map(({ value, key }) => <button key={value} type="button" aria-pressed={filter === value} className={cn(buttonGhost, "shrink-0", filter === value && "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] shadow-[inset_0_0_0_1px_var(--zc-control-border)]")} onClick={() => changeFilter(value)}>{t(key)}</button>)}
+            <div className="flex max-w-full flex-wrap items-center gap-1" role="group" aria-label={t("historyBatches")}>
+              {primaryFilterButtons.map(({ value, key }) => <button key={value} type="button" aria-pressed={filter === value} className={cn(buttonGhost, "shrink-0", filter === value && "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)] shadow-[inset_0_0_0_1px_var(--zc-control-border)]")} onClick={() => changeFilter(value)}>{t(key)}</button>)}
+              <div ref={moreFiltersRef} className="relative">
+                <button ref={moreFiltersTriggerRef} type="button" className={cn(buttonGhost, "shrink-0", !primaryFilterButtons.some((item) => item.value === filter) && "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]")} aria-haspopup="dialog" aria-expanded={moreFiltersOpen} aria-controls="history-more-filters" onClick={() => setMoreFiltersOpen((current) => !current)}>
+                  <SlidersHorizontal size={14} aria-hidden="true" />{t("historyMoreFilters")}
+                </button>
+                {moreFiltersOpen ? <div id="history-more-filters" role="dialog" aria-label={t("historyMoreFilters")} className="absolute left-0 top-full z-20 mt-2 grid min-w-52 gap-1 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)]">
+                  {moreFilterButtons.map(({ value, key }) => <button key={value} type="button" aria-pressed={filter === value} className={cn(buttonGhost, "justify-start", filter === value && "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]")} onClick={() => changeFilter(value)}>{t(key)}</button>)}
+                </div> : null}
+              </div>
             </div>
             {!showCleanup && operationBatches.length > 0 && <HistoryBatchList listRef={historyListRef} batches={operationBatches} activeBatchId={activeBatch?.id ?? ""} selectedIds={selectedOperationIds} onActiveBatch={(id) => { setActiveBatchId(id); if (isNarrow) setNarrowPane("details"); }} onToggleBatch={toggleBatch} t={t} />}
             {!showCleanup && operationBatches.length === 0 && <div className={emptyState}>{query ? t("historyNoMatches") : t("historyNoRecords")}</div>}

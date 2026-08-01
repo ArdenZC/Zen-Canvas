@@ -32,7 +32,6 @@ export function TimelineView() {
   const executionIntent = useOperationQueueStore((state) => state.executionIntent);
   const previewScope = useOperationQueueStore((state) => state.previewScope);
   const previewTotal = useOperationQueueStore((state) => state.previewTotal);
-  const previewLimit = useOperationQueueStore((state) => state.previewLimit);
   const previewTruncated = useOperationQueueStore((state) => state.previewTruncated);
   const previewHasMore = useOperationQueueStore((state) => state.previewHasMore);
   const selectedIds = useOperationQueueStore((state) => state.selectedOperationIds);
@@ -46,6 +45,7 @@ export function TimelineView() {
   const isOperationCanceling = useOperationQueueStore((state) => state.isOperationCanceling);
   const cancelOperations = useOperationQueueStore((state) => state.cancelOperations);
   const [confirmExecute, setConfirmExecute] = useState(false);
+  const [showSafetyDetails, setShowSafetyDetails] = useState(false);
   const mutationUnavailable = localFileMutationUnavailableCode();
   const executeButtonRef = useRef<HTMLButtonElement | null>(null);
   const visiblePreviews = previewsForExecutionIntent(displayPreviews, executionIntent);
@@ -82,6 +82,10 @@ export function TimelineView() {
   const createParentSelectionCount = selectedOperations.filter((preview) => preview.will_create_parent).length;
   const lowConfidenceSelectionCount = selectedOperations.filter((preview) => preview.confidence < 0.7).length;
   const warningSelectionCount = selectedOperations.filter(operationNeedsCleanupConfirmation).length;
+  const selectedAttentionCount = selectedOperations.filter((preview) => {
+    const eligibility = resolvePreviewEligibility(preview, executionIntent);
+    return !eligibility.executable || operationNeedsCleanupConfirmation(preview);
+  }).length;
   const resultSummary = summarizeOperationLogs(lastExecutionLogs);
   const resultState = operationResultState(resultSummary, Boolean(executionError));
   const ResultIcon = resultState === "success" ? CheckCircle2 : resultState === "canceled" || resultState === "no-changes" ? CircleSlash2 : TriangleAlert;
@@ -127,15 +131,30 @@ export function TimelineView() {
               {t("previewCleanupTrashSafety")}
             </NoticeBanner>
           )}
-          <dl className={cn(contentSurface, "grid grid-cols-2 divide-x divide-y divide-[var(--zc-divider)] overflow-hidden text-sm sm:grid-cols-3 sm:divide-y-0")}>
-            <PreviewCount label={t("previewTotalSuggestions")} value={coveredTotal} />
-            <PreviewCount label={t("selectedOperations")} value={selectedCount} />
-            <PreviewCount label={t("organizeExecutableSelected")} value={executableSelectedCount} />
-            <PreviewCount label={t("executableItems")} value={executableCount} />
-            <PreviewCount label={t("blockedItems")} value={blockedCount} />
-            <PreviewCount label={t("confirmationItems")} value={confirmationCount} />
-            <PreviewCount label={t("autoCreateFolders")} value={autoCreateParentCount} />
+          <dl className={cn(contentSurface, "grid grid-cols-2 divide-x divide-y divide-[var(--zc-divider)] overflow-hidden text-sm sm:grid-cols-4 sm:divide-y-0")}>
+            <PreviewCount label={t("previewSummarySelected")} value={selectedCount} />
+            <PreviewCount label={t("previewSummaryExecutable")} value={executableSelectedCount} />
+            <PreviewCount label={t("previewSummaryNeedsAttention")} value={selectedAttentionCount} />
+            <PreviewCount label={t("previewSummaryImpact")} value={coveredTotal} />
           </dl>
+          <details className={cn(contentSurface, "group overflow-hidden")} open={showSafetyDetails} onToggle={(event) => setShowSafetyDetails(event.currentTarget.open)}>
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-medium text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)] [&::-webkit-details-marker]:hidden">
+              <span>{t("previewSafetyDetails")}</span>
+              <span aria-hidden="true" className="text-xs text-[var(--zc-text-tertiary)] transition-transform motion-reduce:transition-none group-open:rotate-180">⌄</span>
+            </summary>
+            <div className="grid gap-3 border-t border-[var(--zc-divider)] p-3">
+              <dl className="grid grid-cols-2 divide-x divide-y divide-[var(--zc-divider)] overflow-hidden text-sm sm:grid-cols-3 sm:divide-y-0">
+                <PreviewCount label={t("previewTotalSuggestions")} value={coveredTotal} />
+                <PreviewCount label={t("executableItems")} value={executableCount} />
+                <PreviewCount label={t("blockedItems")} value={blockedCount} />
+                <PreviewCount label={t("confirmationItems")} value={confirmationCount} />
+                <PreviewCount label={t("autoCreateFolders")} value={autoCreateParentCount} />
+                <PreviewCount label={t("previewLowConfidence")} value={lowConfidenceSelectionCount} />
+              </dl>
+              {previewTruncated ? <NoticeBanner tone="warning">{t("previewDetailsTruncated").replace("{shown}", visiblePreviews.length.toLocaleString()).replace("{total}", coveredTotal.toLocaleString())}</NoticeBanner> : null}
+              {autoCreateParentCount > 0 ? <NoticeBanner tone="info">{t("autoCreateFolderHint").replace("{count}", autoCreateParentCount.toLocaleString())}</NoticeBanner> : null}
+            </div>
+          </details>
         </div>
         {executionSelection.excludedCount > 0 ? (
           <NoticeBanner tone="warning" title={t("organizeSelectionExcludedTitle")}>
@@ -148,18 +167,6 @@ export function TimelineView() {
               .replace("{unavailable}", executionSelection.unavailableCount.toLocaleString())}
           </NoticeBanner>
         ) : null}
-        {previewTruncated && (
-          <NoticeBanner tone="warning">
-            {t("previewTruncatedWarning")
-              .replace("{limit}", previewLimit.toLocaleString())
-              .replace("{total}", coveredTotal.toLocaleString())}
-          </NoticeBanner>
-        )}
-        {autoCreateParentCount > 0 && (
-          <NoticeBanner tone="info">
-            {t("autoCreateFolderHint").replace("{count}", autoCreateParentCount.toLocaleString())}
-          </NoticeBanner>
-        )}
         {executeProgress && (
           <OperationProgressPanel
             progress={executeProgress}

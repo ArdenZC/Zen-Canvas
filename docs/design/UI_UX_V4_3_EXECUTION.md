@@ -1481,6 +1481,76 @@ PR7 must align Preview, History, and Restore surfaces with the durable execution
 
 The cleanup page's native quick-scope and folder-picker controls depend on Tauri path/dialog APIs and were not exercised in the browser-mock preview. Reviewers should validate those controls in the native desktop shell and verify that the compatibility cleanup store is not reintroduced as a visible authority while later Overview and recovery migrations land.
 
+## 5H. PR7 closeout — Preview, History, and Restore clarity
+
+### Current baseline
+
+PR7 starts from committed PR6 `65165ca` on `codex/ui-v4-3-product-integration`. The implementation preserves the existing server-authoritative Operation Preview, per-file eligibility checks, execution journal, operation-log restore intent, cleanup ledger, Safe Trash restore preview, and fail-closed revalidation.
+
+### Authority migrated
+
+Preview remains a projection of the Operation Preview and execution-intent authorities exposed by the operation queue adapter. History remains a projection of operation logs and the cleanup ledger; restore confirmation still goes through the store's revision-bound operation/cleanup restore intent and backend re-preview. No renderer-only execution or restore authority was added.
+
+### Legacy path retired
+
+- The Preview summary no longer presents a seven-value dashboard. It shows four decision-level values and keeps blocked, confirmation, parent-folder, low-confidence, and truncation details in a disclosure.
+- History no longer presents every filter as a permanent toolbar. All, Restorable, and Needs attention remain primary; additional operation/restore and Cleanup Trash filters live in a keyboard-dismissible Popover.
+- Technical IDs were removed from the normal History search placeholder; operation source, restore destination, and recovery limitations use task-language copy.
+- Existing operation-queue and restore stores remain compatibility/adaptor layers over backend Operation Preview, Journal, and restore APIs. No second executor, queue, journal, or restore ledger was introduced.
+
+### Product changes
+
+- Preview keeps source-aware return paths, explicit confirmation, progress replacement, cancellation, and result/recovery entry points while making the primary summary compact.
+- Preview safety details are a native disclosure and clearly state when the visible preview is truncated; the renderer does not claim that loaded detail counts are complete totals.
+- History event rows now show operation source alongside outcome and restore state. The inspector labels the original location as the restore destination and explains that Zen Canvas will not invent a new destination when the original location is unavailable.
+- Restore remains fail-closed: the user can review conflicts, missing sources, failed/manual-review states, and partial results; only the authoritative executable intersection is submitted.
+- Added all new Chinese and English task-language copy to shared i18n; no component-local copy dictionary was introduced.
+
+### Files changed
+
+- `src/views/timeline/TimelineView.tsx`
+- `src/views/history/HistoryBatchList.tsx`
+- `src/views/history/HistoryInspector.tsx`
+- `src/views/restore/RestoreView.tsx`
+- `src/i18n.ts`
+- `tests/timelinePreview.test.ts`
+- `tests/historyUi.test.ts`
+- `docs/design/UI_UX_V4_3_EXECUTION.md`
+
+### Focused tests
+
+- `npm run typecheck` — passed.
+- `npm test -- tests/timelinePreview.test.ts tests/historyUi.test.ts tests/historyRestoreModel.test.ts tests/restoreTrash.test.ts tests/cleanupRestoreIntent.test.ts tests/restoreStoreBehavior.test.ts tests/operationLogs.test.ts` — 7 files passed, 23 tests passed.
+- `git diff --check` — pending until the stage is staged and committed.
+
+### Full gates
+
+Not run for PR7. Full frontend, Rust quality, remediation, security, performance, packaging, and Windows/macOS release checks remain required for PR11.
+
+### Visual verification
+
+The local Vite/browser-mock preview rendered seeded Chinese History at 1280×720, including operation batches, source/state text, restore destination/current path details, and the additional-filter Popover. Preview was entered through the shell command shortcut and rendered the four-value summary plus safety disclosure at 1280×720. At 980×680, Preview, History list/detail navigation, Cleanup Trash filtering, and the narrow History layout were inspected; every measured state reported `scrollWidth=clientWidth` and no console warning/error entries. Escape returned the narrow History detail to its list.
+
+The browser mock does not exercise native filesystem execution, cancellation races, restore filesystem identity checks, or actual conflict resolution. Dark theme, English copy, 1440/1180/1024 viewports, high contrast, screen-reader announcements, Windows DPI, macOS Retina, and native Tauri behavior remain unverified.
+
+### Acceptance criteria
+
+- Preview's dominant summary has at most four values: selected, executable, needs attention, and impact items.
+- Safety and pagination details are disclosed, while execution remains per-file validated and server-authoritative.
+- History defaults to All, Restorable, and Needs attention; additional filters are available without permanently dominating the toolbar.
+- History rows show user outcome, time, item count, operation source, and restore availability/state.
+- Restore explains the target location and does not invent a new destination or bypass conflict/manual-review boundaries.
+- Progress replaces the primary execution action, cancellation and result states remain visible, and History/Restore recovery entry points remain reachable.
+- New user-facing copy uses shared Chinese/English i18n keys.
+
+### Deferred or unverified
+
+PR8 must simplify Automation and Rule Proposal flows. PR9 must extract the Content Understanding workspace. PR10 must integrate Settings and Overview system health. PR11 must complete the full visual matrix, native/platform checks, screen-reader and high-contrast verification, full CI evidence, and release gates.
+
+### Risks requiring human review
+
+The browser preview confirms projection and interaction structure but cannot prove native Operation Preview/Journal or restore identity behavior. Reviewers should validate the native execution and recovery paths with representative conflict, missing-source, partial, canceled, and Safe Trash cases before release.
+
 ---
 
 ## 6. Codex continuous-execution rule

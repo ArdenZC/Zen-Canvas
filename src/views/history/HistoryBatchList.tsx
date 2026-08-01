@@ -26,6 +26,15 @@ function restoreStateLabel(batch: OperationHistoryBatch, t: Translator) {
   return t("historyStatusUnavailable");
 }
 
+function operationSourceLabel(log: OperationLog | undefined, t: Translator) {
+  if (!log) return t("historyOperationSourceUnknown");
+  if (log.operation_type === "move") return t("operationMove");
+  if (log.operation_type === "rename") return t("operationRename");
+  if (log.operation_type === "move_rename") return t("operationMoveRename");
+  if (log.operation_type === "move_to_trash") return t("operationMoveToTrash");
+  return t("historyOperationSourceUnknown");
+}
+
 function BatchStateIcon({ state }: { state: OperationHistoryBatch["state"] }) {
   if (state === "restored") return <Check size={15} aria-hidden="true" />;
   if (state === "partially_restored" || state === "partial" || state === "restore_failed" || state === "restore_canceled") return <AlertCircle size={15} aria-hidden="true" />;
@@ -144,7 +153,7 @@ export function HistoryBatchList({
                 {first ? compactPath(formatDisplayPath(first.path_after || first.target_path), 88) : t("historyBatch")}
               </span>
               <span className="mt-1 block text-xs text-[var(--muted)]">
-                {formatCount(t, batch.total, { zero: "historyBatchItemsZero", one: "historyBatchItemsOne", other: "historyBatchItemsOther" })} · {executionStateLabel(batch, t)} · {restoreStateLabel(batch, t)} · {batch.restorable} {t("restorable")}
+                {formatCount(t, batch.total, { zero: "historyBatchItemsZero", one: "historyBatchItemsOne", other: "historyBatchItemsOther" })} · {operationSourceLabel(first, t)} · {executionStateLabel(batch, t)} · {restoreStateLabel(batch, t)} · {batch.restorable} {t("restorable")}
               </span>
               {(batch.failed > 0 || batch.skipped > 0) && <span className="mt-1 block text-[11px] tabular-nums text-[var(--muted)]">{t("historyStatusFailed")}: {batch.failed} · {t("historyStatusSkipped")}: {batch.skipped}</span>}
             </div>
