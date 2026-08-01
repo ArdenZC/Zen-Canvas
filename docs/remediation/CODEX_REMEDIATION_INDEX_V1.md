@@ -24,7 +24,7 @@
 | 05 | `TASK_05_FILE_LIBRARY_QUERY_TAGS_SAVED_VIEWS.md` | 模块 5：文件库；TagSpaces 对标 | 已合并，schema 31 |
 | 06 | `TASK_06_DURABLE_ORGANIZATION_PLAN_AND_DRY_RUN.md` | 模块 6：AI 整理预览；ai-file-sorter 对标 | 已合并，schema 32 |
 | 07 | `TASK_07_NATURAL_LANGUAGE_RULE_PROPOSAL_AND_APPROVAL.md` | 模块 7：自然语言规则；Coworker + OpenCode 对标 | 已合并，schema 33；六项遗留转入 Task 08 |
-| 08 | `TASK_08_LOCAL_CONTENT_ARTIFACTS_AND_UNDERSTANDING.md` | 模块 8：本地内容理解；Local-File-Organizer 对标 | **Draft PR #44；实现提交 `8ab143e`；等待人工代码级验收，schema 34** |
+| 08 | `TASK_08_LOCAL_CONTENT_ARTIFACTS_AND_UNDERSTANDING.md` | 模块 8：本地内容理解；Local-File-Organizer 对标 | **Draft PR #44；剩余 PDF/provider review gap 已修订（代码提交 `5f81ce7`）；等待 final-head CI 与第三轮人工验收，schema 34** |
 
 不得创建 debt-cleanup、07.5、08A/08B/08C、OCR-only 或并行产品阶段。上一阶段接受遗留必须作为下一完整模块第一组关闭，然后连续完成该模块。
 
@@ -254,3 +254,10 @@ Task 08 完成时必须：
 15. 明确依赖/lockfile变化；
 16. 停止等待人工代码级验收；
 17. 不自动合并、不发布、不创建 Task 09。
+
+## 9. Task 08 第二轮 review 收尾记录
+
+- PDF extractor 已切换为纯 Rust cooperative bounded parser：object/decompressed/page/output/time/cancel 限制在解析过程中执行，恶意压缩 PDF、timeout/cancel 和真实 text-layer PDF fixture 均有行为回归；不引入 Python、LibreOffice runtime、Tesseract、sidecar 或外部 executable。
+- Provider understanding 使用既有 interactive provider 的 run/item owner、revision 与 `BEGIN IMMEDIATE` publication transaction；artifact、FTS、item completion 同事务，artifact CAS 冲突终止 item，completed item no-replay，恢复和 cancel 不留下 running owner。
+- provider send 绑定 run 的 library/root/policy/source revision，并在最后边界复核真实文件 size/mtime/hash；mutation-after-extraction 测试证明 provider request count 为零。
+- Content Search stale cursor、multi-root purge、delete/purge rollback、provider crash windows 和 UI Remount refresh 均由行为测试覆盖。最终 SHA/CI URL 必须只写入 `TASK_08_IMPLEMENTATION_CLOSEOUT.md` 和 PR #44，不得用旧 HEAD 代替。
