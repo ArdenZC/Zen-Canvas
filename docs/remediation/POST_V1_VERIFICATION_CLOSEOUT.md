@@ -7,8 +7,10 @@
 - 仓库：`ArdenZC/Zen-Canvas`；
 - 实际 master 基线：`11a3d615b84a76cfa4bc964fd906871836dd3fe8`，包含 Task 08 最终治理合并；
 - 维护分支：`fix/post-v1-verification-gaps`；
-- 代码修复提交：`912058b`（完整 SHA 以 PR 最终 tip 为准）；
-- 单一 Draft PR：`fix: close post-v1 verification gaps`；
+- 代码修复提交：`912058bb97ac2d292ab4b5f623d627d64739fa61`；
+- 测试/文档提交：`d4cb298df9d172a56cec954919f4160a0fb020c7`、`481877c40fd57aa5c680c6e0e5533eb27bc5e564`；
+- 单一 Draft PR：[#46](https://github.com/ArdenZC/Zen-Canvas/pull/46)，`fix: close post-v1 verification gaps`；
+- 最终实现（代码与测试）HEAD：`481877c40fd57aa5c680c6e0e5533eb27bc5e564`；closeout 证据提交后的 PR tip 以 PR #46 页面为最终权威；
 - schema 仍为 34；`files.id`、operation/cleanup journal、Managed AI schema/provider 均未修改；
 - `Cargo.lock`、`package-lock.json` 和依赖声明未发生非必要变化；没有新增依赖或外部 runtime。
 
@@ -31,7 +33,15 @@
 
 ## 验证记录
 
-本地已执行聚焦 Rust search/no-source tests、frontend Vitest（含真实 IME mount、Watcher、CI、command permission）和 `npm run typecheck`。完整 `npm test`、`npm run build`、Rust full/clippy/release、remediation、security、Windows/macOS 与 installer/package 检查由本 PR GitHub Actions 提供；最终 run URL、结果和最终 branch HEAD 在 PR checks 完成后补录到本文件与最终报告。
+本地验证记录：
+
+- `npm ci` 成功（134 packages，npm audit 0 vulnerabilities）；`npm test` 成功（81 files、540 tests）；`npm run typecheck`、`npm run build` 成功，build 生成 NSIS installer；
+- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`、Rust full tests（573 passed、9 ignored）、`cargo clippy --features desktop-runtime --all-targets -- -D warnings`、release check、`npm run test:remediation` 全部成功；
+- `npm run security:audit` 与 `cargo audit --file src-tauri/Cargo.lock` 成功；RustSec 仅报告现有已允许的 unmaintained/unsound warning，没有新增阻断 advisory；
+- full `npm run test:performance` 成功（exit 0，约 497.7 s）；Global Search 100k p95 `70.210 ms`（<100 ms），1M 重复运行 p95 `0.929 ms`、`1.591 ms`，没有降低产品阈值；
+- `npm run test:docs` 成功，文档变更 1 个 Markdown 文件通过 contract。
+
+PR #46 的完整 GitHub Actions run [`30695926891`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30695926891) 已成功：change-scope、frontend/format、Windows/macOS Rust quality、Windows/macOS release compile、NSIS、unsigned DMG、dependency audit、Performance profile 和两端 aggregate quality 均为 success。该 run 验证的实现 HEAD 为 `481877c40fd57aa5c680c6e0e5533eb27bc5e564`；closeout 证据提交后的最终 PR tip 与最后一轮 checks 以 PR 页面为准，并在最终报告中列出。
 
 ## 已知剩余问题
 
