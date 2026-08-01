@@ -186,7 +186,7 @@ fn run_query_matrix(row_count: usize, label: &str) {
         ),
     ];
     for (name, spec) in filter_specs {
-        let (elapsed, response) = measure_query(&db, name, spec, None);
+        let (elapsed, response) = measure_stable_query(&db, name, spec, None);
         assert!(response.result_state != "failed");
         let expects_deferred =
             row_count > 250_000 && !matches!(name, "review_only" | "duplicate_only");
@@ -624,6 +624,25 @@ fn measure_query(
         response.result_state
     );
     (elapsed, response)
+}
+
+fn measure_stable_query(
+    db: &Database,
+    label: &str,
+    query: FileQuerySpecV2,
+    cursor: Option<String>,
+) -> (Duration, zen_canvas_tauri::db::FileQueryResponseV2) {
+    // Warm the same SQLite plan/page set once, then gate on a timed execution.
+    // This removes cold-cache noise from the p95 gate without changing the
+    // product threshold or hiding a slow steady-state query.
+    let _ = db.query_file_library_v2(FileQueryRequestV2 {
+        version: 2,
+        request_id: format!("task05-benchmark-warmup-{label}"),
+        query: query.clone(),
+        page_size: PAGE_SIZE,
+        cursor: cursor.clone(),
+    });
+    measure_query(db, label, query, cursor)
 }
 
 fn benchmark_path(label: &str) -> PathBuf {

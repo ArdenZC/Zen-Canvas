@@ -29,8 +29,8 @@ desktop-runtime = [
 blake3 = "1"
 csv = "1.4"
 dirs = "5"
+flate2 = "1"
 jwalk = "0.8.1"
-pdf-extract = "0.12"
 notify = "8"
 r2d2 = "0.8"
 r2d2_sqlite = { version = "0.34.0", features = ["bundled"] }

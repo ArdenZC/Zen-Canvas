@@ -1712,7 +1712,7 @@ fn build_library_count_query(
         }
         if !none_tags.is_empty() {
             tag_conditions.push(format!(
-                "NOT EXISTS (SELECT 1 FROM file_user_tags AS tf_none_count WHERE tf_none_count.file_id = f.id AND tf_none_count.tag_id IN ({none_placeholders}))"
+                "f.id NOT IN (SELECT tf_none_count.file_id FROM file_user_tags AS tf_none_count INDEXED BY idx_file_user_tags_tag_file WHERE tf_none_count.tag_id IN ({none_placeholders}))"
             ));
         }
         let sql = format!(
@@ -1850,7 +1850,7 @@ fn append_tag_filter(
         }
         "none" => {
             conditions.push(format!(
-                "NOT EXISTS (SELECT 1 FROM file_user_tags AS tf_none \
+                "NOT EXISTS (SELECT 1 FROM file_user_tags AS tf_none INDEXED BY idx_file_user_tags_tag_file \
                  WHERE tf_none.file_id = f.id AND tf_none.tag_id IN ({}))",
                 std::iter::repeat_n("?", ids.len())
                     .collect::<Vec<_>>()

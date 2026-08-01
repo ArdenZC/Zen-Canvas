@@ -172,25 +172,23 @@ function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSugge
   }, [detail.scanRootId]);
   useEffect(() => {
     if (!contentRun) return;
-    let active = true;
-    const refresh = async () => {
-      try {
-        const [run, page] = await Promise.all([
-          tauriApi.getContentRun(contentRun.id),
-          tauriApi.queryContentRunItems(contentRun.id, 100)
-        ]);
-        if (active) {
-          setContentRun(run);
-          setContentRunItems(page.items);
-        }
-      } catch (error) {
-        if (active) setContentMessage(String(error));
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 2000);
-    return () => { active = false; window.clearInterval(timer); };
+    void refreshContentRun(contentRun.id);
+    const timer = window.setInterval(() => void refreshContentRun(contentRun.id), 2000);
+    return () => { window.clearInterval(timer); };
   }, [contentRun?.id]);
+  async function refreshContentRun(runId = contentRun?.id) {
+    if (!runId) return;
+    try {
+      const [run, page] = await Promise.all([
+        tauriApi.getContentRun(runId),
+        tauriApi.queryContentRunItems(runId, 100)
+      ]);
+      setContentRun(run);
+      setContentRunItems(page.items);
+    } catch (error) {
+      setContentMessage(String(error));
+    }
+  }
   async function contentRequest(mode: ContentPreviewRequest["mode"] = "local", providerMode: ContentPreviewRequest["providerMode"] = "none") {
     if (!contentScope || !detail.scanRootId) return null;
     const policy = contentPolicy ?? await tauriApi.getContentScopePolicy(detail.scanRootId);
@@ -333,7 +331,7 @@ function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSugge
           <div className="flex items-center justify-between gap-2"><strong>{language === "zh" ? "任务进度" : "Run progress"}</strong><span>{contentRun.status}</span></div>
           <p>{contentRun.completedCount}/{contentRun.requestedCount} · {language === "zh" ? "阻断" : "blocked"} {contentRun.blockedCount} · {language === "zh" ? "失败" : "failed"} {contentRun.failedCount}</p>
           <p className="text-[var(--zc-text-tertiary)]">{language === "zh" ? "项目状态" : "Item states"}: {contentRunItems.filter((item) => item.status === "completed").length} completed / {contentRunItems.filter((item) => item.providerStatus === "completed").length} provider completed</p>
-          <div className="flex flex-wrap gap-2"><button type="button" className={buttonSecondary} disabled={contentBusy} onClick={() => requestContentConfirmation(language === "zh" ? "确认取消任务？" : "Cancel this run?", cancelContentRun)}>{language === "zh" ? "取消任务" : "Cancel run"}</button><button type="button" className={buttonSecondary} disabled={contentBusy} onClick={() => setContentRun({ ...contentRun })}>{language === "zh" ? "重新挂载/刷新" : "Remount / refresh"}</button></div>
+          <div className="flex flex-wrap gap-2"><button type="button" className={buttonSecondary} disabled={contentBusy} onClick={() => requestContentConfirmation(language === "zh" ? "确认取消任务？" : "Cancel this run?", cancelContentRun)}>{language === "zh" ? "取消任务" : "Cancel run"}</button><button type="button" className={buttonSecondary} disabled={contentBusy} onClick={() => void refreshContentRun()}>{language === "zh" ? "重新挂载/刷新" : "Remount / refresh"}</button></div>
         </section> : null}
         {recentContentRuns.length ? <p className="text-xs text-[var(--zc-text-tertiary)]">{language === "zh" ? `最近任务：${recentContentRuns.length} 个（崩溃恢复状态会保留在列表中）。` : `${recentContentRuns.length} recent durable runs (interrupted/recovery states remain visible).`}</p> : null}
         <ContentSearchPanel scope={contentScope} expectedLibraryRevision={detail.revision} language={language} />
