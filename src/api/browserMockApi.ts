@@ -44,6 +44,7 @@ import type {
   GlobalSearchRequest,
   GlobalSearchResponse,
   GlobalSearchResult,
+  GlobalSearchSourceHealth,
   LibrarySavedView,
   LibrarySelectionV1,
   LibraryScope,
@@ -2200,34 +2201,66 @@ function mockActivateSearchResult(request?: Record<string, unknown>) {
 }
 
 function searchMockGlobalEntries(request?: GlobalSearchRequest): GlobalSearchResponse {
+  return mockGlobalSearchResponseForTests(request);
+}
+
+/**
+ * Keeps the browser preview on the same wire contract as the native global
+ * search command. The optional arguments are intentionally exported for
+ * behavior tests that need to exercise source-health states without mutating
+ * the shared preview fixture.
+ */
+export function mockGlobalSearchResponseForTests(
+  request?: GlobalSearchRequest,
+  sourceHealth: GlobalSearchSourceHealth[] = defaultMockGlobalSourceHealth(),
+  entries: GlobalSearchResult[] = mockGlobalEntries
+): GlobalSearchResponse {
   const query = request?.query ?? "";
   const limit = request?.limit ?? 80;
   const offset = request?.cursor ? Number(request.cursor) : (request?.offset ?? 0);
   const normalized = query.trim().toLowerCase();
-  const results = normalized
-    ? mockGlobalEntries
+  const hasEnabledSources = sourceHealth.some((source) => source.enabled);
+  const results = normalized && hasEnabledSources
+    ? entries
     .filter((entry) => `${entry.name} ${entry.path} ${entry.extension}`.toLowerCase().includes(normalized))
     .slice(offset, offset + limit)
     : [];
-  const indexStatus = mockGlobalIndexStatus();
+  const indexStatus = hasEnabledSources
+    ? mockGlobalIndexStatus()
+    : {
+      ...mockGlobalIndexStatus(),
+      enabled: false,
+      status: "unavailable",
+      collectionComplete: false,
+      indexedVolumes: 0,
+      readyVolumes: 0,
+      pendingVolumes: 0,
+      processedEntries: 0,
+      totalEntries: 0,
+      lastSyncAt: null
+    };
   return {
     version: 2,
     requestId: request?.requestId ?? "browser-request",
     normalizedQuery: query.trim(),
     results,
     indexStatus,
-    collectionComplete: true,
-    resultState: results.length ? "complete" : "empty",
-    sourceRevision: "browser-source-revision-1",
-    sourceHealth: [{
-      sourceId: "mock-volume",
-      enabled: true,
-      provider: "recursive_fallback",
-      status: "ready",
-      lastError: null,
-      updatedAt: Date.parse(now) / 1000
-    }]
+    collectionComplete: hasEnabledSources && indexStatus.collectionComplete,
+    resultState: results.length ? "complete" : hasEnabledSources ? "empty" : "no_source",
+    sourceRevision: `browser-source-revision-${hasEnabledSources ? "1" : "0"}`,
+    sourceHealth
   };
+}
+
+function defaultMockGlobalSourceHealth(): GlobalSearchSourceHealth[] {
+  return [{
+    sourceId: "mock-volume",
+    enabled: true,
+    provider: "recursive_fallback",
+    status: "ready",
+    lastError: null,
+    updatedAt: Date.parse(now) / 1000
+  }];
 }
 
 function nextMockSearchWindowState(phase: SearchWindowSnapshot["phase"]): SearchWindowSnapshot {

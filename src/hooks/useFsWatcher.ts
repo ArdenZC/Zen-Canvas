@@ -227,18 +227,18 @@ export function useFsWatcher({
   }, [enabled, onError, onRefreshData]);
 }
 
-function watcherPartialIndexWarningMessage() {
+export function watcherPartialIndexWarningMessage() {
   return makeTranslator(useAppStore.getState().language)("fsWatcherPartialIndexWarning");
 }
 
-function watcherRetryExhaustedMessage() {
+export function watcherRetryExhaustedMessage() {
   return makeTranslator(useAppStore.getState().language)("watcherRetryExhausted");
 }
 
-function watcherReconciliationMessage() {
-  return makeTranslator(useAppStore.getState().language)("watcherRetryExhausted");
+export function watcherReconciliationMessage() {
+  return makeTranslator(useAppStore.getState().language)("watcherReconciliationRequired");
 }
 
-function watcherPermissionMessage() {
+export function watcherPermissionMessage() {
   return makeTranslator(useAppStore.getState().language)("libraryPermissionDesc");
 }

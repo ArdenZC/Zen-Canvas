@@ -1144,7 +1144,7 @@ export interface GlobalSearchSourceHealth {
   updatedAt: number;
 }
 
-export type GlobalSearchResultState = "pending" | "complete" | "partial" | "empty" | "failed";
+export type GlobalSearchResultState = "pending" | "complete" | "partial" | "empty" | "failed" | "no_source";
 
 export interface GlobalSearchResponse {
   version: 2;

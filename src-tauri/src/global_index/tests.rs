@@ -327,6 +327,179 @@ fn global_search_ranking_is_exact_then_prefix_then_extension_with_stable_id_ties
 }
 
 #[test]
+fn extension_tiers_order_by_durable_id_across_reinsertion_and_pages() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+
+    let mut exact_low = test_entry(r"C:\Global\exact-low.bin", "exact-low.bin", false);
+    exact_low.platform_file_id = "extension-exact-low".to_string();
+    exact_low.extension = "same".to_string();
+    exact_low.modified_at_fs = Some(10);
+    let mut exact_high = test_entry(r"C:\Global\exact-high.bin", "exact-high.bin", false);
+    exact_high.platform_file_id = "extension-exact-high".to_string();
+    exact_high.extension = "same".to_string();
+    exact_high.modified_at_fs = Some(10);
+    let mut prefix_low = test_entry(
+        r"C:\Global\prefix-low.same-long",
+        "prefix-low.same-long",
+        false,
+    );
+    prefix_low.platform_file_id = "extension-prefix-low".to_string();
+    prefix_low.extension = "same-long".to_string();
+    prefix_low.modified_at_fs = Some(10);
+    let mut prefix_high = test_entry(
+        r"C:\Global\prefix-high.same-wide",
+        "prefix-high.same-wide",
+        false,
+    );
+    prefix_high.platform_file_id = "extension-prefix-high".to_string();
+    prefix_high.extension = "same-wide".to_string();
+    prefix_high.modified_at_fs = Some(10);
+
+    let mut expected_exact = vec![exact_low.entry_id(), exact_high.entry_id()];
+    expected_exact.sort();
+    let mut expected_prefix = vec![prefix_low.entry_id(), prefix_high.entry_id()];
+    expected_prefix.sort();
+    db.upsert_global_entries_batch(&[
+        prefix_high.clone(),
+        exact_high.clone(),
+        prefix_low.clone(),
+        exact_low.clone(),
+    ])
+    .expect("insert reverse-order extension entries");
+
+    let full = db
+        .search_global_entries("same", 20, 0)
+        .expect("search exact and prefix extension tiers");
+    let ids = full
+        .iter()
+        .map(|entry| entry.id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(&ids[..2], expected_exact.as_slice());
+    assert_eq!(&ids[2..], expected_prefix.as_slice());
+    assert_eq!(
+        db.search_global_entries("same", 20, 0)
+            .expect("repeat extension search")
+            .into_iter()
+            .map(|entry| entry.id)
+            .collect::<Vec<_>>(),
+        ids
+    );
+
+    let paged = db
+        .search_global_entries("same", 1, 1)
+        .expect("page extension search");
+    assert_eq!(paged[0].id, ids[1]);
+
+    {
+        let conn = db.conn().expect("open direct test connection");
+        conn.execute(
+            "DELETE FROM global_entries WHERE id = ?1",
+            rusqlite::params![ids[0]],
+        )
+        .expect("delete durable entry");
+    }
+    let removed = if ids[0] == exact_low.entry_id() {
+        exact_low.clone()
+    } else {
+        exact_high.clone()
+    };
+    db.upsert_global_entries_batch(std::slice::from_ref(&removed))
+        .expect("reinsert durable entry");
+    let after_reinsert = db
+        .search_global_entries("same", 20, 0)
+        .expect("search after reinsert");
+    assert_eq!(
+        after_reinsert
+            .iter()
+            .map(|entry| entry.id.clone())
+            .collect::<Vec<_>>(),
+        ids,
+        "reinserted rows retain durable-ID ordering"
+    );
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn punctuation_search_preserves_literal_prefix_semantics_and_glob_escaping() {
+    let path = test_db_path();
+    let db = Database::open(&path).expect("open test database");
+    db.upsert_global_volume(&test_volume())
+        .expect("insert global volume");
+    let names = [
+        ".gitignore",
+        ".gitignore.local",
+        "gitignore",
+        "C++",
+        "C++-guide",
+        "C",
+        "report!",
+        "report-final",
+        "[name]",
+        "[name]-backup",
+        "file*",
+        "file-star",
+        "what?",
+        "what-question",
+        "ordinary-report",
+    ];
+    let entries = names
+        .iter()
+        .enumerate()
+        .map(|(index, name)| {
+            let mut entry = test_entry(&format!(r"C:\Global\{name}"), name, false);
+            entry.platform_file_id = format!("punctuation-{index}");
+            entry.modified_at_fs = Some(10);
+            entry
+        })
+        .collect::<Vec<_>>();
+    db.upsert_global_entries_batch(&entries)
+        .expect("insert punctuation entries");
+
+    for (query, expected) in [
+        (".gitignore", [".gitignore", ".gitignore.local"].as_slice()),
+        ("C++", ["C++", "C++-guide"].as_slice()),
+        ("report!", ["report!"].as_slice()),
+        ("[name]", ["[name]", "[name]-backup"].as_slice()),
+        ("file*", ["file*"].as_slice()),
+        ("what?", ["what?"].as_slice()),
+    ] {
+        let results = db
+            .search_global_entries(query, 20, 0)
+            .expect("literal punctuation search");
+        let names = results
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, expected, "query {query:?} must remain literal");
+        assert_eq!(
+            db.search_global_entries(query, 20, 0)
+                .expect("repeat literal punctuation search")
+                .into_iter()
+                .map(|entry| entry.id)
+                .collect::<Vec<_>>(),
+            results
+                .into_iter()
+                .map(|entry| entry.id)
+                .collect::<Vec<_>>()
+        );
+    }
+    assert!(
+        db.search_global_entries("!!!", 20, 0)
+            .expect("punctuation-only search")
+            .is_empty(),
+        "punctuation-only queries must not widen to the full index"
+    );
+
+    drop(db);
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn global_search_fts_layer_fills_remaining_page_and_offset_is_stable() {
     let path = test_db_path();
     let db = Database::open(&path).expect("open test database");
