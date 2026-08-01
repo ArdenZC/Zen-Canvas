@@ -27,7 +27,7 @@ All commands below were run from `F:\Coding\Zen-Canvas`.
 | `npm.cmd run typecheck` | Passed. |
 | `npm.cmd test` | Passed: 89 files, 563 tests. The final run includes the mounted independent-review behavior tests and the refreshed Organize static contract. |
 | `npm.cmd run test:remediation` | Passed: 1 file, 13 tests. |
-| `npm.cmd run test:performance` | Passed in 521.9s. Architecture guard, bounded library tests, SQLite/FTS, Global Search 100k, managed scan 100k, migration, Analysis, Dedupe, File Library 100k/1M, Organization Plan, and Rule Proposal performance profiles completed. |
+| `npm.cmd run test:performance` | Passed in 473.6s from final remediation HEAD. Architecture guard, bounded library tests, SQLite/FTS, Global Search 100k, managed scan 100k, migration, Analysis, Dedupe, File Library 100k/1M, Organization Plan, and Rule Proposal performance profiles completed. |
 | `npm.cmd run build` | Passed. Vite, Windows release compile, and NSIS installer generation completed. Installer: `F:\CargoTarget\release\bundle\nsis\Zen Canvas_0.1.40_x64-setup.exe`. |
 | `npm.cmd run verify:rust` | Passed on the final retry: Rust format, 585 library test cases (576 passed, 9 ignored), integration/doc tests, and Clippy with `-D warnings`. Earlier parallel runs exposed only existing timing-sensitive test failures; each was green in exact single-threaded reruns and the final full run. |
 | `npm.cmd run verify:security` | Passed. npm audit found 0 vulnerabilities. `cargo audit` reported 15 existing allowed unmaintained/unsound warnings and no failing vulnerability result. |
