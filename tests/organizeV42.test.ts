@@ -175,7 +175,7 @@ describe("Organize Suggestions v4.2 hardening", () => {
       expect(zh(key)).not.toBe(key);
       expect(en(key)).not.toBe(key);
     }
-    expect(view).toContain("organizeGroupReasonLowConfidence");
+    expect(view).toContain("organizeReviewReasonLowConfidence");
     expect(view).toContain("organizeGroupReasonBlocked");
     expect(view).not.toContain("Plans are durable review artifacts");
     expect(view).not.toContain("No delete or trash operation is permitted");

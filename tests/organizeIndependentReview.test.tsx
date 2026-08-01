@@ -1,0 +1,272 @@
+// @vitest-environment happy-dom
+
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ChromeProvider, type ChromeContextValue } from "../src/contexts/AppContexts";
+import { makeTranslator } from "../src/i18n";
+import { useFileLibraryQueryStore, useFileLibraryResultStore, useFileLibrarySelectionStore } from "../src/store/useFileLibraryV2Store";
+import { useOrganizationPlanStore } from "../src/store/useOrganizationPlanStore";
+import type { OrganizationPlan, OrganizationPlanGroupSummary, OrganizationPlanItem } from "../src/types/domain";
+import { OrganizeSuggestionsView } from "../src/views/organize/OrganizeSuggestionsView";
+
+const apiMocks = vi.hoisted(() => ({
+  queryOrganizationPlanGroupItems: vi.fn(),
+  queryOrganizationPlanGroups: vi.fn(),
+  updateOrganizationPlanGroupDecision: vi.fn(),
+  updateOrganizationPlanDecisions: vi.fn()
+}));
+
+vi.mock("../src/api/tauriApi", () => ({
+  tauriApi: {
+    queryOrganizationPlanGroupItems: apiMocks.queryOrganizationPlanGroupItems,
+    queryOrganizationPlanGroups: apiMocks.queryOrganizationPlanGroups,
+    updateOrganizationPlanGroupDecision: apiMocks.updateOrganizationPlanGroupDecision,
+    updateOrganizationPlanDecisions: apiMocks.updateOrganizationPlanDecisions
+  }
+}));
+
+const t = makeTranslator("zh");
+const chrome = { t, setView: vi.fn(), language: "zh", view: "organize" } as unknown as ChromeContextValue;
+let root: Root;
+let container: HTMLDivElement;
+const nativeGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+const nativeClientHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
+const nativeOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+const nativeOffsetWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+
+const plan: OrganizationPlan = {
+  id: "plan-review",
+  title: "Review plan",
+  status: "ready",
+  sourceKind: "explicit",
+  sourceQueryFingerprint: null,
+  sourceSnapshotRevision: 4,
+  requestedCount: 1,
+  materializedCount: 1,
+  plannerVersion: 1,
+  revision: 5,
+  activeExecutionId: null,
+  activeOperationBatchId: null,
+  lastErrorCode: null,
+  lastErrorDetail: null,
+  createdAt: 1,
+  updatedAt: 1,
+  readyAt: 1,
+  completedAt: null,
+  summary: { undecided: 1, accepted: 0, kept: 0, edited: 0, needsAnalysis: 0, needsReview: 1, ready: 0, blocked: 0, stale: 0, executing: 0, executed: 0, failed: 0, skipped: 0, remainingExecutable: 0 }
+};
+
+const reviewItem: OrganizationPlanItem = {
+  id: "item-review",
+  planId: plan.id,
+  ordinal: 0,
+  fileIdSnapshot: "file-review",
+  sourcePathSnapshot: "C:/Inbox/report.txt",
+  sourceNameSnapshot: "report.txt",
+  sourceSizeSnapshot: 120,
+  sourceMtimeSnapshot: 1,
+  sourceIsDirSnapshot: false,
+  proposalFingerprint: "proposal-review",
+  proposalKind: "move",
+  proposedTargetDirectory: "C:/Documents",
+  proposedName: "report.txt",
+  proposedTargetPath: "C:/Documents/report.txt",
+  decision: "undecided",
+  editedName: null,
+  validity: "needs_review",
+  reviewState: "needs_review",
+  confidence: 0.7,
+  riskLevel: "Normal",
+  requiresConfirmation: true,
+  blockingCode: null,
+  blockingDetail: null,
+  authoritativePreviewId: "preview-review",
+  reviewReasons: ["low_confidence", "requires_confirmation"],
+  availableActions: ["accept_suggestion", "edit_name", "view_preview", "keep", "defer"],
+  operationLogId: null,
+  executionId: null,
+  revision: 2,
+  createdAt: 1,
+  updatedAt: 1
+};
+
+const reviewGroup: OrganizationPlanGroupSummary = {
+  groupId: "group-review",
+  planId: plan.id,
+  label: "C:/Documents · move",
+  targetDirectory: "C:/Documents",
+  proposalKind: "move",
+  readiness: "requires-decision",
+  riskLevel: "Normal",
+  itemCount: 1,
+  totalBytes: 120,
+  acceptedCount: 0,
+  excludedCount: 0,
+  staleCount: 0,
+  conflictCount: 0,
+  confidenceBand: "medium",
+  reviewReasonCounts: [{ reason: "low_confidence", count: 1 }, { reason: "requires_confirmation", count: 1 }],
+  availableActions: ["accept_suggestion", "edit_name", "keep", "defer"],
+  sampleItems: [{ itemId: reviewItem.id, sourceName: reviewItem.sourceNameSnapshot, sourcePath: reviewItem.sourcePathSnapshot, proposedName: reviewItem.proposedName, decision: reviewItem.decision, validity: reviewItem.validity }],
+  revision: plan.revision
+};
+
+const readyItem: OrganizationPlanItem = {
+  ...reviewItem,
+  id: "item-ready",
+  validity: "ready",
+  reviewState: "ready",
+  confidence: 0.95,
+  requiresConfirmation: false,
+  reviewReasons: [],
+  availableActions: ["accept_suggestion", "edit_name", "view_preview", "keep"]
+};
+
+const readyGroup: OrganizationPlanGroupSummary = {
+  ...reviewGroup,
+  groupId: "group-ready",
+  label: "C:/Documents · move · ready",
+  readiness: "ready",
+  confidenceBand: "high",
+  reviewReasonCounts: [],
+  availableActions: ["accept_suggestion", "edit_name", "keep"],
+  sampleItems: [{ ...reviewGroup.sampleItems[0], itemId: readyItem.id, decision: readyItem.decision, validity: readyItem.validity }]
+};
+
+function updatedPlan(): OrganizationPlan {
+  return { ...plan, revision: 6, summary: { ...plan.summary, undecided: 0, accepted: 1, needsReview: 1, remainingExecutable: 1 } };
+}
+
+function updatedItem(): OrganizationPlanItem {
+  return { ...reviewItem, decision: "accepted", reviewState: "reviewed", revision: 3, availableActions: ["edit_name", "view_preview", "keep", "clear_decision"] };
+}
+
+function button(text: string): HTMLButtonElement {
+  const found = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.includes(text));
+  if (!found) throw new Error(`Button not found: ${text}`);
+  return found;
+}
+
+async function flush() {
+  for (let index = 0; index < 5; index += 1) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+}
+
+describe("Organize independent review behavior", () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="test-root"></div>';
+    container = document.getElementById("test-root") as HTMLDivElement;
+    root = createRoot(container);
+    HTMLElement.prototype.getBoundingClientRect = () => ({ width: 800, height: 600, top: 0, left: 0, right: 800, bottom: 600, x: 0, y: 0, toJSON() { return {}; } }) as DOMRect;
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, value: 600 });
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, value: 600 });
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, value: 800 });
+    useFileLibraryQueryStore.setState({ fingerprint: "query", snapshotRevision: 1 });
+    useFileLibraryResultStore.setState({ totalCount: 1 });
+    useFileLibrarySelectionStore.setState({ selection: null, focusedId: "", anchorIndex: -1 });
+    useOrganizationPlanStore.setState({
+      plans: [plan],
+      activePlan: plan,
+      groups: [reviewGroup],
+      groupHasMore: false,
+      groupNextCursor: null,
+      items: [reviewItem],
+      hasMore: false,
+      nextCursor: null,
+      isLoading: false,
+      isMutating: false,
+      error: null,
+      dryRun: null,
+      executionResult: null,
+      loadPlans: vi.fn(async () => undefined),
+      openPlan: vi.fn(async () => undefined)
+    });
+    apiMocks.queryOrganizationPlanGroupItems.mockImplementation(async () => ({ planId: plan.id, groupId: reviewGroup.groupId, planRevision: 5, items: [reviewItem], nextCursor: null, hasMore: false }));
+    apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: plan.id, planRevision: 6, groups: [reviewGroup], nextCursor: null, hasMore: false });
+    apiMocks.updateOrganizationPlanGroupDecision.mockResolvedValue({ plan, group: reviewGroup });
+    apiMocks.updateOrganizationPlanDecisions.mockResolvedValue(updatedPlan());
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    HTMLElement.prototype.getBoundingClientRect = nativeGetBoundingClientRect;
+    if (nativeClientHeight) Object.defineProperty(HTMLElement.prototype, "clientHeight", nativeClientHeight);
+    else delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+    if (nativeOffsetHeight) Object.defineProperty(HTMLElement.prototype, "offsetHeight", nativeOffsetHeight);
+    else delete (HTMLElement.prototype as { offsetHeight?: number }).offsetHeight;
+    if (nativeOffsetWidth) Object.defineProperty(HTMLElement.prototype, "offsetWidth", nativeOffsetWidth);
+    else delete (HTMLElement.prototype as { offsetWidth?: number }).offsetWidth;
+    document.body.innerHTML = "";
+    vi.clearAllMocks();
+  });
+
+  it("keeps Safe Batch out of requires-decision and confirms a single ordinary item mutation", async () => {
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    await act(async () => button("需要我决定").click());
+    await flush();
+
+    expect(container.textContent).toContain("置信度较低 (1)");
+    expect(container.textContent).toContain("需要确认 (1)");
+    expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("纳入安全建议"))).toBe(false);
+    await act(async () => container.querySelector<HTMLElement>(`[data-organize-group-row="${reviewGroup.groupId}"]`)?.click());
+    await flush();
+
+    const accept = button("接受此建议");
+    expect(accept.disabled).toBe(false);
+    await act(async () => accept.click());
+    expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain("置信度较低");
+    expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain("C:/Documents/report.txt");
+    expect(apiMocks.updateOrganizationPlanDecisions).not.toHaveBeenCalled();
+
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((item) => item.textContent?.includes("确认接受建议"));
+    expect(confirm).toBeTruthy();
+    await act(async () => confirm?.click());
+    await flush();
+
+    expect(apiMocks.updateOrganizationPlanDecisions).toHaveBeenCalledWith({
+      planId: plan.id,
+      expectedPlanRevision: plan.revision,
+      mutations: [{ itemId: reviewItem.id, expectedItemRevision: reviewItem.revision, decision: "accepted", editedFilename: null }]
+    });
+    expect(apiMocks.updateOrganizationPlanDecisions.mock.calls[0]?.[0]?.safeBatch).not.toBe(true);
+  });
+
+  it("keeps Safe Batch available for a ready group and refreshes the plan after group acceptance", async () => {
+    useOrganizationPlanStore.setState({ groups: [readyGroup], items: [readyItem] });
+    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: readyGroup.groupId, planRevision: plan.revision, items: [readyItem], nextCursor: null, hasMore: false });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    const include = button("纳入安全建议");
+    expect(include.disabled).toBe(false);
+    await act(async () => include.click());
+    await flush();
+
+    expect(apiMocks.updateOrganizationPlanGroupDecision).toHaveBeenCalledWith({
+      planId: plan.id,
+      groupId: readyGroup.groupId,
+      expectedPlanRevision: plan.revision,
+      decision: "accepted"
+    });
+    expect(useOrganizationPlanStore.getState().openPlan).toHaveBeenCalledWith(plan.id);
+  });
+
+  it("renders an unavailable acceptance action when the item has no authoritative preview", async () => {
+    const noPreview = { ...reviewItem, authoritativePreviewId: null, availableActions: ["keep", "defer"], reviewReasons: ["unknown_backend_reason"] };
+    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: reviewGroup.groupId, planRevision: 5, items: [noPreview], nextCursor: null, hasMore: false });
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    await act(async () => button("需要我决定").click());
+    await act(async () => container.querySelector<HTMLElement>(`[data-organize-group-row="${reviewGroup.groupId}"]`)?.click());
+    await flush();
+    const unavailable = button("当前不能接受");
+    expect(unavailable.disabled).toBe(true);
+    expect(unavailable.title).toContain("权威预览");
+    expect(container.textContent).toContain("需要进一步复核");
+  });
+});
