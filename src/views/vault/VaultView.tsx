@@ -23,6 +23,7 @@ import { buttonGhost, buttonSecondary, buttonSubtle, cn, glassButtonPrimary, rai
 import { InspectorLayout, MetricStrip, NoticeBanner, SearchField, StateBlock, pageFrame } from "../shared/ui";
 import { FileLibraryFilterPopover } from "./components/FileLibraryFilterPopover";
 import { FileLibraryInspector, FileLibraryPreviewDialog, libraryRevealLabel } from "./components/FileLibraryInspector";
+import { ContentUnderstandingSheet } from "./components/ContentUnderstandingSheet";
 import { FileLibraryList } from "./components/FileLibraryList";
 import { LibraryMetadataManagerDialog } from "./components/LibraryMetadataManagerDialog";
 import { DuplicateGroupsPanel } from "./components/DuplicateGroupsPanel";
@@ -75,13 +76,15 @@ export function VaultView() {
   const [isSortOpen, setIsSortOpen] = useState(false);
   const [metadataManager, setMetadataManager] = useState<"tags" | "saved_views" | null>(null);
   const [previewFile, setPreviewFile] = useState<FileLibraryDetail | null>(null);
+  const [contentDetail, setContentDetail] = useState<FileLibraryDetail | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const filterButtonRef = useRef<HTMLButtonElement | null>(null);
   const sortButtonRef = useRef<HTMLButtonElement | null>(null);
+  const contentTriggerRef = useRef<HTMLElement | null>(null);
   const scopeSignature = `${legacyScope.kind}:${legacyScope.kind === "all" ? "" : `${legacyScope.roots.join("\n")}:${legacyScope.kind === "current_scan" ? legacyScope.scanSessionId ?? "" : ""}`}`;
   const querySpecSignature = JSON.stringify(querySpec);
-  const selectedIds = selectedLoadedIds(files, selection);
-  const selectedFiles = files.filter((file) => selectedIds.includes(file.id));
+  const selectedIds = useMemo(() => selectedLoadedIds(files, selection), [files, selection]);
+  const selectedFiles = useMemo(() => files.filter((file) => selectedIds.includes(file.id)), [files, selectedIds]);
   const isEmptyCurrentScanScope = legacyScope.kind === "current_scan" && legacyScope.roots.length === 0 && !legacyScope.scanSessionId;
   const remainingCount = totalCount === null ? 0 : Math.max(0, totalCount - files.length);
   const activeFilterCount = countActiveFilters(querySpec.filters);
@@ -300,6 +303,22 @@ export function VaultView() {
     setLibrarySearch(view.query.text ?? "");
   }
 
+  function openContentUnderstanding(file: FileLibraryDetail, trigger?: HTMLElement) {
+    contentTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setContentDetail(file);
+  }
+
+  async function openContentFromContext(fileId: string) {
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
+    setContextMenu(null);
+    try {
+      const file = await tauriApi.getFileLibraryDetail(fileId);
+      openContentUnderstanding(file, trigger);
+    } catch (error) {
+      onError(readableError(error));
+    }
+  }
+
   function libraryState() {
     if (resultState === "snapshot_expired" || resultError === "library_snapshot_expired") return null;
     if (resultError || resultState === "failed") return { tone: "error" as const, title: t("libraryLoadFailedTitle"), description: resultError ?? t("libraryLoadFailedDesc"), primaryAction: <button className={buttonSecondary} onClick={() => void refreshResults()}>{t("libraryRetry")}</button> };
@@ -351,12 +370,13 @@ export function VaultView() {
       <InspectorLayout
         className={showInspectorLayout(isNoIndexState)}
         main={<section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage()} />}</section>}
-        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} language={language} t={t} onPreview={(file) => setPreviewFile(file)} onReveal={(fileId) => void revealFile(fileId)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation)} /> : undefined}
+        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} language={language} t={t} onPreview={(file) => setPreviewFile(file)} onReveal={(fileId) => void revealFile(fileId)} onViewSuggestions={() => setView("organize")} onOpenContentUnderstanding={(file, trigger) => openContentUnderstanding(file, trigger)} onClearSelection={clearSelection} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation)} /> : undefined}
         inspectorLabel={t("libraryInspector")}
       />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{selectionLabel}</p>
-      {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={() => setContextMenu(null)} onPreview={() => void openPreview(contextMenu.file)} onReveal={() => void revealFile(contextMenu.file.id)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
+      {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={() => setContextMenu(null)} onPreview={() => void openPreview(contextMenu.file)} onReveal={() => void revealFile(contextMenu.file.id)} onOpenContent={() => void openContentFromContext(contextMenu.file.id)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
       <FileLibraryPreviewDialog file={previewFile} language={language} t={t} onClose={() => { setPreviewFile(null); focusList(); }} onReveal={(fileId) => void revealFile(fileId)} />
+      {contentDetail ? <ContentUnderstandingSheet open detail={contentDetail} t={t} restoreFocus={() => contentTriggerRef.current} onClose={() => setContentDetail(null)} onRefreshDetail={() => void loadDetail(contentDetail.id)} /> : null}
       <LibraryMetadataManagerDialog
         kind={metadataManager}
         query={cloneFileQuerySpec({ ...querySpec, text: debouncedSearchQuery.trim() || null })}
@@ -395,11 +415,12 @@ function scopeHealthLabel(state: string, t: ReturnType<typeof import("../../i18n
   return t("libraryScopeHealthUnavailable");
 }
 
-function LibraryContextMenu({ context, t, onClose, onPreview, onReveal, onViewSuggestions, onClearSelection }: { context: ContextMenuState; t: ReturnType<typeof import("../../i18n").makeTranslator>; onClose: () => void; onPreview: () => void; onReveal: () => void; onViewSuggestions: () => void; onClearSelection: () => void }) {
+function LibraryContextMenu({ context, t, onClose, onPreview, onReveal, onOpenContent, onViewSuggestions, onClearSelection }: { context: ContextMenuState; t: ReturnType<typeof import("../../i18n").makeTranslator>; onClose: () => void; onPreview: () => void; onReveal: () => void; onOpenContent: () => void; onViewSuggestions: () => void; onClearSelection: () => void }) {
   const itemRefs = useRef<HTMLButtonElement[]>([]);
   const items = [
     { label: t("libraryPreview"), action: onPreview },
     { label: libraryRevealLabel(t), action: () => { onReveal(); onClose(); } },
+    { label: t("contentOpen"), action: onOpenContent },
     { label: t("libraryViewSuggestions"), action: () => { onViewSuggestions(); onClose(); } },
     { label: t("libraryClearSelection"), action: () => { onClearSelection(); onClose(); } }
   ];

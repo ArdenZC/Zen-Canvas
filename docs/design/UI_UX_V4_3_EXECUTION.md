@@ -1621,6 +1621,73 @@ PR9 must extract the Content Understanding workspace. PR10 must integrate Settin
 
 Reviewers should validate the native Rule Proposal Apply path with a real provider-disabled and provider-enabled configuration, confirm that the resulting rule is persisted disabled in Rule Repository V2, and verify that the proposal surface closes only after a successful authoritative mutation. They should also confirm that the intermediate choice-sheet focus restoration remains correct in the native Tauri shell.
 
+## 5J. PR9 closeout — dedicated Content Understanding surface
+
+### Current baseline
+
+PR9 starts from committed PR8 `ba9845e` on `codex/ui-v4-3-product-integration`. The implementation preserves managed-only Content Scope Policy, durable Content Run and Content Artifact authority, explicit local/provider consent, source immutability, bounded extraction, and the existing content APIs. No schema, queue, provider payload, or filesystem mutation authority was added.
+
+### Authority migrated
+
+Content Understanding now has a dedicated `ContentUnderstandingSheet` opened from the File Library Inspector or file context menu. The sheet projects policy, preview, run, artifact, recent-run, and bounded search state from the existing Content Scope Policy, Content Run, and Content Artifact APIs. The Inspector keeps only concise status/policy projection and an Open action; it is no longer a second content workflow authority.
+
+### Legacy path retired
+
+- The monolithic content policy/preview/run/artifact workflow was removed from the narrow File Library Inspector.
+- The Inspector and context menu now enter the dedicated Content Understanding surface while preserving the selected file and restoring focus to the originating trigger.
+- Component-local content copy was removed; all new Content Understanding copy uses shared Chinese/English i18n.
+- The browser preview explicitly identifies its mock boundary and does not claim real extraction, provider understanding, or native persistence.
+
+### Product changes
+
+- The dedicated surface separates status, permission/policy, preview, run progress, artifact summary, recent runs, and content search without exposing raw paths or provider payloads.
+- Policy edits are saved before preview/run actions; local extraction and provider understanding remain distinct actions, with provider confirmation gated by the existing policy and artifact boundaries.
+- Preview start retains the expected library/policy revisions, preview fingerprint, and explicit confirmation. Rebuild, cancel, delete-data, and purge actions use confirmation and keep source files unchanged.
+- Unsupported formats, OCR/unsupported boundaries, budgets, retention, and blocked reasons are translated into task language. Recent runs and remount refresh use the existing durable APIs.
+- Selection projection in `VaultView` is memoized so the selection-detail hydration effect does not repeatedly reload the Inspector after a file is selected.
+
+### Files changed
+
+- `src/views/vault/components/ContentUnderstandingSheet.tsx`
+- `src/views/vault/components/FileLibraryInspector.tsx`
+- `src/views/vault/VaultView.tsx`
+- `src/i18n.ts`
+- `tests/contentUnderstandingUi.test.ts`
+- `docs/design/UI_UX_V4_3_EXECUTION.md`
+
+### Focused tests
+
+- `npm.cmd run typecheck` — passed.
+- `npm.cmd test -- tests/contentUnderstandingUi.test.ts tests/fileLibraryV4.test.tsx tests/contentMockTruthfulness.test.ts tests/fileLibraryTask06Handoff.test.tsx` — 4 files passed, 16 tests passed.
+- `git diff --check` — passed before staging.
+
+### Full gates
+
+Not run for PR9. Full frontend, Rust quality, remediation, security, performance, packaging, Windows/macOS release, CI path, and release-gate checks remain required for PR11.
+
+### Visual verification
+
+The local Vite/browser-mock preview rendered the seeded Chinese File Library at 1280×720. Selecting `project-report.pdf` kept the target page mounted and showed the concise Inspector content status, root policy, and Open action. The Content Understanding Side Sheet rendered as a 480px right-side surface with status, policy, preview/run, artifact, recent-run, and search sections; the explicit browser-mock boundary was visible. The measured viewport reported `innerWidth=1280`, `innerHeight=720`, `scrollWidth=1280`, and no horizontal overflow. Closing the sheet restored focus to `打开内容理解`. Browser diagnostics contained no warning/error entries, and the policy loading copy appeared once after the duplicate-copy fix.
+
+The browser mock does not exercise native Tauri policy revisions, real extraction, provider confirmation, durable run restart, actual artifact deletion, screen-reader announcements, or native focus/window behavior. A direct PR9 980×680 browser viewport resize was unavailable in the current in-app browser surface; the PR8 narrow evidence remains separate. Dark theme, English copy, 1440/1180/1024 viewports, high contrast, Windows DPI, macOS Retina, and native Tauri behavior remain unverified for PR9.
+
+### Acceptance criteria
+
+- File Library Inspector contains only concise Content Understanding status/policy projection and an Open action.
+- Inspector and context-menu entry points open one dedicated SideSheet while preserving selection and focus restoration.
+- Policy, preview, local run, provider disclosure/confirmation, rebuild, cancel, delete-data, recent runs, and bounded search remain available through existing durable authorities.
+- Preview and execution retain revision, fingerprint, confirmation, consent, source-unchanged, and unsupported-format safety boundaries.
+- No raw path/filename provider payload, second content queue/store, or component-local copy dictionary was introduced.
+- Browser-mock narrow verification at 1280×720 has no horizontal overflow and no warning/error entries.
+
+### Deferred or unverified
+
+PR10 must integrate Settings and Overview system health. PR11 must complete the full visual matrix, native/platform checks, screen-reader and high-contrast verification, full CI evidence, and release gates. The 980×680 PR9 viewport resize and real content/provider flows remain unverified.
+
+### Risks requiring human review
+
+Reviewers should validate policy revision conflicts, preview fingerprint invalidation, provider consent and payload redaction, run cancellation/restart, artifact deletion without source changes, and unsupported/OCR truth with native Tauri fixtures. They should also verify the dedicated sheet focus trap and return behavior at Windows 100–200% scaling and in the macOS shell.
+
 ---
 
 ## 6. Codex continuous-execution rule
