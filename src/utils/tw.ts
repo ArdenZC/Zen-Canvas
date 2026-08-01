@@ -123,10 +123,10 @@ export const inputSurface =
 export const selectSurface = cn(inputSurface, "appearance-auto");
 
 export const sectionTitle =
-  "mb-4 flex items-start justify-between gap-4 [&_h2]:m-0 [&_h2]:text-lg [&_h2]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-[var(--muted)]";
+  "mb-4 flex items-start justify-between gap-4 [&_h2]:m-0 [&_h2]:text-lg [&_h2]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-[var(--zc-text-secondary)]";
 
 export const emptyState =
-  "flex min-h-28 items-center justify-center rounded-[var(--radius-md)] border border-dashed border-[var(--line)] bg-[var(--surface-soft)] px-4 py-6 text-center text-sm text-[var(--muted)]";
+  "flex min-h-28 items-center justify-center rounded-[var(--zc-radius-row)] border border-dashed border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-4 py-6 text-center text-sm text-[var(--zc-text-secondary)]";
 
 export const virtualList = "relative overflow-auto overscroll-contain";
 export const virtualSpacer = "relative w-full";

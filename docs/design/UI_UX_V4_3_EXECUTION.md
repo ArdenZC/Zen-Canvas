@@ -1076,6 +1076,68 @@ All rendered visual states, native Search Window behavior, Windows DPI, macOS Re
 
 The first implementation stages must validate that compatibility adapters do not become permanent second authorities. In particular, File Library, Organize Files, and Storage Cleanup require backend projection/restart tests before their legacy paths can be removed.
 
+## 5B. PR1 closeout — design foundation
+
+### Current baseline
+
+PR1 starts from committed PR0 `24ce93f` on `codex/ui-v4-3-product-integration`. No backend or persistence contract changed.
+
+### Authority migrated
+
+No workspace authority changed. The App Shell now exposes a shared UI density preference (`default` or `compact`) through the existing UI preference store; it does not represent file, plan, cleanup, or content truth.
+
+### Legacy path retired
+
+No page-specific legacy surface was removed. Shared class exports remain compatibility aliases where existing pages still depend on them, while the touched shared typography/row/state classes now use semantic `--zc-*` tokens.
+
+### Product changes
+
+- Added semantic row, density, pane, inspector, sheet, touch-target, and content-width tokens.
+- Added shared `Button`, `SearchField`, `MetricStrip`, `DurableTaskStatus`, `Progress`, `SideSheet`, `InspectorLayout`, and `ResponsivePane` primitives.
+- Added compact/default density projection and global data attributes.
+- Extended Notice and State Block semantics with density metadata and live-region behavior.
+- Preserved the existing modal stack for Side Sheet focus trapping, Escape handling, and focus restoration.
+
+### Files changed
+
+- `src/styles/tokens.css`
+- `src/styles.css`
+- `src/types/ui.ts`
+- `src/store/useAppStore.ts`
+- `src/components/AppShell.tsx`
+- `src/utils/tw.ts`
+- `src/views/shared/ui.ts`
+- `tests/uiV43Foundation.test.tsx`
+- `docs/design/UI_UX_V4_3_EXECUTION.md`
+
+### Focused tests
+
+- `npm run typecheck`
+- `npm test -- tests/uiV43Foundation.test.tsx tests/uiPrimitives.test.tsx tests/designSystemV4.test.ts tests/modalInfrastructure.test.tsx`
+
+### Full gates
+
+Not run for PR1. Full frontend, Rust, security, performance, and platform release checks remain required for production-code stages and PR11.
+
+### Visual verification
+
+Static primitive markup and existing modal infrastructure tests passed. Rendered light/dark Chinese/English states, narrow 980x680 layout, high contrast, and native platform behavior are deferred to the affected workspace stages and PR11.
+
+### Acceptance criteria
+
+- Later stages can use shared controls without duplicating Button, Search Field, State Block, Metric Strip, Durable Task, Inspector, or Sheet components.
+- All new foundation dimensions and surfaces use semantic `--zc-*` variables.
+- Reduced-motion and modal focus infrastructure remain enabled.
+- No page-specific redesign or backend authority change was introduced.
+
+### Deferred or unverified
+
+The new primitives are not yet adopted across every workspace. Visual verification of actual composed pages, screen readers, Windows DPI, macOS Retina, and native Search Window remains open.
+
+### Risks requiring human review
+
+The compact density preference is available but not yet exposed in Settings. Later stages must ensure it does not shrink critical hit targets or create a second page-local density setting.
+
 ---
 
 ## 6. Codex continuous-execution rule

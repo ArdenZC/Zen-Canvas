@@ -86,6 +86,7 @@ export function AppShell() {
   } = useChromeContext();
   const stats = useFileLibraryStore((state) => state.stats);
   const scope = useFileLibraryStore((state) => state.scope);
+  const density = useAppStore((state) => state.density);
   const previewActionCount = useOrganizationPlanStore((state) => state.activePlan
     ? state.activePlan.summary.undecided + state.activePlan.summary.needsReview
     : 0);
@@ -102,7 +103,7 @@ export function AppShell() {
   const headingDescription = viewDescription(view, stats, scope, scopeText, view === "preview" && executionIntent?.source === "organize" ? executionIntent.allowedPreviewIds.size : previewActionCount, t);
 
   return (
-    <div className={appRoot}>
+    <div className={appRoot} data-density={density}>
       <AmbientMesh />
       <div id={APP_SHELL_CONTENT_ID} className="contents">
       <header className={titlebar}>

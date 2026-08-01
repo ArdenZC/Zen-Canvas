@@ -1,9 +1,12 @@
-import { createElement, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { createElement, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type MouseEvent, type ReactNode, type RefObject } from "react";
 import type { Variants } from "motion/react";
-import { CircleCheck, ShieldAlert, Trash2 } from "lucide-react";
+import { CircleCheck, LoaderCircle, Search, ShieldAlert, Trash2, X } from "lucide-react";
 import { ModalPortal } from "../../components/modal/ModalPortal";
+import type { Density } from "../../types/ui";
 import {
   appPanel as appPanelClass,
+  buttonGhost,
+  buttonSubtle,
   buttonSecondary,
   buttonIcon,
   cn,
@@ -65,29 +68,29 @@ export const formRow = "grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-ce
 
 export const panelSurface = cn(appPanel, "min-h-0 p-5");
 export const rowSurface =
-  "rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--surface-soft)] p-3 text-left shadow-sm transition-[background,border-color,box-shadow,color]";
+  "min-h-[var(--zc-row-height-default)] rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3 text-left transition-[background,border-color,box-shadow,color]";
 export const compactRowSurface =
-  "rounded-xl border border-[var(--line)] bg-[var(--surface-soft)] px-3 py-2 text-left transition-[background,border-color,box-shadow,color]";
+  "min-h-[var(--zc-row-height-compact)] rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] px-3 py-2 text-left transition-[background,border-color,box-shadow,color]";
 
-export const pageTitle = "m-0 text-2xl font-semibold tracking-[-0.01em] text-[var(--ink)]";
-export const pageSubtitle = "mt-1 text-sm leading-6 text-[var(--muted)]";
-export const sectionHeading = "m-0 text-lg font-semibold text-[var(--ink)]";
-export const sectionDescription = "mt-1 text-sm leading-6 text-[var(--muted)]";
-export const metricValue = "text-3xl font-semibold tabular-nums tracking-[-0.02em] text-[var(--ink)]";
-export const metricLabel = "text-xs font-semibold uppercase tracking-[0.12em] text-[var(--quiet)]";
-export const metadataText = "text-sm leading-6 text-[var(--muted)]";
+export const pageTitle = "m-0 text-2xl font-semibold tracking-[-0.01em] text-[var(--zc-text-primary)]";
+export const pageSubtitle = "mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]";
+export const sectionHeading = "m-0 text-lg font-semibold text-[var(--zc-text-primary)]";
+export const sectionDescription = "mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]";
+export const metricValue = "text-3xl font-semibold tabular-nums tracking-[-0.02em] text-[var(--zc-text-primary)]";
+export const metricLabel = "text-xs font-semibold uppercase tracking-[0.12em] text-[var(--zc-text-tertiary)]";
+export const metadataText = "text-sm leading-6 text-[var(--zc-text-secondary)]";
 export const mutedText = metadataText;
-export const quietText = "text-xs leading-5 text-[var(--quiet)]";
+export const quietText = "text-xs leading-5 text-[var(--zc-text-tertiary)]";
 export const dangerText = "text-sm font-medium text-[var(--zc-danger-text)]";
 export const warningText = "text-sm font-medium text-[var(--zc-warning-text)]";
 export const successText = "text-sm font-medium text-[var(--zc-success-text)]";
 
-export const formGrid = "grid grid-cols-2 gap-3 [&_label]:grid [&_label]:gap-1.5 [&_label]:text-sm [&_label]:font-medium [&_label]:text-[var(--muted)]";
-export const segmented = "inline-flex max-w-full flex-wrap items-center gap-1 rounded-xl border border-[var(--line)] bg-[var(--surface-soft)] p-1";
+export const formGrid = "grid grid-cols-2 gap-3 [&_label]:grid [&_label]:gap-1.5 [&_label]:text-sm [&_label]:font-medium [&_label]:text-[var(--zc-text-secondary)]";
+export const segmented = "inline-flex max-w-full flex-wrap items-center gap-1 rounded-[var(--zc-radius-control)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-1";
 
 export function segmentButton(active: boolean): string {
   return cn(
-    "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-[var(--muted)] transition-[background,border-color,box-shadow,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--ink)]",
+    "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-[var(--zc-radius-control)] px-3 py-1.5 text-sm text-[var(--zc-text-secondary)] transition-[background,border-color,box-shadow,color] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)]",
     active && "bg-[var(--zc-primary)] text-[var(--zc-primary-contrast)] shadow-sm hover:bg-[var(--zc-primary-hover)] hover:text-[var(--zc-primary-contrast)]"
   );
 }
@@ -132,7 +135,7 @@ export function SwitchButton({
     statusLabel
       ? createElement(
           "span",
-          { className: cn("min-w-10 text-xs font-medium", checked ? "text-[var(--zc-primary-text)]" : "text-[var(--muted)]") },
+          { className: cn("min-w-10 text-xs font-medium", checked ? "text-[var(--zc-primary-text)]" : "text-[var(--zc-text-secondary)]") },
           statusLabel
         )
       : null
@@ -188,23 +191,29 @@ export function NoticeBanner({
   tone = "info",
   title,
   children,
-  action
+  action,
+  density = "default"
 }: {
   tone?: NoticeTone;
   title?: string;
   children?: ReactNode;
   action?: ReactNode;
+  density?: Density;
 }) {
+  const compact = density === "compact";
   return createElement(
     "div",
     {
-      className: cn(surfaceForTone(tone), "flex items-start justify-between gap-3 text-sm"),
-      role: tone === "danger" || tone === "error" ? "alert" : "status"
+      className: cn(surfaceForTone(tone), "flex items-start justify-between gap-3 text-sm", compact ? "px-3 py-2" : "px-3 py-3"),
+      role: tone === "danger" || tone === "error" ? "alert" : "status",
+      "aria-live": tone === "danger" || tone === "error" ? "assertive" : "polite",
+      "aria-atomic": "true",
+      "data-density": density
     },
     createElement(
       "div",
       { className: "min-w-0" },
-      title ? createElement("strong", { className: "block text-[var(--ink)]" }, title) : null,
+      title ? createElement("strong", { className: "block text-[var(--zc-text-primary)]" }, title) : null,
       children ? createElement("div", { className: cn(title && "mt-1", "leading-6") }, children) : null
     ),
     action ? createElement("div", { className: "shrink-0" }, action) : null
@@ -233,17 +242,22 @@ export function StateBlock({
         ? "border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)]"
         : tone === "info"
           ? "border-[var(--zc-info-border)] bg-[var(--zc-info-soft)]"
-          : "border-[var(--line)] bg-[var(--surface-soft)]";
+          : "border-[var(--zc-border)] bg-[var(--zc-surface-subtle)]";
   const isCompact = density === "compact";
 
   return createElement(
     "div",
     {
       className: cn(
-        "grid place-items-center rounded-[var(--radius-md)] border text-center",
+        "grid place-items-center rounded-[var(--zc-radius-row)] border text-center",
         isCompact ? "min-h-0 px-4 py-4" : "min-h-28 border-dashed px-5 py-6",
         toneClass
-      )
+      ),
+      role: tone === "error" ? "alert" : "status",
+      "aria-live": tone === "error" ? "assertive" : "polite",
+      "aria-atomic": "true",
+      "data-density": density,
+      "data-state": tone
     },
     createElement(
       "div",
@@ -251,7 +265,7 @@ export function StateBlock({
       createElement(
         "div",
         null,
-        createElement("strong", { className: cn("block text-[var(--ink)]", isCompact ? "text-sm" : "text-base") }, title),
+        createElement("strong", { className: cn("block text-[var(--zc-text-primary)]", isCompact ? "text-sm" : "text-base") }, title),
         description ? createElement("span", { className: cn(isCompact ? quietText : metadataText, "mt-1 block") }, description) : null
       ),
       primaryAction || secondaryAction
@@ -308,6 +322,296 @@ export function IconButton({
     },
     children
   );
+}
+
+export type ButtonVariant = "primary" | "secondary" | "ghost" | "subtle" | "warning" | "danger";
+export type ButtonSize = "compact" | "default";
+
+function buttonVariantClass(variant: ButtonVariant): string {
+  if (variant === "primary") return glassButtonPrimary;
+  if (variant === "warning") return glassButtonWarning;
+  if (variant === "danger") return glassButtonDanger;
+  if (variant === "ghost") return buttonGhost;
+  if (variant === "subtle") return buttonSubtle;
+  return buttonSecondary;
+}
+
+export function Button({
+  variant = "secondary",
+  size = "default",
+  className,
+  children,
+  type = "button",
+  ...props
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> & {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  type?: ButtonHTMLAttributes<HTMLButtonElement>["type"];
+}) {
+  return createElement(
+    "button",
+    {
+      ...props,
+      type,
+      className: cn(
+        buttonVariantClass(variant),
+        size === "compact" && "min-h-[var(--zc-control-height-compact)] px-3 py-1.5 text-xs",
+        size === "default" && "min-h-[var(--zc-control-height-default)]",
+        className
+      )
+    },
+    children
+  );
+}
+
+export function SearchField({
+  value,
+  onChange,
+  label,
+  placeholder,
+  scopeLabel,
+  loading = false,
+  onClear,
+  clearLabel,
+  inputRef,
+  className,
+  ...inputProps
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "size"> & {
+  value: string;
+  onChange: InputHTMLAttributes<HTMLInputElement>["onChange"];
+  label: string;
+  scopeLabel?: ReactNode;
+  loading?: boolean;
+  onClear?: () => void;
+  clearLabel: string;
+  inputRef?: RefObject<HTMLInputElement | null>;
+  className?: string;
+}) {
+  return createElement(
+    "div",
+    {
+      role: "search",
+      className: cn(
+        "flex min-w-0 min-h-[var(--zc-control-height-default)] items-center gap-2 rounded-[var(--zc-radius-field)] border border-[var(--zc-control-border)] bg-[var(--zc-surface)] px-3 text-sm text-[var(--zc-text-primary)] transition-[background,border-color,box-shadow] duration-[var(--zc-duration-fast)] ease-[var(--zc-ease-standard)] focus-within:border-[var(--zc-primary)] focus-within:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)]",
+        className
+      ),
+      "data-search-field": "true",
+      "aria-busy": loading || undefined
+    },
+    createElement(Search, { size: 16, className: "shrink-0 text-[var(--zc-text-tertiary)]", "aria-hidden": "true" }),
+    scopeLabel ? createElement("span", { className: "shrink-0 text-xs font-medium text-[var(--zc-text-tertiary)]" }, scopeLabel) : null,
+    createElement("label", { className: "sr-only", htmlFor: inputProps.id }, label),
+    createElement("input", {
+      ...inputProps,
+      ref: inputRef,
+      value,
+      onChange,
+      placeholder,
+      className: "min-w-0 flex-1 border-0 bg-transparent p-0 text-sm text-[var(--zc-text-primary)] outline-none placeholder:text-[var(--zc-text-tertiary)]",
+      "aria-label": inputProps["aria-label"] ?? label,
+      "aria-busy": loading || undefined
+    }),
+    loading
+      ? createElement(LoaderCircle, { size: 15, className: "shrink-0 animate-spin text-[var(--zc-primary)]", "aria-hidden": "true" })
+      : onClear && value
+        ? createElement(IconButton, { type: "button", "aria-label": clearLabel, className: "h-8 w-8 border-transparent bg-transparent shadow-none", onClick: onClear }, createElement(X, { size: 15, "aria-hidden": "true" }))
+        : null
+  );
+}
+
+export type MetricStripItem = {
+  label: string;
+  value: ReactNode;
+  hint?: string;
+  tone?: BadgeTone;
+};
+
+export function MetricStrip({ items, ariaLabel, density = "default" }: { items: MetricStripItem[]; ariaLabel: string; density?: Density }) {
+  return createElement(
+    "div",
+    {
+      className: cn(
+        "min-w-0 overflow-hidden rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface)]",
+        density === "compact" ? "px-3 py-2" : "px-4 py-3"
+      ),
+      role: "group",
+      "aria-label": ariaLabel,
+      "data-metric-strip": "true",
+      "data-density": density
+    },
+    createElement(
+      "dl",
+      { className: "grid min-w-0 grid-cols-2 divide-x divide-y divide-[var(--zc-divider)] sm:grid-cols-4 sm:divide-y-0" },
+      ...items.slice(0, 4).map((item) =>
+        createElement(
+          "div",
+          { key: item.label, className: "min-w-0 px-3 first:pl-0 last:pr-0 sm:px-4" },
+          createElement("dt", { className: metricLabel }, item.label),
+          createElement("dd", { className: cn("mt-1 truncate text-lg font-semibold tabular-nums", item.tone ? badgeTone(item.tone).split(" ").find((value) => value.startsWith("text-")) : "text-[var(--zc-text-primary)]") }, item.value),
+          item.hint ? createElement("span", { className: quietText }, item.hint) : null
+        )
+      )
+    )
+  );
+}
+
+export type DurableTaskState = "idle" | "running" | "partial" | "completed" | "failed" | "canceled" | "permission";
+
+export function Progress({
+  value,
+  label,
+  max = 100,
+  indeterminate = false,
+  density = "default"
+}: {
+  value?: number;
+  label: string;
+  max?: number;
+  indeterminate?: boolean;
+  density?: Density;
+}) {
+  const safeValue = typeof value === "number" ? Math.min(max, Math.max(0, value)) : 0;
+  const percentage = max > 0 ? `${(safeValue / max) * 100}%` : "0%";
+  return createElement(
+    "div",
+    { className: "grid gap-1.5", "data-density": density },
+    createElement("div", { className: "flex items-center justify-between gap-3 text-xs text-[var(--zc-text-secondary)]" }, createElement("span", null, label), indeterminate ? createElement("span", { "aria-hidden": "true" }, "…") : createElement("span", { className: "tabular-nums" }, `${Math.round((safeValue / max) * 100)}%`)),
+    createElement(
+      "div",
+      {
+        className: "h-2 overflow-hidden rounded-full bg-[var(--zc-surface-subtle)]",
+        role: "progressbar",
+        "aria-label": label,
+        "aria-valuemin": 0,
+        "aria-valuemax": max,
+        "aria-valuenow": indeterminate ? undefined : safeValue,
+        "aria-valuetext": indeterminate ? undefined : `${Math.round((safeValue / max) * 100)}%`
+      },
+      createElement("span", { className: cn("block h-full rounded-full bg-[var(--zc-primary)] transition-[width] duration-[var(--zc-duration-standard)] ease-[var(--zc-ease-standard)]", indeterminate && "w-1/3 animate-pulse"), style: indeterminate ? undefined : { width: percentage } })
+    )
+  );
+}
+
+export function DurableTaskStatus({
+  state,
+  title,
+  description,
+  progress,
+  action,
+  density = "default"
+}: {
+  state: DurableTaskState;
+  title: string;
+  description?: string;
+  progress?: { value?: number; max?: number; indeterminate?: boolean; label: string };
+  action?: ReactNode;
+  density?: Density;
+}) {
+  const isError = state === "failed" || state === "permission";
+  return createElement(
+    "section",
+    {
+      className: cn("grid gap-3 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)]", density === "compact" ? "p-3" : "p-4"),
+      role: isError ? "alert" : "status",
+      "aria-live": isError ? "assertive" : "polite",
+      "aria-atomic": "true",
+      "data-durable-task": state,
+      "data-density": density
+    },
+    createElement("div", { className: "min-w-0" }, createElement("strong", { className: "block text-sm font-semibold text-[var(--zc-text-primary)]" }, title), description ? createElement("p", { className: "mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]" }, description) : null),
+    progress ? createElement(Progress, { ...progress, density }) : null,
+    action ? createElement("div", { className: "flex flex-wrap gap-2" }, action) : null
+  );
+}
+
+export function InspectorLayout({
+  main,
+  inspector,
+  inspectorOpen = true,
+  inspectorLabel = "Inspector",
+  className
+}: {
+  main: ReactNode;
+  inspector?: ReactNode;
+  inspectorOpen?: boolean;
+  inspectorLabel?: string;
+  className?: string;
+}) {
+  return createElement(
+    "div",
+    {
+      className: cn("grid min-h-0 min-w-0 flex-1 gap-[var(--zc-pane-gap)] overflow-hidden min-[1101px]:grid-cols-[minmax(0,1fr)_var(--zc-inspector-width)] max-[1100px]:overflow-auto max-[1100px]:grid-cols-1", className),
+      "data-inspector-layout": "true",
+      "data-inspector-open": inspectorOpen
+    },
+    createElement("div", { className: "min-h-0 min-w-0 overflow-auto" }, main),
+    inspectorOpen && inspector ? createElement("aside", { className: "min-h-0 min-w-0 overflow-auto", "aria-label": inspectorLabel, "data-inspector": "true" }, inspector) : null
+  );
+}
+
+export function ResponsivePane({
+  children,
+  className,
+  label
+}: {
+  children: ReactNode;
+  className?: string;
+  label?: string;
+}) {
+  return createElement("div", { className: cn("min-h-0 min-w-0 overflow-auto", className), "data-responsive-pane": "true", "aria-label": label }, children);
+}
+
+export function SideSheet({
+  open,
+  title,
+  description,
+  children,
+  footer,
+  onClose,
+  closeLabel,
+  side = "right",
+  modalId,
+  restoreFocus,
+  initialFocusRef
+}: {
+  open: boolean;
+  title: string;
+  description?: string;
+  children: ReactNode;
+  footer?: ReactNode;
+  onClose: () => void;
+  closeLabel: string;
+  side?: "left" | "right";
+  modalId?: string;
+  restoreFocus?: () => HTMLElement | null;
+  initialFocusRef?: RefObject<HTMLElement | null>;
+}) {
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+  if (!open) return null;
+
+  const sheet = createElement(
+    "div",
+    { className: "fixed inset-0 bg-[var(--zc-overlay)]", role: "presentation", onMouseDown: (event: MouseEvent<HTMLDivElement>) => { if (event.target === event.currentTarget) onClose(); } },
+    createElement(
+      "section",
+      {
+        className: cn("absolute inset-y-0 flex w-full max-w-[var(--zc-sheet-width)] flex-col border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] text-[var(--zc-text-primary)] shadow-[var(--zc-shadow-floating)] backdrop-blur-xl", side === "left" ? "left-0 border-r" : "right-0 border-l"),
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-labelledby": titleId,
+        "aria-describedby": description ? descriptionId : undefined,
+        "data-side-sheet": "true",
+        "data-side": side
+      },
+      createElement("header", { className: "flex shrink-0 items-start justify-between gap-3 border-b border-[var(--zc-divider)] px-5 py-4" }, createElement("div", { className: "min-w-0" }, createElement("h2", { ref: headingRef, id: titleId, tabIndex: -1, className: "text-lg font-semibold outline-none" }, title), description ? createElement("p", { id: descriptionId, className: "mt-1 text-sm leading-6 text-[var(--zc-text-secondary)]" }, description) : null), createElement(IconButton, { "aria-label": closeLabel, title: closeLabel, onClick: onClose }, createElement(X, { size: 17, "aria-hidden": "true" }))),
+      createElement("div", { className: "min-h-0 flex-1 overflow-auto px-5 py-4" }, children),
+      footer ? createElement("footer", { className: "shrink-0 border-t border-[var(--zc-divider)] px-5 py-4" }, footer) : null
+    )
+  );
+
+  return createElement(ModalPortal, { modalId, onEscape: onClose, initialFocusRef: initialFocusRef ?? (headingRef as RefObject<HTMLElement | null>), restoreFocus, children: sheet });
 }
 
 export function ConfirmDialog({
