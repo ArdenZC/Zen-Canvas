@@ -8,6 +8,7 @@
 
 use crate::{
     ai::{
+        provider::AIProvider,
         schema::{AIChatMessage, AIChatRequest, AIProviderKind, AIProviderOptions},
         settings::{
             get_ai_settings_for_db, normalize_ai_settings, provider_for_settings,
@@ -53,6 +54,9 @@ const MAX_RETAINED_TEXT_BYTES: i64 = 4 * 1024 * 1024;
 const PDF_MAX_OBJECTS: usize = 50_000;
 const PDF_MAX_DECOMPRESSED_BYTES: usize = 64 * 1024 * 1024;
 const PDF_SCAN_CHECK_BYTES: usize = 4096;
+const PDF_MAX_CMAP_ENTRIES: usize = 16_384;
+const PDF_MAX_CMAP_DECODED_BYTES: usize = 4 * 1024 * 1024;
+const PDF_MAX_TEMP_BUFFER_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1411,6 +1415,15 @@ impl Database {
         &self,
         request: UnderstandContentArtifactsRequest,
     ) -> Result<ContentUnderstandingResultDto, DbError> {
+        self.understand_content_artifacts_with_seams(request, None, None)
+    }
+
+    fn understand_content_artifacts_with_seams(
+        &self,
+        request: UnderstandContentArtifactsRequest,
+        provider_override: Option<&dyn AIProvider>,
+        before_provider_send: Option<&dyn Fn()>,
+    ) -> Result<ContentUnderstandingResultDto, DbError> {
         let run_id = request
             .run_id
             .as_deref()
@@ -1458,7 +1471,14 @@ impl Database {
         validate_ai_settings(&settings, !cfg!(debug_assertions)).map_err(|error| {
             DbError::Validation(redact_content_provider_error(error, &settings.api_key))
         })?;
-        let provider = provider_for_settings(&settings);
+        let owned_provider = provider_override
+            .is_none()
+            .then(|| provider_for_settings(&settings));
+        let provider = provider_override.unwrap_or_else(|| {
+            owned_provider
+                .as_deref()
+                .expect("provider is owned when no test override is supplied")
+        });
         let mut processed = 0_i64;
         let mut blocked = 0_i64;
         let mut first_reason = None;
@@ -1600,6 +1620,9 @@ impl Database {
                 )?;
                 continue;
             }
+            if let Some(hook) = before_provider_send {
+                hook();
+            }
             if let Err(error) =
                 self.revalidate_provider_send_boundary(&artifact, &policy, &run_claim, &item_claim)
             {
@@ -1720,6 +1743,7 @@ impl Database {
              SET status='running', provider_revision=provider_revision+1,
                  provider_owner=?3, revision=revision+1, updated_at=?4
              WHERE id=?1 AND revision=?2 AND provider_confirmed=1
+               AND provider_owner IS NULL
                AND status IN ('running','completed','partially_completed')",
             params![run_id, expected_revision, owner, now],
         )?;
@@ -2257,6 +2281,17 @@ impl Database {
         request: &StartContentRunRequest,
         candidates: Vec<Candidate>,
     ) -> Result<ContentRunDto, DbError> {
+        self.process_content_run_with_pdf_hook(run_id, request, candidates, None, None)
+    }
+
+    fn process_content_run_with_pdf_hook(
+        &self,
+        run_id: &str,
+        request: &StartContentRunRequest,
+        candidates: Vec<Candidate>,
+        pdf_work_hook: Option<&dyn Fn()>,
+        pdf_cancel: Option<&AtomicBool>,
+    ) -> Result<ContentRunDto, DbError> {
         let mut completed = 0_i64;
         let mut blocked = 0_i64;
         let mut failed = 0_i64;
@@ -2291,7 +2326,13 @@ impl Database {
                             expected.policy_revision,
                             &policy,
                         ) {
-                            Ok(root_path) => extract_candidate(candidate, &policy, &root_path),
+                            Ok(root_path) => extract_candidate_with_pdf_hook(
+                                candidate,
+                                &policy,
+                                &root_path,
+                                pdf_work_hook,
+                                pdf_cancel,
+                            ),
                             Err(error) => Err(error),
                         }
                     }
@@ -2333,7 +2374,9 @@ impl Database {
                 self.mark_content_item(run_id, ordinal as i64, "completed", None, None)?;
                 completed += 1;
             } else if matches!(extraction.status, "blocked" | "unsupported") {
-                self.persist_artifact(run_id, candidate, &policy, &extraction)?;
+                if should_publish_failed_pdf_extraction(&extraction) {
+                    self.persist_artifact(run_id, candidate, &policy, &extraction)?;
+                }
                 self.mark_content_item(
                     run_id,
                     ordinal as i64,
@@ -2346,8 +2389,11 @@ impl Database {
                 // A rebuild failure must never leave an older current artifact
                 // masquerading as the result of this run. Publish a bounded
                 // failed projection (or replace the stale projection) before
-                // recording the item failure.
-                self.persist_artifact(run_id, candidate, &policy, &extraction)?;
+                // recording the item failure, except for a cooperative PDF
+                // timeout/cancel, which must publish no artifact or FTS row.
+                if should_publish_failed_pdf_extraction(&extraction) {
+                    self.persist_artifact(run_id, candidate, &policy, &extraction)?;
+                }
                 self.mark_content_item(
                     run_id,
                     ordinal as i64,
@@ -3406,6 +3452,16 @@ fn extract_candidate(
     policy: &ContentScopePolicyDto,
     root_path: &str,
 ) -> Result<Extraction, DbError> {
+    extract_candidate_with_pdf_hook(candidate, policy, root_path, None, None)
+}
+
+fn extract_candidate_with_pdf_hook(
+    candidate: &Candidate,
+    policy: &ContentScopePolicyDto,
+    root_path: &str,
+    pdf_work_hook: Option<&dyn Fn()>,
+    pdf_cancel: Option<&AtomicBool>,
+) -> Result<Extraction, DbError> {
     let path = Path::new(&candidate.path);
     let canonical = std::fs::canonicalize(path)
         .map_err(|_| DbError::Validation("content_source_unavailable".into()))?;
@@ -3456,7 +3512,16 @@ fn extract_candidate(
         "txt" => text_extraction("txt", source_bytes, policy),
         "md" | "markdown" => text_extraction("md", source_bytes, policy),
         "csv" => csv_extraction(source_bytes, policy),
-        "pdf" => pdf_text_extraction(source_bytes, policy),
+        "pdf" => match pdf_work_hook {
+            Some(hook) => pdf_text_extraction_with_limits_and_hook(
+                &source_bytes,
+                policy,
+                Instant::now() + Duration::from_secs(2),
+                pdf_cancel,
+                Some(hook),
+            ),
+            None => pdf_text_extraction(source_bytes, policy),
+        },
         "docx" => office_xml_extraction("docx", source_bytes, policy, &["word/document.xml"]),
         "xlsx" => office_xml_extraction(
             "xlsx",
@@ -3476,6 +3541,14 @@ fn extract_candidate(
     }?;
     extraction.source_hash = source_hash;
     Ok(extraction)
+}
+
+fn should_publish_failed_pdf_extraction(extraction: &Extraction) -> bool {
+    !(extraction.family == "pdf_text"
+        && matches!(
+            extraction.reason.as_deref(),
+            Some("content_extractor_timeout") | Some("content_extractor_cancelled")
+        ))
 }
 
 fn read_bounded_file(path: &Path, max_bytes: usize) -> Result<Vec<u8>, DbError> {
@@ -3600,11 +3673,13 @@ enum PdfStop {
     Timeout,
     Cancelled,
     Invalid,
+    Limit(&'static str),
 }
 
 struct PdfTextAccumulator {
     text: String,
     max_chars: usize,
+    emitted_chars: usize,
     truncated: bool,
 }
 
@@ -3613,13 +3688,15 @@ impl PdfTextAccumulator {
         Self {
             text: String::new(),
             max_chars,
+            emitted_chars: 0,
             truncated: false,
         }
     }
 
     fn push_char(&mut self, value: char) {
-        if self.text.chars().count() < self.max_chars {
+        if self.emitted_chars < self.max_chars {
             self.text.push(value);
+            self.emitted_chars = self.emitted_chars.saturating_add(1);
         } else {
             self.truncated = true;
         }
@@ -3694,6 +3771,16 @@ fn pdf_text_extraction_with_limits(
     deadline: Instant,
     cancel: Option<&AtomicBool>,
 ) -> Result<Extraction, DbError> {
+    pdf_text_extraction_with_limits_and_hook(bytes, policy, deadline, cancel, None)
+}
+
+fn pdf_text_extraction_with_limits_and_hook(
+    bytes: &[u8],
+    policy: &ContentScopePolicyDto,
+    deadline: Instant,
+    cancel: Option<&AtomicBool>,
+    work_hook: Option<&dyn Fn()>,
+) -> Result<Extraction, DbError> {
     let blocked = |reason: &str| {
         Ok(Extraction {
             family: "pdf_text".into(),
@@ -3701,16 +3788,6 @@ fn pdf_text_extraction_with_limits(
             source_hash: String::new(),
             truncated: false,
             status: "blocked",
-            reason: Some(reason.into()),
-        })
-    };
-    let failed = |reason: &str| {
-        Ok(Extraction {
-            family: "pdf_text".into(),
-            text: String::new(),
-            source_hash: String::new(),
-            truncated: false,
-            status: "failed",
             reason: Some(reason.into()),
         })
     };
@@ -3723,55 +3800,79 @@ fn pdf_text_extraction_with_limits(
     let mut decompressed = 0_usize;
     let mut streams = Vec::<Vec<u8>>::new();
     let mut offset = 5_usize;
+    let mut work_started = false;
     while offset < bytes.len() {
-        if let Err(stop) = pdf_budget_check(offset, bytes.len(), deadline, cancel) {
-            return match stop {
-                PdfStop::Timeout => failed("content_extractor_timeout"),
-                PdfStop::Cancelled => failed("content_extractor_cancelled"),
-                _ => blocked("content_pdf_invalid"),
-            };
-        }
-        let Some(obj_start) = find_pdf_object_start(bytes, offset) else {
-            break;
+        let obj_start = match find_pdf_object_start_bounded(bytes, offset, deadline, cancel) {
+            Ok(Some(value)) => value,
+            Ok(None) => break,
+            Err(stop) => return Ok(pdf_stop_extraction(stop)),
         };
-        let Some(endobj) = find_pdf_token(bytes, b"endobj", obj_start + 3) else {
-            return blocked("content_pdf_invalid");
+        if !work_started {
+            if let Some(hook) = work_hook {
+                hook();
+            }
+            work_started = true;
+        }
+        if let Err(stop) = pdf_budget_check(obj_start, bytes.len(), deadline, cancel) {
+            return Ok(pdf_stop_extraction(stop));
+        }
+        let endobj = match find_pdf_token_bounded(bytes, b"endobj", obj_start + 3, deadline, cancel)
+        {
+            Ok(Some(value)) => value,
+            Ok(None) => break,
+            Err(stop) => return Ok(pdf_stop_extraction(stop)),
         };
         objects = objects.saturating_add(1);
         if objects > PDF_MAX_OBJECTS {
             return blocked("content_pdf_object_limit_exceeded");
         }
         let object = &bytes[obj_start..endobj];
-        if contains_pdf_token(object, b"/Encrypt") {
+        let encrypted = match contains_pdf_token_bounded(object, b"/Encrypt", deadline, cancel) {
+            Ok(value) => value,
+            Err(stop) => return Ok(pdf_stop_extraction(stop)),
+        };
+        if encrypted {
             return blocked("content_encrypted_document");
         }
-        if contains_pdf_type_page(object) {
+        let is_page = match contains_pdf_type_page_bounded(object, deadline, cancel) {
+            Ok(value) => value,
+            Err(stop) => return Ok(pdf_stop_extraction(stop)),
+        };
+        if is_page {
             pages = pages.saturating_add(1);
             if pages > policy.max_pages {
                 return blocked("content_pdf_page_limit_exceeded");
             }
         }
         let mut local = 0_usize;
-        while let Some(stream_rel) = find_pdf_token(object, b"stream", local) {
+        while let Some(stream_rel) =
+            match find_pdf_token_bounded(object, b"stream", local, deadline, cancel) {
+                Ok(value) => value,
+                Err(stop) => return Ok(pdf_stop_extraction(stop)),
+            }
+        {
             if let Err(stop) =
                 pdf_budget_check(obj_start + stream_rel, bytes.len(), deadline, cancel)
             {
-                return match stop {
-                    PdfStop::Timeout => failed("content_extractor_timeout"),
-                    PdfStop::Cancelled => failed("content_extractor_cancelled"),
-                    _ => blocked("content_pdf_invalid"),
-                };
+                return Ok(pdf_stop_extraction(stop));
             }
             let data_start = pdf_stream_data_start(object, stream_rel + b"stream".len());
-            let Some(endstream) = find_pdf_token(object, b"endstream", data_start) else {
-                return blocked("content_pdf_invalid");
-            };
+            let endstream =
+                match find_pdf_token_bounded(object, b"endstream", data_start, deadline, cancel) {
+                    Ok(Some(value)) => value,
+                    Ok(None) => return blocked("content_pdf_invalid"),
+                    Err(stop) => return Ok(pdf_stop_extraction(stop)),
+                };
             let stream = &object[data_start..endstream];
             if stream.len() > policy.max_bytes.max(0) as usize {
                 return blocked("content_decompressed_byte_limit_exceeded");
             }
             let dictionary = &object[..stream_rel];
-            let flate = contains_pdf_token(dictionary, b"/FlateDecode");
+            let flate =
+                match contains_pdf_token_bounded(dictionary, b"/FlateDecode", deadline, cancel) {
+                    Ok(value) => value,
+                    Err(stop) => return Ok(pdf_stop_extraction(stop)),
+                };
             if flate {
                 let mut decoder = ZlibDecoder::new(stream);
                 let mut decoded = Vec::new();
@@ -3780,11 +3881,7 @@ fn pdf_text_extraction_with_limits(
                     if let Err(stop) =
                         pdf_budget_check(obj_start + data_start, bytes.len(), deadline, cancel)
                     {
-                        return match stop {
-                            PdfStop::Timeout => failed("content_extractor_timeout"),
-                            PdfStop::Cancelled => failed("content_extractor_cancelled"),
-                            _ => blocked("content_pdf_invalid"),
-                        };
+                        return Ok(pdf_stop_extraction(stop));
                     }
                     let read = decoder
                         .read(&mut chunk)
@@ -3817,20 +3914,30 @@ fn pdf_text_extraction_with_limits(
         return blocked("content_pdf_invalid");
     }
     let mut cmap = HashMap::new();
+    let mut cmap_decoded_bytes = 0_usize;
     for stream in &streams {
-        if stream
-            .windows(b"beginbfchar".len())
-            .any(|window| window == b"beginbfchar")
-            || stream
-                .windows(b"beginbfrange".len())
-                .any(|window| window == b"beginbfrange")
+        let has_bfchar = match find_pdf_token_bounded(stream, b"beginbfchar", 0, deadline, cancel) {
+            Ok(value) => value.is_some(),
+            Err(stop) => return Ok(pdf_stop_extraction(stop)),
+        };
+        let has_bfrange = match find_pdf_token_bounded(stream, b"beginbfrange", 0, deadline, cancel)
         {
-            parse_pdf_cmap(stream, &mut cmap);
+            Ok(value) => value.is_some(),
+            Err(stop) => return Ok(pdf_stop_extraction(stop)),
+        };
+        if has_bfchar || has_bfrange {
+            if let Err(stop) =
+                parse_pdf_cmap(stream, &mut cmap, &mut cmap_decoded_bytes, deadline, cancel)
+            {
+                return Ok(pdf_stop_extraction(stop));
+            }
         }
     }
     for stream in &streams {
-        parse_pdf_text_stream(stream, &mut accumulator, &cmap, deadline, cancel)
-            .map_err(pdf_stop_error)?;
+        if let Err(stop) = parse_pdf_text_stream(stream, &mut accumulator, &cmap, deadline, cancel)
+        {
+            return Ok(pdf_stop_extraction(stop));
+        }
     }
     if accumulator.text.trim().is_empty() {
         return blocked("ocr_only_or_no_text_layer");
@@ -3843,6 +3950,23 @@ fn pdf_text_extraction_with_limits(
         status: "completed",
         reason: None,
     })
+}
+
+fn pdf_stop_extraction(stop: PdfStop) -> Extraction {
+    let (status, reason) = match stop {
+        PdfStop::Timeout => ("failed", "content_extractor_timeout"),
+        PdfStop::Cancelled => ("failed", "content_extractor_cancelled"),
+        PdfStop::Invalid => ("blocked", "content_pdf_invalid"),
+        PdfStop::Limit(reason) => ("blocked", reason),
+    };
+    Extraction {
+        family: "pdf_text".into(),
+        text: String::new(),
+        source_hash: String::new(),
+        truncated: false,
+        status,
+        reason: Some(reason.into()),
+    }
 }
 
 fn pdf_decompressed_limit(policy: &ContentScopePolicyDto) -> usize {
@@ -3867,70 +3991,126 @@ fn pdf_budget_check(
     Ok(())
 }
 
-fn pdf_stop_error(stop: PdfStop) -> DbError {
-    DbError::Validation(
-        match stop {
-            PdfStop::Timeout => "content_extractor_timeout",
-            PdfStop::Cancelled => "content_extractor_cancelled",
-            PdfStop::Invalid => "content_pdf_invalid",
-        }
-        .into(),
-    )
-}
-
-fn find_pdf_object_start(bytes: &[u8], from: usize) -> Option<usize> {
+fn find_pdf_object_start_bounded(
+    bytes: &[u8],
+    from: usize,
+    deadline: Instant,
+    cancel: Option<&AtomicBool>,
+) -> Result<Option<usize>, PdfStop> {
     let mut index = from;
     while index + 3 < bytes.len() {
+        if index
+            .saturating_sub(from)
+            .is_multiple_of(PDF_SCAN_CHECK_BYTES)
+        {
+            pdf_budget_check(index, bytes.len(), deadline, cancel)?;
+        }
         if bytes[index].is_ascii_digit()
             && (index == 0 || bytes[index - 1].is_ascii_whitespace())
             && bytes[index + 1..].windows(3).next().is_some()
         {
             let mut cursor = index;
             while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
+                if cursor
+                    .saturating_sub(from)
+                    .is_multiple_of(PDF_SCAN_CHECK_BYTES)
+                {
+                    pdf_budget_check(cursor, bytes.len(), deadline, cancel)?;
+                }
                 cursor += 1;
             }
             while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+                if cursor
+                    .saturating_sub(from)
+                    .is_multiple_of(PDF_SCAN_CHECK_BYTES)
+                {
+                    pdf_budget_check(cursor, bytes.len(), deadline, cancel)?;
+                }
                 cursor += 1;
             }
             let generation_start = cursor;
             while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
+                if cursor
+                    .saturating_sub(from)
+                    .is_multiple_of(PDF_SCAN_CHECK_BYTES)
+                {
+                    pdf_budget_check(cursor, bytes.len(), deadline, cancel)?;
+                }
                 cursor += 1;
             }
             if cursor > generation_start {
                 while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+                    if cursor
+                        .saturating_sub(from)
+                        .is_multiple_of(PDF_SCAN_CHECK_BYTES)
+                    {
+                        pdf_budget_check(cursor, bytes.len(), deadline, cancel)?;
+                    }
                     cursor += 1;
                 }
                 if bytes.get(cursor..cursor + 3) == Some(b"obj") {
-                    return Some(index);
+                    return Ok(Some(index));
                 }
             }
         }
         index += 1;
     }
-    None
+    pdf_budget_check(bytes.len(), bytes.len(), deadline, cancel)?;
+    Ok(None)
 }
 
-fn find_pdf_token(bytes: &[u8], token: &[u8], from: usize) -> Option<usize> {
-    bytes
-        .get(from..)?
-        .windows(token.len())
-        .position(|window| window == token)
-        .map(|position| position + from)
+fn find_pdf_token_bounded(
+    bytes: &[u8],
+    token: &[u8],
+    from: usize,
+    deadline: Instant,
+    cancel: Option<&AtomicBool>,
+) -> Result<Option<usize>, PdfStop> {
+    if token.is_empty() {
+        return Ok(Some(from.min(bytes.len())));
+    }
+    let end = bytes.len().saturating_sub(token.len());
+    let mut index = from.min(bytes.len());
+    while index <= end {
+        if index
+            .saturating_sub(from)
+            .is_multiple_of(PDF_SCAN_CHECK_BYTES)
+        {
+            pdf_budget_check(index, bytes.len(), deadline, cancel)?;
+        }
+        if bytes.get(index..index + token.len()) == Some(token) {
+            return Ok(Some(index));
+        }
+        index = index.saturating_add(1);
+    }
+    pdf_budget_check(bytes.len(), bytes.len(), deadline, cancel)?;
+    Ok(None)
 }
 
-fn contains_pdf_token(bytes: &[u8], token: &[u8]) -> bool {
-    find_pdf_token(bytes, token, 0).is_some()
+fn contains_pdf_token_bounded(
+    bytes: &[u8],
+    token: &[u8],
+    deadline: Instant,
+    cancel: Option<&AtomicBool>,
+) -> Result<bool, PdfStop> {
+    Ok(find_pdf_token_bounded(bytes, token, 0, deadline, cancel)?.is_some())
 }
 
-fn contains_pdf_type_page(bytes: &[u8]) -> bool {
-    find_pdf_token(bytes, b"/Type", 0).is_some_and(|type_start| {
-        let remainder = &bytes[type_start + b"/Type".len()..];
-        find_pdf_token(remainder, b"/Page", 0).is_some_and(|page_start| {
-            remainder
-                .get(page_start + b"/Page".len())
-                .is_none_or(|character| !character.is_ascii_alphabetic())
-        })
-    })
+fn contains_pdf_type_page_bounded(
+    bytes: &[u8],
+    deadline: Instant,
+    cancel: Option<&AtomicBool>,
+) -> Result<bool, PdfStop> {
+    let Some(type_start) = find_pdf_token_bounded(bytes, b"/Type", 0, deadline, cancel)? else {
+        return Ok(false);
+    };
+    let remainder = &bytes[type_start + b"/Type".len()..];
+    let Some(page_start) = find_pdf_token_bounded(remainder, b"/Page", 0, deadline, cancel)? else {
+        return Ok(false);
+    };
+    Ok(remainder
+        .get(page_start + b"/Page".len())
+        .is_none_or(|character| !character.is_ascii_alphabetic()))
 }
 
 fn pdf_stream_data_start(bytes: &[u8], mut index: usize) -> usize {
@@ -3955,12 +4135,6 @@ fn parse_pdf_text_stream(
     deadline: Instant,
     cancel: Option<&AtomicBool>,
 ) -> Result<(), PdfStop> {
-    if !stream.windows(2).any(|window| window == b"BT")
-        && !stream.windows(2).any(|window| window == b"Tj")
-        && !stream.windows(2).any(|window| window == b"TJ")
-    {
-        return Ok(());
-    }
     let mut index = 0_usize;
     while index < stream.len() {
         if index.is_multiple_of(PDF_SCAN_CHECK_BYTES) {
@@ -3986,19 +4160,39 @@ fn parse_pdf_text_stream(
                             b'f' => 12,
                             value => value,
                         };
+                        if literal.len() >= PDF_MAX_TEMP_BUFFER_BYTES {
+                            return Err(PdfStop::Limit(
+                                "content_pdf_literal_buffer_limit_exceeded",
+                            ));
+                        }
                         literal.push(decoded);
                         escaped = false;
                     } else if character == b'\\' {
                         escaped = true;
                     } else if character == b'(' {
                         depth += 1;
+                        if literal.len() >= PDF_MAX_TEMP_BUFFER_BYTES {
+                            return Err(PdfStop::Limit(
+                                "content_pdf_literal_buffer_limit_exceeded",
+                            ));
+                        }
                         literal.push(b'(');
                     } else if character == b')' {
                         depth -= 1;
                         if depth > 0 {
+                            if literal.len() >= PDF_MAX_TEMP_BUFFER_BYTES {
+                                return Err(PdfStop::Limit(
+                                    "content_pdf_literal_buffer_limit_exceeded",
+                                ));
+                            }
                             literal.push(b')');
                         }
                     } else {
+                        if literal.len() >= PDF_MAX_TEMP_BUFFER_BYTES {
+                            return Err(PdfStop::Limit(
+                                "content_pdf_literal_buffer_limit_exceeded",
+                            ));
+                        }
                         literal.push(character);
                     }
                     index += 1;
@@ -4020,6 +4214,11 @@ fn parse_pdf_text_stream(
                     if value.is_ascii_hexdigit() {
                         let nibble = pdf_hex_nibble(value).ok_or(PdfStop::Invalid)?;
                         if let Some(first) = high.take() {
+                            if decoded.len() >= PDF_MAX_TEMP_BUFFER_BYTES {
+                                return Err(PdfStop::Limit(
+                                    "content_pdf_hex_buffer_limit_exceeded",
+                                ));
+                            }
                             decoded.push((first << 4) | nibble);
                         } else {
                             high = Some(nibble);
@@ -4031,6 +4230,9 @@ fn parse_pdf_text_stream(
                     return Err(PdfStop::Invalid);
                 }
                 if let Some(first) = high {
+                    if decoded.len() >= PDF_MAX_TEMP_BUFFER_BYTES {
+                        return Err(PdfStop::Limit("content_pdf_hex_buffer_limit_exceeded"));
+                    }
                     decoded.push(first << 4);
                 }
                 accumulator.push_mapped_bytes(&decoded, cmap);
@@ -4041,23 +4243,48 @@ fn parse_pdf_text_stream(
     Ok(())
 }
 
-fn parse_pdf_cmap(stream: &[u8], cmap: &mut HashMap<Vec<u8>, String>) {
+fn parse_pdf_cmap(
+    stream: &[u8],
+    cmap: &mut HashMap<Vec<u8>, String>,
+    decoded_bytes: &mut usize,
+    deadline: Instant,
+    cancel: Option<&AtomicBool>,
+) -> Result<(), PdfStop> {
+    if stream.len() > PDF_MAX_CMAP_DECODED_BYTES {
+        return Err(PdfStop::Limit(
+            "content_pdf_cmap_decoded_byte_limit_exceeded",
+        ));
+    }
     let source = String::from_utf8_lossy(stream);
     let mut mode = None;
+    let mut scanned = 0_usize;
     for line in source.lines() {
-        if line.contains("beginbfchar") {
+        scanned = scanned.saturating_add(line.len());
+        if scanned.is_multiple_of(PDF_SCAN_CHECK_BYTES)
+            || scanned.saturating_sub(line.len()) < PDF_SCAN_CHECK_BYTES
+        {
+            pdf_budget_check(scanned, stream.len(), deadline, cancel)?;
+        }
+        if contains_pdf_token_bounded(line.as_bytes(), b"beginbfchar", deadline, cancel)? {
             mode = Some("char");
             continue;
         }
-        if line.contains("beginbfrange") {
+        if contains_pdf_token_bounded(line.as_bytes(), b"beginbfrange", deadline, cancel)? {
             mode = Some("range");
             continue;
         }
-        if line.contains("endbfchar") || line.contains("endbfrange") {
+        if contains_pdf_token_bounded(line.as_bytes(), b"endbfchar", deadline, cancel)?
+            || contains_pdf_token_bounded(line.as_bytes(), b"endbfrange", deadline, cancel)?
+        {
             mode = None;
             continue;
         }
         let Some(mode) = mode else { continue };
+        if line.len() > PDF_MAX_TEMP_BUFFER_BYTES {
+            return Err(PdfStop::Limit(
+                "content_pdf_cmap_temporary_buffer_limit_exceeded",
+            ));
+        }
         let tokens = line
             .split_whitespace()
             .filter_map(|token| {
@@ -4069,7 +4296,7 @@ fn parse_pdf_cmap(stream: &[u8], cmap: &mut HashMap<Vec<u8>, String>) {
         match (mode, tokens.as_slice()) {
             ("char", [source, target, ..]) => {
                 if let Some(text) = pdf_unicode_string(target) {
-                    cmap.insert(source.clone(), text);
+                    insert_pdf_cmap_entry(cmap, decoded_bytes, source.clone(), text)?;
                 }
             }
             ("range", [start, end, target, ..]) if start.len() == end.len() => {
@@ -4081,10 +4308,11 @@ fn parse_pdf_cmap(stream: &[u8], cmap: &mut HashMap<Vec<u8>, String>) {
                     }
                     let base_value = base.chars().next().map(|value| value as u32).unwrap_or(0);
                     for value in start_value..=end_value {
+                        pdf_budget_check(value as usize, end_value as usize, deadline, cancel)?;
                         let mut key = value.to_be_bytes().to_vec();
                         key = key[key.len().saturating_sub(start.len())..].to_vec();
                         if let Some(character) = char::from_u32(base_value + value - start_value) {
-                            cmap.insert(key, character.to_string());
+                            insert_pdf_cmap_entry(cmap, decoded_bytes, key, character.to_string())?;
                         }
                     }
                 }
@@ -4092,10 +4320,35 @@ fn parse_pdf_cmap(stream: &[u8], cmap: &mut HashMap<Vec<u8>, String>) {
             _ => {}
         }
     }
+    pdf_budget_check(stream.len(), stream.len(), deadline, cancel)
+}
+
+fn insert_pdf_cmap_entry(
+    cmap: &mut HashMap<Vec<u8>, String>,
+    decoded_bytes: &mut usize,
+    key: Vec<u8>,
+    value: String,
+) -> Result<(), PdfStop> {
+    if cmap.len() >= PDF_MAX_CMAP_ENTRIES || key.len() > PDF_MAX_TEMP_BUFFER_BYTES {
+        return Err(PdfStop::Limit("content_pdf_cmap_entry_limit_exceeded"));
+    }
+    let value_bytes = value.len();
+    if (*decoded_bytes).saturating_add(value_bytes) > PDF_MAX_CMAP_DECODED_BYTES {
+        return Err(PdfStop::Limit(
+            "content_pdf_cmap_decoded_byte_limit_exceeded",
+        ));
+    }
+    if cmap.insert(key, value).is_none() {
+        *decoded_bytes = (*decoded_bytes).saturating_add(value_bytes);
+    }
+    Ok(())
 }
 
 fn pdf_hex_bytes(value: &str) -> Option<Vec<u8>> {
-    if !value.len().is_multiple_of(2) || value.is_empty() {
+    if !value.len().is_multiple_of(2)
+        || value.is_empty()
+        || value.len() / 2 > PDF_MAX_TEMP_BUFFER_BYTES
+    {
         return None;
     }
     let mut bytes = Vec::with_capacity(value.len() / 2);
@@ -4113,6 +4366,9 @@ fn pdf_big_endian_value(value: &[u8]) -> u32 {
 }
 
 fn pdf_unicode_string(value: &[u8]) -> Option<String> {
+    if value.len() > PDF_MAX_TEMP_BUFFER_BYTES {
+        return None;
+    }
     if value.starts_with(&[0xfe, 0xff]) {
         let units = value[2..]
             .chunks_exact(2)
@@ -5107,6 +5363,7 @@ pub fn understand_content_artifacts<R: Runtime>(
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::sync::{atomic::AtomicUsize, Arc, Barrier};
     use zip::{write::SimpleFileOptions, ZipWriter};
 
     #[test]
@@ -5394,6 +5651,295 @@ mod tests {
             object_limit.reason.as_deref(),
             Some("content_pdf_object_limit_exceeded")
         );
+
+        let literal = valid_pdf_fixture_with_stream(&format!(
+            "BT /F1 24 Tf 72 72 Td ({}) Tj ET\n",
+            "x".repeat(PDF_MAX_TEMP_BUFFER_BYTES + 1)
+        ));
+        let literal_limit = pdf_text_extraction(literal, &default_policy("root", 0)).unwrap();
+        assert_eq!(
+            literal_limit.reason.as_deref(),
+            Some("content_pdf_literal_buffer_limit_exceeded")
+        );
+
+        let hex = valid_pdf_fixture_with_stream(&format!(
+            "BT /F1 24 Tf 72 72 Td <{}> Tj ET\n",
+            "aa".repeat(PDF_MAX_TEMP_BUFFER_BYTES + 1)
+        ));
+        let hex_limit = pdf_text_extraction(hex, &default_policy("root", 0)).unwrap();
+        assert_eq!(
+            hex_limit.reason.as_deref(),
+            Some("content_pdf_hex_buffer_limit_exceeded")
+        );
+
+        let mut cmap_stream = String::from("BT /F1 24 Tf 72 72 Td <0000> Tj ET\n");
+        cmap_stream.push_str("/CIDInit /ProcSet findresource begin\nbeginbfchar\n");
+        for value in 0..=PDF_MAX_CMAP_ENTRIES {
+            cmap_stream.push_str(&format!("<{:04x}> <0041>\n", value));
+        }
+        cmap_stream.push_str("endbfchar\nend\n");
+        let cmap_limit = pdf_text_extraction(
+            valid_pdf_fixture_with_stream(&cmap_stream),
+            &default_policy("root", 0),
+        )
+        .unwrap();
+        assert_eq!(
+            cmap_limit.reason.as_deref(),
+            Some("content_pdf_cmap_entry_limit_exceeded")
+        );
+
+        let mut decoded_policy = default_policy("root", 0);
+        decoded_policy.max_bytes = 16 * 1024 * 1024;
+        let cmap_target = "61".repeat(349_525);
+        let mut decoded_cmap_stream = String::from("BT /F1 24 Tf 72 72 Td <0000> Tj ET\n");
+        decoded_cmap_stream.push_str("/CIDInit /ProcSet findresource begin\nbeginbfchar\n");
+        for value in 0..13_u16 {
+            decoded_cmap_stream.push_str(&format!("<{value:04x}> <{cmap_target}>\n"));
+        }
+        decoded_cmap_stream.push_str("endbfchar\nend\n");
+        let decoded_cmap_limit = pdf_text_extraction(
+            valid_pdf_fixture_with_stream(&decoded_cmap_stream),
+            &decoded_policy,
+        )
+        .unwrap();
+        assert_eq!(
+            decoded_cmap_limit.reason.as_deref(),
+            Some("content_pdf_cmap_decoded_byte_limit_exceeded")
+        );
+    }
+
+    #[test]
+    fn pdf_midflight_timeout_and_cancel_are_bounded_without_publication() {
+        let policy = default_policy("fixture-root", 0);
+        let hostile = compressed_pdf_fixture(&vec![b'x'; 2 * 1024 * 1024]);
+
+        let timeout_started = AtomicBool::new(false);
+        let timeout_hook = || {
+            timeout_started.store(true, Ordering::SeqCst);
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        let started_at = Instant::now();
+        let timeout = pdf_text_extraction_with_limits_and_hook(
+            &hostile,
+            &policy,
+            Instant::now() + Duration::from_millis(5),
+            None,
+            Some(&timeout_hook),
+        )
+        .unwrap();
+        let timeout_elapsed = started_at.elapsed();
+        assert!(timeout_started.load(Ordering::SeqCst));
+        assert_eq!(timeout.status, "failed");
+        assert_eq!(timeout.reason.as_deref(), Some("content_extractor_timeout"));
+        assert!(timeout_elapsed < Duration::from_millis(500));
+
+        let cancel = AtomicBool::new(false);
+        let cancel_started = AtomicBool::new(false);
+        let cancel_hook = || {
+            cancel_started.store(true, Ordering::SeqCst);
+            cancel.store(true, Ordering::SeqCst);
+        };
+        let started_at = Instant::now();
+        let cancelled = pdf_text_extraction_with_limits_and_hook(
+            &hostile,
+            &policy,
+            Instant::now() + Duration::from_secs(2),
+            Some(&cancel),
+            Some(&cancel_hook),
+        )
+        .unwrap();
+        let cancel_elapsed = started_at.elapsed();
+        assert!(cancel_started.load(Ordering::SeqCst));
+        assert_eq!(cancelled.status, "failed");
+        assert_eq!(
+            cancelled.reason.as_deref(),
+            Some("content_extractor_cancelled")
+        );
+        assert!(cancel_elapsed < Duration::from_millis(500));
+
+        let db_path = std::env::temp_dir().join(format!(
+            "zen-content-pdf-midflight-{}.sqlite3",
+            uuid::Uuid::new_v4()
+        ));
+        let db = Database::open(&db_path).unwrap();
+        let conn = db.conn().unwrap();
+        let artifacts: i64 = conn
+            .query_row("SELECT COUNT(*) FROM content_artifacts", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let fts: i64 = conn
+            .query_row("SELECT COUNT(*) FROM content_artifact_fts", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            artifacts, 0,
+            "mid-flight parser failure publishes no artifact"
+        );
+        assert_eq!(fts, 0, "mid-flight parser failure publishes no FTS row");
+        drop(conn);
+        drop(db);
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn pdf_midflight_cancel_through_run_publishes_no_artifact_or_fts() {
+        let root = std::env::temp_dir().join(format!(
+            "zen-content-pdf-run-cancel-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("hostile.pdf");
+        let bytes = compressed_pdf_fixture(&vec![b'x'; 2 * 1024 * 1024]);
+        std::fs::write(&path, &bytes).unwrap();
+        let metadata = std::fs::metadata(&path).unwrap();
+        let size = metadata.len() as i64;
+        let mtime = modified_unix_seconds(&metadata);
+        let db_path = std::env::temp_dir().join(format!(
+            "zen-content-pdf-run-cancel-{}.sqlite3",
+            uuid::Uuid::new_v4()
+        ));
+        let db = Database::open(&db_path).unwrap();
+        let root_id = "pdf-run-cancel-root";
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO scan_roots(
+                    id, normalized_path, display_name, source_kind, enabled,
+                    health_status, current_generation, revision, needs_reconciliation,
+                    created_at, updated_at
+                 ) VALUES (?1,?2,?1,'file_library',1,'healthy',1,1,0,1,1)",
+                params![root_id, root.to_string_lossy().replace('\\', "/")],
+            )
+            .unwrap();
+        db.insert_file(crate::db::InsertFileRequest {
+            id: "pdf-run-cancel-file".into(),
+            path: path.to_string_lossy().replace('\\', "/"),
+            name: "hostile.pdf".into(),
+            extension: "pdf".into(),
+            size,
+            mtime,
+            ctime: mtime,
+            is_dir: false,
+            state_code: 0,
+        })
+        .unwrap();
+        db.set_content_scope_policy(SetContentScopePolicyRequest {
+            version: CONTENT_VERSION,
+            root_id: root_id.into(),
+            expected_root_revision: 1,
+            expected_policy_revision: 0,
+            confirmed: true,
+            policy: ContentScopePolicyDto {
+                root_revision: 1,
+                enabled: true,
+                local_allowed: true,
+                ..default_policy(root_id, 1)
+            },
+        })
+        .unwrap();
+        let library_revision = current_library_revision(&db.conn().unwrap()).unwrap();
+        let source_hash = hash_bytes(&bytes);
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO content_runs(
+                    id, scope_json, scope_fingerprint, mode, provider_mode, status,
+                    expected_library_revision, policy_fingerprint, confirmation,
+                    provider_confirmed, revision, created_at, updated_at
+                 ) VALUES ('pdf-run-cancel-run','{}','scope','local','none','running',
+                           ?1,'policy',1,0,1,1,1)",
+                params![library_revision],
+            )
+            .unwrap();
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO content_run_items(
+                    id, run_id, file_id, ordinal, status, root_id, source_is_dir,
+                    source_size, source_mtime, source_hash, provider_status,
+                    policy_revision, created_at, updated_at
+                 ) VALUES ('pdf-run-cancel-item','pdf-run-cancel-run',
+                           'pdf-run-cancel-file',0,'pending',?1,0,?2,?3,?4,
+                           'pending',1,1,1)",
+                params![root_id, size, mtime, source_hash],
+            )
+            .unwrap();
+        let candidate = Candidate {
+            id: "pdf-run-cancel-file".into(),
+            path: path.to_string_lossy().replace('\\', "/"),
+            name: "hostile.pdf".into(),
+            extension: "pdf".into(),
+            size,
+            mtime,
+            is_dir: false,
+            root_id: root_id.into(),
+            content_hash: String::new(),
+        };
+        let request = StartContentRunRequest {
+            version: CONTENT_VERSION,
+            request_id: "pdf-run-cancel-request".into(),
+            scope: FileLibraryScopeV2::Roots {
+                scan_root_ids: vec![root_id.into()],
+            },
+            selection_file_ids: vec![candidate.id.clone()],
+            mode: "local".into(),
+            expected_library_revision: library_revision,
+            expected_policy_revisions: vec![ContentPolicyRevisionRequest {
+                root_id: root_id.into(),
+                root_revision: 1,
+                policy_revision: 1,
+            }],
+            provider_mode: "none".into(),
+            preview_fingerprint: "test".into(),
+            confirmed: true,
+        };
+        let cancel = AtomicBool::new(false);
+        let started = AtomicBool::new(false);
+        let cancel_hook = || {
+            started.store(true, Ordering::SeqCst);
+            cancel.store(true, Ordering::SeqCst);
+        };
+        let elapsed_start = Instant::now();
+        let run = db
+            .process_content_run_with_pdf_hook(
+                "pdf-run-cancel-run",
+                &request,
+                vec![candidate],
+                Some(&cancel_hook),
+                Some(&cancel),
+            )
+            .unwrap();
+        assert!(started.load(Ordering::SeqCst));
+        assert!(elapsed_start.elapsed() < Duration::from_millis(500));
+        assert_eq!(run.status, "partially_completed");
+        let conn = db.conn().unwrap();
+        let (item_status, error_code): (String, Option<String>) = conn
+            .query_row(
+                "SELECT status, error_code FROM content_run_items WHERE id='pdf-run-cancel-item'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let artifacts: i64 = conn
+            .query_row("SELECT COUNT(*) FROM content_artifacts", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let fts: i64 = conn
+            .query_row("SELECT COUNT(*) FROM content_artifact_fts", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(item_status, "failed");
+        assert_eq!(error_code.as_deref(), Some("content_extractor_cancelled"));
+        assert_eq!(artifacts, 0);
+        assert_eq!(fts, 0);
+        drop(conn);
+        drop(db);
+        let _ = std::fs::remove_file(db_path);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     fn valid_pdf_fixture_with_text(text: &str) -> Vec<u8> {
@@ -5402,6 +5948,10 @@ mod tests {
             .replace('(', "\\(")
             .replace(')', "\\)");
         let stream = format!("BT /F1 24 Tf 72 72 Td ({escaped}) Tj ET\n");
+        valid_pdf_fixture_with_stream(&stream)
+    }
+
+    fn valid_pdf_fixture_with_stream(stream: &str) -> Vec<u8> {
         let objects = [
             "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
@@ -5576,6 +6126,130 @@ mod tests {
             )
             .unwrap()
             .is_none());
+        drop(db);
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn provider_phase_claim_serializes_active_owners_across_connections() {
+        let db_path = std::env::temp_dir().join(format!(
+            "zen-content-provider-contention-{}.sqlite3",
+            uuid::Uuid::new_v4()
+        ));
+        let db = Database::open(&db_path).unwrap();
+        db.insert_file(crate::db::InsertFileRequest {
+            id: "contention-file".into(),
+            path: "contention-file.txt".into(),
+            name: "contention-file.txt".into(),
+            extension: "txt".into(),
+            size: 0,
+            mtime: 0,
+            ctime: 0,
+            is_dir: false,
+            state_code: 0,
+        })
+        .unwrap();
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO content_runs(
+                    id, scope_json, scope_fingerprint, mode, provider_mode, status,
+                    expected_library_revision, policy_fingerprint, confirmation,
+                    provider_confirmed, created_at, updated_at
+                 ) VALUES ('provider-contention-run','{}','scope','understand',
+                           'existing_interactive_provider','running',1,'policy',1,1,1,1)",
+                [],
+            )
+            .unwrap();
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO content_run_items(
+                    id, run_id, file_id, ordinal, status, root_id, source_is_dir,
+                    artifact_id, provider_status, source_size, source_mtime, source_hash,
+                    policy_revision, created_at, updated_at
+                 ) VALUES ('provider-contention-item','provider-contention-run',
+                           'contention-file',0,'completed','contention-root',0,
+                           'contention-artifact','pending',0,0,'',1,1,1)",
+                [],
+            )
+            .unwrap();
+
+        let barrier = Arc::new(Barrier::new(2));
+        let provider_gate_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let first_db = db.clone();
+        let first_barrier = barrier.clone();
+        let first_gate = provider_gate_count.clone();
+        let first = std::thread::spawn(move || {
+            first_barrier.wait();
+            let result = first_db.claim_provider_phase("provider-contention-run", 1);
+            if result.is_ok() {
+                first_gate.fetch_add(1, Ordering::SeqCst);
+            }
+            result
+                .map(|claim| claim.owner)
+                .map_err(|error| error.to_string())
+        });
+        let second_db = db.clone();
+        let second_barrier = barrier.clone();
+        let second_gate = provider_gate_count.clone();
+        let second = std::thread::spawn(move || {
+            second_barrier.wait();
+            let result = second_db.claim_provider_phase("provider-contention-run", 1);
+            if result.is_ok() {
+                second_gate.fetch_add(1, Ordering::SeqCst);
+            }
+            result
+                .map(|claim| claim.owner)
+                .map_err(|error| error.to_string())
+        });
+        let first = first.join().unwrap();
+        let second = second.join().unwrap();
+        let owners = [first.as_ref().ok(), second.as_ref().ok()]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        assert_eq!(owners.len(), 1, "exactly one connection owns the phase");
+        assert_eq!(provider_gate_count.load(Ordering::SeqCst), 1);
+
+        let winner_owner = owners[0].clone();
+        let conn = db.conn().unwrap();
+        let (revision, status, active_owner): (i64, String, String) = conn
+            .query_row(
+                "SELECT revision, status, provider_owner FROM content_runs WHERE id='provider-contention-run'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(revision, 2);
+        assert_eq!(status, "running");
+        assert_eq!(active_owner, winner_owner);
+        let item_state: (String, Option<String>) = conn
+            .query_row(
+                "SELECT provider_status, provider_owner FROM content_run_items WHERE id='provider-contention-item'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(item_state, ("pending".into(), None));
+        drop(conn);
+
+        // A contender that read the newly incremented revision still cannot
+        // replace the live owner; startup recovery is the only reclaim path.
+        assert!(db
+            .claim_provider_phase("provider-contention-run", 2)
+            .is_err());
+        let conn = db.conn().unwrap();
+        let (revision, active_owner): (i64, String) = conn
+            .query_row(
+                "SELECT revision, provider_owner FROM content_runs WHERE id='provider-contention-run'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(revision, 2);
+        assert_eq!(active_owner, winner_owner);
+        drop(conn);
         drop(db);
         let _ = std::fs::remove_file(db_path);
     }
@@ -5945,6 +6619,213 @@ mod tests {
             provider_requests, 0,
             "a changed source must not reach the provider"
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    struct CountingProvider {
+        invocations: Arc<AtomicUsize>,
+    }
+
+    impl AIProvider for CountingProvider {
+        fn chat_json(
+            &self,
+            _request: AIChatRequest,
+        ) -> Result<String, crate::ai::provider::AIProviderError> {
+            self.invocations.fetch_add(1, Ordering::SeqCst);
+            Ok(r#"{"summary":"should not be sent","keywords":[],"warnings":[]}"#.into())
+        }
+
+        fn test_connection(
+            &self,
+        ) -> Result<crate::ai::schema::AIConnectionTestResult, crate::ai::provider::AIProviderError>
+        {
+            Ok(crate::ai::schema::AIConnectionTestResult {
+                ok: true,
+                message: "test provider".into(),
+                model: Some("test".into()),
+                provider: None,
+                preset: None,
+                elapsed_ms: 0,
+            })
+        }
+    }
+
+    #[test]
+    fn provider_source_mutation_blocks_complete_understand_orchestration() {
+        let root = std::env::temp_dir().join(format!(
+            "zen-content-provider-orchestration-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("source.txt");
+        std::fs::write(&path, b"before-send").unwrap();
+        let metadata = std::fs::metadata(&path).unwrap();
+        let size = metadata.len() as i64;
+        let mtime = modified_unix_seconds(&metadata);
+        let source_hash = hash_bytes(std::fs::read(&path).unwrap());
+
+        let db_path = std::env::temp_dir().join(format!(
+            "zen-content-provider-orchestration-{}.sqlite3",
+            uuid::Uuid::new_v4()
+        ));
+        let db = Database::open(&db_path).unwrap();
+        let root_id = "provider-orchestration-root";
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO scan_roots(
+                    id, normalized_path, display_name, source_kind, enabled,
+                    health_status, current_generation, revision, needs_reconciliation,
+                    created_at, updated_at
+                 ) VALUES (?1,?2,?1,'file_library',1,'healthy',1,1,0,1,1)",
+                params![root_id, root.to_string_lossy().replace('\\', "/")],
+            )
+            .unwrap();
+        db.insert_file(crate::db::InsertFileRequest {
+            id: "provider-orchestration-file".into(),
+            path: path.to_string_lossy().replace('\\', "/"),
+            name: "source.txt".into(),
+            extension: "txt".into(),
+            size,
+            mtime,
+            ctime: mtime,
+            is_dir: false,
+            state_code: 0,
+        })
+        .unwrap();
+        db.set_content_scope_policy(SetContentScopePolicyRequest {
+            version: CONTENT_VERSION,
+            root_id: root_id.into(),
+            expected_root_revision: 1,
+            expected_policy_revision: 0,
+            confirmed: true,
+            policy: ContentScopePolicyDto {
+                root_revision: 1,
+                enabled: true,
+                local_allowed: true,
+                ..default_policy(root_id, 1)
+            },
+        })
+        .unwrap();
+        let library_revision = current_library_revision(&db.conn().unwrap()).unwrap();
+        let artifact_id = "provider-orchestration-artifact";
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO content_artifacts(
+                    id, file_id, scan_root_id, source_size, source_mtime, source_is_dir,
+                    source_hash, extractor_family, extractor_version, policy_revision,
+                    content_fingerprint, status, summary, keywords_json, provenance_json,
+                    revision, created_at, updated_at
+                 ) VALUES (?1,'provider-orchestration-file',?2,?3,?4,0,?5,'txt',
+                           'content-extractor-v1',1,'provider-orchestration-fingerprint',
+                           'current','before','[]','{}',1,1,1)",
+                params![artifact_id, root_id, size, mtime, source_hash],
+            )
+            .unwrap();
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO content_runs(
+                    id, scope_json, scope_fingerprint, mode, provider_mode, status,
+                    expected_library_revision, policy_fingerprint, confirmation,
+                    provider_confirmed, revision, created_at, updated_at
+                 ) VALUES ('provider-orchestration-run','{}','scope','understand',
+                           'existing_interactive_provider','completed',?1,'policy',1,1,1,1,1)",
+                params![library_revision],
+            )
+            .unwrap();
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO content_run_items(
+                    id, run_id, file_id, ordinal, status, root_id, source_is_dir,
+                    source_size, source_mtime, source_hash, extractor_family,
+                    extractor_version, artifact_id, provider_status, policy_revision,
+                    created_at, updated_at
+                 ) VALUES ('provider-orchestration-item','provider-orchestration-run',
+                           'provider-orchestration-file',0,'completed',?1,0,?2,?3,?4,
+                           'txt','content-extractor-v1',?5,'pending',1,1,1)",
+                params![root_id, size, mtime, source_hash, artifact_id],
+            )
+            .unwrap();
+        let settings = crate::ai::settings::AISettings {
+            enabled: true,
+            provider: AIProviderKind::Ollama,
+            preset: crate::ai::schema::AIProviderPresetId::Ollama,
+            base_url: "http://127.0.0.1:11434".into(),
+            model: "test-model".into(),
+            ..Default::default()
+        };
+        db.conn()
+            .unwrap()
+            .execute(
+                "INSERT INTO app_settings(key, value) VALUES (?1, ?2)",
+                params![
+                    crate::ai::settings::AI_SETTINGS_KEY,
+                    serde_json::to_string(&settings).unwrap()
+                ],
+            )
+            .unwrap();
+        let saved_policy = db.get_content_scope_policy(root_id).unwrap();
+        assert!(saved_policy.enabled && saved_policy.local_allowed);
+        let saved_settings = normalize_ai_settings(get_ai_settings_for_db(&db).unwrap());
+        assert!(
+            saved_settings.enabled && matches!(saved_settings.provider, AIProviderKind::Ollama)
+        );
+
+        let invocations = Arc::new(AtomicUsize::new(0));
+        let provider = CountingProvider {
+            invocations: invocations.clone(),
+        };
+        let mutation_path = path.clone();
+        let mutate_after_extraction = || {
+            std::fs::write(&mutation_path, b"changed-after-extraction").unwrap();
+        };
+        let result = db
+            .understand_content_artifacts_with_seams(
+                UnderstandContentArtifactsRequest {
+                    version: CONTENT_VERSION,
+                    artifact_ids: vec![artifact_id.into()],
+                    expected_revisions: vec![1],
+                    run_id: Some("provider-orchestration-run".into()),
+                    expected_run_revision: Some(1),
+                    confirmed: true,
+                },
+                Some(&provider),
+                Some(&mutate_after_extraction),
+            )
+            .unwrap();
+        assert_eq!(result.processed_count, 0);
+        assert_eq!(result.blocked_count, 1);
+        assert_eq!(
+            result.reason.as_deref(),
+            Some("content_source_changed_before_provider_send")
+        );
+        assert_eq!(invocations.load(Ordering::SeqCst), 0);
+
+        let conn = db.conn().unwrap();
+        let (item_status, item_owner): (String, Option<String>) = conn
+            .query_row(
+                "SELECT provider_status, provider_owner FROM content_run_items WHERE id='provider-orchestration-item'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let (run_status, run_owner): (String, Option<String>) = conn
+            .query_row(
+                "SELECT status, provider_owner FROM content_runs WHERE id='provider-orchestration-run'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(item_status, "stale");
+        assert!(item_owner.is_none());
+        assert_eq!(run_status, "partially_completed");
+        assert!(run_owner.is_none());
+        drop(conn);
+        drop(db);
+        let _ = std::fs::remove_file(db_path);
         let _ = std::fs::remove_dir_all(root);
     }
 
