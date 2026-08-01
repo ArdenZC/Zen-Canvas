@@ -6,11 +6,15 @@
 
 - 仓库：`ArdenZC/Zen-Canvas`；
 - 实际 master 基线：`11a3d615b84a76cfa4bc964fd906871836dd3fe8`，包含 Task 08 最终治理合并；
-- 维护分支：`fix/post-v1-verification-gaps`；
+- 实现分支：`fix/post-v1-verification-gaps`；
 - 代码修复提交：`912058bb97ac2d292ab4b5f623d627d64739fa61`；
-- 测试/文档提交：`d4cb298df9d172a56cec954919f4160a0fb020c7`、`481877c40fd57aa5c680c6e0e5533eb27bc5e564`；
-- 单一 Draft PR：[#46](https://github.com/ArdenZC/Zen-Canvas/pull/46)，`fix: close post-v1 verification gaps`；
-- 最终实现（代码与测试）HEAD：`481877c40fd57aa5c680c6e0e5533eb27bc5e564`；closeout 证据提交后的 PR tip 以 PR #46 页面为最终权威；
+- 测试/文档提交：`d4cb298df9d172a56cec954919f4160a0fb020c7`、`481877c40fd57aa5c680c6e0e5533eb27bc5e564`、`84fbe337e3740e449e979385c18f902fa6052b63`、`8bda0f19959bd2fcd974db3076e8bc6cd501f71f`；
+- PR：[#46](https://github.com/ArdenZC/Zen-Canvas/pull/46)，`fix: close post-v1 verification gaps`，状态 **MERGED**；
+- PR #46 squash merge SHA：`98ca8185979feb5b0f450a076362c089675416b5`；`mergedAt=2026-08-01T12:10:59Z`；
+- 最终 PR tip：`8bda0f19959bd2fcd974db3076e8bc6cd501f71f`；
+- PR #46 合并后的 master HEAD：`98ca8185979feb5b0f450a076362c089675416b5`；
+- 人工代码级验收：Review `4834619571`（作者账号提交为 COMMENT，结论为 accepted）；
+- 最终 CI：[`30697433372`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30697433372) success，12 个 job 全部通过；
 - schema 仍为 34；`files.id`、operation/cleanup journal、Managed AI schema/provider 均未修改；
 - `Cargo.lock`、`package-lock.json` 和依赖声明未发生非必要变化；没有新增依赖或外部 runtime。
 
@@ -42,7 +46,16 @@
 - 本 PR 第二次 CI run [`30696940903`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30696940903) 暴露了真实的 benchmark cold-page-cache 波动：100k global-search 的一次 `txt` 样本使 p95 达到 `125.987 ms`，超过原有 `100 ms` 产品门槛；其余 job 均成功。未降低门槛，改为在同一 bounded 查询上增加两次不计时 warm-up，并在本地连续两次得到 `56.138 ms`、`58.810 ms` p95 后重跑 CI；
 - `npm run test:docs` 成功，文档变更 1 个 Markdown 文件通过 contract。
 
-PR #46 的完整 GitHub Actions run [`30695926891`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30695926891) 已成功：change-scope、frontend/format、Windows/macOS Rust quality、Windows/macOS release compile、NSIS、unsigned DMG、dependency audit、Performance profile 和两端 aggregate quality 均为 success。该 run 验证的实现 HEAD 为 `481877c40fd57aa5c680c6e0e5533eb27bc5e564`；closeout 证据提交后的最终 PR tip 与最后一轮 checks 以 PR 页面为准，并在最终报告中列出。
+PR #46 的最终 GitHub Actions run [`30697433372`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30697433372) 已成功：change-scope、frontend/format、Windows/macOS Rust quality、Windows/macOS release compile、NSIS、unsigned DMG、dependency audit、Performance profile 和两端 aggregate quality 均为 success。该 run 验证的最终 PR tip 为 `8bda0f19959bd2fcd974db3076e8bc6cd501f71f`。早期实现验证 run [`30695926891`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30695926891) 也成功；run [`30696940903`](https://github.com/ArdenZC/Zen-Canvas/actions/runs/30696940903) 的冷缓存 p95 观察已由 bounded warm-up 稳定，未降低产品门槛。
+
+## 最终治理状态
+
+- **Post-V1 Maintenance Verification：已完成、已验收、已合并。**
+- **Architecture Remediation V1：完成并进入持续维护。**
+- 当前产品任务授权：无；Task 09：未创建、未授权。
+- schema 仍为 34；没有 schema 35；没有新增依赖或 lockfile 变化。
+- 本次没有创建 release/tag；没有新增产品模块或架构阶段。
+- PR #13、PR #24 均已关闭且未合并，原分支保留。
 
 ## 已知剩余问题
 
