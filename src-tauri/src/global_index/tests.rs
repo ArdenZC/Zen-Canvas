@@ -922,7 +922,12 @@ fn global_search_performance_100k_synthetic_entries() {
             let elapsed_ms = started.elapsed().as_secs_f64() * 1_000.0;
             eprintln!("Task 04 100k query {query:?}: {elapsed_ms:.3}ms");
             timings_ms.push(elapsed_ms);
-            if query != "Report-050000!" {
+            if query == "Report-050000!" {
+                assert!(
+                    results.is_empty(),
+                    "literal punctuation query {query:?} must not broaden to the unpunctuated report"
+                );
+            } else {
                 assert!(
                     results.iter().any(|result| result.name == expected_name),
                     "global search query {query:?} should return {expected_name:?}"
