@@ -43,7 +43,10 @@
 | `list_organization_plans` | `read_only` | main | List durable organization plan summaries | default | no | organization plan query tests |
 | `get_organization_plan` | `read_only` | main | Read one durable organization plan summary by ID | default | no | organization plan query tests |
 | `query_organization_plan_items` | `read_only` | main | Read organization plan items with a keyset cursor | default | no | organization plan cursor tests |
+| `query_organization_plan_groups` | `read_only` | main | Read complete backend-derived organization plan group summaries with a keyset cursor | default | no | organization group projection tests |
+| `query_organization_plan_group_items` | `read_only` | main | Read one backend-derived organization plan group with a keyset cursor | default | no | organization group cursor tests |
 | `update_organization_plan_decisions` | `main_state_mutation` | main | Persist review decisions with plan and item revision CAS | default | yes | organization plan decision tests |
+| `update_organization_plan_group_decision` | `main_state_mutation` | main | Resolve a backend-derived group decision with plan revision CAS and existing safe-batch checks | default | yes | organization group decision tests |
 | `refresh_organization_plan` | `main_state_mutation` | main | Revalidate plan items against current indexed metadata and previews | default | yes | organization plan refresh tests |
 | `cancel_organization_plan` | `main_state_mutation` | main | Cancel a non-terminal plan with revision CAS | default | yes | organization plan state tests |
 | `delete_organization_plan` | `main_state_mutation` | main | Delete a confirmed terminal plan with revision CAS | default | yes | organization plan retention tests |

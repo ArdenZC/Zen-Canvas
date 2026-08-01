@@ -65,7 +65,10 @@ import type {
   OperationPreviewResult,
   OrganizationPlan,
   OrganizationPlanDryRun,
+  OrganizationPlanGroupItemPage,
+  OrganizationPlanGroupPage,
   OrganizationPlanItemPage,
+  UpdateOrganizationPlanGroupDecisionResult,
   ExecuteOrganizationPlanResult,
   RestoreMovesResult,
   RuntimeCapabilities,
@@ -511,6 +514,23 @@ export const tauriApi = {
     return invokeCommand<OrganizationPlanItemPage>("query_organization_plan_items", { request });
   },
 
+  queryOrganizationPlanGroups(request: {
+    planId: string;
+    cursor?: string | null;
+    pageSize: number;
+  }): Promise<OrganizationPlanGroupPage> {
+    return invokeCommand<OrganizationPlanGroupPage>("query_organization_plan_groups", { request });
+  },
+
+  queryOrganizationPlanGroupItems(request: {
+    planId: string;
+    groupId: string;
+    cursor?: string | null;
+    pageSize: number;
+  }): Promise<OrganizationPlanGroupItemPage> {
+    return invokeCommand<OrganizationPlanGroupItemPage>("query_organization_plan_group_items", { request });
+  },
+
   updateOrganizationPlanDecisions(request: {
     planId: string;
     expectedPlanRevision: number;
@@ -523,6 +543,15 @@ export const tauriApi = {
     }>;
   }): Promise<OrganizationPlan> {
     return invokeCommand<OrganizationPlan>("update_organization_plan_decisions", { request });
+  },
+
+  updateOrganizationPlanGroupDecision(request: {
+    planId: string;
+    groupId: string;
+    expectedPlanRevision: number;
+    decision: "accepted" | "kept" | "undecided";
+  }): Promise<UpdateOrganizationPlanGroupDecisionResult> {
+    return invokeCommand<UpdateOrganizationPlanGroupDecisionResult>("update_organization_plan_group_decision", { request });
   },
 
   refreshOrganizationPlan(request: { planId: string; expectedPlanRevision: number }): Promise<OrganizationPlan> {

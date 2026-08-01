@@ -5,6 +5,7 @@ import type {
   LibrarySelectionV1,
   OrganizationPlan,
   OrganizationPlanDryRun,
+  OrganizationPlanGroupSummary,
   OrganizationPlanItem
 } from "../types/domain";
 import { readableError } from "../utils/viewHelpers";
@@ -17,6 +18,9 @@ interface OrganizationPlanState {
   items: OrganizationPlanItem[];
   nextCursor: string | null;
   hasMore: boolean;
+  groups: OrganizationPlanGroupSummary[];
+  groupNextCursor: string | null;
+  groupHasMore: boolean;
   dryRun: OrganizationPlanDryRun | null;
   executionResult: ExecuteOrganizationPlanResult | null;
   isLoading: boolean;
@@ -27,6 +31,8 @@ interface OrganizationPlanState {
   createPlan: (source: LibrarySelectionV1, expectedCount: number, title?: string) => Promise<OrganizationPlan>;
   openPlan: (planId: string) => Promise<void>;
   loadNextPage: () => Promise<void>;
+  loadNextGroupPage: () => Promise<void>;
+  updateGroupDecision: (group: OrganizationPlanGroupSummary, decision: "accepted" | "kept" | "undecided") => Promise<void>;
   updateDecision: (item: OrganizationPlanItem, decision: DurableDecision, editedFilename?: string) => Promise<void>;
   updateBatch: (items: OrganizationPlanItem[], decision: DurableDecision) => Promise<void>;
   refreshPlan: () => Promise<void>;
@@ -48,6 +54,9 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   items: [],
   nextCursor: null,
   hasMore: false,
+  groups: [],
+  groupNextCursor: null,
+  groupHasMore: false,
   dryRun: null,
   executionResult: null,
   isLoading: false,
@@ -80,6 +89,9 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         items: [],
         nextCursor: null,
         hasMore: false,
+        groups: [],
+        groupNextCursor: null,
+        groupHasMore: false,
         dryRun: null,
         executionResult: null,
         isMutating: false
@@ -94,11 +106,12 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
 
   openPlan: async (planId) => {
     const epoch = get().requestEpoch + 1;
-    set({ requestEpoch: epoch, isLoading: true, error: null, items: [], nextCursor: null, hasMore: false, dryRun: null, executionResult: null });
+    set({ requestEpoch: epoch, isLoading: true, error: null, items: [], nextCursor: null, hasMore: false, groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, executionResult: null });
     try {
-      const [plan, page] = await Promise.all([
+      const [plan, page, groupPage] = await Promise.all([
         tauriApi.getOrganizationPlan(planId),
-        tauriApi.queryOrganizationPlanItems({ planId, pageSize: 100, cursor: null })
+        tauriApi.queryOrganizationPlanItems({ planId, pageSize: 100, cursor: null }),
+        tauriApi.queryOrganizationPlanGroups({ planId, pageSize: 100, cursor: null })
       ]);
       if (epoch !== get().requestEpoch) return;
       set((state) => ({
@@ -107,6 +120,9 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         items: page.items,
         nextCursor: page.nextCursor,
         hasMore: page.hasMore,
+        groups: groupPage.groups,
+        groupNextCursor: groupPage.nextCursor,
+        groupHasMore: groupPage.hasMore,
         isLoading: false
       }));
     } catch (error) {
@@ -136,6 +152,47 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     }
   },
 
+  loadNextGroupPage: async () => {
+    const { activePlan, groupNextCursor, groupHasMore, isLoading, requestEpoch } = get();
+    if (!activePlan || !groupNextCursor || !groupHasMore || isLoading) return;
+    set({ isLoading: true, error: null });
+    try {
+      const page = await tauriApi.queryOrganizationPlanGroups({
+        planId: activePlan.id,
+        pageSize: 100,
+        cursor: groupNextCursor
+      });
+      if (requestEpoch !== get().requestEpoch) return;
+      set((state) => ({
+        groups: [...state.groups, ...page.groups],
+        groupNextCursor: page.nextCursor,
+        groupHasMore: page.hasMore,
+        isLoading: false
+      }));
+    } catch (error) {
+      set({ isLoading: false, error: readableError(error) });
+    }
+  },
+
+  updateGroupDecision: async (group, decision) => {
+    const plan = get().activePlan;
+    if (!plan) return;
+    set({ isMutating: true, error: null, dryRun: null });
+    try {
+      await tauriApi.updateOrganizationPlanGroupDecision({
+        planId: plan.id,
+        groupId: group.groupId,
+        expectedPlanRevision: plan.revision,
+        decision
+      });
+      await get().openPlan(plan.id);
+      set({ isMutating: false });
+    } catch (error) {
+      set({ isMutating: false, error: readableError(error) });
+      throw error;
+    }
+  },
+
   updateDecision: async (item, decision, editedFilename) => {
     const plan = get().activePlan;
     if (!plan) return;
@@ -151,9 +208,13 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
           editedFilename: editedFilename ?? null
         }]
       });
+      const groupPage = await tauriApi.queryOrganizationPlanGroups({ planId: updatedPlan.id, pageSize: 100, cursor: null });
       set((state) => ({
         activePlan: updatedPlan,
         plans: replacePlan(state.plans, updatedPlan),
+        groups: groupPage.groups,
+        groupNextCursor: groupPage.nextCursor,
+        groupHasMore: groupPage.hasMore,
         items: state.items.map((current) => current.id === item.id
           ? { ...current, decision, editedName: decision === "edited" ? editedFilename ?? null : null, revision: current.revision + 1 }
           : current),
@@ -180,10 +241,14 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
           decision
         }))
       });
+      const groupPage = await tauriApi.queryOrganizationPlanGroups({ planId: updatedPlan.id, pageSize: 100, cursor: null });
       const selected = new Set(items.map((item) => item.id));
       set((state) => ({
         activePlan: updatedPlan,
         plans: replacePlan(state.plans, updatedPlan),
+        groups: groupPage.groups,
+        groupNextCursor: groupPage.nextCursor,
+        groupHasMore: groupPage.hasMore,
         items: state.items.map((item) => selected.has(item.id)
           ? { ...item, decision, editedName: null, revision: item.revision + 1 }
           : item),
@@ -285,7 +350,9 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         planId: plan.id,
         expectedPlanRevision: plan.revision
       });
-      set((state) => ({ activePlan: updated, plans: replacePlan(state.plans, updated), isMutating: false }));
+      set((state) => ({ activePlan: updated, plans: replacePlan(state.plans, updated) }));
+      await get().openPlan(updated.id);
+      set({ isMutating: false });
     } catch (error) {
       set({ isMutating: false, error: readableError(error) });
     }

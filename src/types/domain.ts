@@ -978,6 +978,58 @@ export interface OrganizationPlanItemPage {
   hasMore: boolean;
 }
 
+export type OrganizationPlanGroupReadiness = "ready" | "requires-decision" | "blocked";
+
+export interface OrganizationPlanGroupSample {
+  itemId: string;
+  sourceName: string;
+  sourcePath: string;
+  proposedName: string;
+  decision: OrganizationPlanItem["decision"];
+  validity: OrganizationPlanItem["validity"];
+}
+
+export interface OrganizationPlanGroupSummary {
+  groupId: string;
+  planId: string;
+  label: string;
+  targetDirectory: string | null;
+  proposalKind: OrganizationPlanItem["proposalKind"];
+  readiness: OrganizationPlanGroupReadiness;
+  riskLevel: string;
+  itemCount: number;
+  totalBytes: number;
+  acceptedCount: number;
+  excludedCount: number;
+  staleCount: number;
+  conflictCount: number;
+  confidenceBand: string;
+  sampleItems: OrganizationPlanGroupSample[];
+  revision: number;
+}
+
+export interface OrganizationPlanGroupPage {
+  planId: string;
+  planRevision: number;
+  groups: OrganizationPlanGroupSummary[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface OrganizationPlanGroupItemPage {
+  planId: string;
+  groupId: string;
+  planRevision: number;
+  items: OrganizationPlanItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface UpdateOrganizationPlanGroupDecisionResult {
+  plan: OrganizationPlan;
+  group: OrganizationPlanGroupSummary | null;
+}
+
 export interface OrganizationDryRunItem {
   itemId: string;
   operationKind: string;

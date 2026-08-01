@@ -64,4 +64,27 @@ describe("Task 06 durable Organization Plan contracts", () => {
     expect(view).not.toContain("useOperationQueueStore");
     expect(mock).toContain("browser_mock_native_execution_unavailable");
   });
+
+  it("projects complete Plan groups without adding a second ledger or Schema 35", () => {
+    const organization = read("src-tauri/src/db/queries/organization.rs");
+    const domain = read("src/types/domain.ts");
+    const api = read("src/api/tauriApi.ts");
+    const store = read("src/store/useOrganizationPlanStore.ts");
+    expect(organization).toContain("pub struct OrganizationPlanGroupSummaryDto");
+    expect(organization).toContain("pub fn query_organization_plan_groups");
+    expect(organization).toContain("pub fn query_organization_plan_group_items");
+    expect(organization).toContain("pub fn update_organization_plan_group_decision");
+    expect(organization).toContain("organization_group_no_safe_items");
+    expect(organization).toContain("ORGANIZATION_GROUP_SAMPLE_MAX");
+    expect(organization).not.toContain("CREATE TABLE");
+    expect(organization).not.toContain("schema 35");
+    expect(domain).toContain("export interface OrganizationPlanGroupSummary");
+    expect(domain).not.toContain("groupNextCursor");
+    expect(api).toContain('"query_organization_plan_groups"');
+    expect(api).toContain('"query_organization_plan_group_items"');
+    expect(api).toContain('"update_organization_plan_group_decision"');
+    expect(store).toContain("queryOrganizationPlanGroups");
+    expect(store).toContain("updateGroupDecision");
+    expect(store).not.toContain("items.reduce");
+  });
 });

@@ -54,6 +54,9 @@ import type {
   OperationPreviewResult,
   OrganizationPlan,
   OrganizationPlanDryRun,
+  OrganizationPlanGroupItemPage,
+  OrganizationPlanGroupPage,
+  OrganizationPlanGroupSummary,
   OrganizationPlanItem,
   RestoreMovesResult,
   Rule,
@@ -608,8 +611,14 @@ export async function mockInvokeCommand<T>(command: string, args?: Record<string
     }
     case "query_organization_plan_items":
       return queryMockOrganizationItems(args?.request as { planId?: string; cursor?: string | null; pageSize?: number } | undefined) as T;
+    case "query_organization_plan_groups":
+      return queryMockOrganizationGroups(args?.request as { planId?: string; cursor?: string | null; pageSize?: number } | undefined) as T;
+    case "query_organization_plan_group_items":
+      return queryMockOrganizationGroupItems(args?.request as { planId?: string; groupId?: string; cursor?: string | null; pageSize?: number } | undefined) as T;
     case "update_organization_plan_decisions":
       return updateMockOrganizationDecisions(args?.request as MockOrganizationDecisionRequest | undefined) as T;
+    case "update_organization_plan_group_decision":
+      return updateMockOrganizationGroupDecision(args?.request as { planId?: string; groupId?: string; expectedPlanRevision?: number; decision?: OrganizationPlanItem["decision"] } | undefined) as T;
     case "refresh_organization_plan":
       return refreshMockOrganizationPlan(args?.request as { planId?: string; expectedPlanRevision?: number } | undefined) as T;
     case "cancel_organization_plan":
@@ -1976,6 +1985,131 @@ function queryMockOrganizationItems(request?: { planId?: string; cursor?: string
     nextCursor: next < all.length ? String(next) : null,
     hasMore: next < all.length
   };
+}
+
+function mockOrganizationGroupReadiness(item: OrganizationPlanItem): OrganizationPlanGroupSummary["readiness"] {
+  if (item.validity === "ready") return "ready";
+  if (item.validity === "needs_review") return "requires-decision";
+  return "blocked";
+}
+
+function mockOrganizationGroupId(planId: string, item: OrganizationPlanItem) {
+  return [
+    "browser-organization-group",
+    planId,
+    item.proposedTargetDirectory,
+    item.proposalKind,
+    mockOrganizationGroupReadiness(item),
+    item.riskLevel
+  ].join("|");
+}
+
+function mockOrganizationGroupSummaries(plan: OrganizationPlan): OrganizationPlanGroupSummary[] {
+  const items = mockOrganizationItems.get(plan.id) ?? [];
+  const grouped = new Map<string, OrganizationPlanItem[]>();
+  for (const item of items) {
+    const id = mockOrganizationGroupId(plan.id, item);
+    const members = grouped.get(id) ?? [];
+    members.push(item);
+    grouped.set(id, members);
+  }
+  return [...grouped.entries()].map(([groupId, members]) => {
+    const first = members[0];
+    const confidences = members.map((item) => item.confidence);
+    const allHigh = confidences.every((value) => value >= 0.8);
+    const allMedium = confidences.every((value) => value >= 0.5 && value < 0.8);
+    const allLow = confidences.every((value) => value < 0.5);
+    return {
+      groupId,
+      planId: plan.id,
+      label: `${first.proposedTargetDirectory} · ${first.proposalKind}`,
+      targetDirectory: first.proposedTargetDirectory || null,
+      proposalKind: first.proposalKind,
+      readiness: mockOrganizationGroupReadiness(first),
+      riskLevel: first.riskLevel,
+      itemCount: members.length,
+      totalBytes: members.reduce((sum, item) => sum + item.sourceSizeSnapshot, 0),
+      acceptedCount: members.filter((item) => ["accepted", "edited"].includes(item.decision)).length,
+      excludedCount: members.filter((item) => item.decision === "kept").length,
+      staleCount: members.filter((item) => item.validity === "stale").length,
+      conflictCount: members.filter((item) => item.blockingCode?.includes("collision") || item.blockingCode?.includes("conflict")).length,
+      confidenceBand: allHigh ? "high" : allMedium ? "medium" : allLow ? "low" : "mixed",
+      sampleItems: members.slice(0, 3).map((item) => ({
+        itemId: item.id,
+        sourceName: item.sourceNameSnapshot,
+        sourcePath: item.sourcePathSnapshot,
+        proposedName: item.proposedName,
+        decision: item.decision,
+        validity: item.validity
+      })),
+      revision: plan.revision
+    } satisfies OrganizationPlanGroupSummary;
+  }).sort((left, right) => left.label.localeCompare(right.label) || left.groupId.localeCompare(right.groupId));
+}
+
+function queryMockOrganizationGroups(request?: { planId?: string; cursor?: string | null; pageSize?: number }): OrganizationPlanGroupPage {
+  const plan = mockOrganizationPlans.find((item) => item.id === request?.planId);
+  if (!plan) throw new Error("organization_plan_not_found");
+  const all = mockOrganizationGroupSummaries(plan);
+  const offset = Number(request?.cursor ?? 0) || 0;
+  const pageSize = Math.max(1, Math.min(200, Number(request?.pageSize ?? 100)));
+  const groups = all.slice(offset, offset + pageSize);
+  const next = offset + groups.length;
+  return {
+    planId: plan.id,
+    planRevision: plan.revision,
+    groups,
+    nextCursor: next < all.length ? String(next) : null,
+    hasMore: next < all.length
+  };
+}
+
+function queryMockOrganizationGroupItems(request?: { planId?: string; groupId?: string; cursor?: string | null; pageSize?: number }): OrganizationPlanGroupItemPage {
+  const plan = mockOrganizationPlans.find((item) => item.id === request?.planId);
+  if (!plan) throw new Error("organization_plan_not_found");
+  const all = (mockOrganizationItems.get(plan.id) ?? []).filter((item) => mockOrganizationGroupId(plan.id, item) === request?.groupId);
+  if (!all.length) throw new Error("organization_group_not_found");
+  const offset = Number(request?.cursor ?? 0) || 0;
+  const pageSize = Math.max(1, Math.min(200, Number(request?.pageSize ?? 100)));
+  const items = all.slice(offset, offset + pageSize);
+  const next = offset + items.length;
+  return {
+    planId: plan.id,
+    groupId: String(request?.groupId ?? ""),
+    planRevision: plan.revision,
+    items,
+    nextCursor: next < all.length ? String(next) : null,
+    hasMore: next < all.length
+  };
+}
+
+function updateMockOrganizationGroupDecision(request?: { planId?: string; groupId?: string; expectedPlanRevision?: number; decision?: OrganizationPlanItem["decision"] }) {
+  const plan = mockOrganizationPlans.find((item) => item.id === request?.planId);
+  if (!plan || plan.revision !== request?.expectedPlanRevision) throw new Error("organization_plan_revision_conflict");
+  const members = (mockOrganizationItems.get(plan.id) ?? []).filter((item) => mockOrganizationGroupId(plan.id, item) === request?.groupId);
+  if (!members.length) throw new Error("organization_group_not_found");
+  const decision = request?.decision;
+  const selected = members.filter((item) => {
+    if (["executing", "executed"].includes(item.validity)) return false;
+    if (decision !== "accepted") return true;
+    return item.validity === "ready"
+      && item.riskLevel === "Normal"
+      && item.confidence >= 0.8
+      && !item.requiresConfirmation
+      && item.blockingCode === null
+      && item.authoritativePreviewId !== null;
+  });
+  if (!selected.length) throw new Error(decision === "accepted" ? "organization_group_no_safe_items" : "organization_group_no_decidable_items");
+  const updated = updateMockOrganizationDecisions({
+    planId: plan.id,
+    expectedPlanRevision: plan.revision,
+    safeBatch: decision === "accepted",
+    mutations: selected.map((item) => ({ itemId: item.id, expectedItemRevision: item.revision, decision: decision ?? "undecided" }))
+  });
+  return {
+    plan: updated,
+    group: mockOrganizationGroupSummaries(updated).find((group) => group.groupId === request?.groupId) ?? null
+  } satisfies { plan: OrganizationPlan; group: OrganizationPlanGroupSummary | null };
 }
 
 function updateMockOrganizationDecisions(request?: MockOrganizationDecisionRequest): OrganizationPlan {

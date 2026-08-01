@@ -12,12 +12,14 @@ use super::library::{
 use super::*;
 use rusqlite::{params, params_from_iter, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
 
 const ORGANIZATION_PLAN_VERSION: i32 = 1;
 const ORGANIZATION_PLAN_MAX_ITEMS: usize = 10_000;
 const ORGANIZATION_EXECUTION_MAX_ITEMS: usize = 1_000;
 const ORGANIZATION_PAGE_MAX: u32 = 200;
+const ORGANIZATION_GROUP_SAMPLE_MAX: usize = 3;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -127,6 +129,97 @@ pub struct OrganizationPlanItemPageDto {
     pub items: Vec<OrganizationPlanItemDto>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryOrganizationPlanGroupsRequest {
+    pub plan_id: String,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    pub page_size: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizationPlanGroupSampleDto {
+    pub item_id: String,
+    pub source_name: String,
+    pub source_path: String,
+    pub proposed_name: String,
+    pub decision: String,
+    pub validity: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizationPlanGroupSummaryDto {
+    pub group_id: String,
+    pub plan_id: String,
+    pub label: String,
+    pub target_directory: Option<String>,
+    pub proposal_kind: String,
+    pub readiness: String,
+    pub risk_level: String,
+    pub item_count: i64,
+    pub total_bytes: i64,
+    pub accepted_count: i64,
+    pub excluded_count: i64,
+    pub stale_count: i64,
+    pub conflict_count: i64,
+    pub confidence_band: String,
+    pub sample_items: Vec<OrganizationPlanGroupSampleDto>,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizationPlanGroupPageDto {
+    pub plan_id: String,
+    pub plan_revision: i64,
+    pub groups: Vec<OrganizationPlanGroupSummaryDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryOrganizationPlanGroupItemsRequest {
+    pub plan_id: String,
+    pub group_id: String,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    pub page_size: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizationPlanGroupItemPageDto {
+    pub plan_id: String,
+    pub group_id: String,
+    pub plan_revision: i64,
+    pub items: Vec<OrganizationPlanItemDto>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateOrganizationPlanGroupDecisionRequest {
+    pub plan_id: String,
+    pub group_id: String,
+    pub expected_plan_revision: i64,
+    pub decision: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateOrganizationPlanGroupDecisionResultDto {
+    pub plan: OrganizationPlanDto,
+    pub group: Option<OrganizationPlanGroupSummaryDto>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -270,6 +363,43 @@ pub struct OrganizationPlanDryRunDto {
 struct OrganizationItemCursor {
     ordinal: i64,
     id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OrganizationGroupCursor {
+    label: String,
+    group_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OrganizationGroupItemCursor {
+    group_id: String,
+    ordinal: i64,
+    id: String,
+}
+
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
+struct OrganizationPlanGroupKey {
+    target_directory: String,
+    proposal_kind: String,
+    readiness: String,
+    risk_level: String,
+}
+
+#[derive(Debug, Default)]
+struct OrganizationPlanGroupAccumulator {
+    key: Option<OrganizationPlanGroupKey>,
+    group_id: String,
+    item_count: i64,
+    total_bytes: i64,
+    accepted_count: i64,
+    excluded_count: i64,
+    stale_count: i64,
+    conflict_count: i64,
+    all_high_confidence: bool,
+    all_medium_confidence: bool,
+    all_low_confidence: bool,
+    sample_items: Vec<OrganizationPlanGroupSampleDto>,
 }
 
 impl Database {
@@ -709,6 +839,198 @@ impl Database {
             next_cursor,
             has_more,
         })
+    }
+
+    pub fn query_organization_plan_groups(
+        &self,
+        request: QueryOrganizationPlanGroupsRequest,
+    ) -> Result<OrganizationPlanGroupPageDto, DbError> {
+        validate_organization_page_size(request.page_size, "organization_group_page_size_invalid")?;
+        let plan_id = validate_id(&request.plan_id, "organization_plan_id_invalid")?;
+        let cursor = request
+            .cursor
+            .as_deref()
+            .map(decode_group_cursor)
+            .transpose()?;
+        let conn = self.conn()?;
+        let plan = load_plan(&conn, &plan_id)?;
+        let mut groups = load_organization_plan_group_summaries(&conn, &plan_id, plan.revision)?;
+        if let Some(cursor) = cursor {
+            groups.retain(|group| organization_group_is_after(group, &cursor));
+        }
+        let has_more = groups.len() > request.page_size as usize;
+        if has_more {
+            groups.truncate(request.page_size as usize);
+        }
+        let next_cursor = groups.last().and_then(|group| {
+            has_more.then(|| {
+                encode_group_cursor(&OrganizationGroupCursor {
+                    label: group.label.clone(),
+                    group_id: group.group_id.clone(),
+                })
+            })
+        });
+        Ok(OrganizationPlanGroupPageDto {
+            plan_id,
+            plan_revision: plan.revision,
+            groups,
+            next_cursor,
+            has_more,
+        })
+    }
+
+    pub fn query_organization_plan_group_items(
+        &self,
+        request: QueryOrganizationPlanGroupItemsRequest,
+    ) -> Result<OrganizationPlanGroupItemPageDto, DbError> {
+        validate_organization_page_size(
+            request.page_size,
+            "organization_group_item_page_size_invalid",
+        )?;
+        let plan_id = validate_id(&request.plan_id, "organization_plan_id_invalid")?;
+        let group_id = validate_id(&request.group_id, "organization_group_id_invalid")?;
+        let cursor = request
+            .cursor
+            .as_deref()
+            .map(decode_group_item_cursor)
+            .transpose()?;
+        if cursor
+            .as_ref()
+            .is_some_and(|cursor| cursor.group_id != group_id)
+        {
+            return Err(DbError::Validation(
+                "organization_group_cursor_invalid".to_string(),
+            ));
+        }
+        let conn = self.conn()?;
+        let plan = load_plan(&conn, &plan_id)?;
+        let mut items = load_organization_plan_items_for_projection(&conn, &plan_id)?
+            .into_iter()
+            .filter(|item| {
+                organization_group_id(&plan_id, &organization_group_key(item)) == group_id
+            })
+            .collect::<Vec<_>>();
+        if items.is_empty() {
+            return Err(DbError::Validation(
+                "organization_group_not_found".to_string(),
+            ));
+        }
+        if let Some(cursor) = cursor {
+            items.retain(|item| {
+                item.ordinal > cursor.ordinal
+                    || (item.ordinal == cursor.ordinal && item.id > cursor.id)
+            });
+        }
+        let has_more = items.len() > request.page_size as usize;
+        if has_more {
+            items.truncate(request.page_size as usize);
+        }
+        let next_cursor = items.last().and_then(|item| {
+            has_more.then(|| {
+                encode_group_item_cursor(&OrganizationGroupItemCursor {
+                    group_id: group_id.clone(),
+                    ordinal: item.ordinal,
+                    id: item.id.clone(),
+                })
+            })
+        });
+        Ok(OrganizationPlanGroupItemPageDto {
+            plan_id,
+            group_id,
+            plan_revision: plan.revision,
+            items,
+            next_cursor,
+            has_more,
+        })
+    }
+
+    pub fn update_organization_plan_group_decision(
+        &self,
+        request: UpdateOrganizationPlanGroupDecisionRequest,
+    ) -> Result<UpdateOrganizationPlanGroupDecisionResultDto, DbError> {
+        let plan_id = validate_id(&request.plan_id, "organization_plan_id_invalid")?;
+        let group_id = validate_id(&request.group_id, "organization_group_id_invalid")?;
+        let decision = normalize_decision(&request.decision)?;
+        let mut conn = self.conn()?;
+        let tx = conn.transaction()?;
+        require_plan_revision_and_status(
+            &tx,
+            &plan_id,
+            request.expected_plan_revision,
+            &["ready", "stale", "partially_completed"],
+        )?;
+        let members = load_organization_plan_items_for_projection(&tx, &plan_id)?
+            .into_iter()
+            .filter(|item| {
+                organization_group_id(&plan_id, &organization_group_key(item)) == group_id
+            })
+            .collect::<Vec<_>>();
+        if members.is_empty() {
+            return Err(DbError::Validation(
+                "organization_group_not_found".to_string(),
+            ));
+        }
+
+        let mut selected = Vec::new();
+        for item in members {
+            if matches!(item.validity.as_str(), "executing" | "executed") {
+                continue;
+            }
+            if decision == "accepted" && require_safe_batch_item(&tx, &plan_id, &item.id).is_err() {
+                continue;
+            }
+            selected.push(item);
+        }
+        if selected.is_empty() {
+            return Err(DbError::Validation(
+                if decision == "accepted" {
+                    "organization_group_no_safe_items"
+                } else {
+                    "organization_group_no_decidable_items"
+                }
+                .to_string(),
+            ));
+        }
+
+        let now = current_unix_seconds();
+        for item in selected {
+            let updated = tx.execute(
+                "UPDATE organization_plan_items SET decision = ?1, edited_name = NULL,
+                        revision = revision + 1, updated_at = ?2
+                 WHERE id = ?3 AND plan_id = ?4 AND revision = ?5
+                   AND validity NOT IN ('executing', 'executed')",
+                params![decision, now, item.id, plan_id, item.revision],
+            )?;
+            if updated != 1 {
+                return Err(DbError::Validation(
+                    "organization_item_revision_conflict".to_string(),
+                ));
+            }
+        }
+        let updated_plan = tx.execute(
+            "UPDATE organization_plans SET
+                    status = CASE
+                        WHEN status = 'stale'
+                         AND NOT EXISTS (
+                            SELECT 1 FROM organization_plan_items
+                            WHERE plan_id = ?1 AND validity = 'stale'
+                         )
+                        THEN 'ready' ELSE status END,
+                    revision = revision + 1, updated_at = ?3
+             WHERE id = ?1 AND revision = ?2",
+            params![plan_id, request.expected_plan_revision, now],
+        )?;
+        if updated_plan != 1 {
+            return Err(DbError::Validation(
+                "organization_plan_revision_conflict".to_string(),
+            ));
+        }
+        let plan = load_plan(&tx, &plan_id)?;
+        let group = load_organization_plan_group_summaries(&tx, &plan_id, plan.revision)?
+            .into_iter()
+            .find(|group| group.group_id == group_id);
+        tx.commit()?;
+        Ok(UpdateOrganizationPlanGroupDecisionResultDto { plan, group })
     }
 
     pub fn update_organization_plan_decisions(
@@ -1756,6 +2078,193 @@ fn item_from_row(row: &Row<'_>) -> rusqlite::Result<OrganizationPlanItemDto> {
     })
 }
 
+fn validate_organization_page_size(page_size: u32, code: &str) -> Result<(), DbError> {
+    if page_size == 0 || page_size > ORGANIZATION_PAGE_MAX {
+        Err(DbError::Validation(code.to_string()))
+    } else {
+        Ok(())
+    }
+}
+
+fn load_organization_plan_items_for_projection(
+    conn: &rusqlite::Connection,
+    plan_id: &str,
+) -> Result<Vec<OrganizationPlanItemDto>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, plan_id, ordinal, file_id_snapshot, source_path_snapshot,
+                source_name_snapshot, source_size_snapshot, source_mtime_snapshot,
+                source_is_dir_snapshot, proposal_fingerprint, proposal_kind,
+                proposed_target_directory, proposed_name, proposed_target_path,
+                decision, edited_name, validity, confidence, risk_level,
+                requires_confirmation, blocking_code, blocking_detail,
+                authoritative_preview_id, operation_log_id, execution_id, revision,
+                created_at, updated_at
+         FROM organization_plan_items WHERE plan_id = ?1 ORDER BY ordinal, id",
+    )?;
+    let result = stmt
+        .query_map(params![plan_id], item_from_row)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(DbError::from);
+    result
+}
+
+fn organization_group_key(item: &OrganizationPlanItemDto) -> OrganizationPlanGroupKey {
+    let readiness = match item.validity.as_str() {
+        "ready" => "ready",
+        "needs_review" => "requires-decision",
+        _ => "blocked",
+    };
+    OrganizationPlanGroupKey {
+        target_directory: item.proposed_target_directory.clone(),
+        proposal_kind: item.proposal_kind.clone(),
+        readiness: readiness.to_string(),
+        risk_level: if item.risk_level.trim().is_empty() {
+            "Unknown".to_string()
+        } else {
+            item.risk_level.clone()
+        },
+    }
+}
+
+fn organization_group_id(plan_id: &str, key: &OrganizationPlanGroupKey) -> String {
+    let digest = blake3::hash(
+        [
+            "organization-plan-group-v1",
+            plan_id,
+            &key.target_directory,
+            &key.proposal_kind,
+            &key.readiness,
+            &key.risk_level,
+        ]
+        .join("\0")
+        .as_bytes(),
+    );
+    format!("organization-group-{}", digest.to_hex())
+}
+
+fn organization_group_label(key: &OrganizationPlanGroupKey) -> String {
+    if key.target_directory.trim().is_empty() {
+        key.proposal_kind.clone()
+    } else {
+        format!("{} · {}", key.target_directory, key.proposal_kind)
+    }
+}
+
+fn organization_group_is_conflict(item: &OrganizationPlanItemDto) -> bool {
+    item.blocking_code.as_deref().is_some_and(|code| {
+        let code = code.to_ascii_lowercase();
+        code.contains("collision") || code.contains("conflict")
+    })
+}
+
+fn load_organization_plan_group_summaries(
+    conn: &rusqlite::Connection,
+    plan_id: &str,
+    revision: i64,
+) -> Result<Vec<OrganizationPlanGroupSummaryDto>, DbError> {
+    let items = load_organization_plan_items_for_projection(conn, plan_id)?;
+    let mut groups = HashMap::<OrganizationPlanGroupKey, OrganizationPlanGroupAccumulator>::new();
+    for item in items {
+        let key = organization_group_key(&item);
+        let group_id = organization_group_id(plan_id, &key);
+        let entry = groups
+            .entry(key.clone())
+            .or_insert_with(|| OrganizationPlanGroupAccumulator {
+                key: Some(key.clone()),
+                group_id,
+                all_high_confidence: true,
+                all_medium_confidence: true,
+                all_low_confidence: true,
+                ..OrganizationPlanGroupAccumulator::default()
+            });
+        entry.item_count += 1;
+        entry.total_bytes = entry
+            .total_bytes
+            .saturating_add(item.source_size_snapshot.max(0));
+        if matches!(item.decision.as_str(), "accepted" | "edited") {
+            entry.accepted_count += 1;
+        }
+        if item.decision == "kept" {
+            entry.excluded_count += 1;
+        }
+        if item.validity == "stale" {
+            entry.stale_count += 1;
+        }
+        if organization_group_is_conflict(&item) {
+            entry.conflict_count += 1;
+        }
+        entry.all_high_confidence &= item.confidence >= 0.8;
+        entry.all_medium_confidence &= (0.5..0.8).contains(&item.confidence);
+        entry.all_low_confidence &= item.confidence < 0.5;
+        if entry.sample_items.len() < ORGANIZATION_GROUP_SAMPLE_MAX {
+            entry.sample_items.push(OrganizationPlanGroupSampleDto {
+                item_id: item.id,
+                source_name: item.source_name_snapshot,
+                source_path: item.source_path_snapshot,
+                proposed_name: item.proposed_name,
+                decision: item.decision,
+                validity: item.validity,
+            });
+        }
+    }
+
+    let mut summaries = groups
+        .into_values()
+        .map(|accumulator| {
+            let key = accumulator
+                .key
+                .expect("organization group accumulator always has a key");
+            let confidence_band = if accumulator.all_high_confidence {
+                "high"
+            } else if accumulator.all_medium_confidence {
+                "medium"
+            } else if accumulator.all_low_confidence {
+                "low"
+            } else {
+                "mixed"
+            };
+            Ok(OrganizationPlanGroupSummaryDto {
+                group_id: accumulator.group_id,
+                plan_id: plan_id.to_string(),
+                label: organization_group_label(&key),
+                target_directory: (!key.target_directory.trim().is_empty())
+                    .then_some(key.target_directory),
+                proposal_kind: key.proposal_kind,
+                readiness: key.readiness,
+                risk_level: key.risk_level,
+                item_count: accumulator.item_count,
+                total_bytes: accumulator.total_bytes,
+                accepted_count: accumulator.accepted_count,
+                excluded_count: accumulator.excluded_count,
+                stale_count: accumulator.stale_count,
+                conflict_count: accumulator.conflict_count,
+                confidence_band: confidence_band.to_string(),
+                sample_items: accumulator.sample_items,
+                revision,
+            })
+        })
+        .collect::<Result<Vec<_>, DbError>>()?;
+    summaries.sort_by(|left, right| {
+        left.label
+            .to_ascii_lowercase()
+            .cmp(&right.label.to_ascii_lowercase())
+            .then_with(|| left.group_id.cmp(&right.group_id))
+    });
+    Ok(summaries)
+}
+
+fn organization_group_is_after(
+    group: &OrganizationPlanGroupSummaryDto,
+    cursor: &OrganizationGroupCursor,
+) -> bool {
+    group
+        .label
+        .to_ascii_lowercase()
+        .cmp(&cursor.label.to_ascii_lowercase())
+        .then_with(|| group.group_id.cmp(&cursor.group_id))
+        == Ordering::Greater
+}
+
 fn load_plan_summary(
     conn: &rusqlite::Connection,
     plan_id: &str,
@@ -2214,6 +2723,67 @@ fn decode_item_cursor(value: &str) -> Result<OrganizationItemCursor, DbError> {
     Ok(cursor)
 }
 
+fn encode_group_cursor(cursor: &OrganizationGroupCursor) -> String {
+    serde_json::to_vec(cursor)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn decode_group_cursor(value: &str) -> Result<OrganizationGroupCursor, DbError> {
+    let cursor: OrganizationGroupCursor =
+        decode_cursor_json(value, "organization_group_cursor_invalid")?;
+    if cursor.label.is_empty()
+        || cursor.label.len() > 2048
+        || cursor.label.chars().any(|ch| ch.is_control())
+    {
+        return Err(DbError::Validation(
+            "organization_group_cursor_invalid".to_string(),
+        ));
+    }
+    validate_id(&cursor.group_id, "organization_group_cursor_invalid")?;
+    Ok(cursor)
+}
+
+fn encode_group_item_cursor(cursor: &OrganizationGroupItemCursor) -> String {
+    serde_json::to_vec(cursor)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn decode_group_item_cursor(value: &str) -> Result<OrganizationGroupItemCursor, DbError> {
+    let cursor: OrganizationGroupItemCursor =
+        decode_cursor_json(value, "organization_group_cursor_invalid")?;
+    validate_id(&cursor.group_id, "organization_group_cursor_invalid")?;
+    validate_id(&cursor.id, "organization_group_cursor_invalid")?;
+    if cursor.ordinal < 0 {
+        return Err(DbError::Validation(
+            "organization_group_cursor_invalid".to_string(),
+        ));
+    }
+    Ok(cursor)
+}
+
+fn decode_cursor_json<T>(value: &str, code: &str) -> Result<T, DbError>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    if value.is_empty() || value.len() > 2048 || !value.len().is_multiple_of(2) {
+        return Err(DbError::Validation(code.to_string()));
+    }
+    let bytes = (0..value.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&value[index..index + 2], 16)
+                .map_err(|_| DbError::Validation(code.to_string()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    serde_json::from_slice(&bytes).map_err(|_| DbError::Validation(code.to_string()))
+}
+
 fn paths_cross_volume(left: &str, right: &str) -> bool {
     fn volume(path: &str) -> String {
         let normalized = path.replace('\\', "/");
@@ -2272,6 +2842,59 @@ mod tests {
         .expect("seed plan item");
     }
 
+    fn seed_group_item(
+        db: &Database,
+        id: &str,
+        ordinal: i64,
+        target_directory: &std::path::Path,
+        validity: &str,
+        decision: &str,
+        confidence: f64,
+        requires_confirmation: bool,
+        blocking_code: Option<&str>,
+    ) {
+        let source_path = target_directory.join(format!("source-{id}.txt"));
+        let target_path = target_directory.join(format!("target-{id}.txt"));
+        let source_path = source_path.to_string_lossy().to_string();
+        let target_path = target_path.to_string_lossy().to_string();
+        let target_directory = target_directory.to_string_lossy().to_string();
+        let conn = db.conn().expect("group item connection");
+        conn.execute(
+            "INSERT INTO organization_plan_items (
+                id, plan_id, ordinal, file_id_snapshot, source_path_snapshot,
+                source_name_snapshot, source_size_snapshot, source_mtime_snapshot,
+                source_is_dir_snapshot, proposal_fingerprint, proposal_kind,
+                proposed_target_directory, proposed_name, proposed_target_path,
+                decision, validity, confidence, risk_level, requires_confirmation,
+                blocking_code, authoritative_preview_id, revision, created_at, updated_at
+             ) VALUES (?1, 'plan-test', ?2, ?3, ?4, ?5, 10, 1, 0, ?6,
+                       'rename', ?7, ?8, ?9, ?10, ?11, ?12, 'Normal', ?13,
+                       ?14, ?15, 1, 1, 1)",
+            params![
+                id,
+                ordinal,
+                format!("file-{id}"),
+                source_path,
+                format!("source-{id}.txt"),
+                format!("fingerprint-{id}"),
+                target_directory,
+                format!("target-{id}.txt"),
+                target_path,
+                decision,
+                validity,
+                confidence,
+                bool_to_i64(requires_confirmation),
+                blocking_code,
+                if validity == "ready" {
+                    Some(format!("preview-{id}"))
+                } else {
+                    None
+                }
+            ],
+        )
+        .expect("seed group item");
+    }
+
     #[test]
     fn item_cursor_round_trip_is_bounded() {
         let cursor = OrganizationItemCursor {
@@ -2285,6 +2908,229 @@ mod tests {
             42
         );
         assert!(decode_item_cursor("not-hex").is_err());
+    }
+
+    #[test]
+    fn organization_group_projection_is_complete_deterministic_and_cursored() {
+        let (db, path) = test_database();
+        seed_plan(&db, "ready");
+        let fixture = path.with_extension("groups");
+        let first_target = fixture.join("first");
+        let second_target = fixture.join("second");
+        std::fs::create_dir_all(&first_target).expect("create first group target");
+        std::fs::create_dir_all(&second_target).expect("create second group target");
+        {
+            let conn = db.conn().expect("group fixture connection");
+            conn.execute(
+                "UPDATE organization_plan_items SET source_path_snapshot = ?1,
+                    proposed_target_directory = ?2, proposed_target_path = ?3
+                 WHERE id = 'item-test'",
+                params![
+                    first_target.join("source-item-test.txt").to_string_lossy(),
+                    first_target.to_string_lossy(),
+                    first_target.join("target-item-test.txt").to_string_lossy(),
+                ],
+            )
+            .expect("bind first group item");
+        }
+        seed_group_item(
+            &db,
+            "item-group-1",
+            1,
+            &first_target,
+            "ready",
+            "undecided",
+            0.9,
+            false,
+            None,
+        );
+        seed_group_item(
+            &db,
+            "item-group-2",
+            2,
+            &first_target,
+            "ready",
+            "undecided",
+            0.7,
+            false,
+            None,
+        );
+        seed_group_item(
+            &db,
+            "item-group-3",
+            3,
+            &second_target,
+            "ready",
+            "undecided",
+            0.9,
+            false,
+            None,
+        );
+
+        let first_page = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 1,
+            })
+            .expect("first group page");
+        assert!(first_page.has_more);
+        let second_page = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: first_page.next_cursor.clone(),
+                page_size: 1,
+            })
+            .expect("second group page");
+        assert_ne!(
+            first_page.groups[0].group_id,
+            second_page.groups[0].group_id
+        );
+
+        let all_groups = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("complete group projection");
+        let first_group = all_groups
+            .groups
+            .iter()
+            .find(|group| group.item_count == 3)
+            .expect("three-item group");
+        assert_eq!(first_group.total_bytes, 21);
+        assert_eq!(
+            first_group.sample_items.len(),
+            ORGANIZATION_GROUP_SAMPLE_MAX
+        );
+        assert_eq!(first_group.confidence_band, "mixed");
+        assert_eq!(first_group.revision, 1);
+        let repeated = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("repeat group projection");
+        assert_eq!(
+            all_groups
+                .groups
+                .iter()
+                .map(|group| group.group_id.clone())
+                .collect::<Vec<_>>(),
+            repeated
+                .groups
+                .iter()
+                .map(|group| group.group_id.clone())
+                .collect::<Vec<_>>()
+        );
+
+        let group_page = db
+            .query_organization_plan_group_items(QueryOrganizationPlanGroupItemsRequest {
+                plan_id: "plan-test".into(),
+                group_id: first_group.group_id.clone(),
+                cursor: None,
+                page_size: 1,
+            })
+            .expect("group item page");
+        assert!(group_page.has_more);
+        let next_group_page = db
+            .query_organization_plan_group_items(QueryOrganizationPlanGroupItemsRequest {
+                plan_id: "plan-test".into(),
+                group_id: first_group.group_id.clone(),
+                cursor: group_page.next_cursor,
+                page_size: 10,
+            })
+            .expect("next group item page");
+        assert_eq!(next_group_page.items.len(), 2);
+        drop(db);
+        let _ = std::fs::remove_dir_all(fixture);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn group_accept_skips_unsafe_members_and_requires_current_plan_revision() {
+        let (db, path) = test_database();
+        seed_plan(&db, "ready");
+        let fixture = path.with_extension("group-safe");
+        std::fs::create_dir_all(&fixture).expect("create group-safe target");
+        {
+            let conn = db.conn().expect("group safe fixture connection");
+            conn.execute(
+                "UPDATE organization_plan_items SET source_path_snapshot = ?1,
+                    proposed_target_directory = ?2, proposed_target_path = ?3
+                 WHERE id = 'item-test'",
+                params![
+                    fixture.join("source-item-test.txt").to_string_lossy(),
+                    fixture.to_string_lossy(),
+                    fixture.join("target-item-test.txt").to_string_lossy(),
+                ],
+            )
+            .expect("bind safe group item");
+        }
+        seed_group_item(
+            &db,
+            "item-group-blocked",
+            1,
+            &fixture,
+            "ready",
+            "undecided",
+            0.95,
+            true,
+            None,
+        );
+        let group = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("safe group projection")
+            .groups
+            .into_iter()
+            .find(|group| group.item_count == 2)
+            .expect("safe group");
+        let updated = db
+            .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                plan_id: "plan-test".into(),
+                group_id: group.group_id.clone(),
+                expected_plan_revision: 1,
+                decision: "accepted".into(),
+            })
+            .expect("accept safe group members");
+        assert_eq!(updated.plan.revision, 2);
+        assert_eq!(updated.plan.summary.accepted, 1);
+        assert_eq!(updated.group.expect("updated group").accepted_count, 1);
+        let items = db
+            .query_organization_plan_group_items(QueryOrganizationPlanGroupItemsRequest {
+                plan_id: "plan-test".into(),
+                group_id: group.group_id.clone(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("group members after accept")
+            .items;
+        assert_eq!(
+            items
+                .iter()
+                .filter(|item| item.decision == "accepted")
+                .count(),
+            1
+        );
+        assert!(db
+            .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                plan_id: "plan-test".into(),
+                group_id: group.group_id,
+                expected_plan_revision: 1,
+                decision: "kept".into(),
+            })
+            .expect_err("stale group decision")
+            .to_string()
+            .contains("organization_plan_revision_conflict"));
+        drop(db);
+        let _ = std::fs::remove_dir_all(fixture);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
@@ -2940,6 +3786,26 @@ mod tests {
                 .expect("benchmark first page");
             let first_ms = first_start.elapsed().as_secs_f64() * 1000.0;
             assert!(first_ms <= 100.0, "first page {first_ms:.3}ms");
+            let group_start = Instant::now();
+            let groups = db
+                .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                    plan_id: "plan-bench".into(),
+                    cursor: None,
+                    page_size: 200,
+                })
+                .expect("benchmark group projection");
+            let group_ms = group_start.elapsed().as_secs_f64() * 1000.0;
+            assert_eq!(
+                groups
+                    .groups
+                    .iter()
+                    .map(|group| group.item_count)
+                    .sum::<i64>(),
+                count as i64
+            );
+            if count == 10_000 {
+                assert!(group_ms <= 1_000.0, "10k group projection {group_ms:.3}ms");
+            }
             if count == 100 {
                 let conn = db.conn().expect("organization query plan connection");
                 for (sql, expected_index) in [

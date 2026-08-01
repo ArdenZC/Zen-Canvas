@@ -1268,6 +1268,79 @@ The Inspector still contains the full Content Understanding workflow; PR9 must e
 
 The current no-index gate still reads the legacy `lastScannedAt` compatibility statistic. It is not used for Query V2 results or totals, but PR10 must replace the dashboard-level interpretation with actual index/root health before final release.
 
+## 5E. PR4 closeout — Organization Plan group projection
+
+### Current baseline
+
+PR4 starts from committed PR3 `d7680f2` on `codex/ui-v4-3-product-integration`. The implementation keeps Schema 34 and the existing durable Organization Plan, item revision, Operation Preview, Dry Run, and operation journal contracts.
+
+### Authority migrated
+
+Organization Plan groups are now a backend-derived projection over the complete `organization_plan_items` ledger. The renderer receives complete group totals, stable opaque group IDs, bounded samples, group-item cursors, and the authoritative Plan revision. No group table, renderer decision ledger, or page-local grouping authority was added.
+
+### Legacy path retired
+
+- The future group-first Organize surface no longer needs to group the bounded `items` page; the store hydrates the backend group projection separately from item paging.
+- Group decisions resolve members server-side by opaque group ID and expected Plan revision. The renderer cannot submit target paths or a renderer-owned member list.
+- Existing item-level decisions remain available for exceptions; no existing execution or recovery path was replaced.
+
+### Product changes
+
+- Added complete group summary, group-member keyset paging, and group decision commands without a schema migration.
+- Group keys are deterministic projections of target directory, proposal kind, readiness class, and risk level; group IDs are opaque and plan-bound.
+- Group summaries include item count, bytes, accepted/excluded/stale/conflict counts, confidence band, risk, and at most three samples.
+- Group acceptance only selects members that pass the existing safe-batch checks; unsafe or blocked members remain available for exception review.
+- Group decisions increment Plan revision and return the updated Plan plus the current group summary; stale revisions fail closed.
+- Added matching main-window Tauri permissions and browser-mock behavior for the projection contract.
+
+### Files changed
+
+- `src-tauri/src/db/queries/organization.rs`
+- `src-tauri/src/db/commands.rs`
+- `src-tauri/src/main.rs`
+- `src-tauri/build.rs`
+- `src-tauri/capabilities/default.json`
+- `docs/security/TAURI_COMMAND_PERMISSION_MATRIX.md`
+- `src/types/domain.ts`
+- `src/api/tauriApi.ts`
+- `src/api/browserMockApi.ts`
+- `src/store/useOrganizationPlanStore.ts`
+- `tests/organizationPlanTask06.test.ts`
+- `docs/design/UI_UX_V4_3_EXECUTION.md`
+
+### Focused tests
+
+- `cargo fmt --manifest-path src-tauri/Cargo.toml`
+- `cargo test --manifest-path src-tauri/Cargo.toml organization --lib` — 14 passed, 1 existing benchmark ignored.
+- `cargo test --manifest-path src-tauri/Cargo.toml performance_task06_plan_100_1k_10k_repository --lib -- --ignored --test-threads=1` — 1 benchmark passed (100/1k/10k, including group projection).
+- `npm run typecheck`
+- `npm test -- tests/organizationPlanTask06.test.ts tests/tauriCommandPermissions.test.ts` — 2 files passed, 12 tests passed.
+- `git diff --check`
+
+### Full gates
+
+Not run for PR4. Full frontend, Rust quality, security, performance, packaging, and platform release checks remain required for PR11. The existing 10k benchmark is extended to exercise group projection but remains intentionally ignored in normal focused runs.
+
+### Visual verification
+
+No rendered Organize Files group-first surface was claimed in PR4; PR5 owns that UI migration. Backend projection, stale revision, bounded sample, cursor, and browser-mock contracts are covered by focused tests. Light/dark Chinese/English, narrow 980x680, high contrast, screen reader behavior, Windows DPI, macOS Retina, and native window behavior remain unverified.
+
+### Acceptance criteria
+
+- Complete group totals are available without loading every item page in the renderer.
+- Group ordering and group IDs are deterministic, and group members have a bounded keyset cursor.
+- Group decisions are revision-bound, server-resolved, capped by the existing Plan ledger, and safe-batch revalidated.
+- Group acceptance does not execute files or bypass item-level Dry Run, Preview, journals, or recovery.
+- No Schema 35, second ledger, target-path authority, or filesystem mutation path was introduced.
+
+### Deferred or unverified
+
+PR5 must replace the current raw per-file Organize UI with the group-first, exception-first workspace and connect its controls to these projections. The current renderer still exposes item-page controls for compatibility until that migration.
+
+### Risks requiring human review
+
+Projection assembly currently reads the complete Plan item ledger into a bounded in-memory query projection (maximum 10,000 items) rather than persisting group state. The ignored 10k benchmark should be run on representative release hardware before accepting final performance evidence. Group labels still expose backend proposal-kind tokens for PR5 to translate through shared i18n.
+
 ---
 
 ## 6. Codex continuous-execution rule
