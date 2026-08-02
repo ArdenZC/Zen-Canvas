@@ -3890,6 +3890,46 @@ mod tests {
         .expect("sync proposal fingerprint");
     }
 
+    fn seed_live_group_item(
+        db: &Database,
+        id: &str,
+        ordinal: i64,
+        target_directory: &std::path::Path,
+    ) {
+        seed_group_item(
+            db,
+            id,
+            ordinal,
+            target_directory,
+            "ready",
+            "undecided",
+            0.95,
+            false,
+            None,
+        );
+        let source_path = target_directory.join(format!("source-{id}.txt"));
+        let target_directory = target_directory.to_string_lossy().replace('\\', "/");
+        let conn = db.conn().expect("live group file connection");
+        conn.execute(
+            "INSERT INTO files (
+                id, path, name, extension, size, mtime, is_dir, state_code,
+                suggested_action, suggested_target_path, suggested_name,
+                confidence, risk_level, requires_confirmation,
+                classification_status, last_classified_mtime, last_classified_size
+             ) VALUES (?1, ?2, ?3, 'txt', 10, 1, 0, 0, 'Rename', ?4, ?5,
+                       0.95, 'Normal', 0, 'classified', 1, 10)",
+            params![
+                format!("file-{id}"),
+                source_path.to_string_lossy().replace('\\', "/"),
+                format!("source-{id}.txt"),
+                target_directory,
+                format!("target-{id}.txt"),
+            ],
+        )
+        .expect("seed live group file");
+        sync_item_proposal_fingerprint(db, id, &format!("file-{id}"));
+    }
+
     #[test]
     fn item_cursor_round_trip_is_bounded() {
         let cursor = OrganizationItemCursor {
@@ -4151,6 +4191,193 @@ mod tests {
                 page_size: 20,
             })
             .expect("unchanged item after stale projection")
+            .items
+            .into_iter()
+            .filter(|item| item.decision != "undecided")
+            .count(),
+            0
+        );
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn group_projection_fingerprint_rejects_live_source_change_without_partial_update() {
+        let (db, path) = test_database();
+        seed_plan(&db, "ready");
+        let group = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("live source fingerprint group")
+            .groups
+            .into_iter()
+            .next()
+            .expect("live source fingerprint group exists");
+        {
+            let conn = db.conn().expect("change live source metadata connection");
+            conn.execute(
+                "UPDATE files SET size = size + 1, mtime = mtime + 1 WHERE id = 'file-test'",
+                [],
+            )
+            .expect("change live source metadata without plan revision");
+        }
+        let changed_group = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("changed live source group")
+            .groups
+            .into_iter()
+            .next()
+            .expect("changed live source group exists");
+        assert_ne!(
+            group.projection_fingerprint,
+            changed_group.projection_fingerprint
+        );
+        let error = db
+            .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                plan_id: "plan-test".into(),
+                group_id: group.group_id,
+                expected_plan_revision: 1,
+                expected_projection_fingerprint: group.projection_fingerprint,
+                expected_item_count: group.item_count,
+                decision: "kept".into(),
+            })
+            .expect_err("live source change must reject stale projection");
+        assert!(error.to_string().contains("organization_group_changed"));
+        assert_eq!(
+            db.get_organization_plan("plan-test")
+                .expect("unchanged live source plan")
+                .revision,
+            1
+        );
+        assert_eq!(
+            db.query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("unchanged items after live source change")
+            .items
+            .into_iter()
+            .filter(|item| item.decision != "undecided")
+            .count(),
+            0
+        );
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn group_projection_fingerprint_rejects_member_join_without_partial_update() {
+        let (db, path) = test_database();
+        seed_plan(&db, "ready");
+        let group = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("member join baseline group")
+            .groups
+            .into_iter()
+            .next()
+            .expect("member join baseline group exists");
+        seed_live_group_item(&db, "item-joined", 1, std::path::Path::new("/tmp"));
+        let joined_group = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("member join projection")
+            .groups
+            .into_iter()
+            .find(|candidate| candidate.item_count == 2)
+            .expect("joined member group");
+        assert_eq!(joined_group.item_count, group.item_count + 1);
+        assert_ne!(
+            joined_group.projection_fingerprint,
+            group.projection_fingerprint
+        );
+        let error = db
+            .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                plan_id: "plan-test".into(),
+                group_id: group.group_id,
+                expected_plan_revision: 1,
+                expected_projection_fingerprint: group.projection_fingerprint,
+                expected_item_count: group.item_count,
+                decision: "kept".into(),
+            })
+            .expect_err("member join must reject stale projection");
+        assert!(error.to_string().contains("organization_group_changed"));
+        assert_eq!(
+            db.query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("unchanged items after member join")
+            .items
+            .into_iter()
+            .filter(|item| item.decision != "undecided")
+            .count(),
+            0
+        );
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn group_projection_fingerprint_rejects_member_migration_without_partial_update() {
+        let (db, path) = test_database();
+        seed_plan(&db, "ready");
+        seed_live_group_item(&db, "item-migrated", 1, std::path::Path::new("/tmp"));
+        let group = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("member migration baseline projection")
+            .groups
+            .into_iter()
+            .find(|candidate| candidate.item_count == 2)
+            .expect("member migration baseline group");
+        {
+            let conn = db.conn().expect("remove migrated member file");
+            conn.execute("DELETE FROM files WHERE id = 'file-item-migrated'", [])
+                .expect("migrate member out of ready group");
+        }
+        let error = db
+            .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                plan_id: "plan-test".into(),
+                group_id: group.group_id,
+                expected_plan_revision: 1,
+                expected_projection_fingerprint: group.projection_fingerprint,
+                expected_item_count: group.item_count,
+                decision: "kept".into(),
+            })
+            .expect_err("member migration must reject stale projection");
+        assert!(error.to_string().contains("organization_group_changed"));
+        assert_eq!(
+            db.get_organization_plan("plan-test")
+                .expect("unchanged member migration plan")
+                .revision,
+            1
+        );
+        assert_eq!(
+            db.query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("unchanged items after member migration")
             .items
             .into_iter()
             .filter(|item| item.decision != "undecided")

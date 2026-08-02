@@ -241,7 +241,7 @@ This fourth-round closure addresses Group Projection Fingerprint, Group Action I
 
 | Finding | Closure evidence | Status |
 | --- | --- | --- |
-| Group Projection Fingerprint | `OrganizationPlanGroupSummaryDto`/TypeScript include `projectionFingerprint`; requests include expected fingerprint and item count; the backend regenerates and compares the full projection before action/CAS/update; stale fingerprint tests prove zero item updates. | Closed locally. |
+| Group Projection Fingerprint | `OrganizationPlanGroupSummaryDto`/TypeScript include `projectionFingerprint`; requests include expected fingerprint and item count; the backend regenerates and compares the full projection before action/CAS/update; item-revision, live size/mtime, member-join, and member-migration regressions prove `organization_group_changed` with zero item updates. | Closed locally. |
 | Group Action Intersection | `OrganizationPlanGroupActionsDto`/TypeScript `groupActions` use all-member intersections. Include/Keep/Clear buttons use only those fields; accepted, reviewed, Keep, and mixed groups no longer show an incorrect include action. A `requires-decision` group requires explicit confirmation before its durable review decision is recorded; no filesystem action occurs here. | Closed locally. |
 | Plan List Projection Complexity | Plan list no longer calls full group projection and returns `effectiveSummary: null` until loaded. The Rust counter test covers a 200-plan list and observes zero full projections. | Closed locally. |
 | Open Plan Duplicate Projection | Basic plan hydration is cheap; the group page is the full projection/effective-summary authority. The Rust counter test observes zero full projections for get and one after group query. | Closed locally. |
@@ -254,6 +254,7 @@ This fourth-round closure addresses Group Projection Fingerprint, Group Action I
 - `npm.cmd run test:remediation` — passed: 13 tests.
 - Focused Vitest: `tests/organizeIndependentReview.test.tsx`, `tests/fileLibraryV2.test.ts`, and `tests/organizationPlanTask06.test.ts` — passed: 3 files, 20 tests.
 - Rust Organization test module — passed: 20 passed, 1 existing ignored Task 06 performance test.
+- Group fingerprint race regressions — item revision, live source size/mtime, member join, and member migration cases each reject the stale request with zero updates.
 - PDF preflight focused test and PDF resource-limit test — passed.
 - Exact PDF resource-limit target — passed 10/10 consecutive runs with `-- --exact --test-threads=1`.
 - `npm.cmd run test:performance` — passed, including the configured 100k/1M profiles and Task 06 thresholds.

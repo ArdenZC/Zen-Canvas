@@ -387,6 +387,7 @@ describe("Organize independent review behavior", () => {
     await flush();
     expect(container.querySelector(`[data-organize-group-row="${reviewedGroup.groupId}"]`)).toBeTruthy();
     expect(container.textContent).toContain("已复核");
+    expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("纳入整组"))).toBe(false);
     await act(async () => button("需要我决定").click());
     await flush();
     expect(container.textContent).toContain("没有需要你决定的分组");
