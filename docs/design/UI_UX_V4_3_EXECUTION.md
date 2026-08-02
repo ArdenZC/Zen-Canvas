@@ -2135,6 +2135,26 @@ Native Tauri lifecycle/focus restoration, Windows DPI/High Contrast/Narrator, ma
 
 Review live health transitions, group-decision boundary aliases, and large-plan open latency in the native review environment. Keep the existing Preview, Dry Run, journal, Safe Trash, Restore, and advisory-AI safety boundaries in the review checklist.
 
+## 5I. PR #48 final review-thread remediation — 2026-08-03
+
+### Baseline and scope
+
+This closeout starts from `816884fbb0cfee0863f70a960a3c28df1d616376` on `codex/ui-v4-3-product-integration` and addresses exactly the five unresolved final review threads for PR #48. The implementation commits are `cf550f3`, `7f81394`, and `f921e77`. No schema, persistence contract, second ledger or queue, alternate execution path, or filesystem mutation authority was introduced.
+
+### Acceptance record
+
+| Finding | Accepted behavior | Evidence |
+| --- | --- | --- |
+| Cleanup scope reset | Folder, quick-scope, and supported `initialRoots` changes clear the prior run, detectors, findings/cache, selection, evidence, Review/Preview/confirmation/result UI, cursor, AI status/error, request key, and default-selection guard. Scope/findings epochs prevent old async work from restoring the prior surface. History remains; no automatic scan or backend run deletion/cancel occurs. | `cf550f3`; mounted folder A→B, quick Downloads, prop-change, Preview/selection disappearance, no-scan/Safe-Trash tests. |
+| Watcher settings priority | Permission wins over retry, retry exhaustion wins over reconciliation, then partial/degraded, syncing, healthy, unknown. | `7f81394`; mounted status combinations in `tests/watcherHealthReview.test.tsx`. |
+| Overview watcher semantics | Permission, retry exhausted, reconciliation, partial, and stale have distinct stable reason codes, counts, localized copy, and Settings File Sources actions. | `7f81394`, `f921e77`; mounted Overview integration and model priority tests. |
+| Operation health | Attention count > 0 is failed/needs attention. Active with zero attention is running. Active plus attention remains failed. | `7f81394`, `f921e77`; mounted active, failed, and active+attention tests. |
+| Cleanup byte truth | Positive exact bytes take precedence; otherwise positive potential bytes are explicitly estimated; exact/potential zero produces no cleanup task. A health snapshot never falls back to legacy Cleanup Store data. | `7f81394`, `f921e77`; mounted Overview and model tests. |
+
+### Validation and remaining external gates
+
+Focused V4.3 tests passed (4 files, 32 tests); `npm.cmd run typecheck`, `npm.cmd test` (92 files, 597 tests), `npm.cmd run test:remediation` (13 tests), `npm.cmd run test:performance` (490.3 seconds), `npm.cmd run build`, `npm.cmd run verify:rust`, and `npm.cmd run verify:security` all passed. `git diff --check` and `npm.cmd run test:docs` are rerun after this documentation update. Remote CI and the five existing review-thread replies/resolutions remain post-push actions; the PR stays Draft until those checks and independent review are complete. macOS/native/accessibility and signed-release evidence remain unverified.
+
 ## 6. Codex continuous-execution rule
 
 Codex may continue automatically from one V4.3 stage to the next only when:

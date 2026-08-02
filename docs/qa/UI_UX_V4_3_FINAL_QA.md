@@ -317,3 +317,37 @@ Native Tauri lifecycle and focus restoration, Windows 100/125/150/200% DPI, High
 ### Risks requiring human review
 
 Reviewers should exercise Overview priority transitions against live watcher/Analysis Run/Organization Plan changes, group-decision aliases through the native command boundary, and large-plan open latency. Existing Preview, Dry Run, journal, Safe Trash, Restore, and advisory-AI boundaries remain the review guardrails.
+
+## Independent Review Remediation — PR #48 final review-thread closure (2026-08-03)
+
+### Scope and baseline
+
+This pass starts from `816884fbb0cfee0863f70a960a3c28df1d616376` on `codex/ui-v4-3-product-integration` and closes exactly the five unresolved final review threads for PR #48. The implementation commits are `cf550f3` (`fix(cleanup): clear stale run state when scope changes`), `7f81394` (`fix(overview): preserve watcher and operation health semantics`), and `f921e77` (`test(v4.3): cover final review thread regressions`). No schema, persistence contract, second ledger/queue, alternate execution path, or filesystem safety boundary was changed.
+
+### Findings closed locally
+
+| Review thread | Root cause | Fix and authority | Mounted evidence |
+| --- | --- | --- | --- |
+| Cleanup scope change | Selecting a new folder changed only the displayed roots, leaving the previous Analysis Run, findings, selection, Preview, and result surface active. | A scope change clears the current run/review state, increments findings and scope epochs, clears request/selection/AI state, and guards all old async responses. Run history remains available; no backend run is deleted, canceled, or auto-started for the new scope. | `tests/cleanupIndependentReview.test.tsx`: folder A→B, quick Downloads, `initialRoots` prop change, selection/Preview disappearance, no scan/Safe Trash. |
+| Settings watcher label priority | Reconciliation flags were checked before retry exhaustion. | `watcherStatusLabel()` now applies permission → retry exhausted → reconciliation → partial/degraded → syncing → healthy → unknown, using the existing stable watcher status/error codes. | `tests/watcherHealthReview.test.tsx`: mounted combinations including permission+reconciliation and retry+reconciliation. |
+| Overview watcher health | Overview collapsed permission, retry, reconciliation, partial, and stale watcher conditions into one generic state. | Health projection now preserves distinct reason codes and counts. Overview has localized title, description, and action copy for each state; every action navigates to Settings → File Sources. | `tests/overviewHealthIntegration.test.tsx` and `tests/overviewSettingsPr10.test.ts`: mounted permission, retry, reconciliation, partial, and priority mapping. |
+| Operation running vs failed | The active-operation branch used a tautological condition and reported active work as failed. | Positive attention count wins as `failed`; only active with zero attention is `active/running`; active+attention remains failed. | Mounted Overview tests cover running and simultaneous active+failed attention. |
+| Cleanup bytes | Overview read exact reclaimable bytes only, hiding a potential estimate when exact bytes were zero. | Durable exact bytes win when positive; otherwise positive potential bytes are used and marked estimated. Both zero suppresses the cleanup task. When a health snapshot exists, no legacy Cleanup Store fallback is used. | Mounted Overview plus model tests cover exact, potential-estimated, and zero/zero cases. |
+
+### Local validation record
+
+The following gates passed on the implementation tree before this documentation commit:
+
+- Focused V4.3 regressions: 4 files, 32 tests — passed.
+- `npm.cmd run typecheck` — passed.
+- `npm.cmd test` — passed: 92 files, 597 tests.
+- `npm.cmd run test:remediation` — passed: 1 file, 13 tests.
+- `npm.cmd run test:performance` — passed in 490.3 seconds, including architecture, bounded frontend, SQLite/FTS, Global Search, managed scan, migration, Analysis, Dedupe, File Library 100K/1M, Organization Plan, and Rule Proposal profiles.
+- `npm.cmd run build` — passed: Vite, Windows release compile, and NSIS packaging.
+- `npm.cmd run verify:rust` — passed: format, 596 Rust tests with no failures, and Clippy with `-D warnings`.
+- `npm.cmd run verify:security` — passed: npm audit found 0 vulnerabilities; Cargo audit reported only the existing 15 allowed warnings.
+- `git diff --check` and `npm.cmd run test:docs` — run again after this documentation update.
+
+### Remote review status and limits
+
+The PR remains Draft and unmerged. The five existing threads must be replied to with the implementation commit SHAs and then resolved by GraphQL thread ID only after the post-push CI run is green. This local closeout does not claim remote CI, macOS packaging, signed artifacts, checksums, tag/release, native Tauri lifecycle, Windows DPI/High Contrast/Narrator, or macOS Retina/VoiceOver evidence. Preview, Dry Run, journal, CAS, Safe Trash, Restore, and advisory-AI boundaries remain unchanged.
