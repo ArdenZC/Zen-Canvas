@@ -253,13 +253,13 @@ This fourth-round closure addresses Group Projection Fingerprint, Group Action I
 - `npm.cmd test` — passed: 89 files, 573 tests.
 - `npm.cmd run test:remediation` — passed: 13 tests.
 - Focused Vitest: `tests/organizeIndependentReview.test.tsx`, `tests/fileLibraryV2.test.ts`, and `tests/organizationPlanTask06.test.ts` — passed: 3 files, 20 tests.
-- Rust Organization test module — passed: 20 passed, 1 existing ignored Task 06 performance test.
+- Rust Organization test module — passed: 23 passed, 1 existing ignored Task 06 performance test.
 - Group fingerprint race regressions — item revision, live source size/mtime, member join, and member migration cases each reject the stale request with zero updates.
 - PDF preflight focused test and PDF resource-limit test — passed.
 - Exact PDF resource-limit target — passed 10/10 consecutive runs with `-- --exact --test-threads=1`.
 - `npm.cmd run test:performance` — passed, including the configured 100k/1M profiles and Task 06 thresholds.
 - `npm.cmd run build` — passed with Windows release compile and NSIS packaging.
-- `npm.cmd run verify:rust` — passed: format, Rust test phase, and Clippy with `-D warnings`; the Rust phase reported 583 passed, 0 failed, and 9 ignored in the primary unit target.
+- `npm.cmd run verify:rust` — passed: format, Rust test phase, and Clippy with `-D warnings`; the Rust phase reported 595 passed, 0 failed, and 9 ignored in the primary unit target.
 - `npm.cmd run verify:security` — passed: npm audit found 0 vulnerabilities; cargo audit reported the existing 15 allowed unmaintained/unsound warnings.
 - Default-parallel full Rust matrix — passed 5/5 consecutive invocations after the bounded PDF keyword-scan optimization; the preflight test retained its 2-second deadline and its explicit expired-deadline negative assertion.
 
