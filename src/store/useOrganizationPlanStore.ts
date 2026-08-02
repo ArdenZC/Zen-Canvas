@@ -114,7 +114,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         tauriApi.queryOrganizationPlanGroups({ planId, pageSize: 100, cursor: null })
       ]);
       if (epoch !== get().requestEpoch) return;
-      const projectedPlan = { ...plan, effectiveSummary: groupPage.effectiveSummary ?? plan.effectiveSummary };
+      const projectedPlan = { ...plan, effectiveSummary: groupPage.effectiveSummary };
       set((state) => ({
         activePlan: projectedPlan,
         plans: replacePlan(state.plans, projectedPlan),
@@ -184,6 +184,8 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         planId: plan.id,
         groupId: group.groupId,
         expectedPlanRevision: plan.revision,
+        expectedProjectionFingerprint: group.projectionFingerprint,
+        expectedItemCount: group.itemCount,
         decision
       });
       await get().openPlan(plan.id);
@@ -210,7 +212,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         }]
       });
       const groupPage = await tauriApi.queryOrganizationPlanGroups({ planId: updatedPlan.id, pageSize: 100, cursor: null });
-      const projectedPlan = { ...updatedPlan, effectiveSummary: groupPage.effectiveSummary ?? updatedPlan.effectiveSummary };
+      const projectedPlan = { ...updatedPlan, effectiveSummary: groupPage.effectiveSummary };
       set((state) => ({
         activePlan: projectedPlan,
         plans: replacePlan(state.plans, projectedPlan),
@@ -244,7 +246,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         }))
       });
       const groupPage = await tauriApi.queryOrganizationPlanGroups({ planId: updatedPlan.id, pageSize: 100, cursor: null });
-      const projectedPlan = { ...updatedPlan, effectiveSummary: groupPage.effectiveSummary ?? updatedPlan.effectiveSummary };
+      const projectedPlan = { ...updatedPlan, effectiveSummary: groupPage.effectiveSummary };
       const selected = new Set(items.map((item) => item.id));
       set((state) => ({
         activePlan: projectedPlan,

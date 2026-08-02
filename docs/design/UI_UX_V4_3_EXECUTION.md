@@ -2062,6 +2062,37 @@ The local Windows closure is complete. macOS compile/package, remote CI, signed 
 
 Reviewers should exercise source/proposal/preview changes between review and execution, managed-root health changes, target-collision edits, native focus/accessibility behavior, and the full macOS/CI matrix.
 
+## Independent Review Remediation — fourth-round closure (2026-08-02)
+
+This pass closes the five fourth-round findings from the independent review. It preserves the Organization Plan, Preview, Dry Run, journal, CAS, Safe Trash, Restore, and advisory-AI authorities. No Schema 35, second ledger, renderer-derived membership, alternate execution path, or automatic retry was introduced.
+
+| Finding | Root cause | Fix | Tests and status |
+| --- | --- | --- | --- |
+| Group Projection Fingerprint | A group ID described only the group key, so an old renderer projection could silently target a changed member set or changed live facts. | Backend group summaries now include a deterministic fingerprint over plan revision, group key, sorted member IDs/revisions, readiness, decisions, preview identity, current source facts, actions, proposal/blocking facts, and managed-scope membership. Group mutation compares the current full projection, expected count, and fingerprint before checking actions and item CAS; any mismatch returns `organization_group_changed` with zero committed updates. | Rust stale-item/fingerprint atomicity test; TypeScript request contract and Browser Mock fingerprint checks. **Closed locally.** |
+| Group Action Intersection | Group actions were represented by an item-action union and readiness heuristics, so a group button could be shown when one or more members could not perform it. | Added backend/TypeScript `groupActions` with all-member `canAcceptAll`, `canKeepAll`, and `canClearAll` intersections. Renderer buttons use only those capabilities; accepted/reviewed, Keep, and mixed states have explicit semantics. Backend rejects unavailable group actions with `organization_group_action_not_available`, distinct from projection changes. | Rust group-action/atomicity coverage; mounted React mixed/Keep/unavailable-action coverage; Browser Mock parity. **Closed locally.** |
+| Plan List Projection Complexity | Listing historical plans invoked a complete current group projection for every plan. | `list_organization_plans` now returns basic fields and ledger summary only; `effectiveSummary` is `null` until a group page is loaded. A test counter verifies a 200-plan list performs zero full group projections. | Rust 200-plan list counter and existing Task 06 performance profile. **Closed locally.** |
+| Open Plan Duplicate Projection | `get_organization_plan` performed a full projection and `query_organization_plan_groups` repeated it during `openPlan`. | `get_organization_plan` and mutation/create/refresh/finalize responses return basic plans. `query_organization_plan_groups` owns the full group projection and effective summary; opening a plan performs one full group projection. | Rust open-plan counter test; `openPlan` uses the group-page summary; existing 100/1k/10k thresholds remain required. **Closed locally.** |
+| PDF CMap Preflight | Object-size/token heuristics could classify large ordinary or compressed objects as oversized uncompressed CMaps and scanned without a bounded cancellation/deadline contract. | Replaced the heuristic with `oversized_uncompressed_pdf_cmap_stream`: bounded `stream`/`endstream` detection, dictionary filter check, raw stream length, stream-local CMap markers, and deadline/cancellation propagation. Compressed streams continue through decompression budgets. | Positive oversized CMap and negative ordinary/dictionary/compressed/non-stream/cancel/deadline tests. **Closed locally.** |
+
+### Fourth-round validation record
+
+The implementation validation completed on the final working tree before commit. `npm.cmd run typecheck` passed; `npm.cmd test` passed with 89 files and 572 tests; `npm.cmd run test:remediation` passed with 13 tests; the focused Organize/File Library/Task 06 Vitest files passed with 3 files and 20 tests; the Rust Organization module passed with 20 tests and one existing ignored Task 06 performance test; and the focused PDF preflight/resource-limit tests passed. `npm.cmd run test:performance`, `npm.cmd run build`, `npm.cmd run verify:rust`, and `npm.cmd run verify:security` also passed. The exact PDF resource-limit target passed 10/10 single-threaded runs.
+
+The required five default-parallel full Rust invocations were attempted twice after the Rust gate. Both attempts exposed unrelated timing-sensitive Windows filesystem-test failures in existing `storage_analyzer` and `file_ops` tests; the two failing tests passed on exact single-threaded reruns. Therefore the implementation-specific PDF stability result is green, while the broad default-parallel stability matrix remains an environment/test-fixture follow-up rather than a claim of 5/5 success.
+
+The local browser preview rendered the affected Organize Files empty-plan state in dark Chinese at 1440×900 and 980×680. The five required viewport sizes had no horizontal overflow and one page heading, and browser console error/warning logs were empty. The final `git diff --check` and documentation validation are recorded after this document update.
+
+### Fourth-round authority and safety decisions
+
+- Fingerprints are backend-generated; the renderer sends them back but never derives membership or authoritative counts.
+- A group mutation is all-or-nothing inside the existing transaction. `organization_group_changed` is reserved for projection/revision changes; `organization_group_action_not_available` is used for a current but ineligible action.
+- Plan list and basic plan responses do not pretend that a realtime effective summary has been loaded. The group page is the single full-projection owner for the open-plan surface.
+- PDF preflight remains a limit classification only; compressed data is still bounded by the existing decompression budget and no parser or extraction boundary is relaxed.
+
+### Fourth-round deferred or unverified
+
+The broad default-parallel five-run Rust matrix remains unverified because of the two unrelated Windows filesystem-test races described above. macOS compile and packaging, remote CI and Full Validation, native Tauri behavior, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, signed artifacts, checksums, tags, and release/publish workflows remain unverified until the Draft PR and appropriate platform/CI checks run.
+
 ## 6. Codex continuous-execution rule
 
 Codex may continue automatically from one V4.3 stage to the next only when:

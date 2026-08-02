@@ -549,6 +549,8 @@ export const tauriApi = {
     planId: string;
     groupId: string;
     expectedPlanRevision: number;
+    expectedProjectionFingerprint: string;
+    expectedItemCount: number;
     decision: "accepted" | "kept" | "undecided";
   }): Promise<UpdateOrganizationPlanGroupDecisionResult> {
     return invokeCommand<UpdateOrganizationPlanGroupDecisionResult>("update_organization_plan_group_decision", { request });

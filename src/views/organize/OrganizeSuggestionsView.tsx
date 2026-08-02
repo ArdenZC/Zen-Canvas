@@ -220,7 +220,12 @@ export function OrganizeSuggestionsView() {
 
   async function handleGroupDecision(group: OrganizationPlanGroupSummary, decision: "accepted" | "kept" | "undecided") {
     if (!canReview) return;
-    if (decision === "accepted" && group.readiness !== "ready") return;
+    const available = decision === "accepted"
+      ? group.groupActions.canAcceptAll
+      : decision === "kept"
+        ? group.groupActions.canKeepAll
+        : group.groupActions.canClearAll;
+    if (!available) return;
     setReviewActionError(null);
     setReviewActionNeedsRefresh(false);
     try {
@@ -332,8 +337,8 @@ export function OrganizeSuggestionsView() {
               items={[
                 { label: t("organizePlanMetricFiles"), value: plan.materializedCount.toLocaleString() },
                 { label: t("organizePlanMetricAccepted"), value: (plan.summary.accepted + plan.summary.edited).toLocaleString(), tone: "green" },
-                { label: t("organizePlanMetricReview"), value: plan.effectiveSummary.pendingReview.toLocaleString(), tone: "amber" },
-                { label: t("organizePlanMetricBlocked"), value: plan.effectiveSummary.blocked.toLocaleString(), tone: "red" }
+                { label: t("organizePlanMetricReview"), value: (plan.effectiveSummary?.pendingReview ?? 0).toLocaleString(), tone: "amber" },
+                { label: t("organizePlanMetricBlocked"), value: (plan.effectiveSummary?.blocked ?? 0).toLocaleString(), tone: "red" }
               ]}
             />
           </section>
@@ -391,8 +396,10 @@ export function OrganizeSuggestionsView() {
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="min-w-0 truncate text-xs text-[var(--zc-text-tertiary)]">{groupReason(group, t)}</span>
                           <div className="flex shrink-0 flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
-                            {group.readiness === "ready" ? <Button variant="secondary" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "accepted")}><Check size={13} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
-                            {group.readiness !== "blocked" ? <Button variant="ghost" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "kept")}><CircleMinus size={13} aria-hidden="true" />{t("organizeGroupKeep")}</Button> : null}
+                            {group.groupActions.canAcceptAll ? <Button variant="secondary" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "accepted")}><Check size={13} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
+                            {group.groupActions.canKeepAll ? <Button variant="ghost" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "kept")}><CircleMinus size={13} aria-hidden="true" />{t("organizeGroupKeep")}</Button> : null}
+                            {group.groupActions.canClearAll ? <Button variant="ghost" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "undecided")}><ListRestart size={13} aria-hidden="true" />{t("organizeGroupClear")}</Button> : null}
+                            {groupDecisionState(group, t) ? <span className="self-center text-xs font-medium text-[var(--zc-text-secondary)]">{groupDecisionState(group, t)}</span> : null}
                             <Button variant="ghost" size="compact" onClick={() => openGroup(group)}>{t("organizeGroupReview")}</Button>
                           </div>
                         </div>
@@ -432,8 +439,10 @@ export function OrganizeSuggestionsView() {
         onClose={() => setActiveGroupId(null)}
         footer={activeGroup ? (
           <div className="flex flex-wrap justify-end gap-2">
-            {activeGroup.readiness === "ready" ? <Button variant="secondary" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(activeGroup, "accepted")}><Check size={14} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
-            {activeGroup.readiness !== "blocked" ? <Button variant="ghost" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(activeGroup, "kept")}><CircleMinus size={14} aria-hidden="true" />{t("organizeGroupKeep")}</Button> : null}
+            {activeGroup.groupActions.canAcceptAll ? <Button variant="secondary" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(activeGroup, "accepted")}><Check size={14} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
+            {activeGroup.groupActions.canKeepAll ? <Button variant="ghost" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(activeGroup, "kept")}><CircleMinus size={14} aria-hidden="true" />{t("organizeGroupKeep")}</Button> : null}
+            {activeGroup.groupActions.canClearAll ? <Button variant="ghost" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(activeGroup, "undecided")}><ListRestart size={14} aria-hidden="true" />{t("organizeGroupClear")}</Button> : null}
+            {groupDecisionState(activeGroup, t) ? <span className="self-center text-xs font-medium text-[var(--zc-text-secondary)]">{groupDecisionState(activeGroup, t)}</span> : null}
           </div>
         ) : undefined}
       >
@@ -556,6 +565,17 @@ function readinessLabel(readiness: OrganizationPlanGroupSummary["readiness"], t:
   return t("organizeGroupReadinessBlocked");
 }
 
+function groupDecisionState(group: OrganizationPlanGroupSummary, t: Translator): string | null {
+  if (group.proposalKind === "keep") return t("organizeGroupNoMove");
+  if (group.itemCount > 0 && group.acceptedCount === group.itemCount && !group.groupActions.canAcceptAll) {
+    return t("organizeGroupIncluded");
+  }
+  if (group.readiness === "reviewed" && !group.groupActions.canAcceptAll) {
+    return t("organizeGroupReviewed");
+  }
+  return null;
+}
+
 function riskLabel(risk: string, t: Translator): string {
   if (risk === "Normal") return t("organizeRiskNormal");
   if (risk === "Sensitive") return t("organizeRiskSensitive");
@@ -622,14 +642,14 @@ function organizeActionError(error: unknown, t: Translator): string {
   const message = readableError(error);
   if (message.includes("organization_item_accept_not_available")) return t("organizeItemAcceptUnavailableBackend");
   if (message.includes("organization_item_edit_not_available")) return t("organizeItemEditUnavailableBackend");
-  if (message.includes("organization_group_not_fully_safe")) return t("organizeGroupNotFullySafe");
+  if (message.includes("organization_group_action_not_available")) return t("organizeGroupActionUnavailable");
   if (message.includes("organization_group_changed")) return t("organizeGroupChanged");
   return t("organizeGroupActionFailed");
 }
 
 function isOrganizationGroupChangedError(error: unknown): boolean {
   const message = readableError(error);
-  return message.includes("organization_group_changed") || message.includes("organization_group_not_fully_safe");
+  return message.includes("organization_group_changed");
 }
 
 function emptyTabTitle(tab: ReviewTab, t: Translator): string {

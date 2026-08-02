@@ -14,6 +14,8 @@ use super::*;
 use crate::path_identity::normalize_text_for_compare;
 use rusqlite::{params, params_from_iter, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use std::cell::Cell;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -62,6 +64,11 @@ const ORGANIZATION_EXECUTION_MAX_ITEMS: usize = 1_000;
 const ORGANIZATION_PAGE_MAX: u32 = 200;
 const ORGANIZATION_GROUP_SAMPLE_MAX: usize = 3;
 
+#[cfg(test)]
+thread_local! {
+    static ORGANIZATION_FULL_PROJECTION_COUNT: Cell<usize> = const { Cell::new(0) };
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
@@ -97,7 +104,7 @@ pub struct OrganizationPlanDto {
     pub ready_at: Option<i64>,
     pub completed_at: Option<i64>,
     pub summary: OrganizationPlanSummaryDto,
-    pub effective_summary: OrganizationPlanEffectiveSummaryDto,
+    pub effective_summary: Option<OrganizationPlanEffectiveSummaryDto>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -234,8 +241,18 @@ pub struct OrganizationPlanGroupSummaryDto {
     pub confidence_band: String,
     pub review_reason_counts: Vec<OrganizationReviewReasonCountDto>,
     pub available_actions: Vec<String>,
+    pub group_actions: OrganizationPlanGroupActionsDto,
+    pub projection_fingerprint: String,
     pub sample_items: Vec<OrganizationPlanGroupSampleDto>,
     pub revision: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizationPlanGroupActionsDto {
+    pub can_accept_all: bool,
+    pub can_keep_all: bool,
+    pub can_clear_all: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -278,6 +295,8 @@ pub struct UpdateOrganizationPlanGroupDecisionRequest {
     pub plan_id: String,
     pub group_id: String,
     pub expected_plan_revision: i64,
+    pub expected_projection_fingerprint: String,
+    pub expected_item_count: i64,
     pub decision: String,
 }
 
@@ -467,7 +486,56 @@ struct OrganizationPlanGroupAccumulator {
     all_low_confidence: bool,
     review_reason_counts: BTreeMap<String, i64>,
     available_actions: HashSet<String>,
+    can_accept_all: bool,
+    can_keep_all: bool,
+    can_clear_all: bool,
+    fingerprint_members: Vec<OrganizationGroupFingerprintMember>,
     sample_items: Vec<OrganizationPlanGroupSampleDto>,
+}
+
+#[derive(Debug, Clone)]
+struct OrganizationItemProjection {
+    item: OrganizationPlanItemDto,
+    current_file: Option<IndexedFileRow>,
+    managed_scope_membership: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+struct OrganizationPlanGroupProjection {
+    items: Vec<OrganizationItemProjection>,
+    groups: Vec<OrganizationPlanGroupSummaryDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OrganizationGroupFingerprintMember {
+    item_id: String,
+    item_revision: i64,
+    effective_readiness: String,
+    decision: String,
+    authoritative_preview_id: Option<String>,
+    current_source_path: Option<String>,
+    current_size: Option<i64>,
+    current_mtime: Option<i64>,
+    current_is_dir: Option<bool>,
+    available_actions: Vec<String>,
+    proposal_fingerprint: String,
+    blocking_code: Option<String>,
+    managed_scope_membership: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OrganizationGroupFingerprintPayload<'a> {
+    version: &'static str,
+    plan_id: &'a str,
+    plan_revision: i64,
+    group_id: &'a str,
+    target_directory: &'a str,
+    proposal_kind: &'a str,
+    readiness: &'a str,
+    risk_level: &'a str,
+    members: Vec<OrganizationGroupFingerprintMember>,
 }
 
 impl Database {
@@ -813,7 +881,7 @@ impl Database {
                     ready_at = ?3, updated_at = ?3 WHERE id = ?1 AND status = 'building'",
             params![plan_id, materialized_count, now],
         )?;
-        let plan = load_plan_with_effective_summary(&tx, &plan_id)?;
+        let plan = load_plan(&tx, &plan_id)?;
         tx.commit()?;
         Ok(plan)
     }
@@ -834,15 +902,13 @@ impl Database {
         };
         for plan in &mut plans {
             plan.summary = load_plan_summary(&conn, &plan.id)?;
-            let groups = load_organization_plan_group_summaries(&conn, &plan.id, plan.revision)?;
-            plan.effective_summary = effective_summary_from_groups(&groups);
         }
         Ok(plans)
     }
 
     pub fn get_organization_plan(&self, plan_id: &str) -> Result<OrganizationPlanDto, DbError> {
         let conn = self.conn()?;
-        load_plan_with_effective_summary(
+        load_plan(
             &conn,
             &validate_id(plan_id, "organization_plan_id_invalid")?,
         )
@@ -942,7 +1008,8 @@ impl Database {
             .transpose()?;
         let conn = self.conn()?;
         let plan = load_plan(&conn, &plan_id)?;
-        let mut groups = load_organization_plan_group_summaries(&conn, &plan_id, plan.revision)?;
+        let projection = load_organization_plan_group_projection(&conn, &plan_id, plan.revision)?;
+        let mut groups = projection.groups;
         let effective_summary = effective_summary_from_groups(&groups);
         if let Some(cursor) = cursor {
             groups.retain(|group| organization_group_is_after(group, &cursor));
@@ -1049,15 +1116,36 @@ impl Database {
             request.expected_plan_revision,
             &["ready", "stale", "partially_completed"],
         )?;
-        let members = load_organization_plan_items_for_projection(&tx, &plan_id)?
+        let projection =
+            load_organization_plan_group_projection(&tx, &plan_id, request.expected_plan_revision)?;
+        let current_group = projection
+            .groups
+            .iter()
+            .find(|group| group.group_id == group_id);
+        let Some(current_group) = current_group else {
+            return Err(DbError::Validation(
+                "organization_group_changed".to_string(),
+            ));
+        };
+        if current_group.item_count != request.expected_item_count
+            || current_group.projection_fingerprint != request.expected_projection_fingerprint
+        {
+            return Err(DbError::Validation(
+                "organization_group_changed".to_string(),
+            ));
+        }
+        let members = projection
+            .items
             .into_iter()
-            .filter(|item| {
-                organization_group_id(&plan_id, &organization_group_key(item)) == group_id
+            .filter(|projection| {
+                organization_group_id(&plan_id, &organization_group_key(&projection.item))
+                    == group_id
             })
+            .map(|projection| projection.item)
             .collect::<Vec<_>>();
         if members.is_empty() {
             return Err(DbError::Validation(
-                "organization_group_not_found".to_string(),
+                "organization_group_changed".to_string(),
             ));
         }
 
@@ -1069,30 +1157,24 @@ impl Database {
                 "organization_group_changed".to_string(),
             ));
         }
+        let action_available = match decision {
+            "accepted" => current_group.group_actions.can_accept_all,
+            "kept" => current_group.group_actions.can_keep_all,
+            "undecided" => current_group.group_actions.can_clear_all,
+            _ => unreachable!("normalize_decision returns only durable decisions"),
+        };
+        if !action_available {
+            return Err(DbError::Validation(
+                "organization_group_action_not_available".to_string(),
+            ));
+        }
         for item in &members {
             match decision {
                 "accepted" => require_safe_batch_item_projection(item).map_err(|_| {
-                    DbError::Validation("organization_group_not_fully_safe".to_string())
+                    DbError::Validation("organization_group_action_not_available".to_string())
                 })?,
-                "kept" => {
-                    if !item.available_actions.iter().any(|action| action == "keep") {
-                        return Err(DbError::Validation(
-                            "organization_group_changed".to_string(),
-                        ));
-                    }
-                }
-                "undecided" if item.decision != "undecided" => {
-                    if !item
-                        .available_actions
-                        .iter()
-                        .any(|action| action == "clear_decision")
-                    {
-                        return Err(DbError::Validation(
-                            "organization_group_changed".to_string(),
-                        ));
-                    }
-                }
                 "undecided" => {}
+                "kept" => {}
                 _ => unreachable!("normalize_decision returns only durable decisions"),
             }
         }
@@ -1130,12 +1212,9 @@ impl Database {
                 "organization_plan_revision_conflict".to_string(),
             ));
         }
-        let plan = load_plan_with_effective_summary(&tx, &plan_id)?;
-        let group = load_organization_plan_group_summaries(&tx, &plan_id, plan.revision)?
-            .into_iter()
-            .find(|group| group.group_id == group_id);
+        let plan = load_plan(&tx, &plan_id)?;
         tx.commit()?;
-        Ok(UpdateOrganizationPlanGroupDecisionResultDto { plan, group })
+        Ok(UpdateOrganizationPlanGroupDecisionResultDto { plan, group: None })
     }
 
     pub fn update_organization_plan_decisions(
@@ -1297,7 +1376,7 @@ impl Database {
              WHERE id = ?1 AND revision = ?2",
             params![plan_id, request.expected_plan_revision, now],
         )?;
-        let plan = load_plan_with_effective_summary(&tx, &plan_id)?;
+        let plan = load_plan(&tx, &plan_id)?;
         tx.commit()?;
         Ok(plan)
     }
@@ -1324,7 +1403,7 @@ impl Database {
                     request.expected_plan_revision,
                     "organization_source_provenance_invalid",
                 )?;
-                let plan = load_plan_with_effective_summary(&tx, &plan_id)?;
+                let plan = load_plan(&tx, &plan_id)?;
                 tx.commit()?;
                 return Ok(plan);
             }
@@ -1430,7 +1509,7 @@ impl Database {
              WHERE id = ?1 AND revision = ?2",
             params![plan_id, request.expected_plan_revision, status, now],
         )?;
-        let plan = load_plan_with_effective_summary(&tx, &plan_id)?;
+        let plan = load_plan(&tx, &plan_id)?;
         tx.commit()?;
         Ok(plan)
     }
@@ -1456,7 +1535,7 @@ impl Database {
                 "organization_plan_revision_conflict".to_string(),
             ));
         }
-        load_plan_with_effective_summary(&conn, &plan_id)
+        load_plan(&conn, &plan_id)
     }
 
     pub fn delete_organization_plan(
@@ -1772,7 +1851,7 @@ impl Database {
                 dispatch.execution_id
             ],
         )?;
-        let plan = load_plan_with_effective_summary(&tx, plan_id)?;
+        let plan = load_plan(&tx, plan_id)?;
         tx.commit()?;
         Ok(ExecuteOrganizationPlanResultDto {
             plan,
@@ -2227,16 +2306,6 @@ fn load_plan(conn: &rusqlite::Connection, plan_id: &str) -> Result<OrganizationP
     Ok(plan)
 }
 
-fn load_plan_with_effective_summary(
-    conn: &rusqlite::Connection,
-    plan_id: &str,
-) -> Result<OrganizationPlanDto, DbError> {
-    let mut plan = load_plan(conn, plan_id)?;
-    let groups = load_organization_plan_group_summaries(conn, plan_id, plan.revision)?;
-    plan.effective_summary = effective_summary_from_groups(&groups);
-    Ok(plan)
-}
-
 fn plan_from_row(row: &Row<'_>) -> rusqlite::Result<OrganizationPlanDto> {
     Ok(OrganizationPlanDto {
         id: row.get(0)?,
@@ -2258,7 +2327,7 @@ fn plan_from_row(row: &Row<'_>) -> rusqlite::Result<OrganizationPlanDto> {
         ready_at: row.get(16)?,
         completed_at: row.get(17)?,
         summary: OrganizationPlanSummaryDto::default(),
-        effective_summary: OrganizationPlanEffectiveSummaryDto::default(),
+        effective_summary: None,
     })
 }
 
@@ -2694,10 +2763,10 @@ fn validate_organization_page_size(page_size: u32, code: &str) -> Result<(), DbE
     }
 }
 
-fn load_organization_plan_items_for_projection(
+fn load_organization_item_projections(
     conn: &rusqlite::Connection,
     plan_id: &str,
-) -> Result<Vec<OrganizationPlanItemDto>, DbError> {
+) -> Result<Vec<OrganizationItemProjection>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, plan_id, ordinal, file_id_snapshot, source_path_snapshot,
                 source_name_snapshot, source_size_snapshot, source_mtime_snapshot,
@@ -2709,7 +2778,7 @@ fn load_organization_plan_items_for_projection(
                 created_at, updated_at
          FROM organization_plan_items WHERE plan_id = ?1 ORDER BY ordinal, id",
     )?;
-    let mut items = stmt
+    let items = stmt
         .query_map(params![plan_id], item_from_row)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(DbError::from)?;
@@ -2720,18 +2789,35 @@ fn load_organization_plan_items_for_projection(
     let current_files = load_indexed_files_for_projection(conn, &file_ids)?;
     let scope = load_organization_scope_projection(conn, plan_id);
     let scope_memberships = organization_scope_memberships(conn, &scope, &file_ids);
-    for item in &mut items {
+    let mut projections = Vec::with_capacity(items.len());
+    for mut item in items {
         let scope_membership = scope_memberships
             .get(&item.file_id_snapshot)
             .copied()
             .unwrap_or(Some(false));
+        let current_file = current_files.get(&item.file_id_snapshot).cloned();
         decorate_organization_item_metadata_with_file(
-            item,
-            current_files.get(&item.file_id_snapshot),
+            &mut item,
+            current_file.as_ref(),
             scope_membership,
         )?;
+        projections.push(OrganizationItemProjection {
+            item,
+            current_file,
+            managed_scope_membership: scope_membership,
+        });
     }
-    Ok(items)
+    Ok(projections)
+}
+
+fn load_organization_plan_items_for_projection(
+    conn: &rusqlite::Connection,
+    plan_id: &str,
+) -> Result<Vec<OrganizationPlanItemDto>, DbError> {
+    Ok(load_organization_item_projections(conn, plan_id)?
+        .into_iter()
+        .map(|projection| projection.item)
+        .collect())
 }
 
 fn load_indexed_files_for_projection(
@@ -2813,15 +2899,27 @@ fn organization_group_is_conflict(item: &OrganizationPlanItemDto) -> bool {
         .is_some_and(|code| matches!(code, "organization_target_collision" | "target_collision"))
 }
 
-fn load_organization_plan_group_summaries(
+fn load_organization_plan_group_projection(
     conn: &rusqlite::Connection,
     plan_id: &str,
     revision: i64,
-) -> Result<Vec<OrganizationPlanGroupSummaryDto>, DbError> {
-    let items = load_organization_plan_items_for_projection(conn, plan_id)?;
+) -> Result<OrganizationPlanGroupProjection, DbError> {
+    #[cfg(test)]
+    ORGANIZATION_FULL_PROJECTION_COUNT.with(|count| count.set(count.get() + 1));
+    let items = load_organization_item_projections(conn, plan_id)?;
+    let groups = build_organization_plan_group_summaries(plan_id, revision, &items);
+    Ok(OrganizationPlanGroupProjection { items, groups })
+}
+
+fn build_organization_plan_group_summaries(
+    plan_id: &str,
+    revision: i64,
+    items: &[OrganizationItemProjection],
+) -> Vec<OrganizationPlanGroupSummaryDto> {
     let mut groups = HashMap::<OrganizationPlanGroupKey, OrganizationPlanGroupAccumulator>::new();
-    for item in items {
-        let key = organization_group_key(&item);
+    for projection in items {
+        let item = &projection.item;
+        let key = organization_group_key(item);
         let group_id = organization_group_id(plan_id, &key);
         let entry = groups
             .entry(key.clone())
@@ -2831,6 +2929,9 @@ fn load_organization_plan_group_summaries(
                 all_high_confidence: true,
                 all_medium_confidence: true,
                 all_low_confidence: true,
+                can_accept_all: true,
+                can_keep_all: true,
+                can_clear_all: true,
                 ..OrganizationPlanGroupAccumulator::default()
             });
         entry.item_count += 1;
@@ -2846,7 +2947,7 @@ fn load_organization_plan_group_summaries(
         if item.validity == "stale" {
             entry.stale_count += 1;
         }
-        if organization_group_is_conflict(&item) {
+        if organization_group_is_conflict(item) {
             entry.conflict_count += 1;
         }
         for reason in &item.review_reasons {
@@ -2858,17 +2959,48 @@ fn load_organization_plan_group_summaries(
         for action in &item.available_actions {
             entry.available_actions.insert(action.clone());
         }
+        entry.can_accept_all &= item
+            .available_actions
+            .iter()
+            .any(|action| action == "accept_suggestion");
+        entry.can_keep_all &= item.available_actions.iter().any(|action| action == "keep");
+        entry.can_clear_all &= item
+            .available_actions
+            .iter()
+            .any(|action| action == "clear_decision");
+        let mut available_actions = item.available_actions.clone();
+        available_actions.sort();
+        entry
+            .fingerprint_members
+            .push(OrganizationGroupFingerprintMember {
+                item_id: item.id.clone(),
+                item_revision: item.revision,
+                effective_readiness: item.effective_readiness.clone(),
+                decision: item.decision.clone(),
+                authoritative_preview_id: item.authoritative_preview_id.clone(),
+                current_source_path: projection
+                    .current_file
+                    .as_ref()
+                    .map(|file| file.path.clone()),
+                current_size: projection.current_file.as_ref().map(|file| file.size),
+                current_mtime: projection.current_file.as_ref().map(|file| file.mtime),
+                current_is_dir: projection.current_file.as_ref().map(|file| file.is_dir),
+                available_actions,
+                proposal_fingerprint: item.proposal_fingerprint.clone(),
+                blocking_code: item.blocking_code.clone(),
+                managed_scope_membership: projection.managed_scope_membership,
+            });
         entry.all_high_confidence &= item.confidence >= 0.8;
         entry.all_medium_confidence &= (0.5..0.8).contains(&item.confidence);
         entry.all_low_confidence &= item.confidence < 0.5;
         if entry.sample_items.len() < ORGANIZATION_GROUP_SAMPLE_MAX {
             entry.sample_items.push(OrganizationPlanGroupSampleDto {
-                item_id: item.id,
-                source_name: item.source_name_snapshot,
-                source_path: item.source_path_snapshot,
-                proposed_name: item.proposed_name,
-                decision: item.decision,
-                validity: item.validity,
+                item_id: item.id.clone(),
+                source_name: item.source_name_snapshot.clone(),
+                source_path: item.source_path_snapshot.clone(),
+                proposed_name: item.proposed_name.clone(),
+                decision: item.decision.clone(),
+                validity: item.validity.clone(),
             });
         }
     }
@@ -2888,6 +3020,14 @@ fn load_organization_plan_group_summaries(
             } else {
                 "mixed"
             };
+            let projection_fingerprint = organization_group_projection_fingerprint(
+                plan_id,
+                revision,
+                &accumulator.group_id,
+                &key,
+                &accumulator.fingerprint_members,
+            );
+            let is_ready_group = key.readiness == "ready";
             Ok(OrganizationPlanGroupSummaryDto {
                 group_id: accumulator.group_id,
                 plan_id: plan_id.to_string(),
@@ -2910,18 +3050,54 @@ fn load_organization_plan_group_summaries(
                     .map(|(reason, count)| OrganizationReviewReasonCountDto { reason, count })
                     .collect(),
                 available_actions: sorted_organization_actions(accumulator.available_actions),
+                group_actions: OrganizationPlanGroupActionsDto {
+                    can_accept_all: accumulator.item_count > 0
+                        && accumulator.can_accept_all
+                        && is_ready_group,
+                    can_keep_all: accumulator.item_count > 0 && accumulator.can_keep_all,
+                    can_clear_all: accumulator.item_count > 0 && accumulator.can_clear_all,
+                },
+                projection_fingerprint,
                 sample_items: accumulator.sample_items,
                 revision,
             })
         })
-        .collect::<Result<Vec<_>, DbError>>()?;
+        .collect::<Result<Vec<_>, DbError>>()
+        .expect("organization group summary projection is infallible");
     summaries.sort_by(|left, right| {
         left.label
             .to_ascii_lowercase()
             .cmp(&right.label.to_ascii_lowercase())
             .then_with(|| left.group_id.cmp(&right.group_id))
     });
-    Ok(summaries)
+    summaries
+}
+
+fn organization_group_projection_fingerprint(
+    plan_id: &str,
+    revision: i64,
+    group_id: &str,
+    key: &OrganizationPlanGroupKey,
+    members: &[OrganizationGroupFingerprintMember],
+) -> String {
+    let mut members = members.to_vec();
+    members.sort_by(|left, right| left.item_id.cmp(&right.item_id));
+    let payload = OrganizationGroupFingerprintPayload {
+        version: "organization-group-projection-v1",
+        plan_id,
+        plan_revision: revision,
+        group_id,
+        target_directory: &key.target_directory,
+        proposal_kind: &key.proposal_kind,
+        readiness: &key.readiness,
+        risk_level: &key.risk_level,
+        members,
+    };
+    let bytes = serde_json::to_vec(&payload).expect("organization group fingerprint serializes");
+    format!(
+        "organization-group-projection-v1-{}",
+        blake3::hash(&bytes).to_hex()
+    )
 }
 
 fn effective_summary_from_groups(
@@ -3550,6 +3726,14 @@ mod tests {
         )
     }
 
+    fn reset_full_projection_count() {
+        ORGANIZATION_FULL_PROJECTION_COUNT.with(|count| count.set(0));
+    }
+
+    fn full_projection_count() -> usize {
+        ORGANIZATION_FULL_PROJECTION_COUNT.with(Cell::get)
+    }
+
     fn seed_plan(db: &Database, status: &str) {
         let conn = db.conn().expect("seed connection");
         conn.execute(
@@ -3886,6 +4070,10 @@ mod tests {
         );
         assert_eq!(first_group.confidence_band, "mixed");
         assert_eq!(first_group.revision, 1);
+        assert!(!first_group.projection_fingerprint.is_empty());
+        assert!(first_group.group_actions.can_accept_all);
+        assert!(first_group.group_actions.can_keep_all);
+        assert!(!first_group.group_actions.can_clear_all);
         let repeated = db
             .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
                 plan_id: "plan-test".into(),
@@ -3926,6 +4114,108 @@ mod tests {
         assert_eq!(next_group_page.items.len(), 2);
         drop(db);
         let _ = std::fs::remove_dir_all(fixture);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn group_projection_fingerprint_rejects_changed_item_without_partial_update() {
+        let (db, path) = test_database();
+        seed_plan(&db, "ready");
+        let group = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("fingerprint group projection")
+            .groups
+            .into_iter()
+            .next()
+            .expect("fingerprint group");
+        {
+            let conn = db.conn().expect("change fingerprint item");
+            conn.execute(
+                "UPDATE organization_plan_items SET revision = revision + 1
+                 WHERE id = 'item-test'",
+                [],
+            )
+            .expect("change item revision without plan revision");
+        }
+        let error = db
+            .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                plan_id: "plan-test".into(),
+                group_id: group.group_id,
+                expected_plan_revision: 1,
+                expected_projection_fingerprint: group.projection_fingerprint,
+                expected_item_count: group.item_count,
+                decision: "kept".into(),
+            })
+            .expect_err("stale projection must be rejected");
+        assert!(error.to_string().contains("organization_group_changed"));
+        assert_eq!(
+            db.get_organization_plan("plan-test")
+                .expect("unchanged plan")
+                .revision,
+            1
+        );
+        assert_eq!(
+            db.query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("unchanged item after stale projection")
+            .items
+            .into_iter()
+            .filter(|item| item.decision != "undecided")
+            .count(),
+            0
+        );
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn plan_list_and_open_plan_do_not_duplicate_full_group_projection() {
+        let (db, path) = test_database();
+        seed_plan(&db, "ready");
+        {
+            let conn = db.conn().expect("projection count seed connection");
+            for index in 0..200_i64 {
+                conn.execute(
+                    "INSERT INTO organization_plans (
+                        id, title, status, source_kind, source_snapshot_revision,
+                        requested_count, materialized_count, planner_version, revision,
+                        created_at, updated_at, ready_at
+                     ) VALUES (?1, ?2, 'ready', 'explicit', 1, 0, 0, 1, 1, ?3, ?3, ?3)",
+                    params![
+                        format!("projection-plan-{index}"),
+                        format!("Projection {index}"),
+                        index
+                    ],
+                )
+                .expect("seed lightweight projection plan");
+            }
+        }
+        reset_full_projection_count();
+        let plans = db.list_organization_plans().expect("lightweight plan list");
+        assert_eq!(full_projection_count(), 0);
+        assert!(plans.iter().all(|plan| plan.effective_summary.is_none()));
+        let plan = db
+            .get_organization_plan("plan-test")
+            .expect("lightweight open plan");
+        assert!(plan.effective_summary.is_none());
+        assert_eq!(full_projection_count(), 0);
+        let page = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("single full group projection");
+        assert_eq!(full_projection_count(), 1);
+        assert!(!page.groups.is_empty());
+        drop(db);
         let _ = std::fs::remove_file(path);
     }
 
@@ -3995,12 +4285,16 @@ mod tests {
             .into_iter()
             .find(|candidate| candidate.item_count == 1_000)
             .expect("one thousand member group");
+        let expected_projection_fingerprint = group.projection_fingerprint.clone();
+        let expected_item_count = group.item_count;
         let start = Instant::now();
         let updated = db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
                 plan_id: "plan-test".into(),
                 group_id: group.group_id,
                 expected_plan_revision: 1,
+                expected_projection_fingerprint,
+                expected_item_count,
                 decision: "kept".into(),
             })
             .expect("large group keep mutation");
@@ -4279,17 +4573,21 @@ mod tests {
             .into_iter()
             .find(|group| group.item_count == 2)
             .expect("safe group");
+        assert!(group.group_actions.can_accept_all);
+        assert!(group.group_actions.can_keep_all);
         let error = db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
                 plan_id: "plan-test".into(),
                 group_id: group.group_id.clone(),
                 expected_plan_revision: 1,
+                expected_projection_fingerprint: group.projection_fingerprint.clone(),
+                expected_item_count: group.item_count,
                 decision: "accepted".into(),
             })
             .expect_err("unsafe group members must fail atomically");
         assert!(error
             .to_string()
-            .contains("organization_group_not_fully_safe"));
+            .contains("organization_group_action_not_available"));
         assert_eq!(
             db.get_organization_plan("plan-test")
                 .expect("unchanged group plan")
@@ -4344,17 +4642,34 @@ mod tests {
                 plan_id: "plan-test".into(),
                 group_id: safe_group.group_id.clone(),
                 expected_plan_revision: 1,
+                expected_projection_fingerprint: safe_group.projection_fingerprint.clone(),
+                expected_item_count: safe_group.item_count,
                 decision: "accepted".into(),
             })
             .expect("accept complete safe group");
         assert_eq!(updated.plan.revision, 2);
         assert_eq!(updated.plan.summary.accepted, 2);
-        assert_eq!(updated.group.expect("updated group").accepted_count, 2);
+        assert!(updated.group.is_none());
+        let accepted_group = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("accepted group projection")
+            .groups
+            .into_iter()
+            .find(|candidate| candidate.item_count == 2)
+            .expect("accepted group");
+        assert!(!accepted_group.group_actions.can_accept_all);
+        assert!(accepted_group.group_actions.can_clear_all);
         assert!(db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
                 plan_id: "plan-test".into(),
                 group_id: safe_group.group_id,
                 expected_plan_revision: 1,
+                expected_projection_fingerprint: safe_group.projection_fingerprint,
+                expected_item_count: safe_group.item_count,
                 decision: "kept".into(),
             })
             .expect_err("stale group decision")
@@ -4721,10 +5036,14 @@ mod tests {
             .remove(0);
         assert_eq!(initial.effective_readiness, "ready");
         assert_eq!(
-            db.get_organization_plan("plan-test")
-                .expect("initial effective summary")
-                .effective_summary
-                .ready,
+            db.query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("initial effective summary")
+            .effective_summary
+            .ready,
             1
         );
 
@@ -4928,7 +5247,7 @@ mod tests {
             })
             .expect("refresh unavailable scope");
         assert_eq!(refreshed.status, "stale");
-        assert_eq!(refreshed.effective_summary.blocked, 1);
+        assert!(refreshed.effective_summary.is_none());
         drop(db);
         let _ = std::fs::remove_file(path);
     }

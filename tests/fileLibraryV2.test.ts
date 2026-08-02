@@ -230,7 +230,14 @@ describe("Task 05 File Library Query V2 contracts", () => {
     expect(members.items).toHaveLength(1);
 
     const kept = await mockInvokeCommand<any>("update_organization_plan_group_decision", {
-      request: { planId: plan.id, groupId: group.groupId, expectedPlanRevision: plan.revision, decision: "kept" }
+      request: {
+        planId: plan.id,
+        groupId: group.groupId,
+        expectedPlanRevision: plan.revision,
+        expectedProjectionFingerprint: group.projectionFingerprint,
+        expectedItemCount: group.itemCount,
+        decision: "kept"
+      }
     });
     expect(kept.plan.revision).toBe(plan.revision + 1);
     expect(kept.group).toBeNull();

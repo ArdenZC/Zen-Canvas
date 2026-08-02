@@ -3,10 +3,11 @@
 Date: 2026-08-02
 Branch: `codex/ui-v4-3-product-integration`
 PR11 baseline: `292cae2` (`ui-v4.3(pr10): integrate settings and overview health`)
+Fourth-round starting HEAD: `8f79b4c67cc3639092961744fb9cf25709f4844d`
 
 ## Stage completion
 
-PR0 through PR10 are committed in order. PR11 records the repository-wide QA pass, the two stale static-contract test repairs exposed by the full suite, the Rust test-fixture lint allowance required by Clippy, the rendered matrix evidence available in the local browser preview, and the remaining native/remote release evidence.
+PR0 through PR10 are committed in order. PR11 records the repository-wide QA pass, the two stale static-contract test repairs exposed by the full suite, the Rust test-fixture lint allowance required by Clippy, the rendered matrix evidence available in the local browser preview, and the remaining native/remote release evidence. The fourth-round closure below records the final independent-review remediation on top of that history.
 
 No schema, persistence, Tauri capability, queue, filesystem mutation authority, or product workflow authority was added in PR11.
 
@@ -25,15 +26,15 @@ All commands below were run from `F:\Coding\Zen-Canvas`.
 | Command | Result |
 | --- | --- |
 | `npm.cmd run typecheck` | Passed. |
-| `npm.cmd test` | Passed: 89 files, 569 tests. The final run includes the mounted second-round independent-review behavior tests and the refreshed Organize static contract. |
+| `npm.cmd test` | Passed: 89 files, 572 tests. The final run includes the mounted fourth-round group-action behavior tests and refreshed Organization Plan contracts. |
 | `npm.cmd run test:remediation` | Passed: 1 file, 13 tests. |
-| `npm.cmd run test:performance` | Passed in 595.9s from the second-round remediation HEAD. Architecture guard, bounded library tests, SQLite/FTS, Global Search 100k, managed scan 100k, migration, Analysis, Dedupe, File Library 100k/1M, Organization Plan, and Rule Proposal performance profiles completed. |
+| `npm.cmd run test:performance` | Passed with the required architecture guard, bounded library tests, SQLite/FTS, Global Search 100k, managed scan 100k, migration, Analysis, Dedupe, File Library 100k/1M, Organization Plan, and Rule Proposal performance profiles. |
 | `npm.cmd run build` | Passed. Vite, Windows release compile, and NSIS installer generation completed. Installer: `F:\CargoTarget\release\bundle\nsis\Zen Canvas_0.1.40_x64-setup.exe`. |
-| `npm.cmd run verify:rust` | Format and Clippy with `-D warnings` passed. The parallel full test phase reproduced the existing timing-sensitive PDF resource-limit failure (`content_extractor_timeout` versus the expected stable error code); the full 587-test Rust suite passed with `-- --test-threads=1`, as did the focused exact rerun. |
+| `npm.cmd run verify:rust` | Passed: format, Rust test phase, and Clippy with `-D warnings`; the primary unit target reported 583 passed, 0 failed, and 9 ignored. |
 | `npm.cmd run verify:security` | Passed. npm audit found 0 vulnerabilities. `cargo audit` reported 15 existing allowed unmaintained/unsound warnings and no failing vulnerability result. |
 | `git diff --check` | Passed for the final working diff. |
 | `npm.cmd run test:docs` | Passed for the final documentation diff. |
-| `cargo test ... pdf_resource_limits_are_enforced_during_scan_and_decode -- --exact --test-threads=1 --nocapture` | Passed on the focused rerun after one timing-sensitive full-suite result returned a timeout code. |
+| `cargo test ... pdf_resource_limits_are_enforced_during_scan_and_decode -- --exact --test-threads=1 --nocapture` | Passed; the exact target also passed 10/10 consecutive runs. |
 
 The Rust helper change is limited to `#[allow(clippy::too_many_arguments)]` on the test-only `seed_group_item` fixture in `organization.rs`; it does not affect production code.
 
@@ -231,3 +232,48 @@ This pass starts from `6e08ad02d6885ae74298f7bd5de347e15fb0695a` on `codex/ui-v4
 ### Status
 
 Third-round local Windows closure is **complete**. macOS compile/package, remote CI, signed artifacts, checksum/tag/release, native Tauri lifecycle, DPI/high-contrast/screen-reader execution, and independent GitHub review remain external or platform-specific limitations; no PR was created.
+
+## Independent Review Remediation — fourth-round closure
+
+Date: 2026-08-02
+
+This fourth-round closure addresses Group Projection Fingerprint, Group Action Intersection, Plan List Projection Complexity, Open Plan Duplicate Projection, and PDF CMap Preflight. Existing durable authorities and safety boundaries remain unchanged.
+
+| Finding | Closure evidence | Status |
+| --- | --- | --- |
+| Group Projection Fingerprint | `OrganizationPlanGroupSummaryDto`/TypeScript include `projectionFingerprint`; requests include expected fingerprint and item count; the backend regenerates and compares the full projection before action/CAS/update; stale fingerprint tests prove zero item updates. | Closed locally. |
+| Group Action Intersection | `OrganizationPlanGroupActionsDto`/TypeScript `groupActions` use all-member intersections. Include/Keep/Clear buttons use only those fields; accepted, reviewed, Keep, and mixed groups no longer show an incorrect include action. | Closed locally. |
+| Plan List Projection Complexity | Plan list no longer calls full group projection and returns `effectiveSummary: null` until loaded. The Rust counter test covers a 200-plan list and observes zero full projections. | Closed locally. |
+| Open Plan Duplicate Projection | Basic plan hydration is cheap; the group page is the full projection/effective-summary authority. The Rust counter test observes zero full projections for get and one after group query. | Closed locally. |
+| PDF CMap Preflight | Structured bounded stream/dictionary/raw-data/filter checks prevent ordinary, compressed, dictionary-token, and non-stream false positives. Deadline/cancellation errors propagate through the existing extraction result mapping. | Closed locally. |
+
+### Fourth-round focused evidence
+
+- `npm.cmd run typecheck` — passed.
+- `npm.cmd test` — passed: 89 files, 572 tests.
+- `npm.cmd run test:remediation` — passed: 13 tests.
+- Focused Vitest: `tests/organizeIndependentReview.test.tsx`, `tests/fileLibraryV2.test.ts`, and `tests/organizationPlanTask06.test.ts` — passed: 3 files, 20 tests.
+- Rust Organization test module — passed: 20 passed, 1 existing ignored Task 06 performance test.
+- PDF preflight focused test and PDF resource-limit test — passed.
+- Exact PDF resource-limit target — passed 10/10 consecutive runs with `-- --exact --test-threads=1`.
+- `npm.cmd run test:performance` — passed, including the configured 100k/1M profiles and Task 06 thresholds.
+- `npm.cmd run build` — passed with Windows release compile and NSIS packaging.
+- `npm.cmd run verify:rust` — passed: format, Rust test phase, and Clippy with `-D warnings`; the Rust phase reported 583 passed, 0 failed, and 9 ignored in the primary unit target.
+- `npm.cmd run verify:security` — passed: npm audit found 0 vulnerabilities; cargo audit reported the existing 15 allowed unmaintained/unsound warnings.
+
+The required five default-parallel full Rust invocations were attempted twice after the Rust gate. Each exposed a different unrelated timing-sensitive Windows filesystem-test failure (`cleanup_restore_preview_marks_filesystem_conflicts_and_missing_sources` and `file_ops::tests::restore_moves_updates_file_record_after_move_restore`); both passed on exact single-threaded reruns. This leaves the broad default-parallel matrix unverified, while the fourth-round PDF target itself is stable at 10/10.
+
+The local browser preview captured the dark-Chinese Organize Files empty-plan state at 1440×900 and 980×680. The five required viewport sizes (1440×900, 1280×800, 1180×720, 1024×700, 980×680) retained one page heading and measured no horizontal overflow; browser console error/warning logs were empty.
+
+`git diff --check` and `npm.cmd run test:docs` are rerun after this documentation update. No statement of cross-platform or remote release readiness is made.
+
+### Fourth-round safety and authority checklist
+
+- Backend projection remains the only source of group membership, action intersection, effective readiness, and effective summary.
+- Group mutation remains plan-revision/item-revision/CAS protected and commits no subset after a projection or action mismatch.
+- Include, Keep, and Clear remain review decisions only; filesystem execution still requires Preview, Dry Run, journal, and execution revalidation.
+- PDF CMap preflight does not bypass decompression, extraction, output, deadline, or cancellation limits.
+
+### Fourth-round unverified items
+
+The broad default-parallel five-run Rust matrix remains unverified because of the two unrelated Windows filesystem-test races recorded above. macOS compile, unsigned DMG, remote CI/Full Validation, Native Tauri, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, signed artifacts, checksums, tags, and release/publish evidence remain unverified.

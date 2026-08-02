@@ -110,6 +110,8 @@ const reviewGroup: OrganizationPlanGroupSummary = {
   confidenceBand: "medium",
   reviewReasonCounts: [{ reason: "low_confidence", count: 1 }, { reason: "requires_confirmation", count: 1 }],
   availableActions: ["accept_suggestion", "edit_name", "keep", "defer"],
+  groupActions: { canAcceptAll: false, canKeepAll: true, canClearAll: false },
+  projectionFingerprint: "fp-review",
   sampleItems: [{ itemId: reviewItem.id, sourceName: reviewItem.sourceNameSnapshot, sourcePath: reviewItem.sourcePathSnapshot, proposedName: reviewItem.proposedName, decision: reviewItem.decision, validity: reviewItem.validity }],
   revision: plan.revision
 };
@@ -134,6 +136,7 @@ const readyGroup: OrganizationPlanGroupSummary = {
   confidenceBand: "high",
   reviewReasonCounts: [],
   availableActions: ["accept_suggestion", "edit_name", "keep"],
+  groupActions: { canAcceptAll: true, canKeepAll: true, canClearAll: false },
   sampleItems: [{ ...reviewGroup.sampleItems[0], itemId: readyItem.id, decision: readyItem.decision, validity: readyItem.validity }]
 };
 
@@ -152,6 +155,7 @@ const reviewedGroup: OrganizationPlanGroupSummary = {
   readiness: "reviewed",
   acceptedCount: 1,
   availableActions: ["edit_name", "keep", "clear_decision"],
+  groupActions: { canAcceptAll: false, canKeepAll: true, canClearAll: true },
   sampleItems: [{ ...reviewGroup.sampleItems[0], itemId: reviewedItem.id, decision: "accepted", validity: "needs_review" }]
 };
 
@@ -291,9 +295,53 @@ describe("Organize independent review behavior", () => {
       planId: plan.id,
       groupId: readyGroup.groupId,
       expectedPlanRevision: plan.revision,
+      expectedProjectionFingerprint: readyGroup.projectionFingerprint,
+      expectedItemCount: readyGroup.itemCount,
       decision: "accepted"
     });
     expect(useOrganizationPlanStore.getState().openPlan).toHaveBeenCalledWith(plan.id);
+  });
+
+  it("uses the backend group action intersection for mixed and keep groups", async () => {
+    const mixedGroup: OrganizationPlanGroupSummary = {
+      ...readyGroup,
+      groupId: "group-mixed",
+      groupActions: { canAcceptAll: false, canKeepAll: false, canClearAll: false }
+    };
+    useOrganizationPlanStore.setState({ groups: [mixedGroup], items: [readyItem] });
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("纳入安全建议"))).toBe(false);
+    expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("全部保留原位"))).toBe(false);
+    act(() => root.unmount());
+    root = createRoot(container);
+
+    const keepGroup: OrganizationPlanGroupSummary = {
+      ...readyGroup,
+      groupId: "group-keep",
+      proposalKind: "keep",
+      groupActions: { canAcceptAll: false, canKeepAll: true, canClearAll: false }
+    };
+    const keepItem: OrganizationPlanItem = { ...readyItem, id: "item-keep", proposalKind: "keep", availableActions: ["keep"] };
+    useOrganizationPlanStore.setState({ groups: [keepGroup], items: [keepItem] });
+    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: keepGroup.groupId, planRevision: plan.revision, items: [keepItem], nextCursor: null, hasMore: false });
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("纳入安全建议"))).toBe(false);
+    expect(container.textContent).toContain("无需移动");
+  });
+
+  it("keeps an unavailable group action from refreshing or showing optimistic success", async () => {
+    useOrganizationPlanStore.setState({ groups: [readyGroup], items: [readyItem] });
+    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: readyGroup.groupId, planRevision: plan.revision, items: [readyItem], nextCursor: null, hasMore: false });
+    apiMocks.updateOrganizationPlanGroupDecision.mockRejectedValueOnce(new Error("organization_group_action_not_available"));
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    await act(async () => button("纳入安全建议").click());
+    await flush();
+    expect(container.textContent).toContain("该整组操作当前不可用，请查看分组详情。");
+    expect(useOrganizationPlanStore.getState().openPlan).not.toHaveBeenCalled();
+    expect(useOrganizationPlanStore.getState().refreshPlan).not.toHaveBeenCalled();
   });
 
   it("keeps reviewed groups in the plan tab and out of the decision tab", async () => {
@@ -345,6 +393,7 @@ describe("Organize independent review behavior", () => {
       readiness: "blocked",
       reviewReasonCounts: [{ reason: "target_collision", count: 1 }],
       availableActions: ["edit_name", "keep"],
+      groupActions: { canAcceptAll: false, canKeepAll: true, canClearAll: false },
       sampleItems: [{ ...reviewGroup.sampleItems[0], itemId: collisionItem.id, validity: "blocked" }]
     };
     useOrganizationPlanStore.setState({ groups: [collisionGroup], items: [collisionItem] });
@@ -390,7 +439,7 @@ describe("Organize independent review behavior", () => {
 
     expect(apiMocks.updateOrganizationPlanGroupDecision).toHaveBeenCalledOnce();
     expect(useOrganizationPlanStore.getState().openPlan).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("此分组中的文件状态已经变化，请刷新整理方案后重新确认。");
+    expect(container.textContent).toContain("此分组中的文件或建议已经变化，请刷新后重新确认。");
     const refresh = button("刷新当前事实");
     expect(refresh).toBeTruthy();
     await act(async () => refresh.click());

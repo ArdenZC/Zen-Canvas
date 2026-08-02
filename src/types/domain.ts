@@ -919,7 +919,7 @@ export interface OrganizationPlan {
   readyAt: number | null;
   completedAt: number | null;
   summary: OrganizationPlanSummary;
-  effectiveSummary: OrganizationPlanEffectiveSummary;
+  effectiveSummary: OrganizationPlanEffectiveSummary | null;
 }
 
 export interface OrganizationPlanSummary {
@@ -1024,6 +1024,12 @@ export interface OrganizationPlanGroupSummary {
   confidenceBand: string;
   reviewReasonCounts: OrganizationReviewReasonCount[];
   availableActions: string[];
+  groupActions: {
+    canAcceptAll: boolean;
+    canKeepAll: boolean;
+    canClearAll: boolean;
+  };
+  projectionFingerprint: string;
   sampleItems: OrganizationPlanGroupSample[];
   revision: number;
 }
