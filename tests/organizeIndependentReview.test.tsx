@@ -201,9 +201,6 @@ describe("Organize independent review behavior", () => {
       groups: [reviewGroup],
       groupHasMore: false,
       groupNextCursor: null,
-      items: [reviewItem],
-      hasMore: false,
-      nextCursor: null,
       isLoading: false,
       isMutating: false,
       error: null,
@@ -285,7 +282,7 @@ describe("Organize independent review behavior", () => {
       ...reviewGroup,
       groupActions: { canAcceptAll: true, canKeepAll: true, canClearAll: false }
     };
-    useOrganizationPlanStore.setState({ groups: [reviewActionGroup], items: [reviewItem] });
+    useOrganizationPlanStore.setState({ groups: [reviewActionGroup] });
 
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
@@ -310,7 +307,7 @@ describe("Organize independent review behavior", () => {
   });
 
   it("keeps group acceptance available for a ready group and refreshes the plan after group acceptance", async () => {
-    useOrganizationPlanStore.setState({ groups: [readyGroup], items: [readyItem] });
+    useOrganizationPlanStore.setState({ groups: [readyGroup] });
     apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: readyGroup.groupId, planRevision: plan.revision, items: [readyItem], nextCursor: null, hasMore: false });
 
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
@@ -337,7 +334,7 @@ describe("Organize independent review behavior", () => {
       groupId: "group-mixed",
       groupActions: { canAcceptAll: false, canKeepAll: false, canClearAll: false }
     };
-    useOrganizationPlanStore.setState({ groups: [mixedGroup], items: [readyItem] });
+    useOrganizationPlanStore.setState({ groups: [mixedGroup] });
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
     expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("纳入整组"))).toBe(false);
@@ -352,7 +349,7 @@ describe("Organize independent review behavior", () => {
       groupActions: { canAcceptAll: false, canKeepAll: true, canClearAll: false }
     };
     const keepItem: OrganizationPlanItem = { ...readyItem, id: "item-keep", proposalKind: "keep", availableActions: ["keep"] };
-    useOrganizationPlanStore.setState({ groups: [keepGroup], items: [keepItem] });
+    useOrganizationPlanStore.setState({ groups: [keepGroup] });
     apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: keepGroup.groupId, planRevision: plan.revision, items: [keepItem], nextCursor: null, hasMore: false });
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
@@ -361,7 +358,7 @@ describe("Organize independent review behavior", () => {
   });
 
   it("keeps an unavailable group action from refreshing or showing optimistic success", async () => {
-    useOrganizationPlanStore.setState({ groups: [readyGroup], items: [readyItem] });
+    useOrganizationPlanStore.setState({ groups: [readyGroup] });
     apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: readyGroup.groupId, planRevision: plan.revision, items: [readyItem], nextCursor: null, hasMore: false });
     apiMocks.updateOrganizationPlanGroupDecision.mockRejectedValueOnce(new Error("organization_group_action_not_available"));
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
@@ -381,7 +378,7 @@ describe("Organize independent review behavior", () => {
       summary: { ...plan.summary, undecided: 0, accepted: 1, pendingReview: 0, reviewed: 1, remainingExecutable: 1 }
     };
     acceptedReview = true;
-    useOrganizationPlanStore.setState({ plans: [reviewedPlan], activePlan: reviewedPlan, groups: [reviewedGroup], items: [reviewedItem] });
+    useOrganizationPlanStore.setState({ plans: [reviewedPlan], activePlan: reviewedPlan, groups: [reviewedGroup] });
 
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
@@ -426,7 +423,7 @@ describe("Organize independent review behavior", () => {
       groupActions: { canAcceptAll: false, canKeepAll: true, canClearAll: false },
       sampleItems: [{ ...reviewGroup.sampleItems[0], itemId: collisionItem.id, validity: "blocked" }]
     };
-    useOrganizationPlanStore.setState({ groups: [collisionGroup], items: [collisionItem] });
+    useOrganizationPlanStore.setState({ groups: [collisionGroup] });
     apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: plan.id, planRevision: plan.revision, groups: [collisionGroup], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 1 }, nextCursor: null, hasMore: false });
     apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: collisionGroup.groupId, planRevision: plan.revision, items: [collisionItem], nextCursor: null, hasMore: false });
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
@@ -457,7 +454,7 @@ describe("Organize independent review behavior", () => {
   });
 
   it("shows a localized group-change error with an explicit refresh and no retry", async () => {
-    useOrganizationPlanStore.setState({ groups: [readyGroup], items: [readyItem] });
+    useOrganizationPlanStore.setState({ groups: [readyGroup] });
     apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: plan.id, planRevision: plan.revision, groups: [readyGroup], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
     apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: readyGroup.groupId, planRevision: plan.revision, items: [readyItem], nextCursor: null, hasMore: false });
     apiMocks.updateOrganizationPlanGroupDecision.mockRejectedValueOnce(new Error("organization_group_changed"));

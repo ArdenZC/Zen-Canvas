@@ -2093,6 +2093,48 @@ The local browser preview rendered the affected Organize Files empty-plan state 
 
 The final broad default-parallel five-run Rust matrix and PDF exact 10-run matrix are verified locally. macOS compile and packaging, remote CI and Full Validation, native Tauri behavior, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, signed artifacts, checksums, tags, and release/publish workflows remain unverified until the Draft PR and appropriate platform/CI checks run.
 
+## Independent Review Remediation — final merge-review closure (2026-08-02)
+
+### Baseline and scope
+
+This pass starts from `9e3125badfc22c53f114a38c992b23bc9dc01573` on `codex/ui-v4-3-product-integration` and closes the final three findings in the independent merge review. The pass preserves Organization Plan, durable Analysis Run, Global Index, Preview, Dry Run, journal, CAS, Safe Trash, Restore, and advisory-AI authorities. No Schema 35, second ledger, second queue, renderer-derived mutation authority, direct filesystem mutation, or safety-boundary bypass was introduced.
+
+### Findings closed
+
+| Finding | Fix | Tests and status |
+| --- | --- | --- |
+| Overview health facts were not fully connected to priority selection | `ScannerView` now passes the health snapshot; Cleanup priority reads the durable approved-path `AnalysisRun`; `indexNeedsUpdate` derives from Global Index status/collection completeness; plan fallback reads effective or persisted durable summary. The legacy Cleanup Store is no longer a production input. | Mounted `ScannerView` coverage in `tests/overviewHealthIntegration.test.tsx` covers no source, watcher reconciliation, operation attention, plan fallback, durable-vs-legacy Cleanup, failed Content Run, and index update. **Closed.** |
+| Group decision input could accept `edited` and reach `unreachable!` | Added `normalize_group_decision` with explicit accepted aliases and a validation error for `edited`/unknown values. Invalid requests make no item or revision change; accepted/kept/undecided aliases remain supported. | Rust regression `group_mutation_rejects_edit_and_unknown_decisions_without_panic`. **Closed.** |
+| `openPlan` requested an unused plan-wide item page | Removed the Store's plan-wide item state, pagination, and batch update path. `openPlan` requests only basic Plan plus Group Projection; group-scoped member detail loading remains explicit and bounded. | `tests/organizationPlanStore.test.ts` asserts a 10k plan open does not call `queryOrganizationPlanItems`; Task 06/Organize static contracts confirm no obsolete Store path. **Closed.** |
+
+### Validation record
+
+- Focused Vitest: 6 files, 34 tests — passed.
+- `npm.cmd run typecheck` — passed.
+- `npm.cmd test` — passed: 91 files, 582 tests.
+- `npm.cmd run test:remediation` — passed: 13 tests.
+- `npm.cmd run test:performance` — passed, including 100k/1M profiles and Task 06 thresholds.
+- `npm.cmd run build` — passed: Vite, Windows release compile, and NSIS packaging.
+- `npm.cmd run verify:rust` — passed: format, Rust tests, and Clippy with `-D warnings`.
+- Default-parallel full Rust matrix — passed 5/5; every run reported 587 library tests passed and 9 ignored.
+- Exact PDF resource-limit target — passed 10/10 consecutive runs with `-- --exact --test-threads=1`.
+- `npm.cmd run verify:security` — passed; existing cargo-audit warnings remain allowed by the repository policy.
+- GitHub Actions run `#332` (`30744759688`) — completed successfully across all configured jobs. A new post-push run remains an external verification step.
+
+### Authority and safety decisions
+
+- Overview uses one composed health snapshot; it does not infer authoritative Cleanup, Plan, or index facts from legacy renderer stores or loaded pages.
+- Group decisions remain durable Organization Plan review mutations. Group-decision validation is fail-closed and does not execute filesystem work; approved work still follows Preview, Dry Run, journal, CAS, and revalidation.
+- The group projection remains the open-plan summary authority. The public API's plan-wide item query remains available for compatibility, but the production Organize Store no longer requests or stores that unused page.
+
+### Deferred or unverified
+
+Native Tauri lifecycle/focus restoration, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, native screen-reader execution, macOS packaging, signed artifacts, checksums, tags/releases, and the post-push GitHub Actions run remain unverified until the appropriate native or remote checks execute. This pass does not claim Ready for merge or release readiness.
+
+### Risks requiring human review
+
+Review live health transitions, group-decision boundary aliases, and large-plan open latency in the native review environment. Keep the existing Preview, Dry Run, journal, Safe Trash, Restore, and advisory-AI safety boundaries in the review checklist.
+
 ## 6. Codex continuous-execution rule
 
 Codex may continue automatically from one V4.3 stage to the next only when:

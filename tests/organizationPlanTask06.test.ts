@@ -57,7 +57,10 @@ describe("Task 06 durable Organization Plan contracts", () => {
     expect(view).toContain("useOrganizationPlanStore");
     expect(view).toContain("useVirtualizer");
     expect(view).toContain("ConfirmDialog");
-    expect(store).toContain("queryOrganizationPlanItems");
+    expect(store).not.toContain("queryOrganizationPlanItems");
+    expect(store).not.toContain("loadNextPage:");
+    expect(store).not.toContain("updateBatch:");
+    expect(store).toContain("queryOrganizationPlanGroups");
     expect(store).toContain("requestEpoch");
     expect(store).not.toContain("localStorage");
     expect(view).not.toContain("useOrganizeDecisionStore");

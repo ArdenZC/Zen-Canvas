@@ -1107,7 +1107,7 @@ impl Database {
     ) -> Result<UpdateOrganizationPlanGroupDecisionResultDto, DbError> {
         let plan_id = validate_id(&request.plan_id, "organization_plan_id_invalid")?;
         let group_id = validate_id(&request.group_id, "organization_group_id_invalid")?;
-        let decision = normalize_decision(&request.decision)?;
+        let decision = normalize_group_decision(&request.decision)?;
         let mut conn = self.conn()?;
         let tx = conn.transaction()?;
         require_plan_revision_and_status(
@@ -1161,7 +1161,11 @@ impl Database {
             "accepted" => current_group.group_actions.can_accept_all,
             "kept" => current_group.group_actions.can_keep_all,
             "undecided" => current_group.group_actions.can_clear_all,
-            _ => unreachable!("normalize_decision returns only durable decisions"),
+            _ => {
+                return Err(DbError::Validation(
+                    "organization_group_decision_invalid".to_string(),
+                ));
+            }
         };
         if !action_available {
             return Err(DbError::Validation(
@@ -2187,6 +2191,17 @@ fn normalize_decision(value: &str) -> Result<&'static str, DbError> {
         "clear" | "undecided" => Ok("undecided"),
         _ => Err(DbError::Validation(
             "organization_decision_invalid".to_string(),
+        )),
+    }
+}
+
+fn normalize_group_decision(value: &str) -> Result<&'static str, DbError> {
+    match value {
+        "accept" | "accepted" => Ok("accepted"),
+        "keep" | "kept" => Ok("kept"),
+        "clear" | "undecided" => Ok("undecided"),
+        _ => Err(DbError::Validation(
+            "organization_group_decision_invalid".to_string(),
         )),
     }
 }
@@ -4907,6 +4922,121 @@ mod tests {
             .contains("organization_plan_revision_conflict"));
         drop(db);
         let _ = std::fs::remove_dir_all(fixture);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn group_mutation_rejects_edit_and_unknown_decisions_without_panic() {
+        let (db, path) = test_database();
+        seed_plan(&db, "ready");
+        let group = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("group decision validation projection")
+            .groups
+            .into_iter()
+            .next()
+            .expect("group decision validation group");
+
+        for decision in ["edited", "unexpected"] {
+            let error = db
+                .update_organization_plan_group_decision(
+                    UpdateOrganizationPlanGroupDecisionRequest {
+                        plan_id: "plan-test".into(),
+                        group_id: group.group_id.clone(),
+                        expected_plan_revision: 1,
+                        expected_projection_fingerprint: group.projection_fingerprint.clone(),
+                        expected_item_count: group.item_count,
+                        decision: decision.into(),
+                    },
+                )
+                .expect_err("invalid group decision must return validation error");
+            assert!(error
+                .to_string()
+                .contains("organization_group_decision_invalid"));
+        }
+
+        let unchanged = db
+            .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("unchanged items after invalid group decisions");
+        assert!(unchanged
+            .items
+            .iter()
+            .all(|item| item.decision == "undecided"));
+        assert_eq!(
+            db.get_organization_plan("plan-test")
+                .expect("unchanged plan after invalid group decisions")
+                .revision,
+            1
+        );
+
+        let accepted = db
+            .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                plan_id: "plan-test".into(),
+                group_id: group.group_id.clone(),
+                expected_plan_revision: 1,
+                expected_projection_fingerprint: group.projection_fingerprint,
+                expected_item_count: group.item_count,
+                decision: "accept".into(),
+            })
+            .expect("accept alias remains supported");
+        assert_eq!(accepted.plan.summary.accepted, 1);
+
+        let accepted_group = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("accepted group projection")
+            .groups
+            .into_iter()
+            .find(|candidate| candidate.group_id == group.group_id)
+            .expect("accepted group remains addressable");
+        assert!(accepted_group.group_actions.can_clear_all);
+        let cleared = db
+            .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                plan_id: "plan-test".into(),
+                group_id: accepted_group.group_id.clone(),
+                expected_plan_revision: 2,
+                expected_projection_fingerprint: accepted_group.projection_fingerprint,
+                expected_item_count: accepted_group.item_count,
+                decision: "clear".into(),
+            })
+            .expect("clear alias remains supported");
+        assert_eq!(cleared.plan.summary.undecided, 1);
+
+        let cleared_group = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("cleared group projection")
+            .groups
+            .into_iter()
+            .find(|candidate| candidate.group_id == group.group_id)
+            .expect("cleared group remains addressable");
+        let kept = db
+            .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                plan_id: "plan-test".into(),
+                group_id: cleared_group.group_id,
+                expected_plan_revision: 3,
+                expected_projection_fingerprint: cleared_group.projection_fingerprint,
+                expected_item_count: cleared_group.item_count,
+                decision: "keep".into(),
+            })
+            .expect("keep alias remains supported");
+        assert_eq!(kept.plan.summary.kept, 1);
+
+        drop(db);
         let _ = std::fs::remove_file(path);
     }
 

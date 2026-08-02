@@ -279,3 +279,41 @@ The local browser preview captured the dark-Chinese Organize Files empty-plan st
 ### Fourth-round unverified items
 
 The final broad default-parallel five-run Rust matrix and PDF exact 10-run matrix are verified locally. macOS compile, unsigned DMG, remote CI/Full Validation, Native Tauri, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, signed artifacts, checksums, tags, and release/publish evidence remain unverified.
+
+## Independent Review Remediation — final merge-review closure (2026-08-02)
+
+This closure addresses the final three findings from the independent code review. The implementation starts from `9e3125badfc22c53f114a38c992b23bc9dc01573` on `codex/ui-v4-3-product-integration`. It preserves the accepted durable authorities and safety boundaries: no Schema 35, second ledger, second AI queue, renderer mutation authority, direct filesystem mutation, or bypass of Preview, Dry Run, journal, CAS, Safe Trash, or Restore was added.
+
+### Findings closed
+
+| Review finding | Closure and authority | Evidence |
+| --- | --- | --- |
+| Overview health facts were assembled but not consumed consistently | `ScannerView` now passes the complete health snapshot into `selectOverviewPriorityTask`; Cleanup uses the durable approved-path `AnalysisRun` only; index update attention derives from Global Index status/collection completeness; plan review fallback uses the durable effective or persisted plan summary. The legacy `StorageAnalysis` store no longer drives Overview. | `src/views/scanner/ScannerView.tsx`; `src/views/overview/overviewModel.ts`; `tests/overviewHealthIntegration.test.tsx` (8 mounted states: no source, reconciliation, operation attention, plan fallback, durable/legacy cleanup conflict, content failure, and index update). |
+| Group mutation accepted arbitrary decisions and could reach an unreachable panic branch | Group mutation now has a dedicated fail-closed normalizer. `accept/accepted`, `keep/kept`, and `clear/undecided` remain the only accepted aliases; `edited` and unknown values return `organization_group_decision_invalid` before mutation. | `src-tauri/src/db/queries/organization.rs`; `group_mutation_rejects_edit_and_unknown_decisions_without_panic` covers invalid input, zero mutation, revision preservation, and all supported aliases. |
+| Opening a plan loaded an unused plan-wide item page | `openPlan` now requests only the basic plan and the group projection. The obsolete Store item page state and pagination/batch update path were removed after confirming no production callers. Group detail member loading remains a separate group-scoped interaction. | `src/store/useOrganizationPlanStore.ts`; `tests/organizationPlanStore.test.ts`; updated Task 06/Organize contracts. |
+
+### Final validation record
+
+- Focused Vitest: 6 files, 34 tests — passed.
+- `npm.cmd run typecheck` — passed.
+- `npm.cmd test` — passed: 91 files, 582 tests.
+- `npm.cmd run test:remediation` — passed: 13 tests.
+- `npm.cmd run test:performance` — passed, including the configured 100k/1M profiles and Task 06 thresholds.
+- `npm.cmd run build` — passed: Vite, Windows release compile, and NSIS packaging.
+- `npm.cmd run verify:rust` — passed: format, default-parallel Rust suite, and Clippy with `-D warnings`.
+- Default-parallel full Rust matrix — passed 5/5; each run reported 587 library tests passed and 9 ignored.
+- Exact PDF resource-limit target — passed 10/10 consecutive runs with `-- --exact --test-threads=1`.
+- `npm.cmd run verify:security` — passed; npm audit was clean and cargo audit reported only the existing 15 allowed warnings.
+- GitHub Actions run `#332` (`30744759688`) — completed successfully across frontend, Windows/macOS Rust, release compile, performance, dependency audit, NSIS, unsigned DMG, and the summary gate. A fresh run is expected after this closure is pushed; it is not pre-claimed here.
+
+### Mounted and visual evidence
+
+The new Overview integration test mounts `ScannerView` in happy-dom with Chrome context, Zustand stores, and mocked Tauri authorities. It verifies localized priority output and authority precedence. No new native Tauri or browser screenshot matrix was added in this narrow closure; the existing V4.3 browser matrix remains the visual evidence for the surrounding workspaces.
+
+### Deferred or unverified
+
+Native Tauri lifecycle and focus restoration, Windows 100/125/150/200% DPI, High Contrast, Narrator, macOS Retina/VoiceOver, native screen-reader execution, macOS packaging, signed artifacts, checksums, tags/releases, and the post-push GitHub Actions run remain external checks. This closure does not make a Ready-for-merge or release claim.
+
+### Risks requiring human review
+
+Reviewers should exercise Overview priority transitions against live watcher/Analysis Run/Organization Plan changes, group-decision aliases through the native command boundary, and large-plan open latency. Existing Preview, Dry Run, journal, Safe Trash, Restore, and advisory-AI boundaries remain the review guardrails.

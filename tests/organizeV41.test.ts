@@ -33,7 +33,8 @@ describe("Organize Suggestions v4.1 interaction contracts", () => {
     expect(view).not.toContain("loadNextPage");
     expect(view).not.toContain("refreshPreviewsForFiles");
     expect(view).not.toContain("useOperationQueueStore");
-    expect(store).toContain("nextCursor");
+    expect(store).not.toContain("queryOrganizationPlanItems");
+    expect(store).not.toContain("loadNextPage:");
     expect(store).toContain("requestEpoch");
     expect(store).not.toContain("OFFSET");
   });

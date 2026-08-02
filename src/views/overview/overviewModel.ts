@@ -97,7 +97,11 @@ export function selectOverviewPriorityTask(input: {
     }
   }
   if (health?.operation.active || (health?.operation.attentionCount ?? 0) > 0) {
-    return { kind: "operation", count: health?.operation.attentionCount ?? 0, reason: health?.operation.active ? "failed" : "stale" };
+    return {
+      kind: "operation",
+      count: health?.operation.attentionCount ?? 0,
+      reason: health?.operation.active || (health?.operation.attentionCount ?? 0) > 0 ? "failed" : "stale"
+    };
   }
   const scanState = deriveOverviewScanState(scan, stats.totalFiles > 0 || stats.totalSize > 0);
   if (scanState === "scanning") {
@@ -118,7 +122,8 @@ export function selectOverviewPriorityTask(input: {
   }
   if (scanState === "canceled") return { kind: "scan-canceled", fileCount: scan.progress?.files ?? stats.totalFiles };
   const planReviewCount = health?.plan
-    ? health.plan.effectiveSummary?.pendingReview ?? stats.needsConfirmation
+    ? health.plan.effectiveSummary?.pendingReview
+      ?? health.plan.summary.pendingReview
     : stats.needsConfirmation;
   if (planReviewCount > 0) return { kind: "review", count: planReviewCount };
   const cleanupCandidateCount = health?.cleanupRun

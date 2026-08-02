@@ -7,7 +7,6 @@ import { useFileLibraryStore } from "../../store/useFileLibraryStore";
 import { useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
 import { useOperationQueueStore } from "../../store/useOperationQueueStore";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
-import { useStorageCleanupStore } from "../../store/useStorageCleanupStore";
 import { cn } from "../../utils/tw";
 import { pageSurface } from "../shared/ui";
 import { OverviewPriorityTask } from "../overview/OverviewPriorityTask";
@@ -51,9 +50,6 @@ export function ScannerView() {
   const isBackgroundIndexing = useBackgroundIndexerStore((state) => state.isBackgroundIndexing);
   const failedRoots = useBackgroundIndexerStore((state) => state.failedRoots);
   const enqueueBackgroundRoot = useBackgroundIndexerStore((state) => state.enqueueRoot);
-  const cleanupAnalysis = useStorageCleanupStore((state) => state.analysis);
-  const isCleanupScanning = useStorageCleanupStore((state) => state.isScanning);
-  const cleanupScanError = useStorageCleanupStore((state) => state.scanError);
   const activePlan = useOrganizationPlanStore((state) => state.activePlan);
   const plans = useOrganizationPlanStore((state) => state.plans);
   const loadPlans = useOrganizationPlanStore((state) => state.loadPlans);
@@ -104,17 +100,6 @@ export function ScannerView() {
   };
   const hasIndexedData = stats.totalFiles > 0 || stats.totalSize > 0;
   const scanVisualState = deriveOverviewScanState(scanSnapshot, hasIndexedData);
-  const completedCleanupAnalysis = cleanupAnalysis && !isCleanupScanning && !cleanupScanError ? cleanupAnalysis : null;
-  const cleanupCandidateCount = completedCleanupAnalysis
-    ? completedCleanupAnalysis.candidate_total ?? completedCleanupAnalysis.candidates.length
-    : 0;
-  const priorityTask = selectOverviewPriorityTask({
-    scan: scanSnapshot,
-    stats,
-    cleanupCandidateCount,
-    reclaimableBytes: completedCleanupAnalysis?.reclaimable_estimate ?? 0,
-    indexNeedsUpdate: false
-  });
   const activities = selectRecentOverviewActivity(operationLogs, t);
   const backgroundTasks = selectOverviewBackgroundTasks({
     backgroundIndexing: isBackgroundIndexing,
@@ -175,8 +160,19 @@ export function ScannerView() {
     plan: activePlan ?? plans[0] ?? null,
     cleanupRun,
     contentRun: latestContentRun,
-    operation: { active: operationProgress !== null, attentionCount: operationAttentionCount }
+    operation: { active: operationProgress != null, attentionCount: operationAttentionCount }
   };
+  const indexNeedsUpdate = Boolean(globalIndexStatus && (
+    globalIndexStatus.status !== "ready" || !globalIndexStatus.collectionComplete
+  ));
+  const priorityTask = selectOverviewPriorityTask({
+    scan: scanSnapshot,
+    stats,
+    cleanupCandidateCount: 0,
+    reclaimableBytes: 0,
+    indexNeedsUpdate,
+    health
+  });
   const systemCoverage: OverviewSystemCoverageModel = {
     search: globalIndexStatus
       ? (globalIndexStatus.status === "ready" && globalIndexStatus.collectionComplete && !globalIndexNoSource ? "ready" : globalIndexNoSource || ["permission_required", "error", "unavailable", "no_source"].includes(globalIndexStatus.status) ? "attention" : "partial")
