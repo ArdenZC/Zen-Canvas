@@ -4255,18 +4255,29 @@ fn find_pdf_keyword_bounded(
     let end = bytes.len().saturating_sub(token.len());
     let mut index = from.min(bytes.len());
     while index <= end {
-        if index
-            .saturating_sub(from)
-            .is_multiple_of(PDF_SCAN_CHECK_BYTES)
-        {
-            pdf_budget_check(index, bytes.len(), deadline, cancel)?;
+        pdf_budget_check(index, bytes.len(), deadline, cancel)?;
+        let chunk_end = index
+            .saturating_add(PDF_SCAN_CHECK_BYTES)
+            .min(end.saturating_add(1));
+        let search_end = chunk_end
+            .saturating_add(token.len().saturating_sub(1))
+            .min(bytes.len());
+        let mut search_offset: usize = 0;
+        while search_offset.saturating_add(token.len()) <= search_end.saturating_sub(index) {
+            let chunk = &bytes[index.saturating_add(search_offset)..search_end];
+            let Some(offset) = chunk
+                .windows(token.len())
+                .position(|window| window == token)
+            else {
+                break;
+            };
+            let candidate = index.saturating_add(search_offset).saturating_add(offset);
+            if pdf_keyword_boundary(bytes, candidate, token.len()) {
+                return Ok(Some(candidate));
+            }
+            search_offset = search_offset.saturating_add(offset).saturating_add(1);
         }
-        if bytes.get(index..index + token.len()) == Some(token)
-            && pdf_keyword_boundary(bytes, index, token.len())
-        {
-            return Ok(Some(index));
-        }
-        index = index.saturating_add(1);
+        index = chunk_end;
     }
     pdf_budget_check(bytes.len(), bytes.len(), deadline, cancel)?;
     Ok(None)

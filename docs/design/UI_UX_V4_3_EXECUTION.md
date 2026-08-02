@@ -2078,7 +2078,7 @@ This pass closes the five fourth-round findings from the independent review. It 
 
 The implementation validation completed on the final working tree before commit. `npm.cmd run typecheck` passed; `npm.cmd test` passed with 89 files and 573 tests; `npm.cmd run test:remediation` passed with 13 tests; the focused Organize/File Library/Task 06 Vitest files passed with 3 files and 20 tests; the Rust Organization module passed with 20 tests and one existing ignored Task 06 performance test; and the focused PDF preflight/resource-limit tests passed. `npm.cmd run test:performance`, `npm.cmd run build`, `npm.cmd run verify:rust`, and `npm.cmd run verify:security` also passed. The exact PDF resource-limit target passed 10/10 single-threaded runs.
 
-The required five default-parallel full Rust invocations were attempted twice before the final group-action patch; both attempts exposed unrelated timing-sensitive Windows filesystem-test failures in existing `storage_analyzer` and `file_ops` tests, and the two failing tests passed on exact single-threaded reruns. After the final patch, one additional five-run invocation stopped at run 1/5 on the known PDF preflight deadline race in `content::tests::pdf_cmap_preflight_is_structured_bounded_and_cancellable`; the exact PDF target passed 10/10. Therefore the implementation-specific PDF stability result is green, while the broad default-parallel stability matrix remains an environment/test-fixture follow-up rather than a claim of 5/5 success.
+The required five default-parallel full Rust invocations had earlier exposed unrelated timing-sensitive Windows filesystem-test failures in existing `storage_analyzer` and `file_ops` tests, and an additional run exposed the PDF preflight deadline race in `content::tests::pdf_cmap_preflight_is_structured_bounded_and_cancellable`. The final fix uses chunked bounded keyword scanning with per-chunk cancellation/deadline checks; it does not lower the production limit, ignore the test, serialize the suite globally, or relax the expired-deadline assertion. The final default-parallel matrix passed 5/5 and the exact PDF target passed 10/10.
 
 The local browser preview rendered the affected Organize Files empty-plan state in dark Chinese at 1440×900 and 980×680. The five required viewport sizes had no horizontal overflow and one page heading, and browser console error/warning logs were empty. The final `git diff --check` and documentation validation are recorded after this document update.
 
@@ -2091,7 +2091,7 @@ The local browser preview rendered the affected Organize Files empty-plan state 
 
 ### Fourth-round deferred or unverified
 
-The broad default-parallel five-run Rust matrix remains unverified because of the two earlier Windows filesystem-test races and the final PDF preflight timing race described above. macOS compile and packaging, remote CI and Full Validation, native Tauri behavior, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, signed artifacts, checksums, tags, and release/publish workflows remain unverified until the Draft PR and appropriate platform/CI checks run.
+The final broad default-parallel five-run Rust matrix and PDF exact 10-run matrix are verified locally. macOS compile and packaging, remote CI and Full Validation, native Tauri behavior, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, signed artifacts, checksums, tags, and release/publish workflows remain unverified until the Draft PR and appropriate platform/CI checks run.
 
 ## 6. Codex continuous-execution rule
 

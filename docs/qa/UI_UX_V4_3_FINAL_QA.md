@@ -260,8 +260,9 @@ This fourth-round closure addresses Group Projection Fingerprint, Group Action I
 - `npm.cmd run build` — passed with Windows release compile and NSIS packaging.
 - `npm.cmd run verify:rust` — passed: format, Rust test phase, and Clippy with `-D warnings`; the Rust phase reported 583 passed, 0 failed, and 9 ignored in the primary unit target.
 - `npm.cmd run verify:security` — passed: npm audit found 0 vulnerabilities; cargo audit reported the existing 15 allowed unmaintained/unsound warnings.
+- Default-parallel full Rust matrix — passed 5/5 consecutive invocations after the bounded PDF keyword-scan optimization; the preflight test retained its 2-second deadline and its explicit expired-deadline negative assertion.
 
-The required five default-parallel full Rust invocations were attempted twice before the final group-action patch; each exposed a different unrelated timing-sensitive Windows filesystem-test failure (`cleanup_restore_preview_marks_filesystem_conflicts_and_missing_sources` and `file_ops::tests::restore_moves_updates_file_record_after_move_restore`), and both passed on exact single-threaded reruns. After the final patch, one additional five-run invocation stopped at run 1/5 on the known PDF preflight deadline race (`content::tests::pdf_cmap_preflight_is_structured_bounded_and_cancellable`); the exact PDF target passed 10/10. The broad default-parallel matrix therefore remains unverified.
+The required five default-parallel full Rust invocations had earlier exposed distinct Windows filesystem-test races, and an additional run exposed the PDF preflight deadline race. The final fix uses chunked bounded keyword scanning with per-chunk cancellation/deadline checks; it does not lower the production limit, ignore the test, serialize the suite globally, or relax the expired-deadline assertion. The final 5/5 matrix and PDF exact 10/10 matrix are green.
 
 The local browser preview captured the dark-Chinese Organize Files empty-plan state at 1440×900 and 980×680. The five required viewport sizes (1440×900, 1280×800, 1180×720, 1024×700, 980×680) retained one page heading and measured no horizontal overflow; browser console error/warning logs were empty.
 
@@ -276,4 +277,4 @@ The local browser preview captured the dark-Chinese Organize Files empty-plan st
 
 ### Fourth-round unverified items
 
-The broad default-parallel five-run Rust matrix remains unverified because of the two earlier Windows filesystem-test races and the final PDF preflight timing race recorded above. macOS compile, unsigned DMG, remote CI/Full Validation, Native Tauri, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, signed artifacts, checksums, tags, and release/publish evidence remain unverified.
+The final broad default-parallel five-run Rust matrix and PDF exact 10-run matrix are verified locally. macOS compile, unsigned DMG, remote CI/Full Validation, Native Tauri, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, signed artifacts, checksums, tags, and release/publish evidence remain unverified.
