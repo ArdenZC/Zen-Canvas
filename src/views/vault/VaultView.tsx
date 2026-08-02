@@ -333,15 +333,21 @@ export function VaultView() {
   const refreshContentDetail = useCallback(async (fileId: string) => {
     try {
       const refreshed = await tauriApi.getFileLibraryDetail(fileId);
+      const policy = refreshed.scanRootId
+        ? await tauriApi.getContentScopePolicy(refreshed.scanRootId)
+        : null;
       setContentDetail((current) => current?.id === fileId ? refreshed : current);
-      await loadDetail(fileId);
+      useFileLibraryInspectorStore.setState({ detail: refreshed, selectedId: fileId, isLoading: false, error: null });
+      return { detail: refreshed, policy };
     } catch (error) {
       onError(readableError(error));
       throw error;
     }
   }, [loadDetail, onError]);
   const refreshOpenContentDetail = useCallback(
-    () => contentDetail ? refreshContentDetail(contentDetail.id) : Promise.resolve(),
+    () => contentDetail
+      ? refreshContentDetail(contentDetail.id)
+      : Promise.reject(new Error("content_detail_missing")),
     [contentDetail?.id, refreshContentDetail]
   );
 
@@ -413,7 +419,7 @@ export function VaultView() {
       <p className="sr-only" aria-live="polite" aria-atomic="true">{selectionLabel}</p>
       {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={() => setContextMenu(null)} onPreview={() => void openPreview(contextMenu.file)} onReveal={() => void revealFile(contextMenu.file.id)} onOpenContent={() => void openContentFromContext(contextMenu.file.id)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
       <FileLibraryPreviewDialog file={previewFile} language={language} t={t} onClose={() => { setPreviewFile(null); focusList(); }} onReveal={(fileId) => void revealFile(fileId)} />
-      {contentDetail ? <ContentUnderstandingSheet open detail={contentDetail} t={t} restoreFocus={() => contentTriggerRef.current} onClose={() => setContentDetail(null)} onRefreshDetail={refreshOpenContentDetail} /> : null}
+      {contentDetail ? <ContentUnderstandingSheet open detail={contentDetail} t={t} restoreFocus={() => contentTriggerRef.current} onClose={() => setContentDetail(null)} onRefreshAuthoritativeContentState={refreshOpenContentDetail} /> : null}
       <LibraryMetadataManagerDialog
         kind={metadataManager}
         query={cloneFileQuerySpec({ ...querySpec, text: debouncedSearchQuery.trim() || null })}

@@ -10,10 +10,50 @@ use super::library::{
     FileQueryFiltersV2, FileQuerySpecV2, LibrarySelectionV1,
 };
 use super::*;
+use crate::path_identity::normalize_text_for_compare;
 use rusqlite::{params, params_from_iter, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap, HashSet};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OrganizationReviewReason {
+    LowConfidence,
+    SensitiveFile,
+    NonNormalRisk,
+    PossibleDuplicate,
+    RequiresConfirmation,
+    TargetDirectoryCreation,
+    TargetCollision,
+    SourceChanged,
+    ProposalChanged,
+    ManagedScopeChanged,
+    MissingPreview,
+    UnsupportedOperation,
+    UnsafeFilename,
+    ExtensionChangeBlocked,
+}
+
+impl OrganizationReviewReason {
+    const fn code(self) -> &'static str {
+        match self {
+            Self::LowConfidence => "low_confidence",
+            Self::SensitiveFile => "sensitive_file",
+            Self::NonNormalRisk => "non_normal_risk",
+            Self::PossibleDuplicate => "possible_duplicate",
+            Self::RequiresConfirmation => "requires_confirmation",
+            Self::TargetDirectoryCreation => "target_directory_creation",
+            Self::TargetCollision => "target_collision",
+            Self::SourceChanged => "source_changed",
+            Self::ProposalChanged => "proposal_changed",
+            Self::ManagedScopeChanged => "managed_scope_changed",
+            Self::MissingPreview => "missing_preview",
+            Self::UnsupportedOperation => "unsupported_operation",
+            Self::UnsafeFilename => "unsafe_filename",
+            Self::ExtensionChangeBlocked => "extension_change_blocked",
+        }
+    }
+}
 
 const ORGANIZATION_PLAN_VERSION: i32 = 1;
 const ORGANIZATION_PLAN_MAX_ITEMS: usize = 10_000;
@@ -67,6 +107,8 @@ pub struct OrganizationPlanSummaryDto {
     pub edited: i64,
     pub needs_analysis: i64,
     pub needs_review: i64,
+    pub pending_review: i64,
+    pub reviewed: i64,
     pub ready: i64,
     pub blocked: i64,
     pub stale: i64,
@@ -154,7 +196,7 @@ pub struct OrganizationPlanGroupSampleDto {
     pub validity: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrganizationReviewReasonCountDto {
     pub reason: String,
@@ -1077,17 +1119,85 @@ impl Database {
             request.expected_plan_revision,
             &["ready", "stale", "partially_completed"],
         )?;
+        let projected_items = if request.mutations.len() >= 32 {
+            Some(
+                load_organization_plan_items_for_projection(&tx, &plan_id)?
+                    .into_iter()
+                    .map(|item| (item.id.clone(), item))
+                    .collect::<HashMap<_, _>>(),
+            )
+        } else {
+            None
+        };
         let now = current_unix_seconds();
         for mutation in request.mutations {
             let item_id = validate_id(&mutation.item_id, "organization_item_id_invalid")?;
             let decision = normalize_decision(&mutation.decision)?;
-            if request.safe_batch {
-                if decision != "accepted" {
-                    return Err(DbError::Validation(
-                        "organization_safe_batch_accept_only".to_string(),
-                    ));
+            let current_item = match projected_items.as_ref() {
+                Some(items) => items.get(&item_id).cloned().ok_or_else(|| {
+                    DbError::Validation("organization_item_not_found".to_string())
+                })?,
+                None => load_organization_plan_item_for_projection(&tx, &plan_id, &item_id)?,
+            };
+            if current_item.revision != mutation.expected_item_revision {
+                return Err(DbError::Validation(
+                    "organization_item_revision_conflict".to_string(),
+                ));
+            }
+            match decision {
+                "accepted" => {
+                    if request.safe_batch {
+                        require_safe_batch_item_projection(&current_item)?;
+                    } else if !current_item
+                        .available_actions
+                        .iter()
+                        .any(|action| action == "accept_suggestion")
+                    {
+                        return Err(DbError::Validation(
+                            organization_item_action_error("accept_suggestion").to_string(),
+                        ));
+                    }
                 }
-                require_safe_batch_item(&tx, &plan_id, &item_id)?;
+                "edited" => {
+                    if !current_item
+                        .available_actions
+                        .iter()
+                        .any(|action| action == "edit_name")
+                    {
+                        return Err(DbError::Validation(
+                            organization_item_action_error("edit_name").to_string(),
+                        ));
+                    }
+                }
+                "kept" => {
+                    if !current_item
+                        .available_actions
+                        .iter()
+                        .any(|action| action == "keep")
+                    {
+                        return Err(DbError::Validation(
+                            organization_item_action_error("keep").to_string(),
+                        ));
+                    }
+                }
+                "undecided" if current_item.decision != "undecided" => {
+                    if !current_item
+                        .available_actions
+                        .iter()
+                        .any(|action| action == "clear_decision")
+                    {
+                        return Err(DbError::Validation(
+                            organization_item_action_error("clear_decision").to_string(),
+                        ));
+                    }
+                }
+                "undecided" => {}
+                _ => unreachable!("normalize_decision returns only durable decisions"),
+            }
+            if request.safe_batch && decision != "accepted" {
+                return Err(DbError::Validation(
+                    "organization_safe_batch_accept_only".to_string(),
+                ));
             }
             let edited_name = if decision == "edited" {
                 Some(validate_edited_filename(
@@ -1099,14 +1209,22 @@ impl Database {
             } else {
                 None
             };
+            let resolves_target_collision = decision == "edited"
+                && matches!(
+                    current_item.blocking_code.as_deref(),
+                    Some("target_collision" | "organization_target_collision")
+                );
             let updated = tx.execute(
                 "UPDATE organization_plan_items SET decision = ?1, edited_name = ?2,
-                        revision = revision + 1, updated_at = ?3
-                 WHERE id = ?4 AND plan_id = ?5 AND revision = ?6
+                        validity = CASE WHEN ?3 THEN 'needs_review' ELSE validity END,
+                        blocking_code = CASE WHEN ?3 THEN NULL ELSE blocking_code END,
+                        revision = revision + 1, updated_at = ?4
+                 WHERE id = ?5 AND plan_id = ?6 AND revision = ?7
                    AND validity NOT IN ('executing', 'executed')",
                 params![
                     decision,
                     edited_name,
+                    bool_to_i64(resolves_target_collision),
                     now,
                     item_id,
                     plan_id,
@@ -1764,6 +1882,7 @@ fn proposal_from_preview(
         } else {
             "ready"
         };
+        let blocking_code = organization_preview_blocking_code(&preview);
         Proposal {
             fingerprint: String::new(),
             kind: preview.operation_type,
@@ -1774,10 +1893,7 @@ fn proposal_from_preview(
             confidence: preview.confidence,
             risk: preview.risk_level,
             requires_confirmation: preview.requires_confirmation,
-            blocking_code: preview
-                .blocking_reason
-                .as_ref()
-                .map(|_| "authoritative_preview_blocked".to_string()),
+            blocking_code,
             blocking_detail: preview.blocking_reason,
             preview_id: Some(preview.id),
         }
@@ -1814,6 +1930,22 @@ fn proposal_from_preview(
     };
     proposal.fingerprint = proposal_fingerprint(&proposal, source_path);
     proposal
+}
+
+fn organization_preview_blocking_code(preview: &OperationPreviewDto) -> Option<String> {
+    if preview.is_executable == Some(true) {
+        return None;
+    }
+    if preview.editable_new_name == Some(false) {
+        return Some("extension_change_blocked".to_string());
+    }
+    if preview_has_target_collision(preview) {
+        return Some("target_collision".to_string());
+    }
+    if preview.risk_level.eq_ignore_ascii_case("Sensitive") {
+        return Some("sensitive_file".to_string());
+    }
+    Some("unsupported_operation".to_string())
 }
 
 fn proposal_fingerprint(proposal: &Proposal, source_path: &str) -> String {
@@ -1859,55 +1991,70 @@ fn validate_create_request(request: &CreateOrganizationPlanRequestV1) -> Result<
 }
 
 fn require_safe_batch_item(conn: &Connection, plan_id: &str, item_id: &str) -> Result<(), DbError> {
-    let item: (
-        String,
-        String,
-        String,
-        f64,
-        String,
-        bool,
-        Option<String>,
-        Option<String>,
-    ) = conn
-        .query_row(
-            "SELECT source_path_snapshot, proposed_target_path, validity, confidence,
-                    risk_level, requires_confirmation, blocking_code,
-                    authoritative_preview_id
-             FROM organization_plan_items WHERE plan_id = ?1 AND id = ?2",
-            params![plan_id, item_id],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get::<_, i64>(5)? != 0,
-                    row.get(6)?,
-                    row.get(7)?,
-                ))
-            },
-        )
-        .optional()?
-        .ok_or_else(|| DbError::Validation("organization_item_not_found".to_string()))?;
-    let target = std::path::Path::new(&item.1);
+    let item = load_organization_plan_item_for_projection(conn, plan_id, item_id)?;
+    require_safe_batch_item_projection(&item)
+}
+
+fn require_safe_batch_item_projection(item: &OrganizationPlanItemDto) -> Result<(), DbError> {
+    let target = std::path::Path::new(&item.proposed_target_path);
     let target_parent_exists = target.parent().is_some_and(std::path::Path::exists);
-    let collision = item.1 != item.0 && target.exists();
-    let safe = item.2 == "ready"
-        && item.4 == "Normal"
-        && item.3 >= 0.8
-        && !item.5
-        && !paths_cross_volume(&item.0, &item.1)
+    let collision = normalize_text_for_compare(&item.proposed_target_path)
+        != normalize_text_for_compare(&item.source_path_snapshot)
+        && target.exists();
+    let safe = item
+        .available_actions
+        .iter()
+        .any(|action| action == "accept_suggestion")
+        && item.validity == "ready"
+        && item.risk_level == "Normal"
+        && item.confidence >= 0.8
+        && !item.requires_confirmation
+        && !paths_cross_volume(&item.source_path_snapshot, &item.proposed_target_path)
         && target_parent_exists
         && !collision
-        && item.6.is_none()
-        && item.7.is_some();
+        && item.blocking_code.is_none()
+        && item.authoritative_preview_id.is_some();
     if !safe {
         return Err(DbError::Validation(
             "organization_safe_batch_item_blocked".to_string(),
         ));
     }
     Ok(())
+}
+
+fn load_organization_plan_item_for_projection(
+    conn: &rusqlite::Connection,
+    plan_id: &str,
+    item_id: &str,
+) -> Result<OrganizationPlanItemDto, DbError> {
+    let mut item = conn
+        .query_row(
+            "SELECT id, plan_id, ordinal, file_id_snapshot, source_path_snapshot,
+                    source_name_snapshot, source_size_snapshot, source_mtime_snapshot,
+                    source_is_dir_snapshot, proposal_fingerprint, proposal_kind,
+                    proposed_target_directory, proposed_name, proposed_target_path,
+                    decision, edited_name, validity, confidence, risk_level,
+                    requires_confirmation, blocking_code, blocking_detail,
+                    authoritative_preview_id, operation_log_id, execution_id, revision,
+                    created_at, updated_at
+             FROM organization_plan_items WHERE plan_id = ?1 AND id = ?2",
+            params![plan_id, item_id],
+            item_from_row,
+        )
+        .optional()?
+        .ok_or_else(|| DbError::Validation("organization_item_not_found".to_string()))?;
+    decorate_organization_item_metadata(conn, &mut item)?;
+    Ok(item)
+}
+
+fn organization_item_action_error(action: &str) -> &'static str {
+    match action {
+        "accept_suggestion" => "organization_item_accept_not_available",
+        "edit_name" => "organization_item_edit_not_available",
+        "keep" => "organization_item_keep_not_available",
+        "clear_decision" => "organization_item_clear_not_available",
+        _ => "organization_item_action_not_available",
+    }
 }
 
 fn normalize_decision(value: &str) -> Result<&'static str, DbError> {
@@ -2054,8 +2201,8 @@ fn item_from_row(row: &Row<'_>) -> rusqlite::Result<OrganizationPlanItemDto> {
     let decision = row.get::<_, String>(14)?;
     let validity = row.get::<_, String>(16)?;
     let review_state = match (validity.as_str(), decision.as_str()) {
-        ("needs_review", "accepted" | "edited") => "reviewed",
-        ("needs_review", _) => "needs_review",
+        ("needs_review", "undecided") => "needs_review",
+        ("needs_review", "accepted" | "edited" | "kept") => "reviewed",
         ("ready", _) => "ready",
         ("blocked", _) => "blocked",
         (other, _) => other,
@@ -2100,71 +2247,86 @@ fn decorate_organization_item_metadata(
     conn: &rusqlite::Connection,
     item: &mut OrganizationPlanItemDto,
 ) -> Result<(), DbError> {
-    let preview = load_indexed_file_by_id(conn, &item.file_id_snapshot)?
+    let current_file = load_indexed_file_by_id(conn, &item.file_id_snapshot)?;
+    decorate_organization_item_metadata_with_file(item, current_file.as_ref())
+}
+
+fn decorate_organization_item_metadata_with_file(
+    item: &mut OrganizationPlanItemDto,
+    current_file: Option<&IndexedFileRow>,
+) -> Result<(), DbError> {
+    let preview = current_file
+        .cloned()
         .and_then(operation_preview_from_indexed);
     let mut reasons = Vec::new();
     let blocking_code = item.blocking_code.as_deref().unwrap_or("");
-    let blocking_detail = item.blocking_detail.as_deref().unwrap_or("");
+    let source_unchanged = current_file.is_some_and(|file| {
+        normalize_text_for_compare(&file.path)
+            == normalize_text_for_compare(&item.source_path_snapshot)
+            && file.size == item.source_size_snapshot
+            && file.mtime == item.source_mtime_snapshot
+            && file.is_dir == item.source_is_dir_snapshot
+    });
 
     if matches!(
         item.validity.as_str(),
         "needs_review" | "blocked" | "stale" | "failed" | "skipped"
     ) {
         if item.confidence < 0.8 {
-            push_review_reason(&mut reasons, "low_confidence");
+            push_review_reason(&mut reasons, OrganizationReviewReason::LowConfidence);
         }
         if item.risk_level.eq_ignore_ascii_case("Sensitive") {
-            push_review_reason(&mut reasons, "sensitive_file");
+            push_review_reason(&mut reasons, OrganizationReviewReason::SensitiveFile);
         }
         if !item.risk_level.trim().is_empty() && !item.risk_level.eq_ignore_ascii_case("Normal") {
-            push_review_reason(&mut reasons, "non_normal_risk");
+            push_review_reason(&mut reasons, OrganizationReviewReason::NonNormalRisk);
         }
         if item.requires_confirmation {
-            push_review_reason(&mut reasons, "requires_confirmation");
+            push_review_reason(&mut reasons, OrganizationReviewReason::RequiresConfirmation);
         }
     }
 
     if let Some(preview) = preview.as_ref() {
         if preview.is_duplicate {
-            push_review_reason(&mut reasons, "possible_duplicate");
+            push_review_reason(&mut reasons, OrganizationReviewReason::PossibleDuplicate);
         }
         if preview.will_create_parent == Some(true) {
-            push_review_reason(&mut reasons, "target_directory_creation");
+            push_review_reason(
+                &mut reasons,
+                OrganizationReviewReason::TargetDirectoryCreation,
+            );
         }
-        if let Some(reason) = preview.blocking_reason.as_deref() {
-            if let Some(mapped) = map_organization_review_reason(reason) {
-                push_review_reason(&mut reasons, mapped);
-            }
+        for reason in preview_review_reasons(preview) {
+            push_review_reason(&mut reasons, reason);
         }
     }
 
-    if let Some(mapped) = map_organization_review_reason(blocking_code) {
-        push_review_reason(&mut reasons, mapped);
-    }
-    if let Some(mapped) = map_organization_review_reason(blocking_detail) {
-        push_review_reason(&mut reasons, mapped);
+    if let Some(reason) = review_reason_from_blocking_code(blocking_code) {
+        push_review_reason(&mut reasons, reason);
     }
 
-    if matches!(blocking_code, "source_identity_changed" | "source_missing") {
-        push_review_reason(&mut reasons, "source_changed");
+    if !source_unchanged || current_file.is_none() {
+        push_review_reason(&mut reasons, OrganizationReviewReason::SourceChanged);
     }
     if item.validity == "stale" && reasons.is_empty() {
-        push_review_reason(&mut reasons, "source_changed");
+        push_review_reason(&mut reasons, OrganizationReviewReason::SourceChanged);
     }
-    if item.authoritative_preview_id.is_none() && item.proposal_kind != "keep" {
-        push_review_reason(&mut reasons, "missing_preview");
+    if item.proposal_kind != "keep"
+        && (item.authoritative_preview_id.is_none() || preview.is_none())
+    {
+        push_review_reason(&mut reasons, OrganizationReviewReason::MissingPreview);
     }
     if !matches!(
         item.proposal_kind.as_str(),
         "move" | "rename" | "move_rename" | "keep"
     ) {
-        push_review_reason(&mut reasons, "unsupported_operation");
+        push_review_reason(&mut reasons, OrganizationReviewReason::UnsupportedOperation);
     }
     if item.validity == "needs_review" && reasons.is_empty() {
-        push_review_reason(&mut reasons, "requires_confirmation");
+        push_review_reason(&mut reasons, OrganizationReviewReason::RequiresConfirmation);
     }
     if item.validity == "blocked" && reasons.is_empty() {
-        push_review_reason(&mut reasons, "unsupported_operation");
+        push_review_reason(&mut reasons, OrganizationReviewReason::UnsupportedOperation);
     }
 
     let terminal = matches!(item.validity.as_str(), "executing" | "executed");
@@ -2172,26 +2334,59 @@ fn decorate_organization_item_metadata(
         item.proposal_kind.as_str(),
         "move" | "rename" | "move_rename"
     );
-    let preview_available = item.authoritative_preview_id.is_some() && preview.is_some();
+    let preview_available = item
+        .authoritative_preview_id
+        .as_deref()
+        .zip(preview.as_ref())
+        .is_some_and(|(expected_id, current)| expected_id == current.id);
+    let preview_is_executable = preview
+        .as_ref()
+        .is_some_and(|current| current.is_executable == Some(true));
+    let preview_is_editable = preview
+        .as_ref()
+        .is_some_and(|current| current.editable_new_name == Some(true));
+    let hard_blocked = !source_unchanged
+        || current_file.is_none()
+        || item.blocking_code.as_ref().is_some_and(|code| {
+            matches!(
+                code.as_str(),
+                "source_identity_changed"
+                    | "source_missing"
+                    | "managed_scope_unavailable"
+                    | "managed_scope_membership_changed"
+                    | "live_proposal_changed"
+                    | "proposal_changed"
+                    | "organization_edited_filename_invalid"
+                    | "organization_unsupported_operation"
+                    | "cleanup_review_required"
+            )
+        });
+    let reviewable_validity = matches!(item.validity.as_str(), "ready" | "needs_review");
+    let editable_collision = item.validity == "blocked"
+        && reasons
+            .iter()
+            .any(|reason| reason == OrganizationReviewReason::TargetCollision.code());
+    let can_edit = !terminal
+        && preview_available
+        && supported_operation
+        && preview_is_editable
+        && !hard_blocked
+        && (reviewable_validity || editable_collision);
+    let can_accept = !terminal
+        && preview_available
+        && preview_is_executable
+        && supported_operation
+        && reviewable_validity
+        && !hard_blocked
+        && item.blocking_code.is_none()
+        && !item.risk_level.eq_ignore_ascii_case("Sensitive")
+        && item.decision == "undecided";
     let mut actions = Vec::new();
     if !terminal {
-        if preview_available
-            && supported_operation
-            && !matches!(
-                item.validity.as_str(),
-                "blocked" | "stale" | "failed" | "skipped"
-            )
-            && item.decision == "undecided"
-        {
+        if can_accept {
             actions.push("accept_suggestion".to_string());
         }
-        if preview_available
-            && supported_operation
-            && !matches!(
-                item.validity.as_str(),
-                "blocked" | "stale" | "failed" | "skipped"
-            )
-        {
+        if can_edit {
             actions.push("edit_name".to_string());
             actions.push("view_preview".to_string());
         }
@@ -2209,39 +2404,77 @@ fn decorate_organization_item_metadata(
     Ok(())
 }
 
-fn push_review_reason(reasons: &mut Vec<String>, reason: &str) {
-    if !reasons.iter().any(|current| current == reason) {
-        reasons.push(reason.to_string());
+fn push_review_reason(reasons: &mut Vec<String>, reason: OrganizationReviewReason) {
+    let code = reason.code();
+    if !reasons.iter().any(|current| current == code) {
+        reasons.push(code.to_string());
     }
 }
 
-fn map_organization_review_reason(value: &str) -> Option<&'static str> {
-    let normalized = value.to_ascii_lowercase();
-    if normalized.contains("duplicate") {
-        Some("possible_duplicate")
-    } else if normalized.contains("confirmation") || normalized.contains("confirm") {
-        Some("requires_confirmation")
-    } else if normalized.contains("collision") || normalized.contains("conflict") {
-        Some("target_collision")
-    } else if normalized.contains("parent") || normalized.contains("directory") {
-        Some("target_directory_creation")
-    } else if normalized.contains("source_identity") || normalized.contains("source_missing") {
-        Some("source_changed")
-    } else if normalized.contains("managed_scope") {
-        Some("managed_scope_changed")
-    } else if normalized.contains("proposal") {
-        Some("proposal_changed")
-    } else if normalized.contains("extension") {
-        Some("extension_change_blocked")
-    } else if normalized.contains("unsafe") || normalized.contains("filename") {
-        Some("unsafe_filename")
-    } else if normalized.contains("unsupported") || normalized.contains("cleanup_review") {
-        Some("unsupported_operation")
-    } else if normalized.contains("preview") {
-        Some("missing_preview")
-    } else {
-        None
+fn review_reason_from_blocking_code(value: &str) -> Option<OrganizationReviewReason> {
+    match value {
+        "source_identity_changed" | "source_missing" => {
+            Some(OrganizationReviewReason::SourceChanged)
+        }
+        "managed_scope_unavailable" | "managed_scope_membership_changed" => {
+            Some(OrganizationReviewReason::ManagedScopeChanged)
+        }
+        "live_proposal_changed" | "proposal_changed" => {
+            Some(OrganizationReviewReason::ProposalChanged)
+        }
+        "organization_target_collision" | "target_collision" => {
+            Some(OrganizationReviewReason::TargetCollision)
+        }
+        "organization_edited_filename_invalid" | "unsafe_filename" => {
+            Some(OrganizationReviewReason::UnsafeFilename)
+        }
+        "extension_change_blocked" => Some(OrganizationReviewReason::ExtensionChangeBlocked),
+        "organization_unsupported_operation" | "cleanup_review_required" => {
+            Some(OrganizationReviewReason::UnsupportedOperation)
+        }
+        _ => None,
     }
+}
+
+fn preview_review_reasons(preview: &OperationPreviewDto) -> Vec<OrganizationReviewReason> {
+    let mut reasons = Vec::new();
+    if preview.editable_new_name == Some(false) {
+        reasons.push(OrganizationReviewReason::ExtensionChangeBlocked);
+    }
+    if preview_has_target_collision(preview) {
+        reasons.push(OrganizationReviewReason::TargetCollision);
+    }
+    if preview.is_executable == Some(false) && preview.risk_level.eq_ignore_ascii_case("Sensitive")
+    {
+        reasons.push(OrganizationReviewReason::SensitiveFile);
+    }
+    if preview.is_executable != Some(true)
+        && !reasons.iter().any(|reason| {
+            matches!(
+                reason,
+                OrganizationReviewReason::ExtensionChangeBlocked
+                    | OrganizationReviewReason::TargetCollision
+                    | OrganizationReviewReason::SensitiveFile
+            )
+        })
+    {
+        reasons.push(OrganizationReviewReason::UnsupportedOperation);
+    }
+    reasons
+}
+
+fn preview_has_target_collision(preview: &OperationPreviewDto) -> bool {
+    preview.is_executable == Some(false)
+        && preview.editable_new_name == Some(true)
+        && preview.target_parent_exists == Some(true)
+        && preview.will_create_parent == Some(false)
+        && !preview.risk_level.eq_ignore_ascii_case("Sensitive")
+        && matches!(
+            preview.operation_type.as_str(),
+            "move" | "rename" | "move_rename"
+        )
+        && normalize_text_for_compare(&preview.source_path)
+            != normalize_text_for_compare(&preview.target_path)
 }
 
 fn validate_organization_page_size(page_size: u32, code: &str) -> Result<(), DbError> {
@@ -2271,18 +2504,53 @@ fn load_organization_plan_items_for_projection(
         .query_map(params![plan_id], item_from_row)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(DbError::from)?;
+    let file_ids = items
+        .iter()
+        .map(|item| item.file_id_snapshot.clone())
+        .collect::<Vec<_>>();
+    let current_files = load_indexed_files_for_projection(conn, &file_ids)?;
     for item in &mut items {
-        decorate_organization_item_metadata(conn, item)?;
+        decorate_organization_item_metadata_with_file(
+            item,
+            current_files.get(&item.file_id_snapshot),
+        )?;
     }
     Ok(items)
 }
 
+fn load_indexed_files_for_projection(
+    conn: &rusqlite::Connection,
+    file_ids: &[String],
+) -> Result<HashMap<String, IndexedFileRow>, DbError> {
+    const FILE_ID_CHUNK: usize = 500;
+    let mut files = HashMap::with_capacity(file_ids.len());
+    for chunk in file_ids.chunks(FILE_ID_CHUNK) {
+        let placeholders = std::iter::repeat_n("?", chunk.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT f.id, f.path, f.name, f.extension, f.size, f.mtime, f.ctime, f.is_dir, f.state_code,
+                    f.file_type, f.purpose, f.lifecycle, f.context, f.risk_level, f.suggested_action,
+                    f.suggested_target_path, f.suggested_name, f.confidence, f.classification_reason,
+                    f.classification_status, f.matched_rules, f.requires_confirmation, f.content_hash,
+                    EXISTS (SELECT 1 FROM active_duplicate_membership AS membership
+                            WHERE membership.file_id = f.id),
+                    f.is_stale, f.last_seen_at, f.last_classified_at, f.classified_rule_version,
+                    f.last_classified_mtime, f.last_classified_size
+             FROM files AS f WHERE f.id IN ({placeholders}) AND f.is_stale = 0"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_from_iter(chunk.iter()), indexed_file_from_row)?;
+        for row in rows {
+            let file = row?;
+            files.insert(file.id.clone(), file);
+        }
+    }
+    Ok(files)
+}
+
 fn organization_group_key(item: &OrganizationPlanItemDto) -> OrganizationPlanGroupKey {
-    let readiness = match item.validity.as_str() {
-        "ready" => "ready",
-        "needs_review" => "requires-decision",
-        _ => "blocked",
-    };
+    let readiness = organization_group_readiness(item);
     OrganizationPlanGroupKey {
         target_directory: item.proposed_target_directory.clone(),
         proposal_kind: item.proposal_kind.clone(),
@@ -2292,6 +2560,15 @@ fn organization_group_key(item: &OrganizationPlanItemDto) -> OrganizationPlanGro
         } else {
             item.risk_level.clone()
         },
+    }
+}
+
+fn organization_group_readiness(item: &OrganizationPlanItemDto) -> String {
+    match (item.validity.as_str(), item.decision.as_str()) {
+        ("ready", _) => "ready".to_string(),
+        ("needs_review", "undecided") => "requires-decision".to_string(),
+        ("needs_review", "accepted" | "edited" | "kept") => "reviewed".to_string(),
+        _ => "blocked".to_string(),
     }
 }
 
@@ -2320,10 +2597,9 @@ fn organization_group_label(key: &OrganizationPlanGroupKey) -> String {
 }
 
 fn organization_group_is_conflict(item: &OrganizationPlanItemDto) -> bool {
-    item.blocking_code.as_deref().is_some_and(|code| {
-        let code = code.to_ascii_lowercase();
-        code.contains("collision") || code.contains("conflict")
-    })
+    item.blocking_code
+        .as_deref()
+        .is_some_and(|code| matches!(code, "organization_target_collision" | "target_collision"))
 }
 
 fn load_organization_plan_group_summaries(
@@ -2475,6 +2751,13 @@ fn load_plan_summary(
             COALESCE(SUM(CASE WHEN decision = 'edited' THEN 1 ELSE 0 END), 0),
             COALESCE(SUM(CASE WHEN validity = 'needs_analysis' THEN 1 ELSE 0 END), 0),
             COALESCE(SUM(CASE WHEN validity = 'needs_review' THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(CASE
+                WHEN validity = 'needs_review' AND decision = 'undecided'
+                THEN 1 ELSE 0 END), 0),
+            COALESCE(SUM(CASE
+                WHEN validity = 'needs_review'
+                 AND decision IN ('accepted', 'edited', 'kept')
+                THEN 1 ELSE 0 END), 0),
             COALESCE(SUM(CASE WHEN validity = 'ready' THEN 1 ELSE 0 END), 0),
             COALESCE(SUM(CASE WHEN validity = 'blocked' THEN 1 ELSE 0 END), 0),
             COALESCE(SUM(CASE WHEN validity = 'stale' THEN 1 ELSE 0 END), 0),
@@ -2496,14 +2779,16 @@ fn load_plan_summary(
                 edited: row.get(3)?,
                 needs_analysis: row.get(4)?,
                 needs_review: row.get(5)?,
-                ready: row.get(6)?,
-                blocked: row.get(7)?,
-                stale: row.get(8)?,
-                executing: row.get(9)?,
-                executed: row.get(10)?,
-                failed: row.get(11)?,
-                skipped: row.get(12)?,
-                remaining_executable: row.get(13)?,
+                pending_review: row.get(6)?,
+                reviewed: row.get(7)?,
+                ready: row.get(8)?,
+                blocked: row.get(9)?,
+                stale: row.get(10)?,
+                executing: row.get(11)?,
+                executed: row.get(12)?,
+                failed: row.get(13)?,
+                skipped: row.get(14)?,
+                remaining_executable: row.get(15)?,
             })
         },
     )
@@ -2614,6 +2899,11 @@ fn build_organization_dry_run(
     )?;
     let source_query = load_plan_source_query(conn, &plan_id)?;
     let selected = selected_plan_items(conn, request)?;
+    let file_ids = selected
+        .iter()
+        .map(|item| item.file_id_snapshot.clone())
+        .collect::<Vec<_>>();
+    let current_files = load_indexed_files_for_projection(conn, &file_ids)?;
     let mut items = Vec::with_capacity(selected.len());
     let mut kinds = HashSet::new();
     let mut total_bytes = 0_i64;
@@ -2623,7 +2913,7 @@ fn build_organization_dry_run(
     let mut fingerprint_parts = vec![plan_id.clone(), request.expected_plan_revision.to_string()];
 
     for item in selected {
-        let current = load_indexed_file_by_id(conn, &item.file_id_snapshot)?;
+        let current = current_files.get(&item.file_id_snapshot).cloned();
         let mut source_health = "healthy";
         let mut blocking_code = item.blocking_code.clone();
         let mut live_proposal = None;
@@ -2633,7 +2923,8 @@ fn build_organization_dry_run(
         let mut classification_inputs = Vec::new();
 
         if let Some(row) = current.as_ref() {
-            let source_unchanged = row.path == item.source_path_snapshot
+            let source_unchanged = normalize_text_for_compare(&row.path)
+                == normalize_text_for_compare(&item.source_path_snapshot)
                 && row.size == item.source_size_snapshot
                 && row.mtime == item.source_mtime_snapshot
                 && row.is_dir == item.source_is_dir_snapshot;
@@ -2700,9 +2991,23 @@ fn build_organization_dry_run(
             } else {
                 proposal.target_path.clone()
             };
-            collision = final_target != row.path && std::path::Path::new(&final_target).exists();
+            collision = normalize_text_for_compare(&final_target)
+                != normalize_text_for_compare(&row.path)
+                && std::path::Path::new(&final_target).exists();
             if collision {
                 blocking_code = Some("organization_target_collision".to_string());
+            }
+            let edited_collision_resolved = item.edited_name.is_some()
+                && proposal.blocking_code.as_deref() == Some("target_collision")
+                && !collision
+                && !invalid_filename;
+            if edited_collision_resolved
+                && matches!(
+                    blocking_code.as_deref(),
+                    Some("target_collision" | "organization_target_collision")
+                )
+            {
+                blocking_code = None;
             }
             live_proposal = Some(proposal);
         } else {
@@ -2710,7 +3015,7 @@ fn build_organization_dry_run(
             blocking_code = Some("source_missing".to_string());
         }
 
-        let (operation_kind, risk_level, requires_confirmation, preview_id, live_validity) =
+        let (operation_kind, risk_level, requires_confirmation, preview_id, mut live_validity) =
             live_proposal.as_ref().map_or_else(
                 || {
                     (
@@ -2731,6 +3036,15 @@ fn build_organization_dry_run(
                     )
                 },
             );
+        if item.edited_name.is_some()
+            && live_proposal.as_ref().is_some_and(|proposal| {
+                proposal.blocking_code.as_deref() == Some("target_collision")
+            })
+            && !collision
+            && !invalid_filename
+        {
+            live_validity = "needs_review".to_string();
+        }
         let explicitly_reviewed = matches!(item.decision.as_str(), "accepted" | "edited")
             && matches!(item.validity.as_str(), "ready" | "needs_review");
         let supported_operation =
@@ -3038,6 +3352,31 @@ mod tests {
             [],
         )
         .expect("seed plan item");
+        conn.execute(
+            "INSERT INTO files (
+                id, path, name, extension, size, mtime, is_dir, state_code,
+                suggested_action, suggested_target_path, suggested_name,
+                confidence, risk_level, requires_confirmation
+             ) VALUES (
+                'file-test', '/tmp/source.txt', 'source.txt', 'txt', 1, 1, 0, 0,
+                'Rename', '/tmp', 'renamed.txt', 0.95, 'Normal', 0
+             )",
+            [],
+        )
+        .expect("seed indexed organization file");
+        let preview_id = operation_preview_from_indexed(
+            load_indexed_file_by_id(&conn, "file-test")
+                .expect("load seeded organization file")
+                .expect("seeded organization file exists"),
+        )
+        .expect("seed organization preview")
+        .id;
+        conn.execute(
+            "UPDATE organization_plan_items SET authoritative_preview_id = ?1
+             WHERE id = 'item-test'",
+            params![preview_id],
+        )
+        .expect("bind seeded organization preview");
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3254,6 +3593,11 @@ mod tests {
         seed_plan(&db, "ready");
         let fixture = path.with_extension("review-metadata");
         std::fs::create_dir_all(&fixture).expect("create review metadata target");
+        std::fs::write(
+            fixture.join("target-item-review-metadata.txt"),
+            b"collision",
+        )
+        .expect("seed review metadata collision");
         seed_group_item(
             &db,
             "item-review-metadata",
@@ -3283,11 +3627,18 @@ mod tests {
                 params![fixture.to_string_lossy()],
             )
             .expect("seed review metadata proposal");
+            let preview_id = operation_preview_from_indexed(
+                load_indexed_file_by_id(&conn, "file-item-review-metadata")
+                    .expect("load review metadata file")
+                    .expect("review metadata file exists"),
+            )
+            .expect("review metadata preview")
+            .id;
             conn.execute(
                 "UPDATE organization_plan_items
-                 SET authoritative_preview_id = 'preview-review-metadata'
+                 SET authoritative_preview_id = ?1
                  WHERE id = 'item-review-metadata'",
-                [],
+                params![preview_id],
             )
             .expect("bind review metadata preview");
         }
@@ -3316,10 +3667,37 @@ mod tests {
             .review_reason_counts
             .iter()
             .any(|reason| reason.reason == "target_collision" && reason.count == 1));
-        assert!(group
+        assert!(!group
             .available_actions
             .iter()
             .any(|action| action == "accept_suggestion"));
+        assert!(group
+            .available_actions
+            .iter()
+            .any(|action| action == "edit_name"));
+        let reason_counts = group.review_reason_counts.clone();
+        {
+            let conn = db.conn().expect("review detail connection");
+            conn.execute(
+                "UPDATE organization_plan_items
+                 SET blocking_detail = 'directory preview collision confirmation'
+                 WHERE id = 'item-review-metadata'",
+                [],
+            )
+            .expect("change human review detail");
+        }
+        let detail_changed_group = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("review reason detail-independent group page")
+            .groups
+            .into_iter()
+            .find(|candidate| candidate.readiness == "requires-decision")
+            .expect("review reason detail-independent group");
+        assert_eq!(detail_changed_group.review_reason_counts, reason_counts);
 
         let item = db
             .query_organization_plan_group_items(QueryOrganizationPlanGroupItemsRequest {
@@ -3334,12 +3712,16 @@ mod tests {
             .next()
             .expect("review metadata item");
         assert_eq!(item.review_reasons[0], "low_confidence");
-        assert!(item
+        assert!(!item
             .available_actions
             .iter()
             .any(|action| action == "accept_suggestion"));
+        assert!(item
+            .available_actions
+            .iter()
+            .any(|action| action == "edit_name"));
 
-        let updated = db
+        let error = db
             .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
                 plan_id: "plan-test".into(),
                 expected_plan_revision: 1,
@@ -3351,17 +3733,19 @@ mod tests {
                     edited_filename: None,
                 }],
             })
-            .expect("ordinary review decision");
-        assert_eq!(updated.revision, 2);
+            .expect_err("collision review cannot be accepted");
+        assert!(error
+            .to_string()
+            .contains("organization_item_accept_not_available"));
 
         assert!(db
             .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
                 plan_id: "plan-test".into(),
-                expected_plan_revision: 2,
+                expected_plan_revision: 1,
                 safe_batch: true,
                 mutations: vec![OrganizationDecisionMutation {
                     item_id: item.id,
-                    expected_item_revision: 2,
+                    expected_item_revision: item.revision,
                     decision: "accepted".into(),
                     edited_filename: None,
                 }],
@@ -3393,6 +3777,17 @@ mod tests {
                 ],
             )
             .expect("bind safe group item");
+            conn.execute(
+                "UPDATE files SET path = ?1, suggested_target_path = ?2,
+                        suggested_name = ?3
+                 WHERE id = 'file-test'",
+                params![
+                    fixture.join("source-item-test.txt").to_string_lossy(),
+                    fixture.to_string_lossy(),
+                    "target-item-test.txt"
+                ],
+            )
+            .expect("bind safe group indexed file");
         }
         seed_group_item(
             &db,
@@ -3455,6 +3850,300 @@ mod tests {
             .contains("organization_plan_revision_conflict"));
         drop(db);
         let _ = std::fs::remove_dir_all(fixture);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn blocked_preview_actions_are_projected_and_rejected_by_mutation() {
+        let (db, path) = test_database();
+        seed_plan(&db, "ready");
+        let fixture = path.with_extension("blocked-actions");
+        std::fs::create_dir_all(&fixture).expect("create blocked action fixture");
+        seed_group_item(
+            &db,
+            "item-missing-preview",
+            1,
+            &fixture,
+            "blocked",
+            "undecided",
+            0.95,
+            false,
+            Some("missing_preview"),
+        );
+        seed_group_item(
+            &db,
+            "item-extension-blocked",
+            2,
+            &fixture,
+            "blocked",
+            "undecided",
+            0.95,
+            false,
+            Some("extension_change_blocked"),
+        );
+        {
+            let conn = db.conn().expect("blocked action connection");
+            conn.execute(
+                "INSERT INTO files (id, path, name, extension, size, mtime)
+                 VALUES ('file-item-extension-blocked', ?1, 'source-item-extension-blocked.txt', 'txt', 10, 1)",
+                params![fixture.join("source-item-extension-blocked.txt").to_string_lossy()],
+            )
+            .expect("seed extension blocked file");
+            conn.execute(
+                "UPDATE files SET classification_status = 'classified',
+                        suggested_action = 'Rename', suggested_target_path = ?1,
+                        suggested_name = 'target-item-extension-blocked.pdf',
+                        confidence = 0.95, risk_level = 'Normal',
+                        last_classified_mtime = 1, last_classified_size = 10
+                 WHERE id = 'file-item-extension-blocked'",
+                params![fixture.to_string_lossy()],
+            )
+            .expect("seed extension blocked proposal");
+            let preview_id = operation_preview_from_indexed(
+                load_indexed_file_by_id(&conn, "file-item-extension-blocked")
+                    .expect("load extension blocked file")
+                    .expect("extension blocked file exists"),
+            )
+            .expect("extension blocked preview")
+            .id;
+            conn.execute(
+                "UPDATE organization_plan_items SET authoritative_preview_id = ?1
+                 WHERE id = 'item-extension-blocked'",
+                params![preview_id],
+            )
+            .expect("bind extension blocked preview");
+        }
+
+        let group_page = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("blocked action groups");
+        let missing_group = group_page
+            .groups
+            .iter()
+            .find(|group| {
+                group
+                    .sample_items
+                    .iter()
+                    .any(|sample| sample.item_id == "item-missing-preview")
+            })
+            .expect("missing preview group");
+        let missing_item = db
+            .query_organization_plan_group_items(QueryOrganizationPlanGroupItemsRequest {
+                plan_id: "plan-test".into(),
+                group_id: missing_group.group_id.clone(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("missing preview items")
+            .items
+            .into_iter()
+            .find(|item| item.id == "item-missing-preview")
+            .expect("missing preview item");
+        assert!(missing_item
+            .review_reasons
+            .iter()
+            .any(|reason| reason == "missing_preview"));
+        assert!(!missing_item
+            .available_actions
+            .iter()
+            .any(|action| action == "accept_suggestion" || action == "edit_name"));
+        let missing_error = db
+            .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
+                plan_id: "plan-test".into(),
+                expected_plan_revision: 1,
+                safe_batch: false,
+                mutations: vec![OrganizationDecisionMutation {
+                    item_id: missing_item.id,
+                    expected_item_revision: missing_item.revision,
+                    decision: "accepted".into(),
+                    edited_filename: None,
+                }],
+            })
+            .expect_err("missing preview accept must be rejected");
+        assert!(missing_error
+            .to_string()
+            .contains("organization_item_accept_not_available"));
+
+        let extension_group = group_page
+            .groups
+            .iter()
+            .find(|group| {
+                group
+                    .sample_items
+                    .iter()
+                    .any(|sample| sample.item_id == "item-extension-blocked")
+            })
+            .expect("extension blocked group");
+        let extension_item = db
+            .query_organization_plan_group_items(QueryOrganizationPlanGroupItemsRequest {
+                plan_id: "plan-test".into(),
+                group_id: extension_group.group_id.clone(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("extension blocked items")
+            .items
+            .into_iter()
+            .find(|item| item.id == "item-extension-blocked")
+            .expect("extension blocked item");
+        assert!(extension_item
+            .review_reasons
+            .iter()
+            .any(|reason| reason == "extension_change_blocked"));
+        assert!(!extension_item
+            .available_actions
+            .iter()
+            .any(|action| action == "accept_suggestion" || action == "edit_name"));
+        let extension_error = db
+            .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
+                plan_id: "plan-test".into(),
+                expected_plan_revision: 1,
+                safe_batch: false,
+                mutations: vec![OrganizationDecisionMutation {
+                    item_id: extension_item.id,
+                    expected_item_revision: extension_item.revision,
+                    decision: "accepted".into(),
+                    edited_filename: None,
+                }],
+            })
+            .expect_err("extension blocked accept must be rejected");
+        assert!(extension_error
+            .to_string()
+            .contains("organization_item_accept_not_available"));
+        drop(db);
+        let _ = std::fs::remove_dir_all(fixture);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn collision_can_be_resolved_by_edit_before_dry_run() {
+        let (db, path) = test_database();
+        seed_plan(&db, "ready");
+        let fixture = path.with_extension("collision-edit");
+        std::fs::create_dir_all(&fixture).expect("create collision edit fixture");
+        let source = fixture.join("source.txt");
+        let target = fixture.join("target.txt");
+        std::fs::write(&target, b"collision").expect("seed collision target");
+        let fixture_text = fixture.to_string_lossy().replace('\\', "/");
+        let source_text = source.to_string_lossy().replace('\\', "/");
+        {
+            let conn = db.conn().expect("collision edit connection");
+            conn.execute(
+                "INSERT INTO scan_roots (
+                    id, normalized_path, display_name, source_kind, enabled,
+                    health_status, current_generation, needs_reconciliation,
+                    created_at, updated_at
+                 ) VALUES ('root-collision-edit', ?1, 'Collision edit', 'file_library', 1,
+                           'healthy', 1, 0, 1, 1)",
+                params![fixture_text],
+            )
+            .expect("seed collision edit root");
+            conn.execute(
+                "UPDATE files SET path = ?1, suggested_target_path = ?2,
+                        suggested_name = 'target.txt', confidence = 0.95,
+                        risk_level = 'Normal', requires_confirmation = 0,
+                        classification_status = 'classified',
+                        last_classified_mtime = 1, last_classified_size = 1
+                 WHERE id = 'file-test'",
+                params![source_text.clone(), fixture_text],
+            )
+            .expect("bind collision edit file");
+            let indexed = load_indexed_file_by_id(&conn, "file-test")
+                .expect("load collision edit file")
+                .expect("collision edit file exists");
+            let preview =
+                operation_preview_from_indexed(indexed.clone()).expect("collision edit preview");
+            let proposal = proposal_from_preview(
+                &indexed.path,
+                &indexed.name,
+                &indexed.classification_status,
+                &indexed.suggested_action,
+                Some(preview.clone()),
+            );
+            conn.execute(
+                "UPDATE organization_plan_items SET source_path_snapshot = ?1,
+                        source_size_snapshot = 1, source_mtime_snapshot = 1,
+                        proposal_fingerprint = ?2, proposal_kind = ?3,
+                        proposed_target_directory = ?4, proposed_name = ?5,
+                        proposed_target_path = ?6, validity = 'blocked',
+                        confidence = ?7, risk_level = ?8,
+                        requires_confirmation = ?9, blocking_code = 'target_collision',
+                        blocking_detail = 'The target path is already occupied.',
+                        authoritative_preview_id = ?10
+                 WHERE id = 'item-test'",
+                params![
+                    source_text,
+                    proposal.fingerprint,
+                    proposal.kind,
+                    proposal.target_directory,
+                    proposal.name,
+                    proposal.target_path,
+                    proposal.confidence,
+                    proposal.risk,
+                    bool_to_i64(proposal.requires_confirmation),
+                    preview.id,
+                ],
+            )
+            .expect("bind collision edit plan item");
+        }
+
+        let item = db
+            .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 10,
+            })
+            .expect("collision edit item page")
+            .items
+            .into_iter()
+            .next()
+            .expect("collision edit item");
+        assert!(!item
+            .available_actions
+            .iter()
+            .any(|action| action == "accept_suggestion"));
+        assert!(item
+            .available_actions
+            .iter()
+            .any(|action| action == "edit_name"));
+        let updated = db
+            .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
+                plan_id: "plan-test".into(),
+                expected_plan_revision: 1,
+                safe_batch: false,
+                mutations: vec![OrganizationDecisionMutation {
+                    item_id: item.id,
+                    expected_item_revision: item.revision,
+                    decision: "edited".into(),
+                    edited_filename: Some("resolved.txt".into()),
+                }],
+            })
+            .expect("collision edit decision");
+        assert_eq!(updated.summary.reviewed, 1);
+        let dry_run = db
+            .get_organization_plan_dry_run(OrganizationPlanSelectionRequest {
+                plan_id: "plan-test".into(),
+                expected_plan_revision: updated.revision,
+                item_ids: Vec::new(),
+                all_accepted: true,
+            })
+            .expect("collision edit dry run");
+        assert_eq!(dry_run.executable_count, 1);
+        assert_eq!(dry_run.blocked_count, 0);
+        assert_eq!(
+            dry_run.items[0].to.replace('\\', "/"),
+            fixture
+                .join("resolved.txt")
+                .to_string_lossy()
+                .replace('\\', "/")
+        );
+        drop(db);
+        let _ = std::fs::remove_file(target);
+        let _ = std::fs::remove_dir(fixture);
         let _ = std::fs::remove_file(path);
     }
 
@@ -3598,12 +4287,27 @@ mod tests {
             let conn = db.conn().expect("review fixture");
             conn.execute(
                 "UPDATE organization_plan_items SET validity = 'needs_review',
-                        risk_level = 'Sensitive', requires_confirmation = 1
+                        confidence = 0.7, risk_level = 'Normal', requires_confirmation = 1
                  WHERE id = 'item-test'",
                 [],
             )
             .expect("mark needs review");
         }
+        let before = db
+            .get_organization_plan("plan-test")
+            .expect("pending review plan");
+        assert_eq!(before.summary.needs_review, 1);
+        assert_eq!(before.summary.pending_review, 1);
+        assert_eq!(before.summary.reviewed, 0);
+        let before_group = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("pending review group page");
+        assert_eq!(before_group.groups.len(), 1);
+        assert_eq!(before_group.groups[0].readiness, "requires-decision");
         let updated = db
             .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
                 plan_id: "plan-test".into(),
@@ -3619,6 +4323,8 @@ mod tests {
             .expect("explicit review");
         assert_eq!(updated.status, "ready");
         assert_eq!(updated.summary.remaining_executable, 1);
+        assert_eq!(updated.summary.pending_review, 0);
+        assert_eq!(updated.summary.reviewed, 1);
         let page = db
             .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
                 plan_id: "plan-test".into(),
@@ -3627,8 +4333,17 @@ mod tests {
             })
             .expect("reviewed item");
         assert_eq!(page.items[0].review_state, "reviewed");
-        assert_eq!(page.items[0].risk_level, "Sensitive");
+        assert_eq!(page.items[0].risk_level, "Normal");
         assert!(page.items[0].requires_confirmation);
+        let after_groups = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("reviewed group page");
+        assert_eq!(after_groups.groups.len(), 1);
+        assert_eq!(after_groups.groups[0].readiness, "reviewed");
         drop(db);
         let _ = std::fs::remove_file(path);
     }
@@ -3811,6 +4526,17 @@ mod tests {
                 ],
             )
             .expect("bind safe batch fixture");
+            conn.execute(
+                "UPDATE files SET path = ?1, suggested_target_path = ?2,
+                        suggested_name = ?3
+                 WHERE id = 'file-test'",
+                params![
+                    source.to_string_lossy(),
+                    fixture.to_string_lossy(),
+                    "renamed.txt"
+                ],
+            )
+            .expect("bind safe batch indexed file");
         }
         let error = db
             .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
@@ -4073,19 +4799,48 @@ mod tests {
                         )
                         .expect("prepare item insert");
                     for ordinal in 0..count {
+                        let file_id = format!("bench-file-{ordinal:05}");
+                        let preview_id = if count <= 1_000 {
+                            let digest = blake3::hash(file_id.as_bytes()).to_hex().to_string();
+                            format!("op-{}", &digest[..16])
+                        } else {
+                            format!("preview-{ordinal:05}")
+                        };
                         insert
                             .execute(params![
                                 format!("bench-item-{ordinal:05}"),
                                 ordinal as i64,
-                                format!("bench-file-{ordinal:05}"),
+                                &file_id,
                                 format!("/missing/source-{ordinal:05}.txt"),
                                 format!("source-{ordinal:05}.txt"),
                                 format!("fingerprint-{ordinal:05}"),
                                 format!("renamed-{ordinal:05}.txt"),
                                 format!("/missing/renamed-{ordinal:05}.txt"),
-                                format!("preview-{ordinal:05}"),
+                                preview_id,
                             ])
                             .expect("insert benchmark item");
+                    }
+                }
+                if count <= 1_000 {
+                    let mut insert = tx
+                        .prepare(
+                            "INSERT INTO files (
+                                id, path, name, extension, size, mtime,
+                                suggested_action, suggested_target_path, suggested_name,
+                                confidence, classification_status, last_seen_at
+                             ) VALUES (?1, ?2, ?3, 'txt', 1, 1, 'Rename', '/missing', ?4,
+                                       0.95, 'classified', 1)",
+                        )
+                        .expect("prepare benchmark indexed file insert");
+                    for ordinal in 0..count {
+                        insert
+                            .execute(params![
+                                format!("bench-file-{ordinal:05}"),
+                                format!("/missing/source-{ordinal:05}.txt"),
+                                format!("source-{ordinal:05}.txt"),
+                                format!("renamed-{ordinal:05}.txt"),
+                            ])
+                            .expect("insert benchmark indexed file");
                     }
                 }
                 tx.commit().expect("publish benchmark plan");
@@ -4208,6 +4963,10 @@ mod tests {
             };
             assert_eq!(page.plan_revision, 1);
             let decision_start = Instant::now();
+            // The 10k case keeps the original missing-source benchmark shape so
+            // its ledger/group/refresh thresholds remain comparable. Acceptance
+            // is exercised with authoritative files and previews at 100/1k.
+            let benchmark_decision = if count == 10_000 { "kept" } else { "accepted" };
             let changed = db
                 .update_organization_plan_decisions(UpdateOrganizationPlanDecisionsRequest {
                     plan_id: "plan-bench".into(),
@@ -4218,7 +4977,7 @@ mod tests {
                         .map(|(item_id, revision)| OrganizationDecisionMutation {
                             item_id,
                             expected_item_revision: revision,
-                            decision: "accepted".into(),
+                            decision: benchmark_decision.into(),
                             edited_filename: None,
                         })
                         .collect(),
@@ -4255,8 +5014,9 @@ mod tests {
                     let target_path = execution_fixture.join(&target_name);
                     std::fs::write(&source_path, b"x").expect("write execution benchmark source");
                     tx.execute(
-                        "INSERT INTO files (id, path, name, extension, size, mtime)
-                         VALUES (?1, ?2, ?3, 'txt', 1, 1)",
+                        "UPDATE files SET path = ?2, name = ?3, extension = 'txt',
+                                size = 1, mtime = 1, is_stale = 0
+                         WHERE id = ?1",
                         params![
                             file_id,
                             source_path.to_string_lossy().replace('\\', "/"),

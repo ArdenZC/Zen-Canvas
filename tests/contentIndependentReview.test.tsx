@@ -97,9 +97,13 @@ function Harness() {
   const [current, setCurrent] = useState(() => detail());
   const refresh = async () => {
     const refreshed = await tauriApi.getFileLibraryDetail(current.id);
+    const refreshedPolicy = refreshed.scanRootId
+      ? await tauriApi.getContentScopePolicy(refreshed.scanRootId)
+      : null;
     setCurrent(refreshed);
+    return { detail: refreshed, policy: refreshedPolicy };
   };
-  return <ContentUnderstandingSheet open detail={current} t={t} onClose={() => undefined} onRefreshDetail={refresh} />;
+  return <ContentUnderstandingSheet open detail={current} t={t} onClose={() => undefined} onRefreshAuthoritativeContentState={refresh} />;
 }
 
 describe("Content Understanding independent review behavior", () => {
@@ -160,8 +164,86 @@ describe("Content Understanding independent review behavior", () => {
 
     expect(rebuild).toHaveBeenCalledWith("file-content", 2, true);
     expect(getDetail).toHaveBeenCalledWith("file-content");
-    expect(container.textContent).toContain("内容状态已变化");
+    expect(container.textContent).toContain("内容或策略状态已变化，请基于最新状态重新确认。");
     expect(container.textContent).toContain("Concurrent summary");
+  });
+
+  it("refreshes policy after a save conflict and uses the new revision on a manual retry", async () => {
+    const refreshed = detail({ revision: 9, contentRevision: 4, contentSummary: "Concurrent policy summary" });
+    const latestPolicy = { ...policy, rootRevision: 5, policyRevision: 3, enabled: false };
+    const getDetail = vi.spyOn(tauriApi, "getFileLibraryDetail").mockResolvedValue(refreshed);
+    const getPolicy = vi.spyOn(tauriApi, "getContentScopePolicy")
+      .mockResolvedValueOnce(policy)
+      .mockResolvedValueOnce(latestPolicy)
+      .mockResolvedValue(latestPolicy);
+    const save = vi.spyOn(tauriApi, "setContentScopePolicy")
+      .mockRejectedValueOnce(new Error("content_policy_revision_conflict"))
+      .mockResolvedValue(latestPolicy);
+
+    await act(async () => root.render(createElement(Harness)));
+    await flush();
+    await act(async () => findButton("保存根目录策略").click());
+    const firstConfirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((button) => button.textContent === "确认");
+    await act(async () => firstConfirm?.click());
+    await flush();
+
+    expect(save).toHaveBeenNthCalledWith(1, expect.objectContaining({ expectedRootRevision: 4, expectedPolicyRevision: 2 }));
+    expect(getDetail).toHaveBeenCalledWith("file-content");
+    expect(getPolicy).toHaveBeenCalledWith("root-content");
+    expect(container.textContent).toContain("内容或策略状态已变化，请基于最新状态重新确认。");
+
+    await act(async () => findButton("保存根目录策略").click());
+    const secondConfirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((button) => button.textContent === "确认");
+    await act(async () => secondConfirm?.click());
+    await flush();
+    expect(save).toHaveBeenNthCalledWith(2, expect.objectContaining({ expectedRootRevision: 5, expectedPolicyRevision: 3 }));
+    expect(getDetail).toHaveBeenCalledTimes(2);
+  });
+
+  it("refreshes policy after purge conflict without automatically retrying", async () => {
+    const refreshed = detail({ revision: 10, contentRevision: 4, contentSummary: "Purge changed" });
+    const latestPolicy = { ...policy, rootRevision: 6, policyRevision: 4 };
+    vi.spyOn(tauriApi, "getFileLibraryDetail").mockResolvedValue(refreshed);
+    vi.spyOn(tauriApi, "getContentScopePolicy")
+      .mockResolvedValueOnce(policy)
+      .mockResolvedValueOnce(latestPolicy)
+      .mockResolvedValue(latestPolicy);
+    const purge = vi.spyOn(tauriApi, "purgeContentScope")
+      .mockRejectedValueOnce(new Error("content_policy_revision_conflict"))
+      .mockResolvedValue(0);
+
+    await act(async () => root.render(createElement(Harness)));
+    await flush();
+    await act(async () => findButton("清空此根目录内容").click());
+    const firstConfirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((button) => button.textContent === "确认");
+    await act(async () => firstConfirm?.click());
+    await flush();
+    expect(purge).toHaveBeenCalledOnce();
+    expect(purge.mock.calls[0]?.[0]?.expectedPolicyRevisions[0]).toMatchObject({ rootRevision: 4, policyRevision: 2 });
+    expect(container.textContent).toContain("内容或策略状态已变化，请基于最新状态重新确认。");
+
+    await act(async () => findButton("清空此根目录内容").click());
+    const secondConfirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((button) => button.textContent === "确认");
+    await act(async () => secondConfirm?.click());
+    await flush();
+    expect(purge).toHaveBeenCalledTimes(2);
+    expect(purge.mock.calls[1]?.[0]?.expectedPolicyRevisions[0]).toMatchObject({ rootRevision: 6, policyRevision: 4 });
+  });
+
+  it("keeps the conflict error and does not retry when authoritative refresh fails", async () => {
+    const getDetail = vi.spyOn(tauriApi, "getFileLibraryDetail").mockRejectedValue(new Error("detail_refresh_failed"));
+    const save = vi.spyOn(tauriApi, "setContentScopePolicy").mockRejectedValue(new Error("content_policy_revision_conflict"));
+
+    await act(async () => root.render(createElement(Harness)));
+    await flush();
+    await act(async () => findButton("保存根目录策略").click());
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((button) => button.textContent === "确认");
+    await act(async () => confirm?.click());
+    await flush();
+
+    expect(save).toHaveBeenCalledOnce();
+    expect(getDetail).toHaveBeenCalledWith("file-content");
+    expect(container.textContent).toContain("内容任务未能完成");
   });
 
   it("refreshes the detail once when a content run reaches a terminal state", async () => {

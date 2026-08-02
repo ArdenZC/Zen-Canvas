@@ -83,8 +83,8 @@ describe("V4.3 PR10 overview health projections", () => {
     expect(select(operation)).toMatchObject({ kind: "operation", reason: "failed" });
 
     const plan = baseHealth();
-    plan.plan = { summary: { undecided: 2, needsReview: 1 } } as OverviewHealthSnapshot["plan"];
-    expect(select(plan)).toMatchObject({ kind: "review", count: 3 });
+    plan.plan = { summary: { undecided: 2, needsReview: 3, pendingReview: 1 } } as OverviewHealthSnapshot["plan"];
+    expect(select(plan)).toMatchObject({ kind: "review", count: 1 });
 
     const cleanup = baseHealth();
     cleanup.cleanupRun = { reviewCount: 3, cautionCount: 1, exactReclaimableBytes: 8192 } as OverviewHealthSnapshot["cleanupRun"];

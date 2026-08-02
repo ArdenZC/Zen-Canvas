@@ -14,6 +14,7 @@ describe("Organize Files V4.3 group-first review contracts", () => {
     expect(view).toContain("state.groups");
     expect(view).toContain('group.readiness === "ready"');
     expect(view).toContain('group.readiness === "requires-decision"');
+    expect(view).toContain('group.readiness === "reviewed"');
     expect(view).toContain('group.readiness === "blocked"');
     expect(view).toContain("groupHasMore");
     expect(view).not.toContain("items.reduce");

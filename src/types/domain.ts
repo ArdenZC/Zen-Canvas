@@ -928,6 +928,8 @@ export interface OrganizationPlanSummary {
   edited: number;
   needsAnalysis: number;
   needsReview: number;
+  pendingReview: number;
+  reviewed: number;
   ready: number;
   blocked: number;
   stale: number;
@@ -980,7 +982,7 @@ export interface OrganizationPlanItemPage {
   hasMore: boolean;
 }
 
-export type OrganizationPlanGroupReadiness = "ready" | "requires-decision" | "blocked";
+export type OrganizationPlanGroupReadiness = "ready" | "requires-decision" | "reviewed" | "blocked";
 
 export interface OrganizationReviewReasonCount {
   reason: string;

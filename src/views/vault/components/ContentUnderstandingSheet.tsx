@@ -24,11 +24,15 @@ interface Props {
   onClose: () => void;
   restoreFocus?: () => HTMLElement | null;
   onRefreshDetail?: () => Promise<void>;
+  onRefreshAuthoritativeContentState?: () => Promise<{
+    detail: FileLibraryDetail;
+    policy: ContentScopePolicy | null;
+  }>;
 }
 
 type Confirmation = { description: string; action: () => Promise<void> } | null;
 
-export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFocus, onRefreshDetail }: Props) {
+export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFocus, onRefreshDetail, onRefreshAuthoritativeContentState }: Props) {
   const [contentBusy, setContentBusy] = useState(false);
   const [contentMessage, setContentMessage] = useState<string | null>(null);
   const [contentPolicy, setContentPolicy] = useState<ContentScopePolicy | null>(null);
@@ -90,7 +94,7 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
         setContentRunItems(page.items);
         const terminal = ["completed", "failed", "canceled", "cancelled"].includes(run.status.toLowerCase());
         if (terminal && !refreshedContentRuns.current.has(run.id)) {
-          await onRefreshDetail?.();
+          await refreshAuthoritativeContentState();
           refreshedContentRuns.current.add(run.id);
         }
       } catch (error) {
@@ -100,7 +104,7 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     void refresh();
     const timer = window.setInterval(() => void refresh(), 2000);
     return () => { active = false; window.clearInterval(timer); };
-   }, [contentRun?.id, contentRunRefreshKey, onRefreshDetail, open, t]);
+   }, [contentRun?.id, contentRunRefreshKey, onRefreshAuthoritativeContentState, onRefreshDetail, open, t]);
 
   if (!open) return null;
 
@@ -191,11 +195,10 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
       });
       setContentPolicy(saved);
       setPolicyDirty(false);
-      setContentMessage(t("contentPolicySaved"));
-      await onRefreshDetail?.();
+      setContentMessage((await refreshAuthoritativeContentState()) ? t("contentPolicySaved") : t("contentOperationFailed"));
     } catch (error) {
       if (isContentRevisionConflict(error)) {
-        setContentMessage((await refreshCurrentDetail()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
+        setContentMessage((await refreshAuthoritativeContentState()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
       } else setContentMessage(t("contentSavePolicyFailed"));
     } finally {
       setContentBusy(false);
@@ -221,11 +224,10 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     setContentMessage(null);
     try {
       await tauriApi.rebuildContentArtifact(detail.id, detail.contentRevision, true);
-      setContentMessage(t("contentArtifactRebuilt"));
-      await onRefreshDetail?.();
+      setContentMessage((await refreshAuthoritativeContentState()) ? t("contentArtifactRebuilt") : t("contentOperationFailed"));
     } catch (error) {
       if (isContentRevisionConflict(error)) {
-        setContentMessage((await refreshCurrentDetail()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
+        setContentMessage((await refreshAuthoritativeContentState()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
       } else setContentMessage(contentError(error, t));
     } finally {
       setContentBusy(false);
@@ -238,11 +240,10 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     setContentMessage(null);
     try {
       await tauriApi.deleteContentArtifact(detail.id, detail.contentRevision, true);
-      setContentMessage(t("contentDataDeleted"));
-      await onRefreshDetail?.();
+      setContentMessage((await refreshAuthoritativeContentState()) ? t("contentDataDeleted") : t("contentOperationFailed"));
     } catch (error) {
       if (isContentRevisionConflict(error)) {
-        setContentMessage((await refreshCurrentDetail()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
+        setContentMessage((await refreshAuthoritativeContentState()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
       } else setContentMessage(contentError(error, t));
     } finally {
       setContentBusy(false);
@@ -261,11 +262,10 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
         expectedPolicyRevisions: [{ rootId: contentPolicy.rootId, rootRevision: contentPolicy.rootRevision, policyRevision: contentPolicy.policyRevision }],
         confirmed: true
       });
-      setContentMessage(replaceCopy(t("contentPurged"), { count: deleted }));
-      await onRefreshDetail?.();
+      setContentMessage((await refreshAuthoritativeContentState()) ? replaceCopy(t("contentPurged"), { count: deleted }) : t("contentOperationFailed"));
     } catch (error) {
       if (isContentRevisionConflict(error)) {
-        setContentMessage((await refreshCurrentDetail()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
+        setContentMessage((await refreshAuthoritativeContentState()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
       } else setContentMessage(contentError(error, t));
     } finally {
       setContentBusy(false);
@@ -276,9 +276,20 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     setContentConfirmation({ description, action });
   }
 
-  async function refreshCurrentDetail(): Promise<boolean> {
+  async function refreshAuthoritativeContentState(): Promise<boolean> {
     try {
-      await onRefreshDetail?.();
+      if (onRefreshAuthoritativeContentState) {
+        const refreshed = await onRefreshAuthoritativeContentState();
+        setContentPolicy(refreshed.policy);
+        setPolicyDirty(false);
+      } else {
+        await onRefreshDetail?.();
+        const refreshedPolicy = detail.scanRootId
+          ? await tauriApi.getContentScopePolicy(detail.scanRootId)
+          : null;
+        setContentPolicy(refreshedPolicy);
+        setPolicyDirty(false);
+      }
       return true;
     } catch {
       return false;

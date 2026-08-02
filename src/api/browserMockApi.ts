@@ -2004,7 +2004,7 @@ function queryMockOrganizationItems(request?: { planId?: string; cursor?: string
 
 function mockOrganizationGroupReadiness(item: OrganizationPlanItem): OrganizationPlanGroupSummary["readiness"] {
   if (item.validity === "ready") return "ready";
-  if (item.validity === "needs_review") return "requires-decision";
+  if (item.validity === "needs_review") return item.decision === "undecided" ? "requires-decision" : "reviewed";
   return "blocked";
 }
 
@@ -2033,12 +2033,20 @@ function mockOrganizationAvailableActions(input: {
   decision: OrganizationPlanItem["decision"];
   proposalKind: OrganizationPlanItem["proposalKind"];
   authoritativePreviewId: string | null;
+  previewExecutable?: boolean;
+  previewEditable?: boolean;
+  blockingCode?: string | null;
 }): string[] {
   const actions: string[] = [];
   const supported = ["move", "rename", "move_rename"].includes(input.proposalKind);
-  const active = !["blocked", "stale", "executing", "executed", "failed", "skipped"].includes(input.validity);
-  if (active && supported && input.authoritativePreviewId && input.decision === "undecided") actions.push("accept_suggestion");
-  if (active && supported && input.authoritativePreviewId) actions.push("edit_name", "view_preview");
+  const active = !["stale", "executing", "executed", "failed", "skipped", "needs_analysis"].includes(input.validity);
+  const executable = input.previewExecutable ?? !["target_collision", "extension_change_blocked", "unsafe_filename", "sensitive_file", "unsupported_operation"].includes(input.blockingCode ?? "");
+  const editable = input.previewEditable ?? (input.blockingCode !== "extension_change_blocked" && input.blockingCode !== "unsafe_filename");
+  const hardBlocked = ["source_identity_changed", "source_missing", "managed_scope_unavailable", "managed_scope_membership_changed", "live_proposal_changed", "proposal_changed", "cleanup_review_required"].includes(input.blockingCode ?? "");
+  const reviewable = input.validity === "ready" || input.validity === "needs_review";
+  const collisionEditable = input.validity === "blocked" && input.blockingCode === "target_collision";
+  if (active && supported && input.authoritativePreviewId && executable && reviewable && !hardBlocked && input.decision === "undecided") actions.push("accept_suggestion");
+  if (active && supported && input.authoritativePreviewId && editable && !hardBlocked && (reviewable || collisionEditable)) actions.push("edit_name", "view_preview");
   if (active) actions.push("keep");
   if (active && input.decision !== "undecided") actions.push("clear_decision");
   if (active && input.validity === "needs_review" && input.decision === "undecided") actions.push("defer");
@@ -2176,6 +2184,21 @@ function updateMockOrganizationDecisions(request?: MockOrganizationDecisionReque
   for (const mutation of request?.mutations ?? []) {
     const item = items.find((candidate) => candidate.id === mutation.itemId);
     if (!item || item.revision !== mutation.expectedItemRevision) throw new Error("organization_item_revision_conflict");
+    const availableActions = mockOrganizationAvailableActions({
+      validity: item.validity,
+      decision: item.decision,
+      proposalKind: item.proposalKind,
+      authoritativePreviewId: item.authoritativePreviewId,
+      blockingCode: item.blockingCode
+    });
+    const requiredAction = mutation.decision === "accepted"
+      ? "accept_suggestion"
+      : mutation.decision === "edited"
+        ? "edit_name"
+        : mutation.decision === "kept"
+          ? "keep"
+          : item.decision === "undecided" ? null : "clear_decision";
+    if (requiredAction && !availableActions.includes(requiredAction)) throw new Error(requiredAction === "accept_suggestion" ? "organization_item_accept_not_available" : requiredAction === "edit_name" ? "organization_item_edit_not_available" : "organization_item_action_not_available");
     if (request?.safeBatch && (
       mutation.decision !== "accepted"
       || item.validity !== "ready"
@@ -2193,9 +2216,10 @@ function updateMockOrganizationDecisions(request?: MockOrganizationDecisionReque
       validity: item.validity,
       decision: item.decision,
       proposalKind: item.proposalKind,
-      authoritativePreviewId: item.authoritativePreviewId
+      authoritativePreviewId: item.authoritativePreviewId,
+      blockingCode: item.blockingCode
     });
-    item.reviewState = item.validity === "needs_review" && ["accepted", "edited"].includes(item.decision)
+    item.reviewState = item.validity === "needs_review" && ["accepted", "edited", "kept"].includes(item.decision)
       ? "reviewed"
       : item.validity;
     item.revision += 1;
@@ -2283,6 +2307,8 @@ function emptyMockOrganizationSummary(): OrganizationPlan["summary"] {
     edited: 0,
     needsAnalysis: 0,
     needsReview: 0,
+    pendingReview: 0,
+    reviewed: 0,
     ready: 0,
     blocked: 0,
     stale: 0,
@@ -2303,6 +2329,8 @@ function mockOrganizationSummary(items: OrganizationPlanItem[]): OrganizationPla
     if (item.decision === "edited") summary.edited += 1;
     if (item.validity === "needs_analysis") summary.needsAnalysis += 1;
     if (item.validity === "needs_review") summary.needsReview += 1;
+    if (item.validity === "needs_review" && item.decision === "undecided") summary.pendingReview += 1;
+    if (item.validity === "needs_review" && ["accepted", "edited", "kept"].includes(item.decision)) summary.reviewed += 1;
     if (item.validity === "ready") summary.ready += 1;
     if (item.validity === "blocked") summary.blocked += 1;
     if (item.validity === "stale") summary.stale += 1;

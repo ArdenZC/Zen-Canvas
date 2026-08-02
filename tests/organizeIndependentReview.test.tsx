@@ -54,7 +54,7 @@ const plan: OrganizationPlan = {
   updatedAt: 1,
   readyAt: 1,
   completedAt: null,
-  summary: { undecided: 1, accepted: 0, kept: 0, edited: 0, needsAnalysis: 0, needsReview: 1, ready: 0, blocked: 0, stale: 0, executing: 0, executed: 0, failed: 0, skipped: 0, remainingExecutable: 0 }
+  summary: { undecided: 1, accepted: 0, kept: 0, edited: 0, needsAnalysis: 0, needsReview: 1, pendingReview: 1, reviewed: 0, ready: 0, blocked: 0, stale: 0, executing: 0, executed: 0, failed: 0, skipped: 0, remainingExecutable: 0 }
 };
 
 const reviewItem: OrganizationPlanItem = {
@@ -134,8 +134,25 @@ const readyGroup: OrganizationPlanGroupSummary = {
   sampleItems: [{ ...reviewGroup.sampleItems[0], itemId: readyItem.id, decision: readyItem.decision, validity: readyItem.validity }]
 };
 
+const reviewedItem: OrganizationPlanItem = {
+  ...reviewItem,
+  decision: "accepted",
+  reviewState: "reviewed",
+  revision: 3,
+  availableActions: ["edit_name", "view_preview", "keep", "clear_decision"]
+};
+
+const reviewedGroup: OrganizationPlanGroupSummary = {
+  ...reviewGroup,
+  groupId: "group-reviewed",
+  readiness: "reviewed",
+  acceptedCount: 1,
+  availableActions: ["edit_name", "keep", "clear_decision"],
+  sampleItems: [{ ...reviewGroup.sampleItems[0], itemId: reviewedItem.id, decision: "accepted", validity: "needs_review" }]
+};
+
 function updatedPlan(): OrganizationPlan {
-  return { ...plan, revision: 6, summary: { ...plan.summary, undecided: 0, accepted: 1, needsReview: 1, remainingExecutable: 1 } };
+  return { ...plan, revision: 6, summary: { ...plan.summary, undecided: 0, accepted: 1, needsReview: 1, pendingReview: 0, reviewed: 1, remainingExecutable: 1 } };
 }
 
 function updatedItem(): OrganizationPlanItem {
@@ -157,6 +174,8 @@ async function flush() {
 }
 
 describe("Organize independent review behavior", () => {
+  let acceptedReview = false;
+
   beforeEach(() => {
     document.body.innerHTML = '<div id="test-root"></div>';
     container = document.getElementById("test-root") as HTMLDivElement;
@@ -185,10 +204,21 @@ describe("Organize independent review behavior", () => {
       loadPlans: vi.fn(async () => undefined),
       openPlan: vi.fn(async () => undefined)
     });
-    apiMocks.queryOrganizationPlanGroupItems.mockImplementation(async () => ({ planId: plan.id, groupId: reviewGroup.groupId, planRevision: 5, items: [reviewItem], nextCursor: null, hasMore: false }));
-    apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: plan.id, planRevision: 6, groups: [reviewGroup], nextCursor: null, hasMore: false });
+    acceptedReview = false;
+    apiMocks.queryOrganizationPlanGroupItems.mockImplementation(async (request: { groupId?: string }) => ({
+      planId: plan.id,
+      groupId: request?.groupId ?? reviewGroup.groupId,
+      planRevision: acceptedReview ? 6 : 5,
+      items: request?.groupId === reviewedGroup.groupId ? [reviewedItem] : request?.groupId === readyGroup.groupId ? [readyItem] : [reviewItem],
+      nextCursor: null,
+      hasMore: false
+    }));
+    apiMocks.queryOrganizationPlanGroups.mockImplementation(async () => ({ planId: plan.id, planRevision: acceptedReview ? 6 : 5, groups: acceptedReview ? [reviewedGroup] : [reviewGroup], nextCursor: null, hasMore: false }));
     apiMocks.updateOrganizationPlanGroupDecision.mockResolvedValue({ plan, group: reviewGroup });
-    apiMocks.updateOrganizationPlanDecisions.mockResolvedValue(updatedPlan());
+    apiMocks.updateOrganizationPlanDecisions.mockImplementation(async () => {
+      acceptedReview = true;
+      return updatedPlan();
+    });
   });
 
   afterEach(() => {
@@ -234,6 +264,11 @@ describe("Organize independent review behavior", () => {
       mutations: [{ itemId: reviewItem.id, expectedItemRevision: reviewItem.revision, decision: "accepted", editedFilename: null }]
     });
     expect(apiMocks.updateOrganizationPlanDecisions.mock.calls[0]?.[0]?.safeBatch).not.toBe(true);
+    expect(container.textContent).toContain("没有需要你决定的分组");
+    expect(container.textContent).toContain("待你决定0");
+    const dryRun = button("检查执行");
+    expect(dryRun.disabled).toBe(false);
+    expect(useOrganizationPlanStore.getState().groups[0]?.readiness).toBe("reviewed");
   });
 
   it("keeps Safe Batch available for a ready group and refreshes the plan after group acceptance", async () => {
@@ -256,6 +291,25 @@ describe("Organize independent review behavior", () => {
     expect(useOrganizationPlanStore.getState().openPlan).toHaveBeenCalledWith(plan.id);
   });
 
+  it("keeps reviewed groups in the plan tab and out of the decision tab", async () => {
+    const reviewedPlan: OrganizationPlan = {
+      ...plan,
+      revision: 6,
+      summary: { ...plan.summary, undecided: 0, accepted: 1, pendingReview: 0, reviewed: 1, remainingExecutable: 1 }
+    };
+    acceptedReview = true;
+    useOrganizationPlanStore.setState({ plans: [reviewedPlan], activePlan: reviewedPlan, groups: [reviewedGroup], items: [reviewedItem] });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    expect(container.querySelector(`[data-organize-group-row="${reviewedGroup.groupId}"]`)).toBeTruthy();
+    expect(container.textContent).toContain("已复核");
+    await act(async () => button("需要我决定").click());
+    await flush();
+    expect(container.textContent).toContain("没有需要你决定的分组");
+    expect(container.querySelector(`[data-organize-group-row="${reviewedGroup.groupId}"]`)).toBeNull();
+  });
+
   it("renders an unavailable acceptance action when the item has no authoritative preview", async () => {
     const noPreview = { ...reviewItem, authoritativePreviewId: null, availableActions: ["keep", "defer"], reviewReasons: ["unknown_backend_reason"] };
     apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: reviewGroup.groupId, planRevision: 5, items: [noPreview], nextCursor: null, hasMore: false });
@@ -268,5 +322,52 @@ describe("Organize independent review behavior", () => {
     expect(unavailable.disabled).toBe(true);
     expect(unavailable.title).toContain("权威预览");
     expect(container.textContent).toContain("需要进一步复核");
+  });
+
+  it("does not offer acceptance for a collision item while keeping the edit action", async () => {
+    const collisionItem: OrganizationPlanItem = {
+      ...reviewItem,
+      validity: "blocked",
+      reviewState: "blocked",
+      blockingCode: "target_collision",
+      reviewReasons: ["target_collision"],
+      availableActions: ["edit_name", "view_preview", "keep"]
+    };
+    const collisionGroup: OrganizationPlanGroupSummary = {
+      ...reviewGroup,
+      groupId: "group-collision",
+      readiness: "blocked",
+      reviewReasonCounts: [{ reason: "target_collision", count: 1 }],
+      availableActions: ["edit_name", "keep"],
+      sampleItems: [{ ...reviewGroup.sampleItems[0], itemId: collisionItem.id, validity: "blocked" }]
+    };
+    useOrganizationPlanStore.setState({ groups: [collisionGroup], items: [collisionItem] });
+    apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: plan.id, planRevision: plan.revision, groups: [collisionGroup], nextCursor: null, hasMore: false });
+    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: collisionGroup.groupId, planRevision: plan.revision, items: [collisionItem], nextCursor: null, hasMore: false });
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    await act(async () => button("暂不可处理").click());
+    await act(async () => container.querySelector<HTMLElement>(`[data-organize-group-row="${collisionGroup.groupId}"]`)?.click());
+    await flush();
+    const unavailable = button("当前不能接受");
+    expect(unavailable.disabled).toBe(true);
+    expect(button("调整文件名").disabled).toBe(false);
+    expect(apiMocks.updateOrganizationPlanDecisions).not.toHaveBeenCalled();
+  });
+
+  it("shows a localized backend eligibility error without optimistic acceptance", async () => {
+    apiMocks.updateOrganizationPlanDecisions.mockRejectedValueOnce(new Error("organization_item_accept_not_available"));
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    await act(async () => button("需要我决定").click());
+    await act(async () => container.querySelector<HTMLElement>(`[data-organize-group-row="${reviewGroup.groupId}"]`)?.click());
+    await flush();
+    await act(async () => button("接受此建议").click());
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((item) => item.textContent?.includes("确认接受建议"));
+    await act(async () => confirm?.click());
+    await flush();
+    expect(apiMocks.updateOrganizationPlanDecisions).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("建议已不可用，状态没有被本地接受");
+    expect(container.querySelector(`[data-organize-group-row="${reviewGroup.groupId}"]`)).toBeTruthy();
   });
 });

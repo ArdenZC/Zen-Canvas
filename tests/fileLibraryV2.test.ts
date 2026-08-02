@@ -172,7 +172,7 @@ describe("Task 05 File Library Query V2 contracts", () => {
         version: 1,
         requestId: "browser-plan-contract",
         title: "Browser review",
-        source: { kind: "explicit", fileIds: ["mock-report"] },
+        source: { kind: "explicit", fileIds: ["mock-archive"] },
         expectedCount: 1
       }
     });
@@ -215,7 +215,7 @@ describe("Task 05 File Library Query V2 contracts", () => {
         version: 1,
         requestId: "browser-group-contract",
         title: "Browser group review",
-        source: { kind: "explicit", fileIds: ["mock-report"] },
+        source: { kind: "explicit", fileIds: ["mock-archive"] },
         expectedCount: 1
       }
     });
@@ -233,7 +233,12 @@ describe("Task 05 File Library Query V2 contracts", () => {
       request: { planId: plan.id, groupId: group.groupId, expectedPlanRevision: plan.revision, decision: "kept" }
     });
     expect(kept.plan.revision).toBe(plan.revision + 1);
-    expect(kept.group.excludedCount).toBe(1);
+    expect(kept.group).toBeNull();
+    const reviewedGroups = await mockInvokeCommand<any>("query_organization_plan_groups", {
+      request: { planId: plan.id, pageSize: 100, cursor: null }
+    });
+    expect(reviewedGroups.groups).toHaveLength(1);
+    expect(reviewedGroups.groups[0]).toMatchObject({ readiness: "reviewed", excludedCount: 1 });
     await expect(mockInvokeCommand("update_organization_plan_group_decision", {
       request: { planId: plan.id, groupId: group.groupId, expectedPlanRevision: plan.revision, decision: "accepted" }
     })).rejects.toThrow("organization_plan_revision_conflict");

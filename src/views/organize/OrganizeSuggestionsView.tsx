@@ -8,6 +8,7 @@ import { useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
 import type { OrganizationPlanGroupSummary, OrganizationPlanItem, OrganizationPlanStatus, LibrarySelectionV1 } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
+import { readableError } from "../../utils/viewHelpers";
 import { validateOrganizeFileNameForOriginal } from "./organizeModel";
 import { buttonGhost, cn, inputSurface } from "../../utils/tw";
 import {
@@ -84,7 +85,7 @@ export function OrganizeSuggestionsView() {
   const activeGroup = groups.find((group) => group.groupId === activeGroupId) ?? null;
 
   const visibleGroups = useMemo(() => groups.filter((group) => {
-    if (activeTab === "plan") return group.readiness === "ready";
+    if (activeTab === "plan") return group.readiness === "ready" || group.readiness === "reviewed";
     if (activeTab === "decision") return group.readiness === "requires-decision";
     return group.readiness === "blocked";
   }), [activeTab, groups]);
@@ -222,8 +223,8 @@ export function OrganizeSuggestionsView() {
     setReviewActionError(null);
     try {
       await updateGroupDecision(group, decision);
-    } catch {
-      setReviewActionError(t("organizeGroupActionFailed"));
+    } catch (error) {
+      setReviewActionError(organizeActionError(error, t));
     }
   }
 
@@ -234,8 +235,8 @@ export function OrganizeSuggestionsView() {
       await updateDecision(item, decision, name);
       if (activeGroup) await loadGroupItems(activeGroup.groupId);
       return true;
-    } catch {
-      setEditError(t("organizeGroupActionFailed"));
+    } catch (error) {
+      setEditError(organizeActionError(error, t));
       return false;
     }
   }
@@ -328,7 +329,7 @@ export function OrganizeSuggestionsView() {
               items={[
                 { label: t("organizePlanMetricFiles"), value: plan.materializedCount.toLocaleString() },
                 { label: t("organizePlanMetricAccepted"), value: (plan.summary.accepted + plan.summary.edited).toLocaleString(), tone: "green" },
-                { label: t("organizePlanMetricReview"), value: (plan.summary.undecided + plan.summary.needsReview).toLocaleString(), tone: "amber" },
+                { label: t("organizePlanMetricReview"), value: plan.summary.pendingReview.toLocaleString(), tone: "amber" },
                 { label: t("organizePlanMetricBlocked"), value: (plan.summary.blocked + plan.summary.stale).toLocaleString(), tone: "red" }
               ]}
             />
@@ -548,6 +549,7 @@ function proposalKindLabel(kind: string, t: Translator): string {
 function readinessLabel(readiness: OrganizationPlanGroupSummary["readiness"], t: Translator): string {
   if (readiness === "ready") return t("organizeGroupReadinessReady");
   if (readiness === "requires-decision") return t("organizeGroupReadinessDecision");
+  if (readiness === "reviewed") return t("organizeGroupReadinessReviewed");
   return t("organizeGroupReadinessBlocked");
 }
 
@@ -611,6 +613,13 @@ function itemAcceptUnavailableReason(item: OrganizationPlanItem, t: Translator):
   if (!item.authoritativePreviewId || !item.availableActions.includes("view_preview")) return t("organizeItemAcceptUnavailablePreview");
   if (item.availableActions.includes("accept_suggestion")) return t("organizeItemAcceptReviewHint");
   return t("organizeItemAcceptUnavailableState");
+}
+
+function organizeActionError(error: unknown, t: Translator): string {
+  const message = readableError(error);
+  if (message.includes("organization_item_accept_not_available")) return t("organizeItemAcceptUnavailableBackend");
+  if (message.includes("organization_item_edit_not_available")) return t("organizeItemEditUnavailableBackend");
+  return t("organizeGroupActionFailed");
 }
 
 function emptyTabTitle(tab: ReviewTab, t: Translator): string {
