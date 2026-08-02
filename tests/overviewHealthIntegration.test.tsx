@@ -72,7 +72,7 @@ const reviewPlan = {
   updatedAt: 1
 } as unknown as OrganizationPlan;
 
-function cleanupRun(reviewCount: number, exactReclaimableBytes: number): AnalysisRun {
+function cleanupRun(reviewCount: number, exactReclaimableBytes: number, potentialReclaimableBytes = exactReclaimableBytes): AnalysisRun {
   return {
     id: "analysis-overview",
     requestKey: "analysis-overview-request",
@@ -97,7 +97,7 @@ function cleanupRun(reviewCount: number, exactReclaimableBytes: number): Analysi
     reviewCount,
     cautionCount: 0,
     exactReclaimableBytes,
-    potentialReclaimableBytes: exactReclaimableBytes,
+    potentialReclaimableBytes,
     warningCount: 0,
     errorCount: 0,
     startedAt: 1,
@@ -186,7 +186,30 @@ describe("Overview durable health integration", () => {
   it("shows the synchronization entry for watcher reconciliation", async () => {
     configureHealth({ roots: [{ enabled: true, needsReconciliation: true, watcherRevision: 3, watcherAppliedRevision: 2, healthStatus: "reconciliation_required" }] });
     await renderOverview();
-    expect(priorityTitle()).toBe("托管位置需要同步");
+    expect(priorityTitle()).toBe("托管位置需要重新同步");
+  });
+
+  it("keeps distinct watcher health states and routes every action to file-source settings", async () => {
+    configureHealth({ roots: [{ enabled: true, needsReconciliation: true, watcherRevision: 3, watcherAppliedRevision: 2, healthStatus: "permission_required", lastErrorCode: "watcher_reconciliation_retry_exhausted" }] });
+    await renderOverview();
+    expect(priorityTitle()).toBe("托管位置需要权限");
+    expect(container.querySelector('[data-overview-primary="true"]')?.textContent).toContain("检查权限");
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-overview-primary="true"]')?.click());
+    expect(chrome.setView).toHaveBeenCalledWith("settings");
+
+    act(() => root.unmount());
+    container.remove();
+    resetStores();
+    configureHealth({ roots: [{ enabled: true, needsReconciliation: true, watcherRevision: 3, watcherAppliedRevision: 2, healthStatus: "reconciliation_required", lastErrorCode: "watcher_reconciliation_retry_exhausted" }] });
+    await renderOverview();
+    expect(priorityTitle()).toBe("托管位置重试已停止");
+
+    act(() => root.unmount());
+    container.remove();
+    resetStores();
+    configureHealth({ roots: [{ enabled: true, healthStatus: "partial", activeRunId: "scan-1" }] });
+    await renderOverview();
+    expect(priorityTitle()).toBe("托管位置覆盖不完整");
   });
 
   it("prioritizes operation attention over ordinary scan work", async () => {
@@ -195,6 +218,23 @@ describe("Overview durable health integration", () => {
     expect(useOperationQueueStore.getState().operationProgress).toBeNull();
     await renderOverview();
     expect(useOperationQueueStore.getState().operationProgress).toBeNull();
+    expect(priorityTitle()).toBe("有操作需要复核");
+  });
+
+  it("shows an active operation as running when no attention items exist", async () => {
+    configureHealth();
+    useOperationQueueStore.setState({ operationProgress: { kind: "execute", processed: 1, total: 2, currentPath: "C:/file.txt", batchId: "batch-1" } as never });
+    await renderOverview();
+    expect(priorityTitle()).toBe("文件操作正在进行");
+  });
+
+  it("keeps failed attention ahead of a simultaneously active operation", async () => {
+    configureHealth();
+    useOperationQueueStore.setState({
+      operationProgress: { kind: "execute", processed: 1, total: 2, currentPath: "C:/file.txt", batchId: "batch-1" } as never,
+      operationLogs: [{ operation_type: "move", status: "failed", restore_status: "none" }] as never[]
+    });
+    await renderOverview();
     expect(priorityTitle()).toBe("有操作需要复核");
   });
 
@@ -219,6 +259,21 @@ describe("Overview durable health integration", () => {
     useStorageCleanupStore.setState({ analysis: { candidate_total: 99, reclaimable_estimate: 99_999 } as never });
     await renderOverview();
     expect(priorityTitle()).toBe("有 2 项清理候选");
+  });
+
+  it("uses potential cleanup bytes as an estimate only when exact bytes are zero", async () => {
+    const run = cleanupRun(2, 0, 8192);
+    configureHealth({ analysisRuns: [run] });
+    await renderOverview();
+    expect(priorityTitle()).toBe("有 2 项清理候选");
+    expect(container.textContent).toContain("预计可释放 8.0 KB");
+  });
+
+  it("does not show a cleanup task when both durable byte totals are zero", async () => {
+    const run = cleanupRun(2, 0, 0);
+    configureHealth({ analysisRuns: [run] });
+    await renderOverview();
+    expect(priorityTitle()).toBe("文件空间保持有序");
   });
 
   it("shows a failed Content Run from the durable health snapshot", async () => {

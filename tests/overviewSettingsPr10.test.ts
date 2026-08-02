@@ -80,7 +80,9 @@ describe("V4.3 PR10 overview health projections", () => {
   it("uses the deterministic product priority for operations, plans, cleanup, content, and watcher health", () => {
     const operation = baseHealth();
     operation.operation = { active: true, attentionCount: 0 };
-    expect(select(operation)).toMatchObject({ kind: "operation", reason: "failed" });
+    expect(select(operation)).toMatchObject({ kind: "operation", reason: "active" });
+    operation.operation.attentionCount = 1;
+    expect(select(operation)).toMatchObject({ kind: "operation", reason: "failed", count: 1 });
 
     const plan = baseHealth();
     plan.plan = {
@@ -100,6 +102,28 @@ describe("V4.3 PR10 overview health projections", () => {
     const watcher = baseHealth();
     watcher.watcher = { permissionRequired: 0, reconciliationRequired: 1, partialCoverage: 0, retryExhausted: 0, stale: 1 };
     expect(select(watcher)).toMatchObject({ kind: "managed-root-stale", count: 1, reason: "reconciliation" });
+  });
+
+  it("preserves watcher priority and chooses potential cleanup bytes only when exact bytes are absent", () => {
+    const watcher = baseHealth();
+    watcher.watcher = { permissionRequired: 1, reconciliationRequired: 1, partialCoverage: 1, retryExhausted: 1, stale: 1 };
+    expect(select(watcher)).toMatchObject({ kind: "managed-root-stale", count: 1, reason: "permission" });
+    watcher.watcher.permissionRequired = 0;
+    expect(select(watcher)).toMatchObject({ kind: "managed-root-stale", count: 1, reason: "retry_exhausted" });
+    watcher.watcher.retryExhausted = 0;
+    expect(select(watcher)).toMatchObject({ kind: "managed-root-stale", count: 1, reason: "reconciliation" });
+    watcher.watcher.reconciliationRequired = 0;
+    expect(select(watcher)).toMatchObject({ kind: "managed-root-stale", count: 1, reason: "partial" });
+    watcher.watcher.partialCoverage = 0;
+    expect(select(watcher)).toMatchObject({ kind: "managed-root-stale", count: 1, reason: "stale" });
+
+    const potential = baseHealth();
+    potential.cleanupRun = { reviewCount: 2, cautionCount: 0, exactReclaimableBytes: 0, potentialReclaimableBytes: 8192 } as OverviewHealthSnapshot["cleanupRun"];
+    expect(select(potential)).toMatchObject({ kind: "cleanup", count: 2, bytes: 8192, bytesAreEstimated: true });
+    potential.cleanupRun = { reviewCount: 2, cautionCount: 0, exactReclaimableBytes: 4096, potentialReclaimableBytes: 8192 } as OverviewHealthSnapshot["cleanupRun"];
+    expect(select(potential)).toMatchObject({ kind: "cleanup", bytes: 4096, bytesAreEstimated: false });
+    potential.cleanupRun = { reviewCount: 2, cautionCount: 0, exactReclaimableBytes: 0, potentialReclaimableBytes: 0 } as OverviewHealthSnapshot["cleanupRun"];
+    expect(select(potential).kind).not.toBe("cleanup");
   });
 
   it("returns the calm no-action state when durable health has no work", () => {
