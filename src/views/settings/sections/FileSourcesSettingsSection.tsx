@@ -32,8 +32,8 @@ function watcherStatusForSetting(root: ScanRootSetting, statuses: Record<string,
 
 function watcherStatusLabel(status: WatcherReconciliationStatus | undefined, t: Translator) {
   if (status?.healthStatus === "permission_required") return t("watcherStatusPermission");
-  if (status?.healthStatus === "reconciliation_required" || status?.pending || status?.needsReconciliation) return t("watcherStatusReconciling");
   if (status?.healthStatus === "retry_exhausted" || status?.lastErrorCode?.includes("retry_exhausted")) return t("watcherStatusRetryExhausted");
+  if (status?.healthStatus === "reconciliation_required" || status?.pending || status?.needsReconciliation) return t("watcherStatusReconciling");
   if (status?.healthStatus === "partial" || status?.healthStatus === "degraded") return t("watcherStatusPartial");
   if (status?.activeRunId || status?.healthStatus === "scanning") return t("watcherStatusSyncing");
   if (status?.healthStatus === "healthy") return t("watcherStatusHealthy");

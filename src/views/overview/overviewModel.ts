@@ -44,10 +44,11 @@ export interface OverviewPriorityTaskModel {
   kind: OverviewPriorityKind;
   count?: number;
   bytes?: number;
+  bytesAreEstimated?: boolean;
   fileCount?: number;
   error?: string;
   path?: string;
-  reason?: "permission" | "no_source" | "error" | "failed" | "stale" | "reconciliation";
+  reason?: "permission" | "no_source" | "error" | "failed" | "stale" | "reconciliation" | "retry_exhausted" | "partial" | "active";
 }
 
 export interface OverviewHealthSnapshot {
@@ -96,13 +97,15 @@ export function selectOverviewPriorityTask(input: {
       return { kind: "search-permission", reason: "error", error: health.globalIndex.lastError ?? undefined };
     }
   }
-  if (health?.operation.active || (health?.operation.attentionCount ?? 0) > 0) {
+  const operationAttentionCount = health?.operation.attentionCount ?? 0;
+  if (operationAttentionCount > 0) {
     return {
       kind: "operation",
-      count: health?.operation.attentionCount ?? 0,
-      reason: health?.operation.active || (health?.operation.attentionCount ?? 0) > 0 ? "failed" : "stale"
+      count: operationAttentionCount,
+      reason: "failed"
     };
   }
+  if (health?.operation.active) return { kind: "operation", count: 0, reason: "active" };
   const scanState = deriveOverviewScanState(scan, stats.totalFiles > 0 || stats.totalSize > 0);
   if (scanState === "scanning") {
     return {
@@ -126,18 +129,37 @@ export function selectOverviewPriorityTask(input: {
       ?? health.plan.summary.pendingReview
     : stats.needsConfirmation;
   if (planReviewCount > 0) return { kind: "review", count: planReviewCount };
-  const cleanupCandidateCount = health?.cleanupRun
-    ? health.cleanupRun.reviewCount + health.cleanupRun.cautionCount
+  const cleanupCandidateCount = health
+    ? health.cleanupRun
+      ? health.cleanupRun.reviewCount + health.cleanupRun.cautionCount
+      : 0
     : input.cleanupCandidateCount;
-  const reclaimableBytes = health?.cleanupRun?.exactReclaimableBytes ?? input.reclaimableBytes;
+  const exactReclaimableBytes = health?.cleanupRun?.exactReclaimableBytes ?? 0;
+  const potentialReclaimableBytes = health?.cleanupRun?.potentialReclaimableBytes ?? 0;
+  const reclaimableBytes = health
+    ? exactReclaimableBytes > 0 ? exactReclaimableBytes : potentialReclaimableBytes
+    : input.reclaimableBytes;
+  const bytesAreEstimated = Boolean(health?.cleanupRun && exactReclaimableBytes <= 0 && potentialReclaimableBytes > 0);
   if (cleanupCandidateCount > 0 && reclaimableBytes > 0) {
-    return { kind: "cleanup", count: cleanupCandidateCount, bytes: reclaimableBytes };
+    return { kind: "cleanup", count: cleanupCandidateCount, bytes: reclaimableBytes, bytesAreEstimated };
   }
   if (health?.contentRun && ["failed", "error", "stale", "interrupted"].includes(health.contentRun.status)) {
     return { kind: "content-failure", reason: "failed", error: health.contentRun.lastErrorDetail ?? undefined };
   }
-  if (health && health.watcher.stale > 0) {
-    return { kind: "managed-root-stale", count: health.watcher.stale, reason: health.watcher.reconciliationRequired > 0 ? "reconciliation" : "stale" };
+  if (health?.watcher.permissionRequired && health.watcher.permissionRequired > 0) {
+    return { kind: "managed-root-stale", count: health.watcher.permissionRequired, reason: "permission" };
+  }
+  if (health?.watcher.retryExhausted && health.watcher.retryExhausted > 0) {
+    return { kind: "managed-root-stale", count: health.watcher.retryExhausted, reason: "retry_exhausted" };
+  }
+  if (health?.watcher.reconciliationRequired && health.watcher.reconciliationRequired > 0) {
+    return { kind: "managed-root-stale", count: health.watcher.reconciliationRequired, reason: "reconciliation" };
+  }
+  if (health?.watcher.partialCoverage && health.watcher.partialCoverage > 0) {
+    return { kind: "managed-root-stale", count: health.watcher.partialCoverage, reason: "partial" };
+  }
+  if (health?.watcher.stale && health.watcher.stale > 0) {
+    return { kind: "managed-root-stale", count: health.watcher.stale, reason: "stale" };
   }
   if (stats.totalFiles <= 0 && stats.totalSize <= 0) return { kind: "unindexed" };
   if (input.indexNeedsUpdate) return { kind: "update" };

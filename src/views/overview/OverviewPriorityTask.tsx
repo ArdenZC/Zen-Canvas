@@ -87,9 +87,33 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
   if (task.kind === "managed-root-stale") return {
     icon: RefreshCw,
     iconClass: "bg-[var(--zc-warning-soft)] text-[var(--zc-warning-text)]",
-    title: t("overviewTaskManagedRoot"),
-    description: t("overviewTaskManagedRootDesc").replace("{count}", (task.count ?? 0).toLocaleString()),
-    primaryLabel: t("overviewChooseFolder")
+    title: task.reason === "permission"
+      ? t("overviewTaskManagedRootPermission")
+      : task.reason === "retry_exhausted"
+        ? t("overviewTaskManagedRootRetryExhausted")
+        : task.reason === "reconciliation"
+          ? t("overviewTaskManagedRootReconciliation")
+          : task.reason === "partial"
+            ? t("overviewTaskManagedRootPartial")
+            : t("overviewTaskManagedRootStale"),
+    description: (task.reason === "permission"
+      ? t("overviewTaskManagedRootPermissionDesc")
+      : task.reason === "retry_exhausted"
+        ? t("overviewTaskManagedRootRetryExhaustedDesc")
+        : task.reason === "reconciliation"
+          ? t("overviewTaskManagedRootReconciliationDesc")
+          : task.reason === "partial"
+            ? t("overviewTaskManagedRootPartialDesc")
+            : t("overviewTaskManagedRootStaleDesc")).replace("{count}", (task.count ?? 0).toLocaleString()),
+    primaryLabel: task.reason === "permission"
+      ? t("overviewTaskManagedRootPermissionAction")
+      : task.reason === "retry_exhausted"
+        ? t("overviewTaskManagedRootRetryExhaustedAction")
+        : task.reason === "reconciliation"
+          ? t("overviewTaskManagedRootReconciliationAction")
+          : task.reason === "partial"
+            ? t("overviewTaskManagedRootPartialAction")
+            : t("overviewTaskManagedRootStaleAction")
   };
   if (task.kind === "scan-permission") return {
     icon: AlertTriangle,
@@ -148,7 +172,7 @@ function priorityContent(task: OverviewPriorityTaskModel, t: Translator) {
     icon: ScanSearch,
     iconClass: "bg-[var(--zc-success-soft)] text-[var(--zc-success-text)]",
     title: t("overviewTaskCleanup").replace("{count}", (task.count ?? 0).toLocaleString()),
-    description: t("overviewTaskCleanupDesc").replace("{size}", formatBytes(task.bytes ?? 0)),
+    description: (task.bytesAreEstimated ? t("overviewTaskCleanupEstimatedDesc") : t("overviewTaskCleanupDesc")).replace("{size}", formatBytes(task.bytes ?? 0)),
     primaryLabel: t("overviewViewCleanup")
   };
   if (task.kind === "unindexed") return {
