@@ -6,7 +6,8 @@ import type {
   OrganizationPlan,
   OrganizationPlanDryRun,
   OrganizationPlanGroupSummary,
-  OrganizationPlanItem
+  OrganizationPlanItem,
+  OrganizationPlanSelection
 } from "../types/domain";
 import { readableError } from "../utils/viewHelpers";
 
@@ -19,6 +20,7 @@ interface OrganizationPlanState {
   groupNextCursor: string | null;
   groupHasMore: boolean;
   dryRun: OrganizationPlanDryRun | null;
+  dryRunSelection: OrganizationPlanSelection | null;
   executionResult: ExecuteOrganizationPlanResult | null;
   isLoading: boolean;
   isMutating: boolean;
@@ -32,7 +34,7 @@ interface OrganizationPlanState {
   updateDecision: (item: OrganizationPlanItem, decision: DurableDecision, editedFilename?: string) => Promise<void>;
   refreshPlan: () => Promise<void>;
   analyzeMissing: (itemIds?: string[]) => Promise<number>;
-  createDryRun: (itemIds?: string[]) => Promise<OrganizationPlanDryRun>;
+  createDryRun: (selection?: OrganizationPlanSelection) => Promise<OrganizationPlanDryRun>;
   executeDryRun: () => Promise<ExecuteOrganizationPlanResult>;
   cancelPlan: () => Promise<void>;
   clearError: () => void;
@@ -50,6 +52,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   groupNextCursor: null,
   groupHasMore: false,
   dryRun: null,
+  dryRunSelection: null,
   executionResult: null,
   isLoading: false,
   isMutating: false,
@@ -82,6 +85,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         groupNextCursor: null,
         groupHasMore: false,
         dryRun: null,
+        dryRunSelection: null,
         executionResult: null,
         isMutating: false
       }));
@@ -95,7 +99,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
 
   openPlan: async (planId) => {
     const epoch = get().requestEpoch + 1;
-    set({ requestEpoch: epoch, isLoading: true, error: null, groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, executionResult: null });
+    set({ requestEpoch: epoch, isLoading: true, error: null, groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null });
     try {
       const [plan, groupPage] = await Promise.all([
         tauriApi.getOrganizationPlan(planId),
@@ -141,7 +145,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   updateGroupDecision: async (group, decision) => {
     const plan = get().activePlan;
     if (!plan) return;
-    set({ isMutating: true, error: null, dryRun: null });
+    set({ isMutating: true, error: null, dryRun: null, dryRunSelection: null });
     try {
       await tauriApi.updateOrganizationPlanGroupDecision({
         planId: plan.id,
@@ -162,7 +166,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   updateDecision: async (item, decision, editedFilename) => {
     const plan = get().activePlan;
     if (!plan) return;
-    set({ isMutating: true, error: null, dryRun: null });
+    set({ isMutating: true, error: null, dryRun: null, dryRunSelection: null });
     try {
       const updatedPlan = await tauriApi.updateOrganizationPlanDecisions({
         planId: plan.id,
@@ -193,7 +197,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   refreshPlan: async () => {
     const plan = get().activePlan;
     if (!plan) return;
-    set({ isMutating: true, error: null, dryRun: null });
+    set({ isMutating: true, error: null, dryRun: null, dryRunSelection: null });
     try {
       const updated = await tauriApi.refreshOrganizationPlan({
         planId: plan.id,
@@ -224,18 +228,22 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     }
   },
 
-  createDryRun: async (itemIds = []) => {
+  createDryRun: async (selection = { allAccepted: true, itemIds: [] }) => {
     const plan = get().activePlan;
     if (!plan) throw new Error("organization_plan_not_selected");
-    set({ isMutating: true, error: null, dryRun: null });
+    if (!selection.allAccepted && selection.itemIds.length === 0) throw new Error("organization_selection_required");
+    const persistedSelection: OrganizationPlanSelection = selection.allAccepted
+      ? { allAccepted: true, itemIds: [] }
+      : { allAccepted: false, itemIds: [...selection.itemIds] as [string, ...string[]] };
+    set({ isMutating: true, error: null, dryRun: null, dryRunSelection: null });
     try {
       const dryRun = await tauriApi.getOrganizationPlanDryRun({
         planId: plan.id,
         expectedPlanRevision: plan.revision,
-        itemIds,
-        allAccepted: itemIds.length === 0
+        itemIds: persistedSelection.itemIds,
+        allAccepted: persistedSelection.allAccepted
       });
-      set({ dryRun, isMutating: false });
+      set({ dryRun, dryRunSelection: persistedSelection, isMutating: false });
       return dryRun;
     } catch (error) {
       set({ isMutating: false, error: readableError(error) });
@@ -244,15 +252,17 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   },
 
   executeDryRun: async () => {
-    const { activePlan: plan, dryRun } = get();
+    const { activePlan: plan, dryRun, dryRunSelection } = get();
     if (!plan || !dryRun) throw new Error("organization_dry_run_required");
+    if (!dryRunSelection) throw new Error("organization_dry_run_selection_required");
     set({ isMutating: true, error: null });
     try {
       const result = await tauriApi.executeOrganizationPlan({
         planId: plan.id,
         expectedPlanRevision: dryRun.planRevision,
         dryRunFingerprint: dryRun.dryRunFingerprint,
-        allAccepted: true,
+        itemIds: dryRunSelection.itemIds,
+        allAccepted: dryRunSelection.allAccepted,
         confirmed: true
       });
       set((state) => ({
@@ -260,6 +270,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         activePlan: result.plan,
         plans: replacePlan(state.plans, result.plan),
         dryRun: null,
+        dryRunSelection: null,
         isMutating: false
       }));
       await get().openPlan(result.plan.id);

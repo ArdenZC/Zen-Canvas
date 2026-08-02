@@ -1088,6 +1088,10 @@ export interface OrganizationPlanDryRun {
   dryRunFingerprint: string;
 }
 
+export type OrganizationPlanSelection =
+  | { allAccepted: true; itemIds: [] }
+  | { allAccepted: false; itemIds: [string, ...string[]] };
+
 export interface ExecuteOrganizationPlanResult {
   plan: OrganizationPlan;
   executionId: string;
