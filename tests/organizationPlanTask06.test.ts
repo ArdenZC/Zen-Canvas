@@ -74,7 +74,8 @@ describe("Task 06 durable Organization Plan contracts", () => {
     expect(organization).toContain("pub fn query_organization_plan_groups");
     expect(organization).toContain("pub fn query_organization_plan_group_items");
     expect(organization).toContain("pub fn update_organization_plan_group_decision");
-    expect(organization).toContain("organization_group_no_safe_items");
+    expect(organization).toContain("organization_group_not_fully_safe");
+    expect(organization).toContain("organization_group_changed");
     expect(organization).toContain("ORGANIZATION_GROUP_SAMPLE_MAX");
     expect(organization).not.toContain("CREATE TABLE");
     expect(organization).not.toContain("schema 35");

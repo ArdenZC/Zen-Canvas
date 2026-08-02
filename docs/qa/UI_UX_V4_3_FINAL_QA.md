@@ -110,7 +110,7 @@ Per-stage rendered references remain in `docs/design/UI_UX_V4_3_EXECUTION.md` fo
 | Keyboard flows | Static/behavior contracts pass; native keyboard and screen-reader execution remains unverified. |
 | Light/Dark and Chinese/English | Pass in the browser preview matrix above. |
 | 980×680 usable | Pass for measured no-overflow and captured narrow workspaces. |
-| Repository test/performance/Rust/security/build gates | Pass with the documented parallel PDF timing caveat; the full Rust suite passes single-threaded and the focused exact test is green. |
+| Repository test/performance/Rust/security/build gates | Pass; the third-round closure records five consecutive default-parallel Rust runs, ten PDF-target runs, the original Rust gate, full performance, build and security evidence. |
 | CI fast/full governance | Pass by workflow inspection and existing CI contract tests; no remote run evidence. |
 | Native checks honestly recorded | Pass; limitations are listed below rather than inferred. |
 
@@ -124,7 +124,7 @@ Per-stage rendered references remain in `docs/design/UI_UX_V4_3_EXECUTION.md` fo
 
 ## Release gate
 
-Local Windows release gate: **pass with a documented parallel Rust test timing caveat** for frontend, Rust, security, performance, release compile, and NSIS packaging.
+Local Windows release gate: **pass** for frontend, Rust, security, performance, release compile, and NSIS packaging; the third-round default-parallel Rust matrix is green.
 
 Cross-platform/remote release gate: **pending** macOS CI/package evidence and an authorized remote delivery workflow.
 V4.3 should not be called fully released until those external and native checks are completed by a human or authorized CI run.
@@ -199,3 +199,35 @@ Mounted React tests cover reviewed/pending state closure, backend action eligibi
 ### Risks requiring human review
 
 Reviewers should exercise native Organization Plan revision conflicts, source/proposal changes between review and execution, Content Policy conflict recovery, target-collision rename flows, and the platform/accessibility matrix. The parallel PDF test timing issue should be triaged separately; its stable single-threaded result is green.
+
+## Independent Review Remediation — third-round closure (2026-08-02)
+
+### Baseline and scope
+
+This pass starts from `6e08ad02d6885ae74298f7bd5de347e15fb0695a` on `codex/ui-v4-3-product-integration`. It closes the three findings in the third independent-review remediation request. No schema 35, second ledger, renderer authority, second AI queue, filesystem mutation authority, or bypass of Preview, Dry Run, journal, CAS, Safe Trash, or Restore was introduced.
+
+### Findings closed
+
+| Finding | Root cause | Fix | Tests and status |
+| --- | --- | --- | --- |
+| 1. Default-parallel PDF resource-limit timing failure | A large uncompressed CMap object was repeatedly scanned under the deadline-bound structural checks. Under parallel CPU contention, the deterministic size-limit case could time out before it was classified as a resource-limit case. | Added a bounded CMap preflight before the expensive scans. Oversized uncompressed CMaps now return the stable `content_pdf_cmap_decoded_byte_limit_exceeded` resource-limit reason; timeout remains a real timeout. No ignored test, global single-thread workaround, swallowed error, or timeout relaxation was added. | Default parallel full Rust: 5/5; exact PDF target: 10/10; original `npm.cmd run verify:rust`: passed. **Closed.** |
+| 2. Organization Plan readiness could be stale or page-derived | Persisted `validity` and loaded-page summaries do not alone describe current source identity, managed scope, proposal, preview, or action eligibility. Renderer summary fields could therefore diverge from current authoritative facts. | Added backend `effectiveReadiness` with only `ready`, `requires-decision`, `reviewed`, and `blocked`. Hard blocks are evaluated first from current file identity, managed-scope health/membership, live proposal, preview identity/executability, supported operation and terminal state. Full group projection derives the authoritative effective summary; persistence is unchanged until Refresh. Overview, App Shell and Organize use the backend summary. | Rust coverage includes size, move, mtime, missing, live proposal, preview mismatch, content-only change, invalid scope and Refresh convergence; existing Dry Run/Execution convergence remains covered. Full Rust, frontend, performance and build gates passed. **Closed.** |
+| 3. Group Safe Batch could partially accept and repeat projection work | The previous group mutation selected only safe members and re-queried/reprojected them individually, allowing silent partial acceptance and inconsistent group facts. | Group mutation now reuses one full backend projection, requires every current member to be safe/actionable, enforces Keep/Clear for every member, and applies all item revisions plus plan revision in one transaction. Any change returns `organization_group_changed` or `organization_group_not_fully_safe` with zero updates. Browser Mock and localized UI require an explicit refresh; no optimistic update or automatic retry is used. | Rust strict atomicity test, 1k-member single-transaction performance test, mounted localized group-change/refresh test, full Vitest and Rust gates. **Closed.** |
+
+### Third-round validation record
+
+- Default parallel full Rust matrix: 5 consecutive runs, all exit code 0.
+- PDF resource-limit target matrix: 10 consecutive exact runs, all exit code 0.
+- `npm.cmd run verify:rust` — passed: format check, default parallel Rust suite, and Clippy with `-D warnings`.
+- `npm.cmd run typecheck` — passed.
+- `npm.cmd test` — passed: 89 files, 570 tests.
+- `npm.cmd run test:remediation` — passed: 13 tests.
+- `npm.cmd run test:performance` — passed: bounded frontend checks, SQLite/FTS, global search, managed scan, migration, analysis, Task 06 100/1k/10k, Task 07 and 1M-scale profiles.
+- `npm.cmd run build` — passed: Vite, Windows release compile and NSIS packaging.
+- `npm.cmd run verify:security` — passed: npm audit clean; cargo audit reported only the existing allowed 15 unmaintained/unsound warnings.
+- `git diff --check` — passed.
+- `npm.cmd run test:docs` — passed against the final remediation commit with `DOCS_DIFF_BASE=6e08ad02d6885ae74298f7bd5de347e15fb0695a`.
+
+### Status
+
+Third-round local Windows closure is **complete**. macOS compile/package, remote CI, signed artifacts, checksum/tag/release, native Tauri lifecycle, DPI/high-contrast/screen-reader execution, and independent GitHub review remain external or platform-specific limitations; no PR was created.

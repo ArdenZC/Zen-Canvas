@@ -1922,7 +1922,8 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Library
     updatedAt: timestamp,
     readyAt: timestamp,
     completedAt: null,
-    summary: emptyMockOrganizationSummary()
+    summary: emptyMockOrganizationSummary(),
+    effectiveSummary: emptyMockOrganizationEffectiveSummary()
   };
   const sourceFiles = source.kind === "explicit"
     ? mockFiles.filter((file) => source.fileIds.includes(file.id) && !file.is_stale)
@@ -1952,6 +1953,13 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Library
       editedName: null,
       validity: blocked ? "blocked" : actionable ? (file.requires_confirmation || file.confidence < 0.8 ? "needs_review" : "ready") : "needs_analysis",
       reviewState: blocked ? "blocked" : actionable ? (file.requires_confirmation || file.confidence < 0.8 ? "needs_review" : "ready") : "needs_analysis",
+      effectiveReadiness: blocked
+        ? "blocked"
+        : actionable && (file.requires_confirmation || file.confidence < 0.8)
+          ? "requires-decision"
+          : actionable
+            ? "ready"
+            : "blocked",
       confidence: file.confidence,
       riskLevel: file.risk_level,
       requiresConfirmation: file.requires_confirmation,
@@ -1981,6 +1989,7 @@ function createMockOrganizationPlan(request?: { title?: string; source?: Library
     } satisfies OrganizationPlanItem;
   }));
   plan.summary = mockOrganizationSummary(mockOrganizationItems.get(id) ?? []);
+  plan.effectiveSummary = mockOrganizationEffectiveSummary(mockOrganizationItems.get(id) ?? []);
   mockOrganizationPlans = [plan, ...mockOrganizationPlans];
   return plan;
 }
@@ -2003,9 +2012,17 @@ function queryMockOrganizationItems(request?: { planId?: string; cursor?: string
 }
 
 function mockOrganizationGroupReadiness(item: OrganizationPlanItem): OrganizationPlanGroupSummary["readiness"] {
-  if (item.validity === "ready") return "ready";
-  if (item.validity === "needs_review") return item.decision === "undecided" ? "requires-decision" : "reviewed";
-  return "blocked";
+  return mockOrganizationEffectiveReadiness(item);
+}
+
+function mockOrganizationEffectiveReadiness(item: OrganizationPlanItem): OrganizationPlanGroupSummary["readiness"] {
+  if (!(["ready", "needs_review"] as OrganizationPlanItem["validity"][]).includes(item.validity)) return "blocked";
+  if (["source_identity_changed", "source_missing", "managed_scope_unavailable", "managed_scope_membership_changed", "live_proposal_changed", "proposal_changed", "cleanup_review_required"].includes(item.blockingCode ?? "")) return "blocked";
+  if (item.proposalKind !== "keep" && !item.authoritativePreviewId) return "blocked";
+  if (item.validity === "needs_review") {
+    return item.decision === "undecided" ? "requires-decision" : "reviewed";
+  }
+  return "ready";
 }
 
 function mockOrganizationReviewReasons(input: {
@@ -2124,6 +2141,7 @@ function queryMockOrganizationGroups(request?: { planId?: string; cursor?: strin
     planId: plan.id,
     planRevision: plan.revision,
     groups,
+    effectiveSummary: mockOrganizationEffectiveSummary(mockOrganizationItems.get(plan.id) ?? []),
     nextCursor: next < all.length ? String(next) : null,
     hasMore: next < all.length
   };
@@ -2154,22 +2172,28 @@ function updateMockOrganizationGroupDecision(request?: { planId?: string; groupI
   const members = (mockOrganizationItems.get(plan.id) ?? []).filter((item) => mockOrganizationGroupId(plan.id, item) === request?.groupId);
   if (!members.length) throw new Error("organization_group_not_found");
   const decision = request?.decision;
-  const selected = members.filter((item) => {
-    if (["executing", "executed"].includes(item.validity)) return false;
-    if (decision !== "accepted") return true;
-    return item.validity === "ready"
-      && item.riskLevel === "Normal"
-      && item.confidence >= 0.8
-      && !item.requiresConfirmation
-      && item.blockingCode === null
-      && item.authoritativePreviewId !== null;
-  });
-  if (!selected.length) throw new Error(decision === "accepted" ? "organization_group_no_safe_items" : "organization_group_no_decidable_items");
+  if (members.some((item) => ["executing", "executed"].includes(item.validity))) throw new Error("organization_group_changed");
+  for (const item of members) {
+    if (decision === "accepted") {
+      const safe = item.effectiveReadiness === "ready"
+        && item.validity === "ready"
+        && item.riskLevel === "Normal"
+        && item.confidence >= 0.8
+        && !item.requiresConfirmation
+        && item.blockingCode === null
+        && item.authoritativePreviewId !== null;
+      if (!safe) throw new Error("organization_group_not_fully_safe");
+    } else if (decision === "kept" && !item.availableActions.includes("keep")) {
+      throw new Error("organization_group_changed");
+    } else if (decision === "undecided" && item.decision !== "undecided" && !item.availableActions.includes("clear_decision")) {
+      throw new Error("organization_group_changed");
+    }
+  }
   const updated = updateMockOrganizationDecisions({
     planId: plan.id,
     expectedPlanRevision: plan.revision,
     safeBatch: decision === "accepted",
-    mutations: selected.map((item) => ({ itemId: item.id, expectedItemRevision: item.revision, decision: decision ?? "undecided" }))
+    mutations: members.map((item) => ({ itemId: item.id, expectedItemRevision: item.revision, decision: decision ?? "undecided" }))
   });
   return {
     plan: updated,
@@ -2222,13 +2246,15 @@ function updateMockOrganizationDecisions(request?: MockOrganizationDecisionReque
     item.reviewState = item.validity === "needs_review" && ["accepted", "edited", "kept"].includes(item.decision)
       ? "reviewed"
       : item.validity;
+    item.effectiveReadiness = mockOrganizationEffectiveReadiness(item);
     item.revision += 1;
   }
   const updated = {
     ...plan,
     revision: plan.revision + 1,
     updatedAt: Math.floor(Date.now() / 1000),
-    summary: mockOrganizationSummary(items)
+    summary: mockOrganizationSummary(items),
+    effectiveSummary: mockOrganizationEffectiveSummary(items)
   };
   mockOrganizationPlans = mockOrganizationPlans.map((item) => item.id === plan.id ? updated : item);
   return updated;
@@ -2318,6 +2344,22 @@ function emptyMockOrganizationSummary(): OrganizationPlan["summary"] {
     skipped: 0,
     remainingExecutable: 0
   };
+}
+
+function emptyMockOrganizationEffectiveSummary(): OrganizationPlan["effectiveSummary"] {
+  return { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 };
+}
+
+function mockOrganizationEffectiveSummary(items: OrganizationPlanItem[]): OrganizationPlan["effectiveSummary"] {
+  const summary = emptyMockOrganizationEffectiveSummary();
+  for (const item of items) {
+    const readiness = mockOrganizationEffectiveReadiness(item);
+    if (readiness === "ready") summary.ready += 1;
+    else if (readiness === "reviewed") summary.reviewed += 1;
+    else if (readiness === "requires-decision") summary.pendingReview += 1;
+    else summary.blocked += 1;
+  }
+  return summary;
 }
 
 function mockOrganizationSummary(items: OrganizationPlanItem[]): OrganizationPlan["summary"] {

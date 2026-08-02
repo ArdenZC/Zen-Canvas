@@ -3932,6 +3932,13 @@ fn pdf_text_extraction_with_limits_and_hook(
             return blocked("content_pdf_object_limit_exceeded");
         }
         let object = &bytes[obj_start..endobj];
+        // Classify an oversized uncompressed CMap before deadline-bound
+        // structural scans. Otherwise CPU contention can turn a deterministic
+        // resource-limit violation into a timeout while scanning the same
+        // large object repeatedly.
+        if oversized_uncompressed_pdf_cmap_object(object) {
+            return blocked("content_pdf_cmap_decoded_byte_limit_exceeded");
+        }
         let encrypted = match contains_pdf_token_bounded(object, b"/Encrypt", deadline, cancel) {
             Ok(value) => value,
             Err(stop) => return Ok(pdf_stop_extraction(stop)),
@@ -4055,6 +4062,19 @@ fn pdf_text_extraction_with_limits_and_hook(
         status: "completed",
         reason: None,
     })
+}
+
+fn oversized_uncompressed_pdf_cmap_object(object: &[u8]) -> bool {
+    object.len() > PDF_MAX_CMAP_DECODED_BYTES
+        && object
+            .windows(b"/CIDInit".len())
+            .any(|window| window == b"/CIDInit")
+        && (object
+            .windows(b"beginbfchar".len())
+            .any(|window| window == b"beginbfchar")
+            || object
+                .windows(b"beginbfrange".len())
+                .any(|window| window == b"beginbfrange"))
 }
 
 fn pdf_stop_extraction(stop: PdfStop) -> Extraction {

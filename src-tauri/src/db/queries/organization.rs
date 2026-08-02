@@ -6,8 +6,9 @@
 use super::files::operation_preview_from_indexed;
 use super::library::{
     canonicalize_file_query_spec, clear_temp_selection_ids, current_library_revision,
-    file_matches_authoritative_query_scope, selection_where, FileLibraryScopeV2, FileLibrarySortV2,
-    FileQueryFiltersV2, FileQuerySpecV2, LibrarySelectionV1,
+    file_matches_authoritative_query_scope, files_matching_authoritative_query_scope,
+    selection_where, FileLibraryScopeV2, FileLibrarySortV2, FileQueryFiltersV2, FileQuerySpecV2,
+    LibrarySelectionV1,
 };
 use super::*;
 use crate::path_identity::normalize_text_for_compare;
@@ -96,6 +97,7 @@ pub struct OrganizationPlanDto {
     pub ready_at: Option<i64>,
     pub completed_at: Option<i64>,
     pub summary: OrganizationPlanSummaryDto,
+    pub effective_summary: OrganizationPlanEffectiveSummaryDto,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -119,6 +121,15 @@ pub struct OrganizationPlanSummaryDto {
     pub remaining_executable: i64,
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizationPlanEffectiveSummaryDto {
+    pub ready: i64,
+    pub reviewed: i64,
+    pub pending_review: i64,
+    pub blocked: i64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrganizationPlanItemDto {
@@ -140,6 +151,7 @@ pub struct OrganizationPlanItemDto {
     pub edited_name: Option<String>,
     pub validity: String,
     pub review_state: String,
+    pub effective_readiness: String,
     pub confidence: f64,
     pub risk_level: String,
     pub requires_confirmation: bool,
@@ -232,6 +244,7 @@ pub struct OrganizationPlanGroupPageDto {
     pub plan_id: String,
     pub plan_revision: i64,
     pub groups: Vec<OrganizationPlanGroupSummaryDto>,
+    pub effective_summary: OrganizationPlanEffectiveSummaryDto,
     pub next_cursor: Option<String>,
     pub has_more: bool,
 }
@@ -800,7 +813,7 @@ impl Database {
                     ready_at = ?3, updated_at = ?3 WHERE id = ?1 AND status = 'building'",
             params![plan_id, materialized_count, now],
         )?;
-        let plan = load_plan(&tx, &plan_id)?;
+        let plan = load_plan_with_effective_summary(&tx, &plan_id)?;
         tx.commit()?;
         Ok(plan)
     }
@@ -821,13 +834,15 @@ impl Database {
         };
         for plan in &mut plans {
             plan.summary = load_plan_summary(&conn, &plan.id)?;
+            let groups = load_organization_plan_group_summaries(&conn, &plan.id, plan.revision)?;
+            plan.effective_summary = effective_summary_from_groups(&groups);
         }
         Ok(plans)
     }
 
     pub fn get_organization_plan(&self, plan_id: &str) -> Result<OrganizationPlanDto, DbError> {
         let conn = self.conn()?;
-        load_plan(
+        load_plan_with_effective_summary(
             &conn,
             &validate_id(plan_id, "organization_plan_id_invalid")?,
         )
@@ -875,8 +890,23 @@ impl Database {
             let rows = stmt.query_map(params_from_iter(values.iter()), item_from_row)?;
             rows.collect::<Result<Vec<_>, _>>()?
         };
+        let scope = load_organization_scope_projection(&conn, &plan_id);
+        let file_ids = items
+            .iter()
+            .map(|item| item.file_id_snapshot.clone())
+            .collect::<Vec<_>>();
+        let scope_memberships = organization_scope_memberships(&conn, &scope, &file_ids);
         for item in &mut items {
-            decorate_organization_item_metadata(&conn, item)?;
+            let scope_membership = scope_memberships
+                .get(&item.file_id_snapshot)
+                .copied()
+                .unwrap_or(Some(false));
+            let current_file = load_indexed_file_by_id(&conn, &item.file_id_snapshot)?;
+            decorate_organization_item_metadata_with_file(
+                item,
+                current_file.as_ref(),
+                scope_membership,
+            )?;
         }
         let has_more = items.len() > request.page_size as usize;
         if has_more {
@@ -913,6 +943,7 @@ impl Database {
         let conn = self.conn()?;
         let plan = load_plan(&conn, &plan_id)?;
         let mut groups = load_organization_plan_group_summaries(&conn, &plan_id, plan.revision)?;
+        let effective_summary = effective_summary_from_groups(&groups);
         if let Some(cursor) = cursor {
             groups.retain(|group| organization_group_is_after(group, &cursor));
         }
@@ -932,6 +963,7 @@ impl Database {
             plan_id,
             plan_revision: plan.revision,
             groups,
+            effective_summary,
             next_cursor,
             has_more,
         })
@@ -1029,29 +1061,44 @@ impl Database {
             ));
         }
 
-        let mut selected = Vec::new();
-        for item in members {
-            if matches!(item.validity.as_str(), "executing" | "executed") {
-                continue;
-            }
-            if decision == "accepted" && require_safe_batch_item(&tx, &plan_id, &item.id).is_err() {
-                continue;
-            }
-            selected.push(item);
-        }
-        if selected.is_empty() {
+        if members
+            .iter()
+            .any(|item| matches!(item.validity.as_str(), "executing" | "executed"))
+        {
             return Err(DbError::Validation(
-                if decision == "accepted" {
-                    "organization_group_no_safe_items"
-                } else {
-                    "organization_group_no_decidable_items"
-                }
-                .to_string(),
+                "organization_group_changed".to_string(),
             ));
+        }
+        for item in &members {
+            match decision {
+                "accepted" => require_safe_batch_item_projection(item).map_err(|_| {
+                    DbError::Validation("organization_group_not_fully_safe".to_string())
+                })?,
+                "kept" => {
+                    if !item.available_actions.iter().any(|action| action == "keep") {
+                        return Err(DbError::Validation(
+                            "organization_group_changed".to_string(),
+                        ));
+                    }
+                }
+                "undecided" if item.decision != "undecided" => {
+                    if !item
+                        .available_actions
+                        .iter()
+                        .any(|action| action == "clear_decision")
+                    {
+                        return Err(DbError::Validation(
+                            "organization_group_changed".to_string(),
+                        ));
+                    }
+                }
+                "undecided" => {}
+                _ => unreachable!("normalize_decision returns only durable decisions"),
+            }
         }
 
         let now = current_unix_seconds();
-        for item in selected {
+        for item in members {
             let updated = tx.execute(
                 "UPDATE organization_plan_items SET decision = ?1, edited_name = NULL,
                         revision = revision + 1, updated_at = ?2
@@ -1061,7 +1108,7 @@ impl Database {
             )?;
             if updated != 1 {
                 return Err(DbError::Validation(
-                    "organization_item_revision_conflict".to_string(),
+                    "organization_group_changed".to_string(),
                 ));
             }
         }
@@ -1083,7 +1130,7 @@ impl Database {
                 "organization_plan_revision_conflict".to_string(),
             ));
         }
-        let plan = load_plan(&tx, &plan_id)?;
+        let plan = load_plan_with_effective_summary(&tx, &plan_id)?;
         let group = load_organization_plan_group_summaries(&tx, &plan_id, plan.revision)?
             .into_iter()
             .find(|group| group.group_id == group_id);
@@ -1250,7 +1297,7 @@ impl Database {
              WHERE id = ?1 AND revision = ?2",
             params![plan_id, request.expected_plan_revision, now],
         )?;
-        let plan = load_plan(&tx, &plan_id)?;
+        let plan = load_plan_with_effective_summary(&tx, &plan_id)?;
         tx.commit()?;
         Ok(plan)
     }
@@ -1277,7 +1324,7 @@ impl Database {
                     request.expected_plan_revision,
                     "organization_source_provenance_invalid",
                 )?;
-                let plan = load_plan(&tx, &plan_id)?;
+                let plan = load_plan_with_effective_summary(&tx, &plan_id)?;
                 tx.commit()?;
                 return Ok(plan);
             }
@@ -1383,7 +1430,7 @@ impl Database {
              WHERE id = ?1 AND revision = ?2",
             params![plan_id, request.expected_plan_revision, status, now],
         )?;
-        let plan = load_plan(&tx, &plan_id)?;
+        let plan = load_plan_with_effective_summary(&tx, &plan_id)?;
         tx.commit()?;
         Ok(plan)
     }
@@ -1409,7 +1456,7 @@ impl Database {
                 "organization_plan_revision_conflict".to_string(),
             ));
         }
-        load_plan(&conn, &plan_id)
+        load_plan_with_effective_summary(&conn, &plan_id)
     }
 
     pub fn delete_organization_plan(
@@ -1725,7 +1772,7 @@ impl Database {
                 dispatch.execution_id
             ],
         )?;
-        let plan = load_plan(&tx, plan_id)?;
+        let plan = load_plan_with_effective_summary(&tx, plan_id)?;
         tx.commit()?;
         Ok(ExecuteOrganizationPlanResultDto {
             plan,
@@ -1990,11 +2037,6 @@ fn validate_create_request(request: &CreateOrganizationPlanRequestV1) -> Result<
     Ok(())
 }
 
-fn require_safe_batch_item(conn: &Connection, plan_id: &str, item_id: &str) -> Result<(), DbError> {
-    let item = load_organization_plan_item_for_projection(conn, plan_id, item_id)?;
-    require_safe_batch_item_projection(&item)
-}
-
 fn require_safe_batch_item_projection(item: &OrganizationPlanItemDto) -> Result<(), DbError> {
     let target = std::path::Path::new(&item.proposed_target_path);
     let target_parent_exists = target.parent().is_some_and(std::path::Path::exists);
@@ -2043,7 +2085,19 @@ fn load_organization_plan_item_for_projection(
         )
         .optional()?
         .ok_or_else(|| DbError::Validation("organization_item_not_found".to_string()))?;
-    decorate_organization_item_metadata(conn, &mut item)?;
+    let scope = load_organization_scope_projection(conn, plan_id);
+    let scope_memberships =
+        organization_scope_memberships(conn, &scope, std::slice::from_ref(&item.file_id_snapshot));
+    let scope_membership = scope_memberships
+        .get(&item.file_id_snapshot)
+        .copied()
+        .unwrap_or(Some(false));
+    let current_file = load_indexed_file_by_id(conn, &item.file_id_snapshot)?;
+    decorate_organization_item_metadata_with_file(
+        &mut item,
+        current_file.as_ref(),
+        scope_membership,
+    )?;
     Ok(item)
 }
 
@@ -2173,6 +2227,16 @@ fn load_plan(conn: &rusqlite::Connection, plan_id: &str) -> Result<OrganizationP
     Ok(plan)
 }
 
+fn load_plan_with_effective_summary(
+    conn: &rusqlite::Connection,
+    plan_id: &str,
+) -> Result<OrganizationPlanDto, DbError> {
+    let mut plan = load_plan(conn, plan_id)?;
+    let groups = load_organization_plan_group_summaries(conn, plan_id, plan.revision)?;
+    plan.effective_summary = effective_summary_from_groups(&groups);
+    Ok(plan)
+}
+
 fn plan_from_row(row: &Row<'_>) -> rusqlite::Result<OrganizationPlanDto> {
     Ok(OrganizationPlanDto {
         id: row.get(0)?,
@@ -2194,6 +2258,7 @@ fn plan_from_row(row: &Row<'_>) -> rusqlite::Result<OrganizationPlanDto> {
         ready_at: row.get(16)?,
         completed_at: row.get(17)?,
         summary: OrganizationPlanSummaryDto::default(),
+        effective_summary: OrganizationPlanEffectiveSummaryDto::default(),
     })
 }
 
@@ -2227,6 +2292,7 @@ fn item_from_row(row: &Row<'_>) -> rusqlite::Result<OrganizationPlanItemDto> {
         edited_name: row.get(15)?,
         validity,
         review_state,
+        effective_readiness: "blocked".to_string(),
         confidence: row.get(17)?,
         risk_level: row.get(18)?,
         requires_confirmation: row.get::<_, i64>(19)? != 0,
@@ -2243,21 +2309,78 @@ fn item_from_row(row: &Row<'_>) -> rusqlite::Result<OrganizationPlanItemDto> {
     })
 }
 
-fn decorate_organization_item_metadata(
+#[derive(Debug)]
+enum OrganizationScopeProjection {
+    Query(Box<FileQuerySpecV2>),
+    Unavailable,
+}
+
+fn load_organization_scope_projection(
     conn: &rusqlite::Connection,
-    item: &mut OrganizationPlanItemDto,
-) -> Result<(), DbError> {
-    let current_file = load_indexed_file_by_id(conn, &item.file_id_snapshot)?;
-    decorate_organization_item_metadata_with_file(item, current_file.as_ref())
+    plan_id: &str,
+) -> OrganizationScopeProjection {
+    match load_plan_source_query(conn, plan_id) {
+        Ok(query) => OrganizationScopeProjection::Query(Box::new(query)),
+        Err(_) => OrganizationScopeProjection::Unavailable,
+    }
+}
+
+fn organization_scope_memberships(
+    conn: &rusqlite::Connection,
+    scope: &OrganizationScopeProjection,
+    file_ids: &[String],
+) -> HashMap<String, Option<bool>> {
+    let mut memberships = HashMap::with_capacity(file_ids.len());
+    match scope {
+        OrganizationScopeProjection::Query(query) => {
+            const SCOPE_ID_CHUNK: usize = 500;
+            let mut matching_ids = HashSet::new();
+            let mut scope_available = true;
+            for chunk in file_ids.chunks(SCOPE_ID_CHUNK) {
+                match files_matching_authoritative_query_scope(conn, query.as_ref(), chunk) {
+                    Ok(ids) => matching_ids.extend(ids),
+                    Err(_) => {
+                        scope_available = false;
+                        break;
+                    }
+                }
+            }
+            for file_id in file_ids {
+                memberships.insert(
+                    file_id.clone(),
+                    Some(scope_available && matching_ids.contains(file_id)),
+                );
+            }
+        }
+        OrganizationScopeProjection::Unavailable => {
+            for file_id in file_ids {
+                memberships.insert(file_id.clone(), Some(false));
+            }
+        }
+    }
+    memberships
 }
 
 fn decorate_organization_item_metadata_with_file(
     item: &mut OrganizationPlanItemDto,
     current_file: Option<&IndexedFileRow>,
+    managed_scope_membership: Option<bool>,
 ) -> Result<(), DbError> {
     let preview = current_file
         .cloned()
         .and_then(operation_preview_from_indexed);
+    let live_proposal = current_file.map(|file| {
+        proposal_from_preview(
+            &file.path,
+            &file.name,
+            &file.classification_status,
+            &file.suggested_action,
+            preview.clone(),
+        )
+    });
+    let live_proposal_changed = live_proposal
+        .as_ref()
+        .is_some_and(|proposal| proposal.fingerprint != item.proposal_fingerprint);
     let mut reasons = Vec::new();
     let blocking_code = item.blocking_code.as_deref().unwrap_or("");
     let source_unchanged = current_file.is_some_and(|file| {
@@ -2308,6 +2431,12 @@ fn decorate_organization_item_metadata_with_file(
     if !source_unchanged || current_file.is_none() {
         push_review_reason(&mut reasons, OrganizationReviewReason::SourceChanged);
     }
+    if managed_scope_membership == Some(false) {
+        push_review_reason(&mut reasons, OrganizationReviewReason::ManagedScopeChanged);
+    }
+    if live_proposal_changed {
+        push_review_reason(&mut reasons, OrganizationReviewReason::ProposalChanged);
+    }
     if item.validity == "stale" && reasons.is_empty() {
         push_review_reason(&mut reasons, OrganizationReviewReason::SourceChanged);
     }
@@ -2315,6 +2444,14 @@ fn decorate_organization_item_metadata_with_file(
         && (item.authoritative_preview_id.is_none() || preview.is_none())
     {
         push_review_reason(&mut reasons, OrganizationReviewReason::MissingPreview);
+    }
+    if item.proposal_kind != "keep"
+        && item.authoritative_preview_id.is_some()
+        && preview.as_ref().is_some_and(|current| {
+            Some(current.id.as_str()) != item.authoritative_preview_id.as_deref()
+        })
+    {
+        push_review_reason(&mut reasons, OrganizationReviewReason::ProposalChanged);
     }
     if !matches!(
         item.proposal_kind.as_str(),
@@ -2347,6 +2484,8 @@ fn decorate_organization_item_metadata_with_file(
         .is_some_and(|current| current.editable_new_name == Some(true));
     let hard_blocked = !source_unchanged
         || current_file.is_none()
+        || managed_scope_membership == Some(false)
+        || live_proposal_changed
         || item.blocking_code.as_ref().is_some_and(|code| {
             matches!(
                 code.as_str(),
@@ -2401,7 +2540,77 @@ fn decorate_organization_item_metadata_with_file(
 
     item.review_reasons = reasons;
     item.available_actions = actions;
+    item.effective_readiness = organization_effective_readiness(
+        item,
+        OrganizationEffectiveReadinessFacts {
+            source_present: current_file.is_some(),
+            source_unchanged,
+            managed_scope_membership,
+            live_proposal_changed,
+            terminal,
+            supported_operation,
+            preview_available,
+            preview_is_executable,
+            can_edit,
+        },
+    )
+    .to_string();
     Ok(())
+}
+
+struct OrganizationEffectiveReadinessFacts {
+    source_present: bool,
+    source_unchanged: bool,
+    managed_scope_membership: Option<bool>,
+    live_proposal_changed: bool,
+    terminal: bool,
+    supported_operation: bool,
+    preview_available: bool,
+    preview_is_executable: bool,
+    can_edit: bool,
+}
+
+fn organization_effective_readiness(
+    item: &OrganizationPlanItemDto,
+    facts: OrganizationEffectiveReadinessFacts,
+) -> &'static str {
+    if facts.terminal
+        || !facts.source_present
+        || !facts.source_unchanged
+        || facts.managed_scope_membership == Some(false)
+        || facts.live_proposal_changed
+        || (item.blocking_code.is_some()
+            && !(facts.can_edit
+                && item.blocking_code.as_deref().is_some_and(|code| {
+                    matches!(code, "target_collision" | "organization_target_collision")
+                })))
+        || !matches!(item.validity.as_str(), "ready" | "needs_review")
+        || (!facts.supported_operation && item.proposal_kind != "keep")
+        || (item.proposal_kind != "keep" && !facts.preview_available)
+        || (item.proposal_kind != "keep" && !facts.preview_is_executable && !facts.can_edit)
+    {
+        return "blocked";
+    }
+    if item.validity == "needs_review" {
+        if item.decision == "undecided"
+            && item.available_actions.iter().any(|action| {
+                matches!(
+                    action.as_str(),
+                    "accept_suggestion" | "edit_name" | "keep" | "defer"
+                )
+            })
+        {
+            return "requires-decision";
+        }
+        if matches!(item.decision.as_str(), "accepted" | "edited" | "kept") {
+            return "reviewed";
+        }
+        return "blocked";
+    }
+    if item.proposal_kind == "keep" || facts.preview_is_executable {
+        return "ready";
+    }
+    "blocked"
 }
 
 fn push_review_reason(reasons: &mut Vec<String>, reason: OrganizationReviewReason) {
@@ -2509,10 +2718,17 @@ fn load_organization_plan_items_for_projection(
         .map(|item| item.file_id_snapshot.clone())
         .collect::<Vec<_>>();
     let current_files = load_indexed_files_for_projection(conn, &file_ids)?;
+    let scope = load_organization_scope_projection(conn, plan_id);
+    let scope_memberships = organization_scope_memberships(conn, &scope, &file_ids);
     for item in &mut items {
+        let scope_membership = scope_memberships
+            .get(&item.file_id_snapshot)
+            .copied()
+            .unwrap_or(Some(false));
         decorate_organization_item_metadata_with_file(
             item,
             current_files.get(&item.file_id_snapshot),
+            scope_membership,
         )?;
     }
     Ok(items)
@@ -2564,12 +2780,7 @@ fn organization_group_key(item: &OrganizationPlanItemDto) -> OrganizationPlanGro
 }
 
 fn organization_group_readiness(item: &OrganizationPlanItemDto) -> String {
-    match (item.validity.as_str(), item.decision.as_str()) {
-        ("ready", _) => "ready".to_string(),
-        ("needs_review", "undecided") => "requires-decision".to_string(),
-        ("needs_review", "accepted" | "edited" | "kept") => "reviewed".to_string(),
-        _ => "blocked".to_string(),
-    }
+    item.effective_readiness.clone()
 }
 
 fn organization_group_id(plan_id: &str, key: &OrganizationPlanGroupKey) -> String {
@@ -2711,6 +2922,21 @@ fn load_organization_plan_group_summaries(
             .then_with(|| left.group_id.cmp(&right.group_id))
     });
     Ok(summaries)
+}
+
+fn effective_summary_from_groups(
+    groups: &[OrganizationPlanGroupSummaryDto],
+) -> OrganizationPlanEffectiveSummaryDto {
+    let mut summary = OrganizationPlanEffectiveSummaryDto::default();
+    for group in groups {
+        match group.readiness.as_str() {
+            "ready" => summary.ready += group.item_count,
+            "reviewed" => summary.reviewed += group.item_count,
+            "requires-decision" => summary.pending_review += group.item_count,
+            _ => summary.blocked += group.item_count,
+        }
+    }
+    summary
 }
 
 fn sorted_organization_actions(actions: HashSet<String>) -> Vec<String> {
@@ -3327,6 +3553,16 @@ mod tests {
     fn seed_plan(db: &Database, status: &str) {
         let conn = db.conn().expect("seed connection");
         conn.execute(
+            "INSERT OR IGNORE INTO scan_roots (
+                id, normalized_path, display_name, source_kind, enabled,
+                health_status, current_generation, needs_reconciliation,
+                created_at, updated_at
+             ) VALUES ('organization-test-root', '/tmp', 'Organization test',
+                       'file_library', 1, 'healthy', 1, 0, 1, 1)",
+            [],
+        )
+        .expect("seed organization managed root");
+        conn.execute(
             "INSERT INTO organization_plans (
                 id, title, status, source_kind, source_snapshot_revision,
                 requested_count, materialized_count, planner_version, revision,
@@ -3377,6 +3613,22 @@ mod tests {
             params![preview_id],
         )
         .expect("bind seeded organization preview");
+        let file = load_indexed_file_by_id(&conn, "file-test")
+            .expect("reload seeded organization file")
+            .expect("seeded organization file remains available");
+        let proposal = proposal_from_preview(
+            &file.path,
+            &file.name,
+            &file.classification_status,
+            &file.suggested_action,
+            operation_preview_from_indexed(file.clone()),
+        );
+        conn.execute(
+            "UPDATE organization_plan_items SET proposal_fingerprint = ?1
+             WHERE id = 'item-test'",
+            params![proposal.fingerprint],
+        )
+        .expect("bind seeded organization fingerprint");
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3393,10 +3645,23 @@ mod tests {
     ) {
         let source_path = target_directory.join(format!("source-{id}.txt"));
         let target_path = target_directory.join(format!("target-{id}.txt"));
-        let source_path = source_path.to_string_lossy().to_string();
-        let target_path = target_path.to_string_lossy().to_string();
-        let target_directory = target_directory.to_string_lossy().to_string();
+        let source_path = source_path.to_string_lossy().replace('\\', "/");
+        let target_path = target_path.to_string_lossy().replace('\\', "/");
+        let target_directory = target_directory.to_string_lossy().replace('\\', "/");
         let conn = db.conn().expect("group item connection");
+        conn.execute(
+            "INSERT OR IGNORE INTO scan_roots (
+                id, normalized_path, display_name, source_kind, enabled,
+                health_status, current_generation, needs_reconciliation,
+                created_at, updated_at
+             ) VALUES (?1, ?2, ?3, 'file_library', 1, 'healthy', 1, 0, 1, 1)",
+            params![
+                format!("organization-test-root-{id}"),
+                target_directory,
+                format!("Organization test {id}")
+            ],
+        )
+        .expect("seed group managed root");
         conn.execute(
             "INSERT INTO organization_plan_items (
                 id, plan_id, ordinal, file_id_snapshot, source_path_snapshot,
@@ -3433,6 +3698,28 @@ mod tests {
         .expect("seed group item");
     }
 
+    fn sync_item_proposal_fingerprint(db: &Database, item_id: &str, file_id: &str) {
+        let conn = db.conn().expect("sync proposal connection");
+        let file = load_indexed_file_by_id(&conn, file_id)
+            .expect("load sync proposal file")
+            .expect("sync proposal file exists");
+        let preview = operation_preview_from_indexed(file.clone());
+        let preview_id = preview.as_ref().map(|current| current.id.clone());
+        let proposal = proposal_from_preview(
+            &file.path,
+            &file.name,
+            &file.classification_status,
+            &file.suggested_action,
+            preview,
+        );
+        conn.execute(
+            "UPDATE organization_plan_items SET proposal_fingerprint = ?1,
+                    authoritative_preview_id = ?2 WHERE id = ?3",
+            params![proposal.fingerprint, preview_id, item_id],
+        )
+        .expect("sync proposal fingerprint");
+    }
+
     #[test]
     fn item_cursor_round_trip_is_bounded() {
         let cursor = OrganizationItemCursor {
@@ -3464,12 +3751,34 @@ mod tests {
                     proposed_target_directory = ?2, proposed_target_path = ?3
                  WHERE id = 'item-test'",
                 params![
-                    first_target.join("source-item-test.txt").to_string_lossy(),
-                    first_target.to_string_lossy(),
-                    first_target.join("target-item-test.txt").to_string_lossy(),
+                    first_target
+                        .join("source-item-test.txt")
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                    first_target.to_string_lossy().replace('\\', "/"),
+                    first_target
+                        .join("target-item-test.txt")
+                        .to_string_lossy()
+                        .replace('\\', "/"),
                 ],
             )
             .expect("bind first group item");
+            conn.execute(
+                "UPDATE files SET path = ?1, name = 'source-item-test.txt',
+                        suggested_action = 'Rename', suggested_target_path = ?2,
+                        suggested_name = 'target-item-test.txt', classification_status = 'classified',
+                        confidence = 0.9, risk_level = 'Normal', requires_confirmation = 0,
+                        last_classified_mtime = 1, last_classified_size = 1
+                 WHERE id = 'file-test'",
+                params![
+                    first_target
+                        .join("source-item-test.txt")
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                    first_target.to_string_lossy().replace('\\', "/"),
+                ],
+            )
+            .expect("bind first group indexed file");
         }
         seed_group_item(
             &db,
@@ -3504,6 +3813,39 @@ mod tests {
             false,
             None,
         );
+        {
+            let conn = db.conn().expect("group indexed files connection");
+            for (id, target, confidence) in [
+                ("1", &first_target, 0.9_f64),
+                ("2", &first_target, 0.7_f64),
+                ("3", &second_target, 0.9_f64),
+            ] {
+                let source = target.join(format!("source-item-group-{id}.txt"));
+                let target_text = target.to_string_lossy().replace('\\', "/");
+                conn.execute(
+                    "INSERT INTO files (
+                        id, path, name, extension, size, mtime,
+                        suggested_action, suggested_target_path, suggested_name,
+                        confidence, risk_level, requires_confirmation,
+                        classification_status, last_classified_mtime, last_classified_size
+                     ) VALUES (?1, ?2, ?3, 'txt', 10, 1, 'Rename', ?4, ?5,
+                               ?6, 'Normal', 0, 'classified', 1, 10)",
+                    params![
+                        format!("file-item-group-{id}"),
+                        source.to_string_lossy().replace('\\', "/"),
+                        format!("source-item-group-{id}.txt"),
+                        target_text,
+                        format!("target-item-group-{id}.txt"),
+                        confidence,
+                    ],
+                )
+                .expect("seed group indexed file");
+            }
+        }
+        sync_item_proposal_fingerprint(&db, "item-test", "file-test");
+        sync_item_proposal_fingerprint(&db, "item-group-1", "file-item-group-1");
+        sync_item_proposal_fingerprint(&db, "item-group-2", "file-item-group-2");
+        sync_item_proposal_fingerprint(&db, "item-group-3", "file-item-group-3");
 
         let first_page = db
             .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
@@ -3588,6 +3930,99 @@ mod tests {
     }
 
     #[test]
+    fn group_mutation_handles_one_thousand_members_in_one_transaction() {
+        use std::time::Instant;
+
+        let (db, path) = test_database();
+        seed_plan(&db, "ready");
+        let fixture = path.with_extension("group-1000");
+        let target_directory = fixture.to_string_lossy().replace('\\', "/");
+        {
+            let mut conn = db.conn().expect("large group seed connection");
+            let tx = conn.transaction().expect("large group seed transaction");
+            tx.execute(
+                "UPDATE organization_plan_items SET source_path_snapshot = ?1,
+                        proposed_target_directory = ?2, proposed_target_path = ?3
+                 WHERE id = 'item-test'",
+                params![
+                    format!("{target_directory}/missing-seed.txt"),
+                    target_directory,
+                    format!("{target_directory}/target-item-test.txt")
+                ],
+            )
+            .expect("bind large group seed item");
+            for ordinal in 1..1_000_i64 {
+                let id = format!("large-group-item-{ordinal:04}");
+                let source_path = format!("{target_directory}/missing-source-{ordinal:04}.txt");
+                let target_path = format!("{target_directory}/missing-target-{ordinal:04}.txt");
+                tx.execute(
+                    "INSERT INTO organization_plan_items (
+                        id, plan_id, ordinal, file_id_snapshot, source_path_snapshot,
+                        source_name_snapshot, source_size_snapshot, source_mtime_snapshot,
+                        source_is_dir_snapshot, proposal_fingerprint, proposal_kind,
+                        proposed_target_directory, proposed_name, proposed_target_path,
+                        decision, validity, confidence, risk_level, requires_confirmation,
+                        authoritative_preview_id, revision, created_at, updated_at
+                     ) VALUES (?1, 'plan-test', ?2, ?3, ?4, ?5, 1, 1, 0, ?6,
+                               'rename', ?7, ?8, ?9, 'undecided', 'ready', 0.95,
+                               'Normal', 0, ?10, 1, 1, 1)",
+                    params![
+                        id,
+                        ordinal,
+                        format!("large-group-file-{ordinal:04}"),
+                        source_path,
+                        format!("missing-source-{ordinal:04}.txt"),
+                        format!("large-group-fingerprint-{ordinal:04}"),
+                        target_directory,
+                        format!("missing-target-{ordinal:04}.txt"),
+                        target_path,
+                        format!("large-group-preview-{ordinal:04}"),
+                    ],
+                )
+                .expect("insert large group member");
+            }
+            tx.commit().expect("publish large group seed");
+        }
+        let projected_groups = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("large group projection");
+        let group = projected_groups
+            .groups
+            .into_iter()
+            .find(|candidate| candidate.item_count == 1_000)
+            .expect("one thousand member group");
+        let start = Instant::now();
+        let updated = db
+            .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                plan_id: "plan-test".into(),
+                group_id: group.group_id,
+                expected_plan_revision: 1,
+                decision: "kept".into(),
+            })
+            .expect("large group keep mutation");
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        assert!(elapsed_ms <= 5_000.0, "1k group mutation {elapsed_ms:.3}ms");
+        assert_eq!(updated.plan.summary.kept, 1_000);
+        let kept: i64 = db
+            .conn()
+            .expect("large group result connection")
+            .query_row(
+                "SELECT COUNT(*) FROM organization_plan_items
+                 WHERE plan_id = 'plan-test' AND decision = 'kept'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("count large group result");
+        assert_eq!(kept, 1_000);
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn review_metadata_is_projected_and_requires_decision_uses_ordinary_mutation() {
         let (db, path) = test_database();
         seed_plan(&db, "ready");
@@ -3614,7 +4049,10 @@ mod tests {
             conn.execute(
                 "INSERT INTO files (id, path, name, extension, size, mtime)
                  VALUES ('file-item-review-metadata', ?1, 'source-item-review-metadata.txt', 'txt', 10, 1)",
-                params![fixture.join("source-item-review-metadata.txt").to_string_lossy()],
+                params![fixture
+                    .join("source-item-review-metadata.txt")
+                    .to_string_lossy()
+                    .replace('\\', "/")],
             )
             .expect("seed review metadata indexed file");
             conn.execute(
@@ -3624,7 +4062,7 @@ mod tests {
                         confidence = 0.7, risk_level = 'Normal',
                         last_classified_mtime = 1, last_classified_size = 10
                  WHERE id = 'file-item-review-metadata'",
-                params![fixture.to_string_lossy()],
+                params![fixture.to_string_lossy().replace('\\', "/")],
             )
             .expect("seed review metadata proposal");
             let preview_id = operation_preview_from_indexed(
@@ -3642,6 +4080,7 @@ mod tests {
             )
             .expect("bind review metadata preview");
         }
+        sync_item_proposal_fingerprint(&db, "item-review-metadata", "file-item-review-metadata");
 
         let groups = db
             .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
@@ -3759,7 +4198,7 @@ mod tests {
     }
 
     #[test]
-    fn group_accept_skips_unsafe_members_and_requires_current_plan_revision() {
+    fn group_accept_requires_all_members_safe_and_current_plan_revision() {
         let (db, path) = test_database();
         seed_plan(&db, "ready");
         let fixture = path.with_extension("group-safe");
@@ -3771,9 +4210,15 @@ mod tests {
                     proposed_target_directory = ?2, proposed_target_path = ?3
                  WHERE id = 'item-test'",
                 params![
-                    fixture.join("source-item-test.txt").to_string_lossy(),
-                    fixture.to_string_lossy(),
-                    fixture.join("target-item-test.txt").to_string_lossy(),
+                    fixture
+                        .join("source-item-test.txt")
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                    fixture.to_string_lossy().replace('\\', "/"),
+                    fixture
+                        .join("target-item-test.txt")
+                        .to_string_lossy()
+                        .replace('\\', "/"),
                 ],
             )
             .expect("bind safe group item");
@@ -3782,13 +4227,17 @@ mod tests {
                         suggested_name = ?3
                  WHERE id = 'file-test'",
                 params![
-                    fixture.join("source-item-test.txt").to_string_lossy(),
-                    fixture.to_string_lossy(),
+                    fixture
+                        .join("source-item-test.txt")
+                        .to_string_lossy()
+                        .replace('\\', "/"),
+                    fixture.to_string_lossy().replace('\\', "/"),
                     "target-item-test.txt"
                 ],
             )
             .expect("bind safe group indexed file");
         }
+        sync_item_proposal_fingerprint(&db, "item-test", "file-test");
         seed_group_item(
             &db,
             "item-group-blocked",
@@ -3800,6 +4249,25 @@ mod tests {
             true,
             None,
         );
+        {
+            let conn = db.conn().expect("unsafe group member connection");
+            let source = fixture.join("source-item-group-blocked.txt");
+            conn.execute(
+                "INSERT INTO files (id, path, name, extension, size, mtime,
+                        suggested_action, suggested_target_path, suggested_name,
+                        confidence, risk_level, requires_confirmation,
+                        classification_status, last_classified_mtime, last_classified_size)
+                 VALUES ('file-item-group-blocked', ?1, 'source-item-group-blocked.txt', 'txt',
+                         10, 1, 'Rename', ?2, 'target-item-group-blocked.txt',
+                         0.95, 'Normal', 1, 'classified', 1, 10)",
+                params![
+                    source.to_string_lossy().replace('\\', "/"),
+                    fixture.to_string_lossy().replace('\\', "/")
+                ],
+            )
+            .expect("seed unsafe group member file");
+        }
+        sync_item_proposal_fingerprint(&db, "item-group-blocked", "file-item-group-blocked");
         let group = db
             .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
                 plan_id: "plan-test".into(),
@@ -3811,37 +4279,81 @@ mod tests {
             .into_iter()
             .find(|group| group.item_count == 2)
             .expect("safe group");
-        let updated = db
+        let error = db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
                 plan_id: "plan-test".into(),
                 group_id: group.group_id.clone(),
                 expected_plan_revision: 1,
                 decision: "accepted".into(),
             })
-            .expect("accept safe group members");
-        assert_eq!(updated.plan.revision, 2);
-        assert_eq!(updated.plan.summary.accepted, 1);
-        assert_eq!(updated.group.expect("updated group").accepted_count, 1);
-        let items = db
+            .expect_err("unsafe group members must fail atomically");
+        assert!(error
+            .to_string()
+            .contains("organization_group_not_fully_safe"));
+        assert_eq!(
+            db.get_organization_plan("plan-test")
+                .expect("unchanged group plan")
+                .revision,
+            1
+        );
+        let unchanged_items = db
             .query_organization_plan_group_items(QueryOrganizationPlanGroupItemsRequest {
                 plan_id: "plan-test".into(),
                 group_id: group.group_id.clone(),
                 cursor: None,
                 page_size: 20,
             })
-            .expect("group members after accept")
+            .expect("group members after rejected accept")
             .items;
         assert_eq!(
-            items
+            unchanged_items
                 .iter()
                 .filter(|item| item.decision == "accepted")
                 .count(),
-            1
+            0
         );
+        {
+            let conn = db.conn().expect("make group safe connection");
+            conn.execute(
+                "UPDATE organization_plan_items SET requires_confirmation = 0
+                 WHERE id = 'item-group-blocked'",
+                [],
+            )
+            .expect("make group member safe");
+            conn.execute(
+                "UPDATE files SET requires_confirmation = 0
+                 WHERE id = 'file-item-group-blocked'",
+                [],
+            )
+            .expect("make indexed group member safe");
+        }
+        sync_item_proposal_fingerprint(&db, "item-group-blocked", "file-item-group-blocked");
+        let safe_group = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("safe group after refresh")
+            .groups
+            .into_iter()
+            .find(|candidate| candidate.item_count == 2)
+            .expect("complete safe group");
+        let updated = db
+            .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
+                plan_id: "plan-test".into(),
+                group_id: safe_group.group_id.clone(),
+                expected_plan_revision: 1,
+                decision: "accepted".into(),
+            })
+            .expect("accept complete safe group");
+        assert_eq!(updated.plan.revision, 2);
+        assert_eq!(updated.plan.summary.accepted, 2);
+        assert_eq!(updated.group.expect("updated group").accepted_count, 2);
         assert!(db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
                 plan_id: "plan-test".into(),
-                group_id: group.group_id,
+                group_id: safe_group.group_id,
                 expected_plan_revision: 1,
                 decision: "kept".into(),
             })
@@ -3886,7 +4398,10 @@ mod tests {
             conn.execute(
                 "INSERT INTO files (id, path, name, extension, size, mtime)
                  VALUES ('file-item-extension-blocked', ?1, 'source-item-extension-blocked.txt', 'txt', 10, 1)",
-                params![fixture.join("source-item-extension-blocked.txt").to_string_lossy()],
+                params![fixture
+                    .join("source-item-extension-blocked.txt")
+                    .to_string_lossy()
+                    .replace('\\', "/")],
             )
             .expect("seed extension blocked file");
             conn.execute(
@@ -3896,7 +4411,7 @@ mod tests {
                         confidence = 0.95, risk_level = 'Normal',
                         last_classified_mtime = 1, last_classified_size = 10
                  WHERE id = 'file-item-extension-blocked'",
-                params![fixture.to_string_lossy()],
+                params![fixture.to_string_lossy().replace('\\', "/")],
             )
             .expect("seed extension blocked proposal");
             let preview_id = operation_preview_from_indexed(
@@ -4187,6 +4702,233 @@ mod tests {
                 }],
             })
             .is_err());
+        drop(db);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn effective_readiness_revalidates_live_facts_without_mutating_validity() {
+        let (db, path) = test_database();
+        seed_plan(&db, "ready");
+        let initial = db
+            .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 10,
+            })
+            .expect("initial effective item page")
+            .items
+            .remove(0);
+        assert_eq!(initial.effective_readiness, "ready");
+        assert_eq!(
+            db.get_organization_plan("plan-test")
+                .expect("initial effective summary")
+                .effective_summary
+                .ready,
+            1
+        );
+
+        {
+            let conn = db.conn().expect("live identity connection");
+            conn.execute("UPDATE files SET size = 2 WHERE id = 'file-test'", [])
+                .expect("change source size");
+        }
+        let size_changed = db
+            .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 10,
+            })
+            .expect("size changed projection")
+            .items
+            .remove(0);
+        assert_eq!(size_changed.effective_readiness, "blocked");
+        assert!(size_changed
+            .review_reasons
+            .iter()
+            .any(|reason| reason == "source_changed"));
+
+        {
+            let conn = db.conn().expect("restore identity connection");
+            conn.execute(
+                "UPDATE files SET size = 1, path = '/tmp/moved-source.txt' WHERE id = 'file-test'",
+                [],
+            )
+            .expect("move source");
+        }
+        let moved = db
+            .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 10,
+            })
+            .expect("moved source projection")
+            .items
+            .remove(0);
+        assert_eq!(moved.effective_readiness, "blocked");
+
+        {
+            let conn = db.conn().expect("restore source connection");
+            conn.execute(
+                "UPDATE files SET path = '/tmp/source.txt', mtime = 2 WHERE id = 'file-test'",
+                [],
+            )
+            .expect("change source mtime");
+        }
+        let mtime_changed = db
+            .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 10,
+            })
+            .expect("mtime changed projection")
+            .items
+            .remove(0);
+        assert_eq!(mtime_changed.effective_readiness, "blocked");
+
+        {
+            let conn = db.conn().expect("restore mtime connection");
+            conn.execute(
+                "UPDATE files SET mtime = 1, is_stale = 1 WHERE id = 'file-test'",
+                [],
+            )
+            .expect("mark source unavailable");
+        }
+        let missing = db
+            .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 10,
+            })
+            .expect("missing source projection")
+            .items
+            .remove(0);
+        assert_eq!(missing.effective_readiness, "blocked");
+
+        {
+            let conn = db.conn().expect("restore source availability connection");
+            conn.execute("UPDATE files SET is_stale = 0 WHERE id = 'file-test'", [])
+                .expect("restore source availability");
+            conn.execute(
+                "UPDATE files SET suggested_name = 'live-changed.txt',
+                        suggested_target_path = '/tmp' WHERE id = 'file-test'",
+                [],
+            )
+            .expect("change live proposal");
+        }
+        let proposal_changed = db
+            .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 10,
+            })
+            .expect("live proposal projection")
+            .items
+            .remove(0);
+        assert_eq!(proposal_changed.effective_readiness, "blocked");
+        assert!(proposal_changed
+            .review_reasons
+            .iter()
+            .any(|reason| reason == "proposal_changed"));
+
+        {
+            let conn = db.conn().expect("preview mismatch connection");
+            conn.execute(
+                "UPDATE files SET suggested_name = 'renamed.txt',
+                        suggested_target_path = '/tmp'
+                 WHERE id = 'file-test'",
+                [],
+            )
+            .expect("restore live proposal");
+            conn.execute(
+                "UPDATE organization_plan_items SET authoritative_preview_id = 'stale-preview'
+                 WHERE id = 'item-test'",
+                [],
+            )
+            .expect("change authoritative preview");
+        }
+        let preview_changed = db
+            .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 10,
+            })
+            .expect("preview mismatch projection")
+            .items
+            .remove(0);
+        assert_eq!(preview_changed.effective_readiness, "blocked");
+        assert!(preview_changed
+            .review_reasons
+            .iter()
+            .any(|reason| reason == "proposal_changed"));
+
+        {
+            let conn = db.conn().expect("restore proposal connection");
+            conn.execute(
+                "UPDATE files SET content_hash = 'content-only' WHERE id = 'file-test'",
+                [],
+            )
+            .expect("change content only");
+            conn.execute(
+                "UPDATE organization_plan_items SET authoritative_preview_id = ?1
+                 WHERE id = 'item-test'",
+                params![initial.authoritative_preview_id],
+            )
+            .expect("restore authoritative preview");
+        }
+        let content_only = db
+            .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 10,
+            })
+            .expect("content-only projection")
+            .items
+            .remove(0);
+        assert_eq!(content_only.effective_readiness, "ready");
+        let persisted_validity: String = db
+            .conn()
+            .expect("persisted validity connection")
+            .query_row(
+                "SELECT validity FROM organization_plan_items WHERE id = 'item-test'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("read persisted validity");
+        assert_eq!(persisted_validity, "ready");
+
+        {
+            let conn = db.conn().expect("scope provenance connection");
+            conn.execute(
+                "UPDATE organization_plans SET source_kind = 'all_matching',
+                        source_query_spec_json = NULL, source_query_fingerprint = NULL
+                 WHERE id = 'plan-test'",
+                [],
+            )
+            .expect("invalidate managed scope provenance");
+        }
+        let scope_unavailable = db
+            .query_organization_plan_items(QueryOrganizationPlanItemsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 10,
+            })
+            .expect("scope unavailable projection")
+            .items
+            .remove(0);
+        assert_eq!(scope_unavailable.effective_readiness, "blocked");
+        assert!(scope_unavailable
+            .review_reasons
+            .iter()
+            .any(|reason| reason == "managed_scope_changed"));
+        let refreshed = db
+            .refresh_organization_plan(OrganizationPlanRevisionRequest {
+                plan_id: "plan-test".into(),
+                expected_plan_revision: 1,
+            })
+            .expect("refresh unavailable scope");
+        assert_eq!(refreshed.status, "stale");
+        assert_eq!(refreshed.effective_summary.blocked, 1);
         drop(db);
         let _ = std::fs::remove_file(path);
     }
@@ -4783,6 +5525,17 @@ mod tests {
                     params![count as i64],
                 )
                 .expect("seed benchmark plan");
+                tx.execute(
+                    "INSERT INTO scan_roots (
+                        id, normalized_path, display_name, source_kind, enabled,
+                        health_status, current_generation, needs_reconciliation,
+                        created_at, updated_at
+                     ) VALUES ('organization-benchmark-root', '/missing',
+                               'Organization benchmark', 'file_library', 1,
+                               'healthy', 1, 0, 1, 1)",
+                    [],
+                )
+                .expect("seed benchmark managed root");
                 {
                     let mut insert = tx
                         .prepare(
@@ -4854,6 +5607,39 @@ mod tests {
                     create_ms <= 3_000.0,
                     "10k plan ledger create {create_ms:.3}ms"
                 );
+            }
+
+            if count <= 1_000 {
+                let mut conn = db.conn().expect("sync benchmark proposals connection");
+                let tx = conn
+                    .transaction()
+                    .expect("sync benchmark proposals transaction");
+                for ordinal in 0..count {
+                    let file_id = format!("bench-file-{ordinal:05}");
+                    let item_id = format!("bench-item-{ordinal:05}");
+                    let file = load_indexed_file_by_id(&tx, &file_id)
+                        .expect("load benchmark proposal file")
+                        .expect("benchmark proposal file exists");
+                    let preview = operation_preview_from_indexed(file.clone());
+                    let proposal = proposal_from_preview(
+                        &file.path,
+                        &file.name,
+                        &file.classification_status,
+                        &file.suggested_action,
+                        preview.clone(),
+                    );
+                    tx.execute(
+                        "UPDATE organization_plan_items SET proposal_fingerprint = ?1,
+                                authoritative_preview_id = ?2 WHERE id = ?3",
+                        params![
+                            proposal.fingerprint,
+                            preview.map(|current| current.id),
+                            item_id,
+                        ],
+                    )
+                    .expect("bind benchmark proposal facts");
+                }
+                tx.commit().expect("publish benchmark proposal facts");
             }
 
             let first_start = Instant::now();
@@ -4999,7 +5785,7 @@ mod tests {
                         id, normalized_path, display_name, source_kind, enabled,
                         health_status, current_generation, needs_reconciliation,
                         created_at, updated_at
-                     ) VALUES ('organization-benchmark-root', ?1,
+                    ) VALUES ('organization-benchmark-execution-root', ?1,
                                'Organization benchmark', 'file_library', 1,
                                'healthy', 1, 0, 1, 1)",
                     params![execution_fixture.to_string_lossy().replace('\\', "/")],
@@ -5152,7 +5938,8 @@ mod tests {
                 if count == 10_000 {
                     assert!(elapsed <= 3_000.0, "10k refresh {elapsed:.3}ms");
                 }
-                assert_eq!(refreshed.status, "stale");
+                let expected_status = if count == 10_000 { "stale" } else { "ready" };
+                assert_eq!(refreshed.status, expected_status);
                 elapsed
             };
 

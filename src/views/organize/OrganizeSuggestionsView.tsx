@@ -71,6 +71,7 @@ export function OrganizeSuggestionsView() {
   const [confirmExecution, setConfirmExecution] = useState(false);
   const [confirmItemAcceptance, setConfirmItemAcceptance] = useState<OrganizationPlanItem | null>(null);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
+  const [reviewActionNeedsRefresh, setReviewActionNeedsRefresh] = useState(false);
   const groupListRef = useRef<HTMLDivElement | null>(null);
   const groupRequestEpoch = useRef(0);
 
@@ -221,10 +222,12 @@ export function OrganizeSuggestionsView() {
     if (!canReview) return;
     if (decision === "accepted" && group.readiness !== "ready") return;
     setReviewActionError(null);
+    setReviewActionNeedsRefresh(false);
     try {
       await updateGroupDecision(group, decision);
     } catch (error) {
       setReviewActionError(organizeActionError(error, t));
+      setReviewActionNeedsRefresh(isOrganizationGroupChangedError(error));
     }
   }
 
@@ -329,14 +332,14 @@ export function OrganizeSuggestionsView() {
               items={[
                 { label: t("organizePlanMetricFiles"), value: plan.materializedCount.toLocaleString() },
                 { label: t("organizePlanMetricAccepted"), value: (plan.summary.accepted + plan.summary.edited).toLocaleString(), tone: "green" },
-                { label: t("organizePlanMetricReview"), value: plan.summary.pendingReview.toLocaleString(), tone: "amber" },
-                { label: t("organizePlanMetricBlocked"), value: (plan.summary.blocked + plan.summary.stale).toLocaleString(), tone: "red" }
+                { label: t("organizePlanMetricReview"), value: plan.effectiveSummary.pendingReview.toLocaleString(), tone: "amber" },
+                { label: t("organizePlanMetricBlocked"), value: plan.effectiveSummary.blocked.toLocaleString(), tone: "red" }
               ]}
             />
           </section>
 
           {error ? <NoticeBanner tone="error" title={t("organizeLoadFailedTitle")} action={<Button variant="secondary" size="compact" onClick={() => void openPlan(plan.id)}>{t("organizePlanRefresh")}</Button>}>{t("organizeLoadFailedDesc")}</NoticeBanner> : null}
-          {reviewActionError ? <NoticeBanner tone="warning" title={t("organizeGroupActionFailed")} action={<Button variant="ghost" size="compact" onClick={() => setReviewActionError(null)}>{t("close")}</Button>}>{reviewActionError}</NoticeBanner> : null}
+          {reviewActionError ? <NoticeBanner tone="warning" title={t("organizeGroupActionFailed")} action={reviewActionNeedsRefresh ? <Button variant="secondary" size="compact" onClick={() => { setReviewActionError(null); setReviewActionNeedsRefresh(false); void refreshPlan(); }}>{t("organizePlanRefresh")}</Button> : <Button variant="ghost" size="compact" onClick={() => setReviewActionError(null)}>{t("close")}</Button>}>{reviewActionError}</NoticeBanner> : null}
 
           <SegmentedControl
             value={activeTab}
@@ -619,7 +622,14 @@ function organizeActionError(error: unknown, t: Translator): string {
   const message = readableError(error);
   if (message.includes("organization_item_accept_not_available")) return t("organizeItemAcceptUnavailableBackend");
   if (message.includes("organization_item_edit_not_available")) return t("organizeItemEditUnavailableBackend");
+  if (message.includes("organization_group_not_fully_safe")) return t("organizeGroupNotFullySafe");
+  if (message.includes("organization_group_changed")) return t("organizeGroupChanged");
   return t("organizeGroupActionFailed");
+}
+
+function isOrganizationGroupChangedError(error: unknown): boolean {
+  const message = readableError(error);
+  return message.includes("organization_group_changed") || message.includes("organization_group_not_fully_safe");
 }
 
 function emptyTabTitle(tab: ReviewTab, t: Translator): string {

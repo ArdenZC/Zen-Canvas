@@ -1993,6 +1993,75 @@ The parallel PDF test timing issue, native Tauri lifecycle, Windows DPI/High Con
 
 Reviewers should exercise Organization Plan source/proposal/preview changes between review and execution, target-collision edit flows, Content Policy CAS recovery, and the native accessibility/platform matrix. The 10k performance gate should be rerun on the review environment if its filesystem or CPU profile differs materially.
 
+---
+
+## Independent Review Remediation — third-round closure (2026-08-02)
+
+### Branch and previous HEAD
+
+Branch: `codex/ui-v4-3-product-integration`
+Previous HEAD: `6e08ad02d6885ae74298f7bd5de347e15fb0695a`
+
+This pass is limited to the third-round independent-review findings. It preserves the accepted V4.3 authorities and safety contracts. No Schema 35, second ledger, renderer authority, second AI queue, filesystem mutation authority, or bypass of Preview, Dry Run, journal, CAS, Safe Trash, or Restore was introduced.
+
+### Finding 1 — default-parallel PDF resource-limit timing
+
+**Finding:** The default parallel Rust suite could classify an oversized PDF CMap as a timeout instead of the required resource-limit failure.
+
+**Root cause:** Large uncompressed CMap objects were repeatedly scanned by deadline-bound structural checks. Parallel CPU contention could consume the deadline before the deterministic size-limit condition was classified.
+
+**Fix:** A bounded CMap preflight now classifies oversized uncompressed CMap objects before expensive scans and returns `content_pdf_cmap_decoded_byte_limit_exceeded`. Timeout remains a distinct timeout. No `#[ignore]`, global single-thread CI setting, swallowed error, or relaxed timeout was added.
+
+**Tests:** Default parallel full Rust passed 5 consecutive runs; the exact PDF target passed 10 consecutive runs; the original `npm.cmd run verify:rust` passed.
+
+**Status:** Closed.
+
+### Finding 2 — live effective readiness and authoritative summary
+
+**Finding:** Persisted item validity and loaded-page counts did not fully express current source, managed-scope, proposal, preview, and action facts.
+
+**Root cause:** Current filesystem/index facts can change after plan creation, while the renderer previously consumed persisted/page-derived state.
+
+**Fix:** Backend projections now expose `effectiveReadiness` as only `ready`, `requires-decision`, `reviewed`, or `blocked`. Hard blocks are evaluated first for missing/current identity, managed-scope health/membership, live proposal, preview identity/executability, unsupported/non-executable operations, and terminal state. Full group projection computes plan and group effective summaries; it does not mutate persisted validity. Refresh remains the persistence boundary. Overview, App Shell, Organize, Browser Mock, Rust DTOs and TypeScript types use the same contract.
+
+**Tests:** Rust coverage exercises size, move, mtime, missing, live proposal, preview mismatch, content-only change, invalid scope and Refresh convergence. Existing Dry Run/Execution convergence and full Task 06 performance coverage remain green. Full frontend and Rust suites passed.
+
+**Status:** Closed.
+
+### Finding 3 — Group Safe Batch atomicity and projection reuse
+
+**Finding:** Group Safe Batch could accept only a safe subset and repeat per-item projection/requery work.
+
+**Root cause:** The prior mutation path skipped unsafe/terminal members and updated the remaining selected subset, so a group decision could partially succeed without a stable current-group contract.
+
+**Fix:** Group mutation reuses one full backend projection, requires every current member to be safe/actionable, applies Keep/Clear to every member, checks item revisions and plan revision, and commits all updates in one transaction. Any change returns `organization_group_changed` or `organization_group_not_fully_safe` with zero updates. Browser Mock and localized UI show an explicit refresh action with no optimistic update or automatic retry.
+
+**Tests:** Strict atomicity, one-thousand-member single-transaction performance, mounted localized group-change/refresh behavior, full Vitest and full Rust gates passed.
+
+**Status:** Closed.
+
+### Validation record
+
+- Default parallel full Rust: 5/5 successful runs.
+- PDF target: 10/10 successful exact runs.
+- `npm.cmd run verify:rust`: passed, including Clippy with `-D warnings`.
+- `npm.cmd run typecheck`: passed.
+- `npm.cmd test`: passed, 89 files and 570 tests.
+- `npm.cmd run test:remediation`: passed, 13 tests.
+- `npm.cmd run test:performance`: passed, including 100k/1M profiles and Task 06 100/1k/10k thresholds.
+- `npm.cmd run build`: passed with Windows release compile and NSIS packaging.
+- `npm.cmd run verify:security`: passed; existing allowed cargo-audit warnings remain recorded.
+- `git diff --check`: passed.
+- `npm.cmd run test:docs`: passed against the final remediation commit with `DOCS_DIFF_BASE=6e08ad02d6885ae74298f7bd5de347e15fb0695a`.
+
+### Deferred or unverified
+
+The local Windows closure is complete. macOS compile/package, remote CI, signed artifacts, checksum/tag/release, native Tauri lifecycle, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, screen-reader execution, and independent GitHub review remain platform or external checks. No PR, merge, tag, release, or force push is part of this pass.
+
+### Risks requiring human review
+
+Reviewers should exercise source/proposal/preview changes between review and execution, managed-root health changes, target-collision edits, native focus/accessibility behavior, and the full macOS/CI matrix.
+
 ## 6. Codex continuous-execution rule
 
 Codex may continue automatically from one V4.3 stage to the next only when:

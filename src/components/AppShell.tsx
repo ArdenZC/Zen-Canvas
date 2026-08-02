@@ -89,7 +89,7 @@ export function AppShell() {
   const scope = useFileLibraryStore((state) => state.scope);
   const density = useAppStore((state) => state.density);
   const previewActionCount = useOrganizationPlanStore((state) => state.activePlan
-    ? state.activePlan.summary.pendingReview
+    ? state.activePlan.effectiveSummary.pendingReview
     : 0);
   const executionIntent = useOperationQueueStore((state) => state.executionIntent);
   const spotlightTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -222,7 +222,7 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
   const { view, setView, t } = useChromeContext();
   const scope = useFileLibraryStore((state) => state.scope);
   const previewActionCount = useOrganizationPlanStore((state) => state.activePlan
-    ? state.activePlan.summary.pendingReview
+    ? state.activePlan.effectiveSummary.pendingReview
     : 0);
   const aiModeStatus = useAIProcessingModeStore((state) => state.status);
   const aiModeSettings = useAIProcessingModeStore((state) => state.settings);

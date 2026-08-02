@@ -114,9 +114,10 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         tauriApi.queryOrganizationPlanGroups({ planId, pageSize: 100, cursor: null })
       ]);
       if (epoch !== get().requestEpoch) return;
+      const projectedPlan = { ...plan, effectiveSummary: groupPage.effectiveSummary ?? plan.effectiveSummary };
       set((state) => ({
-        activePlan: plan,
-        plans: replacePlan(state.plans, plan),
+        activePlan: projectedPlan,
+        plans: replacePlan(state.plans, projectedPlan),
         items: page.items,
         nextCursor: page.nextCursor,
         hasMore: page.hasMore,
@@ -209,9 +210,10 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         }]
       });
       const groupPage = await tauriApi.queryOrganizationPlanGroups({ planId: updatedPlan.id, pageSize: 100, cursor: null });
+      const projectedPlan = { ...updatedPlan, effectiveSummary: groupPage.effectiveSummary ?? updatedPlan.effectiveSummary };
       set((state) => ({
-        activePlan: updatedPlan,
-        plans: replacePlan(state.plans, updatedPlan),
+        activePlan: projectedPlan,
+        plans: replacePlan(state.plans, projectedPlan),
         groups: groupPage.groups,
         groupNextCursor: groupPage.nextCursor,
         groupHasMore: groupPage.hasMore,
@@ -242,10 +244,11 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         }))
       });
       const groupPage = await tauriApi.queryOrganizationPlanGroups({ planId: updatedPlan.id, pageSize: 100, cursor: null });
+      const projectedPlan = { ...updatedPlan, effectiveSummary: groupPage.effectiveSummary ?? updatedPlan.effectiveSummary };
       const selected = new Set(items.map((item) => item.id));
       set((state) => ({
-        activePlan: updatedPlan,
-        plans: replacePlan(state.plans, updatedPlan),
+        activePlan: projectedPlan,
+        plans: replacePlan(state.plans, projectedPlan),
         groups: groupPage.groups,
         groupNextCursor: groupPage.nextCursor,
         groupHasMore: groupPage.hasMore,

@@ -54,6 +54,7 @@ const plan: OrganizationPlan = {
   updatedAt: 1,
   readyAt: 1,
   completedAt: null,
+  effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 1, blocked: 0 },
   summary: { undecided: 1, accepted: 0, kept: 0, edited: 0, needsAnalysis: 0, needsReview: 1, pendingReview: 1, reviewed: 0, ready: 0, blocked: 0, stale: 0, executing: 0, executed: 0, failed: 0, skipped: 0, remainingExecutable: 0 }
 };
 
@@ -76,6 +77,7 @@ const reviewItem: OrganizationPlanItem = {
   editedName: null,
   validity: "needs_review",
   reviewState: "needs_review",
+  effectiveReadiness: "requires-decision",
   confidence: 0.7,
   riskLevel: "Normal",
   requiresConfirmation: true,
@@ -117,6 +119,7 @@ const readyItem: OrganizationPlanItem = {
   id: "item-ready",
   validity: "ready",
   reviewState: "ready",
+  effectiveReadiness: "ready",
   confidence: 0.95,
   requiresConfirmation: false,
   reviewReasons: [],
@@ -138,6 +141,7 @@ const reviewedItem: OrganizationPlanItem = {
   ...reviewItem,
   decision: "accepted",
   reviewState: "reviewed",
+  effectiveReadiness: "reviewed",
   revision: 3,
   availableActions: ["edit_name", "view_preview", "keep", "clear_decision"]
 };
@@ -152,7 +156,7 @@ const reviewedGroup: OrganizationPlanGroupSummary = {
 };
 
 function updatedPlan(): OrganizationPlan {
-  return { ...plan, revision: 6, summary: { ...plan.summary, undecided: 0, accepted: 1, needsReview: 1, pendingReview: 0, reviewed: 1, remainingExecutable: 1 } };
+  return { ...plan, revision: 6, effectiveSummary: { ready: 0, reviewed: 1, pendingReview: 0, blocked: 0 }, summary: { ...plan.summary, undecided: 0, accepted: 1, needsReview: 1, pendingReview: 0, reviewed: 1, remainingExecutable: 1 } };
 }
 
 function updatedItem(): OrganizationPlanItem {
@@ -202,7 +206,8 @@ describe("Organize independent review behavior", () => {
       dryRun: null,
       executionResult: null,
       loadPlans: vi.fn(async () => undefined),
-      openPlan: vi.fn(async () => undefined)
+      openPlan: vi.fn(async () => undefined),
+      refreshPlan: vi.fn(async () => undefined)
     });
     acceptedReview = false;
     apiMocks.queryOrganizationPlanGroupItems.mockImplementation(async (request: { groupId?: string }) => ({
@@ -213,7 +218,7 @@ describe("Organize independent review behavior", () => {
       nextCursor: null,
       hasMore: false
     }));
-    apiMocks.queryOrganizationPlanGroups.mockImplementation(async () => ({ planId: plan.id, planRevision: acceptedReview ? 6 : 5, groups: acceptedReview ? [reviewedGroup] : [reviewGroup], nextCursor: null, hasMore: false }));
+    apiMocks.queryOrganizationPlanGroups.mockImplementation(async () => ({ planId: plan.id, planRevision: acceptedReview ? 6 : 5, groups: acceptedReview ? [reviewedGroup] : [reviewGroup], effectiveSummary: acceptedReview ? { ready: 0, reviewed: 1, pendingReview: 0, blocked: 0 } : plan.effectiveSummary, nextCursor: null, hasMore: false }));
     apiMocks.updateOrganizationPlanGroupDecision.mockResolvedValue({ plan, group: reviewGroup });
     apiMocks.updateOrganizationPlanDecisions.mockImplementation(async () => {
       acceptedReview = true;
@@ -295,6 +300,7 @@ describe("Organize independent review behavior", () => {
     const reviewedPlan: OrganizationPlan = {
       ...plan,
       revision: 6,
+      effectiveSummary: { ready: 0, reviewed: 1, pendingReview: 0, blocked: 0 },
       summary: { ...plan.summary, undecided: 0, accepted: 1, pendingReview: 0, reviewed: 1, remainingExecutable: 1 }
     };
     acceptedReview = true;
@@ -342,7 +348,7 @@ describe("Organize independent review behavior", () => {
       sampleItems: [{ ...reviewGroup.sampleItems[0], itemId: collisionItem.id, validity: "blocked" }]
     };
     useOrganizationPlanStore.setState({ groups: [collisionGroup], items: [collisionItem] });
-    apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: plan.id, planRevision: plan.revision, groups: [collisionGroup], nextCursor: null, hasMore: false });
+    apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: plan.id, planRevision: plan.revision, groups: [collisionGroup], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 1 }, nextCursor: null, hasMore: false });
     apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: collisionGroup.groupId, planRevision: plan.revision, items: [collisionItem], nextCursor: null, hasMore: false });
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
@@ -369,5 +375,26 @@ describe("Organize independent review behavior", () => {
     expect(apiMocks.updateOrganizationPlanDecisions).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("建议已不可用，状态没有被本地接受");
     expect(container.querySelector(`[data-organize-group-row="${reviewGroup.groupId}"]`)).toBeTruthy();
+  });
+
+  it("shows a localized group-change error with an explicit refresh and no retry", async () => {
+    useOrganizationPlanStore.setState({ groups: [readyGroup], items: [readyItem] });
+    apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: plan.id, planRevision: plan.revision, groups: [readyGroup], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
+    apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: readyGroup.groupId, planRevision: plan.revision, items: [readyItem], nextCursor: null, hasMore: false });
+    apiMocks.updateOrganizationPlanGroupDecision.mockRejectedValueOnce(new Error("organization_group_changed"));
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    await act(async () => button("纳入安全建议").click());
+    await flush();
+
+    expect(apiMocks.updateOrganizationPlanGroupDecision).toHaveBeenCalledOnce();
+    expect(useOrganizationPlanStore.getState().openPlan).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("此分组中的文件状态已经变化，请刷新整理方案后重新确认。");
+    const refresh = button("刷新当前事实");
+    expect(refresh).toBeTruthy();
+    await act(async () => refresh.click());
+    expect(useOrganizationPlanStore.getState().refreshPlan).toHaveBeenCalledOnce();
+    expect(apiMocks.updateOrganizationPlanGroupDecision).toHaveBeenCalledOnce();
   });
 });

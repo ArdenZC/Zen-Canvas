@@ -118,7 +118,7 @@ export function selectOverviewPriorityTask(input: {
   }
   if (scanState === "canceled") return { kind: "scan-canceled", fileCount: scan.progress?.files ?? stats.totalFiles };
   const planReviewCount = health?.plan
-    ? health.plan.summary.pendingReview
+    ? health.plan.effectiveSummary.pendingReview
     : stats.needsConfirmation;
   if (planReviewCount > 0) return { kind: "review", count: planReviewCount };
   const cleanupCandidateCount = health?.cleanupRun

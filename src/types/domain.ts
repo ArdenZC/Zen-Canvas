@@ -919,6 +919,7 @@ export interface OrganizationPlan {
   readyAt: number | null;
   completedAt: number | null;
   summary: OrganizationPlanSummary;
+  effectiveSummary: OrganizationPlanEffectiveSummary;
 }
 
 export interface OrganizationPlanSummary {
@@ -940,6 +941,13 @@ export interface OrganizationPlanSummary {
   remainingExecutable: number;
 }
 
+export interface OrganizationPlanEffectiveSummary {
+  ready: number;
+  reviewed: number;
+  pendingReview: number;
+  blocked: number;
+}
+
 export interface OrganizationPlanItem {
   id: string;
   planId: string;
@@ -959,6 +967,7 @@ export interface OrganizationPlanItem {
   editedName: string | null;
   validity: "ready" | "needs_analysis" | "needs_review" | "blocked" | "stale" | "executing" | "executed" | "failed" | "skipped";
   reviewState: "ready" | "needs_review" | "reviewed" | "blocked" | "needs_analysis" | "stale" | "executing" | "executed" | "failed" | "skipped";
+  effectiveReadiness: OrganizationPlanGroupReadiness;
   confidence: number;
   riskLevel: string;
   requiresConfirmation: boolean;
@@ -1023,6 +1032,7 @@ export interface OrganizationPlanGroupPage {
   planId: string;
   planRevision: number;
   groups: OrganizationPlanGroupSummary[];
+  effectiveSummary: OrganizationPlanEffectiveSummary;
   nextCursor: string | null;
   hasMore: boolean;
 }
