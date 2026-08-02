@@ -70,6 +70,7 @@ export function OrganizeSuggestionsView() {
   const [planTitle, setPlanTitle] = useState("");
   const [confirmExecution, setConfirmExecution] = useState(false);
   const [confirmItemAcceptance, setConfirmItemAcceptance] = useState<OrganizationPlanItem | null>(null);
+  const [confirmGroupAcceptance, setConfirmGroupAcceptance] = useState<OrganizationPlanGroupSummary | null>(null);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
   const [reviewActionNeedsRefresh, setReviewActionNeedsRefresh] = useState(false);
   const groupListRef = useRef<HTMLDivElement | null>(null);
@@ -218,7 +219,7 @@ export function OrganizeSuggestionsView() {
     virtualizer.scrollToIndex(nextIndex, { align: "auto" });
   }
 
-  async function handleGroupDecision(group: OrganizationPlanGroupSummary, decision: "accepted" | "kept" | "undecided") {
+  async function handleGroupDecision(group: OrganizationPlanGroupSummary, decision: "accepted" | "kept" | "undecided", confirmed = false) {
     if (!canReview) return;
     const available = decision === "accepted"
       ? group.groupActions.canAcceptAll
@@ -226,6 +227,10 @@ export function OrganizeSuggestionsView() {
         ? group.groupActions.canKeepAll
         : group.groupActions.canClearAll;
     if (!available) return;
+    if (decision === "accepted" && group.readiness === "requires-decision" && !confirmed) {
+      setConfirmGroupAcceptance(group);
+      return;
+    }
     setReviewActionError(null);
     setReviewActionNeedsRefresh(false);
     try {
@@ -518,6 +523,24 @@ export function OrganizeSuggestionsView() {
           const item = confirmItemAcceptance;
           setConfirmItemAcceptance(null);
           if (item) void handleItemDecision(item, "accepted");
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(confirmGroupAcceptance)}
+        tone="warning"
+        title={t("organizeGroupAcceptReviewTitle")}
+        description={confirmGroupAcceptance ? replaceCopy(t("organizeGroupAcceptReviewDesc"), {
+          reason: confirmGroupAcceptance.reviewReasonCounts.map(({ reason, count }) => `${reviewReasonLabel(reason, t)} (${count})`).join(" · ") || t("organizeReasonFromAnalysis")
+        }) : ""}
+        confirmLabel={t("organizeGroupAcceptReviewConfirm")}
+        cancelLabel={t("cancel")}
+        isProcessing={isMutating}
+        onCancel={() => setConfirmGroupAcceptance(null)}
+        onConfirm={() => {
+          const group = confirmGroupAcceptance;
+          setConfirmGroupAcceptance(null);
+          if (group) void handleGroupDecision(group, "accepted", true);
         }}
       />
 

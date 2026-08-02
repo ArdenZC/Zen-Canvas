@@ -1840,7 +1840,7 @@ No new authority was introduced. Organization Plan remains the source of review 
 
 ### Legacy path retired
 
-- Organize no longer offers a group-level include action for `requires-decision` groups and no longer gates item acceptance on renderer-only validity text; it uses backend `reviewReasons` and `availableActions`.
+- Organize no longer derives group-level include availability from `readiness`; it uses the backend all-member `groupActions` intersection and stable `reviewReasons`/`availableActions`. Item-level `requires-decision` acceptance still uses the ordinary mutation with explicit confirmation.
 - Cleanup no longer treats the currently rendered findings page as the complete AI recheck target set.
 - Content Understanding no longer leaves the open sheet on the pre-mutation detail revision after a successful or conflict-refreshing operation.
 - Saved View active state no longer clears during its own debounce/query snapshot transition and no longer survives direct query divergence or deletion.
@@ -1848,7 +1848,7 @@ No new authority was introduced. Organization Plan remains the source of review 
 ### Product changes
 
 - Added stable backend review reason/action projection to Organization Plan item and group DTOs without schema 35.
-- Kept `requires-decision` acceptance on ordinary item-level mutations with explicit confirmation; Safe Batch remains restricted to backend-safe items.
+- Kept explicit confirmation for item-level `requires-decision` acceptance and kept the separate item Safe Batch path restricted to backend-safe items. Fourth-round group Include/Keep/Clear actions are durable review decisions only; they do not execute files and still require the existing Preview, Dry Run, journal, and execution revalidation path.
 - Issued a fresh Cleanup scan request key for every scan intent and guarded duplicate scan starts.
 - Enumerated all active Review findings through durable pages, processed AI suggestions in 50-item batches, and exposed cancellation and outcome counts while preserving advisory-only AI behavior.
 - Revalidated and refreshed Content Understanding detail after policy/artifact operations, including Revision/CAS conflict handling.
@@ -1897,7 +1897,7 @@ The local browser preview was used for real rendered inspection of Overview, Fil
 
 ### Acceptance criteria
 
-- Every `requires-decision` review acceptance path remains an ordinary Organization Plan item mutation with explicit confirmation.
+- Every item-level `requires-decision` review acceptance path remains an ordinary Organization Plan mutation with explicit confirmation. A group Include action is allowed only by the backend all-member action intersection and uses an explicit group confirmation before recording the review decisions; it does not execute files.
 - Cleanup scan intents are unique and guarded; AI recheck covers the full durable Review range with bounded batches and cancellation.
 - Content detail is refreshed after mutation and conflict handling; Saved View active state follows canonical query identity and deletion.
 - Review reasons/actions are backend-projected, stable, localized, and covered by Rust plus mounted tests.
@@ -1926,7 +1926,7 @@ No new authority was introduced. Organization Plan remains authoritative for rev
 ### Legacy paths retired or constrained
 
 - Renderer page counts no longer add `undecided` and `needsReview`; `pendingReview` and `reviewed` are backend-projected summary fields.
-- Reviewed groups are no longer treated as pending decisions, and `requires-decision` groups have no Safe Batch acceptance path.
+- Reviewed groups are no longer treated as pending decisions. `requires-decision` groups are not classified as Safe Batch; a group Include action, when the backend action intersection allows it, records a review decision and remains separate from the guarded item Safe Batch and execution paths.
 - Backend mutation handlers reject unavailable accept/edit actions with stable errors and revalidate source identity, managed scope, proposal, preview, collision, filename, and safety facts before Dry Run/execution.
 - Review-reason derivation no longer interprets `blocking_detail`; it uses stable reason codes and structured preview fields.
 - Content Policy conflict recovery does not auto-resubmit; both authoritative detail and policy are refreshed, with refresh failure preserved as an error.
@@ -2028,13 +2028,13 @@ This pass is limited to the third-round independent-review findings. It preserve
 
 **Status:** Closed.
 
-### Finding 3 — Group Safe Batch atomicity and projection reuse
+### Finding 3 — Earlier Group Safe Batch atomicity and projection reuse
 
 **Finding:** Group Safe Batch could accept only a safe subset and repeat per-item projection/requery work.
 
 **Root cause:** The prior mutation path skipped unsafe/terminal members and updated the remaining selected subset, so a group decision could partially succeed without a stable current-group contract.
 
-**Fix:** Group mutation reuses one full backend projection, requires every current member to be safe/actionable, applies Keep/Clear to every member, checks item revisions and plan revision, and commits all updates in one transaction. Any change returns `organization_group_changed` or `organization_group_not_fully_safe` with zero updates. Browser Mock and localized UI show an explicit refresh action with no optimistic update or automatic retry.
+**Fix in that round:** Group mutation reused one full backend projection, required every current member to be safe/actionable, applied Keep/Clear to every member, checked item revisions and plan revision, and committed all updates in one transaction. The fourth-round action-intersection and fingerprint work supersedes the Safe Batch-specific group gate: current group actions are backend intersections, unavailable actions fail closed, and the review decision remains separate from filesystem execution. Browser Mock and localized UI show an explicit refresh action with no optimistic update or automatic retry.
 
 **Tests:** Strict atomicity, one-thousand-member single-transaction performance, mounted localized group-change/refresh behavior, full Vitest and full Rust gates passed.
 
@@ -2076,9 +2076,9 @@ This pass closes the five fourth-round findings from the independent review. It 
 
 ### Fourth-round validation record
 
-The implementation validation completed on the final working tree before commit. `npm.cmd run typecheck` passed; `npm.cmd test` passed with 89 files and 572 tests; `npm.cmd run test:remediation` passed with 13 tests; the focused Organize/File Library/Task 06 Vitest files passed with 3 files and 20 tests; the Rust Organization module passed with 20 tests and one existing ignored Task 06 performance test; and the focused PDF preflight/resource-limit tests passed. `npm.cmd run test:performance`, `npm.cmd run build`, `npm.cmd run verify:rust`, and `npm.cmd run verify:security` also passed. The exact PDF resource-limit target passed 10/10 single-threaded runs.
+The implementation validation completed on the final working tree before commit. `npm.cmd run typecheck` passed; `npm.cmd test` passed with 89 files and 573 tests; `npm.cmd run test:remediation` passed with 13 tests; the focused Organize/File Library/Task 06 Vitest files passed with 3 files and 20 tests; the Rust Organization module passed with 20 tests and one existing ignored Task 06 performance test; and the focused PDF preflight/resource-limit tests passed. `npm.cmd run test:performance`, `npm.cmd run build`, `npm.cmd run verify:rust`, and `npm.cmd run verify:security` also passed. The exact PDF resource-limit target passed 10/10 single-threaded runs.
 
-The required five default-parallel full Rust invocations were attempted twice after the Rust gate. Both attempts exposed unrelated timing-sensitive Windows filesystem-test failures in existing `storage_analyzer` and `file_ops` tests; the two failing tests passed on exact single-threaded reruns. Therefore the implementation-specific PDF stability result is green, while the broad default-parallel stability matrix remains an environment/test-fixture follow-up rather than a claim of 5/5 success.
+The required five default-parallel full Rust invocations were attempted twice before the final group-action patch; both attempts exposed unrelated timing-sensitive Windows filesystem-test failures in existing `storage_analyzer` and `file_ops` tests, and the two failing tests passed on exact single-threaded reruns. After the final patch, one additional five-run invocation stopped at run 1/5 on the known PDF preflight deadline race in `content::tests::pdf_cmap_preflight_is_structured_bounded_and_cancellable`; the exact PDF target passed 10/10. Therefore the implementation-specific PDF stability result is green, while the broad default-parallel stability matrix remains an environment/test-fixture follow-up rather than a claim of 5/5 success.
 
 The local browser preview rendered the affected Organize Files empty-plan state in dark Chinese at 1440×900 and 980×680. The five required viewport sizes had no horizontal overflow and one page heading, and browser console error/warning logs were empty. The final `git diff --check` and documentation validation are recorded after this document update.
 
@@ -2091,7 +2091,7 @@ The local browser preview rendered the affected Organize Files empty-plan state 
 
 ### Fourth-round deferred or unverified
 
-The broad default-parallel five-run Rust matrix remains unverified because of the two unrelated Windows filesystem-test races described above. macOS compile and packaging, remote CI and Full Validation, native Tauri behavior, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, signed artifacts, checksums, tags, and release/publish workflows remain unverified until the Draft PR and appropriate platform/CI checks run.
+The broad default-parallel five-run Rust matrix remains unverified because of the two earlier Windows filesystem-test races and the final PDF preflight timing race described above. macOS compile and packaging, remote CI and Full Validation, native Tauri behavior, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, signed artifacts, checksums, tags, and release/publish workflows remain unverified until the Draft PR and appropriate platform/CI checks run.
 
 ## 6. Codex continuous-execution rule
 

@@ -243,7 +243,7 @@ describe("Organize independent review behavior", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps Safe Batch out of requires-decision and confirms a single ordinary item mutation", async () => {
+  it("keeps group acceptance out of requires-decision when the backend action intersection is unavailable and confirms a single ordinary item mutation", async () => {
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
     await act(async () => button("需要我决定").click());
@@ -251,7 +251,7 @@ describe("Organize independent review behavior", () => {
 
     expect(container.textContent).toContain("置信度较低 (1)");
     expect(container.textContent).toContain("需要确认 (1)");
-    expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("纳入安全建议"))).toBe(false);
+    expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("纳入整组"))).toBe(false);
     await act(async () => container.querySelector<HTMLElement>(`[data-organize-group-row="${reviewGroup.groupId}"]`)?.click());
     await flush();
 
@@ -280,13 +280,42 @@ describe("Organize independent review behavior", () => {
     expect(useOrganizationPlanStore.getState().groups[0]?.readiness).toBe("reviewed");
   });
 
-  it("keeps Safe Batch available for a ready group and refreshes the plan after group acceptance", async () => {
+  it("requires confirmation before accepting a requires-decision group", async () => {
+    const reviewActionGroup: OrganizationPlanGroupSummary = {
+      ...reviewGroup,
+      groupActions: { canAcceptAll: true, canKeepAll: true, canClearAll: false }
+    };
+    useOrganizationPlanStore.setState({ groups: [reviewActionGroup], items: [reviewItem] });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    await act(async () => button("需要我决定").click());
+    await flush();
+
+    await act(async () => button("纳入整组").click());
+    await flush();
+    expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain("确认接受整组建议");
+    expect(apiMocks.updateOrganizationPlanGroupDecision).not.toHaveBeenCalled();
+
+    await act(async () => button("确认接受整组").click());
+    await flush();
+    expect(apiMocks.updateOrganizationPlanGroupDecision).toHaveBeenCalledWith({
+      planId: plan.id,
+      groupId: reviewActionGroup.groupId,
+      expectedPlanRevision: plan.revision,
+      expectedProjectionFingerprint: reviewActionGroup.projectionFingerprint,
+      expectedItemCount: reviewActionGroup.itemCount,
+      decision: "accepted"
+    });
+  });
+
+  it("keeps group acceptance available for a ready group and refreshes the plan after group acceptance", async () => {
     useOrganizationPlanStore.setState({ groups: [readyGroup], items: [readyItem] });
     apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: readyGroup.groupId, planRevision: plan.revision, items: [readyItem], nextCursor: null, hasMore: false });
 
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
-    const include = button("纳入安全建议");
+    const include = button("纳入整组");
     expect(include.disabled).toBe(false);
     await act(async () => include.click());
     await flush();
@@ -311,7 +340,7 @@ describe("Organize independent review behavior", () => {
     useOrganizationPlanStore.setState({ groups: [mixedGroup], items: [readyItem] });
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
-    expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("纳入安全建议"))).toBe(false);
+    expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("纳入整组"))).toBe(false);
     expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("全部保留原位"))).toBe(false);
     act(() => root.unmount());
     root = createRoot(container);
@@ -327,7 +356,7 @@ describe("Organize independent review behavior", () => {
     apiMocks.queryOrganizationPlanGroupItems.mockResolvedValue({ planId: plan.id, groupId: keepGroup.groupId, planRevision: plan.revision, items: [keepItem], nextCursor: null, hasMore: false });
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
-    expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("纳入安全建议"))).toBe(false);
+    expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("纳入整组"))).toBe(false);
     expect(container.textContent).toContain("无需移动");
   });
 
@@ -337,7 +366,7 @@ describe("Organize independent review behavior", () => {
     apiMocks.updateOrganizationPlanGroupDecision.mockRejectedValueOnce(new Error("organization_group_action_not_available"));
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
-    await act(async () => button("纳入安全建议").click());
+    await act(async () => button("纳入整组").click());
     await flush();
     expect(container.textContent).toContain("该整组操作当前不可用，请查看分组详情。");
     expect(useOrganizationPlanStore.getState().openPlan).not.toHaveBeenCalled();
@@ -434,7 +463,7 @@ describe("Organize independent review behavior", () => {
 
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
-    await act(async () => button("纳入安全建议").click());
+    await act(async () => button("纳入整组").click());
     await flush();
 
     expect(apiMocks.updateOrganizationPlanGroupDecision).toHaveBeenCalledOnce();

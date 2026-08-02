@@ -26,7 +26,7 @@ All commands below were run from `F:\Coding\Zen-Canvas`.
 | Command | Result |
 | --- | --- |
 | `npm.cmd run typecheck` | Passed. |
-| `npm.cmd test` | Passed: 89 files, 572 tests. The final run includes the mounted fourth-round group-action behavior tests and refreshed Organization Plan contracts. |
+| `npm.cmd test` | Passed: 89 files, 573 tests. The final run includes the mounted fourth-round group-action behavior and confirmation tests and refreshed Organization Plan contracts. |
 | `npm.cmd run test:remediation` | Passed: 1 file, 13 tests. |
 | `npm.cmd run test:performance` | Passed with the required architecture guard, bounded library tests, SQLite/FTS, Global Search 100k, managed scan 100k, migration, Analysis, Dedupe, File Library 100k/1M, Organization Plan, and Rule Proposal performance profiles. |
 | `npm.cmd run build` | Passed. Vite, Windows release compile, and NSIS installer generation completed. Installer: `F:\CargoTarget\release\bundle\nsis\Zen Canvas_0.1.40_x64-setup.exe`. |
@@ -136,7 +136,7 @@ This closeout records the six findings from the independent V4.3 review after PR
 
 | Review finding | Remediation and authority | Evidence |
 | --- | --- | --- |
-| Organize `requires-decision` could be treated like Safe Batch | Group acceptance is exposed only for backend-ready groups. Review items use the ordinary item-level Organization Plan decision mutation, show backend-projected review reasons, and require an explicit confirmation before acceptance. | `tests/organizeIndependentReview.test.tsx`; Rust `review_metadata_is_projected_and_requires_decision_uses_ordinary_mutation`; `organization.rs` projection and CAS path. |
+| Organize `requires-decision` could be treated like Safe Batch | The earlier item-level gate remains covered: review items use the ordinary Organization Plan decision mutation and require explicit confirmation. The fourth-round group path is a durable review decision only; it is exposed only when every current member has the backend `accept_suggestion` action, and it still leads to the existing Preview/Dry Run/execution gates. | `tests/organizeIndependentReview.test.tsx`; Rust `review_metadata_is_projected_and_requires_decision_uses_ordinary_mutation`; Rust group-action intersection test; `organization.rs` projection and CAS path. |
 | Cleanup rescan could reuse a request key or race | Every scan intent receives a fresh UUID request key, duplicate scan intents are guarded, and the key is cleared after completion. AI recheck cancellation also stops on unmount. | `tests/cleanupIndependentReview.test.tsx`; `StorageCleanupView.tsx`. |
 | Cleanup AI recheck covered only loaded findings | Recheck first walks the durable Analysis Finding pages for active Review findings, then processes all IDs in bounded batches of 50 with processed/skipped/failed/canceled summaries. | `tests/cleanupIndependentReview.test.tsx`; `StorageCleanupView.tsx`. |
 | Content Understanding could act on stale detail | Rebuild, delete, policy save, and purge refresh the authoritative File Library detail. Revision/CAS conflicts refresh before reporting the state change, and refresh failure remains an actionable operation error. Terminal runs refresh once after completion. | `tests/contentIndependentReview.test.tsx`; `ContentUnderstandingSheet.tsx`; `VaultView.tsx`. |
@@ -145,7 +145,7 @@ This closeout records the six findings from the independent V4.3 review after PR
 
 ### Mounted behavior coverage
 
-The independent-review tests mount the affected React surfaces in happy-dom with Chrome context, Zustand stores, browser-like virtualizer dimensions, and mocked Tauri API contracts. They cover ordinary versus Safe Batch decisions, full finding pagination, bounded AI batches, cancellation/fresh intent behavior, Content Understanding rebuild/delete/conflict refresh, Saved View debounce/divergence, and active-view deletion. They are not static source-presence checks.
+The independent-review tests mount the affected React surfaces in happy-dom with Chrome context, Zustand stores, browser-like virtualizer dimensions, and mocked Tauri API contracts. They cover item decisions, group action intersections and group confirmation, full finding pagination, bounded AI batches, cancellation/fresh intent behavior, Content Understanding rebuild/delete/conflict refresh, Saved View debounce/divergence, and active-view deletion. They are not static source-presence checks.
 
 ### Final validation record
 
@@ -213,7 +213,7 @@ This pass starts from `6e08ad02d6885ae74298f7bd5de347e15fb0695a` on `codex/ui-v4
 | --- | --- | --- | --- |
 | 1. Default-parallel PDF resource-limit timing failure | A large uncompressed CMap object was repeatedly scanned under the deadline-bound structural checks. Under parallel CPU contention, the deterministic size-limit case could time out before it was classified as a resource-limit case. | Added a bounded CMap preflight before the expensive scans. Oversized uncompressed CMaps now return the stable `content_pdf_cmap_decoded_byte_limit_exceeded` resource-limit reason; timeout remains a real timeout. No ignored test, global single-thread workaround, swallowed error, or timeout relaxation was added. | Default parallel full Rust: 5/5; exact PDF target: 10/10; original `npm.cmd run verify:rust`: passed. **Closed.** |
 | 2. Organization Plan readiness could be stale or page-derived | Persisted `validity` and loaded-page summaries do not alone describe current source identity, managed scope, proposal, preview, or action eligibility. Renderer summary fields could therefore diverge from current authoritative facts. | Added backend `effectiveReadiness` with only `ready`, `requires-decision`, `reviewed`, and `blocked`. Hard blocks are evaluated first from current file identity, managed-scope health/membership, live proposal, preview identity/executability, supported operation and terminal state. Full group projection derives the authoritative effective summary; persistence is unchanged until Refresh. Overview, App Shell and Organize use the backend summary. | Rust coverage includes size, move, mtime, missing, live proposal, preview mismatch, content-only change, invalid scope and Refresh convergence; existing Dry Run/Execution convergence remains covered. Full Rust, frontend, performance and build gates passed. **Closed.** |
-| 3. Group Safe Batch could partially accept and repeat projection work | The previous group mutation selected only safe members and re-queried/reprojected them individually, allowing silent partial acceptance and inconsistent group facts. | Group mutation now reuses one full backend projection, requires every current member to be safe/actionable, enforces Keep/Clear for every member, and applies all item revisions plus plan revision in one transaction. Any change returns `organization_group_changed` or `organization_group_not_fully_safe` with zero updates. Browser Mock and localized UI require an explicit refresh; no optimistic update or automatic retry is used. | Rust strict atomicity test, 1k-member single-transaction performance test, mounted localized group-change/refresh test, full Vitest and Rust gates. **Closed.** |
+| 3. Group Safe Batch could partially accept and repeat projection work | The previous group mutation selected only safe members and re-queried/reprojected them individually, allowing silent partial acceptance and inconsistent group facts. | Superseded in the fourth round by one full backend projection, fingerprint/count binding, all-member action intersections, and one transaction for the durable review decision. No subset is committed; filesystem execution remains behind Preview, Dry Run, journal, and revalidation. | Rust fingerprint/action-intersection/atomicity tests, 1k-member single-transaction performance test, mounted localized group-change/confirmation tests, full Vitest and Rust gates. **Closed locally; remote/platform evidence pending.** |
 
 ### Third-round validation record
 
@@ -242,7 +242,7 @@ This fourth-round closure addresses Group Projection Fingerprint, Group Action I
 | Finding | Closure evidence | Status |
 | --- | --- | --- |
 | Group Projection Fingerprint | `OrganizationPlanGroupSummaryDto`/TypeScript include `projectionFingerprint`; requests include expected fingerprint and item count; the backend regenerates and compares the full projection before action/CAS/update; stale fingerprint tests prove zero item updates. | Closed locally. |
-| Group Action Intersection | `OrganizationPlanGroupActionsDto`/TypeScript `groupActions` use all-member intersections. Include/Keep/Clear buttons use only those fields; accepted, reviewed, Keep, and mixed groups no longer show an incorrect include action. | Closed locally. |
+| Group Action Intersection | `OrganizationPlanGroupActionsDto`/TypeScript `groupActions` use all-member intersections. Include/Keep/Clear buttons use only those fields; accepted, reviewed, Keep, and mixed groups no longer show an incorrect include action. A `requires-decision` group requires explicit confirmation before its durable review decision is recorded; no filesystem action occurs here. | Closed locally. |
 | Plan List Projection Complexity | Plan list no longer calls full group projection and returns `effectiveSummary: null` until loaded. The Rust counter test covers a 200-plan list and observes zero full projections. | Closed locally. |
 | Open Plan Duplicate Projection | Basic plan hydration is cheap; the group page is the full projection/effective-summary authority. The Rust counter test observes zero full projections for get and one after group query. | Closed locally. |
 | PDF CMap Preflight | Structured bounded stream/dictionary/raw-data/filter checks prevent ordinary, compressed, dictionary-token, and non-stream false positives. Deadline/cancellation errors propagate through the existing extraction result mapping. | Closed locally. |
@@ -250,7 +250,7 @@ This fourth-round closure addresses Group Projection Fingerprint, Group Action I
 ### Fourth-round focused evidence
 
 - `npm.cmd run typecheck` — passed.
-- `npm.cmd test` — passed: 89 files, 572 tests.
+- `npm.cmd test` — passed: 89 files, 573 tests.
 - `npm.cmd run test:remediation` — passed: 13 tests.
 - Focused Vitest: `tests/organizeIndependentReview.test.tsx`, `tests/fileLibraryV2.test.ts`, and `tests/organizationPlanTask06.test.ts` — passed: 3 files, 20 tests.
 - Rust Organization test module — passed: 20 passed, 1 existing ignored Task 06 performance test.
@@ -261,7 +261,7 @@ This fourth-round closure addresses Group Projection Fingerprint, Group Action I
 - `npm.cmd run verify:rust` — passed: format, Rust test phase, and Clippy with `-D warnings`; the Rust phase reported 583 passed, 0 failed, and 9 ignored in the primary unit target.
 - `npm.cmd run verify:security` — passed: npm audit found 0 vulnerabilities; cargo audit reported the existing 15 allowed unmaintained/unsound warnings.
 
-The required five default-parallel full Rust invocations were attempted twice after the Rust gate. Each exposed a different unrelated timing-sensitive Windows filesystem-test failure (`cleanup_restore_preview_marks_filesystem_conflicts_and_missing_sources` and `file_ops::tests::restore_moves_updates_file_record_after_move_restore`); both passed on exact single-threaded reruns. This leaves the broad default-parallel matrix unverified, while the fourth-round PDF target itself is stable at 10/10.
+The required five default-parallel full Rust invocations were attempted twice before the final group-action patch; each exposed a different unrelated timing-sensitive Windows filesystem-test failure (`cleanup_restore_preview_marks_filesystem_conflicts_and_missing_sources` and `file_ops::tests::restore_moves_updates_file_record_after_move_restore`), and both passed on exact single-threaded reruns. After the final patch, one additional five-run invocation stopped at run 1/5 on the known PDF preflight deadline race (`content::tests::pdf_cmap_preflight_is_structured_bounded_and_cancellable`); the exact PDF target passed 10/10. The broad default-parallel matrix therefore remains unverified.
 
 The local browser preview captured the dark-Chinese Organize Files empty-plan state at 1440×900 and 980×680. The five required viewport sizes (1440×900, 1280×800, 1180×720, 1024×700, 980×680) retained one page heading and measured no horizontal overflow; browser console error/warning logs were empty.
 
@@ -271,9 +271,9 @@ The local browser preview captured the dark-Chinese Organize Files empty-plan st
 
 - Backend projection remains the only source of group membership, action intersection, effective readiness, and effective summary.
 - Group mutation remains plan-revision/item-revision/CAS protected and commits no subset after a projection or action mismatch.
-- Include, Keep, and Clear remain review decisions only; filesystem execution still requires Preview, Dry Run, journal, and execution revalidation.
+- Include, Keep, and Clear remain review decisions controlled by all-member backend action intersections. `requires-decision` Include uses explicit confirmation; item Safe Batch and filesystem execution remain separately guarded by Preview, Dry Run, journal, and execution revalidation.
 - PDF CMap preflight does not bypass decompression, extraction, output, deadline, or cancellation limits.
 
 ### Fourth-round unverified items
 
-The broad default-parallel five-run Rust matrix remains unverified because of the two unrelated Windows filesystem-test races recorded above. macOS compile, unsigned DMG, remote CI/Full Validation, Native Tauri, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, signed artifacts, checksums, tags, and release/publish evidence remain unverified.
+The broad default-parallel five-run Rust matrix remains unverified because of the two earlier Windows filesystem-test races and the final PDF preflight timing race recorded above. macOS compile, unsigned DMG, remote CI/Full Validation, Native Tauri, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, signed artifacts, checksums, tags, and release/publish evidence remain unverified.

@@ -2157,7 +2157,6 @@ function mockOrganizationGroupSummaries(plan: OrganizationPlan): OrganizationPla
       availableActions: [...new Set(members.flatMap((item) => item.availableActions))],
       groupActions: {
         canAcceptAll: members.length > 0
-          && mockOrganizationGroupReadiness(first) === "ready"
           && members.every((item) => item.availableActions.includes("accept_suggestion")),
         canKeepAll: members.length > 0 && members.every((item) => item.availableActions.includes("keep")),
         canClearAll: members.length > 0 && members.every((item) => item.availableActions.includes("clear_decision"))
@@ -2238,22 +2237,10 @@ function updateMockOrganizationGroupDecision(request?: {
       ? currentGroup.groupActions.canKeepAll
       : currentGroup.groupActions.canClearAll;
   if (!actionAvailable) throw new Error("organization_group_action_not_available");
-  for (const item of members) {
-    if (decision === "accepted") {
-      const safe = item.effectiveReadiness === "ready"
-        && item.validity === "ready"
-        && item.riskLevel === "Normal"
-        && item.confidence >= 0.8
-        && !item.requiresConfirmation
-        && item.blockingCode === null
-        && item.authoritativePreviewId !== null;
-      if (!safe) throw new Error("organization_group_action_not_available");
-    }
-  }
   const updated = updateMockOrganizationDecisions({
     planId: plan.id,
     expectedPlanRevision: plan.revision,
-    safeBatch: decision === "accepted",
+    safeBatch: false,
     mutations: members.map((item) => ({ itemId: item.id, expectedItemRevision: item.revision, decision: decision ?? "undecided" }))
   });
   return {

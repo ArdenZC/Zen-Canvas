@@ -1168,17 +1168,6 @@ impl Database {
                 "organization_group_action_not_available".to_string(),
             ));
         }
-        for item in &members {
-            match decision {
-                "accepted" => require_safe_batch_item_projection(item).map_err(|_| {
-                    DbError::Validation("organization_group_action_not_available".to_string())
-                })?,
-                "undecided" => {}
-                "kept" => {}
-                _ => unreachable!("normalize_decision returns only durable decisions"),
-            }
-        }
-
         let now = current_unix_seconds();
         for item in members {
             let updated = tx.execute(
@@ -3027,7 +3016,6 @@ fn build_organization_plan_group_summaries(
                 &key,
                 &accumulator.fingerprint_members,
             );
-            let is_ready_group = key.readiness == "ready";
             Ok(OrganizationPlanGroupSummaryDto {
                 group_id: accumulator.group_id,
                 plan_id: plan_id.to_string(),
@@ -3051,9 +3039,7 @@ fn build_organization_plan_group_summaries(
                     .collect(),
                 available_actions: sorted_organization_actions(accumulator.available_actions),
                 group_actions: OrganizationPlanGroupActionsDto {
-                    can_accept_all: accumulator.item_count > 0
-                        && accumulator.can_accept_all
-                        && is_ready_group,
+                    can_accept_all: accumulator.item_count > 0 && accumulator.can_accept_all,
                     can_keep_all: accumulator.item_count > 0 && accumulator.can_keep_all,
                     can_clear_all: accumulator.item_count > 0 && accumulator.can_clear_all,
                 },
@@ -4492,13 +4478,13 @@ mod tests {
     }
 
     #[test]
-    fn group_accept_requires_all_members_safe_and_current_plan_revision() {
+    fn group_accept_uses_action_intersection_and_current_plan_revision() {
         let (db, path) = test_database();
         seed_plan(&db, "ready");
-        let fixture = path.with_extension("group-safe");
-        std::fs::create_dir_all(&fixture).expect("create group-safe target");
+        let fixture = path.with_extension("group-action");
+        std::fs::create_dir_all(&fixture).expect("create group-action target");
         {
-            let conn = db.conn().expect("group safe fixture connection");
+            let conn = db.conn().expect("group action fixture connection");
             conn.execute(
                 "UPDATE organization_plan_items SET source_path_snapshot = ?1,
                     proposed_target_directory = ?2, proposed_target_path = ?3
@@ -4515,7 +4501,7 @@ mod tests {
                         .replace('\\', "/"),
                 ],
             )
-            .expect("bind safe group item");
+            .expect("bind group action item");
             conn.execute(
                 "UPDATE files SET path = ?1, suggested_target_path = ?2,
                         suggested_name = ?3
@@ -4529,7 +4515,7 @@ mod tests {
                     "target-item-test.txt"
                 ],
             )
-            .expect("bind safe group indexed file");
+            .expect("bind group action indexed file");
         }
         sync_item_proposal_fingerprint(&db, "item-test", "file-test");
         seed_group_item(
@@ -4544,7 +4530,7 @@ mod tests {
             None,
         );
         {
-            let conn = db.conn().expect("unsafe group member connection");
+            let conn = db.conn().expect("group action member connection");
             let source = fixture.join("source-item-group-blocked.txt");
             conn.execute(
                 "INSERT INTO files (id, path, name, extension, size, mtime,
@@ -4559,7 +4545,7 @@ mod tests {
                     fixture.to_string_lossy().replace('\\', "/")
                 ],
             )
-            .expect("seed unsafe group member file");
+            .expect("seed group action member file");
         }
         sync_item_proposal_fingerprint(&db, "item-group-blocked", "file-item-group-blocked");
         let group = db
@@ -4568,23 +4554,46 @@ mod tests {
                 cursor: None,
                 page_size: 20,
             })
-            .expect("safe group projection")
+            .expect("group action projection")
             .groups
             .into_iter()
             .find(|group| group.item_count == 2)
-            .expect("safe group");
+            .expect("group action group");
         assert!(group.group_actions.can_accept_all);
         assert!(group.group_actions.can_keep_all);
+
+        {
+            let conn = db.conn().expect("remove group accept action");
+            conn.execute(
+                "UPDATE organization_plan_items SET decision = 'kept'
+                 WHERE id = 'item-group-blocked'",
+                [],
+            )
+            .expect("remove group accept action");
+        }
+        let unavailable_group = db
+            .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
+                plan_id: "plan-test".into(),
+                cursor: None,
+                page_size: 20,
+            })
+            .expect("group action intersection projection")
+            .groups
+            .into_iter()
+            .find(|candidate| candidate.item_count == 2)
+            .expect("group action intersection group");
+        assert!(!unavailable_group.group_actions.can_accept_all);
+        assert!(unavailable_group.group_actions.can_keep_all);
         let error = db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
                 plan_id: "plan-test".into(),
-                group_id: group.group_id.clone(),
+                group_id: unavailable_group.group_id.clone(),
                 expected_plan_revision: 1,
-                expected_projection_fingerprint: group.projection_fingerprint.clone(),
-                expected_item_count: group.item_count,
+                expected_projection_fingerprint: unavailable_group.projection_fingerprint.clone(),
+                expected_item_count: unavailable_group.item_count,
                 decision: "accepted".into(),
             })
-            .expect_err("unsafe group members must fail atomically");
+            .expect_err("unavailable group action must fail atomically");
         assert!(error
             .to_string()
             .contains("organization_group_action_not_available"));
@@ -4597,7 +4606,7 @@ mod tests {
         let unchanged_items = db
             .query_organization_plan_group_items(QueryOrganizationPlanGroupItemsRequest {
                 plan_id: "plan-test".into(),
-                group_id: group.group_id.clone(),
+                group_id: unavailable_group.group_id.clone(),
                 cursor: None,
                 page_size: 20,
             })
@@ -4611,42 +4620,36 @@ mod tests {
             0
         );
         {
-            let conn = db.conn().expect("make group safe connection");
+            let conn = db.conn().expect("restore group accept action");
             conn.execute(
-                "UPDATE organization_plan_items SET requires_confirmation = 0
+                "UPDATE organization_plan_items SET decision = 'undecided'
                  WHERE id = 'item-group-blocked'",
                 [],
             )
-            .expect("make group member safe");
-            conn.execute(
-                "UPDATE files SET requires_confirmation = 0
-                 WHERE id = 'file-item-group-blocked'",
-                [],
-            )
-            .expect("make indexed group member safe");
+            .expect("restore group accept action");
         }
-        sync_item_proposal_fingerprint(&db, "item-group-blocked", "file-item-group-blocked");
-        let safe_group = db
+        let refreshed_group = db
             .query_organization_plan_groups(QueryOrganizationPlanGroupsRequest {
                 plan_id: "plan-test".into(),
                 cursor: None,
                 page_size: 20,
             })
-            .expect("safe group after refresh")
+            .expect("group action projection after refresh")
             .groups
             .into_iter()
             .find(|candidate| candidate.item_count == 2)
-            .expect("complete safe group");
+            .expect("complete group action group");
+        assert!(refreshed_group.group_actions.can_accept_all);
         let updated = db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
                 plan_id: "plan-test".into(),
-                group_id: safe_group.group_id.clone(),
+                group_id: refreshed_group.group_id.clone(),
                 expected_plan_revision: 1,
-                expected_projection_fingerprint: safe_group.projection_fingerprint.clone(),
-                expected_item_count: safe_group.item_count,
+                expected_projection_fingerprint: refreshed_group.projection_fingerprint.clone(),
+                expected_item_count: refreshed_group.item_count,
                 decision: "accepted".into(),
             })
-            .expect("accept complete safe group");
+            .expect("accept complete group action");
         assert_eq!(updated.plan.revision, 2);
         assert_eq!(updated.plan.summary.accepted, 2);
         assert!(updated.group.is_none());
@@ -4666,10 +4669,10 @@ mod tests {
         assert!(db
             .update_organization_plan_group_decision(UpdateOrganizationPlanGroupDecisionRequest {
                 plan_id: "plan-test".into(),
-                group_id: safe_group.group_id,
+                group_id: refreshed_group.group_id,
                 expected_plan_revision: 1,
-                expected_projection_fingerprint: safe_group.projection_fingerprint,
-                expected_item_count: safe_group.item_count,
+                expected_projection_fingerprint: refreshed_group.projection_fingerprint,
+                expected_item_count: refreshed_group.item_count,
                 decision: "kept".into(),
             })
             .expect_err("stale group decision")
