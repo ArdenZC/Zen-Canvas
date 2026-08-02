@@ -1,6 +1,12 @@
 export { ScannerView } from "./scanner/ScannerView";
 export { StorageCleanupView } from "./cleanup/StorageCleanupView";
-export { HubView } from "./hub/HubView";
+export { OrganizeSuggestionsView } from "./organize/OrganizeSuggestionsView";
+export {
+  buildOrganizeSuggestions,
+  initialOrganizeDecision,
+  isSafeBatchSuggestion,
+  summarizeOrganizeDecisions
+} from "./organize/organizeModel";
 export { VaultView } from "./vault/VaultView";
 export { TimelineView } from "./timeline/TimelineView";
 export { RulesView } from "./rules/RulesView";

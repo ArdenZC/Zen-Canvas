@@ -38,7 +38,7 @@ import { APP_SHELL_CONTENT_ID, ModalHost } from "./modal/ModalPortal";
 
 const ScannerView = lazy(() => import("../views/scanner/ScannerView").then((module) => ({ default: module.ScannerView })));
 const StorageCleanupView = lazy(() => import("../views/cleanup/StorageCleanupView").then((module) => ({ default: module.StorageCleanupView })));
-const HubView = lazy(() => import("../views/hub/HubView").then((module) => ({ default: module.HubView })));
+const OrganizeSuggestionsView = lazy(() => import("../views/organize/OrganizeSuggestionsView").then((module) => ({ default: module.OrganizeSuggestionsView })));
 const VaultView = lazy(() => import("../views/vault/VaultView").then((module) => ({ default: module.VaultView })));
 const TimelineView = lazy(() => import("../views/timeline/TimelineView").then((module) => ({ default: module.TimelineView })));
 const RulesView = lazy(() => import("../views/rules/RulesView").then((module) => ({ default: module.RulesView })));
@@ -334,7 +334,7 @@ function AppViewContent() {
   let content;
   if (view === "scanner") content = <ScannerView />;
   else if (view === "cleanup") content = <StorageCleanupView />;
-  else if (view === "organize") content = <HubView />;
+  else if (view === "organize") content = <OrganizeSuggestionsView />;
   else if (view === "library") content = <VaultView />;
   else if (view === "preview") content = <TimelineView />;
   else if (view === "rules") content = <RulesView />;
