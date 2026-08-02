@@ -2153,7 +2153,7 @@ This closeout starts from `816884fbb0cfee0863f70a960a3c28df1d616376` on `codex/u
 
 ### Validation and remaining external gates
 
-Focused V4.3 tests passed (4 files, 32 tests); `npm.cmd run typecheck`, `npm.cmd test` (92 files, 597 tests), `npm.cmd run test:remediation` (13 tests), `npm.cmd run test:performance` (490.3 seconds), `npm.cmd run build`, `npm.cmd run verify:rust`, and `npm.cmd run verify:security` all passed. `git diff --check` and `npm.cmd run test:docs` are rerun after this documentation update. Remote CI and the five existing review-thread replies/resolutions remain post-push actions; the PR stays Draft until those checks and independent review are complete. macOS/native/accessibility and signed-release evidence remain unverified.
+Focused V4.3 tests passed (4 files, 32 tests); `npm.cmd run typecheck`, `npm.cmd test` (92 files, 597 tests), `npm.cmd run test:remediation` (13 tests), `npm.cmd run test:performance` (490.3 seconds), `npm.cmd run build`, `npm.cmd run verify:rust`, and `npm.cmd run verify:security` all passed. `git diff --check` and `npm.cmd run test:docs` are rerun after this documentation update. GitHub Actions CI run #334 (`30762484833`) passed all configured jobs; all five existing review threads were replied to with commit-specific evidence and resolved by GraphQL thread ID after CI success, then re-fetched as resolved. The PR remains Draft and open for independent review. macOS/native/accessibility and signed-release evidence remain unverified.
 
 ## 6. Codex continuous-execution rule
 
