@@ -110,7 +110,7 @@ Per-stage rendered references remain in `docs/design/UI_UX_V4_3_EXECUTION.md` fo
 | Keyboard flows | Static/behavior contracts pass; native keyboard and screen-reader execution remains unverified. |
 | Light/Dark and Chinese/English | Pass in the browser preview matrix above. |
 | 980×680 usable | Pass for measured no-overflow and captured narrow workspaces. |
-| Repository test/performance/Rust/security/build gates | Pass locally as recorded above. |
+| Repository test/performance/Rust/security/build gates | Pass with the documented parallel PDF timing caveat; the full Rust suite passes single-threaded and the focused exact test is green. |
 | CI fast/full governance | Pass by workflow inspection and existing CI contract tests; no remote run evidence. |
 | Native checks honestly recorded | Pass; limitations are listed below rather than inferred. |
 
@@ -124,7 +124,7 @@ Per-stage rendered references remain in `docs/design/UI_UX_V4_3_EXECUTION.md` fo
 
 ## Release gate
 
-Local Windows release gate: **pass** for frontend, Rust, security, performance, release compile, and NSIS packaging.
+Local Windows release gate: **pass with a documented parallel Rust test timing caveat** for frontend, Rust, security, performance, release compile, and NSIS packaging.
 
 Cross-platform/remote release gate: **pending** macOS CI/package evidence and an authorized remote delivery workflow.
 V4.3 should not be called fully released until those external and native checks are completed by a human or authorized CI run.
