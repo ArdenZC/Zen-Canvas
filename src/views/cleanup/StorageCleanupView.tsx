@@ -108,7 +108,7 @@ function StorageCleanupPanel({
   onError,
   onNavigate
 }: Props & { t: Translator }) {
-  const [selectedRoots, setSelectedRoots] = useState<string[]>(() => initialRoots?.filter(Boolean) ?? []);
+  const [selectedRoots, setSelectedRoots] = useState<string[]>(() => normalizeScopePaths(initialRoots ?? []));
   const [detectors, setDetectors] = useState<AnalysisDetectorDescriptor[]>([]);
   const [, setRuns] = useState<AnalysisRun[]>([]);
   const [run, setRun] = useState<AnalysisRun | null>(null);
@@ -133,10 +133,12 @@ function StorageCleanupPanel({
   const [unsupported, setUnsupported] = useState(false);
   const findingListRef = useRef<HTMLDivElement | null>(null);
   const findingsEpoch = useRef(0);
+  const scopeEpoch = useRef(0);
   const requestKeyRef = useRef<string | null>(null);
   const scanIntentInFlight = useRef(false);
   const aiCancelRequested = useRef(false);
   const scopeHydrated = useRef(Boolean(initialRoots?.length));
+  const initialRootsPropKey = useRef(scopeKey(initialRoots ?? []));
   const defaultSelectionRuns = useRef(new Set<string>());
   const mutationUnavailable = localFileMutationUnavailableCode();
 
@@ -157,6 +159,44 @@ function StorageCleanupPanel({
       t(key)
     );
   }, [t]);
+
+  const resetReviewStateForScopeChange = useCallback(() => {
+    scopeEpoch.current += 1;
+    findingsEpoch.current += 1;
+    requestKeyRef.current = null;
+    defaultSelectionRuns.current.clear();
+    aiCancelRequested.current = true;
+    setRun(null);
+    setRunDetectors([]);
+    setFindings([]);
+    setFindingCache({});
+    setNextCursor(null);
+    setSelectedFindingIds(new Set());
+    setEvidenceByFinding({});
+    setExpandedEvidence(new Set());
+    setReviewFinding(null);
+    setPreview(null);
+    setConfirmPreviewOpen(false);
+    setExecutionResult(null);
+    setAiStatus("");
+    setError("");
+    setLoadingFindings(false);
+  }, []);
+
+  const applyScopeSelection = useCallback((roots: string[]) => {
+    const nextRoots = normalizeScopePaths(roots);
+    if (scopeKey(selectedRoots) !== scopeKey(nextRoots)) resetReviewStateForScopeChange();
+    scopeHydrated.current = true;
+    setSelectedRoots(nextRoots);
+    setError("");
+  }, [resetReviewStateForScopeChange, selectedRoots]);
+
+  useEffect(() => {
+    const nextKey = scopeKey(initialRoots ?? []);
+    if (nextKey === initialRootsPropKey.current) return;
+    initialRootsPropKey.current = nextKey;
+    applyScopeSelection(initialRoots ?? []);
+  }, [applyScopeSelection, initialRoots]);
 
   const loadFindings = useCallback(async (runId: string, tier: CleanupTier, cursor: string | null = null, append = false) => {
     if (!api.listAnalysisFindings) return;
@@ -195,13 +235,14 @@ function StorageCleanupPanel({
     }
   }, [api, reportError]);
 
-  const loadRunDetails = useCallback(async (runId: string, clearFindings = true) => {
+  const loadRunDetails = useCallback(async (runId: string, clearFindings = true, expectedScopeEpoch = scopeEpoch.current) => {
     if (!api.getAnalysisRun || !api.listAnalysisRunDetectors) return;
     try {
       const [nextRun, nextDetectors] = await Promise.all([
         api.getAnalysisRun(runId),
         api.listAnalysisRunDetectors(runId)
       ]);
+      if (expectedScopeEpoch !== scopeEpoch.current) return;
       if (clearFindings) {
         findingsEpoch.current += 1;
         setFindings([]);
@@ -221,7 +262,7 @@ function StorageCleanupPanel({
         }
       }
     } catch (loadError) {
-      reportError(loadError);
+      if (expectedScopeEpoch === scopeEpoch.current) reportError(loadError);
     }
   }, [api, reportError]);
 
@@ -269,8 +310,8 @@ function StorageCleanupPanel({
     let disposed = false;
     async function subscribe() {
       const offRun = await api.onAnalysisRunUpdated?.((updated) => {
-        if (!isCleanupRun(updated) || (run && updated.id !== run.id)) return;
-        if (!run || updated.revision >= run.revision) void loadRunDetails(updated.id);
+        if (!isCleanupRun(updated) || !run || updated.id !== run.id) return;
+        if (updated.revision >= run.revision) void loadRunDetails(updated.id);
       });
       const offFindings = await api.onAnalysisFindingsPublished?.((updated) => {
         if (run && updated.id === run.id) void loadRunDetails(updated.id);
@@ -294,14 +335,12 @@ function StorageCleanupPanel({
     try {
       const selected = await open({ directory: true, multiple: false, title: t("storageCleanupChooseScope") });
       if (typeof selected === "string" && selected.trim()) {
-        scopeHydrated.current = true;
-        setSelectedRoots([selected.trim()]);
-        setError("");
+        applyScopeSelection([selected]);
       }
     } catch (scopeError) {
       reportError(scopeError);
     }
-  }, [reportError, t]);
+  }, [applyScopeSelection, reportError, t]);
 
   const chooseQuickScope = useCallback(async (kind: "downloads" | "desktop" | "documents" | "temp") => {
     try {
@@ -312,13 +351,11 @@ function StorageCleanupPanel({
           : kind === "documents"
             ? await documentDir()
             : await tempDir();
-      scopeHydrated.current = true;
-      setSelectedRoots([path]);
-      setError("");
+      applyScopeSelection([path]);
     } catch (scopeError) {
       reportError(scopeError);
     }
-  }, [reportError]);
+  }, [applyScopeSelection, reportError]);
 
   const startScan = useCallback(async () => {
     if (scanIntentInFlight.current || isAiWorking) return;
@@ -338,6 +375,7 @@ function StorageCleanupPanel({
     setFindingCache({});
     defaultSelectionRuns.current.clear();
     scanIntentInFlight.current = true;
+    const requestedScopeEpoch = scopeEpoch.current;
     requestKeyRef.current = `cleanup-${crypto.randomUUID()}`;
     const request: StartAnalysisRunRequest = {
       scope: { kind: "approvedCleanupPaths", paths: selectedRoots },
@@ -347,8 +385,9 @@ function StorageCleanupPanel({
     setIsMutating(true);
     try {
       const started = await api.startAnalysisRun(request);
+      if (requestedScopeEpoch !== scopeEpoch.current) return;
       setRun(started);
-      await loadRunDetails(started.id);
+      await loadRunDetails(started.id, true, requestedScopeEpoch);
     } catch (startError) {
       reportError(startError);
     } finally {
@@ -360,12 +399,15 @@ function StorageCleanupPanel({
 
   const cancelRun = useCallback(async () => {
     if (!run || !api.cancelAnalysisRun) return;
+    const expectedScopeEpoch = scopeEpoch.current;
+    const runId = run.id;
     setIsMutating(true);
     try {
-      await api.cancelAnalysisRun(run.id);
-      await loadRunDetails(run.id, false);
+      await api.cancelAnalysisRun(runId);
+      if (expectedScopeEpoch !== scopeEpoch.current) return;
+      await loadRunDetails(runId, false, expectedScopeEpoch);
     } catch (cancelError) {
-      reportError(cancelError);
+      if (expectedScopeEpoch === scopeEpoch.current) reportError(cancelError);
     } finally {
       setIsMutating(false);
     }
@@ -373,18 +415,21 @@ function StorageCleanupPanel({
 
   const retryRun = useCallback(async () => {
     if (!run || !api.retryAnalysisRun) return;
+    const expectedScopeEpoch = scopeEpoch.current;
+    const runId = run.id;
     setIsMutating(true);
     setError("");
     setSelectedFindingIds(new Set());
     setPreview(null);
     setConfirmPreviewOpen(false);
-    defaultSelectionRuns.current.delete(run.id);
+    defaultSelectionRuns.current.delete(runId);
     try {
-      const retried = await api.retryAnalysisRun(run.id);
+      const retried = await api.retryAnalysisRun(runId);
+      if (expectedScopeEpoch !== scopeEpoch.current) return;
       setRun(retried);
-      await loadRunDetails(retried.id);
+      await loadRunDetails(retried.id, true, expectedScopeEpoch);
     } catch (retryError) {
-      reportError(retryError);
+      if (expectedScopeEpoch === scopeEpoch.current) reportError(retryError);
     } finally {
       setIsMutating(false);
     }
@@ -400,6 +445,7 @@ function StorageCleanupPanel({
   }, [api, reportError]);
 
   const toggleEvidence = useCallback(async (finding: AnalysisFinding) => {
+    const expectedScopeEpoch = scopeEpoch.current;
     const next = new Set(expandedEvidence);
     if (next.has(finding.id)) {
       next.delete(finding.id);
@@ -409,21 +455,27 @@ function StorageCleanupPanel({
     if (!evidenceByFinding[finding.id] && api.listAnalysisFindingEvidence) {
       try {
         const evidence = await api.listAnalysisFindingEvidence(finding.id);
+        if (expectedScopeEpoch !== scopeEpoch.current) return;
         setEvidenceByFinding((current) => ({ ...current, [finding.id]: evidence }));
       } catch (evidenceError) {
-        reportError(evidenceError);
+        if (expectedScopeEpoch === scopeEpoch.current) reportError(evidenceError);
         return;
       }
     }
+    if (expectedScopeEpoch !== scopeEpoch.current) return;
     next.add(finding.id);
     setExpandedEvidence(next);
   }, [api, evidenceByFinding, expandedEvidence, reportError]);
 
   const acknowledgeReviewFinding = useCallback(async () => {
     if (!reviewFinding || !api.getAnalysisFinding || !api.setAnalysisFindingDecision) return;
+    const expectedScopeEpoch = scopeEpoch.current;
+    const findingId = reviewFinding.id;
+    const runId = run?.id;
     setIsMutating(true);
     try {
-      const current = await api.getAnalysisFinding(reviewFinding.id);
+      const current = await api.getAnalysisFinding(findingId);
+      if (expectedScopeEpoch !== scopeEpoch.current) return;
       if (!current || current.tier !== "review" || current.status !== "active") throw new Error("cleanup_finding_changed");
       const decision = await api.setAnalysisFindingDecision({
         findingKey: current.findingKey,
@@ -432,13 +484,14 @@ function StorageCleanupPanel({
       });
       if (decision.decision !== "acknowledged") throw new Error("cleanup_review_not_acknowledged");
       const refreshed = await api.getAnalysisFinding(current.id);
+      if (expectedScopeEpoch !== scopeEpoch.current) return;
       if (!refreshed || !isFindingSelectable(refreshed)) throw new Error("cleanup_review_not_executable");
       setFindingCache((cache) => ({ ...cache, [refreshed.id]: refreshed }));
       setSelectedFindingIds((selected) => new Set(selected).add(refreshed.id));
       setReviewFinding(null);
-      if (run) await loadFindings(run.id, activeTier);
+      if (runId) await loadFindings(runId, activeTier);
     } catch (reviewError) {
-      reportError(reviewError);
+      if (expectedScopeEpoch === scopeEpoch.current) reportError(reviewError);
     } finally {
       setIsMutating(false);
     }
@@ -446,18 +499,21 @@ function StorageCleanupPanel({
 
   const revalidateFinding = useCallback(async (finding: AnalysisFinding) => {
     if (!api.revalidateAnalysisFinding) return;
+    const expectedScopeEpoch = scopeEpoch.current;
+    const runId = run?.id;
     setIsMutating(true);
     try {
       const refreshed = await api.revalidateAnalysisFinding(finding.id);
+      if (expectedScopeEpoch !== scopeEpoch.current) return;
       setFindingCache((cache) => ({ ...cache, [refreshed.id]: refreshed }));
       setSelectedFindingIds((selected) => {
         const next = new Set(selected);
         if (!isFindingSelectable(refreshed)) next.delete(refreshed.id);
         return next;
       });
-      if (run) await loadFindings(run.id, activeTier);
+      if (runId) await loadFindings(runId, activeTier);
     } catch (revalidateError) {
-      reportError(revalidateError);
+      if (expectedScopeEpoch === scopeEpoch.current) reportError(revalidateError);
     } finally {
       setIsMutating(false);
     }
@@ -501,6 +557,8 @@ function StorageCleanupPanel({
 
   const previewSelected = useCallback(async () => {
     if (!run || !api.previewCleanupOperations || !selectedFindings.length) return;
+    const expectedScopeEpoch = scopeEpoch.current;
+    const runId = run.id;
     if (mutationUnavailable) {
       reportError(t("storageCleanupMutationUnavailable"));
       return;
@@ -508,10 +566,11 @@ function StorageCleanupPanel({
     setIsMutating(true);
     setError("");
     try {
-      const result = await api.previewCleanupOperations(run.id, buildSelections());
+      const result = await api.previewCleanupOperations(runId, buildSelections());
+      if (expectedScopeEpoch !== scopeEpoch.current) return;
       setPreview(result);
     } catch (previewError) {
-      reportError(previewError);
+      if (expectedScopeEpoch === scopeEpoch.current) reportError(previewError);
     } finally {
       setIsMutating(false);
     }
@@ -519,17 +578,20 @@ function StorageCleanupPanel({
 
   const moveSelectedToSafeTrash = useCallback(async () => {
     if (!run || !api.moveCleanupCandidatesToSafeTrash || !preview || !selectedFindings.length) return;
+    const expectedScopeEpoch = scopeEpoch.current;
+    const runId = run.id;
     setIsMutating(true);
     setError("");
     try {
-      const result = await api.moveCleanupCandidatesToSafeTrash(run.id, buildSelections());
+      const result = await api.moveCleanupCandidatesToSafeTrash(runId, buildSelections());
+      if (expectedScopeEpoch !== scopeEpoch.current) return;
       setExecutionResult(result);
       setSelectedFindingIds(new Set());
       setPreview(null);
       setConfirmPreviewOpen(false);
-      await loadRunDetails(run.id);
+      await loadRunDetails(runId, true, expectedScopeEpoch);
     } catch (executionError) {
-      reportError(executionError);
+      if (expectedScopeEpoch === scopeEpoch.current) reportError(executionError);
     } finally {
       setIsMutating(false);
     }
@@ -541,23 +603,27 @@ function StorageCleanupPanel({
       return;
     }
     if (isAiWorking) return;
+    const expectedScopeEpoch = scopeEpoch.current;
+    const reviewRunId = run.id;
     aiCancelRequested.current = false;
     setIsAiWorking(true);
     setAiStatus("");
     try {
       const settings = await api.getAISettings();
+      if (expectedScopeEpoch !== scopeEpoch.current) return;
       if (!settings.enabled) throw new Error("cleanup_ai_disabled");
       if (!settings.cleanupAiEnabled) throw new Error("cleanup_ai_feature_disabled");
       const ids: string[] = [];
       let cursor: string | null = null;
       do {
+        if (expectedScopeEpoch !== scopeEpoch.current) return;
         if (aiCancelRequested.current) {
           setAiStatus(t("storageCleanupAIRecheckCanceled"));
           return;
         }
         setAiStatus(replaceCopy("storageCleanupAIRecheckCollecting", { count: ids.length }));
         const page: AnalysisFindingPage | undefined = await api.listAnalysisFindings?.({
-          runId: run.id,
+          runId: reviewRunId,
           tier: "review",
           status: "active",
           cursor,
@@ -575,6 +641,7 @@ function StorageCleanupPanel({
       let skipped = 0;
       let failed = 0;
       for (let offset = 0; offset < ids.length; offset += AI_RECHECK_BATCH_SIZE) {
+        if (expectedScopeEpoch !== scopeEpoch.current) return;
         if (aiCancelRequested.current) {
           setAiStatus(replaceCopy("storageCleanupAIRecheckCanceledSummary", { processed, total: ids.length, skipped, failed }));
           return;
@@ -582,18 +649,20 @@ function StorageCleanupPanel({
         const batch = ids.slice(offset, offset + AI_RECHECK_BATCH_SIZE);
         setAiStatus(replaceCopy("storageCleanupAIRecheckWorkingProgress", { processed, total: ids.length }));
         try {
-          const updated = await api.analyzeCleanupCandidatesWithAI(run.id, batch);
+          const updated = await api.analyzeCleanupCandidatesWithAI(reviewRunId, batch);
           processed += updated.length;
           skipped += Math.max(0, batch.length - updated.length);
         } catch {
           failed += batch.length;
         }
       }
+      if (expectedScopeEpoch !== scopeEpoch.current) return;
       setAiStatus(replaceCopy("storageCleanupAIRecheckDoneSummary", { total: ids.length, processed, skipped, failed }));
-      await loadRunDetails(run.id);
-      await loadFindings(run.id, activeTier);
+      await loadRunDetails(reviewRunId, true, expectedScopeEpoch);
+      if (expectedScopeEpoch !== scopeEpoch.current) return;
+      await loadFindings(reviewRunId, activeTier);
     } catch (aiError) {
-      reportError(aiError);
+      if (expectedScopeEpoch === scopeEpoch.current) reportError(aiError);
     } finally {
       setIsAiWorking(false);
     }
@@ -924,6 +993,14 @@ function FindingRow({
 function isCleanupRun(run: AnalysisRun): boolean {
   const kind = typeof run.scope?.kind === "string" ? run.scope.kind : "";
   return kind === "approvedCleanupPaths" || kind === "approved_cleanup_paths";
+}
+
+function normalizeScopePaths(paths: readonly string[]): string[] {
+  return [...new Set(paths.map((path) => path.trim()).filter(Boolean))];
+}
+
+function scopeKey(paths: readonly string[]): string {
+  return normalizeScopePaths(paths).sort().join("\u0000");
 }
 
 function scopePaths(run: AnalysisRun): string[] {

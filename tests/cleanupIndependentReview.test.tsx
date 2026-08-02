@@ -7,18 +7,32 @@ import { makeTranslator } from "../src/i18n";
 import type { AnalysisFinding, AnalysisRun } from "../src/types/domain";
 import { StorageCleanupView } from "../src/views/cleanup/StorageCleanupView";
 
+const dialogMocks = vi.hoisted(() => ({ open: vi.fn() }));
+const pathMocks = vi.hoisted(() => ({
+  desktopDir: vi.fn(),
+  documentDir: vi.fn(),
+  downloadDir: vi.fn(),
+  tempDir: vi.fn()
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => dialogMocks);
+vi.mock("@tauri-apps/api/path", () => pathMocks);
+
 const t = makeTranslator("zh");
 let root: Root;
 let container: HTMLDivElement;
 
 const CleanupView = StorageCleanupView as unknown as (props: Record<string, unknown>) => ReactElement;
 
-function makeRun(id: string, status: string, reviewCount = 0): AnalysisRun {
+function makeRun(id: string, status: string, reviewCount = 0, options: { paths?: string[]; safeCount?: number } = {}): AnalysisRun {
+  const paths = options.paths ?? ["C:/Root"];
+  const safeCount = options.safeCount ?? 0;
+  const findingsCount = reviewCount + safeCount;
   return {
     id,
     requestKey: `request-${id}`,
     requestAttempt: 1,
-    scope: { kind: "approved_cleanup_paths", paths: ["C:/Root"] },
+    scope: { kind: "approved_cleanup_paths", paths },
     scopeHash: `scope-${id}`,
     sourceSnapshot: {},
     sourceSnapshotHash: `snapshot-${id}`,
@@ -32,13 +46,13 @@ function makeRun(id: string, status: string, reviewCount = 0): AnalysisRun {
     detectorsTotal: 1,
     detectorsCompleted: status === "completed" ? 1 : 0,
     detectorsFailed: 0,
-    findingsStaged: reviewCount,
-    findingsPublished: reviewCount,
-    safeCount: 0,
+    findingsStaged: findingsCount,
+    findingsPublished: findingsCount,
+    safeCount,
     reviewCount,
     cautionCount: 0,
     exactReclaimableBytes: 0,
-    potentialReclaimableBytes: reviewCount,
+    potentialReclaimableBytes: findingsCount,
     warningCount: 0,
     errorCount: 0,
     startedAt: 1,
@@ -52,6 +66,7 @@ function makeRun(id: string, status: string, reviewCount = 0): AnalysisRun {
 }
 
 function makeFinding(run: AnalysisRun, index: number): AnalysisFinding {
+  const rootPath = (Array.isArray(run.scope.paths) ? run.scope.paths[0] : "C:/Root") as string;
   return {
     id: `finding-${index}`,
     findingKey: `finding-key-${index}`,
@@ -73,8 +88,8 @@ function makeFinding(run: AnalysisRun, index: number): AnalysisFinding {
     requiresConfirmation: true,
     executable: true,
     primarySubjectKind: "approved_path",
-    primarySubjectId: `C:/Root/item-${index}`,
-    pathSnapshot: `C:/Root/item-${index}`,
+    primarySubjectId: `${rootPath}/item-${index}`,
+    pathSnapshot: `${rootPath}/item-${index}`,
     identitySnapshot: {},
     evidenceSummary: {},
     revision: 1,
@@ -85,6 +100,16 @@ function makeFinding(run: AnalysisRun, index: number): AnalysisFinding {
     decision: null,
     snoozedUntil: null,
     decisionRevision: null
+  };
+}
+
+function makeSafeFinding(run: AnalysisRun, index: number): AnalysisFinding {
+  return {
+    ...makeFinding(run, index),
+    tier: "safe",
+    category: "safe",
+    title: `Safe ${index}`,
+    requiresConfirmation: false
   };
 }
 
@@ -127,6 +152,7 @@ function commonApi(run: AnalysisRun, overrides: Record<string, unknown> = {}) {
 
 describe("Cleanup independent review behavior", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     document.body.innerHTML = '<div id="test-root"></div>';
     container = document.getElementById("test-root") as HTMLDivElement;
     root = createRoot(container);
@@ -260,5 +286,104 @@ describe("Cleanup independent review behavior", () => {
 
     expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("重新核验已停止");
+  });
+
+  it("clears the old run, selection, preview, and execution surface when a folder scope changes", async () => {
+    const runA = makeRun("run-scope-a", "completed", 0, { paths: ["C:/RootA"], safeCount: 1 });
+    const safeFinding = makeSafeFinding(runA, 0);
+    const listAnalysisRuns = vi.fn(async () => [runA]);
+    const startAnalysisRun = vi.fn(async () => runA);
+    const moveCleanupCandidatesToSafeTrash = vi.fn(async () => ({ moved: 1, skipped: 0, failed: 0 }));
+    const api = commonApi(runA, {
+      listAnalysisRuns,
+      getAnalysisRun: vi.fn(async () => runA),
+      listAnalysisFindings: vi.fn(async (request: { tier?: string }) => ({
+        findings: request.tier === "safe" ? [safeFinding] : [],
+        nextCursor: null,
+        limit: 100
+      })),
+      startAnalysisRun,
+      moveCleanupCandidatesToSafeTrash,
+      previewCleanupOperations: vi.fn(async () => ({ total: 1, previews: [], truncated: false, hasMore: false }))
+    });
+    dialogMocks.open.mockResolvedValue("C:/RootB");
+
+    await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/RootA"], api, t })));
+    await flush(6);
+    expect(container.querySelector(`[data-analysis-run-id="${runA.id}"]`)).not.toBeNull();
+    expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+
+    await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
+    await flush(4);
+    expect(container.textContent).toContain(t("storageCleanupPreviewReadyTitle"));
+
+    await act(async () => button(t("storageCleanupChooseFolder")).click());
+    await flush(4);
+
+    expect(container.querySelector(`[data-analysis-run-id="${runA.id}"]`)).toBeNull();
+    expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
+    expect(container.textContent).not.toContain(t("storageCleanupPreviewReadyTitle"));
+    expect(container.textContent).toContain("C:/RootB");
+    expect(startAnalysisRun).not.toHaveBeenCalled();
+    expect(moveCleanupCandidatesToSafeTrash).not.toHaveBeenCalled();
+    expect(await listAnalysisRuns.mock.results[0]?.value).toEqual([runA]);
+  });
+
+  it("clears the old run when a quick scope is selected without starting a scan", async () => {
+    const runA = makeRun("run-quick-a", "completed", 0, { paths: ["C:/RootA"], safeCount: 1 });
+    const safeFinding = makeSafeFinding(runA, 0);
+    const startAnalysisRun = vi.fn(async () => runA);
+    const api = commonApi(runA, {
+      listAnalysisRuns: vi.fn(async () => [runA]),
+      getAnalysisRun: vi.fn(async () => runA),
+      listAnalysisFindings: vi.fn(async (request: { tier?: string }) => ({
+        findings: request.tier === "safe" ? [safeFinding] : [],
+        nextCursor: null,
+        limit: 100
+      })),
+      startAnalysisRun
+    });
+    pathMocks.downloadDir.mockResolvedValue("C:/Downloads");
+
+    await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/RootA"], api, t })));
+    await flush(6);
+    expect(container.querySelector(`[data-analysis-run-id="${runA.id}"]`)).not.toBeNull();
+    expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+
+    await act(async () => button(t("storageCleanupQuickDownloads")).click());
+    await flush(4);
+
+    expect(container.querySelector(`[data-analysis-run-id="${runA.id}"]`)).toBeNull();
+    expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
+    expect(container.textContent).toContain("C:/Downloads");
+    expect(startAnalysisRun).not.toHaveBeenCalled();
+  });
+
+  it("clears the old run when the initialRoots prop changes", async () => {
+    const runA = makeRun("run-prop-a", "completed", 0, { paths: ["C:/RootA"], safeCount: 1 });
+    const safeFinding = makeSafeFinding(runA, 0);
+    const startAnalysisRun = vi.fn(async () => runA);
+    const api = commonApi(runA, {
+      listAnalysisRuns: vi.fn(async () => [runA]),
+      getAnalysisRun: vi.fn(async () => runA),
+      listAnalysisFindings: vi.fn(async (request: { tier?: string }) => ({
+        findings: request.tier === "safe" ? [safeFinding] : [],
+        nextCursor: null,
+        limit: 100
+      })),
+      startAnalysisRun
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/RootA"], api, t })));
+    await flush(6);
+    expect(container.querySelector(`[data-analysis-run-id="${runA.id}"]`)).not.toBeNull();
+
+    await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/RootB"], api, t })));
+    await flush(4);
+
+    expect(container.querySelector(`[data-analysis-run-id="${runA.id}"]`)).toBeNull();
+    expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
+    expect(container.textContent).toContain("C:/RootB");
+    expect(startAnalysisRun).not.toHaveBeenCalled();
   });
 });
