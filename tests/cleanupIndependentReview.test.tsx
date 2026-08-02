@@ -290,7 +290,7 @@ describe("Cleanup independent review behavior", () => {
 
   it("clears the old run, selection, preview, and execution surface when a folder scope changes", async () => {
     const runA = makeRun("run-scope-a", "completed", 0, { paths: ["C:/RootA"], safeCount: 1 });
-    const safeFinding = makeSafeFinding(runA, 0);
+    const safeFinding = { ...makeSafeFinding(runA, 0), exactReclaimableBytes: 0, potentialReclaimableBytes: 5, sizeBytes: 1 };
     const listAnalysisRuns = vi.fn(async () => [runA]);
     const startAnalysisRun = vi.fn(async () => runA);
     const moveCleanupCandidatesToSafeTrash = vi.fn(async () => ({ moved: 1, skipped: 0, failed: 0 }));
@@ -312,6 +312,7 @@ describe("Cleanup independent review behavior", () => {
     await flush(6);
     expect(container.querySelector(`[data-analysis-run-id="${runA.id}"]`)).not.toBeNull();
     expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+    expect(container.textContent).toContain("5 B");
 
     await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
     await flush(4);

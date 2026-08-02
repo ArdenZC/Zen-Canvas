@@ -207,7 +207,7 @@ describe("Overview durable health integration", () => {
     act(() => root.unmount());
     container.remove();
     resetStores();
-    configureHealth({ roots: [{ enabled: true, healthStatus: "partial", activeRunId: "scan-1" }] });
+    configureHealth({ roots: [{ enabled: true, healthStatus: "degraded", needsReconciliation: true, watcherRevision: 3, watcherAppliedRevision: 2, activeRunId: "scan-1" }] });
     await renderOverview();
     expect(priorityTitle()).toBe("托管位置覆盖不完整");
   });

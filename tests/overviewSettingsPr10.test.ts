@@ -51,12 +51,12 @@ const baseHealth = (): OverviewHealthSnapshot => ({
   operation: { active: false, attentionCount: 0 }
 });
 
-function select(health: OverviewHealthSnapshot) {
+function select(health: OverviewHealthSnapshot, reclaimableBytes = 0) {
   return selectOverviewPriorityTask({
     scan,
     stats,
     cleanupCandidateCount: 0,
-    reclaimableBytes: 0,
+    reclaimableBytes,
     indexNeedsUpdate: false,
     health
   });
@@ -100,7 +100,9 @@ describe("V4.3 PR10 overview health projections", () => {
     expect(select(content)).toMatchObject({ kind: "content-failure", reason: "failed", error: "provider failed" });
 
     const watcher = baseHealth();
-    watcher.watcher = { permissionRequired: 0, reconciliationRequired: 1, partialCoverage: 0, retryExhausted: 0, stale: 1 };
+    watcher.watcher = { permissionRequired: 0, reconciliationRequired: 1, partialCoverage: 1, retryExhausted: 0, stale: 1 };
+    expect(select(watcher)).toMatchObject({ kind: "managed-root-stale", count: 1, reason: "partial" });
+    watcher.watcher.partialCoverage = 0;
     expect(select(watcher)).toMatchObject({ kind: "managed-root-stale", count: 1, reason: "reconciliation" });
   });
 
@@ -111,10 +113,10 @@ describe("V4.3 PR10 overview health projections", () => {
     watcher.watcher.permissionRequired = 0;
     expect(select(watcher)).toMatchObject({ kind: "managed-root-stale", count: 1, reason: "retry_exhausted" });
     watcher.watcher.retryExhausted = 0;
-    expect(select(watcher)).toMatchObject({ kind: "managed-root-stale", count: 1, reason: "reconciliation" });
-    watcher.watcher.reconciliationRequired = 0;
     expect(select(watcher)).toMatchObject({ kind: "managed-root-stale", count: 1, reason: "partial" });
     watcher.watcher.partialCoverage = 0;
+    expect(select(watcher)).toMatchObject({ kind: "managed-root-stale", count: 1, reason: "reconciliation" });
+    watcher.watcher.reconciliationRequired = 0;
     expect(select(watcher)).toMatchObject({ kind: "managed-root-stale", count: 1, reason: "stale" });
 
     const potential = baseHealth();
@@ -124,6 +126,7 @@ describe("V4.3 PR10 overview health projections", () => {
     expect(select(potential)).toMatchObject({ kind: "cleanup", bytes: 4096, bytesAreEstimated: false });
     potential.cleanupRun = { reviewCount: 2, cautionCount: 0, exactReclaimableBytes: 0, potentialReclaimableBytes: 0 } as OverviewHealthSnapshot["cleanupRun"];
     expect(select(potential).kind).not.toBe("cleanup");
+    expect(select(potential, 2048)).toMatchObject({ kind: "cleanup", bytes: 2048, bytesAreEstimated: false });
   });
 
   it("returns the calm no-action state when durable health has no work", () => {
@@ -157,11 +160,11 @@ describe("V4.3 PR10 status language and section contracts", () => {
       expect(en(key)).not.toBe(key);
     }
 
-    const fileSources = read("src/views/settings/sections/FileSourcesSettingsSection.tsx");
-    expect(fileSources).toContain('t("watcherStatusPermission")');
-    expect(fileSources).toContain('t("watcherStatusReconciling")');
-    expect(fileSources).toContain('t("watcherStatusPartial")');
-    expect(fileSources).toContain('t("watcherStatusRetryExhausted")');
+    const watcherPresentation = read("src/utils/watcherPresentation.ts");
+    expect(watcherPresentation).toContain('labelKey: "watcherStatusPermission"');
+    expect(watcherPresentation).toContain('labelKey: "watcherStatusReconciling"');
+    expect(watcherPresentation).toContain('labelKey: "watcherStatusPartial"');
+    expect(watcherPresentation).toContain('labelKey: "watcherStatusRetryExhausted"');
   });
 
   it("projects real coverage into Overview and keeps Settings orchestration sectioned", () => {

@@ -3,6 +3,7 @@ import type { Language } from "../../i18n";
 import type { AnalysisRun, ContentRun, DashboardStats, GlobalIndexStatus, OperationLog, OrganizationPlan } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { formatBytes, formatDate } from "../../utils/format";
+import { resolveReclaimableBytes } from "../../utils/reclaimableBytes";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
 
 export type OverviewScanState =
@@ -134,14 +135,15 @@ export function selectOverviewPriorityTask(input: {
       ? health.cleanupRun.reviewCount + health.cleanupRun.cautionCount
       : 0
     : input.cleanupCandidateCount;
-  const exactReclaimableBytes = health?.cleanupRun?.exactReclaimableBytes ?? 0;
-  const potentialReclaimableBytes = health?.cleanupRun?.potentialReclaimableBytes ?? 0;
-  const reclaimableBytes = health
-    ? exactReclaimableBytes > 0 ? exactReclaimableBytes : potentialReclaimableBytes
-    : input.reclaimableBytes;
-  const bytesAreEstimated = Boolean(health?.cleanupRun && exactReclaimableBytes <= 0 && potentialReclaimableBytes > 0);
-  if (cleanupCandidateCount > 0 && reclaimableBytes > 0) {
-    return { kind: "cleanup", count: cleanupCandidateCount, bytes: reclaimableBytes, bytesAreEstimated };
+  const reclaimable = health
+    ? resolveReclaimableBytes({
+      exact: health.cleanupRun?.exactReclaimableBytes,
+      potential: health.cleanupRun?.potentialReclaimableBytes,
+      legacy: input.reclaimableBytes
+    })
+    : resolveReclaimableBytes({ legacy: input.reclaimableBytes });
+  if (cleanupCandidateCount > 0 && reclaimable.bytes > 0) {
+    return { kind: "cleanup", count: cleanupCandidateCount, bytes: reclaimable.bytes, bytesAreEstimated: reclaimable.estimated };
   }
   if (health?.contentRun && ["failed", "error", "stale", "interrupted"].includes(health.contentRun.status)) {
     return { kind: "content-failure", reason: "failed", error: health.contentRun.lastErrorDetail ?? undefined };
@@ -152,11 +154,11 @@ export function selectOverviewPriorityTask(input: {
   if (health?.watcher.retryExhausted && health.watcher.retryExhausted > 0) {
     return { kind: "managed-root-stale", count: health.watcher.retryExhausted, reason: "retry_exhausted" };
   }
-  if (health?.watcher.reconciliationRequired && health.watcher.reconciliationRequired > 0) {
-    return { kind: "managed-root-stale", count: health.watcher.reconciliationRequired, reason: "reconciliation" };
-  }
   if (health?.watcher.partialCoverage && health.watcher.partialCoverage > 0) {
     return { kind: "managed-root-stale", count: health.watcher.partialCoverage, reason: "partial" };
+  }
+  if (health?.watcher.reconciliationRequired && health.watcher.reconciliationRequired > 0) {
+    return { kind: "managed-root-stale", count: health.watcher.reconciliationRequired, reason: "reconciliation" };
   }
   if (health?.watcher.stale && health.watcher.stale > 0) {
     return { kind: "managed-root-stale", count: health.watcher.stale, reason: "stale" };

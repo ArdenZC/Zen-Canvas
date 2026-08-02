@@ -8,6 +8,7 @@ import { useOrganizationPlanStore } from "../../store/useOrganizationPlanStore";
 import { useOperationQueueStore } from "../../store/useOperationQueueStore";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
 import { cn } from "../../utils/tw";
+import { summarizeWatcherHealth } from "../../utils/watcherPresentation";
 import { pageSurface } from "../shared/ui";
 import { OverviewPriorityTask } from "../overview/OverviewPriorityTask";
 import { ScanTaskPanel } from "../overview/ScanTaskPanel";
@@ -129,19 +130,7 @@ export function ScannerView() {
       .filter((run) => run.scope?.kind === "approved_cleanup_paths")
       .sort((left, right) => right.updatedAt - left.updatedAt)[0]
     ?? null;
-  const watcherHealth = scanRoots.filter((root) => root.enabled).reduce((summary, root) => {
-    const retryExhausted = root.healthStatus === "retry_exhausted" || root.lastErrorCode?.includes("retry_exhausted") || root.watcherLastErrorCode?.includes("retry_exhausted");
-    const reconciliationRequired = root.needsReconciliation || root.watcherRevision > root.watcherAppliedRevision || root.healthStatus === "reconciliation_required";
-    const partialCoverage = root.healthStatus === "partial" || root.healthStatus === "degraded";
-    const permissionRequired = root.healthStatus === "permission_required";
-    return {
-      permissionRequired: summary.permissionRequired + (permissionRequired ? 1 : 0),
-      reconciliationRequired: summary.reconciliationRequired + (reconciliationRequired ? 1 : 0),
-      partialCoverage: summary.partialCoverage + (partialCoverage ? 1 : 0),
-      retryExhausted: summary.retryExhausted + (retryExhausted ? 1 : 0),
-      stale: summary.stale + (reconciliationRequired || partialCoverage || retryExhausted || root.healthStatus === "stale" ? 1 : 0)
-    };
-  }, { permissionRequired: 0, reconciliationRequired: 0, partialCoverage: 0, retryExhausted: 0, stale: 0 });
+  const watcherHealth = summarizeWatcherHealth(scanRoots.filter((root) => root.enabled));
   const operationAttentionCount = operationLogs.filter((log) => log.status === "failed" || log.status === "manual_review" || String(log.restore_status).includes("failed") || String(log.restore_status).includes("manual_review") || String(log.restore_status).includes("conflict")).length;
   const globalIndexNoSource = globalIndexStatus
     ? globalIndexStatus.status === "no_source"
