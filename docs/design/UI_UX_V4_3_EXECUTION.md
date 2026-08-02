@@ -1911,6 +1911,88 @@ macOS compile/package, remote CI, signed release artifacts, Windows DPI/High Con
 
 Reviewers should inspect the backend projection cost for large Organization Plans, exercise native watcher/reconciliation and Content/AI task lifecycles, run the full-validation GitHub workflow, and verify the platform/accessibility matrix before declaring the release gate fully closed.
 
+---
+
+## Independent Review Remediation — second-round closure (2026-08-02)
+
+### Current baseline
+
+This pass starts from the committed first-round independent-review remediation on `codex/ui-v4-3-product-integration` and addresses the second-round findings without changing the accepted V4.3 authority map or safety boundaries. The worktree was clean before the pass began; the implementation changes are limited to the files listed below plus this execution record and the final QA record.
+
+### Authority migrated
+
+No new authority was introduced. Organization Plan remains authoritative for review state, item/group decisions, revisions, and backend-derived group readiness. File Library and Overview consume its summary projection. Content Scope Policy and fresh File Library detail remain authoritative for Content Understanding policy/detail state. Browser mocks mirror contracts for tests and local rendering only.
+
+### Legacy paths retired or constrained
+
+- Renderer page counts no longer add `undecided` and `needsReview`; `pendingReview` and `reviewed` are backend-projected summary fields.
+- Reviewed groups are no longer treated as pending decisions, and `requires-decision` groups have no Safe Batch acceptance path.
+- Backend mutation handlers reject unavailable accept/edit actions with stable errors and revalidate source identity, managed scope, proposal, preview, collision, filename, and safety facts before Dry Run/execution.
+- Review-reason derivation no longer interprets `blocking_detail`; it uses stable reason codes and structured preview fields.
+- Content Policy conflict recovery does not auto-resubmit; both authoritative detail and policy are refreshed, with refresh failure preserved as an error.
+
+### Product changes
+
+- Closed Organize reviewed/pending state transitions with `ready`, `requires-decision`, `reviewed`, and `blocked` group readiness.
+- Added fail-closed action eligibility and collision edit handling while retaining item CAS, Operation Preview, Dry Run, journal, and filesystem revalidation boundaries.
+- Added bulk indexed-file projection queries for large Organization Plan groups and Dry Run preparation, preserving the Task 06 100/1k/10k timing gate.
+- Kept the renderer’s review-reason presentation localized through shared i18n and added stable backend error copy for unavailable decisions.
+- Refreshed File Library detail and Content Scope Policy after Content Policy CAS conflicts without creating a second policy authority.
+
+### Files changed
+
+- `src-tauri/src/db/queries/organization.rs`
+- `src/api/browserMockApi.ts`
+- `src/components/AppShell.tsx`
+- `src/i18n.ts`
+- `src/types/domain.ts`
+- `src/views/organize/OrganizeSuggestionsView.tsx`
+- `src/views/overview/overviewModel.ts`
+- `src/views/vault/VaultView.tsx`
+- `src/views/vault/components/ContentUnderstandingSheet.tsx`
+- `tests/contentIndependentReview.test.tsx`
+- `tests/fileLibraryV2.test.ts`
+- `tests/organizeIndependentReview.test.tsx`
+- `tests/organizeV43.test.ts`
+- `tests/overviewSettingsPr10.test.ts`
+- `docs/qa/UI_UX_V4_3_FINAL_QA.md`
+- `docs/design/UI_UX_V4_3_EXECUTION.md`
+
+### Focused and full validation
+
+- `npm.cmd run typecheck` — passed.
+- `npm.cmd test -- tests/contentIndependentReview.test.tsx tests/organizeIndependentReview.test.tsx tests/organizeV43.test.ts tests/overviewSettingsPr10.test.ts --reporter=dot` — passed: 4 files, 21 tests.
+- `npm.cmd run test:remediation` — passed: 13 tests.
+- `cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime --lib db::queries::organization::tests::performance_task06_plan_100_1k_10k_repository -- --ignored --exact --test-threads=1` — passed.
+- `npm.cmd run test:performance` — passed in 595.9s with the required 100k/1M profiles.
+- `npm.cmd run build` — passed with the Windows release compile and NSIS package.
+- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` — passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime -- --test-threads=1` — passed: all 587 Rust library tests plus integration/doc targets.
+- `cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings` — passed.
+- `npm.cmd run verify:rust` — its parallel full-test phase reproduced the existing timing-sensitive PDF resource-limit assertion; the full Rust suite passed single-threaded and the focused exact PDF rerun passed. This remains a test-environment timing issue, not a production-code bypass.
+- `npm.cmd run verify:security` — passed.
+- `git diff --check` and `npm.cmd run test:docs` — to be recorded after this execution-document update.
+
+### Visual verification
+
+The local browser preview rendered Organize Files in Light Chinese, Dark Chinese, Light English, and Dark English, including the empty-plan state and its Preview/explicit-confirmation copy. A 980×680 dark-Chinese render remained usable with one page heading and no visible overflow; browser console error logs were empty. The browser mock cannot prove native Tauri Content Understanding conflict handling, focus restoration, DPI/high-contrast, screen-reader, macOS, or remote CI behavior.
+
+### Acceptance criteria
+
+- Organization Plan remains the only Organize review authority and authoritative counts do not come from the loaded page.
+- Backend action eligibility is fail-closed, CAS-protected, and still funnels approved operations through Preview, Dry Run, journal, and execution revalidation.
+- Content Policy conflicts refresh authoritative state without automatic resubmission.
+- Stable review reasons are structured, localized, and independent of blocking-detail prose.
+- Existing Safe Trash, Restore, consent, advisory-AI, no-overwrite, and no-automatic-mutation boundaries remain intact.
+
+### Deferred or unverified
+
+The parallel PDF test timing issue, native Tauri lifecycle, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver and package, remote CI, signed artifacts, checksum/tag/release, and independent GitHub review remain unverified. No PR, merge, tag, release, or force push is part of this pass.
+
+### Risks requiring human review
+
+Reviewers should exercise Organization Plan source/proposal/preview changes between review and execution, target-collision edit flows, Content Policy CAS recovery, and the native accessibility/platform matrix. The 10k performance gate should be rerun on the review environment if its filesystem or CPU profile differs materially.
+
 ## 6. Codex continuous-execution rule
 
 Codex may continue automatically from one V4.3 stage to the next only when:

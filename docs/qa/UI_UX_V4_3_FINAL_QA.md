@@ -25,11 +25,11 @@ All commands below were run from `F:\Coding\Zen-Canvas`.
 | Command | Result |
 | --- | --- |
 | `npm.cmd run typecheck` | Passed. |
-| `npm.cmd test` | Passed: 89 files, 563 tests. The final run includes the mounted independent-review behavior tests and the refreshed Organize static contract. |
+| `npm.cmd test` | Passed: 89 files, 569 tests. The final run includes the mounted second-round independent-review behavior tests and the refreshed Organize static contract. |
 | `npm.cmd run test:remediation` | Passed: 1 file, 13 tests. |
-| `npm.cmd run test:performance` | Passed in 473.6s from final remediation HEAD. Architecture guard, bounded library tests, SQLite/FTS, Global Search 100k, managed scan 100k, migration, Analysis, Dedupe, File Library 100k/1M, Organization Plan, and Rule Proposal performance profiles completed. |
+| `npm.cmd run test:performance` | Passed in 595.9s from the second-round remediation HEAD. Architecture guard, bounded library tests, SQLite/FTS, Global Search 100k, managed scan 100k, migration, Analysis, Dedupe, File Library 100k/1M, Organization Plan, and Rule Proposal performance profiles completed. |
 | `npm.cmd run build` | Passed. Vite, Windows release compile, and NSIS installer generation completed. Installer: `F:\CargoTarget\release\bundle\nsis\Zen Canvas_0.1.40_x64-setup.exe`. |
-| `npm.cmd run verify:rust` | Passed on the final retry: Rust format, 585 library test cases (576 passed, 9 ignored), integration/doc tests, and Clippy with `-D warnings`. Earlier parallel runs exposed only existing timing-sensitive test failures; each was green in exact single-threaded reruns and the final full run. |
+| `npm.cmd run verify:rust` | Format and Clippy with `-D warnings` passed. The parallel full test phase reproduced the existing timing-sensitive PDF resource-limit failure (`content_extractor_timeout` versus the expected stable error code); the full 587-test Rust suite passed with `-- --test-threads=1`, as did the focused exact rerun. |
 | `npm.cmd run verify:security` | Passed. npm audit found 0 vulnerabilities. `cargo audit` reported 15 existing allowed unmaintained/unsound warnings and no failing vulnerability result. |
 | `git diff --check` | Passed for the final working diff. |
 | `npm.cmd run test:docs` | Passed for the final documentation diff. |
@@ -153,3 +153,49 @@ The final command results in this document are refreshed from the final remediat
 ### Review-specific limits
 
 The browser preview does not prove native Tauri lifecycle, Windows DPI/High Contrast/Narrator, macOS Retina/VoiceOver, macOS build/package, remote CI, signed artifacts, checksums, tag/release, or GitHub review results. Those remain explicitly unverified until exercised by the appropriate human or CI workflow.
+
+## Independent Review Remediation — second-round closure
+
+Date: 2026-08-02
+
+This section records the second independent-review remediation pass. It preserves the accepted V4.3 baseline and the existing durable authorities; no schema 35, second ledger, second queue, alternate mutation authority, or automatic file-mutation path was added.
+
+### Findings closed
+
+| Finding | Closure and authority | Evidence |
+| --- | --- | --- |
+| Reviewed Organize items could remain in pending counts or appear actionable | Organization Plan now projects `pendingReview` and `reviewed` separately. `requires-decision` groups remain in Needs My Decision; reviewed groups are shown in Plan and are not counted as pending. Overview and App Shell consume the backend summary rather than adding loaded-page counts. | `organization.rs`; `OrganizeSuggestionsView.tsx`; `overviewModel.ts`; `AppShell.tsx`; `tests/organizeIndependentReview.test.tsx`; `tests/overviewSettingsPr10.test.ts`. |
+| Renderer could accept an item that backend safety facts reject | Backend action eligibility is authoritative. Accept/edit decisions use stable unavailable-action errors, revalidate current source/proposal/managed scope/preview facts, and preserve item CAS, Preview, Dry Run, journal, and execution gates. Target collisions can enter the edited-name review path only when the backend marks that path available. | `organization.rs`; `browserMockApi.ts`; `tests/organizeIndependentReview.test.tsx`; `tests/fileLibraryV2.test.ts`. |
+| Content Policy revision conflicts could leave stale detail or silently retry | Policy/content mutations refresh both File Library detail and Content Scope Policy after a CAS conflict. There is no automatic re-submit; refresh failure preserves the actionable conflict/error state. | `ContentUnderstandingSheet.tsx`; `VaultView.tsx`; `tests/contentIndependentReview.test.tsx`. |
+| Review reasons could depend on unstable blocking text | Review reasons are emitted from stable backend reason codes and structured preview fields. The renderer localizes those codes through shared i18n and does not parse `blocking_detail`. | `organization.rs`; `domain.ts`; `OrganizeSuggestionsView.tsx`; `i18n.ts`; `tests/organizeIndependentReview.test.tsx`. |
+| Organization projection changes could regress the 10k performance gate | Large-plan group projection and dry-run loading use bounded bulk indexed-file queries. The existing 100/1k/10k Task 06 performance profile remains green with the original timing thresholds. | `organization.rs`; `npm.cmd run test:performance`; focused ignored Task 06 test. |
+
+### Second-round validation
+
+- `npm.cmd run typecheck` — passed.
+- `npm.cmd test` — passed: 89 files, 569 tests.
+- `npm.cmd run test:remediation` — passed: 1 file, 13 tests.
+- `npm.cmd run test:performance` — passed in 595.9s, including the required 100k/1M-scale profiles and Task 06 100/1k/10k Organization Plan thresholds.
+- `npm.cmd run build` — passed with Vite, Windows release compile, and NSIS packaging.
+- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` — passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml --features desktop-runtime -- --test-threads=1` — passed: the full 587-test Rust suite and integration/doc test targets completed successfully.
+- `cargo clippy --manifest-path src-tauri/Cargo.toml --features desktop-runtime --all-targets -- -D warnings` — passed.
+- `npm.cmd run verify:rust` — the script's parallel Rust test phase reproduced the existing timing-sensitive PDF resource-limit failure; the full suite passed single-threaded and the focused exact PDF test passed. No production code was changed to mask the timing issue.
+- `npm.cmd run verify:security` — passed: npm audit clean; cargo audit reported only the existing allowed advisories.
+- `git diff --check` and `npm.cmd run test:docs` — final results are recorded after this documentation update.
+
+### Mounted and visual evidence
+
+Mounted React tests cover reviewed/pending state closure, backend action eligibility, collision edit behavior, stable error handling, and Content Policy conflict refresh. The browser preview rendered Organize Files in Light Chinese, Dark Chinese, Light English, and Dark English; the current empty-plan state had one page heading, preserved the Preview/explicit-confirmation safety copy, and remained usable at 980×680. The preview reported no console errors. Native Tauri Content Understanding, focus restoration, DPI, high-contrast, screen-reader, macOS, and remote CI behavior remain unverified.
+
+### Acceptance
+
+- Organization Plan remains the only Organize review authority; no renderer global count or second ledger was added.
+- Backend action eligibility remains fail-closed and item-CAS protected; no direct filesystem mutation path was introduced.
+- Content Policy CAS conflicts refresh authoritative state without automatic resubmission.
+- Review reasons are stable, structured, localized, and independent of blocking-detail prose.
+- Existing Preview, Dry Run, journal, Safe Trash, Restore, and AI-advisory boundaries remain intact.
+
+### Risks requiring human review
+
+Reviewers should exercise native Organization Plan revision conflicts, source/proposal changes between review and execution, Content Policy conflict recovery, target-collision rename flows, and the platform/accessibility matrix. The parallel PDF test timing issue should be triaged separately; its stable single-threaded result is green.
