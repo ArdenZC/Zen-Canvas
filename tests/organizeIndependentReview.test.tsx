@@ -208,7 +208,7 @@ describe("Organize independent review behavior", () => {
       executionResult: null,
       loadPlans: vi.fn(async () => undefined),
       openPlan: vi.fn(async () => undefined),
-      refreshPlan: vi.fn(async () => undefined)
+      refreshPlan: vi.fn(async () => ({ applied: true as const, value: plan }))
     });
     acceptedReview = false;
     apiMocks.queryOrganizationPlanGroupItems.mockImplementation(async (request: { groupId?: string }) => ({
@@ -472,5 +472,29 @@ describe("Organize independent review behavior", () => {
     await act(async () => refresh.click());
     expect(useOrganizationPlanStore.getState().refreshPlan).toHaveBeenCalledOnce();
     expect(apiMocks.updateOrganizationPlanGroupDecision).toHaveBeenCalledOnce();
+  });
+
+  it("does not continue a mounted Plan A item mutation after the user switches to Plan B", async () => {
+    const planB: OrganizationPlan = { ...plan, id: "plan-b", title: "Plan B", revision: 9 };
+    const groupB: OrganizationPlanGroupSummary = { ...readyGroup, planId: planB.id, groupId: "group-b", revision: planB.revision };
+    let resolveMutation: (value: OrganizationPlan) => void = () => undefined;
+    apiMocks.updateOrganizationPlanDecisions.mockImplementation(() => new Promise<OrganizationPlan>((resolve) => { resolveMutation = resolve; }));
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    await act(async () => button("需要我决定").click());
+    await act(async () => container.querySelector<HTMLElement>(`[data-organize-group-row="${reviewGroup.groupId}"]`)?.click());
+    await flush();
+    await act(async () => button("接受此建议").click());
+    await act(async () => button("确认接受建议").click());
+    await flush();
+
+    useOrganizationPlanStore.setState({ activePlan: planB, plans: [plan, planB], groups: [groupB], groupNextCursor: null, groupHasMore: false, isMutating: false });
+    resolveMutation(updatedPlan());
+    await flush();
+
+    expect(apiMocks.queryOrganizationPlanGroups).not.toHaveBeenCalledWith({ planId: plan.id, pageSize: 100, cursor: null });
+    expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(planB.id);
+    expect(container.textContent).not.toContain("建议或安全预览加载失败，请重试。");
   });
 });

@@ -13,6 +13,10 @@ import { readableError } from "../utils/viewHelpers";
 
 type DurableDecision = "accepted" | "kept" | "edited" | "undecided";
 
+export type OrganizationMutationResult<T = void> =
+  | { applied: true; value?: T }
+  | { applied: false; value?: T; reason: "superseded" };
+
 interface OrganizationPlanState {
   plans: OrganizationPlan[];
   activePlan: OrganizationPlan | null;
@@ -27,17 +31,18 @@ interface OrganizationPlanState {
   error: string | null;
   requestEpoch: number;
   mutationToken: number;
+  groupRequestEpoch: number;
   loadPlans: () => Promise<void>;
-  createPlan: (source: LibrarySelectionV1, expectedCount: number, title?: string) => Promise<OrganizationPlan>;
+  createPlan: (source: LibrarySelectionV1, expectedCount: number, title?: string) => Promise<OrganizationMutationResult<OrganizationPlan>>;
   openPlan: (planId: string) => Promise<void>;
-  loadNextGroupPage: () => Promise<void>;
-  updateGroupDecision: (group: OrganizationPlanGroupSummary, decision: "accepted" | "kept" | "undecided") => Promise<void>;
-  updateDecision: (item: OrganizationPlanItem, decision: DurableDecision, editedFilename?: string) => Promise<void>;
-  refreshPlan: () => Promise<void>;
-  analyzeMissing: (itemIds?: string[]) => Promise<number>;
-  createDryRun: (selection?: OrganizationPlanSelection) => Promise<OrganizationPlanDryRun>;
-  executeDryRun: () => Promise<ExecuteOrganizationPlanResult>;
-  cancelPlan: () => Promise<void>;
+  loadNextGroupPage: () => Promise<OrganizationMutationResult<void>>;
+  updateGroupDecision: (group: OrganizationPlanGroupSummary, decision: "accepted" | "kept" | "undecided") => Promise<OrganizationMutationResult<void>>;
+  updateDecision: (item: OrganizationPlanItem, decision: DurableDecision, editedFilename?: string) => Promise<OrganizationMutationResult<OrganizationPlan>>;
+  refreshPlan: () => Promise<OrganizationMutationResult<OrganizationPlan>>;
+  analyzeMissing: (itemIds?: string[]) => Promise<OrganizationMutationResult<number>>;
+  createDryRun: (selection?: OrganizationPlanSelection) => Promise<OrganizationMutationResult<OrganizationPlanDryRun>>;
+  executeDryRun: () => Promise<OrganizationMutationResult<ExecuteOrganizationPlanResult>>;
+  cancelPlan: () => Promise<OrganizationMutationResult<OrganizationPlan>>;
   clearError: () => void;
 }
 
@@ -49,18 +54,45 @@ function replacePlan(plans: OrganizationPlan[], plan: OrganizationPlan) {
 function ownsPlanMutation(
   getState: () => OrganizationPlanState,
   planId: string,
+  planRevision: number,
   requestEpoch: number,
   mutationToken: number
 ) {
   const state = getState();
   return state.requestEpoch === requestEpoch
     && state.mutationToken === mutationToken
-    && state.activePlan?.id === planId;
+    && state.activePlan?.id === planId
+    && state.activePlan.revision === planRevision;
 }
 
 function ownsMutation(getState: () => OrganizationPlanState, requestEpoch: number, mutationToken: number) {
   const state = getState();
   return state.requestEpoch === requestEpoch && state.mutationToken === mutationToken;
+}
+
+function applied<T>(value?: T): OrganizationMutationResult<T> {
+  return value === undefined ? { applied: true } : { applied: true, value };
+}
+
+function superseded<T>(value?: T): OrganizationMutationResult<T> {
+  return value === undefined ? { applied: false, reason: "superseded" } : { applied: false, value, reason: "superseded" };
+}
+
+function ownsGroupPage(
+  getState: () => OrganizationPlanState,
+  request: { groupRequestEpoch: number; requestEpoch: number; mutationToken: number; planId: string; planRevision: number; cursor: string }
+) {
+  const state = getState();
+  return state.groupRequestEpoch === request.groupRequestEpoch
+    && state.requestEpoch === request.requestEpoch
+    && state.mutationToken === request.mutationToken
+    && state.activePlan?.id === request.planId
+    && state.activePlan.revision === request.planRevision
+    && state.groupNextCursor === request.cursor;
+}
+
+function matchesGroupPage(page: { planId: string; planRevision: number }, planId: string, planRevision: number) {
+  return page.planId === planId && page.planRevision === planRevision;
 }
 
 export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get) => ({
@@ -77,6 +109,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   error: null,
   requestEpoch: 0,
   mutationToken: 0,
+  groupRequestEpoch: 0,
 
   loadPlans: async () => {
     set({ isLoading: true, error: null });
@@ -99,7 +132,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         source,
         expectedCount
       });
-      if (!ownsMutation(get, requestEpoch, mutationToken)) return plan;
+      if (!ownsMutation(get, requestEpoch, mutationToken)) return superseded(plan);
       set((state) => ({
         plans: replacePlan(state.plans, plan),
         activePlan: plan,
@@ -112,22 +145,28 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         isMutating: false
       }));
       await get().openPlan(plan.id);
-      return plan;
+      if (get().activePlan?.id !== plan.id) return superseded(plan);
+      return applied(plan);
     } catch (error) {
-      if (ownsMutation(get, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
-      throw error;
+      if (ownsMutation(get, requestEpoch, mutationToken)) {
+        set({ isMutating: false, error: readableError(error) });
+        throw error;
+      }
+      return superseded();
     }
   },
 
   openPlan: async (planId) => {
     const epoch = get().requestEpoch + 1;
-    set({ requestEpoch: epoch, isLoading: true, isMutating: false, error: null, groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null });
+    const groupRequestEpoch = get().groupRequestEpoch + 1;
+    set({ requestEpoch: epoch, groupRequestEpoch, isLoading: true, isMutating: false, error: null, groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null });
     try {
       const [plan, groupPage] = await Promise.all([
         tauriApi.getOrganizationPlan(planId),
         tauriApi.queryOrganizationPlanGroups({ planId, pageSize: 100, cursor: null })
       ]);
       if (epoch !== get().requestEpoch) return;
+      if (!matchesGroupPage(groupPage, planId, plan.revision)) throw new Error("organization_group_page_stale");
       const projectedPlan = { ...plan, effectiveSummary: groupPage.effectiveSummary };
       set((state) => ({
         activePlan: projectedPlan,
@@ -143,30 +182,44 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   },
 
   loadNextGroupPage: async () => {
-    const { activePlan, groupNextCursor, groupHasMore, isLoading, requestEpoch } = get();
-    if (!activePlan || !groupNextCursor || !groupHasMore || isLoading) return;
-    set({ isLoading: true, error: null });
+    const state = get();
+    const { activePlan, groupNextCursor, groupHasMore, isLoading } = state;
+    if (!activePlan || !groupNextCursor || !groupHasMore || isLoading) return superseded();
+    const request = {
+      groupRequestEpoch: state.groupRequestEpoch + 1,
+      requestEpoch: state.requestEpoch,
+      mutationToken: state.mutationToken,
+      planId: activePlan.id,
+      planRevision: activePlan.revision,
+      cursor: groupNextCursor
+    };
+    set({ groupRequestEpoch: request.groupRequestEpoch, isLoading: true, error: null });
     try {
       const page = await tauriApi.queryOrganizationPlanGroups({
-        planId: activePlan.id,
+        planId: request.planId,
         pageSize: 100,
-        cursor: groupNextCursor
+        cursor: request.cursor
       });
-      if (requestEpoch !== get().requestEpoch) return;
+      if (!ownsGroupPage(get, request) || !matchesGroupPage(page, request.planId, request.planRevision)) return superseded();
       set((state) => ({
         groups: [...state.groups, ...page.groups],
         groupNextCursor: page.nextCursor,
         groupHasMore: page.hasMore,
         isLoading: false
       }));
+      return applied();
     } catch (error) {
-      set({ isLoading: false, error: readableError(error) });
+      if (ownsGroupPage(get, request)) {
+        set({ isLoading: false, error: readableError(error) });
+        throw error;
+      }
+      return superseded();
     }
   },
 
   updateGroupDecision: async (group, decision) => {
     const plan = get().activePlan;
-    if (!plan) return;
+    if (!plan) return superseded();
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
     set({ isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null });
@@ -179,17 +232,21 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         expectedItemCount: group.itemCount,
         decision
       });
-      if (!ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) return;
+      if (!ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) return superseded();
       await get().openPlan(plan.id);
+      return applied();
     } catch (error) {
-      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
-      throw error;
+      if (ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) {
+        set({ isMutating: false, error: readableError(error) });
+        throw error;
+      }
+      return superseded();
     }
   },
 
   updateDecision: async (item, decision, editedFilename) => {
     const plan = get().activePlan;
-    if (!plan) return;
+    if (!plan) return superseded();
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
     set({ isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null });
@@ -204,9 +261,10 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
           editedFilename: editedFilename ?? null
         }]
       });
-      if (!ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) return;
+      if (!ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) return superseded(updatedPlan);
       const groupPage = await tauriApi.queryOrganizationPlanGroups({ planId: updatedPlan.id, pageSize: 100, cursor: null });
-      if (!ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) return;
+      if (!ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) return superseded(updatedPlan);
+      if (!matchesGroupPage(groupPage, updatedPlan.id, updatedPlan.revision)) throw new Error("organization_group_page_stale");
       const projectedPlan = { ...updatedPlan, effectiveSummary: groupPage.effectiveSummary };
       set((state) => ({
         activePlan: projectedPlan,
@@ -214,36 +272,46 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         groups: groupPage.groups,
         groupNextCursor: groupPage.nextCursor,
         groupHasMore: groupPage.hasMore,
+        groupRequestEpoch: state.groupRequestEpoch + 1,
         isMutating: false
       }));
+      return applied(updatedPlan);
     } catch (error) {
-      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
-      throw error;
+      if (ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) {
+        set({ isMutating: false, error: readableError(error) });
+        throw error;
+      }
+      return superseded();
     }
   },
 
   refreshPlan: async () => {
     const plan = get().activePlan;
-    if (!plan) return;
+    if (!plan) return superseded();
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
-    set({ isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null });
+    set({ isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null, groupRequestEpoch: get().groupRequestEpoch + 1 });
     try {
       const updated = await tauriApi.refreshOrganizationPlan({
         planId: plan.id,
         expectedPlanRevision: plan.revision
       });
-      if (!ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) return;
+      if (!ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) return superseded(updated);
       set((state) => ({ activePlan: updated, plans: replacePlan(state.plans, updated), isMutating: false }));
       await get().openPlan(updated.id);
+      return applied(updated);
     } catch (error) {
-      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
+      if (ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) {
+        set({ isMutating: false, error: readableError(error) });
+        throw error;
+      }
+      return superseded();
     }
   },
 
   analyzeMissing: async (itemIds = []) => {
     const plan = get().activePlan;
-    if (!plan) return 0;
+    if (!plan) return superseded(0);
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
     set({ isMutating: true, mutationToken, error: null });
@@ -253,11 +321,15 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         expectedPlanRevision: plan.revision,
         itemIds
       });
-      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false });
-      return result.queuedCount;
+      if (!ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) return superseded(result.queuedCount);
+      set({ isMutating: false });
+      return applied(result.queuedCount);
     } catch (error) {
-      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
-      return 0;
+      if (ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) {
+        set({ isMutating: false, error: readableError(error) });
+        throw error;
+      }
+      return superseded(0);
     }
   },
 
@@ -278,12 +350,15 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         itemIds: persistedSelection.itemIds,
         allAccepted: persistedSelection.allAccepted
       });
-      if (!ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) return dryRun;
+      if (!ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) return superseded(dryRun);
       set({ dryRun, dryRunSelection: persistedSelection, isMutating: false });
-      return dryRun;
+      return applied(dryRun);
     } catch (error) {
-      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
-      throw error;
+      if (ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) {
+        set({ isMutating: false, error: readableError(error) });
+        throw error;
+      }
+      return superseded();
     }
   },
 
@@ -303,7 +378,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         allAccepted: dryRunSelection.allAccepted,
         confirmed: true
       });
-      if (!ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) return result;
+      if (!ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) return superseded(result);
       set((state) => ({
         executionResult: result,
         activePlan: result.plan,
@@ -315,16 +390,19 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
       const refreshEpoch = get().requestEpoch + 1;
       await get().openPlan(result.plan.id);
       if (get().requestEpoch === refreshEpoch && get().mutationToken === mutationToken && get().activePlan?.id === result.plan.id) set({ executionResult: result });
-      return result;
+      return applied(result);
     } catch (error) {
-      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
-      throw error;
+      if (ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) {
+        set({ isMutating: false, error: readableError(error) });
+        throw error;
+      }
+      return superseded();
     }
   },
 
   cancelPlan: async () => {
     const plan = get().activePlan;
-    if (!plan) return;
+    if (!plan) return superseded();
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
     set({ isMutating: true, mutationToken, error: null });
@@ -333,11 +411,16 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         planId: plan.id,
         expectedPlanRevision: plan.revision
       });
-      if (!ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) return;
+      if (!ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) return superseded(updated);
       set((state) => ({ activePlan: updated, plans: replacePlan(state.plans, updated) }));
       await get().openPlan(updated.id);
+      return applied(updated);
     } catch (error) {
-      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
+      if (ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) {
+        set({ isMutating: false, error: readableError(error) });
+        throw error;
+      }
+      return superseded();
     }
   },
 

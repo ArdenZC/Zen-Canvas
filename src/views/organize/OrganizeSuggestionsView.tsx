@@ -39,6 +39,29 @@ export function organizationExecutionBatchSummary(executableCount: number, execu
 
 type ReviewTab = "plan" | "decision" | "blocked";
 
+type ItemAcceptanceConfirmation = {
+  planId: string;
+  planRevision: number;
+  itemId: string;
+  item: OrganizationPlanItem;
+};
+
+type GroupAcceptanceConfirmation = {
+  planId: string;
+  planRevision: number;
+  groupId: string;
+  group: OrganizationPlanGroupSummary;
+};
+
+type ExecutionConfirmation = {
+  planId: string;
+  planRevision: number;
+  dryRunFingerprint: string;
+  batch: ReturnType<typeof organizationExecutionBatchSummary>;
+};
+
+type ConfirmedExecutionBatch = ExecutionConfirmation;
+
 export function OrganizeSuggestionsView() {
   const { setView, t } = useChromeContext();
   const plans = useOrganizationPlanStore((state) => state.plans);
@@ -79,21 +102,38 @@ export function OrganizeSuggestionsView() {
   const [editedName, setEditedName] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [planTitle, setPlanTitle] = useState("");
-  const [confirmExecution, setConfirmExecution] = useState(false);
-  const [confirmedExecutionBatch, setConfirmedExecutionBatch] = useState<ReturnType<typeof organizationExecutionBatchSummary> | null>(null);
-  const [confirmItemAcceptance, setConfirmItemAcceptance] = useState<OrganizationPlanItem | null>(null);
-  const [confirmGroupAcceptance, setConfirmGroupAcceptance] = useState<OrganizationPlanGroupSummary | null>(null);
+  const [executionConfirmation, setExecutionConfirmation] = useState<ExecutionConfirmation | null>(null);
+  const [confirmedExecutionBatch, setConfirmedExecutionBatch] = useState<ConfirmedExecutionBatch | null>(null);
+  const [confirmItemAcceptance, setConfirmItemAcceptance] = useState<ItemAcceptanceConfirmation | null>(null);
+  const [confirmGroupAcceptance, setConfirmGroupAcceptance] = useState<GroupAcceptanceConfirmation | null>(null);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
   const [reviewActionNeedsRefresh, setReviewActionNeedsRefresh] = useState(false);
   const groupListRef = useRef<HTMLDivElement | null>(null);
   const groupRequestEpoch = useRef(0);
+  const activeGroupIdRef = useRef<string | null>(null);
+  const activeItemIdRef = useRef<string | null>(null);
 
   useEffect(() => {
-    void loadPlans();
+    activeGroupIdRef.current = activeGroupId;
+  }, [activeGroupId]);
+
+  useEffect(() => {
+    activeItemIdRef.current = activeItemId;
+  }, [activeItemId]);
+
+  useEffect(() => {
+    setConfirmItemAcceptance((current) => current && (!plan || current.planId !== plan.id || current.planRevision !== plan.revision) ? null : current);
+    setConfirmGroupAcceptance((current) => current && (!plan || current.planId !== plan.id || current.planRevision !== plan.revision) ? null : current);
+    setExecutionConfirmation((current) => current && (!plan || current.planId !== plan.id || current.planRevision !== plan.revision || current.dryRunFingerprint !== dryRun?.dryRunFingerprint) ? null : current);
+    setConfirmedExecutionBatch((current) => current && (!plan || current.planId !== plan.id || current.planRevision !== plan.revision || current.dryRunFingerprint !== dryRun?.dryRunFingerprint) ? null : current);
+  }, [dryRun?.dryRunFingerprint, plan?.id, plan?.revision]);
+
+  useEffect(() => {
+    void loadPlans().catch(() => undefined);
   }, [loadPlans]);
 
   useEffect(() => {
-    if (!plan && plans[0]) void openPlan(plans[0].id);
+    if (!plan && plans[0]) void openPlan(plans[0].id).catch(() => undefined);
   }, [openPlan, plan, plans]);
 
   const activeGroup = groups.find((group) => group.groupId === activeGroupId) ?? null;
@@ -121,30 +161,46 @@ export function OrganizeSuggestionsView() {
     ? `organization-group-${activeGroupId}`
     : undefined;
 
-  const loadGroupItems = useCallback(async (groupId: string, cursor: string | null = null, append = false) => {
-    if (!plan) return;
+  const loadGroupItems = useCallback(async (
+    requestedPlanId: string,
+    requestedPlanRevision: number,
+    groupId: string,
+    cursor: string | null = null,
+    append = false
+  ) => {
     const epoch = ++groupRequestEpoch.current;
+    const ownsRequest = (page?: { planId: string; groupId: string; planRevision: number }) => {
+      const currentPlan = useOrganizationPlanStore.getState().activePlan;
+      return epoch === groupRequestEpoch.current
+        && currentPlan?.id === requestedPlanId
+        && currentPlan.revision === requestedPlanRevision
+        && (!page || (page.planId === requestedPlanId && page.groupId === groupId && page.planRevision === requestedPlanRevision));
+    };
+    if (!ownsRequest()) return;
     setGroupItemsLoading(true);
     setGroupItemsError(null);
     try {
       const page = await tauriApi.queryOrganizationPlanGroupItems({
-        planId: plan.id,
+        planId: requestedPlanId,
         groupId,
         cursor,
         pageSize: GROUP_PAGE_SIZE
       });
-      if (epoch !== groupRequestEpoch.current) return;
+      if (!ownsRequest(page)) return;
       setGroupItems((current) => append ? [...current, ...page.items] : page.items);
       setGroupItemsCursor(page.nextCursor);
       setGroupItemsHasMore(page.hasMore);
-      setActiveItemId((current) => page.items.some((item) => item.id === current) ? current : page.items[0]?.id ?? null);
+      setActiveItemId((current) => {
+        if (append) return current ?? page.items[0]?.id ?? null;
+        return page.items.some((item) => item.id === current) ? current : page.items[0]?.id ?? null;
+      });
       setGroupItemsLoading(false);
     } catch {
-      if (epoch !== groupRequestEpoch.current) return;
+      if (!ownsRequest()) return;
       setGroupItemsLoading(false);
       setGroupItemsError(t("organizeLoadFailedDesc"));
     }
-  }, [plan, t]);
+  }, [t]);
 
   useEffect(() => {
     if (!activeGroup) {
@@ -156,26 +212,33 @@ export function OrganizeSuggestionsView() {
       setActiveItemId(null);
       return;
     }
-    void loadGroupItems(activeGroup.groupId);
-  }, [activeGroup?.groupId, loadGroupItems]);
+    if (!plan) return;
+    void loadGroupItems(plan.id, plan.revision, activeGroup.groupId).catch(() => undefined);
+  }, [activeGroup?.groupId, loadGroupItems, plan?.id, plan?.revision]);
 
   useEffect(() => {
-    if (activeGroupId && !groups.some((group) => group.groupId === activeGroupId)) setActiveGroupId(null);
+    if (activeGroupId && !groups.some((group) => group.groupId === activeGroupId)) {
+      activeGroupIdRef.current = null;
+      setActiveGroupId(null);
+    }
   }, [activeGroupId, groups]);
 
   useEffect(() => {
-    if (activeGroupId && !visibleGroups.some((group) => group.groupId === activeGroupId)) setActiveGroupId(null);
+    if (activeGroupId && !visibleGroups.some((group) => group.groupId === activeGroupId)) {
+      activeGroupIdRef.current = null;
+      setActiveGroupId(null);
+    }
   }, [activeGroupId, visibleGroups]);
 
   useEffect(() => {
     if (visibleGroups.length || !groupHasMore || !groupNextCursor || isLoading) return;
-    void loadNextGroupPage();
+    void loadNextGroupPage().catch(() => undefined);
   }, [groupHasMore, groupNextCursor, isLoading, loadNextGroupPage, visibleGroups.length]);
 
   useEffect(() => {
     const last = virtualRows.at(-1);
     if (last && groupHasMore && groupNextCursor && last.index >= visibleGroups.length - 8 && !isLoading) {
-      void loadNextGroupPage();
+      void loadNextGroupPage().catch(() => undefined);
     }
   }, [groupHasMore, groupNextCursor, isLoading, loadNextGroupPage, visibleGroups.length, virtualRows]);
 
@@ -207,8 +270,12 @@ export function OrganizeSuggestionsView() {
       setView("library");
       return;
     }
-    await createPlan(source.source, source.expectedCount, planTitle);
-    setPlanTitle("");
+    try {
+      const result = await createPlan(source.source, source.expectedCount, planTitle);
+      if (result.applied) setPlanTitle("");
+    } catch (error) {
+      if (useOrganizationPlanStore.getState().activePlan?.id === plan?.id) setReviewActionError(organizeActionError(error, t));
+    }
   }
 
   function handleGroupKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -223,17 +290,20 @@ export function OrganizeSuggestionsView() {
     else if (event.key === "PageUp") nextIndex = Math.max(0, index - 5);
     else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
+      activeGroupIdRef.current = visibleGroups[index]?.groupId ?? null;
       setActiveGroupId(visibleGroups[index]?.groupId ?? null);
       return;
     } else return;
     event.preventDefault();
     const next = visibleGroups[nextIndex];
+    activeGroupIdRef.current = next.groupId;
     setActiveGroupId(next.groupId);
     virtualizer.scrollToIndex(nextIndex, { align: "auto" });
   }
 
   async function handleGroupDecision(group: OrganizationPlanGroupSummary, decision: "accepted" | "kept" | "undecided", confirmed = false) {
-    if (!canReview) return;
+    const requestedPlan = useOrganizationPlanStore.getState().activePlan;
+    if (!canReview || !requestedPlan || group.planId !== requestedPlan.id || group.revision !== requestedPlan.revision) return;
     const available = decision === "accepted"
       ? group.groupActions.canAcceptAll
       : decision === "kept"
@@ -241,27 +311,37 @@ export function OrganizeSuggestionsView() {
         : group.groupActions.canClearAll;
     if (!available) return;
     if (decision === "accepted" && group.readiness === "requires-decision" && !confirmed) {
-      setConfirmGroupAcceptance(group);
+      setConfirmGroupAcceptance({ planId: requestedPlan.id, planRevision: requestedPlan.revision, groupId: group.groupId, group });
       return;
     }
     setReviewActionError(null);
     setReviewActionNeedsRefresh(false);
     try {
-      await updateGroupDecision(group, decision);
+      const result = await updateGroupDecision(group, decision);
+      if (result && !result.applied) return;
     } catch (error) {
+      const currentPlan = useOrganizationPlanStore.getState().activePlan;
+      if (currentPlan?.id !== requestedPlan.id || currentPlan.revision !== requestedPlan.revision) return;
       setReviewActionError(organizeActionError(error, t));
       setReviewActionNeedsRefresh(isOrganizationGroupChangedError(error));
     }
   }
 
   async function handleItemDecision(item: OrganizationPlanItem, decision: "accepted" | "kept" | "edited" | "undecided", name?: string): Promise<boolean> {
-    if (!canReview) return false;
+    const requestedPlan = useOrganizationPlanStore.getState().activePlan;
+    const requestedGroupId = activeGroupIdRef.current;
+    if (!canReview || !requestedPlan || item.planId !== requestedPlan.id || !requestedGroupId) return false;
     setEditError(null);
     try {
-      await updateDecision(item, decision, name);
-      if (activeGroup) await loadGroupItems(activeGroup.groupId);
+      const result = await updateDecision(item, decision, name);
+      if (result && !result.applied) return false;
+      const current = useOrganizationPlanStore.getState();
+      if (current.activePlan?.id !== requestedPlan.id || activeGroupIdRef.current !== requestedGroupId) return false;
+      await loadGroupItems(current.activePlan.id, current.activePlan.revision, requestedGroupId);
       return true;
     } catch (error) {
+      const currentPlan = useOrganizationPlanStore.getState().activePlan;
+      if (currentPlan?.id !== requestedPlan.id || activeGroupIdRef.current !== requestedGroupId) return false;
       setEditError(organizeActionError(error, t));
       return false;
     }
@@ -271,36 +351,89 @@ export function OrganizeSuggestionsView() {
     if (!canReview || !item.availableActions.includes("accept_suggestion")) return;
     setEditError(null);
     if (item.validity === "needs_review") {
-      setConfirmItemAcceptance(item);
+      const currentPlan = useOrganizationPlanStore.getState().activePlan;
+      if (currentPlan) setConfirmItemAcceptance({ planId: currentPlan.id, planRevision: currentPlan.revision, itemId: item.id, item });
       return;
     }
-    void handleItemDecision(item, "accepted");
+    void handleItemDecision(item, "accepted").catch(() => undefined);
   }
 
   async function saveEditedName() {
     if (!activeItem) return;
+    const requestedPlanId = plan?.id;
+    const requestedItemId = activeItem.id;
     const validation = validateOrganizeFileNameForOriginal(activeItem.sourceNameSnapshot, editedName);
     if (validation) {
       setEditError(nameErrorCopy(validation, t));
       return;
     }
-    if (await handleItemDecision(activeItem, "edited", editedName.trim())) setEditingItemId(null);
+    if (await handleItemDecision(activeItem, "edited", editedName.trim())
+      && useOrganizationPlanStore.getState().activePlan?.id === requestedPlanId
+      && activeItemIdRef.current === requestedItemId) setEditingItemId(null);
   }
 
   async function reviewExecution() {
-    if (dryRun) {
-      setConfirmExecution(true);
+    const requestedPlan = useOrganizationPlanStore.getState().activePlan;
+    const currentDryRun = useOrganizationPlanStore.getState().dryRun;
+    if (!requestedPlan) return;
+    if (currentDryRun) {
+      setExecutionConfirmation({
+        planId: requestedPlan.id,
+        planRevision: requestedPlan.revision,
+        dryRunFingerprint: currentDryRun.dryRunFingerprint,
+        batch: organizationExecutionBatchSummary(currentDryRun.executableCount, currentDryRun.executionBatchLimit)
+      });
       return;
     }
     setConfirmedExecutionBatch(null);
     try {
-      await createDryRun();
-    } catch {
-      setReviewActionError(t("organizeLoadFailedDesc"));
+      const result = await createDryRun();
+      if (!result.applied) return;
+    } catch (error) {
+      if (useOrganizationPlanStore.getState().activePlan?.id === requestedPlan.id) setReviewActionError(organizeActionError(error, t));
+    }
+  }
+
+  async function handleRefreshPlan() {
+    try {
+      await refreshPlan();
+    } catch (error) {
+      if (useOrganizationPlanStore.getState().activePlan?.id === plan?.id) setReviewActionError(organizeActionError(error, t));
+    }
+  }
+
+  async function handleAnalyzeMissing() {
+    try {
+      await analyzeMissing();
+    } catch (error) {
+      if (useOrganizationPlanStore.getState().activePlan?.id === plan?.id) setReviewActionError(organizeActionError(error, t));
+    }
+  }
+
+  async function handleCancelPlan() {
+    try {
+      await cancelPlan();
+    } catch (error) {
+      if (useOrganizationPlanStore.getState().activePlan?.id === plan?.id) setReviewActionError(organizeActionError(error, t));
+    }
+  }
+
+  async function handleExecuteDryRun(confirmation: ExecutionConfirmation) {
+    const current = useOrganizationPlanStore.getState();
+    if (current.activePlan?.id !== confirmation.planId
+      || current.activePlan.revision !== confirmation.planRevision
+      || current.dryRun?.dryRunFingerprint !== confirmation.dryRunFingerprint) return;
+    try {
+      const result = await executeDryRun();
+      if (result && !result.applied) return;
+    } catch (error) {
+      const latest = useOrganizationPlanStore.getState().activePlan;
+      if (latest?.id === confirmation.planId) setReviewActionError(organizeActionError(error, t));
     }
   }
 
   function openGroup(group: OrganizationPlanGroupSummary) {
+    activeGroupIdRef.current = group.groupId;
     setActiveGroupId(group.groupId);
     setEditError(null);
     setGroupItemsError(null);
@@ -320,7 +453,7 @@ export function OrganizeSuggestionsView() {
               <input id="organization-plan-title" className={cn(inputSurface, "min-h-[var(--zc-control-height-default)] px-3 text-sm")} value={planTitle} onChange={(event) => setPlanTitle(event.target.value)} placeholder={t("organizePlanTitlePlaceholder")} />
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button variant="primary" onClick={() => void handleCreatePlan()}><Plus size={15} aria-hidden="true" />{t("organizeCreatePlanAction")}</Button>
+          <Button variant="primary" onClick={() => void handleCreatePlan().catch(() => undefined)}><Plus size={15} aria-hidden="true" />{t("organizeCreatePlanAction")}</Button>
               <Button variant="secondary" onClick={() => setView("library")}>{t("fileLibrary")}</Button>
             </div>
           </div>
@@ -333,7 +466,7 @@ export function OrganizeSuggestionsView() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
                 <label className="sr-only" htmlFor="organization-plan-selector">{t("organizePlanSelectorLabel")}</label>
-                <select id="organization-plan-selector" className={cn(inputSurface, "min-h-[var(--zc-control-height-compact)] max-w-full min-w-56 px-2 text-sm")} value={plan.id} onChange={(event) => void openPlan(event.target.value)} aria-label={t("organizePlanSelectorLabel")}>
+                <select id="organization-plan-selector" className={cn(inputSurface, "min-h-[var(--zc-control-height-compact)] max-w-full min-w-56 px-2 text-sm")} value={plan.id} onChange={(event) => void openPlan(event.target.value).catch(() => undefined)} aria-label={t("organizePlanSelectorLabel")}>
                   {plans.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
                 </select>
                 <p className="mt-1 text-xs text-[var(--zc-text-secondary)]">{t("organizePlanStatusLine").replace("{status}", planStatusLabel(plan.status, t)).replace("{count}", plan.materializedCount.toLocaleString())}</p>
@@ -342,9 +475,9 @@ export function OrganizeSuggestionsView() {
                 <details className="relative">
                   <summary className={cn(buttonGhost, "cursor-pointer list-none")}>{t("organizePlanActions")} <MoreHorizontal size={14} aria-hidden="true" /></summary>
                   <div className="absolute right-0 z-20 mt-1 grid min-w-52 gap-1 rounded-[var(--zc-radius-field)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-1 shadow-[var(--zc-shadow-floating)]" role="menu">
-                    <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !["stale", "ready", "partially_completed"].includes(plan.status)} onClick={() => void refreshPlan()}><RefreshCw size={14} aria-hidden="true" />{t("organizePlanRefresh")}</Button>
-                    <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !needsAnalysisCount} onClick={() => void analyzeMissing()}><Sparkles size={14} aria-hidden="true" />{t("organizePlanAnalyze")}</Button>
-                    <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !canReview} onClick={() => void cancelPlan()}><X size={14} aria-hidden="true" />{t("organizePlanCancel")}</Button>
+                    <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !["stale", "ready", "partially_completed"].includes(plan.status)} onClick={() => void handleRefreshPlan().catch(() => undefined)}><RefreshCw size={14} aria-hidden="true" />{t("organizePlanRefresh")}</Button>
+                    <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !needsAnalysisCount} onClick={() => void handleAnalyzeMissing().catch(() => undefined)}><Sparkles size={14} aria-hidden="true" />{t("organizePlanAnalyze")}</Button>
+                    <Button variant="ghost" size="compact" className="justify-start" disabled={isMutating || !canReview} onClick={() => void handleCancelPlan().catch(() => undefined)}><X size={14} aria-hidden="true" />{t("organizePlanCancel")}</Button>
                   </div>
                 </details>
                 <Button variant="secondary" size="compact" onClick={() => setView("restore")}><History size={14} aria-hidden="true" />{t("organizeViewHistory")}</Button>
@@ -362,8 +495,8 @@ export function OrganizeSuggestionsView() {
             />
           </section>
 
-          {error ? <NoticeBanner tone="error" title={t("organizeLoadFailedTitle")} action={<Button variant="secondary" size="compact" onClick={() => void openPlan(plan.id)}>{t("organizePlanRefresh")}</Button>}>{t("organizeLoadFailedDesc")}</NoticeBanner> : null}
-          {reviewActionError ? <NoticeBanner tone="warning" title={t("organizeGroupActionFailed")} action={reviewActionNeedsRefresh ? <Button variant="secondary" size="compact" onClick={() => { setReviewActionError(null); setReviewActionNeedsRefresh(false); void refreshPlan(); }}>{t("organizePlanRefresh")}</Button> : <Button variant="ghost" size="compact" onClick={() => setReviewActionError(null)}>{t("close")}</Button>}>{reviewActionError}</NoticeBanner> : null}
+          {error ? <NoticeBanner tone="error" title={t("organizeLoadFailedTitle")} action={<Button variant="secondary" size="compact" onClick={() => void openPlan(plan.id).catch(() => undefined)}>{t("organizePlanRefresh")}</Button>}>{t("organizeLoadFailedDesc")}</NoticeBanner> : null}
+          {reviewActionError ? <NoticeBanner tone="warning" title={t("organizeGroupActionFailed")} action={reviewActionNeedsRefresh ? <Button variant="secondary" size="compact" onClick={() => { setReviewActionError(null); setReviewActionNeedsRefresh(false); void handleRefreshPlan().catch(() => undefined); }}>{t("organizePlanRefresh")}</Button> : <Button variant="ghost" size="compact" onClick={() => setReviewActionError(null)}>{t("close")}</Button>}>{reviewActionError}</NoticeBanner> : null}
 
           <SegmentedControl
             value={activeTab}
@@ -378,7 +511,7 @@ export function OrganizeSuggestionsView() {
 
           <section className="min-h-0 flex-1 overflow-hidden rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] max-[1100px]:min-h-[320px]" data-organize-groups>
             {isLoading && !groups.length ? <DurableTaskStatus state="running" title={t("organizeGroupLoading")} description={t("organizeLoadingSuggestionsDesc")} density="compact" /> : null}
-            {!isLoading && !visibleGroups.length && groupHasMore && groupNextCursor ? <StateBlock tone="info" title={t("organizeGroupLoading")} description={t("organizeLoadingSuggestionsDesc")} primaryAction={<Button variant="secondary" size="compact" onClick={() => void loadNextGroupPage()}>{t("organizeGroupLoadMore")}</Button>} density="compact" /> : null}
+            {!isLoading && !visibleGroups.length && groupHasMore && groupNextCursor ? <StateBlock tone="info" title={t("organizeGroupLoading")} description={t("organizeLoadingSuggestionsDesc")} primaryAction={<Button variant="secondary" size="compact" onClick={() => void loadNextGroupPage().catch(() => undefined)}>{t("organizeGroupLoadMore")}</Button>} density="compact" /> : null}
             {!isLoading && !visibleGroups.length && (!groupHasMore || !groupNextCursor) ? <StateBlock tone={activeTab === "blocked" ? "info" : "neutral"} title={emptyTabTitle(activeTab, t)} description={emptyTabDescription(activeTab, t)} density="compact" /> : null}
             {visibleGroups.length ? (
               <div ref={groupListRef} className="h-full overflow-auto outline-none" role="listbox" tabIndex={0} aria-label={t("organizeGroupListLabel")} aria-activedescendant={mountedActiveId} onKeyDown={handleGroupKeyDown}>
@@ -415,9 +548,9 @@ export function OrganizeSuggestionsView() {
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <span className="min-w-0 truncate text-xs text-[var(--zc-text-tertiary)]">{groupReason(group, t)}</span>
                           <div className="flex shrink-0 flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
-                            {group.groupActions.canAcceptAll ? <Button variant="secondary" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "accepted")}><Check size={13} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
-                            {group.groupActions.canKeepAll ? <Button variant="ghost" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "kept")}><CircleMinus size={13} aria-hidden="true" />{t("organizeGroupKeep")}</Button> : null}
-                            {group.groupActions.canClearAll ? <Button variant="ghost" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "undecided")}><ListRestart size={13} aria-hidden="true" />{t("organizeGroupClear")}</Button> : null}
+                            {group.groupActions.canAcceptAll ? <Button variant="secondary" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "accepted").catch(() => undefined)}><Check size={13} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
+                            {group.groupActions.canKeepAll ? <Button variant="ghost" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "kept").catch(() => undefined)}><CircleMinus size={13} aria-hidden="true" />{t("organizeGroupKeep")}</Button> : null}
+                            {group.groupActions.canClearAll ? <Button variant="ghost" size="compact" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(group, "undecided").catch(() => undefined)}><ListRestart size={13} aria-hidden="true" />{t("organizeGroupClear")}</Button> : null}
                             {groupDecisionState(group, t) ? <span className="self-center text-xs font-medium text-[var(--zc-text-secondary)]">{groupDecisionState(group, t)}</span> : null}
                             <Button variant="ghost" size="compact" onClick={() => openGroup(group)}>{t("organizeGroupReview")}</Button>
                           </div>
@@ -432,7 +565,7 @@ export function OrganizeSuggestionsView() {
 
           <footer className="sticky bottom-0 z-10 flex shrink-0 flex-wrap items-center justify-between gap-3 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] px-4 py-3 shadow-[var(--zc-shadow-raised)]" data-organize-review-action>
             <span className="text-xs leading-5 text-[var(--zc-text-secondary)]">{t("organizeReviewExecutionHint")}</span>
-            <Button variant="primary" disabled={isMutating || !canDryRun} onClick={() => void reviewExecution()}><Play size={15} aria-hidden="true" />{dryRun ? t("organizeDryRunAction") : t("organizeReviewExecution")}</Button>
+            <Button variant="primary" disabled={isMutating || !canDryRun} onClick={() => void reviewExecution().catch(() => undefined)}><Play size={15} aria-hidden="true" />{dryRun ? t("organizeDryRunAction") : t("organizeReviewExecution")}</Button>
           </footer>
 
           {dryRun ? (
@@ -446,14 +579,14 @@ export function OrganizeSuggestionsView() {
                 blocked: dryRun.blockedCount.toLocaleString(),
                 stale: dryRun.staleCount.toLocaleString()
               })}
-              action={<Button variant="secondary" onClick={() => setConfirmExecution(true)}>{t("organizeDryRunAction")}</Button>}
+              action={<Button variant="secondary" onClick={() => void reviewExecution().catch(() => undefined)}>{t("organizeDryRunAction")}</Button>}
               density="compact"
             />
           ) : null}
 
           {executionResult ? <NoticeBanner tone={executionResult.failedCount ? "warning" : "success"} title={executionResult.failedCount ? t("organizeResultPartialTitle") : t("organizeResultSuccessTitle")} action={<Button variant="secondary" size="compact" onClick={() => setView("restore")}>{t("organizeViewHistory")}</Button>}>
             <span>{replaceCopy(t("organizeResultSummary"), { success: executionResult.succeededCount.toLocaleString(), skipped: executionResult.skippedCount.toLocaleString(), failed: executionResult.failedCount.toLocaleString() })}</span>
-            {confirmedExecutionBatch?.isBatched ? <span className="mt-1 block">{replaceCopy(t("organizeExecutionBatchResult"), { attempted: executionResult.attemptedCount.toLocaleString(), total: confirmedExecutionBatch.batchCount.toLocaleString(), remaining: confirmedExecutionBatch.remainingCount.toLocaleString() })}</span> : null}
+            {confirmedExecutionBatch?.batch.isBatched ? <span className="mt-1 block">{replaceCopy(t("organizeExecutionBatchResult"), { attempted: executionResult.attemptedCount.toLocaleString(), total: confirmedExecutionBatch.batch.batchCount.toLocaleString(), remaining: confirmedExecutionBatch.batch.remainingCount.toLocaleString() })}</span> : null}
           </NoticeBanner> : null}
         </>
       ) : null}
@@ -464,12 +597,12 @@ export function OrganizeSuggestionsView() {
         description={activeGroup ? `${t("organizeGroupFiles").replace("{count}", activeGroup.itemCount.toLocaleString())} · ${proposalKindLabel(activeGroup.proposalKind, t)}` : undefined}
         closeLabel={t("close")}
         restoreFocus={() => groupListRef.current}
-        onClose={() => setActiveGroupId(null)}
+        onClose={() => { activeGroupIdRef.current = null; setActiveGroupId(null); }}
         footer={activeGroup ? (
           <div className="flex flex-wrap justify-end gap-2">
-            {activeGroup.groupActions.canAcceptAll ? <Button variant="secondary" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(activeGroup, "accepted")}><Check size={14} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
-            {activeGroup.groupActions.canKeepAll ? <Button variant="ghost" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(activeGroup, "kept")}><CircleMinus size={14} aria-hidden="true" />{t("organizeGroupKeep")}</Button> : null}
-            {activeGroup.groupActions.canClearAll ? <Button variant="ghost" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(activeGroup, "undecided")}><ListRestart size={14} aria-hidden="true" />{t("organizeGroupClear")}</Button> : null}
+            {activeGroup.groupActions.canAcceptAll ? <Button variant="secondary" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(activeGroup, "accepted").catch(() => undefined)}><Check size={14} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
+            {activeGroup.groupActions.canKeepAll ? <Button variant="ghost" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(activeGroup, "kept").catch(() => undefined)}><CircleMinus size={14} aria-hidden="true" />{t("organizeGroupKeep")}</Button> : null}
+            {activeGroup.groupActions.canClearAll ? <Button variant="ghost" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(activeGroup, "undecided").catch(() => undefined)}><ListRestart size={14} aria-hidden="true" />{t("organizeGroupClear")}</Button> : null}
             {groupDecisionState(activeGroup, t) ? <span className="self-center text-xs font-medium text-[var(--zc-text-secondary)]">{groupDecisionState(activeGroup, t)}</span> : null}
           </div>
         ) : undefined}
@@ -505,7 +638,7 @@ export function OrganizeSuggestionsView() {
                   </button>
                 ))}
               </div>
-              {groupItemsHasMore && groupItemsCursor ? <Button variant="ghost" size="compact" disabled={groupItemsLoading} onClick={() => void loadGroupItems(activeGroup.groupId, groupItemsCursor, true)}>{groupItemsLoading ? <LoaderCircle size={14} className="animate-spin" aria-hidden="true" /> : null}{t("organizeGroupLoadMore")}</Button> : null}
+              {groupItemsHasMore && groupItemsCursor && plan ? <Button variant="ghost" size="compact" disabled={groupItemsLoading} onClick={() => void loadGroupItems(plan.id, plan.revision, activeGroup.groupId, groupItemsCursor, true).catch(() => undefined)}>{groupItemsLoading ? <LoaderCircle size={14} className="animate-spin" aria-hidden="true" /> : null}{t("organizeGroupLoadMore")}</Button> : null}
             </section>
             {activeItem ? (
               <section className="grid gap-3 border-t border-[var(--zc-divider)] pt-4" aria-label={t("organizeGroupDetails")}>
@@ -518,12 +651,12 @@ export function OrganizeSuggestionsView() {
                     title={itemAcceptUnavailableReason(activeItem, t)}
                     onClick={() => requestItemAcceptance(activeItem)}
                   ><Check size={14} aria-hidden="true" />{activeItem.availableActions.includes("accept_suggestion") ? t("organizeGroupItemAccept") : t("organizeGroupItemAcceptUnavailable")}</Button>
-                  <Button variant="ghost" size="compact" disabled={!canReview || !activeItem.availableActions.includes("keep") || isMutating} onClick={() => void handleItemDecision(activeItem, "kept")}><CircleMinus size={14} aria-hidden="true" />{t("organizeGroupItemKeep")}</Button>
+                  <Button variant="ghost" size="compact" disabled={!canReview || !activeItem.availableActions.includes("keep") || isMutating} onClick={() => void handleItemDecision(activeItem, "kept").catch(() => undefined)}><CircleMinus size={14} aria-hidden="true" />{t("organizeGroupItemKeep")}</Button>
                   <Button variant="ghost" size="compact" disabled={!canReview || !activeItem.availableActions.includes("edit_name") || isMutating} onClick={() => { setEditedName(activeItem.editedName ?? activeItem.proposedName); setEditingItemId(activeItem.id); setEditError(null); }}><Edit3 size={14} aria-hidden="true" />{t("organizeGroupItemEdit")}</Button>
-                  <Button variant="ghost" size="compact" disabled={!canReview || !activeItem.availableActions.includes("clear_decision") || isMutating} onClick={() => void handleItemDecision(activeItem, "undecided")}><ListRestart size={14} aria-hidden="true" />{t("organizeGroupItemClear")}</Button>
+                  <Button variant="ghost" size="compact" disabled={!canReview || !activeItem.availableActions.includes("clear_decision") || isMutating} onClick={() => void handleItemDecision(activeItem, "undecided").catch(() => undefined)}><ListRestart size={14} aria-hidden="true" />{t("organizeGroupItemClear")}</Button>
                 </div>
                 {activeItem.reviewReasons.length ? <p className="text-xs leading-5 text-[var(--zc-warning-text)]">{t("organizeItemReviewReasonLabel")}: {activeItem.reviewReasons.map((reason) => reviewReasonLabel(reason, t)).join(" · ")}</p> : null}
-                {editingItemId === activeItem.id ? <div className="grid gap-2 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] p-3"><label className="text-xs font-medium text-[var(--zc-text-secondary)]" htmlFor="organization-group-edited-name">{t("organizeEditTargetName")}</label><input id="organization-group-edited-name" className={cn(inputSurface, "min-h-[var(--zc-control-height-default)] px-2")} value={editedName} onChange={(event) => setEditedName(event.target.value)} autoFocus /><div className="flex flex-wrap gap-2"><Button variant="secondary" size="compact" onClick={() => void saveEditedName()}>{t("save")}</Button><Button variant="ghost" size="compact" onClick={() => setEditingItemId(null)}>{t("cancel")}</Button></div></div> : null}
+                {editingItemId === activeItem.id ? <div className="grid gap-2 rounded-[var(--zc-radius-row)] border border-[var(--zc-border)] p-3"><label className="text-xs font-medium text-[var(--zc-text-secondary)]" htmlFor="organization-group-edited-name">{t("organizeEditTargetName")}</label><input id="organization-group-edited-name" className={cn(inputSurface, "min-h-[var(--zc-control-height-default)] px-2")} value={editedName} onChange={(event) => setEditedName(event.target.value)} autoFocus /><div className="flex flex-wrap gap-2"><Button variant="secondary" size="compact" onClick={() => void saveEditedName().catch(() => undefined)}>{t("save")}</Button><Button variant="ghost" size="compact" onClick={() => setEditingItemId(null)}>{t("cancel")}</Button></div></div> : null}
               </section>
             ) : null}
           </div>
@@ -535,17 +668,21 @@ export function OrganizeSuggestionsView() {
         tone="warning"
         title={t("organizeItemAcceptReviewTitle")}
         description={confirmItemAcceptance ? replaceCopy(t("organizeItemAcceptReviewDesc"), {
-          reason: confirmItemAcceptance.reviewReasons.map((reason) => reviewReasonLabel(reason, t)).join(" · ") || t("organizeReasonFromAnalysis"),
-          target: confirmItemAcceptance.proposedTargetPath
+          reason: confirmItemAcceptance.item.reviewReasons.map((reason) => reviewReasonLabel(reason, t)).join(" · ") || t("organizeReasonFromAnalysis"),
+          target: confirmItemAcceptance.item.proposedTargetPath
         }) : ""}
         confirmLabel={t("organizeItemAcceptReviewConfirm")}
         cancelLabel={t("cancel")}
         isProcessing={isMutating}
         onCancel={() => setConfirmItemAcceptance(null)}
         onConfirm={() => {
-          const item = confirmItemAcceptance;
+          const confirmation = confirmItemAcceptance;
           setConfirmItemAcceptance(null);
-          if (item) void handleItemDecision(item, "accepted");
+          const current = useOrganizationPlanStore.getState();
+          if (confirmation
+            && current.activePlan?.id === confirmation.planId
+            && current.activePlan.revision === confirmation.planRevision
+            && activeGroupIdRef.current) void handleItemDecision(confirmation.item, "accepted").catch(() => undefined);
         }}
       />
 
@@ -554,21 +691,24 @@ export function OrganizeSuggestionsView() {
         tone="warning"
         title={t("organizeGroupAcceptReviewTitle")}
         description={confirmGroupAcceptance ? replaceCopy(t("organizeGroupAcceptReviewDesc"), {
-          reason: confirmGroupAcceptance.reviewReasonCounts.map(({ reason, count }) => `${reviewReasonLabel(reason, t)} (${count})`).join(" · ") || t("organizeReasonFromAnalysis")
+          reason: confirmGroupAcceptance.group.reviewReasonCounts.map(({ reason, count }) => `${reviewReasonLabel(reason, t)} (${count})`).join(" · ") || t("organizeReasonFromAnalysis")
         }) : ""}
         confirmLabel={t("organizeGroupAcceptReviewConfirm")}
         cancelLabel={t("cancel")}
         isProcessing={isMutating}
         onCancel={() => setConfirmGroupAcceptance(null)}
         onConfirm={() => {
-          const group = confirmGroupAcceptance;
+          const confirmation = confirmGroupAcceptance;
           setConfirmGroupAcceptance(null);
-          if (group) void handleGroupDecision(group, "accepted", true);
+          const current = useOrganizationPlanStore.getState();
+          if (confirmation
+            && current.activePlan?.id === confirmation.planId
+            && current.activePlan.revision === confirmation.planRevision) void handleGroupDecision(confirmation.group, "accepted", true).catch(() => undefined);
         }}
       />
 
       <ConfirmDialog
-        open={confirmExecution}
+        open={Boolean(executionConfirmation)}
         tone="warning"
         title={dryRun?.items.some((item) => item.riskLevel !== "Normal" || item.requiresConfirmation) ? t("organizeExecuteRiskConfirmTitle") : t("organizeExecuteNormalConfirmTitle")}
         description={dryRun && dryRunBatch ? replaceCopy(t(dryRunBatch.isBatched ? "organizeExecuteCappedConfirmDesc" : "organizeExecuteConfirmDesc"), {
@@ -579,11 +719,20 @@ export function OrganizeSuggestionsView() {
         confirmLabel={t("organizeExecuteConfirmAction").replace("{count}", dryRunBatch?.batchCount.toLocaleString() ?? "0")}
         cancelLabel={t("cancel")}
         isProcessing={isMutating}
-        onCancel={() => setConfirmExecution(false)}
+        onCancel={() => setExecutionConfirmation(null)}
         onConfirm={() => {
-          setConfirmedExecutionBatch(dryRun ? organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit) : null);
-          setConfirmExecution(false);
-          void executeDryRun();
+          const confirmation = executionConfirmation;
+          const current = useOrganizationPlanStore.getState();
+          if (!confirmation
+            || current.activePlan?.id !== confirmation.planId
+            || current.activePlan.revision !== confirmation.planRevision
+            || current.dryRun?.dryRunFingerprint !== confirmation.dryRunFingerprint) {
+            setExecutionConfirmation(null);
+            return;
+          }
+          setConfirmedExecutionBatch(confirmation);
+          setExecutionConfirmation(null);
+          void handleExecuteDryRun(confirmation).catch(() => undefined);
         }}
       />
     </div>
