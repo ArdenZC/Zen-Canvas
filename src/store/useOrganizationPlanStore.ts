@@ -26,6 +26,7 @@ interface OrganizationPlanState {
   isMutating: boolean;
   error: string | null;
   requestEpoch: number;
+  mutationToken: number;
   loadPlans: () => Promise<void>;
   createPlan: (source: LibrarySelectionV1, expectedCount: number, title?: string) => Promise<OrganizationPlan>;
   openPlan: (planId: string) => Promise<void>;
@@ -45,6 +46,23 @@ function replacePlan(plans: OrganizationPlan[], plan: OrganizationPlan) {
     .sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id));
 }
 
+function ownsPlanMutation(
+  getState: () => OrganizationPlanState,
+  planId: string,
+  requestEpoch: number,
+  mutationToken: number
+) {
+  const state = getState();
+  return state.requestEpoch === requestEpoch
+    && state.mutationToken === mutationToken
+    && state.activePlan?.id === planId;
+}
+
+function ownsMutation(getState: () => OrganizationPlanState, requestEpoch: number, mutationToken: number) {
+  const state = getState();
+  return state.requestEpoch === requestEpoch && state.mutationToken === mutationToken;
+}
+
 export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get) => ({
   plans: [],
   activePlan: null,
@@ -58,6 +76,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   isMutating: false,
   error: null,
   requestEpoch: 0,
+  mutationToken: 0,
 
   loadPlans: async () => {
     set({ isLoading: true, error: null });
@@ -69,7 +88,9 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   },
 
   createPlan: async (source, expectedCount, title) => {
-    set({ isMutating: true, error: null });
+    const requestEpoch = get().requestEpoch;
+    const mutationToken = get().mutationToken + 1;
+    set({ isMutating: true, mutationToken, error: null });
     try {
       const plan = await tauriApi.createOrganizationPlan({
         version: 1,
@@ -78,6 +99,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         source,
         expectedCount
       });
+      if (!ownsMutation(get, requestEpoch, mutationToken)) return plan;
       set((state) => ({
         plans: replacePlan(state.plans, plan),
         activePlan: plan,
@@ -92,14 +114,14 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
       await get().openPlan(plan.id);
       return plan;
     } catch (error) {
-      set({ isMutating: false, error: readableError(error) });
+      if (ownsMutation(get, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
       throw error;
     }
   },
 
   openPlan: async (planId) => {
     const epoch = get().requestEpoch + 1;
-    set({ requestEpoch: epoch, isLoading: true, error: null, groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null });
+    set({ requestEpoch: epoch, isLoading: true, isMutating: false, error: null, groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null });
     try {
       const [plan, groupPage] = await Promise.all([
         tauriApi.getOrganizationPlan(planId),
@@ -145,7 +167,9 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   updateGroupDecision: async (group, decision) => {
     const plan = get().activePlan;
     if (!plan) return;
-    set({ isMutating: true, error: null, dryRun: null, dryRunSelection: null });
+    const requestEpoch = get().requestEpoch;
+    const mutationToken = get().mutationToken + 1;
+    set({ isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null });
     try {
       await tauriApi.updateOrganizationPlanGroupDecision({
         planId: plan.id,
@@ -155,10 +179,10 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         expectedItemCount: group.itemCount,
         decision
       });
+      if (!ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) return;
       await get().openPlan(plan.id);
-      set({ isMutating: false });
     } catch (error) {
-      set({ isMutating: false, error: readableError(error) });
+      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
       throw error;
     }
   },
@@ -166,7 +190,9 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   updateDecision: async (item, decision, editedFilename) => {
     const plan = get().activePlan;
     if (!plan) return;
-    set({ isMutating: true, error: null, dryRun: null, dryRunSelection: null });
+    const requestEpoch = get().requestEpoch;
+    const mutationToken = get().mutationToken + 1;
+    set({ isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null });
     try {
       const updatedPlan = await tauriApi.updateOrganizationPlanDecisions({
         planId: plan.id,
@@ -178,7 +204,9 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
           editedFilename: editedFilename ?? null
         }]
       });
+      if (!ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) return;
       const groupPage = await tauriApi.queryOrganizationPlanGroups({ planId: updatedPlan.id, pageSize: 100, cursor: null });
+      if (!ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) return;
       const projectedPlan = { ...updatedPlan, effectiveSummary: groupPage.effectiveSummary };
       set((state) => ({
         activePlan: projectedPlan,
@@ -189,7 +217,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         isMutating: false
       }));
     } catch (error) {
-      set({ isMutating: false, error: readableError(error) });
+      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
       throw error;
     }
   },
@@ -197,33 +225,38 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   refreshPlan: async () => {
     const plan = get().activePlan;
     if (!plan) return;
-    set({ isMutating: true, error: null, dryRun: null, dryRunSelection: null });
+    const requestEpoch = get().requestEpoch;
+    const mutationToken = get().mutationToken + 1;
+    set({ isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null });
     try {
       const updated = await tauriApi.refreshOrganizationPlan({
         planId: plan.id,
         expectedPlanRevision: plan.revision
       });
+      if (!ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) return;
       set((state) => ({ activePlan: updated, plans: replacePlan(state.plans, updated), isMutating: false }));
       await get().openPlan(updated.id);
     } catch (error) {
-      set({ isMutating: false, error: readableError(error) });
+      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
     }
   },
 
   analyzeMissing: async (itemIds = []) => {
     const plan = get().activePlan;
     if (!plan) return 0;
-    set({ isMutating: true, error: null });
+    const requestEpoch = get().requestEpoch;
+    const mutationToken = get().mutationToken + 1;
+    set({ isMutating: true, mutationToken, error: null });
     try {
       const result = await tauriApi.analyzeOrganizationPlanItems({
         planId: plan.id,
         expectedPlanRevision: plan.revision,
         itemIds
       });
-      set({ isMutating: false });
+      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false });
       return result.queuedCount;
     } catch (error) {
-      set({ isMutating: false, error: readableError(error) });
+      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
       return 0;
     }
   },
@@ -235,7 +268,9 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     const persistedSelection: OrganizationPlanSelection = selection.allAccepted
       ? { allAccepted: true, itemIds: [] }
       : { allAccepted: false, itemIds: [...selection.itemIds] as [string, ...string[]] };
-    set({ isMutating: true, error: null, dryRun: null, dryRunSelection: null });
+    const requestEpoch = get().requestEpoch;
+    const mutationToken = get().mutationToken + 1;
+    set({ isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null });
     try {
       const dryRun = await tauriApi.getOrganizationPlanDryRun({
         planId: plan.id,
@@ -243,10 +278,11 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         itemIds: persistedSelection.itemIds,
         allAccepted: persistedSelection.allAccepted
       });
+      if (!ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) return dryRun;
       set({ dryRun, dryRunSelection: persistedSelection, isMutating: false });
       return dryRun;
     } catch (error) {
-      set({ isMutating: false, error: readableError(error) });
+      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
       throw error;
     }
   },
@@ -255,7 +291,9 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     const { activePlan: plan, dryRun, dryRunSelection } = get();
     if (!plan || !dryRun) throw new Error("organization_dry_run_required");
     if (!dryRunSelection) throw new Error("organization_dry_run_selection_required");
-    set({ isMutating: true, error: null });
+    const requestEpoch = get().requestEpoch;
+    const mutationToken = get().mutationToken + 1;
+    set({ isMutating: true, mutationToken, error: null });
     try {
       const result = await tauriApi.executeOrganizationPlan({
         planId: plan.id,
@@ -265,6 +303,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         allAccepted: dryRunSelection.allAccepted,
         confirmed: true
       });
+      if (!ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) return result;
       set((state) => ({
         executionResult: result,
         activePlan: result.plan,
@@ -273,11 +312,12 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         dryRunSelection: null,
         isMutating: false
       }));
+      const refreshEpoch = get().requestEpoch + 1;
       await get().openPlan(result.plan.id);
-      set({ executionResult: result });
+      if (get().requestEpoch === refreshEpoch && get().mutationToken === mutationToken && get().activePlan?.id === result.plan.id) set({ executionResult: result });
       return result;
     } catch (error) {
-      set({ isMutating: false, error: readableError(error) });
+      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
       throw error;
     }
   },
@@ -285,17 +325,19 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   cancelPlan: async () => {
     const plan = get().activePlan;
     if (!plan) return;
-    set({ isMutating: true, error: null });
+    const requestEpoch = get().requestEpoch;
+    const mutationToken = get().mutationToken + 1;
+    set({ isMutating: true, mutationToken, error: null });
     try {
       const updated = await tauriApi.cancelOrganizationPlan({
         planId: plan.id,
         expectedPlanRevision: plan.revision
       });
+      if (!ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) return;
       set((state) => ({ activePlan: updated, plans: replacePlan(state.plans, updated) }));
       await get().openPlan(updated.id);
-      set({ isMutating: false });
     } catch (error) {
-      set({ isMutating: false, error: readableError(error) });
+      if (ownsPlanMutation(get, plan.id, requestEpoch, mutationToken)) set({ isMutating: false, error: readableError(error) });
     }
   },
 
