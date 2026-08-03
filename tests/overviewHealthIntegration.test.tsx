@@ -72,7 +72,8 @@ const reviewPlan = {
   updatedAt: 1
 } as unknown as OrganizationPlan;
 
-function cleanupRun(reviewCount: number, exactReclaimableBytes: number, potentialReclaimableBytes = exactReclaimableBytes): AnalysisRun {
+function cleanupRun(reviewCount: number, exactReclaimableBytes: number, potentialReclaimableBytes = exactReclaimableBytes, safeCount = 0, cautionCount = 0): AnalysisRun {
+  const findingsCount = safeCount + reviewCount + cautionCount;
   return {
     id: "analysis-overview",
     requestKey: "analysis-overview-request",
@@ -91,11 +92,11 @@ function cleanupRun(reviewCount: number, exactReclaimableBytes: number, potentia
     detectorsTotal: 1,
     detectorsCompleted: 1,
     detectorsFailed: 0,
-    findingsStaged: reviewCount,
-    findingsPublished: reviewCount,
-    safeCount: 0,
+    findingsStaged: findingsCount,
+    findingsPublished: findingsCount,
+    safeCount,
     reviewCount,
-    cautionCount: 0,
+    cautionCount,
     exactReclaimableBytes,
     potentialReclaimableBytes,
     warningCount: 0,
@@ -288,6 +289,70 @@ describe("Overview durable health integration", () => {
     configureHealth({ contentRuns: [{ status: "failed", updatedAt: 2, lastErrorDetail: "内容处理失败" }] });
     await renderOverview();
     expect(priorityTitle()).toBe("内容理解任务需要复核");
+  });
+
+  it("uses safe findings in the durable cleanup candidate total", async () => {
+    configureHealth({ analysisRuns: [cleanupRun(0, 4096, 4096, 2)] });
+    await renderOverview();
+    expect(priorityTitle()).toBe("有 2 项清理候选");
+  });
+
+  it("includes safe, review, and caution findings in an estimated cleanup total", async () => {
+    configureHealth({ analysisRuns: [cleanupRun(2, 0, 8192, 0, 1)] });
+    await renderOverview();
+    expect(priorityTitle()).toBe("有 3 项清理候选");
+    expect(container.textContent).toContain("预计可释放 8.0 KB");
+  });
+
+  it("does not show cleanup when durable findings are all zero even if bytes are positive", async () => {
+    configureHealth({ analysisRuns: [cleanupRun(0, 8192, 8192)] });
+    await renderOverview();
+    expect(priorityTitle()).toBe("文件空间保持有序");
+  });
+
+  it("uses only the newest Content Run status", async () => {
+    configureHealth({ contentRuns: [
+      { status: "failed", updatedAt: 1, lastErrorDetail: "旧失败" },
+      { status: "completed", updatedAt: 2, lastErrorDetail: null }
+    ] });
+    await renderOverview();
+    expect(priorityTitle()).toBe("文件空间保持有序");
+
+    act(() => root.unmount());
+    container.remove();
+    resetStores();
+    configureHealth({ contentRuns: [
+      { status: "completed", updatedAt: 1, lastErrorDetail: null },
+      { status: "failed", updatedAt: 2, lastErrorDetail: "新失败" }
+    ] });
+    await renderOverview();
+    expect(priorityTitle()).toBe("内容理解任务需要复核");
+  });
+
+  it("keeps Content Run status stable for reversed input, empty history, and a latest running run", async () => {
+    configureHealth({ contentRuns: [
+      { status: "completed", updatedAt: 2, lastErrorDetail: null },
+      { status: "failed", updatedAt: 1, lastErrorDetail: "旧失败" }
+    ] });
+    await renderOverview();
+    expect(priorityTitle()).toBe("文件空间保持有序");
+
+    act(() => root.unmount());
+    container.remove();
+    resetStores();
+    configureHealth();
+    await renderOverview();
+    expect(priorityTitle()).toBe("文件空间保持有序");
+
+    act(() => root.unmount());
+    container.remove();
+    resetStores();
+    configureHealth({ contentRuns: [
+      { status: "failed", updatedAt: 1, lastErrorDetail: "旧失败" },
+      { status: "running", updatedAt: 2, lastErrorDetail: null }
+    ] });
+    await renderOverview();
+    expect(priorityTitle()).toBe("文件空间保持有序");
   });
 
   it("derives indexNeedsUpdate from the real Global Index status", async () => {
