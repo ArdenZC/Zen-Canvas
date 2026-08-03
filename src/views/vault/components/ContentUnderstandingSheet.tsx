@@ -24,11 +24,12 @@ interface Props {
   onClose: () => void;
   restoreFocus?: () => HTMLElement | null;
   onRefreshDetail?: () => Promise<void>;
-  onRefreshAuthoritativeContentState?: () => Promise<{
-    detail: FileLibraryDetail;
-    policy: ContentScopePolicy | null;
-  }>;
+  onRefreshAuthoritativeContentState?: () => Promise<ContentRefreshResult>;
 }
+
+export type ContentRefreshResult =
+  | { applied: true; detail: FileLibraryDetail; policy: ContentScopePolicy | null }
+  | { applied: false; reason: "superseded" };
 
 type Confirmation = { description: string; action: () => Promise<void> } | null;
 
@@ -45,6 +46,8 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
   const [recentContentRuns, setRecentContentRuns] = useState<ContentRun[]>([]);
   const [contentConfirmation, setContentConfirmation] = useState<Confirmation>(null);
   const refreshedContentRuns = useRef(new Set<string>());
+  const contentRunRef = useRef<ContentRun | null>(null);
+  const pollEpoch = useRef(0);
   const contentScope: FileLibraryScopeV2 | null = detail?.scanRootId ? { kind: "roots", scanRootIds: [detail.scanRootId] } : null;
 
   useEffect(() => {
@@ -52,9 +55,10 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     setContentPolicy(null);
     setPolicyDirty(false);
     setContentPreview(null);
-     setPendingContentRequest(null);
-     setContentRun(null);
-     setContentRunItems([]);
+    setPendingContentRequest(null);
+    setContentRun(null);
+    contentRunRef.current = null;
+    setContentRunItems([]);
     setContentRunRefreshKey(0);
     setContentMessage(null);
     setContentConfirmation(null);
@@ -82,29 +86,59 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
 
   useEffect(() => {
     if (!open || !contentRun?.id) return;
-    let active = true;
+    const detailId = detail.id;
+    const runId = contentRun.id;
+    const currentPollEpoch = pollEpoch.current + 1;
+    pollEpoch.current = currentPollEpoch;
+    let disposed = false;
+    let pollInFlight = false;
+    let timer: number | null = null;
+    const ownsPoll = () => !disposed
+      && currentPollEpoch === pollEpoch.current
+      && detail.id === detailId
+      && contentRunRef.current?.id === runId;
+    const schedule = () => {
+      if (ownsPoll()) timer = window.setTimeout(() => void refresh().catch(() => undefined), 2000);
+    };
     const refresh = async () => {
+      if (!ownsPoll() || pollInFlight) return;
+      pollInFlight = true;
       try {
-        const [run, page] = await Promise.all([
-          tauriApi.getContentRun(contentRun.id),
-          tauriApi.queryContentRunItems(contentRun.id, 100)
-        ]);
-        if (!active) return;
-        setContentRun(run);
-        setContentRunItems(page.items);
-        const terminal = ["completed", "failed", "canceled", "cancelled"].includes(run.status.toLowerCase());
-        if (terminal && !refreshedContentRuns.current.has(run.id)) {
-          await refreshAuthoritativeContentState();
-          refreshedContentRuns.current.add(run.id);
+        const nextRun = await tauriApi.getContentRun(runId);
+        if (!ownsPoll()) return;
+        const previousRun = contentRunRef.current;
+        if (previousRun && previousRun.id === runId && nextRun.revision < previousRun.revision) return;
+        const previousTerminal = previousRun && ["completed", "failed", "canceled", "cancelled"].includes(previousRun.status.toLowerCase());
+        const nextTerminal = ["completed", "failed", "canceled", "cancelled"].includes(nextRun.status.toLowerCase());
+        if (previousRun && previousRun.revision === nextRun.revision && previousTerminal && !nextTerminal) return;
+        const page = await tauriApi.queryContentRunItems(runId, 100);
+        if (!ownsPoll()) return;
+        contentRunRef.current = nextRun;
+        setContentRun(nextRun);
+        if (page.runId === runId) setContentRunItems(page.items);
+        if (nextTerminal && !refreshedContentRuns.current.has(runId)) {
+          refreshedContentRuns.current.add(runId);
+          const refreshed = await refreshAuthoritativeContentState();
+          if (!ownsPoll()) return;
+          if (!refreshed) {
+            refreshedContentRuns.current.delete(runId);
+            setContentMessage(t("contentOperationFailed"));
+          }
         }
       } catch (error) {
-        if (active) setContentMessage(contentError(error, t));
+        if (ownsPoll()) setContentMessage(contentError(error, t));
+      } finally {
+        pollInFlight = false;
+        schedule();
       }
     };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 2000);
-    return () => { active = false; window.clearInterval(timer); };
-   }, [contentRun?.id, contentRunRefreshKey, onRefreshAuthoritativeContentState, onRefreshDetail, open, t]);
+    void refresh().catch(() => undefined);
+    return () => {
+      disposed = true;
+      pollEpoch.current += 1;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [contentRun?.id, contentRunRefreshKey, detail.id, onRefreshAuthoritativeContentState, onRefreshDetail, open, t]);
 
   if (!open) return null;
 
@@ -165,7 +199,8 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
         previewFingerprint: contentPreview.previewFingerprint,
         confirmed: true
       });
-      setContentRun(run);
+       contentRunRef.current = run;
+       setContentRun(run);
       setContentPreview(null);
       setPendingContentRequest(null);
       setContentMessage(replaceCopy(t("contentRunStarted"), {
@@ -210,7 +245,8 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     setContentBusy(true);
     try {
       const run = await tauriApi.cancelContentRun(contentRun.id, contentRun.revision, true);
-      setContentRun(run);
+       contentRunRef.current = run;
+       setContentRun(run);
     } catch (error) {
       setContentMessage(contentError(error, t));
     } finally {
@@ -280,6 +316,7 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     try {
       if (onRefreshAuthoritativeContentState) {
         const refreshed = await onRefreshAuthoritativeContentState();
+        if (!refreshed.applied) return false;
         setContentPolicy(refreshed.policy);
         setPolicyDirty(false);
       } else {
@@ -342,10 +379,10 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
         <section className="grid gap-3 border-b border-[var(--zc-divider)] pb-4" aria-labelledby="content-run-title">
           <div><h3 id="content-run-title" className="text-sm font-semibold">{t("contentPreviewAndRun")}</h3><p className={cn(mutedText, "mt-1")}>{t("contentSourceUnchanged")}</p></div>
           <div className="flex flex-wrap gap-2">
-            {!missing && contentScope ? <button type="button" className={buttonSecondary} disabled={contentBusy || policyDirty || !contentPolicy?.enabled || !contentPolicy.localAllowed} onClick={() => void previewContentRun("local", "none")}><FileSearch size={15} />{t("contentPreviewLocal")}</button> : null}
-            {!missing && contentScope && detail.contentRevision ? <button type="button" className={buttonSecondary} disabled={contentBusy || policyDirty || !contentPolicy?.enabled || !contentPolicy.cloudAllowed} onClick={() => void previewContentRun("understand", "existing_interactive_provider")}><Sparkles size={15} />{t("contentProviderUnderstanding")}</button> : null}
+            {!missing && contentScope ? <button type="button" className={buttonSecondary} disabled={contentBusy || policyDirty || !contentPolicy?.enabled || !contentPolicy.localAllowed} onClick={() => void previewContentRun("local", "none").catch(() => undefined)}><FileSearch size={15} />{t("contentPreviewLocal")}</button> : null}
+            {!missing && contentScope && detail.contentRevision ? <button type="button" className={buttonSecondary} disabled={contentBusy || policyDirty || !contentPolicy?.enabled || !contentPolicy.cloudAllowed} onClick={() => void previewContentRun("understand", "existing_interactive_provider").catch(() => undefined)}><Sparkles size={15} />{t("contentProviderUnderstanding")}</button> : null}
           </div>
-          {contentPreview && pendingContentRequest ? <ContentReviewDialog detail={detail} preview={contentPreview} request={pendingContentRequest} busy={contentBusy} t={t} onCancel={() => { setContentPreview(null); setPendingContentRequest(null); }} onConfirm={() => void confirmContentRun()} /> : null}
+          {contentPreview && pendingContentRequest ? <ContentReviewDialog detail={detail} preview={contentPreview} request={pendingContentRequest} busy={contentBusy} t={t} onCancel={() => { setContentPreview(null); setPendingContentRequest(null); }} onConfirm={() => void confirmContentRun().catch(() => undefined)} /> : null}
           {contentRun ? <div className={cn(panelSurface, "grid gap-3 p-3")} aria-live="polite">
             <MetricStrip
               ariaLabel={t("contentRunProgress")}
@@ -404,7 +441,7 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
           if (!contentConfirmation) return;
           const action = contentConfirmation.action;
           setContentConfirmation(null);
-          void action();
+          void action().catch(() => undefined);
         }}
       />
     </SideSheet>
@@ -453,7 +490,7 @@ function ContentSearchPanel({ scope, expectedLibraryRevision, t }: { scope: File
       setBusy(false);
     }
   };
-  return <section className="grid gap-2" aria-labelledby="content-search-title"><h3 id="content-search-title" className="text-sm font-semibold">{t("contentSearchTitle")}</h3><div className="flex min-w-0 gap-2"><input className={cn(inputSurface, "min-w-0 flex-1")} value={query} onChange={(event) => { setQuery(event.target.value); setCursor(null); }} placeholder={t("contentSearchPlaceholder")} /><button type="button" className={buttonSecondary} disabled={busy || !scope} onClick={() => void search(true)}>{busy ? <Loader2 size={14} className="animate-spin" /> : null}{t("contentSearchAction")}</button></div>{results.length ? <ul className="grid gap-1 text-xs">{results.map((item) => <li key={item.id} className="truncate text-[var(--zc-text-secondary)]">{item.summary || t("contentNoArtifact")}</li>)}</ul> : message ? null : <p className={mutedText}>{t("contentSearchEmpty")}</p>}{cursor ? <button type="button" className="justify-self-start text-xs text-[var(--zc-primary)] underline" disabled={busy} onClick={() => void search(false)}>{t("contentLoadMore")}</button> : null}{message ? <p className="text-xs text-[var(--zc-warning-text)]" aria-live="polite">{message}</p> : null}</section>;
+  return <section className="grid gap-2" aria-labelledby="content-search-title"><h3 id="content-search-title" className="text-sm font-semibold">{t("contentSearchTitle")}</h3><div className="flex min-w-0 gap-2"><input className={cn(inputSurface, "min-w-0 flex-1")} value={query} onChange={(event) => { setQuery(event.target.value); setCursor(null); }} placeholder={t("contentSearchPlaceholder")} /><button type="button" className={buttonSecondary} disabled={busy || !scope} onClick={() => void search(true).catch(() => undefined)}>{busy ? <Loader2 size={14} className="animate-spin" /> : null}{t("contentSearchAction")}</button></div>{results.length ? <ul className="grid gap-1 text-xs">{results.map((item) => <li key={item.id} className="truncate text-[var(--zc-text-secondary)]">{item.summary || t("contentNoArtifact")}</li>)}</ul> : message ? null : <p className={mutedText}>{t("contentSearchEmpty")}</p>}{cursor ? <button type="button" className="justify-self-start text-xs text-[var(--zc-primary)] underline" disabled={busy} onClick={() => void search(false).catch(() => undefined)}>{t("contentLoadMore")}</button> : null}{message ? <p className="text-xs text-[var(--zc-warning-text)]" aria-live="polite">{message}</p> : null}</section>;
 }
 
 function ContentField({ label, value }: { label: string; value: string }) {

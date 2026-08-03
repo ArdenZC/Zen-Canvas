@@ -306,7 +306,6 @@ describe("Task 06 File Library handoff interactions", () => {
   it("does not let a delayed content refresh for Inspector A overwrite Inspector B or reopen a closed sheet", async () => {
     const fileA = detail("file-one", "one.txt");
     const fileB = detail("file-two", "two.txt");
-    const refreshedA = detail("file-one", "one-refreshed.txt");
     const pendingA = deferred<FileLibraryDetail>();
     let detailACalls = 0;
     api.getDetail.mockImplementation((fileId: string) => {
@@ -347,10 +346,46 @@ describe("Task 06 File Library handoff interactions", () => {
     await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().selectedId).toBe(fileB.id));
     await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().detail?.id).toBe(fileB.id));
 
-    pendingA.resolve(refreshedA);
-    await act(async () => { await pendingA.promise; });
+    pendingA.reject(new Error("stale A refresh failure"));
+    await expect(pendingA.promise).rejects.toThrow("stale A refresh failure");
     await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().detail?.id).toBe(fileB.id));
     expect(useFileLibraryInspectorStore.getState().detail?.name).toBe(fileB.name);
     expect(container.querySelector('[data-content-sheet-id="file-one"]')).toBeNull();
+    expect(chrome.onError).not.toHaveBeenCalledWith("stale A refresh failure");
+  });
+
+  it("keeps the latest same-file content refresh and Inspector revision", async () => {
+    const fileA = detail("file-one", "one.txt");
+    const refreshedA2 = { ...fileA, revision: 3, name: "one-revision-3.txt" };
+    const refreshedA1 = { ...fileA, revision: 2, name: "one-revision-2.txt" };
+    const pendingFirst = deferred<FileLibraryDetail>();
+    const pendingSecond = deferred<FileLibraryDetail>();
+    let detailACalls = 0;
+    api.getDetail.mockImplementation((fileId: string) => {
+      if (fileId !== fileA.id) return Promise.resolve(detail("file-two", "two.txt"));
+      detailACalls += 1;
+      if (detailACalls === 1) return Promise.resolve(fileA);
+      return detailACalls === 2 ? pendingFirst.promise : pendingSecond.promise;
+    });
+    api.query.mockImplementation(async (request: FileQueryRequestV2) => response(request));
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(api.query).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    const rowA = container.querySelector<HTMLElement>('[data-library-row="file-one"]');
+    await act(async () => rowA?.click());
+    await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().selectedId).toBe(fileA.id));
+    const contentButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("Open Content Understanding"));
+    await act(async () => contentButton?.click());
+    const refreshButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Refresh content");
+    await act(async () => refreshButton?.click());
+    await act(async () => refreshButton?.click());
+
+    pendingSecond.resolve(refreshedA2);
+    await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().detail?.revision).toBe(3));
+    pendingFirst.resolve(refreshedA1);
+    await expect(pendingFirst.promise).resolves.toMatchObject({ revision: 2 });
+    await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().detail?.revision).toBe(3));
+    expect(useFileLibraryInspectorStore.getState().detail?.name).toBe("one-revision-3.txt");
   });
 });

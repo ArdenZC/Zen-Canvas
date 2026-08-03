@@ -82,6 +82,8 @@ export function VaultView() {
   const filterButtonRef = useRef<HTMLButtonElement | null>(null);
   const sortButtonRef = useRef<HTMLButtonElement | null>(null);
   const contentTriggerRef = useRef<HTMLElement | null>(null);
+  const contentRefreshEpoch = useRef(0);
+  const contentDetailRef = useRef<FileLibraryDetail | null>(null);
   const pendingSavedViewQuerySignature = useRef<string | null>(null);
   const scopeSignature = `${legacyScope.kind}:${legacyScope.kind === "all" ? "" : `${legacyScope.roots.join("\n")}:${legacyScope.kind === "current_scan" ? legacyScope.scanSessionId ?? "" : ""}`}`;
   const querySpecSignature = JSON.stringify(querySpec);
@@ -103,9 +105,24 @@ export function VaultView() {
   ], [t]);
   const currentSortLabel = sortOptions.find((option) => option.key === querySpec.sort.kind)?.label ?? t("librarySortModified");
 
+  const closeContentUnderstanding = useCallback(() => {
+    contentRefreshEpoch.current += 1;
+    contentDetailRef.current = null;
+    setContentDetail(null);
+  }, []);
+
   useEffect(() => {
-    void loadTags();
-    void loadSavedViews();
+    contentDetailRef.current = contentDetail;
+  }, [contentDetail]);
+
+  useEffect(() => () => {
+    contentRefreshEpoch.current += 1;
+    contentDetailRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    void loadTags().catch(() => undefined);
+    void loadSavedViews().catch(() => undefined);
   }, [loadSavedViews, loadTags]);
 
   useEffect(() => {
@@ -147,7 +164,7 @@ export function VaultView() {
       setQuerySpec(spec);
       return;
     }
-    void loadFirstPage();
+    void loadFirstPage().catch(() => undefined);
   }, [debouncedSearchQuery, isEmptyCurrentScanScope, loadFirstPage, querySpecSignature, scopeReady, setQuerySpec]);
 
   useEffect(() => {
@@ -166,14 +183,15 @@ export function VaultView() {
   }, [activeViewId, clearSelection, debouncedSearchQuery, querySpec.text, querySpecSignature, savedViews, setActiveViewId]);
 
   useEffect(() => {
+    if (contentDetail && (selectedIds.length !== 1 || contentDetail.id !== selectedIds[0])) closeContentUnderstanding();
     if (!selection) {
       clearInspector();
     } else if (selectedIds.length === 1) {
-      void loadDetail(selectedIds[0]);
+      void loadDetail(selectedIds[0]).catch(() => undefined);
     } else {
-      void loadSelectionSummary(selection);
+      void loadSelectionSummary(selection).catch(() => undefined);
     }
-  }, [clearInspector, loadDetail, loadSelectionSummary, selectedIds, selection]);
+  }, [clearInspector, closeContentUnderstanding, contentDetail, loadDetail, loadSelectionSummary, selectedIds, selection]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -263,7 +281,7 @@ export function VaultView() {
     if (event.key === "Enter" || event.key === " " || event.key === "Space") {
       event.preventDefault();
       const file = files.find((item) => item.id === focusedId) ?? files[0];
-      if (file) void openPreview(file);
+      if (file) void openPreview(file).catch(() => undefined);
     }
   }
 
@@ -327,34 +345,46 @@ export function VaultView() {
   }
 
   function openContentUnderstanding(file: FileLibraryDetail, trigger?: HTMLElement) {
+    contentRefreshEpoch.current += 1;
     contentTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    contentDetailRef.current = file;
     setContentDetail(file);
   }
 
   const refreshContentDetail = useCallback(async (fileId: string) => {
+    const refreshEpoch = contentRefreshEpoch.current + 1;
+    contentRefreshEpoch.current = refreshEpoch;
+    const ownsRefresh = () => refreshEpoch === contentRefreshEpoch.current && contentDetailRef.current?.id === fileId;
     const inspectorAtStart = useFileLibraryInspectorStore.getState();
     const expectedInspectorEpoch = inspectorAtStart.requestEpoch;
     const inspectorOwnedFile = inspectorAtStart.selectedId === fileId;
     try {
       const refreshed = await tauriApi.getFileLibraryDetail(fileId);
+      if (!ownsRefresh()) return { applied: false as const, reason: "superseded" as const };
       const policy = refreshed.scanRootId
         ? await tauriApi.getContentScopePolicy(refreshed.scanRootId)
         : null;
-      setContentDetail((current) => current?.id === fileId ? refreshed : current);
-      if (inspectorOwnedFile) commitDetailIfCurrent(fileId, refreshed, expectedInspectorEpoch);
-      return { detail: refreshed, policy };
+      if (!ownsRefresh()) return { applied: false as const, reason: "superseded" as const };
+      contentDetailRef.current = refreshed;
+      setContentDetail(refreshed);
+      const currentInspector = useFileLibraryInspectorStore.getState();
+      if (inspectorOwnedFile
+        && currentInspector.requestEpoch === expectedInspectorEpoch
+        && currentInspector.selectedId === fileId) commitDetailIfCurrent(fileId, refreshed, expectedInspectorEpoch);
+      return { applied: true as const, detail: refreshed, policy };
     } catch (error) {
       const currentInspector = useFileLibraryInspectorStore.getState();
+      if (!ownsRefresh()) return { applied: false as const, reason: "superseded" as const };
       if (!inspectorOwnedFile || currentInspector.requestEpoch !== expectedInspectorEpoch || currentInspector.selectedId !== fileId) throw error;
       onError(readableError(error));
       throw error;
     }
   }, [commitDetailIfCurrent, onError]);
   const refreshOpenContentDetail = useCallback(
-    () => contentDetail
-      ? refreshContentDetail(contentDetail.id)
-      : Promise.reject(new Error("content_detail_missing")),
-    [contentDetail?.id, refreshContentDetail]
+    () => contentDetailRef.current
+      ? refreshContentDetail(contentDetailRef.current.id)
+      : Promise.resolve({ applied: false as const, reason: "superseded" as const }),
+    [refreshContentDetail]
   );
 
   async function openContentFromContext(fileId: string) {
@@ -370,7 +400,7 @@ export function VaultView() {
 
   function libraryState() {
     if (resultState === "snapshot_expired" || resultError === "library_snapshot_expired") return null;
-    if (resultError || resultState === "failed") return { tone: "error" as const, title: t("libraryLoadFailedTitle"), description: resultError ?? t("libraryLoadFailedDesc"), primaryAction: <button className={buttonSecondary} onClick={() => void refreshResults()}>{t("libraryRetry")}</button> };
+    if (resultError || resultState === "failed") return { tone: "error" as const, title: t("libraryLoadFailedTitle"), description: resultError ?? t("libraryLoadFailedDesc"), primaryAction: <button className={buttonSecondary} onClick={() => void refreshResults().catch(() => undefined)}>{t("libraryRetry")}</button> };
     if (isLoading && totalCount === 0) return { tone: "info" as const, title: t("libraryLoadingResults"), description: t("libraryScopeHint") };
     if (isNoIndexState) return { tone: "info" as const, title: t("libraryNoScanTitle"), description: t("libraryNoScanDesc"), primaryAction: <button className={glassButtonPrimary} onClick={() => setView("scanner")}><Layers size={16} />{t("libraryGoToOverview")}</button> };
     if (isEmptyCurrentScanScope) return { tone: "info" as const, title: t("noCurrentScanTitle"), description: t("noCurrentScanDesc"), primaryAction: <button className={glassButtonPrimary} onClick={() => setView("scanner")}><Layers size={16} />{t("libraryGoToOverview")}</button>, secondaryAction: <button className={buttonSecondary} onClick={() => setLegacyScope({ kind: "all" })}>{t("viewAllIndexedFiles")}</button> };
@@ -393,7 +423,7 @@ export function VaultView() {
   return (
     <div className={cn(pageFrame, "gap-3 overflow-x-hidden")}>
       <section className={cn(raisedSurface, "relative z-20 grid shrink-0 gap-2 px-3 py-2")}>
-        <div data-section="scope bar" className="flex min-w-0 flex-wrap items-center justify-between gap-2" aria-label={scopeText}><span className="truncate text-xs text-[var(--zc-text-secondary)]">{scopeText}{scopeHealth && scopeHealth.state !== "healthy" ? ` · ${scopeHealthLabel(scopeHealth.state, t)}` : ""}</span><div className="flex flex-wrap items-center gap-2">{legacyScope.kind !== "all" && !isEmptyCurrentScanScope ? <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => setLegacyScope({ kind: "all" })}><Layers size={15} />{t("viewAllIndexedFiles")}</button> : null}<button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => void handleChooseFolders()}><FolderSearch size={15} />{t("switchScanDirectory")}</button></div></div>
+        <div data-section="scope bar" className="flex min-w-0 flex-wrap items-center justify-between gap-2" aria-label={scopeText}><span className="truncate text-xs text-[var(--zc-text-secondary)]">{scopeText}{scopeHealth && scopeHealth.state !== "healthy" ? ` · ${scopeHealthLabel(scopeHealth.state, t)}` : ""}</span><div className="flex flex-wrap items-center gap-2">{legacyScope.kind !== "all" && !isEmptyCurrentScanScope ? <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => setLegacyScope({ kind: "all" })}><Layers size={15} />{t("viewAllIndexedFiles")}</button> : null}<button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => void handleChooseFolders().catch(() => undefined)}><FolderSearch size={15} />{t("switchScanDirectory")}</button></div></div>
         {showLibraryControls ? <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div data-section="search bar" className="min-w-[min(100%,320px)] flex-1"><SearchField value={librarySearch} onChange={(event) => handleLibrarySearchChange(event.currentTarget.value)} onClear={() => handleLibrarySearchChange("")} label={t("librarySearchLabel")} clearLabel={t("librarySearchClear")} placeholder={legacyScope.kind === "all" ? t("librarySearchPlaceholder") : t("librarySearchPlaceholderScoped")} className="min-w-0" /></div>
           <div className="relative" data-section="filter toolbar"><button ref={filterButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isFilterOpen} aria-controls="library-filter-popover" aria-haspopup="dialog" onClick={() => { setIsFilterOpen((value) => !value); setIsSortOpen(false); }}><SlidersHorizontal size={15} />{t("libraryFilterButton")}{activeFilterCount ? <span className="tabular-nums text-[var(--zc-primary)]">{activeFilterCount}</span> : null}</button>{isFilterOpen ? <div id="library-filter-popover"><FileLibraryFilterPopover filters={querySpec.filters} tags={tags} t={t} onFiltersChange={updateFilters} onClear={clearFilters} onClose={closeFilterPopover} /></div> : null}</div>
@@ -411,20 +441,20 @@ export function VaultView() {
         <NoticeBanner
           tone="warning"
           title={t("librarySnapshotExpiredTitle")}
-          action={<button className={buttonSecondary} onClick={() => void refreshResults()}>{t("librarySnapshotRefresh")}</button>}
+          action={<button className={buttonSecondary} onClick={() => void refreshResults().catch(() => undefined)}>{t("librarySnapshotRefresh")}</button>}
         >
           {t("librarySnapshotExpiredDesc")}
         </NoticeBanner>
       ) : null}
       <InspectorLayout
         className={showInspectorLayout(isNoIndexState)}
-        main={<section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage()} />}</section>}
-        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} language={language} t={t} onPreview={(file) => setPreviewFile(file)} onReveal={(fileId) => void revealFile(fileId)} onViewSuggestions={() => setView("organize")} onOpenContentUnderstanding={(file, trigger) => openContentUnderstanding(file, trigger)} onClearSelection={clearSelection} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation)} /> : undefined}
+        main={<section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file).catch(() => undefined); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage().catch(() => undefined)} />}</section>}
+        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} language={language} t={t} onPreview={(file) => setPreviewFile(file)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onOpenContentUnderstanding={(file, trigger) => openContentUnderstanding(file, trigger)} onClearSelection={clearSelection} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
         inspectorLabel={t("libraryInspector")}
       />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{selectionLabel}</p>
-      {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={() => setContextMenu(null)} onPreview={() => void openPreview(contextMenu.file)} onReveal={() => void revealFile(contextMenu.file.id)} onOpenContent={() => void openContentFromContext(contextMenu.file.id)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
-      <FileLibraryPreviewDialog file={previewFile} language={language} t={t} onClose={() => { setPreviewFile(null); focusList(); }} onReveal={(fileId) => void revealFile(fileId)} />
+      {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={() => setContextMenu(null)} onPreview={() => void openPreview(contextMenu.file).catch(() => undefined)} onReveal={() => void revealFile(contextMenu.file.id).catch(() => undefined)} onOpenContent={() => void openContentFromContext(contextMenu.file.id).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
+      <FileLibraryPreviewDialog file={previewFile} language={language} t={t} onClose={() => { setPreviewFile(null); focusList(); }} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} />
       {contentDetail ? <ContentUnderstandingSheet open detail={contentDetail} t={t} restoreFocus={() => contentTriggerRef.current} onClose={() => setContentDetail(null)} onRefreshAuthoritativeContentState={refreshOpenContentDetail} /> : null}
       <LibraryMetadataManagerDialog
         kind={metadataManager}

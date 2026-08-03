@@ -408,7 +408,7 @@ export const useFileLibraryInspectorStore = create<InspectorState>((set, get) =>
       set({ isLoading: false, error: readableError(error) });
     }
   },
-  clear: () => set({ detail: null, selectionSummary: null, selectedId: null, isLoading: false, error: null })
+  clear: () => set((state) => ({ detail: null, selectionSummary: null, selectedId: null, isLoading: false, error: null, requestEpoch: state.requestEpoch + 1 }))
 }));
 
 interface TagState {

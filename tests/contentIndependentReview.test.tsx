@@ -79,6 +79,71 @@ function detail(overrides: Partial<FileLibraryDetail> = {}): FileLibraryDetail {
   };
 }
 
+function contentRun(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "content-run-race",
+    scope: { kind: "roots", scanRootIds: ["root-content"] },
+    mode: "local",
+    providerMode: "none",
+    status: "running",
+    expectedLibraryRevision: 7,
+    candidateFingerprint: "candidate",
+    candidateResolver: "managed",
+    byteBudget: 1024,
+    charBudget: 1024,
+    requestedCount: 3,
+    materializedCount: 3,
+    completedCount: 0,
+    blockedCount: 0,
+    skippedCount: 0,
+    failedCount: 0,
+    providerRevision: 0,
+    providerConfirmed: false,
+    cancelRequested: false,
+    revision: 1,
+    lastErrorCode: null,
+    lastErrorDetail: null,
+    createdAt: 1,
+    updatedAt: 1,
+    completedAt: null,
+    ...overrides
+  } as any;
+}
+
+function contentPreview() {
+  return {
+    version: 1,
+    requestId: "content-preview",
+    scopeHealth: { scope: { kind: "roots", scanRootIds: ["root-content"] }, health: { state: "healthy", roots: [], invalidReferences: [], message: null }, rootIds: ["root-content"], policyRevisions: [] },
+    exactCount: 1,
+    deferredCount: 0,
+    exactState: "exact",
+    candidateResolver: "managed",
+    candidateFingerprint: "candidate",
+    perFileByteBudget: 1024,
+    perFileCharBudget: 1024,
+    totalByteBudget: 1024,
+    totalCharBudget: 1024,
+    byteBudget: 1024,
+    charBudget: 1024,
+    supportedCount: 1,
+    unsupportedCount: 0,
+    blockedCount: 0,
+    failedCount: 0,
+    supportedFormats: ["txt"],
+    unsupportedFormats: [],
+    blockedReasons: [],
+    localAllowed: true,
+    cloudAllowed: false,
+    rawRetentionDisclosure: "none",
+    sample: [],
+    libraryRevision: 7,
+    policyFingerprint: "policy",
+    previewFingerprint: "preview",
+    requiresConfirmation: true
+  } as never;
+}
+
 async function flush(count = 3) {
   for (let index = 0; index < count; index += 1) {
     await act(async () => {
@@ -88,7 +153,7 @@ async function flush(count = 3) {
 }
 
 function findButton(text: string): HTMLButtonElement {
-  const button = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.includes(text));
+  const button = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.includes(text));
   if (!button) throw new Error(`button not found: ${text}`);
   return button;
 }
@@ -101,7 +166,7 @@ function Harness() {
       ? await tauriApi.getContentScopePolicy(refreshed.scanRootId)
       : null;
     setCurrent(refreshed);
-    return { detail: refreshed, policy: refreshedPolicy };
+    return { applied: true as const, detail: refreshed, policy: refreshedPolicy };
   };
   return <ContentUnderstandingSheet open detail={current} t={t} onClose={() => undefined} onRefreshAuthoritativeContentState={refresh} />;
 }
@@ -321,5 +386,90 @@ describe("Content Understanding independent review behavior", () => {
     expect(start).toHaveBeenCalledOnce();
     expect(getDetail).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("Terminal summary");
+  });
+
+  it("keeps the newest run revision when an older polling generation resolves later", async () => {
+    const initialRun = contentRun({ status: "running", revision: 1 });
+    const newerRun = contentRun({ status: "completed", revision: 3, completedCount: 3, updatedAt: 3, completedAt: 3 });
+    const olderRun = contentRun({ status: "running", revision: 2, completedCount: 1, updatedAt: 2 });
+    let resolveOlder: (value: any) => void = () => undefined;
+    const firstPoll = new Promise<any>((resolve) => { resolveOlder = resolve; });
+    vi.spyOn(tauriApi, "previewContent").mockResolvedValue(contentPreview());
+    vi.spyOn(tauriApi, "startContentRun").mockResolvedValue(initialRun);
+    const getRun = vi.spyOn(tauriApi, "getContentRun").mockReturnValueOnce(firstPoll).mockResolvedValue(newerRun);
+    vi.spyOn(tauriApi, "queryContentRunItems").mockResolvedValue({ runId: initialRun.id, items: [], nextCursor: null, hasMore: false });
+    vi.spyOn(tauriApi, "getFileLibraryDetail").mockResolvedValue(detail({ revision: 8, contentRevision: 3, contentSummary: "Newest" }));
+
+    await act(async () => root.render(createElement(Harness)));
+    await flush();
+    await act(async () => findButton("预览本地提取").click());
+    await flush();
+    await act(async () => findButton("确认并启动").click());
+    await flush(6);
+    expect(getRun).toHaveBeenCalledOnce();
+
+    await act(async () => findButton("刷新任务").click());
+    await flush(6);
+    resolveOlder(olderRun);
+    await flush(6);
+
+    expect(getRun.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(container.textContent).toContain("已完成");
+    expect(container.textContent).toContain("3/3");
+  });
+
+  it("claims terminal refresh before awaiting, retries after failure, and does not refresh twice after success", async () => {
+    const run = contentRun({ status: "completed", revision: 2, completedCount: 1, completedAt: 2 });
+    const refreshed = detail({ revision: 8, contentRevision: 3, contentSummary: "Retried terminal" });
+    vi.spyOn(tauriApi, "previewContent").mockResolvedValue(contentPreview());
+    vi.spyOn(tauriApi, "startContentRun").mockResolvedValue(run);
+    vi.spyOn(tauriApi, "getContentRun").mockResolvedValue(run);
+    vi.spyOn(tauriApi, "queryContentRunItems").mockResolvedValue({ runId: run.id, items: [], nextCursor: null, hasMore: false });
+    const getDetail = vi.spyOn(tauriApi, "getFileLibraryDetail").mockRejectedValueOnce(new Error("first_terminal_refresh_failed")).mockResolvedValue(refreshed);
+
+    await act(async () => root.render(createElement(Harness)));
+    await flush();
+    await act(async () => findButton("预览本地提取").click());
+    await flush();
+    await act(async () => findButton("确认并启动").click());
+    await flush(6);
+    expect(getDetail).toHaveBeenCalledOnce();
+
+    await act(async () => findButton("刷新任务").click());
+    await flush(6);
+    expect(getDetail).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("Retried terminal");
+
+    await act(async () => findButton("刷新任务").click());
+    await flush(6);
+    expect(getDetail).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not write a pending poll after the sheet is closed", async () => {
+    const run = contentRun({ status: "running", revision: 1 });
+    let resolvePoll: (value: any) => void = () => undefined;
+    const pendingPoll = new Promise<any>((resolve) => { resolvePoll = resolve; });
+    vi.spyOn(tauriApi, "previewContent").mockResolvedValue(contentPreview());
+    vi.spyOn(tauriApi, "startContentRun").mockResolvedValue(run);
+    vi.spyOn(tauriApi, "getContentRun").mockReturnValue(pendingPoll);
+    vi.spyOn(tauriApi, "queryContentRunItems").mockResolvedValue({ runId: run.id, items: [], nextCursor: null, hasMore: false });
+    function ClosableHarness() {
+      const [open, setOpen] = useState(true);
+      return open ? <ContentUnderstandingSheet open detail={detail()} t={t} onClose={() => setOpen(false)} /> : null;
+    }
+
+    await act(async () => root.render(createElement(ClosableHarness)));
+    await flush();
+    await act(async () => findButton("预览本地提取").click());
+    await flush();
+    await act(async () => findButton("确认并启动").click());
+    await flush(6);
+    const closeButton = document.querySelector<HTMLButtonElement>('[aria-label="关闭"]');
+    expect(closeButton).toBeTruthy();
+    await act(async () => closeButton?.click());
+    resolvePoll(contentRun({ status: "completed", revision: 2, completedCount: 1, completedAt: 2 }));
+    await flush(6);
+
+    expect(container.textContent).toBe("");
   });
 });

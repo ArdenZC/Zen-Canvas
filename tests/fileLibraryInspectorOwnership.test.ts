@@ -63,7 +63,9 @@ describe("File Library Inspector ownership", () => {
     const pendingClear = deferred<FileLibraryDetail>();
     api.getFileLibraryDetail.mockReturnValueOnce(pendingClear.promise);
     const loadAfterClear = useFileLibraryInspectorStore.getState().loadDetail("file-a");
+    const epochBeforeClear = useFileLibraryInspectorStore.getState().requestEpoch;
     useFileLibraryInspectorStore.getState().clear();
+    expect(useFileLibraryInspectorStore.getState().requestEpoch).toBe(epochBeforeClear + 1);
     pendingClear.resolve(detail("file-a", 4));
     await loadAfterClear;
     expect(useFileLibraryInspectorStore.getState().selectedId).toBeNull();
