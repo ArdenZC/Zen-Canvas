@@ -162,6 +162,8 @@ function StorageCleanupPanel({
   useEffect(() => () => {
     aiCancelRequested.current = true;
     aiOperationEpoch.current += 1;
+    scanIntentInFlight.current = false;
+    requestKeyRef.current = null;
     previewRequestEpoch.current += 1;
     previewSelectionFingerprint.current = null;
     findingsEpoch.current += 1;
@@ -207,6 +209,7 @@ function StorageCleanupPanel({
     previewRequestEpoch.current += 1;
     selectionRevision.current += 1;
     requestKeyRef.current = null;
+    scanIntentInFlight.current = false;
     defaultSelectionRuns.current.clear();
     aiCancelRequested.current = true;
     setRun(null);
@@ -454,11 +457,12 @@ function StorageCleanupPanel({
     defaultSelectionRuns.current.clear();
     scanIntentInFlight.current = true;
     const requestedScopeEpoch = scopeEpoch.current;
-    requestKeyRef.current = `cleanup-${crypto.randomUUID()}`;
+    const requestKey = `cleanup-${crypto.randomUUID()}`;
+    requestKeyRef.current = requestKey;
     const request: StartAnalysisRunRequest = {
       scope: { kind: "approvedCleanupPaths", paths: selectedRoots },
       detectorIds: detectors.filter((detector) => detector.supportsApprovedPaths).map((detector) => detector.detectorId),
-      requestKey: requestKeyRef.current
+      requestKey
     };
     setIsMutating(true);
     try {
@@ -469,7 +473,7 @@ function StorageCleanupPanel({
     } catch (startError) {
       reportError(startError);
     } finally {
-      if (requestedScopeEpoch === scopeEpoch.current) {
+      if (requestKeyRef.current === requestKey) {
         requestKeyRef.current = null;
         scanIntentInFlight.current = false;
         setIsMutating(false);
@@ -840,7 +844,7 @@ function StorageCleanupPanel({
       && activeTierRef.current === expectedTier
       && operationEpoch === aiOperationEpoch.current
       && runRef.current?.id === reviewRunId
-      && runRef.current.revision === reviewRunRevision;
+      && runRef.current.revision >= reviewRunRevision;
     const canceledStatus = () => replaceCopy("storageCleanupAIRecheckCanceledSummary", {
       processed,
       total,
@@ -955,6 +959,7 @@ function StorageCleanupPanel({
     aiCancelRequested.current = true;
     aiOperationEpoch.current += 1;
     setAiStatus(t("storageCleanupAIRecheckCanceling"));
+    setIsAiWorking(false);
   }, [t]);
 
   const virtualizer = useVirtualizer({

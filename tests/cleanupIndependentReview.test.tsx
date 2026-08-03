@@ -200,6 +200,40 @@ describe("Cleanup independent review behavior", () => {
     expect(requests[1]?.requestKey).not.toBe(requests[0]?.requestKey);
   });
 
+  it("releases the old scan intent when the scope changes while the start request is pending", async () => {
+    const runA = makeRun("run-scan-old", "completed", 0, { paths: ["C:/RootA"] });
+    const runB = makeRun("run-scan-new", "completed", 0, { paths: ["C:/RootB"] });
+    const requests: Array<{ scope?: { paths?: string[] }; requestKey?: string | null }> = [];
+    let resolveOld: (run: AnalysisRun) => void = () => undefined;
+    const startAnalysisRun = vi.fn((request: { scope?: { paths?: string[] }; requestKey?: string | null }) => {
+      requests.push(request);
+      if (requests.length === 1) return new Promise<AnalysisRun>((resolve) => { resolveOld = resolve; });
+      return Promise.resolve(runB);
+    });
+    const api = commonApi(runA, {
+      listAnalysisRuns: async () => [],
+      startAnalysisRun,
+      getAnalysisRun: vi.fn(async (id: string) => id === runB.id ? runB : runA)
+    });
+    dialogMocks.open.mockResolvedValue("C:/RootB");
+
+    await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/RootA"], api, t })));
+    await flush(3);
+    await act(async () => scopeButton().click());
+    await flush(2);
+    await act(async () => button(t("storageCleanupChooseFolder")).click());
+    await flush(3);
+    await act(async () => scopeButton().click());
+    await flush(6);
+
+    expect(startAnalysisRun).toHaveBeenCalledTimes(2);
+    expect(requests[1]?.scope?.paths).toEqual(["C:/RootB"]);
+    resolveOld(runA);
+    await flush(6);
+    expect(container.querySelector(`[data-analysis-run-id="${runB.id}"]`)).not.toBeNull();
+    expect(container.textContent).toContain("C:/RootB");
+  });
+
   it("uses a fresh request key after a canceled run", async () => {
     const running = makeRun("run-running", "running");
     const canceled = { ...running, status: "cancelled", phase: "completed" as const, cancelRequested: false };
@@ -293,6 +327,77 @@ describe("Cleanup independent review behavior", () => {
 
     expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("重新核验已停止");
+    expect(container.textContent).not.toContain("停止重新核验");
+  });
+
+  it("keeps an AI operation owned by the same run when the durable run revision advances", async () => {
+    const run = makeRun("run-ai-self-revision", "completed", 1);
+    const selected = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
+    let currentRun = run;
+    let resolveAI: (value: AnalysisFinding[]) => void = () => undefined;
+    let onRunUpdate: ((updated: AnalysisRun) => void) | null = null;
+    const analyzeCleanupCandidatesWithAI = vi.fn(() => new Promise<AnalysisFinding[]>((resolve) => { resolveAI = resolve; }));
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun: vi.fn(async () => currentRun),
+      listAnalysisFindings: async () => ({ findings: [selected], nextCursor: null, limit: 100 }),
+      getAnalysisFinding: vi.fn(async () => selected),
+      getAISettings: async () => ({ enabled: true, cleanupAiEnabled: true }),
+      analyzeCleanupCandidatesWithAI,
+      onAnalysisRunUpdated: async (handler: (updated: AnalysisRun) => void) => {
+        onRunUpdate = handler;
+        return () => undefined;
+      }
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(4);
+    await act(async () => button("重新核验需确认项目").click());
+    await vi.waitFor(() => expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce());
+
+    currentRun = { ...run, revision: run.revision + 1 };
+    await act(async () => onRunUpdate?.(currentRun));
+    await flush(6);
+    resolveAI([selected]);
+    await flush(12);
+
+    expect(api.getAnalysisFinding).toHaveBeenCalledWith(selected.id);
+    expect(container.textContent).not.toContain("停止重新核验");
+  });
+
+  it("releases AI busy state when cancellation supersedes terminal run refresh", async () => {
+    const run = makeRun("run-ai-cancel-refresh", "completed", 1);
+    const selected = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
+    let getRunCalls = 0;
+    let resolveTerminalRefresh: (value: AnalysisRun) => void = () => undefined;
+    const terminalRefresh = new Promise<AnalysisRun>((resolve) => { resolveTerminalRefresh = resolve; });
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun: vi.fn(async () => {
+        getRunCalls += 1;
+        return getRunCalls === 1 ? run : terminalRefresh;
+      }),
+      listAnalysisFindings: async () => ({ findings: [selected], nextCursor: null, limit: 100 }),
+      getAnalysisFinding: vi.fn(async () => selected),
+      getAISettings: async () => ({ enabled: true, cleanupAiEnabled: true }),
+      analyzeCleanupCandidatesWithAI: vi.fn(async () => [selected])
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(4);
+    await act(async () => button("重新核验需确认项目").click());
+    await vi.waitFor(() => expect(getRunCalls).toBe(2));
+
+    await act(async () => button("停止重新核验").click());
+    resolveTerminalRefresh(run);
+    await flush(8);
+
+    expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("停止重新核验"))).toBe(false);
+    expect([...container.querySelectorAll<HTMLButtonElement>("button")].some((item) => item.textContent?.includes("重新核验需确认项目"))).toBe(true);
   });
 
   it("removes a selected Review finding after AI returns an authoritative Caution revision and clears preview", async () => {
