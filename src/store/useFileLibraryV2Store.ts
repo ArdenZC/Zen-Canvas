@@ -364,6 +364,7 @@ interface InspectorState {
   isLoading: boolean;
   error: string | null;
   loadDetail: (fileId: string | null) => Promise<void>;
+  commitDetailIfCurrent: (fileId: string, detail: FileLibraryDetail, expectedEpoch: number) => boolean;
   loadSelectionSummary: (selection: LibrarySelectionV1 | null) => Promise<void>;
   clear: () => void;
 }
@@ -387,6 +388,12 @@ export const useFileLibraryInspectorStore = create<InspectorState>((set, get) =>
       if (epoch !== get().requestEpoch || get().selectedId !== fileId) return;
       set({ isLoading: false, error: readableError(error) });
     }
+  },
+  commitDetailIfCurrent: (fileId, detail, expectedEpoch) => {
+    const state = get();
+    if (state.requestEpoch !== expectedEpoch || state.selectedId !== fileId) return false;
+    set({ detail, isLoading: false, error: null });
+    return true;
   },
   loadSelectionSummary: async (selection) => {
     const epoch = get().requestEpoch + 1;

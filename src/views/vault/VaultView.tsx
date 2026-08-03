@@ -62,6 +62,7 @@ export function VaultView() {
   const selectionSummary = useFileLibraryInspectorStore((state) => state.selectionSummary);
   const isInspectorLoading = useFileLibraryInspectorStore((state) => state.isLoading);
   const loadDetail = useFileLibraryInspectorStore((state) => state.loadDetail);
+  const commitDetailIfCurrent = useFileLibraryInspectorStore((state) => state.commitDetailIfCurrent);
   const loadSelectionSummary = useFileLibraryInspectorStore((state) => state.loadSelectionSummary);
   const clearInspector = useFileLibraryInspectorStore((state) => state.clear);
   const tags = useFileLibraryTagStore((state) => state.tags);
@@ -331,19 +332,24 @@ export function VaultView() {
   }
 
   const refreshContentDetail = useCallback(async (fileId: string) => {
+    const inspectorAtStart = useFileLibraryInspectorStore.getState();
+    const expectedInspectorEpoch = inspectorAtStart.requestEpoch;
+    const inspectorOwnedFile = inspectorAtStart.selectedId === fileId;
     try {
       const refreshed = await tauriApi.getFileLibraryDetail(fileId);
       const policy = refreshed.scanRootId
         ? await tauriApi.getContentScopePolicy(refreshed.scanRootId)
         : null;
       setContentDetail((current) => current?.id === fileId ? refreshed : current);
-      useFileLibraryInspectorStore.setState({ detail: refreshed, selectedId: fileId, isLoading: false, error: null });
+      if (inspectorOwnedFile) commitDetailIfCurrent(fileId, refreshed, expectedInspectorEpoch);
       return { detail: refreshed, policy };
     } catch (error) {
+      const currentInspector = useFileLibraryInspectorStore.getState();
+      if (!inspectorOwnedFile || currentInspector.requestEpoch !== expectedInspectorEpoch || currentInspector.selectedId !== fileId) throw error;
       onError(readableError(error));
       throw error;
     }
-  }, [loadDetail, onError]);
+  }, [commitDetailIfCurrent, onError]);
   const refreshOpenContentDetail = useCallback(
     () => contentDetail
       ? refreshContentDetail(contentDetail.id)
