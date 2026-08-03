@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTranslator } from "../src/i18n";
 import type { AnalysisFinding, AnalysisRun } from "../src/types/domain";
-import { StorageCleanupView } from "../src/views/cleanup/StorageCleanupView";
+import { reconcileAuthoritativeFindingUpdates, StorageCleanupView } from "../src/views/cleanup/StorageCleanupView";
 
 const dialogMocks = vi.hoisted(() => ({ open: vi.fn() }));
 const pathMocks = vi.hoisted(() => ({
@@ -286,6 +286,142 @@ describe("Cleanup independent review behavior", () => {
 
     expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("重新核验已停止");
+  });
+
+  it("removes a selected Review finding after AI returns an authoritative Caution revision and clears preview", async () => {
+    const run = makeRun("run-ai-reconcile-caution", "completed", 1);
+    const selected = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
+    const caution = { ...selected, tier: "caution", category: "caution", executable: false, decision: null, decisionRevision: null, revision: 2 };
+    let aiUpdated = false;
+    const listAnalysisFindings = vi.fn(async (request: { tier?: string }) => ({
+      findings: request.tier === "review" && !aiUpdated ? [selected] : [],
+      nextCursor: null,
+      limit: 100
+    }));
+    const previewCleanupOperations = vi.fn(async () => ({ total: 1, previews: [], truncated: false, hasMore: false }));
+    const analyzeCleanupCandidatesWithAI = vi.fn(async () => {
+      aiUpdated = true;
+      return [{ id: selected.id }] as any;
+    });
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun: async () => aiUpdated ? { ...run, reviewCount: 0, cautionCount: 1 } : run,
+      listAnalysisFindings,
+      getAnalysisFinding: async () => aiUpdated ? caution : selected,
+      getAISettings: async () => ({ enabled: true, cleanupAiEnabled: true }),
+      analyzeCleanupCandidatesWithAI,
+      previewCleanupOperations
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(6);
+    await act(async () => button(t("storageCleanupSelectForTrash")).click());
+    await flush(3);
+    expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+
+    await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
+    await flush(4);
+    expect(container.textContent).toContain(t("storageCleanupPreviewReadyTitle"));
+
+    await act(async () => button("重新核验需确认项目").click());
+    await flush(10);
+
+    expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce();
+    expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
+    expect(container.textContent).not.toContain(t("storageCleanupPreviewReadyTitle"));
+    expect(previewCleanupOperations).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a selected Review finding on a new authoritative revision and uses that revision for Preview", async () => {
+    const run = makeRun("run-ai-reconcile-review", "completed", 1);
+    const selected = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
+    const refreshed = { ...selected, revision: 2, decisionRevision: 2, updatedAt: 2 };
+    let aiUpdated = false;
+    const listAnalysisFindings = vi.fn(async (request: { tier?: string }) => ({
+      findings: request.tier === "review" ? [aiUpdated ? refreshed : selected] : [],
+      nextCursor: null,
+      limit: 100
+    }));
+    const previewCleanupOperations = vi.fn(async (_runId: string, selections: Array<{ findingId: string; expectedRevision: number; reviewConfirmation?: { decisionRevision: number } }>) => {
+      expect(selections).toEqual([{ findingId: selected.id, expectedRevision: 2, reviewConfirmation: { decisionRevision: 2 } }]);
+      return { total: 1, previews: [], truncated: false, hasMore: false };
+    });
+    const analyzeCleanupCandidatesWithAI = vi.fn(async () => {
+      aiUpdated = true;
+      return [{ id: selected.id }] as any;
+    });
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun: async () => run,
+      listAnalysisFindings,
+      getAnalysisFinding: async () => refreshed,
+      getAISettings: async () => ({ enabled: true, cleanupAiEnabled: true }),
+      analyzeCleanupCandidatesWithAI,
+      previewCleanupOperations
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(6);
+    await act(async () => button(t("storageCleanupSelectForTrash")).click());
+    await flush(3);
+    await act(async () => button("重新核验需确认项目").click());
+    await flush(10);
+
+    expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+    await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
+    await flush(4);
+    expect(previewCleanupOperations).toHaveBeenCalledOnce();
+  });
+
+  it("preserves safe and skipped selections while reconciling only returned authoritative findings", () => {
+    const run = makeRun("run-ai-reconcile-pure", "completed", 1, { safeCount: 1 });
+    const safe = makeSafeFinding(run, 0);
+    const review = { ...makeFinding(run, 1), decision: "acknowledged" as const, decisionRevision: 1 };
+    const caution = { ...review, tier: "caution", executable: false, revision: 2 };
+    expect(reconcileAuthoritativeFindingUpdates(new Set([safe.id, review.id]), [caution])).toEqual(new Set([safe.id]));
+    expect(reconcileAuthoritativeFindingUpdates(new Set([safe.id, review.id]), [])).toEqual(new Set([safe.id, review.id]));
+  });
+
+  it("does not write an old AI result after the user changes cleanup scope", async () => {
+    const run = makeRun("run-ai-scope-race", "completed", 1, { paths: ["C:/RootA"] });
+    const selected = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
+    let resolveAI: (value: any[]) => void = () => undefined;
+    const analyzeCleanupCandidatesWithAI = vi.fn(() => new Promise<any[]>((resolve) => { resolveAI = resolve; }));
+    const getAnalysisFinding = vi.fn(async () => selected);
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun: async () => run,
+      listAnalysisFindings: async (request: { tier?: string }) => ({
+        findings: request.tier === "review" ? [selected] : [],
+        nextCursor: null,
+        limit: 100
+      }),
+      getAnalysisFinding,
+      getAISettings: async () => ({ enabled: true, cleanupAiEnabled: true }),
+      analyzeCleanupCandidatesWithAI
+    });
+    dialogMocks.open.mockResolvedValue("C:/RootB");
+
+    await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/RootA"], api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(6);
+    await act(async () => button("重新核验需确认项目").click());
+    await flush(5);
+    expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce();
+
+    await act(async () => button(t("storageCleanupChooseFolder")).click());
+    await flush(4);
+    resolveAI([{ id: selected.id }]);
+    await flush(8);
+
+    expect(getAnalysisFinding).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("C:/RootB");
+    expect(container.querySelector(`[data-analysis-run-id="${run.id}"]`)).toBeNull();
   });
 
   it("clears the old run, selection, preview, and execution surface when a folder scope changes", async () => {

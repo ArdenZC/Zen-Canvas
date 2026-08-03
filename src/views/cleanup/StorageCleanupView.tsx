@@ -133,6 +133,7 @@ function StorageCleanupPanel({
   const [error, setError] = useState("");
   const [unsupported, setUnsupported] = useState(false);
   const findingListRef = useRef<HTMLDivElement | null>(null);
+  const selectedFindingIdsRef = useRef(selectedFindingIds);
   const findingsEpoch = useRef(0);
   const scopeEpoch = useRef(0);
   const requestKeyRef = useRef<string | null>(null);
@@ -142,6 +143,10 @@ function StorageCleanupPanel({
   const initialRootsPropKey = useRef(scopeKey(initialRoots ?? []));
   const defaultSelectionRuns = useRef(new Set<string>());
   const mutationUnavailable = localFileMutationUnavailableCode();
+
+  useEffect(() => {
+    selectedFindingIdsRef.current = selectedFindingIds;
+  }, [selectedFindingIds]);
 
   useEffect(() => () => {
     aiCancelRequested.current = true;
@@ -172,7 +177,8 @@ function StorageCleanupPanel({
     setFindings([]);
     setFindingCache({});
     setNextCursor(null);
-    setSelectedFindingIds(new Set());
+    selectedFindingIdsRef.current = new Set();
+    setSelectedFindingIds(selectedFindingIdsRef.current);
     setEvidenceByFinding({});
     setExpandedEvidence(new Set());
     setReviewFinding(null);
@@ -617,6 +623,25 @@ function StorageCleanupPanel({
     }
   }, [api, buildSelections, loadRunDetails, preview, reportError, run, selectedFindings.length]);
 
+  const reconcileUpdatedFindings = useCallback((updatedFindings: AnalysisFinding[]) => {
+    if (!updatedFindings.length) return;
+    const selectedBeforeUpdate = selectedFindingIdsRef.current;
+    const selectedRevisionAffected = updatedFindings.some((finding) => selectedBeforeUpdate.has(finding.id));
+    setFindingCache((cache) => {
+      const next = { ...cache };
+      for (const finding of updatedFindings) next[finding.id] = finding;
+      return next;
+    });
+    const nextSelected = reconcileAuthoritativeFindingUpdates(selectedBeforeUpdate, updatedFindings);
+    selectedFindingIdsRef.current = nextSelected;
+    setSelectedFindingIds(nextSelected);
+    if (selectedRevisionAffected) {
+      setPreview(null);
+      setConfirmPreviewOpen(false);
+      setExecutionResult(null);
+    }
+  }, []);
+
   const recheckReviewFindings = useCallback(async () => {
     if (!run || !api.analyzeCleanupCandidatesWithAI || !api.getAISettings) {
       reportError(t("storageCleanupAIUnsupported"));
@@ -660,6 +685,7 @@ function StorageCleanupPanel({
       let processed = 0;
       let skipped = 0;
       let failed = 0;
+      const authoritativeUpdates: AnalysisFinding[] = [];
       for (let offset = 0; offset < ids.length; offset += AI_RECHECK_BATCH_SIZE) {
         if (expectedScopeEpoch !== scopeEpoch.current) return;
         if (aiCancelRequested.current) {
@@ -670,8 +696,19 @@ function StorageCleanupPanel({
         setAiStatus(replaceCopy("storageCleanupAIRecheckWorkingProgress", { processed, total: ids.length }));
         try {
           const updated = await api.analyzeCleanupCandidatesWithAI(reviewRunId, batch);
+          if (expectedScopeEpoch !== scopeEpoch.current) return;
           processed += updated.length;
           skipped += Math.max(0, batch.length - updated.length);
+          if (updated.length) {
+            const refreshed = await Promise.all(updated.map(async (candidate) => {
+              if (api.getAnalysisFinding) return api.getAnalysisFinding(candidate.id);
+              return isAnalysisFinding(candidate) ? candidate : null;
+            }));
+            if (expectedScopeEpoch !== scopeEpoch.current) return;
+            const authoritative = refreshed.filter((finding): finding is AnalysisFinding => Boolean(finding));
+            authoritativeUpdates.push(...authoritative);
+            reconcileUpdatedFindings(authoritative);
+          }
         } catch {
           failed += batch.length;
         }
@@ -686,7 +723,7 @@ function StorageCleanupPanel({
     } finally {
       setIsAiWorking(false);
     }
-  }, [activeTier, api, isAiWorking, loadFindings, loadRunDetails, reportError, replaceCopy, run, t]);
+  }, [activeTier, api, isAiWorking, loadFindings, loadRunDetails, reconcileUpdatedFindings, reportError, replaceCopy, run, t]);
 
   const cancelAiRecheck = useCallback(() => {
     aiCancelRequested.current = true;
@@ -1095,6 +1132,28 @@ function durableRunState(run: AnalysisRun): "running" | "partial" | "completed" 
 
 function isBackendDefaultSafeFinding(finding: AnalysisFinding): boolean {
   return finding.tier === "safe" && finding.status === "active" && finding.executable && !finding.requiresConfirmation && isTrashAction(finding.actionKind);
+}
+
+export function reconcileAuthoritativeFindingUpdates(
+  selectedIds: ReadonlySet<string>,
+  updatedFindings: readonly AnalysisFinding[]
+): Set<string> {
+  const updates = new Map(updatedFindings.map((finding) => [finding.id, finding]));
+  const next = new Set<string>();
+  for (const id of selectedIds) {
+    const updated = updates.get(id);
+    if (!updated || isFindingSelectable(updated)) next.add(id);
+  }
+  return next;
+}
+
+function isAnalysisFinding(value: unknown): value is AnalysisFinding {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<AnalysisFinding>;
+  return typeof candidate.id === "string"
+    && typeof candidate.findingKey === "string"
+    && typeof candidate.revision === "number"
+    && typeof candidate.status === "string";
 }
 
 function isFindingSelectable(finding: AnalysisFinding): boolean {
