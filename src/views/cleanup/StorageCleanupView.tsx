@@ -33,7 +33,7 @@ import type { Translator, View } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
 import { localFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
 import { resolveReclaimableBytes } from "../../utils/reclaimableBytes";
-import { localizedStableError, readableError, compactPath } from "../../utils/viewHelpers";
+import { localizedStableError, readableError, compactPath, normalizePathLike } from "../../utils/viewHelpers";
 import { cn } from "../../utils/tw";
 import {
   Button,
@@ -138,7 +138,7 @@ function StorageCleanupPanel({
   const requestKeyRef = useRef<string | null>(null);
   const scanIntentInFlight = useRef(false);
   const aiCancelRequested = useRef(false);
-  const scopeHydrated = useRef(Boolean(initialRoots?.length));
+  const scopeHydrated = useRef(Boolean(normalizeScopePaths(initialRoots ?? []).length));
   const initialRootsPropKey = useRef(scopeKey(initialRoots ?? []));
   const defaultSelectionRuns = useRef(new Set<string>());
   const mutationUnavailable = localFileMutationUnavailableCode();
@@ -269,6 +269,7 @@ function StorageCleanupPanel({
 
   useEffect(() => {
     let disposed = false;
+    const hydrationScopeEpoch = scopeEpoch.current;
     async function hydrate() {
       if (!api.listAnalysisDetectors || !api.listAnalysisRuns) {
         setUnsupported(true);
@@ -282,13 +283,23 @@ function StorageCleanupPanel({
           api.listAnalysisRuns(20),
           activePromise
         ]);
-        if (disposed) return;
+        if (disposed || hydrationScopeEpoch !== scopeEpoch.current) return;
         setDetectors(availableDetectors);
-        setRuns(listedRuns.filter(isCleanupRun));
-        const candidate = activeRun && isCleanupRun(activeRun)
-          ? activeRun
-          : listedRuns.find(isCleanupRun) ?? null;
-        if (candidate) await loadRunDetails(candidate.id);
+        const cleanupRuns = listedRuns.filter(isCleanupRun);
+        setRuns(cleanupRuns);
+        const candidates = (activeRun && isCleanupRun(activeRun)
+          ? [activeRun, ...cleanupRuns.filter((listedRun) => listedRun.id !== activeRun.id)]
+          : cleanupRuns)
+          .slice()
+          .sort((left, right) => right.updatedAt - left.updatedAt || right.createdAt - left.createdAt);
+        const requestedScopeKey = scopeKey(initialRoots ?? []);
+        const candidate = requestedScopeKey
+          ? candidates.find((listedRun) => scopeKey(scopePaths(listedRun)) === requestedScopeKey) ?? null
+          : candidates[0] ?? null;
+        if (candidate) {
+          if (hydrationScopeEpoch !== scopeEpoch.current) return;
+          await loadRunDetails(candidate.id);
+        }
       } catch (loadError) {
         if (!disposed) reportError(loadError);
       } finally {
@@ -1005,11 +1016,40 @@ function isCleanupRun(run: AnalysisRun): boolean {
 }
 
 function normalizeScopePaths(paths: readonly string[]): string[] {
-  return [...new Set(paths.map((path) => path.trim()).filter(Boolean))];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const path of paths) {
+    const trimmed = path.trim();
+    if (!trimmed) continue;
+    const comparisonKey = normalizeScopePathForComparison(trimmed);
+    if (!comparisonKey || seen.has(comparisonKey)) continue;
+    seen.add(comparisonKey);
+    normalized.push(trimmed);
+  }
+  return normalized;
 }
 
 function scopeKey(paths: readonly string[]): string {
-  return normalizeScopePaths(paths).sort().join("\u0000");
+  return [...new Set(
+    paths
+      .map((path) => normalizeScopePathForComparison(path))
+      .filter(Boolean)
+  )]
+    .sort()
+    .join("\u0000");
+}
+
+function normalizeScopePathForComparison(path: string): string {
+  let normalized = path.trim().replaceAll("\\", "/");
+  const lower = normalized.toLocaleLowerCase();
+  if (lower.startsWith("//?/unc/")) {
+    normalized = `//${normalized.slice(8)}`;
+  } else if (lower.startsWith("//?/")) {
+    normalized = normalized.slice(4);
+  }
+  if (normalized === "/") return "/";
+  if (/^[a-z]:\/?$/i.test(normalized)) return `${normalized[0].toLowerCase()}:/`;
+  return normalizePathLike(normalized);
 }
 
 function scopePaths(run: AnalysisRun): string[] {

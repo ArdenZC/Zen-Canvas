@@ -121,9 +121,7 @@ export function ScannerView() {
   const scanFallbackPath = scanState.progress?.root || selectedFolders[0] || scopeRoots[0] || "";
   const latestContentRun = contentRuns
     .slice()
-    .sort((left, right) => right.updatedAt - left.updatedAt)
-    .find((run) => ["failed", "error", "stale", "interrupted"].includes(run.status))
-    ?? contentRuns.slice().sort((left, right) => right.updatedAt - left.updatedAt)[0]
+    .sort((left, right) => right.updatedAt - left.updatedAt)[0]
     ?? null;
   const cleanupRun = (activeAnalysisRun?.scope?.kind === "approved_cleanup_paths" ? activeAnalysisRun : null)
     ?? analysisRuns

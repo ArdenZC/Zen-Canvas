@@ -247,7 +247,7 @@ export function RestoreView() {
 
   useEffect(() => {
     if (!moreFiltersOpen) return;
-    const firstFilter = moreFiltersRef.current?.querySelector<HTMLElement>("button");
+    const firstFilter = moreFiltersRef.current?.querySelector<HTMLElement>('[role="dialog"] button');
     requestAnimationFrame(() => firstFilter?.focus());
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -299,6 +299,11 @@ export function RestoreView() {
     setSelectedOperationIds(new Set());
     setSelectedCleanupIds(new Set());
     invalidateRestoreIntent();
+  }
+
+  function changeMoreFilter(next: ViewFilter) {
+    changeFilter(next);
+    requestAnimationFrame(() => moreFiltersTriggerRef.current?.focus());
   }
 
   async function prepareConfirmation() {
@@ -393,7 +398,7 @@ export function RestoreView() {
                   <SlidersHorizontal size={14} aria-hidden="true" />{t("historyMoreFilters")}
                 </button>
                 {moreFiltersOpen ? <div id="history-more-filters" role="dialog" aria-label={t("historyMoreFilters")} className="absolute left-0 top-full z-20 mt-2 grid min-w-52 gap-1 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)]">
-                  {moreFilterButtons.map(({ value, key }) => <button key={value} type="button" aria-pressed={filter === value} className={cn(buttonGhost, "justify-start", filter === value && "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]")} onClick={() => changeFilter(value)}>{t(key)}</button>)}
+                  {moreFilterButtons.map(({ value, key }) => <button key={value} type="button" aria-pressed={filter === value} className={cn(buttonGhost, "justify-start", filter === value && "bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]")} onClick={() => changeMoreFilter(value)}>{t(key)}</button>)}
                 </div> : null}
               </div>
             </div>

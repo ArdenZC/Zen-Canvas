@@ -132,7 +132,7 @@ export function selectOverviewPriorityTask(input: {
   if (planReviewCount > 0) return { kind: "review", count: planReviewCount };
   const cleanupCandidateCount = health
     ? health.cleanupRun
-      ? health.cleanupRun.reviewCount + health.cleanupRun.cautionCount
+      ? health.cleanupRun.safeCount + health.cleanupRun.reviewCount + health.cleanupRun.cautionCount
       : 0
     : input.cleanupCandidateCount;
   const reclaimable = health

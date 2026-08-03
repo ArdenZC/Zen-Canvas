@@ -92,8 +92,8 @@ describe("V4.3 PR10 overview health projections", () => {
     expect(select(plan)).toMatchObject({ kind: "review", count: 1 });
 
     const cleanup = baseHealth();
-    cleanup.cleanupRun = { reviewCount: 3, cautionCount: 1, exactReclaimableBytes: 8192 } as OverviewHealthSnapshot["cleanupRun"];
-    expect(select(cleanup)).toMatchObject({ kind: "cleanup", count: 4, bytes: 8192 });
+    cleanup.cleanupRun = { safeCount: 2, reviewCount: 0, cautionCount: 0, exactReclaimableBytes: 8192 } as OverviewHealthSnapshot["cleanupRun"];
+    expect(select(cleanup)).toMatchObject({ kind: "cleanup", count: 2, bytes: 8192 });
 
     const content = baseHealth();
     content.contentRun = { status: "failed", lastErrorDetail: "provider failed" } as OverviewHealthSnapshot["contentRun"];
@@ -120,11 +120,13 @@ describe("V4.3 PR10 overview health projections", () => {
     expect(select(watcher)).toMatchObject({ kind: "managed-root-stale", count: 1, reason: "stale" });
 
     const potential = baseHealth();
-    potential.cleanupRun = { reviewCount: 2, cautionCount: 0, exactReclaimableBytes: 0, potentialReclaimableBytes: 8192 } as OverviewHealthSnapshot["cleanupRun"];
-    expect(select(potential)).toMatchObject({ kind: "cleanup", count: 2, bytes: 8192, bytesAreEstimated: true });
-    potential.cleanupRun = { reviewCount: 2, cautionCount: 0, exactReclaimableBytes: 4096, potentialReclaimableBytes: 8192 } as OverviewHealthSnapshot["cleanupRun"];
-    expect(select(potential)).toMatchObject({ kind: "cleanup", bytes: 4096, bytesAreEstimated: false });
-    potential.cleanupRun = { reviewCount: 2, cautionCount: 0, exactReclaimableBytes: 0, potentialReclaimableBytes: 0 } as OverviewHealthSnapshot["cleanupRun"];
+    potential.cleanupRun = { safeCount: 0, reviewCount: 2, cautionCount: 1, exactReclaimableBytes: 0, potentialReclaimableBytes: 8192 } as OverviewHealthSnapshot["cleanupRun"];
+    expect(select(potential)).toMatchObject({ kind: "cleanup", count: 3, bytes: 8192, bytesAreEstimated: true });
+    potential.cleanupRun = { safeCount: 0, reviewCount: 2, cautionCount: 1, exactReclaimableBytes: 4096, potentialReclaimableBytes: 8192 } as OverviewHealthSnapshot["cleanupRun"];
+    expect(select(potential)).toMatchObject({ kind: "cleanup", count: 3, bytes: 4096, bytesAreEstimated: false });
+    potential.cleanupRun = { safeCount: 0, reviewCount: 0, cautionCount: 0, exactReclaimableBytes: 8192, potentialReclaimableBytes: 8192 } as OverviewHealthSnapshot["cleanupRun"];
+    expect(select(potential).kind).not.toBe("cleanup");
+    potential.cleanupRun = { safeCount: 0, reviewCount: 2, cautionCount: 0, exactReclaimableBytes: 0, potentialReclaimableBytes: 0 } as OverviewHealthSnapshot["cleanupRun"];
     expect(select(potential).kind).not.toBe("cleanup");
 
     const noDurableBytes = baseHealth();
