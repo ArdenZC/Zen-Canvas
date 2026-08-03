@@ -377,6 +377,7 @@ describe("Task 06 File Library handoff interactions", () => {
     await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().selectedId).toBe(fileA.id));
     const contentButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("Open Content Understanding"));
     await act(async () => contentButton?.click());
+    expect(api.getDetail).toHaveBeenCalledTimes(1);
     const refreshButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Refresh content");
     await act(async () => refreshButton?.click());
     await act(async () => refreshButton?.click());
