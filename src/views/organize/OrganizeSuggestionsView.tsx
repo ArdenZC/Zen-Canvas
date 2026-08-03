@@ -26,6 +26,17 @@ import {
 const GROUP_ROW_HEIGHT = 174;
 const GROUP_PAGE_SIZE = 100;
 
+export function organizationExecutionBatchSummary(executableCount: number, executionBatchLimit: number) {
+  const totalCount = Math.max(0, Math.floor(executableCount));
+  const batchLimit = Math.max(0, Math.floor(executionBatchLimit));
+  const batchCount = Math.min(totalCount, batchLimit);
+  return {
+    batchCount,
+    remainingCount: totalCount - batchCount,
+    isBatched: totalCount > batchCount
+  };
+}
+
 type ReviewTab = "plan" | "decision" | "blocked";
 
 export function OrganizeSuggestionsView() {
@@ -69,6 +80,7 @@ export function OrganizeSuggestionsView() {
   const [editError, setEditError] = useState<string | null>(null);
   const [planTitle, setPlanTitle] = useState("");
   const [confirmExecution, setConfirmExecution] = useState(false);
+  const [confirmedExecutionBatch, setConfirmedExecutionBatch] = useState<ReturnType<typeof organizationExecutionBatchSummary> | null>(null);
   const [confirmItemAcceptance, setConfirmItemAcceptance] = useState<OrganizationPlanItem | null>(null);
   const [confirmGroupAcceptance, setConfirmGroupAcceptance] = useState<OrganizationPlanGroupSummary | null>(null);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
@@ -279,6 +291,7 @@ export function OrganizeSuggestionsView() {
       setConfirmExecution(true);
       return;
     }
+    setConfirmedExecutionBatch(null);
     try {
       await createDryRun();
     } catch {
@@ -425,13 +438,22 @@ export function OrganizeSuggestionsView() {
             <DurableTaskStatus
               state="completed"
               title={t("organizeDryRunTitle")}
-              description={t("organizeDryRunDesc").replace("{executable}", dryRun.executableCount.toLocaleString()).replace("{blocked}", dryRun.blockedCount.toLocaleString()).replace("{stale}", dryRun.staleCount.toLocaleString())}
+              description={replaceCopy(t("organizeDryRunDesc"), {
+                executable: dryRun.executableCount.toLocaleString(),
+                batch: organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit).batchCount.toLocaleString(),
+                remaining: organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit).remainingCount.toLocaleString(),
+                blocked: dryRun.blockedCount.toLocaleString(),
+                stale: dryRun.staleCount.toLocaleString()
+              })}
               action={<Button variant="secondary" onClick={() => setConfirmExecution(true)}>{t("organizeDryRunAction")}</Button>}
               density="compact"
             />
           ) : null}
 
-          {executionResult ? <NoticeBanner tone={executionResult.failedCount ? "warning" : "success"} title={executionResult.failedCount ? t("organizeResultPartialTitle") : t("organizeResultSuccessTitle")} action={<Button variant="secondary" size="compact" onClick={() => setView("restore")}>{t("organizeViewHistory")}</Button>}>{t("organizeResultSummary").replace("{success}", executionResult.succeededCount.toLocaleString()).replace("{skipped}", executionResult.skippedCount.toLocaleString()).replace("{failed}", executionResult.failedCount.toLocaleString())}</NoticeBanner> : null}
+          {executionResult ? <NoticeBanner tone={executionResult.failedCount ? "warning" : "success"} title={executionResult.failedCount ? t("organizeResultPartialTitle") : t("organizeResultSuccessTitle")} action={<Button variant="secondary" size="compact" onClick={() => setView("restore")}>{t("organizeViewHistory")}</Button>}>
+            <span>{replaceCopy(t("organizeResultSummary"), { success: executionResult.succeededCount.toLocaleString(), skipped: executionResult.skippedCount.toLocaleString(), failed: executionResult.failedCount.toLocaleString() })}</span>
+            {confirmedExecutionBatch?.isBatched ? <span className="mt-1 block">{replaceCopy(t("organizeExecutionBatchResult"), { attempted: executionResult.attemptedCount.toLocaleString(), total: confirmedExecutionBatch.batchCount.toLocaleString(), remaining: confirmedExecutionBatch.remainingCount.toLocaleString() })}</span> : null}
+          </NoticeBanner> : null}
         </>
       ) : null}
 
@@ -548,12 +570,20 @@ export function OrganizeSuggestionsView() {
         open={confirmExecution}
         tone="warning"
         title={dryRun?.items.some((item) => item.riskLevel !== "Normal" || item.requiresConfirmation) ? t("organizeExecuteRiskConfirmTitle") : t("organizeExecuteNormalConfirmTitle")}
-        description={dryRun ? t("organizeExecuteConfirmDesc").replace("{count}", dryRun.executableCount.toLocaleString()) : ""}
-        confirmLabel={t("organizeExecuteConfirmAction").replace("{count}", (dryRun?.executableCount ?? 0).toLocaleString())}
+        description={dryRun ? replaceCopy(t("organizeExecuteConfirmDesc"), {
+          count: organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit).batchCount.toLocaleString(),
+          total: dryRun.executableCount.toLocaleString(),
+          remaining: organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit).remainingCount.toLocaleString()
+        }) : ""}
+        confirmLabel={t("organizeExecuteConfirmAction").replace("{count}", organizationExecutionBatchSummary(dryRun?.executableCount ?? 0, dryRun?.executionBatchLimit ?? 0).batchCount.toLocaleString())}
         cancelLabel={t("cancel")}
         isProcessing={isMutating}
         onCancel={() => setConfirmExecution(false)}
-        onConfirm={() => { setConfirmExecution(false); void executeDryRun(); }}
+        onConfirm={() => {
+          setConfirmedExecutionBatch(dryRun ? organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit) : null);
+          setConfirmExecution(false);
+          void executeDryRun();
+        }}
       />
     </div>
   );
