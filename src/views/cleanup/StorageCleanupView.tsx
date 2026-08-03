@@ -236,7 +236,7 @@ function StorageCleanupPanel({
     }
   }, [api, reportError]);
 
-  const loadRunDetails = useCallback(async (runId: string, clearFindings = true, expectedScopeEpoch = scopeEpoch.current, expectedScopeKey?: string) => {
+  const loadRunDetails = useCallback(async (runId: string, clearFindings = true, expectedScopeEpoch = scopeEpoch.current) => {
     if (!api.getAnalysisRun || !api.listAnalysisRunDetectors) return;
     try {
       const [nextRun, nextDetectors] = await Promise.all([
@@ -244,7 +244,6 @@ function StorageCleanupPanel({
         api.listAnalysisRunDetectors(runId)
       ]);
       if (expectedScopeEpoch !== scopeEpoch.current) return;
-      if (expectedScopeKey && scopeKey(scopePaths(nextRun)) !== expectedScopeKey) return;
       if (clearFindings) {
         findingsEpoch.current += 1;
         setFindings([]);
@@ -297,7 +296,10 @@ function StorageCleanupPanel({
         const candidate = requestedScopeKey
           ? candidates.find((listedRun) => scopeKey(scopePaths(listedRun)) === requestedScopeKey) ?? null
           : candidates[0] ?? null;
-        if (candidate) await loadRunDetails(candidate.id, true, hydrationScopeEpoch, requestedScopeKey || undefined);
+        if (candidate) {
+          if (hydrationScopeEpoch !== scopeEpoch.current) return;
+          await loadRunDetails(candidate.id);
+        }
       } catch (loadError) {
         if (!disposed) reportError(loadError);
       } finally {
