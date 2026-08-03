@@ -1016,18 +1016,40 @@ function isCleanupRun(run: AnalysisRun): boolean {
 }
 
 function normalizeScopePaths(paths: readonly string[]): string[] {
-  return [...new Set(paths.map((path) => path.trim()).filter(Boolean))];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const path of paths) {
+    const trimmed = path.trim();
+    if (!trimmed) continue;
+    const comparisonKey = normalizeScopePathForComparison(trimmed);
+    if (!comparisonKey || seen.has(comparisonKey)) continue;
+    seen.add(comparisonKey);
+    normalized.push(trimmed);
+  }
+  return normalized;
 }
 
 function scopeKey(paths: readonly string[]): string {
-  return normalizeScopePaths(paths).map(normalizeScopePathForComparison).sort().join("\u0000");
+  return [...new Set(
+    paths
+      .map((path) => normalizeScopePathForComparison(path))
+      .filter(Boolean)
+  )]
+    .sort()
+    .join("\u0000");
 }
 
 function normalizeScopePathForComparison(path: string): string {
-  const normalizedSeparators = path.trim().replaceAll("\\", "/").replace(/^\/\/\?\//, "");
-  if (normalizedSeparators === "/") return "/";
-  if (/^[a-z]:\/?$/i.test(normalizedSeparators)) return `${normalizedSeparators[0].toLowerCase()}:/`;
-  return normalizePathLike(normalizedSeparators);
+  let normalized = path.trim().replaceAll("\\", "/");
+  const lower = normalized.toLocaleLowerCase();
+  if (lower.startsWith("//?/unc/")) {
+    normalized = `//${normalized.slice(8)}`;
+  } else if (lower.startsWith("//?/")) {
+    normalized = normalized.slice(4);
+  }
+  if (normalized === "/") return "/";
+  if (/^[a-z]:\/?$/i.test(normalized)) return `${normalized[0].toLowerCase()}:/`;
+  return normalizePathLike(normalized);
 }
 
 function scopePaths(run: AnalysisRun): string[] {

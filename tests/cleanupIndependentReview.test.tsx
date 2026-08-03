@@ -466,4 +466,123 @@ describe("Cleanup independent review behavior", () => {
     expect(container.textContent).toContain("C:/RootB");
     expect(container.textContent).not.toContain("C:/RootA");
   });
+
+  it("hydrates a durable run when initialRoots contain canonical duplicate paths", async () => {
+    const run = makeRun("run-canonical-b", "completed", 0, { paths: ["C:/RootB"], safeCount: 1 });
+    const getAnalysisRun = vi.fn(async () => run);
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun
+    });
+
+    await act(async () => root.render(createElement(CleanupView, {
+      initialRoots: ["C:/RootB", "c:\\RootB\\", "C:\\ROOTB"],
+      api,
+      t
+    })));
+    await flush(8);
+
+    expect(getAnalysisRun).toHaveBeenCalledWith(run.id);
+    expect(container.querySelector(`[data-analysis-run-id="${run.id}"]`)).not.toBeNull();
+    expect(container.textContent).toContain("C:/RootB");
+  });
+
+  it("matches canonical duplicate roots regardless of order", async () => {
+    const run = makeRun("run-canonical-ab", "completed", 0, { paths: ["c:\\rootb\\", "C:/ROOTA"], safeCount: 1 });
+    const getAnalysisRun = vi.fn(async () => run);
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun
+    });
+
+    await act(async () => root.render(createElement(CleanupView, {
+      initialRoots: ["C:/RootA", "C:/RootB", "c:\\roota\\"],
+      api,
+      t
+    })));
+    await flush(8);
+
+    expect(getAnalysisRun).toHaveBeenCalledWith(run.id);
+    expect(container.querySelector(`[data-analysis-run-id="${run.id}"]`)).not.toBeNull();
+  });
+
+  it("does not match a two-root scope with a one-root durable run", async () => {
+    const run = makeRun("run-only-a", "completed", 0, { paths: ["C:/RootA"], safeCount: 1 });
+    const getAnalysisRun = vi.fn(async () => run);
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun
+    });
+
+    await act(async () => root.render(createElement(CleanupView, {
+      initialRoots: ["C:/RootA", "C:/RootB"],
+      api,
+      t
+    })));
+    await flush(8);
+
+    expect(getAnalysisRun).not.toHaveBeenCalled();
+    expect(container.querySelector(`[data-analysis-run-id="${run.id}"]`)).toBeNull();
+  });
+
+  it("deduplicates canonical roots in a new scan request while preserving the first display path", async () => {
+    const run = makeRun("run-new-scan", "completed", 0, { paths: ["C:/RootA", "C:/RootB"] });
+    const requests: Array<{ scope?: { paths?: string[] } }> = [];
+    const startAnalysisRun = vi.fn(async (request: { scope?: { paths?: string[] } }) => {
+      requests.push(request);
+      return run;
+    });
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [],
+      startAnalysisRun,
+      getAnalysisRun: vi.fn(async () => run)
+    });
+
+    await act(async () => root.render(createElement(CleanupView, {
+      initialRoots: ["C:/RootA", "c:\\roota\\", "C:/RootB", "C:\\ROOTB"],
+      api,
+      t
+    })));
+    await flush(6);
+    await act(async () => scopeButton().click());
+    await flush(8);
+
+    expect(startAnalysisRun).toHaveBeenCalledOnce();
+    expect(requests[0]?.scope?.paths).toEqual(["C:/RootA", "C:/RootB"]);
+  });
+
+  it("matches Windows extended-length drive and UNC paths", async () => {
+    const driveRun = makeRun("run-extended-drive", "completed", 0, { paths: ["C:/Root"], safeCount: 1 });
+    const uncRun = makeRun("run-extended-unc", "completed", 0, { paths: ["\\\\server\\share"], safeCount: 1 });
+    const getAnalysisRun = vi.fn(async (id: string) => id === driveRun.id ? driveRun : uncRun);
+    const driveApi = commonApi(driveRun, {
+      listAnalysisRuns: async () => [driveRun],
+      getAnalysisRun
+    });
+
+    await act(async () => root.render(createElement(CleanupView, {
+      initialRoots: ["\\\\?\\C:\\Root"],
+      api: driveApi,
+      t
+    })));
+    await flush(8);
+    expect(getAnalysisRun).toHaveBeenCalledWith(driveRun.id);
+
+    act(() => root.unmount());
+    document.body.innerHTML = '<div id="test-root"></div>';
+    container = document.getElementById("test-root") as HTMLDivElement;
+    root = createRoot(container);
+    const uncApi = commonApi(uncRun, {
+      listAnalysisRuns: async () => [uncRun],
+      getAnalysisRun
+    });
+    await act(async () => root.render(createElement(CleanupView, {
+      initialRoots: ["\\\\?\\UNC\\server\\share"],
+      api: uncApi,
+      t
+    })));
+    await flush(8);
+
+    expect(getAnalysisRun).toHaveBeenCalledWith(uncRun.id);
+  });
 });
