@@ -697,8 +697,16 @@ function StorageCleanupPanel({
     count: findings.length,
     getScrollElement: () => findingListRef.current,
     estimateSize: () => FINDING_ROW_HEIGHT,
-    overscan: 5
+    overscan: 5,
+    getItemKey: (index) => findings[index]?.id ?? index
   });
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      virtualizer.measure();
+      findingListRef.current?.querySelectorAll<HTMLElement>("[data-index]").forEach((element) => virtualizer.measureElement(element));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeTier, evidenceByFinding, expandedEvidence, findings, virtualizer]);
   const virtualItems = virtualizer.getVirtualItems();
   const renderedVirtualItems = virtualItems.length
     ? virtualItems
@@ -863,6 +871,8 @@ function StorageCleanupPanel({
                           evidence={evidenceByFinding[finding.id]}
                           evidenceExpanded={expandedEvidence.has(finding.id)}
                           t={t}
+                          index={virtualItem.index}
+                          measureElement={virtualizer.measureElement}
                           style={{ transform: `translateY(${virtualItem.start}px)` }}
                           onToggle={toggleFinding}
                           onReveal={revealFinding}
@@ -950,6 +960,8 @@ function FindingRow({
   evidence,
   evidenceExpanded,
   t,
+  index,
+  measureElement,
   style,
   onToggle,
   onReveal,
@@ -961,6 +973,8 @@ function FindingRow({
   evidence?: AnalysisFindingEvidence[];
   evidenceExpanded: boolean;
   t: Translator;
+  index: number;
+  measureElement: (element: HTMLElement | null) => void;
   style: { transform: string };
   onToggle: (finding: AnalysisFinding) => void;
   onReveal: (finding: AnalysisFinding) => void;
@@ -973,7 +987,9 @@ function FindingRow({
   return (
     <article
       className={cn("absolute left-0 top-0 grid w-full gap-2 border-b border-[var(--zc-divider)] px-4 py-3", selected && "bg-[var(--zc-surface-selected)]")}
-      style={{ ...style, minHeight: FINDING_ROW_HEIGHT }}
+      ref={measureElement}
+      data-index={index}
+      style={style}
       data-analysis-finding-id={finding.id}
       data-tier={finding.tier}
     >

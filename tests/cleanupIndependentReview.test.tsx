@@ -551,6 +551,48 @@ describe("Cleanup independent review behavior", () => {
     expect(requests[0]?.scope?.paths).toEqual(["C:/RootA", "C:/RootB"]);
   });
 
+  it("remeasures an expanded virtual finding row before positioning the following row", async () => {
+    const run = makeRun("run-virtual-measure", "completed", 0, { safeCount: 2 });
+    const nativeOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get() {
+        const findingId = this.getAttribute("data-analysis-finding-id");
+        if (findingId === "finding-0" && this.querySelector("[data-finding-evidence]")) return 420;
+        if (findingId) return 238;
+        return 600;
+      }
+    });
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      getAnalysisRun: async () => run,
+      listAnalysisFindings: async (request: { tier?: string }) => ({
+        findings: request.tier === "safe" ? [makeSafeFinding(run, 0), makeSafeFinding(run, 1)] : [],
+        nextCursor: null,
+        limit: 100
+      }),
+      listAnalysisFindingEvidence: async () => [{ id: "evidence-0", findingId: "finding-0", evidenceKind: "path", subjectKind: "file", subjectId: null, pathSnapshot: "C:/Root/item-0", value: {}, createdAt: 1 }]
+    });
+
+    try {
+      await act(async () => root.render(createElement(CleanupView, { api, t })));
+      await flush(8);
+      const secondRow = container.querySelector<HTMLElement>('[data-analysis-finding-id="finding-1"]');
+      expect(secondRow?.style.transform).toBe("translateY(238px)");
+
+      const evidenceButton = [...(container.querySelector('[data-analysis-finding-id="finding-0"]')?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((button) => button.textContent?.includes("查看证据"));
+      expect(evidenceButton).toBeDefined();
+      await act(async () => evidenceButton?.click());
+      await flush(8);
+
+      expect(container.querySelector('[data-analysis-finding-id="finding-0"] [data-finding-evidence]')).not.toBeNull();
+      expect(container.querySelector<HTMLElement>('[data-analysis-finding-id="finding-1"]')?.style.transform).toBe("translateY(420px)");
+    } finally {
+      if (nativeOffsetHeight) Object.defineProperty(HTMLElement.prototype, "offsetHeight", nativeOffsetHeight);
+      else delete (HTMLElement.prototype as { offsetHeight?: number }).offsetHeight;
+    }
+  });
+
   it("matches Windows extended-length drive and UNC paths", async () => {
     const driveRun = makeRun("run-extended-drive", "completed", 0, { paths: ["C:/Root"], safeCount: 1 });
     const uncRun = makeRun("run-extended-unc", "completed", 0, { paths: ["\\\\server\\share"], safeCount: 1 });
