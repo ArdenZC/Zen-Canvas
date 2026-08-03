@@ -713,6 +713,8 @@ describe("Cleanup independent review behavior", () => {
     try {
       await act(async () => root.render(createElement(CleanupView, { api, t })));
       await flush(8);
+      const virtualList = container.querySelector<HTMLElement>("[data-cleanup-findings] .relative");
+      const initialTotalSize = Number.parseFloat(virtualList?.style.height ?? "0");
       const secondRow = container.querySelector<HTMLElement>('[data-analysis-finding-id="finding-1"]');
       expect(secondRow?.style.transform).toBe("translateY(238px)");
 
@@ -722,6 +724,7 @@ describe("Cleanup independent review behavior", () => {
       await flush(8);
 
       expect(container.querySelector('[data-analysis-finding-id="finding-0"] [data-finding-evidence]')).not.toBeNull();
+      expect(Number.parseFloat(virtualList?.style.height ?? "0")).toBeGreaterThan(initialTotalSize);
       expect(container.querySelector<HTMLElement>('[data-analysis-finding-id="finding-1"]')?.style.transform).toBe("translateY(420px)");
     } finally {
       if (nativeOffsetHeight) Object.defineProperty(HTMLElement.prototype, "offsetHeight", nativeOffsetHeight);
