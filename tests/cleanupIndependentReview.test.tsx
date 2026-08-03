@@ -387,4 +387,83 @@ describe("Cleanup independent review behavior", () => {
     expect(container.textContent).toContain("C:/RootB");
     expect(startAnalysisRun).not.toHaveBeenCalled();
   });
+
+  it("does not hydrate the newest run when it belongs to a different initial scope", async () => {
+    const runA = makeRun("run-latest-a", "completed", 0, { paths: ["C:/RootA"], safeCount: 1 });
+    const getAnalysisRun = vi.fn(async () => runA);
+    const api = commonApi(runA, {
+      listAnalysisRuns: async () => [runA],
+      getAnalysisRun
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/RootB"], api, t })));
+    await flush(6);
+
+    expect(getAnalysisRun).not.toHaveBeenCalled();
+    expect(container.querySelector(`[data-analysis-run-id="${runA.id}"]`)).toBeNull();
+    expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
+    expect(container.textContent).toContain("C:/RootB");
+    expect(container.textContent).not.toContain("C:/RootA");
+  });
+
+  it("hydrates the older run that exactly matches the requested scope", async () => {
+    const runA = makeRun("run-latest-a", "completed", 0, { paths: ["C:/RootA"], safeCount: 1 });
+    const runB = makeRun("run-older-b", "completed", 0, { paths: ["c:\\RootB\\"], safeCount: 1 });
+    const getAnalysisRun = vi.fn(async (id: string) => id === runB.id ? runB : runA);
+    const api = commonApi(runA, {
+      listAnalysisRuns: async () => [runA, runB],
+      getAnalysisRun,
+      listAnalysisFindings: async (request: { tier?: string }) => ({
+        findings: request.tier === "safe" ? [makeSafeFinding(runB, 0)] : [],
+        nextCursor: null,
+        limit: 100
+      })
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/RootB"], api, t })));
+    await flush(8);
+
+    expect(getAnalysisRun).toHaveBeenCalledWith(runB.id);
+    expect(getAnalysisRun).not.toHaveBeenCalledWith(runA.id);
+    expect(container.querySelector(`[data-analysis-run-id="${runB.id}"]`)).not.toBeNull();
+    expect(container.querySelector(`[data-analysis-run-id="${runA.id}"]`)).toBeNull();
+  });
+
+  it("hydrates the newest legal cleanup run and restores its scope when no scope was selected", async () => {
+    const runA = makeRun("run-empty-scope-a", "completed", 0, { paths: ["C:/RootA"], safeCount: 1 });
+    const getAnalysisRun = vi.fn(async () => runA);
+    const api = commonApi(runA, {
+      listAnalysisRuns: async () => [runA],
+      getAnalysisRun
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+
+    expect(getAnalysisRun).toHaveBeenCalledWith(runA.id);
+    expect(container.querySelector(`[data-analysis-run-id="${runA.id}"]`)).not.toBeNull();
+    expect(container.textContent).toContain("C:/RootA");
+  });
+
+  it("does not let a delayed hydration response replace a newly selected scope", async () => {
+    const runA = makeRun("run-delayed-a", "completed", 0, { paths: ["C:/RootA"], safeCount: 1 });
+    let resolveRuns: (runs: AnalysisRun[]) => void = () => undefined;
+    const listAnalysisRuns = vi.fn(() => new Promise<AnalysisRun[]>((resolve) => {
+      resolveRuns = resolve;
+    }));
+    const getAnalysisRun = vi.fn(async () => runA);
+    const api = commonApi(runA, { listAnalysisRuns, getAnalysisRun });
+
+    await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/RootA"], api, t })));
+    await flush(2);
+    await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/RootB"], api, t })));
+    await flush(2);
+    await act(async () => resolveRuns([runA]));
+    await flush(6);
+
+    expect(getAnalysisRun).not.toHaveBeenCalled();
+    expect(container.querySelector(`[data-analysis-run-id="${runA.id}"]`)).toBeNull();
+    expect(container.textContent).toContain("C:/RootB");
+    expect(container.textContent).not.toContain("C:/RootA");
+  });
 });

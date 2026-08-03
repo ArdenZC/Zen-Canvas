@@ -33,7 +33,7 @@ import type { Translator, View } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
 import { localFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
 import { resolveReclaimableBytes } from "../../utils/reclaimableBytes";
-import { localizedStableError, readableError, compactPath } from "../../utils/viewHelpers";
+import { localizedStableError, readableError, compactPath, normalizePathLike } from "../../utils/viewHelpers";
 import { cn } from "../../utils/tw";
 import {
   Button,
@@ -138,7 +138,7 @@ function StorageCleanupPanel({
   const requestKeyRef = useRef<string | null>(null);
   const scanIntentInFlight = useRef(false);
   const aiCancelRequested = useRef(false);
-  const scopeHydrated = useRef(Boolean(initialRoots?.length));
+  const scopeHydrated = useRef(Boolean(normalizeScopePaths(initialRoots ?? []).length));
   const initialRootsPropKey = useRef(scopeKey(initialRoots ?? []));
   const defaultSelectionRuns = useRef(new Set<string>());
   const mutationUnavailable = localFileMutationUnavailableCode();
@@ -236,7 +236,7 @@ function StorageCleanupPanel({
     }
   }, [api, reportError]);
 
-  const loadRunDetails = useCallback(async (runId: string, clearFindings = true, expectedScopeEpoch = scopeEpoch.current) => {
+  const loadRunDetails = useCallback(async (runId: string, clearFindings = true, expectedScopeEpoch = scopeEpoch.current, expectedScopeKey?: string) => {
     if (!api.getAnalysisRun || !api.listAnalysisRunDetectors) return;
     try {
       const [nextRun, nextDetectors] = await Promise.all([
@@ -244,6 +244,7 @@ function StorageCleanupPanel({
         api.listAnalysisRunDetectors(runId)
       ]);
       if (expectedScopeEpoch !== scopeEpoch.current) return;
+      if (expectedScopeKey && scopeKey(scopePaths(nextRun)) !== expectedScopeKey) return;
       if (clearFindings) {
         findingsEpoch.current += 1;
         setFindings([]);
@@ -269,6 +270,7 @@ function StorageCleanupPanel({
 
   useEffect(() => {
     let disposed = false;
+    const hydrationScopeEpoch = scopeEpoch.current;
     async function hydrate() {
       if (!api.listAnalysisDetectors || !api.listAnalysisRuns) {
         setUnsupported(true);
@@ -282,13 +284,20 @@ function StorageCleanupPanel({
           api.listAnalysisRuns(20),
           activePromise
         ]);
-        if (disposed) return;
+        if (disposed || hydrationScopeEpoch !== scopeEpoch.current) return;
         setDetectors(availableDetectors);
-        setRuns(listedRuns.filter(isCleanupRun));
-        const candidate = activeRun && isCleanupRun(activeRun)
-          ? activeRun
-          : listedRuns.find(isCleanupRun) ?? null;
-        if (candidate) await loadRunDetails(candidate.id);
+        const cleanupRuns = listedRuns.filter(isCleanupRun);
+        setRuns(cleanupRuns);
+        const candidates = (activeRun && isCleanupRun(activeRun)
+          ? [activeRun, ...cleanupRuns.filter((listedRun) => listedRun.id !== activeRun.id)]
+          : cleanupRuns)
+          .slice()
+          .sort((left, right) => right.updatedAt - left.updatedAt || right.createdAt - left.createdAt);
+        const requestedScopeKey = scopeKey(initialRoots ?? []);
+        const candidate = requestedScopeKey
+          ? candidates.find((listedRun) => scopeKey(scopePaths(listedRun)) === requestedScopeKey) ?? null
+          : candidates[0] ?? null;
+        if (candidate) await loadRunDetails(candidate.id, true, hydrationScopeEpoch, requestedScopeKey || undefined);
       } catch (loadError) {
         if (!disposed) reportError(loadError);
       } finally {
@@ -1009,7 +1018,14 @@ function normalizeScopePaths(paths: readonly string[]): string[] {
 }
 
 function scopeKey(paths: readonly string[]): string {
-  return normalizeScopePaths(paths).sort().join("\u0000");
+  return normalizeScopePaths(paths).map(normalizeScopePathForComparison).sort().join("\u0000");
+}
+
+function normalizeScopePathForComparison(path: string): string {
+  const normalizedSeparators = path.trim().replaceAll("\\", "/").replace(/^\/\/\?\//, "");
+  if (normalizedSeparators === "/") return "/";
+  if (/^[a-z]:\/?$/i.test(normalizedSeparators)) return `${normalizedSeparators[0].toLowerCase()}:/`;
+  return normalizePathLike(normalizedSeparators);
 }
 
 function scopePaths(run: AnalysisRun): string[] {
