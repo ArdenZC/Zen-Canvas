@@ -63,10 +63,21 @@
   --zc-danger-border: rgba(217, 45, 32, 0.3);
 
   --zc-radius-control: 10px;
+  --zc-radius-row: 8px;
   --zc-radius-field: 12px;
   --zc-radius-panel: 16px;
   --zc-radius-floating: 20px;
   --zc-radius-window: 24px;
+
+  --zc-control-height-compact: 36px;
+  --zc-control-height-default: 40px;
+  --zc-row-height-compact: 42px;
+  --zc-row-height-default: 52px;
+  --zc-touch-target-min: 44px;
+  --zc-inspector-width: 320px;
+  --zc-sheet-width: 480px;
+  --zc-content-max-width: 1440px;
+  --zc-pane-gap: 16px;
 
   --zc-space-1: 4px;
   --zc-space-2: 8px;

@@ -3932,6 +3932,11 @@ fn pdf_text_extraction_with_limits_and_hook(
             return blocked("content_pdf_object_limit_exceeded");
         }
         let object = &bytes[obj_start..endobj];
+        match oversized_uncompressed_pdf_cmap_stream(object, deadline, cancel) {
+            Ok(true) => return blocked("content_pdf_cmap_decoded_byte_limit_exceeded"),
+            Ok(false) => {}
+            Err(stop) => return Ok(pdf_stop_extraction(stop)),
+        }
         let encrypted = match contains_pdf_token_bounded(object, b"/Encrypt", deadline, cancel) {
             Ok(value) => value,
             Err(stop) => return Ok(pdf_stop_extraction(stop)),
@@ -4055,6 +4060,51 @@ fn pdf_text_extraction_with_limits_and_hook(
         status: "completed",
         reason: None,
     })
+}
+
+fn oversized_uncompressed_pdf_cmap_stream(
+    object: &[u8],
+    deadline: Instant,
+    cancel: Option<&AtomicBool>,
+) -> Result<bool, PdfStop> {
+    let Some(stream_start) = find_pdf_keyword_bounded(object, b"stream", 0, deadline, cancel)?
+    else {
+        return Ok(false);
+    };
+    let Some(endstream_start) = find_pdf_keyword_bounded(
+        object,
+        b"endstream",
+        stream_start.saturating_add(b"stream".len()),
+        deadline,
+        cancel,
+    )?
+    else {
+        return Ok(false);
+    };
+    let data_start = pdf_stream_data_start_bounded(
+        object,
+        stream_start.saturating_add(b"stream".len()),
+        deadline,
+        cancel,
+    )?;
+    if data_start > endstream_start {
+        return Ok(false);
+    }
+    let dictionary = &object[..stream_start];
+    let dictionary_has_filter =
+        contains_pdf_token_bounded(dictionary, b"/Filter", deadline, cancel)?
+            || contains_pdf_token_bounded(dictionary, b"/FlateDecode", deadline, cancel)?;
+    if dictionary_has_filter {
+        return Ok(false);
+    }
+    let raw_stream = &object[data_start..endstream_start];
+    if raw_stream.len() <= PDF_MAX_CMAP_DECODED_BYTES {
+        return Ok(false);
+    }
+    let has_cid_init = contains_pdf_token_bounded(raw_stream, b"/CIDInit", deadline, cancel)?;
+    let has_cmap_body = contains_pdf_token_bounded(raw_stream, b"beginbfchar", deadline, cancel)?
+        || contains_pdf_token_bounded(raw_stream, b"beginbfrange", deadline, cancel)?;
+    Ok(has_cid_init && has_cmap_body)
 }
 
 fn pdf_stop_extraction(stop: PdfStop) -> Extraction {
@@ -4192,6 +4242,61 @@ fn find_pdf_token_bounded(
     Ok(None)
 }
 
+fn find_pdf_keyword_bounded(
+    bytes: &[u8],
+    token: &[u8],
+    from: usize,
+    deadline: Instant,
+    cancel: Option<&AtomicBool>,
+) -> Result<Option<usize>, PdfStop> {
+    if token.is_empty() {
+        return Ok(Some(from.min(bytes.len())));
+    }
+    let end = bytes.len().saturating_sub(token.len());
+    let mut index = from.min(bytes.len());
+    while index <= end {
+        pdf_budget_check(index, bytes.len(), deadline, cancel)?;
+        let chunk_end = index
+            .saturating_add(PDF_SCAN_CHECK_BYTES)
+            .min(end.saturating_add(1));
+        let search_end = chunk_end
+            .saturating_add(token.len().saturating_sub(1))
+            .min(bytes.len());
+        let mut search_offset: usize = 0;
+        while search_offset.saturating_add(token.len()) <= search_end.saturating_sub(index) {
+            let chunk = &bytes[index.saturating_add(search_offset)..search_end];
+            let Some(offset) = chunk
+                .windows(token.len())
+                .position(|window| window == token)
+            else {
+                break;
+            };
+            let candidate = index.saturating_add(search_offset).saturating_add(offset);
+            if pdf_keyword_boundary(bytes, candidate, token.len()) {
+                return Ok(Some(candidate));
+            }
+            search_offset = search_offset.saturating_add(offset).saturating_add(1);
+        }
+        index = chunk_end;
+    }
+    pdf_budget_check(bytes.len(), bytes.len(), deadline, cancel)?;
+    Ok(None)
+}
+
+fn pdf_keyword_boundary(bytes: &[u8], start: usize, length: usize) -> bool {
+    let is_delimiter = |value: Option<&u8>| {
+        value.is_none_or(|value| {
+            value.is_ascii_whitespace()
+                || matches!(
+                    *value,
+                    b'<' | b'>' | b'[' | b']' | b'(' | b')' | b'/' | b'%'
+                )
+        })
+    };
+    is_delimiter(start.checked_sub(1).and_then(|index| bytes.get(index)))
+        && is_delimiter(bytes.get(start.saturating_add(length)))
+}
+
 fn contains_pdf_token_bounded(
     bytes: &[u8],
     token: &[u8],
@@ -4231,6 +4336,28 @@ fn pdf_stream_data_start(bytes: &[u8], mut index: usize) -> usize {
         index += 1;
     }
     index
+}
+
+fn pdf_stream_data_start_bounded(
+    bytes: &[u8],
+    mut index: usize,
+    deadline: Instant,
+    cancel: Option<&AtomicBool>,
+) -> Result<usize, PdfStop> {
+    while index < bytes.len() && (bytes[index] == b' ' || bytes[index] == b'\t') {
+        pdf_budget_check(index, bytes.len(), deadline, cancel)?;
+        index += 1;
+    }
+    if bytes.get(index) == Some(&b'\r') {
+        index += 1;
+        if bytes.get(index) == Some(&b'\n') {
+            index += 1;
+        }
+    } else if bytes.get(index) == Some(&b'\n') {
+        index += 1;
+    }
+    pdf_budget_check(index, bytes.len(), deadline, cancel)?;
+    Ok(index)
 }
 
 fn parse_pdf_text_stream(
@@ -5810,6 +5937,63 @@ mod tests {
         assert_eq!(
             decoded_cmap_limit.reason.as_deref(),
             Some("content_pdf_cmap_decoded_byte_limit_exceeded")
+        );
+    }
+
+    #[test]
+    fn pdf_cmap_preflight_is_structured_bounded_and_cancellable() {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut ordinary = b"1 0 obj\n<< /Length 0 >>\nstream\n".to_vec();
+        ordinary.extend_from_slice(b"/CIDInit ");
+        ordinary.extend(std::iter::repeat_n(b'x', PDF_MAX_CMAP_DECODED_BYTES + 1));
+        ordinary.extend_from_slice(b"\nendstream\nendobj");
+        assert!(!oversized_uncompressed_pdf_cmap_stream(&ordinary, deadline, None).unwrap());
+
+        let mut dictionary_tokens = "1 0 obj\n<< /CIDInit /ProcSet /Length 3 >>\nstream\nsmall\nendstream\nendobj\n% beginbfchar"
+            .to_string()
+            .into_bytes();
+        dictionary_tokens.extend_from_slice(b"\n");
+        assert!(
+            !oversized_uncompressed_pdf_cmap_stream(&dictionary_tokens, deadline, None).unwrap()
+        );
+
+        let mut compressed = format!(
+            "1 0 obj\n<< /Length {} /Filter /FlateDecode >>\nstream\n",
+            PDF_MAX_CMAP_DECODED_BYTES + 1
+        )
+        .into_bytes();
+        compressed.extend(std::iter::repeat_n(b'x', PDF_MAX_CMAP_DECODED_BYTES + 1));
+        compressed.extend_from_slice(b"\nendstream\nendobj");
+        assert!(!oversized_uncompressed_pdf_cmap_stream(&compressed, deadline, None).unwrap());
+
+        let mut non_stream = b"1 0 obj\n<< /CIDInit /ProcSet >>\n".to_vec();
+        non_stream.extend(std::iter::repeat_n(b'x', PDF_MAX_CMAP_DECODED_BYTES + 1));
+        non_stream.extend_from_slice(b" beginbfchar endobj");
+        assert!(!oversized_uncompressed_pdf_cmap_stream(&non_stream, deadline, None).unwrap());
+
+        let mut cmap = b"1 0 obj\n<< /Length 0 >>\nstream\n/CIDInit /ProcSet findresource begin\nbeginbfchar\n".to_vec();
+        cmap.extend(std::iter::repeat_n(b'x', PDF_MAX_CMAP_DECODED_BYTES + 1));
+        cmap.extend_from_slice(b"\nendstream\nendobj");
+        assert!(oversized_uncompressed_pdf_cmap_stream(&cmap, deadline, None).unwrap());
+
+        let cancelled = AtomicBool::new(true);
+        assert_eq!(
+            oversized_uncompressed_pdf_cmap_stream(&cmap, deadline, Some(&cancelled))
+                .expect_err("cancelled preflight must stop"),
+            PdfStop::Cancelled
+        );
+        assert_eq!(
+            pdf_stop_extraction(PdfStop::Cancelled).reason.as_deref(),
+            Some("content_extractor_cancelled")
+        );
+        assert_eq!(
+            oversized_uncompressed_pdf_cmap_stream(
+                &cmap,
+                Instant::now() - Duration::from_millis(1),
+                None
+            )
+            .expect_err("expired preflight must stop"),
+            PdfStop::Timeout
         );
     }
 

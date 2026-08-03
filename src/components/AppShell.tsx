@@ -3,6 +3,7 @@ import {
   Clock3,
   Cloud,
   Cpu,
+  HardDrive,
   LayoutGrid,
   LoaderCircle,
   LockKeyhole,
@@ -37,7 +38,7 @@ import { APP_SHELL_CONTENT_ID, ModalHost } from "./modal/ModalPortal";
 
 const ScannerView = lazy(() => import("../views/scanner/ScannerView").then((module) => ({ default: module.ScannerView })));
 const StorageCleanupView = lazy(() => import("../views/cleanup/StorageCleanupView").then((module) => ({ default: module.StorageCleanupView })));
-const HubView = lazy(() => import("../views/hub/HubView").then((module) => ({ default: module.HubView })));
+const OrganizeSuggestionsView = lazy(() => import("../views/organize/OrganizeSuggestionsView").then((module) => ({ default: module.OrganizeSuggestionsView })));
 const VaultView = lazy(() => import("../views/vault/VaultView").then((module) => ({ default: module.VaultView })));
 const TimelineView = lazy(() => import("../views/timeline/TimelineView").then((module) => ({ default: module.TimelineView })));
 const RulesView = lazy(() => import("../views/rules/RulesView").then((module) => ({ default: module.RulesView })));
@@ -86,8 +87,9 @@ export function AppShell() {
   } = useChromeContext();
   const stats = useFileLibraryStore((state) => state.stats);
   const scope = useFileLibraryStore((state) => state.scope);
+  const density = useAppStore((state) => state.density);
   const previewActionCount = useOrganizationPlanStore((state) => state.activePlan
-    ? state.activePlan.summary.undecided + state.activePlan.summary.needsReview
+    ? state.activePlan.effectiveSummary?.pendingReview ?? 0
     : 0);
   const executionIntent = useOperationQueueStore((state) => state.executionIntent);
   const spotlightTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -102,7 +104,7 @@ export function AppShell() {
   const headingDescription = viewDescription(view, stats, scope, scopeText, view === "preview" && executionIntent?.source === "organize" ? executionIntent.allowedPreviewIds.size : previewActionCount, t);
 
   return (
-    <div className={appRoot}>
+    <div className={appRoot} data-density={density}>
       <AmbientMesh />
       <div id={APP_SHELL_CONTENT_ID} className="contents">
       <header className={titlebar}>
@@ -184,7 +186,7 @@ function MacWindowControls() {
   const { handleWindowAction, t } = useChromeContext();
 
   return (
-    <div className={cn("flex items-center gap-1", noDrag)} aria-label="Window controls">
+    <div className={cn("flex items-center gap-1", noDrag)} aria-label={t("windowControls")}>
       <button className={macControlButton} onClick={() => handleWindowAction("close")} aria-label={t("close")}>
         <span className="h-3 w-3 rounded-full bg-[var(--zc-window-mac-close)] shadow-sm" />
       </button>
@@ -202,7 +204,7 @@ function WindowsControls() {
   const { handleWindowAction, t } = useChromeContext();
 
   return (
-    <div className={cn("flex h-12 items-center", noDrag)} aria-label="Window controls">
+    <div className={cn("flex h-12 items-center", noDrag)} aria-label={t("windowControls")}>
       <button className={windowsControlButton} onClick={() => handleWindowAction("minimize")} aria-label={t("minimize")}>
         <Minus size={15} strokeWidth={1.6} />
       </button>
@@ -220,7 +222,7 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
   const { view, setView, t } = useChromeContext();
   const scope = useFileLibraryStore((state) => state.scope);
   const previewActionCount = useOrganizationPlanStore((state) => state.activePlan
-    ? state.activePlan.summary.undecided + state.activePlan.summary.needsReview
+    ? state.activePlan.effectiveSummary?.pendingReview ?? 0
     : 0);
   const aiModeStatus = useAIProcessingModeStore((state) => state.status);
   const aiModeSettings = useAIProcessingModeStore((state) => state.settings);
@@ -287,8 +289,6 @@ export function ShellViewHeading({
   headingDescription: string;
   actions?: React.ReactNode;
 }) {
-  if (view === "scanner") return null;
-
   return <PageHeader title={activeLabel} description={headingDescription} actions={actions} />;
 }
 
@@ -334,7 +334,7 @@ function AppViewContent() {
   let content;
   if (view === "scanner") content = <ScannerView />;
   else if (view === "cleanup") content = <StorageCleanupView />;
-  else if (view === "organize") content = <HubView />;
+  else if (view === "organize") content = <OrganizeSuggestionsView />;
   else if (view === "library") content = <VaultView />;
   else if (view === "preview") content = <TimelineView />;
   else if (view === "rules") content = <RulesView />;
@@ -435,7 +435,8 @@ function navGroups(t: Translator): NavGroup[] {
       items: [
         { id: "scanner", label: t("overview"), icon: Radar },
         { id: "library", label: t("fileLibrary"), icon: Archive },
-        { id: "organize", label: t("organizeSuggestions"), icon: LayoutGrid },
+        { id: "organize", label: t("organizeFiles"), icon: LayoutGrid },
+        { id: "cleanup", label: t("storageCleanup"), icon: HardDrive },
         { id: "restore", label: t("history"), icon: Clock3 }
       ]
     },
@@ -464,6 +465,7 @@ export function fileLibraryHeadingDescription(
 
 function viewLabel(view: View, t: Translator) {
   if (view === "cleanup") return t("storageCleanup");
+  if (view === "organize") return t("organizeFiles");
   if (view === "preview") return t("previewExecute");
   return t("overview");
 }

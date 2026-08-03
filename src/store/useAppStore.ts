@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { Language } from "../i18n";
-import type { ThemeMode, View } from "../types/ui";
+import type { Density, ThemeMode, View } from "../types/ui";
 import { preferredLanguage, preferredTheme } from "../utils/viewHelpers";
 
 export type ToastState = { message: string; type: "success" | "error" | "info" };
@@ -8,12 +8,14 @@ export type ToastState = { message: string; type: "success" | "error" | "info" }
 interface AppStore {
   language: Language;
   theme: ThemeMode;
+  density: Density;
   view: View;
   searchQuery: string;
   globalHotkeyError: string;
   toast: ToastState | null;
   setLanguage: (language: Language) => void;
   setTheme: (theme: ThemeMode) => void;
+  setDensity: (density: Density) => void;
   setView: (view: View) => void;
   setSearchQuery: (searchQuery: string) => void;
   setGlobalHotkeyError: (message: string) => void;
@@ -26,6 +28,7 @@ interface AppStore {
 export const useAppStore = create<AppStore>((set) => ({
   language: preferredLanguage(),
   theme: preferredTheme(),
+  density: preferredDensity(),
   view: "scanner",
   searchQuery: "",
   globalHotkeyError: "",
@@ -38,6 +41,10 @@ export const useAppStore = create<AppStore>((set) => ({
     set({ theme });
     try { window.localStorage.setItem("zc-theme", theme); } catch { /* optional preference */ }
   },
+  setDensity: (density) => {
+    set({ density });
+    try { window.localStorage.setItem("zc-density", density); } catch { /* optional preference */ }
+  },
   setView: (view) => set({ view }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setGlobalHotkeyError: (globalHotkeyError) => set({ globalHotkeyError }),
@@ -46,3 +53,11 @@ export const useAppStore = create<AppStore>((set) => ({
   showError: (message) => set({ toast: { message, type: "error" } }),
   clearToast: () => set({ toast: null })
 }));
+
+function preferredDensity(): Density {
+  try {
+    return window.localStorage.getItem("zc-density") === "compact" ? "compact" : "default";
+  } catch {
+    return "default";
+  }
+}

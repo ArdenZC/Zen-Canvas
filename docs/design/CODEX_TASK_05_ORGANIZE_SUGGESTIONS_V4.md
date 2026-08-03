@@ -16,7 +16,7 @@
 
 - 品牌系统规范；
 - 任务 01–04；
-- `src/views/hub/HubView.tsx`
+- `src/views/organize/OrganizeSuggestionsView.tsx`
 - `src/views/timeline/TimelineView.tsx`
 - `src/store/useOperationQueueStore.ts`
 - 整理建议、规则执行、预览和安全执行相关 Store/API/Test。
@@ -40,7 +40,7 @@
 
 ## 允许修改
 
-- `src/views/hub/HubView.tsx`
+- `src/views/organize/OrganizeSuggestionsView.tsx`
 - `src/views/timeline/TimelineView.tsx`
 - 可新增 `src/views/organize/*`
 - `src/store/useOperationQueueStore.ts`

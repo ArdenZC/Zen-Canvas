@@ -13,7 +13,6 @@ import {
   type CleanupPreviewState,
   historyTime,
   isRestorableCleanupTrashItem,
-  isRestorableLog,
   restoreEligibility,
   type OperationHistoryBatch
 } from "./historyModel";
@@ -183,7 +182,9 @@ export function HistoryInspector({
       </div>
       <div className="grid gap-2" role="list" aria-label={t("historyInspector")}>
         {batch.logs.map((log) => {
-          const eligible = isRestorableLog(log);
+          const eligibility = restoreEligibility(log);
+          const eligible = eligibility.executable;
+          const needsRestoreLocationReview = ["missingSource", "backendBlocked", "restoreFailed", "manualReview"].includes(eligibility.reason);
           const currentPath = operationCurrentPath(log);
           const originalPath = operationOriginalPath(log);
           const rawError = log.restore_error || log.error_message;
@@ -207,9 +208,10 @@ export function HistoryInspector({
                   <dl className="mt-2 grid gap-1.5 sm:grid-cols-2">
                     <DetailRow label={t("historyCreatedAt")} value={formatDate(log.created_at, t)} />
                     <DetailRow label={t("historyRestoreEligibility")} value={restoreEligibilityLabel(log, t)} />
-                    <DetailRow path label={t("historyOriginalPath")} value={formatDisplayPath(originalPath)} />
+                    <DetailRow path label={t("historyRestoreDestination")} value={formatDisplayPath(originalPath)} />
                     <DetailRow path label={t("historyCurrentPath")} value={formatDisplayPath(currentPath)} />
                   </dl>
+                  {needsRestoreLocationReview && <p className="mt-2 rounded-[var(--zc-radius-control)] border border-[var(--zc-warning-border)] bg-[var(--zc-warning-soft)] px-3 py-2 text-xs leading-5 text-[var(--zc-warning-text)]">{t("historyRestoreOriginalUnavailable")}</p>}
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                     <span className={cn("font-medium", eligible ? "text-[var(--zc-success-text)]" : "text-[var(--muted)]")}>{restoreEligibilityLabel(log, t)}</span>
                     {rawError && <button type="button" className="text-[var(--zc-primary)]" aria-expanded={technical} onClick={() => toggleTechnical(log.id)}>{technical ? t("historyRestoreHideTechnical") : t("historyRestoreShowTechnical")}</button>}

@@ -11,6 +11,7 @@ import type {
   LibrarySelectionV1,
   UserTag
 } from "../../../types/domain";
+import type { Translator } from "../../../types/ui";
 import { readableError } from "../../../utils/viewHelpers";
 import { buttonSecondary, buttonSubtle, cn, glassButtonPrimary, inputSurface, raisedSurface } from "../../../utils/tw";
 import { ConfirmDialog } from "../../shared/ui";
@@ -25,6 +26,7 @@ export function LibraryMetadataManagerDialog({
   selection,
   selectionCount,
   activeViewId,
+  t,
   onApplyView,
   onMutated,
   onClose
@@ -34,6 +36,7 @@ export function LibraryMetadataManagerDialog({
   selection: LibrarySelectionV1 | null;
   selectionCount: number | null;
   activeViewId: string | null;
+  t: Translator;
   onApplyView: (view: LibrarySavedView) => void;
   onMutated: () => void | Promise<void>;
   onClose: () => void;
@@ -52,20 +55,18 @@ export function LibraryMetadataManagerDialog({
           <header className="flex items-start justify-between gap-3 border-b border-[var(--zc-border)] px-5 py-4">
             <div>
               <h2 id="library-metadata-manager-title" className="m-0 text-lg font-semibold text-[var(--zc-text-primary)]">
-                {kind === "tags" ? "Manage user tags" : "Manage Saved Views"}
+                {kind === "tags" ? t("libraryManageTagsTitle") : t("libraryManageSavedViews")}
               </h2>
               <p className="mt-1 text-sm text-[var(--zc-text-secondary)]">
-                {kind === "tags"
-                  ? "Usage and changes are stored in the library database. Assignments always use the current authoritative selection."
-                  : "Saved Views store the canonical query only. Opening one starts a new snapshot."}
+                {kind === "tags" ? t("libraryManageTagsDesc") : t("libraryManageSavedViewsDesc")}
               </p>
             </div>
-            <button ref={closeRef} className={buttonSubtle} onClick={onClose} aria-label="Close manager"><X size={16} /></button>
+            <button ref={closeRef} className={buttonSubtle} onClick={onClose} aria-label={t("libraryCloseManager")}><X size={16} /></button>
           </header>
           <div className="min-h-0 overflow-y-auto overscroll-contain p-5">
             {kind === "tags"
-              ? <TagManager selection={selection} selectionCount={selectionCount} onMutated={onMutated} />
-              : <SavedViewManager query={query} activeViewId={activeViewId} onApplyView={onApplyView} />}
+              ? <TagManager selection={selection} selectionCount={selectionCount} onMutated={onMutated} t={t} />
+              : <SavedViewManager query={query} activeViewId={activeViewId} onApplyView={onApplyView} t={t} />}
           </div>
         </section>
       </div>
@@ -76,11 +77,13 @@ export function LibraryMetadataManagerDialog({
 function TagManager({
   selection,
   selectionCount,
-  onMutated
+  onMutated,
+  t
 }: {
   selection: LibrarySelectionV1 | null;
   selectionCount: number | null;
   onMutated: () => void | Promise<void>;
+  t: Translator;
 }) {
   const tags = useFileLibraryTagStore((state) => state.tags);
   const isLoading = useFileLibraryTagStore((state) => state.isLoading);
@@ -184,14 +187,18 @@ function TagManager({
     <div className="grid gap-4">
       <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); void createTag(); }}>
         <label className="grid min-w-52 flex-1 gap-1 text-sm text-[var(--zc-text-secondary)]">
-          Tag name
+          {t("libraryTagName")}
           <input className={cn(inputSurface, "min-h-9 px-3")} value={newName} maxLength={64} onChange={(event) => setNewName(event.target.value)} required />
         </label>
-        <ColorSelect value={newColor} onChange={setNewColor} disabled={disabled} label="New tag color" />
-        <button className={glassButtonPrimary} type="submit" disabled={disabled || !newName.trim()}><Plus size={15} />Create</button>
+        <ColorSelect value={newColor} onChange={setNewColor} disabled={disabled} label={t("libraryTagNewColor")} t={t} />
+        <button className={glassButtonPrimary} type="submit" disabled={disabled || !newName.trim()}><Plus size={15} />{t("libraryTagCreate")}</button>
       </form>
       <p className="text-xs text-[var(--zc-text-secondary)]" aria-live="polite">
-        {selection ? `${selectionCount === null ? "Authoritative count pending" : selectionCount.toLocaleString()} selected` : "Select files to assign or remove tags."}
+        {selection
+          ? selectionCount === null
+            ? t("libraryTagCountPending")
+            : replaceCopy(t("libraryTagSelectionCount"), { count: selectionCount.toLocaleString() })
+          : t("libraryTagSelectionHint")}
       </p>
       {(error || storeError) ? <p className="rounded-lg bg-[var(--zc-danger-soft)] px-3 py-2 text-sm text-[var(--zc-danger-text)]" role="alert">{error ?? storeError}</p> : null}
       <div className="grid gap-2" aria-busy={isLoading || disabled}>
@@ -199,42 +206,42 @@ function TagManager({
           <div key={tag.id} className="grid gap-2 rounded-xl border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             {editing?.id === tag.id ? (
               <div className="flex min-w-0 flex-wrap gap-2">
-                <input className={cn(inputSurface, "min-h-9 min-w-40 flex-1 px-3")} value={editName} maxLength={64} onChange={(event) => setEditName(event.target.value)} autoFocus aria-label={`Rename ${tag.displayName}`} />
-                <ColorSelect value={editColor} onChange={setEditColor} disabled={disabled} label={`Color for ${tag.displayName}`} />
+                <input className={cn(inputSurface, "min-h-9 min-w-40 flex-1 px-3")} value={editName} maxLength={64} onChange={(event) => setEditName(event.target.value)} autoFocus aria-label={replaceCopy(t("libraryTagRename"), { name: tag.displayName })} />
+                <ColorSelect value={editColor} onChange={setEditColor} disabled={disabled} label={replaceCopy(t("libraryTagColorFor"), { name: tag.displayName })} t={t} />
               </div>
             ) : (
               <div className="min-w-0">
                 <strong className="flex items-center gap-2 truncate text-sm text-[var(--zc-text-primary)]"><Tag size={14} aria-hidden="true" />{tag.displayName}</strong>
-                <span className="text-xs text-[var(--zc-text-secondary)]">{tag.colorToken} · used by {tag.usageCount.toLocaleString()} files · revision {tag.revision}</span>
+                <span className="text-xs text-[var(--zc-text-secondary)]">{replaceCopy(t("libraryTagUsage"), { count: tag.usageCount.toLocaleString() })}</span>
               </div>
             )}
             <div className="flex flex-wrap justify-end gap-1">
               {editing?.id === tag.id ? (
                 <>
-                  <button className={buttonSubtle} onClick={() => void saveEdit()} disabled={disabled || !editName.trim()}><Save size={14} />Save</button>
-                  <button className={buttonSubtle} onClick={() => setEditing(null)} disabled={disabled}>Cancel</button>
+                  <button className={buttonSubtle} onClick={() => void saveEdit()} disabled={disabled || !editName.trim()}><Save size={14} />{t("save")}</button>
+                  <button className={buttonSubtle} onClick={() => setEditing(null)} disabled={disabled}>{t("cancel")}</button>
                 </>
               ) : (
                 <>
-                  <button className={buttonSubtle} onClick={() => void changeAssignment(tag, "add")} disabled={!selection || disabled}>Assign</button>
-                  <button className={buttonSubtle} onClick={() => void changeAssignment(tag, "remove")} disabled={!selection || disabled}>Remove</button>
-                  <button className={buttonSubtle} onClick={() => startEdit(tag)} disabled={disabled} aria-label={`Edit ${tag.displayName}`}><Pencil size={14} /></button>
-                  <button className={buttonSubtle} onClick={() => setPendingDelete(tag)} disabled={disabled} aria-label={`Delete ${tag.displayName}`}><Trash2 size={14} /></button>
+                  <button className={buttonSubtle} onClick={() => void changeAssignment(tag, "add")} disabled={!selection || disabled}>{t("libraryTagAssign")}</button>
+                  <button className={buttonSubtle} onClick={() => void changeAssignment(tag, "remove")} disabled={!selection || disabled}>{t("libraryTagRemove")}</button>
+                  <button className={buttonSubtle} onClick={() => startEdit(tag)} disabled={disabled} aria-label={replaceCopy(t("libraryTagEdit"), { name: tag.displayName })}><Pencil size={14} /></button>
+                  <button className={buttonSubtle} onClick={() => setPendingDelete(tag)} disabled={disabled} aria-label={replaceCopy(t("libraryTagDelete"), { name: tag.displayName })}><Trash2 size={14} /></button>
                 </>
               )}
             </div>
           </div>
         ))}
-        {!isLoading && !tags.length ? <p className="text-sm text-[var(--zc-text-secondary)]">No user tags yet.</p> : null}
+        {!isLoading && !tags.length ? <p className="text-sm text-[var(--zc-text-secondary)]">{t("libraryTagEmpty")}</p> : null}
       </div>
       <ConfirmDialog
         open={Boolean(pendingDelete)}
         tone="danger"
-        title="Delete user tag?"
-        description="The tag will be removed from every file. Files and their contents are not changed."
+        title={t("libraryTagDeleteTitle")}
+        description={t("libraryTagDeleteDesc")}
         emphasis={pendingDelete ? `${pendingDelete.displayName} · ${pendingDelete.usageCount.toLocaleString()} uses` : undefined}
-        confirmLabel="Delete tag"
-        cancelLabel="Cancel"
+        confirmLabel={t("libraryTagDeleteConfirm")}
+        cancelLabel={t("cancel")}
         isProcessing={busyKey?.startsWith("delete:") ?? false}
         errorMessage={error ?? undefined}
         onConfirm={confirmDelete}
@@ -247,11 +254,13 @@ function TagManager({
 function SavedViewManager({
   query,
   activeViewId,
-  onApplyView
+  onApplyView,
+  t
 }: {
   query: FileQuerySpecV2;
   activeViewId: string | null;
   onApplyView: (view: LibrarySavedView) => void;
+  t: Translator;
 }) {
   const views = useFileLibrarySavedViewStore((state) => state.views);
   const isLoading = useFileLibrarySavedViewStore((state) => state.isLoading);
@@ -343,53 +352,53 @@ function SavedViewManager({
     <div className="grid gap-4">
       <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => { event.preventDefault(); void createView(); }}>
         <label className="grid min-w-52 flex-1 gap-1 text-sm text-[var(--zc-text-secondary)]">
-          Saved View name
+          {t("librarySavedViewName")}
           <input className={cn(inputSurface, "min-h-9 px-3")} value={newName} maxLength={128} onChange={(event) => setNewName(event.target.value)} required />
         </label>
-        <button className={glassButtonPrimary} type="submit" disabled={disabled || !newName.trim()}><Plus size={15} />Save current query</button>
+        <button className={glassButtonPrimary} type="submit" disabled={disabled || !newName.trim()}><Plus size={15} />{t("librarySavedViewSave")}</button>
       </form>
       {(error || storeError) ? <p className="rounded-lg bg-[var(--zc-danger-soft)] px-3 py-2 text-sm text-[var(--zc-danger-text)]" role="alert">{error ?? storeError}</p> : null}
       <div className="grid gap-2" aria-busy={isLoading || disabled}>
         {views.map((view, index) => (
           <div key={view.id} className="grid gap-2 rounded-xl border border-[var(--zc-border)] bg-[var(--zc-surface-subtle)] p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             {editing?.id === view.id ? (
-              <input className={cn(inputSurface, "min-h-9 px-3")} value={editName} maxLength={128} onChange={(event) => setEditName(event.target.value)} autoFocus aria-label={`Rename ${view.displayName}`} />
+                <input className={cn(inputSurface, "min-h-9 px-3")} value={editName} maxLength={128} onChange={(event) => setEditName(event.target.value)} autoFocus aria-label={replaceCopy(t("librarySavedViewRename"), { name: view.displayName })} />
             ) : (
               <div className="min-w-0">
-                <strong className="flex items-center gap-2 truncate text-sm text-[var(--zc-text-primary)]"><Bookmark size={14} />{view.displayName}{activeViewId === view.id ? " · open" : ""}</strong>
-                <span className="text-xs text-[var(--zc-text-secondary)]">position {view.position} · revision {view.revision}</span>
-                {view.invalidReferences.length ? <p className="mt-1 text-xs text-[var(--zc-warning-text)]" role="status">Invalid references: {view.invalidReferences.join(", ")}</p> : null}
+                <strong className="flex items-center gap-2 truncate text-sm text-[var(--zc-text-primary)]"><Bookmark size={14} />{view.displayName}{activeViewId === view.id ? t("librarySavedViewActive") : ""}</strong>
+                <span className="text-xs text-[var(--zc-text-secondary)]">{replaceCopy(t("librarySavedViewPosition"), { position: view.position })}</span>
+                {view.invalidReferences.length ? <p className="mt-1 text-xs text-[var(--zc-warning-text)]" role="status">{replaceCopy(t("librarySavedViewInvalidReferences"), { references: view.invalidReferences.join(", ") })}</p> : null}
               </div>
             )}
             <div className="flex flex-wrap justify-end gap-1">
               {editing?.id === view.id ? (
                 <>
-                  <button className={buttonSubtle} onClick={() => void saveRename()} disabled={disabled || !editName.trim()}><Save size={14} />Save</button>
-                  <button className={buttonSubtle} onClick={() => setEditing(null)} disabled={disabled}>Cancel</button>
+                  <button className={buttonSubtle} onClick={() => void saveRename()} disabled={disabled || !editName.trim()}><Save size={14} />{t("save")}</button>
+                  <button className={buttonSubtle} onClick={() => setEditing(null)} disabled={disabled}>{t("cancel")}</button>
                 </>
               ) : (
                 <>
-                  <button className={buttonSubtle} onClick={() => onApplyView(view)} disabled={disabled}>Open</button>
-                  <button className={buttonSubtle} onClick={() => void writeView(view, { query }).catch(() => undefined)} disabled={disabled}><RefreshCw size={14} />Update query</button>
-                  <button className={buttonSubtle} onClick={() => { setEditing(view); setEditName(view.displayName); setError(null); }} disabled={disabled} aria-label={`Rename ${view.displayName}`}><Pencil size={14} /></button>
-                  <button className={buttonSubtle} onClick={() => void reorder(view, -1)} disabled={disabled || index === 0} aria-label={`Move ${view.displayName} up`}><ArrowUp size={14} /></button>
-                  <button className={buttonSubtle} onClick={() => void reorder(view, 1)} disabled={disabled || index === views.length - 1} aria-label={`Move ${view.displayName} down`}><ArrowDown size={14} /></button>
-                  <button className={buttonSubtle} onClick={() => setPendingDelete(view)} disabled={disabled} aria-label={`Delete ${view.displayName}`}><Trash2 size={14} /></button>
+                  <button className={buttonSubtle} onClick={() => onApplyView(view)} disabled={disabled}>{t("librarySavedViewOpen")}</button>
+                  <button className={buttonSubtle} onClick={() => void writeView(view, { query }).catch(() => undefined)} disabled={disabled}><RefreshCw size={14} />{t("librarySavedViewUpdate")}</button>
+                  <button className={buttonSubtle} onClick={() => { setEditing(view); setEditName(view.displayName); setError(null); }} disabled={disabled} aria-label={replaceCopy(t("librarySavedViewRename"), { name: view.displayName })}><Pencil size={14} /></button>
+                  <button className={buttonSubtle} onClick={() => void reorder(view, -1)} disabled={disabled || index === 0} aria-label={replaceCopy(t("librarySavedViewMoveUp"), { name: view.displayName })}><ArrowUp size={14} /></button>
+                  <button className={buttonSubtle} onClick={() => void reorder(view, 1)} disabled={disabled || index === views.length - 1} aria-label={replaceCopy(t("librarySavedViewMoveDown"), { name: view.displayName })}><ArrowDown size={14} /></button>
+                  <button className={buttonSubtle} onClick={() => setPendingDelete(view)} disabled={disabled} aria-label={replaceCopy(t("librarySavedViewDelete"), { name: view.displayName })}><Trash2 size={14} /></button>
                 </>
               )}
             </div>
           </div>
         ))}
-        {!isLoading && !views.length ? <p className="text-sm text-[var(--zc-text-secondary)]">No Saved Views yet.</p> : null}
+        {!isLoading && !views.length ? <p className="text-sm text-[var(--zc-text-secondary)]">{t("librarySavedViewEmpty")}</p> : null}
       </div>
       <ConfirmDialog
         open={Boolean(pendingDelete)}
         tone="danger"
-        title="Delete Saved View?"
-        description="This removes only the saved query. It does not change files or tags."
+        title={t("librarySavedViewDeleteTitle")}
+        description={t("librarySavedViewDeleteDesc")}
         emphasis={pendingDelete?.displayName}
-        confirmLabel="Delete view"
-        cancelLabel="Cancel"
+        confirmLabel={t("librarySavedViewDeleteConfirm")}
+        cancelLabel={t("cancel")}
         isProcessing={busyKey?.startsWith("delete:") ?? false}
         errorMessage={error ?? undefined}
         onConfirm={confirmDelete}
@@ -403,19 +412,25 @@ function ColorSelect({
   value,
   onChange,
   disabled,
-  label
+  label,
+  t
 }: {
   value: (typeof TAG_COLORS)[number];
   onChange: (value: (typeof TAG_COLORS)[number]) => void;
   disabled: boolean;
   label: string;
+  t: Translator;
 }) {
   return (
     <label className="grid gap-1 text-sm text-[var(--zc-text-secondary)]">
-      Color
+      {t("libraryTagColor")}
       <select className={cn(inputSurface, "min-h-9 px-2")} value={value} onChange={(event) => onChange(event.target.value as (typeof TAG_COLORS)[number])} disabled={disabled} aria-label={label}>
         {TAG_COLORS.map((color) => <option key={color} value={color}>{color}</option>)}
       </select>
     </label>
   );
+}
+
+function replaceCopy(template: string, values: Record<string, string | number>): string {
+  return Object.entries(values).reduce((copy, [key, value]) => copy.replaceAll(`{${key}}`, String(value)), template);
 }

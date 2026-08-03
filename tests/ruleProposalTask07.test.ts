@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { makeTranslator } from "../src/i18n";
 
 const read = (path: string) => readFileSync(resolve(path), "utf8");
 
@@ -101,20 +102,24 @@ describe("Task 07 natural-language Rule Proposal contracts", () => {
   it("labels browser proposal behavior as mock without claiming native execution", () => {
     const mock = read("src/api/browserMockApi.ts");
     const workspace = read("src/views/rules/RuleProposalWorkspace.tsx");
+    const i18n = read("src/i18n.ts");
     expect(mock).toContain("browser-mock");
     expect(mock).toContain("MOCK deterministic proposal");
-    expect(workspace).toContain("deterministic mock");
-    expect(workspace).toContain("not real AI or native persistence");
-    expect(workspace).toContain("不代表真实 AI 或原生持久化");
+    expect(workspace).toContain('t("ruleProposalBrowserMock")');
+    expect(workspace).not.toContain("const copy");
+    expect(i18n).toContain("Browser preview uses a deterministic mock");
+    expect(i18n).toContain("不代表真实 AI 或原生持久化");
   });
 
   it("keeps generation, validation, impact, and Apply review accessible", () => {
     const workspace = read("src/views/rules/RuleProposalWorkspace.tsx");
+    const en = makeTranslator("en");
     expect(workspace).toContain("<textarea");
     expect(workspace).toContain('aria-live="polite"');
     expect(workspace).toContain("ConfirmDialog");
-    expect(workspace).toContain("Apply as disabled rule");
-    expect(workspace).toContain("Rule saved, currently disabled.");
-    expect(workspace).toContain("Enabling and running remain separate human actions.");
+    expect(workspace).toContain('t("ruleProposalApply")');
+    expect(en("ruleProposalApply")).toBe("Apply as disabled rule");
+    expect(en("ruleProposalApplied")).toContain("currently disabled");
+    expect(en("ruleProposalApplySafety")).toContain("remain separate");
   });
 });

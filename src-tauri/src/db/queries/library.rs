@@ -1581,6 +1581,23 @@ pub(crate) fn file_matches_authoritative_query_scope(
     query: &FileQuerySpecV2,
     file_id: &str,
 ) -> Result<bool, DbError> {
+    Ok(
+        files_matching_authoritative_query_scope(conn, query, &[file_id.to_string()])?
+            .contains(file_id),
+    )
+}
+
+/// Revalidates a bounded set of file IDs against one canonical managed-library
+/// scope in a single authoritative query. Organization Plan projection uses
+/// this to avoid resolving the same root/filter authority once per member.
+pub(crate) fn files_matching_authoritative_query_scope(
+    conn: &Connection,
+    query: &FileQuerySpecV2,
+    file_ids: &[String],
+) -> Result<HashSet<String>, DbError> {
+    if file_ids.is_empty() {
+        return Ok(HashSet::new());
+    }
     let (spec, _, _) = canonicalize_file_query_spec(query.clone())?;
     let scope = resolve_scope(conn, &spec.scope)?;
     if scope.health.state == "invalid_reference" {
@@ -1596,8 +1613,18 @@ pub(crate) fn file_matches_authoritative_query_scope(
             "library_selection_invalid_tag_reference".to_string(),
         ));
     }
-    let mut conditions = vec!["f.id = ?".to_string(), "f.is_stale = 0".to_string()];
-    let mut query_params = vec![SqlValue::Text(file_id.to_string())];
+    let placeholders = std::iter::repeat_n("?", file_ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut conditions = vec![
+        format!("f.id IN ({placeholders})"),
+        "f.is_stale = 0".to_string(),
+    ];
+    let mut query_params = file_ids
+        .iter()
+        .cloned()
+        .map(SqlValue::Text)
+        .collect::<Vec<_>>();
     if let Some(text) = spec.text.as_deref() {
         let fts_query = build_fts_query(text)
             .ok_or_else(|| DbError::Validation("library_query_text_invalid".to_string()))?;
@@ -1611,13 +1638,13 @@ pub(crate) fn file_matches_authoritative_query_scope(
     query_params.extend(scope.params);
     append_filters(conn, &mut conditions, &mut query_params, &spec.filters)?;
     let sql = format!(
-        "SELECT EXISTS(SELECT 1 FROM files AS f WHERE {})",
+        "SELECT f.id FROM files AS f WHERE {}",
         conditions.join(" AND ")
     );
-    let matches = conn.query_row(&sql, params_from_iter(query_params.iter()), |row| {
-        row.get::<_, i64>(0)
-    })?;
-    Ok(matches != 0)
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(query_params.iter()), |row| row.get(0))?;
+    rows.collect::<Result<HashSet<String>, _>>()
+        .map_err(DbError::from)
 }
 
 fn build_query_parts(

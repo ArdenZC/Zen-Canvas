@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlertTriangle,
   Bot,
@@ -27,106 +27,12 @@ interface Props {
   rules: Rule[];
   onOpenManualBuilder: (trigger: HTMLElement) => void;
   onEditCandidate: (proposal: RuleProposal, trigger: HTMLElement) => void;
+  onApplied?: () => void;
+  embedded?: boolean;
 }
 
-const copy = {
-  en: {
-    title: "Describe a rule",
-    subtitle: "Turn plain language into a reviewable draft. AI can only propose a rule.",
-    privacy: "Only the text you enter is sent. File contents are never sent.",
-    manual: "Manual rule builder",
-    prompt: "Describe the files to match and the classification suggestion…",
-    generate: "Generate proposal",
-    update: "Update an existing rule",
-    create: "Create a new rule",
-    target: "Rule to update",
-    examples: "Examples: “PDF files older than 30 days” · “Images larger than 500 MB”",
-    history: "Proposals",
-    empty: "No saved proposals yet.",
-    preview: "Preview metadata impact",
-    exact: "Resolve exact count",
-    apply: "Apply as disabled rule",
-    applyTitle: "Apply this proposal?",
-    applyDescription: "This creates or updates a disabled rule only. It does not run the rule or change any file.",
-    applySafety: "Enabling and running remain separate human actions.",
-    cancel: "Cancel",
-    delete: "Delete proposal",
-    edit: "Edit candidate",
-    regenerate: "Regenerate",
-    matched: "matched metadata rows",
-    deferred: "Exact count is deferred. Resolve it before Apply.",
-    applied: "Rule saved, currently disabled. Review it, then enable or run separately.",
-    providerOff: "No AI provider is enabled. Use the manual builder or configure AI settings.",
-    noCandidate: "The model needs clarification before it can produce a candidate.",
-    samples: "Bounded metadata sample",
-    conflicts: "Potential enabled-rule conflicts",
-    risk: "Risk",
-    confirmation: "Confirmation",
-    broadMatch: "Broad match",
-    scopeHealth: "Scope health",
-    permissionClass: "Permission",
-    conflictState: "Conflict analysis",
-    complete: "complete",
-    boundedSample: "bounded sample",
-    yes: "yes",
-    no: "no",
-    manualCandidate: "Manually edited candidate; the prior AI summary was cleared.",
-    beforeAfter: "Before → after classification",
-    validation: "Backend validation",
-    generating: "Generating with the configured provider…",
-    mock: "Browser preview uses a deterministic mock and is not real AI or native persistence."
-  },
-  zh: {
-    title: "用自然语言描述规则",
-    subtitle: "把普通文字转换成可审查草稿。AI 只能提出建议。",
-    privacy: "只发送你输入的文字，不发送文件内容。",
-    manual: "手动规则构建器",
-    prompt: "描述要匹配的文件，以及希望生成的分类建议…",
-    generate: "生成提案",
-    update: "更新现有规则",
-    create: "新建规则",
-    target: "要更新的规则",
-    examples: "示例：“30 天前的 PDF 文件” · “大于 500 MB 的图片”",
-    history: "提案记录",
-    empty: "还没有持久化提案。",
-    preview: "预览元数据影响",
-    exact: "解析精确数量",
-    apply: "应用为禁用规则",
-    applyTitle: "应用这个提案？",
-    applyDescription: "这里只会创建或更新一条默认禁用的规则，不会运行规则，也不会修改任何文件。",
-    applySafety: "启用和运行仍是两个独立的人工动作。",
-    cancel: "取消",
-    delete: "删除提案",
-    edit: "编辑候选规则",
-    regenerate: "重新生成",
-    matched: "条元数据记录匹配",
-    deferred: "精确数量尚未计算；Apply 前必须单独解析。",
-    applied: "已应用为禁用规则。请另行审查、启用和运行。",
-    providerOff: "尚未启用 AI provider。可使用手动构建器，或前往设置配置。",
-    noCandidate: "模型需要澄清，尚未形成候选规则。",
-    samples: "有界元数据样本",
-    conflicts: "潜在的已启用规则冲突",
-    risk: "风险",
-    confirmation: "需要确认",
-    broadMatch: "广泛匹配",
-    scopeHealth: "范围健康度",
-    permissionClass: "权限",
-    conflictState: "冲突分析",
-    complete: "完整",
-    boundedSample: "有界样本",
-    yes: "是",
-    no: "否",
-    manualCandidate: "候选规则已手动编辑；原 AI 摘要已清除。",
-    beforeAfter: "分类前 → 分类后",
-    validation: "后端权威校验",
-    generating: "正在使用已配置 provider 生成…",
-    mock: "浏览器预览使用明确标记的确定性 mock，不代表真实 AI 或原生持久化。"
-  }
-} as const;
-
-export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandidate }: Props) {
-  const { language } = useChromeContext();
-  const text = copy[language === "zh" ? "zh" : "en"];
+export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandidate, onApplied, embedded = false }: Props) {
+  const { t } = useChromeContext();
   const scope = useFileLibraryStore((state) => state.scope);
   const proposals = useRuleProposalStore((state) => state.proposals);
   const activeId = useRuleProposalStore((state) => state.activeId);
@@ -197,17 +103,17 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
   }
 
   return (
-    <section className={cn(panelSurface, "grid gap-4 p-4")} aria-labelledby="rule-proposal-title">
+    <section className={cn(!embedded && panelSurface, "grid gap-4", embedded ? "p-0" : "p-4")} aria-labelledby="rule-proposal-title">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
             <Sparkles size={17} className="text-[var(--zc-primary)]" />
-            <h2 id="rule-proposal-title" className="text-sm font-semibold">{text.title}</h2>
+            <h2 id="rule-proposal-title" className="text-sm font-semibold">{t("ruleProposalTitle")}</h2>
           </div>
-          <p className={cn(mutedText, "mt-1")}>{text.subtitle}</p>
+          <p className={cn(mutedText, "mt-1")}>{t("ruleProposalSubtitle")}</p>
         </div>
         <button type="button" className={buttonSecondary} onClick={(event) => onOpenManualBuilder(event.currentTarget)}>
-          <Pencil size={15} />{text.manual}
+          <Pencil size={15} />{t("ruleProposalManualBuilder")}
         </button>
       </div>
 
@@ -217,7 +123,7 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
           <span>{providerLabel}</span>
           <span className="text-[var(--muted)]">·</span>
           <span className="inline-flex items-center gap-1 text-[var(--zc-success-text)]">
-            <ShieldCheck size={14} />{text.privacy}
+            <ShieldCheck size={14} />{t("ruleProposalPrivacy")}
           </span>
         </div>
         {provider && !provider.enabled && (
@@ -226,24 +132,24 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
             data-proposal-status="provider-disabled"
             aria-live="polite"
           >
-            {text.providerOff}
+            {t("ruleProposalProviderOff")}
           </p>
         )}
         {providerError && <p className="text-xs text-[var(--zc-danger-text)]" role="alert">{providerError}</p>}
         <div className="grid gap-2 md:grid-cols-[170px_minmax(0,1fr)]">
           <select
             className={selectSurface}
-            aria-label={language === "zh" ? "提案类型" : "Proposal intent"}
+            aria-label={t("ruleProposalIntent")}
             value={intent}
             onChange={(event) => setIntent(event.target.value as "create" | "update")}
           >
-            <option value="create">{text.create}</option>
-            <option value="update">{text.update}</option>
+            <option value="create">{t("ruleProposalCreate")}</option>
+            <option value="update">{t("ruleProposalUpdate")}</option>
           </select>
           {intent === "update" && (
             <select
               className={selectSurface}
-              aria-label={text.target}
+              aria-label={t("ruleProposalTarget")}
               value={targetRuleId}
               onChange={(event) => setTargetRuleId(event.target.value)}
             >
@@ -254,13 +160,13 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
         <textarea
           className={cn(inputSurface, "min-h-24 resize-y")}
           maxLength={4_000}
-          aria-label={text.title}
-          placeholder={text.prompt}
+          aria-label={t("ruleProposalTitle")}
+          placeholder={t("ruleProposalPrompt")}
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
         />
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className={cn(mutedText, "text-xs")}>{text.examples}</p>
+          <p className={cn(mutedText, "text-xs")}>{t("ruleProposalExamples")}</p>
           <span className="text-xs tabular-nums text-[var(--muted)]">{prompt.length}/4000</span>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -271,20 +177,20 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
             onClick={() => void submitGeneration()}
           >
             {generationOwner ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-            {text.generate}
+            {t("ruleProposalGenerate")}
           </button>
           {generationOwner && (
             <button type="button" className={buttonSecondary} onClick={() => void cancelActiveGeneration()}>
-              <Square size={14} />{text.cancel}
+              <Square size={14} />{t("ruleProposalCancel")}
             </button>
           )}
         </div>
         {generationOwner && (
           <p className={mutedText} data-proposal-status="generating" aria-live="polite">
-            {text.generating}
+            {t("ruleProposalGenerating")}
           </p>
         )}
-        {isBrowserMockEnabled() && <p className={mutedText}>{text.mock}</p>}
+        {isBrowserMockEnabled() && <p className={mutedText}>{t("ruleProposalBrowserMock")}</p>}
       </div>
 
       {error && (
@@ -296,11 +202,11 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
       <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.72fr)_minmax(0,1.28fr)]">
         <div className="grid content-start gap-2">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold">{text.history}</h3>
+            <h3 className="text-sm font-semibold">{t("ruleProposalHistory")}</h3>
             <span className="text-xs tabular-nums text-[var(--muted)]">{proposals.length}</span>
           </div>
-          {proposals.length === 0 ? <p className={cn(contentPanel, "p-3 text-sm text-[var(--muted)]")}>{text.empty}</p> : (
-            <ul className="grid max-h-80 gap-2 overflow-auto" aria-label={text.history}>
+          {proposals.length === 0 ? <p className={cn(contentPanel, "p-3 text-sm text-[var(--muted)]")}>{t("ruleProposalEmpty")}</p> : (
+            <ul className="grid max-h-80 gap-2 overflow-auto" aria-label={t("ruleProposalHistory")}>
               {proposals.map((proposal) => (
                 <li key={proposal.id}>
                   <button
@@ -326,7 +232,7 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
         </div>
 
         <div className={cn(contentPanel, "grid min-w-0 content-start gap-3 p-4")} aria-live="polite">
-          {!active ? <p className={mutedText}>{text.empty}</p> : (
+          {!active ? <p className={mutedText}>{t("ruleProposalEmpty")}</p> : (
             <>
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
@@ -335,29 +241,29 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
                     <h3 className="font-semibold">{active.candidate?.name ?? active.prompt}</h3>
                   </div>
                   <p className={cn(mutedText, "mt-1 text-xs")}>
-                    {active.providerPreset ?? "manual"} · {active.model ?? "—"} · {active.candidateOrigin === "manual" ? text.manualCandidate : active.candidateOrigin ?? "provider"} · {active.validation.permissionClass}
+                    {active.providerPreset ?? "manual"} · {active.model ?? "—"} · {active.candidateOrigin === "manual" ? t("ruleProposalManualCandidate") : active.candidateOrigin ?? "provider"} · {active.validation.permissionClass}
                   </p>
                 </div>
                 <span className="rounded-full border border-[var(--zc-divider)] px-2 py-1 text-xs">{active.status}</span>
               </div>
 
               {active.summary && <p className="whitespace-pre-wrap text-sm">{active.summary}</p>}
-              {active.candidateOrigin === "manual" && <p className="rounded-lg bg-[var(--zc-warning-soft)] p-3 text-sm text-[var(--zc-warning-text)]">{text.manualCandidate}</p>}
+              {active.candidateOrigin === "manual" && <p className="rounded-lg bg-[var(--zc-warning-soft)] p-3 text-sm text-[var(--zc-warning-text)]">{t("ruleProposalManualCandidate")}</p>}
               {active.status === "applied" && (
-                <p className="rounded-lg bg-[var(--zc-success-soft)] p-3 text-sm text-[var(--zc-success-text)]">{text.applied}</p>
+                <p className="rounded-lg bg-[var(--zc-success-soft)] p-3 text-sm text-[var(--zc-success-text)]">{t("ruleProposalApplied")}</p>
               )}
               {active.clarifications.length > 0 && (
                 <ul className="list-disc space-y-1 pl-5 text-sm">
                   {active.clarifications.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}
                 </ul>
               )}
-              {!active.candidate && active.status !== "applied" && <p className={mutedText}>{text.noCandidate}</p>}
+              {!active.candidate && active.status !== "applied" && <p className={mutedText}>{t("ruleProposalNoCandidate")}</p>}
               {active.candidate && (
                 <div className="grid gap-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <strong className="text-sm">{text.validation}</strong>
+                    <strong className="text-sm">{t("ruleProposalValidation")}</strong>
                     <button type="button" className={buttonGhost} onClick={(event) => onEditCandidate(active, event.currentTarget)}>
-                      <Pencil size={14} />{text.edit}
+                      <Pencil size={14} />{t("ruleProposalEdit")}
                     </button>
                   </div>
                   <div className="grid gap-2 text-sm">
@@ -382,22 +288,22 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
                 <div className="grid gap-2 rounded-lg border border-[var(--zc-divider)] p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <strong className="text-sm">
-                      {impact.matchedCount?.toLocaleString() ?? "—"} {text.matched}
+                      {impact.matchedCount?.toLocaleString() ?? "—"} {t("ruleProposalMatched")}
                     </strong>
                     <span className="text-xs">{impact.impactState}</span>
                   </div>
                   <dl className="grid gap-1 text-xs text-[var(--zc-text-secondary)] sm:grid-cols-2">
-                    <div><dt className="font-semibold">{text.scopeHealth}</dt><dd>{impact.scopeHealth.state}</dd></div>
-                    <div><dt className="font-semibold">{text.permissionClass}</dt><dd>{impact.permissionClass}</dd></div>
-                    <div><dt className="font-semibold">{text.risk}</dt><dd>{impact.riskSummary.length ? impact.riskSummary.join(" · ") : text.no}</dd></div>
-                    <div><dt className="font-semibold">{text.confirmation}</dt><dd>{impact.requiresConfirmation ? text.yes : text.no}</dd></div>
-                    <div><dt className="font-semibold">{text.broadMatch}</dt><dd>{impact.broadMatch ? text.yes : text.no}</dd></div>
-                    <div><dt className="font-semibold">{text.conflictState}</dt><dd>{impact.conflictAnalysisState === "complete_candidate_list" ? text.complete : text.boundedSample}</dd></div>
+                    <div><dt className="font-semibold">{t("ruleProposalScopeHealth")}</dt><dd>{impact.scopeHealth.state}</dd></div>
+                    <div><dt className="font-semibold">{t("ruleProposalPermissionClass")}</dt><dd>{impact.permissionClass}</dd></div>
+                    <div><dt className="font-semibold">{t("ruleProposalRisk")}</dt><dd>{impact.riskSummary.length ? impact.riskSummary.join(" · ") : t("ruleProposalNo")}</dd></div>
+                    <div><dt className="font-semibold">{t("ruleProposalConfirmation")}</dt><dd>{impact.requiresConfirmation ? t("ruleProposalYes") : t("ruleProposalNo")}</dd></div>
+                    <div><dt className="font-semibold">{t("ruleProposalBroadMatch")}</dt><dd>{impact.broadMatch ? t("ruleProposalYes") : t("ruleProposalNo")}</dd></div>
+                    <div><dt className="font-semibold">{t("ruleProposalConflictState")}</dt><dd>{impact.conflictAnalysisState === "complete_candidate_list" ? t("ruleProposalComplete") : t("ruleProposalBoundedSample")}</dd></div>
                   </dl>
-                  {impact.impactState === "deferred" && <p className={mutedText}>{text.deferred}</p>}
+                  {impact.impactState === "deferred" && <p className={mutedText}>{t("ruleProposalDeferred")}</p>}
                   {impact.sampleRows.length > 0 && (
                     <div>
-                      <p className="mb-1 text-xs font-semibold">{text.samples} (≤20)</p>
+                      <p className="mb-1 text-xs font-semibold">{t("ruleProposalSamples")} (≤20)</p>
                       <ul className="grid max-h-40 gap-1 overflow-auto text-xs">
                         {impact.sampleRows.map((sample) => (
                           <li key={sample.fileId} className="grid gap-1 rounded bg-[var(--zc-panel)] px-2 py-1">
@@ -411,7 +317,7 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
                   )}
                   {impact.conflicts.length > 0 && (
                     <div>
-                      <p className="text-xs font-semibold">{text.conflicts}</p>
+                      <p className="text-xs font-semibold">{t("ruleProposalConflicts")}</p>
                       {impact.conflicts.map((conflict) => <p key={conflict.ruleId} className="text-xs text-[var(--zc-warning-text)]">{conflict.name}</p>)}
                     </div>
                   )}
@@ -421,30 +327,30 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
               <div className="flex flex-wrap gap-2 border-t border-[var(--zc-divider)] pt-3">
                 {canPreview && (
                   <button type="button" className={buttonSecondary} disabled={busy} onClick={() => void runPreview()}>
-                    <FileSearch size={14} />{text.preview}
+                    <FileSearch size={14} />{t("ruleProposalPreview")}
                   </button>
                 )}
                 {impact?.proposalId === active.id && impact.impactState === "deferred" && (
                   <button type="button" className={buttonSecondary} disabled={busy} onClick={() => void resolveExact(active)}>
-                    <Loader2 size={14} className={busy ? "animate-spin" : ""} />{text.exact}
+                    <Loader2 size={14} className={busy ? "animate-spin" : ""} />{t("ruleProposalExact")}
                   </button>
                 )}
                 <button type="button" className={glassButtonPrimary} disabled={!canApply || busy} onClick={() => setConfirmApply(true)}>
-                  <CheckCircle2 size={14} />{text.apply}
+                  <CheckCircle2 size={14} />{t("ruleProposalApply")}
                 </button>
                 {["needs_clarification", "invalid", "failed", "stale"].includes(active.status) && (
                   <button type="button" className={buttonSecondary} disabled={busy || !prompt.trim()} onClick={() => void regenerate(active, prompt.trim(), currentTarget)}>
-                    <Sparkles size={14} />{text.regenerate}
+                    <Sparkles size={14} />{t("ruleProposalRegenerate")}
                   </button>
                 )}
                 {!["applied", "cancelled"].includes(active.status) && active.status !== "generating" && (
                   <button type="button" className={buttonGhost} disabled={busy} onClick={() => void cancel(active)}>
-                    <Square size={14} />{text.cancel}
+                  <Square size={14} />{t("ruleProposalCancel")}
                   </button>
                 )}
                 {terminalDelete && (
                   <button type="button" className={buttonGhost} disabled={busy} onClick={() => void deleteProposal(active)}>
-                    <Trash2 size={14} />{text.delete}
+                    <Trash2 size={14} />{t("ruleProposalDelete")}
                   </button>
                 )}
               </div>
@@ -456,16 +362,19 @@ export function RuleProposalWorkspace({ rules, onOpenManualBuilder, onEditCandid
       <ConfirmDialog
         open={confirmApply}
         tone="warning"
-        title={text.applyTitle}
-        description={text.applyDescription}
-        emphasis={text.applySafety}
-        confirmLabel={text.apply}
-        cancelLabel={text.cancel}
+        title={t("ruleProposalApplyTitle")}
+        description={t("ruleProposalApplyDescription")}
+        emphasis={t("ruleProposalApplySafety")}
+        confirmLabel={t("ruleProposalApply")}
+        cancelLabel={t("ruleProposalCancel")}
         isProcessing={busy}
         onCancel={() => setConfirmApply(false)}
         onConfirm={() => {
           if (!active) return;
-          void apply(active).then(() => setConfirmApply(false));
+          void apply(active).then(() => {
+            setConfirmApply(false);
+            onApplied?.();
+          });
         }}
       />
     </section>

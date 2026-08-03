@@ -4,6 +4,7 @@ import { makeTranslator } from "../i18n";
 import { useAppStore } from "../store/useAppStore";
 import { useWatcherStatusStore } from "../store/useWatcherStatusStore";
 import { readableError } from "../utils/viewHelpers";
+import { deriveWatcherPresentation, watcherPresentationNeedsAttention } from "../utils/watcherPresentation";
 import {
   WatcherRetryQueue,
   WATCHER_QUEUE_BATCH_LIMIT,
@@ -22,6 +23,18 @@ interface FsWatcherWarningEvent {
   message: string;
   path?: string | null;
   limit?: number | null;
+}
+
+function isWatcherStatusSnapshot(payload: FsWatcherWarningEvent | WatcherReconciliationStatus): payload is WatcherReconciliationStatus {
+  return Boolean(payload)
+    && typeof payload === "object"
+    && "scanRootId" in payload
+    && typeof payload.scanRootId === "string"
+    && "healthStatus" in payload;
+}
+
+function watcherMessageForStatus(status: WatcherReconciliationStatus) {
+  return makeTranslator(useAppStore.getState().language)(deriveWatcherPresentation(status).messageKey);
 }
 
 const WATCHER_FLUSH_DELAY_MS = 500;
@@ -50,14 +63,8 @@ export function useFsWatcher({
 
     const warningHandler = (payload: FsWatcherWarningEvent | WatcherReconciliationStatus) => {
       if (disposed) return;
-      const status = payload as WatcherReconciliationStatus;
-      if (status.healthStatus === "permission_required") {
-        onError?.(watcherPermissionMessage());
-      } else if (status.healthStatus === "reconciliation_required" || status.needsReconciliation) {
-        onError?.(watcherReconciliationMessage());
-      } else {
-        onError?.(watcherPartialIndexWarningMessage());
-      }
+      if (isWatcherStatusSnapshot(payload)) onError?.(watcherMessageForStatus(payload));
+      else onError?.(watcherPartialIndexWarningMessage());
     };
 
     const registerLegacyAdapter = () => {
@@ -191,8 +198,8 @@ export function useFsWatcher({
         if (previousRevision !== undefined && payload.rootRevision <= previousRevision) return;
         const hasRevisionGap = previousRevision !== undefined && payload.rootRevision > previousRevision + 1;
         knownRootRevisions.set(payload.scanRootId, payload.rootRevision);
-        if (payload.healthStatus === "permission_required") onError?.(watcherPermissionMessage());
-        else if (payload.pending || payload.needsReconciliation) onError?.(watcherReconciliationMessage());
+        const presentation = deriveWatcherPresentation(payload);
+        if (watcherPresentationNeedsAttention(presentation)) onError?.(watcherMessageForStatus(payload));
         if (hasRevisionGap) refreshProjection();
         refreshProjection();
       }).then((unlisten) => {
@@ -228,17 +235,17 @@ export function useFsWatcher({
 }
 
 export function watcherPartialIndexWarningMessage() {
-  return makeTranslator(useAppStore.getState().language)("fsWatcherPartialIndexWarning");
+  return makeTranslator(useAppStore.getState().language)(deriveWatcherPresentation({ healthStatus: "partial" }).messageKey);
 }
 
 export function watcherRetryExhaustedMessage() {
-  return makeTranslator(useAppStore.getState().language)("watcherRetryExhausted");
+  return makeTranslator(useAppStore.getState().language)(deriveWatcherPresentation({ healthStatus: "retry_exhausted" }).messageKey);
 }
 
 export function watcherReconciliationMessage() {
-  return makeTranslator(useAppStore.getState().language)("watcherReconciliationRequired");
+  return makeTranslator(useAppStore.getState().language)(deriveWatcherPresentation({ healthStatus: "reconciliation_required" }).messageKey);
 }
 
 export function watcherPermissionMessage() {
-  return makeTranslator(useAppStore.getState().language)("libraryPermissionDesc");
+  return makeTranslator(useAppStore.getState().language)(deriveWatcherPresentation({ healthStatus: "permission_required" }).messageKey);
 }

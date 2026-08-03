@@ -46,6 +46,18 @@
   --inset: inset 0 1px 1px rgba(255, 255, 255, 0.08);
 }
 
+[data-density="default"] {
+  --zc-control-height-current: var(--zc-control-height-default);
+  --zc-row-height-current: var(--zc-row-height-default);
+  --zc-density-gap: var(--zc-space-4);
+}
+
+[data-density="compact"] {
+  --zc-control-height-current: var(--zc-control-height-compact);
+  --zc-row-height-current: var(--zc-row-height-compact);
+  --zc-density-gap: var(--zc-space-2);
+}
+
 * {
   box-sizing: border-box;
 }

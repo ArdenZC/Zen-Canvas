@@ -6,6 +6,20 @@ function read(relativePath: string) {
   return readFileSync(resolve(relativePath), "utf8");
 }
 
+const settingsSectionPaths = [
+  "src/views/settings/sections/GeneralSettingsSection.tsx",
+  "src/views/settings/sections/AppearanceSettingsSection.tsx",
+  "src/views/settings/sections/FileSourcesSettingsSection.tsx",
+  "src/views/settings/sections/GlobalSearchSettingsSection.tsx",
+  "src/views/settings/sections/GlobalIndexSettingsSection.tsx",
+  "src/views/settings/sections/ManagedLibrarySettingsSection.tsx",
+  "src/views/settings/sections/AutomationSettingsSection.tsx",
+  "src/views/settings/sections/AISettingsSection.tsx",
+  "src/views/settings/sections/PrivacyContentSettingsSection.tsx",
+  "src/views/settings/sections/AboutSettingsSection.tsx",
+  "src/views/settings/sections/DeveloperDiagnosticsSection.tsx"
+] as const;
+
 describe("phase 10 motion and accessibility contracts", () => {
   it("honors reduced motion and keeps shared motion quiet", () => {
     const styles = read("src/styles.css");
@@ -28,7 +42,10 @@ describe("phase 10 motion and accessibility contracts", () => {
   it("keeps shared controls semantically keyboard accessible", () => {
     const sharedUi = read("src/views/shared/ui.ts");
     const commandModal = read("src/components/CommandModal.tsx");
-    const settingsView = read("src/views/settings/SettingsView.tsx");
+    const settingsSurface = [
+      read("src/views/settings/SettingsView.tsx"),
+      ...settingsSectionPaths.map(read)
+    ].join("\n");
     const settingsPrimitives = read("src/views/settings/components/SettingsPrimitives.tsx");
     const rulesList = read("src/views/rules/AutomationRuleList.tsx");
 
@@ -46,8 +63,8 @@ describe("phase 10 motion and accessibility contracts", () => {
     expect(settingsPrimitives).toContain("aria-checked={checked}");
     expect(settingsPrimitives).toContain('role="radiogroup"');
     expect(settingsPrimitives).toContain('event.key === "ArrowRight"');
-    expect(settingsView).toContain("SettingsSwitchControl");
-    expect(settingsView).not.toContain("statusLabel={root.enabled ? t(\"enabled\") : t(\"disabled\")}");
+    expect(settingsSurface).toContain("SettingsSwitchControl");
+    expect(settingsSurface).not.toContain("statusLabel={root.enabled ? t(\"enabled\") : t(\"disabled\")}");
     expect(rulesList).toContain("role=\"switch\"");
     expect(rulesList).toContain("aria-checked={rule.enabled}");
   });
@@ -56,7 +73,10 @@ describe("phase 10 motion and accessibility contracts", () => {
     const shellChrome = read("src/components/ShellChrome.tsx");
     const appShell = read("src/components/AppShell.tsx");
     const assetCard = read("src/views/vault/AssetCard.tsx");
-    const settingsView = read("src/views/settings/SettingsView.tsx");
+    const settingsSurface = [
+      read("src/views/settings/SettingsView.tsx"),
+      ...settingsSectionPaths.map(read)
+    ].join("\n");
     const rulesInspector = read("src/views/rules/AutomationRuleInspector.tsx");
     const commandModal = read("src/components/CommandModal.tsx");
 
@@ -66,10 +86,10 @@ describe("phase 10 motion and accessibility contracts", () => {
     expect(assetCard).toContain('title={t("revealPhysical")}');
     expect(commandModal).toContain('aria-label={t("commandClearSearch")}');
     expect(commandModal).toContain('title={t("commandClearSearch")}');
-    expect(settingsView).toContain('title={t("deleteScanFolder")}');
-    expect(settingsView).toContain('aria-label={t("deleteScanFolder")}');
-    expect(settingsView).toContain('title={t("deleteSearchFolder")}');
-    expect(settingsView).toContain('aria-label={t("deleteSearchFolder")}');
+    expect(settingsSurface).toContain('title={t("deleteScanFolder")}');
+    expect(settingsSurface).toContain('aria-label={t("deleteScanFolder")}');
+    expect(settingsSurface).toContain('title={t("deleteSearchFolder")}');
+    expect(settingsSurface).toContain('aria-label={t("deleteSearchFolder")}');
     expect(rulesInspector).toContain('title={t("deleteRule")}');
     expect(rulesInspector).toContain('aria-label={t("deleteRule")}');
   });
@@ -92,10 +112,11 @@ function readAllSource() {
     "src/components/AppShell.tsx",
     "src/components/CommandModal.tsx",
     "src/components/ShellChrome.tsx",
-    "src/views/hub/HubView.tsx",
+    "src/views/organize/OrganizeSuggestionsView.tsx",
     "src/views/rules/RulesView.tsx",
     "src/views/scanner/ScannerView.tsx",
     "src/views/settings/SettingsView.tsx",
+    ...settingsSectionPaths,
     "src/views/shared/ui.ts",
     "src/views/timeline/TimelineView.tsx",
     "src/views/timeline/PreviewFileRow.tsx",

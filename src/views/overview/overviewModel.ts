@@ -1,8 +1,9 @@
 import type { ScanProgressPayload } from "../../api/tauriApi";
 import type { Language } from "../../i18n";
-import type { DashboardStats, OperationLog } from "../../types/domain";
+import type { AnalysisRun, ContentRun, DashboardStats, GlobalIndexStatus, OperationLog, OrganizationPlan } from "../../types/domain";
 import type { Translator } from "../../types/ui";
 import { formatBytes, formatDate } from "../../utils/format";
+import { resolveReclaimableBytes } from "../../utils/reclaimableBytes";
 import { compactPath, formatDisplayPath } from "../../utils/viewHelpers";
 
 export type OverviewScanState =
@@ -24,6 +25,10 @@ export interface OverviewScanSnapshot {
 }
 
 export type OverviewPriorityKind =
+  | "search-permission"
+  | "operation"
+  | "content-failure"
+  | "managed-root-stale"
   | "scan-failed"
   | "scan-permission"
   | "scan-active"
@@ -40,9 +45,29 @@ export interface OverviewPriorityTaskModel {
   kind: OverviewPriorityKind;
   count?: number;
   bytes?: number;
+  bytesAreEstimated?: boolean;
   fileCount?: number;
   error?: string;
   path?: string;
+  reason?: "permission" | "no_source" | "error" | "failed" | "stale" | "reconciliation" | "retry_exhausted" | "partial" | "active";
+}
+
+export interface OverviewHealthSnapshot {
+  globalIndex: (Pick<GlobalIndexStatus, "status" | "collectionComplete" | "lastError" | "enabled"> & { noSource?: boolean }) | null;
+  watcher: {
+    permissionRequired: number;
+    reconciliationRequired: number;
+    partialCoverage: number;
+    retryExhausted: number;
+    stale: number;
+  };
+  plan: OrganizationPlan | null;
+  cleanupRun: AnalysisRun | null;
+  contentRun: ContentRun | null;
+  operation: {
+    active: boolean;
+    attentionCount: number;
+  };
 }
 
 export function deriveOverviewScanState(scan: OverviewScanSnapshot, hasIndexedData: boolean): OverviewScanState {
@@ -62,8 +87,26 @@ export function selectOverviewPriorityTask(input: {
   cleanupCandidateCount: number;
   reclaimableBytes: number;
   indexNeedsUpdate: boolean;
+  health?: OverviewHealthSnapshot | null;
 }): OverviewPriorityTaskModel {
   const { scan, stats } = input;
+  const health = input.health ?? null;
+  if (health?.globalIndex) {
+    if (health.globalIndex.noSource) return { kind: "search-permission", reason: "no_source" };
+    if (health.globalIndex.status === "permission_required") return { kind: "search-permission", reason: "permission" };
+    if (health.globalIndex.status === "error" || health.globalIndex.status === "unavailable") {
+      return { kind: "search-permission", reason: "error", error: health.globalIndex.lastError ?? undefined };
+    }
+  }
+  const operationAttentionCount = health?.operation.attentionCount ?? 0;
+  if (operationAttentionCount > 0) {
+    return {
+      kind: "operation",
+      count: operationAttentionCount,
+      reason: "failed"
+    };
+  }
+  if (health?.operation.active) return { kind: "operation", count: 0, reason: "active" };
   const scanState = deriveOverviewScanState(scan, stats.totalFiles > 0 || stats.totalSize > 0);
   if (scanState === "scanning") {
     return {
@@ -82,9 +125,42 @@ export function selectOverviewPriorityTask(input: {
     return { kind: "scan-partial", count: scan.progress?.errors ?? 0, fileCount: scan.progress?.files ?? stats.totalFiles };
   }
   if (scanState === "canceled") return { kind: "scan-canceled", fileCount: scan.progress?.files ?? stats.totalFiles };
-  if (stats.needsConfirmation > 0) return { kind: "review", count: stats.needsConfirmation };
-  if (input.cleanupCandidateCount > 0 && input.reclaimableBytes > 0) {
-    return { kind: "cleanup", count: input.cleanupCandidateCount, bytes: input.reclaimableBytes };
+  const planReviewCount = health?.plan
+    ? health.plan.effectiveSummary?.pendingReview
+      ?? health.plan.summary.pendingReview
+    : stats.needsConfirmation;
+  if (planReviewCount > 0) return { kind: "review", count: planReviewCount };
+  const cleanupCandidateCount = health
+    ? health.cleanupRun
+      ? health.cleanupRun.safeCount + health.cleanupRun.reviewCount + health.cleanupRun.cautionCount
+      : 0
+    : input.cleanupCandidateCount;
+  const reclaimable = health
+    ? resolveReclaimableBytes({
+      exact: health.cleanupRun?.exactReclaimableBytes,
+      potential: health.cleanupRun?.potentialReclaimableBytes
+    })
+    : resolveReclaimableBytes({ legacy: input.reclaimableBytes });
+  if (cleanupCandidateCount > 0 && reclaimable.bytes > 0) {
+    return { kind: "cleanup", count: cleanupCandidateCount, bytes: reclaimable.bytes, bytesAreEstimated: reclaimable.estimated };
+  }
+  if (health?.contentRun && ["failed", "error", "stale", "interrupted"].includes(health.contentRun.status)) {
+    return { kind: "content-failure", reason: "failed", error: health.contentRun.lastErrorDetail ?? undefined };
+  }
+  if (health?.watcher.permissionRequired && health.watcher.permissionRequired > 0) {
+    return { kind: "managed-root-stale", count: health.watcher.permissionRequired, reason: "permission" };
+  }
+  if (health?.watcher.retryExhausted && health.watcher.retryExhausted > 0) {
+    return { kind: "managed-root-stale", count: health.watcher.retryExhausted, reason: "retry_exhausted" };
+  }
+  if (health?.watcher.partialCoverage && health.watcher.partialCoverage > 0) {
+    return { kind: "managed-root-stale", count: health.watcher.partialCoverage, reason: "partial" };
+  }
+  if (health?.watcher.reconciliationRequired && health.watcher.reconciliationRequired > 0) {
+    return { kind: "managed-root-stale", count: health.watcher.reconciliationRequired, reason: "reconciliation" };
+  }
+  if (health?.watcher.stale && health.watcher.stale > 0) {
+    return { kind: "managed-root-stale", count: health.watcher.stale, reason: "stale" };
   }
   if (stats.totalFiles <= 0 && stats.totalSize <= 0) return { kind: "unindexed" };
   if (input.indexNeedsUpdate) return { kind: "update" };

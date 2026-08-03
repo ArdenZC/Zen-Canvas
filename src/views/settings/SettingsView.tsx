@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { FolderPlus, Keyboard, Play, Trash2 } from "lucide-react";
-import packageInfo from "../../../package.json";
-import { tauriApi, type GlobalHotkeyStatus, type WatcherReconciliationStatus } from "../../api/tauriApi";
+import { tauriApi, type GlobalHotkeyStatus } from "../../api/tauriApi";
 import { useChromeContext, useSettingsContext } from "../../contexts/AppContexts";
 import {
   removeSearchRoot,
@@ -50,10 +48,9 @@ import {
 } from "./aiSettingsModel";
 import { acceleratorFromKeyboardEvent, formatHotkeyLabel, isValidSearchHotkey } from "../../utils/hotkeys";
 import { compactPath, localizedStableError, normalizePathLike, readableError } from "../../utils/viewHelpers";
-import { buttonIconDanger, buttonSecondary, cn, glassButton } from "../../utils/tw";
+import { buttonSecondary, cn } from "../../utils/tw";
 import {
   ConfirmDialog,
-  compactInteractiveRow,
   quietText
 } from "../shared/ui";
 import {
@@ -63,24 +60,30 @@ import {
   SettingsInlineMessage,
   SettingsLayout,
   SettingsRow,
-  SettingsSection,
   SettingsSegmentedControl,
   SettingsSelect,
   SettingsSwitch,
-  SettingsSwitchControl,
   SettingsTextField,
   activeSettingsSectionId,
   scrollSettingsSectionIntoView,
   settingsField
 } from "./components/SettingsPrimitives";
 import { SettingsSecretField } from "./components/SettingsSecretField";
+import { AboutSettingsSection } from "./sections/AboutSettingsSection";
+import { AISettingsSection } from "./sections/AISettingsSection";
+import { AppearanceSettingsSection } from "./sections/AppearanceSettingsSection";
+import { AutomationSettingsSection } from "./sections/AutomationSettingsSection";
+import { FileSourcesSettingsSection } from "./sections/FileSourcesSettingsSection";
+import { GeneralSettingsSection } from "./sections/GeneralSettingsSection";
+import { GlobalIndexSettingsSection } from "./sections/GlobalIndexSettingsSection";
+import { GlobalSearchSettingsSection } from "./sections/GlobalSearchSettingsSection";
+import { ManagedLibrarySettingsSection } from "./sections/ManagedLibrarySettingsSection";
+import { PrivacyContentSettingsSection } from "./sections/PrivacyContentSettingsSection";
+import { DeveloperDiagnosticsSection } from "./sections/DeveloperDiagnosticsSection";
+import type { FolderDeleteConfirmState } from "./sections/settingsSectionTypes";
 
 type StatusTone = "success" | "warning";
 type AIUserMode = "off" | "local" | "cloud";
-type FolderDeleteConfirmState =
-  | { kind: "scan"; root: ScanRootSetting }
-  | { kind: "search"; root: SearchRootSetting };
-
 const DEVELOPER_MODE_STORAGE_KEY = "zc-developer-mode";
 const SETTINGS_SECTION_IDS = [
   "settings-general",
@@ -199,27 +202,6 @@ function managedScopePolicyText(policySummary: string | undefined, t: Translator
     managed_scope_only_cloud_disabled: "managedScopeOnlyCloudDisabled"
   };
   return t(policyKeys[policySummary ?? ""] ?? "managedScopePolicySummary");
-}
-
-function watcherStatusLabel(status: WatcherReconciliationStatus | undefined, t: Translator) {
-  let key: Parameters<Translator>[0] = "watcherStatusUnknown";
-  if (status?.healthStatus === "permission_required") key = "watcherStatusPermission";
-  else if (status?.healthStatus === "missing") key = "watcherStatusMissing";
-  else if (status?.activeRunId || status?.healthStatus === "scanning") key = "watcherStatusSyncing";
-  else if (status?.pending || status?.needsReconciliation || status?.healthStatus === "reconciliation_required") key = "watcherStatusReconciling";
-  else if (status?.healthStatus === "degraded") key = "watcherStatusFailed";
-  else if (status?.healthStatus === "healthy") key = "watcherStatusHealthy";
-  return t(key);
-}
-
-function watcherStatusForSetting(
-  root: ScanRootSetting,
-  statuses: Record<string, WatcherReconciliationStatus>
-) {
-  const exact = statuses[root.id];
-  if (exact) return exact;
-  const targetPath = normalizePathLike(root.path);
-  return Object.values(statuses).find((status) => normalizePathLike(status.path) === targetPath);
 }
 
 export function SettingsView() {
@@ -841,7 +823,7 @@ export function SettingsView() {
     const id = `custom-${Date.now().toString(36)}`;
     const profile: AICustomProviderProfile = {
       id,
-      name: `Custom profile ${((aiSettings.customProfiles?.length ?? 0) + 1).toString()}`,
+      name: t("aiCustomProfileDefaultName").replace("{number}", String((aiSettings.customProfiles?.length ?? 0) + 1)),
       baseUrl: aiSettings.baseUrl,
       chatPath: aiSettings.chatPath || "/chat/completions",
       modelsPath: aiSettings.modelsPath ?? "/models",
@@ -1072,440 +1054,96 @@ export function SettingsView() {
           {settingsStatus ? <SettingsInlineMessage tone={settingsStatusTone === "warning" ? "warning" : "success"} role={settingsStatusTone === "warning" ? "alert" : "status"}>{settingsStatus}</SettingsInlineMessage> : null}
         </div>
 
-        <SettingsSection id="settings-general" title={t("settingsGeneral")} description={t("settingsGeneralDesc")}>
-          <SettingsControlGroup title={t("settingsWindowBehavior")} description={t("settingsWindowBehaviorDesc")}>
-            <SettingsRow label={t("closeBehavior")} description={t("closeBehaviorDesc")}>
-              <SettingsSegmentedControl
-                value={closeBehavior}
-                ariaLabel={t("closeBehavior")}
-                options={[
-                  { value: "ask", label: t("askEveryTime") },
-                  { value: "minimize", label: t("minimizeToTray") },
-                  { value: "quit", label: t("quitApp") }
-                ]}
-                onChange={(next) => void updateCloseBehavior(next)}
-              />
-            </SettingsRow>
-          </SettingsControlGroup>
+        <GeneralSettingsSection
+          t={t}
+          closeBehavior={closeBehavior}
+          onCloseBehavior={(next) => void updateCloseBehavior(next)}
+          backgroundIndexOnStartup={backgroundIndexOnStartup}
+          onBackgroundIndexOnStartup={(next) => void updateBackgroundIndexOnStartup(next)}
+          launchAtLogin={launchAtLogin}
+          onLaunchAtLogin={(next) => void updateLaunchAtLogin(next)}
+        />
 
-          <SettingsControlGroup title={t("settingsStartup")} description={t("settingsStartupDesc")}>
-            <SettingsSwitch
-              id="settings-background-index-startup"
-              label={t("backgroundIndexOnStartup")}
-              description={t("backgroundIndexOnStartupDesc")}
-              checked={backgroundIndexOnStartup}
-              onChange={(next) => void updateBackgroundIndexOnStartup(next)}
-            />
-            <SettingsSwitch
-              id="settings-launch-at-login"
-              label={t("launchAtLogin")}
-              description={t("launchAtLoginDesc")}
-              checked={launchAtLogin}
-              onChange={(next) => void updateLaunchAtLogin(next)}
-            />
-          </SettingsControlGroup>
-        </SettingsSection>
+        <AppearanceSettingsSection
+          t={t}
+          language={language}
+          onLanguage={setLanguage}
+          theme={theme}
+          onTheme={setTheme}
+          folderNamingLanguage={folderNamingLanguage}
+          onFolderNamingLanguage={(next) => void updateFolderNamingLanguage(next)}
+        />
 
-        <SettingsSection id="settings-appearance" title={t("settingsAppearance")} description={t("settingsAppearanceDesc")}>
-          <SettingsRow label={t("language")} description={t("languageDesc")}>
-            <SettingsSegmentedControl
-              value={language}
-              ariaLabel={t("language")}
-              options={[
-                { value: "zh", label: t("languageChinese") },
-                { value: "en", label: t("languageEnglish") }
-              ]}
-              onChange={setLanguage}
-            />
-          </SettingsRow>
-          <SettingsRow label={t("appearance")} description={t("appearanceDesc")}>
-            <SettingsSegmentedControl
-              value={theme}
-              ariaLabel={t("appearance")}
-              options={[
-                { value: "light", label: t("lightTheme") },
-                { value: "dark", label: t("darkTheme") },
-                { value: "system", label: t("systemTheme") }
-              ]}
-              onChange={setTheme}
-            />
-          </SettingsRow>
-          <SettingsRow label={t("folderNaming")} description={t("folderNamingDesc")}>
-            <SettingsSegmentedControl
-              value={folderNamingLanguage}
-              ariaLabel={t("folderNaming")}
-              options={[
-                { value: "en", label: t("englishFolderNames") },
-                { value: "zh", label: t("chineseFolderNames") }
-              ]}
-              onChange={(next) => void updateFolderNamingLanguage(next)}
-            />
-          </SettingsRow>
-        </SettingsSection>
+        <FileSourcesSettingsSection
+          t={t}
+          defaultScanFolders={defaultScanFolders}
+          watcherRootStatuses={watcherRootStatuses}
+          organizeRootMode={organizeRootMode}
+          organizeRootPath={organizeRootPath ?? null}
+          onAddScanFolder={() => void addDefaultScanFolder()}
+          onSetScanRootEnabled={(root, next) => void setScanRootEnabled(root, next)}
+          onScanRootNow={(root) => void scanRootNow(root)}
+          onRequestDelete={setFolderDeleteConfirm}
+          onOrganizeRootMode={(next) => void updateOrganizeRootMode(next)}
+          onOrganizeRootPath={(next) => void updateOrganizeRootPath(next)}
+          onChooseOrganizeRootPath={() => void chooseOrganizeRootPath()}
+        />
 
-        <SettingsSection id="settings-files-scan" title={t("settingsFilesScan")} description={t("settingsFilesScanDesc")}>
-        <SettingsControlGroup title={t("settingsScanRoots")} description={t("settingsScanRootsDesc")}>
-          {defaultScanFolders.length ? (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <span className={quietText}>{t("defaultScanFoldersRestartHint")}</span>
-              <button className={buttonSecondary} onClick={() => void addDefaultScanFolder()}>
-                <FolderPlus size={15} />
-                <span>{t("addScanFolder")}</span>
-              </button>
-            </div>
-          ) : null}
-          <div className="grid gap-2">
-            {defaultScanFolders.length ? defaultScanFolders.map((root) => (
-              <div key={root.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
-                <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center">
-                  <div className="min-w-0 text-left">
-                    <label htmlFor={`scan-root-${root.id}`} className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{root.label}</label>
-                    <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={root.path}>{compactPath(root.path, 72)}</span>
-                    <div className="mt-1 flex items-center gap-2 text-xs">
-                      <span className="rounded-full border border-[var(--zc-border)] px-2 py-0.5 text-[var(--zc-text-secondary)]">
-                        {watcherStatusLabel(watcherStatusForSetting(root, watcherRootStatuses), t)}
-                      </span>
-                      {watcherStatusForSetting(root, watcherRootStatuses) ? (
-                        <span className="text-[var(--zc-text-tertiary)]">
-                          {watcherStatusForSetting(root, watcherRootStatuses)?.watcherAppliedRevision}/{watcherStatusForSetting(root, watcherRootStatuses)?.watcherRevision}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
-                    <SettingsSwitchControl
-                      id={`scan-root-${root.id}`}
-                      checked={root.enabled}
-                      label={root.enabled ? t("disableScanFolder") : t("enableScanFolder")}
-                      onChange={(next) => void setScanRootEnabled(root, next)}
-                    />
-                    <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void scanRootNow(root)} title={t("scanNow")}>
-                      <Play size={14} />
-                      <span>{t("scanNow")}</span>
-                    </button>
-                    <button className={buttonIconDanger} onClick={() => setFolderDeleteConfirm({ kind: "scan", root })} title={t("deleteScanFolder")} aria-label={t("deleteScanFolder")}>
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )) : (
-              <SettingsEmptyState title={t("defaultScanFolders")} description={t("noDefaultScanFolders")} action={(
-                <button className={buttonSecondary} onClick={() => void addDefaultScanFolder()}>
-                  <FolderPlus size={15} />
-                  <span>{t("addScanFolder")}</span>
-                </button>
-              )} />
-            )}
-          </div>
-        </SettingsControlGroup>
+        <GlobalSearchSettingsSection
+          t={t}
+          platform={platform}
+          searchHotkey={searchHotkey}
+          hotkey={hotkey}
+          isRecordingHotkey={isRecordingHotkey}
+          recordingHotkeyPreview={recordingHotkeyPreview}
+          hotkeyCaptureRef={hotkeyCaptureRef}
+          globalHotkeyError={globalHotkeyError}
+          globalHotkeyStatus={globalHotkeyStatus}
+          searchScopeMode={searchScopeMode}
+          customSearchRoots={customSearchRoots}
+          pendingBackgroundRoots={pendingBackgroundRoots}
+          currentBackgroundRoot={currentBackgroundRoot}
+          isBackgroundIndexing={isBackgroundIndexing}
+          completedBackgroundRoots={completedBackgroundRoots}
+          failedBackgroundRoots={failedBackgroundRoots}
+          onStartRecording={() => setIsRecordingHotkey(true)}
+          onUpdateHotkey={(next) => void updateSearchHotkey(next)}
+          onSearchScopeMode={(next) => void updateSearchScopeMode(next)}
+          onAddSearchRoot={() => void addCustomSearchRoot()}
+          onSetSearchRootEnabled={(root, next) => void setSearchRootEnabled(root, next)}
+          onIndexSearchRootNow={indexSearchRootNow}
+          onRequestDelete={setFolderDeleteConfirm}
+          backgroundRootState={backgroundRootState}
+        />
 
-        <SettingsControlGroup title={t("settingsOrganizeRoot")} description={t("settingsOrganizeRootDesc")}>
-          <SettingsRow
-            label={t("settingsOrganizeRoot")}
-            description={organizeRootMode === "current_folder"
-              ? t("organizeRootCurrentDesc")
-              : organizeRootMode === "zen_canvas_folder"
-                ? t("organizeRootZenCanvasDesc")
-                : t("organizeRootCustomDesc")}
-            hint={t("organizePreviewStillRequired")}
-          >
-            <SettingsSegmentedControl
-              value={organizeRootMode}
-              ariaLabel={t("settingsOrganizeRoot")}
-              options={[
-                { value: "current_folder", label: t("organizeRootCurrentFolder") },
-                { value: "zen_canvas_folder", label: t("organizeRootZenCanvasFolder") },
-                { value: "custom_root", label: t("organizeRootCustomRoot") }
-              ]}
-              onChange={(next) => void updateOrganizeRootMode(next)}
-            />
-          </SettingsRow>
-          {organizeRootMode === "custom_root" ? (
-            <SettingsRow label={t("organizeRootCustomRoot")} description={t("organizeRootCustomDesc")}>
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <input
-                  className={cn(settingsField, "min-w-0 flex-1")}
-                  value={organizeRootPath ?? ""}
-                  onChange={(event) => void updateOrganizeRootPath(event.target.value)}
-                  placeholder={t("organizeRootPathPlaceholder")}
-                  aria-label={t("organizeRootCustomRoot")}
-                />
-                <button className={buttonSecondary} onClick={() => void chooseOrganizeRootPath()}>
-                  <FolderPlus size={15} />
-                  <span>{t("chooseFolders")}</span>
-                </button>
-              </div>
-            </SettingsRow>
-          ) : null}
-        </SettingsControlGroup>
-        </SettingsSection>
+        <GlobalIndexSettingsSection
+          t={t}
+          status={globalIndexStatus}
+          sources={globalIndexSources}
+          isLoading={isLoadingGlobalIndex}
+          isUpdating={isUpdatingGlobalIndex}
+          statusText={(status) => globalIndexStatusText(status, t)}
+          providerStatusText={(status) => globalIndexProviderStatusText(status, t)}
+          errorText={(error) => globalIndexErrorText(error, t)}
+          onAction={(action, message) => void runGlobalIndexAction(action, message)}
+        />
 
-        <SettingsSection id="settings-search" title={t("settingsSearch")} description={t("settingsSearchDesc")}>
-          <SettingsRow label={t("searchHotkey")} description={t("searchHotkeyDesc")}>
-            <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
-              <kbd className="rounded-[var(--zc-radius-control)] border border-[var(--zc-divider)] bg-[var(--zc-surface-subtle)] px-3 py-2 text-sm font-medium text-[var(--zc-text-primary)]">{hotkey}</kbd>
-              <button className={cn(buttonSecondary, isRecordingHotkey && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)] text-[var(--zc-primary-text)]")} onClick={() => setIsRecordingHotkey(true)}>
-                <Keyboard size={14} />
-                <span>{t("changeHotkey")}</span>
-              </button>
-            </div>
-          </SettingsRow>
-          {isRecordingHotkey && (
-            <SettingsInlineMessage role="status">
-              <div
-                ref={hotkeyCaptureRef}
-                className="mt-2 grid gap-2 rounded-xl border border-[var(--zc-info-border)] bg-[var(--zc-info-soft)] px-3 py-3 outline-none focus-visible:shadow-[0_0_0_3px_var(--zc-focus-ring-soft)]"
-                tabIndex={0}
-              >
-                <span>{t("recordingHotkey")}</span>
-                <span className={quietText}>{t("hotkeyCaptureCurrent")}: {recordingHotkeyPreview || hotkey}</span>
-                <span className={quietText}>Esc: {t("cancel")}</span>
-              </div>
-            </SettingsInlineMessage>
-          )}
-          {globalHotkeyError ? (
-            <SettingsInlineMessage tone="warning" role="alert">{t("hotkeyConflictHint")}</SettingsInlineMessage>
-          ) : (
-            <span className={quietText}>{t("hotkeyActiveHint")}</span>
-          )}
-          {globalHotkeyStatus ? (
-            <span className={quietText}>
-              {t("hotkeyCaptureCurrent")}: {formatHotkeyLabel(globalHotkeyStatus.requestedAccelerator, platform)}
-              {" · "}
-              {t("hotkeyActiveHint")}: {globalHotkeyStatus.effectiveAccelerator
-                ? formatHotkeyLabel(globalHotkeyStatus.effectiveAccelerator, platform)
-                : t("globalIndexStatusUnavailable")}
-            </span>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            {["CmdOrCtrl+K", "CmdOrCtrl+Shift+K", "Alt+Space", "CmdOrCtrl+Alt+Space"].map((accelerator) => (
-              <button
-                className={cn(glassButton, searchHotkey === accelerator && "border-[var(--zc-primary)] bg-[var(--zc-primary-soft)] text-[var(--zc-primary-text)]")}
-                key={accelerator}
-                aria-pressed={searchHotkey === accelerator}
-                onClick={() => void updateSearchHotkey(accelerator)}
-              >
-                {formatHotkeyLabel(accelerator, platform)}
-              </button>
-            ))}
-          </div>
-          <SettingsRow label={t("searchScopeSettings")} description={t("searchScopeSettingsDesc")}>
-            <SettingsSegmentedControl
-              value={searchScopeMode}
-              ariaLabel={t("searchScopeSettings")}
-              options={[
-                { value: "all", label: t("searchScopeAllIndexed") },
-                { value: "current_scan", label: t("searchScopeCurrentScan") },
-                { value: "custom_roots", label: t("searchScopeCustomRoots") }
-              ]}
-              onChange={(next) => void updateSearchScopeMode(next)}
-            />
-          </SettingsRow>
-          <span className={quietText}>{t("searchLocalIndexBoundary")}</span>
-          {searchScopeMode === "custom_roots" && (
-            <div className="grid gap-2">
-              {customSearchRoots.length ? (
-                <div className="flex justify-end">
-                  <button className={buttonSecondary} onClick={() => void addCustomSearchRoot()}>
-                    <FolderPlus size={15} />
-                    <span>{t("addSearchFolder")}</span>
-                  </button>
-                </div>
-              ) : null}
-              {customSearchRoots.length ? customSearchRoots.map((root) => (
-                <div key={root.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
-                  <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center">
-                    <div className="min-w-0 text-left">
-                      <label htmlFor={`search-root-${root.id}`} className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{root.label}</label>
-                      <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={root.path}>{compactPath(root.path, 72)}</span>
-                    </div>
-                    <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
-                      <SettingsSwitchControl
-                        id={`search-root-${root.id}`}
-                        checked={root.enabled}
-                        label={root.enabled ? t("disableSearchFolder") : t("enableSearchFolder")}
-                        onChange={(next) => void setSearchRootEnabled(root, next)}
-                      />
-                      <button
-                        className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")}
-                        onClick={() => indexSearchRootNow(root)}
-                        disabled={backgroundRootState(root) === "indexing" || backgroundRootState(root) === "queued"}
-                      >
-                        <Play size={14} />
-                        <span>
-                          {backgroundRootState(root) === "indexing"
-                            ? t("backgroundIndexingShort")
-                            : backgroundRootState(root) === "queued"
-                              ? t("backgroundIndexQueuedShort")
-                              : t("indexNow")}
-                        </span>
-                      </button>
-                      <button className={buttonIconDanger} onClick={() => setFolderDeleteConfirm({ kind: "search", root })} title={t("deleteSearchFolder")} aria-label={t("deleteSearchFolder")}>
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )) : (
-                <SettingsEmptyState title={t("searchScopeCustomRoots")} description={t("searchScopeCustomEmpty")} action={(
-                  <button className={buttonSecondary} onClick={() => void addCustomSearchRoot()}>
-                    <FolderPlus size={15} />
-                    <span>{t("addSearchFolder")}</span>
-                  </button>
-                )} />
-              )}
-            </div>
-          )}
-          {(isBackgroundIndexing || pendingBackgroundRoots.length > 0 || completedBackgroundRoots.length > 0 || failedBackgroundRoots.length > 0) ? (
-            <SettingsInlineMessage
-              tone={failedBackgroundRoots.length ? "warning" : isBackgroundIndexing ? "info" : "success"}
-              role={failedBackgroundRoots.length ? "alert" : "status"}
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <strong>{t("backgroundIndexingTitle")}</strong>
-                <span className="text-xs">{isBackgroundIndexing ? t("backgroundIndexingRunning") : t("backgroundIndexingIdle")}</span>
-              </div>
-              {currentBackgroundRoot ? (
-                <span className={quietText}>{t("backgroundIndexingCurrent")}: {compactPath(currentBackgroundRoot, 76)}</span>
-              ) : null}
-              {pendingBackgroundRoots.length > 0 ? (
-                <span className={quietText}>{t("backgroundIndexingQueue")}: {pendingBackgroundRoots.length.toLocaleString()}</span>
-              ) : null}
-              {completedBackgroundRoots[0] ? (
-                <span className={quietText}>{t("backgroundIndexingCompleted")}: {compactPath(completedBackgroundRoots[0], 76)}</span>
-              ) : null}
-              {failedBackgroundRoots[0] ? (
-                <span className={quietText}>{t("backgroundIndexingFailed")}: {compactPath(failedBackgroundRoots[0].path, 76)}</span>
-              ) : null}
-            </SettingsInlineMessage>
-          ) : null}
-          <span className={quietText}>{t("searchScopeDoesNotChangeLibrary")}</span>
-        </SettingsSection>
+        <ManagedLibrarySettingsSection
+          t={t}
+          scopes={managedScopes}
+          aiManagementStatus={aiManagementStatus}
+          managedScopePath={managedScopePath}
+          onManagedScopePath={setManagedScopePath}
+          isUpdating={isUpdatingGlobalIndex}
+          policyText={(summary) => managedScopePolicyText(summary, t)}
+          onAdd={() => void addManagedScopeFromSettings()}
+          onUpdate={(scope, patch) => void updateManagedScope(scope, patch)}
+          onRemove={(scope) => void removeManagedScope(scope)}
+        />
 
-        <SettingsSection id="settings-global-index" title={t("globalIndexTitle")} description={t("globalIndexDesc")}>
-          {isLoadingGlobalIndex ? (
-            <SettingsEmptyState title={t("globalIndexLoading")} description={t("globalIndexLoadingDesc")} />
-          ) : (
-            <>
-              {globalIndexStatus?.providerStatus?.includes("service_unavailable") ? (
-                <SettingsInlineMessage tone="warning" role="alert">
-                  <strong>{t("globalIndexServiceUnavailable")}</strong>
-                  <span className={quietText}>{t("globalIndexServiceUnavailableDesc")}</span>
-                </SettingsInlineMessage>
-              ) : null}
-              <SettingsInlineMessage
-                tone={globalIndexStatus?.status === "error" || globalIndexStatus?.status === "permission_required" || globalIndexStatus?.status === "spotlight_not_indexed" || globalIndexStatus?.status === "spotlight_external_not_indexed" || globalIndexStatus?.status === "spotlight_unavailable" || globalIndexStatus?.status === "fsevents_unavailable" || Boolean(globalIndexStatus?.lastError) || globalIndexStatus?.providerStatus?.includes("service_unavailable") ? "warning" : "info"}
-                role={globalIndexStatus?.status === "error" || globalIndexStatus?.status === "permission_required" || globalIndexStatus?.status === "spotlight_not_indexed" || globalIndexStatus?.status === "spotlight_external_not_indexed" || globalIndexStatus?.status === "spotlight_unavailable" || globalIndexStatus?.status === "fsevents_unavailable" || Boolean(globalIndexStatus?.lastError) || globalIndexStatus?.providerStatus?.includes("service_unavailable") ? "alert" : "status"}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <strong>{t("globalIndexStatus")}</strong>
-                  <span>{globalIndexStatus ? globalIndexStatusText(globalIndexStatus.status, t) : t("globalIndexStatusUnknown")}</span>
-                </div>
-                {globalIndexStatus ? (
-                  <span className={quietText}>
-                    {t("globalIndexProcessed")}: {(globalIndexStatus.processedEntries ?? globalIndexStatus.totalEntries).toLocaleString()} · {globalIndexStatus.collectionComplete ? t("globalIndexCollectionComplete") : t("globalIndexCollectionCollecting")} · {t("globalIndexSources")}: {globalIndexStatus.indexedVolumes.toLocaleString()}
-                  </span>
-                ) : null}
-                {globalIndexStatus?.providerStatus ? (
-                  <span className={quietText}>{t("globalIndexProvider")}: {globalIndexProviderStatusText(globalIndexStatus.providerStatus, t)}</span>
-                ) : null}
-                {globalIndexStatus?.lastError ? <span className={quietText}>{globalIndexErrorText(globalIndexStatus.lastError, t)}</span> : null}
-              </SettingsInlineMessage>
-              <div className="flex flex-wrap gap-2">
-                {globalIndexStatus?.status === "indexing" || globalIndexStatus?.status === "syncing" ? (
-                  <button className={buttonSecondary} onClick={() => void runGlobalIndexAction(() => tauriApi.pauseGlobalIndex(), t("globalIndexPause"))} disabled={isUpdatingGlobalIndex}>
-                    {t("globalIndexPause")}
-                  </button>
-                ) : globalIndexStatus?.status === "paused" ? (
-                  <button className={buttonSecondary} onClick={() => void runGlobalIndexAction(() => tauriApi.resumeGlobalIndex(), t("globalIndexResume"))} disabled={isUpdatingGlobalIndex}>
-                    {t("globalIndexResume")}
-                  </button>
-                ) : (
-                  <button className={buttonSecondary} onClick={() => void runGlobalIndexAction(() => tauriApi.startGlobalIndex(), t("globalIndexStart"))} disabled={isUpdatingGlobalIndex}>
-                    {t("globalIndexStart")}
-                  </button>
-                )}
-              </div>
-              <div className="grid gap-2">
-                {globalIndexSources.length ? globalIndexSources.map((source) => (
-                  <div key={source.volume.id} className={cn(compactInteractiveRow(), "px-3 py-2") }>
-                    <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center">
-                      <div className="min-w-0 text-left">
-                        <strong className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{source.volume.displayName}</strong>
-                        <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={source.volume.mountPath}>
-                          {compactPath(source.volume.mountPath, 72)} · {globalIndexStatusText(source.volume.indexStatus, t)} · {source.volume.entryCount.toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
-                        <SettingsSwitchControl
-                          id={`global-index-source-${source.volume.id}`}
-                          checked={source.volume.enabled}
-                          label={source.volume.enabled ? t("globalIndexEnabled") : t("globalIndexDisabled")}
-                          onChange={(enabled) => void runGlobalIndexAction(() => tauriApi.setGlobalIndexSourceEnabled(source.volume.id, enabled), t("settingsSavedInline"))}
-                        />
-                        <button className={cn(buttonSecondary, "min-h-8 px-3 py-1.5 text-xs")} onClick={() => void runGlobalIndexAction(() => tauriApi.rebuildGlobalIndexSource(source.volume.id), t("globalIndexRebuild"))} disabled={isUpdatingGlobalIndex || !source.canRebuild}>
-                          <Play size={14} />
-                          <span>{t("globalIndexRebuild")}</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )) : <SettingsEmptyState title={t("globalIndexNoSources")} description={t("globalIndexNoSourcesDesc")} />}
-              </div>
-            </>
-          )}
-        </SettingsSection>
+        <AutomationSettingsSection t={t} onOpenRules={() => setView("rules")} />
 
-        <SettingsSection id="settings-managed-scopes" title={t("managedScopesTitle")} description={t("managedScopesDesc")}>
-          <SettingsInlineMessage tone="info" role="status">
-            <span>{managedScopePolicyText(aiManagementStatus?.policySummary, t)}</span>
-          </SettingsInlineMessage>
-          <div className="grid gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-end">
-            <SettingsTextField
-              id="managed-scope-path"
-              label={t("managedScopeAdd")}
-              value={managedScopePath}
-              placeholder={t("managedScopePathPlaceholder")}
-              onChange={setManagedScopePath}
-            />
-            <button className={buttonSecondary} onClick={() => void addManagedScopeFromSettings()} disabled={!managedScopePath.trim() || isUpdatingGlobalIndex}>
-              <FolderPlus size={15} />
-              <span>{t("managedScopeAdd")}</span>
-            </button>
-          </div>
-          {managedScopes.length ? (
-            <div className="grid gap-2">
-              {managedScopes.map((scope) => (
-                <div key={scope.id} className={cn(compactInteractiveRow(), "px-3 py-2") }>
-                  <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center">
-                    <div className="min-w-0 text-left">
-                      <strong className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{compactPath(scope.path, 72)}</strong>
-                      <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]">{scope.enabled ? t("managedScopeEnabled") : t("managedScopeDisabled")}</span>
-                    </div>
-                    <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">
-                      <SettingsSwitchControl id={`managed-scope-enabled-${scope.id}`} checked={scope.enabled} label={scope.enabled ? t("managedScopeEnabled") : t("managedScopeDisabled")} onChange={(enabled) => void updateManagedScope(scope, { enabled })} />
-                      <SettingsSwitchControl id={`managed-scope-local-${scope.id}`} checked={scope.allowLocalAi} label={t("managedScopeLocalAi")} onChange={(allowLocalAi) => void updateManagedScope(scope, { allowLocalAi })} />
-                      <SettingsSwitchControl id={`managed-scope-cloud-${scope.id}`} checked={scope.allowCloudAi} label={t("managedScopeCloudAi")} onChange={(allowCloudAi) => void updateManagedScope(scope, { allowCloudAi })} />
-                      <button className={buttonIconDanger} onClick={() => void removeManagedScope(scope)} title={t("managedScopeRemove")} aria-label={t("managedScopeRemove")} disabled={isUpdatingGlobalIndex}>
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : <SettingsEmptyState title={t("managedScopeNone")} description={t("managedScopeNoneDesc")} />}
-        </SettingsSection>
-
-        <SettingsSection id="settings-automation" title={t("settingsAutomation")} description={t("settingsAutomationDesc")}>
-          <p className={quietText}>{t("automationSafetyBoundary")}</p>
-          <SettingsRow label={t("automationManualRuleSet")} description={t("automationSettingsDescription")}>
-            <button className={buttonSecondary} onClick={() => setView("rules")}>{t("automationRules")}</button>
-          </SettingsRow>
-        </SettingsSection>
-
-        <SettingsSection id="settings-ai" title={t("settingsAI")} description={t("settingsAIDesc")}>
+        <AISettingsSection t={t}>
           {isLoadingAISettings || !aiSettings ? (
             <SettingsEmptyState title={t("aiSettingsLoading")} description={t("aiSettingsLoadingDesc")} />
           ) : (
@@ -1704,61 +1342,28 @@ export function SettingsView() {
                     </label>
                   </SettingsControlGroup>
                   </>) : null}
-                  <SettingsControlGroup title={t("aiDiagnosticsTitle")} description={t("aiDiagnosticsDesc")}>
-                    <SettingsSelect
-                      id="settings-ai-diagnostics-mode"
-                      label={t("aiDiagnosticsModeLabel")}
-                      description={t("aiDiagnosticsModeDesc")}
-                      value={aiSettings.diagnosticsMode ?? "off"}
-                      options={[
-                        { value: "off" as const, label: t("aiDiagnosticsOff") },
-                        { value: "failures" as const, label: t("aiDiagnosticsFailures") },
-                        { value: "all" as const, label: t("aiDiagnosticsAll") }
-                      ]}
-                      onChange={(value) => updateAISettings({ diagnosticsMode: value })}
-                    />
-                    <SettingsInlineMessage tone="info">{t("aiDiagnosticsPathWarning")}</SettingsInlineMessage>
-                    <div className="flex flex-wrap gap-2">
-                      <button className={buttonSecondary} type="button" onClick={() => void refreshAITraces()} disabled={isLoadingAITraces}>
-                        {isLoadingAITraces ? t("aiInspectorLoading") : t("aiOpenRecentRequests")}
-                      </button>
-                      <button className={buttonSecondary} type="button" onClick={() => void exportAITraces()} disabled={isLoadingAITraces}>
-                        {t("aiExportDiagnostics")}
-                      </button>
-                      <button className={buttonSecondary} type="button" onClick={() => void clearAITraces()} disabled={isLoadingAITraces || aiTraces.length === 0}>
-                        {t("aiClearDiagnostics")}
-                      </button>
-                    </div>
-                    <SettingsDisclosure
-                      title={t("aiRequestInspectorTitle")}
-                      description={t("aiRequestInspectorDesc")}
-                      onOpenChange={(open) => { if (open) void refreshAITraces(); }}
-                    >
-                      {aiTraces.length === 0 ? <span className={quietText}>{t("aiDiagnosticsEmpty")}</span> : (
-                        <div className="grid min-w-0 gap-3">
-                          {aiTraces.slice().reverse().map((trace) => (
-                            <details key={trace.traceId} className="grid min-w-0 gap-2 rounded-lg border border-[var(--zc-divider)] p-3">
-                              <summary className="cursor-pointer text-xs font-medium text-[var(--zc-text-primary)]">
-                                {trace.startedAt} · {trace.providerLabel} · {trace.model} · {trace.parseStage}
-                                {trace.errorCode ? ` · ${trace.errorCode}` : ""}
-                              </summary>
-                              <div className="grid min-w-0 gap-2 text-xs text-[var(--zc-text-secondary)]">
-                                <div className="grid gap-1">
-                                  <span>{t("aiTraceOverview")}: {trace.operation} · HTTP {trace.response.httpStatus ?? "—"} · {trace.elapsedMs}ms · {trace.traceId}</span>
-                                  <span>{t("aiTraceRequest")}: {trace.request.urlHost}{trace.request.path} · response_format={trace.request.responseFormat ?? "—"} · thinking={trace.request.thinkingMode ?? "—"} · max_tokens={trace.request.maxTokens ?? "—"}</span>
-                                </div>
-                                <AITraceValueBlock label={t("aiTraceRaw")} value={trace.rawProviderResponse} />
-                                <AITraceValueBlock label={t("aiTraceExtracted")} value={trace.extractedContent} />
-                                <AITraceValueBlock label={t("aiTraceCleaned")} value={trace.cleanedJsonText} />
-                                <AITraceValueBlock label={t("aiTraceParsed")} value={trace.parsedJson} />
-                                <AITraceValueBlock label={t("aiTraceErrorRetry")} value={trace.errorMessage ?? trace.errorCode} />
-                              </div>
-                            </details>
-                          ))}
-                        </div>
-                      )}
-                    </SettingsDisclosure>
-                  </SettingsControlGroup>
+                  <DeveloperDiagnosticsSection
+                    t={t}
+                    diagnosticsMode={aiSettings.diagnosticsMode}
+                    onDiagnosticsMode={(mode) => updateAISettings({ diagnosticsMode: mode })}
+                    aiTraces={aiTraces}
+                    isLoadingAITraces={isLoadingAITraces}
+                    onRefreshAITraces={() => void refreshAITraces()}
+                    onExportAITraces={() => void exportAITraces()}
+                    onClearAITraces={() => void clearAITraces()}
+                    developerMode={developerMode}
+                    aiDebugAvailable={Boolean(runtimeCapabilities?.aiDebugAvailable)}
+                    selectedLibraryFile={selectedLibraryFile}
+                    aiDebugTarget={aiDebugTarget}
+                    onAiDebugTarget={setAiDebugTarget}
+                    aiDependentControlsDisabled={aiDependentControlsDisabled}
+                    isDebuggingAI={isDebuggingAI}
+                    aiDebugStatus={aiDebugStatus}
+                    aiDebugResult={aiDebugResult}
+                    apiKey={aiSettings.apiKey}
+                    onUseSelectedFile={() => setAiDebugTarget(selectedLibraryFile?.id ?? "")}
+                    onDebug={() => void debugAIClassificationOnce()}
+                  />
                   {aiSettings.preset === "deepseek" && ["deepseek-chat", "deepseek-reasoner"].includes(aiSettings.model.trim()) ? <SettingsInlineMessage tone="warning">{t("aiOldModelWarning")}</SettingsInlineMessage> : null}
                   {(aiSettings.provider === "ollama" || aiSettings.model.toLowerCase().includes("qwen3")) ? <SettingsInlineMessage tone="warning">{t("aiQwenWarning")}</SettingsInlineMessage> : null}
                   <div className="flex flex-wrap justify-end gap-2">
@@ -1766,82 +1371,18 @@ export function SettingsView() {
                       {isTestingAIConnection ? t("aiTestingConnection") : t("aiTestConnection")}
                     </button>
                   </div>
-                  {developerMode && runtimeCapabilities?.aiDebugAvailable ? <SettingsDisclosure title={t("aiDebugTitle")} description={t("aiDebugWarning")}>
-                    {selectedLibraryFile ? (
-                      <div className="grid gap-1 border-b border-[var(--zc-divider)] pb-3 text-xs text-[var(--zc-text-secondary)]">
-                        <span className="font-medium text-[var(--zc-text-primary)]">{t("aiSelectedFile")}</span>
-                        <span>{selectedLibraryFile.name}</span>
-                        <span title={selectedLibraryFile.path}>{compactPath(selectedLibraryFile.path, 96)}</span>
-                      </div>
-                    ) : <span className={quietText}>{t("aiNoSelectedFile")}</span>}
-                    <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto_auto] min-[1180px]:items-end">
-                      <SettingsTextField id="settings-ai-debug-target" label={t("aiDebugTargetLabel")} value={aiDebugTarget} disabled={aiDependentControlsDisabled} onChange={setAiDebugTarget} placeholder={t("aiDebugTargetPlaceholder")} />
-                      <button className={buttonSecondary} onClick={() => setAiDebugTarget(selectedLibraryFile?.id ?? "")} disabled={aiDependentControlsDisabled || !selectedLibraryFile || isDebuggingAI}>{t("aiUseSelectedFile")}</button>
-                      <button className={buttonSecondary} onClick={() => void debugAIClassificationOnce()} disabled={aiDependentControlsDisabled || isDebuggingAI || !aiDebugTarget.trim()}>{isDebuggingAI ? t("aiDebugging") : t("aiDebugSingleFile")}</button>
-                    </div>
-                    {aiDebugStatus ? <SettingsInlineMessage tone={aiDebugStatus.tone} role={aiDebugStatus.role}>{sanitizeAIStatusMessage(aiDebugStatus.message, aiSettings.apiKey)}</SettingsInlineMessage> : null}
-                    {aiDebugResult ? (
-                      <div className="grid gap-3 text-xs text-[var(--zc-text-secondary)]">
-                        <div className="grid gap-1 border-b border-[var(--zc-divider)] pb-3">
-                          <span>Provider: {aiDebugResult.provider} / {aiDebugResult.preset}</span>
-                          <span>Model: {aiDebugResult.model}</span>
-                          <span>Endpoint: {aiDebugResult.baseUrl}{aiDebugResult.chatPath}</span>
-                          <span>HTTP: {aiDebugResult.httpStatus} · response_format: {String(aiDebugResult.requestUsedResponseFormat)} · thinking: {aiDebugResult.requestUsedThinkingField ?? "—"}</span>
-                          <span>Max tokens: {aiDebugResult.maxTokens} · Batch size: {aiDebugResult.batchSize} · Parse stage: {aiDebugResult.parseStage}</span>
-                          <span>refId: {aiDebugResult.refId || "—"} · real file id: {aiDebugResult.realFileId || "—"}</span>
-                          <span>Path: {compactPath(aiDebugResult.path, 96)}</span>
-                          <span>Model returned refId/id: {aiDebugResult.modelReturnedRefId ?? "—"} / {aiDebugResult.modelReturnedId ?? "—"} · idMappingMatched: {String(aiDebugResult.idMappingMatched)}</span>
-                          <span>Missing optional fields: {aiDebugResult.missingOptionalFields.length ? aiDebugResult.missingOptionalFields.join(", ") : "—"} · fallbackApplied: {String(aiDebugResult.fallbackApplied)}</span>
-                          <span>Item parse warnings: {aiDebugResult.itemParseWarnings.length ? aiDebugResult.itemParseWarnings.join("; ") : "—"}</span>
-                        </div>
-                        <DebugPreviewBlock label="response summary" value={aiDebugResult.providerResponseSummary} apiKey={aiSettings.apiKey} />
-                        <DebugPreviewBlock label="raw response preview" value={aiDebugResult.rawResponsePreview} apiKey={aiSettings.apiKey} />
-                        <DebugPreviewBlock label="message content preview" value={aiDebugResult.messageContentPreview} apiKey={aiSettings.apiKey} />
-                        <DebugPreviewBlock label="reasoning content preview" value={aiDebugResult.reasoningContentPreview} apiKey={aiSettings.apiKey} />
-                        <DebugPreviewBlock label="extracted content preview" value={aiDebugResult.extractedContentPreview} apiKey={aiSettings.apiKey} />
-                        <DebugPreviewBlock label="cleaned content preview" value={aiDebugResult.cleanedContentPreview} apiKey={aiSettings.apiKey} />
-                        <DebugPreviewBlock label="parse error" value={aiDebugResult.parseError ?? ""} apiKey={aiSettings.apiKey} />
-                      </div>
-                    ) : null}
-                  </SettingsDisclosure> : null}
               </SettingsDisclosure>
             </fieldset>
           )}
-        </SettingsSection>
+        </AISettingsSection>
 
-        <SettingsSection id="settings-privacy" title={t("settingsPrivacy")} description={t("settingsPrivacyDesc")}>
-          <p className={quietText}>{t("privacyLine")}</p>
-          <SettingsRow label={t("logRetention")} description={t("logRetentionDesc")}>
-            <SettingsSegmentedControl
-              value={String(restoreRetentionDays)}
-              ariaLabel={t("logRetention")}
-              options={([15, 30, 60, 90] as RestoreRetentionDays[]).map((days) => ({ value: String(days), label: `${days} ${t("days")}` }))}
-              onChange={(next) => void updateRestoreRetentionDays(Number(next) as RestoreRetentionDays)}
-            />
-          </SettingsRow>
-          <p className={quietText}>{t("settingsSafetyRestoreDesc")}</p>
-        </SettingsSection>
+        <PrivacyContentSettingsSection
+          t={t}
+          restoreRetentionDays={restoreRetentionDays}
+          onRestoreRetentionDays={(next) => void updateRestoreRetentionDays(next)}
+        />
 
-        <SettingsSection id="settings-about" title={t("settingsAbout")} description={t("settingsAboutDesc")}>
-          <SettingsControlGroup title={t("aboutBuildInfo")} description={t("aboutBuildInfoDesc")}>
-            <SettingsRow label={t("appName")} description={t("developerReleaseDesc")}>
-              <span className="text-sm font-medium text-[var(--zc-text-primary)]">v{packageInfo.version}</span>
-            </SettingsRow>
-            <SettingsRow label={t("aboutProjectLink")} description={t("aboutProjectLinkDesc")}>
-              <a className={buttonSecondary} href={packageInfo.homepage} target="_blank" rel="noreferrer">
-                {t("aboutOpenProject")}
-              </a>
-            </SettingsRow>
-          </SettingsControlGroup>
-          <SettingsSwitch id="settings-developer-mode" label={t("developerMode")} description={t("developerModeDesc")} checked={developerMode} onChange={setDeveloperModePreference} />
-          <SettingsControlGroup title={t("searchSources")} description={t("searchSourcesDesc")}>
-            <p className={quietText}>{t("localOnly")}</p>
-            <div className="grid gap-1 text-sm">
-              <strong className="text-[var(--zc-text-primary)]">{t("excludedDirs")}</strong>
-              <span className="text-sm leading-6 text-[var(--zc-text-secondary)]">node_modules, .git, target, dist, build</span>
-            </div>
-          </SettingsControlGroup>
-        </SettingsSection>
+        <AboutSettingsSection t={t} developerMode={developerMode} onDeveloperMode={setDeveloperModePreference} />
       </SettingsLayout>
     </div>
     <ConfirmDialog
@@ -1865,36 +1406,6 @@ export function SettingsView() {
 
 function normalizeSettingsRoot(path: string) {
   return normalizePathLike(path.trim());
-}
-
-function DebugPreviewBlock({
-  label,
-  value,
-  apiKey
-}: {
-  label: string;
-  value: string | null | undefined;
-  apiKey: string;
-}) {
-  const displayValue = sanitizeAIStatusMessage(value || "—", apiKey);
-  return (
-    <label className="grid gap-1">
-      <span className="text-sm font-medium text-[var(--zc-text-primary)]">{label}</span>
-      <pre className={cn(settingsField, "max-h-72 overflow-auto whitespace-pre-wrap break-words p-3 text-xs leading-5")}>
-        {displayValue}
-      </pre>
-    </label>
-  );
-}
-
-function AITraceValueBlock({ label, value }: { label: string; value: unknown }) {
-  const displayValue = typeof value === "string" ? value : value == null ? "—" : JSON.stringify(value, null, 2);
-  return (
-    <label className="grid min-w-0 gap-1">
-      <span className="font-medium text-[var(--zc-text-primary)]">{label}</span>
-      <pre className={cn(settingsField, "max-h-56 overflow-auto whitespace-pre-wrap break-words p-2 text-[11px] leading-5")}>{displayValue}</pre>
-    </label>
-  );
 }
 
 function defaultAISettingsFromPreset(preset?: AIProviderPreset): AISettings | null {

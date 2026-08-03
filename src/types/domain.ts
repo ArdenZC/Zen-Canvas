@@ -919,6 +919,7 @@ export interface OrganizationPlan {
   readyAt: number | null;
   completedAt: number | null;
   summary: OrganizationPlanSummary;
+  effectiveSummary: OrganizationPlanEffectiveSummary | null;
 }
 
 export interface OrganizationPlanSummary {
@@ -928,6 +929,8 @@ export interface OrganizationPlanSummary {
   edited: number;
   needsAnalysis: number;
   needsReview: number;
+  pendingReview: number;
+  reviewed: number;
   ready: number;
   blocked: number;
   stale: number;
@@ -936,6 +939,13 @@ export interface OrganizationPlanSummary {
   failed: number;
   skipped: number;
   remainingExecutable: number;
+}
+
+export interface OrganizationPlanEffectiveSummary {
+  ready: number;
+  reviewed: number;
+  pendingReview: number;
+  blocked: number;
 }
 
 export interface OrganizationPlanItem {
@@ -957,12 +967,15 @@ export interface OrganizationPlanItem {
   editedName: string | null;
   validity: "ready" | "needs_analysis" | "needs_review" | "blocked" | "stale" | "executing" | "executed" | "failed" | "skipped";
   reviewState: "ready" | "needs_review" | "reviewed" | "blocked" | "needs_analysis" | "stale" | "executing" | "executed" | "failed" | "skipped";
+  effectiveReadiness: OrganizationPlanGroupReadiness;
   confidence: number;
   riskLevel: string;
   requiresConfirmation: boolean;
   blockingCode: string | null;
   blockingDetail: string | null;
   authoritativePreviewId: string | null;
+  reviewReasons: string[];
+  availableActions: string[];
   operationLogId: string | null;
   executionId: string | null;
   revision: number;
@@ -976,6 +989,72 @@ export interface OrganizationPlanItemPage {
   items: OrganizationPlanItem[];
   nextCursor: string | null;
   hasMore: boolean;
+}
+
+export type OrganizationPlanGroupReadiness = "ready" | "requires-decision" | "reviewed" | "blocked";
+
+export interface OrganizationReviewReasonCount {
+  reason: string;
+  count: number;
+}
+
+export interface OrganizationPlanGroupSample {
+  itemId: string;
+  sourceName: string;
+  sourcePath: string;
+  proposedName: string;
+  decision: OrganizationPlanItem["decision"];
+  validity: OrganizationPlanItem["validity"];
+}
+
+export interface OrganizationPlanGroupSummary {
+  groupId: string;
+  planId: string;
+  label: string;
+  targetDirectory: string | null;
+  proposalKind: OrganizationPlanItem["proposalKind"];
+  readiness: OrganizationPlanGroupReadiness;
+  riskLevel: string;
+  itemCount: number;
+  totalBytes: number;
+  acceptedCount: number;
+  excludedCount: number;
+  staleCount: number;
+  conflictCount: number;
+  confidenceBand: string;
+  reviewReasonCounts: OrganizationReviewReasonCount[];
+  availableActions: string[];
+  groupActions: {
+    canAcceptAll: boolean;
+    canKeepAll: boolean;
+    canClearAll: boolean;
+  };
+  projectionFingerprint: string;
+  sampleItems: OrganizationPlanGroupSample[];
+  revision: number;
+}
+
+export interface OrganizationPlanGroupPage {
+  planId: string;
+  planRevision: number;
+  groups: OrganizationPlanGroupSummary[];
+  effectiveSummary: OrganizationPlanEffectiveSummary;
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface OrganizationPlanGroupItemPage {
+  planId: string;
+  groupId: string;
+  planRevision: number;
+  items: OrganizationPlanItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface UpdateOrganizationPlanGroupDecisionResult {
+  plan: OrganizationPlan;
+  group: OrganizationPlanGroupSummary | null;
 }
 
 export interface OrganizationDryRunItem {
@@ -1008,6 +1087,10 @@ export interface OrganizationPlanDryRun {
   executionBatchLimit: number;
   dryRunFingerprint: string;
 }
+
+export type OrganizationPlanSelection =
+  | { allAccepted: true; itemIds: [] }
+  | { allAccepted: false; itemIds: [string, ...string[]] };
 
 export interface ExecuteOrganizationPlanResult {
   plan: OrganizationPlan;
