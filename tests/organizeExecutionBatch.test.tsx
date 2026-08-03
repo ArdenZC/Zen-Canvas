@@ -101,4 +101,18 @@ describe("Organization execution batch disclosure", () => {
     await act(async () => confirmButton?.click());
     expect(executeDryRun).toHaveBeenCalledOnce();
   });
+
+  it("uses ordinary confirmation copy when the executable count fits in one backend batch", async () => {
+    useOrganizationPlanStore.setState({ dryRun: dryRun(500, 1_000) });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    const reviewButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("查看并确认执行"));
+    await act(async () => reviewButton?.click());
+
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain("将执行 500 项已选择");
+    expect(dialog?.textContent).not.toContain("后续");
+    expect(dialog?.textContent).toContain("执行 500 项");
+  });
 });

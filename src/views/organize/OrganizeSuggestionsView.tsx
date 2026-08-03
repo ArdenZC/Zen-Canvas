@@ -108,6 +108,7 @@ export function OrganizeSuggestionsView() {
   const canReview = Boolean(plan && ["ready", "partially_completed"].includes(plan.status));
   const canDryRun = Boolean(plan && ["ready", "partially_completed"].includes(plan.status) && plan.summary.remainingExecutable > 0);
   const needsAnalysisCount = plan?.summary.needsAnalysis ?? 0;
+  const dryRunBatch = dryRun ? organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit) : null;
 
   const virtualizer = useVirtualizer({
     count: visibleGroups.length,
@@ -440,8 +441,8 @@ export function OrganizeSuggestionsView() {
               title={t("organizeDryRunTitle")}
               description={replaceCopy(t("organizeDryRunDesc"), {
                 executable: dryRun.executableCount.toLocaleString(),
-                batch: organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit).batchCount.toLocaleString(),
-                remaining: organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit).remainingCount.toLocaleString(),
+                batch: dryRunBatch?.batchCount.toLocaleString() ?? "0",
+                remaining: dryRunBatch?.remainingCount.toLocaleString() ?? "0",
                 blocked: dryRun.blockedCount.toLocaleString(),
                 stale: dryRun.staleCount.toLocaleString()
               })}
@@ -570,12 +571,12 @@ export function OrganizeSuggestionsView() {
         open={confirmExecution}
         tone="warning"
         title={dryRun?.items.some((item) => item.riskLevel !== "Normal" || item.requiresConfirmation) ? t("organizeExecuteRiskConfirmTitle") : t("organizeExecuteNormalConfirmTitle")}
-        description={dryRun ? replaceCopy(t("organizeExecuteConfirmDesc"), {
-          count: organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit).batchCount.toLocaleString(),
+        description={dryRun && dryRunBatch ? replaceCopy(t(dryRunBatch.isBatched ? "organizeExecuteCappedConfirmDesc" : "organizeExecuteConfirmDesc"), {
+          count: dryRunBatch.batchCount.toLocaleString(),
           total: dryRun.executableCount.toLocaleString(),
-          remaining: organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit).remainingCount.toLocaleString()
+          remaining: dryRunBatch.remainingCount.toLocaleString()
         }) : ""}
-        confirmLabel={t("organizeExecuteConfirmAction").replace("{count}", organizationExecutionBatchSummary(dryRun?.executableCount ?? 0, dryRun?.executionBatchLimit ?? 0).batchCount.toLocaleString())}
+        confirmLabel={t("organizeExecuteConfirmAction").replace("{count}", dryRunBatch?.batchCount.toLocaleString() ?? "0")}
         cancelLabel={t("cancel")}
         isProcessing={isMutating}
         onCancel={() => setConfirmExecution(false)}
