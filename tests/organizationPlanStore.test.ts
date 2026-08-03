@@ -174,4 +174,42 @@ describe("Organization Plan group-first loading", () => {
     expect(useOrganizationPlanStore.getState().error).toBeNull();
     expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
   });
+
+  it("releases a deferred page loading lock when a same-plan mutation supersedes the page", async () => {
+    const planA = { ...plan, id: "plan-a", revision: 4 };
+    const page = { planId: planA.id, planRevision: planA.revision, groups: [{ groupId: "group-old" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    let resolvePage: (value: typeof page) => void = () => undefined;
+    const deferredPage = new Promise<typeof page>((resolve) => { resolvePage = resolve; });
+    const dryRun = {
+      planId: planA.id,
+      planRevision: planA.revision,
+      selectedCount: 0,
+      executableCount: 0,
+      blockedCount: 0,
+      staleCount: 0,
+      totalBytes: 0,
+      operationKinds: [],
+      items: [],
+      executionBatchLimit: 100,
+      dryRunFingerprint: "dry-run-empty"
+    };
+    apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { cursor?: string | null }) => request.cursor ? deferredPage : page);
+    apiMocks.getOrganizationPlanDryRun.mockResolvedValue(dryRun);
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA], groups: [{ groupId: "group-first" } as any], groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0 });
+
+    const pageRequest = useOrganizationPlanStore.getState().loadNextGroupPage();
+    await Promise.resolve();
+    const dryRunRequest = useOrganizationPlanStore.getState().createDryRun();
+    await Promise.resolve();
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(true);
+
+    resolvePage(page);
+    const pageResult = await pageRequest;
+    await dryRunRequest;
+
+    expect(pageResult.applied).toBe(false);
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
+    expect(useOrganizationPlanStore.getState().groups).toEqual([{ groupId: "group-first" }]);
+    expect(useOrganizationPlanStore.getState().dryRun?.dryRunFingerprint).toBe("dry-run-empty");
+  });
 });

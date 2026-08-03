@@ -91,6 +91,19 @@ function ownsGroupPage(
     && state.groupNextCursor === request.cursor;
 }
 
+function ownsGroupPageLoading(
+  getState: () => OrganizationPlanState,
+  request: { groupRequestEpoch: number; requestEpoch: number; planId: string; planRevision: number; cursor: string }
+) {
+  const state = getState();
+  return state.isLoading
+    && state.groupRequestEpoch === request.groupRequestEpoch
+    && state.requestEpoch === request.requestEpoch
+    && state.activePlan?.id === request.planId
+    && state.activePlan.revision === request.planRevision
+    && state.groupNextCursor === request.cursor;
+}
+
 function matchesGroupPage(page: { planId: string; planRevision: number }, planId: string, planRevision: number) {
   return page.planId === planId && page.planRevision === planRevision;
 }
@@ -200,7 +213,10 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         pageSize: 100,
         cursor: request.cursor
       });
-      if (!ownsGroupPage(get, request) || !matchesGroupPage(page, request.planId, request.planRevision)) return superseded();
+      if (!ownsGroupPage(get, request) || !matchesGroupPage(page, request.planId, request.planRevision)) {
+        if (ownsGroupPageLoading(get, request)) set({ isLoading: false });
+        return superseded();
+      }
       set((state) => ({
         groups: [...state.groups, ...page.groups],
         groupNextCursor: page.nextCursor,
@@ -213,6 +229,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         set({ isLoading: false, error: readableError(error) });
         throw error;
       }
+      if (ownsGroupPageLoading(get, request)) set({ isLoading: false });
       return superseded();
     }
   },

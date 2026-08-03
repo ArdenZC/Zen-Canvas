@@ -240,6 +240,48 @@ describe("Organize independent review behavior", () => {
     vi.clearAllMocks();
   });
 
+  it("clears Group A items before loading Group B and leaves the workspace empty on a Group B failure", async () => {
+    const groupA: OrganizationPlanGroupSummary = {
+      ...readyGroup,
+      groupId: "group-a",
+      label: "C:/GroupA · move",
+      targetDirectory: "C:/GroupA",
+      projectionFingerprint: "fp-a",
+      sampleItems: [{ ...readyGroup.sampleItems[0], itemId: "item-a", sourceName: "group-a.txt", sourcePath: "C:/GroupA/group-a.txt" }]
+    };
+    const groupB: OrganizationPlanGroupSummary = {
+      ...readyGroup,
+      groupId: "group-b",
+      label: "C:/GroupB · move",
+      targetDirectory: "C:/GroupB",
+      projectionFingerprint: "fp-b",
+      sampleItems: [{ ...readyGroup.sampleItems[0], itemId: "item-b", sourceName: "group-b.txt", sourcePath: "C:/GroupB/group-b.txt" }]
+    };
+    const itemA = { ...readyItem, id: "item-a", sourceNameSnapshot: "group-a.txt", sourcePathSnapshot: "C:/GroupA/group-a.txt" };
+    const itemB = { ...readyItem, id: "item-b", sourceNameSnapshot: "group-b.txt", sourcePathSnapshot: "C:/GroupB/group-b.txt" };
+    let rejectGroupB: (reason: unknown) => void = () => undefined;
+    const pendingGroupB = new Promise<never>((_, reject) => { rejectGroupB = reject; });
+    useOrganizationPlanStore.setState({ groups: [groupA, groupB] });
+    apiMocks.queryOrganizationPlanGroupItems.mockImplementation((request: { groupId?: string }) => request.groupId === groupA.groupId
+      ? Promise.resolve({ planId: plan.id, groupId: groupA.groupId, planRevision: plan.revision, items: [itemA], nextCursor: null, hasMore: false })
+      : pendingGroupB);
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    await act(async () => container.querySelector<HTMLElement>(`[data-organize-group-row="${groupA.groupId}"]`)?.click());
+    await flush();
+    expect(container.textContent).toContain(itemA.sourceNameSnapshot);
+
+    await act(async () => container.querySelector<HTMLElement>(`[data-organize-group-row="${groupB.groupId}"]`)?.click());
+    expect(container.textContent).not.toContain(itemA.sourceNameSnapshot);
+    expect(container.textContent).toContain("C:/GroupB");
+
+    rejectGroupB(new Error("group_b_items_failed"));
+    await flush();
+    expect(container.textContent).toContain(t("organizeLoadFailedDesc"));
+    expect(container.textContent).not.toContain(itemA.sourceNameSnapshot);
+  });
+
   it("keeps group acceptance out of requires-decision when the backend action intersection is unavailable and confirms a single ordinary item mutation", async () => {
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();

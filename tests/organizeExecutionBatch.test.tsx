@@ -115,4 +115,33 @@ describe("Organization execution batch disclosure", () => {
     expect(dialog?.textContent).not.toContain("后续");
     expect(dialog?.textContent).toContain("执行 500 项");
   });
+
+  it("keeps the confirmed batch context after execution clears the dry run", async () => {
+    const result = {
+      plan,
+      executionId: "execution-batch",
+      operationBatchId: "operation-batch",
+      attemptedCount: 1_000,
+      succeededCount: 1_000,
+      failedCount: 0,
+      skippedCount: 0
+    } as never;
+    const executeDryRun = vi.fn(async () => {
+      useOrganizationPlanStore.setState({ dryRun: null, dryRunSelection: null, executionResult: result });
+      return { applied: true as const, value: result };
+    });
+    useOrganizationPlanStore.setState({ executeDryRun });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+    const reviewButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("查看并确认执行"));
+    await act(async () => reviewButton?.click());
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]');
+    const confirmButton = [...(dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((button) => button.textContent?.includes("执行 1,000 项"));
+    await act(async () => confirmButton?.click());
+    await flush();
+
+    expect(executeDryRun).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("尚有 9,000 项");
+  });
 });

@@ -125,7 +125,7 @@ export function OrganizeSuggestionsView() {
     setConfirmItemAcceptance((current) => current && (!plan || current.planId !== plan.id || current.planRevision !== plan.revision) ? null : current);
     setConfirmGroupAcceptance((current) => current && (!plan || current.planId !== plan.id || current.planRevision !== plan.revision) ? null : current);
     setExecutionConfirmation((current) => current && (!plan || current.planId !== plan.id || current.planRevision !== plan.revision || current.dryRunFingerprint !== dryRun?.dryRunFingerprint) ? null : current);
-    setConfirmedExecutionBatch((current) => current && (!plan || current.planId !== plan.id || current.planRevision !== plan.revision || current.dryRunFingerprint !== dryRun?.dryRunFingerprint) ? null : current);
+    setConfirmedExecutionBatch((current) => current && (!plan || current.planId !== plan.id || (dryRun && current.dryRunFingerprint !== dryRun.dryRunFingerprint)) ? null : current);
   }, [dryRun?.dryRunFingerprint, plan?.id, plan?.revision]);
 
   useEffect(() => {
@@ -177,6 +177,15 @@ export function OrganizeSuggestionsView() {
         && (!page || (page.planId === requestedPlanId && page.groupId === groupId && page.planRevision === requestedPlanRevision));
     };
     if (!ownsRequest()) return;
+    if (!append) {
+      setGroupItems([]);
+      setGroupItemsCursor(null);
+      setGroupItemsHasMore(false);
+      setActiveItemId(null);
+      setEditingItemId(null);
+      setEditedName("");
+      setEditError(null);
+    }
     setGroupItemsLoading(true);
     setGroupItemsError(null);
     try {
@@ -208,8 +217,12 @@ export function OrganizeSuggestionsView() {
       setGroupItems([]);
       setGroupItemsCursor(null);
       setGroupItemsHasMore(false);
+      setGroupItemsLoading(false);
       setGroupItemsError(null);
       setActiveItemId(null);
+      setEditingItemId(null);
+      setEditedName("");
+      setEditError(null);
       return;
     }
     if (!plan) return;
@@ -433,6 +446,14 @@ export function OrganizeSuggestionsView() {
   }
 
   function openGroup(group: OrganizationPlanGroupSummary) {
+    groupRequestEpoch.current += 1;
+    setGroupItems([]);
+    setGroupItemsCursor(null);
+    setGroupItemsHasMore(false);
+    setGroupItemsLoading(false);
+    setActiveItemId(null);
+    setEditingItemId(null);
+    setEditedName("");
     activeGroupIdRef.current = group.groupId;
     setActiveGroupId(group.groupId);
     setEditError(null);
@@ -597,7 +618,7 @@ export function OrganizeSuggestionsView() {
         description={activeGroup ? `${t("organizeGroupFiles").replace("{count}", activeGroup.itemCount.toLocaleString())} · ${proposalKindLabel(activeGroup.proposalKind, t)}` : undefined}
         closeLabel={t("close")}
         restoreFocus={() => groupListRef.current}
-        onClose={() => { activeGroupIdRef.current = null; setActiveGroupId(null); }}
+        onClose={() => { groupRequestEpoch.current += 1; activeGroupIdRef.current = null; setActiveGroupId(null); setGroupItems([]); setGroupItemsCursor(null); setGroupItemsHasMore(false); setGroupItemsLoading(false); setActiveItemId(null); setEditingItemId(null); setEditedName(""); setEditError(null); setGroupItemsError(null); }}
         footer={activeGroup ? (
           <div className="flex flex-wrap justify-end gap-2">
             {activeGroup.groupActions.canAcceptAll ? <Button variant="secondary" disabled={isMutating || !canReview} onClick={() => void handleGroupDecision(activeGroup, "accepted").catch(() => undefined)}><Check size={14} aria-hidden="true" />{t("organizeGroupInclude")}</Button> : null}
