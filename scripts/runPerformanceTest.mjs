@@ -16,7 +16,7 @@ function assert(condition, message) {
 }
 
 const viewFiles = [
-  "src/views/hub/HubView.tsx",
+  "src/views/organize/OrganizeSuggestionsView.tsx",
   "src/views/restore/RestoreView.tsx",
   "src/views/rules/RulesView.tsx",
   "src/views/scanner/ScannerView.tsx",

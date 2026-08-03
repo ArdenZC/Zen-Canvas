@@ -207,7 +207,7 @@ describe("Overview durable health integration", () => {
     act(() => root.unmount());
     container.remove();
     resetStores();
-    configureHealth({ roots: [{ enabled: true, healthStatus: "partial", activeRunId: "scan-1" }] });
+    configureHealth({ roots: [{ enabled: true, healthStatus: "degraded", needsReconciliation: true, watcherRevision: 3, watcherAppliedRevision: 2, activeRunId: "scan-1" }] });
     await renderOverview();
     expect(priorityTitle()).toBe("托管位置覆盖不完整");
   });
@@ -259,6 +259,14 @@ describe("Overview durable health integration", () => {
     useStorageCleanupStore.setState({ analysis: { candidate_total: 99, reclaimable_estimate: 99_999 } as never });
     await renderOverview();
     expect(priorityTitle()).toBe("有 2 项清理候选");
+  });
+
+  it("does not resurrect cleanup from legacy bytes when durable cleanup bytes are zero", async () => {
+    const run = cleanupRun(2, 0, 0);
+    configureHealth({ analysisRuns: [run] });
+    useStorageCleanupStore.setState({ analysis: { candidate_total: 99, reclaimable_estimate: 99_999 } as never });
+    await renderOverview();
+    expect(priorityTitle()).toBe("文件空间保持有序");
   });
 
   it("uses potential cleanup bytes as an estimate only when exact bytes are zero", async () => {

@@ -32,6 +32,7 @@ import type {
 import type { Translator, View } from "../../types/ui";
 import { formatBytes } from "../../utils/format";
 import { localFileMutationUnavailableCode } from "../../utils/fileMutationCapability";
+import { resolveReclaimableBytes } from "../../utils/reclaimableBytes";
 import { localizedStableError, readableError, compactPath } from "../../utils/viewHelpers";
 import { cn } from "../../utils/tw";
 import {
@@ -538,8 +539,16 @@ function StorageCleanupPanel({
     [findingCache, selectedFindingIds]
   );
   const selectedBytes = useMemo(
-    () => selectedFindings.reduce((sum, finding) => sum + (finding.exactReclaimableBytes ?? finding.potentialReclaimableBytes ?? finding.sizeBytes), 0),
+    () => selectedFindings.reduce((sum, finding) => sum + resolveReclaimableBytes({
+      exact: finding.exactReclaimableBytes,
+      potential: finding.potentialReclaimableBytes,
+      legacy: finding.sizeBytes
+    }).bytes, 0),
     [selectedFindings]
+  );
+  const runReclaimable = useMemo(
+    () => resolveReclaimableBytes({ exact: run?.exactReclaimableBytes, potential: run?.potentialReclaimableBytes }),
+    [run]
   );
 
   const buildSelections = useCallback((): CleanupFindingSelection[] => {
@@ -751,7 +760,7 @@ function StorageCleanupPanel({
                 { label: t("storageCleanupSafeTier"), value: run.safeCount.toLocaleString(), tone: "green" },
                 { label: t("storageCleanupReviewTier"), value: run.reviewCount.toLocaleString(), tone: "amber" },
                 { label: t("storageCleanupCautionTier"), value: run.cautionCount.toLocaleString(), tone: "red" },
-                { label: t("storageCleanupReclaimable"), value: formatBytes(run.exactReclaimableBytes || run.potentialReclaimableBytes), hint: t("storageCleanupEstimateHint") }
+                { label: t("storageCleanupReclaimable"), value: formatBytes(runReclaimable.bytes), hint: runReclaimable.estimated ? t("storageCleanupEstimateHint") : undefined }
               ]}
             />
             {isRunInProgress(run) ? (

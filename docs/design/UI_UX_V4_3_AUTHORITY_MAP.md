@@ -16,7 +16,7 @@ This document records the current renderer paths, the accepted backend authoriti
 | Global Search | `src/components/CommandModal.tsx`, `src/components/commandRegistry.ts` | Global Index query response plus command catalog | Global Index repository and backend ordering; commands remain a separate catalog | Any renderer re-ranking, punctuation normalization that changes literal meaning, path-based activation, or Search Window mutation permission |
 | Search Window | standalone `CommandModal` | Search Window snapshot and Global Index response | Search Window session/snapshot plus ID-only result activation | Main-window state mutation, direct filesystem paths, Rule mutation commands |
 | File Library | `src/views/vault/VaultView.tsx` | Query V2 result/selection/inspector/tag/saved-view stores, with legacy scope/stats compatibility reads | File Library Query V2 and `LibrarySelectionV1` | Legacy `useFileLibraryStore` page/list as query authority; deriving totals from rendered rows |
-| Organize Files | `src/views/organize/OrganizeSuggestionsView.tsx` via `HubView` | Durable Organization Plan store, but only the currently loaded item page is projected | Organization Plan ledger, backend group projections, revision-checked item decisions, Operation Preview/Journal | Loaded-page grouping and decision derivation; legacy `useOrganizeDecisionStore`; any renderer execution path |
+| Organize Files | `src/views/organize/OrganizeSuggestionsView.tsx` | Durable Organization Plan store, but only the currently loaded item page is projected | Organization Plan ledger, backend group projections, revision-checked item decisions, Operation Preview/Journal | Loaded-page grouping and decision derivation; legacy `useOrganizeDecisionStore`; any renderer execution path |
 | Storage Cleanup | `src/views/cleanup/StorageCleanupView.tsx` | `useStorageCleanupStore` mixes durable Analysis Run hydration with `StorageAnalysis`/candidate state | Durable Analysis Run/Finding/Evidence/Decision lifecycle and Safe Trash/cleanup journal | Old storage scan/candidate projection as the permanent visible authority; multiple AI entry points; page-derived totals |
 | Preview and Execute | `src/views/timeline/TimelineView.tsx` | `useOperationQueueStore` preview and execution projections | Server-authoritative Operation Preview, revalidation, operation journal, and execution progress | Renderer-created preview facts; technical metrics as the primary decision surface |
 | History and Restore | `src/views/restore/RestoreView.tsx` | Operation queue logs plus cleanup batch/preview API state | Operation and cleanup ledgers, identity revalidation, Safe Trash and Restore contracts | Separate uncoordinated history/cleanup projections; exact paths and IDs in the normal summary surface |
@@ -77,7 +77,7 @@ The final surface has one authority per workspace. A compatibility adapter may r
 
 ### 2.4 Organize Files
 
-- Current page: `OrganizeSuggestionsView` through `HubView`.
+- Current page: `OrganizeSuggestionsView` through the direct App Shell route.
 - User task: review organization groups, decide what is safe to apply, understand blocked items, preview the exact operation, and execute only after confirmation.
 - Current state source: `useOrganizationPlanStore` is the intended durable source, but the view currently renders and derives decisions from the loaded `items` page.
 - Final authority: Organization Plan ledger, backend group summaries, plan/item revision checks, item-level dry-run facts, Operation Preview, and Operation Journal.

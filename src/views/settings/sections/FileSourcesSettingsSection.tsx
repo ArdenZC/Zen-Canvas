@@ -4,6 +4,7 @@ import type { FolderNamingLanguage, OrganizeRootMode, ScanRootSetting } from "..
 import type { Translator } from "../../../types/ui";
 import { buttonIconDanger, buttonSecondary, cn } from "../../../utils/tw";
 import { compactPath, normalizePathLike } from "../../../utils/viewHelpers";
+import { deriveWatcherPresentation } from "../../../utils/watcherPresentation";
 import { compactInteractiveRow, quietText } from "../../shared/ui";
 import { SettingsControlGroup, SettingsEmptyState, SettingsRow, SettingsSection, SettingsSegmentedControl, SettingsSwitchControl, settingsField } from "../components/SettingsPrimitives";
 import type { FolderDeleteConfirmState } from "./settingsSectionTypes";
@@ -28,16 +29,6 @@ function watcherStatusForSetting(root: ScanRootSetting, statuses: Record<string,
   if (exact) return exact;
   const targetPath = normalizePathLike(root.path);
   return Object.values(statuses).find((status) => normalizePathLike(status.path) === targetPath);
-}
-
-function watcherStatusLabel(status: WatcherReconciliationStatus | undefined, t: Translator) {
-  if (status?.healthStatus === "permission_required") return t("watcherStatusPermission");
-  if (status?.healthStatus === "retry_exhausted" || status?.lastErrorCode?.includes("retry_exhausted")) return t("watcherStatusRetryExhausted");
-  if (status?.healthStatus === "reconciliation_required" || status?.pending || status?.needsReconciliation) return t("watcherStatusReconciling");
-  if (status?.healthStatus === "partial" || status?.healthStatus === "degraded") return t("watcherStatusPartial");
-  if (status?.activeRunId || status?.healthStatus === "scanning") return t("watcherStatusSyncing");
-  if (status?.healthStatus === "healthy") return t("watcherStatusHealthy");
-  return t("watcherStatusUnknown");
 }
 
 export function FileSourcesSettingsSection({
@@ -69,6 +60,7 @@ export function FileSourcesSettingsSection({
         <div className="grid gap-2">
           {defaultScanFolders.length ? defaultScanFolders.map((root) => {
             const watcherStatus = watcherStatusForSetting(root, watcherRootStatuses);
+            const watcherPresentation = deriveWatcherPresentation(watcherStatus);
             return (
               <div key={root.id} className={cn(compactInteractiveRow(), "px-3 py-2")}>
                 <div className="grid min-w-0 gap-3 min-[1180px]:grid-cols-[minmax(0,1fr)_auto] min-[1180px]:items-center">
@@ -76,7 +68,7 @@ export function FileSourcesSettingsSection({
                     <label htmlFor={`scan-root-${root.id}`} className="block truncate text-sm font-medium text-[var(--zc-text-primary)]">{root.label}</label>
                     <span className="block truncate text-xs leading-5 text-[var(--zc-text-tertiary)]" title={root.path}>{compactPath(root.path, 72)}</span>
                     <div className="mt-1 flex items-center gap-2 text-xs">
-                      <span className="rounded-full border border-[var(--zc-border)] px-2 py-0.5 text-[var(--zc-text-secondary)]">{watcherStatusLabel(watcherStatus, t)}</span>
+                      <span className="rounded-full border border-[var(--zc-border)] px-2 py-0.5 text-[var(--zc-text-secondary)]">{t(watcherPresentation.labelKey)}</span>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center justify-start gap-2 min-[1180px]:justify-end">

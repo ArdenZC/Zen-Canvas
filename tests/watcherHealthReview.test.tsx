@@ -74,9 +74,13 @@ describe("mounted watcher health language priority", () => {
   it.each([
     ["permission wins over reconciliation and retry", watcherStatus({ healthStatus: "permission_required", pending: true, needsReconciliation: true, lastErrorCode: "watcher_reconciliation_retry_exhausted" }), "需要权限"],
     ["retry exhaustion wins over reconciliation", watcherStatus({ healthStatus: "reconciliation_required", pending: true, needsReconciliation: true, lastErrorCode: "watcher_reconciliation_retry_exhausted" }), "重试次数已用尽"],
-    ["reconciliation wins over partial and syncing", watcherStatus({ healthStatus: "reconciliation_required", pending: true, needsReconciliation: true, activeRunId: "run-1" }), "正在校准索引"],
+    ["partial wins over reconciliation and syncing", watcherStatus({ healthStatus: "degraded", pending: true, needsReconciliation: true, activeRunId: "run-1" }), "覆盖不完整"],
+    ["reconciliation wins over syncing", watcherStatus({ healthStatus: "reconciliation_required", pending: true, needsReconciliation: true, activeRunId: "run-1" }), "正在校准索引"],
     ["partial wins over syncing", watcherStatus({ healthStatus: "partial", activeRunId: "run-1" }), "覆盖不完整"],
+    ["pending is presented as syncing when reconciliation is not required", watcherStatus({ pending: true, activeRunId: "run-1" }), "正在同步变化"],
     ["syncing is shown before healthy", watcherStatus({ healthStatus: "scanning", activeRunId: "run-1" }), "正在同步变化"],
+    ["stale is distinct from a healthy root", watcherStatus({ healthStatus: "stale" }), "需要重新同步"],
+    ["unknown is shown when the backend has no health state", watcherStatus({ healthStatus: "unknown" }), "状态读取中"],
     ["healthy is shown when no attention state exists", watcherStatus(), "已同步"]
   ])("uses the stable priority when %s", (_name, status, expected) => {
     renderStatus(status);

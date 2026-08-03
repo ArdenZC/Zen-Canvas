@@ -99,10 +99,11 @@ describe("Organize Suggestions decision workbench", () => {
     expect(summarizeOperationLogs(logs)).toEqual({ success: 2, skipped: 0, failed: 1, restorable: 1 });
   });
 
-  it("keeps the Hub as a thin route and removes engineering controls from the user surface", () => {
-    const hub = fs.readFileSync(path.join(process.cwd(), "src/views/hub/HubView.tsx"), "utf8");
+  it("routes Organize Files directly to the durable plan view and removes engineering controls", () => {
+    const appShell = fs.readFileSync(path.join(process.cwd(), "src/components/AppShell.tsx"), "utf8");
     const view = fs.readFileSync(path.join(process.cwd(), "src/views/organize/OrganizeSuggestionsView.tsx"), "utf8");
-    expect(hub).toContain("OrganizeSuggestionsView");
+    expect(fs.existsSync(path.join(process.cwd(), "src/views/hub/HubView.tsx"))).toBe(false);
+    expect(appShell).toContain("../views/organize/OrganizeSuggestionsView");
     expect(view).toContain("useOrganizationPlanStore");
     expect(view).toContain("analyzeMissing");
     expect(view).not.toContain("useOrganizeDecisionStore");

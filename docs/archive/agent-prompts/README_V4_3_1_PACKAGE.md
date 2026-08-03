@@ -1,3 +1,9 @@
+# Archived: Zen Canvas UI/UX V4.3.1 package note
+
+This one-off task-package note was archived during the V4.3 final review cleanup. The active implementation authorities are the documents under `docs/design/` and the repository agent instructions.
+
+## Original note
+
 # Zen Canvas UI/UX V4.3.1 documents
 
 Updated baseline:

@@ -1108,8 +1108,8 @@ No runtime path was retired in PR0. The map explicitly marks the paths to retire
 ### Files changed
 
 - `AGENTS.md`
-- `CODEX_UI_UX_V4_3_1_START.md`
-- `README_V4_3_1_PACKAGE.md`
+- `CODEX_UI_UX_V4_3_1_START.md` (historical package reference; not present in the current tree)
+- `docs/archive/agent-prompts/README_V4_3_1_PACKAGE.md` (archived one-off package note)
 - `docs/design/UI_UX_V4_3_SPEC.md`
 - `docs/design/UI_UX_V4_3_PRODUCT_FLOW.md`
 - `docs/design/UI_UX_V4_3_EXECUTION.md`

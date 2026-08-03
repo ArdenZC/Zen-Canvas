@@ -112,7 +112,7 @@ function readAllSource() {
     "src/components/AppShell.tsx",
     "src/components/CommandModal.tsx",
     "src/components/ShellChrome.tsx",
-    "src/views/hub/HubView.tsx",
+    "src/views/organize/OrganizeSuggestionsView.tsx",
     "src/views/rules/RulesView.tsx",
     "src/views/scanner/ScannerView.tsx",
     "src/views/settings/SettingsView.tsx",
