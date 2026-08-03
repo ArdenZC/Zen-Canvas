@@ -126,6 +126,13 @@ function button(text: string): HTMLButtonElement {
   return found;
 }
 
+function findingButton(findingId: string, text: string): HTMLButtonElement {
+  const row = container.querySelector<HTMLElement>(`[data-analysis-finding-id="${findingId}"]`);
+  const found = [...(row?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((item) => item.textContent?.includes(text));
+  if (!found) throw new Error(`finding button not found: ${findingId} / ${text}`);
+  return found;
+}
+
 async function flush(count = 3) {
   for (let index = 0; index < count; index += 1) {
     await act(async () => {
@@ -332,6 +339,212 @@ describe("Cleanup independent review behavior", () => {
     expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
     expect(container.textContent).not.toContain(t("storageCleanupPreviewReadyTitle"));
     expect(previewCleanupOperations).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed when a successful AI mutation cannot be read back", async () => {
+    const run = makeRun("run-ai-readback-failure", "completed", 1);
+    const selected = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
+    const previewCleanupOperations = vi.fn(async () => ({ total: 1, previews: [], truncated: false, hasMore: false }));
+    const analyzeCleanupCandidatesWithAI = vi.fn(async () => [{ id: selected.id }] as any);
+    const listAnalysisFindings = vi.fn(async (request: { tier?: string }) => ({
+      findings: request.tier === "review" ? [selected] : [],
+      nextCursor: null,
+      limit: 100
+    }));
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      listAnalysisFindings,
+      getAISettings: async () => ({ enabled: true, cleanupAiEnabled: true }),
+      analyzeCleanupCandidatesWithAI,
+      getAnalysisFinding: vi.fn(async () => { throw new Error("readback_failed"); }),
+      previewCleanupOperations,
+      getAnalysisRun: async () => ({ ...run, reviewCount: 1 })
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(5);
+    await act(async () => findingButton(selected.id, t("storageCleanupSelectForTrash")).click());
+    await flush(2);
+    await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
+    await flush(4);
+    expect(container.textContent).toContain(t("storageCleanupPreviewReadyTitle"));
+    await act(async () => button("重新核验需确认项目").click());
+    await flush(10);
+
+    expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
+    expect(container.textContent).not.toContain(t("storageCleanupPreviewReadyTitle"));
+    expect(container.textContent).toContain("已处理 1");
+    expect(container.textContent).toContain("权威读回失败 1");
+    expect(container.textContent).not.toContain("AI 更新失败 1");
+    expect(previewCleanupOperations).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Safe selection while removing only the failed Review readback", async () => {
+    const run = makeRun("run-ai-readback-partial", "completed", 2, { safeCount: 1 });
+    const safe = makeSafeFinding(run, 0);
+    const reviewA = { ...makeFinding(run, 1), decision: "acknowledged" as const, decisionRevision: 1 };
+    const reviewB = { ...makeFinding(run, 2), decision: "acknowledged" as const, decisionRevision: 1 };
+    const refreshedA = { ...reviewA, revision: 2, decisionRevision: 2, updatedAt: 2 };
+    const previewCleanupOperations = vi.fn(async (_runId: string, selections: Array<{ findingId: string }>) => {
+      expect(new Set(selections.map((selection) => selection.findingId))).toEqual(new Set([safe.id, reviewA.id]));
+      return { total: 2, previews: [], truncated: false, hasMore: false };
+    });
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      listAnalysisFindings: async (request: { tier?: string }) => ({
+        findings: request.tier === "safe" ? [safe] : request.tier === "review" ? [reviewA, reviewB] : [],
+        nextCursor: null,
+        limit: 100
+      }),
+      getAISettings: async () => ({ enabled: true, cleanupAiEnabled: true }),
+      analyzeCleanupCandidatesWithAI: async () => [{ id: reviewA.id }, { id: reviewB.id }] as any,
+      getAnalysisFinding: vi.fn(async (id: string) => id === reviewA.id ? refreshedA : (() => { throw new Error("partial_readback"); })()),
+      previewCleanupOperations,
+      getAnalysisRun: async () => run
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(5);
+    await act(async () => findingButton(reviewA.id, t("storageCleanupSelectForTrash")).click());
+    await act(async () => findingButton(reviewB.id, t("storageCleanupSelectForTrash")).click());
+    await flush(2);
+    await act(async () => button("重新核验需确认项目").click());
+    await flush(10);
+
+    expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+    await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
+    await flush(4);
+    expect(previewCleanupOperations).toHaveBeenCalledOnce();
+  });
+
+  it("removes uncertain selections conservatively when the AI mutation fails", async () => {
+    const run = makeRun("run-ai-mutation-failure", "completed", 1);
+    const selected = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
+    const analyzeCleanupCandidatesWithAI = vi.fn(async () => { throw new Error("ai_failed_after_partial_persist"); });
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      listAnalysisFindings: async (request: { tier?: string }) => ({ findings: request.tier === "review" ? [selected] : [], nextCursor: null, limit: 100 }),
+      getAISettings: async () => ({ enabled: true, cleanupAiEnabled: true }),
+      analyzeCleanupCandidatesWithAI,
+      getAnalysisFinding: async () => selected,
+      getAnalysisRun: async () => run
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(5);
+    await act(async () => findingButton(selected.id, t("storageCleanupSelectForTrash")).click());
+    await flush(2);
+    await act(async () => button("重新核验需确认项目").click());
+    await flush(10);
+
+    expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
+    expect(container.textContent).toContain("AI 更新失败 1");
+  });
+
+  it("does not let a pending AI recheck overwrite the newly selected tier", async () => {
+    const run = makeRun("run-ai-tier-race", "completed", 1, { safeCount: 1 });
+    const review = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
+    const safe = makeSafeFinding(run, 1);
+    let resolveAI: (value: any[]) => void = () => undefined;
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      listAnalysisFindings: async (request: { tier?: string }) => ({ findings: request.tier === "review" ? [review] : request.tier === "safe" ? [safe] : [], nextCursor: null, limit: 100 }),
+      getAISettings: async () => ({ enabled: true, cleanupAiEnabled: true }),
+      analyzeCleanupCandidatesWithAI: vi.fn(() => new Promise<any[]>((resolve) => { resolveAI = resolve; })),
+      getAnalysisFinding: async () => review,
+      getAnalysisRun: async () => run
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(5);
+    await act(async () => button("重新核验需确认项目").click());
+    await flush(5);
+    await act(async () => button("可安全清理").click());
+    await flush(5);
+    resolveAI([{ id: review.id }]);
+    await flush(10);
+
+    expect(container.querySelector('[data-analysis-finding-id="finding-1"]')).not.toBeNull();
+    expect(container.querySelector('[data-analysis-finding-id="finding-0"]')).toBeNull();
+  });
+
+  it("does not let a pending Review acknowledgement write into the newly selected Caution tier", async () => {
+    const run = makeRun("run-ack-tier-race", "completed", 1);
+    const review = makeFinding(run, 0);
+    const caution = { ...review, id: "finding-caution", tier: "caution" as const, category: "caution" as const, executable: false, requiresConfirmation: false, revision: 2 };
+    let resolveDecision: (value: { decision: "acknowledged" }) => void = () => undefined;
+    const setAnalysisFindingDecision = vi.fn(() => new Promise<{ decision: "acknowledged" }>((resolve) => { resolveDecision = resolve; }));
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      listAnalysisFindings: async (request: { tier?: string }) => ({
+        findings: request.tier === "review" ? [review] : request.tier === "caution" ? [caution] : [],
+        nextCursor: null,
+        limit: 100
+      }),
+      getAnalysisFinding: async () => review,
+      setAnalysisFindingDecision,
+      getAnalysisRun: async () => run
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(5);
+    await act(async () => findingButton(review.id, t("storageCleanupFindingAcknowledge")).click());
+    await flush(3);
+    await act(async () => button(t("storageCleanupReviewConfirmAction")).click());
+    await flush(3);
+    expect(setAnalysisFindingDecision).toHaveBeenCalledOnce();
+
+    await act(async () => button("谨慎处理").click());
+    await flush(5);
+    resolveDecision({ decision: "acknowledged" });
+    await flush(8);
+
+    expect(container.querySelector('[data-analysis-finding-id="finding-0"]')).toBeNull();
+    expect(container.querySelector('[data-analysis-finding-id="finding-caution"]')).not.toBeNull();
+  });
+
+  it("does not let a pending stale-finding revalidation write into the newly selected tier", async () => {
+    const run = makeRun("run-revalidate-tier-race", "completed", 1, { safeCount: 1 });
+    const staleReview = { ...makeFinding(run, 0), status: "stale" as const };
+    const safe = makeSafeFinding(run, 1);
+    let resolveRevalidation: (value: AnalysisFinding) => void = () => undefined;
+    const revalidateAnalysisFinding = vi.fn(() => new Promise<AnalysisFinding>((resolve) => { resolveRevalidation = resolve; }));
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      listAnalysisFindings: async (request: { tier?: string }) => ({
+        findings: request.tier === "review" ? [staleReview] : request.tier === "safe" ? [safe] : [],
+        nextCursor: null,
+        limit: 100
+      }),
+      revalidateAnalysisFinding,
+      getAnalysisRun: async () => run
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(5);
+    await act(async () => findingButton(staleReview.id, t("storageCleanupFindingRecheck")).click());
+    await flush(3);
+    expect(revalidateAnalysisFinding).toHaveBeenCalledOnce();
+
+    await act(async () => button("可安全清理").click());
+    await flush(5);
+    resolveRevalidation({ ...staleReview, status: "active", revision: 2 });
+    await flush(8);
+
+    expect(container.querySelector('[data-analysis-finding-id="finding-1"]')).not.toBeNull();
+    expect(container.querySelector('[data-analysis-finding-id="finding-0"]')).toBeNull();
   });
 
   it("keeps a selected Review finding on a new authoritative revision and uses that revision for Preview", async () => {
@@ -730,6 +943,33 @@ describe("Cleanup independent review behavior", () => {
       if (nativeOffsetHeight) Object.defineProperty(HTMLElement.prototype, "offsetHeight", nativeOffsetHeight);
       else delete (HTMLElement.prototype as { offsetHeight?: number }).offsetHeight;
     }
+  });
+
+  it("keeps two concurrently loaded evidence panels expanded", async () => {
+    const run = makeRun("run-evidence-race", "completed", 0, { safeCount: 2 });
+    const first = makeSafeFinding(run, 0);
+    const second = makeSafeFinding(run, 1);
+    let resolveFirst: (value: any[]) => void = () => undefined;
+    let resolveSecond: (value: any[]) => void = () => undefined;
+    const evidence = (findingId: string) => [{ id: `evidence-${findingId}`, findingId, evidenceKind: "path", subjectKind: "file", subjectId: null, pathSnapshot: `C:/Root/${findingId}`, value: {}, createdAt: 1 }];
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      listAnalysisFindings: async (request: { tier?: string }) => ({ findings: request.tier === "safe" ? [first, second] : [], nextCursor: null, limit: 100 }),
+      listAnalysisFindingEvidence: vi.fn((findingId: string) => findingId === first.id
+        ? new Promise<any[]>((resolve) => { resolveFirst = resolve; })
+        : new Promise<any[]>((resolve) => { resolveSecond = resolve; }))
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => findingButton(first.id, "查看证据").click());
+    await act(async () => findingButton(second.id, "查看证据").click());
+    resolveSecond(evidence(second.id));
+    resolveFirst(evidence(first.id));
+    await flush(8);
+
+    expect(container.querySelector(`[data-analysis-finding-id="${first.id}"] [data-finding-evidence]`)).not.toBeNull();
+    expect(container.querySelector(`[data-analysis-finding-id="${second.id}"] [data-finding-evidence]`)).not.toBeNull();
   });
 
   it("matches Windows extended-length drive and UNC paths", async () => {
