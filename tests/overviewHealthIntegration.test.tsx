@@ -261,6 +261,14 @@ describe("Overview durable health integration", () => {
     expect(priorityTitle()).toBe("有 2 项清理候选");
   });
 
+  it("does not resurrect cleanup from legacy bytes when durable cleanup bytes are zero", async () => {
+    const run = cleanupRun(2, 0, 0);
+    configureHealth({ analysisRuns: [run] });
+    useStorageCleanupStore.setState({ analysis: { candidate_total: 99, reclaimable_estimate: 99_999 } as never });
+    await renderOverview();
+    expect(priorityTitle()).toBe("文件空间保持有序");
+  });
+
   it("uses potential cleanup bytes as an estimate only when exact bytes are zero", async () => {
     const run = cleanupRun(2, 0, 8192);
     configureHealth({ analysisRuns: [run] });

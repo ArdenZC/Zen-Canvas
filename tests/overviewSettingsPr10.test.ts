@@ -51,11 +51,11 @@ const baseHealth = (): OverviewHealthSnapshot => ({
   operation: { active: false, attentionCount: 0 }
 });
 
-function select(health: OverviewHealthSnapshot, reclaimableBytes = 0) {
+function select(health: OverviewHealthSnapshot | null, reclaimableBytes = 0, cleanupCandidateCount = 0) {
   return selectOverviewPriorityTask({
     scan,
     stats,
-    cleanupCandidateCount: 0,
+    cleanupCandidateCount,
     reclaimableBytes,
     indexNeedsUpdate: false,
     health
@@ -126,7 +126,17 @@ describe("V4.3 PR10 overview health projections", () => {
     expect(select(potential)).toMatchObject({ kind: "cleanup", bytes: 4096, bytesAreEstimated: false });
     potential.cleanupRun = { reviewCount: 2, cautionCount: 0, exactReclaimableBytes: 0, potentialReclaimableBytes: 0 } as OverviewHealthSnapshot["cleanupRun"];
     expect(select(potential).kind).not.toBe("cleanup");
-    expect(select(potential, 2048)).toMatchObject({ kind: "cleanup", bytes: 2048, bytesAreEstimated: false });
+
+    const noDurableBytes = baseHealth();
+    noDurableBytes.cleanupRun = {
+      reviewCount: 2,
+      cautionCount: 0,
+      exactReclaimableBytes: 0,
+      potentialReclaimableBytes: 0
+    } as OverviewHealthSnapshot["cleanupRun"];
+    expect(select(noDurableBytes, 2048).kind).not.toBe("cleanup");
+
+    expect(select(null, 2048, 2)).toMatchObject({ kind: "cleanup", bytes: 2048, bytesAreEstimated: false });
   });
 
   it("returns the calm no-action state when durable health has no work", () => {

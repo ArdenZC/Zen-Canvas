@@ -138,8 +138,7 @@ export function selectOverviewPriorityTask(input: {
   const reclaimable = health
     ? resolveReclaimableBytes({
       exact: health.cleanupRun?.exactReclaimableBytes,
-      potential: health.cleanupRun?.potentialReclaimableBytes,
-      legacy: input.reclaimableBytes
+      potential: health.cleanupRun?.potentialReclaimableBytes
     })
     : resolveReclaimableBytes({ legacy: input.reclaimableBytes });
   if (cleanupCandidateCount > 0 && reclaimable.bytes > 0) {
