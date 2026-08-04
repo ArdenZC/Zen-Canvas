@@ -7,7 +7,7 @@ import { tauriApi } from "../src/api/tauriApi";
 import { makeTranslator } from "../src/i18n";
 import type { ContentScopePolicy, FileLibraryDetail } from "../src/types/domain";
 import { resetModalInfrastructureForTests } from "../src/components/modal/ModalPortal";
-import { ContentUnderstandingSheet } from "../src/views/vault/components/ContentUnderstandingSheet";
+import { ContentUnderstandingSheet, type ContentRefreshResult } from "../src/views/vault/components/ContentUnderstandingSheet";
 
 const t = makeTranslator("zh");
 let root: Root;
@@ -152,6 +152,12 @@ async function flush(count = 3) {
   }
 }
 
+async function flushMicrotasks(count = 8) {
+  for (let index = 0; index < count; index += 1) {
+    await act(async () => { await Promise.resolve(); });
+  }
+}
+
 function findButton(text: string): HTMLButtonElement {
   const button = [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.includes(text));
   if (!button) throw new Error(`button not found: ${text}`);
@@ -166,7 +172,7 @@ function Harness() {
       ? await tauriApi.getContentScopePolicy(refreshed.scanRootId)
       : null;
     setCurrent(refreshed);
-    return { applied: true as const, detail: refreshed, policy: refreshedPolicy };
+    return { status: "applied" as const, detail: refreshed, policy: refreshedPolicy };
   };
   return <ContentUnderstandingSheet open detail={current} t={t} onClose={() => undefined} onRefreshAuthoritativeContentState={refresh} />;
 }
@@ -184,6 +190,7 @@ describe("Content Understanding independent review behavior", () => {
     act(() => root.unmount());
     resetModalInfrastructureForTests();
     vi.restoreAllMocks();
+    vi.useRealTimers();
     document.body.innerHTML = "";
   });
 
@@ -373,7 +380,7 @@ describe("Content Understanding independent review behavior", () => {
       requiresConfirmation: true
     } as never);
     const start = vi.spyOn(tauriApi, "startContentRun").mockResolvedValue(run as never);
-    vi.spyOn(tauriApi, "getContentRun").mockResolvedValue(run as never);
+    const getRun = vi.spyOn(tauriApi, "getContentRun").mockResolvedValue(run as never);
     vi.spyOn(tauriApi, "queryContentRunItems").mockResolvedValue({ items: [], nextCursor: null, hasMore: false } as never);
 
     await act(async () => root.render(createElement(Harness)));
@@ -386,6 +393,68 @@ describe("Content Understanding independent review behavior", () => {
     expect(start).toHaveBeenCalledOnce();
     expect(getDetail).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("Terminal summary");
+
+    const terminalPollCalls = getRun.mock.calls.length;
+    vi.useFakeTimers();
+    await act(async () => { await vi.advanceTimersByTimeAsync(8_000); });
+    expect(getRun.mock.calls.length).toBe(terminalPollCalls);
+    expect(getDetail).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the newer terminal refresh and stays silent when the older refresh is superseded", async () => {
+    const run = contentRun({ id: "content-run-superseded", status: "completed", revision: 2, completedCount: 1, completedAt: 2 });
+    const refreshedB = detail({ revision: 9, contentRevision: 4, contentSummary: "Refresh B" });
+    const refreshedA = detail({ revision: 8, contentRevision: 3, contentSummary: "Refresh A" });
+    let resolveA: (value: FileLibraryDetail) => void = () => undefined;
+    let resolveB: (value: FileLibraryDetail) => void = () => undefined;
+    let detailCalls = 0;
+    const getDetail = vi.spyOn(tauriApi, "getFileLibraryDetail").mockImplementation(() => {
+      detailCalls += 1;
+      return detailCalls === 1
+        ? new Promise<FileLibraryDetail>((resolve) => { resolveA = resolve; })
+        : new Promise<FileLibraryDetail>((resolve) => { resolveB = resolve; });
+    });
+    vi.spyOn(tauriApi, "previewContent").mockResolvedValue(contentPreview());
+    vi.spyOn(tauriApi, "startContentRun").mockResolvedValue(run as never);
+    vi.spyOn(tauriApi, "getContentRun").mockResolvedValue(run as never);
+    vi.spyOn(tauriApi, "queryContentRunItems").mockResolvedValue({ runId: run.id, items: [], nextCursor: null, hasMore: false });
+    let refreshEpoch = 0;
+    function RaceHarness() {
+      const [current, setCurrent] = useState(() => detail());
+      const refresh = async () => {
+        const ownerEpoch = ++refreshEpoch;
+        const refreshed = await tauriApi.getFileLibraryDetail(current.id);
+        if (ownerEpoch !== refreshEpoch) return { status: "superseded" as const };
+        const refreshedPolicy = refreshed.scanRootId
+          ? await tauriApi.getContentScopePolicy(refreshed.scanRootId)
+          : null;
+        if (ownerEpoch !== refreshEpoch) return { status: "superseded" as const };
+        setCurrent(refreshed);
+        return { status: "applied" as const, detail: refreshed, policy: refreshedPolicy };
+      };
+      return <ContentUnderstandingSheet open detail={current} t={t} onClose={() => undefined} onRefreshAuthoritativeContentState={refresh} />;
+    }
+
+    await act(async () => root.render(createElement(RaceHarness)));
+    await flush();
+    await act(async () => findButton("预览本地提取").click());
+    await flush();
+    await act(async () => findButton("确认并启动").click());
+    await flush(6);
+    expect(getDetail).toHaveBeenCalledOnce();
+
+    await act(async () => findButton("刷新任务").click());
+    await vi.waitFor(() => expect(getDetail).toHaveBeenCalledTimes(2));
+    resolveB(refreshedB);
+    await flush(8);
+    expect(container.textContent).toContain("Refresh B");
+
+    resolveA(refreshedA);
+    await flush(8);
+    expect(container.textContent).toContain("Refresh B");
+    expect(container.textContent).not.toContain("Refresh A");
+    expect(container.textContent).not.toContain("内容任务未能完成");
+    expect(getDetail).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the newest run revision when an older polling generation resolves later", async () => {
@@ -434,6 +503,7 @@ describe("Content Understanding independent review behavior", () => {
     await act(async () => findButton("确认并启动").click());
     await flush(6);
     expect(getDetail).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("内容任务未能完成");
 
     await act(async () => findButton("刷新任务").click());
     await flush(6);
@@ -443,6 +513,36 @@ describe("Content Understanding independent review behavior", () => {
     await act(async () => findButton("刷新任务").click());
     await flush(6);
     expect(getDetail).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a superseded terminal refresh silent when the Sheet closes", async () => {
+    const run = contentRun({ id: "content-run-close-superseded", status: "completed", revision: 2, completedCount: 1, completedAt: 2 });
+    let resolveRefresh: (result: ContentRefreshResult) => void = () => undefined;
+    const refresh = vi.fn(() => new Promise<ContentRefreshResult>((resolve) => { resolveRefresh = resolve; }));
+    vi.spyOn(tauriApi, "previewContent").mockResolvedValue(contentPreview());
+    vi.spyOn(tauriApi, "startContentRun").mockResolvedValue(run as never);
+    vi.spyOn(tauriApi, "getContentRun").mockResolvedValue(run as never);
+    vi.spyOn(tauriApi, "queryContentRunItems").mockResolvedValue({ runId: run.id, items: [], nextCursor: null, hasMore: false });
+    function ClosableHarness() {
+      const [open, setOpen] = useState(true);
+      return open ? <ContentUnderstandingSheet open detail={detail()} t={t} onClose={() => setOpen(false)} onRefreshAuthoritativeContentState={refresh} /> : null;
+    }
+
+    await act(async () => root.render(createElement(ClosableHarness)));
+    await flush();
+    await act(async () => findButton("预览本地提取").click());
+    await flush();
+    await act(async () => findButton("确认并启动").click());
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+
+    const closeButton = document.querySelector<HTMLButtonElement>('[aria-label="关闭"]');
+    expect(closeButton).toBeTruthy();
+    await act(async () => closeButton?.click());
+    resolveRefresh({ status: "superseded" });
+    await flush(8);
+
+    expect(container.textContent).toBe("");
+    expect(container.textContent).not.toContain("内容任务未能完成");
   });
 
   it("does not write a pending poll after the sheet is closed", async () => {

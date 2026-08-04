@@ -28,10 +28,12 @@ interface Props {
 }
 
 export type ContentRefreshResult =
-  | { applied: true; detail: FileLibraryDetail; policy: ContentScopePolicy | null }
-  | { applied: false; reason: "superseded" };
+  | { status: "applied"; detail: FileLibraryDetail; policy: ContentScopePolicy | null }
+  | { status: "superseded" }
+  | { status: "failed"; error?: unknown };
 
 type Confirmation = { description: string; action: () => Promise<void> } | null;
+type ContentRefreshClaim = { ownerEpoch: number; status: "pending" | "applied" };
 
 export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFocus, onRefreshDetail, onRefreshAuthoritativeContentState }: Props) {
   const [contentBusy, setContentBusy] = useState(false);
@@ -45,7 +47,7 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
   const [contentRunRefreshKey, setContentRunRefreshKey] = useState(0);
   const [recentContentRuns, setRecentContentRuns] = useState<ContentRun[]>([]);
   const [contentConfirmation, setContentConfirmation] = useState<Confirmation>(null);
-  const refreshedContentRuns = useRef(new Set<string>());
+  const refreshedContentRuns = useRef(new Map<string, ContentRefreshClaim>());
   const contentRunRef = useRef<ContentRun | null>(null);
   const pollEpoch = useRef(0);
   const contentScope: FileLibraryScopeV2 | null = detail?.scanRootId ? { kind: "roots", scanRootIds: [detail.scanRootId] } : null;
@@ -93,12 +95,13 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     let disposed = false;
     let pollInFlight = false;
     let timer: number | null = null;
+    let shouldContinuePolling = !isTerminalContentRun(contentRunRef.current?.status);
     const ownsPoll = () => !disposed
       && currentPollEpoch === pollEpoch.current
       && detail.id === detailId
       && contentRunRef.current?.id === runId;
     const schedule = () => {
-      if (ownsPoll()) timer = window.setTimeout(() => void refresh().catch(() => undefined), 2000);
+      if (shouldContinuePolling && ownsPoll() && !isTerminalContentRun(contentRunRef.current?.status)) timer = window.setTimeout(() => void refresh().catch(() => undefined), 2000);
     };
     const refresh = async () => {
       if (!ownsPoll() || pollInFlight) return;
@@ -108,19 +111,24 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
         if (!ownsPoll()) return;
         const previousRun = contentRunRef.current;
         if (previousRun && previousRun.id === runId && nextRun.revision < previousRun.revision) return;
-        const previousTerminal = previousRun && ["completed", "failed", "canceled", "cancelled"].includes(previousRun.status.toLowerCase());
-        const nextTerminal = ["completed", "failed", "canceled", "cancelled"].includes(nextRun.status.toLowerCase());
+        const previousTerminal = previousRun && isTerminalContentRun(previousRun.status);
+        const nextTerminal = isTerminalContentRun(nextRun.status);
+        if (nextTerminal) shouldContinuePolling = false;
         if (previousRun && previousRun.revision === nextRun.revision && previousTerminal && !nextTerminal) return;
         const page = await tauriApi.queryContentRunItems(runId, 100);
         if (!ownsPoll()) return;
         contentRunRef.current = nextRun;
         setContentRun(nextRun);
         if (page.runId === runId) setContentRunItems(page.items);
-        if (nextTerminal && !refreshedContentRuns.current.has(runId)) {
-          refreshedContentRuns.current.add(runId);
+        const existingClaim = refreshedContentRuns.current.get(runId);
+        if (nextTerminal && (!existingClaim || existingClaim.status === "pending")) {
+          refreshedContentRuns.current.set(runId, { ownerEpoch: currentPollEpoch, status: "pending" });
           const refreshed = await refreshAuthoritativeContentState();
           if (!ownsPoll()) return;
-          if (!refreshed) {
+          const currentClaim = refreshedContentRuns.current.get(runId);
+          if (currentClaim?.ownerEpoch !== currentPollEpoch) return;
+          if (refreshed.status === "applied") currentClaim.status = "applied";
+          else if (refreshed.status === "failed") {
             refreshedContentRuns.current.delete(runId);
             setContentMessage(t("contentOperationFailed"));
           }
@@ -129,7 +137,7 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
         if (ownsPoll()) setContentMessage(contentError(error, t));
       } finally {
         pollInFlight = false;
-        schedule();
+        if (shouldContinuePolling) schedule();
       }
     };
     void refresh().catch(() => undefined);
@@ -230,10 +238,14 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
       });
       setContentPolicy(saved);
       setPolicyDirty(false);
-      setContentMessage((await refreshAuthoritativeContentState()) ? t("contentPolicySaved") : t("contentOperationFailed"));
+      const outcome = await refreshAuthoritativeContentState();
+      if (outcome.status === "applied") setContentMessage(t("contentPolicySaved"));
+      else if (outcome.status === "failed") setContentMessage(t("contentOperationFailed"));
     } catch (error) {
       if (isContentRevisionConflict(error)) {
-        setContentMessage((await refreshAuthoritativeContentState()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
+        const outcome = await refreshAuthoritativeContentState();
+        if (outcome.status === "applied") setContentMessage(t("contentRevisionChanged"));
+        else if (outcome.status === "failed") setContentMessage(t("contentOperationFailed"));
       } else setContentMessage(t("contentSavePolicyFailed"));
     } finally {
       setContentBusy(false);
@@ -260,10 +272,14 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     setContentMessage(null);
     try {
       await tauriApi.rebuildContentArtifact(detail.id, detail.contentRevision, true);
-      setContentMessage((await refreshAuthoritativeContentState()) ? t("contentArtifactRebuilt") : t("contentOperationFailed"));
+      const outcome = await refreshAuthoritativeContentState();
+      if (outcome.status === "applied") setContentMessage(t("contentArtifactRebuilt"));
+      else if (outcome.status === "failed") setContentMessage(t("contentOperationFailed"));
     } catch (error) {
       if (isContentRevisionConflict(error)) {
-        setContentMessage((await refreshAuthoritativeContentState()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
+        const outcome = await refreshAuthoritativeContentState();
+        if (outcome.status === "applied") setContentMessage(t("contentRevisionChanged"));
+        else if (outcome.status === "failed") setContentMessage(t("contentOperationFailed"));
       } else setContentMessage(contentError(error, t));
     } finally {
       setContentBusy(false);
@@ -276,10 +292,14 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     setContentMessage(null);
     try {
       await tauriApi.deleteContentArtifact(detail.id, detail.contentRevision, true);
-      setContentMessage((await refreshAuthoritativeContentState()) ? t("contentDataDeleted") : t("contentOperationFailed"));
+      const outcome = await refreshAuthoritativeContentState();
+      if (outcome.status === "applied") setContentMessage(t("contentDataDeleted"));
+      else if (outcome.status === "failed") setContentMessage(t("contentOperationFailed"));
     } catch (error) {
       if (isContentRevisionConflict(error)) {
-        setContentMessage((await refreshAuthoritativeContentState()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
+        const outcome = await refreshAuthoritativeContentState();
+        if (outcome.status === "applied") setContentMessage(t("contentRevisionChanged"));
+        else if (outcome.status === "failed") setContentMessage(t("contentOperationFailed"));
       } else setContentMessage(contentError(error, t));
     } finally {
       setContentBusy(false);
@@ -298,10 +318,14 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
         expectedPolicyRevisions: [{ rootId: contentPolicy.rootId, rootRevision: contentPolicy.rootRevision, policyRevision: contentPolicy.policyRevision }],
         confirmed: true
       });
-      setContentMessage((await refreshAuthoritativeContentState()) ? replaceCopy(t("contentPurged"), { count: deleted }) : t("contentOperationFailed"));
+      const outcome = await refreshAuthoritativeContentState();
+      if (outcome.status === "applied") setContentMessage(replaceCopy(t("contentPurged"), { count: deleted }));
+      else if (outcome.status === "failed") setContentMessage(t("contentOperationFailed"));
     } catch (error) {
       if (isContentRevisionConflict(error)) {
-        setContentMessage((await refreshAuthoritativeContentState()) ? t("contentRevisionChanged") : t("contentOperationFailed"));
+        const outcome = await refreshAuthoritativeContentState();
+        if (outcome.status === "applied") setContentMessage(t("contentRevisionChanged"));
+        else if (outcome.status === "failed") setContentMessage(t("contentOperationFailed"));
       } else setContentMessage(contentError(error, t));
     } finally {
       setContentBusy(false);
@@ -312,13 +336,15 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     setContentConfirmation({ description, action });
   }
 
-  async function refreshAuthoritativeContentState(): Promise<boolean> {
+  async function refreshAuthoritativeContentState(): Promise<ContentRefreshResult> {
     try {
       if (onRefreshAuthoritativeContentState) {
         const refreshed = await onRefreshAuthoritativeContentState();
-        if (!refreshed.applied) return false;
-        setContentPolicy(refreshed.policy);
-        setPolicyDirty(false);
+        if (refreshed.status === "applied") {
+          setContentPolicy(refreshed.policy);
+          setPolicyDirty(false);
+        }
+        return refreshed;
       } else {
         await onRefreshDetail?.();
         const refreshedPolicy = detail.scanRootId
@@ -326,10 +352,10 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
           : null;
         setContentPolicy(refreshedPolicy);
         setPolicyDirty(false);
+        return { status: "applied", detail, policy: refreshedPolicy };
       }
-      return true;
-    } catch {
-      return false;
+    } catch (error) {
+      return { status: "failed", error };
     }
   }
 
@@ -512,6 +538,10 @@ export function contentPolicyLabel(policy: string | null | undefined, t: Transla
   if (normalized === "enabled" || normalized === "on") return t("contentPolicyEnabled");
   if (normalized === "disabled" || normalized === "off") return t("contentPolicyDisabled");
   return t("contentPolicyUnavailable");
+}
+
+function isTerminalContentRun(status: string | null | undefined): boolean {
+  return ["completed", "failed", "canceled", "cancelled"].includes(String(status ?? "").toLowerCase());
 }
 
 function contentRunStatusLabel(status: string | null | undefined, t: Translator) {

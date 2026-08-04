@@ -23,7 +23,7 @@ import { buttonGhost, buttonSecondary, buttonSubtle, cn, glassButtonPrimary, rai
 import { InspectorLayout, MetricStrip, NoticeBanner, SearchField, StateBlock, pageFrame } from "../shared/ui";
 import { FileLibraryFilterPopover } from "./components/FileLibraryFilterPopover";
 import { FileLibraryInspector, FileLibraryPreviewDialog, libraryRevealLabel } from "./components/FileLibraryInspector";
-import { ContentUnderstandingSheet } from "./components/ContentUnderstandingSheet";
+import { ContentUnderstandingSheet, type ContentRefreshResult } from "./components/ContentUnderstandingSheet";
 import { FileLibraryList } from "./components/FileLibraryList";
 import { LibraryMetadataManagerDialog } from "./components/LibraryMetadataManagerDialog";
 import { DuplicateGroupsPanel } from "./components/DuplicateGroupsPanel";
@@ -354,7 +354,7 @@ export function VaultView() {
     setContentDetail(file);
   }
 
-  const refreshContentDetail = useCallback(async (fileId: string) => {
+  const refreshContentDetail = useCallback(async (fileId: string): Promise<ContentRefreshResult> => {
     const refreshEpoch = contentRefreshEpoch.current + 1;
     contentRefreshEpoch.current = refreshEpoch;
     const ownsRefresh = () => refreshEpoch === contentRefreshEpoch.current && contentDetailRef.current?.id === fileId;
@@ -363,30 +363,30 @@ export function VaultView() {
     const inspectorOwnedFile = inspectorAtStart.selectedId === fileId;
     try {
       const refreshed = await tauriApi.getFileLibraryDetail(fileId);
-      if (!ownsRefresh()) return { applied: false as const, reason: "superseded" as const };
+      if (!ownsRefresh()) return { status: "superseded" as const };
       const policy = refreshed.scanRootId
         ? await tauriApi.getContentScopePolicy(refreshed.scanRootId)
         : null;
-      if (!ownsRefresh()) return { applied: false as const, reason: "superseded" as const };
+      if (!ownsRefresh()) return { status: "superseded" as const };
       contentDetailRef.current = refreshed;
       setContentDetail(refreshed);
       const currentInspector = useFileLibraryInspectorStore.getState();
       if (inspectorOwnedFile
         && currentInspector.requestEpoch === expectedInspectorEpoch
         && currentInspector.selectedId === fileId) commitDetailIfCurrent(fileId, refreshed, expectedInspectorEpoch);
-      return { applied: true as const, detail: refreshed, policy };
+      return { status: "applied" as const, detail: refreshed, policy };
     } catch (error) {
       const currentInspector = useFileLibraryInspectorStore.getState();
-      if (!ownsRefresh()) return { applied: false as const, reason: "superseded" as const };
-      if (!inspectorOwnedFile || currentInspector.requestEpoch !== expectedInspectorEpoch || currentInspector.selectedId !== fileId) throw error;
+      if (!ownsRefresh()) return { status: "superseded" as const };
+      if (!inspectorOwnedFile || currentInspector.requestEpoch !== expectedInspectorEpoch || currentInspector.selectedId !== fileId) return { status: "superseded" as const };
       onError(readableError(error));
-      throw error;
+      return { status: "failed" as const, error };
     }
   }, [commitDetailIfCurrent, onError]);
   const refreshOpenContentDetail = useCallback(
     () => contentDetailRef.current
       ? refreshContentDetail(contentDetailRef.current.id)
-      : Promise.resolve({ applied: false as const, reason: "superseded" as const }),
+      : Promise.resolve({ status: "superseded" as const }),
     [refreshContentDetail]
   );
 
