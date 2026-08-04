@@ -370,10 +370,12 @@ describe("Task 06 File Library handoff interactions", () => {
     await act(async () => rowA.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })));
     const contentMenuItem = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Open Content Understanding"));
     await act(async () => contentMenuItem?.click());
-    const rawBackendError = "sqlite_error: C:\\Users\\name\\secret.db internal_code_42";
+    const rawBackendError = "sqlite_error: C:\\Users\\name\\secret.db internal_code_42 tauri_command=get_file_library_detail";
     failedRequest.reject(new Error(rawBackendError));
 
-    await vi.waitFor(() => expect(chrome.onError).toHaveBeenCalledWith(rawBackendError));
+    await vi.waitFor(() => expect(chrome.onError).toHaveBeenCalledWith(chrome.t("contentOpenFailed")));
+    expect(chrome.onError).not.toHaveBeenCalledWith(rawBackendError);
+    expect(useFileLibraryInspectorStore.getState().error).toContain(rawBackendError);
     expect(container.querySelector('[data-content-sheet-id="file-one"]')).toBeNull();
     expect(container.textContent).toContain("Unable to load file details");
     expect(container.textContent).toContain("File details could not be loaded");
@@ -390,6 +392,9 @@ describe("Task 06 File Library handoff interactions", () => {
     await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().detail?.id).toBe(fileA.id));
     expect(container.textContent).not.toContain("Unable to load file details");
     expect(container.querySelector('[data-content-sheet-id="file-one"]')).toBeNull();
+    const reopenContent = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.includes("Open Content Understanding"));
+    await act(async () => reopenContent?.click());
+    await vi.waitFor(() => expect(container.querySelector('[data-content-sheet-id="file-one"]')).not.toBeNull());
   });
 
   it("deduplicates a Content open against the current mounted Inspector request", async () => {
@@ -634,7 +639,8 @@ describe("Task 06 File Library handoff interactions", () => {
     await act(async () => refreshButton?.click());
 
     await vi.waitFor(() => expect(container.querySelector<HTMLElement>('[data-content-refresh-outcome]')?.textContent).toBe("failed"));
-    expect(chrome.onError).toHaveBeenCalledWith("detail_refresh_failed");
+    expect(chrome.onError).toHaveBeenCalledWith(chrome.t("contentOpenFailed"));
+    expect(chrome.onError).not.toHaveBeenCalledWith("detail_refresh_failed");
   });
 
   it("does not let a delayed content refresh for Inspector A overwrite Inspector B or reopen a closed sheet", async () => {

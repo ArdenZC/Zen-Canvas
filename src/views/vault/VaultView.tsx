@@ -447,7 +447,7 @@ export function VaultView() {
       if (pendingContentOpenRef.current?.epoch !== operationEpoch || !ownsSingleFileSelection(fileId)) return;
       if (outcome.status === "superseded") return;
       if (outcome.status === "failed") {
-        onError(outcome.error);
+        onError(t("contentOpenFailed"));
         restoreLibraryFocus(trigger ?? null);
         return;
       }
@@ -456,7 +456,7 @@ export function VaultView() {
       openContentUnderstanding(outcome.detail, trigger);
     } catch (error) {
       if (pendingContentOpenRef.current?.epoch === operationEpoch) {
-        onError(readableError(error));
+        onError(t("contentOpenFailed"));
         restoreLibraryFocus(trigger ?? null);
       }
     } finally {
@@ -487,10 +487,10 @@ export function VaultView() {
       return { status: "applied" as const, detail: refreshed, policy };
     } catch (error) {
       if (!ownsRefresh()) return { status: "superseded" as const };
-      onError(readableError(error));
+      onError(t("contentOpenFailed"));
       return { status: "failed" as const, error };
     }
-  }, [commitDetailIfCurrent, onError]);
+  }, [commitDetailIfCurrent, onError, t]);
   const refreshOpenContentDetail = useCallback(
     () => contentDetailRef.current
       ? refreshContentDetail(contentDetailRef.current.id)
