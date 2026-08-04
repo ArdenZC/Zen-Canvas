@@ -40,6 +40,7 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
   const [contentMessage, setContentMessage] = useState<string | null>(null);
   const [contentPolicy, setContentPolicy] = useState<ContentScopePolicy | null>(null);
   const [policyDirty, setPolicyDirty] = useState(false);
+  const policyDirtyRef = useRef(false);
   const [contentPreview, setContentPreview] = useState<ContentPreview | null>(null);
   const [pendingContentRequest, setPendingContentRequest] = useState<ContentPreviewRequest | null>(null);
   const [contentRun, setContentRun] = useState<ContentRun | null>(null);
@@ -51,11 +52,15 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
   const contentRunRef = useRef<ContentRun | null>(null);
   const pollEpoch = useRef(0);
   const contentScope: FileLibraryScopeV2 | null = detail?.scanRootId ? { kind: "roots", scanRootIds: [detail.scanRootId] } : null;
+  const updatePolicyDirty = (dirty: boolean) => {
+    policyDirtyRef.current = dirty;
+    setPolicyDirty(dirty);
+  };
 
   useEffect(() => {
     if (!open || !detail) return;
     setContentPolicy(null);
-    setPolicyDirty(false);
+    updatePolicyDirty(false);
     setContentPreview(null);
     setPendingContentRequest(null);
     setContentRun(null);
@@ -76,7 +81,7 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     ]).then(([policy, runs]) => {
       if (!active) return;
       setContentPolicy(policy);
-      setPolicyDirty(false);
+      updatePolicyDirty(false);
       setRecentContentRuns(runs);
     }).catch((error) => {
       if (!active) return;
@@ -163,7 +168,7 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     const policy = contentPolicy ?? await tauriApi.getContentScopePolicy(detail.scanRootId);
     if (!contentPolicy) {
       setContentPolicy(policy);
-      setPolicyDirty(false);
+      updatePolicyDirty(false);
     }
     return {
       request: {
@@ -237,7 +242,7 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
         policy: contentPolicy
       });
       setContentPolicy(saved);
-      setPolicyDirty(false);
+      updatePolicyDirty(false);
       const outcome = await refreshAuthoritativeContentState();
       if (outcome.status === "applied") setContentMessage(t("contentPolicySaved"));
       else if (outcome.status === "failed") setContentMessage(t("contentOperationFailed"));
@@ -341,8 +346,10 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
       if (onRefreshAuthoritativeContentState) {
         const refreshed = await onRefreshAuthoritativeContentState();
         if (refreshed.status === "applied") {
-          setContentPolicy(refreshed.policy);
-          setPolicyDirty(false);
+          if (!policyDirtyRef.current) {
+            setContentPolicy(refreshed.policy);
+            updatePolicyDirty(false);
+          }
         }
         return refreshed;
       } else {
@@ -350,8 +357,10 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
         const refreshedPolicy = detail.scanRootId
           ? await tauriApi.getContentScopePolicy(detail.scanRootId)
           : null;
-        setContentPolicy(refreshedPolicy);
-        setPolicyDirty(false);
+        if (!policyDirtyRef.current) {
+          setContentPolicy(refreshedPolicy);
+          updatePolicyDirty(false);
+        }
         return { status: "applied", detail, policy: refreshedPolicy };
       }
     } catch (error) {
@@ -388,12 +397,12 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
           {!detail.scanRootId ? <NoticeBanner tone="info" title={t("contentNoRootTitle")}>{t("contentNoRootDesc")}</NoticeBanner> : contentPolicy ? (
             <fieldset className={cn(panelSurface, "grid gap-3 p-3")}>
               <legend className="px-1 text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("contentPolicy")}</legend>
-              <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={contentPolicy.enabled} onChange={(event) => { setPolicyDirty(true); setContentPolicy({ ...contentPolicy, enabled: event.target.checked }); }} />{t("contentEnableAnalysis")}</label>
-              <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={contentPolicy.localAllowed} onChange={(event) => { setPolicyDirty(true); setContentPolicy({ ...contentPolicy, localAllowed: event.target.checked }); }} />{t("contentAllowLocal")}</label>
-              <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={contentPolicy.cloudAllowed} onChange={(event) => { setPolicyDirty(true); setContentPolicy({ ...contentPolicy, cloudAllowed: event.target.checked }); }} />{t("contentAllowCloud")}</label>
+              <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={contentPolicy.enabled} onChange={(event) => { updatePolicyDirty(true); setContentPolicy({ ...contentPolicy, enabled: event.target.checked }); }} />{t("contentEnableAnalysis")}</label>
+              <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={contentPolicy.localAllowed} onChange={(event) => { updatePolicyDirty(true); setContentPolicy({ ...contentPolicy, localAllowed: event.target.checked }); }} />{t("contentAllowLocal")}</label>
+              <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={contentPolicy.cloudAllowed} onChange={(event) => { updatePolicyDirty(true); setContentPolicy({ ...contentPolicy, cloudAllowed: event.target.checked }); }} />{t("contentAllowCloud")}</label>
               <div className="grid gap-2 sm:grid-cols-2">
-                <label className="grid gap-1 text-xs text-[var(--zc-text-secondary)]">{t("contentPerFileByteLimit")}<input className={inputSurface} type="number" min={1024} max={67108864} value={contentPolicy.maxBytes} onChange={(event) => { setPolicyDirty(true); setContentPolicy({ ...contentPolicy, maxBytes: Number(event.target.value) }); }} /></label>
-                <label className="grid gap-1 text-xs text-[var(--zc-text-secondary)]">{t("contentPerFileCharLimit")}<input className={inputSurface} type="number" min={256} max={262144} value={contentPolicy.maxChars} onChange={(event) => { setPolicyDirty(true); setContentPolicy({ ...contentPolicy, maxChars: Number(event.target.value) }); }} /></label>
+                <label className="grid gap-1 text-xs text-[var(--zc-text-secondary)]">{t("contentPerFileByteLimit")}<input className={inputSurface} type="number" min={1024} max={67108864} value={contentPolicy.maxBytes} onChange={(event) => { updatePolicyDirty(true); setContentPolicy({ ...contentPolicy, maxBytes: Number(event.target.value) }); }} /></label>
+                <label className="grid gap-1 text-xs text-[var(--zc-text-secondary)]">{t("contentPerFileCharLimit")}<input className={inputSurface} type="number" min={256} max={262144} value={contentPolicy.maxChars} onChange={(event) => { updatePolicyDirty(true); setContentPolicy({ ...contentPolicy, maxChars: Number(event.target.value) }); }} /></label>
               </div>
               {!contentPolicy.enabled ? <NoticeBanner tone="warning" title={t("contentPolicyOffTitle")}>{t("contentPolicyOffDesc")}</NoticeBanner> : null}
               {policyDirty ? <p className="text-xs text-[var(--zc-warning-text)]">{t("contentSavePolicyFirst")}</p> : null}

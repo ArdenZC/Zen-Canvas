@@ -348,6 +348,8 @@ describe("Content Understanding independent review behavior", () => {
     };
     const refreshed = detail({ revision: 8, contentRevision: 3, contentSummary: "Terminal summary", contentKeywords: ["terminal"] });
     const getDetail = vi.spyOn(tauriApi, "getFileLibraryDetail").mockResolvedValue(refreshed);
+    const refreshedPolicy = { ...policy, rootRevision: 5, policyRevision: 3, enabled: false };
+    vi.spyOn(tauriApi, "getContentScopePolicy").mockResolvedValueOnce(policy).mockResolvedValue(refreshedPolicy);
     vi.spyOn(tauriApi, "previewContent").mockResolvedValue({
       version: 1,
       requestId: "content-preview",
@@ -393,12 +395,78 @@ describe("Content Understanding independent review behavior", () => {
     expect(start).toHaveBeenCalledOnce();
     expect(getDetail).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("Terminal summary");
+    expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(false);
+    expect(container.textContent).not.toContain(t("contentSavePolicyFirst"));
 
     const terminalPollCalls = getRun.mock.calls.length;
     vi.useFakeTimers();
     await act(async () => { await vi.advanceTimersByTimeAsync(8_000); });
     expect(getRun.mock.calls.length).toBe(terminalPollCalls);
     expect(getDetail).toHaveBeenCalledOnce();
+  });
+
+  it("preserves an unsaved policy draft while a terminal run refresh is pending", async () => {
+    const run = contentRun({ id: "content-run-dirty-refresh", status: "completed", revision: 2, completedCount: 1, completedAt: 2 });
+    const refreshed = detail({ revision: 8, contentRevision: 3, contentSummary: "Terminal policy refresh" });
+    let resolveRefresh: (result: ContentRefreshResult) => void = () => undefined;
+    const refresh = vi.fn(() => new Promise<ContentRefreshResult>((resolve) => { resolveRefresh = resolve; }));
+    vi.spyOn(tauriApi, "previewContent").mockResolvedValue(contentPreview());
+    vi.spyOn(tauriApi, "startContentRun").mockResolvedValue(run as never);
+    vi.spyOn(tauriApi, "getContentRun").mockResolvedValue(run as never);
+    vi.spyOn(tauriApi, "queryContentRunItems").mockResolvedValue({ runId: run.id, items: [], nextCursor: null, hasMore: false });
+    function DirtyRefreshHarness() {
+      const [current, setCurrent] = useState(() => detail());
+      const refreshAuthoritative = async () => {
+        const outcome = await refresh();
+        if (outcome.status === "applied") setCurrent(outcome.detail);
+        return outcome;
+      };
+      return <ContentUnderstandingSheet open detail={current} t={t} onClose={() => undefined} onRefreshAuthoritativeContentState={refreshAuthoritative} />;
+    }
+
+    await act(async () => root.render(createElement(DirtyRefreshHarness)));
+    await flush();
+    await act(async () => findButton("预览本地提取").click());
+    await flush();
+    await act(async () => findButton("确认并启动").click());
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+
+    const enabled = container.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    expect(enabled).toBeTruthy();
+    await act(async () => enabled?.click());
+    expect(enabled?.checked).toBe(false);
+    expect(container.textContent).toContain(t("contentSavePolicyFirst"));
+
+    resolveRefresh({ status: "applied", detail: refreshed, policy: { ...policy, rootRevision: 5, policyRevision: 3, enabled: true } });
+    await flush(8);
+
+    expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(false);
+    expect(container.textContent).toContain(t("contentSavePolicyFirst"));
+    expect(container.textContent).toContain("Terminal policy refresh");
+  });
+
+  it("keeps a local policy draft after an authoritative revision conflict", async () => {
+    const refreshed = detail({ revision: 9, contentRevision: 4, contentSummary: "Concurrent policy summary" });
+    const latestPolicy = { ...policy, rootRevision: 5, policyRevision: 3, enabled: true };
+    vi.spyOn(tauriApi, "getFileLibraryDetail").mockResolvedValue(refreshed);
+    vi.spyOn(tauriApi, "getContentScopePolicy").mockResolvedValueOnce(policy).mockResolvedValue(latestPolicy);
+    const save = vi.spyOn(tauriApi, "setContentScopePolicy").mockRejectedValue(new Error("content_policy_revision_conflict"));
+
+    await act(async () => root.render(createElement(Harness)));
+    await flush();
+    const enabled = container.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    await act(async () => enabled?.click());
+    expect(enabled?.checked).toBe(false);
+
+    await act(async () => findButton("保存根目录策略").click());
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((button) => button.textContent === "确认");
+    await act(async () => confirm?.click());
+    await flush(8);
+
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ policy: expect.objectContaining({ enabled: false }) }));
+    expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(false);
+    expect(container.textContent).toContain(t("contentRevisionChanged"));
+    expect(container.textContent).toContain(t("contentSavePolicyFirst"));
   });
 
   it("keeps the newer terminal refresh and stays silent when the older refresh is superseded", async () => {
