@@ -72,9 +72,7 @@ export function OrganizeSuggestionsView() {
   const dryRun = useOrganizationPlanStore((state) => state.dryRun);
   const executionResult = useOrganizationPlanStore((state) => state.executionResult);
   const planListState = useOrganizationPlanStore((state) => state.planListState);
-  const planListError = useOrganizationPlanStore((state) => state.planListError);
   const activePlanState = useOrganizationPlanStore((state) => state.activePlanState);
-  const openPlanError = useOrganizationPlanStore((state) => state.openPlanError);
   const openPlanErrorPlanId = useOrganizationPlanStore((state) => state.openPlanErrorPlanId);
   const createPlanError = useOrganizationPlanStore((state) => state.createPlanError);
   const isPlanListLoading = useOrganizationPlanStore((state) => state.isPlanListLoading);
@@ -484,7 +482,7 @@ export function OrganizeSuggestionsView() {
             <StateBlock
               tone="error"
               title={t("organizePlanListFailedTitle")}
-              description={[t("organizePlanListFailedDesc"), planListError].filter(Boolean).join(" ")}
+              description={t("organizePlanListFailedDesc")}
               primaryAction={<Button variant="secondary" onClick={() => void loadPlans().catch(() => undefined)}>{t("organizePlanListRetry")}</Button>}
             />
           </div>
@@ -507,7 +505,7 @@ export function OrganizeSuggestionsView() {
             <StateBlock
               tone="error"
               title={t("organizePlanOpenFailedTitle")}
-              description={[t("organizePlanOpenFailedDesc"), openPlanError].filter(Boolean).join(" ")}
+              description={t("organizePlanOpenFailedDesc")}
               primaryAction={<Button variant="secondary" onClick={() => void openPlan(openPlanSelectionId).catch(() => undefined)}>{t("organizePlanOpenRetry")}</Button>}
             />
           </div>
@@ -525,7 +523,7 @@ export function OrganizeSuggestionsView() {
               <label className="text-sm font-medium text-[var(--zc-text-secondary)]" htmlFor="organization-plan-title">{t("organizePlanTitleLabel")}</label>
               <input id="organization-plan-title" className={cn(inputSurface, "min-h-[var(--zc-control-height-default)] px-3 text-sm")} value={planTitle} onChange={(event) => setPlanTitle(event.target.value)} placeholder={t("organizePlanTitlePlaceholder")} />
             </div>
-            {createPlanError ? <NoticeBanner tone="error" title={t("organizeCreatePlanFailedTitle")}>{createPlanError}</NoticeBanner> : null}
+            {createPlanError ? <NoticeBanner tone="error" title={t("organizeCreatePlanFailedTitle")}>{t("organizeCreatePlanFailedDesc")}</NoticeBanner> : null}
             <div className="flex flex-wrap gap-2">
               <Button variant="primary" disabled={isPlanListLoading || isLoading || isMutating || planListState !== "loaded"} onClick={() => void handleCreatePlan().catch(() => undefined)}><Plus size={15} aria-hidden="true" />{t("organizeCreatePlanAction")}</Button>
               <Button variant="secondary" onClick={() => setView("library")}>{t("fileLibrary")}</Button>
@@ -569,7 +567,7 @@ export function OrganizeSuggestionsView() {
             />
           </section>
 
-          {planListState === "failed" ? <NoticeBanner tone="warning" title={t("organizePlanListFailedTitle")} action={<Button variant="secondary" size="compact" onClick={() => void loadPlans().catch(() => undefined)}>{t("organizePlanListRetry")}</Button>}>{planListError ?? t("organizePlanListFailedDesc")}</NoticeBanner> : null}
+          {planListState === "failed" ? <NoticeBanner tone="warning" title={t("organizePlanListFailedTitle")} action={<Button variant="secondary" size="compact" onClick={() => void loadPlans().catch(() => undefined)}>{t("organizePlanListRetry")}</Button>}>{t("organizePlanListFailedDesc")}</NoticeBanner> : null}
           {error ? <NoticeBanner tone="error" title={t("organizeLoadFailedTitle")} action={<Button variant="secondary" size="compact" onClick={() => void openPlan(plan.id).catch(() => undefined)}>{t("organizePlanRefresh")}</Button>}>{t("organizeLoadFailedDesc")}</NoticeBanner> : null}
           {reviewActionError ? <NoticeBanner tone="warning" title={t("organizeGroupActionFailed")} action={reviewActionNeedsRefresh ? <Button variant="secondary" size="compact" onClick={() => { setReviewActionError(null); setReviewActionNeedsRefresh(false); void handleRefreshPlan().catch(() => undefined); }}>{t("organizePlanRefresh")}</Button> : <Button variant="ghost" size="compact" onClick={() => setReviewActionError(null)}>{t("close")}</Button>}>{reviewActionError}</NoticeBanner> : null}
 

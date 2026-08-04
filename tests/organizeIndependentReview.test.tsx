@@ -296,8 +296,9 @@ describe("Organize independent review behavior", () => {
 
   it("allows a create-plan retry after the first backend failure", async () => {
     const created = { ...plan, id: "plan-retried" };
+    const backendError = "sqlite_error: C:\\Users\\name\\secret.db internal_code_42";
     apiMocks.createOrganizationPlan
-      .mockRejectedValueOnce(new Error("create_failed"))
+      .mockRejectedValueOnce(new Error(backendError))
       .mockResolvedValueOnce(created);
     useOrganizationPlanStore.setState({ plans: [], activePlan: null, groups: [], planListState: "loaded", planListError: null, createPlanError: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null });
 
@@ -307,7 +308,11 @@ describe("Organize independent review behavior", () => {
     await flush();
     expect(apiMocks.createOrganizationPlan).toHaveBeenCalledOnce();
     expect(useOrganizationPlanStore.getState().isMutating).toBe(false);
-    expect(container.textContent).toContain("create_failed");
+    expect(container.textContent).toContain(t("organizeCreatePlanFailedDesc"));
+    expect(container.textContent).not.toContain(backendError);
+    expect(container.textContent).not.toContain("secret.db");
+    expect(container.textContent).not.toContain("internal_code_42");
+    expect(useOrganizationPlanStore.getState().createPlanError).toContain(backendError);
     expect(button(t("organizeCreatePlanAction")).disabled).toBe(false);
 
     await act(async () => button(t("organizeCreatePlanAction")).click());
@@ -316,13 +321,18 @@ describe("Organize independent review behavior", () => {
   });
 
   it("keeps the create form hidden when Plan List loading fails and retries only the list", async () => {
-    apiMocks.listOrganizationPlans.mockRejectedValueOnce(new Error("plan_list_failed"));
+    const backendError = "sqlite_error: C:\\Users\\name\\secret.db internal_code_42";
+    apiMocks.listOrganizationPlans.mockRejectedValueOnce(new Error(backendError));
     useOrganizationPlanStore.setState({ plans: [], activePlan: null, groups: [], planListState: "idle", planListError: null, activePlanState: "idle", openPlanError: null, openPlanErrorPlanId: null, createPlanError: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null });
 
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
 
-    expect(container.textContent).toContain("plan_list_failed");
+    expect(container.textContent).toContain(t("organizePlanListFailedDesc"));
+    expect(container.textContent).not.toContain(backendError);
+    expect(container.textContent).not.toContain("secret.db");
+    expect(container.textContent).not.toContain("internal_code_42");
+    expect(useOrganizationPlanStore.getState().planListError).toContain(backendError);
     expect(container.textContent).not.toContain(t("organizeCreatePlanAction"));
     expect(container.querySelector("#organization-plan-title")).toBeNull();
     expect(apiMocks.createOrganizationPlan).not.toHaveBeenCalled();
@@ -351,9 +361,10 @@ describe("Organize independent review behavior", () => {
 
   it("shows an existing Plan open failure with retry and lets the user choose another plan", async () => {
     const otherPlan = { ...plan, id: "plan-other", title: "Other plan", revision: 6 };
+    const backendError = "sqlite_error: C:\\Users\\name\\secret.db internal_code_42";
     apiMocks.listOrganizationPlans.mockResolvedValue([plan, otherPlan]);
     apiMocks.getOrganizationPlan
-      .mockRejectedValueOnce(new Error("plan_open_failed"))
+      .mockRejectedValueOnce(new Error(backendError))
       .mockResolvedValueOnce(plan)
       .mockResolvedValueOnce(otherPlan);
     apiMocks.queryOrganizationPlanGroups.mockImplementation(async (request: { planId: string }) => ({
@@ -370,7 +381,11 @@ describe("Organize independent review behavior", () => {
     await flush();
 
     expect(container.textContent).toContain(t("organizePlanOpenFailedTitle"));
-    expect(container.textContent).toContain("plan_open_failed");
+    expect(container.textContent).toContain(t("organizePlanOpenFailedDesc"));
+    expect(container.textContent).not.toContain(backendError);
+    expect(container.textContent).not.toContain("secret.db");
+    expect(container.textContent).not.toContain("internal_code_42");
+    expect(useOrganizationPlanStore.getState().openPlanError).toContain(backendError);
     expect(container.textContent).toContain(t("organizePlanOpenRetry"));
     expect(container.textContent).not.toContain(t("organizePlanOpening"));
     const failedSelector = container.querySelector<HTMLSelectElement>("#organization-plan-open-selector");
