@@ -87,6 +87,23 @@ type Props = {
 };
 
 type CleanupTier = "safe" | "review" | "caution";
+type CleanupMutationKind = "scan" | "cancel" | "retry" | "acknowledge" | "revalidate" | "preview" | "safe_trash";
+type CleanupMutationOwner = {
+  id: number;
+  kind: CleanupMutationKind;
+  scopeEpoch: number;
+  runId: string | null;
+};
+type AiWorkState = "idle" | "running" | "canceling";
+type AiOperation = {
+  id: number;
+  epoch: number;
+  scopeEpoch: number;
+  tierEpoch: number;
+  tier: CleanupTier;
+  runId: string;
+  cancelRequested: boolean;
+};
 
 const FINDING_PAGE_SIZE = 100;
 const AI_RECHECK_BATCH_SIZE = 50;
@@ -128,7 +145,8 @@ function StorageCleanupPanel({
   const [loading, setLoading] = useState(true);
   const [loadingFindings, setLoadingFindings] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
-  const [isAiWorking, setIsAiWorking] = useState(false);
+  const [aiWorkState, setAiWorkState] = useState<AiWorkState>("idle");
+  const isAiWorking = aiWorkState !== "idle";
   const [aiStatus, setAiStatus] = useState("");
   const [error, setError] = useState("");
   const [unsupported, setUnsupported] = useState(false);
@@ -145,7 +163,11 @@ function StorageCleanupPanel({
   const runRef = useRef<AnalysisRun | null>(null);
   const requestKeyRef = useRef<string | null>(null);
   const scanIntentInFlight = useRef(false);
-  const aiCancelRequested = useRef(false);
+  const mutationOwnerRef = useRef<CleanupMutationOwner | null>(null);
+  const mutationSequenceRef = useRef(0);
+  const aiWorkStateRef = useRef<AiWorkState>("idle");
+  const aiOperationRef = useRef<AiOperation | null>(null);
+  const aiOperationSequenceRef = useRef(0);
   const interactionLockedRef = useRef(false);
   const scopeHydrated = useRef(Boolean(normalizeScopePaths(initialRoots ?? []).length));
   const initialRootsPropKey = useRef(scopeKey(initialRoots ?? []));
@@ -160,11 +182,41 @@ function StorageCleanupPanel({
     runRef.current = run;
   }, [run]);
 
-  interactionLockedRef.current = isAiWorking || isMutating;
+  interactionLockedRef.current = Boolean(mutationOwnerRef.current) || aiWorkState !== "idle";
+
+  const updateAiWorkState = useCallback((nextState: AiWorkState) => {
+    aiWorkStateRef.current = nextState;
+    interactionLockedRef.current = Boolean(mutationOwnerRef.current) || nextState !== "idle";
+    setAiWorkState(nextState);
+  }, []);
+
+  const beginMutation = useCallback((kind: CleanupMutationKind, runId: string | null = runRef.current?.id ?? null) => {
+    if (mutationOwnerRef.current || aiWorkStateRef.current !== "idle") return null;
+    const owner: CleanupMutationOwner = {
+      id: ++mutationSequenceRef.current,
+      kind,
+      scopeEpoch: scopeEpoch.current,
+      runId
+    };
+    mutationOwnerRef.current = owner;
+    interactionLockedRef.current = true;
+    setIsMutating(true);
+    return owner;
+  }, []);
+
+  const releaseMutation = useCallback((owner: CleanupMutationOwner) => {
+    if (mutationOwnerRef.current?.id !== owner.id) return false;
+    mutationOwnerRef.current = null;
+    interactionLockedRef.current = aiWorkStateRef.current !== "idle";
+    setIsMutating(false);
+    return true;
+  }, []);
 
   useEffect(() => () => {
-    aiCancelRequested.current = true;
+    if (aiOperationRef.current) aiOperationRef.current.cancelRequested = true;
+    aiOperationRef.current = null;
     aiOperationEpoch.current += 1;
+    mutationOwnerRef.current = null;
     scanIntentInFlight.current = false;
     requestKeyRef.current = null;
     previewRequestEpoch.current += 1;
@@ -214,7 +266,9 @@ function StorageCleanupPanel({
     requestKeyRef.current = null;
     scanIntentInFlight.current = false;
     defaultSelectionRuns.current.clear();
-    aiCancelRequested.current = true;
+    if (aiOperationRef.current) aiOperationRef.current.cancelRequested = true;
+    aiOperationRef.current = null;
+    mutationOwnerRef.current = null;
     setRun(null);
     setRunDetectors([]);
     setFindings([]);
@@ -232,10 +286,11 @@ function StorageCleanupPanel({
     setError("");
     setLoadingFindings(false);
     setIsMutating(false);
-    setIsAiWorking(false);
-  }, []);
+    updateAiWorkState("idle");
+  }, [updateAiWorkState]);
 
   const applyScopeSelection = useCallback((roots: string[]) => {
+    if (interactionLockedRef.current) return;
     const nextRoots = normalizeScopePaths(roots);
     if (scopeKey(selectedRoots) !== scopeKey(nextRoots)) resetReviewStateForScopeChange();
     scopeHydrated.current = true;
@@ -244,11 +299,12 @@ function StorageCleanupPanel({
   }, [resetReviewStateForScopeChange, selectedRoots]);
 
   useEffect(() => {
+    if (interactionLockedRef.current) return;
     const nextKey = scopeKey(initialRoots ?? []);
     if (nextKey === initialRootsPropKey.current) return;
     initialRootsPropKey.current = nextKey;
     applyScopeSelection(initialRoots ?? []);
-  }, [applyScopeSelection, initialRoots]);
+  }, [applyScopeSelection, aiWorkState, initialRoots, isMutating]);
 
   const loadFindings = useCallback(async (
     runId: string,
@@ -412,6 +468,7 @@ function StorageCleanupPanel({
   }, [api, loadRunDetails, run]);
 
   const chooseScope = useCallback(async () => {
+    if (interactionLockedRef.current) return;
     try {
       const selected = await open({ directory: true, multiple: false, title: t("storageCleanupChooseScope") });
       if (typeof selected === "string" && selected.trim()) {
@@ -423,6 +480,7 @@ function StorageCleanupPanel({
   }, [applyScopeSelection, reportError, t]);
 
   const chooseQuickScope = useCallback(async (kind: "downloads" | "desktop" | "documents" | "temp") => {
+    if (interactionLockedRef.current) return;
     try {
       const path = kind === "downloads"
         ? await downloadDir()
@@ -438,7 +496,7 @@ function StorageCleanupPanel({
   }, [applyScopeSelection, reportError]);
 
   const startScan = useCallback(async () => {
-    if (scanIntentInFlight.current || isAiWorking || isMutating) return;
+    if (scanIntentInFlight.current || interactionLockedRef.current) return;
     if (!selectedRoots.length) {
       setError(t("storageCleanupScopeRequired"));
       return;
@@ -467,14 +525,24 @@ function StorageCleanupPanel({
       detectorIds: detectors.filter((detector) => detector.supportsApprovedPaths).map((detector) => detector.detectorId),
       requestKey
     };
+    const mutationOwner = beginMutation("scan", null);
+    if (!mutationOwner) {
+      requestKeyRef.current = null;
+      scanIntentInFlight.current = false;
+      return;
+    }
     const ownsScanIntent = () => requestedScopeEpoch === scopeEpoch.current
       && requestKeyRef.current === requestKey
-      && scanIntentInFlight.current;
-    setIsMutating(true);
+      && scanIntentInFlight.current
+      && mutationOwnerRef.current?.id === mutationOwner.id;
     try {
       const started = await api.startAnalysisRun(request);
       if (!ownsScanIntent()) return;
       setRun(started);
+      // The start mutation is settled once the backend has created the run. Keep
+      // the subsequent authoritative read separate so the user can cancel a
+      // running scan without an old scan finally clearing its lock.
+      releaseMutation(mutationOwner);
       await loadRunDetails(started.id, true, requestedScopeEpoch);
     } catch (startError) {
       if (ownsScanIntent()) reportError(startError);
@@ -482,32 +550,36 @@ function StorageCleanupPanel({
       if (requestKeyRef.current === requestKey) {
         requestKeyRef.current = null;
         scanIntentInFlight.current = false;
-        setIsMutating(false);
+        releaseMutation(mutationOwner);
       }
     }
-  }, [api, detectors, isAiWorking, isMutating, loadRunDetails, reportError, selectedRoots, t]);
+  }, [api, beginMutation, detectors, loadRunDetails, reportError, releaseMutation, selectedRoots, t]);
 
   const cancelRun = useCallback(async () => {
     if (!run || !api.cancelAnalysisRun) return;
+    if (interactionLockedRef.current) return;
     const expectedScopeEpoch = scopeEpoch.current;
     const runId = run.id;
-    setIsMutating(true);
+    const mutationOwner = beginMutation("cancel", runId);
+    if (!mutationOwner) return;
     try {
       await api.cancelAnalysisRun(runId);
-      if (expectedScopeEpoch !== scopeEpoch.current) return;
+      if (expectedScopeEpoch !== scopeEpoch.current || mutationOwnerRef.current?.id !== mutationOwner.id) return;
       await loadRunDetails(runId, false, expectedScopeEpoch);
     } catch (cancelError) {
-      if (expectedScopeEpoch === scopeEpoch.current) reportError(cancelError);
+      if (expectedScopeEpoch === scopeEpoch.current && mutationOwnerRef.current?.id === mutationOwner.id) reportError(cancelError);
     } finally {
-      if (expectedScopeEpoch === scopeEpoch.current) setIsMutating(false);
+      releaseMutation(mutationOwner);
     }
-  }, [api, loadRunDetails, reportError, run]);
+  }, [api, beginMutation, loadRunDetails, releaseMutation, reportError, run]);
 
   const retryRun = useCallback(async () => {
     if (!run || !api.retryAnalysisRun) return;
+    if (interactionLockedRef.current) return;
     const expectedScopeEpoch = scopeEpoch.current;
     const runId = run.id;
-    setIsMutating(true);
+    const mutationOwner = beginMutation("retry", runId);
+    if (!mutationOwner) return;
     setError("");
     selectionRevision.current += 1;
     selectedFindingIdsRef.current = new Set();
@@ -519,15 +591,15 @@ function StorageCleanupPanel({
     defaultSelectionRuns.current.delete(runId);
     try {
       const retried = await api.retryAnalysisRun(runId);
-      if (expectedScopeEpoch !== scopeEpoch.current) return;
+      if (expectedScopeEpoch !== scopeEpoch.current || mutationOwnerRef.current?.id !== mutationOwner.id) return;
       setRun(retried);
       await loadRunDetails(retried.id, true, expectedScopeEpoch);
     } catch (retryError) {
-      if (expectedScopeEpoch === scopeEpoch.current) reportError(retryError);
+      if (expectedScopeEpoch === scopeEpoch.current && mutationOwnerRef.current?.id === mutationOwner.id) reportError(retryError);
     } finally {
-      if (expectedScopeEpoch === scopeEpoch.current) setIsMutating(false);
+      releaseMutation(mutationOwner);
     }
-  }, [api, loadRunDetails, reportError, run]);
+  }, [api, beginMutation, loadRunDetails, releaseMutation, reportError, run]);
 
   const revealFinding = useCallback(async (finding: AnalysisFinding) => {
     if (!finding.pathSnapshot || !api.revealInFolder) return;
@@ -568,17 +640,19 @@ function StorageCleanupPanel({
 
   const acknowledgeReviewFinding = useCallback(async () => {
     if (!reviewFinding || !api.getAnalysisFinding || !api.setAnalysisFindingDecision) return;
-    if (isAiWorking || isMutating) return;
+    if (interactionLockedRef.current) return;
     const expectedScopeEpoch = scopeEpoch.current;
     const expectedTierEpoch = activeTierEpoch.current;
     const expectedTier = activeTierRef.current;
     const findingId = reviewFinding.id;
     const expectedRunId = runRef.current?.id;
+    const mutationOwner = beginMutation("acknowledge", expectedRunId ?? null);
+    if (!mutationOwner) return;
     const ownsRequest = () => expectedScopeEpoch === scopeEpoch.current
       && expectedTierEpoch === activeTierEpoch.current
       && activeTierRef.current === expectedTier
-      && runRef.current?.id === expectedRunId;
-    setIsMutating(true);
+      && runRef.current?.id === expectedRunId
+      && mutationOwnerRef.current?.id === mutationOwner.id;
     try {
       const current = await api.getAnalysisFinding(findingId);
       if (!ownsRequest()) return;
@@ -600,22 +674,24 @@ function StorageCleanupPanel({
     } catch (reviewError) {
       if (ownsRequest()) reportError(reviewError);
     } finally {
-      if (ownsRequest()) setIsMutating(false);
+      releaseMutation(mutationOwner);
     }
-  }, [api, commitSelection, isAiWorking, isMutating, loadFindings, reportError, reviewFinding]);
+  }, [api, beginMutation, commitSelection, loadFindings, releaseMutation, reportError, reviewFinding]);
 
   const revalidateFinding = useCallback(async (finding: AnalysisFinding) => {
     if (!api.revalidateAnalysisFinding) return;
-    if (isAiWorking || isMutating) return;
+    if (interactionLockedRef.current) return;
     const expectedScopeEpoch = scopeEpoch.current;
     const expectedTierEpoch = activeTierEpoch.current;
     const expectedTier = activeTierRef.current;
     const expectedRunId = runRef.current?.id;
+    const mutationOwner = beginMutation("revalidate", expectedRunId ?? null);
+    if (!mutationOwner) return;
     const ownsRequest = () => expectedScopeEpoch === scopeEpoch.current
       && expectedTierEpoch === activeTierEpoch.current
       && activeTierRef.current === expectedTier
-      && runRef.current?.id === expectedRunId;
-    setIsMutating(true);
+      && runRef.current?.id === expectedRunId
+      && mutationOwnerRef.current?.id === mutationOwner.id;
     try {
       const refreshed = await api.revalidateAnalysisFinding(finding.id);
       if (!ownsRequest()) return;
@@ -630,9 +706,9 @@ function StorageCleanupPanel({
     } catch (revalidateError) {
       if (ownsRequest()) reportError(revalidateError);
     } finally {
-      if (ownsRequest()) setIsMutating(false);
+      releaseMutation(mutationOwner);
     }
-  }, [api, commitSelection, isAiWorking, isMutating, loadFindings, reportError]);
+  }, [api, beginMutation, commitSelection, loadFindings, releaseMutation, reportError]);
 
   const toggleFinding = useCallback((finding: AnalysisFinding) => {
     if (interactionLockedRef.current) return;
@@ -680,7 +756,7 @@ function StorageCleanupPanel({
   }, [selectedFindings]);
 
   const previewSelected = useCallback(async () => {
-    if (!run || !api.previewCleanupOperations || !selectedFindings.length || isAiWorking || isMutating) return;
+    if (!run || !api.previewCleanupOperations || !selectedFindings.length || interactionLockedRef.current) return;
     const expectedScopeEpoch = scopeEpoch.current;
     const runId = run.id;
     const runRevision = run.revision;
@@ -700,14 +776,16 @@ function StorageCleanupPanel({
     const selectionFingerprint = cleanupSelectionFingerprint(runId, selections);
     const expectedPreviewRequestEpoch = previewRequestEpoch.current + 1;
     previewRequestEpoch.current = expectedPreviewRequestEpoch;
-    setIsMutating(true);
+    const mutationOwner = beginMutation("preview", runId);
+    if (!mutationOwner) return;
     setError("");
     const ownsRequest = () => expectedScopeEpoch === scopeEpoch.current
       && expectedAiOperationEpoch === aiOperationEpoch.current
       && expectedSelectionRevision === selectionRevision.current
       && expectedPreviewRequestEpoch === previewRequestEpoch.current
       && runRef.current?.id === runId
-      && runRef.current.revision === runRevision;
+      && runRef.current.revision === runRevision
+      && mutationOwnerRef.current?.id === mutationOwner.id;
     try {
       const result = await api.previewCleanupOperations(runId, selections);
       if (!ownsRequest()) return;
@@ -716,15 +794,14 @@ function StorageCleanupPanel({
     } catch (previewError) {
       if (ownsRequest()) reportError(previewError);
     } finally {
-      if (ownsRequest()) setIsMutating(false);
+      releaseMutation(mutationOwner);
     }
-  }, [api, buildSelections, isAiWorking, isMutating, mutationUnavailable, reportError, run, selectedFindings.length, t]);
+  }, [api, beginMutation, buildSelections, mutationUnavailable, releaseMutation, reportError, run, selectedFindings.length, t]);
 
   const moveSelectedToSafeTrash = useCallback(async () => {
-    if (!run || !api.moveCleanupCandidatesToSafeTrash || !preview || !selectedFindings.length || isAiWorking || isMutating) return;
+    if (!run || !api.moveCleanupCandidatesToSafeTrash || !preview || !selectedFindings.length || interactionLockedRef.current) return;
     const expectedScopeEpoch = scopeEpoch.current;
     const runId = run.id;
-    const runRevision = run.revision;
     const expectedAiOperationEpoch = aiOperationEpoch.current;
     const expectedSelectionRevision = selectionRevision.current;
     const selections = (() => {
@@ -741,14 +818,15 @@ function StorageCleanupPanel({
       invalidatePreviewState();
       return;
     }
-    setIsMutating(true);
+    const mutationOwner = beginMutation("safe_trash", runId);
+    if (!mutationOwner) return;
     setError("");
     const ownsRequest = () => expectedScopeEpoch === scopeEpoch.current
       && expectedAiOperationEpoch === aiOperationEpoch.current
       && expectedSelectionRevision === selectionRevision.current
       && previewSelectionFingerprint.current === selectionFingerprint
       && runRef.current?.id === runId
-      && runRef.current.revision === runRevision;
+      && mutationOwnerRef.current?.id === mutationOwner.id;
     try {
       const result = await api.moveCleanupCandidatesToSafeTrash(runId, selections);
       if (!ownsRequest()) return;
@@ -763,9 +841,9 @@ function StorageCleanupPanel({
     } catch (executionError) {
       if (ownsRequest()) reportError(executionError);
     } finally {
-      if (ownsRequest()) setIsMutating(false);
+      releaseMutation(mutationOwner);
     }
-  }, [api, buildSelections, invalidatePreviewState, isAiWorking, isMutating, loadRunDetails, preview, reportError, run, selectedFindings.length]);
+  }, [api, beginMutation, buildSelections, invalidatePreviewState, loadRunDetails, preview, releaseMutation, reportError, run, selectedFindings.length]);
 
   const reconcileUpdatedFindings = useCallback((updatedFindings: AnalysisFinding[]) => {
     if (!updatedFindings.length) return;
@@ -808,13 +886,13 @@ function StorageCleanupPanel({
   }, [removeSelectionsForIds]);
 
   const changeActiveTier = useCallback((nextTier: CleanupTier) => {
+    if (interactionLockedRef.current) return;
     if (nextTier === activeTierRef.current) return;
     activeTierRef.current = nextTier;
     activeTierEpoch.current += 1;
     findingsEpoch.current += 1;
     invalidatePreviewState();
     setReviewFinding(null);
-    setIsMutating(false);
     setActiveTier(nextTier);
   }, [invalidatePreviewState]);
 
@@ -823,7 +901,7 @@ function StorageCleanupPanel({
       reportError(t("storageCleanupAIUnsupported"));
       return;
     }
-    if (isAiWorking || isMutating) return;
+    if (interactionLockedRef.current) return;
     const expectedScopeEpoch = scopeEpoch.current;
     const expectedTierEpoch = activeTierEpoch.current;
     const expectedTier = activeTierRef.current;
@@ -831,14 +909,23 @@ function StorageCleanupPanel({
     const reviewRunRevision = run.revision;
     const operationEpoch = aiOperationEpoch.current + 1;
     aiOperationEpoch.current = operationEpoch;
+    const operation: AiOperation = {
+      id: ++aiOperationSequenceRef.current,
+      epoch: operationEpoch,
+      scopeEpoch: expectedScopeEpoch,
+      tierEpoch: expectedTierEpoch,
+      tier: expectedTier,
+      runId: reviewRunId,
+      cancelRequested: false
+    };
+    aiOperationRef.current = operation;
     previewRequestEpoch.current += 1;
     previewSelectionFingerprint.current = null;
     setPreview(null);
     setConfirmPreviewOpen(false);
     setExecutionResult(null);
     setReviewFinding(null);
-    aiCancelRequested.current = false;
-    setIsAiWorking(true);
+    updateAiWorkState("running");
     setAiStatus("");
     let processed = 0;
     let skipped = 0;
@@ -849,6 +936,8 @@ function StorageCleanupPanel({
       && expectedTierEpoch === activeTierEpoch.current
       && activeTierRef.current === expectedTier
       && operationEpoch === aiOperationEpoch.current
+      && aiOperationRef.current?.id === operation.id
+      && !operation.cancelRequested
       && runRef.current?.id === reviewRunId
       && runRef.current.revision >= reviewRunRevision;
     const canceledStatus = () => replaceCopy("storageCleanupAIRecheckCanceledSummary", {
@@ -859,10 +948,9 @@ function StorageCleanupPanel({
       readbackFailed
     });
     const stopAfterCancellation = () => {
-      if (!aiCancelRequested.current) return false;
-      if (expectedScopeEpoch === scopeEpoch.current) {
+      if (!operation.cancelRequested) return false;
+      if (aiOperationRef.current?.id === operation.id && expectedScopeEpoch === scopeEpoch.current) {
         setAiStatus(canceledStatus());
-        setIsAiWorking(false);
       }
       return true;
     };
@@ -875,11 +963,11 @@ function StorageCleanupPanel({
       const ids: string[] = [];
       let cursor: string | null = null;
       do {
-        if (!ownsOperation()) return;
-        if (aiCancelRequested.current) {
-          setAiStatus(t("storageCleanupAIRecheckCanceled"));
+        if (operation.cancelRequested) {
+          setAiStatus(canceledStatus());
           return;
         }
+        if (!ownsOperation()) return;
         setAiStatus(replaceCopy("storageCleanupAIRecheckCollecting", { count: ids.length }));
         const page: AnalysisFindingPage | undefined = await api.listAnalysisFindings?.({
           runId: reviewRunId,
@@ -900,11 +988,11 @@ function StorageCleanupPanel({
         return;
       }
       for (let offset = 0; offset < ids.length; offset += AI_RECHECK_BATCH_SIZE) {
-        if (!ownsOperation()) return;
-        if (aiCancelRequested.current) {
+        if (operation.cancelRequested) {
           setAiStatus(canceledStatus());
           return;
         }
+        if (!ownsOperation()) return;
         const batch = ids.slice(offset, offset + AI_RECHECK_BATCH_SIZE);
         setAiStatus(replaceCopy("storageCleanupAIRecheckWorkingProgress", { processed, total: ids.length }));
         let updatedIds: string[] = [];
@@ -957,16 +1045,21 @@ function StorageCleanupPanel({
       if (stopAfterCancellation()) return;
       if (ownsOperation()) reportError(aiError);
     } finally {
-      if (operationEpoch === aiOperationEpoch.current) setIsAiWorking(false);
+      if (aiOperationRef.current?.id === operation.id) {
+        aiOperationRef.current = null;
+        updateAiWorkState("idle");
+      }
     }
-  }, [api, invalidateReadbackFailures, isAiWorking, isMutating, loadFindings, loadRunDetails, reconcileUpdatedFindings, removeSelectionsForIds, reportError, replaceCopy, run, t]);
+  }, [api, invalidateReadbackFailures, loadFindings, loadRunDetails, reconcileUpdatedFindings, removeSelectionsForIds, reportError, replaceCopy, run, t, updateAiWorkState]);
 
   const cancelAiRecheck = useCallback(() => {
-    aiCancelRequested.current = true;
+    const operation = aiOperationRef.current;
+    if (!operation || aiWorkStateRef.current !== "running") return;
+    operation.cancelRequested = true;
     aiOperationEpoch.current += 1;
     setAiStatus(t("storageCleanupAIRecheckCanceling"));
-    setIsAiWorking(false);
-  }, [t]);
+    updateAiWorkState("canceling");
+  }, [t, updateAiWorkState]);
 
   const virtualizer = useVirtualizer({
     count: findings.length,
@@ -1016,7 +1109,7 @@ function StorageCleanupPanel({
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="secondary" size="compact" onClick={() => void chooseScope().catch(() => undefined)}>
+              <Button variant="secondary" size="compact" disabled={isMutating || isAiWorking} onClick={() => void chooseScope().catch(() => undefined)}>
                 <FolderOpen size={15} aria-hidden="true" />{t("storageCleanupChooseFolder")}
               </Button>
               <Button variant="primary" size="compact" disabled={!selectedRoots.length || isMutating || isAiWorking || isRunInProgress(run)} onClick={() => void startScan().catch(() => undefined)}>
@@ -1031,10 +1124,10 @@ function StorageCleanupPanel({
             </div>
           </div>
           <div className="flex flex-wrap gap-2" aria-label={t("storageCleanupQuickScopesLabel")}>
-            <Button variant="ghost" size="compact" onClick={() => void chooseQuickScope("downloads").catch(() => undefined)}>{t("storageCleanupQuickDownloads")}</Button>
-            <Button variant="ghost" size="compact" onClick={() => void chooseQuickScope("desktop").catch(() => undefined)}>{t("storageCleanupQuickDesktop")}</Button>
-            <Button variant="ghost" size="compact" onClick={() => void chooseQuickScope("documents").catch(() => undefined)}>{t("storageCleanupQuickDocuments")}</Button>
-            <Button variant="ghost" size="compact" onClick={() => void chooseQuickScope("temp").catch(() => undefined)}>{t("storageCleanupQuickTemp")}</Button>
+            <Button variant="ghost" size="compact" disabled={isMutating || isAiWorking} onClick={() => void chooseQuickScope("downloads").catch(() => undefined)}>{t("storageCleanupQuickDownloads")}</Button>
+            <Button variant="ghost" size="compact" disabled={isMutating || isAiWorking} onClick={() => void chooseQuickScope("desktop").catch(() => undefined)}>{t("storageCleanupQuickDesktop")}</Button>
+            <Button variant="ghost" size="compact" disabled={isMutating || isAiWorking} onClick={() => void chooseQuickScope("documents").catch(() => undefined)}>{t("storageCleanupQuickDocuments")}</Button>
+            <Button variant="ghost" size="compact" disabled={isMutating || isAiWorking} onClick={() => void chooseQuickScope("temp").catch(() => undefined)}>{t("storageCleanupQuickTemp")}</Button>
           </div>
         </section>
 
@@ -1113,9 +1206,12 @@ function StorageCleanupPanel({
                 <p className={sectionDescription}>{t("storageCleanupFindingsDescription")}</p>
               </div>
               {activeTier === "review" && api.analyzeCleanupCandidatesWithAI ? (
-                <Button variant="secondary" size="compact" disabled={!isAiWorking && (isMutating || !run.reviewCount)} onClick={() => isAiWorking ? cancelAiRecheck() : void recheckReviewFindings().catch(() => undefined)}>
-                  {isAiWorking ? <LoaderCircle size={14} className="animate-spin" aria-hidden="true" /> : <Sparkles size={14} aria-hidden="true" />}
-                  {isAiWorking ? t("storageCleanupAIRecheckCancel") : t("storageCleanupAIRecheck")}
+                <Button variant="secondary" size="compact" disabled={aiWorkState === "canceling" || isMutating || (aiWorkState === "idle" && !run.reviewCount)} onClick={() => {
+                  if (aiWorkState === "running") cancelAiRecheck();
+                  else if (aiWorkState === "idle") void recheckReviewFindings().catch(() => undefined);
+                }}>
+                  {aiWorkState !== "idle" ? <LoaderCircle size={14} className="animate-spin" aria-hidden="true" /> : <Sparkles size={14} aria-hidden="true" />}
+                  {aiWorkState === "running" ? t("storageCleanupAIRecheckCancel") : aiWorkState === "canceling" ? t("storageCleanupAIRecheckCanceling") : t("storageCleanupAIRecheck")}
                 </Button>
               ) : null}
             </div>
@@ -1123,6 +1219,7 @@ function StorageCleanupPanel({
             <SegmentedControl
               value={activeTier}
               ariaLabel={t("storageCleanupFindingTabsLabel")}
+              disabled={isMutating || isAiWorking}
               onChange={changeActiveTier}
               options={[
                 { value: "safe", label: replaceCopy("storageCleanupTierTab", { label: t("storageCleanupSafeTier"), count: run.safeCount }) },

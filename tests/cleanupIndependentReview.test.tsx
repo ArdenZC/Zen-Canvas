@@ -207,85 +207,102 @@ describe("Cleanup independent review behavior", () => {
     expect(requests[1]?.requestKey).not.toBe(requests[0]?.requestKey);
   });
 
-  it("releases the old scan intent when the scope changes while the start request is pending", async () => {
+  it("keeps the cleanup scope locked while the start request is pending", async () => {
     const runA = makeRun("run-scan-old", "completed", 0, { paths: ["C:/RootA"] });
-    const runB = makeRun("run-scan-new", "completed", 0, { paths: ["C:/RootB"] });
     const requests: Array<{ scope?: { paths?: string[] }; requestKey?: string | null }> = [];
     let resolveOld: (run: AnalysisRun) => void = () => undefined;
     const startAnalysisRun = vi.fn((request: { scope?: { paths?: string[] }; requestKey?: string | null }) => {
       requests.push(request);
-      if (requests.length === 1) return new Promise<AnalysisRun>((resolve) => { resolveOld = resolve; });
-      return Promise.resolve(runB);
+      return new Promise<AnalysisRun>((resolve) => { resolveOld = resolve; });
     });
     const api = commonApi(runA, {
       listAnalysisRuns: async () => [],
       startAnalysisRun,
-      getAnalysisRun: vi.fn(async (id: string) => id === runB.id ? runB : runA)
+      getAnalysisRun: vi.fn(async () => runA)
     });
-    dialogMocks.open.mockResolvedValue("C:/RootB");
-
     await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/RootA"], api, t })));
     await flush(3);
     await act(async () => scopeButton().click());
     await flush(2);
-    await act(async () => button(t("storageCleanupChooseFolder")).click());
-    await flush(3);
-    await act(async () => scopeButton().click());
-    await flush(6);
-
-    expect(startAnalysisRun).toHaveBeenCalledTimes(2);
-    expect(requests[1]?.scope?.paths).toEqual(["C:/RootB"]);
+    expect(startAnalysisRun).toHaveBeenCalledOnce();
+    expect(button(t("storageCleanupChooseFolder")).disabled).toBe(true);
+    expect(scopeButton().disabled).toBe(true);
     resolveOld(runA);
-    await flush(6);
-    expect(container.querySelector(`[data-analysis-run-id="${runB.id}"]`)).not.toBeNull();
-    expect(container.textContent).toContain("C:/RootB");
+    await flush(8);
+    expect(container.querySelector(`[data-analysis-run-id="${runA.id}"]`)).not.toBeNull();
+    expect(scopeButton().disabled).toBe(false);
   });
 
-  it("does not surface a stale scope scan error after the newer scope succeeds", async () => {
+  it("does not let a settled scan finally clear a newer cancel mutation lock", async () => {
+    const running = makeRun("run-scan-cancel-owner", "running");
+    const canceled = { ...running, status: "cancelled", phase: "completed" as const };
+    let resolveStartDetails: (run: AnalysisRun) => void = () => undefined;
+    let resolveCancelDetails: (run: AnalysisRun) => void = () => undefined;
+    let detailCalls = 0;
+    const startAnalysisRun = vi.fn(async () => running);
+    const cancelAnalysisRun = vi.fn(async () => canceled);
+    const api = commonApi(running, {
+      listAnalysisRuns: async () => [],
+      startAnalysisRun,
+      cancelAnalysisRun,
+      getAnalysisRun: vi.fn(() => {
+        detailCalls += 1;
+        return new Promise<AnalysisRun>((resolve) => {
+          if (detailCalls === 1) resolveStartDetails = resolve;
+          else resolveCancelDetails = resolve;
+        });
+      })
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/Root"], api, t })));
+    await flush(3);
+    await act(async () => scopeButton().click());
+    await vi.waitFor(() => expect(startAnalysisRun).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(button(t("storageCleanupCancelScan"))).toBeDefined());
+
+    await act(async () => button(t("storageCleanupCancelScan")).click());
+    await vi.waitFor(() => expect(cancelAnalysisRun).toHaveBeenCalledOnce());
+    expect(scopeButton().disabled).toBe(true);
+
+    resolveStartDetails(running);
+    await flush(6);
+    expect(scopeButton().disabled).toBe(true);
+
+    resolveCancelDetails(canceled);
+    await flush(8);
+    expect(scopeButton().disabled).toBe(false);
+  });
+
+  it("reports a pending scan failure and releases the cleanup mutation lock", async () => {
     const runA = makeRun("run-scan-error-old", "completed", 0, { paths: ["C:/RootA"] });
-    const runB = makeRun("run-scan-error-new", "completed", 0, { paths: ["C:/RootB"] });
-    const requests: Array<{ scope?: { paths?: string[] }; requestKey?: string | null }> = [];
     let rejectOld: (error: unknown) => void = () => undefined;
     const startAnalysisRun = vi.fn((request: { scope?: { paths?: string[] }; requestKey?: string | null }) => {
-      requests.push(request);
-      if (requests.length === 1) return new Promise<AnalysisRun>((_, reject) => { rejectOld = reject; });
-      return Promise.resolve(runB);
+      return new Promise<AnalysisRun>((_, reject) => { rejectOld = reject; });
     });
     const onError = vi.fn();
     const api = commonApi(runA, {
       listAnalysisRuns: async () => [],
       startAnalysisRun,
-      getAnalysisRun: vi.fn(async (id: string) => id === runB.id ? runB : runA)
+      getAnalysisRun: vi.fn(async () => runA)
     });
-    dialogMocks.open.mockResolvedValue("C:/RootB");
-
     await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/RootA"], api, t, onError })));
     await flush(3);
     await act(async () => scopeButton().click());
     await flush(2);
-    await act(async () => button(t("storageCleanupChooseFolder")).click());
-    await flush(3);
-    await act(async () => scopeButton().click());
-    await flush(8);
-
-    expect(startAnalysisRun).toHaveBeenCalledTimes(2);
-    expect(container.querySelector(`[data-analysis-run-id="${runB.id}"]`)).not.toBeNull();
-    expect(scopeButton().disabled).toBe(false);
+    expect(startAnalysisRun).toHaveBeenCalledOnce();
+    expect(scopeButton().disabled).toBe(true);
 
     rejectOld(new Error("scope_a_failed"));
     await flush(8);
 
-    expect(container.querySelector(`[data-analysis-run-id="${runB.id}"]`)).not.toBeNull();
-    expect(container.textContent).not.toContain("scope_a_failed");
-    expect(onError).not.toHaveBeenCalledWith(expect.stringContaining("scope_a_failed"));
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining("scope_a_failed"));
     expect(scopeButton().disabled).toBe(false);
 
     await act(async () => scopeButton().click());
-    await flush(8);
-    expect(startAnalysisRun).toHaveBeenCalledTimes(3);
+    expect(startAnalysisRun).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps a newer scope scan locked while the old scope rejects", async () => {
+  it("does not allow a second scan until the first scan settles", async () => {
     const runA = makeRun("run-scan-lock-old", "completed", 0, { paths: ["C:/RootA"] });
     const runB = makeRun("run-scan-lock-new", "completed", 0, { paths: ["C:/RootB"] });
     const requests: Array<{ scope?: { paths?: string[] }; requestKey?: string | null }> = [];
@@ -302,23 +319,21 @@ describe("Cleanup independent review behavior", () => {
       startAnalysisRun,
       getAnalysisRun: vi.fn(async (id: string) => id === runB.id ? runB : runA)
     });
-    dialogMocks.open.mockResolvedValue("C:/RootB");
-
     await act(async () => root.render(createElement(CleanupView, { initialRoots: ["C:/RootA"], api, t, onError })));
     await flush(3);
     await act(async () => scopeButton().click());
     await flush(2);
-    await act(async () => button(t("storageCleanupChooseFolder")).click());
-    await flush(3);
-    await act(async () => scopeButton().click());
-    await flush(4);
-
-    expect(startAnalysisRun).toHaveBeenCalledTimes(2);
+    expect(startAnalysisRun).toHaveBeenCalledOnce();
+    expect(scopeButton().disabled).toBe(true);
     rejectOld(new Error("scope_a_failed"));
     await flush(6);
-    expect(onError).not.toHaveBeenCalledWith(expect.stringContaining("scope_a_failed"));
-    expect(scopeButton().disabled).toBe(true);
+    expect(onError).toHaveBeenCalledWith(expect.stringContaining("scope_a_failed"));
+    expect(scopeButton().disabled).toBe(false);
 
+    await act(async () => scopeButton().click());
+    await flush(3);
+    expect(startAnalysisRun).toHaveBeenCalledTimes(2);
+    expect(scopeButton().disabled).toBe(true);
     resolveNew(runB);
     await flush(8);
     expect(container.querySelector(`[data-analysis-run-id="${runB.id}"]`)).not.toBeNull();
@@ -408,17 +423,27 @@ describe("Cleanup independent review behavior", () => {
     await flush();
     await act(async () => button("需人工判断").click());
     await flush();
+    const staleStartHandler = reactOnClick(button("重新核验需确认项目"));
     await act(async () => button("重新核验需确认项目").click());
     await flush(5);
     expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce();
 
     await act(async () => button("停止重新核验").click());
+    expect(button(t("storageCleanupAIRecheckCanceling")).disabled).toBe(true);
+    await act(async () => staleStartHandler?.());
+    expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce();
     resolveBatch([]);
     await flush(5);
 
     expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("重新核验已停止");
     expect(container.textContent).not.toContain("停止重新核验");
+
+    await act(async () => button("重新核验需确认项目").click());
+    await flush(5);
+    expect(analyzeCleanupCandidatesWithAI).toHaveBeenCalledTimes(2);
+    resolveBatch([]);
+    await flush(5);
   });
 
   it("keeps an AI operation owned by the same run when the durable run revision advances", async () => {
@@ -535,6 +560,56 @@ describe("Cleanup independent review behavior", () => {
 
     resolvePreview({ total: 1, previews: [], truncated: false, hasMore: false });
     await flush(8);
+  });
+
+  it("keeps Safe Trash mutation ownership through completion", async () => {
+    const run = makeRun("run-safe-trash-lock", "completed", 1);
+    const finding = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
+    let resolveMove: (value: { moved: number; skipped: number; failed: number }) => void = () => undefined;
+    const previewCleanupOperations = vi.fn(async () => ({ total: 1, previews: [], truncated: false, hasMore: false }));
+    const moveCleanupCandidatesToSafeTrash = vi.fn(() => new Promise<{ moved: number; skipped: number; failed: number }>((resolve) => { resolveMove = resolve; }));
+    const api = commonApi(run, {
+      listAnalysisRuns: async () => [run],
+      listAnalysisFindings: async (request: { tier?: string }) => ({ findings: request.tier === "review" ? [finding] : [], nextCursor: null, limit: 100 }),
+      getAnalysisRun: async () => run,
+      previewCleanupOperations,
+      moveCleanupCandidatesToSafeTrash
+    });
+
+    await act(async () => root.render(createElement(CleanupView, { api, t })));
+    await flush(8);
+    await act(async () => button("需人工判断").click());
+    await flush(5);
+    await act(async () => findingButton(finding.id, t("storageCleanupSelectForTrash")).click());
+    await flush(3);
+
+    const stalePreviewHandler = reactOnClick(button(t("storageCleanupMoveToSafeTrash")));
+    await act(async () => button(t("storageCleanupMoveToSafeTrash")).click());
+    await flush(5);
+    expect(previewCleanupOperations).toHaveBeenCalledOnce();
+
+    await act(async () => button(t("storageCleanupPreviewConfirm")).click());
+    await flush(3);
+    const confirmMove = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((item) => item.textContent?.includes(t("storageCleanupMoveToSafeTrash")));
+    expect(confirmMove).toBeDefined();
+    const staleMoveHandler = reactOnClick(confirmMove!);
+    await act(async () => confirmMove?.click());
+    await vi.waitFor(() => expect(moveCleanupCandidatesToSafeTrash).toHaveBeenCalledOnce());
+    expect(button("需人工判断").disabled).toBe(true);
+    expect(button("可安全清理").disabled).toBe(true);
+    expect(findingButton(finding.id, t("storageCleanupSelected")).disabled).toBe(true);
+    expect(container.querySelector("[data-cleanup-selection-summary]")).not.toBeNull();
+
+    await act(async () => stalePreviewHandler?.());
+    await act(async () => staleMoveHandler?.());
+    expect(previewCleanupOperations).toHaveBeenCalledOnce();
+    expect(moveCleanupCandidatesToSafeTrash).toHaveBeenCalledOnce();
+
+    resolveMove({ moved: 1, skipped: 0, failed: 0 });
+    await flush(10);
+    expect(container.textContent).toContain(t("storageCleanupExecutionDone"));
+    expect(container.querySelector("[data-cleanup-selection-summary]")).toBeNull();
+    expect(button("需人工判断").disabled).toBe(false);
   });
 
   it("removes a selected Review finding after AI returns an authoritative Caution revision and clears preview", async () => {
@@ -689,7 +764,7 @@ describe("Cleanup independent review behavior", () => {
     expect(container.textContent).toContain("AI 更新失败 1");
   });
 
-  it("does not let a pending AI recheck overwrite the newly selected tier", async () => {
+  it("does not let a pending AI recheck change the active tier", async () => {
     const run = makeRun("run-ai-tier-race", "completed", 1, { safeCount: 1 });
     const review = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
     const safe = makeSafeFinding(run, 1);
@@ -711,14 +786,16 @@ describe("Cleanup independent review behavior", () => {
     await flush(5);
     await act(async () => button("可安全清理").click());
     await flush(5);
+    expect(button("需人工判断").getAttribute("aria-pressed")).toBe("true");
+    expect(button("可安全清理").disabled).toBe(true);
     resolveAI([{ id: review.id }]);
     await flush(10);
 
-    expect(container.querySelector('[data-analysis-finding-id="finding-1"]')).not.toBeNull();
-    expect(container.querySelector('[data-analysis-finding-id="finding-0"]')).toBeNull();
+    expect(container.querySelector('[data-analysis-finding-id="finding-0"]')).not.toBeNull();
+    expect(container.querySelector('[data-analysis-finding-id="finding-1"]')).toBeNull();
   });
 
-  it("does not let a pending Review acknowledgement write into the newly selected Caution tier", async () => {
+  it("does not let a pending Review acknowledgement change the active tier", async () => {
     const run = makeRun("run-ack-tier-race", "completed", 1);
     const review = makeFinding(run, 0);
     const caution = { ...review, id: "finding-caution", tier: "caution" as const, category: "caution" as const, executable: false, requiresConfirmation: false, revision: 2 };
@@ -748,14 +825,16 @@ describe("Cleanup independent review behavior", () => {
 
     await act(async () => button("谨慎处理").click());
     await flush(5);
+    expect(button("需人工判断").getAttribute("aria-pressed")).toBe("true");
+    expect(button("谨慎处理").disabled).toBe(true);
     resolveDecision({ decision: "acknowledged" });
     await flush(8);
 
-    expect(container.querySelector('[data-analysis-finding-id="finding-0"]')).toBeNull();
-    expect(container.querySelector('[data-analysis-finding-id="finding-caution"]')).not.toBeNull();
+    expect(container.querySelector('[data-analysis-finding-id="finding-0"]')).not.toBeNull();
+    expect(container.querySelector('[data-analysis-finding-id="finding-caution"]')).toBeNull();
   });
 
-  it("does not let a pending stale-finding revalidation write into the newly selected tier", async () => {
+  it("does not let a pending stale-finding revalidation change the active tier", async () => {
     const run = makeRun("run-revalidate-tier-race", "completed", 1, { safeCount: 1 });
     const staleReview = { ...makeFinding(run, 0), status: "stale" as const };
     const safe = makeSafeFinding(run, 1);
@@ -782,11 +861,13 @@ describe("Cleanup independent review behavior", () => {
 
     await act(async () => button("可安全清理").click());
     await flush(5);
+    expect(button("需人工判断").getAttribute("aria-pressed")).toBe("true");
+    expect(button("可安全清理").disabled).toBe(true);
     resolveRevalidation({ ...staleReview, status: "active", revision: 2 });
     await flush(8);
 
-    expect(container.querySelector('[data-analysis-finding-id="finding-1"]')).not.toBeNull();
-    expect(container.querySelector('[data-analysis-finding-id="finding-0"]')).toBeNull();
+    expect(container.querySelector('[data-analysis-finding-id="finding-0"]')).not.toBeNull();
+    expect(container.querySelector('[data-analysis-finding-id="finding-1"]')).toBeNull();
   });
 
   it("keeps a selected Review finding on a new authoritative revision and uses that revision for Preview", async () => {
@@ -841,7 +922,7 @@ describe("Cleanup independent review behavior", () => {
     expect(reconcileAuthoritativeFindingUpdates(new Set([safe.id, review.id]), [])).toEqual(new Set([safe.id, review.id]));
   });
 
-  it("does not write an old AI result after the user changes cleanup scope", async () => {
+  it("keeps the cleanup scope locked while an AI result is pending", async () => {
     const run = makeRun("run-ai-scope-race", "completed", 1, { paths: ["C:/RootA"] });
     const selected = { ...makeFinding(run, 0), decision: "acknowledged" as const, decisionRevision: 1 };
     let resolveAI: (value: any[]) => void = () => undefined;
@@ -871,12 +952,13 @@ describe("Cleanup independent review behavior", () => {
 
     await act(async () => button(t("storageCleanupChooseFolder")).click());
     await flush(4);
+    expect(dialogMocks.open).not.toHaveBeenCalled();
     resolveAI([{ id: selected.id }]);
     await flush(8);
 
-    expect(getAnalysisFinding).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("C:/RootB");
-    expect(container.querySelector(`[data-analysis-run-id="${run.id}"]`)).toBeNull();
+    expect(getAnalysisFinding).toHaveBeenCalledWith(selected.id);
+    expect(container.textContent).toContain("C:/RootA");
+    expect(container.querySelector(`[data-analysis-run-id="${run.id}"]`)).not.toBeNull();
   });
 
   it("clears the old run, selection, preview, and execution surface when a folder scope changes", async () => {
