@@ -370,12 +370,16 @@ describe("Task 06 File Library handoff interactions", () => {
     await act(async () => rowA.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })));
     const contentMenuItem = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Open Content Understanding"));
     await act(async () => contentMenuItem?.click());
-    failedRequest.reject(new Error("content_detail_failed"));
+    const rawBackendError = "sqlite_error: C:\\Users\\name\\secret.db internal_code_42";
+    failedRequest.reject(new Error(rawBackendError));
 
-    await vi.waitFor(() => expect(chrome.onError).toHaveBeenCalledWith("content_detail_failed"));
+    await vi.waitFor(() => expect(chrome.onError).toHaveBeenCalledWith(rawBackendError));
     expect(container.querySelector('[data-content-sheet-id="file-one"]')).toBeNull();
     expect(container.textContent).toContain("Unable to load file details");
-    expect(container.textContent).toContain("content_detail_failed");
+    expect(container.textContent).toContain("File details could not be loaded");
+    expect(container.textContent).not.toContain("secret.db");
+    expect(container.textContent).not.toContain("internal_code_42");
+    expect(container.textContent).not.toContain(rawBackendError);
     await flushFocus();
     expect(document.activeElement).toBe(container.querySelector<HTMLElement>('[role="listbox"]'));
     const retry = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "Retry details");
