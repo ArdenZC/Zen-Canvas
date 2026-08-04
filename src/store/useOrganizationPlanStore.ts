@@ -23,6 +23,8 @@ type GroupLoadingOwner = {
 
 export type PlanListState = "idle" | "loading" | "loaded" | "failed";
 
+export type ActivePlanState = "idle" | "opening" | "loaded" | "failed";
+
 export type OrganizationMutationResult<T = void> =
   | { applied: true; value?: T }
   | { applied: false; value?: T; reason: "superseded" };
@@ -38,6 +40,10 @@ interface OrganizationPlanState {
   executionResult: ExecuteOrganizationPlanResult | null;
   planListState: PlanListState;
   planListError: string | null;
+  planListRequestEpoch: number;
+  activePlanState: ActivePlanState;
+  openPlanError: string | null;
+  openPlanErrorPlanId: string | null;
   createPlanError: string | null;
   isPlanListLoading: boolean;
   isLoading: boolean;
@@ -136,6 +142,10 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   executionResult: null,
   planListState: "idle",
   planListError: null,
+  planListRequestEpoch: 0,
+  activePlanState: "idle",
+  openPlanError: null,
+  openPlanErrorPlanId: null,
   createPlanError: null,
   isPlanListLoading: false,
   isLoading: false,
@@ -147,10 +157,14 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   groupLoadingOwner: null,
 
   loadPlans: async () => {
-    set({ planListState: "loading", planListError: null, isPlanListLoading: true });
+    const planListRequestEpoch = get().planListRequestEpoch + 1;
+    set({ planListRequestEpoch, planListState: "loading", planListError: null, isPlanListLoading: true });
     try {
-      set({ plans: await tauriApi.listOrganizationPlans(), planListState: "loaded", planListError: null, isPlanListLoading: false });
+      const plans = await tauriApi.listOrganizationPlans();
+      if (get().planListRequestEpoch !== planListRequestEpoch) return;
+      set({ plans, planListState: "loaded", planListError: null, isPlanListLoading: false });
     } catch (error) {
+      if (get().planListRequestEpoch !== planListRequestEpoch) return;
       set({ planListState: "failed", planListError: readableError(error), isPlanListLoading: false });
     }
   },
@@ -198,7 +212,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     const epoch = get().requestEpoch + 1;
     const groupRequestEpoch = get().groupRequestEpoch + 1;
     const loadingOwner: GroupLoadingOwner = { kind: "open_plan", epoch: groupRequestEpoch, planId, planRevision: null, cursor: null };
-    set({ requestEpoch: epoch, groupRequestEpoch, groupLoadingOwner: loadingOwner, isLoading: true, isMutating: false, error: null, groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null });
+    set({ activePlan: null, requestEpoch: epoch, groupRequestEpoch, groupLoadingOwner: loadingOwner, activePlanState: "opening", openPlanError: null, openPlanErrorPlanId: planId, isLoading: true, isMutating: false, error: null, groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null });
     try {
       const [plan, groupPage] = await Promise.all([
         tauriApi.getOrganizationPlan(planId),
@@ -213,11 +227,16 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         groups: groupPage.groups,
         groupNextCursor: groupPage.nextCursor,
         groupHasMore: groupPage.hasMore,
+        activePlanState: "loaded",
+        openPlanError: null,
+        openPlanErrorPlanId: null,
         isLoading: false,
         groupLoadingOwner: null
       }));
     } catch (error) {
-      if (epoch === get().requestEpoch && get().groupLoadingOwner === loadingOwner) set({ isLoading: false, groupLoadingOwner: null, error: readableError(error) });
+      if (epoch === get().requestEpoch && get().groupLoadingOwner === loadingOwner) {
+        set({ activePlanState: "failed", openPlanError: readableError(error), openPlanErrorPlanId: planId, isLoading: false, groupLoadingOwner: null });
+      }
     }
   },
 
@@ -391,6 +410,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   createDryRun: async (selection = { allAccepted: true, itemIds: [] }) => {
     const state = get();
     const plan = state.activePlan;
+    if (!plan && state.groupLoadingOwner?.kind === "open_plan") return superseded();
     if (!plan) throw new Error("organization_plan_not_selected");
     if (!selection.allAccepted && selection.itemIds.length === 0) throw new Error("organization_selection_required");
     if (state.isMutating || state.groupLoadingOwner?.kind === "open_plan") return superseded();
@@ -481,5 +501,5 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     }
   },
 
-  clearError: () => set({ error: null, planListError: null, createPlanError: null })
+  clearError: () => set({ error: null, planListError: null, openPlanError: null, createPlanError: null })
 }));

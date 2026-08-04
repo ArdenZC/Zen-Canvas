@@ -73,6 +73,9 @@ export function OrganizeSuggestionsView() {
   const executionResult = useOrganizationPlanStore((state) => state.executionResult);
   const planListState = useOrganizationPlanStore((state) => state.planListState);
   const planListError = useOrganizationPlanStore((state) => state.planListError);
+  const activePlanState = useOrganizationPlanStore((state) => state.activePlanState);
+  const openPlanError = useOrganizationPlanStore((state) => state.openPlanError);
+  const openPlanErrorPlanId = useOrganizationPlanStore((state) => state.openPlanErrorPlanId);
   const createPlanError = useOrganizationPlanStore((state) => state.createPlanError);
   const isPlanListLoading = useOrganizationPlanStore((state) => state.isPlanListLoading);
   const isLoading = useOrganizationPlanStore((state) => state.isLoading);
@@ -137,8 +140,8 @@ export function OrganizeSuggestionsView() {
   }, [loadPlans]);
 
   useEffect(() => {
-    if (!plan && plans[0]) void openPlan(plans[0].id).catch(() => undefined);
-  }, [openPlan, plan, plans]);
+    if (!plan && planListState === "loaded" && activePlanState === "idle" && plans[0]) void openPlan(plans[0].id).catch(() => undefined);
+  }, [activePlanState, openPlan, plan, planListState, plans]);
 
   const activeGroup = groups.find((group) => group.groupId === activeGroupId) ?? null;
 
@@ -153,6 +156,7 @@ export function OrganizeSuggestionsView() {
   const canDryRun = Boolean(plan && ["ready", "partially_completed"].includes(plan.status) && plan.summary.remainingExecutable > 0);
   const needsAnalysisCount = plan?.summary.needsAnalysis ?? 0;
   const dryRunBatch = dryRun ? organizationExecutionBatchSummary(dryRun.executableCount, dryRun.executionBatchLimit) : null;
+  const openPlanSelectionId = openPlanErrorPlanId ?? plans[0]?.id ?? "";
 
   const virtualizer = useVirtualizer({
     count: visibleGroups.length,
@@ -487,10 +491,25 @@ export function OrganizeSuggestionsView() {
         </section>
       ) : null}
 
-      {!plan && planListState === "loaded" && plans.length > 0 ? (
+      {!plan && planListState === "loaded" && plans.length > 0 && activePlanState === "opening" ? (
         <section className="grid min-h-0 flex-1 place-items-center">
           <div className="w-full max-w-xl">
-            <DurableTaskStatus state="running" title={t("organizePlanListLoading")} description={t("organizeLoadingSuggestionsDesc")} />
+            <DurableTaskStatus state="running" title={t("organizePlanOpening")} description={t("organizePlanOpeningDesc")} />
+            {plans.length > 1 ? <label className="mt-4 grid gap-1 text-sm text-[var(--zc-text-secondary)]" htmlFor="organization-plan-open-selector"><span>{t("organizePlanSelectorLabel")}</span><select id="organization-plan-open-selector" className={cn(inputSurface, "min-h-[var(--zc-control-height-default)] px-3 text-sm")} value={openPlanSelectionId} onChange={(event) => void openPlan(event.target.value).catch(() => undefined)}>{plans.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label> : null}
+          </div>
+        </section>
+      ) : null}
+
+      {!plan && planListState === "loaded" && plans.length > 0 && activePlanState === "failed" ? (
+        <section className="grid min-h-0 flex-1 place-items-center">
+          <div className="w-full max-w-xl">
+            {plans.length > 1 ? <label className="mb-4 grid gap-1 text-sm text-[var(--zc-text-secondary)]" htmlFor="organization-plan-open-selector"><span>{t("organizePlanSelectorLabel")}</span><select id="organization-plan-open-selector" className={cn(inputSurface, "min-h-[var(--zc-control-height-default)] px-3 text-sm")} value={openPlanSelectionId} onChange={(event) => void openPlan(event.target.value).catch(() => undefined)}>{plans.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label> : null}
+            <StateBlock
+              tone="error"
+              title={t("organizePlanOpenFailedTitle")}
+              description={[t("organizePlanOpenFailedDesc"), openPlanError].filter(Boolean).join(" ")}
+              primaryAction={<Button variant="secondary" onClick={() => void openPlan(openPlanSelectionId).catch(() => undefined)}>{t("organizePlanOpenRetry")}</Button>}
+            />
           </div>
         </section>
       ) : null}

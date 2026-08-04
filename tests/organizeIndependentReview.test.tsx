@@ -12,6 +12,7 @@ import { OrganizeSuggestionsView } from "../src/views/organize/OrganizeSuggestio
 
 const apiMocks = vi.hoisted(() => ({
   listOrganizationPlans: vi.fn(),
+  getOrganizationPlan: vi.fn(),
   createOrganizationPlan: vi.fn(),
   queryOrganizationPlanGroupItems: vi.fn(),
   queryOrganizationPlanGroups: vi.fn(),
@@ -22,6 +23,7 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock("../src/api/tauriApi", () => ({
   tauriApi: {
     listOrganizationPlans: apiMocks.listOrganizationPlans,
+    getOrganizationPlan: apiMocks.getOrganizationPlan,
     createOrganizationPlan: apiMocks.createOrganizationPlan,
     queryOrganizationPlanGroupItems: apiMocks.queryOrganizationPlanGroupItems,
     queryOrganizationPlanGroups: apiMocks.queryOrganizationPlanGroups,
@@ -32,6 +34,7 @@ vi.mock("../src/api/tauriApi", () => ({
 
 const t = makeTranslator("zh");
 const chrome = { t, setView: vi.fn(), language: "zh", view: "organize" } as unknown as ChromeContextValue;
+const realOpenPlan = useOrganizationPlanStore.getState().openPlan;
 let root: Root;
 let container: HTMLDivElement;
 const nativeGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
@@ -217,6 +220,10 @@ describe("Organize independent review behavior", () => {
       groupNextCursor: null,
       planListState: "loaded",
       planListError: null,
+      planListRequestEpoch: 0,
+      activePlanState: "loaded",
+      openPlanError: null,
+      openPlanErrorPlanId: null,
       createPlanError: null,
       isPlanListLoading: false,
       isLoading: false,
@@ -310,7 +317,7 @@ describe("Organize independent review behavior", () => {
 
   it("keeps the create form hidden when Plan List loading fails and retries only the list", async () => {
     apiMocks.listOrganizationPlans.mockRejectedValueOnce(new Error("plan_list_failed"));
-    useOrganizationPlanStore.setState({ plans: [], activePlan: null, groups: [], planListState: "idle", planListError: null, createPlanError: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null });
+    useOrganizationPlanStore.setState({ plans: [], activePlan: null, groups: [], planListState: "idle", planListError: null, activePlanState: "idle", openPlanError: null, openPlanErrorPlanId: null, createPlanError: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null });
 
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
@@ -330,7 +337,7 @@ describe("Organize independent review behavior", () => {
 
   it("opens the first plan after a successful Plan List retry instead of showing creation", async () => {
     apiMocks.listOrganizationPlans.mockRejectedValueOnce(new Error("plan_list_failed")).mockResolvedValueOnce([plan]);
-    useOrganizationPlanStore.setState({ plans: [], activePlan: null, groups: [], planListState: "idle", planListError: null, createPlanError: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null });
+    useOrganizationPlanStore.setState({ plans: [], activePlan: null, groups: [], planListState: "idle", planListError: null, activePlanState: "idle", openPlanError: null, openPlanErrorPlanId: null, createPlanError: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null });
 
     await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
     await flush();
@@ -340,6 +347,52 @@ describe("Organize independent review behavior", () => {
     expect(container.querySelector("#organization-plan-title")).toBeNull();
     expect(apiMocks.createOrganizationPlan).not.toHaveBeenCalled();
     expect(useOrganizationPlanStore.getState().openPlan).toHaveBeenCalledWith(plan.id);
+  });
+
+  it("shows an existing Plan open failure with retry and lets the user choose another plan", async () => {
+    const otherPlan = { ...plan, id: "plan-other", title: "Other plan", revision: 6 };
+    apiMocks.listOrganizationPlans.mockResolvedValue([plan, otherPlan]);
+    apiMocks.getOrganizationPlan
+      .mockRejectedValueOnce(new Error("plan_open_failed"))
+      .mockResolvedValueOnce(plan)
+      .mockResolvedValueOnce(otherPlan);
+    apiMocks.queryOrganizationPlanGroups.mockImplementation(async (request: { planId: string }) => ({
+      planId: request.planId,
+      planRevision: request.planId === otherPlan.id ? otherPlan.revision : plan.revision,
+      groups: request.planId === otherPlan.id ? [readyGroup] : [reviewGroup],
+      effectiveSummary: { ready: request.planId === otherPlan.id ? 1 : 0, reviewed: 0, pendingReview: request.planId === otherPlan.id ? 0 : 1, blocked: 0 },
+      nextCursor: null,
+      hasMore: false
+    }));
+    useOrganizationPlanStore.setState({ plans: [plan, otherPlan], activePlan: null, groups: [], planListState: "loaded", planListError: null, activePlanState: "idle", openPlanError: null, openPlanErrorPlanId: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, openPlan: realOpenPlan });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(OrganizeSuggestionsView) })));
+    await flush();
+
+    expect(container.textContent).toContain(t("organizePlanOpenFailedTitle"));
+    expect(container.textContent).toContain("plan_open_failed");
+    expect(container.textContent).toContain(t("organizePlanOpenRetry"));
+    expect(container.textContent).not.toContain(t("organizePlanOpening"));
+    const failedSelector = container.querySelector<HTMLSelectElement>("#organization-plan-open-selector");
+    expect(failedSelector).not.toBeNull();
+
+    await act(async () => button(t("organizePlanOpenRetry")).click());
+    await flush();
+    expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(plan.id);
+    expect(container.textContent).not.toContain(t("organizePlanOpenFailedTitle"));
+
+    const selector = container.querySelector<HTMLSelectElement>("#organization-plan-selector");
+    expect(selector).not.toBeNull();
+
+    await act(async () => {
+      selector!.value = otherPlan.id;
+      selector!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await flush();
+
+    expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(otherPlan.id);
+    expect(container.textContent).not.toContain(t("organizePlanOpenFailedTitle"));
+    expect(container.textContent).toContain(otherPlan.title);
   });
 
   it("clears Group A items before loading Group B and leaves the workspace empty on a Group B failure", async () => {

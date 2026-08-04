@@ -29,6 +29,16 @@ const plan = {
   summary: { pendingReview: 10_000 }
 } as unknown as OrganizationPlan;
 
+function deferred<T>() {
+  let resolve: (value: T) => void = () => undefined;
+  let reject: (reason: unknown) => void = () => undefined;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("Organization Plan group-first loading", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -42,7 +52,115 @@ describe("Organization Plan group-first loading", () => {
       nextCursor: null,
       hasMore: false
     });
-    useOrganizationPlanStore.setState({ activePlan: null, plans: [], groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null, planListState: "loaded", planListError: null, createPlanError: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+    useOrganizationPlanStore.setState({ activePlan: null, plans: [], groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null, planListState: "loaded", planListError: null, planListRequestEpoch: 0, activePlanState: "idle", openPlanError: null, openPlanErrorPlanId: null, createPlanError: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+  });
+
+  it("surfaces an existing plan open failure without leaving the workspace loading", async () => {
+    apiMocks.getOrganizationPlan.mockRejectedValueOnce(new Error("plan_open_failed"));
+
+    await useOrganizationPlanStore.getState().openPlan(plan.id);
+
+    expect(useOrganizationPlanStore.getState().activePlan).toBeNull();
+    expect(useOrganizationPlanStore.getState().activePlanState).toBe("failed");
+    expect(useOrganizationPlanStore.getState().openPlanError).toContain("plan_open_failed");
+    expect(useOrganizationPlanStore.getState().openPlanErrorPlanId).toBe(plan.id);
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
+  });
+
+  it("keeps Plan List latest-wins when an older success arrives after a newer success", async () => {
+    const planA = { ...plan, id: "plan-a" };
+    const planB = { ...plan, id: "plan-b" };
+    const requestA = deferred<OrganizationPlan[]>();
+    const requestB = deferred<OrganizationPlan[]>();
+    apiMocks.listOrganizationPlans.mockReturnValueOnce(requestA.promise).mockReturnValueOnce(requestB.promise);
+
+    const loadA = useOrganizationPlanStore.getState().loadPlans();
+    const loadB = useOrganizationPlanStore.getState().loadPlans();
+    requestB.resolve([planB]);
+    await loadB;
+    requestA.resolve([planA]);
+    await loadA;
+
+    expect(useOrganizationPlanStore.getState().plans).toEqual([planB]);
+    expect(useOrganizationPlanStore.getState().planListState).toBe("loaded");
+    expect(useOrganizationPlanStore.getState().planListError).toBeNull();
+  });
+
+  it("keeps the newer Plan List success when an older request fails", async () => {
+    const planA = { ...plan, id: "plan-a" };
+    const planB = { ...plan, id: "plan-b" };
+    const requestA = deferred<OrganizationPlan[]>();
+    const requestB = deferred<OrganizationPlan[]>();
+    apiMocks.listOrganizationPlans.mockReturnValueOnce(requestA.promise).mockReturnValueOnce(requestB.promise);
+
+    const loadA = useOrganizationPlanStore.getState().loadPlans();
+    const loadB = useOrganizationPlanStore.getState().loadPlans();
+    requestB.resolve([planB]);
+    await loadB;
+    requestA.reject(new Error("old_plan_list_failed"));
+    await loadA;
+
+    expect(useOrganizationPlanStore.getState().plans).toEqual([planB]);
+    expect(useOrganizationPlanStore.getState().planListState).toBe("loaded");
+    expect(useOrganizationPlanStore.getState().planListError).toBeNull();
+  });
+
+  it("keeps the latest Plan List failure when it is newer than an older success", async () => {
+    const planA = { ...plan, id: "plan-a" };
+    const requestA = deferred<OrganizationPlan[]>();
+    const requestB = deferred<OrganizationPlan[]>();
+    apiMocks.listOrganizationPlans.mockReturnValueOnce(requestA.promise).mockReturnValueOnce(requestB.promise);
+
+    const loadA = useOrganizationPlanStore.getState().loadPlans();
+    const loadB = useOrganizationPlanStore.getState().loadPlans();
+    requestB.reject(new Error("latest_plan_list_failed"));
+    await loadB;
+    requestA.resolve([planA]);
+    await loadA;
+
+    expect(useOrganizationPlanStore.getState().plans).toEqual([]);
+    expect(useOrganizationPlanStore.getState().planListState).toBe("failed");
+    expect(useOrganizationPlanStore.getState().planListError).toContain("latest_plan_list_failed");
+    expect(useOrganizationPlanStore.getState().isPlanListLoading).toBe(false);
+  });
+
+  it("does not let a stale Plan A open error pollute the newer Plan A retry", async () => {
+    const planA = { ...plan, id: "plan-a", title: "Plan A" };
+    const planB = { ...plan, id: "plan-b", title: "Plan B", revision: 5 };
+    const firstA = deferred<OrganizationPlan>();
+    const secondA = deferred<OrganizationPlan>();
+    let planACallCount = 0;
+    apiMocks.getOrganizationPlan.mockImplementation((planId: string) => {
+      if (planId === planB.id) return Promise.resolve(planB);
+      planACallCount += 1;
+      return planACallCount === 1 ? firstA.promise : secondA.promise;
+    });
+    apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { planId: string }) => Promise.resolve({
+      planId: request.planId,
+      planRevision: request.planId === planB.id ? planB.revision : planA.revision,
+      groups: [],
+      effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 },
+      nextCursor: null,
+      hasMore: false
+    }));
+
+    const openA1 = useOrganizationPlanStore.getState().openPlan(planA.id);
+    await Promise.resolve();
+    const openB = useOrganizationPlanStore.getState().openPlan(planB.id);
+    await openB;
+    const openA2 = useOrganizationPlanStore.getState().openPlan(planA.id);
+    await Promise.resolve();
+    expect(apiMocks.getOrganizationPlan).toHaveBeenCalledTimes(3);
+
+    firstA.reject(new Error("stale_plan_a_failed"));
+    await openA1;
+    secondA.resolve(planA);
+    await openA2;
+
+    expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(planA.id);
+    expect(useOrganizationPlanStore.getState().activePlanState).toBe("loaded");
+    expect(useOrganizationPlanStore.getState().openPlanError).toBeNull();
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
   });
 
   it("opens a large plan with only basic plan and group projection requests", async () => {
