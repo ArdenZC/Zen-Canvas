@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, createElement, useState } from "react";
+import { act, createElement, useCallback, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { tauriApi } from "../src/api/tauriApi";
@@ -631,6 +631,7 @@ describe("Content Understanding independent review behavior", () => {
   it("claims terminal refresh before awaiting, retries after failure, and does not refresh twice after success", async () => {
     const run = contentRun({ status: "completed", revision: 2, completedCount: 1, completedAt: 2 });
     const refreshed = detail({ revision: 8, contentRevision: 3, contentSummary: "Retried terminal" });
+    vi.useFakeTimers();
     vi.spyOn(tauriApi, "previewContent").mockResolvedValue(contentPreview());
     vi.spyOn(tauriApi, "startContentRun").mockResolvedValue(run);
     vi.spyOn(tauriApi, "getContentRun").mockResolvedValue(run);
@@ -638,22 +639,67 @@ describe("Content Understanding independent review behavior", () => {
     const getDetail = vi.spyOn(tauriApi, "getFileLibraryDetail").mockRejectedValueOnce(new Error("first_terminal_refresh_failed")).mockResolvedValue(refreshed);
 
     await act(async () => root.render(createElement(Harness)));
-    await flush();
+    await flushMicrotasks();
     await act(async () => findButton("预览本地提取").click());
-    await flush();
+    await flushMicrotasks();
     await act(async () => findButton("确认并启动").click());
-    await flush(6);
+    await flushMicrotasks(8);
     expect(getDetail).toHaveBeenCalledOnce();
     expect(container.textContent).toContain("内容任务未能完成");
 
-    await act(async () => findButton("刷新任务").click());
-    await flush(6);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    await flushMicrotasks(8);
     expect(getDetail).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain("Retried terminal");
 
-    await act(async () => findButton("刷新任务").click());
-    await flush(6);
+    await act(async () => { await vi.advanceTimersByTimeAsync(8_000); });
+    await flushMicrotasks(8);
     expect(getDetail).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps polling until terminal run items and detail hydration both succeed", async () => {
+    const run = contentRun({ status: "completed", revision: 2, completedCount: 1, completedAt: 2 });
+    const refreshed = detail({ revision: 8, contentRevision: 3, contentSummary: "Retried item page" });
+    vi.useFakeTimers();
+    vi.spyOn(tauriApi, "previewContent").mockResolvedValue(contentPreview());
+    vi.spyOn(tauriApi, "startContentRun").mockResolvedValue(run);
+    vi.spyOn(tauriApi, "getContentRun").mockResolvedValue(run);
+    const queryItems = vi.spyOn(tauriApi, "queryContentRunItems")
+      .mockRejectedValueOnce(new Error("first_terminal_items_failed"))
+      .mockResolvedValue({ runId: run.id, items: [], nextCursor: null, hasMore: false });
+    vi.spyOn(tauriApi, "getFileLibraryDetail").mockResolvedValue(refreshed);
+    function StablePollingHarness() {
+      const [current, setCurrent] = useState(() => detail());
+      const refresh = useCallback(async () => {
+        const next = await tauriApi.getFileLibraryDetail(current.id);
+        const nextPolicy = next.scanRootId
+          ? await tauriApi.getContentScopePolicy(next.scanRootId)
+          : null;
+        setCurrent(next);
+        return { status: "applied" as const, detail: next, policy: nextPolicy };
+      }, [current.id]);
+      return <ContentUnderstandingSheet open detail={current} t={t} onClose={() => undefined} onRefreshAuthoritativeContentState={refresh} />;
+    }
+
+    await act(async () => root.render(createElement(StablePollingHarness)));
+    await flushMicrotasks();
+    await act(async () => findButton("预览本地提取").click());
+    await flushMicrotasks();
+    await act(async () => findButton("确认并启动").click());
+    await flushMicrotasks(8);
+
+    expect(queryItems).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("内容任务未能完成");
+    expect(container.textContent).not.toContain("Retried item page");
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    await flushMicrotasks(8);
+    expect(queryItems).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("Retried item page");
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(8_000); });
+    await flushMicrotasks(8);
+    expect(queryItems).toHaveBeenCalledTimes(2);
   });
 
   it("keeps a superseded terminal refresh silent when the Sheet closes", async () => {

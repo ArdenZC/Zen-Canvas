@@ -100,13 +100,13 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
     let disposed = false;
     let pollInFlight = false;
     let timer: number | null = null;
-    let shouldContinuePolling = !isTerminalContentRun(contentRunRef.current?.status);
+    let shouldContinuePolling = true;
     const ownsPoll = () => !disposed
       && currentPollEpoch === pollEpoch.current
       && detail.id === detailId
       && contentRunRef.current?.id === runId;
     const schedule = () => {
-      if (shouldContinuePolling && ownsPoll() && !isTerminalContentRun(contentRunRef.current?.status)) timer = window.setTimeout(() => void refresh().catch(() => undefined), 2000);
+      if (shouldContinuePolling && ownsPoll()) timer = window.setTimeout(() => void refresh().catch(() => undefined), 2000);
     };
     const refresh = async () => {
       if (!ownsPoll() || pollInFlight) return;
@@ -118,7 +118,6 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
         if (previousRun && previousRun.id === runId && nextRun.revision < previousRun.revision) return;
         const previousTerminal = previousRun && isTerminalContentRun(previousRun.status);
         const nextTerminal = isTerminalContentRun(nextRun.status);
-        if (nextTerminal) shouldContinuePolling = false;
         if (previousRun && previousRun.revision === nextRun.revision && previousTerminal && !nextTerminal) return;
         const page = await tauriApi.queryContentRunItems(runId, 100);
         if (!ownsPoll()) return;
@@ -126,13 +125,18 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
         setContentRun(nextRun);
         if (page.runId === runId) setContentRunItems(page.items);
         const existingClaim = refreshedContentRuns.current.get(runId);
-        if (nextTerminal && (!existingClaim || existingClaim.status === "pending")) {
+        if (nextTerminal && existingClaim?.status === "applied") {
+          shouldContinuePolling = false;
+        } else if (nextTerminal && (!existingClaim || existingClaim.status === "pending")) {
           refreshedContentRuns.current.set(runId, { ownerEpoch: currentPollEpoch, status: "pending" });
           const refreshed = await refreshAuthoritativeContentState();
           if (!ownsPoll()) return;
           const currentClaim = refreshedContentRuns.current.get(runId);
           if (currentClaim?.ownerEpoch !== currentPollEpoch) return;
-          if (refreshed.status === "applied") currentClaim.status = "applied";
+          if (refreshed.status === "applied") {
+            currentClaim.status = "applied";
+            shouldContinuePolling = false;
+          }
           else if (refreshed.status === "failed") {
             refreshedContentRuns.current.delete(runId);
             setContentMessage(t("contentOperationFailed"));
