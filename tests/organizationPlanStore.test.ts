@@ -9,7 +9,8 @@ const apiMocks = vi.hoisted(() => ({
   getOrganizationPlanDryRun: vi.fn(),
   executeOrganizationPlan: vi.fn(),
   updateOrganizationPlanDecisions: vi.fn(),
-  updateOrganizationPlanGroupDecision: vi.fn()
+  updateOrganizationPlanGroupDecision: vi.fn(),
+  refreshOrganizationPlan: vi.fn()
 }));
 
 vi.mock("../src/api/tauriApi", () => ({ tauriApi: apiMocks }));
@@ -37,7 +38,7 @@ describe("Organization Plan group-first loading", () => {
       nextCursor: null,
       hasMore: false
     });
-    useOrganizationPlanStore.setState({ activePlan: null, plans: [], groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0 });
+    useOrganizationPlanStore.setState({ activePlan: null, plans: [], groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
   });
 
   it("opens a large plan with only basic plan and group projection requests", async () => {
@@ -147,6 +148,8 @@ describe("Organization Plan group-first loading", () => {
     const oldPageResult = await oldPageRequest;
 
     expect(oldPageResult.applied).toBe(false);
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
+    expect(useOrganizationPlanStore.getState().isMutating).toBe(false);
     expect(useOrganizationPlanStore.getState().activePlan?.revision).toBe(updatedPlan.revision);
     expect(useOrganizationPlanStore.getState().groups).toEqual([newGroup]);
     expect(useOrganizationPlanStore.getState().groups).not.toContainEqual(expect.objectContaining({ groupId: "group-old" }));
@@ -211,5 +214,64 @@ describe("Organization Plan group-first loading", () => {
     expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
     expect(useOrganizationPlanStore.getState().groups).toEqual([{ groupId: "group-first" }]);
     expect(useOrganizationPlanStore.getState().dryRun?.dryRunFingerprint).toBe("dry-run-empty");
+  });
+
+  it("keeps the newer refresh error and releases a superseded page loading owner", async () => {
+    const planA = { ...plan, id: "plan-refresh", revision: 4 };
+    const oldPage = { planId: planA.id, planRevision: planA.revision, groups: [{ groupId: "group-old" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    let resolveOldPage: (value: typeof oldPage) => void = () => undefined;
+    const oldPagePending = new Promise<typeof oldPage>((resolve) => { resolveOldPage = resolve; });
+    apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { cursor?: string | null }) => request.cursor ? oldPagePending : oldPage);
+    apiMocks.refreshOrganizationPlan.mockRejectedValue(new Error("refresh_failed"));
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA], groups: [{ groupId: "group-first" } as any], groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+
+    const pageRequest = useOrganizationPlanStore.getState().loadNextGroupPage();
+    await Promise.resolve();
+    await expect(useOrganizationPlanStore.getState().refreshPlan()).rejects.toThrow("refresh_failed");
+
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
+    expect(useOrganizationPlanStore.getState().isMutating).toBe(false);
+    expect(useOrganizationPlanStore.getState().error).toContain("refresh_failed");
+
+    resolveOldPage(oldPage);
+    const pageResult = await pageRequest;
+    expect(pageResult.applied).toBe(false);
+    expect(useOrganizationPlanStore.getState().groups).toEqual([{ groupId: "group-first" }]);
+    expect(useOrganizationPlanStore.getState().error).toContain("refresh_failed");
+  });
+
+  it("does not let an old page release a newer open-plan loading owner", async () => {
+    const planA = { ...plan, id: "plan-a", revision: 4 };
+    const planB = { ...plan, id: "plan-b", revision: 8 };
+    const oldPage = { planId: planA.id, planRevision: planA.revision, groups: [{ groupId: "group-old" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    const planBPage = { planId: planB.id, planRevision: planB.revision, groups: [{ groupId: "group-b" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    let resolveOldPage: (value: typeof oldPage) => void = () => undefined;
+    let resolvePlanBPage: (value: typeof planBPage) => void = () => undefined;
+    const oldPagePending = new Promise<typeof oldPage>((resolve) => { resolveOldPage = resolve; });
+    const planBPagePending = new Promise<typeof planBPage>((resolve) => { resolvePlanBPage = resolve; });
+    apiMocks.getOrganizationPlan.mockImplementation((planId: string) => Promise.resolve(planId === planB.id ? planB : planA));
+    apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { planId: string; cursor?: string | null }) => {
+      if (request.cursor) return oldPagePending;
+      if (request.planId === planB.id) return planBPagePending;
+      return Promise.resolve({ ...oldPage, nextCursor: null, hasMore: false });
+    });
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA, planB], groups: [{ groupId: "group-first" } as any], groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+
+    const oldPageRequest = useOrganizationPlanStore.getState().loadNextGroupPage();
+    await Promise.resolve();
+    const openPlanRequest = useOrganizationPlanStore.getState().openPlan(planB.id);
+    await Promise.resolve();
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(true);
+
+    resolveOldPage(oldPage);
+    const oldPageResult = await oldPageRequest;
+    expect(oldPageResult.applied).toBe(false);
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(true);
+
+    resolvePlanBPage(planBPage);
+    await openPlanRequest;
+    expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(planB.id);
+    expect(useOrganizationPlanStore.getState().groups).toEqual(planBPage.groups);
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
   });
 });

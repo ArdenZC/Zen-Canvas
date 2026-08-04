@@ -13,6 +13,14 @@ import { readableError } from "../utils/viewHelpers";
 
 type DurableDecision = "accepted" | "kept" | "edited" | "undecided";
 
+type GroupLoadingOwner = {
+  kind: "open_plan" | "pagination";
+  epoch: number;
+  planId: string;
+  planRevision: number | null;
+  cursor: string | null;
+};
+
 export type OrganizationMutationResult<T = void> =
   | { applied: true; value?: T }
   | { applied: false; value?: T; reason: "superseded" };
@@ -32,6 +40,7 @@ interface OrganizationPlanState {
   requestEpoch: number;
   mutationToken: number;
   groupRequestEpoch: number;
+  groupLoadingOwner: GroupLoadingOwner | null;
   loadPlans: () => Promise<void>;
   createPlan: (source: LibrarySelectionV1, expectedCount: number, title?: string) => Promise<OrganizationMutationResult<OrganizationPlan>>;
   openPlan: (planId: string) => Promise<void>;
@@ -70,6 +79,12 @@ function ownsMutation(getState: () => OrganizationPlanState, requestEpoch: numbe
   return state.requestEpoch === requestEpoch && state.mutationToken === mutationToken;
 }
 
+function takeGroupProjectionOwnership(state: OrganizationPlanState, update: Partial<OrganizationPlanState>) {
+  return state.groupLoadingOwner?.kind === "pagination"
+    ? { ...update, isLoading: false, groupLoadingOwner: null }
+    : update;
+}
+
 function applied<T>(value?: T): OrganizationMutationResult<T> {
   return value === undefined ? { applied: true } : { applied: true, value };
 }
@@ -80,10 +95,11 @@ function superseded<T>(value?: T): OrganizationMutationResult<T> {
 
 function ownsGroupPage(
   getState: () => OrganizationPlanState,
-  request: { groupRequestEpoch: number; requestEpoch: number; mutationToken: number; planId: string; planRevision: number; cursor: string }
+  request: { groupRequestEpoch: number; requestEpoch: number; mutationToken: number; planId: string; planRevision: number; cursor: string; loadingOwner: GroupLoadingOwner }
 ) {
   const state = getState();
-  return state.groupRequestEpoch === request.groupRequestEpoch
+  return state.groupLoadingOwner === request.loadingOwner
+    && state.groupRequestEpoch === request.groupRequestEpoch
     && state.requestEpoch === request.requestEpoch
     && state.mutationToken === request.mutationToken
     && state.activePlan?.id === request.planId
@@ -93,15 +109,10 @@ function ownsGroupPage(
 
 function ownsGroupPageLoading(
   getState: () => OrganizationPlanState,
-  request: { groupRequestEpoch: number; requestEpoch: number; planId: string; planRevision: number; cursor: string }
+  request: { loadingOwner: GroupLoadingOwner }
 ) {
   const state = getState();
-  return state.isLoading
-    && state.groupRequestEpoch === request.groupRequestEpoch
-    && state.requestEpoch === request.requestEpoch
-    && state.activePlan?.id === request.planId
-    && state.activePlan.revision === request.planRevision
-    && state.groupNextCursor === request.cursor;
+  return state.isLoading && state.groupLoadingOwner === request.loadingOwner;
 }
 
 function matchesGroupPage(page: { planId: string; planRevision: number }, planId: string, planRevision: number) {
@@ -123,6 +134,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   requestEpoch: 0,
   mutationToken: 0,
   groupRequestEpoch: 0,
+  groupLoadingOwner: null,
 
   loadPlans: async () => {
     set({ isLoading: true, error: null });
@@ -136,7 +148,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   createPlan: async (source, expectedCount, title) => {
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
-    set({ isMutating: true, mutationToken, error: null });
+    set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, error: null }));
     try {
       const plan = await tauriApi.createOrganizationPlan({
         version: 1,
@@ -172,13 +184,14 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   openPlan: async (planId) => {
     const epoch = get().requestEpoch + 1;
     const groupRequestEpoch = get().groupRequestEpoch + 1;
-    set({ requestEpoch: epoch, groupRequestEpoch, isLoading: true, isMutating: false, error: null, groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null });
+    const loadingOwner: GroupLoadingOwner = { kind: "open_plan", epoch: groupRequestEpoch, planId, planRevision: null, cursor: null };
+    set({ requestEpoch: epoch, groupRequestEpoch, groupLoadingOwner: loadingOwner, isLoading: true, isMutating: false, error: null, groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null });
     try {
       const [plan, groupPage] = await Promise.all([
         tauriApi.getOrganizationPlan(planId),
         tauriApi.queryOrganizationPlanGroups({ planId, pageSize: 100, cursor: null })
       ]);
-      if (epoch !== get().requestEpoch) return;
+      if (epoch !== get().requestEpoch || get().groupLoadingOwner !== loadingOwner) return;
       if (!matchesGroupPage(groupPage, planId, plan.revision)) throw new Error("organization_group_page_stale");
       const projectedPlan = { ...plan, effectiveSummary: groupPage.effectiveSummary };
       set((state) => ({
@@ -187,10 +200,11 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         groups: groupPage.groups,
         groupNextCursor: groupPage.nextCursor,
         groupHasMore: groupPage.hasMore,
-        isLoading: false
+        isLoading: false,
+        groupLoadingOwner: null
       }));
     } catch (error) {
-      if (epoch === get().requestEpoch) set({ isLoading: false, error: readableError(error) });
+      if (epoch === get().requestEpoch && get().groupLoadingOwner === loadingOwner) set({ isLoading: false, groupLoadingOwner: null, error: readableError(error) });
     }
   },
 
@@ -198,15 +212,23 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     const state = get();
     const { activePlan, groupNextCursor, groupHasMore, isLoading } = state;
     if (!activePlan || !groupNextCursor || !groupHasMore || isLoading) return superseded();
-    const request = {
-      groupRequestEpoch: state.groupRequestEpoch + 1,
-      requestEpoch: state.requestEpoch,
-      mutationToken: state.mutationToken,
+    const loadingOwner: GroupLoadingOwner = {
+      kind: "pagination",
+      epoch: state.groupRequestEpoch + 1,
       planId: activePlan.id,
       planRevision: activePlan.revision,
       cursor: groupNextCursor
     };
-    set({ groupRequestEpoch: request.groupRequestEpoch, isLoading: true, error: null });
+    const request = {
+      groupRequestEpoch: loadingOwner.epoch,
+      requestEpoch: state.requestEpoch,
+      mutationToken: state.mutationToken,
+      planId: activePlan.id,
+      planRevision: activePlan.revision,
+      cursor: groupNextCursor,
+      loadingOwner
+    };
+    set({ groupRequestEpoch: request.groupRequestEpoch, groupLoadingOwner: loadingOwner, isLoading: true, error: null });
     try {
       const page = await tauriApi.queryOrganizationPlanGroups({
         planId: request.planId,
@@ -214,22 +236,23 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         cursor: request.cursor
       });
       if (!ownsGroupPage(get, request) || !matchesGroupPage(page, request.planId, request.planRevision)) {
-        if (ownsGroupPageLoading(get, request)) set({ isLoading: false });
+        if (ownsGroupPageLoading(get, request)) set({ isLoading: false, groupLoadingOwner: null });
         return superseded();
       }
       set((state) => ({
         groups: [...state.groups, ...page.groups],
         groupNextCursor: page.nextCursor,
         groupHasMore: page.hasMore,
-        isLoading: false
+        isLoading: false,
+        groupLoadingOwner: null
       }));
       return applied();
     } catch (error) {
       if (ownsGroupPage(get, request)) {
-        set({ isLoading: false, error: readableError(error) });
+        set({ isLoading: false, groupLoadingOwner: null, error: readableError(error) });
         throw error;
       }
-      if (ownsGroupPageLoading(get, request)) set({ isLoading: false });
+      if (ownsGroupPageLoading(get, request)) set({ isLoading: false, groupLoadingOwner: null });
       return superseded();
     }
   },
@@ -239,7 +262,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     if (!plan) return superseded();
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
-    set({ isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null });
+    set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null }));
     try {
       await tauriApi.updateOrganizationPlanGroupDecision({
         planId: plan.id,
@@ -266,7 +289,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     if (!plan) return superseded();
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
-    set({ isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null });
+    set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null }));
     try {
       const updatedPlan = await tauriApi.updateOrganizationPlanDecisions({
         planId: plan.id,
@@ -307,7 +330,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     if (!plan) return superseded();
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
-    set({ isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null, groupRequestEpoch: get().groupRequestEpoch + 1 });
+    set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null, groupRequestEpoch: state.groupRequestEpoch + 1 }));
     try {
       const updated = await tauriApi.refreshOrganizationPlan({
         planId: plan.id,
@@ -385,7 +408,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     if (!dryRunSelection) throw new Error("organization_dry_run_selection_required");
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
-    set({ isMutating: true, mutationToken, error: null });
+    set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, error: null }));
     try {
       const result = await tauriApi.executeOrganizationPlan({
         planId: plan.id,
@@ -422,7 +445,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     if (!plan) return superseded();
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
-    set({ isMutating: true, mutationToken, error: null });
+    set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, error: null }));
     try {
       const updated = await tauriApi.cancelOrganizationPlan({
         planId: plan.id,
