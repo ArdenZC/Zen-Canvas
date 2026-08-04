@@ -408,8 +408,13 @@ describe("Content Understanding independent review behavior", () => {
   it("preserves an unsaved policy draft while a terminal run refresh is pending", async () => {
     const run = contentRun({ id: "content-run-dirty-refresh", status: "completed", revision: 2, completedCount: 1, completedAt: 2 });
     const refreshed = detail({ revision: 8, contentRevision: 3, contentSummary: "Terminal policy refresh" });
+    const refreshedPolicy = { ...policy, rootRevision: 5, policyRevision: 3, enabled: true };
+    const savedPolicy = { ...refreshedPolicy, enabled: false, policyRevision: 4 };
     let resolveRefresh: (result: ContentRefreshResult) => void = () => undefined;
-    const refresh = vi.fn(() => new Promise<ContentRefreshResult>((resolve) => { resolveRefresh = resolve; }));
+    const refresh = vi.fn()
+      .mockImplementationOnce(() => new Promise<ContentRefreshResult>((resolve) => { resolveRefresh = resolve; }))
+      .mockResolvedValue({ status: "applied", detail: refreshed, policy: savedPolicy });
+    const save = vi.spyOn(tauriApi, "setContentScopePolicy").mockResolvedValue(savedPolicy);
     vi.spyOn(tauriApi, "previewContent").mockResolvedValue(contentPreview());
     vi.spyOn(tauriApi, "startContentRun").mockResolvedValue(run as never);
     vi.spyOn(tauriApi, "getContentRun").mockResolvedValue(run as never);
@@ -437,12 +442,24 @@ describe("Content Understanding independent review behavior", () => {
     expect(enabled?.checked).toBe(false);
     expect(container.textContent).toContain(t("contentSavePolicyFirst"));
 
-    resolveRefresh({ status: "applied", detail: refreshed, policy: { ...policy, rootRevision: 5, policyRevision: 3, enabled: true } });
+    resolveRefresh({ status: "applied", detail: refreshed, policy: refreshedPolicy });
     await flush(8);
 
     expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(false);
     expect(container.textContent).toContain(t("contentSavePolicyFirst"));
     expect(container.textContent).toContain("Terminal policy refresh");
+
+    await act(async () => findButton("保存根目录策略").click());
+    const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((button) => button.textContent === "确认");
+    await act(async () => confirm?.click());
+    await flush(8);
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({
+      expectedRootRevision: 5,
+      expectedPolicyRevision: 3,
+      policy: expect.objectContaining({ enabled: false })
+    }));
+    expect(container.textContent).toContain(t("contentPolicySaved"));
+    expect(container.textContent).not.toContain(t("contentSavePolicyFirst"));
   });
 
   it("keeps a local policy draft after an authoritative revision conflict", async () => {
@@ -467,6 +484,62 @@ describe("Content Understanding independent review behavior", () => {
     expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(false);
     expect(container.textContent).toContain(t("contentRevisionChanged"));
     expect(container.textContent).toContain(t("contentSavePolicyFirst"));
+  });
+
+  it("merges current CAS revisions into a dirty draft across repeated conflicts and succeeds on retry", async () => {
+    const refreshed = detail({ revision: 9, contentRevision: 4, contentSummary: "Retryable policy summary" });
+    const latestPolicyA = { ...policy, rootRevision: 5, policyRevision: 3, enabled: true, maxBytes: 4096 };
+    const latestPolicyB = { ...policy, rootRevision: 6, policyRevision: 4, enabled: true, maxBytes: 8192 };
+    const savedPolicy = { ...latestPolicyB, enabled: false, maxBytes: 2048, policyRevision: 5 };
+    vi.spyOn(tauriApi, "getFileLibraryDetail").mockResolvedValue(refreshed);
+    vi.spyOn(tauriApi, "getContentScopePolicy")
+      .mockResolvedValueOnce(policy)
+      .mockResolvedValueOnce(latestPolicyA)
+      .mockResolvedValueOnce(latestPolicyB)
+      .mockResolvedValue(savedPolicy);
+    const save = vi.spyOn(tauriApi, "setContentScopePolicy")
+      .mockRejectedValueOnce(new Error("content_policy_revision_conflict"))
+      .mockRejectedValueOnce(new Error("content_policy_revision_conflict"))
+      .mockResolvedValue(savedPolicy);
+
+    await act(async () => root.render(createElement(Harness)));
+    await flush();
+    const enabled = container.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    const maxBytes = container.querySelectorAll<HTMLInputElement>('input[type="number"]')[0];
+    await act(async () => enabled?.click());
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(maxBytes, "2048");
+      maxBytes.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(enabled?.checked).toBe(false);
+    expect(maxBytes.value).toBe("2048");
+
+    for (const expected of [{ rootRevision: 4, policyRevision: 2 }, { rootRevision: 5, policyRevision: 3 }]) {
+      await act(async () => findButton("保存根目录策略").click());
+      const confirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((button) => button.textContent === "确认");
+      await act(async () => confirm?.click());
+      await flush(8);
+      expect(save).toHaveBeenLastCalledWith(expect.objectContaining({
+        expectedRootRevision: expected.rootRevision,
+        expectedPolicyRevision: expected.policyRevision,
+        policy: expect.objectContaining({ enabled: false, maxBytes: 2048 })
+      }));
+      expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(false);
+      expect(container.querySelectorAll<HTMLInputElement>('input[type="number"]')[0]?.value).toBe("2048");
+    }
+
+    await act(async () => findButton("保存根目录策略").click());
+    const finalConfirm = [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((button) => button.textContent === "确认");
+    await act(async () => finalConfirm?.click());
+    await flush(8);
+    expect(save).toHaveBeenLastCalledWith(expect.objectContaining({
+      expectedRootRevision: 6,
+      expectedPolicyRevision: 4,
+      policy: expect.objectContaining({ enabled: false, maxBytes: 2048 })
+    }));
+    expect(container.textContent).toContain(t("contentPolicySaved"));
+    expect(container.textContent).not.toContain(t("contentSavePolicyFirst"));
   });
 
   it("keeps the newer terminal refresh and stays silent when the older refresh is superseded", async () => {

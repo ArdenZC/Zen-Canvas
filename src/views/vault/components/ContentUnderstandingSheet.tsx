@@ -346,10 +346,7 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
       if (onRefreshAuthoritativeContentState) {
         const refreshed = await onRefreshAuthoritativeContentState();
         if (refreshed.status === "applied") {
-          if (!policyDirtyRef.current) {
-            setContentPolicy(refreshed.policy);
-            updatePolicyDirty(false);
-          }
+          applyAuthoritativePolicy(refreshed.policy);
         }
         return refreshed;
       } else {
@@ -357,15 +354,23 @@ export function ContentUnderstandingSheet({ open, detail, t, onClose, restoreFoc
         const refreshedPolicy = detail.scanRootId
           ? await tauriApi.getContentScopePolicy(detail.scanRootId)
           : null;
-        if (!policyDirtyRef.current) {
-          setContentPolicy(refreshedPolicy);
-          updatePolicyDirty(false);
-        }
+        applyAuthoritativePolicy(refreshedPolicy);
         return { status: "applied", detail, policy: refreshedPolicy };
       }
     } catch (error) {
       return { status: "failed", error };
     }
+  }
+
+  function applyAuthoritativePolicy(refreshedPolicy: ContentScopePolicy | null) {
+    if (policyDirtyRef.current) {
+      if (refreshedPolicy) {
+        setContentPolicy((draft) => draft ? mergeContentPolicyDraft(draft, refreshedPolicy) : refreshedPolicy);
+      }
+      return;
+    }
+    setContentPolicy(refreshedPolicy);
+    updatePolicyDirty(false);
   }
 
   return (
@@ -569,6 +574,22 @@ function contentError(error: unknown, t: Translator) {
   if (message.includes("browser_mock_content_unavailable")) return t("contentSearchUnavailable");
   if (message.includes("stale") || message.includes("revision")) return t("contentRevisionChanged");
   return t("contentOperationFailed");
+}
+
+function mergeContentPolicyDraft(draft: ContentScopePolicy, authoritative: ContentScopePolicy): ContentScopePolicy {
+  return {
+    ...authoritative,
+    enabled: draft.enabled,
+    extractorFamilies: draft.extractorFamilies,
+    maxBytes: draft.maxBytes,
+    maxChars: draft.maxChars,
+    maxPages: draft.maxPages,
+    maxRows: draft.maxRows,
+    rawRetentionMode: draft.rawRetentionMode,
+    rawRetentionChars: draft.rawRetentionChars,
+    localAllowed: draft.localAllowed,
+    cloudAllowed: draft.cloudAllowed
+  };
 }
 
 function isContentRevisionConflict(error: unknown): boolean {
