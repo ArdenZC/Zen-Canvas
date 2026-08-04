@@ -71,6 +71,9 @@ export function OrganizeSuggestionsView() {
   const groupNextCursor = useOrganizationPlanStore((state) => state.groupNextCursor);
   const dryRun = useOrganizationPlanStore((state) => state.dryRun);
   const executionResult = useOrganizationPlanStore((state) => state.executionResult);
+  const planListState = useOrganizationPlanStore((state) => state.planListState);
+  const planListError = useOrganizationPlanStore((state) => state.planListError);
+  const createPlanError = useOrganizationPlanStore((state) => state.createPlanError);
   const isPlanListLoading = useOrganizationPlanStore((state) => state.isPlanListLoading);
   const isLoading = useOrganizationPlanStore((state) => state.isLoading);
   const isMutating = useOrganizationPlanStore((state) => state.isMutating);
@@ -288,7 +291,7 @@ export function OrganizeSuggestionsView() {
       const result = await createPlan(source.source, source.expectedCount, planTitle);
       if (result.applied) setPlanTitle("");
     } catch (error) {
-      if (useOrganizationPlanStore.getState().activePlan?.id === plan?.id) setReviewActionError(organizeActionError(error, t));
+      if (useOrganizationPlanStore.getState().activePlan && plan) setReviewActionError(organizeActionError(error, t));
     }
   }
 
@@ -463,7 +466,36 @@ export function OrganizeSuggestionsView() {
 
   return (
     <div className={cn(pageFrame, "gap-3") }>
-      {!plan && !isPlanListLoading ? (
+      {!plan && (planListState === "idle" || planListState === "loading") ? (
+        <section className="grid min-h-0 flex-1 place-items-center">
+          <div className="w-full max-w-xl">
+            <DurableTaskStatus state="running" title={t("organizePlanListLoading")} description={t("organizePlanListLoadingDesc")} />
+          </div>
+        </section>
+      ) : null}
+
+      {!plan && planListState === "failed" ? (
+        <section className="grid min-h-0 flex-1 place-items-center">
+          <div className="w-full max-w-xl">
+            <StateBlock
+              tone="error"
+              title={t("organizePlanListFailedTitle")}
+              description={[t("organizePlanListFailedDesc"), planListError].filter(Boolean).join(" ")}
+              primaryAction={<Button variant="secondary" onClick={() => void loadPlans().catch(() => undefined)}>{t("organizePlanListRetry")}</Button>}
+            />
+          </div>
+        </section>
+      ) : null}
+
+      {!plan && planListState === "loaded" && plans.length > 0 ? (
+        <section className="grid min-h-0 flex-1 place-items-center">
+          <div className="w-full max-w-xl">
+            <DurableTaskStatus state="running" title={t("organizePlanListLoading")} description={t("organizeLoadingSuggestionsDesc")} />
+          </div>
+        </section>
+      ) : null}
+
+      {!plan && planListState === "loaded" && plans.length === 0 ? (
         <section className="grid min-h-0 flex-1 place-items-center">
           <div className="grid w-full max-w-xl gap-4 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] p-6 shadow-[var(--zc-shadow-soft)]">
             <div>
@@ -474,8 +506,9 @@ export function OrganizeSuggestionsView() {
               <label className="text-sm font-medium text-[var(--zc-text-secondary)]" htmlFor="organization-plan-title">{t("organizePlanTitleLabel")}</label>
               <input id="organization-plan-title" className={cn(inputSurface, "min-h-[var(--zc-control-height-default)] px-3 text-sm")} value={planTitle} onChange={(event) => setPlanTitle(event.target.value)} placeholder={t("organizePlanTitlePlaceholder")} />
             </div>
+            {createPlanError ? <NoticeBanner tone="error" title={t("organizeCreatePlanFailedTitle")}>{createPlanError}</NoticeBanner> : null}
             <div className="flex flex-wrap gap-2">
-              <Button variant="primary" disabled={isPlanListLoading || isLoading || isMutating} onClick={() => void handleCreatePlan().catch(() => undefined)}><Plus size={15} aria-hidden="true" />{t("organizeCreatePlanAction")}</Button>
+              <Button variant="primary" disabled={isPlanListLoading || isLoading || isMutating || planListState !== "loaded"} onClick={() => void handleCreatePlan().catch(() => undefined)}><Plus size={15} aria-hidden="true" />{t("organizeCreatePlanAction")}</Button>
               <Button variant="secondary" onClick={() => setView("library")}>{t("fileLibrary")}</Button>
             </div>
           </div>
@@ -517,6 +550,7 @@ export function OrganizeSuggestionsView() {
             />
           </section>
 
+          {planListState === "failed" ? <NoticeBanner tone="warning" title={t("organizePlanListFailedTitle")} action={<Button variant="secondary" size="compact" onClick={() => void loadPlans().catch(() => undefined)}>{t("organizePlanListRetry")}</Button>}>{planListError ?? t("organizePlanListFailedDesc")}</NoticeBanner> : null}
           {error ? <NoticeBanner tone="error" title={t("organizeLoadFailedTitle")} action={<Button variant="secondary" size="compact" onClick={() => void openPlan(plan.id).catch(() => undefined)}>{t("organizePlanRefresh")}</Button>}>{t("organizeLoadFailedDesc")}</NoticeBanner> : null}
           {reviewActionError ? <NoticeBanner tone="warning" title={t("organizeGroupActionFailed")} action={reviewActionNeedsRefresh ? <Button variant="secondary" size="compact" onClick={() => { setReviewActionError(null); setReviewActionNeedsRefresh(false); void handleRefreshPlan().catch(() => undefined); }}>{t("organizePlanRefresh")}</Button> : <Button variant="ghost" size="compact" onClick={() => setReviewActionError(null)}>{t("close")}</Button>}>{reviewActionError}</NoticeBanner> : null}
 

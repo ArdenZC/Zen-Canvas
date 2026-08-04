@@ -42,7 +42,7 @@ describe("Organization Plan group-first loading", () => {
       nextCursor: null,
       hasMore: false
     });
-    useOrganizationPlanStore.setState({ activePlan: null, plans: [], groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+    useOrganizationPlanStore.setState({ activePlan: null, plans: [], groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null, planListState: "loaded", planListError: null, createPlanError: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
   });
 
   it("opens a large plan with only basic plan and group projection requests", async () => {
@@ -310,7 +310,7 @@ describe("Organization Plan group-first loading", () => {
     apiMocks.createOrganizationPlan.mockReturnValue(pendingCreate);
     apiMocks.getOrganizationPlan.mockResolvedValue(createdPlan);
     apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: createdPlan.id, planRevision: createdPlan.revision, groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
-    useOrganizationPlanStore.setState({ activePlan: null, plans: [], isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0 });
+    useOrganizationPlanStore.setState({ activePlan: null, plans: [], planListState: "loaded", planListError: null, createPlanError: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0 });
 
     const firstRequest = useOrganizationPlanStore.getState().createPlan({ kind: "explicit", fileIds: ["file-a"] } as any, 1, "Created plan");
     await Promise.resolve();
@@ -321,6 +321,53 @@ describe("Organization Plan group-first loading", () => {
     resolveCreate(createdPlan);
     await firstRequest;
     expect(apiMocks.createOrganizationPlan).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Plan List failure distinct from an empty loaded list and blocks creation", async () => {
+    apiMocks.listOrganizationPlans.mockRejectedValueOnce(new Error("plan_list_failed"));
+
+    await useOrganizationPlanStore.getState().loadPlans();
+
+    expect(useOrganizationPlanStore.getState().planListState).toBe("failed");
+    expect(useOrganizationPlanStore.getState().planListError).toContain("plan_list_failed");
+    expect(useOrganizationPlanStore.getState().plans).toEqual([]);
+    const result = await useOrganizationPlanStore.getState().createPlan({ kind: "explicit", fileIds: ["file-a"] } as any, 1, "Blocked plan");
+    expect(result).toMatchObject({ applied: false, reason: "superseded" });
+    expect(apiMocks.createOrganizationPlan).not.toHaveBeenCalled();
+  });
+
+  it("only exposes an empty create state after a successful retry", async () => {
+    apiMocks.listOrganizationPlans
+      .mockRejectedValueOnce(new Error("plan_list_failed"))
+      .mockResolvedValueOnce([]);
+
+    await useOrganizationPlanStore.getState().loadPlans();
+    expect(useOrganizationPlanStore.getState().planListState).toBe("failed");
+    await useOrganizationPlanStore.getState().loadPlans();
+
+    expect(useOrganizationPlanStore.getState().planListState).toBe("loaded");
+    expect(useOrganizationPlanStore.getState().planListError).toBeNull();
+    expect(useOrganizationPlanStore.getState().plans).toEqual([]);
+  });
+
+  it("blocks direct create calls until Plan List loading has succeeded", async () => {
+    for (const planListState of ["loading", "failed"] as const) {
+      useOrganizationPlanStore.setState({ planListState, planListError: planListState === "failed" ? "plan_list_failed" : null, plans: [], activePlan: null, isPlanListLoading: planListState === "loading", isLoading: false, isMutating: false });
+      const result = await useOrganizationPlanStore.getState().createPlan({ kind: "explicit", fileIds: ["file-a"] } as any, 1, "Blocked plan");
+      expect(result).toMatchObject({ applied: false, reason: "superseded" });
+    }
+    expect(apiMocks.createOrganizationPlan).not.toHaveBeenCalled();
+  });
+
+  it("keeps a create failure visible without changing the successful Plan List state", async () => {
+    apiMocks.createOrganizationPlan.mockRejectedValueOnce(new Error("create_failed"));
+    useOrganizationPlanStore.setState({ planListState: "loaded", planListError: null, plans: [], activePlan: null, isPlanListLoading: false, isLoading: false, isMutating: false, createPlanError: null });
+
+    await expect(useOrganizationPlanStore.getState().createPlan({ kind: "explicit", fileIds: ["file-a"] } as any, 1, "Retryable plan")).rejects.toThrow("create_failed");
+
+    expect(useOrganizationPlanStore.getState().planListState).toBe("loaded");
+    expect(useOrganizationPlanStore.getState().createPlanError).toContain("create_failed");
+    expect(useOrganizationPlanStore.getState().planListError).toBeNull();
   });
 
   it("keeps plan-list loading independent from group projection loading", async () => {

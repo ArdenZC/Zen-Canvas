@@ -21,6 +21,8 @@ type GroupLoadingOwner = {
   cursor: string | null;
 };
 
+export type PlanListState = "idle" | "loading" | "loaded" | "failed";
+
 export type OrganizationMutationResult<T = void> =
   | { applied: true; value?: T }
   | { applied: false; value?: T; reason: "superseded" };
@@ -34,6 +36,9 @@ interface OrganizationPlanState {
   dryRun: OrganizationPlanDryRun | null;
   dryRunSelection: OrganizationPlanSelection | null;
   executionResult: ExecuteOrganizationPlanResult | null;
+  planListState: PlanListState;
+  planListError: string | null;
+  createPlanError: string | null;
   isPlanListLoading: boolean;
   isLoading: boolean;
   isMutating: boolean;
@@ -129,6 +134,9 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   dryRun: null,
   dryRunSelection: null,
   executionResult: null,
+  planListState: "idle",
+  planListError: null,
+  createPlanError: null,
   isPlanListLoading: false,
   isLoading: false,
   isMutating: false,
@@ -139,20 +147,20 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   groupLoadingOwner: null,
 
   loadPlans: async () => {
-    set({ isPlanListLoading: true, error: null });
+    set({ planListState: "loading", planListError: null, isPlanListLoading: true });
     try {
-      set({ plans: await tauriApi.listOrganizationPlans(), isPlanListLoading: false });
+      set({ plans: await tauriApi.listOrganizationPlans(), planListState: "loaded", planListError: null, isPlanListLoading: false });
     } catch (error) {
-      set({ isPlanListLoading: false, error: readableError(error) });
+      set({ planListState: "failed", planListError: readableError(error), isPlanListLoading: false });
     }
   },
 
   createPlan: async (source, expectedCount, title) => {
     const state = get();
-    if (state.isMutating || state.isPlanListLoading || state.isLoading) return superseded();
+    if (state.planListState !== "loaded" || state.plans.length > 0 || state.activePlan || state.isMutating || state.isPlanListLoading || state.isLoading) return superseded();
     const requestEpoch = state.requestEpoch;
     const mutationToken = state.mutationToken + 1;
-    set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, error: null }));
+    set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, createPlanError: null, error: null }));
     try {
       const plan = await tauriApi.createOrganizationPlan({
         version: 1,
@@ -171,14 +179,15 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         dryRun: null,
         dryRunSelection: null,
         executionResult: null,
-        isMutating: false
+        isMutating: false,
+        createPlanError: null
       }));
       await get().openPlan(plan.id);
       if (get().activePlan?.id !== plan.id) return superseded(plan);
       return applied(plan);
     } catch (error) {
       if (ownsMutation(get, requestEpoch, mutationToken)) {
-        set({ isMutating: false, error: readableError(error) });
+        set({ isMutating: false, createPlanError: readableError(error) });
         throw error;
       }
       return superseded();
@@ -472,5 +481,5 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     }
   },
 
-  clearError: () => set({ error: null })
+  clearError: () => set({ error: null, planListError: null, createPlanError: null })
 }));
