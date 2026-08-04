@@ -48,6 +48,7 @@ interface OrganizationPlanState {
   isPlanListLoading: boolean;
   isLoading: boolean;
   isMutating: boolean;
+  isExecutionInFlight: boolean;
   error: string | null;
   requestEpoch: number;
   mutationToken: number;
@@ -150,6 +151,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   isPlanListLoading: false,
   isLoading: false,
   isMutating: false,
+  isExecutionInFlight: false,
   error: null,
   requestEpoch: 0,
   mutationToken: 0,
@@ -209,6 +211,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   },
 
   openPlan: async (planId) => {
+    if (get().isExecutionInFlight) return;
     const epoch = get().requestEpoch + 1;
     const groupRequestEpoch = get().groupRequestEpoch + 1;
     const loadingOwner: GroupLoadingOwner = { kind: "open_plan", epoch: groupRequestEpoch, planId, planRevision: null, cursor: null };
@@ -291,7 +294,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
 
   updateGroupDecision: async (group, decision) => {
     const plan = get().activePlan;
-    if (!plan) return superseded();
+    if (!plan || get().isExecutionInFlight) return superseded();
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
     set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null }));
@@ -318,7 +321,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
 
   updateDecision: async (item, decision, editedFilename) => {
     const plan = get().activePlan;
-    if (!plan) return superseded();
+    if (!plan || get().isExecutionInFlight) return superseded();
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
     set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null }));
@@ -359,7 +362,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
 
   refreshPlan: async () => {
     const plan = get().activePlan;
-    if (!plan) return superseded();
+    if (!plan || get().isExecutionInFlight) return superseded();
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
     set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null, groupRequestEpoch: state.groupRequestEpoch + 1 }));
@@ -443,9 +446,10 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
     const { activePlan: plan, dryRun, dryRunSelection } = get();
     if (!plan || !dryRun) throw new Error("organization_dry_run_required");
     if (!dryRunSelection) throw new Error("organization_dry_run_selection_required");
+    if (get().isExecutionInFlight) return superseded();
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
-    set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, error: null }));
+    set((state) => takeGroupProjectionOwnership(state, { isMutating: true, isExecutionInFlight: true, mutationToken, error: null }));
     try {
       const result = await tauriApi.executeOrganizationPlan({
         planId: plan.id,
@@ -462,7 +466,8 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
         plans: replacePlan(state.plans, result.plan),
         dryRun: null,
         dryRunSelection: null,
-        isMutating: false
+        isMutating: false,
+        isExecutionInFlight: false
       }));
       const refreshEpoch = get().requestEpoch + 1;
       await get().openPlan(result.plan.id);
@@ -470,7 +475,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
       return applied(result);
     } catch (error) {
       if (ownsPlanMutation(get, plan.id, plan.revision, requestEpoch, mutationToken)) {
-        set({ isMutating: false, error: readableError(error) });
+        set({ isMutating: false, isExecutionInFlight: false, error: readableError(error) });
         throw error;
       }
       return superseded();
@@ -479,7 +484,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
 
   cancelPlan: async () => {
     const plan = get().activePlan;
-    if (!plan) return superseded();
+    if (!plan || get().isExecutionInFlight) return superseded();
     const requestEpoch = get().requestEpoch;
     const mutationToken = get().mutationToken + 1;
     set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, error: null }));

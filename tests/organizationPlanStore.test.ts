@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useOrganizationPlanStore } from "../src/store/useOrganizationPlanStore";
-import type { OrganizationPlan, OrganizationPlanItem, OrganizationPlanSelection } from "../src/types/domain";
+import type { ExecuteOrganizationPlanResult, OrganizationPlan, OrganizationPlanItem, OrganizationPlanSelection } from "../src/types/domain";
 
 const apiMocks = vi.hoisted(() => ({
   getOrganizationPlan: vi.fn(),
@@ -216,6 +216,73 @@ describe("Organization Plan group-first loading", () => {
       allAccepted: false,
       confirmed: true
     });
+  });
+
+  it("keeps execution ownership when a plan switch arrives during execution", async () => {
+    const planA = { ...plan, id: "plan-a", title: "Plan A" };
+    const planB = { ...plan, id: "plan-b", title: "Plan B", revision: 5 };
+    const dryRun = {
+      planId: planA.id,
+      planRevision: planA.revision,
+      selectedCount: 1,
+      executableCount: 1,
+      blockedCount: 0,
+      staleCount: 0,
+      totalBytes: 1,
+      operationKinds: ["move"],
+      items: [],
+      executionBatchLimit: 100,
+      dryRunFingerprint: "fingerprint-item-a"
+    };
+    const executionResult: ExecuteOrganizationPlanResult = {
+      plan: planA,
+      executionId: "execution-1",
+      operationBatchId: "batch-1",
+      attemptedCount: 1,
+      succeededCount: 1,
+      failedCount: 0,
+      skippedCount: 0
+    };
+    const pendingExecution = deferred<ExecuteOrganizationPlanResult>();
+    apiMocks.executeOrganizationPlan.mockReturnValue(pendingExecution.promise);
+    apiMocks.getOrganizationPlan.mockImplementation(async (planId: string) => planId === planA.id ? planA : planB);
+    apiMocks.queryOrganizationPlanGroups.mockImplementation(async (request: { planId: string }) => ({
+      planId: request.planId,
+      planRevision: request.planId === planA.id ? planA.revision : planB.revision,
+      groups: [],
+      effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 },
+      nextCursor: null,
+      hasMore: false
+    }));
+    useOrganizationPlanStore.setState({
+      activePlan: planA,
+      plans: [planA, planB],
+      dryRun,
+      dryRunSelection: { allAccepted: false, itemIds: ["item-a"] },
+      requestEpoch: 0,
+      mutationToken: 0,
+      isMutating: false
+    });
+
+    const execution = useOrganizationPlanStore.getState().executeDryRun();
+    await Promise.resolve();
+    expect(useOrganizationPlanStore.getState().isMutating).toBe(true);
+    const requestEpoch = useOrganizationPlanStore.getState().requestEpoch;
+
+    await useOrganizationPlanStore.getState().openPlan(planB.id);
+
+    expect(apiMocks.getOrganizationPlan).not.toHaveBeenCalled();
+    expect(apiMocks.queryOrganizationPlanGroups).not.toHaveBeenCalled();
+    expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(planA.id);
+    expect(useOrganizationPlanStore.getState().isMutating).toBe(true);
+    expect(useOrganizationPlanStore.getState().requestEpoch).toBe(requestEpoch);
+
+    pendingExecution.resolve(executionResult);
+    await execution;
+
+    expect(useOrganizationPlanStore.getState().executionResult).toEqual(executionResult);
+    expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(planA.id);
+    expect(useOrganizationPlanStore.getState().isMutating).toBe(false);
   });
 
   it("does not let a delayed Plan A mutation reopen Plan A after the user switches to Plan B", async () => {

@@ -78,6 +78,7 @@ export function OrganizeSuggestionsView() {
   const isPlanListLoading = useOrganizationPlanStore((state) => state.isPlanListLoading);
   const isLoading = useOrganizationPlanStore((state) => state.isLoading);
   const isMutating = useOrganizationPlanStore((state) => state.isMutating);
+  const isExecutionInFlight = useOrganizationPlanStore((state) => state.isExecutionInFlight);
   const error = useOrganizationPlanStore((state) => state.error);
   const loadPlans = useOrganizationPlanStore((state) => state.loadPlans);
   const createPlan = useOrganizationPlanStore((state) => state.createPlan);
@@ -493,7 +494,7 @@ export function OrganizeSuggestionsView() {
         <section className="grid min-h-0 flex-1 place-items-center">
           <div className="w-full max-w-xl">
             <DurableTaskStatus state="running" title={t("organizePlanOpening")} description={t("organizePlanOpeningDesc")} />
-            {plans.length > 1 ? <label className="mt-4 grid gap-1 text-sm text-[var(--zc-text-secondary)]" htmlFor="organization-plan-open-selector"><span>{t("organizePlanSelectorLabel")}</span><select id="organization-plan-open-selector" className={cn(inputSurface, "min-h-[var(--zc-control-height-default)] px-3 text-sm")} value={openPlanSelectionId} onChange={(event) => void openPlan(event.target.value).catch(() => undefined)}>{plans.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label> : null}
+            {plans.length > 1 ? <label className="mt-4 grid gap-1 text-sm text-[var(--zc-text-secondary)]" htmlFor="organization-plan-open-selector"><span>{t("organizePlanSelectorLabel")}</span><select id="organization-plan-open-selector" className={cn(inputSurface, "min-h-[var(--zc-control-height-default)] px-3 text-sm")} value={openPlanSelectionId} onChange={(event) => void openPlan(event.target.value).catch(() => undefined)} disabled={isExecutionInFlight}>{plans.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label> : null}
           </div>
         </section>
       ) : null}
@@ -501,7 +502,7 @@ export function OrganizeSuggestionsView() {
       {!plan && planListState === "loaded" && plans.length > 0 && activePlanState === "failed" ? (
         <section className="grid min-h-0 flex-1 place-items-center">
           <div className="w-full max-w-xl">
-            {plans.length > 1 ? <label className="mb-4 grid gap-1 text-sm text-[var(--zc-text-secondary)]" htmlFor="organization-plan-open-selector"><span>{t("organizePlanSelectorLabel")}</span><select id="organization-plan-open-selector" className={cn(inputSurface, "min-h-[var(--zc-control-height-default)] px-3 text-sm")} value={openPlanSelectionId} onChange={(event) => void openPlan(event.target.value).catch(() => undefined)}>{plans.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label> : null}
+            {plans.length > 1 ? <label className="mb-4 grid gap-1 text-sm text-[var(--zc-text-secondary)]" htmlFor="organization-plan-open-selector"><span>{t("organizePlanSelectorLabel")}</span><select id="organization-plan-open-selector" className={cn(inputSurface, "min-h-[var(--zc-control-height-default)] px-3 text-sm")} value={openPlanSelectionId} onChange={(event) => void openPlan(event.target.value).catch(() => undefined)} disabled={isExecutionInFlight}>{plans.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label> : null}
             <StateBlock
               tone="error"
               title={t("organizePlanOpenFailedTitle")}
@@ -538,7 +539,7 @@ export function OrganizeSuggestionsView() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
                 <label className="sr-only" htmlFor="organization-plan-selector">{t("organizePlanSelectorLabel")}</label>
-                <select id="organization-plan-selector" className={cn(inputSurface, "min-h-[var(--zc-control-height-compact)] max-w-full min-w-56 px-2 text-sm")} value={plan.id} onChange={(event) => void openPlan(event.target.value).catch(() => undefined)} aria-label={t("organizePlanSelectorLabel")}>
+                <select id="organization-plan-selector" className={cn(inputSurface, "min-h-[var(--zc-control-height-compact)] max-w-full min-w-56 px-2 text-sm")} value={plan.id} onChange={(event) => void openPlan(event.target.value).catch(() => undefined)} aria-label={t("organizePlanSelectorLabel")} disabled={isExecutionInFlight}>
                   {plans.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
                 </select>
                 <p className="mt-1 text-xs text-[var(--zc-text-secondary)]">{t("organizePlanStatusLine").replace("{status}", planStatusLabel(plan.status, t)).replace("{count}", plan.materializedCount.toLocaleString())}</p>
