@@ -292,7 +292,7 @@ export function VaultView() {
     event.preventDefault();
     const file = files[index];
     if (!file) return;
-    if (!selectedIds.includes(file.id)) setExplicitSelection([file.id], file.id, index);
+    if (!ownsSingleFileSelection(file.id)) setExplicitSelection([file.id], file.id, index);
     openContextMenu(file, event.clientX, event.clientY);
   }
 
@@ -354,6 +354,24 @@ export function VaultView() {
     setContentDetail(file);
   }
 
+  function ownsSingleFileSelection(fileId: string) {
+    const current = useFileLibrarySelectionStore.getState().selection;
+    return current?.kind === "explicit" && current.fileIds.length === 1 && current.fileIds[0] === fileId;
+  }
+
+  async function openContentForFile(fileId: string, trigger?: HTMLElement, providedDetail?: FileLibraryDetail) {
+    const fileIndex = files.findIndex((file) => file.id === fileId);
+    if (!ownsSingleFileSelection(fileId)) setExplicitSelection([fileId], fileId, fileIndex);
+    if (!ownsSingleFileSelection(fileId)) return;
+    try {
+      const file = providedDetail?.id === fileId ? providedDetail : await tauriApi.getFileLibraryDetail(fileId);
+      if (!ownsSingleFileSelection(fileId)) return;
+      openContentUnderstanding(file, trigger);
+    } catch (error) {
+      onError(readableError(error));
+    }
+  }
+
   const refreshContentDetail = useCallback(async (fileId: string): Promise<ContentRefreshResult> => {
     const refreshEpoch = contentRefreshEpoch.current + 1;
     contentRefreshEpoch.current = refreshEpoch;
@@ -376,9 +394,7 @@ export function VaultView() {
         && currentInspector.selectedId === fileId) commitDetailIfCurrent(fileId, refreshed, expectedInspectorEpoch);
       return { status: "applied" as const, detail: refreshed, policy };
     } catch (error) {
-      const currentInspector = useFileLibraryInspectorStore.getState();
       if (!ownsRefresh()) return { status: "superseded" as const };
-      if (!inspectorOwnedFile || currentInspector.requestEpoch !== expectedInspectorEpoch || currentInspector.selectedId !== fileId) return { status: "superseded" as const };
       onError(readableError(error));
       return { status: "failed" as const, error };
     }
@@ -393,12 +409,7 @@ export function VaultView() {
   async function openContentFromContext(fileId: string) {
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
     setContextMenu(null);
-    try {
-      const file = await tauriApi.getFileLibraryDetail(fileId);
-      openContentUnderstanding(file, trigger);
-    } catch (error) {
-      onError(readableError(error));
-    }
+    await openContentForFile(fileId, trigger);
   }
 
   function libraryState() {
@@ -452,7 +463,7 @@ export function VaultView() {
       <InspectorLayout
         className={showInspectorLayout(isNoIndexState)}
         main={<section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file).catch(() => undefined); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage().catch(() => undefined)} />}</section>}
-        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} language={language} t={t} onPreview={(file) => setPreviewFile(file)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onOpenContentUnderstanding={(file, trigger) => openContentUnderstanding(file, trigger)} onClearSelection={clearSelection} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
+        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} language={language} t={t} onPreview={(file) => setPreviewFile(file)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onOpenContentUnderstanding={(file, trigger) => void openContentForFile(file.id, trigger, file)} onClearSelection={clearSelection} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
         inspectorLabel={t("libraryInspector")}
       />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{selectionLabel}</p>

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { StrictMode, act, createElement } from "react";
+import { StrictMode, act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChromeProvider, type ChromeContextValue } from "../src/contexts/AppContexts";
@@ -16,7 +16,7 @@ import {
   useFileLibrarySelectionStore,
   useFileLibraryTagStore
 } from "../src/store/useFileLibraryV2Store";
-import type { FileLibraryDetail, FileQueryRequestV2, FileQueryResponseV2, FileQuerySpecV2 } from "../src/types/domain";
+import type { FileLibraryDetail, FileQueryRequestV2, FileQueryResponseV2, FileQuerySpecV2, LibrarySelectionV1 } from "../src/types/domain";
 import { VaultView } from "../src/views/vault/VaultView";
 
 const api = vi.hoisted(() => ({
@@ -49,11 +49,14 @@ vi.mock("../src/views/vault/components/DuplicateGroupsPanel", () => ({
 }));
 
 vi.mock("../src/views/vault/components/ContentUnderstandingSheet", () => ({
-  ContentUnderstandingSheet: ({ open, detail, onClose, onRefreshAuthoritativeContentState }: { open: boolean; detail: FileLibraryDetail; onClose: () => void; onRefreshAuthoritativeContentState: () => Promise<unknown> }) => open
-    ? createElement("div", { "data-content-sheet-id": detail.id },
-      createElement("button", { type: "button", onClick: () => void onRefreshAuthoritativeContentState() }, "Refresh content"),
-      createElement("button", { type: "button", onClick: onClose }, "Close content"))
-    : null,
+  ContentUnderstandingSheet: ({ open, detail, onClose, onRefreshAuthoritativeContentState }: { open: boolean; detail: FileLibraryDetail; onClose: () => void; onRefreshAuthoritativeContentState: () => Promise<unknown> }) => {
+    const [outcome, setOutcome] = useState<string | null>(null);
+    if (!open) return null;
+    return createElement("div", { "data-content-sheet-id": detail.id },
+      createElement("button", { type: "button", onClick: () => void onRefreshAuthoritativeContentState().then((result) => setOutcome((result as { status?: string } | undefined)?.status ?? "unknown")).catch(() => setOutcome("rejected")) }, "Refresh content"),
+      createElement("button", { type: "button", onClick: onClose }, "Close content"),
+      outcome ? createElement("output", { "data-content-refresh-outcome": outcome }, outcome) : null);
+  },
   contentStatusLabel: (status: string) => status,
   contentPolicyLabel: (policy: string) => policy
 }));
@@ -167,6 +170,7 @@ function deferred<T>() {
 
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.clearAllMocks();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -301,6 +305,72 @@ describe("Task 06 File Library handoff interactions", () => {
     expect(useFileLibraryResultStore.getState().files.map((file) => file.id)).toEqual(["new-file"]);
     expect(useFileLibraryResultStore.getState().resultState).toBe("snapshot_expired");
     expect(useFileLibrarySelectionStore.getState().selection).toBeNull();
+  });
+
+  it("converts an explicit multi-selection to one file before opening Content Understanding", async () => {
+    const fileA = detail("file-one", "one.txt");
+    const fileB = detail("file-two", "two.txt");
+    api.query.mockImplementation(async (request: FileQueryRequestV2) => {
+      const base = response(request);
+      return { ...base, files: [base.files[0], { ...base.files[0], id: fileB.id, name: fileB.name }], totalCount: 2 };
+    });
+    api.getDetail.mockImplementation((fileId: string) => Promise.resolve(fileId === fileB.id ? fileB : fileA));
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    await act(async () => useFileLibrarySelectionStore.setState({ selection: { kind: "explicit", fileIds: [fileA.id, fileB.id] } as LibrarySelectionV1, focusedId: fileA.id, anchorIndex: 0 }));
+    const rowA = container.querySelector<HTMLElement>('[data-library-row="file-one"]');
+    await act(async () => rowA?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })));
+    const contentMenuItem = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Open Content Understanding"));
+    expect(contentMenuItem).toBeDefined();
+    await act(async () => contentMenuItem?.click());
+
+    await vi.waitFor(() => expect(container.querySelector('[data-content-sheet-id="file-one"]')).not.toBeNull());
+    expect(useFileLibrarySelectionStore.getState().selection).toEqual({ kind: "explicit", fileIds: [fileA.id] });
+  });
+
+  it("converts an all-matching selection to one file before opening Content Understanding", async () => {
+    const fileA = detail("file-one", "one.txt");
+    const fileB = detail("file-two", "two.txt");
+    api.query.mockImplementation(async (request: FileQueryRequestV2) => {
+      const base = response(request);
+      return { ...base, files: [base.files[0], { ...base.files[0], id: fileB.id, name: fileB.name }], totalCount: 2 };
+    });
+    api.getDetail.mockImplementation((fileId: string) => Promise.resolve(fileId === fileB.id ? fileB : fileA));
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    useFileLibraryQueryStore.setState({ fingerprint: "fp", snapshotRevision: 7 });
+    await act(async () => useFileLibrarySelectionStore.setState({ selection: { kind: "all_matching", query: useFileLibraryQueryStore.getState().spec, queryFingerprint: "fp", snapshotRevision: 7, excludedFileIds: [] } as LibrarySelectionV1, focusedId: fileA.id, anchorIndex: 0 }));
+    const rowA = container.querySelector<HTMLElement>('[data-library-row="file-one"]');
+    await act(async () => rowA?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })));
+    const contentMenuItem = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Open Content Understanding"));
+    await act(async () => contentMenuItem?.click());
+
+    await vi.waitFor(() => expect(container.querySelector('[data-content-sheet-id="file-one"]')).not.toBeNull());
+    expect(useFileLibrarySelectionStore.getState().selection).toEqual({ kind: "explicit", fileIds: [fileA.id] });
+  });
+
+  it("reports a real Content refresh failure even when the Inspector no longer owns the file", async () => {
+    const fileA = detail("file-one", "one.txt");
+    api.getDetail.mockResolvedValue(fileA);
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    const rowA = container.querySelector<HTMLElement>('[data-library-row="file-one"]');
+    await act(async () => rowA?.click());
+    await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().selectedId).toBe(fileA.id));
+    const contentButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("Open Content Understanding"));
+    await act(async () => contentButton?.click());
+    await vi.waitFor(() => expect(container.querySelector('[data-content-sheet-id="file-one"]')).not.toBeNull());
+
+    useFileLibraryInspectorStore.setState({ selectedId: null, detail: null, selectionSummary: null, requestEpoch: 9, isLoading: false, error: null });
+    api.getDetail.mockRejectedValueOnce(new Error("detail_refresh_failed"));
+    const refreshButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Refresh content");
+    await act(async () => refreshButton?.click());
+
+    await vi.waitFor(() => expect(container.querySelector<HTMLElement>('[data-content-refresh-outcome]')?.textContent).toBe("failed"));
+    expect(chrome.onError).toHaveBeenCalledWith("detail_refresh_failed");
   });
 
   it("does not let a delayed content refresh for Inspector A overwrite Inspector B or reopen a closed sheet", async () => {
