@@ -146,6 +146,7 @@ function StorageCleanupPanel({
   const requestKeyRef = useRef<string | null>(null);
   const scanIntentInFlight = useRef(false);
   const aiCancelRequested = useRef(false);
+  const interactionLockedRef = useRef(false);
   const scopeHydrated = useRef(Boolean(normalizeScopePaths(initialRoots ?? []).length));
   const initialRootsPropKey = useRef(scopeKey(initialRoots ?? []));
   const defaultSelectionRuns = useRef(new Set<string>());
@@ -158,6 +159,8 @@ function StorageCleanupPanel({
   useEffect(() => {
     runRef.current = run;
   }, [run]);
+
+  interactionLockedRef.current = isAiWorking || isMutating;
 
   useEffect(() => () => {
     aiCancelRequested.current = true;
@@ -464,14 +467,17 @@ function StorageCleanupPanel({
       detectorIds: detectors.filter((detector) => detector.supportsApprovedPaths).map((detector) => detector.detectorId),
       requestKey
     };
+    const ownsScanIntent = () => requestedScopeEpoch === scopeEpoch.current
+      && requestKeyRef.current === requestKey
+      && scanIntentInFlight.current;
     setIsMutating(true);
     try {
       const started = await api.startAnalysisRun(request);
-      if (requestedScopeEpoch !== scopeEpoch.current) return;
+      if (!ownsScanIntent()) return;
       setRun(started);
       await loadRunDetails(started.id, true, requestedScopeEpoch);
     } catch (startError) {
-      reportError(startError);
+      if (ownsScanIntent()) reportError(startError);
     } finally {
       if (requestKeyRef.current === requestKey) {
         requestKeyRef.current = null;
@@ -629,7 +635,7 @@ function StorageCleanupPanel({
   }, [api, commitSelection, isAiWorking, isMutating, loadFindings, reportError]);
 
   const toggleFinding = useCallback((finding: AnalysisFinding) => {
-    if (isAiWorking || isMutating) return;
+    if (interactionLockedRef.current) return;
     if (finding.tier === "caution" || finding.status !== "active") return;
     if (!isFindingSelectable(finding)) {
       if (finding.tier === "review" && finding.decision !== "acknowledged") setReviewFinding(finding);
@@ -641,7 +647,7 @@ function StorageCleanupPanel({
       else next.add(finding.id);
       return next;
     });
-  }, []);
+  }, [commitSelection]);
 
   const selectedFindings = useMemo(
     () => [...selectedFindingIds].map((id) => findingCache[id]).filter((finding): finding is AnalysisFinding => Boolean(finding)),
