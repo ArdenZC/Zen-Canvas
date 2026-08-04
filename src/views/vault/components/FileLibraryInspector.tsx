@@ -71,20 +71,22 @@ export function FileLibraryPreviewDialog({
   language,
   t,
   onClose,
-  onReveal
+  onReveal,
+  restoreFocus
 }: {
   file: FileLibraryDetail | null;
   language: Language;
   t: Translator;
   onClose: () => void;
   onReveal: (fileId: string) => void;
+  restoreFocus?: () => HTMLElement | null;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   if (!file) return null;
   return (
-    <ModalPortal initialFocusRef={closeRef} onEscape={() => onCloseRef.current()}>
+    <ModalPortal initialFocusRef={closeRef} restoreFocus={restoreFocus} onEscape={() => onCloseRef.current()}>
       <div className="fixed inset-0 z-40 grid place-items-center bg-black/20 p-5" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
         <section className={cn(floatingSurface, "grid w-full max-w-xl gap-4 p-5")} role="dialog" aria-modal="true" aria-labelledby="library-preview-title">
           <div className="flex items-start justify-between gap-3">

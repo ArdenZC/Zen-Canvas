@@ -168,6 +168,12 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+async function flushFocus() {
+  await act(async () => {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  });
+}
+
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
@@ -327,6 +333,7 @@ describe("Task 06 File Library handoff interactions", () => {
 
     await vi.waitFor(() => expect(container.querySelector('[data-content-sheet-id="file-one"]')).not.toBeNull());
     expect(useFileLibrarySelectionStore.getState().selection).toEqual({ kind: "explicit", fileIds: [fileA.id] });
+    expect(api.getDetail).toHaveBeenCalledTimes(1);
   });
 
   it("converts an all-matching selection to one file before opening Content Understanding", async () => {
@@ -349,6 +356,146 @@ describe("Task 06 File Library handoff interactions", () => {
 
     await vi.waitFor(() => expect(container.querySelector('[data-content-sheet-id="file-one"]')).not.toBeNull());
     expect(useFileLibrarySelectionStore.getState().selection).toEqual({ kind: "explicit", fileIds: [fileA.id] });
+    expect(api.getDetail).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves an explicit multi-selection while opening a context menu and viewing suggestions", async () => {
+    const fileA = detail("file-one", "one.txt");
+    const fileB = detail("file-two", "two.txt");
+    api.query.mockImplementation(async (request: FileQueryRequestV2) => {
+      const base = response(request);
+      return { ...base, files: [base.files[0], { ...base.files[0], id: fileB.id, name: fileB.name }], totalCount: 2 };
+    });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    await act(async () => useFileLibrarySelectionStore.setState({ selection: { kind: "explicit", fileIds: [fileA.id, fileB.id] } as LibrarySelectionV1, focusedId: fileA.id, anchorIndex: 0 }));
+    await act(async () => container.querySelector<HTMLElement>('[data-library-row="file-one"]')?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })));
+
+    expect(useFileLibrarySelectionStore.getState().selection).toEqual({ kind: "explicit", fileIds: [fileA.id, fileB.id] });
+    const suggestions = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes(chrome.t("libraryViewSuggestions")));
+    await act(async () => suggestions?.click());
+
+    expect(useFileLibrarySelectionStore.getState().selection).toEqual({ kind: "explicit", fileIds: [fileA.id, fileB.id] });
+    expect(chrome.setView).toHaveBeenCalledWith("organize");
+  });
+
+  it("preserves an all-matching selection while opening a context menu and viewing suggestions", async () => {
+    const fileA = detail("file-one", "one.txt");
+    api.query.mockImplementation(async (request: FileQueryRequestV2) => response(request, { totalCount: 10 }));
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    useFileLibraryQueryStore.setState({ fingerprint: "fp", snapshotRevision: 7 });
+    const allMatching: LibrarySelectionV1 = { kind: "all_matching", query: useFileLibraryQueryStore.getState().spec, queryFingerprint: "fp", snapshotRevision: 7, excludedFileIds: [] };
+    await act(async () => useFileLibrarySelectionStore.setState({ selection: allMatching, focusedId: fileA.id, anchorIndex: 0 }));
+    await act(async () => container.querySelector<HTMLElement>('[data-library-row="file-one"]')?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })));
+
+    expect(useFileLibrarySelectionStore.getState().selection).toEqual(allMatching);
+    const suggestions = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes(chrome.t("libraryViewSuggestions")));
+    await act(async () => suggestions?.click());
+
+    expect(useFileLibrarySelectionStore.getState().selection).toEqual(allMatching);
+    expect(chrome.setView).toHaveBeenCalledWith("organize");
+  });
+
+  it("switches to a single file only when the context target is not selected", async () => {
+    const fileA = detail("file-one", "one.txt");
+    const fileB = detail("file-two", "two.txt");
+    api.query.mockImplementation(async (request: FileQueryRequestV2) => {
+      const base = response(request);
+      return { ...base, files: [base.files[0], { ...base.files[0], id: fileB.id, name: fileB.name }], totalCount: 2 };
+    });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    await act(async () => useFileLibrarySelectionStore.setState({ selection: { kind: "explicit", fileIds: [fileB.id] } as LibrarySelectionV1, focusedId: fileB.id, anchorIndex: 1 }));
+    await act(async () => container.querySelector<HTMLElement>('[data-library-row="file-one"]')?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })));
+
+    expect(useFileLibrarySelectionStore.getState().selection).toEqual({ kind: "explicit", fileIds: [fileA.id] });
+  });
+
+  it("restores listbox focus after Escape closes a keyboard-opened context menu", async () => {
+    const fileA = detail("file-one", "one.txt");
+    api.getDetail.mockResolvedValue(fileA);
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    const listbox = container.querySelector<HTMLElement>('[role="listbox"]')!;
+    await act(async () => {
+      useFileLibrarySelectionStore.setState({ selection: { kind: "explicit", fileIds: [fileA.id] } as LibrarySelectionV1, focusedId: fileA.id, anchorIndex: 0 });
+      listbox.focus();
+      listbox.dispatchEvent(new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }));
+    });
+    const menu = container.querySelector<HTMLElement>('[role="menu"]')!;
+    expect(menu).not.toBeNull();
+    await act(async () => menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await flushFocus();
+
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(listbox);
+  });
+
+  it("restores listbox focus after closing Content Sheet opened from the context menu", async () => {
+    const fileA = detail("file-one", "one.txt");
+    api.getDetail.mockResolvedValue(fileA);
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    const listbox = container.querySelector<HTMLElement>('[role="listbox"]')!;
+    await act(async () => {
+      useFileLibrarySelectionStore.setState({ selection: { kind: "explicit", fileIds: [fileA.id] } as LibrarySelectionV1, focusedId: fileA.id, anchorIndex: 0 });
+      listbox.focus();
+      listbox.dispatchEvent(new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }));
+    });
+    const contentMenuItem = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Open Content Understanding"));
+    await act(async () => contentMenuItem?.click());
+    await vi.waitFor(() => expect(container.querySelector('[data-content-sheet-id="file-one"]')).not.toBeNull());
+    const closeButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Close content");
+    await act(async () => closeButton?.click());
+    await flushFocus();
+
+    expect(container.querySelector('[data-content-sheet-id="file-one"]')).toBeNull();
+    expect(document.activeElement).toBe(listbox);
+  });
+
+  it("falls back to the current listbox when a saved Content Sheet focus target is removed", async () => {
+    const fileA = detail("file-one", "one.txt");
+    api.getDetail.mockResolvedValue(fileA);
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    const listbox = container.querySelector<HTMLElement>('[role="listbox"]')!;
+    await act(async () => {
+      useFileLibrarySelectionStore.setState({ selection: { kind: "explicit", fileIds: [fileA.id] } as LibrarySelectionV1, focusedId: fileA.id, anchorIndex: 0 });
+      listbox.focus();
+      listbox.dispatchEvent(new KeyboardEvent("keydown", { key: "ContextMenu", bubbles: true }));
+    });
+    const contentMenuItem = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Open Content Understanding"));
+    await act(async () => contentMenuItem?.click());
+    await vi.waitFor(() => expect(container.querySelector('[data-content-sheet-id="file-one"]')).not.toBeNull());
+    const replacement = document.createElement("div");
+    replacement.setAttribute("role", "listbox");
+    replacement.tabIndex = 0;
+    listbox.replaceWith(replacement);
+    const closeButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "Close content");
+    await act(async () => closeButton?.click());
+    await flushFocus();
+
+    expect(document.activeElement).toBe(replacement);
+  });
+
+  it("restores a stable library focus target when clicking outside the context menu", async () => {
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    const listbox = container.querySelector<HTMLElement>('[role="listbox"]')!;
+    await act(async () => container.querySelector<HTMLElement>('[data-library-row="file-one"]')?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })));
+    expect(container.querySelector('[role="menu"]')).not.toBeNull();
+    await act(async () => document.body.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+    await flushFocus();
+
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+    expect(document.activeElement).toBe(listbox);
   });
 
   it("reports a real Content refresh failure even when the Inspector no longer owns the file", async () => {
