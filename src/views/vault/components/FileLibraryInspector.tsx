@@ -16,6 +16,7 @@ export function FileLibraryInspector({
   detail,
   selectionSummary,
   isLoading,
+  error,
   language,
   t,
   onPreview,
@@ -23,6 +24,7 @@ export function FileLibraryInspector({
   onViewSuggestions,
   onOpenContentUnderstanding,
   onClearSelection,
+  onRetryDetail,
   availableTags = [],
   onToggleTag
 }: {
@@ -31,6 +33,7 @@ export function FileLibraryInspector({
   detail: FileLibraryDetail | null;
   selectionSummary: FileLibrarySelectionSummary | null;
   isLoading: boolean;
+  error: string | null;
   language: Language;
   t: Translator;
   onPreview: (file: FileLibraryDetail) => void;
@@ -38,6 +41,7 @@ export function FileLibraryInspector({
   onViewSuggestions: () => void;
   onOpenContentUnderstanding: (file: FileLibraryDetail, trigger: HTMLElement) => void;
   onClearSelection: () => void;
+  onRetryDetail: () => void;
   availableTags?: UserTag[];
   onToggleTag?: (tagId: string, operation: "add" | "remove") => void;
 }) {
@@ -51,7 +55,7 @@ export function FileLibraryInspector({
           <MultiInspector summary={selectionSummary} selectedCount={selectedIds.length} t={t} onViewSuggestions={onViewSuggestions} onClearSelection={onClearSelection} />
         ) : null}
         {selectedIds.length === 1 ? (
-          isLoading ? <LoadingInspector t={t} /> : detail ? (
+          isLoading ? <LoadingInspector t={t} /> : error ? <DetailErrorInspector error={error} t={t} onRetry={onRetryDetail} /> : detail ? (
             <SingleInspector detail={detail} language={language} t={t} onPreview={onPreview} onReveal={onReveal} onViewSuggestions={onViewSuggestions} onOpenContentUnderstanding={onOpenContentUnderstanding} availableTags={availableTags} onToggleTag={onToggleTag} />
           ) : <MissingInspector t={t} />
         ) : null}
@@ -71,20 +75,22 @@ export function FileLibraryPreviewDialog({
   language,
   t,
   onClose,
-  onReveal
+  onReveal,
+  restoreFocus
 }: {
   file: FileLibraryDetail | null;
   language: Language;
   t: Translator;
   onClose: () => void;
   onReveal: (fileId: string) => void;
+  restoreFocus?: () => HTMLElement | null;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   if (!file) return null;
   return (
-    <ModalPortal initialFocusRef={closeRef} onEscape={() => onCloseRef.current()}>
+    <ModalPortal initialFocusRef={closeRef} restoreFocus={restoreFocus} onEscape={() => onCloseRef.current()}>
       <div className="fixed inset-0 z-40 grid place-items-center bg-black/20 p-5" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
         <section className={cn(floatingSurface, "grid w-full max-w-xl gap-4 p-5")} role="dialog" aria-modal="true" aria-labelledby="library-preview-title">
           <div className="flex items-start justify-between gap-3">
@@ -118,6 +124,11 @@ function LoadingInspector({ t }: { t: Translator }) {
 
 function MissingInspector({ t }: { t: Translator }) {
   return <div className="grid min-h-40 place-items-center gap-3 border-y border-[var(--zc-divider)] py-6 text-center"><Info size={22} className="text-[var(--zc-warning-text)]" aria-hidden="true" /><p className="max-w-xs text-sm leading-6 text-[var(--zc-text-secondary)]">{t("libraryFileNotFound")}</p></div>;
+}
+
+function DetailErrorInspector({ error, t, onRetry }: { error: string; t: Translator; onRetry: () => void }) {
+  void error;
+  return <div className="grid min-h-40 place-items-center gap-3 border-y border-[var(--zc-divider)] py-6 text-center"><TriangleAlert size={22} className="text-[var(--zc-danger-text)]" aria-hidden="true" /><div className="grid gap-1"><p className="text-sm font-semibold text-[var(--zc-text-primary)]">{t("libraryDetailLoadFailedTitle")}</p><p className="max-w-xs text-sm leading-6 text-[var(--zc-text-secondary)]">{t("libraryDetailLoadFailedDesc")}</p></div><button type="button" className={buttonSecondary} onClick={onRetry}>{t("libraryDetailRetry")}</button></div>;
 }
 
 function MultiInspector({ summary, selectedCount, t, onViewSuggestions, onClearSelection }: { summary: FileLibrarySelectionSummary | null; selectedCount: number; t: Translator; onViewSuggestions: () => void; onClearSelection: () => void }) {

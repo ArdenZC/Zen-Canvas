@@ -767,12 +767,14 @@ export function SegmentedControl<T extends string>({
   value,
   options,
   ariaLabel,
-  onChange
+  onChange,
+  disabled = false
 }: {
   value: T;
   options: Array<{ value: T; label: string }>;
   ariaLabel: string;
   onChange: (value: T) => void;
+  disabled?: boolean;
 }) {
   return createElement(
     "div",
@@ -784,6 +786,8 @@ export function SegmentedControl<T extends string>({
           key: option.value,
           type: "button",
           className: segmentButton(value === option.value),
+          disabled,
+          "aria-disabled": disabled,
           "aria-pressed": value === option.value,
           onClick: () => onChange(option.value)
         },

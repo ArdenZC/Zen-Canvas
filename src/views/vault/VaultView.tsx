@@ -14,7 +14,8 @@ import {
   useFileLibraryResultStore,
   useFileLibrarySavedViewStore,
   useFileLibrarySelectionStore,
-  useFileLibraryTagStore
+  useFileLibraryTagStore,
+  type InspectorDetailLoadResult
 } from "../../store/useFileLibraryV2Store";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
 import type { FileLibraryDetail, FileLibrarySummary, FileQueryFiltersV2, FileQuerySpecV2, LibrarySavedView } from "../../types/domain";
@@ -23,12 +24,13 @@ import { buttonGhost, buttonSecondary, buttonSubtle, cn, glassButtonPrimary, rai
 import { InspectorLayout, MetricStrip, NoticeBanner, SearchField, StateBlock, pageFrame } from "../shared/ui";
 import { FileLibraryFilterPopover } from "./components/FileLibraryFilterPopover";
 import { FileLibraryInspector, FileLibraryPreviewDialog, libraryRevealLabel } from "./components/FileLibraryInspector";
-import { ContentUnderstandingSheet } from "./components/ContentUnderstandingSheet";
+import { ContentUnderstandingSheet, type ContentRefreshResult } from "./components/ContentUnderstandingSheet";
 import { FileLibraryList } from "./components/FileLibraryList";
 import { LibraryMetadataManagerDialog } from "./components/LibraryMetadataManagerDialog";
 import { DuplicateGroupsPanel } from "./components/DuplicateGroupsPanel";
 
-type ContextMenuState = { file: FileLibrarySummary; x: number; y: number };
+type ContextMenuCloseReason = "escape" | "outside-pointer" | "action" | "dialog-handoff";
+type ContextMenuState = { file: FileLibrarySummary; x: number; y: number; restoreFocusElement: HTMLElement | null };
 
 export function VaultView() {
   const { onError, setView, t, language } = useChromeContext();
@@ -61,7 +63,9 @@ export function VaultView() {
   const detail = useFileLibraryInspectorStore((state) => state.detail);
   const selectionSummary = useFileLibraryInspectorStore((state) => state.selectionSummary);
   const isInspectorLoading = useFileLibraryInspectorStore((state) => state.isLoading);
+  const inspectorError = useFileLibraryInspectorStore((state) => state.error);
   const loadDetail = useFileLibraryInspectorStore((state) => state.loadDetail);
+  const commitDetailIfCurrent = useFileLibraryInspectorStore((state) => state.commitDetailIfCurrent);
   const loadSelectionSummary = useFileLibraryInspectorStore((state) => state.loadSelectionSummary);
   const clearInspector = useFileLibraryInspectorStore((state) => state.clear);
   const tags = useFileLibraryTagStore((state) => state.tags);
@@ -80,7 +84,13 @@ export function VaultView() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const filterButtonRef = useRef<HTMLButtonElement | null>(null);
   const sortButtonRef = useRef<HTMLButtonElement | null>(null);
+  const previewTriggerRef = useRef<HTMLElement | null>(null);
   const contentTriggerRef = useRef<HTMLElement | null>(null);
+  const contentRestoreTargetRef = useRef<HTMLElement | null>(null);
+  const contentOpenEpoch = useRef(0);
+  const pendingContentOpenRef = useRef<{ epoch: number; fileId: string } | null>(null);
+  const contentRefreshEpoch = useRef(0);
+  const contentDetailRef = useRef<FileLibraryDetail | null>(null);
   const pendingSavedViewQuerySignature = useRef<string | null>(null);
   const scopeSignature = `${legacyScope.kind}:${legacyScope.kind === "all" ? "" : `${legacyScope.roots.join("\n")}:${legacyScope.kind === "current_scan" ? legacyScope.scanSessionId ?? "" : ""}`}`;
   const querySpecSignature = JSON.stringify(querySpec);
@@ -102,9 +112,35 @@ export function VaultView() {
   ], [t]);
   const currentSortLabel = sortOptions.find((option) => option.key === querySpec.sort.kind)?.label ?? t("librarySortModified");
 
+  const closeContentUnderstanding = useCallback(() => {
+    const restoreTarget = contentTriggerRef.current;
+    contentRestoreTargetRef.current = restoreTarget;
+    contentRefreshEpoch.current += 1;
+    contentOpenEpoch.current += 1;
+    pendingContentOpenRef.current = null;
+    contentTriggerRef.current = null;
+    contentDetailRef.current = null;
+    setContentDetail(null);
+    requestAnimationFrame(() => {
+      restoreLibraryFocus(restoreTarget);
+      requestAnimationFrame(() => {
+        if (contentRestoreTargetRef.current === restoreTarget) contentRestoreTargetRef.current = null;
+      });
+    });
+  }, []);
+
   useEffect(() => {
-    void loadTags();
-    void loadSavedViews();
+    contentDetailRef.current = contentDetail;
+  }, [contentDetail]);
+
+  useEffect(() => () => {
+    contentRefreshEpoch.current += 1;
+    contentDetailRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    void loadTags().catch(() => undefined);
+    void loadSavedViews().catch(() => undefined);
   }, [loadSavedViews, loadTags]);
 
   useEffect(() => {
@@ -146,7 +182,7 @@ export function VaultView() {
       setQuerySpec(spec);
       return;
     }
-    void loadFirstPage();
+    void loadFirstPage().catch(() => undefined);
   }, [debouncedSearchQuery, isEmptyCurrentScanScope, loadFirstPage, querySpecSignature, scopeReady, setQuerySpec]);
 
   useEffect(() => {
@@ -168,16 +204,20 @@ export function VaultView() {
     if (!selection) {
       clearInspector();
     } else if (selectedIds.length === 1) {
-      void loadDetail(selectedIds[0]);
+      if (pendingContentOpenRef.current?.fileId !== selectedIds[0]) void loadDetail(selectedIds[0]);
     } else {
-      void loadSelectionSummary(selection);
+      void loadSelectionSummary(selection).catch(() => undefined);
     }
   }, [clearInspector, loadDetail, loadSelectionSummary, selectedIds, selection]);
 
   useEffect(() => {
+    if (contentDetail && (selectedIds.length !== 1 || contentDetail.id !== selectedIds[0])) closeContentUnderstanding();
+  }, [closeContentUnderstanding, contentDetail?.id, selectedIds]);
+
+  useEffect(() => {
     if (!contextMenu) return;
-    const closeOnPointer = () => setContextMenu(null);
-    const closeOnKey = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); setContextMenu(null); } };
+    const closeOnPointer = (event: globalThis.PointerEvent) => closeContextMenu("outside-pointer", event.target);
+    const closeOnKey = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); closeContextMenu("escape"); } };
     document.addEventListener("pointerdown", closeOnPointer);
     document.addEventListener("keydown", closeOnKey);
     return () => { document.removeEventListener("pointerdown", closeOnPointer); document.removeEventListener("keydown", closeOnKey); };
@@ -215,7 +255,7 @@ export function VaultView() {
     if (event.shiftKey) toggleSelection(file.id, ids, true);
     else if (event.metaKey || event.ctrlKey) toggleSelection(file.id, ids);
     else setExplicitSelection([file.id], file.id, index);
-    setContextMenu(null);
+    closeContextMenu("action", null, false);
   }
 
   function selectAllLoaded() {
@@ -224,6 +264,32 @@ export function VaultView() {
 
   function focusList() {
     document.querySelector<HTMLElement>('[role="listbox"]')?.focus();
+  }
+
+  function restoreLibraryFocus(target: HTMLElement | null) {
+    if (target?.isConnected) {
+      target.focus();
+      if (document.activeElement === target) return;
+    }
+    focusList();
+  }
+
+  function closeContextMenu(reason: ContextMenuCloseReason = "action", pointerTarget: EventTarget | null = null, restoreFocus = reason !== "dialog-handoff") {
+    const restoreTarget = contextMenu?.restoreFocusElement ?? null;
+    setContextMenu(null);
+    if (!restoreFocus) return;
+    requestAnimationFrame(() => {
+      if (reason === "outside-pointer") {
+        const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        if (isValidFocusTarget(active)) return;
+        const pointerElement = focusablePointerTarget(pointerTarget);
+        if (pointerElement) {
+          pointerElement.focus();
+          if (document.activeElement === pointerElement) return;
+        }
+      }
+      restoreLibraryFocus(restoreTarget);
+    });
   }
 
   function handleListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -236,8 +302,8 @@ export function VaultView() {
     }
     if (event.key === "Escape") {
       event.preventDefault();
-      if (contextMenu) setContextMenu(null);
-      else if (previewFile) { setPreviewFile(null); focusList(); }
+      if (contextMenu) closeContextMenu("escape");
+      else if (previewFile) closePreview();
       else clearSelection();
       return;
     }
@@ -262,7 +328,7 @@ export function VaultView() {
     if (event.key === "Enter" || event.key === " " || event.key === "Space") {
       event.preventDefault();
       const file = files.find((item) => item.id === focusedId) ?? files[0];
-      if (file) void openPreview(file);
+      if (file) void openPreview(file).catch(() => undefined);
     }
   }
 
@@ -270,25 +336,42 @@ export function VaultView() {
     event.preventDefault();
     const file = files[index];
     if (!file) return;
-    if (!selectedIds.includes(file.id)) setExplicitSelection([file.id], file.id, index);
     openContextMenu(file, event.clientX, event.clientY);
   }
 
   function openContextMenu(file: FileLibrarySummary, anchorX?: number, anchorY?: number) {
+    const currentSelection = useFileLibrarySelectionStore.getState().selection;
+    if (!selectionContainsFile(currentSelection, file.id)) setExplicitSelection([file.id], file.id, files.findIndex((item) => item.id === file.id));
     const row = document.getElementById(`library-row-${file.id}`);
     const rect = row?.getBoundingClientRect();
+    const list = document.querySelector<HTMLElement>('[role="listbox"]');
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const activeInLibrary = active && list?.contains(active) && active !== document.body && active !== document.documentElement && (active === list || active.tabIndex >= 0 || active.matches("button, input, select, textarea, a[href], [contenteditable='true']"));
+    const restoreFocusElement = activeInLibrary ? active : list?.isConnected ? list : row?.isConnected ? row : null;
     const width = 260;
     const height = 220;
-    setContextMenu({ file, x: Math.max(8, Math.min(anchorX ?? rect?.left ?? 8, window.innerWidth - width - 8)), y: Math.max(8, Math.min(anchorY ?? rect?.bottom ?? 8, window.innerHeight - height - 8)) });
+    setContextMenu({ file, restoreFocusElement, x: Math.max(8, Math.min(anchorX ?? rect?.left ?? 8, window.innerWidth - width - 8)), y: Math.max(8, Math.min(anchorY ?? rect?.bottom ?? 8, window.innerHeight - height - 8)) });
   }
 
-  async function openPreview(file: FileLibrarySummary) {
+  function closePreview() {
+    const restoreTarget = previewTriggerRef.current;
+    setPreviewFile(null);
+    restoreLibraryFocus(restoreTarget);
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (previewTriggerRef.current === restoreTarget) previewTriggerRef.current = null;
+    }));
+  }
+
+  async function openPreview(file: FileLibrarySummary, restoreTarget?: HTMLElement | null) {
+    previewTriggerRef.current = restoreTarget ?? document.querySelector<HTMLElement>('[role="listbox"]');
+    if (contextMenu) closeContextMenu("dialog-handoff");
     try {
       const loaded = await tauriApi.getFileLibraryDetail(file.id);
       setPreviewFile(loaded);
-      setContextMenu(null);
     } catch (error) {
       onError(readableError(error));
+      restoreLibraryFocus(previewTriggerRef.current);
+      previewTriggerRef.current = null;
     }
   }
 
@@ -326,45 +409,104 @@ export function VaultView() {
   }
 
   function openContentUnderstanding(file: FileLibraryDetail, trigger?: HTMLElement) {
+    contentRefreshEpoch.current += 1;
+    contentOpenEpoch.current += 1;
+    pendingContentOpenRef.current = null;
+    contentRestoreTargetRef.current = null;
     contentTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    contentDetailRef.current = file;
     setContentDetail(file);
   }
 
-  const refreshContentDetail = useCallback(async (fileId: string) => {
+  function ownsSingleFileSelection(fileId: string) {
+    const current = useFileLibrarySelectionStore.getState().selection;
+    return current?.kind === "explicit" && current.fileIds.length === 1 && current.fileIds[0] === fileId;
+  }
+
+  async function openContentForFile(fileId: string, trigger?: HTMLElement, providedDetail?: FileLibraryDetail) {
+    const fileIndex = files.findIndex((file) => file.id === fileId);
+    const operationEpoch = contentOpenEpoch.current + 1;
+    contentOpenEpoch.current = operationEpoch;
+    if (!ownsSingleFileSelection(fileId)) {
+      pendingContentOpenRef.current = { epoch: operationEpoch, fileId };
+      setExplicitSelection([fileId], fileId, fileIndex);
+    }
+    if (!ownsSingleFileSelection(fileId)) return;
+    const inspector = useFileLibraryInspectorStore.getState();
+    if (providedDetail?.id === fileId) {
+      openContentUnderstanding(providedDetail, trigger);
+      return;
+    }
+    if (!inspector.isLoading && inspector.selectedId === fileId && inspector.detail?.id === fileId) {
+      openContentUnderstanding(inspector.detail, trigger);
+      return;
+    }
+    pendingContentOpenRef.current = { epoch: operationEpoch, fileId };
+    try {
+      const outcome: InspectorDetailLoadResult = await loadDetail(fileId);
+      if (pendingContentOpenRef.current?.epoch !== operationEpoch || !ownsSingleFileSelection(fileId)) return;
+      if (outcome.status === "superseded") return;
+      if (outcome.status === "failed") {
+        onError(t("contentOpenFailed"));
+        restoreLibraryFocus(trigger ?? null);
+        return;
+      }
+      const current = useFileLibraryInspectorStore.getState();
+      if (current.selectedId !== fileId || current.detail?.id !== fileId) return;
+      openContentUnderstanding(outcome.detail, trigger);
+    } catch (error) {
+      if (pendingContentOpenRef.current?.epoch === operationEpoch) {
+        onError(t("contentOpenFailed"));
+        restoreLibraryFocus(trigger ?? null);
+      }
+    } finally {
+      if (pendingContentOpenRef.current?.epoch === operationEpoch) pendingContentOpenRef.current = null;
+    }
+  }
+
+  const refreshContentDetail = useCallback(async (fileId: string): Promise<ContentRefreshResult> => {
+    const refreshEpoch = contentRefreshEpoch.current + 1;
+    contentRefreshEpoch.current = refreshEpoch;
+    const ownsRefresh = () => refreshEpoch === contentRefreshEpoch.current && contentDetailRef.current?.id === fileId;
+    const inspectorAtStart = useFileLibraryInspectorStore.getState();
+    const expectedInspectorEpoch = inspectorAtStart.requestEpoch;
+    const inspectorOwnedFile = inspectorAtStart.selectedId === fileId;
     try {
       const refreshed = await tauriApi.getFileLibraryDetail(fileId);
+      if (!ownsRefresh()) return { status: "superseded" as const };
       const policy = refreshed.scanRootId
         ? await tauriApi.getContentScopePolicy(refreshed.scanRootId)
         : null;
-      setContentDetail((current) => current?.id === fileId ? refreshed : current);
-      useFileLibraryInspectorStore.setState({ detail: refreshed, selectedId: fileId, isLoading: false, error: null });
-      return { detail: refreshed, policy };
+      if (!ownsRefresh()) return { status: "superseded" as const };
+      contentDetailRef.current = refreshed;
+      setContentDetail(refreshed);
+      const currentInspector = useFileLibraryInspectorStore.getState();
+      if (inspectorOwnedFile
+        && currentInspector.requestEpoch === expectedInspectorEpoch
+        && currentInspector.selectedId === fileId) commitDetailIfCurrent(fileId, refreshed, expectedInspectorEpoch);
+      return { status: "applied" as const, detail: refreshed, policy };
     } catch (error) {
-      onError(readableError(error));
-      throw error;
+      if (!ownsRefresh()) return { status: "superseded" as const };
+      onError(t("contentOpenFailed"));
+      return { status: "failed" as const, error };
     }
-  }, [loadDetail, onError]);
+  }, [commitDetailIfCurrent, onError, t]);
   const refreshOpenContentDetail = useCallback(
-    () => contentDetail
-      ? refreshContentDetail(contentDetail.id)
-      : Promise.reject(new Error("content_detail_missing")),
-    [contentDetail?.id, refreshContentDetail]
+    () => contentDetailRef.current
+      ? refreshContentDetail(contentDetailRef.current.id)
+      : Promise.resolve({ status: "superseded" as const }),
+    [refreshContentDetail]
   );
 
   async function openContentFromContext(fileId: string) {
-    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-    setContextMenu(null);
-    try {
-      const file = await tauriApi.getFileLibraryDetail(fileId);
-      openContentUnderstanding(file, trigger);
-    } catch (error) {
-      onError(readableError(error));
-    }
+    const context = contextMenu;
+    closeContextMenu("dialog-handoff");
+    await openContentForFile(fileId, context?.restoreFocusElement ?? undefined);
   }
 
   function libraryState() {
     if (resultState === "snapshot_expired" || resultError === "library_snapshot_expired") return null;
-    if (resultError || resultState === "failed") return { tone: "error" as const, title: t("libraryLoadFailedTitle"), description: resultError ?? t("libraryLoadFailedDesc"), primaryAction: <button className={buttonSecondary} onClick={() => void refreshResults()}>{t("libraryRetry")}</button> };
+    if (resultError || resultState === "failed") return { tone: "error" as const, title: t("libraryLoadFailedTitle"), description: resultError ?? t("libraryLoadFailedDesc"), primaryAction: <button className={buttonSecondary} onClick={() => void refreshResults().catch(() => undefined)}>{t("libraryRetry")}</button> };
     if (isLoading && totalCount === 0) return { tone: "info" as const, title: t("libraryLoadingResults"), description: t("libraryScopeHint") };
     if (isNoIndexState) return { tone: "info" as const, title: t("libraryNoScanTitle"), description: t("libraryNoScanDesc"), primaryAction: <button className={glassButtonPrimary} onClick={() => setView("scanner")}><Layers size={16} />{t("libraryGoToOverview")}</button> };
     if (isEmptyCurrentScanScope) return { tone: "info" as const, title: t("noCurrentScanTitle"), description: t("noCurrentScanDesc"), primaryAction: <button className={glassButtonPrimary} onClick={() => setView("scanner")}><Layers size={16} />{t("libraryGoToOverview")}</button>, secondaryAction: <button className={buttonSecondary} onClick={() => setLegacyScope({ kind: "all" })}>{t("viewAllIndexedFiles")}</button> };
@@ -387,7 +529,7 @@ export function VaultView() {
   return (
     <div className={cn(pageFrame, "gap-3 overflow-x-hidden")}>
       <section className={cn(raisedSurface, "relative z-20 grid shrink-0 gap-2 px-3 py-2")}>
-        <div data-section="scope bar" className="flex min-w-0 flex-wrap items-center justify-between gap-2" aria-label={scopeText}><span className="truncate text-xs text-[var(--zc-text-secondary)]">{scopeText}{scopeHealth && scopeHealth.state !== "healthy" ? ` · ${scopeHealthLabel(scopeHealth.state, t)}` : ""}</span><div className="flex flex-wrap items-center gap-2">{legacyScope.kind !== "all" && !isEmptyCurrentScanScope ? <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => setLegacyScope({ kind: "all" })}><Layers size={15} />{t("viewAllIndexedFiles")}</button> : null}<button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => void handleChooseFolders()}><FolderSearch size={15} />{t("switchScanDirectory")}</button></div></div>
+        <div data-section="scope bar" className="flex min-w-0 flex-wrap items-center justify-between gap-2" aria-label={scopeText}><span className="truncate text-xs text-[var(--zc-text-secondary)]">{scopeText}{scopeHealth && scopeHealth.state !== "healthy" ? ` · ${scopeHealthLabel(scopeHealth.state, t)}` : ""}</span><div className="flex flex-wrap items-center gap-2">{legacyScope.kind !== "all" && !isEmptyCurrentScanScope ? <button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => setLegacyScope({ kind: "all" })}><Layers size={15} />{t("viewAllIndexedFiles")}</button> : null}<button className={cn(buttonGhost, "min-h-8 px-2.5 py-1.5 text-xs")} onClick={() => void handleChooseFolders().catch(() => undefined)}><FolderSearch size={15} />{t("switchScanDirectory")}</button></div></div>
         {showLibraryControls ? <div className="flex min-w-0 flex-wrap items-center gap-2">
           <div data-section="search bar" className="min-w-[min(100%,320px)] flex-1"><SearchField value={librarySearch} onChange={(event) => handleLibrarySearchChange(event.currentTarget.value)} onClear={() => handleLibrarySearchChange("")} label={t("librarySearchLabel")} clearLabel={t("librarySearchClear")} placeholder={legacyScope.kind === "all" ? t("librarySearchPlaceholder") : t("librarySearchPlaceholderScoped")} className="min-w-0" /></div>
           <div className="relative" data-section="filter toolbar"><button ref={filterButtonRef} className={cn(buttonSubtle, "min-h-9 px-3 py-1.5 text-xs")} aria-expanded={isFilterOpen} aria-controls="library-filter-popover" aria-haspopup="dialog" onClick={() => { setIsFilterOpen((value) => !value); setIsSortOpen(false); }}><SlidersHorizontal size={15} />{t("libraryFilterButton")}{activeFilterCount ? <span className="tabular-nums text-[var(--zc-primary)]">{activeFilterCount}</span> : null}</button>{isFilterOpen ? <div id="library-filter-popover"><FileLibraryFilterPopover filters={querySpec.filters} tags={tags} t={t} onFiltersChange={updateFilters} onClear={clearFilters} onClose={closeFilterPopover} /></div> : null}</div>
@@ -405,21 +547,21 @@ export function VaultView() {
         <NoticeBanner
           tone="warning"
           title={t("librarySnapshotExpiredTitle")}
-          action={<button className={buttonSecondary} onClick={() => void refreshResults()}>{t("librarySnapshotRefresh")}</button>}
+          action={<button className={buttonSecondary} onClick={() => void refreshResults().catch(() => undefined)}>{t("librarySnapshotRefresh")}</button>}
         >
           {t("librarySnapshotExpiredDesc")}
         </NoticeBanner>
       ) : null}
       <InspectorLayout
         className={showInspectorLayout(isNoIndexState)}
-        main={<section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage()} />}</section>}
-        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} language={language} t={t} onPreview={(file) => setPreviewFile(file)} onReveal={(fileId) => void revealFile(fileId)} onViewSuggestions={() => setView("organize")} onOpenContentUnderstanding={(file, trigger) => openContentUnderstanding(file, trigger)} onClearSelection={clearSelection} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation)} /> : undefined}
+        main={<section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file).catch(() => undefined); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage().catch(() => undefined)} />}</section>}
+        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} error={inspectorError} language={language} t={t} onPreview={(file) => setPreviewFile(file)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onOpenContentUnderstanding={(file, trigger) => void openContentForFile(file.id, trigger, file)} onClearSelection={clearSelection} onRetryDetail={() => { if (selectedIds.length === 1) void loadDetail(selectedIds[0]); }} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
         inspectorLabel={t("libraryInspector")}
       />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{selectionLabel}</p>
-      {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={() => setContextMenu(null)} onPreview={() => void openPreview(contextMenu.file)} onReveal={() => void revealFile(contextMenu.file.id)} onOpenContent={() => void openContentFromContext(contextMenu.file.id)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
-      <FileLibraryPreviewDialog file={previewFile} language={language} t={t} onClose={() => { setPreviewFile(null); focusList(); }} onReveal={(fileId) => void revealFile(fileId)} />
-      {contentDetail ? <ContentUnderstandingSheet open detail={contentDetail} t={t} restoreFocus={() => contentTriggerRef.current} onClose={() => setContentDetail(null)} onRefreshAuthoritativeContentState={refreshOpenContentDetail} /> : null}
+      {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={() => closeContextMenu("action")} onPreview={() => void openPreview(contextMenu.file, contextMenu.restoreFocusElement).catch(() => undefined)} onReveal={() => void revealFile(contextMenu.file.id).catch(() => undefined)} onOpenContent={() => void openContentFromContext(contextMenu.file.id).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
+      <FileLibraryPreviewDialog file={previewFile} language={language} t={t} restoreFocus={() => previewTriggerRef.current} onClose={closePreview} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} />
+      {contentDetail ? <ContentUnderstandingSheet open detail={contentDetail} t={t} restoreFocus={() => contentRestoreTargetRef.current ?? contentTriggerRef.current} onClose={closeContentUnderstanding} onRefreshAuthoritativeContentState={refreshOpenContentDetail} /> : null}
       <LibraryMetadataManagerDialog
         kind={metadataManager}
         query={cloneFileQuerySpec({ ...querySpec, text: debouncedSearchQuery.trim() || null })}
@@ -449,6 +591,27 @@ function querySpecSignatureForSavedView(spec: FileQuerySpecV2): string {
 
 function showInspectorLayout(noIndex: boolean) {
   return noIndex ? "max-[1100px]:grid-cols-1" : "";
+}
+
+function selectionContainsFile(selection: import("../../types/domain").LibrarySelectionV1 | null, fileId: string) {
+  if (!selection) return false;
+  return selection.kind === "explicit"
+    ? selection.fileIds.includes(fileId)
+    : !selection.excludedFileIds.includes(fileId);
+}
+
+function isValidFocusTarget(target: HTMLElement | null) {
+  return Boolean(target?.isConnected
+    && target !== document.body
+    && target !== document.documentElement
+    && (target.tabIndex >= 0 || target.matches("button, input, select, textarea, a[href], [contenteditable='true']")));
+}
+
+function focusablePointerTarget(target: EventTarget | null) {
+  const element = target instanceof HTMLElement ? target : null;
+  if (isValidFocusTarget(element)) return element;
+  const closest = element?.closest<HTMLElement>("button, input, select, textarea, a[href], [contenteditable='true']") ?? null;
+  return isValidFocusTarget(closest) ? closest : null;
 }
 
 function replaceCopy(template: string, values: Record<string, string | number>) {
