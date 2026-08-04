@@ -34,6 +34,7 @@ interface OrganizationPlanState {
   dryRun: OrganizationPlanDryRun | null;
   dryRunSelection: OrganizationPlanSelection | null;
   executionResult: ExecuteOrganizationPlanResult | null;
+  isPlanListLoading: boolean;
   isLoading: boolean;
   isMutating: boolean;
   error: string | null;
@@ -128,6 +129,7 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   dryRun: null,
   dryRunSelection: null,
   executionResult: null,
+  isPlanListLoading: false,
   isLoading: false,
   isMutating: false,
   error: null,
@@ -137,17 +139,19 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   groupLoadingOwner: null,
 
   loadPlans: async () => {
-    set({ isLoading: true, error: null });
+    set({ isPlanListLoading: true, error: null });
     try {
-      set({ plans: await tauriApi.listOrganizationPlans(), isLoading: false });
+      set({ plans: await tauriApi.listOrganizationPlans(), isPlanListLoading: false });
     } catch (error) {
-      set({ isLoading: false, error: readableError(error) });
+      set({ isPlanListLoading: false, error: readableError(error) });
     }
   },
 
   createPlan: async (source, expectedCount, title) => {
-    const requestEpoch = get().requestEpoch;
-    const mutationToken = get().mutationToken + 1;
+    const state = get();
+    if (state.isMutating || state.isPlanListLoading || state.isLoading) return superseded();
+    const requestEpoch = state.requestEpoch;
+    const mutationToken = state.mutationToken + 1;
     set((state) => takeGroupProjectionOwnership(state, { isMutating: true, mutationToken, error: null }));
     try {
       const plan = await tauriApi.createOrganizationPlan({
@@ -350,11 +354,13 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   },
 
   analyzeMissing: async (itemIds = []) => {
-    const plan = get().activePlan;
+    const state = get();
+    const plan = state.activePlan;
     if (!plan) return superseded(0);
-    const requestEpoch = get().requestEpoch;
-    const mutationToken = get().mutationToken + 1;
-    set({ isMutating: true, mutationToken, error: null });
+    if (state.isMutating || state.groupLoadingOwner?.kind === "open_plan") return superseded(0);
+    const requestEpoch = state.requestEpoch;
+    const mutationToken = state.mutationToken + 1;
+    set((current) => takeGroupProjectionOwnership(current, { isMutating: true, mutationToken, error: null }));
     try {
       const result = await tauriApi.analyzeOrganizationPlanItems({
         planId: plan.id,
@@ -374,15 +380,17 @@ export const useOrganizationPlanStore = create<OrganizationPlanState>((set, get)
   },
 
   createDryRun: async (selection = { allAccepted: true, itemIds: [] }) => {
-    const plan = get().activePlan;
+    const state = get();
+    const plan = state.activePlan;
     if (!plan) throw new Error("organization_plan_not_selected");
     if (!selection.allAccepted && selection.itemIds.length === 0) throw new Error("organization_selection_required");
+    if (state.isMutating || state.groupLoadingOwner?.kind === "open_plan") return superseded();
     const persistedSelection: OrganizationPlanSelection = selection.allAccepted
       ? { allAccepted: true, itemIds: [] }
       : { allAccepted: false, itemIds: [...selection.itemIds] as [string, ...string[]] };
-    const requestEpoch = get().requestEpoch;
-    const mutationToken = get().mutationToken + 1;
-    set({ isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null });
+    const requestEpoch = state.requestEpoch;
+    const mutationToken = state.mutationToken + 1;
+    set((current) => takeGroupProjectionOwnership(current, { isMutating: true, mutationToken, error: null, dryRun: null, dryRunSelection: null }));
     try {
       const dryRun = await tauriApi.getOrganizationPlanDryRun({
         planId: plan.id,

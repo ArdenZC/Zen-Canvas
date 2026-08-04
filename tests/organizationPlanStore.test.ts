@@ -4,9 +4,12 @@ import type { OrganizationPlan, OrganizationPlanItem, OrganizationPlanSelection 
 
 const apiMocks = vi.hoisted(() => ({
   getOrganizationPlan: vi.fn(),
+  listOrganizationPlans: vi.fn(),
+  createOrganizationPlan: vi.fn(),
   queryOrganizationPlanGroups: vi.fn(),
   queryOrganizationPlanItems: vi.fn(),
   getOrganizationPlanDryRun: vi.fn(),
+  analyzeOrganizationPlanItems: vi.fn(),
   executeOrganizationPlan: vi.fn(),
   updateOrganizationPlanDecisions: vi.fn(),
   updateOrganizationPlanGroupDecision: vi.fn(),
@@ -30,6 +33,7 @@ describe("Organization Plan group-first loading", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     apiMocks.getOrganizationPlan.mockResolvedValue(plan);
+    apiMocks.listOrganizationPlans.mockResolvedValue([]);
     apiMocks.queryOrganizationPlanGroups.mockResolvedValue({
       planId: plan.id,
       planRevision: plan.revision,
@@ -38,7 +42,7 @@ describe("Organization Plan group-first loading", () => {
       nextCursor: null,
       hasMore: false
     });
-    useOrganizationPlanStore.setState({ activePlan: null, plans: [], groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+    useOrganizationPlanStore.setState({ activePlan: null, plans: [], groups: [], groupNextCursor: null, groupHasMore: false, dryRun: null, dryRunSelection: null, executionResult: null, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
   });
 
   it("opens a large plan with only basic plan and group projection requests", async () => {
@@ -198,22 +202,25 @@ describe("Organization Plan group-first loading", () => {
     };
     apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { cursor?: string | null }) => request.cursor ? deferredPage : page);
     apiMocks.getOrganizationPlanDryRun.mockResolvedValue(dryRun);
-    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA], groups: [{ groupId: "group-first" } as any], groupNextCursor: "cursor-a", groupHasMore: true, isLoading: false, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0 });
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA], groups: [{ groupId: "group-first" } as any], groupNextCursor: "cursor-a", groupHasMore: true, isPlanListLoading: false, isLoading: false, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
 
     const pageRequest = useOrganizationPlanStore.getState().loadNextGroupPage();
     await Promise.resolve();
+    expect(useOrganizationPlanStore.getState().groupLoadingOwner?.kind).toBe("pagination");
     const dryRunRequest = useOrganizationPlanStore.getState().createDryRun();
     await Promise.resolve();
-    expect(useOrganizationPlanStore.getState().isLoading).toBe(true);
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
+    expect(useOrganizationPlanStore.getState().groupLoadingOwner).toBeNull();
+
+    await dryRunRequest;
+    expect(useOrganizationPlanStore.getState().dryRun?.dryRunFingerprint).toBe("dry-run-empty");
 
     resolvePage(page);
     const pageResult = await pageRequest;
-    await dryRunRequest;
 
     expect(pageResult.applied).toBe(false);
     expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
     expect(useOrganizationPlanStore.getState().groups).toEqual([{ groupId: "group-first" }]);
-    expect(useOrganizationPlanStore.getState().dryRun?.dryRunFingerprint).toBe("dry-run-empty");
   });
 
   it("keeps the newer refresh error and releases a superseded page loading owner", async () => {
@@ -238,6 +245,141 @@ describe("Organization Plan group-first loading", () => {
     expect(pageResult.applied).toBe(false);
     expect(useOrganizationPlanStore.getState().groups).toEqual([{ groupId: "group-first" }]);
     expect(useOrganizationPlanStore.getState().error).toContain("refresh_failed");
+  });
+
+  it("releases pagination loading immediately when Analyze takes ownership", async () => {
+    const planA = { ...plan, id: "plan-analyze", revision: 4 };
+    const page = { planId: planA.id, planRevision: planA.revision, groups: [{ groupId: "group-old" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    let resolvePage: (value: typeof page) => void = () => undefined;
+    const deferredPage = new Promise<typeof page>((resolve) => { resolvePage = resolve; });
+    apiMocks.queryOrganizationPlanGroups.mockImplementation((request: { cursor?: string | null }) => request.cursor ? deferredPage : page);
+    apiMocks.analyzeOrganizationPlanItems.mockResolvedValue({ queuedCount: 2 });
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA], groups: [{ groupId: "group-first" } as any], groupNextCursor: "cursor-a", groupHasMore: true, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+
+    const pageRequest = useOrganizationPlanStore.getState().loadNextGroupPage();
+    await Promise.resolve();
+    const analyzeRequest = useOrganizationPlanStore.getState().analyzeMissing(["item-a"]);
+    await Promise.resolve();
+
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
+    expect(useOrganizationPlanStore.getState().groupLoadingOwner).toBeNull();
+    await expect(analyzeRequest).resolves.toMatchObject({ applied: true, value: 2 });
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
+
+    resolvePage(page);
+    await expect(pageRequest).resolves.toMatchObject({ applied: false, reason: "superseded" });
+    expect(useOrganizationPlanStore.getState().groups).toEqual([{ groupId: "group-first" }]);
+  });
+
+  it("does not let Analyze or Dry Run clear a newer open-plan owner", async () => {
+    const planA = { ...plan, id: "plan-old", revision: 4 };
+    const planB = { ...plan, id: "plan-new", revision: 8 };
+    const planBPage = { planId: planB.id, planRevision: planB.revision, groups: [{ groupId: "group-new" }], effectiveSummary: { ready: 1, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false };
+    let resolvePlanB: (value: OrganizationPlan) => void = () => undefined;
+    let resolvePlanBPage: (value: typeof planBPage) => void = () => undefined;
+    const pendingPlanB = new Promise<OrganizationPlan>((resolve) => { resolvePlanB = resolve; });
+    const pendingPlanBPage = new Promise<typeof planBPage>((resolve) => { resolvePlanBPage = resolve; });
+    apiMocks.getOrganizationPlan.mockReturnValue(pendingPlanB);
+    apiMocks.queryOrganizationPlanGroups.mockReturnValue(pendingPlanBPage);
+    useOrganizationPlanStore.setState({ activePlan: planA, plans: [planA, planB], groups: [], groupNextCursor: null, groupHasMore: false, isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+
+    const openPlanRequest = useOrganizationPlanStore.getState().openPlan(planB.id);
+    await Promise.resolve();
+    const dryRunResult = await useOrganizationPlanStore.getState().createDryRun();
+    const analyzeResult = await useOrganizationPlanStore.getState().analyzeMissing();
+
+    expect(dryRunResult).toMatchObject({ applied: false, reason: "superseded" });
+    expect(analyzeResult).toMatchObject({ applied: false, reason: "superseded" });
+    expect(apiMocks.getOrganizationPlanDryRun).not.toHaveBeenCalled();
+    expect(apiMocks.analyzeOrganizationPlanItems).not.toHaveBeenCalled();
+    expect(useOrganizationPlanStore.getState().groupLoadingOwner?.kind).toBe("open_plan");
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(true);
+
+    resolvePlanB(planB);
+    resolvePlanBPage(planBPage);
+    await openPlanRequest;
+    expect(useOrganizationPlanStore.getState().activePlan?.id).toBe(planB.id);
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
+    expect(useOrganizationPlanStore.getState().groupLoadingOwner).toBeNull();
+  });
+
+  it("rejects a duplicate createPlan call before issuing a second backend request", async () => {
+    const createdPlan = { ...plan, id: "plan-created" };
+    let resolveCreate: (value: OrganizationPlan) => void = () => undefined;
+    const pendingCreate = new Promise<OrganizationPlan>((resolve) => { resolveCreate = resolve; });
+    apiMocks.createOrganizationPlan.mockReturnValue(pendingCreate);
+    apiMocks.getOrganizationPlan.mockResolvedValue(createdPlan);
+    apiMocks.queryOrganizationPlanGroups.mockResolvedValue({ planId: createdPlan.id, planRevision: createdPlan.revision, groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
+    useOrganizationPlanStore.setState({ activePlan: null, plans: [], isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0 });
+
+    const firstRequest = useOrganizationPlanStore.getState().createPlan({ kind: "explicit", fileIds: ["file-a"] } as any, 1, "Created plan");
+    await Promise.resolve();
+    const secondResult = await useOrganizationPlanStore.getState().createPlan({ kind: "explicit", fileIds: ["file-a"] } as any, 1, "Created plan");
+
+    expect(secondResult).toMatchObject({ applied: false, reason: "superseded" });
+    expect(apiMocks.createOrganizationPlan).toHaveBeenCalledOnce();
+    resolveCreate(createdPlan);
+    await firstRequest;
+    expect(apiMocks.createOrganizationPlan).toHaveBeenCalledOnce();
+  });
+
+  it("keeps plan-list loading independent from group projection loading", async () => {
+    let resolvePlans: (value: OrganizationPlan[]) => void = () => undefined;
+    const plansRequest = new Promise<OrganizationPlan[]>((resolve) => { resolvePlans = resolve; });
+    let resolveOpenPlan: (value: OrganizationPlan) => void = () => undefined;
+    let resolveGroups: (value: { planId: string; planRevision: number; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }) => void = () => undefined;
+    const openPlanResponse = new Promise<OrganizationPlan>((resolve) => { resolveOpenPlan = resolve; });
+    const groupsResponse = new Promise<{ planId: string; planRevision: number; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }>((resolve) => { resolveGroups = resolve; });
+    apiMocks.listOrganizationPlans.mockReturnValue(plansRequest);
+    apiMocks.getOrganizationPlan.mockReturnValue(openPlanResponse);
+    apiMocks.queryOrganizationPlanGroups.mockReturnValue(groupsResponse);
+    useOrganizationPlanStore.setState({ activePlan: null, plans: [], isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+
+    const listRequest = useOrganizationPlanStore.getState().loadPlans();
+    await Promise.resolve();
+    const openRequest = useOrganizationPlanStore.getState().openPlan(plan.id);
+    await Promise.resolve();
+    expect(useOrganizationPlanStore.getState().isPlanListLoading).toBe(true);
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(true);
+
+    resolvePlans([plan]);
+    await listRequest;
+    expect(useOrganizationPlanStore.getState().isPlanListLoading).toBe(false);
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(true);
+
+    resolveOpenPlan(plan);
+    resolveGroups({ planId: plan.id, planRevision: plan.revision, groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
+    await openRequest;
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
+    expect(useOrganizationPlanStore.getState().isPlanListLoading).toBe(false);
+  });
+
+  it("keeps a pending plan-list request from relocking a completed group projection", async () => {
+    let resolvePlans: (value: OrganizationPlan[]) => void = () => undefined;
+    let resolveGroups: (value: { planId: string; planRevision: number; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }) => void = () => undefined;
+    const plansRequest = new Promise<OrganizationPlan[]>((resolve) => { resolvePlans = resolve; });
+    const groupsResponse = new Promise<{ planId: string; planRevision: number; groups: any[]; effectiveSummary: any; nextCursor: null; hasMore: false }>((resolve) => { resolveGroups = resolve; });
+    apiMocks.listOrganizationPlans.mockReturnValue(plansRequest);
+    apiMocks.getOrganizationPlan.mockResolvedValue(plan);
+    apiMocks.queryOrganizationPlanGroups.mockReturnValue(groupsResponse);
+    useOrganizationPlanStore.setState({ activePlan: null, plans: [], isPlanListLoading: false, isLoading: false, isMutating: false, error: null, requestEpoch: 0, mutationToken: 0, groupRequestEpoch: 0, groupLoadingOwner: null });
+
+    const openRequest = useOrganizationPlanStore.getState().openPlan(plan.id);
+    await Promise.resolve();
+    const listRequest = useOrganizationPlanStore.getState().loadPlans();
+    await Promise.resolve();
+    expect(useOrganizationPlanStore.getState().isPlanListLoading).toBe(true);
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(true);
+
+    resolveGroups({ planId: plan.id, planRevision: plan.revision, groups: [], effectiveSummary: { ready: 0, reviewed: 0, pendingReview: 0, blocked: 0 }, nextCursor: null, hasMore: false });
+    await openRequest;
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
+    expect(useOrganizationPlanStore.getState().isPlanListLoading).toBe(true);
+
+    resolvePlans([plan]);
+    await listRequest;
+    expect(useOrganizationPlanStore.getState().isPlanListLoading).toBe(false);
+    expect(useOrganizationPlanStore.getState().isLoading).toBe(false);
   });
 
   it("does not let an old page release a newer open-plan loading owner", async () => {

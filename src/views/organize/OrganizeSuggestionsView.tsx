@@ -71,6 +71,7 @@ export function OrganizeSuggestionsView() {
   const groupNextCursor = useOrganizationPlanStore((state) => state.groupNextCursor);
   const dryRun = useOrganizationPlanStore((state) => state.dryRun);
   const executionResult = useOrganizationPlanStore((state) => state.executionResult);
+  const isPlanListLoading = useOrganizationPlanStore((state) => state.isPlanListLoading);
   const isLoading = useOrganizationPlanStore((state) => state.isLoading);
   const isMutating = useOrganizationPlanStore((state) => state.isMutating);
   const error = useOrganizationPlanStore((state) => state.error);
@@ -462,7 +463,7 @@ export function OrganizeSuggestionsView() {
 
   return (
     <div className={cn(pageFrame, "gap-3") }>
-      {!plan && !isLoading ? (
+      {!plan && !isPlanListLoading ? (
         <section className="grid min-h-0 flex-1 place-items-center">
           <div className="grid w-full max-w-xl gap-4 rounded-[var(--zc-radius-panel)] border border-[var(--zc-border)] bg-[var(--zc-surface)] p-6 shadow-[var(--zc-shadow-soft)]">
             <div>
@@ -474,7 +475,7 @@ export function OrganizeSuggestionsView() {
               <input id="organization-plan-title" className={cn(inputSurface, "min-h-[var(--zc-control-height-default)] px-3 text-sm")} value={planTitle} onChange={(event) => setPlanTitle(event.target.value)} placeholder={t("organizePlanTitlePlaceholder")} />
             </div>
             <div className="flex flex-wrap gap-2">
-          <Button variant="primary" onClick={() => void handleCreatePlan().catch(() => undefined)}><Plus size={15} aria-hidden="true" />{t("organizeCreatePlanAction")}</Button>
+              <Button variant="primary" disabled={isPlanListLoading || isLoading || isMutating} onClick={() => void handleCreatePlan().catch(() => undefined)}><Plus size={15} aria-hidden="true" />{t("organizeCreatePlanAction")}</Button>
               <Button variant="secondary" onClick={() => setView("library")}>{t("fileLibrary")}</Button>
             </div>
           </div>
