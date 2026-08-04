@@ -356,6 +356,17 @@ export const useFileLibrarySelectionStore = create<SelectionState>((set, get) =>
   }
 }));
 
+export type InspectorDetailLoadResult =
+  | { status: "applied"; detail: FileLibraryDetail; requestEpoch: number }
+  | { status: "superseded"; requestEpoch: number }
+  | { status: "failed"; error: string; requestEpoch: number };
+
+type DetailRequestEntry = {
+  fileId: string;
+  inspectorEpoch: number;
+  promise: Promise<InspectorDetailLoadResult>;
+};
+
 interface InspectorState {
   detail: FileLibraryDetail | null;
   selectionSummary: FileLibrarySelectionSummary | null;
@@ -363,13 +374,16 @@ interface InspectorState {
   requestEpoch: number;
   isLoading: boolean;
   error: string | null;
-  loadDetail: (fileId: string | null) => Promise<void>;
+  loadDetail: (fileId: string | null) => Promise<InspectorDetailLoadResult>;
   commitDetailIfCurrent: (fileId: string, detail: FileLibraryDetail, expectedEpoch: number) => boolean;
   loadSelectionSummary: (selection: LibrarySelectionV1 | null) => Promise<void>;
   clear: () => void;
 }
 
-export const useFileLibraryInspectorStore = create<InspectorState>((set, get) => ({
+export const useFileLibraryInspectorStore = create<InspectorState>((set, get) => {
+  let inFlightDetailRequest: DetailRequestEntry | null = null;
+
+  return {
   detail: null,
   selectionSummary: null,
   selectedId: null,
@@ -377,17 +391,38 @@ export const useFileLibraryInspectorStore = create<InspectorState>((set, get) =>
   isLoading: false,
   error: null,
   loadDetail: async (fileId) => {
-    const epoch = get().requestEpoch + 1;
-    set({ selectedId: fileId, detail: null, selectionSummary: null, isLoading: Boolean(fileId), error: null, requestEpoch: epoch });
-    if (!fileId) return;
-    try {
-      const detail = await tauriApi.getFileLibraryDetail(fileId);
-      if (epoch !== get().requestEpoch || get().selectedId !== fileId) return;
-      set({ detail, isLoading: false });
-    } catch (error) {
-      if (epoch !== get().requestEpoch || get().selectedId !== fileId) return;
-      set({ isLoading: false, error: readableError(error) });
+    if (!fileId) {
+      inFlightDetailRequest = null;
+      const epoch = get().requestEpoch + 1;
+      set({ selectedId: null, detail: null, selectionSummary: null, isLoading: false, error: null, requestEpoch: epoch });
+      return { status: "superseded", requestEpoch: epoch };
     }
+    const current = get();
+    const existing = inFlightDetailRequest;
+    if (existing
+      && existing.fileId === fileId
+      && existing.inspectorEpoch === current.requestEpoch
+      && current.selectedId === fileId) return existing.promise;
+
+    const epoch = current.requestEpoch + 1;
+    set({ selectedId: fileId, detail: null, selectionSummary: null, isLoading: true, error: null, requestEpoch: epoch });
+    const request: Promise<InspectorDetailLoadResult> = (async () => {
+      try {
+        const detail = await tauriApi.getFileLibraryDetail(fileId);
+        if (epoch !== get().requestEpoch || get().selectedId !== fileId) return { status: "superseded", requestEpoch: epoch };
+        set({ detail, isLoading: false, error: null });
+        return { status: "applied", detail, requestEpoch: epoch };
+      } catch (error) {
+        if (epoch !== get().requestEpoch || get().selectedId !== fileId) return { status: "superseded", requestEpoch: epoch };
+        const message = readableError(error);
+        set({ isLoading: false, error: message });
+        return { status: "failed", error: message, requestEpoch: epoch };
+      } finally {
+        if (inFlightDetailRequest?.fileId === fileId && inFlightDetailRequest.inspectorEpoch === epoch) inFlightDetailRequest = null;
+      }
+    })();
+    inFlightDetailRequest = { fileId, inspectorEpoch: epoch, promise: request };
+    return request;
   },
   commitDetailIfCurrent: (fileId, detail, expectedEpoch) => {
     const state = get();
@@ -396,6 +431,7 @@ export const useFileLibraryInspectorStore = create<InspectorState>((set, get) =>
     return true;
   },
   loadSelectionSummary: async (selection) => {
+    inFlightDetailRequest = null;
     const epoch = get().requestEpoch + 1;
     set({ selectedId: null, detail: null, selectionSummary: null, isLoading: Boolean(selection), error: null, requestEpoch: epoch });
     if (!selection) return;
@@ -408,8 +444,12 @@ export const useFileLibraryInspectorStore = create<InspectorState>((set, get) =>
       set({ isLoading: false, error: readableError(error) });
     }
   },
-  clear: () => set((state) => ({ detail: null, selectionSummary: null, selectedId: null, isLoading: false, error: null, requestEpoch: state.requestEpoch + 1 }))
-}));
+  clear: () => {
+    inFlightDetailRequest = null;
+    set((state) => ({ detail: null, selectionSummary: null, selectedId: null, isLoading: false, error: null, requestEpoch: state.requestEpoch + 1 }));
+  }
+  };
+});
 
 interface TagState {
   tags: UserTag[];

@@ -14,7 +14,8 @@ import {
   useFileLibraryResultStore,
   useFileLibrarySavedViewStore,
   useFileLibrarySelectionStore,
-  useFileLibraryTagStore
+  useFileLibraryTagStore,
+  type InspectorDetailLoadResult
 } from "../../store/useFileLibraryV2Store";
 import { useScanManagerStore } from "../../store/useScanManagerStore";
 import type { FileLibraryDetail, FileLibrarySummary, FileQueryFiltersV2, FileQuerySpecV2, LibrarySavedView } from "../../types/domain";
@@ -28,6 +29,7 @@ import { FileLibraryList } from "./components/FileLibraryList";
 import { LibraryMetadataManagerDialog } from "./components/LibraryMetadataManagerDialog";
 import { DuplicateGroupsPanel } from "./components/DuplicateGroupsPanel";
 
+type ContextMenuCloseReason = "escape" | "outside-pointer" | "action" | "dialog-handoff";
 type ContextMenuState = { file: FileLibrarySummary; x: number; y: number; restoreFocusElement: HTMLElement | null };
 
 export function VaultView() {
@@ -61,6 +63,7 @@ export function VaultView() {
   const detail = useFileLibraryInspectorStore((state) => state.detail);
   const selectionSummary = useFileLibraryInspectorStore((state) => state.selectionSummary);
   const isInspectorLoading = useFileLibraryInspectorStore((state) => state.isLoading);
+  const inspectorError = useFileLibraryInspectorStore((state) => state.error);
   const loadDetail = useFileLibraryInspectorStore((state) => state.loadDetail);
   const commitDetailIfCurrent = useFileLibraryInspectorStore((state) => state.commitDetailIfCurrent);
   const loadSelectionSummary = useFileLibraryInspectorStore((state) => state.loadSelectionSummary);
@@ -86,7 +89,6 @@ export function VaultView() {
   const contentRestoreTargetRef = useRef<HTMLElement | null>(null);
   const contentOpenEpoch = useRef(0);
   const pendingContentOpenRef = useRef<{ epoch: number; fileId: string } | null>(null);
-  const detailRequestsRef = useRef(new Map<string, Promise<void>>());
   const contentRefreshEpoch = useRef(0);
   const contentDetailRef = useRef<FileLibraryDetail | null>(null);
   const pendingSavedViewQuerySignature = useRef<string | null>(null);
@@ -109,18 +111,6 @@ export function VaultView() {
     { key: "relevance" as const, label: t("librarySortRelevance") }
   ], [t]);
   const currentSortLabel = sortOptions.find((option) => option.key === querySpec.sort.kind)?.label ?? t("librarySortModified");
-
-  const loadDetailOnce = useCallback((fileId: string) => {
-    const existing = detailRequestsRef.current.get(fileId);
-    if (existing) return existing;
-    const request = loadDetail(fileId);
-    detailRequestsRef.current.set(fileId, request);
-    void request.then(
-      () => { if (detailRequestsRef.current.get(fileId) === request) detailRequestsRef.current.delete(fileId); },
-      () => { if (detailRequestsRef.current.get(fileId) === request) detailRequestsRef.current.delete(fileId); }
-    );
-    return request;
-  }, [loadDetail]);
 
   const closeContentUnderstanding = useCallback(() => {
     const restoreTarget = contentTriggerRef.current;
@@ -214,11 +204,11 @@ export function VaultView() {
     if (!selection) {
       clearInspector();
     } else if (selectedIds.length === 1) {
-      if (pendingContentOpenRef.current?.fileId !== selectedIds[0]) void loadDetailOnce(selectedIds[0]).catch(() => undefined);
+      if (pendingContentOpenRef.current?.fileId !== selectedIds[0]) void loadDetail(selectedIds[0]);
     } else {
       void loadSelectionSummary(selection).catch(() => undefined);
     }
-  }, [clearInspector, loadDetailOnce, loadSelectionSummary, selectedIds, selection]);
+  }, [clearInspector, loadDetail, loadSelectionSummary, selectedIds, selection]);
 
   useEffect(() => {
     if (contentDetail && (selectedIds.length !== 1 || contentDetail.id !== selectedIds[0])) closeContentUnderstanding();
@@ -226,8 +216,8 @@ export function VaultView() {
 
   useEffect(() => {
     if (!contextMenu) return;
-    const closeOnPointer = () => closeContextMenu();
-    const closeOnKey = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); closeContextMenu(); } };
+    const closeOnPointer = (event: globalThis.PointerEvent) => closeContextMenu("outside-pointer", event.target);
+    const closeOnKey = (event: globalThis.KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); closeContextMenu("escape"); } };
     document.addEventListener("pointerdown", closeOnPointer);
     document.addEventListener("keydown", closeOnKey);
     return () => { document.removeEventListener("pointerdown", closeOnPointer); document.removeEventListener("keydown", closeOnKey); };
@@ -265,7 +255,7 @@ export function VaultView() {
     if (event.shiftKey) toggleSelection(file.id, ids, true);
     else if (event.metaKey || event.ctrlKey) toggleSelection(file.id, ids);
     else setExplicitSelection([file.id], file.id, index);
-    closeContextMenu({ restoreFocus: false });
+    closeContextMenu("action", null, false);
   }
 
   function selectAllLoaded() {
@@ -284,11 +274,22 @@ export function VaultView() {
     focusList();
   }
 
-  function closeContextMenu(options: { restoreFocus?: boolean } = {}) {
-    const restoreFocus = options.restoreFocus !== false;
+  function closeContextMenu(reason: ContextMenuCloseReason = "action", pointerTarget: EventTarget | null = null, restoreFocus = reason !== "dialog-handoff") {
     const restoreTarget = contextMenu?.restoreFocusElement ?? null;
     setContextMenu(null);
-    if (restoreFocus) requestAnimationFrame(() => restoreLibraryFocus(restoreTarget));
+    if (!restoreFocus) return;
+    requestAnimationFrame(() => {
+      if (reason === "outside-pointer") {
+        const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        if (isValidFocusTarget(active)) return;
+        const pointerElement = focusablePointerTarget(pointerTarget);
+        if (pointerElement) {
+          pointerElement.focus();
+          if (document.activeElement === pointerElement) return;
+        }
+      }
+      restoreLibraryFocus(restoreTarget);
+    });
   }
 
   function handleListKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -301,7 +302,7 @@ export function VaultView() {
     }
     if (event.key === "Escape") {
       event.preventDefault();
-      if (contextMenu) closeContextMenu();
+      if (contextMenu) closeContextMenu("escape");
       else if (previewFile) closePreview();
       else clearSelection();
       return;
@@ -363,12 +364,13 @@ export function VaultView() {
 
   async function openPreview(file: FileLibrarySummary, restoreTarget?: HTMLElement | null) {
     previewTriggerRef.current = restoreTarget ?? document.querySelector<HTMLElement>('[role="listbox"]');
+    if (contextMenu) closeContextMenu("dialog-handoff");
     try {
       const loaded = await tauriApi.getFileLibraryDetail(file.id);
       setPreviewFile(loaded);
-      closeContextMenu({ restoreFocus: false });
     } catch (error) {
       onError(readableError(error));
+      restoreLibraryFocus(previewTriggerRef.current);
       previewTriggerRef.current = null;
     }
   }
@@ -386,7 +388,7 @@ export function VaultView() {
     try {
       await mutateTags({ selection, tagIds: [tagId], operation, expectedCount: selectionSummary?.count ?? null });
       await refreshResults();
-      if (selectedIds.length === 1) await loadDetailOnce(selectedIds[0]);
+      if (selectedIds.length === 1) await loadDetail(selectedIds[0]);
     } catch (error) {
       onError(readableError(error));
     }
@@ -441,15 +443,22 @@ export function VaultView() {
     }
     pendingContentOpenRef.current = { epoch: operationEpoch, fileId };
     try {
-      await loadDetailOnce(fileId);
+      const outcome: InspectorDetailLoadResult = await loadDetail(fileId);
+      if (pendingContentOpenRef.current?.epoch !== operationEpoch || !ownsSingleFileSelection(fileId)) return;
+      if (outcome.status === "superseded") return;
+      if (outcome.status === "failed") {
+        onError(outcome.error);
+        restoreLibraryFocus(trigger ?? null);
+        return;
+      }
       const current = useFileLibraryInspectorStore.getState();
-      if (pendingContentOpenRef.current?.epoch !== operationEpoch
-        || !ownsSingleFileSelection(fileId)
-        || current.selectedId !== fileId
-        || current.detail?.id !== fileId) return;
-      openContentUnderstanding(current.detail, trigger);
+      if (current.selectedId !== fileId || current.detail?.id !== fileId) return;
+      openContentUnderstanding(outcome.detail, trigger);
     } catch (error) {
-      if (pendingContentOpenRef.current?.epoch === operationEpoch) onError(readableError(error));
+      if (pendingContentOpenRef.current?.epoch === operationEpoch) {
+        onError(readableError(error));
+        restoreLibraryFocus(trigger ?? null);
+      }
     } finally {
       if (pendingContentOpenRef.current?.epoch === operationEpoch) pendingContentOpenRef.current = null;
     }
@@ -491,7 +500,7 @@ export function VaultView() {
 
   async function openContentFromContext(fileId: string) {
     const context = contextMenu;
-    closeContextMenu({ restoreFocus: false });
+    closeContextMenu("dialog-handoff");
     await openContentForFile(fileId, context?.restoreFocusElement ?? undefined);
   }
 
@@ -546,11 +555,11 @@ export function VaultView() {
       <InspectorLayout
         className={showInspectorLayout(isNoIndexState)}
         main={<section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file).catch(() => undefined); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage().catch(() => undefined)} />}</section>}
-        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} language={language} t={t} onPreview={(file) => setPreviewFile(file)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onOpenContentUnderstanding={(file, trigger) => void openContentForFile(file.id, trigger, file)} onClearSelection={clearSelection} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
+        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} error={inspectorError} language={language} t={t} onPreview={(file) => setPreviewFile(file)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onOpenContentUnderstanding={(file, trigger) => void openContentForFile(file.id, trigger, file)} onClearSelection={clearSelection} onRetryDetail={() => { if (selectedIds.length === 1) void loadDetail(selectedIds[0]); }} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
         inspectorLabel={t("libraryInspector")}
       />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{selectionLabel}</p>
-      {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={() => closeContextMenu()} onPreview={() => void openPreview(contextMenu.file, contextMenu.restoreFocusElement).catch(() => undefined)} onReveal={() => void revealFile(contextMenu.file.id).catch(() => undefined)} onOpenContent={() => void openContentFromContext(contextMenu.file.id).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
+      {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={() => closeContextMenu("action")} onPreview={() => void openPreview(contextMenu.file, contextMenu.restoreFocusElement).catch(() => undefined)} onReveal={() => void revealFile(contextMenu.file.id).catch(() => undefined)} onOpenContent={() => void openContentFromContext(contextMenu.file.id).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
       <FileLibraryPreviewDialog file={previewFile} language={language} t={t} restoreFocus={() => previewTriggerRef.current} onClose={closePreview} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} />
       {contentDetail ? <ContentUnderstandingSheet open detail={contentDetail} t={t} restoreFocus={() => contentRestoreTargetRef.current ?? contentTriggerRef.current} onClose={closeContentUnderstanding} onRefreshAuthoritativeContentState={refreshOpenContentDetail} /> : null}
       <LibraryMetadataManagerDialog
@@ -563,7 +572,7 @@ export function VaultView() {
         onApplyView={(view) => { applySavedView(view); setMetadataManager(null); }}
         onMutated={async () => {
           await refreshResults();
-          if (selectedIds.length === 1) await loadDetailOnce(selectedIds[0]);
+          if (selectedIds.length === 1) await loadDetail(selectedIds[0]);
           else if (selection) await loadSelectionSummary(selection);
         }}
         onClose={() => setMetadataManager(null)}
@@ -589,6 +598,20 @@ function selectionContainsFile(selection: import("../../types/domain").LibrarySe
   return selection.kind === "explicit"
     ? selection.fileIds.includes(fileId)
     : !selection.excludedFileIds.includes(fileId);
+}
+
+function isValidFocusTarget(target: HTMLElement | null) {
+  return Boolean(target?.isConnected
+    && target !== document.body
+    && target !== document.documentElement
+    && (target.tabIndex >= 0 || target.matches("button, input, select, textarea, a[href], [contenteditable='true']")));
+}
+
+function focusablePointerTarget(target: EventTarget | null) {
+  const element = target instanceof HTMLElement ? target : null;
+  if (isValidFocusTarget(element)) return element;
+  const closest = element?.closest<HTMLElement>("button, input, select, textarea, a[href], [contenteditable='true']") ?? null;
+  return isValidFocusTarget(closest) ? closest : null;
 }
 
 function replaceCopy(template: string, values: Record<string, string | number>) {

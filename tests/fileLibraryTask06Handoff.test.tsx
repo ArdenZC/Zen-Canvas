@@ -359,6 +359,96 @@ describe("Task 06 File Library handoff interactions", () => {
     expect(api.getDetail).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the first Content detail failure in the Inspector and keeps the Content Sheet closed until retry succeeds", async () => {
+    const fileA = detail("file-one", "one.txt");
+    const failedRequest = deferred<FileLibraryDetail>();
+    api.getDetail.mockReturnValueOnce(failedRequest.promise);
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    const rowA = container.querySelector<HTMLElement>('[data-library-row="file-one"]')!;
+    await act(async () => rowA.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })));
+    const contentMenuItem = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Open Content Understanding"));
+    await act(async () => contentMenuItem?.click());
+    failedRequest.reject(new Error("content_detail_failed"));
+
+    await vi.waitFor(() => expect(chrome.onError).toHaveBeenCalledWith("content_detail_failed"));
+    expect(container.querySelector('[data-content-sheet-id="file-one"]')).toBeNull();
+    expect(container.textContent).toContain("Unable to load file details");
+    expect(container.textContent).toContain("content_detail_failed");
+    await flushFocus();
+    expect(document.activeElement).toBe(container.querySelector<HTMLElement>('[role="listbox"]'));
+    const retry = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === "Retry details");
+    expect(retry).toBeDefined();
+
+    api.getDetail.mockResolvedValueOnce(fileA);
+    await act(async () => retry?.click());
+    await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().detail?.id).toBe(fileA.id));
+    expect(container.textContent).not.toContain("Unable to load file details");
+    expect(container.querySelector('[data-content-sheet-id="file-one"]')).toBeNull();
+  });
+
+  it("deduplicates a Content open against the current mounted Inspector request", async () => {
+    const fileA = detail("file-one", "one.txt");
+    const pending = deferred<FileLibraryDetail>();
+    api.getDetail.mockReturnValue(pending.promise);
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    const rowA = container.querySelector<HTMLElement>('[data-library-row="file-one"]')!;
+    await act(async () => rowA.click());
+    await vi.waitFor(() => expect(api.getDetail).toHaveBeenCalledOnce());
+    await act(async () => rowA.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })));
+    const contentMenuItem = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) => item.textContent?.includes("Open Content Understanding"));
+    await act(async () => contentMenuItem?.click());
+    expect(api.getDetail).toHaveBeenCalledOnce();
+
+    pending.resolve(fileA);
+    await vi.waitFor(() => expect(container.querySelector('[data-content-sheet-id="file-one"]')).not.toBeNull());
+    expect(chrome.onError).not.toHaveBeenCalled();
+  });
+
+  it("starts A2 for a mounted A to B to A selection and ignores the stale A1 error", async () => {
+    const fileA = detail("file-one", "one.txt");
+    const fileB = detail("file-two", "two.txt");
+    const pendingA1 = deferred<FileLibraryDetail>();
+    const pendingB = deferred<FileLibraryDetail>();
+    const pendingA2 = deferred<FileLibraryDetail>();
+    let aCalls = 0;
+    api.query.mockImplementation(async (request: FileQueryRequestV2) => {
+      const base = response(request);
+      return { ...base, files: [base.files[0], { ...base.files[0], id: fileB.id, name: fileB.name }], totalCount: 2 };
+    });
+    api.getDetail.mockImplementation((fileId: string) => {
+      if (fileId === fileB.id) return pendingB.promise;
+      aCalls += 1;
+      return aCalls === 1 ? pendingA1.promise : pendingA2.promise;
+    });
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-two"]')).not.toBeNull());
+    const rowA = container.querySelector<HTMLElement>('[data-library-row="file-one"]')!;
+    const rowB = container.querySelector<HTMLElement>('[data-library-row="file-two"]')!;
+    await act(async () => rowA.click());
+    await vi.waitFor(() => expect(api.getDetail).toHaveBeenCalledWith(fileA.id));
+    await act(async () => rowB.click());
+    await vi.waitFor(() => expect(api.getDetail).toHaveBeenCalledWith(fileB.id));
+    pendingB.resolve(fileB);
+    await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().detail?.id).toBe(fileB.id));
+    await act(async () => rowA.click());
+    await vi.waitFor(() => expect(api.getDetail).toHaveBeenCalledTimes(3));
+    expect(api.getDetail.mock.calls.map(([fileId]) => fileId)).toEqual([fileA.id, fileB.id, fileA.id]);
+
+    pendingA1.reject(new Error("stale A1 failure"));
+    pendingA2.resolve(fileA);
+    await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().detail?.id).toBe(fileA.id));
+    expect(useFileLibraryInspectorStore.getState().error).toBeNull();
+    expect(chrome.onError).not.toHaveBeenCalledWith("stale A1 failure");
+    const contentButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent?.includes("Open Content Understanding"));
+    await act(async () => contentButton?.click());
+    await vi.waitFor(() => expect(container.querySelector('[data-content-sheet-id="file-one"]')).not.toBeNull());
+  });
+
   it("preserves an explicit multi-selection while opening a context menu and viewing suggestions", async () => {
     const fileA = detail("file-one", "one.txt");
     const fileB = detail("file-two", "two.txt");
@@ -496,6 +586,29 @@ describe("Task 06 File Library handoff interactions", () => {
 
     expect(container.querySelector('[role="menu"]')).toBeNull();
     expect(document.activeElement).toBe(listbox);
+  });
+
+  it("does not steal focus from Filter, Sort, or search when an outside pointer closes the menu", async () => {
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    const row = container.querySelector<HTMLElement>('[data-library-row="file-one"]')!;
+    const targets = [
+      container.querySelector<HTMLElement>('[data-section="filter toolbar"] button'),
+      container.querySelector<HTMLElement>('button[aria-haspopup="menu"]'),
+      container.querySelector<HTMLInputElement>('input[aria-label="Search the File Library"]')
+    ];
+    for (const target of targets) {
+      expect(target).not.toBeNull();
+      await act(async () => row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })));
+      expect(container.querySelector('[role="menu"]')).not.toBeNull();
+      await act(async () => {
+        target?.focus();
+        target?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      });
+      await flushFocus();
+      expect(container.querySelector('[role="menu"]')).toBeNull();
+      expect(document.activeElement).toBe(target);
+    }
   });
 
   it("reports a real Content refresh failure even when the Inspector no longer owns the file", async () => {
