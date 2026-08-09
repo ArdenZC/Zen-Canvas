@@ -264,6 +264,66 @@ function resolveFunctionBinding(sourceFile, name, referenceNode) {
   return ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer) ? initializer : undefined;
 }
 
+function callablePropertyName(expression) {
+  const node = unwrapExpression(expression);
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (!ts.isElementAccessExpression(node)) return undefined;
+  return propertyNameText(unwrapExpression(node.argumentExpression));
+}
+
+function resolveObjectLiteralValues(expression, referenceNode, visitedBindings = new Set()) {
+  const node = unwrapExpression(expression);
+  if (!node) return [];
+  if (ts.isObjectLiteralExpression(node)) return [node];
+  if (!ts.isIdentifier(node)) return [];
+  const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
+  if (declarations.length !== 1 || declarations[0].kind !== "variable") return [];
+  const declaration = declarations[0].node;
+  if (!ts.isIdentifier(declaration.name)) return [];
+  const key = `object:${declaration.getStart(declaration.getSourceFile())}`;
+  if (visitedBindings.has(key)) return [];
+  const nextVisited = new Set(visitedBindings);
+  nextVisited.add(key);
+  return findBindingValueExpressions(referenceNode, declaration, node.text).flatMap((value) => (
+    resolveObjectLiteralValues(value, declaration, nextVisited)
+  ));
+}
+
+function resolveCallableBindings(sourceFile, expression, referenceNode = expression, visitedBindings = new Set()) {
+  const node = unwrapExpression(expression);
+  if (!node) return [];
+  if (isFunctionLikeNode(node)) return [node];
+  if (ts.isIdentifier(node)) {
+    const resolved = resolveFunctionBinding(sourceFile, node.text, referenceNode);
+    return resolved ? [resolved] : [];
+  }
+  if (!ts.isPropertyAccessExpression(node) && !ts.isElementAccessExpression(node)) return [];
+  const propertyName = callablePropertyName(node);
+  if (!propertyName) return [];
+  const key = `method:${node.getStart(sourceFile)}`;
+  if (visitedBindings.has(key)) return [];
+  const nextVisited = new Set(visitedBindings);
+  nextVisited.add(key);
+  const resolved = [];
+  for (const objectLiteral of resolveObjectLiteralValues(node.expression, referenceNode, nextVisited)) {
+    for (const property of objectLiteral.properties) {
+      if (ts.isMethodDeclaration(property) && propertyNameText(property.name) === propertyName) {
+        resolved.push(property);
+      } else if (ts.isPropertyAssignment(property) && propertyNameText(property.name) === propertyName) {
+        resolved.push(...resolveCallableBindings(
+          sourceFile,
+          property.initializer,
+          property,
+          nextVisited
+        ));
+      } else if (ts.isShorthandPropertyAssignment(property) && property.name.text === propertyName) {
+        resolved.push(...resolveCallableBindings(sourceFile, property.name, property, nextVisited));
+      }
+    }
+  }
+  return [...new Set(resolved)];
+}
+
 function resolvesToFunctionBinding(referenceNode, name, expectedFunction) {
   const declarations = findLexicalNamedDeclarations(referenceNode, name);
   return declarations.length === 1
@@ -606,11 +666,8 @@ function findReachableVaultFunctions(sourceFile, component) {
     }
     expressions.push(...findJsxCallbackBindings(functionLike));
     for (const expression of expressions) {
-      const node = unwrapExpression(expression);
-      if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
-        enqueue(node, depth + 1);
-      } else if (ts.isIdentifier(node)) {
-        enqueue(resolveFunctionBinding(sourceFile, node.text, node), depth + 1);
+      for (const resolved of resolveCallableBindings(sourceFile, expression)) {
+        enqueue(resolved, depth + 1);
       }
     }
   }
@@ -1031,19 +1088,16 @@ function hasObjectAlias(functionLike, objectName, beforePosition) {
       || ts.isFunctionDeclaration(node)
       || ts.isFunctionExpression(node)
       || ts.isMethodDeclaration(node)
-    )) return;
+    ) && !isImmediatelyInvokedFunctionLike(node)) return;
     if (ts.isVariableDeclaration(node)
       && ts.isIdentifier(node.name)
-      && ts.isIdentifier(unwrapExpression(node.initializer))
-      && unwrapExpression(node.initializer).text === objectName) {
+      && containsRequestAliasValue(node.initializer, objectName)) {
       aliased = true;
       return;
     }
     if (ts.isBinaryExpression(node)
-      && ts.isIdentifier(node.left)
       && ASSIGNMENT_OPERATORS.has(node.operatorToken.getText(functionLike.getSourceFile()))
-      && ts.isIdentifier(unwrapExpression(node.right))
-      && unwrapExpression(node.right).text === objectName) {
+      && containsRequestAliasValue(node.right, objectName)) {
       aliased = true;
       return;
     }
@@ -1051,6 +1105,37 @@ function hasObjectAlias(functionLike, objectName, beforePosition) {
   }
   visit(functionLike.body);
   return aliased;
+}
+
+function containsRequestAliasValue(expression, objectName) {
+  const node = unwrapExpression(expression);
+  if (!node) return false;
+  if (ts.isIdentifier(node)) return node.text === objectName;
+  if (ts.isObjectLiteralExpression(node)) {
+    return node.properties.some((property) => {
+      if (ts.isShorthandPropertyAssignment(property)) return property.name.text === objectName;
+      if (ts.isPropertyAssignment(property)) {
+        return containsRequestAliasValue(property.initializer, objectName);
+      }
+      if (ts.isSpreadAssignment(property)) {
+        const spread = unwrapExpression(property.expression);
+        return (ts.isObjectLiteralExpression(spread) || ts.isArrayLiteralExpression(spread))
+          && containsRequestAliasValue(spread, objectName);
+      }
+      return false;
+    });
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    return node.elements.some((element) => {
+      if (ts.isSpreadElement(element)) {
+        const spread = unwrapExpression(element.expression);
+        return (ts.isObjectLiteralExpression(spread) || ts.isArrayLiteralExpression(spread))
+          && containsRequestAliasValue(spread, objectName);
+      }
+      return containsRequestAliasValue(element, objectName);
+    });
+  }
+  return false;
 }
 
 function inspectCanonicalBackendRequest(storeSource, sourceFileOverride) {

@@ -198,6 +198,24 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toEqual([]);
   });
 
+  it.each([
+    ["property access", "helpers.refresh()"],
+    ["element access", 'helpers["refresh"]()']
+  ])("rejects a direct backend bypass through an invoked object method using %s", (_label, call) => {
+    const view = canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `const helpers = {
+        refresh() {
+          return tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });
+        }
+      };
+      ${call};
+      return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;`
+    );
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
   it("rejects a local no-op first-page binding", () => {
     const view = canonicalView.replace(
       "const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);",
@@ -364,6 +382,22 @@ describe("Vault pagination architecture guard", () => {
     const store = canonicalStore.replace(
       "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
       "const request = { query: spec, pageSize, cursor };\n    const alias = request;\n    alias.pageSize = 200;\n    return tauriApi.queryFileLibraryV2(request);"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request object must not be mutated before the query."
+    );
+  });
+
+  it.each([
+    ["object", "const holder = { request };\n    holder.request.pageSize = 200;"],
+    ["array", "const holder = [request];\n    holder[0].pageSize = 200;"]
+  ])("rejects request-object mutation through a containing %s", (_label, mutation) => {
+    const store = canonicalStore.replace(
+      "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
+      `const request = { query: spec, pageSize, cursor };
+    ${mutation}
+    return tauriApi.queryFileLibraryV2(request);`
     );
 
     expect(violations(canonicalView, store)).toContain(
