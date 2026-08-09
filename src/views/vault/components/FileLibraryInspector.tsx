@@ -1,5 +1,5 @@
 import { Info, TriangleAlert, X } from "lucide-react";
-import { useRef } from "react";
+import { useRef, type MouseEvent } from "react";
 import type { FileLibraryDetail, FileLibrarySelectionSummary, FileLibrarySummary, UserTag } from "../../../types/domain";
 import type { Language } from "../../../i18n";
 import type { Translator } from "../../../types/ui";
@@ -16,6 +16,7 @@ export function FileLibraryInspector({
   detail,
   selectionSummary,
   isLoading,
+  error,
   language,
   t,
   onPreview,
@@ -23,6 +24,7 @@ export function FileLibraryInspector({
   onViewSuggestions,
   onOpenContentUnderstanding,
   onClearSelection,
+  onRetryDetail,
   availableTags = [],
   onToggleTag
 }: {
@@ -31,13 +33,15 @@ export function FileLibraryInspector({
   detail: FileLibraryDetail | null;
   selectionSummary: FileLibrarySelectionSummary | null;
   isLoading: boolean;
+  error: string | null;
   language: Language;
   t: Translator;
-  onPreview: (file: FileLibraryDetail) => void;
+  onPreview: (event: MouseEvent<HTMLButtonElement>, file: FileLibraryDetail) => void;
   onReveal: (fileId: string) => void;
   onViewSuggestions: () => void;
   onOpenContentUnderstanding: (file: FileLibraryDetail, trigger: HTMLElement) => void;
   onClearSelection: () => void;
+  onRetryDetail: () => void;
   availableTags?: UserTag[];
   onToggleTag?: (tagId: string, operation: "add" | "remove") => void;
 }) {
@@ -51,7 +55,7 @@ export function FileLibraryInspector({
           <MultiInspector summary={selectionSummary} selectedCount={selectedIds.length} t={t} onViewSuggestions={onViewSuggestions} onClearSelection={onClearSelection} />
         ) : null}
         {selectedIds.length === 1 ? (
-          isLoading ? <LoadingInspector t={t} /> : detail ? (
+          isLoading ? <LoadingInspector t={t} /> : error ? <DetailErrorInspector error={error} t={t} onRetry={onRetryDetail} /> : detail ? (
             <SingleInspector detail={detail} language={language} t={t} onPreview={onPreview} onReveal={onReveal} onViewSuggestions={onViewSuggestions} onOpenContentUnderstanding={onOpenContentUnderstanding} availableTags={availableTags} onToggleTag={onToggleTag} />
           ) : <MissingInspector t={t} />
         ) : null}
@@ -71,20 +75,22 @@ export function FileLibraryPreviewDialog({
   language,
   t,
   onClose,
-  onReveal
+  onReveal,
+  restoreFocus
 }: {
   file: FileLibraryDetail | null;
   language: Language;
   t: Translator;
   onClose: () => void;
   onReveal: (fileId: string) => void;
+  restoreFocus?: () => HTMLElement | null;
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   if (!file) return null;
   return (
-    <ModalPortal initialFocusRef={closeRef} onEscape={() => onCloseRef.current()}>
+    <ModalPortal initialFocusRef={closeRef} restoreFocus={restoreFocus} onEscape={() => onCloseRef.current()}>
       <div className="fixed inset-0 z-40 grid place-items-center bg-black/20 p-5" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onCloseRef.current(); }}>
         <section className={cn(floatingSurface, "grid w-full max-w-xl gap-4 p-5")} role="dialog" aria-modal="true" aria-labelledby="library-preview-title">
           <div className="flex items-start justify-between gap-3">
@@ -120,6 +126,11 @@ function MissingInspector({ t }: { t: Translator }) {
   return <div className="grid min-h-40 place-items-center gap-3 border-y border-[var(--zc-divider)] py-6 text-center"><Info size={22} className="text-[var(--zc-warning-text)]" aria-hidden="true" /><p className="max-w-xs text-sm leading-6 text-[var(--zc-text-secondary)]">{t("libraryFileNotFound")}</p></div>;
 }
 
+function DetailErrorInspector({ error, t, onRetry }: { error: string; t: Translator; onRetry: () => void }) {
+  void error;
+  return <div className="grid min-h-40 place-items-center gap-3 border-y border-[var(--zc-divider)] py-6 text-center"><TriangleAlert size={22} className="text-[var(--zc-danger-text)]" aria-hidden="true" /><div className="grid gap-1"><p className="text-sm font-semibold text-[var(--zc-text-primary)]">{t("libraryDetailLoadFailedTitle")}</p><p className="max-w-xs text-sm leading-6 text-[var(--zc-text-secondary)]">{t("libraryDetailLoadFailedDesc")}</p></div><button type="button" className={buttonSecondary} onClick={onRetry}>{t("libraryDetailRetry")}</button></div>;
+}
+
 function MultiInspector({ summary, selectedCount, t, onViewSuggestions, onClearSelection }: { summary: FileLibrarySelectionSummary | null; selectedCount: number; t: Translator; onViewSuggestions: () => void; onClearSelection: () => void }) {
   return (
     <div className="grid gap-4">
@@ -140,7 +151,7 @@ function MultiInspector({ summary, selectedCount, t, onViewSuggestions, onClearS
   );
 }
 
-function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSuggestions, onOpenContentUnderstanding, availableTags, onToggleTag }: { detail: FileLibraryDetail; language: Language; t: Translator; onPreview: (file: FileLibraryDetail) => void; onReveal: (fileId: string) => void; onViewSuggestions: () => void; onOpenContentUnderstanding: (file: FileLibraryDetail, trigger: HTMLElement) => void; availableTags: UserTag[]; onToggleTag?: (tagId: string, operation: "add" | "remove") => void }) {
+function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSuggestions, onOpenContentUnderstanding, availableTags, onToggleTag }: { detail: FileLibraryDetail; language: Language; t: Translator; onPreview: (event: MouseEvent<HTMLButtonElement>, file: FileLibraryDetail) => void; onReveal: (fileId: string) => void; onViewSuggestions: () => void; onOpenContentUnderstanding: (file: FileLibraryDetail, trigger: HTMLElement) => void; availableTags: UserTag[]; onToggleTag?: (tagId: string, operation: "add" | "remove") => void }) {
   const missing = detail.isStale;
   const selectedTagIds = new Set(detail.tags.map((tag) => tag.id));
   return (
@@ -164,7 +175,7 @@ function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSugge
         <button type="button" className={buttonSecondary} onClick={(event) => onOpenContentUnderstanding(detail, event.currentTarget)}>{t("contentOpen")}</button>
       </section>
       {availableTags.length ? <section className="grid gap-2 border-t border-[var(--zc-divider)] pt-3"><h3 className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("libraryTags")}</h3><div className="flex flex-wrap gap-1.5">{availableTags.map((tag) => { const active = selectedTagIds.has(tag.id); return <button key={tag.id} type="button" className={cn("rounded-full border px-2 py-1 text-xs", active ? "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "border-[var(--zc-divider)] text-[var(--zc-text-secondary)]")} onClick={() => onToggleTag?.(tag.id, active ? "remove" : "add")} aria-pressed={active}>{tag.displayName}</button>; })}</div></section> : null}
-      <div className="flex flex-wrap gap-2">{!missing ? <button className={buttonSecondary} onClick={() => onPreview(detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button><button className={glassButtonPrimary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button></div>
+      <div className="flex flex-wrap gap-2">{!missing ? <button type="button" className={buttonSecondary} onClick={(event) => onPreview(event, detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button><button className={glassButtonPrimary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button></div>
     </div>
   );
 }
