@@ -159,10 +159,32 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("rejects a backend page-size parameter that is reassigned", () => {
+    const store = canonicalStore.replace(
+      "async function executeLibraryQuery(spec, pageSize, cursor) {",
+      "async function executeLibraryQuery(spec, pageSize, cursor) {\n    pageSize = 200;"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request must use its exact page-size parameter."
+    );
+  });
+
   it("rejects request-object property mutation before the backend call", () => {
     const store = canonicalStore.replace(
       "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
       "const request = { query: spec, pageSize, cursor };\n    request.pageSize = 200;\n    return tauriApi.queryFileLibraryV2(request);"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request object must not be mutated before the query."
+    );
+  });
+
+  it("rejects request-object mutation through an alias", () => {
+    const store = canonicalStore.replace(
+      "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
+      "const request = { query: spec, pageSize, cursor };\n    const alias = request;\n    alias.pageSize = 200;\n    return tauriApi.queryFileLibraryV2(request);"
     );
 
     expect(violations(canonicalView, store)).toContain(
@@ -182,6 +204,17 @@ describe("Vault pagination architecture guard", () => {
     const store = canonicalStore.replace(
       "const cursor = get().nextCursor;",
       "let cursor = get().nextCursor;\n      cursor = get().otherCursor;"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("rejects a load-more query that is unreachable after an early return", () => {
+    const store = canonicalStore.replace(
+      "loadNextPage: async () => {\n      const cursor = get().nextCursor;\n      return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);\n    },",
+      "loadNextPage: async () => {\n      return;\n      const cursor = get().nextCursor;\n      return executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, cursor);\n    },"
     );
 
     expect(violations(canonicalView, store)).toContain(
@@ -229,6 +262,15 @@ describe("Vault pagination architecture guard", () => {
         return <FileLibraryList onLoadMore={() => loadNextPage()} />;
       }
     `;
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
+  });
+
+  it("rejects a first-page call that only exists in an effect cleanup", () => {
+    const view = canonicalView.replace(
+      "useEffect(() => {\n      void loadFirstPage().catch(() => undefined);\n    }, [loadFirstPage]);",
+      "useEffect(() => () => void loadFirstPage(), [loadFirstPage]);"
+    );
 
     expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
   });

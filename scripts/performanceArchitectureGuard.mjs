@@ -71,7 +71,8 @@ function selectorReturnsProperty(selector, propertyName) {
     && returned.name.text === propertyName;
 }
 
-function hasBindingWrite(sourceFile, name) {
+function hasBindingWrite(sourceOrNode, name) {
+  const sourceFile = sourceOrNode.getSourceFile?.() ?? sourceOrNode;
   let written = false;
   function visit(node) {
     if (written) return;
@@ -327,6 +328,90 @@ function findCallsInFunction(functionLike, predicate) {
   return calls;
 }
 
+function findReachableCallsInExpression(expression, predicate) {
+  const calls = [];
+  const root = unwrapExpression(expression);
+  if (!root) return calls;
+  function visit(node) {
+    if (node !== root && (
+      ts.isArrowFunction(node)
+      || ts.isFunctionDeclaration(node)
+      || ts.isFunctionExpression(node)
+      || ts.isMethodDeclaration(node)
+    )) return;
+    if (ts.isCallExpression(node) && predicate(node)) calls.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(root);
+  return calls;
+}
+
+function collectReachableCallsInStatement(statement, predicate, calls) {
+  if (ts.isExpressionStatement(statement)) {
+    calls.push(...findReachableCallsInExpression(statement.expression, predicate));
+    return;
+  }
+  if (ts.isReturnStatement(statement)) {
+    if (statement.expression) calls.push(...findReachableCallsInExpression(statement.expression, predicate));
+    return;
+  }
+  if (ts.isVariableStatement(statement)) {
+    for (const declaration of statement.declarationList.declarations) {
+      if (declaration.initializer) {
+        calls.push(...findReachableCallsInExpression(declaration.initializer, predicate));
+      }
+    }
+    return;
+  }
+  if (ts.isBlock(statement)) {
+    collectReachableCallsInSequence(statement.statements, predicate, calls);
+    return;
+  }
+  if (ts.isIfStatement(statement)) {
+    const branch = staticBranchValue(statement.expression);
+    if (branch === true) {
+      collectReachableCallsInStatement(statement.thenStatement, predicate, calls);
+    } else if (branch === false) {
+      if (statement.elseStatement) {
+        collectReachableCallsInStatement(statement.elseStatement, predicate, calls);
+      }
+    } else {
+      collectReachableCallsInStatement(statement.thenStatement, predicate, calls);
+      if (statement.elseStatement) {
+        collectReachableCallsInStatement(statement.elseStatement, predicate, calls);
+      }
+    }
+    return;
+  }
+  if (ts.isTryStatement(statement)) {
+    collectReachableCallsInStatement(statement.tryBlock, predicate, calls);
+    if (statement.catchClause) {
+      collectReachableCallsInStatement(statement.catchClause.block, predicate, calls);
+    }
+    if (statement.finallyBlock) {
+      collectReachableCallsInStatement(statement.finallyBlock, predicate, calls);
+    }
+  }
+}
+
+function collectReachableCallsInSequence(statements, predicate, calls) {
+  for (const statement of statements) {
+    collectReachableCallsInStatement(statement, predicate, calls);
+    if (!canFallThroughStatement(statement)) return;
+  }
+}
+
+function findReachableCallsInFunction(functionLike, predicate) {
+  const calls = [];
+  if (!functionLike.body) return calls;
+  if (ts.isBlock(functionLike.body)) {
+    collectReachableCallsInSequence(functionLike.body.statements, predicate, calls);
+  } else {
+    calls.push(...findReachableCallsInExpression(functionLike.body, predicate));
+  }
+  return calls;
+}
+
 function isCanonicalCursorRead(expression) {
   const node = unwrapExpression(expression);
   if (!ts.isPropertyAccessExpression(node) || node.name.text !== "nextCursor") return false;
@@ -441,6 +526,38 @@ function hasObjectPropertyWrite(functionLike, objectName) {
   return written;
 }
 
+function hasObjectAlias(functionLike, objectName) {
+  if (!functionLike.body) return false;
+  let aliased = false;
+  function visit(node) {
+    if (aliased) return;
+    if (node !== functionLike.body && (
+      ts.isArrowFunction(node)
+      || ts.isFunctionDeclaration(node)
+      || ts.isFunctionExpression(node)
+      || ts.isMethodDeclaration(node)
+    )) return;
+    if (ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && ts.isIdentifier(unwrapExpression(node.initializer))
+      && unwrapExpression(node.initializer).text === objectName) {
+      aliased = true;
+      return;
+    }
+    if (ts.isBinaryExpression(node)
+      && ts.isIdentifier(node.left)
+      && ASSIGNMENT_OPERATORS.has(node.operatorToken.getText(functionLike.getSourceFile()))
+      && ts.isIdentifier(unwrapExpression(node.right))
+      && unwrapExpression(node.right).text === objectName) {
+      aliased = true;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(functionLike.body);
+  return aliased;
+}
+
 function inspectCanonicalBackendRequest(storeSource) {
   const sourceFile = createSourceFile(storeSource, "useFileLibraryV2Store.ts", ts.ScriptKind.TS);
   if (sourceFile.parseDiagnostics.length > 0) return undefined;
@@ -451,7 +568,7 @@ function inspectCanonicalBackendRequest(storeSource) {
   const cursorParameter = functionLike.parameters[2]?.name;
   if (!pageSizeParameter || !ts.isIdentifier(pageSizeParameter)
     || !cursorParameter || !ts.isIdentifier(cursorParameter)) return undefined;
-  const calls = findCallsInFunction(functionLike, (call) => {
+  const calls = findReachableCallsInFunction(functionLike, (call) => {
     const callee = unwrapExpression(call.expression);
     return ts.isPropertyAccessExpression(callee)
       && ts.isIdentifier(callee.expression)
@@ -471,7 +588,8 @@ function hasCanonicalBackendPageSize(storeSource) {
   const pageSize = objectPropertyValue(context.request, "pageSize");
   return Boolean(pageSize)
     && ts.isIdentifier(pageSize)
-    && pageSize.text === context.pageSizeParameter.text;
+    && pageSize.text === context.pageSizeParameter.text
+    && !hasBindingWrite(context.functionLike, context.pageSizeParameter.text);
 }
 
 function hasCanonicalBackendCursor(storeSource) {
@@ -493,7 +611,8 @@ function hasImmutableBackendRequestBinding(storeSource) {
   return ts.isVariableDeclarationList(declaration.parent)
     && (declaration.parent.flags & ts.NodeFlags.Const) !== 0
     && !hasBindingWrite(context.sourceFile, context.requestArgument.text)
-    && !hasObjectPropertyWrite(context.functionLike, context.requestArgument.text);
+    && !hasObjectPropertyWrite(context.functionLike, context.requestArgument.text)
+    && !hasObjectAlias(context.functionLike, context.requestArgument.text);
 }
 
 function isNullLiteral(expression) {
@@ -506,7 +625,7 @@ function hasCanonicalLibraryQueryCall(storeSource, functionName, cursorKind) {
   const functions = findStoreFunctionBodies(sourceFile, functionName);
   if (functions.length !== 1) return false;
 
-  const calls = findCallsInFunction(functions[0], (call) => (
+  const calls = findReachableCallsInFunction(functions[0], (call) => (
     ts.isIdentifier(call.expression) && call.expression.text === "executeLibraryQuery"
   ));
   if (calls.length !== 1) return false;
@@ -540,7 +659,9 @@ function hasNamedInvocationInExpression(expression, name) {
     ts.forEachChild(node, visit);
   }
   const node = unwrapExpression(expression);
-  if (node) visit(node);
+  if (!node) return false;
+  if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return false;
+  visit(node);
   return found;
 }
 
