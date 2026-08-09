@@ -423,6 +423,22 @@ describe("Vault pagination architecture guard", () => {
   });
 
   it.each([
+    ["object", "({ pageSize: request.pageSize } = { pageSize: 200 });"],
+    ["array", "[request.cursor] = [null];"]
+  ])("rejects request-object mutation through a destructuring %s assignment", (_label, assignment) => {
+    const store = canonicalStore.replace(
+      "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
+      `const request = { query: spec, pageSize, cursor };
+    ${assignment}
+    return tauriApi.queryFileLibraryV2(request);`
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request object must not be mutated before the query."
+    );
+  });
+
+  it.each([
     ["object", "const holder = { request };\n    holder.request.pageSize = 200;"],
     ["array", "const holder = [request];\n    holder[0].pageSize = 200;"]
   ])("rejects request-object mutation through a containing %s", (_label, mutation) => {
@@ -733,6 +749,21 @@ describe("Vault pagination architecture guard", () => {
       "useEffect(() => {\n      void loadFirstPage().catch(() => undefined);\n    }, [loadFirstPage]);",
       "useEffect(() => void loadFirstPage());"
     );
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
+  });
+
+  it.each([
+    ["files", "files"],
+    ["loading state", "isLoading"]
+  ])("rejects a first-page effect driven by File Library result %s", (_label, dependency) => {
+    const view = canonicalView
+      .replace(
+        "const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);",
+        `const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);
+    const ${dependency} = useFileLibraryResultStore((state) => state.${dependency});`
+      )
+      .replace("[loadFirstPage]);", `[loadFirstPage, ${dependency}]);`);
 
     expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
   });

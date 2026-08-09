@@ -2,6 +2,7 @@ import ts from "typescript";
 
 const MAX_FILE_LIBRARY_PAGE_SIZE = 50;
 const MAX_CALLBACK_ANALYSIS_DEPTH = 8;
+const FILE_LIBRARY_RESULT_ACTIONS = new Set(["loadFirstPage", "loadNextPage", "refresh", "clear"]);
 const ASSIGNMENT_OPERATORS = new Set([
   "=",
   "+=",
@@ -1122,7 +1123,7 @@ function hasObjectPropertyWrite(functionLike, objectName, beforePosition) {
     ) && !isImmediatelyInvokedFunctionLike(node)) return;
     if (ts.isBinaryExpression(node)
       && ASSIGNMENT_OPERATORS.has(node.operatorToken.getText(sourceFile))
-      && isObjectPropertyAccess(node.left, objectName)) {
+      && assignmentTargetWritesObjectProperty(node.left, objectName)) {
       written = true;
       return;
     }
@@ -1140,6 +1141,35 @@ function hasObjectPropertyWrite(functionLike, objectName, beforePosition) {
   }
   visit(functionLike.body);
   return written;
+}
+
+function assignmentTargetWritesObjectProperty(expression, objectName) {
+  const node = unwrapExpression(expression);
+  if (!node) return false;
+  if (isObjectPropertyAccess(node, objectName)) return true;
+  if (ts.isObjectLiteralExpression(node)) {
+    return node.properties.some((property) => {
+      if (ts.isPropertyAssignment(property)) {
+        return assignmentTargetWritesObjectProperty(property.initializer, objectName);
+      }
+      if (ts.isShorthandPropertyAssignment(property)) return false;
+      if (ts.isSpreadAssignment(property)) {
+        return assignmentTargetWritesObjectProperty(property.expression, objectName);
+      }
+      return false;
+    });
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    return node.elements.some((element) => (
+      ts.isSpreadElement(element)
+        ? assignmentTargetWritesObjectProperty(element.expression, objectName)
+        : assignmentTargetWritesObjectProperty(element, objectName)
+    ));
+  }
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    return assignmentTargetWritesObjectProperty(node.left, objectName);
+  }
+  return false;
 }
 
 function hasObjectAlias(functionLike, objectName, beforePosition) {
@@ -1385,10 +1415,100 @@ function isEffectCall(call) {
       || ts.isFunctionExpression(unwrapExpression(call.arguments[0])));
 }
 
+function selectedResultStoreProperty(initializer) {
+  const node = unwrapExpression(initializer);
+  if (!ts.isCallExpression(node)
+    || !ts.isIdentifier(node.expression)
+    || node.expression.text !== "useFileLibraryResultStore"
+    || node.arguments.length !== 1) return undefined;
+  const selector = unwrapExpression(node.arguments[0]);
+  if (!ts.isArrowFunction(selector) && !ts.isFunctionExpression(selector)) return undefined;
+  const returned = findReturnedExpressions(selector).map(unwrapExpression);
+  if (returned.length === 0 || returned.some((expression) => !expression)) return undefined;
+  const parameter = selector.parameters[0]?.name;
+  if (ts.isIdentifier(parameter)) {
+    const properties = returned.map((expression) => (
+      (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression))
+      && ts.isIdentifier(expression.expression)
+      && expression.expression.text === parameter.text
+        ? ts.isPropertyAccessExpression(expression)
+          ? expression.name.text
+          : propertyNameText(unwrapExpression(expression.argumentExpression))
+        : undefined
+    ));
+    return properties.every((property) => property && property === properties[0])
+      ? properties[0]
+      : undefined;
+  }
+  if (!ts.isObjectBindingPattern(parameter)) return undefined;
+  const returnedNames = returned.map((expression) => ts.isIdentifier(expression) ? expression.text : undefined);
+  if (!returnedNames[0] || returnedNames.some((name) => name !== returnedNames[0])) return undefined;
+  const binding = parameter.elements.find((element) => (
+    ts.isBindingElement(element)
+    && ts.isIdentifier(element.name)
+    && element.name.text === returnedNames[0]
+  ));
+  return binding
+    ? propertyNameText(binding.propertyName ?? binding.name)
+    : undefined;
+}
+
+function expressionDependsOnResultState(expression, referenceNode, visitedBindings = new Set(), depth = 0) {
+  if (!expression || depth > MAX_CALLBACK_ANALYSIS_DEPTH) return false;
+  const node = unwrapExpression(expression);
+  if (!node) return false;
+  if (ts.isIdentifier(node)) {
+    const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
+    if (declarations.length !== 1 || declarations[0].kind !== "variable") return false;
+    const declaration = declarations[0].node;
+    const key = `effect-dependency:${declaration.getStart(declaration.getSourceFile())}`;
+    if (visitedBindings.has(key)) return false;
+    const initializer = unwrapExpression(declaration.initializer);
+    const isResultStoreSelection = ts.isCallExpression(initializer)
+      && ts.isIdentifier(initializer.expression)
+      && initializer.expression.text === "useFileLibraryResultStore";
+    const selectedProperty = selectedResultStoreProperty(initializer);
+    if (isResultStoreSelection) {
+      return !selectedProperty || !FILE_LIBRARY_RESULT_ACTIONS.has(selectedProperty);
+    }
+    const nextVisited = new Set(visitedBindings);
+    nextVisited.add(key);
+    return expressionDependsOnResultState(
+      declaration.initializer,
+      declaration,
+      nextVisited,
+      depth + 1
+    );
+  }
+  let dependsOnResult = false;
+  ts.forEachChild(node, (child) => {
+    if (!dependsOnResult) {
+      dependsOnResult = expressionDependsOnResultState(
+        child,
+        referenceNode,
+        visitedBindings,
+        depth + 1
+      );
+    }
+  });
+  return dependsOnResult;
+}
+
+function hasSafeFirstPageDependencies(call) {
+  const dependencies = unwrapExpression(call.arguments[1]);
+  return ts.isArrayLiteralExpression(dependencies)
+    && dependencies.elements.every((dependency) => (
+      !ts.isSpreadElement(dependency)
+      && !expressionDependsOnResultState(dependency, dependency)
+    ));
+}
+
 function hasMountedFirstPageInvocation(sourceFile, name) {
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   if (!component) return false;
-  const effects = findReachableCallsInFunction(component, isEffectCall);
+  const effects = findReachableCallsInFunction(component, (call) => (
+    isEffectCall(call) && hasSafeFirstPageDependencies(call)
+  ));
   return effects.some((call) => hasReachableNamedInvocation(unwrapExpression(call.arguments[0]), name));
 }
 
