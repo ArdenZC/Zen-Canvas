@@ -59,6 +59,24 @@ describe("Vault pagination architecture guard", () => {
     ]));
   });
 
+  it("rejects a local no-op first-page binding", () => {
+    const view = canonicalView.replace(
+      "const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);",
+      "const loadFirstPage = async () => {};"
+    );
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
+  });
+
+  it("rejects a mutable load-more binding", () => {
+    const view = canonicalView.replace(
+      "const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);",
+      "let loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);\nloadNextPage = async () => {};"
+    );
+
+    expect(violations(view)).toContain("Vault must pass loadNextPage to FileLibraryList.onLoadMore.");
+  });
+
   it.each(["0", "-1", "25", "49", "51", "100000", "DEFAULT_PAGE_SIZE"])("requires an exact numeric page-size contract: %s", (value) => {
     expect(violations(canonicalView, storeWithPageSize(value))).toContain(
       "File Library V2 store must define FILE_LIBRARY_V2_PAGE_SIZE as exactly 50."
@@ -114,6 +132,33 @@ describe("Vault pagination architecture guard", () => {
 
     expect(violations(canonicalView, store)).toContain(
       "The first File Library V2 request must use a bounded page size and no cursor."
+    );
+  });
+
+  it("rejects a transformed backend page-size property", () => {
+    const store = canonicalStore.replace("pageSize, cursor", "pageSize: pageSize + 1, cursor");
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request must use its exact page-size parameter."
+    );
+  });
+
+  it("rejects a cursor binding that is not the backend nextCursor read", () => {
+    const store = canonicalStore.replace("const cursor = get().nextCursor;", "const cursor = get().otherCursor;");
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
+    );
+  });
+
+  it("rejects a mutable backend cursor binding", () => {
+    const store = canonicalStore.replace(
+      "const cursor = get().nextCursor;",
+      "let cursor = get().nextCursor;\n      cursor = get().otherCursor;"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The next File Library V2 request must use a bounded page size and backend cursor."
     );
   });
 
