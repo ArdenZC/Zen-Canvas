@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import { findVaultPaginationArchitectureViolations } from "../scripts/performanceArchitectureGuard.mjs";
 
 const canonicalView = `
-  const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);
-  const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);
-  void loadFirstPage().catch(() => undefined);
-  <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;
+  function VaultView() {
+    const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);
+    const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);
+    useEffect(() => {
+      void loadFirstPage().catch(() => undefined);
+    }, [loadFirstPage]);
+    return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;
+  }
 `;
 
 const canonicalStore = `
@@ -30,11 +34,15 @@ function violations(viewSource = canonicalView, storeSource = canonicalStore) {
 
 function viewWithCallback(callback: string, declarations = "") {
   return `
-    const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);
-    const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);
-    void loadFirstPage();
-    ${declarations}
-    <FileLibraryList onLoadMore={${callback}} />;
+    function VaultView() {
+      const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);
+      const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);
+      useEffect(() => {
+        void loadFirstPage();
+      }, [loadFirstPage]);
+      ${declarations}
+      return <FileLibraryList onLoadMore={${callback}} />;
+    }
   `;
 }
 
@@ -143,6 +151,25 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("rejects a backend request that drops the helper cursor", () => {
+    const store = canonicalStore.replace("pageSize, cursor });", "pageSize, cursor: null });");
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request must forward its exact cursor parameter."
+    );
+  });
+
+  it("rejects request-object property mutation before the backend call", () => {
+    const store = canonicalStore.replace(
+      "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
+      "const request = { query: spec, pageSize, cursor };\n    request.pageSize = 200;\n    return tauriApi.queryFileLibraryV2(request);"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request object must not be mutated before the query."
+    );
+  });
+
   it("rejects a cursor binding that is not the backend nextCursor read", () => {
     const store = canonicalStore.replace("const cursor = get().nextCursor;", "const cursor = get().otherCursor;");
 
@@ -183,6 +210,7 @@ describe("Vault pagination architecture guard", () => {
     ["wrong function call", "handleLoadMore", "const handleLoadMore = () => loadFirstPage();"],
     ["misleading wrapper", "handleLoadMore", "const handleLoadMore = () => { doSomething(); };"],
     ["unreachable load-more call", "handleLoadMore", "const handleLoadMore = () => { return; loadNextPage(); };"],
+    ["statically unreachable load-more call", "handleLoadMore", "const handleLoadMore = () => { if (false) loadNextPage(); };"],
     ["direct backend callback", "handleLoadMore", "const handleLoadMore = () => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });"],
     ["recursive wrapper", "handleLoadMore", "const handleLoadMore = () => handleLoadMore();"],
     ["missing callback", "", ""]
@@ -190,6 +218,19 @@ describe("Vault pagination architecture guard", () => {
     const view = callback ? viewWithCallback(callback, declarations) : viewWithCallback("", declarations).replace("onLoadMore={}", "");
 
     expect(violations(view)).toContain("Vault must pass loadNextPage to FileLibraryList.onLoadMore.");
+  });
+
+  it("rejects first-page calls that only exist in an unmounted helper", () => {
+    const view = `
+      function VaultView() {
+        const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);
+        const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);
+        function neverCalled() { loadFirstPage(); }
+        return <FileLibraryList onLoadMore={() => loadNextPage()} />;
+      }
+    `;
+
+    expect(violations(view)).toContain("Vault must request its first page through the canonical store.");
   });
 
   it("rejects frontend-owned fake cursors", () => {
