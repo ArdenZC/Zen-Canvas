@@ -397,19 +397,19 @@ function findFileLibraryLoadMoreExpressions(sourceFile) {
   return expressions;
 }
 
-function isQueryFileLibraryV2Method(expression) {
+function isQueryFileLibraryV2Method(expression, receiverAliases = new Set(["tauriApi"])) {
   const node = unwrapExpression(expression);
   if (!node) return false;
   if (ts.isPropertyAccessExpression(node)) {
     return ts.isIdentifier(node.expression)
-      && node.expression.text === "tauriApi"
+      && receiverAliases.has(node.expression.text)
       && node.name.text === "queryFileLibraryV2";
   }
   if (ts.isElementAccessExpression(node)) {
     const receiver = unwrapExpression(node.expression);
     const property = unwrapExpression(node.argumentExpression);
     return ts.isIdentifier(receiver)
-      && receiver.text === "tauriApi"
+      && receiverAliases.has(receiver.text)
       && ts.isStringLiteral(property)
       && property.text === "queryFileLibraryV2";
   }
@@ -428,6 +428,7 @@ function hasAliasedBackendCall(viewSource) {
   }
   collectDeclarations(component.body);
 
+  const receiverAliases = new Set(["tauriApi"]);
   const aliases = new Set();
   let changed = true;
   while (changed) {
@@ -435,19 +436,26 @@ function hasAliasedBackendCall(viewSource) {
     for (const declaration of declarations) {
       const initializer = unwrapExpression(declaration.initializer);
       if (ts.isIdentifier(declaration.name)) {
-        const isDirectAlias = isQueryFileLibraryV2Method(initializer);
+        const isDirectAlias = isQueryFileLibraryV2Method(initializer, receiverAliases);
         const isChainedAlias = Boolean(initializer)
           && ts.isIdentifier(initializer)
           && aliases.has(initializer.text);
+        const isReceiverAlias = Boolean(initializer)
+          && ts.isIdentifier(initializer)
+          && receiverAliases.has(initializer.text);
         if ((isDirectAlias || isChainedAlias) && !aliases.has(declaration.name.text)) {
           aliases.add(declaration.name.text);
+          changed = true;
+        }
+        if (isReceiverAlias && !receiverAliases.has(declaration.name.text)) {
+          receiverAliases.add(declaration.name.text);
           changed = true;
         }
         continue;
       }
       if (!ts.isObjectBindingPattern(declaration.name)
         || !ts.isIdentifier(initializer)
-        || initializer.text !== "tauriApi") continue;
+        || !receiverAliases.has(initializer.text)) continue;
       for (const element of declaration.name.elements) {
         if (!ts.isBindingElement(element)
           || element.dotDotDotToken
@@ -466,7 +474,7 @@ function hasAliasedBackendCall(viewSource) {
   function findCalls(node) {
     if (found) return;
     if (ts.isCallExpression(node) && (
-      isQueryFileLibraryV2Method(node.expression)
+      isQueryFileLibraryV2Method(node.expression, receiverAliases)
       || (ts.isIdentifier(node.expression) && aliases.has(node.expression.text))
     )) {
       found = true;
