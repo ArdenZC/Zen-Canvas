@@ -28,6 +28,20 @@ function violations(viewSource = canonicalView, storeSource = canonicalStore) {
   return findVaultPaginationArchitectureViolations({ viewSource, storeSource });
 }
 
+function viewWithCallback(callback: string, declarations = "") {
+  return `
+    const loadFirstPage = useFileLibraryResultStore((state) => state.loadFirstPage);
+    const loadNextPage = useFileLibraryResultStore((state) => state.loadNextPage);
+    void loadFirstPage();
+    ${declarations}
+    <FileLibraryList onLoadMore={${callback}} />;
+  `;
+}
+
+function storeWithPageSize(value: string) {
+  return canonicalStore.replace("FILE_LIBRARY_V2_PAGE_SIZE = 50", `FILE_LIBRARY_V2_PAGE_SIZE = ${value}`);
+}
+
 describe("Vault pagination architecture guard", () => {
   it("accepts canonical store pagination with a bounded backend cursor", () => {
     expect(violations()).toEqual([]);
@@ -45,13 +59,61 @@ describe("Vault pagination architecture guard", () => {
     ]));
   });
 
-  it("rejects unbounded page requests", () => {
-    const store = canonicalStore.replace("FILE_LIBRARY_V2_PAGE_SIZE = 50", "FILE_LIBRARY_V2_PAGE_SIZE = 100000");
+  it.each(["0", "-1", "25", "49", "51", "100000", "DEFAULT_PAGE_SIZE"])("requires an exact numeric page-size contract: %s", (value) => {
+    expect(violations(canonicalView, storeWithPageSize(value))).toContain(
+      "File Library V2 store must define FILE_LIBRARY_V2_PAGE_SIZE as exactly 50."
+    );
+  });
 
-    expect(violations(canonicalView, store)).toEqual(expect.arrayContaining([
-      "File Library V2 store must define a bounded page size of 50.",
+  it("accepts only the exact page-size constant", () => {
+    expect(violations(canonicalView, storeWithPageSize("50"))).not.toContain(
+      "File Library V2 store must define FILE_LIBRARY_V2_PAGE_SIZE as exactly 50."
+    );
+  });
+
+  it("rejects a missing page-size declaration", () => {
+    const store = canonicalStore.replace("export const FILE_LIBRARY_V2_PAGE_SIZE = 50;", "");
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 store must define FILE_LIBRARY_V2_PAGE_SIZE as exactly 50."
+    );
+  });
+
+  it("rejects an unbounded individual page request", () => {
+    const store = canonicalStore.replace("pageSize, cursor", "pageSize: 100000, cursor");
+
+    expect(violations(canonicalView, store)).toContain(
       "File Library pagination must not issue an unbounded page request."
-    ]));
+    );
+  });
+
+  it.each([
+    ["inline callback", "() => loadNextPage()", ""],
+    ["direct function reference", "loadNextPage", ""],
+    ["named arrow wrapper", "handleLoadMore", "const handleLoadMore = () => void loadNextPage().catch(() => undefined);"],
+    ["named function declaration", "handleLoadMore", "function handleLoadMore() { void loadNextPage(); }"]
+  ])("accepts %s callback bindings", (_label, callback, declarations) => {
+    expect(violations(viewWithCallback(callback, declarations))).not.toContain(
+      "Vault must pass loadNextPage to FileLibraryList.onLoadMore."
+    );
+  });
+
+  it("accepts the existing inline callback with an error boundary", () => {
+    expect(violations()).not.toContain("Vault must pass loadNextPage to FileLibraryList.onLoadMore.");
+  });
+
+  it.each([
+    ["wrong callback", "loadFirstPage", ""],
+    ["empty wrapper", "handleLoadMore", "const handleLoadMore = () => {};"],
+    ["wrong function call", "handleLoadMore", "const handleLoadMore = () => loadFirstPage();"],
+    ["misleading wrapper", "handleLoadMore", "const handleLoadMore = () => { doSomething(); };"],
+    ["direct backend callback", "handleLoadMore", "const handleLoadMore = () => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });"],
+    ["recursive wrapper", "handleLoadMore", "const handleLoadMore = () => handleLoadMore();"],
+    ["missing callback", "", ""]
+  ])("rejects %s callback bindings", (_label, callback, declarations) => {
+    const view = callback ? viewWithCallback(callback, declarations) : viewWithCallback("", declarations).replace("onLoadMore={}", "");
+
+    expect(violations(view)).toContain("Vault must pass loadNextPage to FileLibraryList.onLoadMore.");
   });
 
   it("rejects frontend-owned fake cursors", () => {
