@@ -3,6 +3,7 @@
 import { StrictMode, act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetModalInfrastructureForTests } from "../src/components/modal/ModalPortal";
 import { ChromeProvider, type ChromeContextValue } from "../src/contexts/AppContexts";
 import { makeTranslator } from "../src/i18n";
 import { emptyStats, useFileLibraryStore } from "../src/store/useFileLibraryStore";
@@ -170,8 +171,21 @@ function deferred<T>() {
 
 async function flushFocus() {
   await act(async () => {
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   });
+}
+
+function inspectorPreviewButton() {
+  return [...container.querySelectorAll<HTMLButtonElement>("button")]
+    .find((button) => button.textContent === chrome.t("libraryPreview")) ?? null;
+}
+
+function previewDialog() {
+  return document.querySelector<HTMLElement>('[role="dialog"][aria-labelledby="library-preview-title"]');
+}
+
+function previewCloseButton() {
+  return previewDialog()?.querySelector<HTMLButtonElement>("button[aria-label]") ?? null;
 }
 
 beforeEach(() => {
@@ -211,6 +225,7 @@ beforeEach(() => {
 
 afterEach(() => {
   act(() => root.unmount());
+  resetModalInfrastructureForTests();
   container.remove();
   if (nativeClientHeight) Object.defineProperty(HTMLElement.prototype, "clientHeight", nativeClientHeight);
   else delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
@@ -728,5 +743,113 @@ describe("Task 06 File Library handoff interactions", () => {
     await expect(pendingFirst.promise).resolves.toMatchObject({ revision: 2 });
     await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().detail?.revision).toBe(3));
     expect(useFileLibraryInspectorStore.getState().detail?.name).toBe("one-revision-3.txt");
+  });
+
+  it("restores focus to the actual Inspector Preview button after closing", async () => {
+    const fileA = detail("file-one", "one.txt");
+    api.getDetail.mockResolvedValue(fileA);
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    await act(async () => container.querySelector<HTMLElement>('[data-library-row="file-one"]')?.click());
+    await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().detail?.id).toBe(fileA.id));
+
+    const trigger = inspectorPreviewButton();
+    expect(trigger).not.toBeNull();
+    await act(async () => trigger?.click());
+    await vi.waitFor(() => expect(previewDialog()).not.toBeNull());
+    const close = previewCloseButton();
+    expect(close).not.toBeNull();
+    await act(async () => close?.click());
+    await flushFocus();
+
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("restores focus to the Inspector Preview button after Escape", async () => {
+    const fileA = detail("file-one", "one.txt");
+    api.getDetail.mockResolvedValue(fileA);
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    await act(async () => container.querySelector<HTMLElement>('[data-library-row="file-one"]')?.click());
+    await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().detail?.id).toBe(fileA.id));
+
+    const trigger = inspectorPreviewButton();
+    expect(trigger).not.toBeNull();
+    await act(async () => trigger?.click());
+    await vi.waitFor(() => expect(previewDialog()).not.toBeNull());
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await flushFocus();
+
+    expect(previewDialog()).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("falls back to the current listbox when the Inspector Preview trigger is removed", async () => {
+    const fileA = detail("file-one", "one.txt");
+    api.getDetail.mockResolvedValue(fileA);
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    await act(async () => container.querySelector<HTMLElement>('[data-library-row="file-one"]')?.click());
+    await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().detail?.id).toBe(fileA.id));
+
+    const listbox = container.querySelector<HTMLElement>('[role="listbox"]')!;
+    const trigger = inspectorPreviewButton();
+    expect(trigger).not.toBeNull();
+    await act(async () => trigger?.click());
+    await vi.waitFor(() => expect(previewDialog()).not.toBeNull());
+    await act(async () => useFileLibrarySelectionStore.getState().clear());
+    await vi.waitFor(() => expect(inspectorPreviewButton()).toBeNull());
+
+    await act(async () => previewCloseButton()?.click());
+    await flushFocus();
+
+    expect(document.activeElement).toBe(listbox);
+  });
+
+  it("uses the latest trigger after a row Preview followed by Inspector Preview", async () => {
+    const fileA = detail("file-one", "one.txt");
+    api.getDetail.mockResolvedValue(fileA);
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    const row = container.querySelector<HTMLElement>('[data-library-row="file-one"]')!;
+    await act(async () => row.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true })));
+    await vi.waitFor(() => expect(previewDialog()).not.toBeNull());
+    await act(async () => previewCloseButton()?.click());
+    await flushFocus();
+
+    await act(async () => row.click());
+    await vi.waitFor(() => expect(useFileLibraryInspectorStore.getState().detail?.id).toBe(fileA.id));
+    const trigger = inspectorPreviewButton();
+    expect(trigger).not.toBeNull();
+    await act(async () => trigger?.click());
+    await vi.waitFor(() => expect(previewDialog()).not.toBeNull());
+    await act(async () => previewCloseButton()?.click());
+    await flushFocus();
+
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("keeps Context Menu Preview opening and restores to the current listbox", async () => {
+    const fileA = detail("file-one", "one.txt");
+    api.getDetail.mockResolvedValue(fileA);
+
+    await act(async () => root.render(createElement(ChromeProvider, { value: chrome, children: createElement(VaultView) })));
+    await vi.waitFor(() => expect(container.querySelector('[data-library-row="file-one"]')).not.toBeNull());
+    const listbox = container.querySelector<HTMLElement>('[role="listbox"]')!;
+    const row = container.querySelector<HTMLElement>('[data-library-row="file-one"]')!;
+    await act(async () => row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })));
+    const previewItem = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+      .find((item) => item.textContent === chrome.t("libraryPreview"));
+    expect(previewItem).not.toBeNull();
+    await act(async () => previewItem?.click());
+    await vi.waitFor(() => expect(previewDialog()).not.toBeNull());
+    await act(async () => previewCloseButton()?.click());
+    await flushFocus();
+
+    expect(document.activeElement).toBe(listbox);
   });
 });

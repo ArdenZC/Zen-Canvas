@@ -1,5 +1,5 @@
 import { Info, TriangleAlert, X } from "lucide-react";
-import { useRef } from "react";
+import { useRef, type MouseEvent } from "react";
 import type { FileLibraryDetail, FileLibrarySelectionSummary, FileLibrarySummary, UserTag } from "../../../types/domain";
 import type { Language } from "../../../i18n";
 import type { Translator } from "../../../types/ui";
@@ -36,7 +36,7 @@ export function FileLibraryInspector({
   error: string | null;
   language: Language;
   t: Translator;
-  onPreview: (file: FileLibraryDetail) => void;
+  onPreview: (event: MouseEvent<HTMLButtonElement>, file: FileLibraryDetail) => void;
   onReveal: (fileId: string) => void;
   onViewSuggestions: () => void;
   onOpenContentUnderstanding: (file: FileLibraryDetail, trigger: HTMLElement) => void;
@@ -151,7 +151,7 @@ function MultiInspector({ summary, selectedCount, t, onViewSuggestions, onClearS
   );
 }
 
-function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSuggestions, onOpenContentUnderstanding, availableTags, onToggleTag }: { detail: FileLibraryDetail; language: Language; t: Translator; onPreview: (file: FileLibraryDetail) => void; onReveal: (fileId: string) => void; onViewSuggestions: () => void; onOpenContentUnderstanding: (file: FileLibraryDetail, trigger: HTMLElement) => void; availableTags: UserTag[]; onToggleTag?: (tagId: string, operation: "add" | "remove") => void }) {
+function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSuggestions, onOpenContentUnderstanding, availableTags, onToggleTag }: { detail: FileLibraryDetail; language: Language; t: Translator; onPreview: (event: MouseEvent<HTMLButtonElement>, file: FileLibraryDetail) => void; onReveal: (fileId: string) => void; onViewSuggestions: () => void; onOpenContentUnderstanding: (file: FileLibraryDetail, trigger: HTMLElement) => void; availableTags: UserTag[]; onToggleTag?: (tagId: string, operation: "add" | "remove") => void }) {
   const missing = detail.isStale;
   const selectedTagIds = new Set(detail.tags.map((tag) => tag.id));
   return (
@@ -175,7 +175,7 @@ function SingleInspector({ detail, language, t, onPreview, onReveal, onViewSugge
         <button type="button" className={buttonSecondary} onClick={(event) => onOpenContentUnderstanding(detail, event.currentTarget)}>{t("contentOpen")}</button>
       </section>
       {availableTags.length ? <section className="grid gap-2 border-t border-[var(--zc-divider)] pt-3"><h3 className="text-xs font-semibold text-[var(--zc-text-tertiary)]">{t("libraryTags")}</h3><div className="flex flex-wrap gap-1.5">{availableTags.map((tag) => { const active = selectedTagIds.has(tag.id); return <button key={tag.id} type="button" className={cn("rounded-full border px-2 py-1 text-xs", active ? "border-[var(--zc-primary)] bg-[var(--zc-surface-selected)] text-[var(--zc-text-primary)]" : "border-[var(--zc-divider)] text-[var(--zc-text-secondary)]")} onClick={() => onToggleTag?.(tag.id, active ? "remove" : "add")} aria-pressed={active}>{tag.displayName}</button>; })}</div></section> : null}
-      <div className="flex flex-wrap gap-2">{!missing ? <button className={buttonSecondary} onClick={() => onPreview(detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button><button className={glassButtonPrimary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button></div>
+      <div className="flex flex-wrap gap-2">{!missing ? <button type="button" className={buttonSecondary} onClick={(event) => onPreview(event, detail)}>{t("libraryPreview")}</button> : null}<button className={buttonSecondary} onClick={() => onReveal(detail.id)}>{libraryRevealLabel(t)}</button><button className={glassButtonPrimary} onClick={onViewSuggestions}>{t("libraryViewSuggestions")}</button></div>
     </div>
   );
 }

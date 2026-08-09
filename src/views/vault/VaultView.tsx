@@ -85,6 +85,7 @@ export function VaultView() {
   const filterButtonRef = useRef<HTMLButtonElement | null>(null);
   const sortButtonRef = useRef<HTMLButtonElement | null>(null);
   const previewTriggerRef = useRef<HTMLElement | null>(null);
+  const previewOpenEpoch = useRef(0);
   const contentTriggerRef = useRef<HTMLElement | null>(null);
   const contentRestoreTargetRef = useRef<HTMLElement | null>(null);
   const contentOpenEpoch = useRef(0);
@@ -267,7 +268,7 @@ export function VaultView() {
   }
 
   function restoreLibraryFocus(target: HTMLElement | null) {
-    if (target?.isConnected) {
+    if (target && isValidFocusTarget(target)) {
       target.focus();
       if (document.activeElement === target) return;
     }
@@ -328,7 +329,7 @@ export function VaultView() {
     if (event.key === "Enter" || event.key === " " || event.key === "Space") {
       event.preventDefault();
       const file = files.find((item) => item.id === focusedId) ?? files[0];
-      if (file) void openPreview(file).catch(() => undefined);
+      if (file) void openPreview(file, event.currentTarget).catch(() => undefined);
     }
   }
 
@@ -355,23 +356,34 @@ export function VaultView() {
 
   function closePreview() {
     const restoreTarget = previewTriggerRef.current;
+    const closeEpoch = previewOpenEpoch.current + 1;
+    previewOpenEpoch.current = closeEpoch;
+    previewTriggerRef.current = null;
     setPreviewFile(null);
-    restoreLibraryFocus(restoreTarget);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (previewTriggerRef.current === restoreTarget) previewTriggerRef.current = null;
-    }));
+    requestAnimationFrame(() => {
+      if (previewOpenEpoch.current !== closeEpoch) return;
+      requestAnimationFrame(() => {
+        if (previewOpenEpoch.current !== closeEpoch) return;
+        restoreLibraryFocus(restoreTarget);
+      });
+    });
   }
 
-  async function openPreview(file: FileLibrarySummary, restoreTarget?: HTMLElement | null) {
-    previewTriggerRef.current = restoreTarget ?? document.querySelector<HTMLElement>('[role="listbox"]');
+  async function openPreview(file: FileLibrarySummary | FileLibraryDetail, trigger: HTMLElement | null) {
+    const openEpoch = previewOpenEpoch.current + 1;
+    previewOpenEpoch.current = openEpoch;
+    previewTriggerRef.current = trigger;
     if (contextMenu) closeContextMenu("dialog-handoff");
     try {
-      const loaded = await tauriApi.getFileLibraryDetail(file.id);
+      const loaded = isFileLibraryDetail(file) ? file : await tauriApi.getFileLibraryDetail(file.id);
+      if (previewOpenEpoch.current !== openEpoch) return;
       setPreviewFile(loaded);
     } catch (error) {
-      onError(readableError(error));
-      restoreLibraryFocus(previewTriggerRef.current);
+      if (previewOpenEpoch.current !== openEpoch) return;
+      const restoreTarget = previewTriggerRef.current;
       previewTriggerRef.current = null;
+      onError(readableError(error));
+      requestAnimationFrame(() => restoreLibraryFocus(restoreTarget));
     }
   }
 
@@ -554,12 +566,12 @@ export function VaultView() {
       ) : null}
       <InspectorLayout
         className={showInspectorLayout(isNoIndexState)}
-        main={<section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file).catch(() => undefined); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage().catch(() => undefined)} />}</section>}
-        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} error={inspectorError} language={language} t={t} onPreview={(file) => setPreviewFile(file)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onOpenContentUnderstanding={(file, trigger) => void openContentForFile(file.id, trigger, file)} onClearSelection={clearSelection} onRetryDetail={() => { if (selectedIds.length === 1) void loadDetail(selectedIds[0]); }} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
+        main={<section className={cn(raisedSurface, "min-h-0 overflow-hidden max-[1100px]:min-h-[340px]")} aria-label={t("fileLibrary")}>{state ? <StateBlock tone={state.tone} title={state.title} description={state.description} primaryAction={state.primaryAction} secondaryAction={state.secondaryAction} /> : <FileLibraryList files={files} selectedIds={selectedIds} focusedId={focusedId} hasMore={hasMore} isLoading={isLoading} remainingCount={remainingCount} language={language} t={t} onKeyDown={handleListKeyDown} onRowClick={selectRow} onRowDoubleClick={(event, index) => { event.preventDefault(); const file = files[index]; if (file) void openPreview(file, event.currentTarget).catch(() => undefined); }} onRowContextMenu={handleContextMenu} onLoadMore={() => void loadNextPage().catch(() => undefined)} />}</section>}
+        inspector={!isNoIndexState ? <FileLibraryInspector selectedIds={selectedIds} selectedFiles={selectedFiles} detail={detail} selectionSummary={selectionSummary} isLoading={isInspectorLoading} error={inspectorError} language={language} t={t} onPreview={(event, file) => void openPreview(file, event.currentTarget).catch(() => undefined)} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onOpenContentUnderstanding={(file, trigger) => void openContentForFile(file.id, trigger, file)} onClearSelection={clearSelection} onRetryDetail={() => { if (selectedIds.length === 1) void loadDetail(selectedIds[0]); }} availableTags={tags} onToggleTag={(tagId, operation) => void toggleTag(tagId, operation).catch(() => undefined)} /> : undefined}
         inspectorLabel={t("libraryInspector")}
       />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{selectionLabel}</p>
-      {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={() => closeContextMenu("action")} onPreview={() => void openPreview(contextMenu.file, contextMenu.restoreFocusElement).catch(() => undefined)} onReveal={() => void revealFile(contextMenu.file.id).catch(() => undefined)} onOpenContent={() => void openContentFromContext(contextMenu.file.id).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
+      {contextMenu ? <LibraryContextMenu context={contextMenu} t={t} onClose={() => closeContextMenu("action")} onPreview={(trigger) => void openPreview(contextMenu.file, trigger).catch(() => undefined)} onReveal={() => void revealFile(contextMenu.file.id).catch(() => undefined)} onOpenContent={() => void openContentFromContext(contextMenu.file.id).catch(() => undefined)} onViewSuggestions={() => setView("organize")} onClearSelection={clearSelection} /> : null}
       <FileLibraryPreviewDialog file={previewFile} language={language} t={t} restoreFocus={() => previewTriggerRef.current} onClose={closePreview} onReveal={(fileId) => void revealFile(fileId).catch(() => undefined)} />
       {contentDetail ? <ContentUnderstandingSheet open detail={contentDetail} t={t} restoreFocus={() => contentRestoreTargetRef.current ?? contentTriggerRef.current} onClose={closeContentUnderstanding} onRefreshAuthoritativeContentState={refreshOpenContentDetail} /> : null}
       <LibraryMetadataManagerDialog
@@ -600,6 +612,10 @@ function selectionContainsFile(selection: import("../../types/domain").LibrarySe
     : !selection.excludedFileIds.includes(fileId);
 }
 
+function isFileLibraryDetail(file: FileLibrarySummary | FileLibraryDetail): file is FileLibraryDetail {
+  return "path" in file;
+}
+
 function isValidFocusTarget(target: HTMLElement | null) {
   return Boolean(target?.isConnected
     && target !== document.body
@@ -626,12 +642,12 @@ function scopeHealthLabel(state: string, t: ReturnType<typeof import("../../i18n
   return t("libraryScopeHealthUnavailable");
 }
 
-function LibraryContextMenu({ context, t, onClose, onPreview, onReveal, onOpenContent, onViewSuggestions, onClearSelection }: { context: ContextMenuState; t: ReturnType<typeof import("../../i18n").makeTranslator>; onClose: () => void; onPreview: () => void; onReveal: () => void; onOpenContent: () => void; onViewSuggestions: () => void; onClearSelection: () => void }) {
+function LibraryContextMenu({ context, t, onClose, onPreview, onReveal, onOpenContent, onViewSuggestions, onClearSelection }: { context: ContextMenuState; t: ReturnType<typeof import("../../i18n").makeTranslator>; onClose: () => void; onPreview: (trigger: HTMLElement | null) => void; onReveal: () => void; onOpenContent: () => void; onViewSuggestions: () => void; onClearSelection: () => void }) {
   const itemRefs = useRef<HTMLButtonElement[]>([]);
-  const items = [
+  const items: Array<{ label: string; action: (trigger: HTMLElement | null) => void }> = [
     { label: t("libraryPreview"), action: onPreview },
     { label: libraryRevealLabel(t), action: () => { onReveal(); onClose(); } },
-    { label: t("contentOpen"), action: onOpenContent },
+    { label: t("contentOpen"), action: () => onOpenContent() },
     { label: t("libraryViewSuggestions"), action: () => { onViewSuggestions(); onClose(); } },
     { label: t("libraryClearSelection"), action: () => { onClearSelection(); onClose(); } }
   ];
@@ -642,7 +658,7 @@ function LibraryContextMenu({ context, t, onClose, onPreview, onReveal, onOpenCo
     if (event.key === "Escape") { event.preventDefault(); onClose(); return; }
     if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) { event.preventDefault(); if (!focusable.length) return; const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? focusable.length - 1 : event.key === "ArrowDown" ? (activeIndex + 1 + focusable.length) % focusable.length : (activeIndex - 1 + focusable.length) % focusable.length; focusable[nextIndex]?.focus(); return; }
     if (event.key === "Tab") { event.preventDefault(); if (focusable.length) focusable[(activeIndex + (event.shiftKey ? -1 : 1) + focusable.length) % focusable.length]?.focus(); return; }
-    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); if (activeIndex >= 0) items[activeIndex]?.action(); }
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); if (activeIndex >= 0) items[activeIndex]?.action(focusable[activeIndex] ?? null); }
   }
-  return <div className="fixed z-50 grid max-h-screen min-w-52 gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" style={{ left: context.x, top: context.y }} role="menu" aria-label={t("libraryContextMenu")} tabIndex={-1} onKeyDown={handleKeyDown} onPointerDown={(event) => event.stopPropagation()}><p className="truncate px-3 py-1 text-xs font-semibold text-[var(--zc-text-tertiary)]" title={context.file.name}>{context.file.name}</p>{items.map((item, index) => <button key={item.label} ref={(element) => { if (element) itemRefs.current[index] = element; }} type="button" role="menuitem" className="flex min-h-9 items-center rounded-[var(--zc-radius-control)] px-3 text-left text-sm text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]" onClick={item.action}>{item.label}</button>)}</div>;
+  return <div className="fixed z-50 grid max-h-screen min-w-52 gap-1 overflow-y-auto overscroll-contain rounded-[var(--zc-radius-floating)] border border-[var(--zc-border-strong)] bg-[var(--zc-surface-floating)] p-2 shadow-[var(--zc-shadow-floating)] backdrop-blur-xl" style={{ left: context.x, top: context.y }} role="menu" aria-label={t("libraryContextMenu")} tabIndex={-1} onKeyDown={handleKeyDown} onPointerDown={(event) => event.stopPropagation()}><p className="truncate px-3 py-1 text-xs font-semibold text-[var(--zc-text-tertiary)]" title={context.file.name}>{context.file.name}</p>{items.map((item, index) => <button key={item.label} ref={(element) => { if (element) itemRefs.current[index] = element; }} type="button" role="menuitem" className="flex min-h-9 items-center rounded-[var(--zc-radius-control)] px-3 text-left text-sm text-[var(--zc-text-secondary)] hover:bg-[var(--zc-surface-hover)] hover:text-[var(--zc-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--zc-focus-ring)]" onClick={(event) => item.action(event.currentTarget)}>{item.label}</button>)}</div>;
 }
