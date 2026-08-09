@@ -85,6 +85,19 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("rejects any reachable File Library list missing its load-more callback", () => {
+    const view = canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `return showPrimary
+        ? <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />
+        : <FileLibraryList />;`
+    );
+
+    expect(violations(view)).toContain(
+      "Vault must pass loadNextPage to FileLibraryList.onLoadMore."
+    );
+  });
+
   it("rejects direct backend bypass from Vault", () => {
     const view = canonicalView.replace(
       "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
@@ -118,6 +131,15 @@ describe("Vault pagination architecture guard", () => {
     const view = viewWithCallback("() => loadNextPage()", call);
 
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it.each([
+    ["console logging", 'console.debug("query_file_library_v2");'],
+    ["telemetry", 'telemetry.track("query_file_library_v2");']
+  ])("ignores the backend command string passed to unrelated %s", (_label, call) => {
+    const view = viewWithCallback("() => loadNextPage()", call);
+
+    expect(violations(view)).not.toContain("Vault must not call the File Library V2 backend directly.");
   });
 
   it.each([
@@ -223,6 +245,22 @@ describe("Vault pagination architecture guard", () => {
       ${call};
       return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;`
     );
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
+  it("rejects a direct backend bypass in a rendered local child component", () => {
+    const view = `${canonicalView.replace(
+      "return <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />;",
+      `return <>
+        <QueryingChild />
+        <FileLibraryList onLoadMore={() => void loadNextPage().catch(() => undefined)} />
+      </>;`
+    )}
+    function QueryingChild() {
+      void tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });
+      return null;
+    }`;
 
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
   });
@@ -461,6 +499,37 @@ describe("Vault pagination architecture guard", () => {
     );
 
     expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request object must not be mutated before the query."
+    );
+  });
+
+  it("rejects request-object mutation inside an invoked named closure", () => {
+    const store = canonicalStore.replace(
+      "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
+      `const request = { query: spec, pageSize, cursor };
+    const mutate = () => {
+      request.pageSize = 200;
+    };
+    mutate();
+    return tauriApi.queryFileLibraryV2(request);`
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "File Library V2 backend request object must not be mutated before the query."
+    );
+  });
+
+  it("ignores request-object mutation inside an uninvoked named closure", () => {
+    const store = canonicalStore.replace(
+      "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
+      `const request = { query: spec, pageSize, cursor };
+    const neverMutate = () => {
+      request.pageSize = 200;
+    };
+    return tauriApi.queryFileLibraryV2(request);`
+    );
+
+    expect(violations(canonicalView, store)).not.toContain(
       "File Library V2 backend request object must not be mutated before the query."
     );
   });

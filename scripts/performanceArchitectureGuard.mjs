@@ -502,12 +502,15 @@ function findFileLibraryLoadMoreExpressions(rootNode) {
       const tagName = ts.isJsxElement(node) ? node.openingElement.tagName : node.tagName;
       if (ts.isIdentifier(tagName) && tagName.text === "FileLibraryList") {
         const attributes = ts.isJsxElement(node) ? node.openingElement.attributes : node.attributes;
+        let loadMoreExpression;
         for (const property of attributes.properties) {
           if (!ts.isJsxAttribute(property) || property.name.text !== "onLoadMore") continue;
           if (property.initializer && ts.isJsxExpression(property.initializer) && property.initializer.expression) {
-            expressions.push(property.initializer.expression);
+            loadMoreExpression = property.initializer.expression;
           }
+          break;
         }
+        expressions.push(loadMoreExpression);
       }
     }
     ts.forEachChild(node, visit);
@@ -642,6 +645,42 @@ function isFileLibraryQueryCallable(expression, referenceNode, visitedBindings =
   ));
 }
 
+function isImportedTauriInvoke(identifier) {
+  const sourceFile = identifier.getSourceFile();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)
+      || !ts.isStringLiteral(statement.moduleSpecifier)
+      || !/^@tauri-apps\/api\/(?:core|tauri)$/.test(statement.moduleSpecifier.text)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!ts.isNamedImports(bindings)) continue;
+    if (bindings.elements.some((element) => (
+      element.name.text === identifier.text
+      && (element.propertyName?.text ?? element.name.text) === "invoke"
+    ))) return true;
+  }
+  return false;
+}
+
+function isTauriInvocationCallable(expression, referenceNode, visitedBindings = new Set()) {
+  const node = unwrapExpression(expression);
+  if (!ts.isIdentifier(node)) return false;
+  if (isImportedTauriInvoke(node)) return true;
+  const declarations = findLexicalNamedDeclarations(referenceNode, node.text);
+  if ((node.text === "invoke" || node.text === "invokeCommand") && declarations.length === 0) {
+    return true;
+  }
+  if (declarations.length !== 1 || declarations[0].kind !== "variable") return false;
+  const declaration = declarations[0].node;
+  if (!ts.isIdentifier(declaration.name)) return false;
+  const key = `invoke:${declaration.getStart(declaration.getSourceFile())}`;
+  if (visitedBindings.has(key)) return false;
+  const nextVisited = new Set(visitedBindings);
+  nextVisited.add(key);
+  return findBindingValueExpressions(referenceNode, declaration, node.text).some((value) => (
+    isTauriInvocationCallable(value, declaration, nextVisited)
+  ));
+}
+
 function findJsxCallbackBindings(functionLike) {
   const bindings = [];
   if (!functionLike.body) return bindings;
@@ -652,6 +691,21 @@ function findJsxCallbackBindings(functionLike) {
       && ts.isJsxExpression(node.initializer)
       && node.initializer.expression) {
       bindings.push(node.initializer.expression);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(functionLike.body);
+  return bindings;
+}
+
+function findRenderedJsxComponentBindings(functionLike) {
+  const bindings = [];
+  if (!functionLike.body) return bindings;
+  function visit(node) {
+    if (node !== functionLike.body && isFunctionLikeNode(node)) return;
+    if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const tagName = ts.isJsxElement(node) ? node.openingElement.tagName : node.tagName;
+      if (ts.isIdentifier(tagName)) bindings.push(tagName);
     }
     ts.forEachChild(node, visit);
   }
@@ -673,6 +727,7 @@ function findReachableVaultFunctions(sourceFile, component) {
       expressions.push(call.expression, ...call.arguments);
     }
     expressions.push(...findJsxCallbackBindings(functionLike));
+    expressions.push(...findRenderedJsxComponentBindings(functionLike));
     for (const expression of expressions) {
       for (const resolved of resolveCallableBindings(sourceFile, expression)) {
         enqueue(resolved, depth + 1);
@@ -690,14 +745,12 @@ function hasReachableBackendBypass(viewSource) {
   if (!component?.body) return false;
   return findReachableVaultFunctions(sourceFile, component).some((functionLike) => (
     findReachableCallsInFunction(functionLike, (call) => {
-      if (isFileLibraryBackendCommand(call.arguments[0], call)) return true;
       const callee = unwrapExpression(call.expression);
+      if (isFileLibraryBackendCommand(call.arguments[0], call)
+        && isTauriInvocationCallable(callee, call)) return true;
       if (ts.isIdentifier(callee)
         && (isImportedTauriHelper(callee) || isUnresolvedQueryHelper(callee, sourceFile))) return true;
-      return isFileLibraryQueryCallable(callee, call)
-        || (ts.isIdentifier(callee)
-          && callee.text === "invokeCommand"
-          && isFileLibraryBackendCommand(call.arguments[0], call));
+      return isFileLibraryQueryCallable(callee, call);
     }).length > 0
   ));
 }
@@ -1108,8 +1161,18 @@ function isObjectMutationHelper(call, objectName) {
     && unwrapExpression(call.arguments[0]).text === objectName;
 }
 
-function hasObjectPropertyWrite(functionLike, objectName, beforePosition) {
-  if (!functionLike.body) return false;
+function hasObjectPropertyWrite(
+  functionLike,
+  objectName,
+  beforePosition,
+  visitedFunctions = new Set(),
+  depth = 0
+) {
+  if (!functionLike.body
+    || depth > MAX_CALLBACK_ANALYSIS_DEPTH
+    || visitedFunctions.has(functionLike)) return false;
+  const nextVisitedFunctions = new Set(visitedFunctions);
+  nextVisitedFunctions.add(functionLike);
   const sourceFile = functionLike.getSourceFile();
   let written = false;
   function visit(node) {
@@ -1140,7 +1203,20 @@ function hasObjectPropertyWrite(functionLike, objectName, beforePosition) {
     ts.forEachChild(node, visit);
   }
   visit(functionLike.body);
-  return written;
+  if (written) return true;
+  return findReachableCallsInFunction(functionLike, () => true).some((call) => {
+    if (beforePosition !== undefined && call.getStart(sourceFile) >= beforePosition) return false;
+    return resolveCallableBindings(sourceFile, call.expression, call).some((calledFunction) => (
+      !hasFunctionLocalBinding(calledFunction, objectName)
+      && hasObjectPropertyWrite(
+        calledFunction,
+        objectName,
+        undefined,
+        nextVisitedFunctions,
+        depth + 1
+      )
+    ));
+  });
 }
 
 function assignmentTargetWritesObjectProperty(expression, objectName) {
@@ -1526,9 +1602,11 @@ function hasCanonicalLoadMoreBinding(viewSource) {
   if (sourceFile.parseDiagnostics.length > 0) return false;
   const component = resolveFunctionBinding(sourceFile, "VaultView");
   if (!component?.body) return false;
-  const expressions = findFileLibraryLoadMoreExpressions(component.body);
+  const expressions = findReachableVaultFunctions(sourceFile, component).flatMap((functionLike) => (
+    findFileLibraryLoadMoreExpressions(functionLike.body)
+  ));
   return expressions.length > 0 && expressions.every((expression) => (
-    analyzeCallbackBinding(expression, sourceFile, 0, new Set())
+    expression && analyzeCallbackBinding(expression, sourceFile, 0, new Set())
   ));
 }
 
