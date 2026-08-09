@@ -338,6 +338,13 @@ function resolvesToVariableBinding(referenceNode, name, expectedDeclaration) {
     && declarations[0].node === expectedDeclaration;
 }
 
+function resolvesToFunctionParameter(referenceNode, name, expectedFunction) {
+  const declarations = findLexicalNamedDeclarations(referenceNode, name);
+  return declarations.length === 1
+    && declarations[0].kind === "parameter"
+    && declarations[0].node === expectedFunction;
+}
+
 function analyzeInvocationExpression(expression, sourceFile, depth, visitedBindings) {
   if (!expression || depth > MAX_CALLBACK_ANALYSIS_DEPTH) return false;
   const node = unwrapExpression(expression);
@@ -844,6 +851,65 @@ function collectReachableCallsInStatement(statement, predicate, calls) {
     if (statement.finallyBlock) {
       collectReachableCallsInStatement(statement.finallyBlock, predicate, calls);
     }
+    return;
+  }
+  if (ts.isForStatement(statement)) {
+    if (statement.initializer) {
+      if (ts.isVariableDeclarationList(statement.initializer)) {
+        for (const declaration of statement.initializer.declarations) {
+          if (declaration.initializer) {
+            calls.push(...findReachableCallsInExpression(declaration.initializer, predicate));
+          }
+        }
+      } else {
+        calls.push(...findReachableCallsInExpression(statement.initializer, predicate));
+      }
+    }
+    if (statement.condition) {
+      calls.push(...findReachableCallsInExpression(statement.condition, predicate));
+      if (staticBranchValue(statement.condition) === false) return;
+    }
+    collectReachableCallsInStatement(statement.statement, predicate, calls);
+    if (statement.incrementor) {
+      calls.push(...findReachableCallsInExpression(statement.incrementor, predicate));
+    }
+    return;
+  }
+  if (ts.isForInStatement(statement) || ts.isForOfStatement(statement)) {
+    if (!ts.isVariableDeclarationList(statement.initializer)) {
+      calls.push(...findReachableCallsInExpression(statement.initializer, predicate));
+    }
+    calls.push(...findReachableCallsInExpression(statement.expression, predicate));
+    collectReachableCallsInStatement(statement.statement, predicate, calls);
+    return;
+  }
+  if (ts.isWhileStatement(statement)) {
+    calls.push(...findReachableCallsInExpression(statement.expression, predicate));
+    if (staticBranchValue(statement.expression) !== false) {
+      collectReachableCallsInStatement(statement.statement, predicate, calls);
+    }
+    return;
+  }
+  if (ts.isDoStatement(statement)) {
+    collectReachableCallsInStatement(statement.statement, predicate, calls);
+    calls.push(...findReachableCallsInExpression(statement.expression, predicate));
+    return;
+  }
+  if (ts.isSwitchStatement(statement)) {
+    calls.push(...findReachableCallsInExpression(statement.expression, predicate));
+    for (const clause of statement.caseBlock.clauses) {
+      if (ts.isCaseClause(clause)) {
+        calls.push(...findReachableCallsInExpression(clause.expression, predicate));
+      }
+      collectReachableCallsInSequence(clause.statements, predicate, calls);
+    }
+    return;
+  }
+  if (ts.isLabeledStatement(statement) || ts.isWithStatement(statement)) {
+    if (ts.isWithStatement(statement)) {
+      calls.push(...findReachableCallsInExpression(statement.expression, predicate));
+    }
+    collectReachableCallsInStatement(statement.statement, predicate, calls);
   }
 }
 
@@ -1178,6 +1244,7 @@ function hasCanonicalBackendPageSize(storeSource) {
   return Boolean(pageSize)
     && ts.isIdentifier(pageSize)
     && pageSize.text === context.pageSizeParameter.text
+    && resolvesToFunctionParameter(pageSize, pageSize.text, context.functionLike)
     && !hasBindingWrite(context.functionLike, context.pageSizeParameter.text);
 }
 
@@ -1188,6 +1255,7 @@ function hasCanonicalBackendCursor(storeSource) {
   return Boolean(cursor)
     && ts.isIdentifier(cursor)
     && cursor.text === context.cursorParameter.text
+    && resolvesToFunctionParameter(cursor, cursor.text, context.functionLike)
     && !hasBindingWrite(context.functionLike, context.cursorParameter.text);
 }
 

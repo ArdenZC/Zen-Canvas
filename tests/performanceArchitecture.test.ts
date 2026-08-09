@@ -120,6 +120,17 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
   });
 
+  it.each([
+    ["for", "for (let index = 0; index < 1; index += 1) { tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null }); }"],
+    ["while", "while (enabled) { tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null }); break; }"],
+    ["do", "do { tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null }); } while (false);"],
+    ["switch", 'switch (mode) { case "query": tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null }); break; }']
+  ])("rejects a direct backend bypass inside a %s statement", (_label, statement) => {
+    const view = viewWithCallback("() => loadNextPage()", statement);
+
+    expect(violations(view)).toContain("Vault must not call the File Library V2 backend directly.");
+  });
+
   it("ignores a raw backend command in an unrelated component", () => {
     const view = `${canonicalView}
       function OtherView() {
@@ -348,6 +359,28 @@ describe("Vault pagination architecture guard", () => {
     expect(violations(canonicalView, store)).toContain(
       "File Library V2 backend request must forward its exact cursor parameter."
     );
+  });
+
+  it.each([
+    [
+      "page size",
+      "const pageSize = 500;",
+      "File Library V2 backend request must use its exact page-size parameter."
+    ],
+    [
+      "cursor",
+      "const cursor = null;",
+      "File Library V2 backend request must forward its exact cursor parameter."
+    ]
+  ])("rejects a backend request that uses a shadowing %s binding", (_label, shadow, violation) => {
+    const store = canonicalStore.replace(
+      "return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });",
+      `{ ${shadow}
+      return tauriApi.queryFileLibraryV2({ query: spec, pageSize, cursor });
+    }`
+    );
+
+    expect(violations(canonicalView, store)).toContain(violation);
   });
 
   it("rejects request-object property mutation before the backend call", () => {
