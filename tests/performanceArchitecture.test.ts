@@ -106,6 +106,17 @@ describe("Vault pagination architecture guard", () => {
     );
   });
 
+  it("rejects a computed first-page size even when the constant is present", () => {
+    const store = canonicalStore.replace(
+      "executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE, null)",
+      "executeLibraryQuery(spec, FILE_LIBRARY_V2_PAGE_SIZE * 2000, null)"
+    );
+
+    expect(violations(canonicalView, store)).toContain(
+      "The first File Library V2 request must use a bounded page size and no cursor."
+    );
+  });
+
   it.each([
     ["inline callback", "() => loadNextPage()", ""],
     ["direct function reference", "loadNextPage", ""],
@@ -126,6 +137,7 @@ describe("Vault pagination architecture guard", () => {
     ["empty wrapper", "handleLoadMore", "const handleLoadMore = () => {};"],
     ["wrong function call", "handleLoadMore", "const handleLoadMore = () => loadFirstPage();"],
     ["misleading wrapper", "handleLoadMore", "const handleLoadMore = () => { doSomething(); };"],
+    ["unreachable load-more call", "handleLoadMore", "const handleLoadMore = () => { return; loadNextPage(); };"],
     ["direct backend callback", "handleLoadMore", "const handleLoadMore = () => tauriApi.queryFileLibraryV2({ pageSize: 50, cursor: null });"],
     ["recursive wrapper", "handleLoadMore", "const handleLoadMore = () => handleLoadMore();"],
     ["missing callback", "", ""]

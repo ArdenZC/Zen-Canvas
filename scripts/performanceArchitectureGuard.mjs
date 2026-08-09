@@ -138,6 +138,43 @@ function analyzeInvocationExpression(expression, sourceFile, depth, visitedBindi
   return false;
 }
 
+function canFallThroughStatement(statement) {
+  if (ts.isReturnStatement(statement)
+    || ts.isThrowStatement(statement)
+    || ts.isBreakStatement(statement)
+    || ts.isContinueStatement(statement)) {
+    return false;
+  }
+  if (ts.isBlock(statement)) return canFallThroughSequence(statement.statements);
+  if (ts.isIfStatement(statement)) {
+    return !statement.elseStatement
+      || canFallThroughStatement(statement.thenStatement)
+      || canFallThroughStatement(statement.elseStatement);
+  }
+  if (ts.isTryStatement(statement)) {
+    if (statement.finallyBlock && !canFallThroughStatement(statement.finallyBlock)) return false;
+    if (!statement.catchClause) return true;
+    return canFallThroughStatement(statement.tryBlock)
+      || canFallThroughStatement(statement.catchClause.block);
+  }
+  return true;
+}
+
+function canFallThroughSequence(statements) {
+  for (const statement of statements) {
+    if (!canFallThroughStatement(statement)) return false;
+  }
+  return true;
+}
+
+function analyzeStatementSequence(statements, sourceFile, depth, visitedBindings) {
+  for (const statement of statements) {
+    if (analyzeStatement(statement, sourceFile, depth, visitedBindings)) return true;
+    if (!canFallThroughStatement(statement)) return false;
+  }
+  return false;
+}
+
 function analyzeStatement(statement, sourceFile, depth, visitedBindings) {
   if (ts.isExpressionStatement(statement)) {
     return analyzeInvocationExpression(statement.expression, sourceFile, depth, visitedBindings);
@@ -154,7 +191,7 @@ function analyzeStatement(statement, sourceFile, depth, visitedBindings) {
     ));
   }
   if (ts.isBlock(statement)) {
-    return statement.statements.some((child) => analyzeStatement(child, sourceFile, depth, visitedBindings));
+    return analyzeStatementSequence(statement.statements, sourceFile, depth, visitedBindings);
   }
   if (ts.isIfStatement(statement)) {
     return analyzeStatement(statement.thenStatement, sourceFile, depth, visitedBindings)
@@ -173,9 +210,7 @@ function analyzeFunctionBinding(functionLike, sourceFile, depth, visitedBindings
   const nextVisitedBindings = new Set(visitedBindings);
   nextVisitedBindings.add(functionLike);
   if (ts.isBlock(functionLike.body)) {
-    return functionLike.body.statements.some((statement) => (
-      analyzeStatement(statement, sourceFile, depth + 1, nextVisitedBindings)
-    ));
+    return analyzeStatementSequence(functionLike.body.statements, sourceFile, depth + 1, nextVisitedBindings);
   }
   return analyzeInvocationExpression(functionLike.body, sourceFile, depth + 1, nextVisitedBindings);
 }
@@ -213,6 +248,51 @@ function findFileLibraryLoadMoreExpressions(sourceFile) {
   }
   visit(sourceFile);
   return expressions;
+}
+
+function findStoreFunctionBodies(sourceFile, propertyName) {
+  const functions = [];
+  function visit(node) {
+    if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name) && node.name.text === propertyName) {
+      const initializer = unwrapExpression(node.initializer);
+      if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) functions.push(initializer);
+    } else if (ts.isMethodDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === propertyName) {
+      functions.push(node);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return functions;
+}
+
+function isNullLiteral(expression) {
+  return Boolean(expression) && expression.kind === ts.SyntaxKind.NullKeyword;
+}
+
+function hasCanonicalLibraryQueryCall(storeSource, functionName, cursorKind) {
+  const sourceFile = createSourceFile(storeSource, "useFileLibraryV2Store.ts", ts.ScriptKind.TS);
+  if (sourceFile.parseDiagnostics.length > 0) return false;
+  const functions = findStoreFunctionBodies(sourceFile, functionName);
+  if (functions.length !== 1) return false;
+
+  const calls = [];
+  function visit(node) {
+    if (ts.isCallExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === "executeLibraryQuery") {
+      calls.push(node);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(functions[0].body);
+  if (calls.length !== 1) return false;
+
+  const [spec, pageSize, cursor] = calls[0].arguments;
+  const exactPageSize = ts.isIdentifier(pageSize) && pageSize.text === "FILE_LIBRARY_V2_PAGE_SIZE";
+  const exactCursor = cursorKind === "null"
+    ? isNullLiteral(cursor)
+    : ts.isIdentifier(cursor) && cursor.text === "cursor";
+  return Boolean(spec) && exactPageSize && exactCursor;
 }
 
 function hasCanonicalLoadMoreBinding(viewSource) {
@@ -257,7 +337,6 @@ function hasUnboundedPageRequest(source) {
 
 export function findVaultPaginationArchitectureViolations({ viewSource, storeSource }) {
   const violations = [];
-  const firstPage = lastSection(storeSource, "loadFirstPage: async", "loadNextPage: async");
   const nextPage = lastSection(storeSource, "loadNextPage: async", "refresh:");
 
   if (!/\buseFileLibraryResultStore\s*\(/.test(viewSource)) {
@@ -285,13 +364,10 @@ export function findVaultPaginationArchitectureViolations({ viewSource, storeSou
   if (!/\bnextCursor\b/.test(storeSource) || !/const\s+cursor\s*=\s*get\(\)\.nextCursor/.test(nextPage)) {
     violations.push("File Library V2 store must own and read the backend nextCursor.");
   }
-  if (!firstPage.includes("FILE_LIBRARY_V2_PAGE_SIZE")) {
-    violations.push("File Library V2 store must use its bounded page size for the first page.");
-  }
-  if (!/\bexecuteLibraryQuery\s*\([\s\S]*?\bFILE_LIBRARY_V2_PAGE_SIZE\b[\s\S]*?\bnull\b/.test(firstPage)) {
+  if (!hasCanonicalLibraryQueryCall(storeSource, "loadFirstPage", "null")) {
     violations.push("The first File Library V2 request must use a bounded page size and no cursor.");
   }
-  if (!/\bexecuteLibraryQuery\s*\([\s\S]*?\bFILE_LIBRARY_V2_PAGE_SIZE\b[\s\S]*?\bcursor\b/.test(nextPage)) {
+  if (!hasCanonicalLibraryQueryCall(storeSource, "loadNextPage", "cursor")) {
     violations.push("The next File Library V2 request must use a bounded page size and backend cursor.");
   }
   if (hasUnboundedPageRequest(viewSource) || hasUnboundedPageRequest(storeSource)) {
